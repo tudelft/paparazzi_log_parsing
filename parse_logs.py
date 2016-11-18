@@ -14,6 +14,7 @@ dir_path = os.path.dirname(os.path.realpath(__file__))
 print("Parsing: ", dir_path)
 for root, dirs, files in os.walk(dir_path):
     for file in sorted(files):
+        print('File: %s' % file);
         if file.endswith(".data"):
             filename = os.path.join(root, file)
             if os.path.getsize(filename) > 100:

@@ -73,27 +73,27 @@ def plot_log_file(filename, nr):
 
     g = np.empty([0,0]);
     if len(gps_int) > 0:
-        g = np.loadtxt(StringIO("".join(gps_int)), delimiter=' ', dtype=None)
+        g = np.loadtxt(StringIO(u"".join(gps_int)), delimiter=' ', dtype=None)
         
     r = np.empty([0,0])
     if len(rotorcraft_fp) > 0:
-        r = np.loadtxt(StringIO("".join(rotorcraft_fp)))
+        r = np.loadtxt(StringIO(u"".join(rotorcraft_fp)))
              
     rotorcraft_status = np.empty([0,0])
     if len(rotorcraft_status_txt) > 0:
-        rotorcraft_status = np.loadtxt(StringIO("".join(rotorcraft_status_txt)))
+        rotorcraft_status = np.loadtxt(StringIO(u"".join(rotorcraft_status_txt)))
              
     m = np.empty([0,0])
     if len(motor) > 0:
-        m = np.loadtxt(StringIO("".join(motor)))
+        m = np.loadtxt(StringIO(u"".join(motor)))
              
     imu_mag_raw = np.empty([0,0])
     if len(imu_mag_raw_txt) > 0:
-        imu_mag_raw = np.loadtxt(StringIO("".join(imu_mag_raw_txt)))
+        imu_mag_raw = np.loadtxt(StringIO(u"".join(imu_mag_raw_txt)))
              
     imu_gyro_scaled = np.empty([0,0])
     if len(imu_gyro_scaled_txt) > 0:
-        imu_gyro_scaled = np.loadtxt(StringIO("".join(imu_gyro_scaled_txt)))
+        imu_gyro_scaled = np.loadtxt(StringIO(u"".join(imu_gyro_scaled_txt)))
 
 
     #print(g)
