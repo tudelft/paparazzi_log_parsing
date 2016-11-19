@@ -3,7 +3,7 @@ import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
-
+import pdb
 from io import StringIO
 
 
@@ -29,6 +29,8 @@ def plot_log_file(filename, nr):
     motor = []
     imu_mag_raw_txt = []
     imu_gyro_scaled_txt = []
+    divergence_landing_txt = []
+    optic_flow_txt = []
 
 
     tags = {}
@@ -62,7 +64,10 @@ def plot_log_file(filename, nr):
                 rotorcraft_fp.append("".join(line.split("ROTORCRAFT_FP ")))
             elif "AUTOPILOT_VERSION" in line:
                 autopilot_version[line.strip().split("AUTOPILOT_VERSION")[1]] = 1
-
+            elif "OPTIC_FLOW_EST" in line:
+                optic_flow_txt.append(line.replace("OPTIC_FLOW_EST", ""));
+            elif "DIVERGENCE" in line:
+                divergence_landing_txt.append(line.replace("DIVERGENCE", ""));
 
     #print(" - ", ", ".join(sorted(ids.keys())))
     #print(" - ", ", ".join(sorted(tags.keys())))
@@ -95,9 +100,35 @@ def plot_log_file(filename, nr):
     if len(imu_gyro_scaled_txt) > 0:
         imu_gyro_scaled = np.loadtxt(StringIO(u"".join(imu_gyro_scaled_txt)))
 
+    divergence_landing = np.empty([0,0])
+    if len(divergence_landing_txt) > 0:
+        divergence_landing = np.loadtxt(StringIO(u"".join(divergence_landing_txt)))
+
+    optic_flow = np.empty([0,0])
+    if len(optic_flow_txt) > 0:
+        optic_flow = np.loadtxt(StringIO(u"".join(optic_flow_txt)))
 
     #print(g)
     #print(r)
+    #plt.ion();
+
+    if divergence_landing.size > 0:
+        time_steps = divergence_landing[:,0];
+        div_vision = divergence_landing[:,2];
+        height = divergence_landing[:,8];
+        N = 30; # smoothing window size:
+        height = np.convolve(height, np.ones((N,))/N, mode='same');
+        dt = time_steps[1:-1] - time_steps[0:-2];
+        velocity = np.divide(height[1:-1] - height[0:-2], dt);
+        div_truth = np.divide(velocity, height[1:-1]);
+        f = plt.figure();
+        plt.plot(time_steps[1:-1], velocity);
+        #plt.plot(time_steps, height);
+        #plt.plot(time_steps[1:-1], div_truth, time_steps[1:-1], div_vision[1:-1]);
+        plt.show();
+        pdb.set_trace();
+        
+
 
     ###########################
     # Guess File Type:
