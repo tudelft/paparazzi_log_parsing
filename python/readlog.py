@@ -174,6 +174,7 @@ def plot_log_file(filename, nr):
     #plt.ion();
 
     if divergence_landing.size > 0:
+        # get and preprocess the measurements:
         time_steps = divergence_landing[:,0];
         div_vision = divergence_landing[:,2];
         height = divergence_landing[:,8];
@@ -184,12 +185,10 @@ def plot_log_file(filename, nr):
         velocity = np.divide(height[n_steps:-1] - height[0:-n_steps-1], dt);
         div_truth = np.divide(velocity, height[n_steps:-1]);
 
+        # get the GPS height:
         time_gps = g[:,0];
         height_gps = g[:,8];
-
-        print 'sizes = %d, %d\n' % (time_steps.size, time_gps.size);
         [time_steps, height, time_gps, height_gps] = time_align_data(time_steps, height, time_gps, height_gps);
-        print 'sizes = %d, %d\n' % (time_steps.size, time_gps.size);
 
         f = plt.figure();
         #plt.plot(time_steps[n_steps:-1], velocity);
@@ -198,10 +197,7 @@ def plot_log_file(filename, nr):
         # plt.plot(time_steps[n_steps:-1], div_truth, time_steps[n_steps:-1], div_vision[n_steps:-1]);
         plt.plot(time_steps, height, time_steps, height_gps/1000.0);
         plt.legend(['height sonar', 'height optitrack'])
-        plt.show();
-        # For debugging:        
-        pdb.set_trace();
-        
+        plt.show();        
 
 
     ###########################
