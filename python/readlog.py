@@ -118,11 +118,12 @@ def plot_log_file(filename, nr):
         height = divergence_landing[:,8];
         N = 30; # smoothing window size:
         height = np.convolve(height, np.ones((N,))/N, mode='same');
-        dt = time_steps[1:-1] - time_steps[0:-2];
-        velocity = np.divide(height[1:-1] - height[0:-2], dt);
-        div_truth = np.divide(velocity, height[1:-1]);
+        n_steps = 5;
+        dt = time_steps[n_steps:-1] - time_steps[0:-n_steps-1];
+        velocity = np.divide(height[n_steps:-1] - height[0:-n_steps-1], dt);
+        div_truth = np.divide(velocity, height[n_steps:-1]);
         f = plt.figure();
-        plt.plot(time_steps[1:-1], velocity);
+        plt.plot(time_steps[n_steps:-1], velocity);
         #plt.plot(time_steps, height);
         #plt.plot(time_steps[1:-1], div_truth, time_steps[1:-1], div_vision[1:-1]);
         plt.show();
