@@ -171,6 +171,8 @@ def plot_log_file(filename, nr):
 
     #print(g)
     #print(r)
+
+    # whether to do interactive plotting (e.g., when using pdb.set_trace();)
     #plt.ion();
 
     if divergence_landing.size > 0:
@@ -178,27 +180,73 @@ def plot_log_file(filename, nr):
         time_steps = divergence_landing[:,0];
         div_vision = divergence_landing[:,2];
         height = divergence_landing[:,8];
+
+        # smooth the height:
         N = 30; # smoothing window size:
         height = np.convolve(height, np.ones((N,))/N, mode='same');
-        n_steps = 10;
+        n_steps = 10; # to get a less noisy estimate we don't take two subsequent samples, but take a value further back.
         dt = time_steps[n_steps:-1] - time_steps[0:-n_steps-1];
         velocity = np.divide(height[n_steps:-1] - height[0:-n_steps-1], dt);
         div_truth = np.divide(velocity, height[n_steps:-1]);
 
+        # rotorcraft status:
+        time_rcs = rotorcraft_status[:,0];
+        ap_mode = rotorcraft_status[:,8];
+
         # get the GPS height:
         time_gps = g[:,0];
-        height_gps = g[:,8];
-        [time_steps, height, time_gps, height_gps] = time_align_data(time_steps, height, time_gps, height_gps);
+        height_gps = g[:,8] / 1000.0;
+        [new_time_steps, height, time_gps, height_gps] = time_align_data(time_steps, height, time_gps, height_gps);
+        # also align the vision estimates:
+        [new_time_steps, height, time_steps, div_vision] = time_align_data(new_time_steps, height, time_steps, div_vision);
 
+        # get the velocity from GPS:
+        dt_gps = time_gps[n_steps:-1] - time_gps[0:-n_steps-1];
+        # smooth the height:
+        height_gps = np.convolve(height_gps, np.ones((N,))/N, mode='same');
+        velocity_gps = np.divide(height_gps[n_steps:-1] - height_gps[0:-n_steps-1], dt_gps);
+        div_truth_gps = np.divide(velocity_gps, height_gps[n_steps:-1]);
+
+        # whether to fit the measured vision divergence to the ground truth divergence (a form of calibration):
+        make_fit = True;
+
+        if make_fit:
+            # make a fit from 301 to 317 seconds:
+            inds_s = np.where(time_steps <= 301);
+            inds_l = np.where(time_steps >= 317);
+            d_size = inds_l[0][0] - inds_s[0][-1];
+            output_div = np.zeros([d_size, 1]);
+            output_div[:,0] = div_truth_gps[inds_s[0][-1]:inds_l[0][0]];
+            input_div = np.zeros([d_size, 1]);
+            input_div[:,0] = div_vision[inds_s[0][-1]:inds_l[0][0]];
+
+            # just scale:
+            # do linear least squares to map the vision divergence to the ground truth values:
+            f_resp = np.linalg.lstsq(input_div, output_div);
+            scale = f_resp[0][0];
+            res1 = f_resp[1][0];
+
+            # fit scale and bias:
+            bias = np.ones([input_div.size, 1]);
+            inputs = np.zeros([d_size, 2]);
+            inputs[:,0] = input_div[:,0];
+            inputs[:,1] = bias[:,0];
+            f_resp = np.linalg.lstsq(inputs, output_div);
+            pars = f_resp[0];
+            res2 = f_resp[1][0];
+
+            # print the results:
+            print "Just a scale: %f, error = %f\n" % (scale, res1);
+            print "Scale and bias: %f, %f, error = %f\n" % (pars[0], pars[1], res2);
+
+        # plot vision divergence and ground truth divergence in the same plot:
         f = plt.figure();
-        #plt.plot(time_steps[n_steps:-1], velocity);
-        #plt.plot(time_steps, height);
-        # typically our interest:
-        # plt.plot(time_steps[n_steps:-1], div_truth, time_steps[n_steps:-1], div_vision[n_steps:-1]);
-        plt.plot(time_steps, height, time_steps, height_gps/1000.0);
-        plt.legend(['height sonar', 'height optitrack'])
-        plt.show();        
-
+        if make_fit:
+            plt.plot(time_gps[n_steps:-1], div_truth_gps, time_steps[n_steps:-1], scale * div_vision[n_steps:-1], time_rcs, ap_mode); 
+        else:
+            plt.plot(time_gps[n_steps:-1], div_truth_gps, time_steps[n_steps:-1], div_vision[n_steps:-1], time_rcs, ap_mode);
+        plt.legend(['div truth', 'div vision'])
+        plt.show();
 
     ###########################
     # Guess File Type:
