@@ -2,12 +2,9 @@ import os
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 
-
 import python.readlog as pprz
 
-
 pp = PdfPages('logs.pdf')
-    
 
 nr = 1
 dir_path = os.path.dirname(os.path.realpath(__file__))

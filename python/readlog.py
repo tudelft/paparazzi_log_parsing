@@ -58,8 +58,8 @@ def check_for_t(v, time, t):
         inds_s = np.where(time < t);
         if inds_l[0].size == 0:
             # larger than the other times, append at the back:
-            v.append(pad_value);
-            time.append(t);      
+            v = np.append(v, pad_value);
+            time = np.append(time, t);      
         elif inds_s[0].size == 0:
             # smaller than the other times, insert at the front:
             v = np.insert(v, 0, pad_value);
@@ -176,13 +176,42 @@ def plot_log_file(filename, nr):
     #plt.ion();
 
     if divergence_landing.size > 0:
+
+        N = 30; # smoothing window size:
+
         # get and preprocess the measurements:
         time_steps = divergence_landing[:,0];
-        div_vision = divergence_landing[:,2];
+
+        # the factor multiplied with divergence_vision_dt should be put in the optic_flow_landing.c code:
+        div_vision_dt = 0.00008*divergence_landing[:,3]; # div_vision_dt
+        dt_time_steps = time_steps;
+
+        div_vision = divergence_landing[:,2]; # filtered and scaled
+
+        # if filtering in Python, overwrite div_vision:
+        filter_in_python = True;
+        if(filter_in_python):
+            max_change = 0.30;
+            lp_factor = 0.75;
+            div_lp = 0.0;
+            for i in range(div_vision_dt.size):
+                new_div = div_vision_dt[i];
+                if(abs(new_div-div_lp) > max_change):
+                    if(new_div > div_lp):
+                        new_div = div_lp + max_change;
+                    else:
+                        new_div = div_lp - max_change;                        
+
+                div_lp = lp_factor * div_lp + (1-lp_factor) * new_div;
+                div_vision[i] = div_lp;
+
+
+        div_raw = 0.025 * optic_flow[:, -3];
+        time_div_raw = optic_flow[:, 0];
+        div_vision = np.convolve(div_vision, np.ones((N,))/N, mode='same');
         height = divergence_landing[:,8];
 
         # smooth the height:
-        N = 30; # smoothing window size:
         height = np.convolve(height, np.ones((N,))/N, mode='same');
         n_steps = 10; # to get a less noisy estimate we don't take two subsequent samples, but take a value further back.
         dt = time_steps[n_steps:-1] - time_steps[0:-n_steps-1];
@@ -208,12 +237,12 @@ def plot_log_file(filename, nr):
         div_truth_gps = np.divide(velocity_gps, height_gps[n_steps:-1]);
 
         # whether to fit the measured vision divergence to the ground truth divergence (a form of calibration):
-        make_fit = True;
+        make_fit = False;
 
         if make_fit:
             # make a fit from 301 to 317 seconds:
-            inds_s = np.where(time_steps <= 301);
-            inds_l = np.where(time_steps >= 317);
+            inds_s = np.where(time_steps <= 110);
+            inds_l = np.where(time_steps >= 150);
             d_size = inds_l[0][0] - inds_s[0][-1];
             output_div = np.zeros([d_size, 1]);
             output_div[:,0] = div_truth_gps[inds_s[0][-1]:inds_l[0][0]];
@@ -244,8 +273,8 @@ def plot_log_file(filename, nr):
         if make_fit:
             plt.plot(time_gps[n_steps:-1], div_truth_gps, time_steps[n_steps:-1], scale * div_vision[n_steps:-1], time_rcs, ap_mode); 
         else:
-            plt.plot(time_gps[n_steps:-1], div_truth_gps, time_steps[n_steps:-1], div_vision[n_steps:-1], time_rcs, ap_mode);
-        plt.legend(['div truth', 'div vision'])
+            plt.plot(time_gps[n_steps:-1], div_truth_gps, time_steps[n_steps:-1], div_vision[n_steps:-1], dt_time_steps, div_vision_dt, time_div_raw, div_raw); # time_rcs, ap_mode,
+        plt.legend(['div truth', 'div vision low-pass', 'div vision dt', 'raw measurements'])
         plt.show();
 
     ###########################
