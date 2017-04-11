@@ -6,11 +6,6 @@ from matplotlib.backends.backend_pdf import PdfPages
 import pdb
 from io import StringIO
 
-
-
-
-
-
 class rotorcraft_fp_class:
     """Rotorcraft Class"""
     t = 0
@@ -48,6 +43,10 @@ def time_align_data(time1, v1, time2, v2):
     return [time1, v1, time2, v2];
 
 def check_for_t(v, time, t):
+    """ 
+    If timestep t does not exist in the vector "time", add it,
+    and enter an interpolated value from vector v.
+    """
     pad_value = 0;
     # 2)
     inds = np.where(time == t);
@@ -82,6 +81,27 @@ def check_for_t(v, time, t):
     # return the possibly modified vector:
     return [v, time];
                 
+
+def linear_fit(A, B, BIAS = False, PRIOR=True, alpha_prior=1.0):
+    """
+    Perform a linear fit, A x = B, returning x
+    """
+
+    # Add a bias or not:
+    if(BIAS):
+      A = np.concatenate((A, np.ones((A.shape[0], 1))), axis=1);
+
+    if(PRIOR):
+      # Prior:
+      # weights = inv(F_training' * F_training + alpha * eye(size(F_training, 2))) * F_training' * H_training;
+      x = np.dot(np.linalg.inv(np.dot(np.transpose(A), A) + alpha_prior * np.diag(np.ones(A.shape[1]))), np.dot(np.transpose(A), B));
+
+    else:
+      # No prior:
+      x = np.linalg.lstsq(A, B)[0];
+
+    return x;
+
 def plot_log_file(filename, nr):
 
     gps_int = []
@@ -129,6 +149,7 @@ def plot_log_file(filename, nr):
                 optic_flow_txt.append(line.replace("OPTIC_FLOW_EST", ""));
             elif "DIVERGENCE" in line:
                 divergence_landing_txt.append(line.replace("DIVERGENCE", ""));
+            
 
     #print(" - ", ", ".join(sorted(ids.keys())))
     #print(" - ", ", ".join(sorted(tags.keys())))
@@ -254,6 +275,9 @@ def plot_log_file(filename, nr):
             f_resp = np.linalg.lstsq(input_div, output_div);
             scale = f_resp[0][0];
             res1 = f_resp[1][0];
+
+            # linear_fit(A, b, BIAS = False, PRIOR=True, alpha_prior=1.0);
+            # linear_fit(input_div, 2.0*input_div+1.0, True);
 
             # fit scale and bias:
             bias = np.ones([input_div.size, 1]);
