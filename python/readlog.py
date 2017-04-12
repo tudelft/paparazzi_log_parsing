@@ -112,6 +112,7 @@ def plot_log_file(filename, nr):
     imu_gyro_scaled_txt = []
     divergence_landing_txt = []
     optic_flow_txt = []
+    textons_txt = [];
 
 
     tags = {}
@@ -149,6 +150,8 @@ def plot_log_file(filename, nr):
                 optic_flow_txt.append(line.replace("OPTIC_FLOW_EST", ""));
             elif "DIVERGENCE" in line:
                 divergence_landing_txt.append(line.replace("DIVERGENCE", ""));
+            elif "TEXTONS" in line:
+                textons_txt.append(line.replace("TEXTONS", ""));
             
 
     #print(" - ", ", ".join(sorted(ids.keys())))
@@ -190,11 +193,53 @@ def plot_log_file(filename, nr):
     if len(optic_flow_txt) > 0:
         optic_flow = np.loadtxt(StringIO(u"".join(optic_flow_txt)))
 
+    textons = np.empty([0,0])
+    if len(textons_txt) > 0:
+        textons = np.loadtxt(StringIO(u"".join(textons_txt)))
+
+
     #print(g)
     #print(r)
 
     # whether to do interactive plotting (e.g., when using pdb.set_trace();)
     #plt.ion();
+
+    if textons.size > 0:
+        # learn weights from the textons:
+        # structure texton message: [textons gain cov_div]
+        n_textons = textons.shape[1] - 2;         
+        n_samples = textons.shape[0];
+        texton_features = textons[:, 0:-2];
+        gains = textons[:, -1];
+        cov_divs = textons[:, -2];
+        n_training = int(0.8 * n_samples);
+        features_training = features[0:n_training, :];
+        gains_training = gains[0:n_training];
+        features_test = features[n_training+1:];
+        gains_test = gains[n_training+1:];
+
+        # different learning methods:
+        weights_ML_no_bias = linear_fit(features_training, gains_training, False, False);
+        weights_ML_bias = linear_fit(features_training, gains_training, True, False);
+        weights_MAP_prior1 = linear_fit(features_training, gains_training, True, True, 1.0);
+        weights_MAP_prior10 = linear_fit(features_training, gains_training, True, True, 10.0);
+
+        # test them on the test set:
+        test_error = np.zeros(4);
+        gain_estimates = np.dot(features_test, weights_ML_no_bias);        
+        test_error[0] = np.mean(np.abs(gains_test - gain_estimates));
+        gain_estimates = np.dot(features_test, weights_ML_bias);        
+        test_error[1] = np.mean(np.abs(gains_test - gain_estimates));
+        gain_estimates = np.dot(features_test, weights_MAP_prior1);        
+        test_error[2] = np.mean(np.abs(gains_test - gain_estimates));
+        gain_estimates = np.dot(features_test, weights_MAP_prior10);        
+        test_error[3] = np.mean(np.abs(gains_test - gain_estimates));
+
+        # print test set errors:
+        for i = range(4):
+          print('Error %d = %f' % (i, test_error[i]));
+
+        # save the best weights:
 
     if divergence_landing.size > 0:
 
