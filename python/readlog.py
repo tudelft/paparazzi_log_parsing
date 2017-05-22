@@ -102,6 +102,24 @@ def linear_fit(A, B, BIAS = False, PRIOR=True, alpha_prior=1.0):
 
     return x;
 
+def get_windowed_cov_div(S, window_size, delta_sample):
+    
+    N = S.shape[0] - window_size - delta_sample;
+    cov_div = np.zeros([S.shape[0],1]);
+    for i in range(N):
+        
+        A = S[i+delta_sample:i+window_size+delta_sample];
+        B = S[i:i+window_size];
+        cov_div[i+window_size+delta_sample] = get_cov_div(A,B);
+    
+    return cov_div;
+
+def get_cov_div(A,B):
+    if(A.shape != B.shape):
+        pdb.set_trace();
+    C = np.cov(A,B);
+    return C[0,1];
+
 def plot_log_file(filename, nr):
 
     gps_int = []
@@ -118,6 +136,8 @@ def plot_log_file(filename, nr):
     tags = {}
     ids = {}
     autopilot_version = {}
+
+    #pdb.set_trace();
 
     with open(filename) as f:
         for line in f:
@@ -152,6 +172,16 @@ def plot_log_file(filename, nr):
                 divergence_landing_txt.append(line.replace("DIVERGENCE", ""));
             elif "TEXTONS" in line:
                 textons_txt.append(line.replace("TEXTONS", ""));
+        
+#         <message name="DIVERGENCE" id="224">
+#         <field name="divergence" type="float"> vertical velocity / height from optitrack (unit = 1/sec)</field>
+#         <field name="divergence_vision" type="float"> vertical velocity / height from vision (unit = 1/sec)</field>
+#         <field name="normalized_thrust" type="float"> thrust / max thrust paparazzi (-)</field>
+#         <field name="cov_div" type="float"> covariance of divergence and thrust, or past divergence depending on the mode (-)</field>
+#         <field name="pstate" type="float"> gain state in adaptive gain control: indicative of height (-) </field>
+#         <field name="pused" type="float"> gain used for control, includes the effect of the p-gain of adaptive control (-) </field>
+#         <field name="sonar" type="float"> measurement from the sonar (mm)</field>
+#         </message>
             
 
     #print(" - ", ", ".join(sorted(ids.keys())))
@@ -236,7 +266,7 @@ def plot_log_file(filename, nr):
         test_error[3] = np.mean(np.abs(gains_test - gain_estimates));
 
         # print test set errors:
-        for i = range(4):
+        for i in range(4):
           print('Error %d = %f' % (i, test_error[i]));
 
         # save the best weights:
@@ -249,13 +279,13 @@ def plot_log_file(filename, nr):
         time_steps = divergence_landing[:,0];
 
         # the factor multiplied with divergence_vision_dt should be put in the optic_flow_landing.c code:
-        div_vision_dt = 0.00008*divergence_landing[:,3]; # div_vision_dt
+        div_vision_dt = divergence_landing[:,3]; # div_vision_dt # 0.00008*
         dt_time_steps = time_steps;
 
         div_vision = divergence_landing[:,2]; # filtered and scaled
 
         # if filtering in Python, overwrite div_vision:
-        filter_in_python = True;
+        filter_in_python = False;
         if(filter_in_python):
             max_change = 0.30;
             lp_factor = 0.75;
@@ -272,7 +302,7 @@ def plot_log_file(filename, nr):
                 div_vision[i] = div_lp;
 
 
-        div_raw = 0.025 * optic_flow[:, -3];
+        div_raw = optic_flow[:, -3]; # 0.025 * 
         time_div_raw = optic_flow[:, 0];
         div_vision = np.convolve(div_vision, np.ones((N,))/N, mode='same');
         height = divergence_landing[:,8];
@@ -339,13 +369,29 @@ def plot_log_file(filename, nr):
 
         # plot vision divergence and ground truth divergence in the same plot:
         f = plt.figure();
+        # plt.plot(divergence_landing[:,0], divergence_landing[:,2]);
+        # plt.plot(time_gps[n_steps:-1], div_truth_gps);
+        
         if make_fit:
             plt.plot(time_gps[n_steps:-1], div_truth_gps, time_steps[n_steps:-1], scale * div_vision[n_steps:-1], time_rcs, ap_mode); 
         else:
             plt.plot(time_gps[n_steps:-1], div_truth_gps, time_steps[n_steps:-1], div_vision[n_steps:-1], dt_time_steps, div_vision_dt, time_div_raw, div_raw); # time_rcs, ap_mode,
         plt.legend(['div truth', 'div vision low-pass', 'div vision dt', 'raw measurements'])
         plt.show();
-
+        
+        # determining the window size and delta time for the covariance divergence oscillation detection with shifted time window:
+        mean_time_step = np.mean(dt/n_steps);
+        window_size = 100;
+        delta_sample = 25;
+        print('Covdiv 1: Window size in seconds: %f, delta t in seconds: %f\n' % (window_size*mean_time_step, delta_sample*mean_time_step))
+        cov_div_1 = get_windowed_cov_div(divergence_landing[:,2], window_size, delta_sample);
+        delta_sample = 20;
+        print('Covdiv 2: Window size in seconds: %f, delta t in seconds: %f\n' % (window_size*mean_time_step, delta_sample*mean_time_step))
+        cov_div_2 = get_windowed_cov_div(divergence_landing[:,2], window_size, delta_sample);
+        plt.plot(divergence_landing[:,0], divergence_landing[:,2], divergence_landing[:,0], 10*cov_div_1, divergence_landing[:,0], 10*cov_div_2);
+        plt.show();
+        
+        
     ###########################
     # Guess File Type:
 
