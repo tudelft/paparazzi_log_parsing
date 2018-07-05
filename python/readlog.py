@@ -124,6 +124,7 @@ def plot_log_file(filename, nr):
 
     gps_int = []
     rotorcraft_fp = []
+    rotorcraft_fp_min = []
     rotorcraft_status_txt = []
     motor = []
     imu_mag_raw_txt = []
@@ -162,6 +163,8 @@ def plot_log_file(filename, nr):
                 imu_gyro_scaled_txt.append(line.replace("IMU_GYRO_SCALED ", ""))
             elif "ROTORCRAFT_STATUS" in line:
                 rotorcraft_status_txt.append("".join(line.split("ROTORCRAFT_STATUS ")))
+            elif "ROTORCRAFT_FP_MIN" in line:
+                rotorcraft_fp_min.append("".join(line.split("ROTORCRAFT_FP_MIN ")))
             elif "ROTORCRAFT_FP" in line:
                 rotorcraft_fp.append("".join(line.split("ROTORCRAFT_FP ")))
             elif "AUTOPILOT_VERSION" in line:
@@ -364,8 +367,8 @@ def plot_log_file(filename, nr):
             res2 = f_resp[1][0];
 
             # print the results:
-            print "Just a scale: %f, error = %f\n" % (scale, res1);
-            print "Scale and bias: %f, %f, error = %f\n" % (pars[0], pars[1], res2);
+            print("Just a scale: %f, error = %f\n" % (scale, res1));
+            print("Scale and bias: %f, %f, error = %f\n" % (pars[0], pars[1], res2));
 
         # plot vision divergence and ground truth divergence in the same plot:
         f = plt.figure();
