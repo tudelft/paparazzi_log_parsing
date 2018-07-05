@@ -83,15 +83,15 @@ while 1
     air.speed=[air.speed; A(8)];
   end;
   [A, count] = sscanf(tline, '%f %d ROTORCRAFT_STATUS %d %d %d %d %d %d %d %d %d %d %d %d');
-  if (count == 14)
+  if (count == 15)
     status.t=[status.t; A(1)];
     status.gps=[status.gps; A(7)];
     status.mode=[status.mode; A(8)];
     status.kill=[status.kill; A(10)];
     status.rc=[status.rc; A(5)];
     status.inflight=[status.inflight; A(9)];
-    status.vbat=[status.vbat; A(13)/10];
-    status.cpu_time=[status.cpu_time; A(14)];
+    status.vbat=[status.vbat; A(14)/10];
+    status.cpu_time=[status.cpu_time; A(15)];
   end;
   [A, count] = sscanf(tline, '%f %d GPS_INT %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d');
   if (count == 19)
