@@ -1,4 +1,4 @@
-function [rotor, gps, temp, mot, fbw, energy, status, air] = read_rotorcraft_log(filename)
+function [rotor, gps, temp, mot, fbw, energy, status, air, curve] = read_rotorcraft_log(filename)
 
 cnt = 0;
 
@@ -14,6 +14,15 @@ rotor.psi_sp=[];
 rotor.thrust=[];
 rotor.flight_time=[];
 rotor.cnt=[];
+
+curve.id=[];
+curve.t=[];
+curve.curve=[];
+curve.throttle=[];
+curve.collective=[];
+curve.rpmset=[];
+curve.rpm=[];
+curve.rpmerrsum=[];
 
 status.t=[];
 status.gps=[];
@@ -76,6 +85,17 @@ while 1
     rotor.flight_time=[rotor.flight_time;A(17)];
     rotor.cnt=[rotor.cnt;cnt];
   end;
+  [A, count] = sscanf(tline, '%f %d THROTTLE_CURVE %d %d %d %d %d %f');
+  if (count == 8)
+    curve.t=[curve.t; A(1)];
+    curve.curve=[curve.curve; A(3)];
+    curve.throttle=[curve.throttle; A(4)];
+    curve.collective=[curve.collective; A(5)];
+    curve.rpmset=[curve.rpmset; A(6)];
+    curve.rpm=[curve.rpm; A(7)];
+    curve.rpmerrsum=[curve.rpmerrsum; A(8)];
+  end;
+
   [A, count] = sscanf(tline, '%f %d AIR_DATA %f %f %f %f %f %f %f');
   if (count == 9)
     air.t=[air.t; A(1)];

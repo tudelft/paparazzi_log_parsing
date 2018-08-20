@@ -17,11 +17,13 @@ log7 = struct('type', 'D3', 'file', '18_07_19__16_27_24.data', 'good', [1000 430
 
 log8 = struct('type', 'D3', 'file', '18_07_19__19_10_52.data', 'good', [110 4121], 'flight', [164 4118], 'comment', 'New endurance record. Auto TO and Land.')
 
+log9 = struct('type', 'D3', 'file', '18_08_17__17_17_57.data', 'good', [ ], 'flight', [ ], 'comment', 'New efficient frame, speed record')
+
 
 logbookentries = [];
 
 logs = {log1, log2, log3, log4, log5, log6, log7, log8};
-%logs = {log8};
+logs = {log9};
 
 tot_fl = 0;
 tot_sec = 0;
@@ -29,7 +31,7 @@ tot_sec = 0;
 for i=1:max(size(logs))
     log = cell2mat(logs(i));
     close all;
-    [r,gps,temp, mot, fbw, energy, status, air] = read_rotorcraft_log(log.file);
+    [r,gps,temp, mot, fbw, energy, status, air, curve] = read_rotorcraft_log(log.file);
 
     log.r=r;
     log.gps=gps;
@@ -39,6 +41,7 @@ for i=1:max(size(logs))
     log.energy=energy;
     log.status=status;
     log.air=air;
+    log.curve=curve;
 
     plot_rotor(log,i);
     fl = 0;
