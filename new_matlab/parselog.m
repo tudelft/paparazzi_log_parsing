@@ -1,10 +1,12 @@
 function s = parselog(filename, msgs)
 
 % Try to find the correct messages xml file
+got_log = false;
 if nargin < 2
-    msg_filename = splitlog(filename);
-    if size(msg_filename) >= 0
-        msgs = messages(msg_filename);
+    l = splitlog(filename);
+    if size(l.msgs) >= 0
+        msgs = messages(l.msgs);
+        got_log = true;
     else
         msgs = messages();
     end
@@ -38,8 +40,13 @@ for iAC = nAC:-1:1 % counting backwards eliminates preallocation
     msg_ids = (aircraftID == ac_id);
     
     % Set the AC_ID and parse the data from the log for that AC
-    s.aircafts(iAC).AC_ID = ac_id;
-    s.aircafts(iAC).data = parse_aircraft_data(msgs, uniqueMsg, timestamp(msg_ids), msgName(msg_ids), msgContent(msg_ids));
+    s.aircrafts(iAC).AC_ID = ac_id;
+    s.aircrafts(iAC).data = parse_aircraft_data(msgs, uniqueMsg, timestamp(msg_ids), msgName(msg_ids), msgContent(msg_ids));
+    
+    % Additional info from the log file
+    if got_log
+        s.aircrafts(iAC).name = l.aircrafts(ac_id).name;
+    end
 end
 
 
@@ -54,64 +61,105 @@ function s = parse_aircraft_data(msgs, uniqueMsg, timestamp, msgName, msgContent
     % Go through all messages
     for iMsg = 1:nMsg
         msg_name = uniqueMsg{iMsg};
-        msg_heads = msgs.telemetry.(msg_name).field_names;
+        if isfield(msgs.telemetry, msg_name)
+            msg_info = msgs.telemetry.(msg_name);
+        elseif isfield(msgs.ground, msg_name)
+            msg_info = msgs.ground.(msg_name);
+        elseif isfield(msgs.datalink, msg_name)
+            msg_info = msgs.datalink.(msg_name);
+        elseif isfield(msgs.alert, msg_name)
+            msg_info = msgs.alert.(msg_name);
+        end
+            
+        % Get message fields and ids
+        msg_fields = msg_info.field_names;
         msg_ids = strcmp(msg_name, msgName);
 
         % Set the timestamp and parse the content from the XML heads
         s.(msg_name).timestamp = timestamp(msg_ids);
-        content = split(string(msgContent(msg_ids)));
-        nFields = size(msg_heads, 2);
+        content = split(cellstr(msgContent(msg_ids)), ' ', 2);
+        nFields = size(msg_fields, 2);
         
         % Go through all the fields in the messages
         for j = 1:nFields
-            msg_head = msg_heads(j);
+            field_name = msg_fields(j);
             values = str2double(content(:, j));
-            s.(msg_name).(msg_head) = values;
+            s.(msg_name).(field_name) = values;
             
             % Parse alternate unit
-            field_info = msgs.telemetry.(msg_name).fields.(msg_head);
+            field_info = msg_info.fields.(field_name);
             if field_info.alt_unit_coef ~= -1
-                s.(msg_name).(strcat(msg_head, "_alt")) = values .* field_info.alt_unit_coef;
+                s.(msg_name).(strcat(field_name, "_alt")) = values .* field_info.alt_unit_coef;
             end
         end
     end
 end
 
 % Split the .log file in seperate files which can be parsed
-function s = splitlog(filename)
+function s = splitlog(filename, gen_files)
+    % Open the log file
     [filepath, name,] = fileparts(filename);
     log_filename = strcat(filepath, filesep, name, '.log');
-    msgs_filename = strcat(filepath, filesep, name, '_msgs.xml');
-    
     flog = fopen(log_filename, 'rt');
-    fmsgs = fopen(msgs_filename, 'w');
-    got_prot = false;
-    s = '';
     
+    % Do not create aircraft files by default
+    if nargin < 2
+        gen_files = false;
+    end
+    
+    % Initial setup
+    got_prot = false;
+    got_aircraft = false;
+    
+    % Output filenames
+    s.msgs = '';
+    
+    % Go through the log file
     while 1
          tline = fgetl(flog);
          
-         % Check for the start
-         if contains(tline, '<protocol>')
-             got_prot = true;
-         end
-         
-         % Check if we need to output the messages xml
-         if got_prot
-             fprintf(fmsgs, "%s\n", tline);
-         end
-         
-         % When it is the end of the file or protocol stop
-         if ~ischar(tline) || contains(tline, '</protocol>')
+         % When it is the end of the file stop
+         if ~ischar(tline)
              break
          end
+         
+         % Check for the start
+         if contains(tline, '<protocol')
+             % Open a message file to write the protocol
+             s.msgs = strcat(filepath, filesep, name, '_msgs.xml');
+             fmsgs = fopen(s.msgs, 'w');
+             got_prot = true;
+         elseif contains(tline, '<aircraft')
+             % Create a new aircraft
+             aircraft.name = string(regexpi(tline, 'name="([^"]+)"', 'tokens'));
+             aircraft.id = str2num(string(regexpi(tline, 'ac_id="([^"]+)"', 'tokens')));
+             aircraft.filename = strcat(filepath, filesep, name, '_ac', string(aircraft.id), '.xml');
+             s.aircrafts(aircraft.id) = aircraft;
+             
+             % Open an aircraft file to write the aircraft output
+             if gen_files
+                 faircraft = fopen(aircraft.filename, 'w');
+                 got_aircraft = true;
+             end
+         end
+         
+         % Check if we need to output lines
+         if got_prot
+             fprintf(fmsgs, "%s\n", tline);
+         elseif got_aircraft
+             fprintf(faircraft, "%s\n", tline);
+         end
+         
+         % Check for the end
+         if got_prot && contains(tline, '</protocol>')
+             got_prot = false;
+             fclose(fmsgs);
+         elseif got_aircraft && contains(tline, '</aircraft>')
+             got_aircraft = false;
+             fclose(faircraft);
+         end
     end
     
+    % Close the log file
     fclose(flog);
-    fclose(fmsgs);
-    
-    % Return the filename if we split of a messages files
-    if got_prot
-        s = msgs_filename;
-    end
 end
