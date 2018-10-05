@@ -34,7 +34,7 @@ uniqueAC = unique(aircraftID);
 nAC = size(uniqueAC, 1);
 uniqueMsg = unique(msgName);
 
-% Go thorugh all the AC in the log
+% Go through all the AC in the log
 for iAC = nAC:-1:1 % counting backwards eliminates preallocation
     ac_id = uniqueAC(iAC);
     msg_ids = (aircraftID == ac_id);
@@ -49,7 +49,6 @@ for iAC = nAC:-1:1 % counting backwards eliminates preallocation
     end
 end
 
-
 % Close the log file
 fclose(fid);
 end
@@ -61,6 +60,8 @@ function s = parse_aircraft_data(msgs, uniqueMsg, timestamp, msgName, msgContent
     % Go through all messages
     for iMsg = 1:nMsg
         msg_name = uniqueMsg{iMsg};
+        
+        % Check in which message class the message is
         if isfield(msgs.telemetry, msg_name)
             msg_info = msgs.telemetry.(msg_name);
         elseif isfield(msgs.ground, msg_name)
@@ -76,20 +77,26 @@ function s = parse_aircraft_data(msgs, uniqueMsg, timestamp, msgName, msgContent
         msg_ids = strcmp(msg_name, msgName);
 
         % Set the timestamp and parse the content from the XML heads
-        s.(msg_name).timestamp = timestamp(msg_ids);
-        content = split(cellstr(msgContent(msg_ids)), ' ', 2);
+        s.(msg_name).timestamp = timestamp(msg_ids);      
         nFields = size(msg_fields, 2);
+        
+        % Only parse content if needed
+        if nFields > 0
+            msgContentStr = strjoin(msgContent(msg_ids));
+            field_parser = join(msg_info.field_parser, ' ');    
+            content = textscan(msgContentStr, field_parser);
+        end
         
         % Go through all the fields in the messages
         for j = 1:nFields
             field_name = msg_fields(j);
-            values = str2double(content(:, j));
+            values = content{j};
             s.(msg_name).(field_name) = values;
             
             % Parse alternate unit
             field_info = msg_info.fields.(field_name);
-            if field_info.alt_unit_coef ~= -1
-                s.(msg_name).(strcat(field_name, "_alt")) = values .* field_info.alt_unit_coef;
+            if field_info.alt_unit_coef ~= 1
+                s.(msg_name).(strcat(field_name, "_alt")) = double(values) .* field_info.alt_unit_coef;
             end
         end
     end
