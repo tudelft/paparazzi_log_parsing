@@ -93,17 +93,18 @@ function c = parse_message(node)
     end
     
     % Go through the fields (and optional descriptions)
-    field_names = [];
+    c.field_names = [];
+    c.field_parser = [];
     field_nodes = node.getChildNodes;
     for i = 1:field_nodes.getLength
         field_node = field_nodes.item(i-1);
         if lower(string(field_node.getNodeName)) == "field"
             field = parse_field(field_node);
-            field_names = [field_names, field.name];
+            c.field_parser = [c.field_parser, field2parser(field)];
+            c.field_names = [c.field_names, field.name];
             c.fields.(field.name) = field;
         end
     end
-    c.field_names = field_names;
 end
 
 % Parse a field node from a message
@@ -132,4 +133,25 @@ function c = parse_field(node)
             c.alt_unit_coef = str2double(field_attribs.item(j-1).getValue);
         end
     end
+end
+
+function c = field2parser(field)
+    c = '';
+    field_type = lower(string(field.type));
+    if field_type == "uint8" || field_type == "uint16" || field_type == "uint32"
+    	c = '%u';
+    elseif field_type == "int8" || field_type == "int16" || field_type == "int32"
+    	c = '%d';
+    elseif field_type == "float" || field_type == "double"
+        c = '%f';
+    elseif field_type == "char"
+        c = '%c';
+    elseif field_type == "char[]" || field_type == "string"
+        c = '%s';
+    elseif regexp(field_type, "[a-z0-9]+\[[0-9]*\]")
+        c = '%s';
+    else
+        error("Could not parse field type '%s'", field_type)
+    end
+    c = string(c);
 end
