@@ -5,9 +5,9 @@ function s = messages(filename)
 paparazzi_home = getenv('PAPARAZZI_HOME');
 
 % When no filename is given
-if nargin < 1
+if nargin < 1 || isempty(filename)
     % First use PAPARAZZI_HOME else use messages xml from current folder
-    if isempty(paparazzi_home) == 0
+    if isempty(paparazzi_home)
         paparazzi_var = pwd;
     else
         paparazzi_var = fullfile(paparazzi_home, 'var');
@@ -17,32 +17,33 @@ if nargin < 1
     filename = fullfile(paparazzi_var, 'messages.xml');
 end
 
+% Check if the file exists
+if exist(filename, 'file') ~= 2
+    error("Could not find messages.xml file at '%s' (PAPARAZZI_HOME='%s')", filename, paparazzi_home)
+end
+
 % Try to parse the messages xml file
 builder = javax.xml.parsers.DocumentBuilderFactory.newInstance;
 builder.setFeature('http://apache.org/xml/features/nonvalidating/load-external-dtd', false);
-%try
-    root_node = xmlread(filename, builder);
-    protocols = root_node.getChildNodes.item(0).getChildNodes;
-    
-    % Go throught the protocols
-    for i = 1:protocols.getLength
-        prot_node = protocols.item(i-1);
-        
-        % Check if it is a message class
-        if lower(string(prot_node.getNodeName)) == "msg_class"
-            msg_class = parse_msg_class(prot_node);
-            
-            % If no valid name was found continue else append
-            if isempty(msg_class.name)
-                continue
-            else
-                s.(msg_class.name) = msg_class.msgs;
-            end
+root_node = xmlread(filename, builder);
+protocols = root_node.getChildNodes.item(0).getChildNodes;
+
+% Go throught the protocols
+for i = 1:protocols.getLength
+    prot_node = protocols.item(i-1);
+
+    % Check if it is a message class
+    if lower(string(prot_node.getNodeName)) == "msg_class"
+        msg_class = parse_msg_class(prot_node);
+
+        % If no valid name was found continue else append
+        if isempty(msg_class.name)
+            continue
+        else
+            s.(msg_class.name) = msg_class.msgs;
         end
     end
-%catch
-%    error('Messages xml not found at %s (PAPARAZZI_HOME=%s)', filename, paparazzi_home)
-%end
+end
 end
 
 % Parse a msg_class node from the protocol

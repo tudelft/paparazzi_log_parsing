@@ -1,23 +1,29 @@
 function s = parselog(filename, msgs)
 
+% Check if the data file exists
+[filepath, name,] = fileparts(filename);
+filename = strcat(filepath, filesep, name, '.data');
+
+if exist(filename, 'file') ~= 2
+    error("The log file does not exist '%s'", filename)
+end
+
 % Try to find the correct messages xml file
 got_log = false;
 if nargin < 2
     l = splitlog(filename);
-    if size(l.msgs) >= 0
+    if ~isempty(l.msgs)
         msgs = messages(l.msgs);
         got_log = true;
     else
+        warning('Parsing log file with only the .data file, which could lead to unexpected message fields.')
         msgs = messages();
     end
 end
 s.msgs = msgs;
 
-% Open the data file
-[filepath, name,] = fileparts(filename);
-fid = fopen(strcat(filepath, filesep, name, '.data'));
-
 % Read everything as timestamp, A/C ID, msg name and msg contents
+fid = fopen(filename);
 C = textscan(fid, '%f %u %s %[^\n]');
 timestamp = C{1};
 aircraftID = C{2};
@@ -107,7 +113,12 @@ function s = splitlog(filename, gen_files)
     % Open the log file
     [filepath, name,] = fileparts(filename);
     log_filename = strcat(filepath, filesep, name, '.log');
-    flog = fopen(log_filename, 'rt');
+    
+    % Check if the log file exists
+    s.msgs = '';
+    if exist(log_filename, 'file') ~= 2
+        return
+    end
     
     % Do not create aircraft files by default
     if nargin < 2
@@ -115,11 +126,9 @@ function s = splitlog(filename, gen_files)
     end
     
     % Initial setup
+    flog = fopen(log_filename, 'rt');
     got_prot = false;
     got_aircraft = false;
-    
-    % Output filenames
-    s.msgs = '';
     
     % Go through the log file
     while 1
