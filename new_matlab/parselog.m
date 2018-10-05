@@ -60,11 +60,19 @@ function s = parse_aircraft_data(msgs, uniqueMsg, timestamp, msgName, msgContent
         % Set the timestamp and parse the content from the XML heads
         s.(msg_name).timestamp = timestamp(msg_ids);
         content = split(string(msgContent(msg_ids)));
-        nContent = size(msg_heads, 2);
+        nFields = size(msg_heads, 2);
         
-        for j = nContent:-1:1
+        % Go through all the fields in the messages
+        for j = 1:nFields
             msg_head = msg_heads(j);
-            s.(msg_name).(msg_head) = str2double(content(:, j));
+            values = str2double(content(:, j));
+            s.(msg_name).(msg_head) = values;
+            
+            % Parse alternate unit
+            field_info = msgs.telemetry.(msg_name).fields.(msg_head);
+            if field_info.alt_unit_coef ~= -1
+                s.(msg_name).(strcat(msg_head, "_alt")) = values .* field_info.alt_unit_coef;
+            end
         end
     end
 end
