@@ -114,6 +114,8 @@ function c = parse_field(node)
     c.type = '';
     c.unit = '';
     c.values = '';
+    c.alt_unit = '';
+    c.alt_unit_coef = 1;
 
     for j = 1:field_attribs.getLength
         if lower(string(field_attribs.item(j-1).getName)) == "name"
@@ -124,6 +126,10 @@ function c = parse_field(node)
             c.unit = field_attribs.item(j-1).getValue;
         elseif lower(string(field_attribs.item(j-1).getName)) == "values"
             c.values = field_attribs.item(j-1).getValue;
+        elseif lower(string(field_attribs.item(j-1).getName)) == "alt_unit"
+            c.values = field_attribs.item(j-1).getValue;
+        elseif lower(string(field_attribs.item(j-1).getName)) == "alt_unit_coef"
+            c.alt_unit_coef = str2double(field_attribs.item(j-1).getValue);
         end
     end
 end
