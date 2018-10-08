@@ -53,6 +53,10 @@ for iAC = nAC:-1:1 % counting backwards eliminates preallocation
     if got_log
         s.aircrafts(iAC).name = l.aircrafts(ac_id).name;
     end
+    if isfield(s.aircrafts(iAC).data, "AUTOPILOT_VERSION")
+        s.aircrafts(iAC).version = s.aircrafts(iAC).data.AUTOPILOT_VERSION.version(1);
+        s.aircrafts(iAC).version_desc = string(s.aircrafts(iAC).data.AUTOPILOT_VERSION.desc(1));
+    end
 end
 
 % Close the log file
