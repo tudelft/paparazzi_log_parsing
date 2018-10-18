@@ -152,7 +152,7 @@ function s = splitlog(filename, gen_files)
          elseif contains(tline, '<aircraft')
              % Create a new aircraft
              aircraft.name = string(regexpi(tline, 'name="([^"]+)"', 'tokens'));
-             aircraft.id = str2num(string(regexpi(tline, 'ac_id="([^"]+)"', 'tokens')));
+             aircraft.id = str2num(char(string(regexpi(tline, 'ac_id="([^"]+)"', 'tokens'))));
              aircraft.filename = strcat(filepath, filesep, name, '_ac', string(aircraft.id), '.xml');
              s.aircrafts(aircraft.id) = aircraft;
              
