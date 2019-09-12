@@ -26,69 +26,53 @@ end
 builder = javax.xml.parsers.DocumentBuilderFactory.newInstance;
 builder.setFeature('http://apache.org/xml/features/nonvalidating/load-external-dtd', false);
 root_node = xmlread(filename, builder);
-protocols = root_node.getChildNodes.item(0).getChildNodes;
+msg_classes = root_node.getElementsByTagName('msg_class');
 
-% Go throught the protocols
-for i = 1:protocols.getLength
-    prot_node = protocols.item(i-1);
+% Go throught the message classes
+for i = 1:msg_classes.getLength
+    msg_class = parse_msg_class(msg_classes.item(i-1));
 
-    % Check if it is a message class
-    if lower(string(prot_node.getNodeName)) == "msg_class"
-        msg_class = parse_msg_class(prot_node);
-
-        % If no valid name was found continue else append
-        if isempty(msg_class.name)
-            continue
-        else
-            s.(msg_class.name) = msg_class.msgs;
-        end
-    end
+    % If no valid name was found continue else append
+    %if isempty(msg_class.name)
+    %    continue
+    %else
+        s.(msg_class.name) = msg_class.msgs;
+    %end
 end
 end
 
 % Parse a msg_class node from the protocol
 function c = parse_msg_class(node)
     % Try to parse the message class name
-    prot_attribs = node.getAttributes;
-    c.name = '';
-
-    for j = 1:prot_attribs.getLength
-        if lower(string(prot_attribs.item(j-1).getName)) == "name"
-            c.name = string(prot_attribs.item(j-1).getValue);
-        end
+    c.name = string(node.getAttribute('name'));
+    if c.name == ""
+        c.name = string(node.getAttribute('NAME'));
     end
     
     % If no valid name was found continue
-    if size(c.name) <= 0
+    if c.name == ""
         warning("Messages xml contains an invalid msg_class without name")
         return
     end
     
-    % Go through the messages
-    msgs_nodes = node.getChildNodes;
+    % Go through the messages and parse them
+    msgs_nodes = node.getElementsByTagName('message');
     for i = 1:msgs_nodes.getLength
-        msg_node = msgs_nodes.item(i-1);
-        if lower(string(msg_node.getNodeName)) == "message"
-            msg = parse_message(msg_node);
-            c.msgs.(msg.name) = msg;
-        end
+        msg = parse_message(msgs_nodes.item(i-1));
+        c.msgs.(msg.name) = msg;
     end
 end
 
 % Parse a message node from the msg_class
 function c = parse_message(node)
     % Try to parse the message name
-    msg_attribs = node.getAttributes;
-    c.name = '';
-
-    for j = 1:msg_attribs.getLength
-        if lower(string(msg_attribs.item(j-1).getName)) == "name"
-            c.name = string(msg_attribs.item(j-1).getValue);
-        end
+    c.name = string(node.getAttribute('name'));
+    if c.name == ""
+        c.name = string(node.getAttribute('NAME'));
     end
     
     % If no valid name was found continue
-    if isempty(c.name)
+    if c.name == ""
         warning("Messages xml contains an invalid message without name")
         return
     end
@@ -96,43 +80,52 @@ function c = parse_message(node)
     % Go through the fields (and optional descriptions)
     c.field_names = [];
     c.field_parser = [];
-    field_nodes = node.getChildNodes;
+    field_nodes = node.getElementsByTagName('field');
     for i = 1:field_nodes.getLength
-        field_node = field_nodes.item(i-1);
-        if lower(string(field_node.getNodeName)) == "field"
-            field = parse_field(field_node);
-            c.field_parser = [c.field_parser, field2parser(field)];
-            c.field_names = [c.field_names, field.name];
-            c.fields.(field.name) = field;
-        end
+        field = parse_field(field_nodes.item(i-1));
+        c.field_parser = [c.field_parser, field2parser(field)];
+        c.field_names = [c.field_names, field.name];
+        c.fields.(field.name) = field;
     end
 end
 
 % Parse a field node from a message
 function c = parse_field(node)
-    % Try to parse the field attributes
-    field_attribs = node.getAttributes;
-    c.name = '';
-    c.type = '';
-    c.unit = '';
-    c.values = '';
-    c.alt_unit = '';
-    c.alt_unit_coef = 1;
-
-    for j = 1:field_attribs.getLength
-        if lower(string(field_attribs.item(j-1).getName)) == "name"
-            c.name = string(field_attribs.item(j-1).getValue);
-        elseif lower(string(field_attribs.item(j-1).getName)) == "type"
-            c.type = field_attribs.item(j-1).getValue;
-        elseif lower(string(field_attribs.item(j-1).getName)) == "unit"
-            c.unit = field_attribs.item(j-1).getValue;
-        elseif lower(string(field_attribs.item(j-1).getName)) == "values"
-            c.values = field_attribs.item(j-1).getValue;
-        elseif lower(string(field_attribs.item(j-1).getName)) == "alt_unit"
-            c.values = field_attribs.item(j-1).getValue;
-        elseif lower(string(field_attribs.item(j-1).getName)) == "alt_unit_coef"
-            c.alt_unit_coef = str2double(field_attribs.item(j-1).getValue);
-        end
+    % Try to parse the field attributes    
+    c.name = string(node.getAttribute('name'));
+    if c.name == ""
+        c.name = string(node.getAttribute('NAME'));
+    end
+    
+    c.type = node.getAttribute('type');
+    if c.type.equals("")
+        c.type = node.getAttribute('TYPE');
+    end
+    
+    c.unit = node.getAttribute('unit');
+    if c.unit.equals("")
+        c.unit = node.getAttribute('UNIT');
+    end
+    
+    c.values = node.getAttribute('values');
+    if c.values.equals("")
+        c.values = node.getAttribute('VALUES');
+    end
+    
+    c.alt_unit = node.getAttribute('alt_unit');
+    if c.alt_unit.equals("")
+        c.alt_unit = node.getAttribute('ALT_UNIT');
+    end
+    
+    c.alt_unit_coef = node.getAttribute('alt_unit_coef');
+    if c.alt_unit_coef.equals("")
+        c.alt_unit_coef = node.getAttribute('ALT_UNIT_COEF');
+    end
+    
+    if c.alt_unit_coef.equals("")
+        c.alt_unit_coef = 1;
+    else
+        c.alt_unit_coef = str2double(c.alt_unit_coef);
     end
 end
 
