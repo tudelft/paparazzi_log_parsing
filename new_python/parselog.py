@@ -45,6 +45,7 @@ def parselog(filename: str, msg_xml: str = None) -> AttrDict:
 
     # Extract the data for all unique aircraft separately
     log_data = AttrDict()
+    log_data.msgs = msgs
     log_data.aircrafts = [AttrDict()] * n_ac
     for i in range(n_ac):
         # Filter only data relevant to the aircraft in question
