@@ -89,15 +89,24 @@ def parse_aircraft_data(msgs: AttrDict, uniqueMsg: np.ndarray, timestamp: np.nda
             content_list = [re.split(',| |, ', x) for x in msgContent[msg_mask]]
             content = np.asarray(content_list, dtype=float)
 
-        for i in range(n_fields):
-            field_name = msg_fields[i]
-            values = content.T[i]
-            ac_data[msg][field_name] = values
+            for i in range(n_fields):
+                field_name = msg_fields[i]
+                values = content.T[i]
+                ac_data[msg][field_name] = values
 
-            # Parse alternate unit
-            field_info = msg_info.fields[field_name]
-            if field_info != 1:
-                ac_data[msg][field_name + "_alt"] = values * field_info.alt_unit_coef
+                # Parse alternate unit
+                field_info = msg_info.fields[field_name]
+                if field_info.alt_unit_coef != 1:
+                    ac_data[msg][field_name + "_alt"] = values * field_info.alt_unit_coef
+            else:
+                # If there isn't a field type per content column, dump all remaining message content
+                # into the last field. This usually occurs for array field type, e.g. int16[] (ACTUATORS)
+                if i != content.shape[1]:
+                    values = content[:, i:]
+                    ac_data[msg][field_name] = values
+
+                    if field_info.alt_unit_coef != 1:
+                        ac_data[msg][field_name + "_alt"] = values * field_info.alt_unit_coef
     return ac_data
 
 
