@@ -2,6 +2,7 @@ import os
 import re
 
 import numpy as np
+from bs4 import BeautifulSoup
 
 from messages import messages, AttrDict
 
@@ -15,13 +16,16 @@ def parselog(filename: str, msg_xml: str = None) -> AttrDict:
     :return: dictionary containing the log data
     """
 
-    f_suffix = filename.rsplit(".", maxsplit=1)
-    if f_suffix[-1] != "data":
-        raise ValueError("File type must be .data to be able to be parsed")
+    f_suffix = filename.rsplit('.', maxsplit=1)
+    if f_suffix[-1] != 'data':
+        raise ValueError('File type must be .data to be able to be parsed')
 
-    # If message.xml is not specified try to find it from PAPARAZZI_HOME
+    # If message.xml is not specified try to extract it from the .log file
     if msg_xml is None:
-        msg_xml = os.getenv("PAPARAZZI_HOME") + "/var/messages.xml"
+        msg_xml = splitlog(filename)
+        # If message.xml is still None, try to find it from PAPARAZZI_HOME
+        if msg_xml is None:
+            msg_xml = os.getenv('PAPARAZZI_HOME') + '/var/messages.xml'
 
     msgs = messages(msg_xml)
 
@@ -55,7 +59,7 @@ def parselog(filename: str, msg_xml: str = None) -> AttrDict:
         log_data.aircrafts[i].data = parse_aircraft_data(msgs, unique_msg, timestamp[id_mask], msg_name[id_mask],
                                                          msg_content[id_mask])
 
-        if "AUTOPILOT_VERSION" in log_data.aircrafts[i].data.keys():
+        if 'AUTOPILOT_VERSION' in log_data.aircrafts[i].data.keys():
             log_data.aircrafts[i].version = log_data.aircrafts[i].data.AUTOPILOTVERSION.version[0]
             log_data.aircrafts[i].version_desc = log_data.aircrafts[i].data.AUTOPILOTVERSION.desc[0]
 
@@ -97,7 +101,7 @@ def parse_aircraft_data(msgs: AttrDict, uniqueMsg: np.ndarray, timestamp: np.nda
                 # Parse alternate unit
                 field_info = msg_info.fields[field_name]
                 if field_info.alt_unit_coef != 1:
-                    ac_data[msg][field_name + "_alt"] = values * field_info.alt_unit_coef
+                    ac_data[msg][field_name + '_alt'] = values * field_info.alt_unit_coef
             else:
                 # If there isn't a field type per content column, dump all remaining message content
                 # into the last field. This usually occurs for array field type, e.g. int16[] (ACTUATORS)
@@ -106,9 +110,42 @@ def parse_aircraft_data(msgs: AttrDict, uniqueMsg: np.ndarray, timestamp: np.nda
                     ac_data[msg][field_name] = values
 
                     if field_info.alt_unit_coef != 1:
-                        ac_data[msg][field_name + "_alt"] = values * field_info.alt_unit_coef
+                        ac_data[msg][field_name + '_alt'] = values * field_info.alt_unit_coef
     return ac_data
 
 
-if __name__ == "__main__":
+def splitlog(filename: str, gen_files: bool = False) -> str:
+    """
+    Parse a data log to extract the messages. Optionally extract and generate the aircraft xml(s)
+
+    :param filename: path to the data log file name
+    :param gen_files: generate aircraft xml
+    :return: path to extracted messages.xml
+    """
+    fname, ftype = filename.rsplit('.', 1)
+    log_filename = fname + '.log'
+
+    if not os.path.isfile(log_filename):
+        return
+
+    with open(log_filename) as lf:
+        soup = BeautifulSoup(lf, features='lxml')
+    protocol = soup.find('protocol')
+    acs = soup.find_all('aircraft')
+
+    if protocol is not None:
+        fmsgs = fname + '_msgs.xml'
+        with open(fmsgs, 'w') as fm:
+            fm.write(protocol.prettify())
+
+    if len(acs) != 0 and gen_files:
+        for ac in acs:
+            ac_filename = fname + '_ac' + str(ac['ac_id']) + '.xml'
+            with open(ac_filename, 'w') as fac:
+                fac.write(ac.prettify())
+
+    return fmsgs
+
+
+if __name__ == '__main__':
     pass
