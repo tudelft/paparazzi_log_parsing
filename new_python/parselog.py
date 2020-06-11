@@ -1,4 +1,5 @@
 import os
+import pickle
 import re
 
 import numpy as np
@@ -16,27 +17,44 @@ def parselog(filename: str, msg_xml: str = None) -> AttrDict:
     :return: dictionary containing the log data
     """
 
-    f_suffix = filename.rsplit('.', maxsplit=1)
-    if f_suffix[-1] != 'data':
-        raise ValueError('File type must be .data to be able to be parsed')
+    fname, ftype = filename.rsplit('.', maxsplit=1)
+    msg_xml_ = msg_xml
+
+    # Check if log has already been parsed
+    pckl_f = fname + '.pckl'
+    if os.path.isfile(pckl_f):
+        with open(pckl_f, 'rb') as pf:
+            print('Loading parsed data from pickle file')
+            return pickle.load(pf)
 
     # If message.xml is not specified try to extract it from the .log file
-    if msg_xml is None:
-        msg_xml = splitlog(filename)
-        # If message.xml is still None, try to find it from PAPARAZZI_HOME
-        if msg_xml is None:
-            msg_xml = os.getenv('PAPARAZZI_HOME') + '/var/messages.xml'
+    if msg_xml_ is None:
+        if os.path.isfile(fname + '_msgs.xml'):
+            msg_xml_ = fname + '_msgs.xml'
+        else:
+            msg_xml_ = splitlog(filename)
+            # If message.xml is still None, try to find it from PAPARAZZI_HOME
+            if msg_xml_ is None:
+                msg_xml_ = os.getenv('PAPARAZZI_HOME') + '/var/messages.xml'
 
-    msgs = messages(msg_xml)
+    msgs = messages(msg_xml_)
 
     # Extract data into timestamp, AC_ID, msg name, and msg contents
     # Depending on the message the number of fields will be different, thus impossible to immediately turn into ndarray
     data = []
-    with open(filename) as f:
+    with open(fname + '.data') as f:
         for line in f:
-            data.append(line.rstrip().split(maxsplit=3))
+            parsed_line = line.rstrip().split(maxsplit=3)
+            if len(parsed_line) != 4:
+                parsed_line += [''] * (4 - len(parsed_line))
+            data.append(parsed_line)
 
-    data = np.array(data)
+    data = np.asarray(data)
+
+    # Filter AUTOPILOT_VERSION messages as the msg_content is different (cannot be converted to float)
+    ap_v_mask = data[:, 2] == 'AUTOPILOT_VERSION'
+    ap_version = data[ap_v_mask]
+    data = data[~ap_v_mask]
 
     timestamp = np.asarray(data[:, 0], dtype=float)
     aircraft_id = np.asarray(data[:, 1], dtype=int)
@@ -55,14 +73,18 @@ def parselog(filename: str, msg_xml: str = None) -> AttrDict:
         # Filter only data relevant to the aircraft in question
         id_mask = aircraft_id == unique_ac[i]
 
+        if ap_version.size != 0:
+            unique_ap_version = ap_version[ap_version[:, 1] == str(unique_ac[i])][0]
+            version, desc = re.split(',| |, ', unique_ap_version[-1])
+            log_data.aircrafts[i].version = version
+            log_data.aircrafts[i].version_desc = desc
+
         log_data.aircrafts[i].AC_ID = unique_ac[i]
         log_data.aircrafts[i].data = parse_aircraft_data(msgs, unique_msg, timestamp[id_mask], msg_name[id_mask],
                                                          msg_content[id_mask])
 
-        if 'AUTOPILOT_VERSION' in log_data.aircrafts[i].data.keys():
-            log_data.aircrafts[i].version = log_data.aircrafts[i].data.AUTOPILOTVERSION.version[0]
-            log_data.aircrafts[i].version_desc = log_data.aircrafts[i].data.AUTOPILOTVERSION.desc[0]
-
+    with open(pckl_f, 'wb') as pf:
+        pickle.dump(log_data, pf)
     return log_data
 
 
@@ -126,6 +148,7 @@ def splitlog(filename: str, gen_files: bool = False) -> str:
     log_filename = fname + '.log'
 
     if not os.path.isfile(log_filename):
+        print(".log file not found! Cannot parse message.xml")
         return
 
     with open(log_filename) as lf:
