@@ -1,27 +1,11 @@
-import os
-import pickle
-
 import numpy as np
 from matplotlib import pyplot as plt
 
 from parselog import parselog
 
 if __name__ == "__main__":
-    pckl_file = "20_03_04__log_data.pckl"
-    log_data = None
-
-    # If data hasn't been parsed yet, parse and save output
-    if not os.path.exists(pckl_file):
-        filename = "./20_03_04__15_53_09_SD.data"
-        xml_path = './messages.xml'
-
-        log_data = parselog(filename, xml_path)
-        with open(pckl_file, 'wb') as f:
-            pickle.dump(log_data, f)
-    else:
-        # If data has been parsed previously, load parsed data and immediately move on to plotting
-        with open(pckl_file, 'rb') as f:
-            log_data = pickle.load(f)
+    filename = '20_06_02__14_19_30.log'
+    log_data = parselog(filename)
 
     ac_data = log_data.aircrafts[0].data
     ac_msgs = log_data.msgs
@@ -37,16 +21,12 @@ if __name__ == "__main__":
     act_1 = ac_data.ACTUATORS.values[:, 1]
     act_2 = ac_data.ACTUATORS.values[:, 2]
     act_3 = ac_data.ACTUATORS.values[:, 3]
-    act_4 = ac_data.ACTUATORS.values[:, 4]
-    act_5 = ac_data.ACTUATORS.values[:, 5]
 
     plt.figure("Actuators")
     plt.plot(act_t, act_0, label="channel_0")
     plt.plot(act_t, act_1, label="channel_1")
     plt.plot(act_t, act_2, label="channel_2")
     plt.plot(act_t, act_3, label="channel_3")
-    plt.plot(act_t, act_4, label="channel_4")
-    plt.plot(act_t, act_5, label="channel_5")
     plt.xlabel("Time [s]")
     plt.ylabel("PWM value [micro s]")
     plt.legend()
@@ -92,15 +72,15 @@ if __name__ == "__main__":
     plt.ylabel("Yaw [deg]")
     plt.legend()
 
-    att_mask = (att_t > 460) & (att_t < 490)  # Filter data from specific time segment
-    t_section = att_t[att_mask]
-    phi_section = att_phi[att_mask]
-    theta_section = att_theta[att_mask]
-    plt.figure("Attitude section")
-    plt.plot(t_section, phi_section, label="phi")
-    plt.plot(t_section, theta_section, label="theta")
+    gyro_mask = (gt > 100) & (gt < 150)  # Filter data from specific time segment
+    t_section = gt[gyro_mask]
+    p_section = gp[gyro_mask]
+    q_section = gq[gyro_mask]
+    plt.figure("Gyro section")
+    plt.plot(t_section, p_section, label="p")
+    plt.plot(t_section, q_section, label="q")
     plt.xlabel("Time [s]")
-    plt.ylabel("Angle [deg]")
+    plt.ylabel("Rotation [rad/s]")
     plt.grid()
     plt.legend()
 
