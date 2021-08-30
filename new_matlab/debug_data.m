@@ -1,7 +1,7 @@
 clear all
 close all
 
-p = parselog('../flight_logs_ship/80_01_09__01_55_10_SD.data');
+p = parselog('../21_08_19__15_06_55.data');
 ac_data = p.aircrafts.data;
 
 % Get the important time areas
