@@ -2,25 +2,55 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 from parselog import parselog
+from plotting_tools import *
+
+
+@seaborn_style()
+def pretty_plot(filename):
+    ac_data = get_ac_data(filename)
+    plt.figure()
+    plot_commands(ac_data)
+
 
 if __name__ == "__main__":
-    filename = '20_06_02__14_19_30.log'
+    filename = '80_01_06__06_58_24_SD.log'
     log_data = parselog(filename)
 
-    ac_data = log_data.aircrafts[0].data
-    ac_msgs = log_data.msgs
+    ac_data = log_data["aircrafts"][0]["data"]
+    ac_msgs = log_data["msgs"]
     print(ac_data.keys())  # check all logged messages
 
     # Check sub-fields of certain messages
-    print(f"gyro: {ac_data.IMU_GYRO.keys()}")
-    print(f"accel: {ac_data.IMU_ACCEL.keys()}")
-    print(f"gps: {ac_data.GPS.keys()}")
+    print(f"gyro: {ac_data['IMU_GYRO'].keys()}")
+    print(f"accel: {ac_data['IMU_ACCEL'].keys()}")
+    print(f"gps: {ac_data['GPS'].keys()}")
 
-    act_t = ac_data.ACTUATORS.timestamp
-    act_0 = ac_data.ACTUATORS.values[:, 0]
-    act_1 = ac_data.ACTUATORS.values[:, 1]
-    act_2 = ac_data.ACTUATORS.values[:, 2]
-    act_3 = ac_data.ACTUATORS.values[:, 3]
+    # ==== Plot with functions from spin_plot_tools ====
+    # Plot log overviews
+    plot_overview(filename)
+    plot_ins_overview(filename)
+    # plot_energy_overview(filename)
+
+    # Single plot
+    fig = plt.figure("Attitude")
+    plot_attitude(ac_data)
+
+    # Create subplots with data of interest
+    # sharex='all' to zoom in all subplots at the same time
+    fig, axs = plt.subplots(2, 1, sharex='all')
+    plot_accelerometer(ac_data, axs[0])
+    plot_gyro(ac_data, axs[1])
+
+    # Create a pretty plot by adding the seaborn_style() decorator
+    # to any function you create
+    pretty_plot(filename)
+
+    # ========== Plot manually ==============
+    act_t = ac_data["ACTUATORS"]["timestamp"]
+    act_0 = ac_data["ACTUATORS"]["values"][:, 0]
+    act_1 = ac_data["ACTUATORS"]["values"][:, 1]
+    act_2 = ac_data["ACTUATORS"]["values"][:, 2]
+    act_3 = ac_data["ACTUATORS"]["values"][:, 3]
 
     plt.figure("Actuators")
     plt.plot(act_t, act_0, label="channel_0")
@@ -32,7 +62,7 @@ if __name__ == "__main__":
     plt.legend()
 
     # Unpack message fields directly
-    gt, gp, gp_alt, gq, gq_alt, gr, gr_alt = ac_data.IMU_GYRO.values()
+    gt, gp, gp_alt, gq, gq_alt, gr, gr_alt = ac_data["IMU_GYRO"].values()
     plt.figure("Gyro")
     plt.plot(gt, gp, label='p')
     plt.plot(gt, gq, label='q')
@@ -41,38 +71,15 @@ if __name__ == "__main__":
     plt.ylabel("Rotation [rad/s]")
     plt.legend()
 
-    print(ac_msgs.telemetry.GPS.fields.climb.unit)  # Check unit
-    gps_t = ac_data.GPS.timestamp
-    gps_cl = ac_data.GPS.climb * 0.01  # cm/s -> m/s
+    print("GPS climb unit:", ac_msgs["telemetry"]["GPS"]["fields"]["climb"]["unit"])  # Check unit
+    gps_t = ac_data["GPS"]["timestamp"]
+    gps_cl = ac_data["GPS"]["climb"] * 0.01  # cm/s -> m/s
     plt.figure("Climb rate")
     plt.plot(gps_t, gps_cl)
     plt.xlabel("Time [s]")
     plt.ylabel("Climb rate [m/s]")
 
-    att_t = ac_data.ATTITUDE.timestamp
-    # Convert to degrees
-    att_phi = np.rad2deg(ac_data.ATTITUDE.phi)
-    att_theta = np.rad2deg(ac_data.ATTITUDE.theta)
-    att_psi = np.rad2deg(ac_data.ATTITUDE.psi)
-
-    plt.figure("Attitude")
-    plt.subplot(311)
-    plt.plot(att_t, att_phi, label="phi")
-    plt.xlabel("Time [s]")
-    plt.ylabel("Roll [deg]")
-    plt.legend()
-    plt.subplot(312)
-    plt.plot(att_t, att_theta, label="theta")
-    plt.xlabel("Time [s]")
-    plt.ylabel("Pitch [deg]")
-    plt.legend()
-    plt.subplot(313)
-    plt.plot(att_t, att_psi, label='psi')
-    plt.xlabel("Time [s]")
-    plt.ylabel("Yaw [deg]")
-    plt.legend()
-
-    gyro_mask = (gt > 100) & (gt < 150)  # Filter data from specific time segment
+    gyro_mask = (gt > 40) & (gt < 50)  # Filter data from specific time segment
     t_section = gt[gyro_mask]
     p_section = gp[gyro_mask]
     q_section = gq[gyro_mask]
