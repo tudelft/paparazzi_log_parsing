@@ -80,10 +80,12 @@ function c = parse_message(node)
     % Go through the fields (and optional descriptions)
     c.field_names = [];
     c.field_parser = [];
+    c.field_isarray = [];
     field_nodes = node.getElementsByTagName('field');
     for i = 1:field_nodes.getLength
         field = parse_field(field_nodes.item(i-1));
         c.field_parser = [c.field_parser, field2parser(field)];
+        c.field_isarray = [c.field_isarray, fieldisarray(field)];
         c.field_names = [c.field_names, field.name];
         c.fields.(field.name) = field;
     end
@@ -148,4 +150,12 @@ function c = field2parser(field)
         error("Could not parse field type '%s'", field_type)
     end
     c = string(c);
+end
+
+function c = fieldisarray(field)
+    c = false;
+    field_type = lower(string(field.type));
+    if regexp(field_type, "[a-z0-9]+\[[0-9]*\]")
+        c = true;
+    end
 end
