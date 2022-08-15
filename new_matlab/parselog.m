@@ -50,12 +50,19 @@ for iAC = nAC:-1:1 % counting backwards eliminates preallocation
     s.aircrafts(iAC).data = parse_aircraft_data(msgs, uniqueMsg, timestamp(msg_ids), msgName(msg_ids), msgContent(msg_ids));
     
     % Additional info from the log file
-    if got_log
+    if got_log && isfield(l, "aircrafts")
         s.aircrafts(iAC).name = l.aircrafts(ac_id).name;
     end
-    if isfield(s.aircrafts(iAC).data, "AUTOPILOT_VERSION")
-        s.aircrafts(iAC).version = s.aircrafts(iAC).data.AUTOPILOT_VERSION.version(1);
-        s.aircrafts(iAC).version_desc = string(s.aircrafts(iAC).data.AUTOPILOT_VERSION.desc(1));
+    
+    % Additional info from the data
+    ac_data = s.aircrafts(iAC).data;
+    if isfield(ac_data, "AUTOPILOT_VERSION")
+        s.aircrafts(iAC).version = ac_data.AUTOPILOT_VERSION.version(1);
+        s.aircrafts(iAC).version_desc = string(ac_data.AUTOPILOT_VERSION.desc(1));
+    end
+    if isfield(ac_data, "ROTORCRAFT_STATUS")
+        s.aircrafts(iAC).in_flight = ac_data.ROTORCRAFT_STATUS.timestamp(find(diff(int32(ac_data.ROTORCRAFT_STATUS.ap_in_flight)))+1);
+        s.aircrafts(iAC).motors_on = ac_data.ROTORCRAFT_STATUS.timestamp(find(diff(int32(ac_data.ROTORCRAFT_STATUS.ap_motors_on)))+1);
     end
 end
 
@@ -100,8 +107,14 @@ function s = parse_aircraft_data(msgs, uniqueMsg, timestamp, msgName, msgContent
         % Go through all the fields in the messages
         for j = 1:nFields
             field_name = msg_fields(j);
+            field_isarray = msg_info.field_isarray(j);
             values = content{j};
-            s.(msg_name).(field_name) = values;
+            
+            if field_isarray
+                s.(msg_name).(field_name) = split(values, ",");%regexp(values, ',', 'split');
+            else
+                s.(msg_name).(field_name) = values;
+            end
             
             % Parse alternate unit
             field_info = msg_info.fields.(field_name);
