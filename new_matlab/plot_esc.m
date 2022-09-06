@@ -5,7 +5,7 @@ function plot_esc(ac_data, idx)
             idx = unique(ac_data.ESC.motor_id);
         end
             
-        ax1 = subplot(5,1,1);
+        ax1 = subplot(6,1,1);
         for i=1:length(idx)
             m = find(ac_data.ESC.motor_id == idx(i));
             plot(ac_data.ESC.timestamp(m), ac_data.ESC.rpm(m));
@@ -15,7 +15,7 @@ function plot_esc(ac_data, idx)
         xlabel('Time [s]');
         legend(strcat('RPM',string(idx)));
 
-        ax2 = subplot(5,1,2);
+        ax2 = subplot(6,1,2);
         for i=1:length(idx)
             m = find(ac_data.ESC.motor_id == idx(i));
             plot(ac_data.ESC.timestamp(m), ac_data.ESC.motor_volts(m));
@@ -25,7 +25,7 @@ function plot_esc(ac_data, idx)
         xlabel('Time [s]');
         legend(strcat('Volt',string(idx),' [v]'));
 
-        ax3 = subplot(5,1,3);
+        ax3 = subplot(6,1,3);
         for i=1:length(idx)
             m = find(ac_data.ESC.motor_id == idx(i));
             plot(ac_data.ESC.timestamp(m), ac_data.ESC.amps(m));
@@ -35,7 +35,7 @@ function plot_esc(ac_data, idx)
         xlabel('Time [s]');
         legend(strcat('Current',string(idx),' [A]'));
         
-        ax4 = subplot(5,1,4);
+        ax4 = subplot(6,1,4);
         for i=1:length(idx)
             m = find(ac_data.ESC.motor_id == idx(i));
             plot(ac_data.ESC.timestamp(m), ac_data.ESC.power(m));
@@ -45,17 +45,27 @@ function plot_esc(ac_data, idx)
         xlabel('Time [s]');
         legend(strcat('Power',string(idx),' [W]'));
         
-        ax5 = subplot(5,1,5);
+        ax5 = subplot(6,1,5);
         for i=1:length(idx)
             m = find(ac_data.ESC.motor_id == idx(i));
-            plot(ac_data.ESC.timestamp(m), ac_data.ESC.energy(m));
+            plot(ac_data.ESC.timestamp(m), ac_data.ESC.errors(m));
             hold on;
         end
         title('Errors');
         xlabel('Time [s]');
         legend(strcat('ERR',string(idx)));
         
+        ax6 = subplot(6,1,6);
+        for i=1:length(idx)
+            m = find(ac_data.ESC.motor_id == idx(i));
+            plot(ac_data.ESC.timestamp(m), ac_data.ESC.temperature(m));
+            hold on;
+        end
+        title('Temperature');
+        xlabel('Time [s]');
+        legend(strcat('Temp ',string(idx), ' [C]'));
+        
         sgtitle('ESC')
-        linkaxes([ax1,ax2,ax3,ax4,ax5],'x')
+        linkaxes([ax1,ax2,ax3,ax4,ax5,ax6],'x')
     end
 end
