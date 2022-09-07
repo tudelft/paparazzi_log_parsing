@@ -1,5 +1,5 @@
-function plot_eul_zxy(ac_data)    
-    % Plot the accelerometer
+function plot_eul_zxy(ac_data)
+    % Plot the Euler angles
     ax1 = subplot(3,1,1);
     if isfield(ac_data, 'AHRS_REF_QUAT')
         msg = ac_data.AHRS_REF_QUAT;
