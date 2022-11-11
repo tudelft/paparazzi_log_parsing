@@ -21,11 +21,11 @@ function visualize_3d(model_name, ac_data, trange)
     
     % -------------------------------------------------------------------------
     % RESAMPLE
-    % The frame sample time shall be higher than 0.08 seconds to be able to 
+    % The frame sample time shall be higher than 15fps to be able to 
     % update the figure (CPU/GPU constraints)
     dt_data = mean(diff(quat_t));
-    frame_sample_time = max(0.08, dt_data);
-    
+    frame_sample_time = max(1/15, dt_data);
+   
     % Calculate data range
     t_new   = quat_t(1):frame_sample_time*(speedx):quat_t(end);
     dr_start = find(t_new>trange(1),1,'first');

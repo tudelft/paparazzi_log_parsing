@@ -111,7 +111,7 @@ function [] = pprz_3d_animation(...
     % Aircraft transformation group handle
     AV_hg         = hgtransform;
     % controls_deflection_deg transformation group handles
-    if isfield(Model3D, 'Control') && length(Model3D.Control) > 0
+    if isfield(Model3D, 'Control') && ~isempty(Model3D.Control)
         CONT_hg       = zeros(1,length(Model3D.Control));
         for i=1:length(Model3D.Control)
             if Model3D.Control(i).parent_id == 0
@@ -145,7 +145,7 @@ function [] = pprz_3d_animation(...
             'Parent',            AV_hg, ...
             'LineSmoothing', 'on');
     end
-    if isfield(Model3D, 'Control') && length(Model3D.Control) > 0
+    if isfield(Model3D, 'Control') && ~isempty(Model3D.Control)
         CONT = zeros(1, (length(Model3D.Control)));
         % Plot controls_deflection_deg
         for i=1:length(Model3D.Control)
@@ -154,8 +154,13 @@ function [] = pprz_3d_animation(...
                 'EdgeColor',        'none',        ...
                 'FaceLighting',     'gouraud',     ...
                 'AmbientStrength',  0.15,          ...
-                'LineSmoothing', 'on',...
+                'LineSmoothing', 'on',             ...
+                'FaceAlpha', 0.4,                  ...
                 'Parent',           CONT_hg(i));
+            
+            if any(Model3D.Control(i).rot_vect)
+                set(CONT(i), 'FaceAlpha', 0.8);
+            end
         end
     end
     % Fixing the axes scaling and setting a nice view angle
@@ -307,7 +312,7 @@ function [] = pprz_3d_animation(...
         set(AV_hg, 'Matrix',M1)
 
         % Control surface rotations
-        if ~isempty(actuators) && isfield(Model3D, 'Control') && length(Model3D.Control) > 0
+        if ~isempty(actuators) && isfield(Model3D, 'Control') && ~isempty(Model3D.Control)
             for j=1:length(Model3D.Control)
                 act_val = actuators(i, Model3D.Control(j).index);
                 act_min = Model3D.Control(j).max_deflection(3);
@@ -328,11 +333,9 @@ function [] = pprz_3d_animation(...
                     M3 = makehgtform('translate', Model3D.Control(j).rot_point);  % bank_deg
                     set(CONT_hg(j), 'Matrix', M3 * M2 * M1);
                     set(CONT(j), 'FaceColor', [max(-cont_val, 0) max(cont_val, 0) 0.2]);
-                    set(CONT(j), 'FaceAlpha', 0.8);
 
                 else
                     set(CONT(j), 'FaceColor', [max(-cont_val, 0) max(cont_val, 0) 0.2]);
-                    set(CONT(j), 'FaceAlpha', 0.4);
                 end
             end
         end
