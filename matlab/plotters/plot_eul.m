@@ -1,6 +1,10 @@
-function plot_eul_zxy(ac_data)
-    if isfield(ac_data, 'AHRS_REF_QUAT')
+function plot_eul_zxy(ac_data, order)
+    if ~isfield(ac_data, 'AHRS_REF_QUAT')
         return
+    end
+
+    if ~exist('order','var')
+        order = 'ZYX';
     end
     
     % Plot the Euler angles
@@ -12,8 +16,15 @@ function plot_eul_zxy(ac_data)
     quat = quat(irefquat_t,:);
     refquat = refquat(irefquat_t,:);
 
-    [psi, phi, theta] = quat2angle(quat,'ZXY');
-    [refpsi, refphi, reftheta] = quat2angle(refquat,'ZXY');
+    if strcmp(order,'ZXY')
+        [psi, phi, theta] = quat2angle(quat,order);
+        [refpsi, refphi, reftheta] = quat2angle(refquat,order);
+    elseif strcmp(order,'ZYX')
+        [psi, theta, phi] = quat2angle(quat,order);
+        [refpsi, reftheta, refphi] = quat2angle(refquat,order);
+    else
+        disp('Rotation order not available')
+    end
 
     figure;
     ax1 = subplot(3,1,1);
@@ -36,6 +47,6 @@ function plot_eul_zxy(ac_data)
     plot(refquat_t,rad2deg(psi),refquat_t,rad2deg(refpsi));
     title('psi');xlabel('time(s)');ylabel('psi (deg)'); legend('psi','ref')
 
-    sgtitle('Euler ZXY order')
+    sgtitle(['Euler ', order, ' order'])
     linkaxes([ax1,ax2,ax3],'x')
 end

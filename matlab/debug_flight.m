@@ -53,3 +53,16 @@ plot_energy(ac_data, p.aircrafts.motors_on);
 %% Plot the Rotorcraft CMD
 figure(11)
 plot_rotorcraft_cmd(ac_data, p.aircrafts.motors_on);
+
+%% Plot the desired and measured Euler angles
+figure(12)
+plot_eul(ac_data,'ZYX') % choose between ZYX or ZXY
+
+%% Close empty figures
+
+fig_array = get(0, 'Children');
+for i = 1 : numel(fig_array)
+   if isempty(get(fig_array(i), 'Children'))
+       close(fig_array(i));
+   end
+end
