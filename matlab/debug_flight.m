@@ -58,6 +58,10 @@ plot_rotorcraft_cmd(ac_data, p.aircrafts.motors_on);
 figure(12)
 plot_eul(ac_data,'ZYX') % choose between ZYX or ZXY
 
+%% Plot airspeed
+figure(13)
+plot_airspeed(ac_data)
+
 %% Close empty figures
 
 fig_array = get(0, 'Children');
