@@ -11,8 +11,11 @@ function plot_imu_fft(ac_data, idx, bg, nd)
             end
 
             for i = 1:length(accel_ids)
-                accel_idx = find(ac_data.IMU_ACCEL.id == accel_ids(i) & ac_data.IMU_ACCEL.timestamp > bg & ac_data.IMU_ACCEL.timestamp < nd);
-
+                if exist('bg','var') && exist('nd','var')
+                    accel_idx = find(ac_data.IMU_ACCEL.id == accel_ids(i) & ac_data.IMU_ACCEL.timestamp > bg & ac_data.IMU_ACCEL.timestamp < nd);
+                else
+                    accel_idx = find(ac_data.IMU_ACCEL.id == accel_ids(i));
+                end
                 t = ac_data.IMU_ACCEL.timestamp(accel_idx);
                 x = ac_data.IMU_ACCEL.ax(accel_idx);
                 y = ac_data.IMU_ACCEL.ay(accel_idx);
@@ -45,8 +48,6 @@ function plot_imu_fft(ac_data, idx, bg, nd)
                     clear P1 P2
                 end
             end
-        else
-%             plot(ac_data.IMU_ACCEL_SCALED.timestamp, [ac_data.IMU_ACCEL_SCALED.ax_alt, ac_data.IMU_ACCEL_SCALED.ay_alt, ac_data.IMU_ACCEL_SCALED.az_alt]);
         end
         title('Accelerometer');
         xlabel("Frequency [Hz]")
@@ -65,23 +66,15 @@ function plot_imu_fft(ac_data, idx, bg, nd)
             end
 
             for i = 1:length(accel_ids)
-                gyro_idx = find(ac_data.IMU_GYRO.id == gyro_ids(i) & ac_data.IMU_GYRO.timestamp > bg & ac_data.IMU_GYRO.timestamp < nd);
-
+                if exist('bg','var') && exist('nd','var')
+                    gyro_idx = find(ac_data.IMU_GYRO.id == gyro_ids(i) & ac_data.IMU_GYRO.timestamp > bg & ac_data.IMU_GYRO.timestamp < nd);
+                else
+                    gyro_idx = find(ac_data.IMU_GYRO.id == gyro_ids(i));
+                end
                 t = ac_data.IMU_GYRO.timestamp(gyro_idx);
                 x = ac_data.IMU_GYRO.gp(gyro_idx);
                 y = ac_data.IMU_GYRO.gq(gyro_idx);
                 z = ac_data.IMU_GYRO.gr(gyro_idx);
-
-%                 tmin = 300;
-%                 tmax = 550;
-% 
-%                 [~,idmin] = min(abs(t-tmin));
-%                 [~,idmax] = min(abs(t-tmax));
-% 
-%                 t = t(idmin:idmax);
-%                 x = x(idmin:idmax);
-%                 y = y(idmin:idmax);
-%                 z = z(idmin:idmax);
 
                 dt = mean(diff(t));
                 Fs = 1/dt;
@@ -110,8 +103,6 @@ function plot_imu_fft(ac_data, idx, bg, nd)
                     clear P1 P2
                 end
             end
-        else
-%             plot(ac_data.IMU_GYRO_SCALED.timestamp, [ac_data.IMU_GYRO_SCALED.gp_alt, ac_data.IMU_GYRO_SCALED.gq_alt, ac_data.IMU_GYRO_SCALED.gr_alt]);
         end
         title('Gyrometer');
         xlabel("Frequency [Hz]")

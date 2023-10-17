@@ -7,7 +7,7 @@ addpath('plotters/');
 addpath('tools/');
 
 % Parse the log
-p = parselog('/Volumes/TU Delft/staff-umbrella/Navy/flight_logs/2022_09_08_repmus/Nederdrone7/22_09_08__13_11_50_SD.data');
+p = parselog('/Users/freekvantienen/Work/Logs/VM/23_10_16__14_00_00_SD.data');
 ac_data = p.aircrafts.data;
 
 %% Plot the Rotorcraft Status
@@ -62,8 +62,22 @@ plot_eul(ac_data,'ZYX') % choose between ZYX or ZXY
 figure(13)
 plot_airspeed(ac_data)
 
-%% Close empty figures
+%% Plot esc
+figure(14)
+plot_esc(ac_data)
 
+%% Plot IMU FFT
+figure(15)
+plot_imu_fft(ac_data, 21, 214, 224) % Zero rotation
+
+figure(16)
+plot_imu_fft(ac_data, 21, 273, 280) % Far rotation
+
+%% Plot IMU
+figure(17)
+plot_imu(ac_data, 20)
+
+%% Close empty figures
 fig_array = get(0, 'Children');
 for i = 1 : numel(fig_array)
    if isempty(get(fig_array(i), 'Children'))

@@ -1,5 +1,5 @@
 function plot_rotorcraft_status(ac_data)
-    if isfield(ac_data, 'ROTORCRAFT_STATUS')
+    if ~isfield(ac_data, 'ROTORCRAFT_STATUS')
         return
     end
     
