@@ -1,9 +1,13 @@
-function plot_imu_scaled(ac_data)    
+function plot_imu_scaled(ac_data, idx)    
     % Plot the accelerometer
     ax1 = subplot(3,1,1);
     if isfield(ac_data, 'IMU_ACCEL_SCALED')
         if isfield(ac_data.IMU_ACCEL_SCALED, 'id')
             accel_ids = unique(ac_data.IMU_ACCEL_SCALED.id);
+
+            if exist('idx','var')
+                accel_ids = idx;
+            end
 
             for i = 1:length(accel_ids)
                 accel_idx = find(ac_data.IMU_ACCEL_SCALED.id == accel_ids(i));
@@ -25,7 +29,11 @@ function plot_imu_scaled(ac_data)
         if isfield(ac_data.IMU_GYRO_SCALED, 'id')
             gyro_ids = unique(ac_data.IMU_GYRO_SCALED.id);
 
-            for i = 1:length(accel_ids)
+            if exist('idx','var')
+                gyro_ids = idx;
+            end
+
+            for i = 1:length(gyro_ids)
                 gyro_idx = find(ac_data.IMU_GYRO_SCALED.id == gyro_ids(i));
                 plot(ac_data.IMU_GYRO_SCALED.timestamp(gyro_idx), [ac_data.IMU_GYRO_SCALED.gp_alt(gyro_idx), ac_data.IMU_GYRO_SCALED.gq_alt(gyro_idx), ac_data.IMU_GYRO_SCALED.gr_alt(gyro_idx)]);
                 hold on
