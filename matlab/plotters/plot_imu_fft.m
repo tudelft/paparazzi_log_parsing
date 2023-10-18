@@ -44,14 +44,14 @@ function plot_imu_fft(ac_data, idx, bg, nd)
                     P1 = P2(1:L/2+1);
                     P1(2:end-1) = 2*P1(2:end-1);
 
-                    semilogy(f,log(P1))
+                    semilogy(f,20*log10(P1))
                     clear P1 P2
                 end
             end
         end
         title('Accelerometer');
         xlabel("Frequency [Hz]")
-        ylabel("log|P1(f)|")
+        ylabel("20*log10|P1(f)|")
         legend('x', 'y', 'z');
     end
 
@@ -99,14 +99,14 @@ function plot_imu_fft(ac_data, idx, bg, nd)
                     P1 = P2(1:L/2+1);
                     P1(2:end-1) = 2*P1(2:end-1);
 
-                    semilogy(f,log(P1))
+                    semilogy(f,20*log10(P1))
                     clear P1 P2
                 end
             end
         end
         title('Gyrometer');
         xlabel("Frequency [Hz]")
-        ylabel("log|P1(f)|")
+        ylabel("20*log10|P1(f)|")
         legend('p', 'q', 'r');
     end
 
