@@ -12,11 +12,11 @@ class CtrlEffEst(object):
         '''
         Initialization function of control effectiveness estimator
         '''
-        self.data_indi = parsed_log.get_message_dict('STAB_ATTITUDE_FULL_INDI')
+        self.data_indi = parsed_log.get_message_dict('STAB_ATTITUDE')
         self.data_actuators = parsed_log.get_message_dict('ACTUATORS')
         self.data_doublet = parsed_log.get_message_dict('DOUBLET')
         self.data_airdata = parsed_log.get_message_dict('AIR_DATA')
-        # self.data_wing_rot = parsed_log.get_message_dict('ROTATING_WING_STATE')
+        self.data_wing_rot = parsed_log.get_message_dict('ROTATING_WING_STATE')
 
         self.N_act = len(actuator_indices)
         self.actuator_indices = actuator_indices
@@ -42,14 +42,14 @@ class CtrlEffEst(object):
         t_act = np.array(self.data_actuators['t'])
         t_doublet = np.array(self.data_doublet['t'])
         t_airdata = np.array(self.data_airdata['t'])
-        # t_rot_wing_controller = np.array(self.data_wing_rot['t'])
+        t_rot_wing_controller = np.array(self.data_wing_rot['t'])
 
         doublet_activated = np.array(self.data_doublet['active']['data'])
         doublet_axis = np.array(self.data_doublet['axis']['data'])
         pwm_original = np.array(self.data_actuators['values']['data'])[:,self.actuator_indices]
         pwm_sliced = []
         airspeed = np.array(self.data_airdata['airspeed']['data'])
-        # wing_rot = np.deg2rad(np.array(self.data_wing_rot['wing_angle_deg']['data']))
+        wing_rot = np.deg2rad(np.array(self.data_wing_rot['wing_angle_deg']['data']))
         # 2nd order bUtterworth noise filter
         b, a = sp.signal.butter(2, 0.1/(50/2), 'low', analog=False)
         airspeed_filtered = sp.signal.lfilter(b, a, airspeed)
@@ -120,7 +120,6 @@ class CtrlEffEst(object):
         # Check timespans when doublets activated
         change_doublet_idx = np.where(doublet_activated[:-1] != doublet_activated[1:])[0]
         t_change_doublet = t_doublet[change_doublet_idx]
-        #print(len(t_change_doublet))
 
         doublet_actuator = []
         eff_roll = []
@@ -129,7 +128,8 @@ class CtrlEffEst(object):
         eff_acc_x = []
         eff_acc_z = []
         airspeed_doublet = []
-        # wing_rot_doublet = []
+        wing_rot_doublet = []
+        cmd_af_doublet = []
 
         # Perform analysis
         for i in range(0, len(t_change_doublet), 2):
@@ -160,15 +160,23 @@ class CtrlEffEst(object):
             avg_airspeed = sum(airspeed_filtered_sliced) / len(airspeed_filtered_sliced)
             airspeed_doublet.append(avg_airspeed)
 
-            # start_idx_wing_rot = np.argmax(t_rot_wing_controller > t_start) - 1
-            # end_idx_wing_rot = np.argmax(t_rot_wing_controller > (t_end + 2.))
-            # wing_rot_sliced = wing_rot[start_idx_wing_rot:end_idx_wing_rot]
-            # avg_wing_angle = sum(wing_rot_sliced) / len(wing_rot_sliced)
-            # wing_rot_doublet.append(avg_wing_angle)
+            start_idx_wing_rot = np.argmax(t_rot_wing_controller > t_start) - 1
+            end_idx_wing_rot = np.argmax(t_rot_wing_controller > (t_end + 2.))
+            wing_rot_sliced = wing_rot[start_idx_wing_rot:end_idx_wing_rot]
+            avg_wing_angle = sum(wing_rot_sliced) / len(wing_rot_sliced)
+            wing_rot_doublet.append(avg_wing_angle)
+
+            start_idx_cmd_af = np.argmax(t_act > t_start) - 1
+            end_idx_cmd_af = np.argmax(t_act > (t_end + 2.))
+            cmd_af_sliced = cmd_af[start_idx_cmd_af:end_idx_cmd_af]
+            cmd_af_avg = sum(cmd_af) / len(cmd_af)
+            cmd_af_doublet.append(cmd_af_doublet)
+
+
 
         # export data to csv file
         # dict_data = {'idx': doublet_actuator, 'airspeed': airspeed_doublet, 'wing_angle' : wing_rot_doublet, 'roll_eff': eff_roll, 'pitch_eff': eff_pitch, 'yaw_eff': eff_yaw}
-        dict_data = {'idx': doublet_actuator, 'airspeed': airspeed_doublet, 'roll_eff': eff_roll, 'pitch_eff': eff_pitch, 'yaw_eff': eff_yaw}
+        dict_data = {'idx': doublet_actuator, 'airspeed': airspeed_doublet, 'wing_angle': wing_rot_doublet, 'cmd_af' : cmd_af_doublet, 'roll_eff': eff_roll, 'pitch_eff': eff_pitch, 'yaw_eff': eff_yaw}
         df = pd.DataFrame(dict_data)
         df.to_csv('test_doublet.csv')  
 
