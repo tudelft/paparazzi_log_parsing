@@ -3,11 +3,8 @@ from os import path, getenv
 
 import matplotlib.pyplot as plt
 
-# if PAPARAZZI_HOME not set, then assume the tree containing this
-# file is a reasonable substitute
-PPRZ_HOME = getenv("PAPARAZZI_HOME", path.normpath(path.join(path.dirname(path.abspath(__file__)), '../../../../')))
-sys.path.append(PPRZ_HOME + "/sw/logalizer/python/log_parser")
-sys.path.append(PPRZ_HOME + "/sw/logalizer/python/ctrl_effectiveness_estimator_doublet")
+sys.path.append("../log_parser")
+sys.path.append("../ctrl_effectiveness_estimator_doublet")
 
 from log_parser import LogParser
 from ctrl_eff_est import CtrlEffEst
@@ -21,6 +18,13 @@ eff_estimator = CtrlEffEst( parsed_log,\
                             [[-5000,8191], [-5000,8191], [-5000,8191], [-5000,8191], [-6500, 6500], [-8191, 4900], [-7000, 5000], [-7000,5000], [-8191,8191]],\
                             [0,0,0,0,1,0,1,1,0],\
                             [0,1,2,3,6,5,8,9])
+
+# eff_estimator = CtrlEffEst( parsed_log,\
+#                             [0.024,0.024,0.024,0.024],\
+#                             2.0,\
+#                             [[-5000,8191], [-5000,8191], [-5000,8191], [-5000,8191]],\
+#                             [0,0,0,0],\
+#                             [0,1,2,3])
 
 # V3b config
 # eff_estimator = CtrlEffEst( parsed_log,\
