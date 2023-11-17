@@ -66,12 +66,12 @@ class CtrlEffEst(object):
         pwm_range = max_pwm_array - min_pwm_array
         cmd = (pwm - min_pwm_array) / pwm_range * 9600.
 
-        rate_p = np.array(self.data_indi['angular_rate_p']['data'])/180.*np.pi # rad/s
-        rate_q = np.array(self.data_indi['angular_rate_q']['data'])/180.*np.pi # rad/s
-        rate_r = np.array(self.data_indi['angular_rate_r']['data'])/180.*np.pi # rad/s
+        rate_p = np.array(self.data_indi['angular_rate_p']['data'])#/180.*np.pi # rad/s
+        rate_q = np.array(self.data_indi['angular_rate_q']['data'])#/180.*np.pi # rad/s
+        rate_r = np.array(self.data_indi['angular_rate_r']['data'])#/180.*np.pi # rad/s
         rates = np.array([rate_p,rate_q,rate_r]).T
-        acc_x = self.data_indi['body_accel_x']['data'] # m/s²
-        acc_z = self.data_indi['body_accel_z']['data'] # m/s²
+        # acc_x = self.data_indi['body_accel_x']['data'] # m/s²
+        # acc_z = self.data_indi['body_accel_z']['data'] # m/s²
 
         # Apply actuator dynamics to commands
         for i in range(self.N_act):
@@ -91,16 +91,16 @@ class CtrlEffEst(object):
         # Filter signals and cmds
         #zi = np.array([sp.signal.lfilter_zi(b, a)]).T
         rates_f = sp.signal.lfilter(b, a, rates, axis=0)
-        acc_x_f = sp.signal.lfilter(b, a, acc_x, axis=0)
-        acc_z_f = sp.signal.lfilter(b, a, acc_z, axis=0)
+        # acc_x_f = sp.signal.lfilter(b, a, acc_x, axis=0)
+        # acc_z_f = sp.signal.lfilter(b, a, acc_z, axis=0)
         cmd_af = sp.signal.lfilter(b, a, cmd_a, axis=0)
 
         # Apply finite difference methods to get anfular accelerarions
         d_rates = (np.vstack((np.zeros((1,3)), np.diff(rates_f,1,axis=0)))*self.fs)
         dd_rates = (np.vstack((np.zeros((1,3)), np.diff(d_rates,1,axis=0)))*self.fs)
 
-        dd_rates = np.vstack((dd_rates.T,acc_x_f)).T
-        dd_rates = np.vstack((dd_rates.T,acc_z_f)).T
+        # dd_rates = np.vstack((dd_rates.T,acc_x_f)).T
+        # dd_rates = np.vstack((dd_rates.T,acc_z_f)).T
 
         d_cmd= (np.vstack((np.zeros((1,self.N_act)), np.diff(cmd_af,1,axis=0)))*self.fs)
         dd_cmd = (np.vstack((np.zeros((1,self.N_act)), np.diff(d_cmd,1,axis=0)))*self.fs)
@@ -125,8 +125,8 @@ class CtrlEffEst(object):
         eff_roll = []
         eff_pitch = []
         eff_yaw = []
-        eff_acc_x = []
-        eff_acc_z = []
+        # eff_acc_x = []
+        # eff_acc_z = []
         airspeed_doublet = []
         wing_rot_doublet = []
         cmd_af_doublet = []
@@ -151,8 +151,8 @@ class CtrlEffEst(object):
             eff_roll.append(g1_matrix[doublet_actuator[-1]][0])
             eff_pitch.append(g1_matrix[doublet_actuator[-1]][1])
             eff_yaw.append(g1_matrix[doublet_actuator[-1]][2])
-            eff_acc_x.append(g1_matrix[doublet_actuator[-1]][3])
-            eff_acc_z.append(g1_matrix[doublet_actuator[-1]][4])
+            # eff_acc_x.append(g1_matrix[doublet_actuator[-1]][3])
+            # eff_acc_z.append(g1_matrix[doublet_actuator[-1]][4])
 
             start_idx_airspeed = np.argmax(t_airdata> t_start) - 1
             end_idx_airspeed = np.argmax(t_airdata > (t_end + 2.))
@@ -170,7 +170,7 @@ class CtrlEffEst(object):
             end_idx_cmd_af = np.argmax(t_act > (t_end + 2.))
             cmd_af_sliced = cmd_af[start_idx_cmd_af:end_idx_cmd_af]
             cmd_af_avg = sum(cmd_af) / len(cmd_af)
-            cmd_af_doublet.append(cmd_af_doublet)
+            cmd_af_doublet.append(cmd_af_avg)
 
 
 
@@ -226,17 +226,17 @@ class CtrlEffEst(object):
             plt.scatter(idx6, np.array(eff_roll)[idx6], label="push")
             plt.legend()
 
-            plt.figure('acc_z')
-            plt.xlabel('doublet id')
-            plt.ylabel('pprz_eff')
-            #plt.ylim(-0.001, 0.001)
-            plt.grid()
-            plt.scatter(idx0, np.array(eff_acc_z)[idx0], label="front")
-            plt.scatter(idx1, np.array(eff_acc_z)[idx1], label="right")
-            plt.scatter(idx2, np.array(eff_acc_z)[idx2], label="back")
-            plt.scatter(idx3, np.array(eff_acc_z)[idx3], label="left")
-            plt.scatter(idx6, np.array(eff_acc_z)[idx6], label="push")
-            plt.legend()
+            # plt.figure('acc_z')
+            # plt.xlabel('doublet id')
+            # plt.ylabel('pprz_eff')
+            # #plt.ylim(-0.001, 0.001)
+            # plt.grid()
+            # plt.scatter(idx0, np.array(eff_acc_z)[idx0], label="front")
+            # plt.scatter(idx1, np.array(eff_acc_z)[idx1], label="right")
+            # plt.scatter(idx2, np.array(eff_acc_z)[idx2], label="back")
+            # plt.scatter(idx3, np.array(eff_acc_z)[idx3], label="left")
+            # plt.scatter(idx6, np.array(eff_acc_z)[idx6], label="push")
+            # plt.legend()
 
             # Fit roll effectiveness on airspeed
             A_roll_as_idx0 = np.append([np.array(airspeed_doublet)[idx0]], [np.ones(len(np.array(airspeed_doublet)[idx0]))], axis = 0).T
