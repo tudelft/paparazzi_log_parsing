@@ -169,7 +169,7 @@ class CtrlEffEst(object):
             start_idx_cmd_af = np.argmax(t_act > t_start) - 1
             end_idx_cmd_af = np.argmax(t_act > (t_end + 2.))
             cmd_af_sliced = cmd_af[start_idx_cmd_af:end_idx_cmd_af]
-            cmd_af_avg = sum(cmd_af) / len(cmd_af)
+            cmd_af_avg = sum(cmd_af_sliced) / len(cmd_af_sliced)
             cmd_af_doublet.append(cmd_af_avg)
 
 
