@@ -11,6 +11,8 @@ def fuse_doublet_dfs(df_list):
     roll_eff = []
     pitch_eff = []
     yaw_eff = []
+
+    
     if len(df_list) > 1:
         for i in range(len(df_list)):
             doublet_actuator = np.append(doublet_actuator, df_list[i]['idx'].tolist())
@@ -24,6 +26,16 @@ def fuse_doublet_dfs(df_list):
         roll_eff = np.append(roll_eff, df_list[0]['roll_eff'].tolist())
         pitch_eff = np.append(pitch_eff, df_list[0]['pitch_eff'].tolist())
         yaw_eff = np.append(yaw_eff, df_list[0]['yaw_eff'].tolist())
+
+    data = cmd_af
+    # Remove unwanted characters and split the string into individual numbers
+    cleaned_data = [row.replace('[', '').replace(']', '').split() for row in data]
+
+    # Convert strings to floats in the 2D list
+    float_data = [[float(entry) for entry in row] for row in cleaned_data]
+
+    # Convert the 2D list to a NumPy array
+    numpy_array = np.array(float_data)
 
     return np.array(doublet_actuator), np.array(wing_angle), np.array(roll_eff), np.array(pitch_eff)
 
