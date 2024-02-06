@@ -111,7 +111,12 @@ function s = parse_aircraft_data(msgs, uniqueMsg, timestamp, msgName, msgContent
             values = content{j};
             
             if field_isarray
-                s.(msg_name).(field_name) = split(values, ",");%regexp(values, ',', 'split');
+                try
+                    s.(msg_name).(field_name) = split(values, ",");%regexp(values, ',', 'split');
+                catch
+                    disp("Message " + msg_name + " has unequal data length lines, not putting in array.")
+                    s.(msg_name).(field_name) = values;
+                end
             else
                 s.(msg_name).(field_name) = values;
             end

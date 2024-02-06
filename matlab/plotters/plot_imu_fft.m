@@ -49,7 +49,7 @@ function plot_imu_fft(ac_data, idx, bg, nd)
                 end
             end
         end
-        title('Accelerometer');
+        title(['Accelerometer id '  num2str(accel_idx.')]);
         xlabel("Frequency [Hz]")
         ylabel("20*log10|P1(f)|")
         legend('x', 'y', 'z');
@@ -104,7 +104,7 @@ function plot_imu_fft(ac_data, idx, bg, nd)
                 end
             end
         end
-        title('Gyrometer');
+        title(['Gyrometer id ' num2str(gyro_idx.')]);
         xlabel("Frequency [Hz]")
         ylabel("20*log10|P1(f)|")
         legend('p', 'q', 'r');
