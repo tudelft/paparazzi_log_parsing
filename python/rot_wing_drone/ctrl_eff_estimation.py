@@ -9,7 +9,7 @@ sys.path.append("../ctrl_effectiveness_estimator")
 from log_parser import LogParser
 from ctrl_eff_est import CtrlEffEst
 
-parsed_log = LogParser(680,700)
+parsed_log = LogParser(680,712)
 
 
 
@@ -27,17 +27,23 @@ parsed_log = LogParser(680,700)
 #                             [0,1,2,3])
 
 # V3e config
-# eff_estimator = CtrlEffEst( parsed_log,\
-#                             [0.02,0.02,0.02,0.02, 0.1, 0.1, 0.1, 0.1, 0.047],\
-#                             2.0,\
-#                             [0,0,0,0,1,0,1,1,0],\
-#                             [0,1,2,3,4,5,6,7,8])
-
 eff_estimator = CtrlEffEst( parsed_log,\
                             [0.02,0.02,0.02,0.02, 0.1, 0.1, 0.1, 0.1, 0.047],\
                             2.0,\
                             [0,0,0,0,1,0,1,1,0],\
                             [0,1,2,3,4,5,6,7,8])
+
+# eff_estimator = CtrlEffEst( parsed_log,\
+#                             [0.02,0.02],\
+#                             2.0,\
+#                             [0,0],\
+#                             [1,3])
+
+# eff_estimator = CtrlEffEst( parsed_log,\
+#                             [0.02,0.02,0.02,0.02, 0.1, 0.1, 0.1, 0.1, 0.047],\
+#                             2.0,\
+#                             [0,0,0,0,1,0,1,1,0],\
+#                             [0,1,2,3,4,5,6,7,8])
 
 # eff_estimator = CtrlEffEst( parsed_log,\
 #                             [0.03,0.025,0.03,0.025,0.1,0.1,0.1,0.1],\

@@ -33,9 +33,9 @@ class CtrlEffEst(object):
         cmd = np.array(self.data['u']['data'])
         # Convert pwm to command
 
-        rate_p = np.array(self.data['angular_rate_p']['data'])/180.*np.pi # rad/s
-        rate_q = np.array(self.data['angular_rate_q']['data'])/180.*np.pi # rad/s
-        rate_r = np.array(self.data['angular_rate_r']['data'])/180.*np.pi # rad/s
+        rate_p = np.array(self.data['angular_rate_p']['data'])#/180.*np.pi # rad/s
+        rate_q = np.array(self.data['angular_rate_q']['data'])#/180.*np.pi # rad/s
+        rate_r = np.array(self.data['angular_rate_r']['data'])#/180.*np.pi # rad/s
         rates = np.array([rate_p,rate_q,rate_r]).T
 
         # Apply actuator dynamics to commands
@@ -79,8 +79,9 @@ class CtrlEffEst(object):
 
         # Remove first 2 seconds to align filters
         A = A[int(self.fs):-1]
+        print(A)
         dd_rates_sliced = dd_rates[int(self.fs):-1]
-
+    
         # Perform LMS to get effectiveness values per actuator per axis
         g1_lstsq = np.linalg.lstsq(A,dd_rates_sliced, rcond=0.5)
         g1_matrix = g1_lstsq[0]
@@ -88,6 +89,20 @@ class CtrlEffEst(object):
         print('g1_matrix: ', g1_matrix)
         print('g1_residuals: ', g1_residuals)
         #g1_matrix = [[0.00072, 0.00095, 0.], [-0.00072, 0.00095, 0.], [0.00145, -0.001425, 0.], [-0.00145, -0.001425,0.]]
+
+        # Yaw effectiveness
+        A = np.vstack([d_cmd[:,4], rates_f[:,2]]).T
+        print(d_cmd[:,4])
+        print(rates_f[:,2])
+
+        print(A)
+
+        y = dd_rates[:,2]
+
+        yaw_eff = np.linalg.lstsq(A, y, rcond=0.5)
+
+        print("yaw_eff = " + str(yaw_eff))
+        
 
         if plot:
             plt.figure('roll d_cmd*g1')

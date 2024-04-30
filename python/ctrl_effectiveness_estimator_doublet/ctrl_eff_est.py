@@ -25,7 +25,7 @@ class CtrlEffEst(object):
         self.first_order_dyn_list = first_order_dyn_list # First order actuator dynamics constant
         self.second_order_filter_cutoff= second_order_filter_cutoff # Butterworth second order cutoff frequency [Hz]
         self.min_max_pwm_list = min_max_pwm_list # 2d list with lower and upper bound pwm signals
-        self.is_servo = is_servo # bool list giving if actuator is servo (aerodynamic surface control)
+        self.is_servo = np.array(is_servo) # bool list giving if actuator is servo (aerodynamic surface control)
         self.fs = fs # Sample frequency [Hz]
         self.dt = 1./fs # Sample time [s]
 
@@ -64,7 +64,7 @@ class CtrlEffEst(object):
         min_pwm_array = np.array(self.min_max_pwm_list).T[0]
         max_pwm_array = np.array(self.min_max_pwm_list).T[1]
         pwm_range = max_pwm_array - min_pwm_array
-        cmd = (pwm - min_pwm_array) / pwm_range * 9600.
+        cmd = (pwm - min_pwm_array) / pwm_range * (self.is_servo + 1.) * 9600. - 9600. * self.is_servo
 
         rate_p = np.array(self.data_indi['angular_rate_p']['data'])#/180.*np.pi # rad/s
         rate_q = np.array(self.data_indi['angular_rate_q']['data'])#/180.*np.pi # rad/s
@@ -186,6 +186,7 @@ class CtrlEffEst(object):
             idx1 = np.where(np.array(doublet_actuator) == 1)[0]
             idx2 = np.where(np.array(doublet_actuator) == 2)[0]
             idx3 = np.where(np.array(doublet_actuator) == 3)[0]
+            idx4 = np.where(np.array(doublet_actuator) == 4)[0]
             idx5 = np.where(np.array(doublet_actuator) == 5)[0]
             idx6 = np.where(np.array(doublet_actuator) == 6)[0]
 
@@ -223,7 +224,7 @@ class CtrlEffEst(object):
             plt.scatter(idx1, np.array(eff_yaw)[idx1], label="right")
             plt.scatter(idx2, np.array(eff_yaw)[idx2], label="back")
             plt.scatter(idx3, np.array(eff_yaw)[idx3], label="left")
-            plt.scatter(idx6, np.array(eff_roll)[idx6], label="push")
+            plt.scatter(idx4, np.array(eff_yaw)[idx4], label="yaw")
             plt.legend()
 
             # plt.figure('acc_z')
@@ -272,6 +273,16 @@ class CtrlEffEst(object):
             plt.scatter(np.array(airspeed_doublet)[idx2], np.array(eff_pitch)[idx2], label="back")
             plt.scatter(np.array(airspeed_doublet)[idx3], np.array(eff_pitch)[idx3], label="left")
             plt.scatter(np.array(airspeed_doublet)[idx5], np.array(eff_pitch)[idx5], label="elevator")
+            plt.legend()
+            plt.figure('yaw eff vs airspeed')
+            plt.xlabel('airspeed [m/s]')
+            plt.ylabel('pprz effectiveness')
+            plt.grid()
+            plt.scatter(np.array(airspeed_doublet)[idx0], np.array(eff_yaw)[idx0], label="front")
+            plt.scatter(np.array(airspeed_doublet)[idx1], np.array(eff_yaw)[idx1], label="right")
+            plt.scatter(np.array(airspeed_doublet)[idx2], np.array(eff_yaw)[idx2], label="back")
+            plt.scatter(np.array(airspeed_doublet)[idx3], np.array(eff_yaw)[idx3], label="left")
+            plt.scatter(np.array(airspeed_doublet)[idx4], np.array(eff_yaw)[idx4], label="rudder")
             plt.legend()
 
             plt.figure('airspeed')
