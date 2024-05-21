@@ -143,7 +143,7 @@ function c = field2parser(field)
     elseif field_type == "char"
         c = '%c';
     elseif field_type == "char[]" || field_type == "string"
-        c = '%s';
+        c = '%q'; % Quoted text
     elseif regexp(field_type, "[a-z0-9]+\[[0-9]*\]")
         c = '%s';
     else
@@ -155,7 +155,7 @@ end
 function c = fieldisarray(field)
     c = false;
     field_type = lower(string(field.type));
-    if regexp(field_type, "[a-z0-9]+\[[0-9]*\]")
+    if field_type ~= "char[]" && field_type ~= "string" && ~isempty(regexp(field_type, "[a-z0-9]+\[[0-9]*\]"))
         c = true;
     end
 end
