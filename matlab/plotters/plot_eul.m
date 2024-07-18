@@ -26,7 +26,6 @@ function plot_eul_zxy(ac_data, order)
         disp('Rotation order not available')
     end
 
-    figure;
     ax1 = subplot(3,1,1);
     plot(refquat_t,rad2deg(theta),refquat_t,rad2deg(reftheta));
     if exist('vert','var')
