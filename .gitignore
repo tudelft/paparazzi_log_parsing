@@ -8,6 +8,7 @@ __pycache__/
 *.log
 *.data
 *_msgs.xml
+*.asv
 
 # C extensions
 *.so
