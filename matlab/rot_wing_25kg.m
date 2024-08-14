@@ -2,7 +2,7 @@
 
 % trange = [270 283]; % seconds
 % trange = [1150 1170]; % seconds
-trange = [1240 1470]; % seconds
+trange = [1150 1210]; % seconds
 % trange = [1843 1851];
     
 datarange1 = find(ac_data.IMU_GYRO_SCALED.timestamp>trange(1),1,'first')-1;
@@ -162,7 +162,7 @@ title('yaw fit')
 
 %% Thrust effectiveness
 output_thrust = accel_filtd(datarange,3);
-inputs_thrust = [cmd_filtd_mot(datarange,1:4) ones(length(datarange),1)];
+inputs_thrust = [mean(cmd_filtd_mot(datarange,1:4),2) 0*cmd_filt_servo(datarange,7) gyro_filt(datarange,2) ones(length(datarange),1)];
 
 Gthrust = inputs_thrust\output_thrust;
 % unit: m/s^2 per unit pprz_cmd
@@ -170,6 +170,24 @@ figure;
 plot(t(datarange),output_thrust); hold on
 plot(t(datarange),inputs_thrust*Gthrust)
 title('thrust fit')
+
+% compare with PPRZ coefficients: 
+kliftwing = [-0.3358,-0.6156];
+kliftfuselage = -0.05065;
+k_lift_tail = -0.10169;
+sinr2 = sind(90)^2;
+airspeed2 = 25^2;
+m = 23.66;
+
+lift_d_wing = (kliftwing(1) + kliftwing(2) * sinr2) * airspeed2 / m;
+lift_d_fuselage = kliftfuselage * airspeed2 / m;
+lift_d_tail = k_lift_tail * airspeed2 / m;
+
+lift_d = lift_d_wing + lift_d_fuselage + lift_d_tail;
+% Bound(lift_d, -130., 0.);
+% eff_scheduling_rot_wing_lift_d = lift_d;
+
+disp("fit: " + Gthrust(3) + " compared to pprz: " + lift_d)
 
 %% Estimate alpha
 
