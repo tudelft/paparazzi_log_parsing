@@ -2,7 +2,7 @@
 
 % trange = [270 283]; % seconds
 % trange = [1150 1170]; % seconds
-trange = [1150 1210]; % seconds
+trange = [1400 1440]; % seconds
 % trange = [1843 1851];
     
 datarange1 = find(ac_data.IMU_GYRO_SCALED.timestamp>trange(1),1,'first')-1;
@@ -14,7 +14,7 @@ sf = 500; %Hz
 
 %%
 
-use_indi_cmd = false;
+use_indi_cmd = true;
 use_old_act_message = false;
 if(use_indi_cmd)
     cmd = double(string(ac_data.STAB_ATTITUDE.u));
@@ -151,7 +151,7 @@ title('pitch fit')
 % inputs_yaw = [cmd_filtd_servo(datarange,1:4)];
 
 output_yaw = gyro_filtd(datarange,3);
-inputs_yaw = [ones(size(gyro_filtd(datarange,3))) cmd_filt_mot(datarange,1:4) cmd_filt_servo(datarange,5)];
+inputs_yaw = [ones(size(gyro_filtd(datarange,3))) 0*cmd_filt_mot(datarange,1:4) cmd_filt_servo(datarange,5) gyro_filt(datarange,3)];
 
 Gyaw = inputs_yaw\output_yaw;
 % unit: deg/s^2 per unit pprz_cmd
@@ -159,6 +159,21 @@ figure;
 plot(t(datarange),output_yaw); hold on
 plot(t(datarange),inputs_yaw*Gyaw)
 title('yaw fit')
+
+% Compare with PPRZ
+k_rudder = [-72.5,  -0.933, -3.24];
+d_rudder_d_pprz = -0.0018;
+cmd_pusher_scaled = (8478) * 8181 / 9600 / 1000;
+cmd_T_mean_scaled = (0) * 8181 / 9600 / 1000;
+airspeed2 = 25^2;
+cosr = cosd(90);
+Izz = 10.18;
+
+dMzdr = (k_rudder(1) * cmd_pusher_scaled * cmd_T_mean_scaled + k_rudder(2) * cmd_T_mean_scaled * airspeed2 * cosr + k_rudder(3) * airspeed2) / 10000.;
+dMzdpprz = dMzdr * d_rudder_d_pprz;
+eff_z_rudder = dMzdpprz / Izz;
+
+disp("fit: " + Gyaw(6) + " compared to pprz: " + eff_z_rudder + ", which is a factor " + eff_z_rudder/Gyaw(6) + " different.")
 
 %% Thrust effectiveness
 output_thrust = accel_filtd(datarange,3);
@@ -187,7 +202,7 @@ lift_d = lift_d_wing + lift_d_fuselage + lift_d_tail;
 % Bound(lift_d, -130., 0.);
 % eff_scheduling_rot_wing_lift_d = lift_d;
 
-disp("fit: " + Gthrust(3) + " compared to pprz: " + lift_d)
+disp("fit: " + Gthrust(3) + " compared to pprz: " + lift_d + ", which is a factor " + lift_d/Gthrust(3) + " different.")
 
 %% Estimate alpha
 
