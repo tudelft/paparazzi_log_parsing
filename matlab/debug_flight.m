@@ -7,75 +7,80 @@ addpath('plotters/');
 addpath('tools/');
 
 % Parse the log
-p = parselog('/Users/freekvantienen/Work/Logs/VM/23_10_16__14_00_00_SD.data');
+p = parselog('/Users/freekvantienen/Work/Logs/VM/24_08_27__17_43_35_SD.data');
 ac_data = p.aircrafts.data;
 
 %% Plot the Rotorcraft Status
-figure(1);
+figure('Name','Rotorcraft Status');
 plot_rotorcraft_status(ac_data)
 
 %% Plot the rotorcraft fp
-figure(2);
+figure('Name','Rotorcraft FP');
 plot_rotorcraft_fp(ac_data, p.aircrafts.motors_on);
 
 %% Plot the imu scaled
-figure(3);
+figure('Name','IMU Scaled');
 plot_imu_scaled(ac_data);
 
 %% Plot the errors
-figure(4);
+figure('Name','Errors');
 plot_errors(ac_data);
 
 %% Plot hybrid guidance
-figure(5);
+figure('Name','Hybrid Guidance');
 plot_hybrid_guidance(ac_data, p.aircrafts.motors_on);
 
 %% Plot gps data
-figure(6)
+figure('Name','GPS Data');
 plot_gps(ac_data, p.aircrafts.motors_on);
 
 %% Plot the EKF2 data
-figure(7)
+figure('Name','EKF2');
 plot_ekf2(ac_data, p.aircrafts.motors_on);
 
 %% Plot the actuators
-figure(8)
-plot_actuators(ac_data);
+figure('Name','Actuators 1-5');
+plot_actuators(ac_data, [1,2,3,4,5]);
 
 %% Plot the hover loop
-figure(9)
+figure('Name','Hover Loop');
 plot_hover_loop(ac_data, p.aircrafts.motors_on);
 
 %% Plot the energy
-figure(10)
+figure('Name','Energy');
 plot_energy(ac_data, p.aircrafts.motors_on);
 
 %% Plot the Rotorcraft CMD
-figure(11)
+figure('Name','Rotorcraft CMD');
 plot_rotorcraft_cmd(ac_data, p.aircrafts.motors_on);
 
 %% Plot the desired and measured Euler angles
-figure(12)
+figure('Name','Euler ZYX');
 plot_eul(ac_data,'ZYX') % choose between ZYX or ZXY
 
 %% Plot airspeed
-figure(13)
+figure('Name','Airspeed');
 plot_airspeed(ac_data)
 
 %% Plot esc
-figure(14)
-plot_esc(ac_data)
+figure('Name','ESC 12,13,14,3,16');
+plot_esc(ac_data, [12,13,14,3,16])
 
 %% Plot IMU FFT
-figure(15)
-plot_imu_fft(ac_data, 21, 214, 224) % Zero rotation
-
-figure(16)
-plot_imu_fft(ac_data, 21, 273, 280) % Far rotation
+figure('Name','IMU FFT 26');
+plot_imu_fft(ac_data, 26)
 
 %% Plot IMU
-figure(17)
-plot_imu(ac_data, 20)
+figure('Name','IMU 26');
+plot_imu(ac_data, 26)
+
+%% Plot indi rotwing
+figure('Name','INDI Rotwing');
+plot_indi_rotwing(ac_data)
+
+%% Plot rotating wing state
+figure('Name','Rotwing State');
+plot_rotwing_state(ac_data, p.aircrafts.motors_on)
 
 %% Close empty figures
 fig_array = get(0, 'Children');
