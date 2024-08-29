@@ -7,7 +7,7 @@ addpath('plotters/');
 addpath('tools/');
 
 % Parse the log
-p = parselog('/Users/freekvantienen/Work/Logs/VM/24_08_27__17_43_35_SD.data');
+p = parselog('/Users/freekvantienen/Work/Logs/VM/24_08_28__17_03_18_SD.data');
 ac_data = p.aircrafts.data;
 
 %% Plot the Rotorcraft Status
@@ -63,16 +63,22 @@ figure('Name','Airspeed');
 plot_airspeed(ac_data)
 
 %% Plot esc
-figure('Name','ESC 12,13,14,3,16');
-plot_esc(ac_data, [12,13,14,3,16])
+figure('Name','ESC HOVER MAIN 12,13,14,3');
+plot_esc(ac_data, [12,13,14,3])
+
+figure('Name','ESC HOVER BUP 0,1,2,15');
+plot_esc(ac_data, [0,1,2,15])
+
+figure('Name','ESC PUSHER 4,16');
+plot_esc(ac_data, [4,16])
 
 %% Plot IMU FFT
-figure('Name','IMU FFT 26');
-plot_imu_fft(ac_data, 26)
+figure('Name','IMU FFT');
+plot_imu_fft(ac_data)
 
 %% Plot IMU
-figure('Name','IMU 26');
-plot_imu(ac_data, 26)
+figure('Name','IMU');
+plot_imu(ac_data)
 
 %% Plot indi rotwing
 figure('Name','INDI Rotwing');
