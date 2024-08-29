@@ -6,6 +6,14 @@ function plot_esc(ac_data, idx)
     % Plot the ESC message
     if ~exist('idx','var')
         idx = unique(ac_data.ESC.motor_id);
+    else
+        delete_idx = [];
+        for i=1:length(idx)
+            if isempty(find(ac_data.ESC.motor_id == idx(i), 1))
+                delete_idx = [delete_idx, i];
+            end
+        end
+        idx(delete_idx) = [];
     end
 
     ax1 = subplot(6,1,1);
