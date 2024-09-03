@@ -39,6 +39,5 @@ xlabel("Skew angle [deg]")
 ylabel("Airspeed [m/s]")
 title(plot_title)
 
-
 end
 
