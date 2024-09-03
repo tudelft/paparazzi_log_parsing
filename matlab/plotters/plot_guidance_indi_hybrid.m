@@ -26,7 +26,7 @@ function plot_guidance_indi_hybrid(ac_data)
     xlabel('Time [s]');
 
     % Plot speed in horizontal body frame
-    psi_gi = interp1(ac_data.ROTORCRAFT_FP.timestamp, deg2rad(ac_data.ROTORCRAFT_FP.psi_alt), ac_data.ROTORCRAFT_FP.timestamp, 'nearest'); % Quaternion on the datarange
+    psi_gi = interp1(ac_data.ROTORCRAFT_FP.timestamp, deg2rad(ac_data.ROTORCRAFT_FP.psi_alt), ac_data.GUIDANCE_INDI_HYBRID.timestamp, 'nearest','extrap'); % Quaternion on the datarange
     speedsp_x_c = cos(psi_gi) .* ac_data.GUIDANCE_INDI_HYBRID.speed_sp_x + sin(psi_gi) .* ac_data.GUIDANCE_INDI_HYBRID.speed_sp_y;
     speedsp_y_c =-sin(psi_gi) .* ac_data.GUIDANCE_INDI_HYBRID.speed_sp_x + cos(psi_gi) .* ac_data.GUIDANCE_INDI_HYBRID.speed_sp_y;
     
@@ -35,8 +35,8 @@ function plot_guidance_indi_hybrid(ac_data)
 
     ax3 = subplot(3,1,3);
     hold on;
-    plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,speed_x_c)
-    plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,speed_y_c)
+    plot(ac_data.ROTORCRAFT_FP.timestamp,speed_x_c)
+    plot(ac_data.ROTORCRAFT_FP.timestamp,speed_y_c)
     plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,speedsp_x_c)
     plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,speedsp_y_c)
     plot(ac_data.ROTORCRAFT_FP.timestamp,-ac_data.ROTORCRAFT_FP.vup_alt)
