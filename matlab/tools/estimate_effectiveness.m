@@ -30,7 +30,11 @@ end
 
 %% Select data range to avoid a lot of memory usage later
 
-trange = [400 1000]; % seconds
+trange = [456.5 459]; % seconds
+trange = [340 440]; % seconds
+trange = [586 592]; % seconds
+% trange = [400 600]; % seconds
+trange = [666 674];
 
 datarange1 = find(ac_data.IMU_GYRO_SCALED.timestamp>trange(1),1,'first')-1;
 datarange2 = find(ac_data.IMU_GYRO_SCALED.timestamp>trange(2),1,'first')-1;
@@ -53,32 +57,64 @@ refquat = refquat(irefquat_t,:);
 quat_dr = interp1(refquat_t, quat, t(datarange), 'nearest'); % Quaternion on the datarange
 [~, ~, theta_dr] = quat2angle(quat_dr,'ZXY');
 
-figure; plot(refquat_t,rad2deg(theta),refquat_t,rad2deg(reftheta)); title('theta')
-figure; plot(refquat_t,rad2deg(phi),refquat_t,rad2deg(refphi)); title("phi")
-figure; plot(refquat_t,rad2deg(psi),refquat_t,rad2deg(refpsi)); title('psi')
+% figure; plot(refquat_t,rad2deg(theta),refquat_t,rad2deg(reftheta)); title('theta')
+% figure; plot(refquat_t,rad2deg(phi),refquat_t,rad2deg(refphi)); title("phi")
+% figure; plot(refquat_t,rad2deg(psi),refquat_t,rad2deg(refpsi)); title('psi')
 
 %% Filter signals
 
-cmd = [ac_data.ROTORCRAFT_CMD.cmd_roll(datarange) ac_data.ROTORCRAFT_CMD.cmd_pitch(datarange) ac_data.ROTORCRAFT_CMD.cmd_yaw(datarange) ac_data.ROTORCRAFT_CMD.cmd_thrust(datarange)];
+cmd = double(string(ac_data.ACTUATORS.values));
+cmd = cmd(datarange,:);
+
+% This only holds for the Nederdrone
+motors = [2:5, 9:14];
+flaps = [7:8, 15:16];
+tips = [1,6];
+
+cmd(:,motors) = (cmd(:,motors)-600)/(8191-600)*9600;
+cmd(:,flaps) = cmd(:,flaps)/6000*9600;
+cmd(:,tips) = (cmd(:,tips)-1500)/(8191 - 1500)*9600;
+
+mix_matrix = zeros(16,6);
+mix_matrix(2:3,1) = 0.5;
+mix_matrix(4:5,2) = 0.5;
+mix_matrix(9:11,3) = 1/3;
+mix_matrix(12:14,4) = 1/3;
+mix_matrix(7,5) = 1;
+mix_matrix(8,6) = 1;
+mix_matrix(15,7) = 1;
+mix_matrix(16,8) = 1;
+
+
+cmd_bundle = cmd * mix_matrix;
+cmd = cmd_bundle;
+
+% This only holds for the tiltprop tailsitter UAV!
+% cmd = (cmd - [1560 1350 1150 1150 1500 1500])./[-600 600 750 750 400 400]*9600;
+
+% cmd = [ac_data.ROTORCRAFT_CMD.cmd_roll(datarange) ac_data.ROTORCRAFT_CMD.cmd_pitch(datarange) ac_data.ROTORCRAFT_CMD.cmd_yaw(datarange) ac_data.ROTORCRAFT_CMD.cmd_thrust(datarange)];
 % Pay attention to the order!! Depends on the IMU mounting
 % gyro = [ac_data.IMU_GYRO_SCALED.gr_alt(datarange) ac_data.IMU_GYRO_SCALED.gq_alt(datarange) -ac_data.IMU_GYRO_SCALED.gp_alt(datarange)]/180*pi;
-% gyro = [ac_data.IMU_GYRO_SCALED.gp_alt(datarange) ac_data.IMU_GYRO_SCALED.gq_alt(datarange) ac_data.IMU_GYRO_SCALED.gr_alt(datarange)]/180*pi;
-% accel = [ac_data.IMU_ACCEL_SCALED.az_alt(datarange) ac_data.IMU_ACCEL_SCALED.ay_alt(datarange) -ac_data.IMU_ACCEL_SCALED.ax_alt(datarange)];
+gyro = [ac_data.IMU_GYRO_SCALED.gp_alt(datarange) ac_data.IMU_GYRO_SCALED.gq_alt(datarange) ac_data.IMU_GYRO_SCALED.gr_alt(datarange)]/180*pi;
+accel = [ac_data.IMU_ACCEL_SCALED.az_alt(datarange) ac_data.IMU_ACCEL_SCALED.ay_alt(datarange) -ac_data.IMU_ACCEL_SCALED.ax_alt(datarange)];
 
-gyro = [ac_data.BODY_RATES_ACCEL.p ac_data.BODY_RATES_ACCEL.q ac_data.BODY_RATES_ACCEL.r];
-accel = [ac_data.BODY_RATES_ACCEL.ax_alt ac_data.BODY_RATES_ACCEL.ay_alt ac_data.BODY_RATES_ACCEL.az_alt];
+% gyro = [ac_data.BODY_RATES_ACCEL.p ac_data.BODY_RATES_ACCEL.q ac_data.BODY_RATES_ACCEL.r];
+% accel = [ac_data.BODY_RATES_ACCEL.ax_alt ac_data.BODY_RATES_ACCEL.ay_alt ac_data.BODY_RATES_ACCEL.az_alt];
 
 if length(accel) > length(t)
     accel = accel(1:end-1,:);
 end
-% accelned = quatrotate(quatinv(quat_dr),accel);
-% accelned(1,:) = 0;
-% accelned(:,3) = accelned(:,3)-9.81;
 
-accelned = [ac_data.INS.ins_xdd_alt ac_data.INS.ins_ydd_alt ac_data.INS.ins_zdd_alt];
-accelned = accelned(datarange,:);
-if (max(abs(ac_data.INS.timestamp(datarange) - tdr)) > 2e-4) 
-    disp('WARNING: INS and gyro timestamps may not be alligned!')
+if (isfield(ac_data, 'INS'))
+    accelned = [ac_data.INS.ins_xdd_alt ac_data.INS.ins_ydd_alt ac_data.INS.ins_zdd_alt];
+    accelned = accelned(datarange,:);
+%     if (max(abs(ac_data.INS.timestamp(datarange) - tdr)) > 2e-4) 
+%         disp('WARNING: INS and gyro timestamps may not be alligned!')
+%     end
+else
+    accelned = quatrotate(quatinv(quat_dr),accel);
+    accelned(1,:) = 0;
+    accelned(:,3) = accelned(:,3)-9.81;
 end
 
 % First order actuator dynamics
@@ -95,7 +131,7 @@ cmd_act_servo = filter(servo_first_order_dynamics_constant,[1, -(1-servo_first_o
 fo_const = 1-exp(-20/sf);
 gyro_fo = filter(fo_const,[1, -(1-fo_const)], gyro,[],1);
 
-filter_freq = 3.2;
+filter_freq = 3;
 [b, a] = butter(2,filter_freq/(sf/2));
 
 gyro_filt = filter(b,a,gyro,get_ic(b,a,gyro(1,:)));
@@ -103,11 +139,12 @@ cmd_filt_mot = filter(b,a,cmd_act_mot,get_ic(b,a,cmd_act_mot(1,:)));
 cmd_filt_servo = filter(b,a,cmd_act_servo,get_ic(b,a,cmd_act_servo(1,:)));
 accel_filt = filter(b,a,accel,get_ic(b,a,accel(1,:)));
 accelned_filt = filter(b,a,accelned,get_ic(b,a,accelned(1,:)));
+theta_filt = filter(b,a,theta);
 
-cmd_filtd_mot = [zeros(1,4); diff(cmd_filt_mot,1)]*sf;
-cmd_filtdd_mot = [zeros(1,4); diff(cmd_filtd_mot,1)]*sf;
-cmd_filtd_servo = [zeros(1,4); diff(cmd_filt_servo,1)]*sf;
-cmd_filtdd_servo = [zeros(1,4); diff(cmd_filtd_servo,1)]*sf;
+cmd_filtd_mot = [zeros(1,size(cmd,2)); diff(cmd_filt_mot,1)]*sf;
+cmd_filtdd_mot = [zeros(1,size(cmd,2)); diff(cmd_filtd_mot,1)]*sf;
+cmd_filtd_servo = [zeros(1,size(cmd,2)); diff(cmd_filt_servo,1)]*sf;
+cmd_filtdd_servo = [zeros(1,size(cmd,2)); diff(cmd_filtd_servo,1)]*sf;
 gyro_filtd = [zeros(1,3); diff(gyro_filt,1)]*sf;
 gyro_filtdd = [zeros(1,3); diff(gyro_filtd,1)]*sf;
 accel_filtd = [zeros(1,3); diff(accel_filt,1)]*sf;
@@ -131,17 +168,17 @@ plot(t(datarange),inputs_roll*Groll)
 title('roll fit')
 
 %% Pitch effectiveness
-output_pitch = gyro_filtdd(:,2);
-inputs_pitch = [cmd_filtd_mot(:,2)];
+% output_pitch = gyro_filtdd(:,2);
+% inputs_pitch = [cmd_filtd_servo(:,5:6)];
 
-% output_pitch = gyro_filtd(:,2);
-% inputs_pitch = [ones(size(gyro_filtd(:,2))) cmd_filt_mot(:,[2])];
+output_pitch = gyro_filtd(:,2);
+inputs_pitch = [ones(size(gyro_filtd(:,2))) cmd_filt_mot(:,[1:8]) gyro_filt(:,2) theta_dr];
 
 Gpitch = inputs_pitch\output_pitch;
 % unit: deg/s^2 per unit pprz_cmd
 figure;
 plot(t(datarange),output_pitch); hold on
-plot(t(datarange),inputs_pitch*Gpitch)
+plot(t(datarange),inputs_pitch*Gpitch*2)
 title('pitch fit')
 
 %% Yaw effectiveness
@@ -180,6 +217,8 @@ plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.accelne
 plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.euler_cmd_z)
 plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.euler_cmd_y)
 % plot(ac_data.STAB_ATTITUDE_FULL_INDI.timestamp(datarange),filtfilt(b,a,accelned(:,3)))
+title('z control')
+legend('sp acc z','sp speed z','accned filt z','eulercmd z','eulercmdy')
 
 %%
 figure;
@@ -187,6 +226,8 @@ hold on;
 plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.sp_accel_x)
 plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.sp_accel_y)
 plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.sp_accel_z)
+legend('x','y','z')
+title('desired acceleration hybrid indi')
 
 %%
 figure;
@@ -195,10 +236,31 @@ plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.speed_s
 plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.speed_sp_y)
 % plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.speed_sp_z)
 
+
 % figure;
 % hold on
 plot(ac_data.ROTORCRAFT_FP.timestamp,ac_data.ROTORCRAFT_FP.vnorth_alt)
 plot(ac_data.ROTORCRAFT_FP.timestamp,ac_data.ROTORCRAFT_FP.veast_alt)
 % plot(ac_data.ROTORCRAFT_FP.timestamp,ac_data.ROTORCRAFT_FP.vup_alt)
+legend('speed sp x','speed sp y','speed x', 'speed y')
 
 %%
+
+% interpolate the heading on the air data time vector
+heading_ad = interp1(ac_data.ROTORCRAFT_FP.timestamp, ac_data.ROTORCRAFT_FP.psi_alt, ac_data.AIR_DATA.timestamp, 'nearest');
+
+% Tune the wind to match the airspeed and the ground speed
+wind = 3;
+w_angle = 120;
+wx = -wind*sind(w_angle);
+wy = -wind*cosd(w_angle);
+
+% Tune the sensor scale to account for sensor scalings
+sensor_scale = 1.5;
+
+% Plot the result
+figure;
+hold on;
+plot(sensor_scale*ac_data.AIR_DATA.airspeed.*sind(heading_ad)+wx, sensor_scale*ac_data.AIR_DATA.airspeed.*cosd(heading_ad)+wy, '.')
+plot(ac_data.ROTORCRAFT_FP.veast_alt, ac_data.ROTORCRAFT_FP.vnorth_alt, '.')
+legend('airspeed+wind', 'ground speed')

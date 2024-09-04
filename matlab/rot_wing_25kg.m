@@ -2,7 +2,7 @@
 
 % trange = [270 283]; % seconds
 % trange = [1150 1170]; % seconds
-trange = [1400 1440]; % seconds
+trange = [720 750]; % seconds
 % trange = [1843 1851];
     
 datarange1 = find(ac_data.IMU_GYRO_SCALED.timestamp>trange(1),1,'first')-1;
@@ -14,7 +14,7 @@ sf = 500; %Hz
 
 %%
 
-use_indi_cmd = true;
+use_indi_cmd = false;
 use_old_act_message = false;
 if(use_indi_cmd)
     cmd = double(string(ac_data.STAB_ATTITUDE.u));
@@ -32,7 +32,18 @@ elseif use_old_act_message
     % cmd(:,11) = (cmd_temp(:,11)+3250)/(2*3250)*9600; %flap left
     clear cmd_tmp;
 else
-    cmd = double(string(ac_data.ACTUATORS.values));
+    cmd_temp = double(string(ac_data.ACTUATORS.values));
+    cmd = zeros(length(cmd_temp),8);
+    % This only holds for the rotating wing drone
+    cmd(:,1:4) = cmd_temp(:,1:4); % motors
+    cmd(:,9) = cmd_temp(:,5); %pusher
+    cmd(:,6) = cmd_temp(:,7); %elevator
+    cmd(:,5) = cmd_temp(:,8); %rudder
+    cmd(:,7) = cmd_temp(:,9); %aileron
+    cmd(:,8) = cmd_temp(:,10); %flap right
+    % cmd(:,10) = (cmd_temp(:,10)+3250)/(2*3250)*9600; %aileron left
+    % cmd(:,11) = (cmd_temp(:,11)+3250)/(2*3250)*9600; %flap left
+    clear cmd_tmp;
 end
 
 gyro = [ac_data.IMU_GYRO_SCALED.gp_alt(:) ac_data.IMU_GYRO_SCALED.gq_alt(:) ac_data.IMU_GYRO_SCALED.gr_alt(:)]/180*pi;
@@ -82,32 +93,13 @@ accel_filtdd = [zeros(1,3); diff(accel_filtd,1)]*sf;
 return
 %% Roll effectiveness
 
-tfit = (1:length(t))/500;
 
-% wn = 2.55*2*pi;
-wn = 7*2*pi;
-zeta = 0.2;
-tf_struct = tf(wn^2, [1 2*zeta*wn wn^2]);
-% tf_struct_d = c2d(tf_struct,1/500, 'tustin');
+% output_roll = gyro_filtdd(:,1);
+% inputs_roll = [cmd_filtd_servo(:,7:8) gyro_filtd(:,1)];
+% inputs_roll = [ones(size(gyro_filtd(:,1))) cmd_filtd_mot(:,[1 3])];
 
-% input_w_structure2 = lsim(tf_struct, cmd_filtd_mot(:,2), tfit);
-% input_w_structure4 = lsim(tf_struct, cmd_filtd_mot(:,4), tfit);
-
-% quat_dr = interp1(refquat_t, quat, t, 'nearest'); % Quaternion on the datarange
-% [~, phi_dr, theta_dr] = quat2angle(quat_dr,'ZXY');
-
-% input_wo_structure = [ones(size(cmd_filt_mot,1),1) cmd_filt_mot(:,[2,4]) cmd_filt_servo(:,7), theta_filt, gyro_filt(:,1:2)];
-input_wo_structure = [cmd_filtd_mot(:,[2,4]) cmd_filtd_servo(:,7) [zeros(1,2); gyro_filt(:,1:2)]];
-
-% input_w_structure = [input_w_structure2 input_w_structure4];
-
-output_roll = gyro_filtdd(:,1);% -0.5772*ones(size(input_w_structure2));
-% inputs_roll = [input_wo_structure];
-% inputs_roll = [ones(size(input_wo_structure,1),1) input_w_structure, gyro_filt(:,1)];
-inputs_roll = [ones(size(input_wo_structure,1),1) input_wo_structure];
-
-% output_roll = gyro_filtd(:,1);
-% inputs_roll = [ones(size(gyro_filtd(:,1))) cmd_filt_mot(:,[1 3])];
+output_roll = gyro_filtd(:,1);
+inputs_roll = [ones(size(gyro_filtd(:,1))) cmd_filt_mot(:,[1:4]) 0*cmd_filt_mot(:,[2 4])];
 % inputs_roll = [ones(size(gyro_filtd(:,1))) cmd_filt_mot(:,1)];
 
 Groll = inputs_roll(datarange,:)\output_roll(datarange,:);
@@ -115,17 +107,31 @@ figure;
 plot(t(datarange),output_roll(datarange,:)); hold on
 plot(t(datarange),inputs_roll(datarange,:)*Groll)
 title('roll fit')
+% figure; plot(t(datarange), inputs_roll(datarange,:))
 
-% figure; plot(input_w_structure2(datarange,:)); hold on; plot(cmd_filt_mot(datarange,2))
+% Compare with PPRZ
+k_aileron = 5;
+k_flaperon = 2.0439;
+airspeed = 25;
+sinr3 = sind(90)^3;
+cmd_pusher_scaled = (8478) * 8181 / 9600 / 1000;
+Ixx = 0.3953+1.671;
 
-ssmodel = ss([-2*zeta*wn -wn^2; 1 0], [wn^2; 0], eye(2), [0;0]);
+dMxdpprz = (k_aileron * airspeed^2 * sinr3) / 1000000;
+eff_x_aileron = dMxdpprz / Ixx;
+  % Bound(eff_x_aileron, 0, 0.005)
 
-model = tfest(output_roll(datarange,:), cmd_filt_mot(datarange,[2,4]), ssmodel)
+disp("fit: " + Groll(1) + " compared to pprz: " + eff_x_aileron + ", which is a factor " + eff_x_aileron/Groll(1) + " different.")
+
 
 %% Pitch effectiveness
 % output_pitch = gyro_filtdd(datarange,2);
 % inputs_pitch = [cmd_filtd_mot(datarange,1:4)];
 
+quat = double([ac_data.AHRS_REF_QUAT.body_qi ac_data.AHRS_REF_QUAT.body_qx ac_data.AHRS_REF_QUAT.body_qy ac_data.AHRS_REF_QUAT.body_qz]);
+[refquat_t,irefquat_t,~] = unique(ac_data.AHRS_REF_QUAT.timestamp);
+quat = quat(irefquat_t,:);
+[psi, phi, theta] = quat2angle(quat,'ZXY');
 theta_dr = interp1(refquat_t, theta, t, 'nearest','extrap'); % Quaternion on the datarange
 theta_filt = filter(b,a,theta_dr);
 
@@ -134,16 +140,35 @@ theta_filt = filter(b,a,theta_dr);
 
 output_pitch = gyro_filtdd(datarange,2);
 % inputs_pitch = [ones(size(gyro_filtd(datarange,2))) cmd_filt_mot(datarange,[1:4]).*cmd_filt_mot(datarange,[1:4]) cmd_filt_servo(datarange,[6,7]) gyro_filt(datarange,2)];
-inputs_pitch = [ones(size(gyro_filtd(datarange,2))) cmd_filtd_mot(datarange,[1:4]).*cmd_filt_mot(datarange,[1:4]) cmd_filtd_servo(datarange,[6,7]) gyro_filtd(datarange,2) gyro_filt(datarange,2)];
+% inputs_pitch = [ones(size(gyro_filtd(datarange,2))) cmd_filtd_mot(datarange,[1:4]).*cmd_filt_mot(datarange,[1:4]) cmd_filtd_servo(datarange,[6,7]) gyro_filtd(datarange,2) gyro_filt(datarange,2)];
 % inputs_pitch = [ones(size(gyro_filtd(datarange,2))) cmd_filtd_mot(datarange,[1,3]).*cmd_filt_mot(datarange,[1,3]) cmd_filtd_servo(datarange,6) gyro_filtd(datarange,2) gyro_filt(datarange,2)];
 % inputs_pitch = [ones(size(gyro_filtd(datarange,2))) cmd_filtd_mot(datarange,[1,3])];% cmd_filtd_servo(datarange,6) 0*gyro_filtd(datarange,2)];
+
+inputs_pitch = [ones(size(gyro_filtd(datarange,2))) cmd_filtd_servo(datarange,6) gyro_filtd(datarange,2) gyro_filt(datarange,2)];
 
 Gpitch = inputs_pitch\output_pitch;
 % unit: deg/s^2 per unit pprz_cmd
 figure;
 plot(t(datarange),output_pitch); hold on
 plot(t(datarange),inputs_pitch*Gpitch)
+xlabel('Time (s)'); ylabel('qdot or qdotdot')
 title('pitch fit')
+
+% Compare with PPRZ
+k_elevator = [1.27655, -6, -96.0/2];
+k_de_deflection = [50.0,-0.0063];
+airspeed = 25;
+cmd_pusher_scaled = (8478) * 8181 / 9600 / 1000;
+cmd_elevator = 7250;
+Iyy = 8.472+0.5385;
+
+de = k_de_deflection(1) + k_de_deflection(2) * cmd_elevator;
+dMyde = (k_elevator(1) * de * airspeed^2 + k_elevator(2) * cmd_pusher_scaled * cmd_pusher_scaled * airspeed + k_elevator(3) * airspeed^2) / 10000.;
+dMydpprz = dMyde * k_de_deflection(2);
+eff_elevator = dMydpprz / Iyy;
+
+disp("fit: " + Gpitch(2) + " compared to pprz: " + eff_elevator + ", which is a factor " + eff_elevator/Gpitch(2) + " different.")
+
 
 %% Yaw effectiveness
 
@@ -223,3 +248,24 @@ figure; plot(ac_data.ROTORCRAFT_FP.timestamp, rad2deg(alpha), ac_data.AIR_DATA.t
 hold on;
 plot(ac_data.AHRS_REF_QUAT.timestamp, rad2deg(theta))
 legend('alpha','airspeed','theta')
+
+
+%% convert pusher commands to new scaling
+
+% Still needs to be adjusted for idle command!
+% put the old coefficients:
+k0 = -116.518697071689;
+k1 = 1.17051409813432;
+k2 = -0.00002580110593734;
+% calculate the idle in pprz units
+min_pprz = 1000/6372*9600;
+c = (9600-min_pprz)/9600;
+%caclulate new coefficients
+k0_new = k0+k1*min_pprz+min_pprz^2*k2;
+k1_new = k1*c + 2*min_pprz*c*k2;
+k2_new = k2*c^2;
+% compare two points:
+k0+k1*9600+k2*9600^2
+k0_new+k1_new*9600+k2_new*9600^2
+k0+k1*min_pprz+k2*min_pprz^2
+k0_new+k1_new*0+k2_new*0^2
