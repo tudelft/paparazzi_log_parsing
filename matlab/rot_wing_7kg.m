@@ -83,12 +83,12 @@ num_act = size(cmd_act_mot,2);
 
 % cmd_d_mot = [zeros(1,num_act); diff(cmd_mot,1)]*sf;
 % cmd_dd_mot = [zeros(1,num_act); diff(cmd_d_mot,1)]*sf;
-cmd_d_servo = [zeros(1,num_act); diff(cmd_filt_servo,1)]*sf;
-cmd_dd_servo = [zeros(1,num_act); diff(cmd_filtd_servo,1)]*sf;
+% cmd_d_servo = [zeros(1,num_act); diff(cmd_filt_servo,1)]*sf;
+% cmd_dd_servo = [zeros(1,num_act); diff(cmd_filtd_servo,1)]*sf;
 gyro_d = [zeros(1,3); diff(gyro,1)]*sf;
 gyro_dd = [zeros(1,3); diff(gyro_d,1)]*sf;
-accel_d = [zeros(1,3); diff(accel_filt,1)]*sf;
-accel_dd = [zeros(1,3); diff(accel_filtd,1)]*sf;
+% accel_d = [zeros(1,3); diff(accel_filt,1)]*sf;
+% accel_dd = [zeros(1,3); diff(accel_filtd,1)]*sf;
 % accelned_filtd = [zeros(1,3); diff(accelned_filt,1)]*sf;
 
 gyro_filt = filter(b,a,gyro,get_ic(b,a,gyro(1,:)));
