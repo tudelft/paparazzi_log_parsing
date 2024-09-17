@@ -74,6 +74,7 @@ filter_freq = 0.8;
 
 num_act = size(cmd_act_mot,2);
 
+% Do diff first, then filter
 % gyro_filt = filter(b,a,gyro,get_ic(b,a,gyro(1,:)));
 % cmd_filt_mot = filter(b,a,cmd_act_mot,get_ic(b,a,cmd_act_mot(1,:)));
 % cmd_filt_servo = filter(b,a,cmd_act_servo,get_ic(b,a,cmd_act_servo(1,:)));
@@ -101,14 +102,7 @@ return
 %% Roll effectiveness
 
 
-% output_roll = gyro_filtdd(:,1);
-% inputs_roll = [cmd_filtd_servo(:,7:8) gyro_filtd(:,1)];
-% inputs_roll = [ones(size(gyro_filtd(:,1))) cmd_filtd_mot(:,[1 3])];
-
-% output_roll = gyro_filtd(:,1);
 output_roll = diff(gyro_d_filt(:, 1));
-% inputs_roll = [ones(size(gyro_filtd(:,1))) cmd_filt_mot(:,[1:4]) 0*cmd_filt_mot(:,[2 4])];
-%inputs_roll = [ones(size(gyro_filtd(:,1))) cmd_filt_mot(:,[2 4])];
 inputs_roll = diff(cmd_act_mot_filt(:,2)-cmd_act_mot_filt(:,4));
 
 Groll = inputs_roll(datarange,:)\output_roll(datarange,1);
