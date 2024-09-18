@@ -7,7 +7,6 @@ function plot_powers(ac_data)
     ac_data.POWER_DEVICE.id = double(ac_data.POWER_DEVICE.node_id) + double(ac_data.POWER_DEVICE.circuit) ./ 100;
     pwr = unique(ac_data.POWER_DEVICE.id)
 
-    figure
     hold off
     leg = []
     for i=1:size(pwr,1)
