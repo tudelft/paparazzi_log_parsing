@@ -7,7 +7,7 @@ addpath('plotters/');
 addpath('tools/');
 
 % Parse the log
-p = parselog('/Users/freekvantienen/Work/Logs/VM/24_08_28__17_03_18_SD.data');
+p = parselog('./2024_09_18_troia_25kg_groundtest/24_09_18__20_45_32_SD.data');
 ac_data = p.aircrafts.data;
 
 %% Plot the Rotorcraft Status
@@ -87,6 +87,10 @@ plot_indi_rotwing(ac_data)
 %% Plot rotating wing state
 figure('Name','Rotwing State');
 plot_rotwing_state(ac_data, p.aircrafts.motors_on)
+
+%% Plot powers
+figure('Name','Powers');
+plot_powers(ac_data);
 
 %% Close empty figures
 fig_array = get(0, 'Children');
