@@ -89,8 +89,13 @@ figure('Name','Rotwing State');
 plot_rotwing_state(ac_data, p.aircrafts.motors_on)
 
 %% Plot powers
-figure('Name','Powers');
-plot_powers(ac_data);
+filtered = 1;
+if filtered
+    figure('Name','Powers Filtered');
+else
+    figure('Name','Powers');
+end
+plot_powers(ac_data, filtered);
 
 %% Close empty figures
 fig_array = get(0, 'Children');
