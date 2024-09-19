@@ -5,6 +5,7 @@
 % trange = [460 500]; % seconds
 % trange = [1843 1851];
 trange = [1300 1390];
+%trange = [360 460];
     
 datarange1 = find(ac_data.IMU_GYRO_SCALED.timestamp>trange(1),1,'first')-1;
 datarange2 = find(ac_data.IMU_GYRO_SCALED.timestamp>trange(2),1,'first')-1;
@@ -15,7 +16,7 @@ sf = 500; %Hz
 
 %%
 
-use_indi_cmd = false;
+use_indi_cmd = true;
 use_old_act_message = false;
 if(use_indi_cmd)
     cmd = double(string(ac_data.STAB_ATTITUDE.u));
@@ -103,12 +104,18 @@ return
 
 
 output_roll = diff(gyro_d_filt(:, 1));
-inputs_roll = diff(cmd_act_mot_filt(:,2)-cmd_act_mot_filt(:,4));
+%inputs_roll = [diff(cmd_act_mot_filt(:,2)-cmd_act_mot_filt(:,4)),diff(cmd_act_mot_filt(:,5))];
+inputs_roll = [diff(cmd_act_mot_filt(:,2)-cmd_act_mot_filt(:,4))];
+%inputs_roll = [diff(cmd_act_mot_filt(:,2)-cmd_act_mot_filt(:,4)),diff(cmd_act_mot_filt(:,5)),diff(cmd_act_mot_filt(:,5))*sf];
+%inputs_roll = [diff(cmd_act_mot_filt(:,2)-cmd_act_mot_filt(:,4)),diff(cmd_act_mot_filt(:,5)),diff(cmd_act_mot_filt(:,5).^2)];
+%inputs_roll = [diff(cmd_act_mot_filt(:,2)),diff(cmd_act_mot_filt(:,4)),diff(cmd_act_mot_filt(:,5)),diff(cmd_act_mot_filt(:,5).^2)];
+%inputs_roll = [diff(cmd_act_mot_filt(:,2)),diff(cmd_act_mot_filt(:,4)),diff(cmd_act_mot_filt(:,5))];
 
 Groll = inputs_roll(datarange,:)\output_roll(datarange,1);
 figure;
 plot(t(datarange),output_roll(datarange,:)); hold on
 plot(t(datarange),inputs_roll(datarange,:)*Groll)
+%plot(t(datarange),inputs_roll(datarange,:)*-0.012)
 title('roll fit')
 % figure; plot(t(datarange), inputs_roll(datarange,:))
 
@@ -136,6 +143,16 @@ eff_x_aileron = dMxdpprz / Ixx;
 % disp("fit: " + Groll(1) + " compared to pprz: " + eff_x_aileron + ", which is a factor " + eff_x_aileron/Groll(1) + " different.")
 
 
+%%
+temp = inputs_roll(datarange,:)*-0.012 - output_roll(datarange,:);
+Gpush = [0;diff(cmd_act_mot_filt(datarange,5))] \ temp;
+figure;
+hold on
+plot(t(datarange),temp)
+%plot(t(datarange),[0;diff(cmd_act_mot_filt(datarange,5))*sf]./-100000)
+plot(t(datarange),[0;diff(cmd_act_mot_filt(datarange,5))]*Gpush)
+%plot(t,ac_data.STAB_ATTITUDE.theta)
+legend('weird extra','pusher delta')
 %% Pitch effectiveness
 % output_pitch = gyro_filtdd(datarange,2);
 % inputs_pitch = [cmd_filtd_mot(datarange,1:4)];
