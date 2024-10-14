@@ -123,8 +123,10 @@ function s = parse_aircraft_data(msgs, uniqueMsg, timestamp, msgName, msgContent
             
             % Parse alternate unit
             field_info = msg_info.fields.(field_name);
-            if field_info.alt_unit_coef ~= 1
-                s.(msg_name).(strcat(field_name, "_alt")) = double(values) .* field_info.alt_unit_coef;
+            if field_info.alt_unit_coef ~= 1 && field_isarray
+               s.(msg_name).(strcat(field_name, "_alt")) = double(string(s.(msg_name).(field_name))) .* field_info.alt_unit_coef;
+            elseif field_info.alt_unit_coef ~= 1
+               s.(msg_name).(strcat(field_name, "_alt")) = double(values) .* field_info.alt_unit_coef;
             end
         end
     end
