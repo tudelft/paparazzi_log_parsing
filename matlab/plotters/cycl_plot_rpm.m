@@ -1,4 +1,4 @@
-function plot_rpm(ac_data, order)
+function cycl_plot_rpm(ac_data, order)
 
     rpm1 = ac_data.SERIAL_ACT_T4_IN.motor_1_rpm;
     rpm2 = ac_data.SERIAL_ACT_T4_IN.motor_2_rpm;
@@ -31,7 +31,7 @@ function plot_rpm(ac_data, order)
     % background color fill for various flight modes
     mode_values = ac_data.ROTORCRAFT_RADIO_CONTROL.mode;
     mode_timestamps = ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp;
-    fill_mode_regions(mode_values, mode_timestamps, {ax1, ax2});
+    cycl_fill_mode_regions(mode_values, mode_timestamps, {ax1, ax2});
     legend([h1, h2, h3, h4, h5], {'RPM 1', 'RPM 2', 'DShot Cmd 1', 'DShot Cmd 2', 'Throttle'});
 
     % hold off; % Needed?

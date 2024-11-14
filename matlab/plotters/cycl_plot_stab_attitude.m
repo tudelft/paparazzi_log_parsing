@@ -1,8 +1,8 @@
-function plot_stab_attitude(ac_data, order)
+function cycl_plot_stab_attitude(ac_data, order)
     if ~isfield(ac_data, 'STAB_ATTITUDE')
         return
     end
-asfc
+
     att = double(string(ac_data.STAB_ATTITUDE.att));
     attref = double(string(ac_data.STAB_ATTITUDE.att_ref));
 

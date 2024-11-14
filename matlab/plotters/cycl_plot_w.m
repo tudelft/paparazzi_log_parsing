@@ -1,4 +1,4 @@
-function plot_w(ac_data, order)
+function cycl_plot_w(ac_data, order)
 
     w = double(string(ac_data.STAB_ATTITUDE.angular_rate));
     wref = double(string(ac_data.STAB_ATTITUDE.angular_rate_ref));

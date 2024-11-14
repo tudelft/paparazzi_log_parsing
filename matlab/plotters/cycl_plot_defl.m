@@ -1,4 +1,4 @@
-function plot_defl(ac_data, order)
+function cycl_plot_defl(ac_data, order)
 
     pos1 = double(ac_data.SERIAL_ACT_T4_IN.rotor_1_az_angle)/100;
     pos2 = double(ac_data.SERIAL_ACT_T4_IN.rotor_2_az_angle)/100;
