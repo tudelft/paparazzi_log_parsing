@@ -3,43 +3,34 @@ function plot_stab_attitude(ac_data, order)
         return
     end
 
-    att = double(string(ac_data.STAB_ATTITUDE.att));
-    attref = double(string(ac_data.STAB_ATTITUDE.att_ref));
-
-    w = double(string(ac_data.STAB_ATTITUDE.angular_rate));
-    wref = double(string(ac_data.STAB_ATTITUDE.angular_rate_ref));
-
-    wdot = double(string(ac_data.STAB_ATTITUDE.angular_accel));
-    wdotref = double(string(ac_data.STAB_ATTITUDE.angular_accel_ref));
-
     ax1 = subplot(3,1,1);
-    hold on; zoom on;
-    plot(ac_data.STAB_ATTITUDE.timestamp, wdot(:,1), 'color', '#0072BD');
-    plot(ac_data.STAB_ATTITUDE.timestamp, wdotref(:,1), '--', 'color', '#0072BD');
-    plot(ac_data.STAB_ATTITUDE.timestamp, wdot(:,2), 'color', '#D95319');
-    plot(ac_data.STAB_ATTITUDE.timestamp, wdotref(:,2), '--', 'color', '#D95319');
-    plot(ac_data.STAB_ATTITUDE.timestamp, wdot(:,3), 'color', '#EDB120');
-    plot(ac_data.STAB_ATTITUDE.timestamp, wdotref(:,3), '--', 'color', '#EDB120');
+    hold on
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.angular_accel_p, 'color', '#0072BD');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.angular_accel_ref_p, '--', 'color', '#0072BD');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.angular_accel_q, 'color', '#D95319');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.angular_accel_ref_q, '--', 'color', '#D95319');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.angular_accel_r, 'color', '#EDB120');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.angular_accel_ref_r, '--', 'color', '#EDB120');
     title('angular acceleration'); xlabel('time(s)'); ylabel('(rad/s^2)'); legend('pdot','pdotref','qdot','qdotref','rdot','rdotref')
 
     ax2 = subplot(3,1,2);
-    hold on; zoom on;
-    plot(ac_data.STAB_ATTITUDE.timestamp, w(:,1), 'color', '#0072BD');
-    plot(ac_data.STAB_ATTITUDE.timestamp, wref(:,1), '--', 'color', '#0072BD');
-    plot(ac_data.STAB_ATTITUDE.timestamp, w(:,2), 'color', '#D95319');
-    plot(ac_data.STAB_ATTITUDE.timestamp, wref(:,2), '--', 'color', '#D95319');
-    plot(ac_data.STAB_ATTITUDE.timestamp, w(:,3), 'color', '#EDB120');
-    plot(ac_data.STAB_ATTITUDE.timestamp, wref(:,3), '--', 'color', '#EDB120');
+    hold on
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.angular_rate_p, 'color', '#0072BD');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.angular_rate_ref_p, '--', 'color', '#0072BD');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.angular_rate_q, 'color', '#D95319');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.angular_rate_ref_q, '--', 'color', '#D95319');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.angular_rate_r, 'color', '#EDB120');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.angular_rate_ref_r, '--', 'color', '#EDB120');
     title('angular rates'); xlabel('time(s)'); ylabel('(rad/s)'); legend('p','pref','q','qref','r','rref')
 
     ax3 = subplot(3,1,3);
-    hold on; zoom on;
-    plot(ac_data.STAB_ATTITUDE.timestamp, att(:,1), 'color', '#0072BD');
-    plot(ac_data.STAB_ATTITUDE.timestamp, attref(:,1), '--', 'color', '#0072BD');
-    plot(ac_data.STAB_ATTITUDE.timestamp, att(:,2), 'color', '#D95319');
-    plot(ac_data.STAB_ATTITUDE.timestamp, attref(:,2), '--', 'color', '#D95319');
-    plot(ac_data.STAB_ATTITUDE.timestamp, att(:,3), 'color', '#EDB120');
-    plot(ac_data.STAB_ATTITUDE.timestamp, attref(:,3), '--', 'color', '#EDB120');
+    hold on
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.phi, 'color', '#0072BD');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.phi_ref, '--', 'color', '#0072BD');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.theta, 'color', '#D95319');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.theta_ref, '--', 'color', '#D95319');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.psi, 'color', '#EDB120');
+    plot(ac_data.STAB_ATTITUDE.timestamp, ac_data.STAB_ATTITUDE.psi_ref, '--', 'color', '#EDB120');
     title('Euler angles'); xlabel('time(s)'); ylabel('(rad)'); legend('phi','phiref','theta','thetaref','psi','psiref')
 
     sgtitle(['Stab attitude'])
