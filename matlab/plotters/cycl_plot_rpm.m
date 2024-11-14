@@ -10,8 +10,8 @@ function cycl_plot_rpm(ac_data, order)
     hold on; zoom on;
     h1 = plot(ac_data.SERIAL_ACT_T4_IN.timestamp, rpm1, 'LineWidth', 1.5);
     h2 = plot(ac_data.SERIAL_ACT_T4_IN.timestamp, rpm2, 'LineWidth', 1.5);
-    xlabel('Time (s)');
-    ylabel('RPM');
+    xlabel('Time [s]');
+    ylabel('Prop speed [rpm]');
     title('RPM');
     grid on;
 
@@ -21,18 +21,18 @@ function cycl_plot_rpm(ac_data, order)
     h3 = plot(ac_data.SERIAL_ACT_T4_OUT.timestamp, ac_data.SERIAL_ACT_T4_OUT.motor_1_dshot_cmd, 'LineWidth', 1.5);
     h4 = plot(ac_data.SERIAL_ACT_T4_OUT.timestamp, ac_data.SERIAL_ACT_T4_OUT.motor_2_dshot_cmd, 'LineWidth', 1.5);
     h5 = plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, ac_data.ROTORCRAFT_RADIO_CONTROL.throttle, 'LineWidth', 1.5);
-    xlabel('Time (s)');
+    xlabel('Time [s]');
     ylabel('DShot Command');
     title('DShot Command');
     grid on;
 
-    linkaxes([ax1,ax2],'x')
+    linkaxes([ax1,ax2],'x');
 
     % background color fill for various flight modes
     mode_values = ac_data.ROTORCRAFT_RADIO_CONTROL.mode;
     mode_timestamps = ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp;
     cycl_fill_mode_regions(mode_values, mode_timestamps, {ax1, ax2});
-    legend([h1, h2, h3, h4, h5], {'RPM 1', 'RPM 2', 'DShot Cmd 1', 'DShot Cmd 2', 'Throttle'});
-
-    % hold off; % Needed?
+    legend(ax1, [h1, h2], {'RPM 1', 'RPM 2'});
+    legend(ax2, [h3, h4, h5], {'DShot Cmd 1', 'DShot Cmd 2', 'Throttle'});
+    
 end
