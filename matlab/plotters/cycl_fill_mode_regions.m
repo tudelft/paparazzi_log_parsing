@@ -1,15 +1,17 @@
-% chat gpt generated code use/modify with caution!
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% chat gpt generated code use/modify with caution! %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 function cycl_fill_mode_regions(mode_values, mode_timestamps, ax_array)
     
-% Get the y-limits for each axis in ax_array
+    % Get the y-limits for each axis in ax_array
     y_limits = cell(1, length(ax_array));
     for i = 1:length(ax_array)
         y_limits{i} = ylim(ax_array{i});
     end
 
     % Define colors for each mode
-    mode_colors = containers.Map({-9600, 0, 9600}, {'white', 'blue', 'green'});
+    mode_colors = containers.Map({-9600, 0, 9600}, {'white', 'green', 'blue'});
 
     % Find transitions in mode and plot shaded regions accordingly
     start_idx = 1;
@@ -22,9 +24,12 @@ function cycl_fill_mode_regions(mode_values, mode_timestamps, ax_array)
                 % Loop over each axis in ax_array
                 for j = 1:length(ax_array)
                     % Plot shaded region for the current mode on each axis
-                    fill([mode_timestamps(start_idx), mode_timestamps(i-1), mode_timestamps(i-1), mode_timestamps(start_idx)], ...
+                    h_fill = fill([mode_timestamps(start_idx), mode_timestamps(i-1), mode_timestamps(i-1), mode_timestamps(start_idx)], ...
                         [y_limits{j}(1), y_limits{j}(1), y_limits{j}(2), y_limits{j}(2)], ...
                         mode_color, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'Parent', ax_array{j});
+
+                    % Send fill to the background
+                    uistack(h_fill, 'bottom');
                 end
             end
 
