@@ -30,8 +30,8 @@ function cycl_plot_eul(ac_data, order)
 
     ax1 = nexttile;
     hold on; zoom on;
-    h1 = plot(refquat_t, rad2deg(theta));
     h2 = plot(refquat_t, rad2deg(reftheta));
+    h1 = plot(refquat_t, rad2deg(theta));
     xlabel('Time [s]');
     ylabel('Pitch Angle [deg]');
     title('Theta');
@@ -39,8 +39,8 @@ function cycl_plot_eul(ac_data, order)
 
     ax2 = nexttile;
     hold on; zoom on;
-    h3 = plot(refquat_t, rad2deg(phi));
     h4 = plot(refquat_t, rad2deg(refphi));
+    h3 = plot(refquat_t, rad2deg(phi));
     xlabel('Time [s]');
     ylabel('Roll Angle [deg]');
     title('Phi');
@@ -48,8 +48,8 @@ function cycl_plot_eul(ac_data, order)
 
     ax3 = nexttile;
     hold on; zoom on;
-    h5 = plot(refquat_t, rad2deg(psi));
     h6 = plot(refquat_t, rad2deg(refpsi));
+    h5 = plot(refquat_t, rad2deg(psi));
     xlabel('Time [s]');
     ylabel('Yaw Angle [deg]');
     title('Psi');
