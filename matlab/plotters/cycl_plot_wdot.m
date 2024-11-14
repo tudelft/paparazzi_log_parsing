@@ -1,4 +1,4 @@
-function plot_wdot(ac_data, order)
+function cycl_plot_wdot(ac_data, order)
 
     wdot = double(string(ac_data.STAB_ATTITUDE.angular_rate));
     wdotref = double(string(ac_data.STAB_ATTITUDE.angular_rate_ref));

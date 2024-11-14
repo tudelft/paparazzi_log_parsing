@@ -1,6 +1,6 @@
 % chat gpt generated code use/modify with caution!
 
-function fill_mode_regions(mode_values, mode_timestamps, ax_array)
+function cycl_fill_mode_regions(mode_values, mode_timestamps, ax_array)
     
 % Get the y-limits for each axis in ax_array
     y_limits = cell(1, length(ax_array));
