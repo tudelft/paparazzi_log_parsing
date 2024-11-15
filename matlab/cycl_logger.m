@@ -5,14 +5,14 @@ if ispc
     %
 elseif isunix
     NASBASE = '/media/ntouev/ictDrive/';
-    HOME = '/home/ntouev/';
+    MATLABBASE = '/home/ntouev/MATLAB';
 else
     disp('Platform not supported')
 end
 
-addpath(fullfile(HOME, 'paparazzi_log_parsing/matlab/math'));
-addpath(fullfile(HOME, 'paparazzi_log_parsing/matlab/tools'));
-addpath(fullfile(HOME, 'paparazzi_log_parsing/matlab/plotters'));
+addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/math'));
+addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/tools'));
+addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/plotters'));
 
 %%
 % p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241030_valken_ewoud/144/24_10_30__16_27_37_SD.data'));
