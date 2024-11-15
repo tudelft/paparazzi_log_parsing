@@ -2,7 +2,8 @@ clear; close all;
 
 %%
 if ispc
-    %
+    NASBASE = 'U:/ictDrive/';
+    MATLABBASE = 'C:/Users/entouros/Documents/MATLAB';
 elseif isunix
     NASBASE = '/media/ntouev/ictDrive/';
     MATLABBASE = '/home/ntouev/MATLAB';
