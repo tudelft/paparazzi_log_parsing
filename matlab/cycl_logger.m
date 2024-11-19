@@ -67,5 +67,5 @@ figure('Name', 'Guidance INDI Hybrid');
 plot_guidance_indi_hybrid(ac_data);
 
 %% VISUALIZE FLIGHT
-visualize_3d('Nederdrone5', ac_data, [540 600], 1);
-% visualize_3d('Nederdrone5', ac_data, [540 600], 1, 'movie');
+cycl_visualize_3d('Nederdrone5', ac_data, [540 600], 1);
+% cycl_visualize_3d('Nederdrone5', ac_data, [540 600], 1, 'movie');

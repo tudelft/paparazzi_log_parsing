@@ -1,4 +1,4 @@
-function visualize_3d(model_name, ac_data, trange, speedx, movie_file_name)
+function cycl_visualize_3d(model_name, ac_data, trange, speedx, movie_file_name)
     if ~isfield(ac_data, 'AHRS_REF_QUAT')
         return
     end
@@ -74,7 +74,7 @@ function visualize_3d(model_name, ac_data, trange, speedx, movie_file_name)
     %% Run aircraft_3d_animation function
     % -------------------------------------------------------------------------
     if exist('movie_file_name', 'var')
-        pprz_3d_animation(model_info_file,...
+        cycl_pprz_3d_animation(model_info_file,...
             quat, ...                   Quaternion of the plane
             quat_ref, ...               Reference quaternion of the plane
             actuators, ...              Actuator values [airframe min, airframe max]
@@ -87,7 +87,7 @@ function visualize_3d(model_name, ac_data, trange, speedx, movie_file_name)
             speedx, ...                 % Reproduction speed
             movie_file_name);
     else
-        pprz_3d_animation(model_info_file,...
+        cycl_pprz_3d_animation(model_info_file,...
             quat, ...                   Quaternion of the plane
             quat_ref, ...               Reference quaternion of the plane
             actuators, ...              Actuator values [airframe min, airframe max]
