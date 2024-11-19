@@ -65,3 +65,7 @@ plot_rotorcraft_fp(ac_data, p.aircrafts.motors_on);
 %%
 figure('Name', 'Guidance INDI Hybrid');
 plot_guidance_indi_hybrid(ac_data);
+
+%% VISUALIZE FLIGHT
+visualize_3d('Nederdrone5', ac_data, [540 600], 1);
+% visualize_3d('Nederdrone5', ac_data, [540 600], 1, 'movie');
