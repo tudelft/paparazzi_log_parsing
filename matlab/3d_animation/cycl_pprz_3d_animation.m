@@ -75,8 +75,8 @@ function [] = pprz_3d_animation(...
     load(model_mat_file, 'Model3D');
     % Open the video output if we are recording the movie
     if exist('movie_file_name', 'var')
-        aviobj = VideoWriter(movie_file_name, 'MPEG-4');
-        aviobj.Quality = 100;  % movie quality
+        aviobj = VideoWriter(movie_file_name, 'Motion JPEG AVI');
+        aviobj.Quality = 50;  % movie quality
         aviobj.FrameRate = 1/frame_time;
         open(aviobj);
     end
@@ -220,8 +220,8 @@ function [] = pprz_3d_animation(...
     font_name   = 'Consolas';
     t_offset    = 0.7;
     hdle_text_t                 = text(0.45 * AC_DIMENSION * 1.5, 0.55 * AC_DIMENSION * 1.5, (t_offset-.00) * AC_DIMENSION * 1.5, 't=  0 sec', 'Color',text_color, 'FontSize',FontSize, 'FontName', font_name);
-    hdle_text_phi               = text(0.45 * AC_DIMENSION * 1.5, 0.55 * AC_DIMENSION * 1.5, (t_offset-.04) * AC_DIMENSION * 1.5, '', 'Color',text_color, 'FontSize', FontSize, 'FontName', font_name);
-    hdle_text_th                = text(0.45 * AC_DIMENSION * 1.5, 0.55 * AC_DIMENSION * 1.5, (t_offset-.08) * AC_DIMENSION * 1.5, '', 'Color',text_color, 'FontSize', FontSize, 'FontName', font_name);
+    hdle_text_th                = text(0.45 * AC_DIMENSION * 1.5, 0.55 * AC_DIMENSION * 1.5, (t_offset-.04) * AC_DIMENSION * 1.5, '', 'Color',text_color, 'FontSize', FontSize, 'FontName', font_name);
+    hdle_text_phi               = text(0.45 * AC_DIMENSION * 1.5, 0.55 * AC_DIMENSION * 1.5, (t_offset-.08) * AC_DIMENSION * 1.5, '', 'Color',text_color, 'FontSize', FontSize, 'FontName', font_name);
     hdle_text_psi_deg           = text(0.45 * AC_DIMENSION * 1.5, 0.55 * AC_DIMENSION * 1.5, (t_offset-.12) * AC_DIMENSION * 1.5, '', 'Color',text_color, 'FontSize', FontSize, 'FontName', font_name);
     
     hdle_text_airspeed          = text(0.45 * AC_DIMENSION * 1.5, 0.55 * AC_DIMENSION * 1.5, (t_offset-.20) * AC_DIMENSION * 1.5, '', 'Color',text_color, 'FontSize', FontSize, 'FontName', font_name);
@@ -287,13 +287,13 @@ function [] = pprz_3d_animation(...
     for i=1:length(heading_deg)
 
         % Pitch disc
-        M = makehgtform('zrotate', heading_deg(i) * pi / 180);      % Heading rotation
-        set(euler_hgt(3), 'Matrix', M)
+        M1 = makehgtform('zrotate', heading_deg(i) * pi / 180);      % Heading rotation
+        M2 = makehgtform('xrotate', bank_deg(i) * pi / 180);         % Roll rotation
+        set(euler_hgt(3), 'Matrix', M1 * M2)
 
         % Roll disc
-        M1 = makehgtform('zrotate', heading_deg(i) * pi / 180);   % Heading rotation
-        M2 = makehgtform('yrotate', pitch_deg(i) * pi / 180);   % Pitch rotation
-        set(euler_hgt(2), 'Matrix', M1 * M2)
+        M = makehgtform('zrotate', heading_deg(i) * pi / 180);       % Heading rotation
+        set(euler_hgt(2), 'Matrix', M)
 
         % Roll line
         M = makehgtform('xrotate', bank_deg(i) * pi / 180);
@@ -460,3 +460,4 @@ function Lbw = Lbw(angle_of_attack, angle_of_sideslip)
         sb cb 0
         sa*cb -sa*sb ca];
 end
+
