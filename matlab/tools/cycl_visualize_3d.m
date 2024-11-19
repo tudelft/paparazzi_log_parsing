@@ -1,4 +1,4 @@
-function visualize_3d(model_name, ac_data, trange)
+function visualize_3d(model_name, ac_data, trange, speedx, movie_file_name)
     if ~isfield(ac_data, 'AHRS_REF_QUAT')
         return
     end
@@ -7,9 +7,6 @@ function visualize_3d(model_name, ac_data, trange)
     addpath('3d_animation');
     % path of the *.mat file containing the 3d model information
     model_info_file = strcat('3d_animation/3d_models/',model_name,'.mat');
-
-    % define the reproduction speed factor
-    speedx = 1;
 
     % -------------------------------------------------------------------------
     % Read AHRS_REF_QUAT
@@ -76,16 +73,30 @@ function visualize_3d(model_name, ac_data, trange)
 
     %% Run aircraft_3d_animation function
     % -------------------------------------------------------------------------
-    pprz_3d_animation(model_info_file,...
-        quat, ...                   Quaternion of the plane
-        quat_ref, ...               Reference quaternion of the plane
-        actuators, ...              Actuator values [airframe min, airframe max]
-        rc_commands, ...            RC commands (Thrust, Roll, Pitch, Yaw) [-9600, +9600]
-        angle_of_attack_deg, ...    AoA [deg]
-        angle_of_sideslip_deg, ...  AoS [deg]
-        airspeed, ...               Airspeed [m/s]
-        altitude_m, ...             Altitude [m]
-        frame_sample_time, ...      Sample time [sec]
-        speedx);                    % Reproduction speed
-
+    if exist('movie_file_name', 'var')
+        pprz_3d_animation(model_info_file,...
+            quat, ...                   Quaternion of the plane
+            quat_ref, ...               Reference quaternion of the plane
+            actuators, ...              Actuator values [airframe min, airframe max]
+            rc_commands, ...            RC commands (Thrust, Roll, Pitch, Yaw) [-9600, +9600]
+            angle_of_attack_deg, ...    AoA [deg]
+            angle_of_sideslip_deg, ...  AoS [deg]
+            airspeed, ...               Airspeed [m/s]
+            altitude_m, ...             Altitude [m]
+            frame_sample_time, ...      Sample time [sec]
+            speedx, ...                 % Reproduction speed
+            movie_file_name);
+    else
+        pprz_3d_animation(model_info_file,...
+            quat, ...                   Quaternion of the plane
+            quat_ref, ...               Reference quaternion of the plane
+            actuators, ...              Actuator values [airframe min, airframe max]
+            rc_commands, ...            RC commands (Thrust, Roll, Pitch, Yaw) [-9600, +9600]
+            angle_of_attack_deg, ...    AoA [deg]
+            angle_of_sideslip_deg, ...  AoS [deg]
+            airspeed, ...               Airspeed [m/s]
+            altitude_m, ...             Altitude [m]
+            frame_sample_time, ...      Sample time [sec]
+            speedx);                    % Reproduction speed);
+    end
 end
