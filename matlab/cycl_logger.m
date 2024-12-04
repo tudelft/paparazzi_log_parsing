@@ -1,6 +1,6 @@
 clear; close all;
 
-%%
+%% load flight logs
 if ispc
     NASBASE = 'U:/ictDrive/';
     MATLABBASE = 'C:/Users/entouros/Documents/MATLAB';
@@ -15,11 +15,37 @@ addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/math'));
 addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/tools'));
 addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/plotters'));
 
-%%
 % p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241030_valken_ewoud/144/24_10_30__16_27_37_SD.data'));
 p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241030_valken_ewoud/145/24_10_30__16_45_37_SD.data'));
 % p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241030_valken_ewoud/148/24_10_30__17_27_57_SD.data'));
 ac_data = p.aircrafts.data;
+
+%% load pprz sim logs
+MATLABBASE = '/home/ntouev/MATLAB';
+addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/math'));
+addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/tools'));
+addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/plotters'));
+
+filename = '/home/ntouev/pprz_sim_logs/ZXY_20241204-155134.csv';
+data = readtable(filename, 'Delimiter', ',');
+ac_data = struct();
+
+ac_data.AHRS_REF_QUAT.timestamp = data.timestamp;
+ac_data.AHRS_REF_QUAT.ref_qi = data.ref_qi;
+ac_data.AHRS_REF_QUAT.ref_qx = data.ref_qx;
+ac_data.AHRS_REF_QUAT.ref_qy = data.ref_qy;
+ac_data.AHRS_REF_QUAT.ref_qz = data.ref_qz;
+ac_data.AHRS_REF_QUAT.body_qi = data.qi;
+ac_data.AHRS_REF_QUAT.body_qx = data.qx;
+ac_data.AHRS_REF_QUAT.body_qy = data.qy;
+ac_data.AHRS_REF_QUAT.body_qz = data.qz;
+
+ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp = data.timestamp;
+ac_data.ROTORCRAFT_RADIO_CONTROL.roll = data.rc_roll;
+ac_data.ROTORCRAFT_RADIO_CONTROL.pitch = data.rc_pitch;
+ac_data.ROTORCRAFT_RADIO_CONTROL.yaw = data.rc_yaw;
+ac_data.ROTORCRAFT_RADIO_CONTROL.throttle = data.rc_throttle;
+ac_data.ROTORCRAFT_RADIO_CONTROL.mode = data.rc_mode;
 
 %% Plot the imu scaled
 figure('Name','IMU Scaled');
@@ -67,5 +93,5 @@ figure('Name', 'Guidance INDI Hybrid');
 plot_guidance_indi_hybrid(ac_data);
 
 %% VISUALIZE FLIGHT
-cycl_visualize_3d('Nederdrone5', ac_data, [540 600], 1);
+cycl_visualize_3d('Nederdrone5', ac_data, [160 200], 1, 'yaw_jump');
 % cycl_visualize_3d('Nederdrone5', ac_data, [540 600], 1, 'movie');
