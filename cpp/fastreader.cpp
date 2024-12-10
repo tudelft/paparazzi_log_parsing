@@ -4,6 +4,13 @@
 #include <iostream>   // for std::cout
 #include <cstring>
 
+#include <pprzlink/MessageDictionary.h>
+
+bool parse_line(std::string line) {
+    return true;
+}
+
+
 int main(int argc, char* argv[])
 {
     if (argc < 2)
@@ -24,6 +31,11 @@ int main(int argc, char* argv[])
     boost::iostreams::mapped_file mmap(argv[1], boost::iostreams::mapped_file::readonly);
     auto f = mmap.const_data();
     auto l = f + mmap.size();
+
+
+
+    pprzlink::MessageDictionary *dict = new pprzlink::MessageDictionary("./pprzlink/message_definitions/v1.0/messages.xml");
+
 
     const char *PIC = "[PFC] pic:";
 
