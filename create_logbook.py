@@ -30,8 +30,3 @@ def parse_logs():
                     none = False
 
 parse_logs()
-
-# cat /home/mavlab/tudelft_net/staff-umbrella/Navy/flight_logs/2024_09_20_troia_25kg_hydrogen/24_09_20__09_59_09.data
-# | grep '\[PFC\]' | grep -v ': true' | grep -v ': false'
-
-

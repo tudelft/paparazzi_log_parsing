@@ -1,0 +1,6 @@
+[submodule "cpp/tinyxml2"]
+	path = cpp/tinyxml2
+	url = https://github.com/leethomason/tinyxml2.git
+[submodule "cpp/pprzlink"]
+	path = cpp/pprzlink
+	url = https://github.com/paparazzi/pprzlink.git

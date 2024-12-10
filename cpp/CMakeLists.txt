@@ -10,13 +10,19 @@ set(Boost_USE_STATIC_RUNTIME OFF)
 
 
 # Find Boost
-find_package(Boost REQUIRED COMPONENTS filesystem iostreams)
+find_package(Boost REQUIRED COMPONENTS filesystem iostreams system)
 
 # Include Boost headers
 include_directories(${Boost_INCLUDE_DIRS})
+
+# Find pprzlink
+find_package(pprzlink++ REQUIRED)
+
+# Include pprzlink headers
+include_directories(${pprzlink++_INCLUDE_DIRS})
 
 # Add the executable
 add_executable(paparazzi_log_parsing fastreader.cpp)
 
 # Link Boost libraries
-target_link_libraries(paparazzi_log_parsing Boost::filesystem Boost::iostreams)
+target_link_libraries(paparazzi_log_parsing Boost::filesystem Boost::iostreams Boost::system pprzlink++)
