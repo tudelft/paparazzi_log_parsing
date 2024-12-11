@@ -3,6 +3,7 @@
 #include <algorithm>  // for std::find
 #include <iostream>   // for std::cout
 #include <cstring>
+#include <tinyxml2.h>
 
 #include <pprzlink/MessageDictionary.h>
 
@@ -45,10 +46,44 @@ int main(int argc, char* argv[])
         return 0;
     }
 
+
+      tinyxml2::XMLDocument xml;
+      xml.LoadFile(log_file.c_str());
+      // Get a link to the root element
+      tinyxml2::XMLElement *root = xml.RootElement();
+      std::string rootElem(root->Value());
+      if(rootElem!="configuration")
+      {
+        std::cout << "Root element is not configuration in xml messages file (found "+rootElem+").";
+        return 0;
+      }
+
     // Load message definitions from *.LOG / messages.xml
-    pprzlink::MessageDictionary *dict = new pprzlink::MessageDictionary(log_file);
+    pprzlink::MessageDictionary *dict = new pprzlink::MessageDictionary(root->FirstChildElement("protocol"));
 //    pprzlink::MessageDictionary *dict = new pprzlink::MessageDictionary("./pprzlink/message_definitions/v1.0/messages.xml");
 
+
+    // Load all aircraft names
+    auto aircraft = root->FirstChildElement("conf")->FirstChildElement("aircraft");
+    while (aircraft != nullptr)
+    {
+        auto className = aircraft->Attribute("name", nullptr);
+        if (className == nullptr)
+        {
+            className = aircraft->Attribute("NAME", nullptr);
+        }
+        int classId = aircraft->IntAttribute("ac_id", -1);
+        if (classId == -1)
+        {
+            classId = aircraft->IntAttribute("AC_ID", -1);
+        }
+        if (className == nullptr || classId == -1)
+        {
+            std::cout << "aircraft has no name or ac_id.";
+        }
+        std::cout << " - aircraft: " << className << " id: " << classId << "\n";
+        aircraft = aircraft->NextSiblingElement("aircraft");
+    }
 
     const char *PIC = "[PFC] pic:";
 
