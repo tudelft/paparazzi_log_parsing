@@ -21,7 +21,7 @@ int main(int argc, char* argv[])
 
 
     if (boost::filesystem::is_empty(argv[1])) {
-//        std::cout << " - Empty file\n";
+        std::cout << " - Empty DATA file\n";
         return 0;
     }
 
@@ -33,8 +33,21 @@ int main(int argc, char* argv[])
     auto l = f + mmap.size();
 
 
+    // replace the .data in argv[1] with .log
+    std::string log_file = argv[1];
+    log_file.replace(log_file.end()-4, log_file.end(), "log");
 
-    pprzlink::MessageDictionary *dict = new pprzlink::MessageDictionary("./pprzlink/message_definitions/v1.0/messages.xml");
+    std::cout << " - log_file = " << log_file << "\n";
+
+
+    if (boost::filesystem::is_empty(log_file)) {
+        std::cout << " - Empty LOG file\n";
+        return 0;
+    }
+
+    // Load message definitions from *.LOG / messages.xml
+    pprzlink::MessageDictionary *dict = new pprzlink::MessageDictionary(log_file);
+//    pprzlink::MessageDictionary *dict = new pprzlink::MessageDictionary("./pprzlink/message_definitions/v1.0/messages.xml");
 
 
     const char *PIC = "[PFC] pic:";
