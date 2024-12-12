@@ -26,7 +26,7 @@ function cycl_fill_mode_regions(mode_values, mode_timestamps, ax_array)
                     % Plot shaded region for the current mode on each axis
                     h_fill = fill([mode_timestamps(start_idx), mode_timestamps(i-1), mode_timestamps(i-1), mode_timestamps(start_idx)], ...
                         [y_limits{j}(1), y_limits{j}(1), y_limits{j}(2), y_limits{j}(2)], ...
-                        mode_color, 'FaceAlpha', 0.1, 'EdgeColor', 'none', 'Parent', ax_array{j});
+                        mode_color, 'FaceAlpha', 0.15, 'EdgeColor', 'none', 'Parent', ax_array{j});
 
                     % Send fill to the background
                     uistack(h_fill, 'bottom');
