@@ -3,10 +3,10 @@ clear; close all;
 %% load flight logs
 if ispc
     NASBASE = 'U:/ictDrive/';
-    MATLABBASE = 'C:/Users/entouros/Documents/MATLAB';
+    MATLABBASE = 'C:/Users/entouros/Documents/MATLAB/';
 elseif isunix
     NASBASE = '/media/ntouev/ictDrive/';
-    MATLABBASE = '/home/ntouev/MATLAB';
+    MATLABBASE = '/home/ntouev/MATLAB/';
 else
     disp('Platform not supported')
 end
@@ -15,13 +15,30 @@ addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/math'));
 addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/tools'));
 addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/plotters'));
 
+% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241030_valken_ewoud/143/24_10_30__15_54_02_SD.data'));
 % p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241030_valken_ewoud/144/24_10_30__16_27_37_SD.data'));
-p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241030_valken_ewoud/145/24_10_30__16_45_37_SD.data'));
+% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241030_valken_ewoud/145/24_10_30__16_45_37_SD.data'));
 % p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241030_valken_ewoud/148/24_10_30__17_27_57_SD.data'));
+p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241211_valken_vaggelis/161/24_12_11__15_21_45_SD.data'));
+
 ac_data = p.aircrafts.data;
 
-%% load pprz sim logs
-MATLABBASE = '/home/ntouev/MATLAB';
+%% load field data
+
+NASBASE = '/media/ntouev/valken/';
+MATLABBASE = '/home/ntouev/MATLAB/';
+
+addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/math'));
+addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/tools'));
+addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/plotters'));
+
+p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241211_valken_vaggelis/161/24_12_11__15_21_45_SD.data'));
+
+ac_data = p.aircrafts.data;
+
+%% load sim logs
+MATLABBASE = '/home/ntouev/MATLAB/';
+
 addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/math'));
 addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/tools'));
 addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/plotters'));
@@ -81,8 +98,8 @@ figure('Name','Elevon deflections');
 cycl_plot_defl(ac_data);
 
 %%
-figure('Name', 'Flight Mode');
-plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, ac_data.ROTORCRAFT_RADIO_CONTROL.mode);
+figure('Name', 'RC controls');
+cycl_plot_rc_controls(ac_data);
 
 %% Plot the rotorcraft fp
 figure('Name','Rotorcraft FP');
@@ -91,6 +108,10 @@ plot_rotorcraft_fp(ac_data, p.aircrafts.motors_on);
 %%
 figure('Name', 'Guidance INDI Hybrid');
 plot_guidance_indi_hybrid(ac_data);
+
+%% Airspeed
+figure('Name', 'Airspeed');
+cycl_plot_airspeed(ac_data);
 
 %% VISUALIZE FLIGHT
 cycl_visualize_3d('Nederdrone5', ac_data, [160 200], 1, 'yaw_jump');
