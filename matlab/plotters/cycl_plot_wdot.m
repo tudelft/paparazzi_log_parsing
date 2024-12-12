@@ -7,7 +7,7 @@ function cycl_plot_wdot(ac_data, order)
 
     % p dot
     ax1 = nexttile;
-    hold on; zoom on;
+    hold on; grid on; zoom on;
     plot(ac_data.STAB_ATTITUDE.timestamp, wdotref(:,1));
     plot(ac_data.STAB_ATTITUDE.timestamp, wdot(:,1));
     legend('pdotref', 'pdot');
@@ -18,7 +18,7 @@ function cycl_plot_wdot(ac_data, order)
     
     % q dot
     ax2 = nexttile;
-    hold on; zoom on;
+    hold on; grid on; zoom on;
     plot(ac_data.STAB_ATTITUDE.timestamp, wdotref(:,2));
     plot(ac_data.STAB_ATTITUDE.timestamp, wdot(:,2));
     legend('qdotref', 'qdot');
@@ -29,7 +29,7 @@ function cycl_plot_wdot(ac_data, order)
     
     % r dot
     ax3 = nexttile;
-    hold on; zoom on;
+    hold on; grid on; zoom on;
     plot(ac_data.STAB_ATTITUDE.timestamp, wdotref(:,3));
     plot(ac_data.STAB_ATTITUDE.timestamp, wdot(:,3));
     legend('rdotref', 'rdot');
