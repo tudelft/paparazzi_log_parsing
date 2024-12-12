@@ -4,12 +4,169 @@
 #include <iostream>   // for std::cout
 #include <cstring>
 #include <tinyxml2.h>
+#include <iostream>
+#include <regex>
 
 #include <pprzlink/MessageDictionary.h>
+#include <pprzlink/MessageDefinition.h>
+#include <pprzlink/Message.h>
+
 
 bool parse_line(std::string line) {
     return true;
 }
+
+
+void parse_airframe_list(tinyxml2::XMLElement *root) {
+    auto aircraft = root->FirstChildElement("conf")->FirstChildElement("aircraft");
+    while (aircraft != nullptr)
+    {
+        auto className = aircraft->Attribute("name", nullptr);
+        if (className == nullptr)
+        {
+            className = aircraft->Attribute("NAME", nullptr);
+        }
+        int classId = aircraft->IntAttribute("ac_id", -1);
+        if (classId == -1)
+        {
+            classId = aircraft->IntAttribute("AC_ID", -1);
+        }
+        if (className == nullptr || classId == -1)
+        {
+            std::cout << "aircraft has no name or ac_id.";
+        }
+        // std::cout << " - aircraft: " << className << " id: " << classId << "\n";
+        aircraft = aircraft->NextSiblingElement("aircraft");
+    }
+}
+
+
+void parse_message(const char* message, pprzlink::MessageDictionary *dict)
+{
+    std::cout << " - message: " << message << "\n";
+
+    std::regex fieldRegex("([^ ]+|\"[^\"]+\")");
+
+    std::smatch results;
+    std::vector<std::string> fields;
+    std::string fieldsStr(message);
+    while (std::regex_search(fieldsStr, results, fieldRegex))
+    {
+        fields.push_back(results.str());
+        // std::cout << " - field: " << results.str() << "\n";
+        fieldsStr = results.suffix();
+    }
+
+    pprzlink::MessageDefinition def = dict->getDefinition(fields[2]);
+    pprzlink::Message msg(def);
+
+    int argc = fields.size();
+    if (def.getNbFields() != (size_t)(argc - 3) )
+    {
+      std::stringstream sstr;
+      sstr << fields[2] << " message with wrong number of fields (expected " << def.getNbFields() << " / got " << argc - 3
+           << ")";
+      std::cout << (sstr.str());
+    }
+
+    for (int i = 3; i < argc; ++i)
+    {
+      const auto& field = def.getField(i - 3);
+      // Need deserializing string to build FieldValue
+
+    //   // For char arrays and strings remove possible quotes
+    //   if ((field.getType().getBaseType()==BaseType::STRING || (field.getType().getBaseType()==BaseType::CHAR && field.getType().isArray())) && argv[i][0]=='"')
+    //   {
+    //     std::string str(argv[i]);
+    //     //std::cout << str.substr(1,str.size()-2) << std::endl;
+    //     msg.addField(field.getName(),str.substr(1,str.size()-2));
+    //   }
+    //   else
+    //   {
+    //     std::stringstream sstr(argv[i]);
+    //     if (field.getType().isArray())
+    //     {
+    //       switch (field.getType().getBaseType())
+    //       {
+    //         case BaseType::NOT_A_TYPE:
+    //           throw std::logic_error("NOT_A_TYPE for field " + field.getName() + " in message " + argv[1]);
+    //           break;
+    //         case BaseType::CHAR:
+    //           throw wrong_message_format("Wrong field format for a char[] "+std::string(argv[i]));
+    //           break;
+    //         case BaseType::INT8:
+    //         case BaseType::INT16:
+    //         case BaseType::INT32:
+    //         case BaseType::UINT8:
+    //         case BaseType::UINT16:
+    //         case BaseType::UINT32:
+    //         case BaseType::FLOAT:
+    //         case BaseType::DOUBLE:
+    //         {
+    //           // Parse all numbers as a double
+    //           std::vector<double> values;
+    //           while (!sstr.eof())
+    //           {
+    //             double val;
+    //             char c;
+    //             sstr >> val >> c;
+    //             if (c!=',')
+    //             {
+    //               throw wrong_message_format("Wrong format for array "+std::string(argv[i]));
+    //             }
+    //             values.push_back(val);
+    //           }
+    //           msg.addField(field.getName(), values); // The value will be statically cast to the right type
+    //         }
+    //           break;
+    //         case BaseType::STRING:
+    //           msg.addField(field.getName(), argv[i]);
+    //           break;
+    //       }
+    //     }
+    //     else
+    //     {
+    //       switch (field.getType().getBaseType())
+    //       {
+    //         case BaseType::NOT_A_TYPE:
+    //           throw std::logic_error("NOT_A_TYPE for field " + field.getName() + " in message " + argv[1]);
+    //           break;
+    //         case BaseType::CHAR:
+    //         {
+    //           char val;
+    //           sstr >> val;
+    //           msg.addField(field.getName(), val);
+    //         }
+    //           break;
+    //         case BaseType::INT8:
+    //         case BaseType::INT16:
+    //         case BaseType::INT32:
+    //         case BaseType::UINT8:
+    //         case BaseType::UINT16:
+    //         case BaseType::UINT32:
+    //         case BaseType::FLOAT:
+    //         case BaseType::DOUBLE:
+    //         {
+    //           // Parse all numbers as a double
+    //           double val;
+    //           sstr >> val;
+    //           msg.addField(field.getName(), val); // The value will be statically cast to the right type
+    //         }
+    //           break;
+    //         case BaseType::STRING:
+    //           msg.addField(field.getName(), argv[i]);
+    //           break;
+    //       }
+    //     }
+    //   }
+    }
+
+
+}
+
+
+
+
 
 
 int main(int argc, char* argv[])
@@ -47,16 +204,16 @@ int main(int argc, char* argv[])
     }
 
 
-      tinyxml2::XMLDocument xml;
-      xml.LoadFile(log_file.c_str());
-      // Get a link to the root element
-      tinyxml2::XMLElement *root = xml.RootElement();
-      std::string rootElem(root->Value());
-      if(rootElem!="configuration")
-      {
+    tinyxml2::XMLDocument xml;
+    xml.LoadFile(log_file.c_str());
+    // Get a link to the root element
+    tinyxml2::XMLElement *root = xml.RootElement();
+    std::string rootElem(root->Value());
+    if(rootElem!="configuration")
+    {
         std::cout << "Root element is not configuration in xml messages file (found "+rootElem+").";
         return 0;
-      }
+    }
 
     // Load message definitions from *.LOG / messages.xml
     pprzlink::MessageDictionary *dict = new pprzlink::MessageDictionary(root->FirstChildElement("protocol"));
@@ -64,26 +221,13 @@ int main(int argc, char* argv[])
 
 
     // Load all aircraft names
-    auto aircraft = root->FirstChildElement("conf")->FirstChildElement("aircraft");
-    while (aircraft != nullptr)
-    {
-        auto className = aircraft->Attribute("name", nullptr);
-        if (className == nullptr)
-        {
-            className = aircraft->Attribute("NAME", nullptr);
-        }
-        int classId = aircraft->IntAttribute("ac_id", -1);
-        if (classId == -1)
-        {
-            classId = aircraft->IntAttribute("AC_ID", -1);
-        }
-        if (className == nullptr || classId == -1)
-        {
-            std::cout << "aircraft has no name or ac_id.";
-        }
-        std::cout << " - aircraft: " << className << " id: " << classId << "\n";
-        aircraft = aircraft->NextSiblingElement("aircraft");
-    }
+    parse_airframe_list(root);
+
+
+    const char* msg = "17.316 44 ROTORCRAFT_FP 0 0 107 0 0 51597 71 85 16 122 -87 102 16 0 0";
+    parse_message(msg, dict);
+
+
 
     const char *PIC = "[PFC] pic:";
 
@@ -103,6 +247,9 @@ int main(int argc, char* argv[])
     // Find the number of lines in the file
     uintmax_t m_numLines = 0;
     while (f && f!=l)
+        // Parse line
+        const char* message = "test"; //(static_cast<const char*>(f));
+        // parse_message(message, dict);
         if ((f = static_cast<const char*>(memchr(f, '\n', l-f))))
             m_numLines++, f++;
 
