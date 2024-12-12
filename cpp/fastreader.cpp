@@ -1,10 +1,30 @@
+/*
+ * Copyright (C) 2024-2025 The Paparazzi Team
+ *
+ * This file is part of paparazzi.
+ *
+ * paparazzi is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2, or (at your option)
+ * any later version.
+ *
+ * paparazzi is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with paparazzi; see the file COPYING.  If not, write to
+ * the Free Software Foundation, 59 Temple Place - Suite 330,
+ * Boston, MA 02111-1307, USA.
+ */
+
 #include <boost/iostreams/device/mapped_file.hpp> // for mmap
 #include <boost/filesystem.hpp> // for is_empty
 #include <algorithm>  // for std::find
 #include <iostream>   // for std::cout
-#include <cstring>
-#include <tinyxml2.h>
-#include <iostream>
+#include <tinyxml2.h> // for XMLDocument
+#include <iostream> // for std::cout
 #include <regex>
 
 #include <pprzlink/MessageDictionary.h>
@@ -16,6 +36,7 @@
 
 
 void parse_airframe_list(tinyxml2::XMLElement *root) {
+    int aircrafts = 0;
     auto aircraft = root->FirstChildElement("conf")->FirstChildElement("aircraft");
     while (aircraft != nullptr)
     {
@@ -35,7 +56,9 @@ void parse_airframe_list(tinyxml2::XMLElement *root) {
         }
         // std::cout << " - aircraft: " << className << " id: " << classId << "\n";
         aircraft = aircraft->NextSiblingElement("aircraft");
+        aircrafts++;
     }
+    std::cout << " - aircrafts: " << aircrafts << "\n";
 }
 
 
@@ -89,7 +112,8 @@ void parse_message(std::string fieldsStr, pprzlink::MessageDictionary *dict)
               throw std::logic_error("NOT_A_TYPE for field " + field.getName() + " in message " + fields[2]);
               break;
             case pprzlink::BaseType::CHAR:
-              std::cout << "Wrong field format for a char[] "+std::string(fields[i]);
+              msg.addField(field.getName(), fields[i]);
+            //   std::cout << "Wrong field format for a char[] "+std::string(fields[i]) + " " + field.getName() + " in message " + fields[2] << std::endl;
               break;
             case pprzlink::BaseType::INT8:
             case pprzlink::BaseType::INT16:
@@ -106,10 +130,13 @@ void parse_message(std::string fieldsStr, pprzlink::MessageDictionary *dict)
               {
                 double val;
                 char c;
-                sstr >> val >> c;
-                if (c!=',')
-                {
-                  std::cout << "Wrong format for array "+std::string(fields[i]);
+                sstr >> val;
+                if (!sstr.eof()) {
+                    sstr >> c;
+                    if (c!=',')
+                    {
+                    std::cout << "Wrong format for array "+std::string(fields[i])+ " in message " + fields[2] + " with data: " + sstr.str() << std::endl;
+                    }
                 }
                 values.push_back(val);
               }
@@ -261,6 +288,13 @@ int main(int argc, char* argv[])
     std::string line;
     while (getline(fileHandler, line)) {
         parse_message(line, dict);
+        m_numLines++;
+        
+        // Print a single dot for every 1000 lines
+        if (m_numLines % 1000 == 0) {
+            std::cout << ".";
+            std::flush(std::cout);
+        }
     }
 
 
