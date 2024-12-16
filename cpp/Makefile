@@ -4,7 +4,7 @@
 
 all:
 	mkdir -p build
-	cd build && cmake ../
+	cd build && cmake ../ -DCMAKE_BUILD_TYPE=Debug
 	make -C ./build
 	
 clean:
