@@ -32,6 +32,10 @@
 #include <pprzlink/Message.h>
 #include <pprzlink/MessageFieldTypes.h>
 
+#include <boost/spirit/home/x3.hpp>
+
+
+using namespace boost::spirit::x3;
 
 
 
@@ -65,6 +69,10 @@ void parse_airframe_list(tinyxml2::XMLElement *root) {
 void parse_message(std::string fieldsStr, pprzlink::MessageDictionary *dict)
 {
     // std::cout << " - message: " << fieldsStr << "\n";
+    if (fieldsStr.empty())
+    {
+        return;
+    }
 
     std::regex fieldRegex("([^ ]+|\"[^\"]+\")");
 
@@ -75,6 +83,12 @@ void parse_message(std::string fieldsStr, pprzlink::MessageDictionary *dict)
         fields.push_back(results.str());
         // std::cout << " - field: " << results.str() << "\n";
         fieldsStr = results.suffix();
+    }
+
+    if (fields.size() < 3)
+    {
+        std::cout << " - message with wrong number of fields (expected 3 / got " << fields.size() << ")";
+        return;
     }
 
     pprzlink::MessageDefinition def = dict->getDefinition(fields[2]);
@@ -109,7 +123,7 @@ void parse_message(std::string fieldsStr, pprzlink::MessageDictionary *dict)
           switch (field.getType().getBaseType())
           {
             case pprzlink::BaseType::NOT_A_TYPE:
-              throw std::logic_error("NOT_A_TYPE for field " + field.getName() + " in message " + fields[2]);
+              throw std::logic_error("NOT_A_TYPE for field ");// + field.getName()); // + " in message " + fields[2]);
               break;
             case pprzlink::BaseType::CHAR:
               msg.addField(field.getName(), fields[i]);
@@ -297,6 +311,13 @@ int main(int argc, char* argv[])
         }
     }
 
+
+    // Even faster!
+    auto add_msg = [&](auto& ctx) {
+        std::cout << boost::fusion::at_c<0>(_attr(ctx)) << " " << boost::fusion::at_c<2>(_attr(ctx)) << std::endl;
+    };
+    boost::iostreams::mapped_file_source file(argv[1]);
+    parse(file.begin(), file.end(), *((float_ >> ' ' >> int_ >> ' ' >> *~char_(" ") >> ' ' >> *~char_("\r\n") >> eol)[add_msg]));
 
 
     std::cout << " - m_numLines = " << m_numLines << "\n";
