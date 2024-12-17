@@ -11,6 +11,10 @@ set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_MULTITHREADED ON)  
 set(Boost_USE_STATIC_RUNTIME OFF) 
 
+# Add a define flag
+add_definitions(-fconcepts)
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Find Boost
 find_package(Boost REQUIRED COMPONENTS filesystem iostreams system)
