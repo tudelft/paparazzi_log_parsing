@@ -15,15 +15,15 @@ addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/math'));
 addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/tools'));
 addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/plotters'));
 
-% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241024_valken_first_successful_hover/104/24_10_24__20_10_26_SD_no_GPS.data'));
-% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241024_valken_first_successful_hover/105/24_10_24__20_14_07_SD_no_GPS.data'));
+% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241024_valken_first_successful_hover/104/24_10_24__20_10_26_SD_no_GPS.data'));
+% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241024_valken_first_successful_hover/105/24_10_24__20_14_07_SD_no_GPS.data'));
 
-% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241030_valken_ewoud/143/24_10_30__15_54_02_SD.data'));
-p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241030_valken_ewoud/144/24_10_30__16_27_37_SD.data'));
-% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241030_valken_ewoud/145/24_10_30__16_45_37_SD.data'));
-% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241030_valken_ewoud/148/24_10_30__17_27_57_SD.data'));
+% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241030_valken_ewoud/143/24_10_30__15_54_02_SD.data'));
+p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241030_valken_ewoud/144/24_10_30__16_27_37_SD.data'));
+% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241030_valken_ewoud/145/24_10_30__16_45_37_SD.data'));
+% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241030_valken_ewoud/148/24_10_30__17_27_57_SD.data'));
 
-% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2_pprz/20241211_valken_vaggelis/161/24_12_11__15_21_45_SD.data'));
+% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241211_valken_vaggelis/161/24_12_11__15_21_45_SD.data'));
 
 ac_data = p.aircrafts.data;
 
@@ -79,14 +79,14 @@ cycl_plot_eff_mat(ac_data);
 % cycl_visualize_3d('Nederdrone5', ac_data, [160 200], 1, 'yaw_jump');
 cycl_visualize_3d('Cyclone2', ac_data, [540 570], 1, 'movie');
 
-%% load field data
+%% load temp data
 MATLABBASE = '/home/ntouev/MATLAB/';
 
 addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/math'));
 addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/tools'));
 addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/plotters'));
 
-p = parselog('/home/ntouev/valken/205/22_05_01__01_59_46_SD.data');
+p = parselog('/home/ntouev/pprz_temp_logs/0210/22_05_01__01_59_46_SD.data');
 
 ac_data = p.aircrafts.data;
 
