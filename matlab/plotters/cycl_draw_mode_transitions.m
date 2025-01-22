@@ -2,18 +2,20 @@
 % chat gpt generated code use/modify with caution! %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-function cycl_fill_mode_regions(mode_values, mode_timestamps, ax_array)
-
+function cycl_draw_mode_transitions(mode_values, mode_timestamps, ax_array)
+    
     % Get the y-limits for each axis in ax_array
     y_limits = cell(1, length(ax_array));
     for i = 1:length(ax_array)
         y_limits{i} = ylim(ax_array{i});
     end
 
-    % Define colors for each mode
-    mode_colors = containers.Map({-9600, 75, 9600}, {'orange', 'green', 'blue'});
+    % According to the transmitter the middle value below may be different.
+    % Eg trasnmitter range 999 to 2000, middle value 1503 --> 75
+    % Transition does NOT occur exactly at the lines! Check code!
+    mode_colors = containers.Map({-9600, 75, 9600}, {[1, 0.5, 0], 'green', 'blue'});
 
-    % Find transitions in mode and plot shaded regions accordingly
+    % Find transitions in mode and plot vertical lines accordingly
     start_idx = 1;
     for i = 2:length(mode_values)
         if mode_values(i) ~= mode_values(i-1) || i == length(mode_values)
@@ -23,13 +25,9 @@ function cycl_fill_mode_regions(mode_values, mode_timestamps, ax_array)
 
                 % Loop over each axis in ax_array
                 for j = 1:length(ax_array)
-                    % Plot shaded region for the current mode on each axis
-                    h_fill = fill([mode_timestamps(start_idx), mode_timestamps(i-1), mode_timestamps(i-1), mode_timestamps(start_idx)], ...
-                        [y_limits{j}(1), y_limits{j}(1), y_limits{j}(2), y_limits{j}(2)], ...
-                        mode_color, 'FaceAlpha', 0.15, 'EdgeColor', 'none', 'Parent', ax_array{j});
-
-                    % Send fill to the background
-                    uistack(h_fill, 'bottom');
+                    % Draw a thick dashed vertical line at the start of the region
+                    line(ax_array{j}, [mode_timestamps(start_idx), mode_timestamps(start_idx)], ...
+                        y_limits{j}, 'LineStyle', '--', 'LineWidth', 2, 'Color', mode_color);
                 end
             end
 

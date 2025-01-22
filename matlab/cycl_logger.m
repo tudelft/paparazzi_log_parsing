@@ -7,8 +7,24 @@ addpath('/home/ntouev/MATLAB/paparazzi_log_parsing/matlab/math');
 addpath('/home/ntouev/MATLAB/paparazzi_log_parsing/matlab/tools');
 addpath('/home/ntouev/MATLAB/paparazzi_log_parsing/matlab/plotters/');
 
-p = parselog('/home/ntouev/pprz_temp_logs/20241220_cybezoo_tuning/0222/22_05_01__01_59_46_SD.data'); log_nbr = '0222';
+% p = parselog('/home/ntouev/pprz_temp_logs/20241030_valken_ewoud/143/24_10_30__15_54_02_SD.data'); log_nbr = '143';
+% p = parselog('/home/ntouev/pprz_temp_logs/20241030_valken_ewoud/144/24_10_30__16_27_37_SD.data'); log_nbr = '144';
+% p = parselog('/home/ntouev/pprz_temp_logs/20241030_valken_ewoud/145/24_10_30__16_45_37_SD.data'); log_nbr = '145';
+% p = parselog('/home/ntouev/pprz_temp_logs/20241030_valken_ewoud/148/24_10_30__17_27_57_SD.data'); log_nbr = '148';
 
+% p = parselog('/home/ntouev/pprz_temp_logs/20241211_valken_vaggelis/161/24_12_11__15_21_45_SD.data'); log_nbr = '161';
+
+% p = parselog('/home/ntouev/pprz_temp_logs/20241220_cybezoo_tuning/0221/22_05_01__01_59_46_SD.data'); log_nbr = '0221';
+% p = parselog('/home/ntouev/pprz_temp_logs/20241220_cybezoo_tuning/0222/22_05_01__01_59_46_SD.data'); log_nbr = '0222';
+
+% p = parselog('/home/ntouev/pprz_temp_logs/20250108_mavlab_G_testing/0228/25_01_08__12_46_39_SD.data'); log_nbr = '0228';
+
+% p = parselog('/home/ntouev/pprz_temp_logs/20250116_cyberzoo_training/0253/25_01_16__17_55_45_SD.data'); log_nbr = '0253';
+
+% p = parselog('/home/ntouev/pprz_temp_logs/20250117_valken/0254/25_01_17__14_22_01_SD.data'); log_nbr = '0254';
+% p = parselog('/home/ntouev/pprz_temp_logs/20250117_valken/0257/25_01_17__15_36_58_SD.data'); log_nbr = '0257';
+
+p = parselog('/home/ntouev/pprz_temp_logs/0299/25_01_22__13_55_07_SD.data'); log_nbr = 'temp';
 ac_data = p.aircrafts.data;
 
 %% Imu scaled
@@ -19,9 +35,9 @@ cycl_plot_imu_scaled(ac_data);
 figure('Name','Euler ZXY');
 cycl_plot_eul(ac_data,'ZXY');
 
-%% RPM
-figure('Name', 'RPM');
-cycl_plot_rpm(ac_data);
+%% actuators
+figure('Name', 'Actuators');
+cycl_plot_actuators(ac_data);
 
 %% STAB data
 figure('Name','Stab Attitude');
@@ -35,32 +51,37 @@ cycl_plot_w(ac_data);
 figure('Name','wdot - wdotref')
 cycl_plot_wdot(ac_data);
 
-%% Elevons
-figure('Name','Elevon deflections');
-cycl_plot_defl(ac_data);
 %% RC controls
 figure('Name', 'RC controls');
 cycl_plot_rc_controls(ac_data);
 
-%% Plot the rotorcraft fp
-figure('Name','Rotorcraft FP');
-plot_rotorcraft_fp(ac_data, p.aircrafts.motors_on);
-
-%%
-figure('Name', 'Guidance INDI Hybrid');
-plot_guidance_indi_hybrid(ac_data);
-
-%% Airspeed
-figure('Name', 'Airspeed');
-cycl_plot_airspeed(ac_data);
+%% Speed
+figure('Name', 'Speed');
+cycl_plot_speed(ac_data);
 
 %% Effectiveness Matrix
 figure('Name','Effectiveness Matrix'); 
 cycl_plot_eff_mat(ac_data);
 
+%% rotorcraft fp
+% figure('Name','Rotorcraft FP');
+% plot_rotorcraft_fp(ac_data, p.aircrafts.motors_on);
+
+%% Guidance
+% figure('Name', 'Guidance INDI Hybrid');
+% plot_guidance_indi_hybrid(ac_data);
+
+%%
+figure;
+plot_rotorcraft_status(ac_data)
+
+%% Energy
+figure('Name', 'Energy');
+plot_energy(ac_data);
+
 %% VISUALIZE FLIGHT
 % cycl_visualize_3d('Nederdrone5', ac_data, [160 200], 1, 'yaw_jump');
-cycl_visualize_3d('Cyclone2', ac_data, [540 570], 1, 'movie');
+% cycl_visualize_3d('Cyclone2', ac_data, [540 570], 1, 'movie');
 
 %% load sim logs
 MATLABBASE = '/home/ntouev/MATLAB/';
@@ -107,12 +128,5 @@ addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/plotters'));
 
 % p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241024_valken_first_successful_hover/104/24_10_24__20_10_26_SD_no_GPS.data'));
 % p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241024_valken_first_successful_hover/105/24_10_24__20_14_07_SD_no_GPS.data'));
-
-% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241030_valken_ewoud/143/24_10_30__15_54_02_SD.data'));
-% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241030_valken_ewoud/144/24_10_30__16_27_37_SD.data'));
-% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241030_valken_ewoud/145/24_10_30__16_45_37_SD.data'));
-% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241030_valken_ewoud/148/24_10_30__17_27_57_SD.data'));
-
-% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241211_valken_vaggelis/161/24_12_11__15_21_45_SD.data'));
 
 ac_data = p.aircrafts.data;
