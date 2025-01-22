@@ -64,12 +64,12 @@ figure('Name','Effectiveness Matrix');
 cycl_plot_eff_mat(ac_data);
 
 %% rotorcraft fp
-% figure('Name','Rotorcraft FP');
-% plot_rotorcraft_fp(ac_data, p.aircrafts.motors_on);
+figure('Name','Rotorcraft FP');
+plot_rotorcraft_fp(ac_data, p.aircrafts.motors_on);
 
 %% Guidance
-% figure('Name', 'Guidance INDI Hybrid');
-% plot_guidance_indi_hybrid(ac_data);
+figure('Name', 'Guidance INDI Hybrid');
+plot_guidance_indi_hybrid(ac_data);
 
 %%
 figure;
@@ -80,8 +80,8 @@ figure('Name', 'Energy');
 plot_energy(ac_data);
 
 %% VISUALIZE FLIGHT
-% cycl_visualize_3d('Nederdrone5', ac_data, [160 200], 1, 'yaw_jump');
-% cycl_visualize_3d('Cyclone2', ac_data, [540 570], 1, 'movie');
+cycl_visualize_3d('Nederdrone5', ac_data, [160 200], 1, 'yaw_jump');
+cycl_visualize_3d('Cyclone2', ac_data, [540 570], 1, 'movie');
 
 %% load sim logs
 MATLABBASE = '/home/ntouev/MATLAB/';
@@ -110,23 +110,3 @@ ac_data.ROTORCRAFT_RADIO_CONTROL.pitch = data.rc_pitch;
 ac_data.ROTORCRAFT_RADIO_CONTROL.yaw = data.rc_yaw;
 ac_data.ROTORCRAFT_RADIO_CONTROL.throttle = data.rc_throttle;
 ac_data.ROTORCRAFT_RADIO_CONTROL.mode = data.rc_mode;
-
-%% load server flight logs
-if ispc
-    NASBASE = 'U:/ictDrive/';
-    MATLABBASE = 'C:/Users/entouros/Documents/MATLAB/';
-elseif isunix
-    NASBASE = '/media/ntouev/ictDrive/';
-    MATLABBASE = '/home/ntouev/MATLAB/';
-else
-    disp('Platform not supported')
-end
-
-addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/math'));
-addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/tools'));
-addpath(fullfile(MATLABBASE, 'paparazzi_log_parsing/matlab/plotters'));
-
-% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241024_valken_first_successful_hover/104/24_10_24__20_10_26_SD_no_GPS.data'));
-% p = parselog(fullfile(NASBASE, 'Flight_logs/cyclone2v1_pprz/20241024_valken_first_successful_hover/105/24_10_24__20_14_07_SD_no_GPS.data'));
-
-ac_data = p.aircrafts.data;
