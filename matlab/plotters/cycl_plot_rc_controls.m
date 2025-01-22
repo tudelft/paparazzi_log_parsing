@@ -6,9 +6,9 @@ function cycl_plot_rc_controls(ac_data, order)
     pitch_percent = ac_data.ROTORCRAFT_RADIO_CONTROL.pitch/96;
     roll_percent = ac_data.ROTORCRAFT_RADIO_CONTROL.roll/96;
     yaw_percent = ac_data.ROTORCRAFT_RADIO_CONTROL.yaw/96;
-    kill_percent = (ac_data.ROTORCRAFT_RADIO_CONTROL.kill + 9600)/(2*96);
+    kill_percent = 100 - (ac_data.ROTORCRAFT_RADIO_CONTROL.kill + 9600)/(2*96);
 
-    blue_sw = double(string(ac_data.PPM.values(:,5)));
+    blue_sw = double(string(ac_data.PPM.values(:,6)));
     green_sw = double(string(ac_data.PPM.values(:,7)));
 
     ax1 = nexttile;
@@ -23,9 +23,9 @@ function cycl_plot_rc_controls(ac_data, order)
     
     ax2 = nexttile;
     hold on; grid on; zoom on;
-    plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, pitch_percent, LineWidth=1);
-    plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, roll_percent, LineWidth=1);
-    plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, yaw_percent, LineWidth=1);
+    plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, pitch_percent, LineWidth=1.5);
+    plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, roll_percent, LineWidth=1.5);
+    plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, yaw_percent, LineWidth=1.5);
     legend('pitch [%]', 'roll [%]', 'yaw [%]');
     xlabel('time [s]');
     ylabel('');
@@ -36,7 +36,7 @@ function cycl_plot_rc_controls(ac_data, order)
     hold on; grid on; zoom on;
     plot(ac_data.PPM.timestamp, blue_sw, 'Color', 'b', LineWidth=1.5);
     plot(ac_data.PPM.timestamp, green_sw, 'Color', 'g', LineWidth=1.5);
-    plot(ac_data.PPM.timestamp, ac_data.PPM.ppm_rate*10, 'Color', 'r', LineWidth=1);
+    plot(ac_data.PPM.timestamp, ac_data.PPM.ppm_rate*10, 'Color', 'r', LineWidth=1.5);
     legend('blue switch [ppm]', 'green switch [ppm]', 'ppm rate x 10');
     xlabel('time [s]');
     ylabel('');

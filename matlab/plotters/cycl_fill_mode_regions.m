@@ -3,7 +3,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 function cycl_fill_mode_regions(mode_values, mode_timestamps, ax_array)
-    
+
     % Get the y-limits for each axis in ax_array
     y_limits = cell(1, length(ax_array));
     for i = 1:length(ax_array)
@@ -11,7 +11,7 @@ function cycl_fill_mode_regions(mode_values, mode_timestamps, ax_array)
     end
 
     % Define colors for each mode
-    mode_colors = containers.Map({-9600, 0, 9600}, {'white', 'green', 'blue'});
+    mode_colors = containers.Map({-9600, 75, 9600}, {'orange', 'green', 'blue'});
 
     % Find transitions in mode and plot shaded regions accordingly
     start_idx = 1;

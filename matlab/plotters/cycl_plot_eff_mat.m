@@ -56,7 +56,7 @@ function cycl_plot_eff_mat(ac_data, order)
     % background color fill for various flight modes
     mode_values = ac_data.ROTORCRAFT_RADIO_CONTROL.mode;
     mode_timestamps = ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp;
-    cycl_fill_mode_regions(mode_values, mode_timestamps, {ax1, ax2});
+    cycl_draw_mode_transitions(mode_values, mode_timestamps, {ax1, ax2});
     legend(ax1, [h1,h2,h3,h4], {'Gpitch11', 'Gpitch12', 'Gpitch13', 'Gpitch14'});
     legend(ax2, [h5,h6,h7,h8], {'Gyaw11', 'Gyaw12', 'Gyaw13', 'Gyaw14'});
     legend(ax3, [h9,h10,h11,h12], {'Groll11', 'Groll12', 'Groll13', 'Groll14'});
