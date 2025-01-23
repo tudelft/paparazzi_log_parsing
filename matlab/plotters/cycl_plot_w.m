@@ -38,6 +38,6 @@ function cycl_plot_w(ac_data, order)
     title('r');
     hold off;
 
-    linkaxes([ax1,ax2,ax3],'x')
+    linkaxes([ax1,ax2,ax3],'x');
 
 end

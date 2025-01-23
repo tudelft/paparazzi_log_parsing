@@ -9,7 +9,7 @@ addpath('/home/ntouev/MATLAB/paparazzi_log_parsing/matlab/plotters/');
 
 % p = parselog('/home/ntouev/pprz_temp_logs/20241030_valken_ewoud/143/24_10_30__15_54_02_SD.data'); log_nbr = '143';
 % p = parselog('/home/ntouev/pprz_temp_logs/20241030_valken_ewoud/144/24_10_30__16_27_37_SD.data'); log_nbr = '144';
-% p = parselog('/home/ntouev/pprz_temp_logs/20241030_valken_ewoud/145/24_10_30__16_45_37_SD.data'); log_nbr = '145';
+p = parselog('/home/ntouev/pprz_temp_logs/20241030_valken_ewoud/145/24_10_30__16_45_37_SD.data'); log_nbr = '145';
 % p = parselog('/home/ntouev/pprz_temp_logs/20241030_valken_ewoud/148/24_10_30__17_27_57_SD.data'); log_nbr = '148';
 
 % p = parselog('/home/ntouev/pprz_temp_logs/20241211_valken_vaggelis/161/24_12_11__15_21_45_SD.data'); log_nbr = '161';
@@ -21,10 +21,12 @@ addpath('/home/ntouev/MATLAB/paparazzi_log_parsing/matlab/plotters/');
 
 % p = parselog('/home/ntouev/pprz_temp_logs/20250116_cyberzoo_training/0253/25_01_16__17_55_45_SD.data'); log_nbr = '0253';
 
-% p = parselog('/home/ntouev/pprz_temp_logs/20250117_valken/0254/25_01_17__14_22_01_SD.data'); log_nbr = '0254';
-% p = parselog('/home/ntouev/pprz_temp_logs/20250117_valken/0257/25_01_17__15_36_58_SD.data'); log_nbr = '0257';
+% p = parselog('/home/ntouev/pprz_temp_logs/20250117_valken_first_succ_manual/0254/25_01_17__14_22_01_SD.data'); log_nbr = '0254';
+% p = parselog('/home/ntouev/pprz_temp_logs/20250117_valken_first_succ_manual/0257/25_01_17__15_36_58_SD.data'); log_nbr = '0257';
 
-p = parselog('/home/ntouev/pprz_temp_logs/0299/25_01_22__13_55_07_SD.data'); log_nbr = 'temp';
+% p = parselog('/home/ntouev/pprz_temp_logs/20250122_mavlab_elrs/0299/25_01_22__13_55_07_SD.data'); log_nbr = '0299';
+
+% p = parselog('/home/ntouev/pprz_temp_logs/0299/25_01_22__13_55_07_SD.data'); log_nbr = 'temp';
 ac_data = p.aircrafts.data;
 
 %% Imu scaled
@@ -43,14 +45,6 @@ cycl_plot_actuators(ac_data);
 figure('Name','Stab Attitude');
 cycl_plot_stab_attitude(ac_data);
 
-%% W
-figure('Name','w - wref');
-cycl_plot_w(ac_data);
-
-%% Wdot
-figure('Name','wdot - wdotref')
-cycl_plot_wdot(ac_data);
-
 %% RC controls
 figure('Name', 'RC controls');
 cycl_plot_rc_controls(ac_data);
@@ -63,25 +57,25 @@ cycl_plot_speed(ac_data);
 figure('Name','Effectiveness Matrix'); 
 cycl_plot_eff_mat(ac_data);
 
-%% rotorcraft fp
-figure('Name','Rotorcraft FP');
-plot_rotorcraft_fp(ac_data, p.aircrafts.motors_on);
-
 %% Guidance
 figure('Name', 'Guidance INDI Hybrid');
-plot_guidance_indi_hybrid(ac_data);
+cycl_plot_guidance_indi_hybrid(ac_data);
+
+%% rotorcraft fp
+% figure('Name','Rotorcraft FP');
+% plot_rotorcraft_fp(ac_data, p.aircrafts.motors_on);
 
 %%
-figure;
-plot_rotorcraft_status(ac_data)
+% figure;
+% plot_rotorcraft_status(ac_data)
 
 %% Energy
-figure('Name', 'Energy');
-plot_energy(ac_data);
+% figure('Name', 'Energy');
+% plot_energy(ac_data);
 
 %% VISUALIZE FLIGHT
-cycl_visualize_3d('Nederdrone5', ac_data, [160 200], 1, 'yaw_jump');
-cycl_visualize_3d('Cyclone2', ac_data, [540 570], 1, 'movie');
+% cycl_visualize_3d('Nederdrone5', ac_data, [160 200], 1, 'yaw_jump');
+% cycl_visualize_3d('Cyclone2', ac_data, [540 570], 1, 'movie');
 
 %% load sim logs
 MATLABBASE = '/home/ntouev/MATLAB/';
@@ -110,3 +104,5 @@ ac_data.ROTORCRAFT_RADIO_CONTROL.pitch = data.rc_pitch;
 ac_data.ROTORCRAFT_RADIO_CONTROL.yaw = data.rc_yaw;
 ac_data.ROTORCRAFT_RADIO_CONTROL.throttle = data.rc_throttle;
 ac_data.ROTORCRAFT_RADIO_CONTROL.mode = data.rc_mode;
+
+%% add here older log loading commands so that the top of the script is not overflown

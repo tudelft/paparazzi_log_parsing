@@ -38,6 +38,6 @@ function cycl_plot_wdot(ac_data, order)
     ylabel('(rad/s^2)');
     hold off;
 
-    linkaxes([ax1,ax2,ax3],'x')
+    linkaxes([ax1,ax2,ax3],'x');
 
 end

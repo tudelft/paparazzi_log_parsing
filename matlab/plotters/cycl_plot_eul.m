@@ -55,9 +55,7 @@ function cycl_plot_eul(ac_data, order)
     title('Psi');
     grid on;
 
-    linkaxes([ax1,ax2,ax3],'x');
-
-    % background color fill for various flight modes
+    % flight modes
     mode_values = ac_data.ROTORCRAFT_RADIO_CONTROL.mode;
     mode_timestamps = ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp;
     cycl_draw_mode_transitions(mode_values, mode_timestamps, {ax1, ax2, ax3});
@@ -65,6 +63,6 @@ function cycl_plot_eul(ac_data, order)
     legend(ax2, [h3, h4], {'Phi', 'Phi ref'});
     legend(ax3, [h5, h6], {'Psi', 'Psi ref'});
 
-    sgtitle(['Euler ', order, ' order'])
+    linkaxes([ax1,ax2,ax3],'x');
 
 end

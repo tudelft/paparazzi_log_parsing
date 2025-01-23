@@ -13,18 +13,18 @@ function cycl_plot_speed(ac_data, order)
     ax2 = nexttile;
     hold on; grid on; zoom on;
     h3 = plot(ac_data.ROTORCRAFT_FP.timestamp, ac_data.ROTORCRAFT_FP.vup_alt, LineWidth=1.5);
-    h4 = yline(-1.5, 'r--', 'LineWidth', 1.5);
+    h4 = yline(-1.5, 'g--', 'LineWidth', 1.5);
     xlabel('Time [s]');
-    ylabel('Vert speed (-z) [m/s]');
-    title('Vert speed (-z)');
+    ylabel('Vertical speed (-z) [m/s]');
+    title('Vertical speed (-z)');
 
-    % background color fill for various flight modes
+    % flight modes
     mode_values = ac_data.ROTORCRAFT_RADIO_CONTROL.mode;
     mode_timestamps = ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp;
     cycl_draw_mode_transitions(mode_values, mode_timestamps, {ax1, ax2});
-    legend(ax1, [h1, h2], {'Airspeed [m/s]', '6 m/s'});
-    legend(ax2, [h3, h4], {'Vertical speed (-z) [m/s]', '-1.5 m/s'});
+    legend(ax1, [h1, h2], {'Airspeed', '6 m/s'});
+    legend(ax2, [h3, h4], {'Vertical speed (-z)', '-1.5 m/s'});
 
-    linkaxes([ax1,ax2],'x')
+    linkaxes([ax1,ax2],'x');
 
 end
