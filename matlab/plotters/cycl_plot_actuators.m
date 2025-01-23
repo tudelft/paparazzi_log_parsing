@@ -42,19 +42,19 @@ function cycl_plot_actuators(ac_data, order)
     hold on; zoom on;
     h7 = plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, throttle_percent, 'LineWidth', 1.5);
     xlabel('Time [s]');
-    ylabel('RC Throttle percent');
+    ylabel('RC Throttle [%]');
     title('Throttle');
     grid on;
 
-    linkaxes([ax1,ax2,ax3,ax4],'x');
-
-    % background color fill for various flight modes
+    % flight modes
     mode_values = ac_data.ROTORCRAFT_RADIO_CONTROL.mode;
     mode_timestamps = ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp;
     cycl_draw_mode_transitions(mode_values, mode_timestamps, {ax1, ax2});
     legend(ax1, [h1, h2], {'delta 1', 'delta 2'});
     legend(ax2, [h3, h4], {'RPM 1', 'RPM 2'});
     legend(ax3, [h5, h6], {'DShot Cmd 1', 'DShot Cmd 2'});
-    legend(ax4, [h7], {'Throttle [%]'});
+    legend(ax4, [h7], {'Throttle'});
     
+    linkaxes([ax1,ax2,ax3,ax4],'x');
+
 end

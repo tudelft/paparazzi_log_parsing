@@ -27,7 +27,7 @@ function cycl_draw_mode_transitions(mode_values, mode_timestamps, ax_array)
                 for j = 1:length(ax_array)
                     % Draw a thick dashed vertical line at the start of the region
                     line(ax_array{j}, [mode_timestamps(start_idx), mode_timestamps(start_idx)], ...
-                        y_limits{j}, 'LineStyle', '--', 'LineWidth', 2, 'Color', mode_color);
+                        y_limits{j}, 'LineStyle', '--', 'LineWidth', 1.2, 'Color', mode_color);
                 end
             end
 

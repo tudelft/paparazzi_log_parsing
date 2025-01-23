@@ -24,13 +24,13 @@ function cycl_plot_imu_scaled(ac_data, order)
     title('Gyrometer Scaled');
     grid on;
 
-    linkaxes([ax1,ax2],'x');
-
-    % background color fill for various flight modes
+    % flight modes
     mode_values = ac_data.ROTORCRAFT_RADIO_CONTROL.mode;
     mode_timestamps = ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp;
     cycl_draw_mode_transitions(mode_values, mode_timestamps, {ax1, ax2});
-    legend([h1, h2, h3], {'x [m/s^2]', 'y [m/s^2]', 'z [m/s^2]'});
-    legend([h4, h5, h6], {'p [deg/s]', 'q [deg/s]', 'r [deg/s]'});
+    legend([h1, h2, h3], {'x', 'y', 'z'});
+    legend([h4, h5, h6], {'p', 'q', 'r'});
+
+    linkaxes([ax1,ax2],'x');
 
 end

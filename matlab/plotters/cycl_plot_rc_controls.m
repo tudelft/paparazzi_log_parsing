@@ -11,35 +11,40 @@ function cycl_plot_rc_controls(ac_data, order)
 
     ax1 = nexttile;
     hold on; grid on; zoom on;
-    plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, throttle_percent, LineWidth=1.5);
-    plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, kill_percent, 'Color', 'r', LineWidth=1.5);
-    legend('throttle [%]', 'kill [%]')
+    h1 = plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, throttle_percent, LineWidth=1.5);
+    h2 = plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, kill_percent, 'Color', 'r', LineWidth=1.5);
     xlabel('time [s]');
-    ylabel('');
+    ylabel('throttle [%] and kill');
     title('throttle and kill');
     hold off;
 
     ax2 = nexttile;
     hold on; grid on; zoom on;
-    plot(ac_data.PPM.timestamp, blue_sw, 'Color', 'b', LineWidth=1.5);
-    plot(ac_data.PPM.timestamp, green_sw, 'Color', 'g', LineWidth=1.5);
-    plot(ac_data.PPM.timestamp, yellow_sw, 'Color', [0.8, 0.8, 0], LineWidth=1.5);
-    legend('blue switch [ppm]', 'green switch [ppm]', 'yellow switch [ppm]');
+    h3 = plot(ac_data.PPM.timestamp, blue_sw, 'Color', 'b', LineWidth=1.5);
+    h4 = plot(ac_data.PPM.timestamp, green_sw, 'Color', 'g', LineWidth=1.5);
+    h5 = plot(ac_data.PPM.timestamp, yellow_sw, 'Color', [0.8, 0.8, 0], LineWidth=1.5);
     xlabel('time [s]');
-    ylabel('');
+    ylabel('RC switches [ppm]');
     title('RC switches');
     hold off;
 
     ax3 = nexttile;
     hold on; grid on; zoom on;
-    plot(ac_data.PPM.timestamp, ac_data.PPM.ppm_rate, 'Color', 'r', LineWidth=1.5);
-    plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, ac_data.ROTORCRAFT_RADIO_CONTROL.status*100, 'Color', 'b', LineWidth=1.5);
-    legend('PPM rate', 'RC status [0-100-200(very lost)]');
+    h6 = plot(ac_data.PPM.timestamp, ac_data.PPM.ppm_rate, 'Color', 'r', LineWidth=1.5);
+    h7 = plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, ac_data.ROTORCRAFT_RADIO_CONTROL.status*100, 'Color', 'b', LineWidth=1.5);
     xlabel('time [s]');
-    ylabel('');
+    ylabel('PPM rate and RC status');
     title('PPM rate and RC status');
     hold off;
 
-    linkaxes([ax1,ax2,ax3],'x')
+    % flight modes
+    mode_values = ac_data.ROTORCRAFT_RADIO_CONTROL.mode;
+    mode_timestamps = ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp;
+    cycl_draw_mode_transitions(mode_values, mode_timestamps, {ax1,ax2,ax3});
+    legend(ax1, [h1,h2], {'throttle', '100% - kill'});
+    legend(ax2, [h3,h4,h5], {'blue switch', 'green switch', 'yellow switch'});
+    legend(ax3, [h6,h7], {'PPM rate', 'RC status [0-100(lost)-200(really lost)]'});
+
+    linkaxes([ax1,ax2,ax3],'x');
 
 end
