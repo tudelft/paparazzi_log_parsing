@@ -39,10 +39,10 @@ addpath('/home/ntouev/MATLAB/paparazzi_log_parsing/matlab/tailsitter_plotters/')
 % p = parselog('/home/ntouev/pprz_temp_logs/20250303_valken_nav/0403/25_03_03__15_00_21_SD.data'); log_nbr = '0403';
 
 % p = parselog('/home/ntouev/pprz_temp_logs/20250305_cyberzoo_HOV_C/0415/25_03_12__09_03_08_SD.data'); log_nbr = '0415';
-% p = parselog('/home/ntouev/pprz_temp_logs/20250305_cyberzoo_HOV_C/0416/25_03_12__09_09_42_SD.data'); log_nbr = '0416';
+p = parselog('/home/ntouev/pprz_temp_logs/20250305_cyberzoo_HOV_C/0416/25_03_12__09_09_42_SD.data'); log_nbr = '0416';
 
 % p = parselog('/home/ntouev/pprz_temp_logs/20250307_valken_spiral/0418/22_05_01__01_59_46_SD.data'); log_nbr = '0418';
-p = parselog('/home/ntouev/pprz_temp_logs/20250307_valken_spiral/0420/25_03_07__16_26_20_SD.data'); log_nbr = '0420';
+% p = parselog('/home/ntouev/pprz_temp_logs/20250307_valken_spiral/0420/25_03_07__16_26_20_SD.data'); log_nbr = '0420';
 
 % p = parselog('/home/ntouev/pprz_temp_logs/0403/25_03_03__15_00_21_SD.data'); log_nbr = 'temp';
 ac_data = p.aircrafts.data;
@@ -78,10 +78,6 @@ cycl_plot_eff_mat(ac_data);
 %% Optitrack
 figure('Name','Optitrack');
 cycl_plot_optitrack(ac_data);
-
-%% 3D position visualization
-figure('Name','3D pos');
-cycl_plot_3Dpos(ac_data);
 
 %% Guidance (position plotting still uses carrot signal; check if needs fixing)
 figure('Name', 'Guidance INDI Hybrid');
