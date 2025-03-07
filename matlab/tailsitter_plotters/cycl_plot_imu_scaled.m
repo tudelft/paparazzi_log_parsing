@@ -5,9 +5,9 @@ function cycl_plot_imu_scaled(ac_data, order)
     % accel
     ax1 = nexttile;
     hold on; zoom on;
-    h1 = plot(ac_data.IMU_ACCEL_SCALED.timestamp, ac_data.IMU_ACCEL_SCALED.ax_alt);
+    % h1 = plot(ac_data.IMU_ACCEL_SCALED.timestamp, ac_data.IMU_ACCEL_SCALED.ax_alt);
     h2 = plot(ac_data.IMU_ACCEL_SCALED.timestamp, ac_data.IMU_ACCEL_SCALED.ay_alt);
-    h3 = plot(ac_data.IMU_ACCEL_SCALED.timestamp, ac_data.IMU_ACCEL_SCALED.az_alt);
+    % h3 = plot(ac_data.IMU_ACCEL_SCALED.timestamp, ac_data.IMU_ACCEL_SCALED.az_alt);
     xlabel('Time [s]');
     ylabel('Acceleration [m/s^2]');
     title('Accelerometer Scaled');
