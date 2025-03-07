@@ -9,7 +9,7 @@ function cycl_plot_actuators(ac_data, order)
     % cmd_servo1 = double(ac_data.SERIAL_ACT_T4_OUT.rotor_1_az_angle_cmd)/100;
     % cmd_servo2 = double(ac_data.SERIAL_ACT_T4_OUT.rotor_2_az_angle_cmd)/100;
 
-    tiledlayout(4, 1, 'Padding', 'compact', 'TileSpacing', 'compact');
+    tiledlayout(3, 1, 'Padding', 'compact', 'TileSpacing', 'compact');
 
     ax1 = nexttile;
     hold on; zoom on;
@@ -38,14 +38,6 @@ function cycl_plot_actuators(ac_data, order)
     title('DShot Command');
     grid on;
 
-    ax4 = nexttile;
-    hold on; zoom on;
-    h7 = plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, throttle_percent, 'LineWidth', 1.5);
-    xlabel('Time [s]');
-    ylabel('RC Throttle [%]');
-    title('Throttle');
-    grid on;
-
     % flight modes
     mode_values = ac_data.ROTORCRAFT_RADIO_CONTROL.mode;
     mode_timestamps = ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp;
@@ -53,8 +45,7 @@ function cycl_plot_actuators(ac_data, order)
     legend(ax1, [h1, h2], {'delta 1', 'delta 2'});
     legend(ax2, [h3, h4], {'RPM 1', 'RPM 2'});
     legend(ax3, [h5, h6], {'DShot Cmd 1', 'DShot Cmd 2'});
-    legend(ax4, [h7], {'Throttle'});
     
-    linkaxes([ax1,ax2,ax3,ax4],'x');
+    linkaxes([ax1,ax2,ax3],'x');
 
 end
