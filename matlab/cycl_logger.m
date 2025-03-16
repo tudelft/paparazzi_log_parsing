@@ -6,9 +6,9 @@ clear;
 addpath('/home/ntouev/MATLAB/paparazzi_log_parsing/matlab/math');
 addpath('/home/ntouev/MATLAB/paparazzi_log_parsing/matlab/tools');
 addpath('/home/ntouev/MATLAB/paparazzi_log_parsing/matlab/plotters/');
+addpath('/home/ntouev/MATLAB/paparazzi_log_parsing/matlab/3d_animation/3d_models');
 addpath('/home/ntouev/MATLAB/paparazzi_log_parsing/matlab/tailsitter_plotters/');
 
-% p = parselog('/home/ntouev/pprz_temp_logs/20241030_valken_ewoud/143/24_10_30__15_54_02_SD.data'); log_nbr = '143';
 % p = parselog('/home/ntouev/pprz_temp_logs/20241030_valken_ewoud/144/24_10_30__16_27_37_SD.data'); log_nbr = '144';
 % p = parselog('/home/ntouev/pprz_temp_logs/20241030_valken_ewoud/145/24_10_30__16_45_37_SD.data'); log_nbr = '145';
 % p = parselog('/home/ntouev/pprz_temp_logs/20241030_valken_ewoud/148/24_10_30__17_27_57_SD.data'); log_nbr = '148';
@@ -31,7 +31,7 @@ addpath('/home/ntouev/MATLAB/paparazzi_log_parsing/matlab/tailsitter_plotters/')
 
 % p = parselog('/home/ntouev/pprz_temp_logs/20250217_cyberzoo_cutoff_freq/0392/25_04_01__08_56_31_SD.data'); log_nbr = '0392';
 
-% p = parselog('/home/ntouev/pprz_temp_logs/20250218_cyberzoo_phi/0394/25_04_02__08_10_52_SD.data'); log_nbr = '0394';
+p = parselog('/home/ntouev/pprz_temp_logs/20250218_cyberzoo_phi/0394/25_04_02__08_10_52_SD.data'); log_nbr = '0394';
 
 % p = parselog('/home/ntouev/pprz_temp_logs/20250303_cyberzoo_nav_long/0397/25_03_10__06_28_16_SD.data'); log_nbr = '0397';
 % p = parselog('/home/ntouev/pprz_temp_logs/20250303_cyberzoo_nav_long/0398/25_03_10__07_35_43_SD.data'); log_nbr = '0398';
@@ -39,7 +39,7 @@ addpath('/home/ntouev/MATLAB/paparazzi_log_parsing/matlab/tailsitter_plotters/')
 % p = parselog('/home/ntouev/pprz_temp_logs/20250303_valken_nav/0403/25_03_03__15_00_21_SD.data'); log_nbr = '0403';
 
 % p = parselog('/home/ntouev/pprz_temp_logs/20250305_cyberzoo_HOV_C/0415/25_03_12__09_03_08_SD.data'); log_nbr = '0415';
-p = parselog('/home/ntouev/pprz_temp_logs/20250305_cyberzoo_HOV_C/0416/25_03_12__09_09_42_SD.data'); log_nbr = '0416';
+% p = parselog('/home/ntouev/pprz_temp_logs/20250305_cyberzoo_HOV_C/0416/25_03_12__09_09_42_SD.data'); log_nbr = '0416';
 
 % p = parselog('/home/ntouev/pprz_temp_logs/20250307_valken_spiral/0418/22_05_01__01_59_46_SD.data'); log_nbr = '0418';
 % p = parselog('/home/ntouev/pprz_temp_logs/20250307_valken_spiral/0420/25_03_07__16_26_20_SD.data'); log_nbr = '0420';
@@ -49,7 +49,7 @@ ac_data = p.aircrafts.data;
 
 %% Imu scaled
 figure('Name','IMU Scaled');
-cycl_plot_imu_scaled(ac_data);
+cycl_plot_imu_scaled(ac_data, true, 1);
 
 %% Euler angles
 figure('Name','Euler ZXY');
@@ -67,7 +67,7 @@ cycl_plot_stab_attitude(ac_data);
 figure('Name', 'RC controls');
 cycl_plot_rc_controls(ac_data);
 
-%% Speed
+%% Speed (negative speed --> zero)
 figure('Name', 'Speed');
 cycl_plot_speed(ac_data);
 
@@ -92,12 +92,12 @@ plot_rotorcraft_fp(ac_data, p.aircrafts.motors_on);
 % plot_rotorcraft_status(ac_data)
 
 %% Energy
-figure('Name', 'Energy');
+figure('Name', 'Energy'); 
 cycl_plot_energy(ac_data);
 
 %% VISUALIZE FLIGHT
 % cycl_visualize_3d('Nederdrone5', ac_data, [160 200], 1, 'yaw_jump');
-% cycl_visualize_3d('Cyclone2', ac_data, [540 570], 1, 'movie');
+cycl_visualize_3d('Cyclone2', ac_data, [316 330], 1, 'movie');
 
 %% load sim logs
 MATLABBASE = '/home/ntouev/MATLAB/';
