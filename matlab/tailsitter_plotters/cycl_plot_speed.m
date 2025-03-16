@@ -2,9 +2,12 @@ function cycl_plot_speed(ac_data, order)
 
     tiledlayout(2, 1, 'Padding', 'compact', 'TileSpacing', 'compact');
 
+    airspeed = ac_data.AIR_DATA.airspeed;
+    airspeed(airspeed < 0) = 0;
+
     ax1 = nexttile;
     hold on; grid on; zoom on;
-    h1 = plot(ac_data.AIR_DATA.timestamp, ac_data.AIR_DATA.airspeed, LineWidth=1.5);
+    h1 = plot(ac_data.AIR_DATA.timestamp, airspeed, LineWidth=1.5);
     h2 = yline(6, 'g--', 'LineWidth', 1.5);
     xlabel('Time [s]');
     ylabel('Airspeed [m/s]');
