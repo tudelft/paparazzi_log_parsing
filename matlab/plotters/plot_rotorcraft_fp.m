@@ -10,7 +10,7 @@ function plot_rotorcraft_fp(ac_data, vert)
         hold on;
         plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
     end
-    title('Heading target');
+    title('Position target');
     xlabel('Time [s]');
     legend('East [m]', 'North [m]', 'Up [m]', 'Target east [m]', 'Target north [m]', 'Target up [m]');
 
