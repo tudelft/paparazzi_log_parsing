@@ -22,6 +22,9 @@ function plot_eul_zxy(ac_data, order)
     elseif strcmp(order,'ZYX')
         [psi, theta, phi] = quat2angle(quat,order);
         [refpsi, reftheta, refphi] = quat2angle(refquat,order);
+    elseif strcmp(order,'XYZ')
+        [phi, theta, psi] = quat2angle(quat,order);
+        [refphi, reftheta, refpsi] = quat2angle(refquat,order);
     else
         disp('Rotation order not available')
     end
