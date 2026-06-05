@@ -1,4 +1,4 @@
-function plot_eul_zxy(ac_data, order)
+function plot_eul(ac_data, order)
     if ~isfield(ac_data, 'AHRS_REF_QUAT')
         return
     end
