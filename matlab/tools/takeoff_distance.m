@@ -1,8 +1,13 @@
-function takeoff_distance(ac_data, motors_on)
+function takeoff_distance(ac_data, motors_on, takeoff_threshold)
+
+    disp("Evaluating each takeoff in the flight log")
 
     % Calculate the takeoff distance for all rolling takeoffs 
 
-    takeoff_threshold = 0.1; % what LIDAR distance change constitutes takeoff
+    % if takeoff_threshold parameter is not provided, use default
+    if nargin < 3
+        takeoff_threshold = 0.1; % Default threshold value
+    end
 
     long_arming = diff(motors_on) > 30;
     long_arming = long_arming(1:2:end);
@@ -32,8 +37,18 @@ function takeoff_distance(ac_data, motors_on)
         
         distance_traveled_takeoff = sqrt(n^2 + e^2);
 
-        disp("time: " + start_time + " dist: " + distance_traveled_takeoff + " end_time " + end_time)
+        % Calculate mean power during takeoff
+        id_start_energy = find(ac_data.ENERGY.timestamp >= start_time, 1, "first");
+        id_end_energy = find(ac_data.ENERGY.timestamp >= end_time, 1, "first");
+        power_takeoff = ac_data.ENERGY.power(id_end_energy);
+
+        airspeed_takeoff = ac_data.AIR_DATA.airspeed(find(ac_data.AIR_DATA.timestamp >= end_time, 1, "first"));
+
+        % Display takeoff distance with one decimal
+        disp("time: " + round(start_time,2) + " dist: " + round(distance_traveled_takeoff, 1) + " [m] end_time " + round(end_time,2) + " pitch angle: " + round(ac_data.ROTORCRAFT_FP.theta_alt(id_start),1) + " [deg] takeoff throttle " + round(ac_data.ROTORCRAFT_FP.thrust(id_end)*100/9600) + " % power at TO: " + round(power_takeoff) + " W measured airspeed TO: " + round(airspeed_takeoff,1))
 
     end
+
+    disp(" ");
 
 end

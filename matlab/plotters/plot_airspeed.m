@@ -13,7 +13,7 @@ function plot_airspeed(ac_data)
    
     ax2 = subplot(2,1,2);
     hold off
-    legend_array = []
+    legend_array = [];
     if isfield(ac_data, 'AIRSPEED_RAW')
         sensors = unique(ac_data.AIRSPEED_RAW.sensor_id);
         for s = 1:size(sensors,1)
@@ -24,7 +24,7 @@ function plot_airspeed(ac_data)
 %            plot(ac_data.AIRSPEED_RAW.timestamp(i), ac_data.AIRSPEED_RAW.diffPress(i));
             hold on
             plot(ac_data.AIRSPEED_RAW.timestamp(i), ac_data.AIRSPEED_RAW.offset(i));
-            legend_array = [legend_array; "ID=" + num2str(sid) ]
+            legend_array = [legend_array; "ID=" + num2str(sid); 'offset' ];
         end
     end
     
