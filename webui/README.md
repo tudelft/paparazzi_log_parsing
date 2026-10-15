@@ -59,7 +59,7 @@ The logbook (`/logbook`) lists one row per flight and merges the SD and GCS reco
 aircraft, overlapping takeoff-landing interval, 60 s slack) into one row: flight data come from the SD log, PIC/PAC/GCS
 and goal from whichever log has them. Each row shows its sources and offers a download for each log. Admins manage
 aliases (names linked to users) and named takeoff/landing areas drawn on a map at `/admin`. A named area can be
-marked as indoors; the logbook shows outdoor flights by default (filter: outdoor / indoor / all), and combines
+marked as indoors; the logbook hides indoor flights unless **Show indoor flights** is ticked, and combines
 flights within 1 km by default.
 
 ## Real flight or not
@@ -71,3 +71,7 @@ horizontal movement, speed, tilt and the dynamic INS acceleration, so indoor and
 movement) still count when they climb and accelerate. Flights under 2 s can never be `flight`. If the motors were off for most of the
 flight (`motors_on` in ROTORCRAFT_STATUS) it is always `ground`. The logbook hides `ground` and `uncertain` verdicts unless
 **Show uncertain/non-flights** is ticked, marks them in the list and shows the reasons in the details. Re-parse existing logs (parser version 1.2.2) to get the verdicts.
+
+## Flight page
+
+Click a logbook row and choose *Open flight page* (`/flight/<id>`). It shows the flight path on a map (with a *Show flight plan* checkbox for the waypoints), a time slider and altitude/speed chart, takeoff/landing details, the settings changed during the flight, the text messages around it, the pre-flight checks and the autopilot version. When both an SD and a GCS log exist, you can switch between them. Data comes from `GET /api/flights/<id>/detail`. The path needs a non-zero `PPRZ_PATH_RATE`.

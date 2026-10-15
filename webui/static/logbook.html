@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>Flight logbook</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
   :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --ok:#1a7f37; --warn:#9a6700; }
   * { box-sizing: border-box; }
@@ -37,6 +38,7 @@
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
   .cols { display:flex; gap:40px; flex-wrap:wrap; }
   .actions { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  .minimap { height:240px; max-width:640px; border:1px solid #dfe3e8; border-radius:6px; margin-bottom:10px; }
 </style>
 </head>
 <body>
@@ -52,7 +54,7 @@
     <div class="bar">
       <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date…)">
       <label title="Flights of the same aircraft and pilot on the same day within this distance of each other"><input type="checkbox" id="combine" checked> Combine flights (within <input type="number" id="radius" value="1" min="0.1" step="0.5" style="width:56px"> km)</label>
-      <label title="Indoor locations are set in the admin page"><select id="env"><option value="outdoor">Outdoor flights</option><option value="indoor">Indoor flights</option><option value="all">All locations</option></select></label>
+      <label title="Locations marked as indoors in the admin page"><input type="checkbox" id="indoor"> Show indoor flights</label>
       <label title="Uncertain flights, arming on the ground, flickering flight flags and other 'flights' the parser judged not to be real flights"><input type="checkbox" id="ground"> Show uncertain/non-flights</label>
       <button onclick="exportCsv()">Export CSV</button>
     </div>
@@ -68,6 +70,7 @@
     </div>
   </section>
 </main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -106,17 +109,29 @@ const windTxt = w => w ? `${w.speed_ms} m/s from ${w.from_deg}°${w.temperature_
 const ned = v => v ? `N ${v.north}, E ${v.east}, D ${v.down}` : '';
 
 function detail(f) {
-  const ev = (title, e, utc, name) => e ? `<div><h4>${title}</h4><div class="kv">${kv('Time (UTC)', esc(fmtTime(utc)))}${kv('Location', coord(e.location, name))}
-    ${kv('Battery', e.voltage_v != null ? e.voltage_v.toFixed(2) + ' V' : '')}${kv('Wind', windTxt(e.wind))}
-    ${kv('INS position (NED, m)', ned(e.ins?.position_ned_m))}${kv('INS speed (NED, m/s)', ned(e.ins?.velocity_ned_ms))}${kv('INS accel (NED, m/s²)', ned(e.ins?.acceleration_ned_ms2))}</div></div>` : '';
-  return `<div class="kv">${kv('Aircraft', esc(f.aircraft))}${kv('Flight', '#' + f.idx + ' in this log')}${kv('Duration', fmtDur(f.duration_s))}${assessTxt(f)}
-    ${kv('Goal', esc(f.goal))}${kv('PIC / PAC / GCS', [person(f, 'pic'), person(f, 'pac'), person(f, 'gcs')].map(x => x || '–').join(' / '))}
-    ${f.sources.map(s => kv(s.log_type === 'gcs' ? 'GCS log' : 'Onboard SD log', `${esc(s.log_name)}${s.has_log ? '' : ' <span class="mute">(no .log)</span>'} · <a href="/api/logs/${s.log_id}/download">download .data + .log</a> · <a href="/#log${s.log_id}">details</a>`)).join('')}
-    ${kv('Uploaded', esc(fmtTime(f.uploaded_at)) + (f.uploaded_by_name ? ' by ' + esc(f.uploaded_by_name) : ''))}</div>
-    <div class="cols">${ev('Takeoff', f.takeoff, f.takeoff_utc, f.takeoff_place)}${ev('Landing', f.landing, f.landing_utc, f.landing_place)}</div>
-    <div class="actions">${f.sources.map(s => `<a class="btn${s.log_id === f.log_id ? '' : ' sec'}" href="/api/logs/${s.log_id}/download">Download ${s.log_type === 'gcs' ? 'GCS' : 'SD'} .data + .log</a>`).join('')}
-      ${f.sources.map(s => `<a class="btn sec" href="/api/flights/${s.flight_id}/path" target="_blank">${TYPE_LABEL[s.log_type]} path JSON</a>`).join('')}
-      <a class="btn sec" href="/api/aircraft/${f.aircraft_pk}/config" target="_blank">Airframe / flight plan / settings</a></div>`;
+  return `<div class="minimap" data-fid="${f.flight_id}"></div>
+    <div class="actions"><a class="btn" href="/flight/${f.flight_id}">Open flight page</a>
+      ${f.sources.map(s => `<a class="btn sec" href="/api/logs/${s.log_id}/download">Download ${s.log_type === 'gcs' ? 'GCS' : 'SD'} .data + .log</a>`).join('')}</div>`;
+}
+
+const pathCache = new Map(), miniMaps = [];
+function initMiniMaps() {
+  miniMaps.splice(0).forEach(m => m.remove());
+  document.querySelectorAll('.minimap').forEach(el => {
+    const id = +el.dataset.fid;
+    if (!pathCache.has(id)) pathCache.set(id, fetch(`/api/flights/${id}/path`).then(r => r.ok ? r.json() : []).then(p => (p.points || p).filter(x => x.position).map(x => [x.position.lat, x.position.lon])).catch(() => []));
+    pathCache.get(id).then(ll => {
+      if (!el.isConnected) return;
+      if (!ll.length) { el.textContent = 'No path available'; el.className = 'mute'; return; }
+      const m = L.map(el, {scrollWheelZoom: false}).setView(ll[0], 15);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap contributors'}).addTo(m);
+      const line = L.polyline(ll, {color: '#1f6feb', weight: 3}).addTo(m);
+      L.circleMarker(ll[0], {radius: 5, color: '#1a7f37', fillOpacity: .9}).addTo(m);
+      L.circleMarker(ll[ll.length - 1], {radius: 5, color: '#c62828', fillOpacity: .9}).addTo(m);
+      m.fitBounds(line.getBounds().pad(0.15), {maxZoom: 19});
+      miniMaps.push(m);
+    });
+  });
 }
 
 const km = (a, b) => {
@@ -145,7 +160,6 @@ function combine(list, radiusKm) {
   return groups.sort((a, b) => (b.flights[0].takeoff_utc || '').localeCompare(a.flights[0].takeoff_utc || ''));
 }
 
-const assessTxt = f => f.assessment ? kv('Real flight?', `${esc(f.assessment.verdict)} (score ${f.assessment.score}): ${esc(f.assessment.reasons.join(', '))}`) : '';
 const TYPE_LABEL = {onboard_sd: 'SD', gcs: 'GCS'};
 const srcLabel = fl => ['onboard_sd', 'gcs'].filter(t => fl.some(f => f.sources.some(s => s.log_type === t))).map(t => TYPE_LABEL[t]).join(' + ');
 const verdictMark = f => f.verdict === 'ground' ? ' <span class="mute" title="Probably not a real flight">(ground)</span>'
@@ -170,7 +184,7 @@ function groupRows(g) {
 
 function render() {
   const q = $('q').value.trim().toLowerCase();
-  const shown = flights.filter(f => ($('ground').checked || !['ground', 'uncertain'].includes(f.verdict)) && ($('env').value === 'all' || (f.indoor ? 'indoor' : 'outdoor') === $('env').value) && (!q || q.split(/\s+/).every(w => text(f).includes(w))));
+  const shown = flights.filter(f => ($('ground').checked || !['ground', 'uncertain'].includes(f.verdict)) && ($('indoor').checked || !f.indoor) && (!q || q.split(/\s+/).every(w => text(f).includes(w))));
   const entries = $('combine').checked ? combine(shown, Math.max(+$('radius').value || 1, 0.1)) : shown.map(f => ({flights: [f], id: f.flight_id}));
   const pages = Math.max(1, Math.ceil(entries.length / pageSize));
   page = Math.min(page, pages - 1);
@@ -181,6 +195,7 @@ function render() {
   $('rows').innerHTML = visible.map(groupRows).join('');
   const total = shown.reduce((s, f) => s + (f.duration_s || 0), 0);
   $('summary').textContent = `${shown.length} flights` + ($('combine').checked ? ` · ${entries.length} days/sessions` : '') + ` · ${fmtDur(total)} total`;
+  initMiniMaps();
   return shown;
 }
 
@@ -206,7 +221,7 @@ function exportCsv() {
 }
 
 $('q').oninput = () => { page = 0; render(); };
-$('combine').onchange = $('radius').onchange = $('env').onchange = $('ground').onchange = () => { page = 0; render(); };
+$('combine').onchange = $('radius').onchange = $('indoor').onchange = $('ground').onchange = () => { page = 0; render(); };
 $('prev').onclick = () => { page--; render(); };
 $('next').onclick = () => { page++; render(); };
 $('size').onchange = () => { pageSize = +$('size').value; page = 0; render(); };
