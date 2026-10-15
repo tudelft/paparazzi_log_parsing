@@ -1,245 +1,1317 @@
 /*
- * Copyright (C) 2024-2025 The Paparazzi Team
+ * Fast Paparazzi .data log summary extractor.
  *
- * This file is part of paparazzi.
- *
- * paparazzi is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * paparazzi is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with paparazzi; see the file COPYING.  If not, write to
- * the Free Software Foundation, 59 Temple Place - Suite 330,
- * Boston, MA 02111-1307, USA.
+ * Memory maps the .data file, scans it line by line with memchr and only parses
+ * the handful of messages that are needed. No XML/pprzlink/boost needed.
  */
 
-#include <boost/iostreams/device/mapped_file.hpp> // for mmap
-#include <boost/filesystem.hpp> // for is_empty
-#include <boost/regex.hpp>
-#include <boost/spirit/home/x3.hpp>
-#include <boost/spirit/include/qi_lazy.hpp>
-#include <algorithm>  // for std::find
-#include <iostream>   // for std::cout
+#include <algorithm>
+#include <charconv>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
-#include <tinyxml2.h>
+#include <ctime>
+#include <fstream>
 #include <iostream>
-#include <regex>
+#include <map>
+#include <set>
+#include <thread>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <vector>
 
-#include <pprzlink/MessageDictionary.h>
-#include <pprzlink/MessageDefinition.h>
-#include <pprzlink/Message.h>
-#include <pprzlink/MessageFieldTypes.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
-using namespace boost::spirit::x3;
-
-std::map<uint8_t, tinyxml2::XMLElement *> aircrafts;
-void parse_airframe_list(tinyxml2::XMLElement *root)
+namespace
 {
-  // char *ac_or_af = (root->FirstChildElement("conf")->FirstChildElement("aircraft"))? "aircraft" : "airframe";
-  // auto aircraft = root->FirstChildElement("conf")->FirstChildElement(ac_or_af);
-  // while (aircraft != nullptr) {
-  //   auto className = aircraft->Attribute("name", nullptr);
-  //   if (className == nullptr) {
-  //     className = aircraft->Attribute("NAME", nullptr);
-  //   }
-  //   int classId = aircraft->IntAttribute("ac_id", -1);
-  //   if (classId == -1) {
-  //     classId = aircraft->IntAttribute("AC_ID", -1);
-  //   }
-  //   if (className == nullptr || classId == -1) {
-  //     std::cout << "aircraft has no name or ac_id.";
-  //   }
-  //   std::cout << " - aircraft: " << className << " id: " << classId << "\n";
-  //   aircrafts[classId] = aircraft;
-  //   aircraft = aircraft->NextSiblingElement(ac_or_af);
-  // }
+
+// WIND_INFO_RET: wind vector (direction the wind blows to), valid when bit 0 of the flags is set
+struct Wind {
+  bool valid = false, has_up = false, has_temp = false;
+  double east = 0, north = 0, up = 0, temp = 0;
+};
+
+// INS message: local NED position [m], velocity [m/s] and acceleration [m/s2]
+struct InsState {
+  bool valid = false;
+  double pos[3] = {0, 0, 0}, vel[3] = {0, 0, 0}, acc[3] = {0, 0, 0};
+};
+
+struct PathPoint {
+  double t, lat, lon, alt;
+  bool has_baro;
+  double pressure_pa, baro_alt_m;  // AIR_DATA static pressure and barometric altitude (AMSL)
+  bool has_volt, has_as;
+  double vsupply, airspeed, tas, diff_p;  // diff_p: AIR_DATA differential pressure [Pa]
+  bool has_euler, has_quat;
+  double roll_deg, pitch_deg, yaw_deg;  // ROTORCRAFT_FP
+  double qi, qx, qy, qz;                // body quaternion (AHRS_REF_QUAT)
+  int ap_mode, h_mode, v_mode;          // ROTORCRAFT_STATUS mode ids, -1 unknown
+  int block, stage;                     // ROTORCRAFT_NAV_STATUS, -1 unknown
+  std::vector<int16_t> actuators;       // ACTUATORS
+  Wind wind;
+  InsState ins;
+};
+
+struct Range {
+  bool any = false;
+  double min = 0, max = 0;
+  void add(double v) {
+    if (!any) { min = max = v; any = true; }
+    else { min = std::min(min, v); max = std::max(max, v); }
+  }
+  double span() const { return any ? max - min : 0; }
+};
+
+// Streaming statistics of one flight (every INS/AIR_DATA/GPS_INT/ROTORCRAFT_FP message, not only the stored path
+// points) used to judge whether the aircraft really flew.
+struct FlightStats {
+  Range ins_n, ins_e, ins_up, baro, gps_alt, gps_lat, gps_lon;
+  double acc_count = 0, acc_mean[3] = {0, 0, 0}, acc_m2[3] = {0, 0, 0};  // Welford, INS acceleration
+  double max_speed = 0, max_vspeed = 0, max_tilt_deg = 0;
+  int status_msgs = 0, motors_on_msgs = 0;  // ROTORCRAFT_STATUS messages during the flight
+  double gps_lat_ref = 0;
+
+  void add_ins(const InsState &n) {
+    ins_n.add(n.pos[0]); ins_e.add(n.pos[1]); ins_up.add(-n.pos[2]);
+    max_speed = std::max(max_speed, std::sqrt(n.vel[0] * n.vel[0] + n.vel[1] * n.vel[1] + n.vel[2] * n.vel[2]));
+    max_vspeed = std::max(max_vspeed, std::fabs(n.vel[2]));
+    acc_count += 1;
+    for (int i = 0; i < 3; i++) {
+      double d = n.acc[i] - acc_mean[i];
+      acc_mean[i] += d / acc_count;
+      acc_m2[i] += d * (n.acc[i] - acc_mean[i]);
+    }
+  }
+  void add_gps(double lat, double lon, double alt) {
+    gps_lat_ref = lat;
+    gps_lat.add(lat); gps_lon.add(lon); gps_alt.add(alt);
+  }
+  double acc_rms() const {  // standard deviation of the 3D INS acceleration [m/s2]
+    if (acc_count < 2) { return 0; }
+    return std::sqrt((acc_m2[0] + acc_m2[1] + acc_m2[2]) / acc_count);
+  }
+  double ins_horizontal_m() const { return std::hypot(ins_n.span(), ins_e.span()); }
+  double gps_horizontal_m() const {
+    return std::hypot(gps_lat.span() * 111320.0, gps_lon.span() * 111320.0 * std::cos(gps_lat_ref * M_PI / 180));
+  }
+};
+
+struct Flight {
+  FlightStats stats;
+  std::vector<PathPoint> path;  // GPS points at the configured rate while in flight
+  double takeoff_time = 0, landing_time = 0;
+  double lat = 0, lon = 0, alt = 0;  // deg, deg, m (WGS84)
+  bool has_pos = false;
+  bool has_takeoff_volt = false, has_land_volt = false;
+  double takeoff_volt = 0, land_volt = 0;
+  Wind takeoff_wind, land_wind;
+  InsState takeoff_ins, land_ins;
+  double land_lat = 0, land_lon = 0, land_alt = 0;
+  bool has_land_pos = false;
+  bool complete = false;  // false if the log ended while in flight
+  double duration() const { return landing_time - takeoff_time; }
+};
+
+struct Assessment {
+  const char *verdict;  // flight | uncertain | ground
+  double score;
+  std::string reasons;  // JSON array body
+};
+
+// Estimates whether the "in flight" flag of the autopilot corresponds to a real flight, from the duration, the
+// altitude change (INS, else barometer, else GPS), horizontal movement, speed, attitude and the dynamic INS
+// acceleration. Indoor/tethered flights have little horizontal movement, so no single criterion is decisive.
+Assessment assess(const Flight &f) {
+  const FlightStats &st = f.stats;
+  double score = 0;
+  std::string why;
+  auto add = [&](double pts, const std::string &text) {
+    score += pts;
+    why += (why.empty() ? "\"" : ", \"") + text + "\"";
+  };
+  const double dur = f.duration();
+  if (dur < 5) { add(-2, "shorter than 5 s"); }
+  else if (dur < 10) { add(-1.5, "shorter than 10 s"); }
+  else if (dur >= 30) { add(1, "longer than 30 s"); }
+
+  // A constant barometric altitude means the message carries no usable value
+  double climb = st.ins_up.any ? st.ins_up.span() : st.baro.span() > 0 ? st.baro.span() : st.gps_alt.span();
+  if (climb >= 1.5) { add(2.5, "altitude changed by more than 1.5 m"); }
+  else if (climb >= 0.5) { add(1, "altitude changed by more than 0.5 m"); }
+  else { add(-1.5, "altitude hardly changed"); }
+
+  double horiz = st.ins_n.any ? st.ins_horizontal_m() : st.gps_horizontal_m();
+  if (horiz >= 3) { add(1.5, "moved more than 3 m horizontally"); }
+  else if (horiz >= 1) { add(0.5, "moved more than 1 m horizontally"); }
+
+  if (st.max_speed >= 1) { add(1, "speed above 1 m/s"); }
+  if (st.max_tilt_deg >= 10) { add(0.5, "tilted more than 10 degrees"); }
+
+  double rms = st.acc_rms();
+  if (st.acc_count >= 5) {
+    if (rms >= 0.5) { add(1.5, "clear dynamic acceleration"); }
+    else if (rms < 0.15) { add(-1, "almost no acceleration"); }
+  }
+  bool motors_off = false;  // decisive: a flight needs running motors
+  if (st.status_msgs >= 1) {
+    const double on = static_cast<double>(st.motors_on_msgs) / st.status_msgs;
+    if (on < 0.5) { add(-3, "motors off for most of the flight"); motors_off = true; }
+    else if (on < 0.9 && st.status_msgs >= 3) { add(-1, "motors off for part of the flight"); }
+    else if (on >= 0.9) { add(0.5, "motors on throughout"); }
+  }
+  // Under 2 s the flag most likely flickered, whatever the movement
+  const char *verdict = motors_off ? "ground" : score >= 2.5 && dur >= 2 ? "flight" : score <= 0 ? "ground" : "uncertain";
+  return {verdict, score, why};
 }
 
-//using List =  boost::mpl::list<double, std::string>;
+struct InfoMsg {
+  double time;
+  std::string text;
+};
 
+// One DL_VALUE report of a setting value
+struct SettingSample {
+  double t;
+  int index;
+  double value;
+  bool in_flight;
+};
 
-/* Generate a pprzlink message */
-pprzlink::Message get_msg(std::string name, pprzlink::MessageDictionary *dict,
-                          auto values)
+struct AircraftState {
+  bool in_flight = false;
+  bool seen_status = false;
+  double first_time = -1, last_time = 0;
+  long last_path_bucket = -1;
+  std::set<std::string> versions;
+  std::vector<InfoMsg> infos;
+  bool has_gps = false;
+  bool has_baro = false;
+  double pressure = 0, baro_alt = 0;
+  bool has_volt = false, has_as = false;
+  double vsupply = 0, airspeed = 0, tas = 0, diff_p = 0;
+  bool has_euler = false, has_quat = false;
+  double roll = 0, pitch = 0, yaw = 0;
+  double qi = 0, qx = 0, qy = 0, qz = 0;
+  int ap_mode = -1, h_mode = -1, v_mode = -1, block = -1, stage = -1;
+  std::string_view actuators_raw;  // latest ACTUATORS payload, parsed lazily when a path point is stored
+  double lat = 0, lon = 0, alt = 0;
+  Wind wind;
+  InsState ins;
+  std::vector<Flight> flights;
+  std::vector<SettingSample> setting_samples;  // DL_VALUE reports, in log order
+};
+
+// Split off next space separated token
+inline std::string_view next_token(const char *&p, const char *end)
 {
-  pprzlink::MessageDefinition def = dict->getDefinition(name);
-  pprzlink::Message msg(def);
-  for (size_t i = 0; i < def.getNbFields(); i++) {
-    auto field = def.getField(i);
+  while (p < end && *p == ' ') { ++p; }
+  const char *s = p;
+  while (p < end && *p != ' ') { ++p; }
+  return std::string_view(s, p - s);
+}
 
-    switch (field.getType().getBaseType()) {
-      case pprzlink::BaseType::INT8:
-      case pprzlink::BaseType::INT16:
-      case pprzlink::BaseType::INT32:
-      case pprzlink::BaseType::UINT8:
-      case pprzlink::BaseType::UINT16:
-      case pprzlink::BaseType::UINT32:
-      case pprzlink::BaseType::FLOAT:
-      case pprzlink::BaseType::DOUBLE:
-        if (field.getType().isArray()) {
-          std::vector<double> vals;
-          for (auto val : values[i]) {
-            vals.push_back(boost::get<double>(val));
+template <typename T>
+inline bool to_num(std::string_view sv, T &out)
+{
+  auto r = std::from_chars(sv.data(), sv.data() + sv.size(), out);
+  return r.ec == std::errc();
+}
+
+std::vector<int16_t> parse_int_list(std::string_view v)
+{
+  std::vector<int16_t> out;
+  const char *c = v.data(), *ce = c + v.size();
+  while (c < ce) {
+    int val;
+    auto rr = std::from_chars(c, ce, val);
+    if (rr.ec != std::errc()) { break; }
+    out.push_back(static_cast<int16_t>(val));
+    c = rr.ptr;
+    if (c < ce && *c == ',') { ++c; }
+  }
+  return out;
+}
+
+std::string trim(std::string s)
+{
+  size_t b = s.find_first_not_of(" \t\r\n");
+  if (b == std::string::npos) { return ""; }
+  size_t e = s.find_last_not_of(" \t\r\n");
+  return s.substr(b, e - b + 1);
+}
+
+// Names from the aircraft configuration in the .log file
+struct AcConf {
+  std::vector<std::string> blocks;        // flight plan block names (index = block id)
+  std::vector<std::vector<std::string>> stages;  // per block: stage descriptions (index = stage id)
+  std::vector<std::string> servos;        // actuator names in ACTUATORS order
+  std::string airframe_xml, flight_plan_xml, settings_xml, radio_xml, telemetry_xml;  // raw XML as embedded in the .log
+};
+
+struct LogHeader {
+  std::map<int, AcConf> confs;       // ac_id (-1 = airframe without ac_id) -> configuration
+  std::map<std::string, std::vector<std::string>> mode_names;  // ROTORCRAFT_STATUS enum field -> values
+  std::map<int, std::string> names;  // ac_id -> name
+  std::string default_name;          // airframe without ac_id
+  double start_epoch = -1;  // unix time (UTC) of log time 0, -1 if unknown
+  bool has_aircraft_tag = false;   // <aircraft ac_id=...> entries are written by the ground station only
+  bool has_logged_with = false;    // "<!-- logged with ... -->" comment, also only written by the ground station
+};
+
+std::string xml_attr(const std::string &line, size_t from, const char *key)
+{
+  std::string k = std::string(key) + "=\"";
+  size_t n = line.find(k, from);
+  if (n == std::string::npos) { return ""; }
+  n += k.size();
+  size_t e = line.find('"', n);
+  return e == std::string::npos ? "" : line.substr(n, e - n);
+}
+
+// Read aircraft names, configuration and start time from the .log file
+LogHeader read_log_header(const std::string &log_file)
+{
+  LogHeader h;
+  std::ifstream f(log_file);
+  std::string line;
+  int cur_conf = -1;
+  bool in_blocks = false, in_status_msg = false;
+  size_t block_indent = 0, cap_indent = 0;
+  std::string cap_tag, cap_buf;
+  while (std::getline(f, line)) {
+    size_t ind = line.find_first_not_of(' ');
+    if (ind == std::string::npos) { continue; }
+    if (h.start_epoch < 0) {
+      size_t t = line.find("time_of_day=\"");
+      if (t != std::string::npos) { h.start_epoch = atof(line.c_str() + t + 13); }
+    }
+    const char *l = line.c_str() + ind;
+    if (strncmp(l, "<aircraft ", 10) == 0) { h.has_aircraft_tag = true; }
+    if (strncmp(l, "<!-- logged with", 16) == 0) { h.has_logged_with = true; }
+
+    // Capture the raw airframe / flight_plan / settings XML blocks
+    if (!cap_tag.empty()) {
+      cap_buf += line;
+      cap_buf += '\n';
+      if (ind == cap_indent && l[0] == '<' && l[1] == '/' && cap_tag.compare(0, std::string::npos, l + 2, cap_tag.size()) == 0) {
+        AcConf &c = h.confs[cur_conf];
+        (cap_tag == "airframe"      ? c.airframe_xml :
+         cap_tag == "flight_plan"   ? c.flight_plan_xml :
+         cap_tag == "radio"         ? c.radio_xml :
+         cap_tag == "telemetry"     ? c.telemetry_xml :
+                                      c.settings_xml) = cap_buf;
+        cap_tag.clear();
+      }
+    } else if (l[0] == '<') {
+      std::string tag(l + 1, strcspn(l + 1, " >/"));
+      if (tag == "airframe" || tag == "flight_plan" || tag == "settings" || tag == "radio" || tag == "telemetry") {
+        cap_tag = tag;
+        cap_indent = ind;
+        cap_buf = line + "\n";
+        if (line.size() >= 2 && line.compare(line.size() - 2, 2, "/>") == 0) { cap_tag.clear(); }
+      }
+    }
+
+    // Enumerated values of ROTORCRAFT_STATUS fields (ap_mode, ap_h_mode, ap_v_mode)
+    if (strncmp(l, "<message name=\"ROTORCRAFT_STATUS\"", 33) == 0) { in_status_msg = true; continue; }
+    if (in_status_msg) {
+      if (strncmp(l, "</message>", 10) == 0) { in_status_msg = false; continue; }
+      std::string vals = xml_attr(line, 0, "values"), fname = xml_attr(line, 0, "name");
+      if (!vals.empty() && !fname.empty()) {
+        std::vector<std::string> v;
+        std::stringstream ss(vals);
+        std::string item;
+        while (std::getline(ss, item, '|')) { v.push_back(item); }
+        h.mode_names[fname] = v;
+      }
+      continue;
+    }
+
+    if (strncmp(l, "<aircraft ", 10) == 0 || strncmp(l, "<airframe ", 10) == 0) {
+      std::string name = xml_attr(line, 0, "name");
+      std::string id = xml_attr(line, 0, "ac_id");
+      if (id.empty()) { id = xml_attr(line, 0, "AC_ID"); }
+      bool is_aircraft = strncmp(l, "<aircraft ", 10) == 0;
+      // an <airframe> inside an <aircraft> keeps the id of its parent
+      if (is_aircraft || !id.empty()) { cur_conf = id.empty() ? -1 : atoi(id.c_str()); }
+      if (name.empty()) { continue; }
+      if (cur_conf < 0) {
+        if (h.default_name.empty()) { h.default_name = name; }
+      } else if (is_aircraft || !h.names.count(cur_conf)) {
+        h.names[cur_conf] = name;
+      }
+    } else if (strncmp(l, "<servo ", 7) == 0) {
+      h.confs[cur_conf].servos.push_back(xml_attr(line, 0, "name"));
+    } else if (strncmp(l, "<blocks>", 8) == 0) {
+      in_blocks = true;
+    } else if (strncmp(l, "</blocks>", 9) == 0) {
+      in_blocks = false;
+    } else if (in_blocks) {
+      AcConf &c = h.confs[cur_conf];
+      if (strncmp(l, "<block ", 7) == 0) {
+        c.blocks.push_back(xml_attr(line, 0, "name"));
+        c.stages.emplace_back();
+        block_indent = ind;
+      } else if (!c.stages.empty() && ind == block_indent + 2 && l[0] == '<' && l[1] != '/' &&
+                 strncmp(l, "<exception", 10) != 0) {
+        // direct child of a block: one stage (exceptions are not stages)
+        std::string tag(l + 1, strcspn(l + 1, " />"));
+        std::string wp = xml_attr(line, 0, "wp");
+        c.stages.back().push_back(wp.empty() ? tag : tag + " " + wp);
+      }
+    }
+  }
+  return h;
+}
+
+std::string json_escape(const std::string &s)
+{
+  std::string o;
+  for (unsigned char c : s) {
+    switch (c) {
+      case '"': o += "\\\""; break;
+      case '\\': o += "\\\\"; break;
+      case '\n': o += "\\n"; break;
+      case '\r': o += "\\r"; break;
+      case '\t': o += "\\t"; break;
+      default:
+        if (c < 0x20) { char b[8]; snprintf(b, sizeof(b), "\\u%04x", c); o += b; } else { o += static_cast<char>(c); }
+    }
+  }
+  return "\"" + o + "\"";
+}
+
+std::string xml_decode(std::string_view v)
+{
+  std::string o;
+  for (size_t i = 0; i < v.size(); i++) {
+    if (v[i] != '&') { o += v[i]; continue; }
+    size_t e = v.find(';', i);
+    if (e == std::string_view::npos) { o += v[i]; continue; }
+    std::string_view ent = v.substr(i + 1, e - i - 1);
+    if (ent == "lt") { o += '<'; }
+    else if (ent == "gt") { o += '>'; }
+    else if (ent == "amp") { o += '&'; }
+    else if (ent == "quot") { o += '"'; }
+    else if (ent == "apos") { o += '\''; }
+    else if (!ent.empty() && ent[0] == '#') {
+      unsigned long cp = ent.size() > 1 && (ent[1] == 'x' || ent[1] == 'X') ? strtoul(std::string(ent.substr(2)).c_str(), nullptr, 16)
+                                                                               : strtoul(std::string(ent.substr(1)).c_str(), nullptr, 10);
+      if (cp < 0x80) { o += static_cast<char>(cp); }
+      else if (cp < 0x800) { o += static_cast<char>(0xC0 | (cp >> 6)); o += static_cast<char>(0x80 | (cp & 0x3F)); }
+      else if (cp < 0x10000) { o += static_cast<char>(0xE0 | (cp >> 12)); o += static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); o += static_cast<char>(0x80 | (cp & 0x3F)); }
+      else { o += static_cast<char>(0xF0 | (cp >> 18)); o += static_cast<char>(0x80 | ((cp >> 12) & 0x3F)); o += static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); o += static_cast<char>(0x80 | (cp & 0x3F)); }
+    } else { o += v[i]; continue; }
+    i = e;
+  }
+  return o;
+}
+
+using XmlAttrs = std::map<std::string, std::string>;
+
+// Calls cb(tag, attributes, closing, selfclosing) for every element tag in the XML (comments and declarations skipped)
+template <typename F>
+void for_each_tag(const std::string &x, F cb)
+{
+  size_t p = 0;
+  while ((p = x.find('<', p)) != std::string::npos) {
+    if (x.compare(p, 4, "<!--") == 0) { p = x.find("-->", p); if (p == std::string::npos) { break; } p += 3; continue; }
+    if (x.compare(p, 2, "<?") == 0 || x.compare(p, 2, "<!") == 0) { p = x.find('>', p); if (p == std::string::npos) { break; } continue; }
+    size_t e = p + 1;
+    if (e < x.size() && x[e] == '/') {
+      cb(std::string(), XmlAttrs(), true, false);
+      p = x.find('>', p);
+      if (p == std::string::npos) { break; }
+      continue;
+    }
+    size_t ns = e;
+    while (e < x.size() && !isspace(static_cast<unsigned char>(x[e])) && x[e] != '>' && x[e] != '/') { ++e; }
+    std::string tag = x.substr(ns, e - ns);
+    XmlAttrs at;
+    bool selfclose = false;
+    for (;;) {
+      while (e < x.size() && isspace(static_cast<unsigned char>(x[e]))) { ++e; }
+      if (e >= x.size()) { break; }
+      if (x[e] == '/') { selfclose = true; ++e; continue; }
+      if (x[e] == '>') { ++e; break; }
+      size_t as = e;
+      while (e < x.size() && x[e] != '=' && !isspace(static_cast<unsigned char>(x[e])) && x[e] != '>') { ++e; }
+      std::string an = x.substr(as, e - as);
+      if (e >= x.size() || x[e] != '=' || e + 1 >= x.size()) { continue; }
+      char qc = x[e + 1];
+      size_t ve = x.find(qc, e + 2);
+      if (ve == std::string::npos) { break; }
+      at[an] = xml_decode(std::string_view(x).substr(e + 2, ve - e - 2));
+      e = ve + 1;
+    }
+    p = e;
+    cb(tag, at, false, selfclose);
+  }
+}
+
+std::string attr_json(const XmlAttrs &at, const char *k)
+{
+  auto i = at.find(k);
+  return i == at.end() ? std::string("null") : json_escape(i->second);
+}
+
+struct SettingInfo {
+  std::string var, shortname, unit, parent;
+  bool has_unit = false;
+};
+
+// Settings of the <settings> XML in DL_VALUE index order (depth first order of <dl_setting>), with the name of the
+// nearest named parent <dl_settings> group.
+std::vector<SettingInfo> settings_entries(const std::string &x)
+{
+  std::vector<std::string> stack;  // group name for dl_settings, "" for other open elements
+  std::vector<SettingInfo> out;
+  for_each_tag(x, [&](const std::string &tag, const XmlAttrs &at, bool closing, bool selfclose) {
+    if (closing) {
+      if (!stack.empty()) { stack.pop_back(); }
+      return;
+    }
+    if (tag == "dl_setting") {
+      SettingInfo si;
+      for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
+        if (!it->empty()) { si.parent = *it; break; }
+      }
+      auto get = [&](const char *k) { auto i = at.find(k); return i == at.end() ? std::string() : i->second; };
+      si.var = get("var");
+      si.shortname = get("shortname");
+      si.unit = get("unit");
+      si.has_unit = at.count("unit") > 0;
+      out.push_back(std::move(si));
+    }
+    if (!selfclose) {
+      auto n = at.find("name");
+      stack.push_back(tag == "dl_settings" && n != at.end() ? n->second : "");
+    }
+  });
+  return out;
+}
+
+// Flat list of the settings: index, var, shortname, unit and parent group name.
+std::string settings_list_json(const std::string &x)
+{
+  std::string out;
+  int index = 0;
+  for (const auto &si : settings_entries(x)) {
+    out += std::string(out.empty() ? "" : ",") + "\n        {\"index\": " + std::to_string(index++) + ", \"var\": " +
+           json_escape(si.var) + ", \"shortname\": " + json_escape(si.shortname) + ", \"unit\": " +
+           (si.has_unit ? json_escape(si.unit) : "null") + ", \"parent\": " +
+           (si.parent.empty() ? "null" : json_escape(si.parent)) + "}";
+  }
+  return out.empty() ? "[]" : "[" + out + "\n      ]";
+}
+
+// Flight plan reduced to its reference point, waypoints (with lat/lon) and blocks (with index).
+// Waypoints given as local x (east) / y (north) in meters are converted to lat/lon around lat0/lon0.
+std::string flight_plan_summary_json(const std::string &x)
+{
+  double lat0 = 0, lon0 = 0, default_alt = 0, ground_alt = 0;
+  bool has_ref = false;
+  std::string name, wps, blocks;
+  int wp_index = 0, block_index = 0;
+  bool in_wps = false, in_blocks = false;
+  int block_depth = 0;
+
+  auto num_attr = [](const XmlAttrs &at, const char *k, double &out) {
+    auto i = at.find(k);
+    if (i == at.end()) { return false; }
+    char *endp;
+    out = strtod(i->second.c_str(), &endp);
+    return endp != i->second.c_str();
+  };
+
+  // WGS84 local tangent plane approximation (accurate to cm over a few km)
+  auto enu_to_geo = [&](double east, double north, double &lat, double &lon) {
+    const double a = 6378137.0, e2 = 6.69437999014e-3;
+    double phi = lat0 * M_PI / 180.0, s = sin(phi);
+    double w = sqrt(1 - e2 * s * s);
+    double rn = a / w, rm = a * (1 - e2) / (w * w * w);
+    lat = lat0 + (north / rm) * 180.0 / M_PI;
+    lon = lon0 + (east / (rn * cos(phi))) * 180.0 / M_PI;
+  };
+
+  for_each_tag(x, [&](const std::string &tag, const XmlAttrs &at, bool closing, bool selfclose) {
+    if (closing) {
+      if (in_blocks && block_depth > 0) { block_depth--; if (block_depth == 0) { in_blocks = false; } }
+      else if (in_wps) { in_wps = false; }
+      return;
+    }
+    if (tag == "flight_plan") {
+      has_ref = num_attr(at, "lat0", lat0) && num_attr(at, "lon0", lon0);
+      num_attr(at, "alt", default_alt);
+      num_attr(at, "ground_alt", ground_alt);
+      auto n = at.find("name");
+      if (n != at.end()) { name = n->second; }
+    } else if (tag == "waypoints") {
+      in_wps = !selfclose;
+    } else if (tag == "blocks") {
+      in_blocks = !selfclose;
+      block_depth = in_blocks ? 1 : 0;
+    } else if (in_wps && tag == "waypoint") {
+      double wx, wy, wlat, wlon, walt = default_alt;
+      bool has_xy = num_attr(at, "x", wx) && num_attr(at, "y", wy);
+      bool has_geo = num_attr(at, "lat", wlat) && num_attr(at, "lon", wlon);
+      if (!has_geo && has_xy && has_ref) { enu_to_geo(wx, wy, wlat, wlon); has_geo = true; }
+      if (!has_geo) { wlat = wlon = 0; }
+      num_attr(at, "alt", walt);
+      char buf[200];
+      std::string pos;
+      if (has_xy) {
+        snprintf(buf, sizeof(buf), ", \"x\": %.3f, \"y\": %.3f", wx, wy);
+        pos += buf;
+      }
+      if (has_geo) {
+        snprintf(buf, sizeof(buf), ", \"lat\": %.7f, \"lon\": %.7f", wlat, wlon);
+        pos += buf;
+      } else {
+        pos += ", \"lat\": null, \"lon\": null";
+      }
+      snprintf(buf, sizeof(buf), ", \"alt_m\": %.1f", walt);
+      wps += std::string(wps.empty() ? "" : ",") + "\n          {\"index\": " + std::to_string(wp_index++) + ", \"name\": " +
+             attr_json(at, "name") + pos + buf + "}";
+    } else if (in_blocks && block_depth == 1 && tag == "block") {
+      blocks += std::string(blocks.empty() ? "" : ",") + "\n          {\"index\": " + std::to_string(block_index++) +
+                ", \"name\": " + attr_json(at, "name") + "}";
+      if (!selfclose) { block_depth++; }
+    } else if (in_blocks && !selfclose) {
+      block_depth++;
+    }
+  });
+
+  char buf[160];
+  snprintf(buf, sizeof(buf), "\"lat0\": %.7f, \"lon0\": %.7f, \"default_alt_m\": %.1f, \"ground_alt_m\": %.1f", lat0, lon0,
+           default_alt, ground_alt);
+  return "{\n        \"name\": " + json_escape(name) + ",\n        " + (has_ref ? std::string(buf) : "\"lat0\": null, \"lon0\": null") +
+         ",\n        \"waypoints\": [" + wps + "\n        ],\n        \"blocks\": [" + blocks + "\n        ]\n      }";
+}
+
+// JSON string with the UTC time (ISO 8601) or null when unknown
+std::string utc_iso(double epoch)
+{
+  if (epoch < 0) { return "null"; }
+  time_t sec = static_cast<time_t>(epoch);
+  int ms = static_cast<int>((epoch - sec) * 1000 + 0.5);
+  if (ms == 1000) { sec++; ms = 0; }
+  struct tm tm;
+  gmtime_r(&sec, &tm);
+  char buf[40];
+  snprintf(buf, sizeof(buf), "\"%04d-%02d-%02dT%02d:%02d:%02d.%03dZ\"", tm.tm_year + 1900, tm.tm_mon + 1,
+           tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, ms);
+  return buf;
+}
+
+std::string num(double v)
+{
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%.7g", v);
+  return buf;
+}
+
+// Compares the DL_VALUE reports of every setting with the first value reported (the "default" of this log).
+// A change is detected at the report that shows a different value than the previous report, so the real change
+// happened between previous_report_s and time_s.
+template <typename F>
+std::string settings_changes_json(const AircraftState &s, const std::vector<SettingInfo> &info, F utc)
+{
+  struct Change { double prev_t, t, from, to; bool in_flight; int index; };
+  struct Track { bool seen = false; double first = 0, last = 0, last_t = 0; std::vector<Change> changes; };
+  std::map<int, Track> tracks;
+  std::vector<Change> timeline;
+  for (const auto &sm : s.setting_samples) {
+    Track &tr = tracks[sm.index];
+    if (!tr.seen) {
+      tr.seen = true; tr.first = tr.last = sm.value; tr.last_t = sm.t;
+      continue;
+    }
+    if (fabs(sm.value - tr.last) > 1e-5 * std::max(1.0, fabs(tr.last))) {
+      Change c{tr.last_t, sm.t, tr.last, sm.value, sm.in_flight, sm.index};
+      tr.changes.push_back(c);
+      timeline.push_back(c);
+    }
+    tr.last = sm.value; tr.last_t = sm.t;
+  }
+  auto name_of_idx = [&](int i) { return i >= 0 && (size_t)i < info.size() ? json_escape(info[i].var) : std::string("null"); };
+
+  std::ostringstream o;
+  size_t changed = 0;
+  for (const auto &kv : tracks) { changed += !kv.second.changes.empty(); }
+  o << "{\n        \"default_source\": \"first DL_VALUE reported for each setting in this log\""
+    << ",\n        \"num_settings_reported\": " << tracks.size()
+    << ",\n        \"num_settings_changed\": " << changed << ",\n        \"timeline\": [";
+  bool f = true;
+  for (const auto &c : timeline) {
+    o << (f ? "" : ",") << "\n          {\"time_s\": " << num(c.t) << ", \"utc\": " << utc(c.t)
+      << ", \"previous_report_s\": " << num(c.prev_t) << ", \"index\": " << c.index
+      << ", \"var\": " << name_of_idx(c.index) << ", \"from\": " << num(c.from) << ", \"to\": " << num(c.to)
+      << ", \"in_flight\": " << (c.in_flight ? "true" : "false") << "}";
+    f = false;
+  }
+  o << (timeline.empty() ? "" : "\n        ") << "],\n        \"by_setting\": [";
+  f = true;
+  for (const auto &kv : tracks) {
+    const Track &tr = kv.second;
+    if (tr.changes.empty()) { continue; }
+    const SettingInfo *si = kv.first >= 0 && (size_t)kv.first < info.size() ? &info[kv.first] : nullptr;
+    o << (f ? "" : ",") << "\n          {\"index\": " << kv.first << ", \"var\": " << name_of_idx(kv.first)
+      << ", \"shortname\": " << (si ? json_escape(si->shortname) : "null")
+      << ", \"parent\": " << (si && !si->parent.empty() ? json_escape(si->parent) : "null")
+      << ", \"unit\": " << (si && si->has_unit ? json_escape(si->unit) : "null")
+      << ", \"default\": " << num(tr.first) << ", \"final\": " << num(tr.last)
+      << ", \"num_changes\": " << tr.changes.size() << ", \"changes\": [";
+    bool g = true;
+    for (const auto &c : tr.changes) {
+      o << (g ? "" : ", ") << "{\"time_s\": " << num(c.t) << ", \"utc\": " << utc(c.t)
+        << ", \"from\": " << num(c.from) << ", \"to\": " << num(c.to)
+        << ", \"in_flight\": " << (c.in_flight ? "true" : "false") << "}";
+      g = false;
+    }
+    o << "]}";
+    f = false;
+  }
+  o << (changed ? "\n        " : "") << "]\n      }";
+  return o.str();
+}
+
+// Wind vector plus derived speed and the compass direction the wind comes from; null when not valid
+std::string wind_json(const Wind &w)
+{
+  if (!w.valid) { return "null"; }
+  double speed = hypot(w.east, w.north);
+  double from = fmod(atan2(-w.east, -w.north) * 180.0 / M_PI + 360.0, 360.0);
+  return "{\"speed_ms\": " + num(round(speed * 100) / 100) + ", \"from_deg\": " + num(round(from * 10) / 10) +
+         ", \"east_ms\": " + num(round(w.east * 100) / 100) + ", \"north_ms\": " + num(round(w.north * 100) / 100) +
+         ", \"up_ms\": " + (w.has_up ? num(round(w.up * 100) / 100) : "null") +
+         ", \"temperature_c\": " + (w.has_temp ? num(round(w.temp * 10) / 10) : "null") + "}";
+}
+
+std::string ins_json(const InsState &n)
+{
+  if (!n.valid) { return "null"; }
+  char buf[400];
+  double gs = hypot(n.vel[0], n.vel[1]);
+  snprintf(buf, sizeof(buf),
+           "{\"position_ned_m\": {\"north\": %.3f, \"east\": %.3f, \"down\": %.3f}, "
+           "\"velocity_ned_ms\": {\"north\": %.3f, \"east\": %.3f, \"down\": %.3f}, \"groundspeed_ms\": %.3f, "
+           "\"acceleration_ned_ms2\": {\"north\": %.3f, \"east\": %.3f, \"down\": %.3f}}",
+           n.pos[0], n.pos[1], n.pos[2], n.vel[0], n.vel[1], n.vel[2], gs, n.acc[0], n.acc[1], n.acc[2]);
+  return buf;
+}
+
+// Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
+constexpr const char *PARSER_NAME = "fastreader";
+constexpr const char *PARSER_VERSION = "1.2.2";
+
+// Portable SHA-256 of a memory block (runs on its own thread next to the parser)
+std::string sha256_hex(const unsigned char *p, size_t n)
+{
+  static const uint32_t K[64] = {
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
+  uint32_t h[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+  auto rotr = [](uint32_t x, int k) { return (x >> k) | (x << (32 - k)); };
+  auto block = [&](const unsigned char *b) {
+    uint32_t w[64];
+    for (int i = 0; i < 16; i++) {
+      w[i] = (uint32_t)b[4 * i] << 24 | (uint32_t)b[4 * i + 1] << 16 | (uint32_t)b[4 * i + 2] << 8 | b[4 * i + 3];
+    }
+    for (int i = 16; i < 64; i++) {
+      uint32_t s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
+      uint32_t s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+      w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+    uint32_t a = h[0], b_ = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+    for (int i = 0; i < 64; i++) {
+      uint32_t t1 = hh + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i];
+      uint32_t t2 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b_) ^ (a & c) ^ (b_ & c));
+      hh = g; g = f; f = e; e = d + t1; d = c; c = b_; b_ = a; a = t1 + t2;
+    }
+    h[0] += a; h[1] += b_; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+  };
+  size_t full = n / 64;
+  for (size_t i = 0; i < full; i++) { block(p + 64 * i); }
+  unsigned char tail[128] = {0};
+  size_t rem = n - full * 64;
+  memcpy(tail, p + full * 64, rem);
+  tail[rem] = 0x80;
+  size_t tl = rem < 56 ? 64 : 128;
+  uint64_t bits = (uint64_t)n * 8;
+  for (int i = 0; i < 8; i++) { tail[tl - 1 - i] = (unsigned char)(bits >> (8 * i)); }
+  for (size_t i = 0; i < tl; i += 64) { block(tail + i); }
+  char out[65];
+  for (int i = 0; i < 8; i++) { snprintf(out + 8 * i, 9, "%08x", h[i]); }
+  return out;
+}
+
+}  // namespace
+
+int main(int argc, char *argv[])
+{
+  // Number of flight path points per second (0 disables the path)
+  double path_rate = 5.0;
+  std::string data_file, known_sha256;  // known_sha256: precomputed by the caller, skips hashing here
+  for (int i = 1; i < argc; i++) {
+    std::string a = argv[i];
+    if (a == "--sha256" && i + 1 < argc) {
+      known_sha256 = argv[++i];
+      continue;
+    }
+    if (a == "--version") {
+      std::cout << PARSER_VERSION << "\n";
+      return 0;
+    }
+    if ((a == "-r" || a == "--path-rate") && i + 1 < argc) {
+      char *endp;
+      path_rate = strtod(argv[++i], &endp);
+      if (*endp != '\0' || path_rate < 0) {
+        std::cerr << "Invalid path rate: " << argv[i] << "\n";
+        return 1;
+      }
+    } else if (data_file.empty()) {
+      data_file = a;
+    } else {
+      data_file.clear();
+      break;
+    }
+  }
+  if (data_file.empty()) {
+    std::cerr << "Usage: " << argv[0] << " [-r|--path-rate <points per second, default 5, 0 = off>] [--sha256 <hex of file, skips hashing>] [--version] <file.data>\n";
+    return 1;
+  }
+
+  int fd = open(data_file.c_str(), O_RDONLY);
+  struct stat st;
+  if (fd < 0 || fstat(fd, &st) != 0) {
+    std::cerr << " - Cannot open DATA file\n";
+    return 1;
+  }
+  if (st.st_size == 0) {
+    std::cerr << " - Empty DATA file\n";
+    return 1;
+  }
+  const size_t size = st.st_size;
+  void *map = mmap(nullptr, size, PROT_READ, MAP_PRIVATE | MAP_POPULATE, fd, 0);
+  if (map == MAP_FAILED) {
+    map = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
+  }
+  if (map == MAP_FAILED) {
+    std::cerr << " - mmap failed\n";
+    return 1;
+  }
+  madvise(map, size, MADV_SEQUENTIAL);
+  const char *base = static_cast<const char *>(map);
+  const char *end = base + size;
+  std::string sha256;
+  std::thread hasher;
+  if (known_sha256.empty()) {
+    hasher = std::thread([&] { sha256 = sha256_hex(reinterpret_cast<const unsigned char *>(base), size); });
+  } else {
+    sha256 = known_sha256;
+  }
+
+  std::map<int, AircraftState> acs;
+  double first_time = -1, last_time = 0;
+
+  auto touch = [&](int ac, double t) -> AircraftState & {
+    AircraftState &s = acs[ac];
+    if (s.first_time < 0) { s.first_time = t; }
+    s.last_time = t;
+    return s;
+  };
+
+  uint64_t ground_msgs = 0;
+  const char *p = base;
+  while (p < end) {
+    const char *eol = static_cast<const char *>(memchr(p, '\n', end - p));
+    if (!eol) { eol = end; }
+    const char *line = p;
+    p = eol + 1;
+
+    // "<time> <ac_id> <NAME> <payload>"
+    const char *q = line;
+    double t;
+    auto r = std::from_chars(q, eol, t);
+    if (r.ec != std::errc()) { continue; }
+    q = r.ptr;
+    int ac;
+    if (!to_num(next_token(q, eol), ac)) { continue; }
+    std::string_view name = next_token(q, eol);
+    if (name.empty()) { continue; }
+
+    if (first_time < 0) { first_time = t; }
+    last_time = t;
+
+    // Messages that only exist on the ground (link statistics, setting requests)
+    if ((name[0] == 'L' && name == "LINK_REPORT") || (name[0] == 'P' && name == "PONG") ||
+        (name[0] == 'G' && name == "GET_SETTING")) {
+      ++ground_msgs;
+    }
+
+    // Only look at messages of interest, dispatch on first char first
+    switch (name[0]) {
+      case 'R':
+        if (name == "ROTORCRAFT_FP") {
+          // fields: 0-5 pos/vel, 6 phi, 7 theta, 8 psi (int32, 12 fractional bits, rad)
+          for (int i = 0; i < 6; i++) { next_token(q, eol); }
+          int32_t phi, theta, psi;
+          if (!to_num(next_token(q, eol), phi) || !to_num(next_token(q, eol), theta) ||
+              !to_num(next_token(q, eol), psi)) { break; }
+          constexpr double k = 180.0 / M_PI / 4096.0;
+          AircraftState &s = touch(ac, t);
+          s.has_euler = true;
+          s.roll = phi * k; s.pitch = theta * k; s.yaw = psi * k;
+          if (s.in_flight && !s.flights.empty()) {
+            FlightStats &fs = s.flights.back().stats;
+            fs.max_tilt_deg = std::max(fs.max_tilt_deg, std::hypot(s.roll, s.pitch));
           }
-          msg.addField(field.getName(), vals);
-        } else {
-          msg.addField(field.getName(), boost::get<double>(values[i][0]));
+          break;
+        }
+        if (name == "ROTORCRAFT_NAV_STATUS") {
+          // fields: 0 block_time, 1 stage_time, 2 dist_home, 3 dist_wp, 4 cur_block, 5 cur_stage
+          for (int i = 0; i < 4; i++) { next_token(q, eol); }
+          int block, stage;
+          if (!to_num(next_token(q, eol), block) || !to_num(next_token(q, eol), stage)) { break; }
+          AircraftState &s = touch(ac, t);
+          s.block = block; s.stage = stage;
+          break;
+        }
+        if (name == "ROTORCRAFT_STATUS") {
+          // fields: 0 link_imu_nb_err, 1 motor_nb_err, 2 rc, 3 frame_rate, 4 gps, 5 ap_mode, 6 ap_in_flight,
+          // 7 motors_on, 8 arming, 9 h_mode, 10 v_mode, 11 cpu_time, 12 vsupply
+          for (int i = 0; i < 5; i++) { next_token(q, eol); }
+          int ap_mode, in_flight, h_mode, v_mode;
+          if (!to_num(next_token(q, eol), ap_mode) || !to_num(next_token(q, eol), in_flight)) { break; }
+          int motors_on = -1;
+          to_num(next_token(q, eol), motors_on);
+          next_token(q, eol);
+          bool has_hv = to_num(next_token(q, eol), h_mode) && to_num(next_token(q, eol), v_mode);
+          next_token(q, eol);
+          float vsupply;
+          bool has_v = to_num(next_token(q, eol), vsupply);
+          AircraftState &s = touch(ac, t);
+          s.ap_mode = ap_mode;
+          if (has_hv) { s.h_mode = h_mode; s.v_mode = v_mode; }
+          if (has_v) { s.has_volt = true; s.vsupply = vsupply; }
+          bool now = in_flight != 0;
+          if (now && motors_on >= 0 && !s.flights.empty() && s.in_flight) {
+            FlightStats &fs = s.flights.back().stats;
+            ++fs.status_msgs;
+            fs.motors_on_msgs += motors_on != 0;
+          }
+          if (now && !s.in_flight) {
+            Flight f;
+            f.takeoff_time = t;
+            f.has_takeoff_volt = s.has_volt;
+            f.takeoff_volt = s.vsupply;
+            f.takeoff_wind = s.wind;
+            f.takeoff_ins = s.ins;
+            f.has_pos = s.has_gps;
+            f.lat = s.lat; f.lon = s.lon; f.alt = s.alt;
+            s.flights.push_back(f);
+          } else if (!now && s.in_flight && !s.flights.empty()) {
+            Flight &f = s.flights.back();
+            f.landing_time = t;
+            f.complete = true;
+            f.has_land_volt = s.has_volt;
+            f.land_volt = s.vsupply;
+            f.land_wind = s.wind;
+            f.land_ins = s.ins;
+            f.has_land_pos = s.has_gps;
+            f.land_lat = s.lat; f.land_lon = s.lon; f.land_alt = s.alt;
+          }
+          s.in_flight = now;
+          s.seen_status = true;
         }
         break;
-      case pprzlink::BaseType::STRING:
-        msg.addField(field.getName(), boost::get<std::string>(values[i][0]));
+      case 'G':
+        if (name == "GPS_INT") {
+          // fields: 0-2 ecef, 3 lat, 4 lon, 5 alt (WGS84), 6 hmsl, ..., 14 numsv, 15 fix
+          for (int i = 0; i < 3; i++) { next_token(q, eol); }
+          int32_t lat, lon, alt;
+          if (!to_num(next_token(q, eol), lat) || !to_num(next_token(q, eol), lon) ||
+              !to_num(next_token(q, eol), alt)) { break; }
+          for (int i = 0; i < 9; i++) { next_token(q, eol); }  // hmsl .. numsv
+          int fix = 0;
+          to_num(next_token(q, eol), fix);
+          if (fix < 3) { break; }
+          AircraftState &s = touch(ac, t);
+          s.has_gps = true;
+          s.lat = lat * 1e-7; s.lon = lon * 1e-7; s.alt = alt * 1e-3;
+          if (s.in_flight && !s.flights.empty()) { s.flights.back().stats.add_gps(s.lat, s.lon, s.alt); }
+          if (path_rate > 0 && s.in_flight && !s.flights.empty() &&
+              static_cast<long>(t * path_rate) != s.last_path_bucket) {
+            s.last_path_bucket = static_cast<long>(t * path_rate);
+            s.flights.back().path.push_back({t, s.lat, s.lon, s.alt, s.has_baro, s.pressure, s.baro_alt,
+                                                s.has_volt, s.has_as, s.vsupply, s.airspeed, s.tas, s.diff_p,
+                                                s.has_euler, s.has_quat, s.roll, s.pitch, s.yaw, s.qi, s.qx,
+                                                s.qy, s.qz, s.ap_mode, s.h_mode, s.v_mode, s.block, s.stage,
+                                                parse_int_list(s.actuators_raw), s.wind, s.ins});
+          }
+        }
         break;
-      case pprzlink::BaseType::CHAR:
-        if (field.getType().isArray()) {
-          std::string vals;
-          size_t end = i + 1;
-          if (i + 1 == def.getNbFields()) {
-            end = values.size();
+      case 'D':
+        if (name == "DL_VALUE") {
+          int idx;
+          double val;
+          if (!to_num(next_token(q, eol), idx) || !to_num(next_token(q, eol), val)) { break; }
+          AircraftState &s = touch(ac, t);
+          s.setting_samples.push_back({t, idx, val, s.in_flight});
+        }
+        break;
+      case 'W':
+        if (name == "WIND_INFO_RET") {
+          // fields: 0 flags, 1 east, 2 north, 3 up, 4 airspeed, 5 temp
+          int flags;
+          double e, n, u, as, tmp;
+          if (!to_num(next_token(q, eol), flags) || !to_num(next_token(q, eol), e) || !to_num(next_token(q, eol), n) ||
+              !to_num(next_token(q, eol), u) || !to_num(next_token(q, eol), as) || !to_num(next_token(q, eol), tmp)) {
+            break;
           }
-
-          for (size_t j = i; j < end; j++) {
-            for (size_t k = 0; k < values[j].size(); k++) {
-              auto val = boost::get<std::string>(values[j][k]);
-              vals += val;
-              vals += ",";
-            }
-            vals.resize(vals.length() - 1);
-            vals += " ";
+          Wind &w = touch(ac, t).wind;
+          w.valid = flags & 1;
+          w.east = e; w.north = n;
+          w.has_up = flags & 2; w.up = u;
+          w.has_temp = flags & 8; w.temp = tmp;
+        }
+        break;
+      case 'I':
+        if (name == "INS") {
+          // fields: x y z (north, east, down; 8 fractional bits), xd yd zd (19 bits), xdd ydd zdd (10 bits)
+          int32_t v[9];
+          bool ok = true;
+          for (int i = 0; i < 9 && ok; i++) { ok = to_num(next_token(q, eol), v[i]); }
+          if (!ok) { break; }
+          InsState &n = touch(ac, t).ins;
+          n.valid = true;
+          for (int i = 0; i < 3; i++) {
+            n.pos[i] = v[i] / 256.0;
+            n.vel[i] = v[3 + i] / 524288.0;
+            n.acc[i] = v[6 + i] / 1024.0;
           }
-          vals.resize(vals.length() - 1);
-
-          if (vals[0] == '"') {
-            vals = vals.substr(1, vals.size() - 2);
+          {
+            AircraftState &s = touch(ac, t);
+            if (s.in_flight && !s.flights.empty()) { s.flights.back().stats.add_ins(n); }
           }
-          msg.addField(field.getName(), vals);
-
-        } else {
-          msg.addField(field.getName(), boost::get<std::string>(values[i][0]));
+          break;
+        }
+        if (name == "INFO_MSG") {
+          std::string text(q, eol);
+          text = trim(text);
+          if (text.size() >= 2 && text.front() == '"' && text.back() == '"') {
+            text = text.substr(1, text.size() - 2);
+          }
+          touch(ac, t).infos.push_back({t, std::move(text)});
+        }
+        break;
+      case 'A':
+        if (name == "ACTUATORS") {
+          AircraftState &s = touch(ac, t);
+          s.actuators_raw = next_token(q, eol);
+        } else if (name == "AHRS_REF_QUAT") {
+          // fields: 0-3 ref quaternion, 4-7 body quaternion (int32, 15 fractional bits)
+          for (int i = 0; i < 4; i++) { next_token(q, eol); }
+          int32_t b[4];
+          if (!to_num(next_token(q, eol), b[0]) || !to_num(next_token(q, eol), b[1]) ||
+              !to_num(next_token(q, eol), b[2]) || !to_num(next_token(q, eol), b[3])) { break; }
+          AircraftState &s = touch(ac, t);
+          s.has_quat = true;
+          s.qi = b[0] / 32768.0; s.qx = b[1] / 32768.0; s.qy = b[2] / 32768.0; s.qz = b[3] / 32768.0;
+        } else if (name == "AIR_DATA") {
+          // fields: 0 pressure [Pa], 1 diff_p, 2 temp, 3 qnh, 4 amsl_baro [m]
+          float press, baro_alt, diff_p = 0;
+          if (!to_num(next_token(q, eol), press)) { break; }
+          to_num(next_token(q, eol), diff_p);
+          for (int i = 0; i < 2; i++) { next_token(q, eol); }
+          if (!to_num(next_token(q, eol), baro_alt)) { break; }
+          float airspeed = 0, tas = 0;
+          bool has_as = to_num(next_token(q, eol), airspeed);
+          has_as = has_as && to_num(next_token(q, eol), tas);
+          AircraftState &s = touch(ac, t);
+          if (has_as) { s.has_as = true; s.airspeed = airspeed; s.tas = tas; s.diff_p = diff_p; }
+          s.has_baro = true;
+          s.pressure = press;
+          s.baro_alt = baro_alt;
+          if (s.in_flight && !s.flights.empty()) { s.flights.back().stats.baro.add(baro_alt); }
+        } else if (name == "AUTOPILOT_VERSION") {
+          touch(ac, t).versions.insert(trim(std::string(q, eol)));
         }
         break;
       default:
         break;
     }
   }
-  return msg;
-}
+  if (hasher.joinable()) { hasher.join(); }
+  munmap(map, size);
+  close(fd);
 
-
-
-int main(int argc, char *argv[])
-{
-  if (argc < 2) {
-    std::cerr << "Usage: " << argv[0] << " <filename>\n";
-    return 1;
+  // Close flights still ongoing at end of log
+  for (auto &kv : acs) {
+    AircraftState &s = kv.second;
+    if (s.in_flight && !s.flights.empty() && !s.flights.back().complete) {
+      Flight &f = s.flights.back();
+      f.landing_time = s.last_time;
+      f.has_land_volt = s.has_volt;
+      f.land_volt = s.vsupply;
+      f.land_wind = s.wind;
+      f.land_ins = s.ins;
+      f.has_land_pos = s.has_gps;
+      f.land_lat = s.lat; f.land_lon = s.lon; f.land_alt = s.alt;
+    }
   }
 
-  // Check if the data file exists
-  if (boost::filesystem::is_empty(argv[1])) {
-    std::cerr << " - Empty DATA file\n";
-    return 1;
+  // Report (JSON)
+  std::string log_file = data_file;
+  if (log_file.size() > 4) { log_file.replace(log_file.size() - 4, 4, "log"); }
+  const LogHeader hdr = read_log_header(log_file);
+  auto utc = [&](double t) { return utc_iso(hdr.start_epoch < 0 ? -1 : hdr.start_epoch + t); };
+  const double t0 = first_time < 0 ? 0 : first_time;
+
+  // Aircraft without a name entry fall back to the single unnamed airframe of the log
+  std::vector<int> report_ids;
+  for (const auto &kv : acs) {
+    if (kv.second.seen_status) { report_ids.push_back(kv.first); }
   }
-  std::cout << "LOG: " << argv[1] << "\n";
+  auto name_of = [&](int id) {
+    auto it = hdr.names.find(id);
+    if (it != hdr.names.end()) { return it->second; }
+    if (!hdr.default_name.empty() && report_ids.size() == 1) { return hdr.default_name; }
+    return std::string("unknown");
+  };
+  auto conf_of = [&](int id) -> const AcConf * {
+    auto it = hdr.confs.find(id);
+    if (it == hdr.confs.end()) { it = hdr.confs.find(-1); }
+    return it == hdr.confs.end() ? nullptr : &it->second;
+  };
+  auto mode_name = [&](const char *field, int v) {
+    if (v < 0) { return std::string("null"); }
+    auto it = hdr.mode_names.find(field);
+    if (it != hdr.mode_names.end() && static_cast<size_t>(v) < it->second.size()) { return json_escape(it->second[v]); }
+    return json_escape(std::to_string(v));
+  };
+  auto block_name = [&](int id, int b) {
+    const AcConf *c = conf_of(id);
+    if (!c || b < 0 || static_cast<size_t>(b) >= c->blocks.size()) { return std::string("null"); }
+    return json_escape(c->blocks[b]);
+  };
+  auto stage_name = [&](int id, int b, int st) {
+    const AcConf *c = conf_of(id);
+    if (!c || b < 0 || st < 0 || static_cast<size_t>(b) >= c->stages.size() ||
+        static_cast<size_t>(st) >= c->stages[b].size()) { return std::string("null"); }
+    return json_escape(c->stages[b][st]);
+  };
+  auto loc = [&](bool has, double lat, double lon, double alt) {
+    if (!has) { return std::string("null"); }
+    char buf[96];
+    snprintf(buf, sizeof(buf), "{\"lat\": %.7f, \"lon\": %.7f, \"alt_m\": %.1f}", lat, lon, alt);
+    return std::string(buf);
+  };
 
-  // Replace and check if the log file exists
-  std::string log_file = argv[1];
-  log_file.replace(log_file.end() - 4, log_file.end(), "log");
-  if (boost::filesystem::is_empty(log_file)) {
-    std::cerr << " - Empty LOG file\n";
-    return 1;
+  // Onboard SD logs are named *_SD.data; ground station (GCS) logs have <aircraft> entries and link messages
+  const char *log_type = "unknown", *type_basis = "none";
+  {
+    const std::string &f = data_file;
+    if (f.size() >= 8 && f.compare(f.size() - 8, 8, "_SD.data") == 0) {
+      log_type = "onboard_sd"; type_basis = "file name";
+    } else if (hdr.has_aircraft_tag || hdr.has_logged_with) {
+      log_type = "gcs"; type_basis = ".log header";
+    } else if (ground_msgs > 0) {
+      log_type = "gcs"; type_basis = "ground-only messages";
+    } else if (hdr.start_epoch >= 0 || !hdr.default_name.empty()) {
+      log_type = "onboard_sd"; type_basis = ".log header";
+    }
   }
 
-  // Open the .log file in the xml parser
-  tinyxml2::XMLDocument xml;
-  xml.LoadFile(log_file.c_str());
+  std::ostringstream o;
+  o << "{\n  \"parser\": {\"name\": \"" << PARSER_NAME << "\", \"version\": \"" << PARSER_VERSION
+    << "\", \"path_rate_hz\": " << num(path_rate) << "},\n  \"log\": {\n    \"file\": " << json_escape(data_file)
+    << ",\n    \"type\": \"" << log_type << "\",\n    \"type_basis\": \"" << type_basis
+    << "\",\n    \"sha256\": \"" << sha256 << "\",\n    \"size_bytes\": " << size << ",\n    \"start_utc\": " << utc(0)
+    << ",\n    \"first_data_utc\": " << utc(t0) << ",\n    \"end_utc\": " << utc(last_time)
+    << ",\n    \"duration_s\": " << num(last_time - t0) << "\n  },\n  \"aircraft\": [";
 
-  // Check if the root element is configuration
-  tinyxml2::XMLElement *root = xml.RootElement();
-  std::string rootElem(root->Value());
-  if (rootElem != "configuration") {
-    std::cerr << "Root element is not configuration in xml messages file (found " + rootElem + ").";
-    return 1;
+  // {"time_s", "utc", "location", "voltage_v"} describing a takeoff or landing
+  auto event = [&](double t, bool has_pos, double lat, double lon, double alt, bool has_v, double v, const Wind &w, const InsState &ins) {
+    return "{\"time_s\": " + num(t) + ", \"utc\": " + utc(t) + ", \"location\": " + loc(has_pos, lat, lon, alt) +
+           ", \"voltage_v\": " + (has_v ? num(v) : "null") + ", \"wind\": " + wind_json(w) + ", \"ins\": " + ins_json(ins) + "}";
+  };
+
+  auto rng = [&](const Range &r) { return r.any ? num(r.span()) : std::string("null"); };
+  auto assessment_json = [&](const Flight &f) {
+    const Assessment a = assess(f);
+    const FlightStats &st = f.stats;
+    std::string m = "{\"verdict\": \"" + std::string(a.verdict) + "\", \"score\": " + num(a.score) +
+                    ", \"reasons\": [" + a.reasons + "], \"metrics\": {\"ins_up_range_m\": " + rng(st.ins_up) +
+                    ", \"baro_range_m\": " + rng(st.baro) + ", \"gps_alt_range_m\": " + rng(st.gps_alt) +
+                    ", \"ins_horizontal_m\": " + (st.ins_n.any ? num(st.ins_horizontal_m()) : "null") +
+                    ", \"gps_horizontal_m\": " + (st.gps_lat.any ? num(st.gps_horizontal_m()) : "null") +
+                    ", \"max_speed_ms\": " + num(st.max_speed) + ", \"max_vertical_speed_ms\": " + num(st.max_vspeed) +
+                    ", \"motors_on_fraction\": " + (st.status_msgs ? num(static_cast<double>(st.motors_on_msgs) / st.status_msgs) : "null") +
+                    ", \"max_tilt_deg\": " + num(st.max_tilt_deg) + ", \"acc_rms_ms2\": " + num(st.acc_rms()) + "}}";
+    return m;
+  };
+
+  bool first_ac = true;
+  for (int id : report_ids) {
+    const AircraftState &s = acs[id];
+    const AcConf *cf = conf_of(id);
+
+    // Split INFO_MSGs of this aircraft
+    std::string pic, pac, gcs, goal;
+    std::vector<const InfoMsg *> pfc, other;
+    for (const auto &m : s.infos) {
+      if (m.text.rfind("[PFC]", 0) == 0) {
+        std::string body = trim(m.text.substr(5));
+        auto starts = [&](const char *k, std::string &dst) {
+          size_t n = strlen(k);
+          if (body.compare(0, n, k) == 0) { dst = trim(body.substr(n)); return true; }
+          return false;
+        };
+        if (starts("pic:", pic) || starts("pac:", pac) || starts("gcs:", gcs) || starts("goal:", goal)) { continue; }
+        pfc.push_back(&m);
+      } else {
+        other.push_back(&m);
+      }
+    }
+
+    double total = 0;
+    for (const auto &f : s.flights) { total += f.duration(); }
+
+    // Identification, crew and summary
+    o << (first_ac ? "" : ",") << "\n    {\n      \"ac_id\": " << id << ",\n      \"name\": "
+      << json_escape(name_of(id)) << ",\n      \"autopilot_versions\": [";
+    first_ac = false;
+    bool fv = true;
+    for (const auto &v : s.versions) { o << (fv ? "" : ", ") << json_escape(v); fv = false; }
+    o << "],\n      \"data_span\": {\"first_utc\": " << utc(s.first_time) << ", \"last_utc\": " << utc(s.last_time)
+      << "},\n      \"mission\": {\"pic\": " << json_escape(pic) << ", \"pac\": " << json_escape(pac)
+      << ", \"gcs\": " << json_escape(gcs) << ", \"goal\": " << json_escape(goal)
+      << "},\n      \"summary\": {\"num_flights\": " << s.flights.size() << ", \"total_flight_time_s\": " << num(total)
+      << "},\n      \"flights\": [";
+
+    int i = 1;
+    for (const auto &f : s.flights) {
+      o << (i == 1 ? "" : ",") << "\n        {\n          \"flight\": " << i++ << ",\n          \"duration_s\": "
+        << num(f.duration()) << ",\n          \"landed\": " << (f.complete ? "true" : "false")
+        << ",\n          \"assessment\": " << assessment_json(f)
+        << ",\n          \"takeoff\": " << event(f.takeoff_time, f.has_pos, f.lat, f.lon, f.alt, f.has_takeoff_volt, f.takeoff_volt, f.takeoff_wind, f.takeoff_ins)
+        << ",\n          \"landing\": "
+        << event(f.landing_time, f.has_land_pos, f.land_lat, f.land_lon, f.land_alt, f.has_land_volt, f.land_volt, f.land_wind, f.land_ins)
+        << ",\n          \"path\": [";
+      bool fp = true;
+      for (const auto &pt : f.path) {
+        char buf[192];
+        // time, position (GPS + barometric)
+        o << (fp ? "" : ",") << "\n            {\"time_s\": " << num(pt.t) << ", \"utc\": " << utc(pt.t);
+        snprintf(buf, sizeof(buf), ", \"position\": {\"lat\": %.7f, \"lon\": %.7f, \"gps_alt_m\": %.1f", pt.lat, pt.lon,
+                 pt.alt);
+        o << buf;
+        if (pt.has_baro) {
+          snprintf(buf, sizeof(buf), ", \"baro_alt_m\": %.2f, \"pressure_pa\": %.0f}", pt.baro_alt_m, pt.pressure_pa);
+          o << buf;
+        } else {
+          o << ", \"baro_alt_m\": null, \"pressure_pa\": null}";
+        }
+        // attitude
+        o << ",\n             \"ins\": " << ins_json(pt.ins);
+        o << ",\n             \"attitude\": {\"euler_deg\": ";
+        if (pt.has_euler) {
+          snprintf(buf, sizeof(buf), "{\"roll\": %.2f, \"pitch\": %.2f, \"yaw\": %.2f}", pt.roll_deg, pt.pitch_deg,
+                   pt.yaw_deg);
+          o << buf;
+        } else {
+          o << "null";
+        }
+        o << ", \"quaternion\": ";
+        if (pt.has_quat) {
+          snprintf(buf, sizeof(buf), "{\"qi\": %.5f, \"qx\": %.5f, \"qy\": %.5f, \"qz\": %.5f}", pt.qi, pt.qx, pt.qy,
+                   pt.qz);
+          o << buf;
+        } else {
+          o << "null";
+        }
+        o << "}";
+        // air data and battery
+        o << ",\n             \"airspeed\": ";
+        if (pt.has_as) {
+          snprintf(buf, sizeof(buf), "{\"eas_ms\": %.2f, \"tas_ms\": %.2f, \"diff_pressure_pa\": %.2f}", pt.airspeed, pt.tas, pt.diff_p);
+          o << buf;
+        } else {
+          o << "null";
+        }
+        if (pt.has_volt) {
+          snprintf(buf, sizeof(buf), ", \"battery_voltage_v\": %.2f", pt.vsupply);
+          o << buf;
+        } else {
+          o << ", \"battery_voltage_v\": null";
+        }
+        // autopilot state
+        o << ",\n             \"wind\": " << wind_json(pt.wind);
+        o << ",\n             \"flight_mode\": {\"ap_mode\": " << mode_name("ap_mode", pt.ap_mode)
+          << ", \"h_mode\": " << mode_name("ap_h_mode", pt.h_mode)
+          << ", \"v_mode\": " << mode_name("ap_v_mode", pt.v_mode) << "}"
+          << ",\n             \"nav\": {\"block_id\": " << pt.block << ", \"block\": " << block_name(id, pt.block)
+          << ", \"stage_id\": " << pt.stage << ", \"stage\": " << stage_name(id, pt.block, pt.stage) << "}";
+        o << ",\n             \"actuators\": ";
+        if (pt.actuators.empty()) {
+          o << "null";
+        } else {
+          o << "{";
+          for (size_t k = 0; k < pt.actuators.size(); k++) {
+            std::string an = cf && cf->servos.size() == pt.actuators.size() ? cf->servos[k] : "ACT_" + std::to_string(k);
+            o << (k ? ", " : "") << json_escape(an) << ": " << pt.actuators[k];
+          }
+          o << "}";
+        }
+        o << "}";
+        fp = false;
+      }
+      o << (f.path.empty() ? "" : "\n          ") << "]\n        }";
+    }
+    o << "\n      ]";
+
+    // Messages
+    auto emit = [&](const std::vector<const InfoMsg *> &v, size_t skip) {
+      bool f1 = true;
+      for (const auto *m : v) {
+        o << (f1 ? "" : ",") << "\n        {\"time_s\": " << num(m->time) << ", \"utc\": " << utc(m->time)
+          << ", \"text\": " << json_escape(trim(m->text.substr(skip))) << "}";
+        f1 = false;
+      }
+      o << (v.empty() ? "" : "\n      ") << "]";
+    };
+    o << ",\n      \"preflight_checks\": [";
+    emit(pfc, 5);
+    o << ",\n      \"info_messages\": [";
+    emit(other, 0);
+
+    // Configuration: parsed summaries, then the raw XML as embedded in the log
+    auto xml_or_null = [&](const std::string &x) { return x.empty() ? std::string("null") : json_escape(x); };
+    o << ",\n      \"flight_plan\": "
+      << (cf && !cf->flight_plan_xml.empty() ? flight_plan_summary_json(cf->flight_plan_xml) : "null")
+      << ",\n      \"settings\": " << (cf && !cf->settings_xml.empty() ? settings_list_json(cf->settings_xml) : "null")
+      << ",\n      \"settings_changes\": " << settings_changes_json(s, cf ? settings_entries(cf->settings_xml) : std::vector<SettingInfo>(), utc)
+      << ",\n      \"xml\": {\n        \"airframe\": " << (cf ? xml_or_null(cf->airframe_xml) : "null")
+      << ",\n        \"flight_plan\": " << (cf ? xml_or_null(cf->flight_plan_xml) : "null")
+      << ",\n        \"settings\": " << (cf ? xml_or_null(cf->settings_xml) : "null")
+      << ",\n        \"radio\": " << (cf ? xml_or_null(cf->radio_xml) : "null")
+      << ",\n        \"telemetry\": " << (cf ? xml_or_null(cf->telemetry_xml) : "null") << "\n      }\n    }";
   }
-
-  // Load message definitions from *.LOG / messages.xml
-  pprzlink::MessageDictionary *dict = new pprzlink::MessageDictionary(root->FirstChildElement("protocol"));
-
-  // Load all aircraft names
-  parse_airframe_list(root);
-
-
-
-  // GPS_INT message
-  auto gps_int = [&](auto & ctx) {
-    // auto timestamp = boost::fusion::at_c<0>(_attr(ctx));
-    auto ac_id = uint8_t(boost::fusion::at_c<1>(_attr(ctx)));
-    auto values = boost::fusion::at_c<2>(_attr(ctx));
-    auto msg = get_msg("GPS_INT", dict, values);
-    msg.setSenderId(ac_id);
-
-    // std::cout << " - GPS_INT: " << timestamp << " " << msg.toString() << "\n";
-  };
-
-  // INFO_MSG message
-  auto info_msg = [&](auto & ctx) {
-    auto timestamp = boost::fusion::at_c<0>(_attr(ctx));
-    auto ac_id = uint8_t(boost::fusion::at_c<1>(_attr(ctx)));
-    auto values = boost::fusion::at_c<2>(_attr(ctx));
-    auto msg = get_msg("INFO_MSG", dict, values);
-    msg.setSenderId(ac_id);
-
-    std::cout << " - INFO_MSG: " << timestamp << " " << msg.toString() << "\n";
-  };
-
-  // ROTORCRAFT_FP message
-  auto rotorcraft_fp = [&](auto & ctx) {
-    // auto timestamp = boost::fusion::at_c<0>(_attr(ctx));
-    auto ac_id = uint8_t(boost::fusion::at_c<1>(_attr(ctx)));
-    auto values = boost::fusion::at_c<2>(_attr(ctx));
-    auto msg = get_msg("ROTORCRAFT_FP", dict, values);
-    msg.setSenderId(ac_id);
-
-    // std::cout << " - ROTORCRAFT_FP: " << timestamp << " " << msg.toString() << "\n";
-  };
-
-  // STAB_ATTITUDE message
-  auto stab_attitude = [&](auto & ctx) {
-    auto timestamp = boost::fusion::at_c<0>(_attr(ctx));
-    auto ac_id = uint8_t(boost::fusion::at_c<1>(_attr(ctx)));
-    auto values = boost::fusion::at_c<2>(_attr(ctx));
-    auto msg = get_msg("STAB_ATTITUDE", dict, values);
-    msg.setSenderId(ac_id);
-
-    // std::cout << " - STAB_ATTITUDE: " << timestamp << " " << msg.toString() << "\n";
-  };
-
-  // AUTOPILOT_VERSION message
-  auto autopilot_version = [&](auto & ctx) {
-    auto timestamp = boost::fusion::at_c<0>(_attr(ctx));
-    auto ac_id = uint8_t(boost::fusion::at_c<1>(_attr(ctx)));
-    auto values = boost::fusion::at_c<2>(_attr(ctx));
-    auto msg = get_msg("AUTOPILOT_VERSION", dict, values);
-    msg.setSenderId(ac_id);
-
-    std::cout << " - AUTOPILOT_VERSION: " << timestamp << " " << msg.toString() << "\n";
-  };
-
-  // Add the parser
-  auto var_types = (double_ | lexeme[+~char_("\r\n")]);
-  auto var_options = (var_types % ',');
-  auto matcher = (float_ >> ' ' >> int_ >> ' ' >> "GPS_INT" >> ' ' >> (var_options % ' ') >> eol)[gps_int] \
-                 | (float_ >> ' ' >> int_ >> ' ' >> "INFO_MSG" >> ' ' >> (var_options % ' ') >> eol)[info_msg] \
-                  | (float_ >> ' ' >> int_ >> ' ' >> "ROTORCRAFT_FP" >> ' ' >> (var_options % ' ') >> eol)[rotorcraft_fp] \
-                  | (float_ >> ' ' >> int_ >> ' ' >> "STAB_ATTITUDE" >> ' ' >> (var_options % ' ') >> eol)[stab_attitude] \
-                  | (float_ >> ' ' >> int_ >> ' ' >> "AUTOPILOT_VERSION" >> ' ' >> (var_options % ' ') >> eol)[autopilot_version];
-  auto res = matcher | ( * ~char_("\r\n") >> eol);
-
-  // Parse the file
-  boost::iostreams::mapped_file_source file(argv[1]);
-  parse(file.begin(), file.end(), *(res));
+  o << "\n  ]\n}\n";
+  std::cout << o.str();
+  return 0;
 }
