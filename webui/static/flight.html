@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Flight</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --ok:#1a7f37; --warn:#9a6700; --err:#c62828; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
+  main { max-width:1400px; margin:0 auto; padding:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow-x:auto; }
+  .card h2 { margin:0 0 10px; font-size:16px; }
+  button { font:inherit; background:#e8ecf1; color:var(--txt); border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; }
+  .mono { font-family:ui-monospace, monospace; font-size:12px; }
+  .mute { color:var(--mute); }
+  .bar { display:flex; gap:14px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+  a { color:var(--acc); }
+  a.btn { display:inline-block; background:var(--acc); color:#fff; padding:6px 12px; border-radius:6px; text-decoration:none; }
+  a.btn.sec { background:#e8ecf1; color:var(--txt); }
+  .kv { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
+  .cols { display:flex; gap:40px; flex-wrap:wrap; }
+  .cols > div { min-width:260px; }
+  h4 { margin:0 0 6px; }
+  .actions { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  #map { height:520px; border-radius:6px; border:1px solid var(--line); }
+  #readout { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:4px 16px; margin-top:8px; font-size:13px; }
+  #readout b { display:block; font-size:11px; color:var(--mute); text-transform:uppercase; font-weight:600; }
+  #scrub { width:100%; }
+  #chart { width:100%; height:150px; display:block; cursor:crosshair; margin-top:6px; }
+  .tag { display:inline-block; padding:0 8px; border-radius:10px; font-size:12px; background:#e8ecf1; }
+  .tag.flight { background:#dcf3e3; color:var(--ok); } .tag.uncertain { background:#fff1cc; color:var(--warn); } .tag.ground { background:#fde2e2; color:var(--err); }
+  .wp { background:#fff; border:1px solid #888; border-radius:3px; padding:0 3px; font-size:11px; }
+  .src a.cur { font-weight:600; text-decoration:none; color:var(--txt); }
+  tr.out td { color:var(--mute); }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Flight</h1>
+  <span class="meta"><a href="/" style="color:#9fb0c3">Uploads</a> · <a href="/logbook" style="color:#9fb0c3">Logbook</a></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <section class="card" id="summary"></section>
+
+  <section class="card">
+    <div class="bar">
+      <h2 style="margin:0">Flight path</h2>
+      <label><input type="checkbox" id="showPlan" checked> Show flight plan</label>
+      <span class="mute" id="mapMsg"></span>
+    </div>
+    <div id="map"></div>
+    <input type="range" id="scrub" min="0" max="0" value="0">
+    <canvas id="chart"></canvas>
+    <div id="readout"></div>
+  </section>
+
+  <section class="card"><div class="cols" id="events"></div></section>
+
+  <section class="card">
+    <div class="bar"><h2 style="margin:0">Settings changed</h2>
+      <label><input type="checkbox" id="allChanges"> Show all changes of the log</label><span class="mute" id="changeCount"></span></div>
+    <table><thead><tr><th>Time</th><th>Setting</th><th>From</th><th>To</th><th></th></tr></thead><tbody id="changes"></tbody></table>
+  </section>
+
+  <section class="card">
+    <div class="bar"><h2 style="margin:0">Messages</h2>
+      <label><input type="checkbox" id="allMsgs"> Show all messages of the log</label><span class="mute" id="msgCount"></span></div>
+    <table><thead><tr><th>Time</th><th>Message</th></tr></thead><tbody id="msgs"></tbody></table>
+  </section>
+
+  <section class="card"><h2>Pre-flight checks</h2><table><tbody id="pfc"></tbody></table>
+    <div class="kv" style="margin-top:10px" id="versions"></div></section>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const kv = (k, v) => v == null || v === '' ? '' : `<span class="mute">${k}</span><span>${v}</span>`;
+const fmtTime = iso => iso ? iso.replace('T', ' ').replace(/\.\d+Z$/, 'Z') : '';
+const fmtDur = s => s == null ? '' : `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, '0')}s`;
+const rel = t => { const d = t - D.takeoff_time_s, a = Math.abs(d); return (d < 0 ? '−' : '+') + Math.floor(a / 60) + ':' + String(Math.floor(a % 60)).padStart(2, '0') + '.' + String(Math.floor(a % 1 * 10)); };
+const TYPE = {onboard_sd: 'Onboard SD log', gcs: 'GCS log'};
+const logout = async () => { await fetch('/logout', {method: 'POST'}); location.href = '/login'; };
+fetch('/api/me').then(r => r.json()).then(d => { $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : ''); });
+
+let D, map, planLayer, marker, trail, chartGeom;
+const flightId = +location.pathname.split('/').pop();
+
+const person = (f, role) => {
+  const raw = f[role], u = f[role + '_user'];
+  if (!raw && !u) return '';
+  if (!u) return esc(raw);
+  return esc(u.display_name) + (raw && raw.toLowerCase() !== u.display_name.toLowerCase() ? ` <span class="mute">(${esc(raw)})</span>` : '');
+};
+const coord = (p, name) => p ? `${name ? esc(name) + ' · ' : ''}${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} · ${p.alt_m} m` : '';
+const windTxt = w => w ? `${w.speed_ms} m/s from ${w.from_deg}°${w.temperature_c != null ? ', ' + w.temperature_c + ' °C' : ''}` : '';
+const ned = v => v ? `N ${v.north}, E ${v.east}, D ${v.down}` : '';
+
+function renderSummary() {
+  const e = D.entry, a = e.assessment;
+  document.title = `${e.aircraft} ${fmtTime(e.takeoff_utc)}`;
+  $('title').textContent = `${e.aircraft} · ${fmtTime(e.takeoff_utc)}`;
+  const place = (p, lat, lon) => p ? esc(p) : (lat != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '');
+  $('summary').innerHTML = `<div class="cols"><div class="kv">
+      ${kv('Aircraft', esc(e.aircraft))}${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon))}
+      ${kv('Landing (UTC)', e.landing_utc ? esc(fmtTime(e.landing_utc)) + ' · ' + place(e.landing_place, e.landing_lat, e.landing_lon) : '')}
+      ${kv('Flight time', fmtDur(e.duration_s))}${kv('Goal', esc(e.goal))}
+      ${kv('PIC', person(e, 'pic'))}${kv('PAC', person(e, 'pac'))}${kv('GCS operator', person(e, 'gcs'))}
+      ${a ? kv('Real flight?', `<span class="tag ${esc(a.verdict)}">${esc(a.verdict)}</span> <span class="mute">${esc(a.reasons.join(', '))}</span>`) : ''}
+    </div><div class="kv src">
+      ${e.sources.map(s => kv(TYPE[s.log_type] || s.log_type, `<a href="/flight/${s.flight_id}" class="${s.flight_id === flightId ? 'cur' : ''}">${esc(s.log_name)}</a>${s.flight_id === flightId ? ' <span class="mute">(shown)</span>' : ''}
+        · <a href="/api/logs/${s.log_id}/download">download .data + .log</a> · <a href="/#log${s.log_id}">log details</a>`)).join('')}
+      ${kv('Uploaded', esc(fmtTime(e.uploaded_at)) + (e.uploaded_by_name ? ' by ' + esc(e.uploaded_by_name) : ''))}
+    </div></div>
+    <div class="actions"><a class="btn sec" href="/api/flights/${flightId}/path" target="_blank">Path JSON</a>
+      <a class="btn sec" href="/api/aircraft/${e.aircraft_pk}/config" target="_blank">Airframe / flight plan / settings</a></div>`;
+  const ev = (title, x, utc, name) => x ? `<div><h4>${title}</h4><div class="kv">${kv('Time (UTC)', esc(fmtTime(utc)))}${kv('Location', coord(x.location, name))}
+    ${kv('Battery', x.voltage_v != null ? x.voltage_v.toFixed(2) + ' V' : '')}${kv('Wind', windTxt(x.wind))}
+    ${kv('INS position (NED, m)', ned(x.ins?.position_ned_m))}${kv('INS speed (NED, m/s)', ned(x.ins?.velocity_ned_ms))}${kv('INS accel (NED, m/s²)', ned(x.ins?.acceleration_ned_ms2))}</div></div>` : '';
+  $('events').innerHTML = ev('Takeoff', e.takeoff, e.takeoff_utc, e.takeoff_place) + ev('Landing', e.landing, e.landing_utc, e.landing_place);
+}
+
+const pt = i => D.path[i];
+const alt = p => p.ins?.position_ned_m ? -p.ins.position_ned_m.down : null;
+const gs = p => p.ins?.groundspeed_ms ?? null;
+
+function initMap() {
+  map = L.map('map').setView([52, 4.4], 6);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap contributors'}).addTo(map);
+  const path = D.path.filter(p => p.position);
+  const ll = path.map(p => [p.position.lat, p.position.lon]);
+  const group = L.featureGroup();
+  if (ll.length) {
+    L.polyline(ll, {color: '#1f6feb', weight: 4}).addTo(group);
+    L.circleMarker(ll[0], {radius: 7, color: '#1a7f37', fillOpacity: .9}).bindTooltip('Takeoff').addTo(group);
+    L.circleMarker(ll[ll.length - 1], {radius: 7, color: '#c62828', fillOpacity: .9}).bindTooltip('Landing').addTo(group);
+    marker = L.circleMarker(ll[0], {radius: 8, color: '#000', weight: 2, fillColor: '#ffd33d', fillOpacity: 1}).addTo(group);
+  } else {
+    $('mapMsg').textContent = 'No path stored for this flight (parsed with path rate 0?).';
+  }
+  group.addTo(map);
+  const fp = D.flight_plan;
+  planLayer = L.layerGroup();
+  const wps = (fp?.waypoints || []).filter(w => w.lat != null && w.lon != null);
+  for (const w of wps) {
+    L.circleMarker([w.lat, w.lon], {radius: 5, color: '#8250df', weight: 2, fillColor: '#fff', fillOpacity: 1})
+      .bindTooltip(`${esc(w.name)}${w.alt_m != null ? ' · ' + w.alt_m + ' m' : ''}`, {direction: 'right'}).addTo(planLayer);
+  }
+  if (!wps.length) { $('showPlan').disabled = true; $('showPlan').parentElement.title = 'No flight plan in the log'; }
+  const bounds = L.featureGroup([group, ...wps.map(w => L.marker([w.lat, w.lon]))]).getBounds();
+  const fit = () => { const b = ll.length ? group.getBounds() : bounds; if (b.isValid()) map.fitBounds(b.pad(0.1), {maxZoom: 19}); else map.setView([52, 4.4], 6); };
+  const togglePlan = () => { $('showPlan').checked ? planLayer.addTo(map) : planLayer.remove(); };
+  $('showPlan').onchange = togglePlan;
+  togglePlan(); fit();
+  $('scrub').max = Math.max(D.path.length - 1, 0);
+  $('scrub').oninput = () => show(+$('scrub').value);
+  $('scrub').disabled = !D.path.length;
+  drawChart(); show(0);
+}
+
+function show(i) {
+  const p = pt(i);
+  if (!p) { $('readout').innerHTML = ''; return; }
+  if (marker && p.position) marker.setLatLng([p.position.lat, p.position.lon]);
+  $('scrub').value = i;
+  const a = alt(p), g = gs(p), m = p.flight_mode, n = p.nav, at = p.attitude?.euler_deg;
+  const cell = (k, v) => v == null || v === '' ? '' : `<div><b>${k}</b>${v}</div>`;
+  $('readout').innerHTML = cell('Time', rel(p.time_s) + ' · ' + esc(fmtTime(p.utc).slice(11)))
+    + cell('Height (INS)', a != null ? a.toFixed(1) + ' m' : null) + cell('GPS alt', p.position.gps_alt_m + ' m')
+    + cell('Baro alt', p.position.baro_alt_m != null ? p.position.baro_alt_m + ' m' : null)
+    + cell('Ground speed', g != null ? g.toFixed(1) + ' m/s' : null) + cell('Airspeed', p.airspeed?.eas_ms != null ? p.airspeed.eas_ms + ' m/s' : null)
+    + cell('Battery', p.battery_voltage_v != null ? p.battery_voltage_v + ' V' : null)
+    + cell('Mode', m ? esc([m.ap_mode, m.h_mode, m.v_mode].join(' / ')) : null) + cell('Block', n?.block ? esc(n.block) + (n.stage ? ' · ' + esc(n.stage) : '') : null)
+    + cell('Roll / pitch / yaw', at ? `${at.roll}° / ${at.pitch}° / ${at.yaw}°` : null);
+  drawChart(i);
+}
+
+function drawChart(cursor) {
+  const c = $('chart'), r = c.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  c.width = r.width * dpr; c.height = r.height * dpr;
+  const x = c.getContext('2d');
+  x.scale(dpr, dpr);
+  const W = r.width, H = r.height, n = D.path.length;
+  x.clearRect(0, 0, W, H);
+  if (n < 2) return;
+  const t0 = D.path[0].time_s, t1 = D.path[n - 1].time_s, L = 38, R = 38, T = 8, B = 16;
+  const series = [[D.path.map(alt), '#1f6feb', 'height m', L], [D.path.map(gs), '#e36209', 'speed m/s', W - R]];
+  chartGeom = {t0, t1, L, R, W};
+  x.font = '11px system-ui'; x.textBaseline = 'middle';
+  for (const [vals, color, label, tx] of series) {
+    const ok = vals.filter(v => v != null);
+    if (!ok.length) continue;
+    const lo = Math.min(...ok, 0), hi = Math.max(...ok, lo + 1);
+    x.strokeStyle = color; x.lineWidth = 1.5; x.beginPath();
+    let started = false;
+    vals.forEach((v, i) => {
+      if (v == null) return;
+      const px = L + (D.path[i].time_s - t0) / (t1 - t0 || 1) * (W - L - R), py = T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+      started ? x.lineTo(px, py) : x.moveTo(px, py); started = true;
+    });
+    x.stroke();
+    x.fillStyle = color; x.textAlign = tx < W / 2 ? 'left' : 'right';
+    x.fillText(hi.toFixed(0), tx < W / 2 ? 2 : W - 2, T + 4); x.fillText(lo.toFixed(0), tx < W / 2 ? 2 : W - 2, H - B - 2);
+    x.fillText(label, tx < W / 2 ? 2 : W - 2, H / 2);
+  }
+  x.fillStyle = '#6b7785'; x.textAlign = 'center';
+  for (let k = 0; k <= 4; k++) { const t = t0 + (t1 - t0) * k / 4; x.fillText(rel(t), L + (W - L - R) * k / 4, H - 6); }
+  if (cursor != null) {
+    const px = L + (D.path[cursor].time_s - t0) / (t1 - t0 || 1) * (W - L - R);
+    x.strokeStyle = '#000'; x.lineWidth = 1; x.beginPath(); x.moveTo(px, T); x.lineTo(px, H - B); x.stroke();
+  }
+}
+$('chart').onclick = e => {
+  if (!chartGeom || D.path.length < 2) return;
+  const r = $('chart').getBoundingClientRect(), g = chartGeom;
+  const t = g.t0 + Math.min(Math.max((e.clientX - r.left - g.L) / (g.W - g.L - g.R), 0), 1) * (g.t1 - g.t0);
+  let best = 0;
+  D.path.forEach((p, i) => { if (Math.abs(p.time_s - t) < Math.abs(D.path[best].time_s - t)) best = i; });
+  show(best);
+};
+addEventListener('resize', () => D && drawChart(+$('scrub').value));
+
+function renderLists() {
+  const t0 = D.takeoff_time_s, t1 = D.landing_time_s ?? Infinity;
+  const inFlight = t => t >= t0 && t <= t1;
+  const near = t => t >= t0 - 30 && t <= t1 + 30;
+  const allC = $('allChanges').checked, allM = $('allMsgs').checked;
+
+  const ch = D.setting_changes.filter(c => allC || inFlight(c.time_s));
+  $('changeCount').textContent = `${ch.length} of ${D.setting_changes.length}`;
+  $('changes').innerHTML = ch.map(c => `<tr class="${inFlight(c.time_s) ? '' : 'out'}"><td class="mono">${rel(c.time_s)}</td><td>${esc(c.var)} <span class="mute">#${c.idx}</span></td>
+    <td class="mono">${esc(c.from_value)}</td><td class="mono">${esc(c.to_value)}</td><td>${inFlight(c.time_s) ? '<span class="tag">in flight</span>' : ''}</td></tr>`).join('')
+    || '<tr><td colspan="5" class="mute">No setting changed during this flight.</td></tr>';
+
+  const ms = D.info_messages.filter(m => allM || near(m.time_s));
+  $('msgCount').textContent = `${ms.length} of ${D.info_messages.length}`;
+  $('msgs').innerHTML = ms.map(m => `<tr class="${inFlight(m.time_s) ? '' : 'out'}"><td class="mono" style="white-space:nowrap">${rel(m.time_s)}</td><td>${esc(m.text)}</td></tr>`).join('')
+    || '<tr><td colspan="2" class="mute">No messages around this flight.</td></tr>';
+}
+
+function renderMisc() {
+  $('pfc').innerHTML = D.preflight_checks.map(m => `<tr><td class="mono" style="white-space:nowrap">${rel(m.time_s)}</td><td>${esc(m.text)}</td></tr>`).join('')
+    || '<tr><td class="mute">No pre-flight check messages in the log.</td></tr>';
+  $('versions').innerHTML = kv('Autopilot', D.autopilot_versions.map(esc).join('<br>'));
+}
+
+fetch(`/api/flights/${flightId}/detail`).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(d => {
+  D = d;
+  renderSummary(); initMap(); renderLists(); renderMisc();
+  $('allChanges').onchange = $('allMsgs').onchange = renderLists;
+}).catch(err => { console.error(err); $('summary').textContent = typeof err === 'number' ? 'Flight not found (or not yours).' : 'Error: ' + err; });
+</script>
+</body>
+</html>

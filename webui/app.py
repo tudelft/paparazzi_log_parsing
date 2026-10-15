@@ -776,9 +776,18 @@ def merge_sources(flights):
     return out
 
 
+@app.get("/flight/<int:flight_id>")
+def flight_page(flight_id):
+    return send_from_directory(PAGES_DIR, "flight.html")
+
+
 @app.get("/api/logbook")
 def logbook():
     """One row per takeoff/landing over all visible logs, newest first."""
+    return jsonify(logbook_rows())
+
+
+def logbook_rows():
     where, params = own_clause("l.")
     rows = conn().execute(
         "SELECT f.id AS flight_id, f.idx, f.takeoff_utc, f.landing_utc, f.duration_s, f.landed,"
@@ -798,7 +807,33 @@ def logbook():
         r["assessment"] = json.loads(r.pop("assessment_json") or "null")
         r["takeoff"] = json.loads(r.pop("takeoff_json") or "null")
         r["landing"] = json.loads(r.pop("landing_json") or "null")
-    return jsonify(add_people(out, person_resolver(conn())))
+    return add_people(out, person_resolver(conn()))
+
+
+@app.get("/api/flights/<int:flight_id>/detail")
+def flight_detail(flight_id):
+    """Everything for the flight page: the logbook entry (merged sources), this log's path, flight plan,
+    setting changes and messages."""
+    entry = next((r for r in logbook_rows() if any(s["flight_id"] == flight_id for s in r["sources"])), None)
+    if entry is None:
+        abort(404)
+    con = conn()
+    row = con.execute(
+        "SELECT f.takeoff_time_s, f.landing_time_s, f.path_gz, a.id AS aircraft_pk, a.name, a.ac_id, a.autopilot_versions,"
+        " a.info_messages, a.preflight_checks, a.config_gz, l.id AS log_id, l.log_type, l.name AS log_name"
+        " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id WHERE f.id=?",
+        (flight_id,)).fetchone()
+    changes = [dict(r) for r in con.execute(
+        "SELECT time_s, utc, idx, var, from_value, to_value, in_flight FROM setting_changes"
+        " WHERE aircraft_id=? ORDER BY time_s", (row["aircraft_pk"],))]
+    config = db.unpack(row["config_gz"]) or {}
+    return jsonify(
+        entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
+        takeoff_time_s=row["takeoff_time_s"], landing_time_s=row["landing_time_s"],
+        path=db.unpack(row["path_gz"]) or [], flight_plan=config.get("flight_plan"),
+        setting_changes=changes, info_messages=json.loads(row["info_messages"] or "[]"),
+        preflight_checks=json.loads(row["preflight_checks"] or "[]"),
+        autopilot_versions=json.loads(row["autopilot_versions"] or "[]"))
 
 
 @app.get("/api/status")
