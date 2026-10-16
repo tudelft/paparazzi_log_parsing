@@ -14,6 +14,201 @@ Environment variables: `PPRZ_WEB_DATA` (storage + database, default `./data`), `
 `PPRZ_PATH_RATE` (flight path points per second, default 5), `PPRZ_WORKERS` (parallel parsers, default 2),
 `HOST`, `PORT`.
 
+## Server installation (Ubuntu/Debian)
+
+The C++ parser is a single file without external libraries (the `tinyxml2`/`pprzlink` submodules are not needed),
+so only a compiler and CMake are required. Commands assume Ubuntu 22.04/24.04 or Debian 12 and a user with `sudo`.
+
+**1. Packages**
+
+    sudo apt update
+    sudo apt install -y git build-essential cmake python3 python3-venv python3-pip
+
+**2. Get the code and build the parser**
+
+    sudo mkdir -p /opt/pprz-logs && sudo chown $USER: /opt/pprz-logs
+    git clone https://github.com/tudelft/paparazzi_log_parsing.git /opt/pprz-logs/app
+    cd /opt/pprz-logs/app/cpp
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+    cmake --build build -j4
+    ./build/paparazzi_log_parsing --version          # should print the parser name and version
+
+Always build `Release`; a Debug build is many times slower.
+
+**3. Python environment**
+
+    cd /opt/pprz-logs/app/webui
+    python3 -m venv venv
+    ./venv/bin/pip install --upgrade pip
+    ./venv/bin/pip install -r requirements.txt gunicorn
+
+**4. Storage and first account**
+
+The database and all uploaded logs go in one directory; back it up regularly (stop the service or use
+`sqlite3 logs.db ".backup copy.db"`).
+
+    sudo mkdir -p /var/lib/pprz-logs && sudo chown $USER: /var/lib/pprz-logs
+    PPRZ_WEB_DATA=/var/lib/pprz-logs ./venv/bin/python app.py create-user alice --admin --name "Alice"
+
+**5. Try it**
+
+    PPRZ_WEB_DATA=/var/lib/pprz-logs ./venv/bin/gunicorn -w 1 --threads 8 -t 0 -b 0.0.0.0:8000 app:app
+
+Open `http://<server>:8000`. Use **one** gunicorn process with several threads: the parse queue and its worker
+threads live inside the process, so multiple worker processes would each re-queue and parse the same logs. The
+timeout is disabled (`-t 0`) because uploads can be large and slow. Stop it with Ctrl+C.
+
+**6. Run it as a service**
+
+Create a dedicated user and give it the data directory:
+
+    sudo useradd --system --home /opt/pprz-logs pprz
+    sudo chown -R pprz: /var/lib/pprz-logs
+
+Create `/etc/systemd/system/pprz-logs.service`:
+
+    [Unit]
+    Description=Paparazzi log database
+    After=network.target
+
+    [Service]
+    User=pprz
+    WorkingDirectory=/opt/pprz-logs/app/webui
+    Environment=PPRZ_WEB_DATA=/var/lib/pprz-logs
+    Environment=PPRZ_COOKIE_SECURE=0
+    ExecStart=/opt/pprz-logs/app/webui/venv/bin/gunicorn -w 1 --threads 8 -t 0 -b 127.0.0.1:8000 app:app
+    Restart=on-failure
+
+    [Install]
+    WantedBy=multi-user.target
+
+Then:
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now pprz-logs
+    systemctl status pprz-logs                     # logs: journalctl -u pprz-logs -f
+
+(`PPRZ_COOKIE_SECURE=0` is for plain http; with https set it to `1`.) Gunicorn only listens on localhost; a proxy on
+port 80 (and 443) makes it reachable, see the next two sections.
+
+**7. Updating**
+
+    cd /opt/pprz-logs/app && git pull
+    cmake --build cpp/build -j4
+    webui/venv/bin/pip install -r webui/requirements.txt
+    sudo systemctl restart pprz-logs
+
+If the parser version changed, use **Re-parse outdated** in the upload overview afterwards.
+
+## Port 80 without https
+
+Plain http: passwords and logs travel unencrypted, so only do this on a trusted network (e.g. the university network
+or a VPN). Pick one.
+
+**Option A: nginx on port 80** (keeps gunicorn unprivileged on localhost)
+
+    sudo apt install -y nginx
+    sudo rm -f /etc/nginx/sites-enabled/default
+
+Create `/etc/nginx/sites-available/pprz-logs`:
+
+    server {
+        listen 80 default_server;
+        server_name _;
+        client_max_body_size 0;               # large log uploads
+        proxy_request_buffering off;          # stream uploads to gunicorn
+        proxy_read_timeout 3600s;
+        location / {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+
+Then:
+
+    sudo ln -s /etc/nginx/sites-available/pprz-logs /etc/nginx/sites-enabled/
+    sudo nginx -t && sudo systemctl reload nginx
+    sudo ufw allow 80/tcp                      # only if you use ufw
+
+**Option B: Caddy on port 80** (install Caddy as described in the https section below), `/etc/caddy/Caddyfile`:
+
+    :80 {
+        reverse_proxy 127.0.0.1:8000 {
+            flush_interval -1
+        }
+    }
+
+then `sudo systemctl reload caddy`.
+
+**Option C: gunicorn directly on port 80** (no proxy). In the unit above, change `-b 127.0.0.1:8000` to
+`-b 0.0.0.0:80` and add `AmbientCapabilities=CAP_NET_BIND_SERVICE` under `[Service]`, then
+`sudo systemctl daemon-reload && sudo systemctl restart pprz-logs`. Uploads then go straight to gunicorn, which is fine
+for a small trusted group but less robust against slow or broken clients than a proxy.
+
+## Port 443 with https (recommended)
+
+Complete the server installation above first (gunicorn on `127.0.0.1:8000`). The proxy listens on ports 80/443 and
+handles the certificate. You need a DNS name that points at the server (e.g. `logs.example.org`) and ports 80 and 443
+reachable from the internet for Let's Encrypt. On an internal network without public access, ask your IT department
+for a certificate and use the nginx variant with `ssl_certificate`/`ssl_certificate_key` pointing at it.
+Use either the proxy below or one from the previous section, not both.
+
+1. Enable secure cookies: in `/etc/systemd/system/pprz-logs.service` set `Environment=PPRZ_COOKIE_SECURE=1`, then
+   `sudo systemctl daemon-reload && sudo systemctl restart pprz-logs`.
+
+2. Open the firewall: `sudo ufw allow 80,443/tcp` (if you use ufw).
+
+**Option A: Caddy** (simplest, gets and renews the Let's Encrypt certificate automatically)
+
+    sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+    sudo apt update && sudo apt install caddy
+
+Put this in `/etc/caddy/Caddyfile` (replace the host name; no upload size limit by default):
+
+    logs.example.org {
+        encode gzip
+        reverse_proxy 127.0.0.1:8000 {
+            flush_interval -1
+        }
+    }
+
+Then `sudo systemctl reload caddy`. Caddy redirects http to https on its own.
+
+**Option B: nginx + certbot**
+
+    sudo apt install -y nginx certbot python3-certbot-nginx
+
+Create `/etc/nginx/sites-available/pprz-logs` (replace the host name):
+
+    server {
+        listen 80;
+        server_name logs.example.org;
+        client_max_body_size 0;               # large log uploads
+        proxy_request_buffering off;          # stream uploads to gunicorn
+        proxy_read_timeout 3600s;
+        location / {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+
+Then:
+
+    sudo ln -s /etc/nginx/sites-available/pprz-logs /etc/nginx/sites-enabled/
+    sudo nginx -t && sudo systemctl reload nginx
+    sudo certbot --nginx -d logs.example.org      # obtains the certificate, adds the https server and the redirect
+
+Certbot installs a timer that renews the certificate; check it with `sudo certbot renew --dry-run`.
+
+Behind a proxy the app sees every request as coming from 127.0.0.1, so the login rate limit is applied per user name
+instead of per client address.
+
 ## Accounts
 
 Everything (pages, API, downloads) requires a login. Accounts are local for now and managed on the command line:
