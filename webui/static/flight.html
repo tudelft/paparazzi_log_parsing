@@ -49,7 +49,7 @@
 <body>
 <header>
   <h1 id="title">Flight</h1>
-  <span class="meta"><a href="/" style="color:#9fb0c3">Uploads</a> · <a href="/logbook" style="color:#9fb0c3">Logbook</a></span>
+  <span class="meta" id="nav"></span>
   <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
 </header>
 <main>
@@ -93,7 +93,6 @@ const fmtTime = iso => iso ? iso.replace('T', ' ').replace(/\.\d+Z$/, 'Z') : '';
 const fmtDur = s => s == null ? '' : `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, '0')}s`;
 const rel = t => { const d = t - D.takeoff_time_s, a = Math.abs(d); return (d < 0 ? '−' : '+') + Math.floor(a / 60) + ':' + String(Math.floor(a % 60)).padStart(2, '0') + '.' + String(Math.floor(a % 1 * 10)); };
 const TYPE = {onboard_sd: 'Onboard SD log', gcs: 'GCS log'};
-const logout = async () => { await fetch('/logout', {method: 'POST'}); location.href = '/login'; };
 let me = null, projects = [], people = [];
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;

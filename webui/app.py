@@ -4,8 +4,10 @@ Uploaded logs are kept on disk, hashed (sha256 of the .data file) and parsed wit
 into a SQLite database. A log with a known hash is never stored or parsed twice. The version of the
 parser that produced the stored result is recorded so outdated results can be re-parsed later.
 """
+import csv
 import hashlib
 import difflib
+import io
 import json
 import math
 import os
@@ -217,13 +219,11 @@ def store_files(sha, name, data_src, log_src):
 @app.post("/api/upload")
 def upload():
     con = conn()
-    raw_project = request.form.get("project_id")
-    project_id = int(raw_project) if raw_project and str(raw_project).isdigit() else None
-    if project_id is None:
-        if not g.user["is_admin"]:
-            return jsonify(error="choose a project"), 400
-    elif not can_upload(con, project_id):
-        return jsonify(error="you cannot add logs to this project"), 403
+    if not can_upload_any(con):
+        return jsonify(error="you cannot add logs"), 403
+    # Project is not chosen at upload time. After parsing it is filled from the
+    # aircraft default, then the uploader / GCS / PIC, and can be edited on this page.
+    project_id = None
     files = request.files.getlist("files")
     names = request.form.getlist("names")
     if not files:
@@ -321,7 +321,7 @@ def user_public(u):
 @app.after_request
 def no_cache_pages(resp):
     if resp.mimetype == "text/html" or request.path in ("/theme.css", "/theme.js"):
-        resp.headers["Cache-Control"] = "no-cache"
+        resp.headers["Cache-Control"] = "no-store"
     return resp
 
 
@@ -673,6 +673,95 @@ def parse_unique_id(raw):
     return uid
 
 
+DRONE_STATUSES = ("Ready", "Maintenance", "Development", "Discard")
+
+
+def parse_status(raw):
+    if raw in (None, ""):
+        return None
+    key = str(raw).strip().casefold()
+    for s in DRONE_STATUSES:
+        if s.casefold() == key:
+            return s
+    return False
+
+
+def clip_text(raw, max_len):
+    v = (raw or "").strip()
+    return v[:max_len] if v else None
+
+
+def fold_ac(name):
+    return "".join(c for c in (name or "").casefold() if c.isalnum())
+
+
+def match_inventory_project(con, label):
+    label = (label or "").strip()
+    if not label or label.casefold() in ("none", "n/a", "-"):
+        return None, None
+    row = con.execute("SELECT id, name FROM projects WHERE name=?", (label,)).fetchone()
+    if row:
+        return row["id"], row["name"]
+    want = fold_ac(label)
+    hits = [r for r in con.execute("SELECT id, name FROM projects") if fold_ac(r["name"]) == want]
+    if len(hits) == 1:
+        return hits[0]["id"], hits[0]["name"]
+    return None, label
+
+
+def find_import_drone(con, name, uid):
+    row = con.execute("SELECT * FROM drones WHERE unique_id=?", (uid,)).fetchone()
+    if row:
+        return row
+    row = con.execute("SELECT * FROM drones WHERE name=?", (name,)).fetchone()
+    if row:
+        return row
+    # Only fuzzy-match aircraft that do not already have a fleet serial, so a short
+    # name like Splash cannot swallow later rows such as Splash White.
+    want = fold_ac(name)
+    hits = []
+    for d in con.execute("SELECT * FROM drones"):
+        have_uid = (d["unique_id"] or "").upper()
+        if have_uid.startswith("TUD"):
+            continue
+        have = fold_ac(d["name"])
+        if have == want or (have and len(have) >= 8 and want.startswith(have)):
+            hits.append(d)
+    if len(hits) == 1:
+        return hits[0]
+    return None
+
+
+def unique_import_name(con, name, uid, drone_id=None):
+    if not name_taken(con, name, drone_id):
+        return name
+    alt = f"{name} ({uid})"
+    if len(alt) > 80:
+        alt = alt[:80]
+    if not name_taken(con, alt, drone_id):
+        return alt
+    n = 2
+    while True:
+        alt = f"{name} ({uid}-{n})"[:80]
+        if not name_taken(con, alt, drone_id):
+            return alt
+        n += 1
+
+
+def apply_drone_fields(con, drone_id, fields, old_name=None):
+    con.execute(
+        "UPDATE drones SET name=?, unique_id=?, default_project_id=?, manager=?, current_user=?,"
+        " status=?, bought_on=?, inventory_project=?, comments=? WHERE id=?",
+        (fields["name"], fields["unique_id"], fields["default_project_id"], fields["manager"],
+         fields["current_user"], fields["status"], fields["bought_on"], fields["inventory_project"],
+         fields["comments"], drone_id))
+    if old_name and old_name.casefold() != fields["name"].casefold() and not name_taken(con, old_name, drone_id):
+        try:
+            con.execute("INSERT INTO drone_aliases (drone_id, alias) VALUES (?,?)", (drone_id, old_name))
+        except sqlite3.IntegrityError:
+            pass
+
+
 def unique_id_taken(con, uid, drone_id=None):
     row = con.execute("SELECT id FROM drones WHERE unique_id=?", (uid,)).fetchone()
     return bool(row and row["id"] != drone_id)
@@ -1021,7 +1110,10 @@ def drone_payload(con, d):
     proj = con.execute("SELECT name FROM projects WHERE id=?", (d["default_project_id"],)).fetchone() if d["default_project_id"] else None
     return {"id": d["id"], "name": d["name"], "unique_id": d["unique_id"],
             "default_project_id": d["default_project_id"],
-            "default_project_name": proj["name"] if proj else None, "aliases": aliases, "log_count": n}
+            "default_project_name": proj["name"] if proj else None,
+            "manager": d["manager"], "current_user": d["current_user"], "status": d["status"],
+            "bought_on": d["bought_on"], "inventory_project": d["inventory_project"],
+            "comments": d["comments"], "aliases": aliases, "log_count": n}
 
 
 @app.get("/api/admin/drones")
@@ -1062,9 +1154,16 @@ def admin_add_drone():
         return jsonify(error="that ID is already used by another aircraft"), 409
     if project_id is not None and not con.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone():
         return jsonify(error="no such project"), 404
+    status = parse_status(body.get("status")) if "status" in body else None
+    if status is False:
+        return jsonify(error="status must be Ready, Maintenance, Development or Discard"), 400
     try:
-        cur = con.execute("INSERT INTO drones (name, unique_id, default_project_id, created_at) VALUES (?,?,?,?)",
-                          (name, uid, project_id, now()))
+        cur = con.execute(
+            "INSERT INTO drones (name, unique_id, default_project_id, manager, current_user, status,"
+            " bought_on, inventory_project, comments, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (name, uid, project_id, clip_text(body.get("manager"), 80), clip_text(body.get("current_user"), 80),
+             status, clip_text(body.get("bought_on"), 20), clip_text(body.get("inventory_project"), 80),
+             clip_text(body.get("comments"), 400), now()))
     except sqlite3.IntegrityError:
         return jsonify(error="that ID is already used by another aircraft"), 409
     relink_all_aircraft(con)
@@ -1102,15 +1201,118 @@ def admin_update_drone(drone_id):
             return jsonify(error="no such project"), 400
         if project_id is not None and not con.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone():
             return jsonify(error="no such project"), 404
+    status = row["status"]
+    if "status" in body:
+        status = parse_status(body.get("status"))
+        if status is False:
+            return jsonify(error="status must be Ready, Maintenance, Development or Discard"), 400
+    manager = clip_text(body.get("manager"), 80) if "manager" in body else row["manager"]
+    current_user = clip_text(body.get("current_user"), 80) if "current_user" in body else row["current_user"]
+    bought_on = clip_text(body.get("bought_on"), 20) if "bought_on" in body else row["bought_on"]
+    inventory_project = clip_text(body.get("inventory_project"), 80) if "inventory_project" in body else row["inventory_project"]
+    comments = clip_text(body.get("comments"), 400) if "comments" in body else row["comments"]
     try:
-        con.execute("UPDATE drones SET name=?, unique_id=?, default_project_id=? WHERE id=?",
-                    (name, uid, project_id, drone_id))
+        con.execute(
+            "UPDATE drones SET name=?, unique_id=?, default_project_id=?, manager=?, current_user=?,"
+            " status=?, bought_on=?, inventory_project=?, comments=? WHERE id=?",
+            (name, uid, project_id, manager, current_user, status, bought_on, inventory_project, comments, drone_id))
     except sqlite3.IntegrityError:
         return jsonify(error="that ID is already used by another aircraft"), 409
     relink_all_aircraft(con)
     fill_drone_defaults(con, drone_id)
     con.commit()
     return jsonify(ok=True)
+
+
+@app.post("/api/admin/drones/import")
+def admin_import_drones():
+    """Create or update fleet aircraft from the organisation CSV (AC Nice Name, Serial Unique, …)."""
+    admin_required()
+    uploaded = request.files.get("file")
+    if uploaded and uploaded.filename:
+        raw = uploaded.read()
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1")
+    else:
+        text = (request.get_json(silent=True) or {}).get("csv") or ""
+    if not text.strip():
+        return jsonify(error="choose a CSV file"), 400
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        return jsonify(error="the CSV has no header row"), 400
+    def col(*names):
+        keys = {k: k for k in reader.fieldnames}
+        fold = {k.strip().casefold(): k for k in reader.fieldnames}
+        for n in names:
+            if n in keys:
+                return n
+            if n.casefold() in fold:
+                return fold[n.casefold()]
+        return None
+    name_k = col("AC Nice Name", "name")
+    uid_k = col("Serial Unique", "unique_id", "serial")
+    if not name_k or not uid_k:
+        return jsonify(error="CSV needs columns AC Nice Name and Serial Unique"), 400
+    mgr_k = col("Manager (Post Holder)", "manager")
+    user_k = col("Current User", "current_user")
+    status_k = col("Status")
+    bought_k = col("Date Bought", "bought_on")
+    proj_k = col("Project", "inventory_project")
+    cmt_k = col("Comments", "comments")
+    con = conn()
+    created = updated = skipped = 0
+    errors = []
+    for i, rec in enumerate(reader, start=2):
+        name = (rec.get(name_k) or "").strip()
+        uid = (rec.get(uid_k) or "").strip()
+        if not name or not uid:
+            skipped += 1
+            continue
+        if len(name) > 80:
+            name = name[:80]
+        if len(uid) > 40:
+            errors.append(f"row {i}: serial {uid} is too long")
+            continue
+        status = parse_status(rec.get(status_k) if status_k else None)
+        if status is False:
+            status = clip_text(rec.get(status_k), 40)
+        proj_id, proj_label = match_inventory_project(con, rec.get(proj_k) if proj_k else None)
+        existing = find_import_drone(con, name, uid)
+        if existing and unique_id_taken(con, uid, existing["id"]):
+            errors.append(f"row {i}: serial {uid} is already used")
+            continue
+        if not existing and unique_id_taken(con, uid):
+            errors.append(f"row {i}: serial {uid} is already used")
+            continue
+        name = unique_import_name(con, name, uid, existing["id"] if existing else None)
+        fields = {
+            "name": name, "unique_id": uid,
+            "default_project_id": existing["default_project_id"] if existing and existing["default_project_id"] else proj_id,
+            "manager": clip_text(rec.get(mgr_k) if mgr_k else None, 80),
+            "current_user": clip_text(rec.get(user_k) if user_k else None, 80),
+            "status": status, "bought_on": clip_text(rec.get(bought_k) if bought_k else None, 20),
+            "inventory_project": proj_label, "comments": clip_text(rec.get(cmt_k) if cmt_k else None, 400),
+        }
+        try:
+            if existing:
+                apply_drone_fields(con, existing["id"], fields, existing["name"])
+                updated += 1
+            else:
+                con.execute(
+                    "INSERT INTO drones (name, unique_id, default_project_id, manager, current_user, status,"
+                    " bought_on, inventory_project, comments, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (fields["name"], fields["unique_id"], fields["default_project_id"], fields["manager"],
+                     fields["current_user"], fields["status"], fields["bought_on"], fields["inventory_project"],
+                     fields["comments"], now()))
+                created += 1
+        except sqlite3.IntegrityError as exc:
+            errors.append(f"row {i}: {exc}")
+    relink_all_aircraft(con)
+    assign_open_flights(con)
+    con.commit()
+    return jsonify(created=created, updated=updated, skipped=skipped, errors=errors)
 
 
 @app.delete("/api/admin/drones/<int:drone_id>")
@@ -1610,6 +1812,15 @@ def can_upload(con, project_id):
     return role_on(con, project_id) in ("add", "full")
 
 
+def can_upload_any(con):
+    """True if this user may drop logs (project is assigned after parsing)."""
+    if g.user["is_admin"]:
+        return True
+    return con.execute(
+        "SELECT 1 FROM project_members WHERE user_id=? AND role IN ('add','full') LIMIT 1",
+        (g.user["id"],)).fetchone() is not None
+
+
 def can_delete_log(con, row):
     if g.user["is_admin"]:
         return True
@@ -1648,6 +1859,11 @@ def index():
 @app.get("/logbook")
 def logbook_page():
     return send_from_directory(PAGES_DIR, "logbook.html")
+
+
+@app.get("/stats")
+def stats_page():
+    return send_from_directory(PAGES_DIR, "stats.html")
 
 
 SAME_FLIGHT_SLACK_S = 60
@@ -1744,6 +1960,21 @@ def flight_page(flight_id):
 def logbook():
     """One row per takeoff/landing over all visible logs, newest first."""
     return jsonify(logbook_rows())
+
+
+@app.get("/api/stats")
+def stats():
+    """Flight hours by aircraft and by project.
+
+    Visibility matches the logbook (see flight_own_clause): admins get every flight; everyone else only
+    flights on projects they belong to, plus logs they uploaded that are not in a project yet. An SD log
+    and a GCS log of the same flight are counted once. Aircraft hours are only from those visible flights,
+    not the aircraft's lifetime across other projects.
+    """
+    keys = ("aircraft", "aircraft_uid", "drone_id", "project_id", "project_name",
+            "duration_s", "takeoff_utc", "verdict", "indoor")
+    return jsonify(all=bool(g.user["is_admin"]),
+                   flights=[{k: r.get(k) for k in keys} for r in logbook_rows()])
 
 
 def logbook_rows():

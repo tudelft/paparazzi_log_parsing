@@ -21,6 +21,29 @@ html.night {
 }
 
 html.night header { background:#0c1218; }
+body > header {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  flex-wrap: nowrap;
+}
+body > header h1 {
+  margin: 0;
+  font-size: 18px;
+  flex: 0 0 15em;
+  width: 15em;
+  min-width: 15em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body > header #nav {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+header .meta a { color:#9fb0c3; text-decoration:none; }
+header .meta a.cur { color:#fff; }
+header .meta a:hover { color:#fff; }
 html.night header button {
   background:#243044; color:#e7eef6; border:1px solid #4a6078;
 }
