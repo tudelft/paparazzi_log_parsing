@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT,                -- NULL for accounts that only sign in through an external provider
     is_admin INTEGER NOT NULL DEFAULT 0,
     is_active INTEGER NOT NULL DEFAULT 1,
-    provider TEXT NOT NULL DEFAULT 'local',   -- 'local' now, e.g. 'oidc' for the TU Delft SSO later
+    provider TEXT NOT NULL DEFAULT 'local',   -- 'local' or 'saml' (TU Delft NetID)
     subject TEXT,                      -- id of the user at the external provider
     created_at TEXT NOT NULL,
     last_login TEXT,
