@@ -52,6 +52,8 @@
       <div><strong id="totFlights">—</strong><span>Flights</span></div>
       <div><strong id="totAircraft">—</strong><span>Aircraft</span></div>
       <div><strong id="totProjects">—</strong><span>Projects</span></div>
+      <div><strong id="totPics">—</strong><span>PICs</span></div>
+      <div><strong id="totPacs">—</strong><span>PACs</span></div>
     </div>
   </section>
   <div class="cols">
@@ -72,6 +74,28 @@
         <table>
           <thead><tr><th>Project</th><th class="num">Flights</th><th class="num">Hours</th><th>Last flight</th><th></th></tr></thead>
           <tbody id="projects"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+  <div class="cols">
+    <section class="card">
+      <h2>PIC</h2>
+      <div class="mute" style="margin-bottom:8px">Hours as pilot in command. Linked accounts are one row; names that are not linked yet are listed on their own.</div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>PIC</th><th class="num">Flights</th><th class="num">Hours</th><th>Last flight</th><th></th></tr></thead>
+          <tbody id="pics"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="card">
+      <h2>PAC</h2>
+      <div class="mute" style="margin-bottom:8px">Hours as payload / co-pilot. Linked accounts are one row; names that are not linked yet are listed on their own.</div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>PAC</th><th class="num">Flights</th><th class="num">Hours</th><th>Last flight</th><th></th></tr></thead>
+          <tbody id="pacs"></tbody>
         </table>
       </div>
     </section>
@@ -100,8 +124,8 @@ fetch('/api/me').then(r => r.json()).then(d => {
 fetch('/api/stats').then(r => r.json()).then(d => {
   flights = d.flights || [];
   $('scope').textContent = d.all
-    ? 'You can see hours for every project and aircraft.'
-    : 'Hours are only for the projects you can open, and for aircraft that flew on those projects.';
+    ? 'You can see hours for every project, aircraft, PIC and PAC.'
+    : 'Hours are only for the projects you can open, and for aircraft and crew on those flights.';
   render();
 });
 
@@ -117,7 +141,7 @@ function group(list, keyFn, nameFn, extraFn) {
     const k = keyFn(f);
     let b = map.get(k);
     if (!b) {
-      b = {name: nameFn(f), flights: 0, seconds: 0, last: '', extra: extraFn ? extraFn(f) : {}};
+      b = {key: k, name: nameFn(f), flights: 0, seconds: 0, last: '', extra: extraFn ? extraFn(f) : {}};
       map.set(k, b);
     }
     b.flights += 1;
@@ -125,6 +149,25 @@ function group(list, keyFn, nameFn, extraFn) {
     if ((f.takeoff_utc || '') > b.last) b.last = f.takeoff_utc || '';
   }
   return [...map.values()].sort((a, b) => b.seconds - a.seconds || a.name.localeCompare(b.name));
+}
+
+function personKey(f, role) {
+  const u = f[role + '_user'];
+  if (u && u.id != null) return 'u' + u.id;
+  const raw = (f[role] || '').trim();
+  return raw ? 'n' + raw.toLowerCase() : 'none';
+}
+function personName(f, role, empty) {
+  const u = f[role + '_user'];
+  if (u && u.display_name) return u.display_name;
+  return (f[role] || '').trim() || empty;
+}
+function peopleRows(id, rows, max, emptyCols) {
+  $(id).innerHTML = rows.length ? rows.map(p =>
+    `<tr><td>${esc(p.name)}</td>
+     <td class="num">${p.flights}</td><td class="num">${fmtHours(p.seconds)}</td>
+     <td>${esc(fmtDate(p.last))}</td><td>${meter(p.seconds, max)}</td></tr>`).join('')
+    : `<tr><td colspan="${emptyCols}" class="mute">No flights to summarise.</td></tr>`;
 }
 
 function meter(seconds, max) {
@@ -141,23 +184,28 @@ function render() {
   const projects = group(list,
     f => f.project_id != null ? 'p' + f.project_id : 'none',
     f => f.project_name || 'No project');
+  const pics = group(list, f => personKey(f, 'pic'), f => personName(f, 'pic', 'No PIC'));
+  const pacs = group(list, f => personKey(f, 'pac'), f => personName(f, 'pac', 'No PAC'));
+  const named = rows => rows.filter(r => r.key !== 'none').length;
   const total = list.reduce((s, f) => s + (f.duration_s || 0), 0);
   $('totHours').textContent = fmtHours(total);
   $('totFlights').textContent = list.length;
   $('totAircraft').textContent = aircraft.length;
   $('totProjects').textContent = projects.length;
+  $('totPics').textContent = named(pics);
+  $('totPacs').textContent = named(pacs);
   const aMax = aircraft[0]?.seconds || 0;
   const pMax = projects[0]?.seconds || 0;
+  const picMax = pics[0]?.seconds || 0;
+  const pacMax = pacs[0]?.seconds || 0;
   $('aircraft').innerHTML = aircraft.length ? aircraft.map(a =>
     `<tr><td>${esc(a.name)}</td><td class="mute">${esc(a.extra.uid)}</td>
      <td class="num">${a.flights}</td><td class="num">${fmtHours(a.seconds)}</td>
      <td>${esc(fmtDate(a.last))}</td><td>${meter(a.seconds, aMax)}</td></tr>`).join('')
     : '<tr><td colspan="6" class="mute">No flights to summarise.</td></tr>';
-  $('projects').innerHTML = projects.length ? projects.map(p =>
-    `<tr><td>${esc(p.name)}</td>
-     <td class="num">${p.flights}</td><td class="num">${fmtHours(p.seconds)}</td>
-     <td>${esc(fmtDate(p.last))}</td><td>${meter(p.seconds, pMax)}</td></tr>`).join('')
-    : '<tr><td colspan="5" class="mute">No flights to summarise.</td></tr>';
+  peopleRows('projects', projects, pMax, 5);
+  peopleRows('pics', pics, picMax, 5);
+  peopleRows('pacs', pacs, pacMax, 5);
 }
 
 $('indoor').onchange = $('ground').onchange = render;
