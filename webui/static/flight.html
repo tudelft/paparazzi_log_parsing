@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <title>Flight</title>
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
   :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --ok:#1a7f37; --warn:#9a6700; --err:#c62828; }
@@ -12,18 +14,19 @@
   header h1 { margin:0; font-size:18px; }
   header .meta { color:#9fb0c3; font-size:12px; }
   main { max-width:1400px; margin:0 auto; padding:20px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow-x:auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  .scroll { overflow-x:auto; }
   .card h2 { margin:0 0 10px; font-size:16px; }
-  button { font:inherit; background:#e8ecf1; color:var(--txt); border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
-  table { width:100%; border-collapse:collapse; }
+  button { font:inherit; background:var(--sec); color:var(--txt); border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
+  table { width:max-content; min-width:100%; border-collapse:collapse; }
   th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
   th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; }
   .mono { font-family:ui-monospace, monospace; font-size:12px; }
   .mute { color:var(--mute); }
   .bar { display:flex; gap:14px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
   a { color:var(--acc); }
-  a.btn { display:inline-block; background:var(--acc); color:#fff; padding:6px 12px; border-radius:6px; text-decoration:none; }
-  a.btn.sec { background:#e8ecf1; color:var(--txt); }
+  a.btn { display:inline-block; background:var(--btn); color:#fff; padding:6px 12px; border-radius:6px; text-decoration:none; }
+  a.btn.sec { background:var(--sec); color:var(--txt); }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
   .cols { display:flex; gap:40px; flex-wrap:wrap; }
   .cols > div { min-width:260px; }
@@ -34,18 +37,20 @@
   #readout b { display:block; font-size:11px; color:var(--mute); text-transform:uppercase; font-weight:600; }
   #scrub { width:100%; }
   #chart { width:100%; height:150px; display:block; cursor:crosshair; margin-top:6px; }
-  .tag { display:inline-block; padding:0 8px; border-radius:10px; font-size:12px; background:#e8ecf1; }
-  .tag.flight { background:#dcf3e3; color:var(--ok); } .tag.uncertain { background:#fff1cc; color:var(--warn); } .tag.ground { background:#fde2e2; color:var(--err); }
-  .wp { background:#fff; border:1px solid #888; border-radius:3px; padding:0 3px; font-size:11px; }
+  .tag { display:inline-block; padding:0 8px; border-radius:10px; font-size:12px; background:var(--chip); }
+  .tag.flight { background:var(--flightbg); color:var(--ok); } .tag.uncertain { background:var(--uncertainbg); color:var(--warn); } .tag.ground { background:var(--groundbg); color:var(--err); }
+  .wp { background:var(--field); color:var(--txt); border:1px solid var(--mute); border-radius:3px; padding:0 3px; font-size:11px; }
   .src a.cur { font-weight:600; text-decoration:none; color:var(--txt); }
   tr.out td { color:var(--mute); }
+  textarea.comment { width:100%; max-width:520px; min-height:72px; font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; resize:vertical; }
+  .note { white-space:pre-wrap; }
 </style>
 </head>
 <body>
 <header>
   <h1 id="title">Flight</h1>
   <span class="meta"><a href="/" style="color:#9fb0c3">Uploads</a> · <a href="/logbook" style="color:#9fb0c3">Logbook</a></span>
-  <span class="meta" style="margin-left:auto"><span id="who"></span> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
 </header>
 <main>
   <section class="card" id="summary"></section>
@@ -67,16 +72,16 @@
   <section class="card">
     <div class="bar"><h2 style="margin:0">Settings changed</h2>
       <label><input type="checkbox" id="allChanges"> Show all changes of the log</label><span class="mute" id="changeCount"></span></div>
-    <table><thead><tr><th>Time</th><th>Setting</th><th>From</th><th>To</th><th></th></tr></thead><tbody id="changes"></tbody></table>
+    <div class="scroll"><table><thead><tr><th>Time</th><th>Setting</th><th>From</th><th>To</th><th></th></tr></thead><tbody id="changes"></tbody></table></div>
   </section>
 
   <section class="card">
     <div class="bar"><h2 style="margin:0">Messages</h2>
       <label><input type="checkbox" id="allMsgs"> Show all messages of the log</label><span class="mute" id="msgCount"></span></div>
-    <table><thead><tr><th>Time</th><th>Message</th></tr></thead><tbody id="msgs"></tbody></table>
+    <div class="scroll"><table><thead><tr><th>Time</th><th>Message</th></tr></thead><tbody id="msgs"></tbody></table></div>
   </section>
 
-  <section class="card"><h2>Pre-flight checks</h2><table><tbody id="pfc"></tbody></table>
+  <section class="card"><h2>Pre-flight checks</h2><div class="scroll"><table><tbody id="pfc"></tbody></table></div>
     <div class="kv" style="margin-top:10px" id="versions"></div></section>
 </main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -89,10 +94,53 @@ const fmtDur = s => s == null ? '' : `${Math.floor(s / 60)}m ${String(Math.round
 const rel = t => { const d = t - D.takeoff_time_s, a = Math.abs(d); return (d < 0 ? '−' : '+') + Math.floor(a / 60) + ':' + String(Math.floor(a % 60)).padStart(2, '0') + '.' + String(Math.floor(a % 1 * 10)); };
 const TYPE = {onboard_sd: 'Onboard SD log', gcs: 'GCS log'};
 const logout = async () => { await fetch('/logout', {method: 'POST'}); location.href = '/login'; };
-fetch('/api/me').then(r => r.json()).then(d => { $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : ''); });
+let me = null, projects = [], people = [];
+fetch('/api/me').then(r => r.json()).then(async d => {
+  me = d.user;
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  [projects, people] = await Promise.all([
+    fetch('/api/projects').then(r => r.json()),
+    fetch('/api/people').then(r => r.json()),
+  ]);
+  if (D) renderSummary();
+});
 
 let D, map, planLayer, marker, trail, chartGeom;
 const flightId = +location.pathname.split('/').pop();
+
+function projectField(e) {
+  if (!e.can_edit_project) return esc(e.project_name || '');
+  const ids = (e.sources || []).map(s => s.flight_id).join(',');
+  const opts = '<option value="">No project</option>' + projects.filter(p => me && (me.is_admin || p.can_add || p.id === e.project_id)).map(p =>
+    `<option value="${p.id}"${p.id === e.project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+  return `<select onchange="setFlightProject(this.value, [${ids}])">${opts}</select>`;
+}
+async function setFlightProject(value, ids) {
+  for (const fid of [...new Set(ids || [flightId])]) {
+    const r = await fetch('/api/flights/' + fid + '/project', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({project_id: value ? +value : null})});
+    if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the project'); return; }
+  }
+  const d = await fetch(`/api/flights/${flightId}/detail`).then(r => r.json());
+  D.entry = d.entry; renderSummary();
+}
+
+function commentField(e) {
+  if (!e.can_edit_comment) return e.comment ? `<span class="note">${esc(e.comment)}</span>` : '';
+  const ids = [...new Set((e.sources || []).map(s => s.flight_id))];
+  return `<textarea class="comment" id="cmt" maxlength="4000" placeholder="Notes about this flight">${esc(e.comment || '')}</textarea>
+    <div class="actions" style="margin-top:6px"><button type="button" onclick="saveComment([${ids.join(',')}])">Save comment</button> <span id="cmtMsg" class="mute"></span></div>`;
+}
+async function saveComment(ids) {
+  const text = ($('cmt').value || '').trim();
+  for (const fid of [...new Set(ids)]) {
+    const r = await fetch('/api/flights/' + fid + '/comment', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({comment: text})});
+    if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the comment'); return; }
+  }
+  D.entry.comment = text;
+  $('cmtMsg').textContent = 'Saved.';
+}
 
 const person = (f, role) => {
   const raw = f[role], u = f[role + '_user'];
@@ -100,6 +148,24 @@ const person = (f, role) => {
   if (!u) return esc(raw);
   return esc(u.display_name) + (raw && raw.toLowerCase() !== u.display_name.toLowerCase() ? ` <span class="mute">(${esc(raw)})</span>` : '');
 };
+function crewField(e, role) {
+  if (!e.can_edit_crew) return person(e, role);
+  const ids = [...new Set((e.sources || []).map(s => s.flight_id))];
+  const u = e[role + '_user'];
+  const selectedId = u && (u.source === 'edit' || u.source === 'alias') ? u.id : '';
+  const logged = e[role] ? esc(e[role]) + ' (from log)' : '—';
+  return `<select onchange="setCrew('${role}', this.value, [${ids.join(',')}])">
+    <option value="">${logged}</option>
+    ${people.map(p => `<option value="${p.id}"${p.id === selectedId ? ' selected' : ''}>${esc(p.display_name)}</option>`).join('')}
+  </select>`;
+}
+async function setCrew(role, value, ids) {
+  const r = await fetch('/api/flights/crew', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({flight_ids: ids, [role + '_user_id']: value ? +value : null})});
+  if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the name'); return; }
+  const d = await fetch(`/api/flights/${flightId}/detail`).then(r => r.json());
+  D.entry = d.entry; renderSummary();
+}
 const coord = (p, name) => p ? `${name ? esc(name) + ' · ' : ''}${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} · ${p.alt_m} m` : '';
 const windTxt = w => w ? `${w.speed_ms} m/s from ${w.from_deg}°${w.temperature_c != null ? ', ' + w.temperature_c + ' °C' : ''}` : '';
 const ned = v => v ? `N ${v.north}, E ${v.east}, D ${v.down}` : '';
@@ -110,10 +176,12 @@ function renderSummary() {
   $('title').textContent = `${e.aircraft} · ${fmtTime(e.takeoff_utc)}`;
   const place = (p, lat, lon) => p ? esc(p) : (lat != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '');
   $('summary').innerHTML = `<div class="cols"><div class="kv">
-      ${kv('Aircraft', esc(e.aircraft))}${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon))}
+      ${kv('Aircraft', esc(e.aircraft) + (e.aircraft_uid ? ` <span class="mute">${esc(e.aircraft_uid)}</span>` : ''))}${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon))}
       ${kv('Landing (UTC)', e.landing_utc ? esc(fmtTime(e.landing_utc)) + ' · ' + place(e.landing_place, e.landing_lat, e.landing_lon) : '')}
       ${kv('Flight time', fmtDur(e.duration_s))}${kv('Goal', esc(e.goal))}
-      ${kv('PIC', person(e, 'pic'))}${kv('PAC', person(e, 'pac'))}${kv('GCS operator', person(e, 'gcs'))}
+      ${kv('Project', projectField(e))}
+      ${kv('PIC', crewField(e, 'pic'))}${kv('PAC', crewField(e, 'pac'))}${kv('GCS operator', crewField(e, 'gcs'))}
+      ${kv('Comment', commentField(e))}
       ${a ? kv('Real flight?', `<span class="tag ${esc(a.verdict)}">${esc(a.verdict)}</span> <span class="mute">${esc(a.reasons.join(', '))}</span>`) : ''}
     </div><div class="kv src">
       ${e.sources.map(s => kv(TYPE[s.log_type] || s.log_type, `<a href="/flight/${s.flight_id}" class="${s.flight_id === flightId ? 'cur' : ''}">${esc(s.log_name)}</a>${s.flight_id === flightId ? ' <span class="mute">(shown)</span>' : ''}
@@ -211,11 +279,12 @@ function drawChart(cursor) {
     x.fillText(hi.toFixed(0), tx < W / 2 ? 2 : W - 2, T + 4); x.fillText(lo.toFixed(0), tx < W / 2 ? 2 : W - 2, H - B - 2);
     x.fillText(label, tx < W / 2 ? 2 : W - 2, H / 2);
   }
-  x.fillStyle = '#6b7785'; x.textAlign = 'center';
+  const ink = getComputedStyle(document.documentElement);
+  x.fillStyle = ink.getPropertyValue('--mute').trim() || '#6b7785'; x.textAlign = 'center';
   for (let k = 0; k <= 4; k++) { const t = t0 + (t1 - t0) * k / 4; x.fillText(rel(t), L + (W - L - R) * k / 4, H - 6); }
   if (cursor != null) {
     const px = L + (D.path[cursor].time_s - t0) / (t1 - t0 || 1) * (W - L - R);
-    x.strokeStyle = '#000'; x.lineWidth = 1; x.beginPath(); x.moveTo(px, T); x.lineTo(px, H - B); x.stroke();
+    x.strokeStyle = ink.getPropertyValue('--txt').trim() || '#000'; x.lineWidth = 1; x.beginPath(); x.moveTo(px, T); x.lineTo(px, H - B); x.stroke();
   }
 }
 $('chart').onclick = e => {
@@ -227,6 +296,7 @@ $('chart').onclick = e => {
   show(best);
 };
 addEventListener('resize', () => D && drawChart(+$('scrub').value));
+addEventListener('nightchange', () => D && drawChart(+$('scrub').value));
 
 function renderLists() {
   const t0 = D.takeoff_time_s, t1 = D.landing_time_s ?? Infinity;
