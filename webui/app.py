@@ -107,8 +107,12 @@ def parse_log(log_id):
     row = con.execute("SELECT * FROM logs WHERE id=?", (log_id,)).fetchone()
     if row is None:
         return
-    con.execute("UPDATE logs SET status='parsing', error=NULL WHERE id=?", (log_id,))
-    con.commit()
+
+    def mark_parsing():
+        con.execute("UPDATE logs SET status='parsing', error=NULL WHERE id=?", (log_id,))
+        con.commit()
+
+    db.retry_locked(mark_parsing, con)
     out_path = None
     try:
         data_path = STORAGE_DIR / row["data_path"]
@@ -123,18 +127,29 @@ def parse_log(log_id):
         seconds = time.time() - t0
         with open(out_path, "rb") as f:
             doc = json.load(f)
-        con.execute("BEGIN")
-        kept = snapshot_flight_edits(con, log_id)
-        db.store_parsed(con, log_id, doc)
-        link_log_aircraft(con, log_id)
-        assign_log_flights(con, log_id, kept)
-        con.execute("UPDATE logs SET status='done', error=NULL, parsed_at=?, parse_seconds=? WHERE id=?",
-                    (now(), round(seconds, 3), log_id))
-        con.commit()
+
+        def save():
+            with db.write_lock:
+                con.execute("BEGIN IMMEDIATE")
+                kept = snapshot_flight_edits(con, log_id)
+                db.store_parsed(con, log_id, doc)
+                link_log_aircraft(con, log_id)
+                assign_log_flights(con, log_id, kept)
+                con.execute("UPDATE logs SET status='done', error=NULL, parsed_at=?, parse_seconds=? WHERE id=?",
+                            (now(), round(seconds, 3), log_id))
+                con.commit()
+
+        db.retry_locked(save, con)
     except Exception as e:  # noqa: BLE001 - any failure is reported on the log row
-        con.rollback()
-        con.execute("UPDATE logs SET status='error', error=? WHERE id=?", (str(e)[:2000], log_id))
-        con.commit()
+        try:
+            con.rollback()
+        except sqlite3.Error:
+            pass
+        def mark_error():
+            con.execute("UPDATE logs SET status='error', error=? WHERE id=?", (str(e)[:2000], log_id))
+            con.commit()
+
+        db.retry_locked(mark_error, con)
     finally:
         if out_path and os.path.exists(out_path):
             os.remove(out_path)
@@ -1072,6 +1087,27 @@ def admin_add_project():
     return jsonify(id=cur.lastrowid)
 
 
+@app.put("/api/admin/projects/<int:project_id>")
+def admin_update_project(project_id):
+    admin_required()
+    name = ((request.get_json(silent=True) or {}).get("name") or "").strip()
+    if not name or len(name) > 80:
+        return jsonify(error="a project name is required (max 80 characters)"), 400
+    con = conn()
+    row = con.execute("SELECT name FROM projects WHERE id=?", (project_id,)).fetchone()
+    if row is None:
+        return jsonify(error="no such project"), 404
+    if name.casefold() == (row["name"] or "").casefold():
+        return jsonify(ok=True)
+    try:
+        con.execute("UPDATE projects SET name=? WHERE id=?", (name, project_id))
+        con.commit()
+    except sqlite3.IntegrityError:
+        con.rollback()
+        return jsonify(error="a project with that name already exists"), 409
+    return jsonify(ok=True)
+
+
 @app.delete("/api/admin/projects/<int:project_id>")
 def admin_delete_project(project_id):
     admin_required()
@@ -1237,13 +1273,22 @@ def admin_update_drone(drone_id):
     bought_on = clip_text(body.get("bought_on"), 20) if "bought_on" in body else row["bought_on"]
     inventory_project = clip_text(body.get("inventory_project"), 80) if "inventory_project" in body else row["inventory_project"]
     comments = clip_text(body.get("comments"), 400) if "comments" in body else row["comments"]
+    old_name = row["name"]
     try:
+        if name.casefold() != (old_name or "").casefold():
+            con.execute("DELETE FROM drone_aliases WHERE drone_id=? AND alias=?", (drone_id, name))
         con.execute(
             "UPDATE drones SET name=?, unique_id=?, default_project_id=?, manager=?, current_user=?,"
             " status=?, bought_on=?, inventory_project=?, comments=? WHERE id=?",
             (name, uid, project_id, manager, current_user, status, bought_on, inventory_project, comments, drone_id))
+        if name.casefold() != (old_name or "").casefold() and old_name and not name_taken(con, old_name, drone_id):
+            try:
+                con.execute("INSERT INTO drone_aliases (drone_id, alias) VALUES (?,?)", (drone_id, old_name))
+            except sqlite3.IntegrityError:
+                pass
     except sqlite3.IntegrityError:
-        return jsonify(error="that ID is already used by another aircraft"), 409
+        con.rollback()
+        return jsonify(error="that name or ID is already used by another aircraft"), 409
     relink_all_aircraft(con)
     fill_drone_defaults(con, drone_id)
     con.commit()
@@ -2214,8 +2259,13 @@ def download_both(log_id):
 def reparse(log_id):
     con = conn()
     visible_log(con, log_id, "id")
-    if con.execute("UPDATE logs SET status='queued' WHERE id=? AND status IN ('done','error')", (log_id,)).rowcount:
+
+    def queue_one():
+        n = con.execute("UPDATE logs SET status='queued' WHERE id=? AND status IN ('done','error')", (log_id,)).rowcount
         con.commit()
+        return n
+
+    if db.retry_locked(queue_one, con):
         jobs.put(log_id)
         return jsonify(queued=[log_id])
     return jsonify(queued=[])
@@ -2231,9 +2281,13 @@ def reparse_outdated():
     ids = [r["id"] for r in con.execute(
         f"SELECT id FROM logs WHERE {where} AND (status='error' OR (status='done' AND COALESCE(parser_version,'') != ?))",
         (*params, version or ""))]
-    for i in ids:
-        con.execute("UPDATE logs SET status='queued' WHERE id=?", (i,))
-    con.commit()
+
+    def queue_all():
+        for i in ids:
+            con.execute("UPDATE logs SET status='queued' WHERE id=?", (i,))
+        con.commit()
+
+    db.retry_locked(queue_all, con)
     for i in ids:
         jobs.put(i)
     return jsonify(queued=ids, parser_version=version)
