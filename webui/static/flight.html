@@ -36,7 +36,7 @@
   #readout { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:4px 16px; margin-top:8px; font-size:13px; }
   #readout b { display:block; font-size:11px; color:var(--mute); text-transform:uppercase; font-weight:600; }
   #scrub { width:100%; }
-  #chart { width:100%; height:150px; display:block; cursor:crosshair; margin-top:6px; }
+  #chart, #distChart { width:100%; height:150px; display:block; cursor:crosshair; margin-top:6px; }
   .tag { display:inline-block; padding:0 8px; border-radius:10px; font-size:12px; background:var(--chip); }
   .tag.flight { background:var(--flightbg); color:var(--ok); } .tag.uncertain { background:var(--uncertainbg); color:var(--warn); } .tag.ground { background:var(--groundbg); color:var(--err); }
   .wp { background:var(--field); color:var(--txt); border:1px solid var(--mute); border-radius:3px; padding:0 3px; font-size:11px; }
@@ -64,6 +64,7 @@
     <div id="map"></div>
     <input type="range" id="scrub" min="0" max="0" value="0">
     <canvas id="chart"></canvas>
+    <canvas id="distChart"></canvas>
     <div id="readout"></div>
   </section>
 
@@ -91,6 +92,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const kv = (k, v) => v == null || v === '' ? '' : `<span class="mute">${k}</span><span>${v}</span>`;
 const fmtTime = iso => iso ? iso.replace('T', ' ').replace(/\.\d+Z$/, 'Z') : '';
 const fmtDur = s => s == null ? '' : `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, '0')}s`;
+const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km` : `${Math.round(m)} m`;
 const rel = t => { const d = t - D.takeoff_time_s, a = Math.abs(d); return (d < 0 ? '−' : '+') + Math.floor(a / 60) + ':' + String(Math.floor(a % 60)).padStart(2, '0') + '.' + String(Math.floor(a % 1 * 10)); };
 const TYPE = {onboard_sd: 'Onboard SD log', gcs: 'GCS log'};
 let me = null, projects = [], people = [];
@@ -177,7 +179,7 @@ function renderSummary() {
   $('summary').innerHTML = `<div class="cols"><div class="kv">
       ${kv('Aircraft', esc(e.aircraft) + (e.aircraft_uid ? ` <span class="mute">${esc(e.aircraft_uid)}</span>` : ''))}${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon))}
       ${kv('Landing (UTC)', e.landing_utc ? esc(fmtTime(e.landing_utc)) + ' · ' + place(e.landing_place, e.landing_lat, e.landing_lon) : '')}
-      ${kv('Flight time', fmtDur(e.duration_s))}${kv('Goal', esc(e.goal))}
+      ${kv('Flight time', fmtDur(e.duration_s))}${kv('Distance flown', fmtDist(e.distance_m))}${kv('Max from takeoff', fmtDist(e.max_from_takeoff_m))}${kv('At landing', fmtDist(e.from_takeoff_m))}${kv('Goal', esc(e.goal))}
       ${kv('Project', projectField(e))}
       ${kv('PIC', crewField(e, 'pic'))}${kv('PAC', crewField(e, 'pac'))}${kv('GCS operator', crewField(e, 'gcs'))}
       ${kv('Comment', commentField(e))}
@@ -189,10 +191,12 @@ function renderSummary() {
     </div></div>
     <div class="actions"><a class="btn sec" href="/api/flights/${flightId}/path" target="_blank">Path JSON</a>
       <a class="btn sec" href="/api/aircraft/${e.aircraft_pk}/config" target="_blank">Airframe / flight plan / settings</a></div>`;
-  const ev = (title, x, utc, name) => x ? `<div><h4>${title}</h4><div class="kv">${kv('Time (UTC)', esc(fmtTime(utc)))}${kv('Location', coord(x.location, name))}
-    ${kv('Battery', x.voltage_v != null ? x.voltage_v.toFixed(2) + ' V' : '')}${kv('Wind', windTxt(x.wind))}
+  const ev = (title, x, utc, name, extra) => x ? `<div><h4>${title}</h4><div class="kv">${kv('Time (UTC)', esc(fmtTime(utc)))}${kv('Location', coord(x.location, name))}
+    ${extra || ''}${kv('Battery', x.voltage_v != null ? x.voltage_v.toFixed(2) + ' V' : '')}${kv('Wind', windTxt(x.wind))}
     ${kv('INS position (NED, m)', ned(x.ins?.position_ned_m))}${kv('INS speed (NED, m/s)', ned(x.ins?.velocity_ned_ms))}${kv('INS accel (NED, m/s²)', ned(x.ins?.acceleration_ned_ms2))}</div></div>` : '';
-  $('events').innerHTML = ev('Takeoff', e.takeoff, e.takeoff_utc, e.takeoff_place) + ev('Landing', e.landing, e.landing_utc, e.landing_place);
+  $('events').innerHTML = ev('Takeoff', e.takeoff, e.takeoff_utc, e.takeoff_place)
+    + ev('Landing', e.landing, e.landing_utc, e.landing_place,
+         kv('Distance flown', fmtDist(e.distance_m)) + kv('From takeoff', fmtDist(e.from_takeoff_m)));
 }
 
 const pt = i => D.path[i];
@@ -241,6 +245,8 @@ function show(i) {
   const a = alt(p), g = gs(p), m = p.flight_mode, n = p.nav, at = p.attitude?.euler_deg;
   const cell = (k, v) => v == null || v === '' ? '' : `<div><b>${k}</b>${v}</div>`;
   $('readout').innerHTML = cell('Time', rel(p.time_s) + ' · ' + esc(fmtTime(p.utc).slice(11)))
+    + cell('Distance flown', p.distance_m != null ? fmtDist(p.distance_m) : null)
+    + cell('From takeoff', p.from_takeoff_m != null ? fmtDist(p.from_takeoff_m) : null)
     + cell('Height (INS)', a != null ? a.toFixed(1) + ' m' : null) + cell('GPS alt', p.position.gps_alt_m + ' m')
     + cell('Baro alt', p.position.baro_alt_m != null ? p.position.baro_alt_m + ' m' : null)
     + cell('Ground speed', g != null ? g.toFixed(1) + ' m/s' : null) + cell('Airspeed', p.airspeed?.eas_ms != null ? p.airspeed.eas_ms + ' m/s' : null)
@@ -250,8 +256,8 @@ function show(i) {
   drawChart(i);
 }
 
-function drawChart(cursor) {
-  const c = $('chart'), r = c.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+function drawSeriesChart(id, series, cursor) {
+  const c = $(id), r = c.getBoundingClientRect(), dpr = devicePixelRatio || 1;
   c.width = r.width * dpr; c.height = r.height * dpr;
   const x = c.getContext('2d');
   x.scale(dpr, dpr);
@@ -259,13 +265,13 @@ function drawChart(cursor) {
   x.clearRect(0, 0, W, H);
   if (n < 2) return;
   const t0 = D.path[0].time_s, t1 = D.path[n - 1].time_s, L = 38, R = 38, T = 8, B = 16;
-  const series = [[D.path.map(alt), '#1f6feb', 'height m', L], [D.path.map(gs), '#e36209', 'speed m/s', W - R]];
   chartGeom = {t0, t1, L, R, W};
   x.font = '11px system-ui'; x.textBaseline = 'middle';
-  for (const [vals, color, label, tx] of series) {
+  for (const [vals, color, label, side] of series) {
     const ok = vals.filter(v => v != null);
     if (!ok.length) continue;
     const lo = Math.min(...ok, 0), hi = Math.max(...ok, lo + 1);
+    const left = side === 'left';
     x.strokeStyle = color; x.lineWidth = 1.5; x.beginPath();
     let started = false;
     vals.forEach((v, i) => {
@@ -274,9 +280,10 @@ function drawChart(cursor) {
       started ? x.lineTo(px, py) : x.moveTo(px, py); started = true;
     });
     x.stroke();
-    x.fillStyle = color; x.textAlign = tx < W / 2 ? 'left' : 'right';
-    x.fillText(hi.toFixed(0), tx < W / 2 ? 2 : W - 2, T + 4); x.fillText(lo.toFixed(0), tx < W / 2 ? 2 : W - 2, H - B - 2);
-    x.fillText(label, tx < W / 2 ? 2 : W - 2, H / 2);
+    x.fillStyle = color; x.textAlign = left ? 'left' : 'right';
+    const ax = left ? 2 : W - 2;
+    x.fillText(hi.toFixed(0), ax, T + 4); x.fillText(lo.toFixed(0), ax, H - B - 2);
+    x.fillText(label, ax, H / 2);
   }
   const ink = getComputedStyle(document.documentElement);
   x.fillStyle = ink.getPropertyValue('--mute').trim() || '#6b7785'; x.textAlign = 'center';
@@ -286,14 +293,26 @@ function drawChart(cursor) {
     x.strokeStyle = ink.getPropertyValue('--txt').trim() || '#000'; x.lineWidth = 1; x.beginPath(); x.moveTo(px, T); x.lineTo(px, H - B); x.stroke();
   }
 }
-$('chart').onclick = e => {
+function drawChart(cursor) {
+  drawSeriesChart('chart', [
+    [D.path.map(alt), '#1f6feb', 'height m', 'left'],
+    [D.path.map(gs), '#e36209', 'speed m/s', 'right'],
+  ], cursor);
+  drawSeriesChart('distChart', [
+    [D.path.map(p => p.distance_m ?? null), '#1a7f37', 'flown m', 'left'],
+    [D.path.map(p => p.from_takeoff_m ?? null), '#8250df', 'from takeoff m', 'right'],
+  ], cursor);
+}
+function pickTime(e, el) {
   if (!chartGeom || D.path.length < 2) return;
-  const r = $('chart').getBoundingClientRect(), g = chartGeom;
+  const r = el.getBoundingClientRect(), g = chartGeom;
   const t = g.t0 + Math.min(Math.max((e.clientX - r.left - g.L) / (g.W - g.L - g.R), 0), 1) * (g.t1 - g.t0);
   let best = 0;
   D.path.forEach((p, i) => { if (Math.abs(p.time_s - t) < Math.abs(D.path[best].time_s - t)) best = i; });
   show(best);
-};
+}
+$('chart').onclick = e => pickTime(e, $('chart'));
+$('distChart').onclick = e => pickTime(e, $('distChart'));
 addEventListener('resize', () => D && drawChart(+$('scrub').value));
 addEventListener('nightchange', () => D && drawChart(+$('scrub').value));
 

@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS aircraft (
     first_utc TEXT, last_utc TEXT,
     num_flights INTEGER,
     total_flight_time_s REAL,
+    total_flight_distance_m REAL,
     preflight_checks TEXT,             -- JSON
     info_messages TEXT,                -- JSON
     config_gz BLOB                     -- gzip JSON: flight_plan, settings, xml
@@ -78,6 +79,9 @@ CREATE TABLE IF NOT EXISTS flights (
     aircraft_id INTEGER NOT NULL REFERENCES aircraft(id) ON DELETE CASCADE,
     idx INTEGER,
     duration_s REAL,
+    distance_m REAL,                   -- 3D path length flown from the parser [m]
+    from_takeoff_m REAL,               -- 3D range from takeoff at landing / last sample [m]
+    max_from_takeoff_m REAL,           -- farthest 3D range from takeoff during the flight [m]
     landed INTEGER,
     takeoff_time_s REAL, takeoff_utc TEXT, takeoff_lat REAL, takeoff_lon REAL, takeoff_alt_m REAL, takeoff_voltage_v REAL,
     landing_time_s REAL, landing_utc TEXT, landing_lat REAL, landing_lon REAL, landing_alt_m REAL, landing_voltage_v REAL,
@@ -174,6 +178,15 @@ def init(path):
             con.execute(f"ALTER TABLE flights ADD COLUMN {col} INTEGER")
     if "comment" not in {r[1] for r in con.execute("PRAGMA table_info(flights)")}:
         con.execute("ALTER TABLE flights ADD COLUMN comment TEXT")
+    fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
+    if "distance_m" not in fcols:
+        con.execute("ALTER TABLE flights ADD COLUMN distance_m REAL")
+    if "from_takeoff_m" not in fcols:
+        con.execute("ALTER TABLE flights ADD COLUMN from_takeoff_m REAL")
+    if "max_from_takeoff_m" not in fcols:
+        con.execute("ALTER TABLE flights ADD COLUMN max_from_takeoff_m REAL")
+    if "total_flight_distance_m" not in {r[1] for r in con.execute("PRAGMA table_info(aircraft)")}:
+        con.execute("ALTER TABLE aircraft ADD COLUMN total_flight_distance_m REAL")
     con.execute("CREATE INDEX IF NOT EXISTS ix_flights_project ON flights(project_id)")
     if "indoor" not in {r[1] for r in con.execute("PRAGMA table_info(places)")}:
         con.execute("ALTER TABLE places ADD COLUMN indoor INTEGER NOT NULL DEFAULT 0")
@@ -228,11 +241,11 @@ def store_parsed(con, log_id, doc):
         config = {"flight_plan": ac.get("flight_plan"), "settings": ac.get("settings"), "xml": ac.get("xml")}
         cur = con.execute(
             "INSERT INTO aircraft (log_id, ac_id, name, pic, pac, gcs, goal, autopilot_versions, first_utc, last_utc,"
-            " num_flights, total_flight_time_s, preflight_checks, info_messages, config_gz)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " num_flights, total_flight_time_s, total_flight_distance_m, preflight_checks, info_messages, config_gz)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (log_id, ac.get("ac_id"), ac.get("name"), m.get("pic"), m.get("pac"), m.get("gcs"), m.get("goal"),
              json.dumps(ac.get("autopilot_versions", [])), span.get("first_utc"), span.get("last_utc"),
-             summ.get("num_flights"), summ.get("total_flight_time_s"),
+             summ.get("num_flights"), summ.get("total_flight_time_s"), summ.get("total_flight_distance_m"),
              json.dumps(ac.get("preflight_checks", [])), json.dumps(ac.get("info_messages", [])), pack(config)),
         )
         ac_pk = cur.lastrowid
@@ -242,11 +255,12 @@ def store_parsed(con, log_id, doc):
             llat, llon, lalt = _loc(ld)
             path = f.get("path") or []
             con.execute(
-                "INSERT INTO flights (aircraft_id, idx, duration_s, landed,"
+                "INSERT INTO flights (aircraft_id, idx, duration_s, distance_m, from_takeoff_m, max_from_takeoff_m, landed,"
                 " takeoff_time_s, takeoff_utc, takeoff_lat, takeoff_lon, takeoff_alt_m, takeoff_voltage_v,"
                 " landing_time_s, landing_utc, landing_lat, landing_lon, landing_alt_m, landing_voltage_v,"
-                " takeoff_json, landing_json, num_points, verdict, assessment_json, path_gz) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (ac_pk, f.get("flight"), f.get("duration_s"), int(bool(f.get("landed"))),
+                " takeoff_json, landing_json, num_points, verdict, assessment_json, path_gz) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (ac_pk, f.get("flight"), f.get("duration_s"), f.get("distance_m"), f.get("from_takeoff_m"),
+                 f.get("max_from_takeoff_m"), int(bool(f.get("landed"))),
                  to.get("time_s"), to.get("utc"), tlat, tlon, talt, to.get("voltage_v"),
                  ld.get("time_s"), ld.get("utc"), llat, llon, lalt, ld.get("voltage_v"),
                  json.dumps(to), json.dumps(ld), len(path),
