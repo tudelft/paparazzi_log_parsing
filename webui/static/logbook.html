@@ -60,12 +60,12 @@
 <main>
   <section class="card">
     <div class="bar">
-      <label>Project <select id="showProject"></select></label>
+      <label id="projectFilter" hidden>Project <select id="showProject"></select></label>
       <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date…)">
       <label title="Flights of the same aircraft and pilot on the same day within this distance of each other"><input type="checkbox" id="combine" checked> Combine flights (within <input type="number" id="radius" value="1" min="0.1" step="0.5" style="width:56px"> km)</label>
       <label title="Locations marked as indoors in the admin page"><input type="checkbox" id="indoor"> Show indoor flights</label>
       <label title="Uncertain flights, arming on the ground, flickering flight flags and other 'flights' the parser judged not to be real flights"><input type="checkbox" id="ground"> Show uncertain/non-flights</label>
-      <label title="Show menus to change PIC, PAC, GCS, and several flights at once"><input type="checkbox" id="editCrew"> Edit</label>
+      <label title="Show menus to change project, PIC, PAC and GCS, including several flights at once"><input type="checkbox" id="editCrew"> Edit</label>
       <button onclick="exportCsv()">Export CSV</button>
     </div>
     <div id="bulkBar" class="bar" hidden>
@@ -79,7 +79,7 @@
     </div>
     <div class="scroll">
     <table class="log">
-      <thead><tr><th class="chk"></th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th title="Farthest 3D range from the takeoff location">From takeoff</th><th>Source</th><th>Aircraft</th><th>Project</th><th>Takeoff location</th><th>Landing location</th>
+      <thead><tr><th class="chk"></th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th>Takeoff location</th><th>Landing location</th>
         <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -127,7 +127,7 @@ fetch('/api/me').then(r => r.json()).then(async d => {
   ]);
   fillBulkMenus();
   $('editCrew').checked = localStorage.getItem('pprzEditCrew') === '1';
-  $('bulkBar').hidden = !$('editCrew').checked;
+  syncEditUi();
   const cur = localStorage.getItem(projectKey) || '';
   $('showProject').innerHTML = '<option value="">All projects</option>'
     + (d.user.is_admin ? '<option value="none">No project</option>' : '')
@@ -142,12 +142,8 @@ const place = (lat, lon, name) => lat == null ? '' :
   `<a ${name ? '' : 'class="mono" '}target="_blank" rel="noopener" title="${lat.toFixed(5)}, ${lon.toFixed(5)}" href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}">${esc(name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`)}</a>`;
 const person = (f, role) => {
   const u = f[role + '_user'], raw = f[role];
-  if (u && u.source === 'edit') return esc(u.display_name);
-  if (u && u.source === 'uploader') return `<span title="Not in the log, set to the uploader">${esc(u.display_name)}</span> <span class="mute">(uploader)</span>`;
-  if (!raw) return '';
-  if (!u) return `<span title="Not linked to a user">${esc(raw)}</span>`;
-  const same = raw.toLowerCase() === u.display_name.toLowerCase();
-  return esc(u.display_name) + (same ? '' : ` <span class="mute">(${esc(raw)})</span>`);
+  if (u) return esc(u.display_name);
+  return raw ? esc(raw) : '';
 };
 const editOn = () => $('editCrew').checked;
 const crewIds = f => [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)])];
@@ -155,7 +151,7 @@ function crewSelect(f, role, ids) {
   if (!editOn() || !f.can_edit_crew) return person(f, role);
   const u = f[role + '_user'];
   const selectedId = u && (u.source === 'edit' || u.source === 'alias') ? u.id : '';
-  const logged = f[role] ? esc(f[role]) + ' (from log)' : '—';
+  const logged = f[role] ? esc(f[role]) : '—';
   return `<select onclick="event.stopPropagation()" onchange="setCrew([${ids.join(',')}], '${role}', this.value)">
     <option value="">${logged}</option>
     ${people.map(p => `<option value="${p.id}"${p.id === selectedId ? ' selected' : ''}>${esc(p.display_name)}</option>`).join('')}
@@ -188,9 +184,13 @@ async function applyBulk() {
   ['bulkPic', 'bulkPac', 'bulkGcs'].forEach(id => { $(id).value = '__keep__'; });
   loadFlights();
 }
+function syncEditUi() {
+  $('bulkBar').hidden = !editOn();
+  $('projectFilter').hidden = !editOn();
+}
 function toggleEdit() {
   localStorage.setItem('pprzEditCrew', editOn() ? '1' : '');
-  $('bulkBar').hidden = !editOn();
+  syncEditUi();
   if (!editOn()) { selected.clear(); $('bulkMsg').textContent = ''; }
   render();
 }
@@ -211,7 +211,7 @@ function projectOptions(selected) {
     `<option value="${p.id}"${p.id === selected ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
 }
 function projectCell(f) {
-  if (!f.can_edit_project) return esc(f.project_name || '');
+  if (!editOn() || !f.can_edit_project) return esc(f.project_name || '');
   const ids = (f.sources || []).map(s => s.flight_id).join(',');
   return `<select onclick="event.stopPropagation()" onchange="setFlightProject(${f.flight_id}, this.value, [${ids}])">${projectOptions(f.project_id)}</select>`;
 }
@@ -311,7 +311,7 @@ const srcLabel = fl => ['onboard_sd', 'gcs'].filter(t => fl.some(f => f.sources.
 const verdictMark = f => f.verdict === 'ground' ? ' <span class="mute" title="Probably not a real flight">(ground)</span>'
   : f.verdict === 'uncertain' ? ' <span class="mute" title="Unsure whether this was a real flight">(?)</span>' : '';
 const cells = (f, o) => `${chk(o.ids, o.canEdit)}<td>${esc(fmtDate(f.takeoff_utc))}</td><td>${esc(fmtHm(f.takeoff_utc))}</td><td>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</td>
-    <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${fmtDist(o.max_from_takeoff_m)}</td><td>${o.sources}</td><td>${esc(f.aircraft)}${f.aircraft_uid ? ` <span class="mute">${esc(f.aircraft_uid)}</span>` : ''}${verdictMark(f)}</td>
+    <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${o.sources}</td><td>${esc(f.aircraft)}${f.aircraft_uid ? ` <span class="mute">${esc(f.aircraft_uid)}</span>` : ''}${verdictMark(f)}</td>
     <td>${o.project}</td>
     <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place)}</td>
     <td>${crewSelect(f, 'pic', o.ids)}</td><td>${crewSelect(f, 'pac', o.ids)}</td><td>${crewSelect(f, 'gcs', o.ids)}</td><td>${esc(o.goal)}</td><td>${esc(o.comment)}</td>`;
@@ -319,7 +319,7 @@ const cells = (f, o) => `${chk(o.ids, o.canEdit)}<td>${esc(fmtDate(f.takeoff_utc
 function flightRows(f, cls = '') {
   const ids = crewIds(f);
   return `<tr class="flight ${cls}" data-id="${f.flight_id}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : 1, sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: f.can_edit_crew})}</tr>`
-    + (open_.has(f.flight_id) ? `<tr><td colspan="18" class="detail">${detail(f)}</td></tr>` : '');
+    + (open_.has(f.flight_id) ? `<tr><td colspan="17" class="detail">${detail(f)}</td></tr>` : '');
 }
 
 function groupRows(g) {
