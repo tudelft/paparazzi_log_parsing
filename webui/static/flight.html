@@ -36,7 +36,13 @@
   #readout { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:4px 16px; margin-top:8px; font-size:13px; }
   #readout b { display:block; font-size:11px; color:var(--mute); text-transform:uppercase; font-weight:600; }
   #scrub { width:100%; }
-  #chart, #distChart { width:100%; height:150px; display:block; cursor:crosshair; margin-top:6px; }
+  .chartBlock { position: relative; }
+  .chartBlock canvas { width:100%; height:150px; display:block; cursor:crosshair; margin-top:6px; }
+  .chartSel { position: absolute; top: 6px; height: 150px; background: rgba(31, 111, 235, .22); pointer-events: none; display: none; }
+  .chartOpts { display:flex; flex-wrap:wrap; gap:4px 14px; margin:4px 0 10px; font-size:13px; align-items:center; }
+  .chartOpts label { display:inline-flex; align-items:center; gap:5px; cursor:pointer; user-select:none; }
+  .chartOpts .sw { width:10px; height:10px; border-radius:2px; flex:0 0 auto; }
+  .chartOpts .rm { margin-left:auto; }
   .tag { display:inline-block; padding:0 8px; border-radius:10px; font-size:12px; background:var(--chip); }
   .tag.flight { background:var(--flightbg); color:var(--ok); } .tag.uncertain { background:var(--uncertainbg); color:var(--warn); } .tag.ground { background:var(--groundbg); color:var(--err); }
   .wp { background:var(--field); color:var(--txt); border:1px solid var(--mute); border-radius:3px; padding:0 3px; font-size:11px; }
@@ -63,8 +69,12 @@
     </div>
     <div id="map"></div>
     <input type="range" id="scrub" min="0" max="0" value="0">
-    <canvas id="chart"></canvas>
-    <canvas id="distChart"></canvas>
+    <div id="charts"></div>
+    <div class="bar">
+      <button type="button" id="addChart">Add chart</button>
+      <button type="button" id="resetZoom" disabled>Show all</button>
+      <span class="mute">Drag or scroll on a graph to zoom</span>
+    </div>
     <div id="readout"></div>
   </section>
 
@@ -201,6 +211,74 @@ function renderSummary() {
 const pt = i => D.path[i];
 const alt = p => p.ins?.position_ned_m ? -p.ins.position_ned_m.down : null;
 const gs = p => p.ins?.groundspeed_ms ?? null;
+const euler = (p, k) => p.attitude?.euler_deg?.[k] ?? null;
+const acc = (p, k) => p.ins?.acceleration_ned_ms2?.[k] ?? null;
+const SERIES = {
+  height: {label: 'Height', unit: 'm', color: '#1f6feb', val: alt},
+  gs: {label: 'Ground speed', unit: 'm/s', color: '#e36209', val: gs},
+  as: {label: 'Airspeed', unit: 'm/s', color: '#0a7d6f', val: p => p.airspeed?.eas_ms ?? null},
+  roll: {label: 'Roll', unit: '°', color: '#cf222e', val: p => euler(p, 'roll')},
+  pitch: {label: 'Pitch', unit: '°', color: '#1a7f37', val: p => euler(p, 'pitch')},
+  yaw: {label: 'Yaw', unit: '°', color: '#8250df', val: p => euler(p, 'yaw')},
+  accN: {label: 'Accel north', unit: 'm/s²', color: '#0891b2', val: p => acc(p, 'north')},
+  accE: {label: 'Accel east', unit: 'm/s²', color: '#d63384', val: p => acc(p, 'east')},
+  accD: {label: 'Accel down', unit: 'm/s²', color: '#57606a', val: p => acc(p, 'down')},
+};
+const SERIES_ORDER = Object.keys(SERIES);
+const CHART_DEFAULTS = [['height', 'gs', 'as'], ['roll', 'pitch', 'yaw']];
+const MAX_CHARTS = 8;
+const charts = [];
+let viewT0 = null, viewT1 = null, drag = null;
+
+function selectedKeys(opts) {
+  return [...opts.querySelectorAll('input:checked')].map(el => el.dataset.k);
+}
+function addChart(checked, removable) {
+  if (charts.length >= MAX_CHARTS) return;
+  const block = document.createElement('div');
+  block.className = 'chartBlock';
+  const canvas = document.createElement('canvas');
+  const opts = document.createElement('div');
+  opts.className = 'chartOpts';
+  opts.innerHTML = SERIES_ORDER.map(k => {
+    const s = SERIES[k];
+    return `<label><input type="checkbox" data-k="${k}"${checked.includes(k) ? ' checked' : ''}>`
+      + `<span class="sw" style="background:${s.color}"></span> ${esc(s.label)}</label>`;
+  }).join('');
+  if (removable) {
+    const rm = document.createElement('button');
+    rm.type = 'button';
+    rm.className = 'rm';
+    rm.textContent = 'Remove';
+    rm.onclick = () => {
+      const i = charts.findIndex(c => c.block === block);
+      if (i < 0) return;
+      charts.splice(i, 1);
+      block.remove();
+      $('addChart').disabled = false;
+      if (D) drawChart(+$('scrub').value);
+    };
+    opts.appendChild(rm);
+  }
+  opts.onchange = () => D && drawChart(+$('scrub').value);
+  const sel = document.createElement('div');
+  sel.className = 'chartSel';
+  bindChartPointer(canvas, sel);
+  block.append(canvas, sel, opts);
+  $('charts').appendChild(block);
+  charts.push({canvas, opts, block});
+  $('addChart').disabled = charts.length >= MAX_CHARTS;
+}
+$('addChart').onclick = () => {
+  addChart([], true);
+  if (D) drawChart(+$('scrub').value);
+};
+addChart(CHART_DEFAULTS[0], false);
+addChart(CHART_DEFAULTS[1], false);
+function fmtAxis(v) {
+  const a = Math.abs(v);
+  return a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : v.toFixed(2);
+}
 
 function initMap() {
   map = L.map('map').setView([52, 4.4], 6);
@@ -251,67 +329,165 @@ function show(i) {
     + cell('Ground speed', g != null ? g.toFixed(1) + ' m/s' : null) + cell('Airspeed', p.airspeed?.eas_ms != null ? p.airspeed.eas_ms + ' m/s' : null)
     + cell('Battery', p.battery_voltage_v != null ? p.battery_voltage_v + ' V' : null)
     + cell('Mode', m ? esc([m.ap_mode, m.h_mode, m.v_mode].join(' / ')) : null) + cell('Block', n?.block ? esc(n.block) + (n.stage ? ' · ' + esc(n.stage) : '') : null)
-    + cell('Roll / pitch / yaw', at ? `${at.roll}° / ${at.pitch}° / ${at.yaw}°` : null);
+    + cell('Roll / pitch / yaw', at ? `${at.roll}° / ${at.pitch}° / ${at.yaw}°` : null)
+    + cell('Accel N/E/D', p.ins?.acceleration_ned_ms2 ? `${p.ins.acceleration_ned_ms2.north} / ${p.ins.acceleration_ned_ms2.east} / ${p.ins.acceleration_ned_ms2.down} m/s²` : null);
   drawChart(i);
 }
 
-function drawSeriesChart(id, series, cursor) {
-  const c = $(id), r = c.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+function fullT() {
+  return [D.path[0].time_s, D.path[D.path.length - 1].time_s];
+}
+function spanT() {
+  return viewT0 != null ? [viewT0, viewT1] : fullT();
+}
+function timeAt(el, clientX) {
+  const r = el.getBoundingClientRect(), g = chartGeom;
+  const u = Math.min(Math.max((clientX - r.left - g.L) / (g.W - g.L - g.R), 0), 1);
+  return g.t0 + u * (g.t1 - g.t0);
+}
+function setView(a, b) {
+  const [f0, f1] = fullT();
+  let t0 = Math.max(f0, Math.min(a, b)), t1 = Math.min(f1, Math.max(a, b));
+  if (t1 - t0 < 0.4) {
+    const m = (t0 + t1) / 2;
+    t0 = Math.max(f0, m - 0.2);
+    t1 = Math.min(f1, m + 0.2);
+  }
+  if (t1 - t0 >= f1 - f0 - 1e-6) { viewT0 = viewT1 = null; }
+  else { viewT0 = t0; viewT1 = t1; }
+  $('resetZoom').disabled = viewT0 == null;
+  drawChart(+$('scrub').value);
+}
+function resetZoom() {
+  viewT0 = viewT1 = null;
+  $('resetZoom').disabled = true;
+  if (D) drawChart(+$('scrub').value);
+}
+function bindChartPointer(canvas, sel) {
+  canvas.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || !chartGeom) return;
+    canvas.setPointerCapture(e.pointerId);
+    drag = {canvas, sel, x0: e.clientX, x1: e.clientX, moved: false};
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!drag || drag.canvas !== canvas) return;
+    drag.x1 = e.clientX;
+    if (Math.abs(drag.x1 - drag.x0) > 6) drag.moved = true;
+    if (!drag.moved) return;
+    const r = canvas.getBoundingClientRect(), g = chartGeom;
+    const clamp = x => Math.min(Math.max(x, r.left + g.L), r.left + g.W - g.R);
+    const a = clamp(drag.x0), b = clamp(drag.x1);
+    sel.style.display = 'block';
+    sel.style.left = (Math.min(a, b) - r.left) + 'px';
+    sel.style.width = Math.max(1, Math.abs(b - a)) + 'px';
+  });
+  const end = e => {
+    if (!drag || drag.canvas !== canvas) return;
+    sel.style.display = 'none';
+    const moved = drag.moved, x0 = drag.x0, x1 = drag.x1;
+    drag = null;
+    if (moved) setView(timeAt(canvas, x0), timeAt(canvas, x1));
+    else pickTime(e, canvas);
+  };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', () => {
+    if (!drag || drag.canvas !== canvas) return;
+    sel.style.display = 'none';
+    drag = null;
+  });
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    if (!D || D.path.length < 2 || !chartGeom) return;
+    const [t0, t1] = spanT();
+    const t = timeAt(canvas, e.clientX);
+    const f = e.deltaY > 0 ? 1.25 : 0.8;
+    setView(t - (t - t0) * f, t + (t1 - t) * f);
+  }, {passive: false});
+  canvas.addEventListener('dblclick', e => { e.preventDefault(); resetZoom(); });
+}
+function drawSeriesChart(c, keys, cursor) {
+  const r = c.getBoundingClientRect(), dpr = devicePixelRatio || 1;
   c.width = r.width * dpr; c.height = r.height * dpr;
   const x = c.getContext('2d');
   x.scale(dpr, dpr);
   const W = r.width, H = r.height, n = D.path.length;
   x.clearRect(0, 0, W, H);
   if (n < 2) return;
-  const t0 = D.path[0].time_s, t1 = D.path[n - 1].time_s, L = 38, R = 38, T = 8, B = 16;
+  const [t0, t1] = spanT(), L = 44, R = 44, T = 8, B = 16, zoomed = viewT0 != null;
   chartGeom = {t0, t1, L, R, W};
-  x.font = '11px system-ui'; x.textBaseline = 'middle';
-  for (const [vals, color, label, side] of series) {
-    const ok = vals.filter(v => v != null);
-    if (!ok.length) continue;
-    const lo = Math.min(...ok, 0), hi = Math.max(...ok, lo + 1);
-    const left = side === 'left';
-    x.strokeStyle = color; x.lineWidth = 1.5; x.beginPath();
-    let started = false;
-    vals.forEach((v, i) => {
-      if (v == null) return;
-      const px = L + (D.path[i].time_s - t0) / (t1 - t0 || 1) * (W - L - R), py = T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
-      started ? x.lineTo(px, py) : x.moveTo(px, py); started = true;
-    });
-    x.stroke();
-    x.fillStyle = color; x.textAlign = left ? 'left' : 'right';
-    const ax = left ? 2 : W - 2;
-    x.fillText(hi.toFixed(0), ax, T + 4); x.fillText(lo.toFixed(0), ax, H - B - 2);
-    x.fillText(label, ax, H / 2);
+  const groups = [], seen = new Map();
+  for (const k of keys) {
+    const s = SERIES[k];
+    if (!s) continue;
+    const vals = D.path.map(s.val);
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const t = D.path[i].time_s, v = vals[i];
+      if (v == null || t < t0 || t > t1) continue;
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    if (lo === Infinity) continue;
+    let g = seen.get(s.unit);
+    if (!g) {
+      g = {unit: s.unit, lo, hi, items: []};
+      if (!zoomed) { g.lo = Math.min(lo, 0); g.hi = Math.max(hi, 0); }
+      seen.set(s.unit, g); groups.push(g);
+    } else {
+      g.lo = Math.min(g.lo, zoomed ? lo : Math.min(lo, 0));
+      g.hi = Math.max(g.hi, zoomed ? hi : Math.max(hi, 0));
+    }
+    if (g.hi <= g.lo) g.hi = g.lo + 1;
+    g.items.push({vals, color: s.color});
   }
+  if (zoomed) {
+    for (const g of groups) {
+      const pad = (g.hi - g.lo) * 0.08 || 0.1;
+      g.lo -= pad; g.hi += pad;
+    }
+  }
+  x.font = '11px system-ui'; x.textBaseline = 'middle';
+  groups.forEach((g, gi) => {
+    const left = gi % 2 === 0;
+    for (const {vals, color} of g.items) {
+      x.strokeStyle = color; x.lineWidth = 1.5; x.beginPath();
+      let started = false;
+      for (let i = 0; i < n; i++) {
+        const t = D.path[i].time_s, v = vals[i];
+        if (v == null || t < t0 || t > t1) { started = false; continue; }
+        const px = L + (t - t0) / (t1 - t0 || 1) * (W - L - R);
+        const py = T + (1 - (v - g.lo) / (g.hi - g.lo)) * (H - T - B);
+        started ? x.lineTo(px, py) : x.moveTo(px, py); started = true;
+      }
+      x.stroke();
+    }
+    x.fillStyle = g.items[0].color; x.textAlign = left ? 'left' : 'right';
+    const ax = left ? 2 : W - 2;
+    x.fillText(fmtAxis(g.hi), ax, T + 4); x.fillText(fmtAxis(g.lo), ax, H - B - 2);
+    x.fillText(g.unit, ax, H / 2);
+  });
   const ink = getComputedStyle(document.documentElement);
   x.fillStyle = ink.getPropertyValue('--mute').trim() || '#6b7785'; x.textAlign = 'center';
   for (let k = 0; k <= 4; k++) { const t = t0 + (t1 - t0) * k / 4; x.fillText(rel(t), L + (W - L - R) * k / 4, H - 6); }
   if (cursor != null) {
-    const px = L + (D.path[cursor].time_s - t0) / (t1 - t0 || 1) * (W - L - R);
-    x.strokeStyle = ink.getPropertyValue('--txt').trim() || '#000'; x.lineWidth = 1; x.beginPath(); x.moveTo(px, T); x.lineTo(px, H - B); x.stroke();
+    const t = D.path[cursor].time_s;
+    if (t >= t0 && t <= t1) {
+      const px = L + (t - t0) / (t1 - t0 || 1) * (W - L - R);
+      x.strokeStyle = ink.getPropertyValue('--txt').trim() || '#000'; x.lineWidth = 1; x.beginPath(); x.moveTo(px, T); x.lineTo(px, H - B); x.stroke();
+    }
   }
 }
 function drawChart(cursor) {
-  drawSeriesChart('chart', [
-    [D.path.map(alt), '#1f6feb', 'height m', 'left'],
-    [D.path.map(gs), '#e36209', 'speed m/s', 'right'],
-  ], cursor);
-  drawSeriesChart('distChart', [
-    [D.path.map(p => p.distance_m ?? null), '#1a7f37', 'flown m', 'left'],
-    [D.path.map(p => p.from_takeoff_m ?? null), '#8250df', 'from takeoff m', 'right'],
-  ], cursor);
+  for (const ch of charts) drawSeriesChart(ch.canvas, selectedKeys(ch.opts), cursor);
 }
 function pickTime(e, el) {
   if (!chartGeom || D.path.length < 2) return;
-  const r = el.getBoundingClientRect(), g = chartGeom;
-  const t = g.t0 + Math.min(Math.max((e.clientX - r.left - g.L) / (g.W - g.L - g.R), 0), 1) * (g.t1 - g.t0);
+  const t = timeAt(el, e.clientX);
   let best = 0;
   D.path.forEach((p, i) => { if (Math.abs(p.time_s - t) < Math.abs(D.path[best].time_s - t)) best = i; });
   show(best);
 }
-$('chart').onclick = e => pickTime(e, $('chart'));
-$('distChart').onclick = e => pickTime(e, $('distChart'));
+$('resetZoom').onclick = resetZoom;
 addEventListener('resize', () => D && drawChart(+$('scrub').value));
 addEventListener('nightchange', () => D && drawChart(+$('scrub').value));
 
