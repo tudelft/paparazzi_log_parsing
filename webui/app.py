@@ -222,7 +222,8 @@ def upload():
     if not can_upload_any(con):
         return jsonify(error="you cannot add logs"), 403
     # Project is not chosen at upload time. After parsing it is filled from the
-    # aircraft default, then the uploader / GCS / PIC, and can be edited on this page.
+    # aircraft default when the uploader is on that project, otherwise the
+    # uploader's default (then GCS / PIC), and can be edited on this page.
     project_id = None
     files = request.files.getlist("files")
     names = request.form.getlist("names")
@@ -804,6 +805,27 @@ def user_main_project(con, user_id):
     return live_project(con, row["default_project_id"] if row else None)
 
 
+def user_in_project(con, user_id, project_id):
+    """True if this account is on the project. Admins count as on every project."""
+    if not user_id or not project_id:
+        return False
+    row = con.execute("SELECT is_admin FROM users WHERE id=?", (user_id,)).fetchone()
+    if row is None:
+        return False
+    if row["is_admin"]:
+        return True
+    return con.execute("SELECT 1 FROM project_members WHERE project_id=? AND user_id=?",
+                       (project_id, user_id)).fetchone() is not None
+
+
+def pick_project_for_user(con, user_id, aircraft_project_id):
+    """Aircraft project if the user is on it, otherwise the user's own default project."""
+    ac = live_project(con, aircraft_project_id)
+    if ac and user_in_project(con, user_id, ac):
+        return ac
+    return user_main_project(con, user_id)
+
+
 def snapshot_flight_edits(con, log_id):
     """Keep edited flight project and crew across a re-parse (flights are deleted with the aircraft rows)."""
     return {(r["ac_id"], r["idx"]): dict(r) for r in con.execute(
@@ -812,15 +834,17 @@ def snapshot_flight_edits(con, log_id):
 
 
 def pick_flight_project(con, row, resolve):
-    """Aircraft default, then uploader, then GCS operator, then PIC."""
+    """Aircraft default if the uploader is on that project, otherwise the uploader's default, then GCS, then PIC."""
+    ac_pid = None
     if row["drone_id"]:
         d = con.execute("SELECT default_project_id FROM drones WHERE id=?", (row["drone_id"],)).fetchone()
-        pid = live_project(con, d["default_project_id"] if d else None)
-        if pid:
-            return pid
+        ac_pid = live_project(con, d["default_project_id"] if d else None)
+    pid = pick_project_for_user(con, row["uploaded_by"], ac_pid)
+    if pid:
+        return pid
     gcs = resolve("gcs", row["gcs"], None)
     pic = resolve("gcs", row["pic"], None)  # name only; do not fall back to the uploader
-    for uid in (row["uploaded_by"], gcs["id"] if gcs else None, pic["id"] if pic else None):
+    for uid in (gcs["id"] if gcs else None, pic["id"] if pic else None):
         pid = user_main_project(con, uid)
         if pid:
             return pid
@@ -868,16 +892,18 @@ def assign_open_flights(con):
 
 
 def fill_drone_defaults(con, drone_id):
-    """Give unassigned logs and flights linked to this drone its default project."""
+    """Fill unassigned logs/flights for this drone: aircraft project if the uploader is on it, else the uploader's default."""
     assign_open_flights(con)
     d = con.execute("SELECT default_project_id FROM drones WHERE id=?", (drone_id,)).fetchone()
-    if not d or not live_project(con, d["default_project_id"]):
+    ac_pid = live_project(con, d["default_project_id"] if d else None)
+    if not ac_pid:
         return
-    con.execute(
-        "UPDATE logs SET project_id=? WHERE project_id IS NULL AND id IN"
-        " (SELECT log_id FROM aircraft WHERE drone_id=?)",
-        (d["default_project_id"], drone_id),
-    )
+    for log in con.execute(
+            "SELECT DISTINCT l.id, l.uploaded_by FROM logs l JOIN aircraft a ON a.log_id = l.id"
+            " WHERE a.drone_id=? AND l.project_id IS NULL", (drone_id,)):
+        pid = pick_project_for_user(con, log["uploaded_by"], ac_pid)
+        if pid:
+            con.execute("UPDATE logs SET project_id=? WHERE id=? AND project_id IS NULL", (pid, log["id"]))
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1964,15 +1990,15 @@ def logbook():
 
 @app.get("/api/stats")
 def stats():
-    """Flight hours by aircraft and by project.
+    """Flight hours by aircraft, project, PIC and PAC.
 
     Visibility matches the logbook (see flight_own_clause): admins get every flight; everyone else only
     flights on projects they belong to, plus logs they uploaded that are not in a project yet. An SD log
-    and a GCS log of the same flight are counted once. Aircraft hours are only from those visible flights,
-    not the aircraft's lifetime across other projects.
+    and a GCS log of the same flight are counted once. Hours are only from those visible flights.
     """
     keys = ("aircraft", "aircraft_uid", "drone_id", "project_id", "project_name",
-            "duration_s", "takeoff_utc", "verdict", "indoor")
+            "duration_s", "takeoff_utc", "verdict", "indoor",
+            "pic", "pac", "pic_user", "pac_user")
     return jsonify(all=bool(g.user["is_admin"]),
                    flights=[{k: r.get(k) for k in keys} for r in logbook_rows()])
 
