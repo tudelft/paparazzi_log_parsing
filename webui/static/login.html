@@ -13,6 +13,8 @@
   label { display:block; margin-bottom:12px; font-size:12px; color:var(--mute); }
   input { width:100%; margin-top:4px; padding:8px; font:inherit; border:1px solid var(--fieldline); border-radius:6px; background:var(--field); color:var(--txt); }
   button { width:100%; padding:9px; font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; cursor:pointer; }
+  a.sso { display:block; width:100%; padding:9px; font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; cursor:pointer; text-align:center; text-decoration:none; box-sizing:border-box; }
+  .or { text-align:center; color:var(--mute); font-size:12px; margin:14px 0; }
   #err { color:var(--err); min-height:1.4em; margin-bottom:8px; }
   #note { color:var(--ok); min-height:1.4em; margin-bottom:8px; }
 </style>
@@ -21,6 +23,8 @@
 <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button>
 <form id="f">
   <h1>Paparazzi log database</h1>
+  <a class="sso" id="sso" href="/login/tudelft" hidden>Sign in with TU Delft</a>
+  <div class="or" id="or" hidden>or use a local account</div>
   <label>Username<input name="username" autocomplete="username" autofocus required></label>
   <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
   <div id="err"></div>
@@ -28,8 +32,14 @@
   <button>Sign in</button>
 </form>
 <script>
-if (new URLSearchParams(location.search).get('ready'))
-  document.getElementById('note').textContent = 'Password saved. Sign in with it.';
+const q = new URLSearchParams(location.search);
+if (q.get('ready')) document.getElementById('note').textContent = 'Password saved. Sign in with it.';
+if (q.get('error')) document.getElementById('err').textContent = q.get('error') === 'sso'
+  ? 'TU Delft sign-in failed. Ask an admin if this site is registered as a service provider.'
+  : q.get('error');
+fetch('/api/login-options').then(r => r.json()).then(d => {
+  if (d.saml) { document.getElementById('sso').hidden = false; document.getElementById('or').hidden = false; }
+}).catch(() => {});
 document.getElementById('f').onsubmit = async e => {
   e.preventDefault();
   const fd = new FormData(e.target);
