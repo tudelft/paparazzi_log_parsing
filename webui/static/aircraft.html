@@ -69,6 +69,7 @@
     <div class="row">
       <label class="field">Filter<input id="q" placeholder="Filter by name, serial, person, project…"></label>
       <label class="field">Status<select id="statusFilter"><option value="">All statuses</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select></label>
+      <label title="Aircraft marked Discard stay hidden until this is ticked"><input type="checkbox" id="showDiscarded"> Show discarded</label>
       <label title="Show the form to add an aircraft, import a CSV, and edit the list"><input type="checkbox" id="editFleet"> Edit</label>
     </div>
     <form class="row" id="add" hidden onsubmit="addDrone(event)">
@@ -114,6 +115,7 @@ function projectOptions(selected) {
 }
 
 function matches(d, q, status) {
+  if ((d.status || '') === 'Discard' && !$('showDiscarded').checked && status !== 'Discard') return false;
   if (status && (d.status || '') !== status) return false;
   if (!q) return true;
   const blob = [d.name, d.unique_id, d.manager, d.current_user, d.status, d.bought_on,
@@ -233,7 +235,7 @@ function removeDrone(id) {
   if (confirm('Remove ' + (d ? d.name : 'this aircraft') + '? The logs stay. They will no longer be linked to this aircraft.'))
     send('DELETE', '/api/admin/drones/' + id);
 }
-$('q').oninput = $('statusFilter').onchange = render;
+$('q').oninput = $('statusFilter').onchange = $('showDiscarded').onchange = render;
 $('editFleet').onchange = toggleEdit;
 fetch('/api/me').then(r => r.json()).then(d => {
   if (!d.user.is_admin) { location.href = '/'; return; }
