@@ -133,6 +133,21 @@ CREATE TABLE IF NOT EXISTS places (
     indoor INTEGER NOT NULL DEFAULT 0,  -- 1 for indoor locations (hidden from the logbook by default)
     shape TEXT NOT NULL                 -- JSON: {"type":"polygon","points":[[lat,lon],...]} or {"type":"circle","center":[lat,lon],"radius_m":r}
 );
+CREATE TABLE IF NOT EXISTS ingest (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL,                 -- pair | zip
+    name TEXT NOT NULL,                 -- original .data path or zip name
+    stage_dir TEXT NOT NULL,            -- directory under the data dir (tmp/ingest/...)
+    data_name TEXT NOT NULL,            -- filename in stage_dir (.data or .zip)
+    log_name TEXT,                      -- companion .log filename; null for a zip
+    size_bytes INTEGER,
+    status TEXT NOT NULL,               -- accepted | hashing | duplicate | rejected | error | stored
+    error TEXT,
+    log_id INTEGER,                     -- logs.id once stored
+    uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    uploaded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_ingest_status ON ingest(status);
 CREATE INDEX IF NOT EXISTS ix_aircraft_log ON aircraft(log_id);
 CREATE INDEX IF NOT EXISTS ix_flights_ac ON flights(aircraft_id);
 CREATE INDEX IF NOT EXISTS ix_changes_ac ON setting_changes(aircraft_id);

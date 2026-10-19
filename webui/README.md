@@ -11,7 +11,7 @@ disk, parsed with the fast C++ parser (`../cpp`) and stored in a SQLite database
     python3 app.py                                                  # http://127.0.0.1:8000
 
 Environment variables: `PPRZ_WEB_DATA` (storage + database, default `./data`), `FASTREADER` (parser binary),
-`PPRZ_PATH_RATE` (flight path points per second, default 5), `PPRZ_WORKERS` (parallel parsers, default 2),
+`PPRZ_PATH_RATE` (flight path points per second, default 5), `PPRZ_WORKERS` (parallel parsers, default 2–4 from CPU count), `PPRZ_INGEST_WORKERS` (background hash/dedupe workers, default 2),
 `HOST`, `PORT`.
 
 ## Server installation (Ubuntu/Debian)
@@ -235,9 +235,13 @@ The sign-in page also offers **Sign in with TU Delft**. That uses SAML 2.0 again
 ## Behaviour
 
 - `.data` files are paired with the `.log` of the same name (same folder / zip directory). Other files are ignored.
+- Upload returns as soon as the files are on disk. SHA-256 fingerprinting, duplicate checks and parsing run in
+  background workers (`PPRZ_INGEST_WORKERS`, `PPRZ_WORKERS`). Zips are unpacked there too, not during the HTTP request.
 - The SHA-256 of the `.data` file identifies a log. A log that is already known is not stored or parsed again.
   (If the first upload had no `.log` and a later one has, the `.log` is added and the log is re-parsed.)
   The hash is passed to the parser (`--sha256`) and is also part of its JSON output (`log.sha256`).
+- The Uploads page lists the newest 100 logs. `GET /api/logs?limit=100&offset=0` (max limit 200) returns
+  `{logs, total, limit, offset}`.
 - Each parsed log records which parser produced it (`parser_name`, `parser_version`, `parser_path_rate_hz`).
   After installing a newer parser (bump `PARSER_VERSION` in `cpp/fastreader.cpp`) use **Re-parse outdated**
   (`POST /api/reparse-outdated`) to re-run it on every log with another version, and on failed logs.
@@ -250,7 +254,7 @@ The sign-in page also offers **Sign in with TU Delft**. That uses SAML 2.0 again
 
 ## API
 
-`POST /api/upload`, `GET /api/logs`, `GET /api/logs/<id>`, `GET /api/aircraft/<id>/config`,
+`POST /api/upload` (returns `accepted` immediately), `GET /api/logs` (`{logs, total, limit, offset}`), `GET /api/logs/<id>`, `GET /api/aircraft/<id>/config`,
 `GET /api/flights/<id>/path`, `GET /api/logs/<id>/download/{data,log}`, `POST /api/logs/<id>/reparse`,
 `POST /api/reparse-outdated`, `DELETE /api/logs/<id>`, `GET /api/status`.
 

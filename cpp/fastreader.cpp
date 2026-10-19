@@ -6,6 +6,7 @@
  */
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
@@ -348,14 +349,31 @@ struct LogHeader {
   bool has_logged_with = false;    // "<!-- logged with ... -->" comment, also only written by the ground station
 };
 
+// Paparazzi XML mixes name= / NAME= and ac_id= / AC_ID=. Match the attribute name ignoring case.
 std::string xml_attr(const std::string &line, size_t from, const char *key)
 {
-  std::string k = std::string(key) + "=\"";
-  size_t n = line.find(k, from);
-  if (n == std::string::npos) { return ""; }
-  n += k.size();
-  size_t e = line.find('"', n);
-  return e == std::string::npos ? "" : line.substr(n, e - n);
+  const size_t klen = std::strlen(key);
+  if (klen == 0 || from >= line.size()) { return ""; }
+  for (size_t i = from; i + klen + 2 <= line.size(); i++) {
+    if (line[i + klen] != '=' || line[i + klen + 1] != '"') { continue; }
+    if (i > 0) {
+      unsigned char prev = static_cast<unsigned char>(line[i - 1]);
+      if (prev != ' ' && prev != '\t' && prev != '<') { continue; }
+    }
+    bool match = true;
+    for (size_t j = 0; j < klen; j++) {
+      if (std::tolower(static_cast<unsigned char>(line[i + j])) !=
+          std::tolower(static_cast<unsigned char>(key[j]))) {
+        match = false;
+        break;
+      }
+    }
+    if (!match) { continue; }
+    size_t v = i + klen + 2;
+    size_t e = line.find('"', v);
+    return e == std::string::npos ? "" : line.substr(v, e - v);
+  }
+  return "";
 }
 
 // Read aircraft names, configuration and start time from the .log file
@@ -793,7 +811,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.3.3";
+constexpr const char *PARSER_VERSION = "1.3.4";
 
 // Onboard logs often stamp each line with get_sys_time_usec()/1e6. That counter is
 // uint32 microseconds, so the time column wraps every 2^32 us (~71.58 min). Long
