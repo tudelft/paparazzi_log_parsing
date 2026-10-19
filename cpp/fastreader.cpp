@@ -228,6 +228,11 @@ Assessment assess(const Flight &f) {
   if (horiz >= 3) { add(1.5, "moved more than 3 m horizontally"); }
   else if (horiz >= 1) { add(0.5, "moved more than 1 m horizontally"); }
 
+  // Taxi / ground test: motors on and rolling, but height hardly changes.
+  // Known taxis climb < 0.5 m while rolling 16–66 m; real flights in the set climb ≥ 26 m.
+  bool ground_roll = climb < 1.5 && horiz >= 3;
+  if (ground_roll) { add(-4, "moved on the ground without climbing"); }
+
   if (st.max_speed >= 1) { add(1, "speed above 1 m/s"); }
   if (st.max_tilt_deg >= 10) { add(0.5, "tilted more than 10 degrees"); }
 
@@ -244,7 +249,8 @@ Assessment assess(const Flight &f) {
     else if (on >= 0.9) { add(0.5, "motors on throughout"); }
   }
   // Under 2 s the flag most likely flickered, whatever the movement
-  const char *verdict = motors_off ? "ground" : score >= 2.5 && dur >= 2 ? "flight" : score <= 0 ? "ground" : "uncertain";
+  const char *verdict = motors_off || ground_roll ? "ground"
+      : score >= 2.5 && dur >= 2 ? "flight" : score <= 0 ? "ground" : "uncertain";
   return {verdict, score, why};
 }
 
@@ -787,7 +793,12 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.3.1";
+constexpr const char *PARSER_VERSION = "1.3.3";
+
+// Onboard logs often stamp each line with get_sys_time_usec()/1e6. That counter is
+// uint32 microseconds, so the time column wraps every 2^32 us (~71.58 min). Long
+// flights then look like 13 minutes with the graphs drawn on top of themselves.
+constexpr double SYS_TIME_WRAP_S = 4294.967296;  // 2^32 * 1e-6
 
 // Portable SHA-256 of a memory block (runs on its own thread next to the parser)
 std::string sha256_hex(const unsigned char *p, size_t n)
@@ -904,6 +915,7 @@ int main(int argc, char *argv[])
 
   std::map<int, AircraftState> acs;
   double first_time = -1, last_time = 0;
+  double prev_raw_time = -1, time_offset = 0;
 
   auto touch = [&](int ac, double t) -> AircraftState & {
     AircraftState &s = acs[ac];
@@ -926,6 +938,9 @@ int main(int argc, char *argv[])
     auto r = std::from_chars(q, eol, t);
     if (r.ec != std::errc()) { continue; }
     q = r.ptr;
+    if (prev_raw_time >= 0 && t + 2000.0 < prev_raw_time) { time_offset += SYS_TIME_WRAP_S; }
+    prev_raw_time = t;
+    t += time_offset;
     int ac;
     if (!to_num(next_token(q, eol), ac)) { continue; }
     std::string_view name = next_token(q, eol);
