@@ -42,8 +42,25 @@ struct InsState {
   double pos[3] = {0, 0, 0}, vel[3] = {0, 0, 0}, acc[3] = {0, 0, 0};
 };
 
+// Horizontal metres on the WGS84 sphere, then 3D with altitude.
+double earth_distance_m(double lat1, double lon1, double lat2, double lon2)
+{
+  const double r = M_PI / 180.0;
+  const double p1 = lat1 * r, p2 = lat2 * r, dp = (lat2 - lat1) * r, dl = (lon2 - lon1) * r;
+  const double a = std::sin(dp / 2) * std::sin(dp / 2) +
+                   std::cos(p1) * std::cos(p2) * std::sin(dl / 2) * std::sin(dl / 2);
+  return 2 * 6371000.0 * std::atan2(std::sqrt(a), std::sqrt(std::max(0.0, 1.0 - a)));
+}
+
+double step_distance_m(double lat1, double lon1, double alt1, double lat2, double lon2, double alt2)
+{
+  return std::hypot(earth_distance_m(lat1, lon1, lat2, lon2), alt2 - alt1);
+}
+
 struct PathPoint {
   double t, lat, lon, alt;
+  double distance_m;       // cumulative 3D distance flown along the path [m]
+  double from_takeoff_m;   // 3D range from the takeoff location [m]
   bool has_baro;
   double pressure_pa, baro_alt_m;  // AIR_DATA static pressure and barometric altitude (AMSL)
   bool has_volt, has_as;
@@ -115,7 +132,68 @@ struct Flight {
   double land_lat = 0, land_lon = 0, land_alt = 0;
   bool has_land_pos = false;
   bool complete = false;  // false if the log ended while in flight
+  double distance_m = 0;            // 3D path length flown; GPS when available, else INS
+  double from_takeoff_m = 0;        // 3D range from takeoff at the latest sample
+  double max_from_takeoff_m = 0;    // farthest 3D range from takeoff during the flight
+  bool has_prev_gps = false, has_prev_ins = false, has_gps_origin = false, has_ins_origin = false;
+  double prev_lat = 0, prev_lon = 0, prev_alt = 0;
+  double prev_n = 0, prev_e = 0, prev_d = 0;
+  double origin_lat = 0, origin_lon = 0, origin_alt = 0;
+  double origin_n = 0, origin_e = 0, origin_d = 0;
+
   double duration() const { return landing_time - takeoff_time; }
+
+  void set_from_takeoff(double range) {
+    from_takeoff_m = range;
+    if (range > max_from_takeoff_m) { max_from_takeoff_m = range; }
+  }
+
+  static bool plausible_ll(double lat, double lon) {
+    return !(lat == 0.0 && lon == 0.0) && lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0;
+  }
+
+  // Every GPS_INT with a 3D fix. Jumps over 500 m in one sample are ignored (glitches).
+  void add_gps_step(double lat, double lon, double alt) {
+    bool use = true;
+    if (has_prev_gps) {
+      const double d = step_distance_m(prev_lat, prev_lon, prev_alt, lat, lon, alt);
+      if (d < 500) { distance_m += d; }
+      else { use = false; }
+    }
+    if (use && plausible_ll(lat, lon)) {
+      if (!has_gps_origin) {
+        if (has_pos && plausible_ll(this->lat, this->lon)) {
+          origin_lat = this->lat; origin_lon = this->lon; origin_alt = this->alt;
+        } else {
+          origin_lat = lat; origin_lon = lon; origin_alt = alt;
+        }
+        has_gps_origin = true;
+        from_takeoff_m = 0;
+        max_from_takeoff_m = 0;
+      }
+      set_from_takeoff(step_distance_m(origin_lat, origin_lon, origin_alt, lat, lon, alt));
+    }
+    has_prev_gps = true;
+    prev_lat = lat; prev_lon = lon; prev_alt = alt;
+  }
+  // INS NED steps only until the first GPS fix, so indoor flights still get a length and range.
+  void add_ins_step(const InsState &n) {
+    if (has_prev_gps) { return; }
+    if (has_prev_ins) {
+      distance_m += std::hypot(n.pos[0] - prev_n, n.pos[1] - prev_e, n.pos[2] - prev_d);
+    } else if (takeoff_ins.valid) {
+      origin_n = takeoff_ins.pos[0]; origin_e = takeoff_ins.pos[1]; origin_d = takeoff_ins.pos[2];
+      has_ins_origin = true;
+    } else {
+      origin_n = n.pos[0]; origin_e = n.pos[1]; origin_d = n.pos[2];
+      has_ins_origin = true;
+    }
+    has_prev_ins = true;
+    prev_n = n.pos[0]; prev_e = n.pos[1]; prev_d = n.pos[2];
+    if (has_ins_origin) {
+      set_from_takeoff(std::hypot(n.pos[0] - origin_n, n.pos[1] - origin_e, n.pos[2] - origin_d));
+    }
+  }
 };
 
 struct Assessment {
@@ -709,7 +787,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.2.2";
+constexpr const char *PARSER_VERSION = "1.3.1";
 
 // Portable SHA-256 of a memory block (runs on its own thread next to the parser)
 std::string sha256_hex(const unsigned char *p, size_t n)
@@ -952,11 +1030,16 @@ int main(int argc, char *argv[])
           AircraftState &s = touch(ac, t);
           s.has_gps = true;
           s.lat = lat * 1e-7; s.lon = lon * 1e-7; s.alt = alt * 1e-3;
-          if (s.in_flight && !s.flights.empty()) { s.flights.back().stats.add_gps(s.lat, s.lon, s.alt); }
+          if (s.in_flight && !s.flights.empty()) {
+            Flight &f = s.flights.back();
+            f.stats.add_gps(s.lat, s.lon, s.alt);
+            f.add_gps_step(s.lat, s.lon, s.alt);
+          }
           if (path_rate > 0 && s.in_flight && !s.flights.empty() &&
               static_cast<long>(t * path_rate) != s.last_path_bucket) {
             s.last_path_bucket = static_cast<long>(t * path_rate);
-            s.flights.back().path.push_back({t, s.lat, s.lon, s.alt, s.has_baro, s.pressure, s.baro_alt,
+            s.flights.back().path.push_back({t, s.lat, s.lon, s.alt, s.flights.back().distance_m,
+                                                s.flights.back().from_takeoff_m, s.has_baro, s.pressure, s.baro_alt,
                                                 s.has_volt, s.has_as, s.vsupply, s.airspeed, s.tas, s.diff_p,
                                                 s.has_euler, s.has_quat, s.roll, s.pitch, s.yaw, s.qi, s.qx,
                                                 s.qy, s.qz, s.ap_mode, s.h_mode, s.v_mode, s.block, s.stage,
@@ -1005,7 +1088,11 @@ int main(int argc, char *argv[])
           }
           {
             AircraftState &s = touch(ac, t);
-            if (s.in_flight && !s.flights.empty()) { s.flights.back().stats.add_ins(n); }
+            if (s.in_flight && !s.flights.empty()) {
+              Flight &f = s.flights.back();
+              f.stats.add_ins(n);
+              f.add_ins_step(n);
+            }
           }
           break;
         }
@@ -1136,13 +1223,19 @@ int main(int argc, char *argv[])
     }
   }
 
+  double log_flight_dist = 0;
+  for (int id : report_ids) {
+    for (const auto &f : acs[id].flights) { log_flight_dist += f.distance_m; }
+  }
+
   std::ostringstream o;
   o << "{\n  \"parser\": {\"name\": \"" << PARSER_NAME << "\", \"version\": \"" << PARSER_VERSION
     << "\", \"path_rate_hz\": " << num(path_rate) << "},\n  \"log\": {\n    \"file\": " << json_escape(data_file)
     << ",\n    \"type\": \"" << log_type << "\",\n    \"type_basis\": \"" << type_basis
     << "\",\n    \"sha256\": \"" << sha256 << "\",\n    \"size_bytes\": " << size << ",\n    \"start_utc\": " << utc(0)
     << ",\n    \"first_data_utc\": " << utc(t0) << ",\n    \"end_utc\": " << utc(last_time)
-    << ",\n    \"duration_s\": " << num(last_time - t0) << "\n  },\n  \"aircraft\": [";
+    << ",\n    \"duration_s\": " << num(last_time - t0)
+    << ",\n    \"total_flight_distance_m\": " << num(log_flight_dist) << "\n  },\n  \"aircraft\": [";
 
   // {"time_s", "utc", "location", "voltage_v"} describing a takeoff or landing
   auto event = [&](double t, bool has_pos, double lat, double lon, double alt, bool has_v, double v, const Wind &w, const InsState &ins) {
@@ -1188,8 +1281,8 @@ int main(int argc, char *argv[])
       }
     }
 
-    double total = 0;
-    for (const auto &f : s.flights) { total += f.duration(); }
+    double total = 0, total_dist = 0;
+    for (const auto &f : s.flights) { total += f.duration(); total_dist += f.distance_m; }
 
     // Identification, crew and summary
     o << (first_ac ? "" : ",") << "\n    {\n      \"ac_id\": " << id << ",\n      \"name\": "
@@ -1201,12 +1294,16 @@ int main(int argc, char *argv[])
       << "},\n      \"mission\": {\"pic\": " << json_escape(pic) << ", \"pac\": " << json_escape(pac)
       << ", \"gcs\": " << json_escape(gcs) << ", \"goal\": " << json_escape(goal)
       << "},\n      \"summary\": {\"num_flights\": " << s.flights.size() << ", \"total_flight_time_s\": " << num(total)
+      << ", \"total_flight_distance_m\": " << num(total_dist)
       << "},\n      \"flights\": [";
 
     int i = 1;
     for (const auto &f : s.flights) {
       o << (i == 1 ? "" : ",") << "\n        {\n          \"flight\": " << i++ << ",\n          \"duration_s\": "
-        << num(f.duration()) << ",\n          \"landed\": " << (f.complete ? "true" : "false")
+        << num(f.duration()) << ",\n          \"distance_m\": " << num(f.distance_m)
+        << ",\n          \"from_takeoff_m\": " << num(f.from_takeoff_m)
+        << ",\n          \"max_from_takeoff_m\": " << num(f.max_from_takeoff_m)
+        << ",\n          \"landed\": " << (f.complete ? "true" : "false")
         << ",\n          \"assessment\": " << assessment_json(f)
         << ",\n          \"takeoff\": " << event(f.takeoff_time, f.has_pos, f.lat, f.lon, f.alt, f.has_takeoff_volt, f.takeoff_volt, f.takeoff_wind, f.takeoff_ins)
         << ",\n          \"landing\": "
@@ -1216,7 +1313,9 @@ int main(int argc, char *argv[])
       for (const auto &pt : f.path) {
         char buf[192];
         // time, position (GPS + barometric)
-        o << (fp ? "" : ",") << "\n            {\"time_s\": " << num(pt.t) << ", \"utc\": " << utc(pt.t);
+        o << (fp ? "" : ",") << "\n            {\"time_s\": " << num(pt.t) << ", \"utc\": " << utc(pt.t)
+          << ", \"distance_m\": " << num(pt.distance_m)
+          << ", \"from_takeoff_m\": " << num(pt.from_takeoff_m);
         snprintf(buf, sizeof(buf), ", \"position\": {\"lat\": %.7f, \"lon\": %.7f, \"gps_alt_m\": %.1f", pt.lat, pt.lon,
                  pt.alt);
         o << buf;

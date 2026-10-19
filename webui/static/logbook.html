@@ -79,7 +79,7 @@
     </div>
     <div class="scroll">
     <table class="log">
-      <thead><tr><th class="chk"></th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th>Source</th><th>Aircraft</th><th>Project</th><th>Takeoff location</th><th>Landing location</th>
+      <thead><tr><th class="chk"></th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th title="Farthest 3D range from the takeoff location">From takeoff</th><th>Source</th><th>Aircraft</th><th>Project</th><th>Takeoff location</th><th>Landing location</th>
         <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -99,6 +99,7 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtDur = s => s == null ? '' : `${Math.floor(s/60)}m ${String(Math.round(s%60)).padStart(2,'0')}s`;
+const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km` : `${Math.round(m)} m`;
 const fmtDate = t => (t || '').slice(0, 10);
 const fmtHm = t => (t || '').slice(11, 16);
 const fmtTime = t => (t || '').replace('T', ' ').slice(0, 19);
@@ -294,6 +295,8 @@ function combine(list, radiusKm) {
     const fl = g.flights, last = fl[fl.length - 1];
     g.id = fl[0].flight_id;
     g.duration_s = fl.reduce((s, f) => s + (f.duration_s || 0), 0);
+    g.distance_m = fl.reduce((s, f) => s + (f.distance_m || 0), 0);
+    g.max_from_takeoff_m = fl.reduce((s, f) => Math.max(s, f.max_from_takeoff_m || 0), 0);
     g.landing_utc = last.landing_utc;
     g.landing_lat = last.landing_lat; g.landing_lon = last.landing_lon; g.landing_place = last.landing_place;
     const uniq = k => [...new Set(fl.map(f => f[k]).filter(Boolean))];
@@ -308,15 +311,15 @@ const srcLabel = fl => ['onboard_sd', 'gcs'].filter(t => fl.some(f => f.sources.
 const verdictMark = f => f.verdict === 'ground' ? ' <span class="mute" title="Probably not a real flight">(ground)</span>'
   : f.verdict === 'uncertain' ? ' <span class="mute" title="Unsure whether this was a real flight">(?)</span>' : '';
 const cells = (f, o) => `${chk(o.ids, o.canEdit)}<td>${esc(fmtDate(f.takeoff_utc))}</td><td>${esc(fmtHm(f.takeoff_utc))}</td><td>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</td>
-    <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${o.sources}</td><td>${esc(f.aircraft)}${f.aircraft_uid ? ` <span class="mute">${esc(f.aircraft_uid)}</span>` : ''}${verdictMark(f)}</td>
+    <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${fmtDist(o.max_from_takeoff_m)}</td><td>${o.sources}</td><td>${esc(f.aircraft)}${f.aircraft_uid ? ` <span class="mute">${esc(f.aircraft_uid)}</span>` : ''}${verdictMark(f)}</td>
     <td>${o.project}</td>
     <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place)}</td>
     <td>${crewSelect(f, 'pic', o.ids)}</td><td>${crewSelect(f, 'pac', o.ids)}</td><td>${crewSelect(f, 'gcs', o.ids)}</td><td>${esc(o.goal)}</td><td>${esc(o.comment)}</td>`;
 
 function flightRows(f, cls = '') {
   const ids = crewIds(f);
-  return `<tr class="flight ${cls}" data-id="${f.flight_id}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : 1, sources: srcLabel([f]), duration_s: f.duration_s, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: f.can_edit_crew})}</tr>`
-    + (open_.has(f.flight_id) ? `<tr><td colspan="16" class="detail">${detail(f)}</td></tr>` : '');
+  return `<tr class="flight ${cls}" data-id="${f.flight_id}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : 1, sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: f.can_edit_crew})}</tr>`
+    + (open_.has(f.flight_id) ? `<tr><td colspan="18" class="detail">${detail(f)}</td></tr>` : '');
 }
 
 function groupRows(g) {
@@ -324,7 +327,7 @@ function groupRows(g) {
   const first = g.flights[0], isOpen = openGroups.has(g.id);
   const times = g.flights.map(f => `${fmtHm(f.takeoff_utc)}–${fmtHm(f.landing_utc) || '?'}`).join(', ');
   const ids = [...new Set(g.flights.flatMap(crewIds))];
-  return `<tr class="group" data-gid="${g.id}" title="${esc(times)}">${cells(first, {landing_utc: g.landing_utc, count: (isOpen ? '▾ ' : '▸ ') + g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: projectCell(first), ids, canEdit: g.flights.every(f => f.can_edit_crew)})}</tr>`
+  return `<tr class="group" data-gid="${g.id}" title="${esc(times)}">${cells(first, {landing_utc: g.landing_utc, count: (isOpen ? '▾ ' : '▸ ') + g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: projectCell(first), ids, canEdit: g.flights.every(f => f.can_edit_crew)})}</tr>`
     + (isOpen ? g.flights.map(f => flightRows(f, 'sub')).join('') : '');
 }
 
@@ -344,7 +347,8 @@ function render() {
   $('selAll').checked = pageIds.length > 0 && pageIds.every(id => selected.has(id));
   $('selAll').onchange = () => { toggleSel(pageIds, $('selAll').checked); };
   const total = shown.reduce((s, f) => s + (f.duration_s || 0), 0);
-  $('summary').textContent = `${shown.length} flights` + ($('combine').checked ? ` · ${entries.length} days/sessions` : '') + ` · ${fmtDur(total)} total`;
+  const dist = shown.reduce((s, f) => s + (f.distance_m || 0), 0);
+  $('summary').textContent = `${shown.length} flights` + ($('combine').checked ? ` · ${entries.length} days/sessions` : '') + ` · ${fmtDur(total)} · ${fmtDist(dist)} total`;
   initMiniMaps();
   return shown;
 }
@@ -361,7 +365,7 @@ $('rows').onclick = e => {
 };
 
 function exportCsv() {
-  const cols = ['takeoff_utc', 'landing_utc', 'duration_s', 'aircraft', 'aircraft_uid', 'project_name', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
+  const cols = ['takeoff_utc', 'landing_utc', 'duration_s', 'distance_m', 'from_takeoff_m', 'max_from_takeoff_m', 'aircraft', 'aircraft_uid', 'project_name', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
   const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const csv = [cols.join(',')].concat(render().map(f => cols.map(c => cell(c.endsWith('_user') ? f[c]?.display_name : f[c])).join(','))).join('\n');
   const a = document.createElement('a');

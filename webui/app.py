@@ -1961,7 +1961,8 @@ def merge_sources(flights):
         if not main["landed"]:
             donor = next((o for o in fl[1:] if o["landed"]), None)
             if donor:
-                for k in ("landing_utc", "landing_lat", "landing_lon", "landing_voltage_v", "landing_json", "duration_s", "landed"):
+                for k in ("landing_utc", "landing_lat", "landing_lon", "landing_voltage_v", "landing_json",
+                          "duration_s", "distance_m", "from_takeoff_m", "max_from_takeoff_m", "landed"):
                     main[k] = donor[k]
         for role in ROLES + ("goal",):
             main[role] = next((o[role] for o in sorted(fl, key=lambda r: -TYPE_ORDER[r["log_type"]]) if (o[role] or "").strip()), main[role])
@@ -1969,6 +1970,9 @@ def merge_sources(flights):
             key = role + "_user_id"
             main[key] = next((o[key] for o in sorted(fl, key=lambda r: -TYPE_ORDER[r["log_type"]]) if o.get(key)), main.get(key))
         main["comment"] = next((o["comment"] for o in sorted(fl, key=lambda r: -TYPE_ORDER[r["log_type"]]) if (o.get("comment") or "").strip()), main.get("comment"))
+        main["distance_m"] = next((o["distance_m"] for o in fl if o.get("distance_m") is not None), main.get("distance_m"))
+        main["from_takeoff_m"] = next((o["from_takeoff_m"] for o in fl if o.get("from_takeoff_m") is not None), main.get("from_takeoff_m"))
+        main["max_from_takeoff_m"] = next((o["max_from_takeoff_m"] for o in fl if o.get("max_from_takeoff_m") is not None), main.get("max_from_takeoff_m"))
         main["sources"] = [{"log_id": o["log_id"], "log_type": o["log_type"], "log_name": o["log_name"], "flight_id": o["flight_id"],
                             "has_log": bool(o["has_log"]), "takeoff_utc": o["takeoff_utc"], "duration_s": o["duration_s"],
                             "uploaded_by_name": o["uploaded_by_name"]} for o in fl]
@@ -1997,7 +2001,8 @@ def stats():
     and a GCS log of the same flight are counted once. Hours are only from those visible flights.
     """
     keys = ("aircraft", "aircraft_uid", "drone_id", "project_id", "project_name",
-            "duration_s", "takeoff_utc", "verdict", "indoor",
+            "duration_s", "distance_m", "from_takeoff_m", "max_from_takeoff_m",
+            "takeoff_utc", "verdict", "indoor",
             "pic", "pac", "pic_user", "pac_user")
     return jsonify(all=bool(g.user["is_admin"]),
                    flights=[{k: r.get(k) for k in keys} for r in logbook_rows()])
@@ -2007,7 +2012,8 @@ def logbook_rows():
     where, params = flight_list_clause()
     con = conn()
     rows = con.execute(
-        "SELECT f.id AS flight_id, f.idx, f.takeoff_utc, f.landing_utc, f.duration_s, f.landed,"
+        "SELECT f.id AS flight_id, f.idx, f.takeoff_utc, f.landing_utc, f.duration_s, f.distance_m,"
+        " f.from_takeoff_m, f.max_from_takeoff_m, f.landed,"
         " f.takeoff_lat, f.takeoff_lon, f.landing_lat, f.landing_lon, f.project_id,"
         " f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment,"
         " a.id AS aircraft_pk, a.ac_id, COALESCE(d.name, a.name) AS aircraft, a.name AS aircraft_logged,"
