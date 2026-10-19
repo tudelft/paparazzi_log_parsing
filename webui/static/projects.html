@@ -41,7 +41,7 @@
 <body>
 <header>
   <h1>Admin</h1>
-  <span class="meta"><a href="/">Uploads</a> · <a href="/logbook">Logbook</a> · <a href="/admin" style="color:#fff">Admin</a></span>
+  <span class="meta" id="nav"></span>
   <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
 </header>
 <main>
@@ -75,7 +75,6 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
-async function logout() { await fetch('/logout', {method: 'POST'}); location.href = '/login'; }
 let projects = [], users = [];
 const open_ = new Set();
 const ticksOf = role => ({see: !!role, upload: role === 'add' || role === 'full', del: role === 'full'});

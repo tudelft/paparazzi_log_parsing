@@ -14,8 +14,10 @@
   header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
   header h1 { margin:0; font-size:18px; }
   header .meta { color:#9fb0c3; font-size:12px; }
-  main { max-width:1400px; margin:0 auto; padding:20px; }
+  main { max-width:none; width:100%; margin:0; padding:16px 12px 20px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  #summary { color:var(--mute); font-size:13px; }
+  .foot { margin:10px 0 0; justify-content:space-between; }
   .scroll { overflow-x:auto; }
   button { font:inherit; background:var(--sec); color:var(--txt); border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
   input[type=search] { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:6px; width:280px; }
@@ -30,6 +32,7 @@
   .mono { font-family:ui-monospace, monospace; font-size:12px; }
   .mute { color:var(--mute); }
   .bar { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+  .bar[hidden] { display:none; }
   a { color:var(--acc); }
   a.btn { display:inline-block; background:var(--btn); color:#fff; padding:6px 12px; border-radius:6px; text-decoration:none; }
   a.btn.sec { background:var(--sec); color:var(--txt); }
@@ -51,8 +54,7 @@
 <body>
 <header>
   <h1>Flight logbook</h1>
-  <span class="meta"><a href="/" style="color:#9fb0c3">Uploads</a> · <a href="/logbook" style="color:#fff">Logbook</a><span id="adminLink" hidden> · <a href="/admin" style="color:#9fb0c3">Admin</a></span></span>
-  <span class="meta" id="summary"></span>
+  <span class="meta" id="nav"></span>
   <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
 </header>
 <main>
@@ -82,10 +84,13 @@
       <tbody id="rows"></tbody>
     </table>
     </div>
-    <div class="bar" style="margin:10px 0 0; justify-content:flex-end">
-      <span class="mute">Rows per page</span>
-      <select id="size"><option>10</option><option selected>25</option><option>50</option><option>100</option></select>
-      <button id="prev">‹ Previous</button><span id="pageInfo" class="mute"></span><button id="next">Next ›</button>
+    <div class="bar foot">
+      <span id="summary"></span>
+      <span class="bar" style="margin:0">
+        <span class="mute">Rows per page</span>
+        <select id="size"><option>10</option><option selected>25</option><option>50</option><option>100</option></select>
+        <button id="prev">‹ Previous</button><span id="pageInfo" class="mute"></span><button id="next">Next ›</button>
+      </span>
     </div>
   </section>
 </main>
@@ -107,7 +112,6 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
-async function logout() { await fetch('/logout', {method: 'POST'}); location.href = '/login'; }
 const projectKey = 'pprzProject';
 function projectQuery() {
   const v = localStorage.getItem(projectKey) || '';
@@ -116,7 +120,6 @@ function projectQuery() {
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
-  $('adminLink').hidden = !d.user.is_admin;
   [projects, people] = await Promise.all([
     fetch('/api/projects').then(r => r.json()),
     fetch('/api/people').then(r => r.json()),
