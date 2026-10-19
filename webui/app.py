@@ -40,7 +40,9 @@ TMP_DIR = DATA_DIR / "tmp"
 DB_PATH = str(DATA_DIR / "logs.db")
 FASTREADER = os.environ.get("FASTREADER", str(HERE.parent / "cpp" / "build" / "paparazzi_log_parsing"))
 PATH_RATE = float(os.environ.get("PPRZ_PATH_RATE", "5"))
-WORKERS = int(os.environ.get("PPRZ_WORKERS", "2"))
+# Parser binaries run in parallel; SQLite writes are still one-at-a-time (db.write_lock).
+WORKERS = int(os.environ.get("PPRZ_WORKERS", str(max(2, min(4, os.cpu_count() or 2)))))
+INGEST_WORKERS = int(os.environ.get("PPRZ_INGEST_WORKERS", "2"))
 
 PAGES_DIR = HERE / "static"
 # Pages are served by explicit routes so nothing is reachable without logging in (except the login page)
@@ -67,6 +69,7 @@ app.config.update(
     MAX_CONTENT_LENGTH=None,
 )
 jobs: "queue.Queue[int]" = queue.Queue()
+ingest_jobs: "queue.Queue[int]" = queue.Queue()
 
 
 def now():
@@ -167,52 +170,26 @@ def worker():
 def start_workers():
     STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     TMP_DIR.mkdir(parents=True, exist_ok=True)
+    (TMP_DIR / "ingest").mkdir(parents=True, exist_ok=True)
     db.init(DB_PATH)
     con = conn()
     assign_open_flights(con)
     con.execute("UPDATE logs SET status='queued' WHERE status IN ('queued', 'parsing')")
+    con.execute("UPDATE ingest SET status='accepted' WHERE status='hashing'")
     con.commit()
     for r in con.execute("SELECT id FROM logs WHERE status='queued' ORDER BY id"):
         jobs.put(r["id"])
+    for r in con.execute("SELECT id FROM ingest WHERE status='accepted' ORDER BY id"):
+        ingest_jobs.put(r["id"])
     for _ in range(max(1, WORKERS)):
         threading.Thread(target=worker, daemon=True).start()
+    for _ in range(max(1, INGEST_WORKERS)):
+        threading.Thread(target=ingest_worker, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Upload
 # ---------------------------------------------------------------------------------------------------------------------
-def collect_files(stage, uploads):
-    """Return ({(directory, stem): {'.data': path, '.log': path}}, ignored) for plain files and zip members."""
-    found = {}
-
-    def add(rel, path):
-        d, base = posixpath.split(rel)
-        stem, ext = posixpath.splitext(base)
-        if ext.lower() in (".data", ".log"):
-            found.setdefault((d, stem), {})[ext.lower()] = path
-        return ext.lower() in (".data", ".log")
-
-    ignored = []
-    for rel, path in uploads:
-        if rel.lower().endswith(".zip"):
-            zrel = rel[:-4]
-            try:
-                with zipfile.ZipFile(path) as z:
-                    for info in z.infolist():
-                        member = clean_relpath(info.filename)
-                        if info.is_dir() or not member.lower().endswith((".data", ".log")):
-                            continue
-                        dest = stage / uuid.uuid4().hex
-                        with z.open(info) as src, open(dest, "wb") as dst:
-                            shutil.copyfileobj(src, dst, 8 << 20)
-                        add(posixpath.join(zrel, member), str(dest))
-            except zipfile.BadZipFile:
-                ignored.append({"name": rel, "status": "ignored", "reason": "not a valid zip file"})
-        elif not add(rel, path):
-            ignored.append({"name": rel, "status": "ignored", "reason": "not a .data, .log or .zip file"})
-    return found, ignored
-
-
 def safe_filename(name):
     return "".join(c if c.isalnum() or c in "._-" else "_" for c in name) or "log"
 
@@ -231,75 +208,252 @@ def store_files(sha, name, data_src, log_src):
     return data_rel, log_rel
 
 
+def ingest_stage(rel):
+    return DATA_DIR / rel
+
+
+def insert_ingest(con, kind, name, stage_rel, data_name, log_name, size_bytes, user_id):
+    def go():
+        with db.write_lock:
+            con.execute("BEGIN IMMEDIATE")
+            cur = con.execute(
+                "INSERT INTO ingest (kind, name, stage_dir, data_name, log_name, size_bytes, status,"
+                " uploaded_by, uploaded_at) VALUES (?,?,?,?,?,?,'accepted',?,?)",
+                (kind, name, stage_rel, data_name, log_name, size_bytes, user_id, now()))
+            con.commit()
+            return cur.lastrowid
+
+    return db.retry_locked(go, con)
+
+
+def set_ingest(con, ingest_id, **fields):
+    cols = ", ".join(f"{k}=?" for k in fields)
+    def go():
+        with db.write_lock:
+            con.execute("BEGIN IMMEDIATE")
+            con.execute(f"UPDATE ingest SET {cols} WHERE id=?", (*fields.values(), ingest_id))
+            con.commit()
+
+    db.retry_locked(go, con)
+
+
+def ingest_worker():
+    while True:
+        ingest_id = ingest_jobs.get()
+        try:
+            run_ingest(ingest_id)
+        except Exception as e:  # noqa: BLE001 - any failure is recorded on the ingest row
+            try:
+                set_ingest(conn(), ingest_id, status="error", error=str(e)[:2000])
+            except Exception:
+                pass
+        finally:
+            ingest_jobs.task_done()
+
+
+def run_ingest(ingest_id):
+    con = conn()
+    row = con.execute("SELECT * FROM ingest WHERE id=?", (ingest_id,)).fetchone()
+    if row is None or row["status"] not in ("accepted", "hashing"):
+        return
+    set_ingest(con, ingest_id, status="hashing", error=None)
+    if row["kind"] == "zip":
+        explode_zip(con, row)
+    else:
+        ingest_pair(con, row)
+
+
+def explode_zip(con, row):
+    """Unpack a zip in the background and enqueue each .data/.log pair."""
+    stage = ingest_stage(row["stage_dir"])
+    zip_path = stage / row["data_name"]
+    try:
+        zf = zipfile.ZipFile(zip_path)
+    except zipfile.BadZipFile:
+        set_ingest(con, row["id"], status="error", error="not a valid zip file")
+        shutil.rmtree(stage, ignore_errors=True)
+        return
+    unpacked = stage / "unpacked"
+    unpacked.mkdir(parents=True, exist_ok=True)
+    found = {}
+    with zf:
+        for info in zf.infolist():
+            member = clean_relpath(info.filename)
+            if info.is_dir() or not member.lower().endswith((".data", ".log")):
+                continue
+            dest = unpacked / uuid.uuid4().hex
+            with zf.open(info) as src, open(dest, "wb") as dst:
+                shutil.copyfileobj(src, dst, 8 << 20)
+            d, base = posixpath.split(member)
+            stem, ext = posixpath.splitext(base)
+            found.setdefault((d, stem), {})[ext.lower()] = (posixpath.join(d, stem + ext.lower()), str(dest))
+    n = 0
+    for (d, stem), parts in sorted(found.items()):
+        name = posixpath.join(d, stem + ".data") if d else stem + ".data"
+        if ".data" not in parts or ".log" not in parts:
+            continue
+        pair_rel = str(Path(row["stage_dir"]) / "p" / uuid.uuid4().hex)
+        pair_dir = ingest_stage(pair_rel)
+        pair_dir.mkdir(parents=True, exist_ok=True)
+        data_name = "log.data"
+        log_name = "log.log"
+        shutil.move(parts[".data"][1], pair_dir / data_name)
+        shutil.move(parts[".log"][1], pair_dir / log_name)
+        size = (pair_dir / data_name).stat().st_size
+        iid = insert_ingest(con, "pair", name, pair_rel, data_name, log_name, size, row["uploaded_by"])
+        ingest_jobs.put(iid)
+        n += 1
+    shutil.rmtree(unpacked, ignore_errors=True)
+    try:
+        zip_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+    if n == 0:
+        set_ingest(con, row["id"], status="rejected", error="zip had no .data/.log pairs")
+        shutil.rmtree(stage, ignore_errors=True)
+        return
+    set_ingest(con, row["id"], status="stored", error=None)
+
+
+def ingest_pair(con, row):
+    """Hash a staged pair, skip duplicates, then queue parse."""
+    stage = ingest_stage(row["stage_dir"])
+    data_src = stage / row["data_name"]
+    log_src = (stage / row["log_name"]) if row["log_name"] else None
+    name = row["name"]
+    if not data_src.is_file():
+        set_ingest(con, row["id"], status="error", error="staged .data file is missing")
+        shutil.rmtree(stage, ignore_errors=True)
+        return
+    size = data_src.stat().st_size
+    if size == 0:
+        set_ingest(con, row["id"], status="rejected", error="empty .data file")
+        shutil.rmtree(stage, ignore_errors=True)
+        return
+    sha = sha256_file(str(data_src))
+    existing = con.execute("SELECT id, log_path, uploaded_by FROM logs WHERE sha256=?", (sha,)).fetchone()
+    user_id = row["uploaded_by"]
+    is_admin = False
+    if user_id:
+        u = con.execute("SELECT is_admin FROM users WHERE id=?", (user_id,)).fetchone()
+        is_admin = bool(u and u["is_admin"])
+    if existing is not None and not is_admin and existing["uploaded_by"] != user_id:
+        set_ingest(con, row["id"], status="duplicate", error="already uploaded by another user", log_id=existing["id"])
+        shutil.rmtree(stage, ignore_errors=True)
+        return
+    if existing is not None:
+        if existing["log_path"] is None and log_src and log_src.is_file():
+            stem = posixpath.splitext(posixpath.basename(name))[0]
+            log_rel = str(Path(sha[:2]) / sha / (safe_filename(stem) + ".log"))
+            shutil.move(str(log_src), STORAGE_DIR / log_rel)
+
+            def add_log_file():
+                with db.write_lock:
+                    con.execute("BEGIN IMMEDIATE")
+                    con.execute("UPDATE logs SET log_path=?, status='queued' WHERE id=?",
+                                (log_rel, existing["id"]))
+                    con.commit()
+
+            db.retry_locked(add_log_file, con)
+            jobs.put(existing["id"])
+            set_ingest(con, row["id"], status="duplicate", error="already uploaded, missing .log added",
+                       log_id=existing["id"])
+        else:
+            set_ingest(con, row["id"], status="duplicate", error="already uploaded", log_id=existing["id"])
+        shutil.rmtree(stage, ignore_errors=True)
+        return
+    data_rel, log_rel = store_files(sha, name, str(data_src), str(log_src) if log_src and log_src.is_file() else None)
+
+    def insert_log():
+        with db.write_lock:
+            con.execute("BEGIN IMMEDIATE")
+            try:
+                cur = con.execute(
+                    "INSERT INTO logs (name, sha256, size_bytes, data_path, log_path, status,"
+                    " uploaded_at, uploaded_by, project_id) VALUES (?,?,?,?,?,'queued',?,?,?)",
+                    (name, sha, size, data_rel, log_rel, now(), user_id, None))
+                con.commit()
+                return cur.lastrowid
+            except sqlite3.IntegrityError:
+                con.rollback()
+                return None
+
+    log_id = db.retry_locked(insert_log, con)
+    shutil.rmtree(stage, ignore_errors=True)
+    if log_id is None:
+        set_ingest(con, row["id"], status="duplicate", error="already uploaded")
+        return
+    jobs.put(log_id)
+    set_ingest(con, row["id"], status="stored", log_id=log_id)
+
+
 @app.post("/api/upload")
 def upload():
+    """Save files to disk and return immediately. Hashing, duplicates and parse run in the background."""
     con = conn()
     if not can_upload_any(con):
         return jsonify(error="you cannot add logs"), 403
-    # Project is not chosen at upload time. After parsing it is filled from the
-    # aircraft default when the uploader is on that project, otherwise the
-    # uploader's default (then GCS / PIC), and can be edited on this page.
-    project_id = None
     files = request.files.getlist("files")
     names = request.form.getlist("names")
     if not files:
         return jsonify(error="no files"), 400
-    stage = TMP_DIR / uuid.uuid4().hex
+    stage_rel = str(Path("tmp") / "ingest" / uuid.uuid4().hex)
+    stage = ingest_stage(stage_rel)
     stage.mkdir(parents=True, exist_ok=True)
-    try:
-        uploads = []
-        for i, f in enumerate(files):
-            rel = clean_relpath(names[i] if i < len(names) else f.filename or f"file{i}")
-            if not rel:
-                continue
-            dest = stage / uuid.uuid4().hex
-            f.save(dest)
-            uploads.append((rel, str(dest)))
-        found, results = collect_files(stage, uploads)
-        for (d, stem), parts in sorted(found.items()):
-            name = posixpath.join(d, stem + ".data")
-            if ".data" not in parts:
-                results.append({"name": posixpath.join(d, stem + ".log"), "status": "rejected",
-                                "reason": "no matching .data file"})
-                continue
-            if ".log" not in parts:
-                results.append({"name": name, "status": "rejected", "reason": "no matching .log file"})
-                continue
-            size = os.path.getsize(parts[".data"])
-            if size == 0:
-                results.append({"name": name, "status": "ignored", "reason": "empty .data file"})
-                continue
-            sha = sha256_file(parts[".data"])
-            row = con.execute("SELECT id, log_path, uploaded_by FROM logs WHERE sha256=?", (sha,)).fetchone()
-            if row is not None and not g.user["is_admin"] and row["uploaded_by"] != g.user["id"]:
-                results.append({"name": name, "status": "duplicate", "reason": "already uploaded by another user"})
-                continue
-            if row is not None:
-                if row["log_path"] is None and ".log" in parts:
-                    log_rel = str(Path(sha[:2]) / sha / (safe_filename(stem) + ".log"))
-                    shutil.move(parts[".log"], STORAGE_DIR / log_rel)
-                    con.execute("UPDATE logs SET log_path=?, status='queued' WHERE id=?", (log_rel, row["id"]))
-                    con.commit()
-                    jobs.put(row["id"])
-                    results.append({"name": name, "status": "duplicate", "id": row["id"],
-                                    "reason": "already uploaded, missing .log added and re-queued"})
-                else:
-                    results.append({"name": name, "status": "duplicate", "id": row["id"],
-                                    "reason": "already uploaded"})
-                continue
-            data_rel, log_rel = store_files(sha, name, parts[".data"], parts.get(".log"))
-            try:
-                cur = con.execute(
-                    "INSERT INTO logs (name, sha256, size_bytes, data_path, log_path, status, uploaded_at, uploaded_by, project_id)"
-                    " VALUES (?,?,?,?,?,'queued',?,?,?)",
-                    (name, sha, size, data_rel, log_rel, now(), g.user["id"], project_id))
-                con.commit()
-            except sqlite3.IntegrityError:
-                results.append({"name": name, "status": "duplicate", "reason": "already uploaded"})
-                continue
-            jobs.put(cur.lastrowid)
-            results.append({"name": name, "status": "queued", "id": cur.lastrowid, "has_log": log_rel is not None})
-    finally:
+    saved = []
+    for i, f in enumerate(files):
+        rel = clean_relpath(names[i] if i < len(names) else f.filename or f"file{i}")
+        if not rel:
+            continue
+        dest_name = f"{i}_{safe_filename(posixpath.basename(rel))}"
+        dest = stage / dest_name
+        f.save(dest)
+        saved.append((rel, dest_name, dest))
+    if not saved:
+        shutil.rmtree(stage, ignore_errors=True)
+        return jsonify(error="no files"), 400
+    results = []
+    zips = [(rel, dest_name, dest) for rel, dest_name, dest in saved if rel.lower().endswith(".zip")]
+    others = [(rel, dest_name, dest) for rel, dest_name, dest in saved if not rel.lower().endswith(".zip")]
+    for rel, dest_name, dest in zips:
+        zip_rel = str(Path("tmp") / "ingest" / uuid.uuid4().hex)
+        zip_dir = ingest_stage(zip_rel)
+        zip_dir.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(dest), zip_dir / dest_name)
+        iid = insert_ingest(con, "zip", rel, zip_rel, dest_name, None,
+                            (zip_dir / dest_name).stat().st_size, g.user["id"])
+        ingest_jobs.put(iid)
+        results.append({"name": rel, "status": "accepted", "ingest_id": iid})
+    found = {}
+    ignored = []
+    for rel, dest_name, dest in others:
+        d, base = posixpath.split(rel)
+        stem, ext = posixpath.splitext(base)
+        if ext.lower() not in (".data", ".log"):
+            ignored.append(rel)
+            continue
+        found.setdefault((d, stem), {})[ext.lower()] = dest_name
+    for rel in ignored:
+        results.append({"name": rel, "status": "rejected", "reason": "not a .data, .log or .zip file"})
+    for (d, stem), parts in sorted(found.items()):
+        name = posixpath.join(d, stem + ".data") if d else stem + ".data"
+        if ".data" not in parts:
+            results.append({"name": posixpath.join(d, stem + ".log") if d else stem + ".log",
+                            "status": "rejected", "reason": "no matching .data file"})
+            continue
+        if ".log" not in parts:
+            results.append({"name": name, "status": "rejected", "reason": "no matching .log file"})
+            continue
+        pair_rel = str(Path(stage_rel) / uuid.uuid4().hex)
+        pair_dir = ingest_stage(pair_rel)
+        pair_dir.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(stage / parts[".data"]), pair_dir / "log.data")
+        shutil.move(str(stage / parts[".log"]), pair_dir / "log.log")
+        size = (pair_dir / "log.data").stat().st_size
+        iid = insert_ingest(con, "pair", name, pair_rel, "log.data", "log.log", size, g.user["id"])
+        ingest_jobs.put(iid)
+        results.append({"name": name, "status": "accepted", "ingest_id": iid, "size_bytes": size})
+    if not any(r.get("ingest_id") for r in results):
         shutil.rmtree(stage, ignore_errors=True)
     return jsonify(results=results)
 
@@ -2123,14 +2277,38 @@ def status():
               con.execute(f"SELECT status, COUNT(*) n FROM logs WHERE {where} GROUP BY status", params)}
     outdated = con.execute(f"SELECT COUNT(*) FROM logs WHERE {where} AND status='done'"
                            " AND COALESCE(parser_version,'') != ?", (*params, current_version() or "")).fetchone()[0]
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if g.user["is_admin"]:
+        ingest_waiting = con.execute(
+            "SELECT COUNT(*) FROM ingest WHERE status IN ('accepted','hashing')").fetchone()[0]
+        ingest_counts = {r["status"]: r["n"] for r in
+                         con.execute("SELECT status, COUNT(*) n FROM ingest WHERE uploaded_at>=? GROUP BY status",
+                                     (cutoff,))}
+    else:
+        ingest_waiting = con.execute(
+            "SELECT COUNT(*) FROM ingest WHERE status IN ('accepted','hashing') AND uploaded_by=?",
+            (g.user["id"],)).fetchone()[0]
+        ingest_counts = {r["status"]: r["n"] for r in
+                         con.execute("SELECT status, COUNT(*) n FROM ingest WHERE uploaded_by=? AND uploaded_at>=?"
+                                     " GROUP BY status", (g.user["id"], cutoff))}
     return jsonify(parser_version=current_version(), path_rate_hz=PATH_RATE, queue=jobs.qsize(), counts=counts,
-                   outdated=outdated)
+                   outdated=outdated, ingest=ingest_counts, ingest_waiting=ingest_waiting,
+                   ingest_queue=ingest_jobs.qsize())
 
 
 @app.get("/api/logs")
 def list_logs():
     where, params = list_clause("l.")
     con = conn()
+    try:
+        limit = min(max(int(request.args.get("limit", 100)), 1), 200)
+    except (TypeError, ValueError):
+        limit = 100
+    try:
+        offset = max(int(request.args.get("offset", 0)), 0)
+    except (TypeError, ValueError):
+        offset = 0
+    total = con.execute("SELECT COUNT(*) FROM logs l WHERE " + where, params).fetchone()[0]
     rows = con.execute(
         "SELECT l.*, p.name AS project_name,"
         " (SELECT username FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name,"
@@ -2138,9 +2316,11 @@ def list_logs():
         " LEFT JOIN drones d ON d.id = a.drone_id WHERE a.log_id = l.id) AS aircraft_names,"
         " (SELECT SUM(a.num_flights) FROM aircraft a WHERE a.log_id = l.id) AS num_flights,"
         " (SELECT SUM(a.total_flight_time_s) FROM aircraft a WHERE a.log_id = l.id) AS flight_time_s"
-        " FROM logs l LEFT JOIN projects p ON p.id = l.project_id WHERE " + where + " ORDER BY l.id DESC",
-        params).fetchall()
-    return jsonify([{**log_dict(r), "can_delete": can_delete_log(con, r)} for r in rows])
+        " FROM logs l LEFT JOIN projects p ON p.id = l.project_id WHERE " + where +
+        " ORDER BY l.id DESC LIMIT ? OFFSET ?",
+        (*params, limit, offset)).fetchall()
+    return jsonify(logs=[{**log_dict(r), "can_delete": can_delete_log(con, r)} for r in rows],
+                   total=total, limit=limit, offset=offset)
 
 
 @app.get("/api/logs/<int:log_id>")
