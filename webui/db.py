@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS drones (
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
     unique_id TEXT NOT NULL UNIQUE COLLATE NOCASE,  -- fleet ID you assign; stays the same if the name changes
     default_project_id INTEGER,        -- projects.id; used when a matching log has no project yet
+    manager TEXT,                      -- post holder / responsible person
+    current_user TEXT,                 -- who currently has the aircraft
+    status TEXT,                       -- Ready | Maintenance | Development | Discard
+    bought_on TEXT,                    -- YYYY-MM-DD
+    inventory_project TEXT,            -- project name from the organisation fleet list
+    comments TEXT,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS drone_aliases (
@@ -184,6 +190,9 @@ def init(path):
         con.execute("ALTER TABLE drones ADD COLUMN unique_id TEXT")
         for d in con.execute("SELECT id FROM drones"):
             con.execute("UPDATE drones SET unique_id=? WHERE id=?", (str(d["id"]), d["id"]))
+    for col in ("manager", "current_user", "status", "bought_on", "inventory_project", "comments"):
+        if col not in dcols:
+            con.execute(f"ALTER TABLE drones ADD COLUMN {col} TEXT")
     con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_drones_unique_id ON drones(unique_id COLLATE NOCASE)")
     con.commit()
 
