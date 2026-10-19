@@ -29,6 +29,7 @@ from flask import (Flask, Response, abort, g, jsonify, redirect, request, send_f
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
+import saml
 
 HERE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("PPRZ_WEB_DATA", HERE / "data")).resolve()
@@ -290,9 +291,10 @@ def upload():
 # ---------------------------------------------------------------------------------------------------------------------
 # Accounts and login
 # ---------------------------------------------------------------------------------------------------------------------
-# Local accounts for now. The users table already has provider/subject columns, so an external login (OpenID
-# Connect with the TU Delft SSO) can be added later by creating/looking up users on (provider, subject).
-PUBLIC_ENDPOINTS = {"login_page", "login", "setup_page", "setup_info", "setup_password", "theme_css", "theme_js"}
+# Local passwords plus TU Delft NetID SAML 2.0. IdP metadata:
+#   https://login.tudelft.nl/sso/saml2/idp/metadata.php
+PUBLIC_ENDPOINTS = {"login_page", "login", "login_options", "setup_page", "setup_info", "setup_password",
+                    "theme_css", "theme_js", "saml_login", "saml_acs", "saml_metadata", "saml_sls"}
 SETUP_HOURS = 48
 MAX_FAILURES, FAILURE_WINDOW_S = 8, 300
 _failures: dict = {}
@@ -351,6 +353,107 @@ def require_login():
 @app.get("/login")
 def login_page():
     return send_from_directory(PAGES_DIR, "login.html")
+
+
+@app.get("/api/login-options")
+def login_options():
+    return jsonify(saml=saml.saml_enabled(),
+                   idp_metadata_url=saml.metadata_url() if saml.saml_enabled() else None)
+
+
+def unique_username(con, base):
+    name = base
+    n = 2
+    while con.execute("SELECT 1 FROM users WHERE username=?", (name,)).fetchone():
+        suffix = str(n)
+        name = (base[:40 - len(suffix)] + suffix)
+        n += 1
+    return name
+
+
+def login_saml_identity(ident):
+    """Find or create a user for a finished TU Delft SAML login, then open a session."""
+    subject, email = ident.get("subject"), ident.get("email")
+    if not subject:
+        return None, "TU Delft did not send a user id"
+    con = conn()
+    row = con.execute("SELECT * FROM users WHERE subject=?", (subject,)).fetchone()
+    if row is None and email:
+        row = con.execute("SELECT * FROM users WHERE email=? COLLATE NOCASE AND is_active=1", (email,)).fetchone()
+    if row is None:
+        username = unique_username(con, ident.get("username") or "user")
+        cur = con.execute(
+            "INSERT INTO users (username, display_name, email, password_hash, is_admin, provider, subject, created_at)"
+            " VALUES (?,?,?,?,0,'saml',?,?)",
+            (username, ident.get("display_name"), email, None, subject, now()))
+        row = con.execute("SELECT * FROM users WHERE id=?", (cur.lastrowid,)).fetchone()
+    elif not row["is_active"]:
+        return None, "this account is disabled"
+    else:
+        if ident.get("display_name") and not row["display_name"]:
+            con.execute("UPDATE users SET display_name=? WHERE id=?", (ident["display_name"], row["id"]))
+        if email and not row["email"]:
+            con.execute("UPDATE users SET email=? WHERE id=?", (email, row["id"]))
+        if not row["subject"]:
+            con.execute("UPDATE users SET subject=?, provider=COALESCE(NULLIF(provider,''),'saml') WHERE id=?",
+                        (subject, row["id"]))
+        row = con.execute("SELECT * FROM users WHERE id=?", (row["id"],)).fetchone()
+    con.execute("UPDATE users SET last_login=? WHERE id=?", (now(), row["id"]))
+    con.commit()
+    session.clear()
+    session.permanent = True
+    session["uid"] = row["id"]
+    return row, None
+
+
+@app.get("/login/tudelft")
+def saml_login():
+    if not saml.saml_enabled():
+        return redirect("/login")
+    try:
+        auth = saml.auth_for(request, DATA_DIR)
+        url = auth.login(return_to="/")
+    except Exception:
+        return redirect("/login?error=sso")
+    return redirect(url)
+
+
+@app.post("/saml/acs")
+def saml_acs():
+    if not saml.saml_enabled():
+        return redirect("/login")
+    try:
+        auth = saml.auth_for(request, DATA_DIR)
+        auth.process_response()
+        errors = auth.get_errors()
+        if errors or not auth.is_authenticated():
+            return redirect("/login?error=sso")
+        ident = saml.identity_from_auth(auth)
+        user, err = login_saml_identity(ident)
+    except Exception:
+        return redirect("/login?error=sso")
+    if err or user is None:
+        return redirect("/login?error=sso")
+    nxt = request.form.get("RelayState") or "/"
+    if not nxt.startswith("/"):
+        nxt = "/"
+    return redirect(nxt)
+
+
+@app.get("/saml/metadata")
+def saml_metadata():
+    auth = saml.auth_for(request, DATA_DIR)
+    xml = auth.get_settings().get_sp_metadata()
+    errors = auth.get_settings().validate_metadata(xml)
+    if errors:
+        return jsonify(error="; ".join(errors)), 500
+    return Response(xml, mimetype="application/samlmetadata+xml")
+
+
+@app.get("/saml/sls")
+def saml_sls():
+    session.clear()
+    return redirect("/login")
 
 
 @app.post("/login")
@@ -1376,6 +1479,7 @@ def admin_people():
     con = conn()
     users = [dict(id=u["id"], username=u["username"], display_name=u["display_name"], email=u["email"],
                   is_admin=bool(u["is_admin"]), has_password=bool(u["password_hash"]),
+                  provider=u["provider"] or "local",
                   default_project_id=u["default_project_id"],
                   aliases=[r["alias"] for r in con.execute(
                       "SELECT alias FROM user_aliases WHERE user_id=? ORDER BY alias", (u["id"],))])
