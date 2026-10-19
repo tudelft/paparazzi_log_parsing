@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Choose a password - Paparazzi log database</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); font:14px/1.45 system-ui, sans-serif; color:var(--txt); }
+  form, .box { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:28px; width:340px; }
+  h1 { font-size:18px; margin:0 0 8px; }
+  p { margin:0 0 16px; color:var(--mute); }
+  label { display:block; margin-bottom:12px; font-size:12px; color:var(--mute); }
+  input { width:100%; margin-top:4px; padding:8px; font:inherit; border:1px solid var(--fieldline); border-radius:6px; background:var(--field); color:var(--txt); }
+  button { width:100%; padding:9px; font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; cursor:pointer; }
+  #err { color:var(--err); min-height:1.4em; margin-bottom:8px; }
+</style>
+</head>
+<body>
+<button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button>
+<form id="f">
+  <h1>Choose a password</h1>
+  <p id="who">Checking this link…</p>
+  <label>Password<input name="password" type="password" minlength="10" autocomplete="new-password" required></label>
+  <label>Repeat password<input name="password2" type="password" minlength="10" autocomplete="new-password" required></label>
+  <div id="err"></div>
+  <button>Save password</button>
+</form>
+<script>
+const token = location.pathname.split('/').filter(Boolean).pop();
+const form = document.getElementById('f');
+const err = document.getElementById('err');
+
+fetch('/api/setup/' + token).then(async r => {
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    form.innerHTML = '<h1>Link not valid</h1><p>' + (body.error || 'Ask an admin for a new link.') + '</p>';
+    return;
+  }
+  document.getElementById('who').textContent = body.display_name + ' (' + body.username + '). Use at least 10 characters.';
+});
+
+form.onsubmit = async e => {
+  e.preventDefault();
+  const fd = new FormData(form);
+  if (fd.get('password') !== fd.get('password2')) { err.textContent = 'passwords do not match'; return; }
+  const r = await fetch('/api/setup/' + token, {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: fd.get('password')})});
+  if (r.ok) { location.href = '/login?ready=1'; return; }
+  err.textContent = (await r.json().catch(() => ({}))).error || 'Could not save the password';
+};
+</script>
+</body>
+</html>
