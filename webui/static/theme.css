@@ -1,0 +1,71 @@
+/* Shared colours. Pages keep their own light values; night mode overrides them. */
+:root {
+  --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785;
+  --acc:#1f6feb; --btn:#1f6feb; --ok:#1a7f37; --err:#cf222e; --warn:#9a6700;
+  --sec:#e8ecf1; --hover:#f0f4fa; --band:#f6f9fe; --detail:#fafbfc; --chip:#e8ecf1;
+  --okbg:#dafbe1; --errbg:#ffebe9; --warnbg:#fff8c5; --old:#bc4c00; --oldbg:#ffe8cc;
+  --drop:#aab4c0; --dropover:#eef4ff;
+  --flightbg:#dcf3e3; --uncertainbg:#fff1cc; --groundbg:#fde2e2;
+  --field:#fff; --fieldline:#c5ccd5;
+}
+
+html.night {
+  color-scheme: dark;
+  --bg:#0f141b; --card:#182230; --line:#314156; --txt:#e7eef6; --mute:#9aafc3;
+  --acc:#6cb6ff; --btn:#1f6feb; --ok:#56d364; --err:#ff7b72; --warn:#e3b341;
+  --sec:#2a384a; --hover:#223044; --band:#1d2b3c; --detail:#121b27; --chip:#2a384a;
+  --okbg:#133321; --errbg:#3f1d22; --warnbg:#3a3012; --old:#f0a05a; --oldbg:#3a2814;
+  --drop:#6e849c; --dropover:#1a2d4a;
+  --flightbg:#143524; --uncertainbg:#3a3012; --groundbg:#3f1d22;
+  --field:#101820; --fieldline:#3a4b60;
+}
+
+html.night header { background:#0c1218; }
+html.night header button {
+  background:#243044; color:#e7eef6; border:1px solid #4a6078;
+}
+html.night input, html.night select, html.night textarea {
+  background:var(--field); color:var(--txt); border-color:var(--fieldline);
+}
+html.night input::placeholder { color:var(--mute); }
+html.night pre { border:1px solid var(--line); }
+html.night .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.9) contrast(.9); }
+
+#nightBtn {
+  font:inherit; width:auto; background:transparent; color:#9fb0c3;
+  border:1px solid #3d5168; border-radius:6px; padding:2px 8px; cursor:pointer;
+}
+#nightBtn:hover { color:#fff; }
+#nightBtn .when-night { display:none; }
+html.night #nightBtn .when-day { display:none; }
+html.night #nightBtn .when-night { display:inline; }
+body > #nightBtn {
+  position:fixed; top:16px; right:16px;
+  color:var(--mute); background:var(--card); border-color:var(--line);
+}
+body > #nightBtn:hover { color:var(--txt); }
+
+.scroll {
+  overflow-x: auto;
+  margin: 0 -4px;
+  padding: 0 4px 8px;
+}
+.scroll table { width: max-content; min-width: 100%; }
+.scroll table tr:last-child td { border-bottom: 0; }
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: -4px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+.tabs a {
+  padding: 8px 14px;
+  text-decoration: none;
+  color: var(--mute);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tabs a:hover { color: var(--txt); }
+.tabs a.cur { color: var(--txt); font-weight: 600; border-bottom-color: var(--acc); }

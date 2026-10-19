@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin – projects</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --err:#cf222e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
+  header a { color:#9fb0c3; }
+  main { max-width:900px; margin:0 auto; padding:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  .scroll { overflow-x:auto; }
+  h2 { margin:0 0 8px; font-size:15px; }
+  table { width:max-content; min-width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
+  .mute { color:var(--mute); }
+  button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button.sec { background:var(--sec); color:var(--txt); }
+  button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
+  input, select { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
+  #err { color:var(--err); min-height:1.2em; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin-top:8px; }
+  label.field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
+  tr.project { cursor:pointer; font-weight:600; background:var(--band); }
+  tr.project:hover { background:var(--hover); }
+  .detail { background:var(--detail); padding:12px 16px; }
+  .ticks { display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+  .ticks label { display:flex; align-items:center; gap:5px; font-weight:400; color:var(--txt); white-space:nowrap; }
+  .person { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:6px 0; border-bottom:1px solid var(--line); }
+  .person:last-child { border-bottom:0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Admin</h1>
+  <span class="meta"><a href="/">Uploads</a> · <a href="/logbook">Logbook</a> · <a href="/admin" style="color:#fff">Admin</a></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <nav class="tabs">
+    <a href="/admin">People</a>
+    <a href="/projects" class="cur">Projects</a>
+    <a href="/aircraft">Aircraft</a>
+  </nav>
+  <div id="err"></div>
+  <section class="card">
+    <h2>Projects</h2>
+    <div class="mute">A project is a separate set of flight logs. Click a row and tick who can see, upload or delete.</div>
+    <form class="row" id="add" onsubmit="addProject(event)">
+      <label class="field">Name<input id="name" required maxlength="80"></label>
+      <button type="submit">Create project</button>
+    </form>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Project</th><th>Logs</th><th>People</th></tr></thead>
+        <tbody id="list"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const realFetch = window.fetch;
+window.fetch = async (...args) => {
+  const r = await realFetch(...args);
+  if (r.status === 401) location.href = '/login';
+  return r;
+};
+async function logout() { await fetch('/logout', {method: 'POST'}); location.href = '/login'; }
+let projects = [], users = [];
+const open_ = new Set();
+const ticksOf = role => ({see: !!role, upload: role === 'add' || role === 'full', del: role === 'full'});
+function roleFromBoxes(see, upload, del) {
+  if (del) return 'full';
+  if (upload) return 'add';
+  if (see) return 'view';
+  return '';
+}
+function tickBoxes(prefix, role, onchange) {
+  const t = ticksOf(role);
+  return `<span class="ticks">
+    <label><input type="checkbox" id="${prefix}see" ${t.see ? 'checked' : ''} onchange="${onchange}"> See</label>
+    <label><input type="checkbox" id="${prefix}up" ${t.upload ? 'checked' : ''} onchange="${onchange}"> Upload</label>
+    <label><input type="checkbox" id="${prefix}del" ${t.del ? 'checked' : ''} onchange="${onchange}"> Delete</label>
+  </span>`;
+}
+function applyTicks(prefix) {
+  const see = $(prefix + 'see'), up = $(prefix + 'up'), del = $(prefix + 'del');
+  if (del.checked) { see.checked = true; up.checked = true; }
+  else if (up.checked) see.checked = true;
+  if (!see.checked) { up.checked = false; del.checked = false; }
+  if (!up.checked) del.checked = false;
+  return roleFromBoxes(see.checked, up.checked, del.checked);
+}
+
+async function load() {
+  const [p, people] = await Promise.all([
+    fetch('/api/admin/projects').then(r => { if (r.status === 403) { location.href = '/'; return {projects: []}; } return r.json(); }),
+    fetch('/api/admin/people').then(r => r.ok ? r.json() : {users: []})
+  ]);
+  projects = p.projects || [];
+  users = people.users || [];
+  render();
+}
+function peoplePreview(p) {
+  if (!p.members.length) return '<span class="mute">Nobody yet</span>';
+  return p.members.map(m => esc(m.display_name || m.username)).join(', ');
+}
+function projectRows(p) {
+  const isOpen = open_.has(p.id);
+  const byId = Object.fromEntries(p.members.map(m => [m.user_id, m.role]));
+  const list = users.map(u => `<div class="person"><span>${esc(u.display_name || u.username)} <span class="mute">${esc(u.username)}</span></span>${tickBoxes('m' + p.id + '_' + u.id, byId[u.id] || '', `saveTicks(${p.id}, ${u.id})`)}</div>`).join('')
+    || '<p class="mute">Create a user on the People tab first.</p>';
+  const detail = `${list}
+    <div class="row"><button type="button" class="danger" onclick="removeProject(${p.id})">Delete project</button></div>`;
+  return `<tr class="project" data-id="${p.id}"><td>${isOpen ? '▾' : '▸'} ${esc(p.name)}</td><td>${p.log_count}</td><td>${peoplePreview(p)}</td></tr>`
+    + (isOpen ? `<tr><td colspan="3" class="detail">${detail}</td></tr>` : '');
+}
+function render() {
+  $('list').innerHTML = projects.map(projectRows).join('')
+    || '<tr><td colspan="3" class="mute">No projects yet.</td></tr>';
+}
+async function send(url, method, body) {
+  const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : '{}'});
+  $('err').textContent = r.ok ? '' : (((await r.json().catch(() => ({}))).error) || 'failed');
+  if (r.ok) await load();
+}
+$('list').onclick = e => {
+  if (e.target.closest('a, button, select, input')) return;
+  const tr = e.target.closest('tr.project');
+  if (!tr) return;
+  const id = +tr.dataset.id;
+  open_.has(id) ? open_.delete(id) : open_.add(id);
+  render();
+};
+async function addProject(ev) {
+  ev.preventDefault();
+  const name = $('name').value.trim();
+  if (!name) return;
+  $('name').value = '';
+  const before = new Set(projects.map(p => p.id));
+  await send('/api/admin/projects', 'POST', {name});
+  const created = projects.find(p => !before.has(p.id));
+  if (created) { open_.add(created.id); render(); }
+}
+function saveTicks(pid, uid) {
+  setRole(pid, uid, applyTicks('m' + pid + '_' + uid));
+}
+function setRole(id, userId, role) { send('/api/admin/projects/' + id + '/members', 'PUT', {user_id: userId, role}); }
+function removeProject(id) {
+  const p = projects.find(x => x.id === id);
+  if (confirm('Delete ' + (p ? p.name : 'this project') + '? The logs stay, but they will no longer belong to a project.'))
+    send('/api/admin/projects/' + id, 'DELETE');
+}
+fetch('/api/me').then(r => r.json()).then(d => {
+  if (!d.user.is_admin) { location.href = '/'; return; }
+  $('who').textContent = d.user.display_name + ' (admin)';
+  load();
+});
+</script>
+</body>
+</html>

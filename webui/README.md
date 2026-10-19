@@ -221,8 +221,16 @@ Everything (pages, API, downloads) requires a login. Accounts are local for now 
 
 Passwords are stored hashed, sessions last 12 hours (`PPRZ_SESSION_HOURS`), repeated failed logins are rate limited.
 Serve it over https and set `PPRZ_COOKIE_SECURE=1`. Logs can be deleted by their uploader or an admin.
-The `users` table has `provider`/`subject` columns so a TU Delft SSO login (OpenID Connect through Microsoft Entra ID
-or SURFconext) can be added later; that needs a client ID/secret registered with TU Delft ICT or SURFconext.
+
+### TU Delft SAML 2.0 (NetID)
+
+The sign-in page also offers **Sign in with TU Delft**. That uses SAML 2.0 against the TU Delft identity provider.
+
+- **IdP metadata URL** (also the IdP entity ID): `https://login.tudelft.nl/sso/saml2/idp/metadata.php`
+- Override with `PPRZ_SAML_METADATA_URL` if needed. Set `PPRZ_SAML_ENABLED=0` to hide the button.
+- This app’s service-provider metadata is at `GET /saml/metadata`. Register that with TU Delft ICT (`middleware-ictfm@tudelft.nl`) before the button will complete a live login. Assertion consumer service: `POST /saml/acs`.
+- Optional: `PPRZ_SAML_ENTITY_ID` (defaults to `<site>/saml/metadata`). SP signing certs are generated in `data/saml/` (not in git).
+- First SSO login creates a non-admin account (matched later by the SAML NameID, or by email if that person already has a local user). Give them project access on Admin → Projects.
 
 ## Behaviour
 

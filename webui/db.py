@@ -13,10 +13,11 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT,                -- NULL for accounts that only sign in through an external provider
     is_admin INTEGER NOT NULL DEFAULT 0,
     is_active INTEGER NOT NULL DEFAULT 1,
-    provider TEXT NOT NULL DEFAULT 'local',   -- 'local' now, e.g. 'oidc' for the TU Delft SSO later
+    provider TEXT NOT NULL DEFAULT 'local',   -- 'local' or 'saml' (TU Delft NetID)
     subject TEXT,                      -- id of the user at the external provider
     created_at TEXT NOT NULL,
     last_login TEXT,
+    default_project_id INTEGER,        -- used when a flight has no aircraft default
     UNIQUE (provider, subject)
 );
 CREATE TABLE IF NOT EXISTS logs (
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS logs (
     error TEXT,
     uploaded_at TEXT NOT NULL,
     uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    project_id INTEGER,                 -- projects.id; cleared when that project is deleted
     parser_name TEXT,                  -- which parser (and version) produced the stored result
     parser_version TEXT,
     parser_path_rate_hz REAL,
@@ -38,9 +40,22 @@ CREATE TABLE IF NOT EXISTS logs (
     parse_seconds REAL,
     start_utc TEXT, first_data_utc TEXT, end_utc TEXT, duration_s REAL
 );
+CREATE TABLE IF NOT EXISTS drones (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    unique_id TEXT NOT NULL UNIQUE COLLATE NOCASE,  -- fleet ID you assign; stays the same if the name changes
+    default_project_id INTEGER,        -- projects.id; used when a matching log has no project yet
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS drone_aliases (
+    id INTEGER PRIMARY KEY,
+    drone_id INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
+    alias TEXT NOT NULL UNIQUE COLLATE NOCASE   -- name as it appears in the log aircraft field
+);
 CREATE TABLE IF NOT EXISTS aircraft (
     id INTEGER PRIMARY KEY,
     log_id INTEGER NOT NULL REFERENCES logs(id) ON DELETE CASCADE,
+    drone_id INTEGER,                  -- drones.id when the logged name matches a drone or alias
     ac_id INTEGER,
     name TEXT,
     pic TEXT, pac TEXT, gcs TEXT, goal TEXT,
@@ -64,6 +79,11 @@ CREATE TABLE IF NOT EXISTS flights (
     num_points INTEGER,
     verdict TEXT,                      -- parser estimate: flight | uncertain | ground
     assessment_json TEXT,              -- score, reasons and metrics behind the verdict
+    project_id INTEGER,                -- projects.id; auto from aircraft / uploader / GCS / PIC, then editable
+    pic_user_id INTEGER,               -- override PIC/PAC/GCS with a linked user; NULL keeps the name from the log
+    pac_user_id INTEGER,
+    gcs_user_id INTEGER,
+    comment TEXT,                      -- notes added in the logbook / flight page
     path_gz BLOB                       -- gzip JSON list of path points
 );
 CREATE TABLE IF NOT EXISTS setting_changes (
@@ -71,6 +91,25 @@ CREATE TABLE IF NOT EXISTS setting_changes (
     aircraft_id INTEGER NOT NULL REFERENCES aircraft(id) ON DELETE CASCADE,
     time_s REAL, utc TEXT, previous_report_s REAL,
     idx INTEGER, var TEXT, from_value REAL, to_value REAL, in_flight INTEGER
+);
+CREATE TABLE IF NOT EXISTS password_setup_tokens (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,   -- sha256 of the one-time link token; the token itself is not stored
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT
+);
+CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS project_members (
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,                 -- view | add | full
+    PRIMARY KEY (project_id, user_id)
 );
 CREATE TABLE IF NOT EXISTS user_aliases (
     id INTEGER PRIMARY KEY,
@@ -114,10 +153,38 @@ def init(path):
     for col in ("verdict", "assessment_json"):
         if col not in fcols:
             con.execute(f"ALTER TABLE flights ADD COLUMN {col} TEXT")
+    if "project_id" not in fcols:
+        con.execute("ALTER TABLE flights ADD COLUMN project_id INTEGER")
+        con.execute(
+            "UPDATE flights SET project_id = ("
+            " SELECT l.project_id FROM aircraft a JOIN logs l ON l.id = a.log_id"
+            " WHERE a.id = flights.aircraft_id) WHERE project_id IS NULL")
+    ucols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
+    if "default_project_id" not in ucols:
+        con.execute("ALTER TABLE users ADD COLUMN default_project_id INTEGER")
+    fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
+    for col in ("pic_user_id", "pac_user_id", "gcs_user_id"):
+        if col not in fcols:
+            con.execute(f"ALTER TABLE flights ADD COLUMN {col} INTEGER")
+    if "comment" not in {r[1] for r in con.execute("PRAGMA table_info(flights)")}:
+        con.execute("ALTER TABLE flights ADD COLUMN comment TEXT")
+    con.execute("CREATE INDEX IF NOT EXISTS ix_flights_project ON flights(project_id)")
     if "indoor" not in {r[1] for r in con.execute("PRAGMA table_info(places)")}:
         con.execute("ALTER TABLE places ADD COLUMN indoor INTEGER NOT NULL DEFAULT 0")
     if "log_type" not in cols:
         con.execute("ALTER TABLE logs ADD COLUMN log_type TEXT")
+    if "project_id" not in cols:
+        con.execute("ALTER TABLE logs ADD COLUMN project_id INTEGER")
+    acols = {r[1] for r in con.execute("PRAGMA table_info(aircraft)")}
+    if "drone_id" not in acols:
+        con.execute("ALTER TABLE aircraft ADD COLUMN drone_id INTEGER")
+    con.execute("CREATE INDEX IF NOT EXISTS ix_aircraft_drone ON aircraft(drone_id)")
+    dcols = {r[1] for r in con.execute("PRAGMA table_info(drones)")}
+    if "unique_id" not in dcols:
+        con.execute("ALTER TABLE drones ADD COLUMN unique_id TEXT")
+        for d in con.execute("SELECT id FROM drones"):
+            con.execute("UPDATE drones SET unique_id=? WHERE id=?", (str(d["id"]), d["id"]))
+    con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_drones_unique_id ON drones(unique_id COLLATE NOCASE)")
     con.commit()
 
 

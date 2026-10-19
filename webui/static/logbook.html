@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <title>Flight logbook</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
   :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --ok:#1a7f37; --warn:#9a6700; }
@@ -13,10 +15,11 @@
   header h1 { margin:0; font-size:18px; }
   header .meta { color:#9fb0c3; font-size:12px; }
   main { max-width:1400px; margin:0 auto; padding:20px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow-x:auto; }
-  button { font:inherit; background:#e8ecf1; color:var(--txt); border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  .scroll { overflow-x:auto; }
+  button { font:inherit; background:var(--sec); color:var(--txt); border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
   input[type=search] { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:6px; width:280px; }
-  table { width:100%; border-collapse:collapse; }
+  table { width:max-content; min-width:100%; border-collapse:collapse; }
   table.log td, table.log th { white-space:nowrap; }
   table.log td { max-width:260px; overflow:hidden; text-overflow:ellipsis; }
   table.log td.detail { max-width:none; overflow:visible; white-space:normal; }
@@ -28,41 +31,57 @@
   .mute { color:var(--mute); }
   .bar { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
   a { color:var(--acc); }
-  a.btn { display:inline-block; background:var(--acc); color:#fff; padding:6px 12px; border-radius:6px; text-decoration:none; }
-  a.btn.sec { background:#e8ecf1; color:var(--txt); }
-  tr.flight, tr.group { cursor:pointer; } tr.flight:hover, tr.group:hover { background:#f0f4fa; }
-  tr.group { background:#f6f9fe; font-weight:600; }
-  tr.sub td:first-child { padding-left:24px; }
-  .detail { background:#fafbfc; padding:12px 16px; }
+  a.btn { display:inline-block; background:var(--btn); color:#fff; padding:6px 12px; border-radius:6px; text-decoration:none; }
+  a.btn.sec { background:var(--sec); color:var(--txt); }
+  tr.flight, tr.group { cursor:pointer; } tr.flight:hover, tr.group:hover { background:var(--hover); }
+  tr.group { background:var(--band); font-weight:600; }
+  tr.sub td:nth-child(2) { padding-left:24px; }
+  .detail { background:var(--detail); padding:12px 16px; }
   .detail h4 { margin:12px 0 6px; }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
   .cols { display:flex; gap:40px; flex-wrap:wrap; }
   .actions { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
-  .minimap { height:240px; max-width:640px; border:1px solid #dfe3e8; border-radius:6px; margin-bottom:10px; }
+  .minimap { height:240px; max-width:640px; border:1px solid var(--line); border-radius:6px; margin-bottom:10px; }
+  table.log:not(.editing) .chk { display:none; }
+  td.chk, th.chk { width:28px; padding-right:0; }
+  textarea.comment { width:100%; max-width:640px; min-height:72px; font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; resize:vertical; }
+  .note { white-space:pre-wrap; max-width:640px; }
 </style>
 </head>
 <body>
 <header>
   <h1>Flight logbook</h1>
-  <span class="meta"><a href="/" style="color:#9fb0c3">Uploads</a> · <a href="/logbook" style="color:#fff">Logbook</a></span>
+  <span class="meta"><a href="/" style="color:#9fb0c3">Uploads</a> · <a href="/logbook" style="color:#fff">Logbook</a><span id="adminLink" hidden> · <a href="/admin" style="color:#9fb0c3">Admin</a></span></span>
   <span class="meta" id="summary"></span>
-  <span class="meta"><a id="adminLink" href="/admin" style="color:#9fb0c3" hidden>Admin</a></span>
-  <span class="meta" style="margin-left:auto"><span id="who"></span> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
 </header>
 <main>
   <section class="card">
     <div class="bar">
+      <label>Project <select id="showProject"></select></label>
       <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date…)">
       <label title="Flights of the same aircraft and pilot on the same day within this distance of each other"><input type="checkbox" id="combine" checked> Combine flights (within <input type="number" id="radius" value="1" min="0.1" step="0.5" style="width:56px"> km)</label>
       <label title="Locations marked as indoors in the admin page"><input type="checkbox" id="indoor"> Show indoor flights</label>
       <label title="Uncertain flights, arming on the ground, flickering flight flags and other 'flights' the parser judged not to be real flights"><input type="checkbox" id="ground"> Show uncertain/non-flights</label>
+      <label title="Show menus to change PIC, PAC and GCS, including several flights at once"><input type="checkbox" id="editCrew"> Edit PIC / PAC / GCS</label>
       <button onclick="exportCsv()">Export CSV</button>
     </div>
+    <div id="bulkBar" class="bar" hidden>
+      <label><input type="checkbox" id="selAll"> Select all on this page</label>
+      <span class="mute">Apply to selected</span>
+      <label>PIC <select id="bulkPic"></select></label>
+      <label>PAC <select id="bulkPac"></select></label>
+      <label>GCS <select id="bulkGcs"></select></label>
+      <button type="button" onclick="applyBulk()">Apply</button>
+      <span id="bulkMsg" class="mute"></span>
+    </div>
+    <div class="scroll">
     <table class="log">
-      <thead><tr><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th>Source</th><th>Aircraft</th><th>Takeoff location</th><th>Landing location</th>
-        <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th></tr></thead>
+      <thead><tr><th class="chk"></th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th>Source</th><th>Aircraft</th><th>Project</th><th>Takeoff location</th><th>Landing location</th>
+        <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
+    </div>
     <div class="bar" style="margin:10px 0 0; justify-content:flex-end">
       <span class="mute">Rows per page</span>
       <select id="size"><option>10</option><option selected>25</option><option>50</option><option>100</option></select>
@@ -78,7 +97,8 @@ const fmtDur = s => s == null ? '' : `${Math.floor(s/60)}m ${String(Math.round(s
 const fmtDate = t => (t || '').slice(0, 10);
 const fmtHm = t => (t || '').slice(11, 16);
 const fmtTime = t => (t || '').replace('T', ' ').slice(0, 19);
-let flights = [], page = 0, pageSize = 25;
+let flights = [], page = 0, pageSize = 25, me = null, projects = [], people = [];
+const selected = new Set();
 const openGroups = new Set();
 
 const realFetch = window.fetch;
@@ -88,19 +108,118 @@ window.fetch = async (...args) => {
   return r;
 };
 async function logout() { await fetch('/logout', {method: 'POST'}); location.href = '/login'; }
-fetch('/api/me').then(r => r.json()).then(d => { $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : ''); $('adminLink').hidden = !d.user.is_admin; });
+const projectKey = 'pprzProject';
+function projectQuery() {
+  const v = localStorage.getItem(projectKey) || '';
+  return v ? ('?project=' + encodeURIComponent(v)) : '';
+}
+fetch('/api/me').then(r => r.json()).then(async d => {
+  me = d.user;
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  $('adminLink').hidden = !d.user.is_admin;
+  [projects, people] = await Promise.all([
+    fetch('/api/projects').then(r => r.json()),
+    fetch('/api/people').then(r => r.json()),
+  ]);
+  fillBulkMenus();
+  $('editCrew').checked = localStorage.getItem('pprzEditCrew') === '1';
+  $('bulkBar').hidden = !$('editCrew').checked;
+  const cur = localStorage.getItem(projectKey) || '';
+  $('showProject').innerHTML = '<option value="">All projects</option>'
+    + (d.user.is_admin ? '<option value="none">No project</option>' : '')
+    + projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  if ([...$('showProject').options].some(o => o.value === cur)) $('showProject').value = cur;
+  loadFlights();
+});
+$('showProject').onchange = () => { localStorage.setItem(projectKey, $('showProject').value); page = 0; loadFlights(); };
+function loadFlights() { fetch('/api/logbook' + projectQuery()).then(r => r.json()).then(d => { flights = d; render(); }); }
 
 const place = (lat, lon, name) => lat == null ? '' :
   `<a ${name ? '' : 'class="mono" '}target="_blank" rel="noopener" title="${lat.toFixed(5)}, ${lon.toFixed(5)}" href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}">${esc(name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`)}</a>`;
 const person = (f, role) => {
   const u = f[role + '_user'], raw = f[role];
+  if (u && u.source === 'edit') return esc(u.display_name);
   if (u && u.source === 'uploader') return `<span title="Not in the log, set to the uploader">${esc(u.display_name)}</span> <span class="mute">(uploader)</span>`;
   if (!raw) return '';
   if (!u) return `<span title="Not linked to a user">${esc(raw)}</span>`;
   const same = raw.toLowerCase() === u.display_name.toLowerCase();
   return esc(u.display_name) + (same ? '' : ` <span class="mute">(${esc(raw)})</span>`);
 };
-const text = f => [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.aircraft, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
+const editOn = () => $('editCrew').checked;
+const crewIds = f => [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)])];
+function crewSelect(f, role, ids) {
+  if (!editOn() || !f.can_edit_crew) return person(f, role);
+  const u = f[role + '_user'];
+  const selectedId = u && (u.source === 'edit' || u.source === 'alias') ? u.id : '';
+  const logged = f[role] ? esc(f[role]) + ' (from log)' : '—';
+  return `<select onclick="event.stopPropagation()" onchange="setCrew([${ids.join(',')}], '${role}', this.value)">
+    <option value="">${logged}</option>
+    ${people.map(p => `<option value="${p.id}"${p.id === selectedId ? ' selected' : ''}>${esc(p.display_name)}</option>`).join('')}
+  </select>`;
+}
+function fillBulkMenus() {
+  const opts = '<option value="__keep__">Keep</option><option value="">From log / none</option>'
+    + people.map(p => `<option value="${p.id}">${esc(p.display_name)}</option>`).join('');
+  ['bulkPic', 'bulkPac', 'bulkGcs'].forEach(id => { if ($(id)) $(id).innerHTML = opts; });
+}
+async function setCrew(ids, role, value) {
+  const r = await fetch('/api/flights/crew', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({flight_ids: ids, [role + '_user_id']: value ? +value : null})});
+  if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the name'); return; }
+  loadFlights();
+}
+async function applyBulk() {
+  const ids = [...selected];
+  if (!ids.length) { $('bulkMsg').textContent = 'Tick the flights you want to change.'; return; }
+  const body = {flight_ids: ids};
+  [['bulkPic', 'pic_user_id'], ['bulkPac', 'pac_user_id'], ['bulkGcs', 'gcs_user_id']].forEach(([id, key]) => {
+    const v = $(id).value;
+    if (v !== '__keep__') body[key] = v ? +v : null;
+  });
+  if (Object.keys(body).length === 1) { $('bulkMsg').textContent = 'Choose a PIC, PAC or GCS.'; return; }
+  const r = await fetch('/api/flights/crew', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)});
+  if (!r.ok) { $('bulkMsg').textContent = ((await r.json().catch(() => ({}))).error) || 'Could not save'; return; }
+  $('bulkMsg').textContent = 'Saved.';
+  ['bulkPic', 'bulkPac', 'bulkGcs'].forEach(id => { $(id).value = '__keep__'; });
+  loadFlights();
+}
+function toggleEdit() {
+  localStorage.setItem('pprzEditCrew', editOn() ? '1' : '');
+  $('bulkBar').hidden = !editOn();
+  if (!editOn()) { selected.clear(); $('bulkMsg').textContent = ''; }
+  render();
+}
+function toggleSel(ids, on) {
+  ids.forEach(id => on ? selected.add(id) : selected.delete(id));
+  render();
+}
+function chk(ids, can) {
+  if (!editOn() || !can) return '<td class="chk"></td>';
+  const all = ids.length > 0 && ids.every(id => selected.has(id));
+  return `<td class="chk"><input type="checkbox" ${all ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel([${ids.join(',')}], this.checked)"></td>`;
+}
+const text = f => [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.aircraft, f.aircraft_uid, f.project_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
+
+function projectOptions(selected) {
+  const addable = projects.filter(p => me && (me.is_admin || p.can_add || p.id === selected));
+  return '<option value="">No project</option>' + addable.map(p =>
+    `<option value="${p.id}"${p.id === selected ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+}
+function projectCell(f) {
+  if (!f.can_edit_project) return esc(f.project_name || '');
+  const ids = (f.sources || []).map(s => s.flight_id).join(',');
+  return `<select onclick="event.stopPropagation()" onchange="setFlightProject(${f.flight_id}, this.value, [${ids}])">${projectOptions(f.project_id)}</select>`;
+}
+async function setFlightProject(id, value, ids) {
+  const all = [...new Set([id, ...(ids || [])])];
+  for (const fid of all) {
+    const r = await fetch('/api/flights/' + fid + '/project', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({project_id: value ? +value : null})});
+    if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the project'); break; }
+  }
+  loadFlights();
+}
 
 const open_ = new Set();
 const kv = (k, v) => v == null || v === '' ? '' : `<span class="mute">${k}</span><span>${v}</span>`;
@@ -108,8 +227,28 @@ const coord = (p, name) => p ? `${name ? esc(name) + ' · ' : ''}${p.lat.toFixed
 const windTxt = w => w ? `${w.speed_ms} m/s from ${w.from_deg}°${w.temperature_c != null ? ', ' + w.temperature_c + ' °C' : ''}` : '';
 const ned = v => v ? `N ${v.north}, E ${v.east}, D ${v.down}` : '';
 
+function commentBox(f) {
+  const ids = crewIds(f);
+  if (!f.can_edit_comment) return f.comment ? `<div class="note">${esc(f.comment)}</div>` : '<span class="mute">No comment</span>';
+  return `<textarea class="comment" id="cmt${f.flight_id}" maxlength="4000" placeholder="Notes about this flight" onclick="event.stopPropagation()">${esc(f.comment || '')}</textarea>
+    <div class="actions" style="margin-top:6px"><button type="button" onclick="saveComment(${f.flight_id}, [${ids.join(',')}])">Save comment</button> <span id="cmtMsg${f.flight_id}" class="mute"></span></div>`;
+}
+async function saveComment(id, ids) {
+  const text = ($('cmt' + id).value || '').trim();
+  const all = [...new Set(ids)];
+  for (const fid of all) {
+    const r = await fetch('/api/flights/' + fid + '/comment', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({comment: text})});
+    if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the comment'); return; }
+  }
+  flights.forEach(f => {
+    if (all.includes(f.flight_id) || (f.sources || []).some(s => all.includes(s.flight_id))) f.comment = text;
+  });
+  $('cmtMsg' + id).textContent = 'Saved.';
+}
 function detail(f) {
   return `<div class="minimap" data-fid="${f.flight_id}"></div>
+    <h4>Comment</h4>${commentBox(f)}
     <div class="actions"><a class="btn" href="/flight/${f.flight_id}">Open flight page</a>
       ${f.sources.map(s => `<a class="btn sec" href="/api/logs/${s.log_id}/download">Download ${s.log_type === 'gcs' ? 'GCS' : 'SD'} .data + .log</a>`).join('')}</div>`;
 }
@@ -156,6 +295,7 @@ function combine(list, radiusKm) {
     g.landing_lat = last.landing_lat; g.landing_lon = last.landing_lon; g.landing_place = last.landing_place;
     const uniq = k => [...new Set(fl.map(f => f[k]).filter(Boolean))];
     g.goals = uniq('goal');
+    g.comments = uniq('comment');
   }
   return groups.sort((a, b) => (b.flights[0].takeoff_utc || '').localeCompare(a.flights[0].takeoff_utc || ''));
 }
@@ -164,21 +304,24 @@ const TYPE_LABEL = {onboard_sd: 'SD', gcs: 'GCS'};
 const srcLabel = fl => ['onboard_sd', 'gcs'].filter(t => fl.some(f => f.sources.some(s => s.log_type === t))).map(t => TYPE_LABEL[t]).join(' + ');
 const verdictMark = f => f.verdict === 'ground' ? ' <span class="mute" title="Probably not a real flight">(ground)</span>'
   : f.verdict === 'uncertain' ? ' <span class="mute" title="Unsure whether this was a real flight">(?)</span>' : '';
-const cells = (f, o) => `<td>${esc(fmtDate(f.takeoff_utc))}</td><td>${esc(fmtHm(f.takeoff_utc))}</td><td>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</td>
-    <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${o.sources}</td><td>${esc(f.aircraft)}${verdictMark(f)}</td>
+const cells = (f, o) => `${chk(o.ids, o.canEdit)}<td>${esc(fmtDate(f.takeoff_utc))}</td><td>${esc(fmtHm(f.takeoff_utc))}</td><td>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</td>
+    <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${o.sources}</td><td>${esc(f.aircraft)}${f.aircraft_uid ? ` <span class="mute">${esc(f.aircraft_uid)}</span>` : ''}${verdictMark(f)}</td>
+    <td>${o.project}</td>
     <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place)}</td>
-    <td>${person(f, 'pic')}</td><td>${person(f, 'pac')}</td><td>${person(f, 'gcs')}</td><td>${esc(o.goal)}</td>`;
+    <td>${crewSelect(f, 'pic', o.ids)}</td><td>${crewSelect(f, 'pac', o.ids)}</td><td>${crewSelect(f, 'gcs', o.ids)}</td><td>${esc(o.goal)}</td><td>${esc(o.comment)}</td>`;
 
 function flightRows(f, cls = '') {
-  return `<tr class="flight ${cls}" data-id="${f.flight_id}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : 1, sources: srcLabel([f]), duration_s: f.duration_s, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal})}</tr>`
-    + (open_.has(f.flight_id) ? `<tr><td colspan="13" class="detail">${detail(f)}</td></tr>` : '');
+  const ids = crewIds(f);
+  return `<tr class="flight ${cls}" data-id="${f.flight_id}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : 1, sources: srcLabel([f]), duration_s: f.duration_s, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: f.can_edit_crew})}</tr>`
+    + (open_.has(f.flight_id) ? `<tr><td colspan="16" class="detail">${detail(f)}</td></tr>` : '');
 }
 
 function groupRows(g) {
   if (g.flights.length === 1) return flightRows(g.flights[0]);
   const first = g.flights[0], isOpen = openGroups.has(g.id);
   const times = g.flights.map(f => `${fmtHm(f.takeoff_utc)}–${fmtHm(f.landing_utc) || '?'}`).join(', ');
-  return `<tr class="group" data-gid="${g.id}" title="${esc(times)}">${cells(first, {landing_utc: g.landing_utc, count: (isOpen ? '▾ ' : '▸ ') + g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', ')})}</tr>`
+  const ids = [...new Set(g.flights.flatMap(crewIds))];
+  return `<tr class="group" data-gid="${g.id}" title="${esc(times)}">${cells(first, {landing_utc: g.landing_utc, count: (isOpen ? '▾ ' : '▸ ') + g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: projectCell(first), ids, canEdit: g.flights.every(f => f.can_edit_crew)})}</tr>`
     + (isOpen ? g.flights.map(f => flightRows(f, 'sub')).join('') : '');
 }
 
@@ -193,6 +336,10 @@ function render() {
   $('prev').disabled = page === 0;
   $('next').disabled = page >= pages - 1;
   $('rows').innerHTML = visible.map(groupRows).join('');
+  document.querySelector('table.log').classList.toggle('editing', editOn());
+  const pageIds = [...new Set(visible.flatMap(e => (e.flights || []).filter(f => f.can_edit_crew).flatMap(crewIds)))];
+  $('selAll').checked = pageIds.length > 0 && pageIds.every(id => selected.has(id));
+  $('selAll').onchange = () => { toggleSel(pageIds, $('selAll').checked); };
   const total = shown.reduce((s, f) => s + (f.duration_s || 0), 0);
   $('summary').textContent = `${shown.length} flights` + ($('combine').checked ? ` · ${entries.length} days/sessions` : '') + ` · ${fmtDur(total)} total`;
   initMiniMaps();
@@ -200,7 +347,7 @@ function render() {
 }
 
 $('rows').onclick = e => {
-  if (e.target.closest('a, button')) return;
+  if (e.target.closest('a, button, select, input, textarea')) return;
   const gr = e.target.closest('tr.group');
   if (gr) { const id = +gr.dataset.gid; openGroups.has(id) ? openGroups.delete(id) : openGroups.add(id); render(); return; }
   const tr = e.target.closest('tr.flight');
@@ -211,7 +358,7 @@ $('rows').onclick = e => {
 };
 
 function exportCsv() {
-  const cols = ['takeoff_utc', 'landing_utc', 'duration_s', 'aircraft', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal'];
+  const cols = ['takeoff_utc', 'landing_utc', 'duration_s', 'aircraft', 'aircraft_uid', 'project_name', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
   const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const csv = [cols.join(',')].concat(render().map(f => cols.map(c => cell(c.endsWith('_user') ? f[c]?.display_name : f[c])).join(','))).join('\n');
   const a = document.createElement('a');
@@ -222,10 +369,10 @@ function exportCsv() {
 
 $('q').oninput = () => { page = 0; render(); };
 $('combine').onchange = $('radius').onchange = $('indoor').onchange = $('ground').onchange = () => { page = 0; render(); };
+$('editCrew').onchange = toggleEdit;
 $('prev').onclick = () => { page--; render(); };
 $('next').onclick = () => { page++; render(); };
 $('size').onchange = () => { pageSize = +$('size').value; page = 0; render(); };
-fetch('/api/logbook').then(r => r.json()).then(d => { flights = d; render(); });
 </script>
 </body>
 </html>
