@@ -75,7 +75,7 @@
       <input id="setupUrl" readonly>
       <div style="margin-top:8px"><button type="button" class="sec" onclick="copySetup()">Copy link</button> <span id="copied" class="mute"></span></div>
     </div>
-    <div class="scroll"><table><thead><tr><th>User</th><th>Email</th><th>Default project</th><th>Aliases</th><th>Add alias</th><th>Password</th><th></th></tr></thead><tbody id="users"></tbody></table></div>
+    <div class="scroll"><table><thead><tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Aliases</th><th>Add alias</th><th>Password</th><th></th></tr></thead><tbody id="users"></tbody></table></div>
   </section>
   <section class="card">
     <h2>Named places (takeoff / landing locations)</h2>
@@ -116,6 +116,7 @@ async function load() {
     || '<tr><td colspan="3" class="mute">Everything is linked.</td></tr>';
   $('users').innerHTML = people.users.map(u => `<tr><td>${esc(u.display_name || u.username)} <span class="mute">${esc(u.username)}${u.is_admin ? ' · admin' : ''}</span></td>
     <td><div class="pair"><input id="mail${u.id}" type="email" value="${esc(u.email || '')}" placeholder="email" maxlength="120"><button class="sec" onclick="saveEmail(${u.id})">Save</button></div></td>
+    <td>${u.provider === 'saml' ? 'TU Delft SSO' : 'Local'}</td>
     <td><select onchange="setUserProject(${u.id}, this.value)">${'<option value="">No default</option>' + (people.projects || []).map(p => `<option value="${p.id}"${p.id === u.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></td>
     <td>${u.aliases.map((a, j) => `<span class="chip">${esc(a)}<button title="Remove" data-alias="${esc(a)}" onclick="removeAlias(this.dataset.alias)">×</button></span>`).join('')}</td>
     <td><div class="pair"><input id="new${u.id}" placeholder="alias"><button onclick="addAlias(null, ${u.id})">Add</button></div></td>
