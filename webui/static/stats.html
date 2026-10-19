@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Statistics</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --ok:#1a7f37; --warn:#9a6700; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
+  main { max-width:none; width:100%; margin:0; padding:16px 12px 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  h2 { margin:0 0 10px; font-size:15px; }
+  .bar { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  @media (max-width: 960px) { .cols { grid-template-columns:1fr; } }
+  .scroll { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  th.num { text-align:right; }
+  .mute { color:var(--mute); }
+  .totals { display:flex; gap:28px; flex-wrap:wrap; }
+  .totals strong { font-size:20px; display:block; }
+  .totals span { color:var(--mute); font-size:12px; }
+  .meter { height:6px; background:var(--sec); border-radius:4px; min-width:72px; width:100%; max-width:140px; overflow:hidden; }
+  .meter > i { display:block; height:100%; background:var(--acc); }
+  button { font:inherit; background:var(--sec); color:var(--txt); border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Statistics</h1>
+  <span class="meta" id="nav"></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <section class="card">
+    <div class="bar">
+      <label title="Locations marked as indoors in the admin page"><input type="checkbox" id="indoor"> Show indoor flights</label>
+      <label title="Uncertain flights, arming on the ground, flickering flight flags and other 'flights' the parser judged not to be real flights"><input type="checkbox" id="ground"> Show uncertain/non-flights</label>
+    </div>
+    <p class="mute" id="scope" style="margin:0 0 12px"></p>
+    <div class="totals">
+      <div><strong id="totHours">—</strong><span>Total flight hours</span></div>
+      <div><strong id="totFlights">—</strong><span>Flights</span></div>
+      <div><strong id="totAircraft">—</strong><span>Aircraft</span></div>
+      <div><strong id="totProjects">—</strong><span>Projects</span></div>
+    </div>
+  </section>
+  <div class="cols">
+    <section class="card">
+      <h2>Aircraft</h2>
+      <div class="mute" style="margin-bottom:8px">Hours on each aircraft from the flights you can see. Names that are not linked yet are listed on their own.</div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Aircraft</th><th>ID</th><th class="num">Flights</th><th class="num">Hours</th><th>Last flight</th><th></th></tr></thead>
+          <tbody id="aircraft"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Projects</h2>
+      <div class="mute" style="margin-bottom:8px">Hours on each project you can open, from the same flights as the logbook.</div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Project</th><th class="num">Flights</th><th class="num">Hours</th><th>Last flight</th><th></th></tr></thead>
+          <tbody id="projects"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtHours = s => {
+  const t = Math.max(0, Math.round(s || 0));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
+  return `${h}h ${String(m).padStart(2, '0')}m`;
+};
+const fmtDate = t => (t || '').slice(0, 10);
+const realFetch = window.fetch;
+window.fetch = async (...args) => {
+  const r = await realFetch(...args);
+  if (r.status === 401) location.href = '/login';
+  return r;
+};
+
+let flights = [];
+fetch('/api/me').then(r => r.json()).then(d => {
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+});
+fetch('/api/stats').then(r => r.json()).then(d => {
+  flights = d.flights || [];
+  $('scope').textContent = d.all
+    ? 'You can see hours for every project and aircraft.'
+    : 'Hours are only for the projects you can open, and for aircraft that flew on those projects.';
+  render();
+});
+
+function shown() {
+  return flights.filter(f =>
+    ($('ground').checked || !['ground', 'uncertain'].includes(f.verdict)) &&
+    ($('indoor').checked || !f.indoor));
+}
+
+function group(list, keyFn, nameFn, extraFn) {
+  const map = new Map();
+  for (const f of list) {
+    const k = keyFn(f);
+    let b = map.get(k);
+    if (!b) {
+      b = {name: nameFn(f), flights: 0, seconds: 0, last: '', extra: extraFn ? extraFn(f) : {}};
+      map.set(k, b);
+    }
+    b.flights += 1;
+    b.seconds += f.duration_s || 0;
+    if ((f.takeoff_utc || '') > b.last) b.last = f.takeoff_utc || '';
+  }
+  return [...map.values()].sort((a, b) => b.seconds - a.seconds || a.name.localeCompare(b.name));
+}
+
+function meter(seconds, max) {
+  const pct = max > 0 ? Math.max(2, Math.round(100 * seconds / max)) : 0;
+  return `<div class="meter" title="${fmtHours(seconds)}"><i style="width:${pct}%"></i></div>`;
+}
+
+function render() {
+  const list = shown();
+  const aircraft = group(list,
+    f => f.drone_id != null ? 'd' + f.drone_id : 'n' + (f.aircraft || '').toLowerCase(),
+    f => f.aircraft || 'Unknown',
+    f => ({uid: f.aircraft_uid || ''}));
+  const projects = group(list,
+    f => f.project_id != null ? 'p' + f.project_id : 'none',
+    f => f.project_name || 'No project');
+  const total = list.reduce((s, f) => s + (f.duration_s || 0), 0);
+  $('totHours').textContent = fmtHours(total);
+  $('totFlights').textContent = list.length;
+  $('totAircraft').textContent = aircraft.length;
+  $('totProjects').textContent = projects.length;
+  const aMax = aircraft[0]?.seconds || 0;
+  const pMax = projects[0]?.seconds || 0;
+  $('aircraft').innerHTML = aircraft.length ? aircraft.map(a =>
+    `<tr><td>${esc(a.name)}</td><td class="mute">${esc(a.extra.uid)}</td>
+     <td class="num">${a.flights}</td><td class="num">${fmtHours(a.seconds)}</td>
+     <td>${esc(fmtDate(a.last))}</td><td>${meter(a.seconds, aMax)}</td></tr>`).join('')
+    : '<tr><td colspan="6" class="mute">No flights to summarise.</td></tr>';
+  $('projects').innerHTML = projects.length ? projects.map(p =>
+    `<tr><td>${esc(p.name)}</td>
+     <td class="num">${p.flights}</td><td class="num">${fmtHours(p.seconds)}</td>
+     <td>${esc(fmtDate(p.last))}</td><td>${meter(p.seconds, pMax)}</td></tr>`).join('')
+    : '<tr><td colspan="5" class="mute">No flights to summarise.</td></tr>';
+}
+
+$('indoor').onchange = $('ground').onchange = render;
+</script>
+</body>
+</html>
