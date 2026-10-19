@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin – aircraft</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --err:#cf222e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
+  header a { color:#9fb0c3; }
+  main { max-width:1100px; margin:0 auto; padding:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  .scroll { overflow-x:auto; }
+  h2 { margin:0 0 8px; font-size:15px; }
+  table { width:max-content; min-width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
+  .mute { color:var(--mute); }
+  .chip { display:inline-flex; align-items:center; gap:4px; background:var(--chip); border-radius:12px; padding:1px 4px 1px 10px; margin:2px 4px 2px 0; }
+  .chip button { background:none; color:var(--err); padding:0 6px; font-size:15px; }
+  button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button.sec { background:var(--sec); color:var(--txt); }
+  button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
+  input, select { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
+  #err { color:var(--err); min-height:1.2em; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin:10px 0 14px; }
+  label.field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
+  .pair { display:flex; align-items:center; gap:8px; white-space:nowrap; }
+  .pair input { width:150px; }
+  #q { width:280px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Admin</h1>
+  <span class="meta"><a href="/">Uploads</a> · <a href="/logbook">Logbook</a> · <a href="/admin" style="color:#fff">Admin</a></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <nav class="tabs">
+    <a href="/admin">People</a>
+    <a href="/projects">Projects</a>
+    <a href="/aircraft" class="cur">Aircraft</a>
+  </nav>
+  <div id="err"></div>
+  <section class="card">
+    <h2>Names in the logs that are not linked to an aircraft</h2>
+    <div class="mute" style="margin-bottom:8px">These are the aircraft names stored in the logs. Link them so those logs belong to a fleet aircraft (and its default project, if you set one).</div>
+    <div class="scroll"><table><thead><tr><th>Name in log</th><th>Seen</th><th>Link to aircraft</th></tr></thead><tbody id="unlinked"></tbody></table></div>
+  </section>
+  <section class="card">
+    <h2>Aircraft and their aliases</h2>
+    <div class="mute">Each aircraft has a unique ID that stays with it if you rename it. It is also matched automatically by its name. Aliases cover extra names from the logs (about 300 drones is fine; use the filter). Removing an aircraft keeps the logs. Unassigned flights that match get this default project first, before the uploader, GCS operator or PIC.</div>
+    <form class="row" id="add" onsubmit="addDrone(event)">
+      <label class="field">Name<input id="name" required maxlength="80" autocomplete="off"></label>
+      <label class="field">ID<input id="uid" required maxlength="40" autocomplete="off"></label>
+      <label class="field">Default project<select id="newProject"></select></label>
+      <button type="submit">Add aircraft</button>
+    </form>
+    <div class="row" style="margin-top:0">
+      <label class="field">Filter<input id="q" placeholder="Filter by name, ID or alias"></label>
+    </div>
+    <div class="scroll"><table><thead><tr><th>Aircraft</th><th>ID</th><th>Default project</th><th>Logs</th><th>Aliases</th><th>Add alias</th><th></th></tr></thead><tbody id="drones"></tbody></table></div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const realFetch = window.fetch;
+window.fetch = async (...args) => {
+  const r = await realFetch(...args);
+  if (r.status === 401) location.href = '/login';
+  return r;
+};
+async function logout() { await fetch('/logout', {method: 'POST'}); location.href = '/login'; }
+let data = {drones: [], unlinked: [], projects: []};
+
+function projectOptions(selected) {
+  return '<option value="">No default</option>' + data.projects.map(p =>
+    `<option value="${p.id}"${p.id === selected ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+}
+
+function matches(d, q) {
+  if (!q) return true;
+  if (d.name.toLowerCase().includes(q)) return true;
+  if ((d.unique_id || '').toLowerCase().includes(q)) return true;
+  return d.aliases.some(a => a.toLowerCase().includes(q));
+}
+
+function render() {
+  const q = ($('q').value || '').trim().toLowerCase();
+  const opts = data.drones.map(d => `<option value="${d.id}">${esc(d.name)}${d.unique_id ? ' (' + esc(d.unique_id) + ')' : ''}</option>`).join('');
+  const shownUnlinked = data.unlinked.filter(e => !q || e.name.toLowerCase().includes(q));
+  $('unlinked').innerHTML = shownUnlinked.map((e, i) => {
+    const idx = data.unlinked.indexOf(e);
+    return `<tr><td>${esc(e.name)}</td><td>${e.count}×</td>
+    <td>${opts ? `<select id="sel${idx}">${opts}</select> <button onclick="linkUnlinked(${idx})">Link</button>` : '<span class="mute">Add an aircraft first</span>'}</td></tr>`;
+  }).join('') || `<tr><td colspan="3" class="mute">${data.unlinked.length ? 'Nothing matches the filter.' : 'Everything is linked.'}</td></tr>`;
+  const shown = data.drones.filter(d => matches(d, q));
+  $('drones').innerHTML = shown.map(d => `<tr>
+    <td>${esc(d.name)}</td>
+    <td><input value="${esc(d.unique_id || '')}" maxlength="40" size="10" onchange="setUid(${d.id}, this.value)"></td>
+    <td><select onchange="setProject(${d.id}, this.value)">${projectOptions(d.default_project_id)}</select></td>
+    <td>${d.log_count}</td>
+    <td>${d.aliases.map(a => `<span class="chip">${esc(a)}<button title="Remove" data-alias="${esc(a)}" onclick="removeAlias(this.dataset.alias)">×</button></span>`).join('')}</td>
+    <td><div class="pair"><input id="new${d.id}" placeholder="alias"><button onclick="addAlias(${d.id})">Add</button></div></td>
+    <td><button class="danger" onclick="removeDrone(${d.id})">Remove</button></td></tr>`).join('')
+    || `<tr><td colspan="7" class="mute">${data.drones.length ? 'Nothing matches the filter.' : 'No aircraft yet.'}</td></tr>`;
+}
+
+async function load() {
+  const r = await fetch('/api/admin/drones');
+  if (r.status === 403) { location.href = '/'; return; }
+  data = await r.json();
+  $('newProject').innerHTML = projectOptions(null);
+  render();
+}
+
+async function send(method, url, body) {
+  const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+  $('err').textContent = r.ok ? '' : (((await r.json().catch(() => ({}))).error) || 'failed');
+  if (r.ok) load();
+}
+
+function addDrone(ev) {
+  ev.preventDefault();
+  const name = $('name').value.trim();
+  const unique_id = $('uid').value.trim();
+  if (!name || !unique_id) return;
+  const project = $('newProject').value;
+  $('name').value = '';
+  $('uid').value = '';
+  send('POST', '/api/admin/drones', {name, unique_id, default_project_id: project ? +project : null});
+}
+function setUid(id, value) { send('PUT', '/api/admin/drones/' + id, {unique_id: value.trim()}); }
+function setProject(id, value) { send('PUT', '/api/admin/drones/' + id, {default_project_id: value ? +value : null}); }
+function linkUnlinked(i) {
+  const sel = $('sel' + i);
+  if (!sel || !sel.value) { $('err').textContent = 'Add an aircraft first.'; return; }
+  send('POST', '/api/admin/drone-aliases', {drone_id: +sel.value, alias: data.unlinked[i].name});
+}
+function addAlias(id) {
+  const v = $('new' + id).value.trim();
+  if (v) send('POST', '/api/admin/drone-aliases', {drone_id: id, alias: v});
+}
+const removeAlias = alias => send('DELETE', '/api/admin/drone-aliases', {alias});
+function removeDrone(id) {
+  const d = data.drones.find(x => x.id === id);
+  if (confirm('Remove ' + (d ? d.name : 'this aircraft') + '? The logs stay. They will no longer be linked to this aircraft.'))
+    send('DELETE', '/api/admin/drones/' + id);
+}
+$('q').oninput = render;
+fetch('/api/me').then(r => r.json()).then(d => {
+  if (!d.user.is_admin) { location.href = '/'; return; }
+  $('who').textContent = d.user.display_name + ' (admin)';
+  load();
+});
+</script>
+</body>
+</html>

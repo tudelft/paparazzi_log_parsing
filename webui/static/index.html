@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <title>Paparazzi log database</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
 <style>
   :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --ok:#1a7f37; --err:#cf222e; --warn:#9a6700; }
   * { box-sizing: border-box; }
@@ -12,27 +14,28 @@
   header h1 { margin:0; font-size:18px; }
   header .meta { color:#9fb0c3; font-size:12px; }
   main { max-width:1200px; margin:0 auto; padding:20px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; }
-  #drop { border:2px dashed #aab4c0; border-radius:8px; padding:28px; text-align:center; color:var(--mute); transition:.15s; }
-  #drop.over { border-color:var(--acc); background:#eef4ff; color:var(--acc); }
-  button, .btn { font:inherit; background:var(--acc); color:#fff; border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
-  button.sec { background:#e8ecf1; color:var(--txt); }
-  button.danger { background:#fff; color:var(--err); border:1px solid var(--err); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  .scroll { overflow-x:auto; }
+  #drop { border:2px dashed var(--drop); border-radius:8px; padding:28px; text-align:center; color:var(--mute); transition:.15s; }
+  #drop.over { border-color:var(--acc); background:var(--dropover); color:var(--acc); }
+  button, .btn { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
+  button.sec { background:var(--sec); color:var(--txt); }
+  button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
   button:disabled { opacity:.5; cursor:default; }
   .row { display:flex; gap:10px; justify-content:center; margin-top:12px; flex-wrap:wrap; }
-  table { width:100%; border-collapse:collapse; }
+  table { width:max-content; min-width:100%; border-collapse:collapse; }
   th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
   th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
   tr.log { cursor:pointer; }
-  tr.log:hover { background:#f0f4fa; }
-  .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:#e8ecf1; }
-  .done { background:#dafbe1; color:var(--ok); } .error { background:#ffebe9; color:var(--err); }
-  .queued, .parsing { background:#fff8c5; color:var(--warn); } .outdated { background:#ffe8cc; color:#bc4c00; }
+  tr.log:hover { background:var(--hover); }
+  .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:var(--chip); }
+  .done { background:var(--okbg); color:var(--ok); } .error { background:var(--errbg); color:var(--err); }
+  .queued, .parsing { background:var(--warnbg); color:var(--warn); } .outdated { background:var(--oldbg); color:var(--old); }
   .mono { font-family:ui-monospace, monospace; font-size:12px; }
   .mute { color:var(--mute); }
   #uploads div { padding:3px 0; display:flex; gap:10px; align-items:center; }
   progress { width:160px; }
-  .detail { background:#fafbfc; padding:12px 16px; }
+  .detail { background:var(--detail); padding:12px 16px; }
   .detail h4 { margin:12px 0 6px; }
   .detail table th, .detail table td { padding:3px 8px; }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
@@ -46,7 +49,7 @@
   <span class="meta"><a href="/" style="color:#fff">Uploads</a> · <a href="/logbook" style="color:#9fb0c3">Logbook</a></span>
   <span class="meta"><a id="adminLink" href="/admin" style="color:#9fb0c3" hidden>Admin</a></span>
   <span class="meta" id="status"></span>
-  <span class="meta" style="margin-left:auto"><span id="who"></span> <button class="sec" style="padding:2px 8px" onclick="logout()">Sign out</button></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" style="padding:2px 8px" onclick="logout()">Sign out</button></span>
 </header>
 <main>
   <section class="card">
@@ -54,6 +57,7 @@
       <strong>Drop log files, zip archives or folders here</strong>
       <div>.data and .log files must come as a pair with the same name (zips and folders may contain several pairs). Logs that were uploaded before (same SHA-256) are skipped.</div>
       <div class="row">
+        <label>Add these logs to <select id="uploadProject"></select></label>
         <button onclick="document.getElementById('pickFiles').click()">Select files</button>
         <button class="sec" onclick="document.getElementById('pickDir').click()">Select folder</button>
       </div>
@@ -62,16 +66,20 @@
     </div>
     <div id="uploads" style="margin-top:12px"></div>
   </section>
+  <p id="noUpload" class="mute" hidden>You can look at logs here. Adding logs needs access from an admin.</p>
 
   <section class="card">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
       <strong>Logs</strong>
+      <label>Project <select id="showProject"></select></label>
       <span><button class="sec" id="reparseAll" onclick="reparseOutdated()">Re-parse outdated</button></span>
     </div>
+    <div class="scroll">
     <table>
-      <thead><tr><th>#</th><th>Log</th><th>Aircraft</th><th>Date (UTC)</th><th>Flights</th><th>Flight time</th><th>Status</th><th>Parser</th></tr></thead>
+      <thead><tr><th>#</th><th>Log</th><th>Project</th><th>Aircraft</th><th>Date (UTC)</th><th>Flights</th><th>Flight time</th><th>Status</th><th>Parser</th></tr></thead>
       <tbody id="logs"></tbody>
     </table>
+    </div>
   </section>
 </main>
 
@@ -80,7 +88,8 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtDur = s => s == null ? '' : `${Math.floor(s/60)}m ${String(Math.round(s%60)).padStart(2,'0')}s`;
 const fmtSize = b => b > 1e9 ? (b/1e9).toFixed(2)+' GB' : (b/1e6).toFixed(1)+' MB';
-let expanded = new Set();
+let expanded = new Set(), me = null, projects = [];
+const projectKey = 'pprzProject';
 if (/^#log\d+$/.test(location.hash)) expanded.add(+location.hash.slice(4));
 
 // Any API call answered with 401 means the session expired
@@ -91,7 +100,39 @@ window.fetch = async (...args) => {
   return r;
 };
 async function logout() { await fetch('/logout', {method: 'POST'}); location.href = '/login'; }
-fetch('/api/me').then(r => r.json()).then(d => { $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : ''); $('adminLink').hidden = !d.user.is_admin; });
+function projectQuery() {
+  const v = localStorage.getItem(projectKey) || '';
+  return v ? ('?project=' + encodeURIComponent(v)) : '';
+}
+function fillProjects() {
+  const cur = localStorage.getItem(projectKey) || '';
+  const filter = $('showProject');
+  filter.innerHTML = '<option value="">All projects</option>'
+    + (me.is_admin ? '<option value="none">No project</option>' : '')
+    + projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  if ([...filter.options].some(o => o.value === cur)) filter.value = cur;
+  else { localStorage.removeItem(projectKey); filter.value = ''; }
+  const addable = projects.filter(p => p.can_add);
+  const up = $('uploadProject');
+  up.innerHTML = addable.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  if (addable.some(p => String(p.id) === filter.value)) up.value = filter.value;
+  const open = addable.length > 0 || (me.is_admin && projects.length === 0);
+  $('drop').hidden = !open;
+  $('noUpload').hidden = open;
+}
+$('showProject').onchange = () => {
+  localStorage.setItem(projectKey, $('showProject').value);
+  if ([...$('uploadProject').options].some(o => o.value === $('showProject').value)) $('uploadProject').value = $('showProject').value;
+  refresh();
+};
+fetch('/api/me').then(r => r.json()).then(async d => {
+  me = d.user;
+  $('who').textContent = me.display_name + (me.is_admin ? ' (admin)' : '');
+  $('adminLink').hidden = !me.is_admin;
+  projects = await fetch('/api/projects').then(r => r.json());
+  fillProjects();
+  refresh();
+});
 
 // ---- upload -------------------------------------------------------------------------------------------------
 // Groups: every zip alone, .data/.log files paired by directory + name.
@@ -124,6 +165,7 @@ async function uploadItems(items) {
     el.innerHTML = `<progress max="1" value="0"></progress><span>${esc(label)} <span class="mute">(${fmtSize(size)})</span></span><span class="res"></span>`;
     box.appendChild(el);
     const fd = new FormData();
+    if ($('uploadProject').value) fd.append('project_id', $('uploadProject').value);
     for (const {file, rel} of g) { fd.append('files', file, file.name); fd.append('names', rel); }
     await new Promise(resolve => {
       const xhr = new XMLHttpRequest();
@@ -176,7 +218,8 @@ $('pickDir').onchange = e => { uploadItems([...e.target.files].map(f => ({file: 
 
 // ---- log list -----------------------------------------------------------------------------------------------
 async function refresh() {
-  const [st, logs] = await Promise.all([fetch('/api/status').then(r => r.json()), fetch('/api/logs').then(r => r.json())]);
+  const q = projectQuery();
+  const [st, logs] = await Promise.all([fetch('/api/status' + q).then(r => r.json()), fetch('/api/logs' + q).then(r => r.json())]);
   const c = st.counts || {};
   $('status').textContent = `parser ${st.parser_version || 'NOT FOUND'} @ ${st.path_rate_hz} pts/s · ${c.done || 0} parsed · ${(c.queued || 0) + (c.parsing || 0)} in queue · ${c.error || 0} failed` + (st.outdated ? ` · ${st.outdated} outdated` : '');
   $('reparseAll').disabled = !st.outdated && !c.error;
@@ -185,7 +228,11 @@ async function refresh() {
   for (const l of logs) {
     const tr = document.createElement('tr');
     tr.className = 'log';
+    const projectCell = me && me.is_admin
+      ? `<select onclick="event.stopPropagation()" onchange="setProject(${l.id}, this.value)">${'<option value="">No project</option>' + projects.map(p => `<option value="${p.id}"${p.id === l.project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`
+      : esc(l.project_name || '');
     tr.innerHTML = `<td>${l.id}</td><td>${esc(l.name)}<div class="mono mute">${l.sha256.slice(0, 12)}… · ${fmtSize(l.size_bytes)}${l.has_log ? '' : ' · no .log'}</div></td>
+      <td onclick="event.stopPropagation()">${projectCell}</td>
       <td>${esc(l.aircraft_names)}</td><td>${esc((l.start_utc || '').replace('T', ' ').slice(0, 19))}</td>
       <td>${l.num_flights ?? ''}</td><td>${fmtDur(l.flight_time_s)}</td>
       <td><span class="badge ${l.status}">${l.status}</span>${l.outdated ? ' <span class="badge outdated">outdated</span>' : ''}${l.error ? `<div class="mute">${esc(l.error).slice(0, 120)}</div>` : ''}</td>
@@ -194,7 +241,7 @@ async function refresh() {
     tb.appendChild(tr);
     if (expanded.has(l.id)) {
       const d = document.createElement('tr');
-      d.innerHTML = `<td colspan="8" class="detail" id="d${l.id}">loading…</td>`;
+      d.innerHTML = `<td colspan="9" class="detail" id="d${l.id}">loading…</td>`;
       tb.appendChild(d);
       loadDetail(l.id);
     }
@@ -210,12 +257,13 @@ async function loadDetail(id) {
     <span class="mute">Uploaded</span><span>${esc(l.uploaded_at)}</span>
     <span class="mute">Parsed</span><span>${esc(l.parsed_at || '-')} with ${esc(l.parser_name || '')} ${esc(l.parser_version || '-')} (${l.parse_seconds ?? '-'} s)</span></div>`;
   for (const a of l.aircraft) {
-    h += `<h4>${esc(a.name)} <span class="mute">AC ${a.ac_id}</span></h4>
+    h += `<h4>${esc(a.drone_name || a.name)} <span class="mute">${a.drone_uid ? esc(a.drone_uid) + ' · ' : ''}AC ${a.ac_id}${a.drone_name && a.drone_name !== a.name ? ' · logged as ' + esc(a.name) : ''}</span></h4>`
       <div class="kv"><span class="mute">PIC / PAC / GCS</span><span>${esc(a.pic)} / ${esc(a.pac)} / ${esc(a.gcs)}</span>
       <span class="mute">Goal</span><span>${esc(a.goal)}</span>
       <span class="mute">Autopilot</span><span class="mono">${esc((a.autopilot_versions || []).join(', '))}</span></div>
-      <table><thead><tr><th>Flight</th><th>Takeoff (UTC)</th><th>Duration</th><th>Takeoff location</th><th>Landing location</th><th>Battery</th><th>Path</th></tr></thead><tbody>
+      <table><thead><tr><th>Flight</th><th>Takeoff (UTC)</th><th>Duration</th><th>Project</th><th>Takeoff location</th><th>Landing location</th><th>Battery</th><th>Path</th></tr></thead><tbody>
       ${a.flights.map(f => `<tr><td>${f.idx}</td><td>${esc(f.takeoff_utc)}</td><td>${fmtDur(f.duration_s)}</td>
+        <td>${esc(f.project_name || '')}</td>
         <td class="mono">${f.takeoff_lat != null ? f.takeoff_lat.toFixed(5) + ', ' + f.takeoff_lon.toFixed(5) : ''}</td>
         <td class="mono">${f.landing_lat != null ? f.landing_lat.toFixed(5) + ', ' + f.landing_lon.toFixed(5) : ''}</td>
         <td>${f.takeoff_voltage_v != null ? f.takeoff_voltage_v.toFixed(1) : '?'} → ${f.landing_voltage_v != null ? f.landing_voltage_v.toFixed(1) : '?'} V</td>
@@ -232,7 +280,7 @@ async function loadDetail(id) {
   h += `<div class="actions">
     <a class="btn sec" href="/api/logs/${id}/download" onclick="event.stopPropagation()">Download .data + .log</a>
     <button class="sec" onclick="event.stopPropagation(); reparse(${id})">Re-parse</button>
-    <button class="danger" onclick="event.stopPropagation(); del(${id})">Delete</button></div>`;
+    ${l.can_delete ? `<button class="danger" onclick="event.stopPropagation(); del(${id})">Delete</button>` : ''}</div>`;
   const el = $('d' + id);
   if (el) el.innerHTML = h;
 }
@@ -244,9 +292,12 @@ async function del(id) {
   if (r.ok) expanded.delete(id);
   refresh();
 }
-async function reparseOutdated() { await fetch('/api/reparse-outdated', {method: 'POST'}); refresh(); }
-
-refresh();
+async function reparseOutdated() { await fetch('/api/reparse-outdated' + projectQuery(), {method: 'POST'}); refresh(); }
+async function setProject(id, value) {
+  await fetch('/api/logs/' + id + '/project', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({project_id: value ? +value : null})});
+  refresh();
+}
 setInterval(() => { if (!document.hidden && !document.querySelector('.detail:hover')) refresh(); }, 3000);
 </script>
 </body>

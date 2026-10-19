@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <title>Admin – people</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
 <style>
@@ -15,37 +17,65 @@
   header h1 { margin:0; font-size:18px; }
   header .meta { color:#9fb0c3; font-size:12px; }
   header a { color:#9fb0c3; }
-  main { max-width:1000px; margin:0 auto; padding:20px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; }
+  main { max-width:1100px; margin:0 auto; padding:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  .scroll { overflow-x:auto; }
   h2 { margin:0 0 8px; font-size:15px; }
-  table { width:100%; border-collapse:collapse; }
+  table { width:max-content; min-width:100%; border-collapse:collapse; }
   th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
   th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
   .mute { color:var(--mute); }
-  .chip { display:inline-flex; align-items:center; gap:4px; background:#e8ecf1; border-radius:12px; padding:1px 4px 1px 10px; margin:2px 4px 2px 0; }
+  .chip { display:inline-flex; align-items:center; gap:4px; background:var(--chip); border-radius:12px; padding:1px 4px 1px 10px; margin:2px 4px 2px 0; }
   .chip button { background:none; color:var(--err); padding:0 6px; font-size:15px; }
-  button { font:inherit; background:var(--acc); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
+  button.sec { background:var(--sec); color:var(--txt); }
+  #setupBox { border-color:var(--acc); }
+  #setupUrl { width:100%; margin-top:8px; }
+  label.field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
+  label.field input { font-size:14px; color:var(--txt); }
+  #addUser { display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin:10px 0 14px; }
   input, select { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
   #err { color:var(--err); margin-bottom:8px; }
+  .pair { display:flex; align-items:center; gap:8px; white-space:nowrap; }
+  .pair input { width:150px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Admin – people and aliases</h1>
+  <h1>Admin</h1>
   <span class="meta"><a href="/">Uploads</a> · <a href="/logbook">Logbook</a> · <a href="/admin" style="color:#fff">Admin</a></span>
-  <span class="meta" style="margin-left:auto"><span id="who"></span> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
 </header>
 <main>
+  <nav class="tabs">
+    <a href="/admin" class="cur">People</a>
+    <a href="/projects">Projects</a>
+    <a href="/aircraft">Aircraft</a>
+  </nav>
   <div id="err"></div>
   <section class="card">
     <h2>Names in the logs that are not linked to a user</h2>
     <div class="mute" style="margin-bottom:8px">PIC/PAC/GCS names from the [PFC] messages. They are shown as logged until you link them.</div>
-    <table><thead><tr><th>Name in log</th><th>Seen</th><th>Link to user</th></tr></thead><tbody id="unlinked"></tbody></table>
+    <div class="scroll"><table><thead><tr><th>Name in log</th><th>Seen</th><th>Link to user</th></tr></thead><tbody id="unlinked"></tbody></table></div>
   </section>
   <section class="card">
     <h2>Users and their aliases</h2>
-    <div class="mute" style="margin-bottom:8px">A user is also matched automatically by username and display name.</div>
-    <table><thead><tr><th>User</th><th>Aliases</th><th>Add alias</th></tr></thead><tbody id="users"></tbody></table>
+    <div class="mute">A user is also matched automatically by username and display name. You create the account; they choose their own password from a link. The default project is used for flights when the aircraft has none (uploader first, then GCS operator, then PIC). Removing a user keeps the logs they uploaded.</div>
+    <form id="addUser" onsubmit="addUser(event)">
+      <label class="field">Username<input id="newUser" required maxlength="40" autocomplete="off"></label>
+      <label class="field">Display name<input id="newName" maxlength="80" autocomplete="off"></label>
+      <label class="field">Email<input id="newEmail" type="email" required maxlength="120" autocomplete="off"></label>
+      <label class="field">Default project<select id="newProject"></select></label>
+      <label class="field" style="padding-bottom:6px">Admin<input type="checkbox" id="newAdmin"></label>
+      <button type="submit">Add user</button>
+    </form>
+    <div id="setupBox" hidden>
+      <strong id="setupHint"></strong>
+      <input id="setupUrl" readonly>
+      <div style="margin-top:8px"><button type="button" class="sec" onclick="copySetup()">Copy link</button> <span id="copied" class="mute"></span></div>
+    </div>
+    <div class="scroll"><table><thead><tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Aliases</th><th>Add alias</th><th>Password</th><th></th></tr></thead><tbody id="users"></tbody></table></div>
   </section>
   <section class="card">
     <h2>Named places (takeoff / landing locations)</h2>
@@ -53,9 +83,9 @@
     <div id="map"></div>
     <div id="mapMsg" class="mute" style="margin-top:6px"></div>
     <div id="nameForm" style="margin-top:8px" hidden>
-      <span id="nameLabel"></span> <input id="placeName" size="30" maxlength="80" placeholder="Name"> <label><input type="checkbox" id="placeIndoor"> Indoors</label> <button id="nameSave">Save</button> <button id="nameCancel" style="background:#e8ecf1;color:var(--txt)">Cancel</button>
+      <span id="nameLabel"></span> <input id="placeName" size="30" maxlength="80" placeholder="Name"> <label><input type="checkbox" id="placeIndoor"> Indoors</label> <button id="nameSave">Save</button> <button id="nameCancel" class="sec">Cancel</button>
     </div>
-    <table style="margin-top:8px"><thead><tr><th>Name</th><th>Type</th><th>Shape</th><th></th></tr></thead><tbody id="places"></tbody></table>
+    <div class="scroll"><table style="margin-top:8px"><thead><tr><th>Name</th><th>Type</th><th>Shape</th><th></th></tr></thead><tbody id="places"></tbody></table></div>
   </section>
 </main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -71,18 +101,81 @@ window.fetch = async (...args) => {
 };
 async function logout() { await fetch('/logout', {method: 'POST'}); location.href = '/login'; }
 let people = {users: [], unlinked: []};
+let me = null;
 
 async function load() {
   const r = await fetch('/api/admin/people');
   if (r.status === 403) { location.href = '/'; return; }
   people = await r.json();
+  const projOpts = '<option value="">No default</option>' + (people.projects || []).map(p =>
+    `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  $('newProject').innerHTML = projOpts;
   const opts = people.users.map(u => `<option value="${u.id}">${esc(u.display_name || u.username)} (${esc(u.username)})</option>`).join('');
   $('unlinked').innerHTML = people.unlinked.map((e, i) => `<tr><td>${esc(e.name)}</td><td>${e.count}×</td>
     <td><select id="sel${i}">${opts}</select> <button onclick="addAlias(${i}, null)">Link</button></td></tr>`).join('')
     || '<tr><td colspan="3" class="mute">Everything is linked.</td></tr>';
   $('users').innerHTML = people.users.map(u => `<tr><td>${esc(u.display_name || u.username)} <span class="mute">${esc(u.username)}${u.is_admin ? ' · admin' : ''}</span></td>
+    <td><div class="pair"><input id="mail${u.id}" type="email" value="${esc(u.email || '')}" placeholder="email" maxlength="120"><button class="sec" onclick="saveEmail(${u.id})">Save</button></div></td>
+    <td>${u.provider === 'saml' ? 'TU Delft SSO' : 'Local'}</td>
+    <td><select onchange="setUserProject(${u.id}, this.value)">${'<option value="">No default</option>' + (people.projects || []).map(p => `<option value="${p.id}"${p.id === u.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></td>
     <td>${u.aliases.map((a, j) => `<span class="chip">${esc(a)}<button title="Remove" data-alias="${esc(a)}" onclick="removeAlias(this.dataset.alias)">×</button></span>`).join('')}</td>
-    <td><input id="new${u.id}" placeholder="alias" size="14"> <button onclick="addAlias(null, ${u.id})">Add</button></td></tr>`).join('');
+    <td><div class="pair"><input id="new${u.id}" placeholder="alias"><button onclick="addAlias(null, ${u.id})">Add</button></div></td>
+    <td>${u.has_password ? '<span class="mute">Chosen</span>' : '<span class="mute">Waiting</span>'} <button class="sec" onclick="newSetupLink(${u.id})">New link</button></td>
+    <td>${me && u.id === me.id ? '<span class="mute">you</span>' : `<button class="danger" onclick="removeUser(${u.id})">Remove</button>`}</td></tr>`).join('');
+}
+
+function showSetup(url, username, hasPassword, expiresAt) {
+  const until = new Date(expiresAt).toLocaleString();
+  $('setupHint').textContent = hasPassword
+    ? username + ' can open this link once, until ' + until + ', and choose a new password. The current password keeps working until then.'
+    : username + ' can open this link once, until ' + until + ', and choose a password. Send them the link.';
+  $('setupUrl').value = url;
+  $('copied').textContent = '';
+  $('setupBox').hidden = false;
+  $('setupUrl').focus();
+  $('setupUrl').select();
+}
+async function copySetup() {
+  try { await navigator.clipboard.writeText($('setupUrl').value); $('copied').textContent = 'Copied.'; }
+  catch { $('copied').textContent = 'Select the link and copy it.'; }
+}
+async function addUser(ev) {
+  ev.preventDefault();
+  const username = $('newUser').value.trim();
+  const r = await fetch('/api/admin/users', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username, display_name: $('newName').value.trim(), email: $('newEmail').value.trim(),
+      is_admin: $('newAdmin').checked, default_project_id: $('newProject').value ? +$('newProject').value : null})});
+  if (!r.ok) { $('err').textContent = ((await r.json().catch(() => ({}))).error) || 'failed'; return; }
+  const data = await r.json();
+  $('err').textContent = '';
+  $('addUser').reset();
+  showSetup(data.setup_url, username, false, data.expires_at);
+  load();
+}
+async function setUserProject(id, value) {
+  const r = await fetch('/api/admin/users/' + id, {method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({default_project_id: value ? +value : null})});
+  $('err').textContent = r.ok ? '' : (((await r.json().catch(() => ({}))).error) || 'failed');
+}
+async function saveEmail(id) {
+  const r = await fetch('/api/admin/users/' + id, {method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({email: $('mail' + id).value.trim()})});
+  $('err').textContent = r.ok ? '' : (((await r.json().catch(() => ({}))).error) || 'failed');
+  if (r.ok) load();
+}
+async function newSetupLink(id) {
+  const u = people.users.find(x => x.id === id);
+  const r = await fetch('/api/admin/users/' + id + '/setup-link', {method: 'POST'});
+  if (!r.ok) { $('err').textContent = ((await r.json().catch(() => ({}))).error) || 'failed'; return; }
+  const data = await r.json();
+  $('err').textContent = '';
+  showSetup(data.setup_url, u ? u.username : 'This user', !!(u && u.has_password), data.expires_at);
+}
+async function removeUser(id) {
+  const u = people.users.find(x => x.id === id);
+  const label = u ? (u.display_name || u.username) : 'this user';
+  if (confirm('Remove ' + label + '? They can no longer sign in. Logs they uploaded are kept.'))
+    await send('DELETE', '/api/admin/users/' + id);
 }
 
 async function send(method, url, body) {
@@ -160,7 +253,7 @@ function initMap() {
 async function loadPlaces() {
   placeData = await fetch('/api/admin/places').then(r => r.json());
   $('places').innerHTML = placeData.places.map(p => `<tr><td>${esc(p.name)}</td><td>${p.indoor ? 'Indoors' : 'Outdoors'}</td><td class="mute">${p.shape.type === 'circle' ? 'circle, ' + Math.round(p.shape.radius_m) + ' m' : 'polygon, ' + p.shape.points.length + ' points'}</td>
-    <td><button onclick="renamePlace(${p.id})">Edit</button> <button onclick="zoomPlace(${p.id})">Show</button> <button style="background:#fff;color:var(--err);border:1px solid var(--err)" onclick="deletePlace(${p.id})">Delete</button></td></tr>`).join('')
+    <td><button onclick="renamePlace(${p.id})">Edit</button> <button onclick="zoomPlace(${p.id})">Show</button> <button class="danger" onclick="deletePlace(${p.id})">Delete</button></td></tr>`).join('')
     || '<tr><td colspan="4" class="mute">No places yet.</td></tr>';
   if (!map) return;
   layers.clearLayers(); layerById.clear();
@@ -182,9 +275,8 @@ function renamePlace(id) {
 }
 async function deletePlace(id) { if (confirm('Delete this place?')) await send('DELETE', '/api/admin/places/' + id); }
 
-fetch('/api/me').then(r => r.json()).then(d => { $('who').textContent = d.user.display_name + ' (admin)'; });
+fetch('/api/me').then(r => r.json()).then(d => { me = d.user; $('who').textContent = d.user.display_name + ' (admin)'; load(); });
 initMap();
-load();
 loadPlaces();
 </script>
 </body>
