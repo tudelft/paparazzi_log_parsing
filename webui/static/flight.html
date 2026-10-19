@@ -145,16 +145,15 @@ async function saveComment(ids) {
 
 const person = (f, role) => {
   const raw = f[role], u = f[role + '_user'];
-  if (!raw && !u) return '';
-  if (!u) return esc(raw);
-  return esc(u.display_name) + (raw && raw.toLowerCase() !== u.display_name.toLowerCase() ? ` <span class="mute">(${esc(raw)})</span>` : '');
+  if (u) return esc(u.display_name);
+  return raw ? esc(raw) : '';
 };
 function crewField(e, role) {
   if (!e.can_edit_crew) return person(e, role);
   const ids = [...new Set((e.sources || []).map(s => s.flight_id))];
   const u = e[role + '_user'];
   const selectedId = u && (u.source === 'edit' || u.source === 'alias') ? u.id : '';
-  const logged = e[role] ? esc(e[role]) + ' (from log)' : '—';
+  const logged = e[role] ? esc(e[role]) : '—';
   return `<select onchange="setCrew('${role}', this.value, [${ids.join(',')}])">
     <option value="">${logged}</option>
     ${people.map(p => `<option value="${p.id}"${p.id === selectedId ? ' selected' : ''}>${esc(p.display_name)}</option>`).join('')}

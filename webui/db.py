@@ -3,6 +3,7 @@ import gzip
 import json
 import sqlite3
 import threading
+import time
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -139,15 +140,44 @@ CREATE INDEX IF NOT EXISTS ix_changes_var ON setting_changes(var);
 """
 
 _local = threading.local()
+# Only one worker stores a parse result at a time; others wait here instead of failing with "database is locked".
+write_lock = threading.Lock()
+BUSY_TIMEOUT_MS = 300_000  # 5 minutes; a large path insert can hold the write lock for a while
+
+
+def is_locked(exc):
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    msg = str(exc).lower()
+    return "locked" in msg or "busy" in msg
+
+
+def retry_locked(fn, con=None, attempts=8, wait=0.5):
+    """Run fn(), waiting and retrying if SQLite is busy (parallel parse jobs or a long write)."""
+    delay = wait
+    for i in range(attempts):
+        try:
+            return fn()
+        except sqlite3.OperationalError as e:
+            if con is not None:
+                try:
+                    con.rollback()
+                except sqlite3.Error:
+                    pass
+            if not is_locked(e) or i == attempts - 1:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 16)
 
 
 def connect(path):
     """One connection per thread."""
     con = getattr(_local, "con", None)
     if con is None or getattr(_local, "path", None) != path:
-        con = sqlite3.connect(path, timeout=60)
+        con = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000)
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA busy_timeout=%d" % BUSY_TIMEOUT_MS)
         con.execute("PRAGMA foreign_keys=ON")
         _local.con, _local.path = con, path
     return con

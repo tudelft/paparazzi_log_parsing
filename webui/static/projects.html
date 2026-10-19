@@ -14,7 +14,7 @@
   header h1 { margin:0; font-size:18px; }
   header .meta { color:#9fb0c3; font-size:12px; }
   header a { color:#9fb0c3; }
-  main { max-width:900px; margin:0 auto; padding:20px; }
+  main { max-width:none; width:100%; margin:0; padding:16px 12px 20px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
   .scroll { overflow-x:auto; }
   h2 { margin:0 0 8px; font-size:15px; }
@@ -120,7 +120,11 @@ function projectRows(p) {
   const list = users.map(u => `<div class="person"><span>${esc(u.display_name || u.username)} <span class="mute">${esc(u.username)}</span></span>${tickBoxes('m' + p.id + '_' + u.id, byId[u.id] || '', `saveTicks(${p.id}, ${u.id})`)}</div>`).join('')
     || '<p class="mute">Create a user on the People tab first.</p>';
   const detail = `${list}
-    <div class="row"><button type="button" class="danger" onclick="removeProject(${p.id})">Delete project</button></div>`;
+    <div class="row">
+      <label class="field">Rename<input id="ren${p.id}" value="${esc(p.name)}" maxlength="80" autocomplete="off"></label>
+      <button type="button" class="sec" onclick="renameProject(${p.id})">Rename</button>
+      <button type="button" class="danger" onclick="removeProject(${p.id})">Delete project</button>
+    </div>`;
   return `<tr class="project" data-id="${p.id}"><td>${isOpen ? '▾' : '▸'} ${esc(p.name)}</td><td>${p.log_count}</td><td>${peoplePreview(p)}</td></tr>`
     + (isOpen ? `<tr><td colspan="3" class="detail">${detail}</td></tr>` : '');
 }
@@ -155,6 +159,11 @@ function saveTicks(pid, uid) {
   setRole(pid, uid, applyTicks('m' + pid + '_' + uid));
 }
 function setRole(id, userId, role) { send('/api/admin/projects/' + id + '/members', 'PUT', {user_id: userId, role}); }
+function renameProject(id) {
+  const name = ($('ren' + id).value || '').trim();
+  if (!name) { $('err').textContent = 'A project name is required.'; return; }
+  send('/api/admin/projects/' + id, 'PUT', {name});
+}
 function removeProject(id) {
   const p = projects.find(x => x.id === id);
   if (confirm('Delete ' + (p ? p.name : 'this project') + '? The logs stay, but they will no longer belong to a project.'))
