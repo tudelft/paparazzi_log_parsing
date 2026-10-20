@@ -403,16 +403,22 @@ LogHeader read_log_header(const std::string &log_file)
       cap_buf += '\n';
       if (ind == cap_indent && l[0] == '<' && l[1] == '/' && cap_tag.compare(0, std::string::npos, l + 2, cap_tag.size()) == 0) {
         AcConf &c = h.confs[cur_conf];
-        (cap_tag == "airframe"      ? c.airframe_xml :
-         cap_tag == "flight_plan"   ? c.flight_plan_xml :
-         cap_tag == "radio"         ? c.radio_xml :
-         cap_tag == "telemetry"     ? c.telemetry_xml :
-                                      c.settings_xml) = cap_buf;
+        if (cap_tag == "airframe") { c.airframe_xml = cap_buf; }
+        else if (cap_tag == "flight_plan") { c.flight_plan_xml = cap_buf; }
+        else if (cap_tag == "radio") { c.radio_xml = cap_buf; }
+        else if (cap_tag == "telemetry") { c.telemetry_xml = cap_buf; }
+        else {
+          // Older logs dump one <settings> file per module; GCS logs also leave a trailing
+          // <dl_settings> tree. Keep every block so DL_VALUE indices can be named.
+          if (!c.settings_xml.empty()) { c.settings_xml += "\n<!-- SETTINGS_BLOCK -->\n"; }
+          c.settings_xml += cap_buf;
+        }
         cap_tag.clear();
       }
     } else if (l[0] == '<') {
       std::string tag(l + 1, strcspn(l + 1, " >/"));
-      if (tag == "airframe" || tag == "flight_plan" || tag == "settings" || tag == "radio" || tag == "telemetry") {
+      if (tag == "airframe" || tag == "flight_plan" || tag == "settings" || tag == "radio" ||
+          tag == "telemetry" || tag == "dl_settings") {
         cap_tag = tag;
         cap_indent = ind;
         cap_buf = line + "\n";
@@ -517,6 +523,43 @@ std::string xml_decode(std::string_view v)
 
 using XmlAttrs = std::map<std::string, std::string>;
 
+// Older Paparazzi XML uses VAR=/NAME=/SHORTNAME=; newer dumps use var=/name=/shortname=.
+std::string attr_ci(const XmlAttrs &at, const char *key)
+{
+  const size_t n = std::strlen(key);
+  for (const auto &kv : at) {
+    if (kv.first.size() != n) { continue; }
+    bool ok = true;
+    for (size_t i = 0; i < n; i++) {
+      if (std::tolower(static_cast<unsigned char>(kv.first[i])) !=
+          std::tolower(static_cast<unsigned char>(key[i]))) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) { return kv.second; }
+  }
+  return "";
+}
+
+bool has_attr_ci(const XmlAttrs &at, const char *key)
+{
+  const size_t n = std::strlen(key);
+  for (const auto &kv : at) {
+    if (kv.first.size() != n) { continue; }
+    bool ok = true;
+    for (size_t i = 0; i < n; i++) {
+      if (std::tolower(static_cast<unsigned char>(kv.first[i])) !=
+          std::tolower(static_cast<unsigned char>(key[i]))) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) { return true; }
+  }
+  return false;
+}
+
 // Calls cb(tag, attributes, closing, selfclosing) for every element tag in the XML (comments and declarations skipped)
 template <typename F>
 void for_each_tag(const std::string &x, F cb)
@@ -584,33 +627,71 @@ std::vector<SettingInfo> settings_entries(const std::string &x)
       for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
         if (!it->empty()) { si.parent = *it; break; }
       }
-      auto get = [&](const char *k) { auto i = at.find(k); return i == at.end() ? std::string() : i->second; };
-      si.var = get("var");
-      si.shortname = get("shortname");
-      si.unit = get("unit");
-      si.has_unit = at.count("unit") > 0;
+      si.var = attr_ci(at, "var");
+      si.shortname = attr_ci(at, "shortname");
+      si.unit = attr_ci(at, "unit");
+      si.has_unit = has_attr_ci(at, "unit");
       out.push_back(std::move(si));
     }
     if (!selfclose) {
-      auto n = at.find("name");
-      stack.push_back(tag == "dl_settings" && n != at.end() ? n->second : "");
+      std::string n = attr_ci(at, "name");
+      stack.push_back(tag == "dl_settings" && !n.empty() ? n : "");
     }
   });
   return out;
 }
+
+std::vector<SettingInfo> merge_settings_entries(const std::string &x);
 
 // Flat list of the settings: index, var, shortname, unit and parent group name.
 std::string settings_list_json(const std::string &x)
 {
   std::string out;
   int index = 0;
-  for (const auto &si : settings_entries(x)) {
+  for (const auto &si : merge_settings_entries(x)) {
     out += std::string(out.empty() ? "" : ",") + "\n        {\"index\": " + std::to_string(index++) + ", \"var\": " +
            json_escape(si.var) + ", \"shortname\": " + json_escape(si.shortname) + ", \"unit\": " +
            (si.has_unit ? json_escape(si.unit) : "null") + ", \"parent\": " +
            (si.parent.empty() ? "null" : json_escape(si.parent)) + "}";
   }
   return out.empty() ? "[]" : "[" + out + "\n      ]";
+}
+
+// Several <settings> / <dl_settings> dumps of the same aircraft: keep one copy if a later
+// block already contains an earlier one (GCS), otherwise concatenate (one XML file per module).
+std::vector<SettingInfo> merge_settings_entries(const std::string &x)
+{
+  static const std::string mark = "<!-- SETTINGS_BLOCK -->";
+  auto prefix_of = [](const std::vector<SettingInfo> &a, const std::vector<SettingInfo> &b) {
+    if (a.size() > b.size()) { return false; }
+    for (size_t i = 0; i < a.size(); i++) {
+      if (a[i].var != b[i].var || a[i].shortname != b[i].shortname) { return false; }
+    }
+    return true;
+  };
+  std::vector<SettingInfo> info;
+  size_t pos = 0;
+  while (pos < x.size()) {
+    size_t n = x.find(mark, pos);
+    std::string piece = x.substr(pos, n == std::string::npos ? std::string::npos : n - pos);
+    pos = n == std::string::npos ? x.size() : n + mark.size();
+    std::vector<SettingInfo> p = settings_entries(piece);
+    if (p.empty()) { continue; }
+    if (info.empty()) { info = std::move(p); continue; }
+    if (prefix_of(info, p)) { info = std::move(p); }
+    else if (prefix_of(p, info)) { continue; }
+    else { info.insert(info.end(), p.begin(), p.end()); }
+  }
+  return info;
+}
+
+std::string setting_var_json(const std::vector<SettingInfo> &info, int i)
+{
+  if (i < 0 || static_cast<size_t>(i) >= info.size()) { return "null"; }
+  const SettingInfo &si = info[static_cast<size_t>(i)];
+  if (!si.var.empty()) { return json_escape(si.var); }
+  if (!si.shortname.empty()) { return json_escape(si.shortname); }
+  return "null";
 }
 
 // Flight plan reduced to its reference point, waypoints (with lat/lon) and blocks (with index).
@@ -742,7 +823,7 @@ std::string settings_changes_json(const AircraftState &s, const std::vector<Sett
     }
     tr.last = sm.value; tr.last_t = sm.t;
   }
-  auto name_of_idx = [&](int i) { return i >= 0 && (size_t)i < info.size() ? json_escape(info[i].var) : std::string("null"); };
+  auto name_of_idx = [&](int i) { return setting_var_json(info, i); };
 
   std::ostringstream o;
   size_t changed = 0;
@@ -811,7 +892,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.3.4";
+constexpr const char *PARSER_VERSION = "1.3.5";
 
 // Onboard logs often stamp each line with get_sys_time_usec()/1e6. That counter is
 // uint32 microseconds, so the time column wraps every 2^32 us (~71.58 min). Long
@@ -1436,7 +1517,7 @@ int main(int argc, char *argv[])
     o << ",\n      \"flight_plan\": "
       << (cf && !cf->flight_plan_xml.empty() ? flight_plan_summary_json(cf->flight_plan_xml) : "null")
       << ",\n      \"settings\": " << (cf && !cf->settings_xml.empty() ? settings_list_json(cf->settings_xml) : "null")
-      << ",\n      \"settings_changes\": " << settings_changes_json(s, cf ? settings_entries(cf->settings_xml) : std::vector<SettingInfo>(), utc)
+      << ",\n      \"settings_changes\": " << settings_changes_json(s, cf ? merge_settings_entries(cf->settings_xml) : std::vector<SettingInfo>(), utc)
       << ",\n      \"xml\": {\n        \"airframe\": " << (cf ? xml_or_null(cf->airframe_xml) : "null")
       << ",\n        \"flight_plan\": " << (cf ? xml_or_null(cf->flight_plan_xml) : "null")
       << ",\n        \"settings\": " << (cf ? xml_or_null(cf->settings_xml) : "null")
