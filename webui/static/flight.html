@@ -499,7 +499,7 @@ function renderLists() {
 
   const ch = D.setting_changes.filter(c => allC || inFlight(c.time_s));
   $('changeCount').textContent = `${ch.length} of ${D.setting_changes.length}`;
-  $('changes').innerHTML = ch.map(c => `<tr class="${inFlight(c.time_s) ? '' : 'out'}"><td class="mono">${rel(c.time_s)}</td><td>${esc(c.var)} <span class="mute">#${c.idx}</span></td>
+  $('changes').innerHTML = ch.map(c => `<tr class="${inFlight(c.time_s) ? '' : 'out'}"><td class="mono">${rel(c.time_s)}</td><td>${esc(c.var || 'setting')} <span class="mute">#${c.idx}</span></td>
     <td class="mono">${esc(c.from_value)}</td><td class="mono">${esc(c.to_value)}</td><td>${inFlight(c.time_s) ? '<span class="tag">in flight</span>' : ''}</td></tr>`).join('')
     || '<tr><td colspan="5" class="mute">No setting changed during this flight.</td></tr>';
 
