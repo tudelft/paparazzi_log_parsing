@@ -24,7 +24,7 @@
   .hero { display:flex; gap:12px 20px; align-items:baseline; flex-wrap:wrap; margin:2px 0 12px; }
   .hero h2 { font-size:22px; margin:0; }
   .chip { display:inline-block; padding:1px 9px; border-radius:10px; font-size:12px; background:var(--chip); color:var(--txt); }
-  .totals { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:14px 20px; margin-top:14px; }
+  .totals { display:grid; grid-template-columns:repeat(auto-fill, minmax(125px, 1fr)); gap:12px 18px; }
   .totals strong { font-size:20px; display:block; font-variant-numeric:tabular-nums; }
   .totals span { color:var(--mute); font-size:12px; }
   .cols { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
@@ -41,13 +41,20 @@
   .mute { color:var(--mute); }
   .meter { height:6px; background:var(--sec); border-radius:4px; min-width:60px; width:100%; max-width:120px; overflow:hidden; }
   .meter > i { display:block; height:100%; background:var(--acc); }
-  #map { height:340px; border-radius:6px; border:1px solid var(--line); }
-  .months { display:flex; align-items:flex-end; gap:3px; height:150px; padding-top:6px; overflow-x:auto; }
-  .months .m { flex:1 0 14px; max-width:38px; display:flex; flex-direction:column; justify-content:flex-end; height:100%; }
+  .mapCard { display:flex; flex-direction:column; }
+  #map { flex:1; min-height:340px; border-radius:6px; border:1px solid var(--line); }
+  select { font:inherit; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--txt); }
+  .pager { display:flex; gap:10px; align-items:center; justify-content:flex-end; flex-wrap:wrap; margin-top:8px; }
+  .pager button:disabled { opacity:.5; cursor:default; }
+  .chartWrap { overflow-x:auto; }
+  .months { display:flex; align-items:flex-end; gap:3px; height:150px; padding-top:6px; }
+  .months .m { flex:1 0 14px; max-width:64px; min-width:0; display:flex; flex-direction:column; justify-content:flex-end; height:100%; }
   .months .m i { display:block; background:var(--acc); border-radius:3px 3px 0 0; min-height:1px; }
   .months .m.empty i { background:var(--sec); }
   .monthAxis { display:flex; gap:3px; font-size:11px; color:var(--mute); overflow:hidden; }
-  .monthAxis span { flex:1 0 14px; max-width:38px; text-align:center; white-space:nowrap; }
+  .monthAxis span { flex:1 0 14px; max-width:64px; text-align:left; white-space:nowrap; overflow:visible; }
+  .months.dense, .monthAxis.dense { gap:1px; }
+  .months.dense .m, .monthAxis.dense span { flex:1 0 2px; }
   .tag { display:inline-block; padding:0 8px; border-radius:10px; font-size:12px; background:var(--chip); }
   .tag.uncertain { background:var(--uncertainbg); color:var(--warn); } .tag.ground { background:var(--groundbg); color:var(--err); }
   button { font:inherit; background:var(--sec); color:var(--txt); border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
@@ -71,18 +78,34 @@
         <label title="Uncertain flights, arming on the ground and other 'flights' the parser judged not to be real flights"><input type="checkbox" id="ground"> Include uncertain/non-flights</label>
         <span class="mute" id="scope"></span>
       </div>
-      <div class="totals" id="totals"></div>
     </section>
 
     <div class="cols">
-      <section class="card"><h2>Details</h2><div class="kv" id="info"></div></section>
-      <section class="card"><h2 id="mapTitle">Takeoff locations</h2><div id="map"></div></section>
+      <section class="card">
+        <div class="totals" id="totals"></div>
+        <h2 style="margin-top:18px">Details</h2><div class="kv" id="info"></div>
+      </section>
+      <section class="card mapCard"><h2 id="mapTitle">Takeoff locations</h2><div id="map"></div></section>
     </div>
 
     <section class="card">
-      <h2>Flight time per month</h2>
-      <div class="months" id="months"></div>
-      <div class="monthAxis" id="monthAxis"></div>
+      <div class="bar" style="margin-bottom:6px">
+        <h2 style="margin:0">Flight time</h2>
+        <label>Period <select id="range">
+          <option value="30d">Last 30 days</option><option value="3m">Last 3 months</option>
+          <option value="1y" selected>Last year</option><option value="2y">Last 2 years</option>
+          <option value="5y">Last 5 years</option><option value="all">All time</option>
+        </select></label>
+        <label>Per <select id="step">
+          <option value="day">Day</option><option value="week">Week</option>
+          <option value="month" selected>Month</option><option value="year">Year</option>
+        </select></label>
+        <span class="mute" id="rangeSum"></span>
+      </div>
+      <div class="chartWrap"><div id="chart">
+        <div class="months" id="months"></div>
+        <div class="monthAxis" id="monthAxis"></div>
+      </div></div>
     </section>
 
     <div class="grid3" id="breakdowns"></div>
@@ -93,7 +116,7 @@
         <thead id="flightHead"></thead>
         <tbody id="flights"></tbody>
       </table></div>
-      <div style="margin-top:8px"><button type="button" id="moreFlights" hidden>Show all flights</button></div>
+      <div class="pager" id="flightPager"></div>
     </section>
 
     <section class="card">
@@ -102,7 +125,7 @@
         <thead><tr><th>File</th><th>Type</th><th>Date (UTC)</th><th class="num">Size</th><th class="num">Flights</th><th>Aircraft</th><th>Project</th><th>Uploaded by</th><th></th></tr></thead>
         <tbody id="logs"></tbody>
       </table></div>
-      <div style="margin-top:8px"><button type="button" id="moreLogs" hidden>Show all log files</button></div>
+      <div class="pager" id="logPager"></div>
     </section>
   </div>
 </main>
@@ -138,8 +161,24 @@ const KINDS = {
 const ROLES = [['pic', 'PIC'], ['pac', 'PAC'], ['gcs', 'GCS operator']];
 const TYPE = {onboard_sd: 'Onboard SD', gcs: 'GCS'};
 const ACCESS = {view: 'See logs', add: 'Add logs', full: 'See, add and delete'};
-const PAGE = 100;
-let D = null, me = null, map = null, mapLayer = null, flightLimit = PAGE, logLimit = PAGE;
+const PAGE_SIZES = [10, 25, 50, 100];
+let D = null, me = null, map = null, mapLayer = null;
+const pages = {flights: {page: 0, size: 25}, logs: {page: 0, size: 25}};
+
+function pager(id, key, total, redraw) {
+  const p = pages[key], last = Math.max(0, Math.ceil(total / p.size) - 1);
+  p.page = Math.min(p.page, last);
+  const el = $(id);
+  if (total <= PAGE_SIZES[0]) { el.innerHTML = ''; return [0, total]; }
+  el.innerHTML = `<span class="mute">Rows per page</span>
+    <select>${PAGE_SIZES.map(n => `<option${n === p.size ? ' selected' : ''}>${n}</option>`).join('')}</select>
+    <button type="button" data-go="-1"${p.page === 0 ? ' disabled' : ''}>‹ Previous</button>
+    <span>Page ${p.page + 1} of ${last + 1}</span>
+    <button type="button" data-go="1"${p.page === last ? ' disabled' : ''}>Next ›</button>`;
+  el.querySelector('select').onchange = e => { p.size = +e.target.value; p.page = 0; redraw(); };
+  el.querySelectorAll('button').forEach(b => b.onclick = () => { p.page += +b.dataset.go; redraw(); });
+  return [p.page * p.size, Math.min(total, (p.page + 1) * p.size)];
+}
 
 // Links to the other overview pages; names that are not linked to anything stay plain text.
 const link = (kind, id, text) => id != null ? `<a href="/${kind}/${id}">${esc(text)}</a>` : esc(text);
@@ -175,9 +214,8 @@ function renderHead() {
   const k = KINDS[KIND], it = D.item;
   document.title = `${it.name} · ${k.label}`;
   $('title').textContent = k.label;
-  const listOk = KIND !== 'locations' || D.all;
   $('back').textContent = `← ${k.listLabel}`;
-  if (listOk) $('back').href = k.list; else $('back').removeAttribute('href');
+  $('back').href = k.list;
   $('name').textContent = it.name;
   const chips = [];
   if (KIND === 'people') {
@@ -308,30 +346,77 @@ function renderTotals(list) {
   $('totals').innerHTML = tiles.map(([v, l]) => `<div><strong>${esc(v)}</strong><span>${esc(l)}</span></div>`).join('');
 }
 
-function renderMonths(list) {
-  const per = new Map();
-  for (const f of list) {
-    const m = (f.takeoff_utc || '').slice(0, 7);
-    if (m) per.set(m, (per.get(m) || 0) + (f.duration_s || 0));
+const pad2 = n => String(n).padStart(2, '0');
+const isoDay = d => `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+const dayOf = t => new Date(t.slice(0, 10) + 'T00:00:00Z');
+
+// Start of the bucket (day, Monday of the week, first of the month or year) that contains day d.
+function bucketStart(d, step) {
+  if (step === 'day') return d;
+  if (step === 'week') return new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 864e5);
+  if (step === 'month') return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+  return new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+}
+function nextBucket(d, step) {
+  if (step === 'day') return new Date(d.getTime() + 864e5);
+  if (step === 'week') return new Date(d.getTime() + 7 * 864e5);
+  if (step === 'month') return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
+  return new Date(Date.UTC(d.getUTCFullYear() + 1, 0, 1));
+}
+// The year is only shown on the first label and when it changes.
+function bucketLabel(d, step, prev) {
+  const y = d.getUTCFullYear();
+  if (step === 'year') return String(y);
+  const full = step === 'month' ? isoDay(d).slice(0, 7) : isoDay(d);
+  return prev && prev.getUTCFullYear() === y ? full.slice(5) : full;
+}
+
+function renderChart(list) {
+  const range = $('range').value, step = $('step').value;
+  const today = dayOf(new Date().toISOString());
+  const dated = list.filter(f => f.takeoff_utc && f.date_ok !== false && f.date_ok !== 0);
+  let start;
+  if (range === 'all') {
+    const first = dated.map(f => f.takeoff_utc).sort()[0];
+    start = first ? dayOf(first) : today;
+  } else {
+    const n = parseInt(range), unit = range.slice(-1);
+    start = new Date(today);
+    if (unit === 'd') start.setUTCDate(start.getUTCDate() - n + 1);
+    else if (unit === 'm') start.setUTCMonth(start.getUTCMonth() - n);
+    else start.setUTCFullYear(start.getUTCFullYear() - n);
+    if (unit !== 'd') start.setUTCDate(start.getUTCDate() + 1);
   }
-  const keys = [...per.keys()].sort();
-  if (!keys.length) { $('months').innerHTML = '<span class="mute">No dated flights.</span>'; $('monthAxis').innerHTML = ''; return; }
-  const months = [];
-  let [y, m] = keys[0].split('-').map(Number);
-  const [ly, lm] = keys[keys.length - 1].split('-').map(Number);
-  while (y < ly || (y === ly && m <= lm)) {
-    months.push(`${y}-${String(m).padStart(2, '0')}`);
-    if (++m > 12) { m = 1; y++; }
+  const buckets = [];
+  for (let d = bucketStart(start, step); d <= today; d = nextBucket(d, step))
+    buckets.push({key: isoDay(d), date: d, seconds: 0, flights: 0});
+  const index = new Map(buckets.map((b, i) => [b.key, i]));
+  const startDay = isoDay(start);
+  let seconds = 0, flights = 0;
+  for (const f of dated) {
+    const day = f.takeoff_utc.slice(0, 10);
+    if (day < startDay) continue;
+    const i = index.get(isoDay(bucketStart(dayOf(day), step)));
+    if (i == null) continue;
+    buckets[i].seconds += f.duration_s || 0;
+    buckets[i].flights += 1;
+    seconds += f.duration_s || 0;
+    flights += 1;
   }
-  const shownMonths = months.slice(-48);
-  const max = Math.max(...shownMonths.map(k => per.get(k) || 0));
-  $('months').innerHTML = shownMonths.map(k => {
-    const s = per.get(k) || 0;
-    return `<div class="m${s ? '' : ' empty'}" title="${k}: ${fmtHours(s)}"><i style="height:${max ? Math.max(1, 100 * s / max) : 0}%"></i></div>`;
-  }).join('');
-  const every = Math.ceil(shownMonths.length / 12);
-  $('monthAxis').innerHTML = shownMonths.map((k, i) =>
-    `<span>${i % every === 0 || shownMonths.length <= 12 ? (k.endsWith('-01') || i === 0 ? k.slice(2) : k.slice(5)) : ''}</span>`).join('');
+  const max = Math.max(0, ...buckets.map(b => b.seconds));
+  const dense = buckets.length > 60;
+  $('months').className = 'months' + (dense ? ' dense' : '');
+  $('monthAxis').className = 'monthAxis' + (dense ? ' dense' : '');
+  $('chart').style.minWidth = `${buckets.length * (dense ? 3 : 17)}px`;
+  const name = b => step === 'day' ? b.key : step === 'week' ? `Week of ${b.key}` : step === 'month' ? b.key.slice(0, 7) : b.key.slice(0, 4);
+  $('months').innerHTML = buckets.map(b =>
+    `<div class="m${b.seconds ? '' : ' empty'}" title="${name(b)}: ${fmtHours(b.seconds)}, ${b.flights} flight${b.flights === 1 ? '' : 's'}"><i style="height:${max ? Math.max(1, 100 * b.seconds / max) : 0}%"></i></div>`).join('');
+  const every = Math.max(1, Math.ceil(buckets.length / 12));
+  $('monthAxis').innerHTML = buckets.map((b, i) =>
+    `<span>${i % every === 0 ? bucketLabel(b.date, step, i ? buckets[i - every].date : null) : ''}</span>`).join('');
+  const undated = list.length - dated.length;
+  $('rangeSum').textContent = `${fmtHours(seconds)} in ${flights} flight${flights === 1 ? '' : 's'} in this period`
+    + (undated ? ` (${undated} without a valid date not shown)` : '');
 }
 
 function renderBreakdowns(list) {
@@ -354,7 +439,8 @@ function renderFlights(list) {
   $('flightHead').innerHTML = `<tr><th>Takeoff (UTC)</th>${KIND !== 'aircraft' ? '<th>Aircraft</th>' : ''}${KIND !== 'projects' ? '<th>Project</th>' : ''}
     <th>From</th><th>To</th><th class="num">Duration</th><th class="num">Flown</th><th class="num">Max range</th>
     ${roleCol ? '<th>Role</th>' : ''}<th>PIC</th><th>PAC</th><th>Goal</th><th></th></tr>`;
-  const rows = list.slice(0, flightLimit).map(f => {
+  const [from, to] = pager('flightPager', 'flights', list.length, () => renderFlights(shown()));
+  const rows = list.slice(from, to).map(f => {
     const roles = roleCol ? ROLES.filter(([r]) => f[r + '_user']?.id === ITEM_ID).map(([, l]) => l).join(', ') : '';
     const tag = f.verdict && f.verdict !== 'flight' ? ` <span class="tag ${esc(f.verdict)}">${esc(f.verdict)}</span>` : '';
     return `<tr><td class="nowrap"><a href="/flight/${f.flight_id}">${esc(fmtTime(f.takeoff_utc)) || 'Unknown date'}</a>${f.date_ok ? '' : ' <span class="mute" title="The log clock was not set">?</span>'}${tag}</td>
@@ -366,13 +452,13 @@ function renderFlights(list) {
       <td>${esc(f.goal)}</td><td>${f.comment ? `<span class="mute" title="${esc(f.comment)}">💬</span>` : ''}</td></tr>`;
   });
   $('flights').innerHTML = rows.join('') || '<tr><td colspan="13" class="mute">No flights.</td></tr>';
-  $('flightCount').textContent = list.length > flightLimit ? `${flightLimit} of ${list.length}` : `${list.length}`;
-  $('moreFlights').hidden = list.length <= flightLimit;
+  $('flightCount').textContent = list.length > to - from ? `${from + 1}–${to} of ${list.length}` : `${list.length}`;
 }
 
 function renderLogs() {
   const logs = D.logs;
-  $('logs').innerHTML = logs.slice(0, logLimit).map(l => {
+  const [from, to] = pager('logPager', 'logs', logs.length, renderLogs);
+  $('logs').innerHTML = logs.slice(from, to).map(l => {
     const status = l.status !== 'done' ? ` <span class="tag">${esc(l.status)}</span>` : '';
     return `<tr><td><a href="/#log${l.id}" title="Log details on the Uploads page">${esc(l.name)}</a>${status}</td>
       <td class="nowrap">${esc(TYPE[l.log_type] || l.log_type || '')}</td>
@@ -383,8 +469,7 @@ function renderLogs() {
       <td>${esc(l.uploaded_by_name)}<div class="mute">${esc(fmtDate(l.uploaded_at))}</div></td>
       <td class="nowrap"><a href="/api/logs/${l.id}/download" title="Download the .data file${l.has_log ? ' and the .log file' : ''}">Download</a></td></tr>`;
   }).join('') || '<tr><td colspan="9" class="mute">No log files.</td></tr>';
-  $('logCount').textContent = logs.length > logLimit ? `${logLimit} of ${logs.length}` : `${logs.length}`;
-  $('moreLogs').hidden = logs.length <= logLimit;
+  $('logCount').textContent = logs.length > to - from ? `${from + 1}–${to} of ${logs.length}` : `${logs.length}`;
 }
 
 function renderMap(list) {
@@ -418,16 +503,17 @@ function renderMap(list) {
 function render() {
   const list = shown();
   renderTotals(list);
-  renderMonths(list);
+  renderChart(list);
   renderBreakdowns(list);
   renderFlights(list);
   renderLogs();
   renderMap(list);
 }
 
-$('indoor').onchange = $('ground').onchange = () => { flightLimit = PAGE; render(); };
-$('moreFlights').onclick = () => { flightLimit = Infinity; renderFlights(shown()); };
-$('moreLogs').onclick = () => { logLimit = Infinity; renderLogs(); };
+$('indoor').onchange = $('ground').onchange = () => { pages.flights.page = 0; render(); };
+const STEP_FOR = {'30d': 'day', '3m': 'week', '1y': 'month', '2y': 'month', '5y': 'month', all: 'month'};
+$('range').onchange = () => { $('step').value = STEP_FOR[$('range').value]; renderChart(shown()); };
+$('step').onchange = () => renderChart(shown());
 </script>
 </body>
 </html>
