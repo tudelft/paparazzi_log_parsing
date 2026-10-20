@@ -78,6 +78,33 @@ bool ecef_to_lla(double x, double y, double z, double &lat_deg, double &lon_deg,
   return lat_deg >= -90.0 && lat_deg <= 90.0;
 }
 
+// WGS84 UTM metres (northern hemisphere) -> lat/lon degrees. Fixed-wing GCS logs use GPS, not GPS_INT.
+bool utm_to_lla(double east_m, double north_m, int zone, double &lat_deg, double &lon_deg)
+{
+  if (zone < 1 || zone > 60) { return false; }
+  constexpr double a = 6378137.0, e2 = 6.69437999014e-3, k0 = 0.9996;
+  const double e1 = (1 - std::sqrt(1 - e2)) / (1 + std::sqrt(1 - e2));
+  const double x = east_m - 500000.0, y = north_m;
+  const double m = y / k0;
+  const double mu = m / (a * (1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 * e2 * e2 / 256));
+  const double phi1 = mu + (3 * e1 / 2 - 27 * e1 * e1 * e1 / 32) * std::sin(2 * mu)
+      + (21 * e1 * e1 / 16 - 55 * e1 * e1 * e1 * e1 / 32) * std::sin(4 * mu)
+      + (151 * e1 * e1 * e1 / 96) * std::sin(6 * mu);
+  const double e2p = e2 / (1 - e2);
+  const double sinp = std::sin(phi1), cosp = std::cos(phi1), tanp = std::tan(phi1);
+  const double n = a / std::sqrt(1 - e2 * sinp * sinp);
+  const double tt = tanp * tanp, c = e2p * cosp * cosp;
+  const double r = a * (1 - e2) / std::pow(1 - e2 * sinp * sinp, 1.5);
+  const double d = x / (n * k0);
+  const double lat = phi1 - (n * tanp / r) * (d * d / 2 - (5 + 3 * tt + 10 * c - 4 * c * c - 9 * e2p) * d * d * d * d / 24
+      + (61 + 90 * tt + 298 * c + 45 * tt * tt - 252 * e2p - 3 * c * c) * d * d * d * d * d * d / 720);
+  const double lon0 = (zone - 1) * 6.0 - 180.0 + 3.0;
+  lon_deg = lon0 + ((d - (1 + 2 * tt + c) * d * d * d / 6
+      + (5 - 2 * c + 28 * tt - 3 * c * c + 8 * e2p + 24 * tt * tt) * d * d * d * d * d / 120) / cosp) * 180.0 / M_PI;
+  lat_deg = lat * 180.0 / M_PI;
+  return lat_deg >= -90.0 && lat_deg <= 90.0;
+}
+
 struct PathPoint {
   double t, lat, lon, alt;
   double distance_m;       // cumulative 3D distance flown along the path [m]
@@ -94,6 +121,8 @@ struct PathPoint {
   std::vector<int16_t> actuators;       // ACTUATORS
   Wind wind;
   InsState ins;
+  bool has_gs = false;
+  double gndspeed = 0;  // GPS 2D ground speed [m/s]
 };
 
 struct Range {
@@ -315,8 +344,8 @@ struct AircraftState {
   bool has_optitrack = false;  // motion capture / OptiTrack on this aircraft in this log
   bool has_baro = false;
   double pressure = 0, baro_alt = 0;
-  bool has_volt = false, has_as = false;
-  double vsupply = 0, airspeed = 0, tas = 0, diff_p = 0;
+  bool has_volt = false, has_as = false, has_gs = false;
+  double vsupply = 0, airspeed = 0, tas = 0, diff_p = 0, gndspeed = 0;
   bool has_euler = false, has_quat = false;
   double roll = 0, pitch = 0, yaw = 0;
   double qi = 0, qx = 0, qy = 0, qz = 0;
@@ -967,7 +996,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.4.0";
+constexpr const char *PARSER_VERSION = "1.4.1";
 
 // Payload positions of the wanted fields of one telemetry message, looked up by name in the
 // <protocol> of the .log once, so the per-line work stays a plain token split.
@@ -1137,6 +1166,18 @@ int main(int argc, char *argv[])
   const MsgFields quat_f = resolve_fields(hdr, "AHRS_REF_QUAT", {"body_qi", "body_qx", "body_qy", "body_qz"});
   enum { AD_PRESS, AD_DIFF_P, AD_AMSL, AD_AIRSPEED, AD_TAS };
   const MsgFields air_f = resolve_fields(hdr, "AIR_DATA", {"pressure", "diff_p?", "amsl_baro", "airspeed?", "tas?"});
+  enum { FW_NAV_BLOCK, FW_NAV_STAGE, FW_NAV_FT };
+  const MsgFields fw_nav_f = resolve_fields(hdr, "NAVIGATION", {"cur_block", "cur_stage", "flight_time"});
+  enum { PPRZ_AP };
+  const MsgFields pprz_f = resolve_fields(hdr, "PPRZ_MODE", {"ap_mode"});
+  enum { GPSU_MODE, GPSU_EAST, GPSU_NORTH, GPSU_ALT, GPSU_SPEED, GPSU_ZONE };
+  const MsgFields gpsu_f = resolve_fields(hdr, "GPS", {"mode", "utm_east", "utm_north", "alt", "speed?", "utm_zone"});
+  enum { AT_PHI, AT_THETA, AT_PSI };
+  const MsgFields att_f = resolve_fields(hdr, "ATTITUDE", {"phi", "theta", "psi"});
+  enum { AS_EAS };
+  const MsgFields as_f = resolve_fields(hdr, "AIRSPEED", {"airspeed"});
+  enum { EN_VOLT };
+  const MsgFields energy_f = resolve_fields(hdr, "ENERGY", {"voltage"});
 
   int fd = open(data_file.c_str(), O_RDONLY);
   struct stat st;
@@ -1177,6 +1218,55 @@ int main(int argc, char *argv[])
     if (s.first_time < 0) { s.first_time = t; }
     s.last_time = t;
     return s;
+  };
+
+  auto apply_in_flight = [&](AircraftState &s, double t, bool now) {
+    if (now && !s.in_flight) {
+      Flight f;
+      f.takeoff_time = t;
+      f.has_takeoff_volt = s.has_volt;
+      f.takeoff_volt = s.vsupply;
+      f.takeoff_wind = s.wind;
+      f.takeoff_ins = s.ins;
+      f.has_pos = s.has_gps;
+      f.has_optitrack = s.has_optitrack;
+      f.lat = s.lat; f.lon = s.lon; f.alt = s.alt;
+      s.flights.push_back(f);
+    } else if (!now && s.in_flight && !s.flights.empty()) {
+      Flight &f = s.flights.back();
+      f.landing_time = t;
+      f.complete = true;
+      f.has_land_volt = s.has_volt;
+      f.land_volt = s.vsupply;
+      f.land_wind = s.wind;
+      f.land_ins = s.ins;
+      f.has_land_pos = s.has_gps;
+      f.land_lat = s.lat; f.land_lon = s.lon; f.land_alt = s.alt;
+    }
+    s.in_flight = now;
+    s.seen_status = true;
+  };
+
+  auto use_gps = [&](int ac, double t, double lat_d, double lon_d, double alt_d) {
+    if (!Flight::plausible_ll(lat_d, lon_d)) { return; }
+    AircraftState &s = touch(ac, t);
+    s.has_gps = true;
+    s.lat = lat_d; s.lon = lon_d; s.alt = alt_d;
+    if (s.in_flight && !s.flights.empty()) {
+      Flight &f = s.flights.back();
+      f.stats.add_gps(s.lat, s.lon, s.alt);
+      f.add_gps_step(s.lat, s.lon, s.alt);
+    }
+    if (path_rate > 0 && s.in_flight && !s.flights.empty() &&
+        static_cast<long>(t * path_rate) != s.last_path_bucket) {
+      s.last_path_bucket = static_cast<long>(t * path_rate);
+      s.flights.back().path.push_back({t, s.lat, s.lon, s.alt, s.flights.back().distance_m,
+                                          s.flights.back().from_takeoff_m, s.has_baro, s.pressure, s.baro_alt,
+                                          s.has_volt, s.has_as, s.vsupply, s.airspeed, s.tas, s.diff_p,
+                                          s.has_euler, s.has_quat, s.roll, s.pitch, s.yaw, s.qi, s.qx,
+                                          s.qy, s.qz, s.ap_mode, s.h_mode, s.v_mode, s.block, s.stage,
+                                          parse_int_list(s.actuators_raw), s.wind, s.ins, s.has_gs, s.gndspeed});
+    }
   };
 
   uint64_t ground_msgs = 0;
@@ -1258,30 +1348,29 @@ int main(int argc, char *argv[])
             ++fs.status_msgs;
             fs.motors_on_msgs += motors_on != 0;
           }
-          if (now && !s.in_flight) {
-            Flight f;
-            f.takeoff_time = t;
-            f.has_takeoff_volt = s.has_volt;
-            f.takeoff_volt = s.vsupply;
-            f.takeoff_wind = s.wind;
-            f.takeoff_ins = s.ins;
-            f.has_pos = s.has_gps;
-            f.has_optitrack = s.has_optitrack;
-            f.lat = s.lat; f.lon = s.lon; f.alt = s.alt;
-            s.flights.push_back(f);
-          } else if (!now && s.in_flight && !s.flights.empty()) {
-            Flight &f = s.flights.back();
-            f.landing_time = t;
-            f.complete = true;
-            f.has_land_volt = s.has_volt;
-            f.land_volt = s.vsupply;
-            f.land_wind = s.wind;
-            f.land_ins = s.ins;
-            f.has_land_pos = s.has_gps;
-            f.land_lat = s.lat; f.land_lon = s.lon; f.land_alt = s.alt;
-          }
-          s.in_flight = now;
-          s.seen_status = true;
+          apply_in_flight(s, t, now);
+        }
+        break;
+      case 'N':
+        if (name == "NAVIGATION") {
+          if (!fw_nav_f.split) { break; }
+          const Picked f = pick(fw_nav_f, q, eol);
+          int block, stage, flight_time;
+          if (!to_num(f[FW_NAV_BLOCK], block) || !to_num(f[FW_NAV_STAGE], stage) ||
+              !to_num(f[FW_NAV_FT], flight_time)) { break; }
+          AircraftState &s = touch(ac, t);
+          s.block = block;
+          s.stage = stage;
+          apply_in_flight(s, t, flight_time > 0);
+        }
+        break;
+      case 'P':
+        if (name == "PPRZ_MODE") {
+          if (!pprz_f.split) { break; }
+          const Picked f = pick(pprz_f, q, eol);
+          int ap_mode;
+          if (!to_num(f[PPRZ_AP], ap_mode)) { break; }
+          touch(ac, t).ap_mode = ap_mode;
         }
         break;
       case 'G':
@@ -1315,24 +1404,22 @@ int main(int argc, char *argv[])
             }
           }
           if (!Flight::plausible_ll(lat_d, lon_d)) { break; }
-          AircraftState &s = touch(ac, t);
-          s.has_gps = true;
-          s.lat = lat_d; s.lon = lon_d; s.alt = alt_d;
-          if (s.in_flight && !s.flights.empty()) {
-            Flight &f = s.flights.back();
-            f.stats.add_gps(s.lat, s.lon, s.alt);
-            f.add_gps_step(s.lat, s.lon, s.alt);
-          }
-          if (path_rate > 0 && s.in_flight && !s.flights.empty() &&
-              static_cast<long>(t * path_rate) != s.last_path_bucket) {
-            s.last_path_bucket = static_cast<long>(t * path_rate);
-            s.flights.back().path.push_back({t, s.lat, s.lon, s.alt, s.flights.back().distance_m,
-                                                s.flights.back().from_takeoff_m, s.has_baro, s.pressure, s.baro_alt,
-                                                s.has_volt, s.has_as, s.vsupply, s.airspeed, s.tas, s.diff_p,
-                                                s.has_euler, s.has_quat, s.roll, s.pitch, s.yaw, s.qi, s.qx,
-                                                s.qy, s.qz, s.ap_mode, s.h_mode, s.v_mode, s.block, s.stage,
-                                                parse_int_list(s.actuators_raw), s.wind, s.ins});
-          }
+          use_gps(ac, t, lat_d, lon_d, alt_d);
+        } else if (name == "GPS") {
+          if (!gpsu_f.split) { break; }
+          const Picked f = pick(gpsu_f, q, eol);
+          int mode = 0, zone = 0, speed_cm = 0;
+          int32_t east = 0, north = 0, alt = 0;
+          if (!to_num(f[GPSU_MODE], mode) || !to_num(f[GPSU_EAST], east) || !to_num(f[GPSU_NORTH], north) ||
+              !to_num(f[GPSU_ALT], alt) || !to_num(f[GPSU_ZONE], zone)) { break; }
+          to_num(f[GPSU_SPEED], speed_cm);
+          if (mode < 3) { break; }
+          double lat_d = 0, lon_d = 0;
+          if (!utm_to_lla(east / 100.0, north / 100.0, zone, lat_d, lon_d)) { break; }
+          AircraftState &st = touch(ac, t);
+          st.has_gs = true;
+          st.gndspeed = speed_cm / 100.0;
+          use_gps(ac, t, lat_d, lon_d, alt * 1e-3);
         }
         break;
       case 'D':
@@ -1349,6 +1436,15 @@ int main(int argc, char *argv[])
       case 'E':
         if (name == "EXTERNAL_POSE" || name == "EXTERNAL_POSE_SMALL" || name == "EXTERNAL_POSE_DOWN") {
           touch(ac, t).has_optitrack = true;
+        } else if (name == "ENERGY") {
+          if (!energy_f.split) { break; }
+          const Picked f = pick(energy_f, q, eol);
+          float vsupply;
+          if (to_num(f[EN_VOLT], vsupply)) {
+            AircraftState &s = touch(ac, t);
+            s.has_volt = true;
+            s.vsupply = vsupply;
+          }
         }
         break;
       case 'W':
@@ -1416,6 +1512,24 @@ int main(int argc, char *argv[])
           AircraftState &s = touch(ac, t);
           s.has_quat = true;
           s.qi = b[0] / 32768.0; s.qx = b[1] / 32768.0; s.qy = b[2] / 32768.0; s.qz = b[3] / 32768.0;
+        } else if (name == "ATTITUDE") {
+          if (!att_f.split) { break; }
+          const Picked f = pick(att_f, q, eol);
+          float phi, theta, psi;
+          if (!to_num(f[AT_PHI], phi) || !to_num(f[AT_THETA], theta) || !to_num(f[AT_PSI], psi)) { break; }
+          AircraftState &s = touch(ac, t);
+          s.has_euler = true;
+          s.roll = phi * 180.0 / M_PI;
+          s.pitch = theta * 180.0 / M_PI;
+          s.yaw = psi * 180.0 / M_PI;
+        } else if (name == "AIRSPEED") {
+          if (!as_f.split) { break; }
+          const Picked f = pick(as_f, q, eol);
+          float eas;
+          if (!to_num(f[AS_EAS], eas)) { break; }
+          AircraftState &s = touch(ac, t);
+          s.has_as = true;
+          s.airspeed = eas;
         } else if (name == "AIR_DATA") {
           if (!air_f.split) { break; }
           // pressure [Pa], amsl_baro [m]
@@ -1472,6 +1586,7 @@ int main(int argc, char *argv[])
   auto name_of = [&](int id) {
     auto it = hdr.names.find(id);
     if (it != hdr.names.end()) { return it->second; }
+    if (report_ids.size() == 1 && hdr.names.size() == 1) { return hdr.names.begin()->second; }
     if (!hdr.default_name.empty() && report_ids.size() == 1) { return hdr.default_name; }
     return std::string("unknown");
   };
@@ -1634,6 +1749,10 @@ int main(int argc, char *argv[])
         }
         // attitude
         o << ",\n             \"ins\": " << ins_json(pt.ins);
+        if (pt.has_gs) {
+          snprintf(buf, sizeof(buf), ", \"groundspeed_ms\": %.2f", pt.gndspeed);
+          o << buf;
+        }
         o << ",\n             \"attitude\": {\"euler_deg\": ";
         if (pt.has_euler) {
           snprintf(buf, sizeof(buf), "{\"roll\": %.2f, \"pitch\": %.2f, \"yaw\": %.2f}", pt.roll_deg, pt.pitch_deg,

@@ -167,6 +167,33 @@ CREATE INDEX IF NOT EXISTS ix_aircraft_log ON aircraft(log_id);
 CREATE INDEX IF NOT EXISTS ix_flights_ac ON flights(aircraft_id);
 CREATE INDEX IF NOT EXISTS ix_changes_ac ON setting_changes(aircraft_id);
 CREATE INDEX IF NOT EXISTS ix_changes_var ON setting_changes(var);
+CREATE TABLE IF NOT EXISTS personnel (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,  -- Teams / GitHub folder name
+    tud_user TEXT,                             -- TU Delft display name from Teams
+    kind TEXT,                                 -- Staff, PhD Student, ...
+    fi INTEGER NOT NULL DEFAULT 0,
+    ctr INTEGER NOT NULL DEFAULT 0,
+    a1a3 TEXT,
+    a1a3_until TEXT,                           -- YYYY-MM-DD
+    a2 TEXT,
+    a2_until TEXT,
+    cyberzoo TEXT,
+    erp TEXT,
+    github_folder TEXT,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS personnel_docs (
+    id INTEGER PRIMARY KEY,
+    personnel_id INTEGER NOT NULL REFERENCES personnel(id) ON DELETE CASCADE,
+    title TEXT,
+    filename TEXT,
+    license TEXT,
+    validity TEXT,
+    github_path TEXT UNIQUE,
+    cached_path TEXT,
+    size_bytes INTEGER
+);
 """
 
 _local = threading.local()
@@ -256,6 +283,10 @@ def init(path):
         con.execute("ALTER TABLE logs ADD COLUMN project_id INTEGER")
     if "date_override" not in cols:
         con.execute("ALTER TABLE logs ADD COLUMN date_override TEXT")
+    if "paths_file" not in cols:
+        con.execute("ALTER TABLE logs ADD COLUMN paths_file TEXT")
+    if "path_idx" not in {r[1] for r in con.execute("PRAGMA table_info(flights)")}:
+        con.execute("ALTER TABLE flights ADD COLUMN path_idx INTEGER")
     acols = {r[1] for r in con.execute("PRAGMA table_info(aircraft)")}
     if "drone_id" not in acols:
         con.execute("ALTER TABLE aircraft ADD COLUMN drone_id INTEGER")
