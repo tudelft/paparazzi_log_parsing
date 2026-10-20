@@ -31,6 +31,7 @@
   .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:var(--chip); }
   .done { background:var(--okbg); color:var(--ok); } .error { background:var(--errbg); color:var(--err); }
   .queued, .parsing { background:var(--warnbg); color:var(--warn); } .outdated { background:var(--oldbg); color:var(--old); }
+  .date-unknown { background:var(--warnbg); color:var(--warn); }
   .mono { font-family:ui-monospace, monospace; font-size:12px; }
   .mute { color:var(--mute); }
   #uploads div { padding:3px 0; display:flex; gap:10px; align-items:center; }
@@ -350,6 +351,7 @@ function paintStatus(st) {
   if (ing.duplicate) msg += ` · ${ing.duplicate} duplicate`;
   if (ing.error || ing.rejected) msg += ` · ${(ing.error || 0) + (ing.rejected || 0)} ingest failed`;
   if (st.outdated) msg += ` · ${st.outdated} outdated`;
+  if (st.date_unknown) msg += ` · ${st.date_unknown} date unknown`;
   $('status').textContent = msg;
   $('reparseAll').disabled = !st.outdated && !c.error;
 }
@@ -377,11 +379,14 @@ async function refresh() {
     const projectCell = me && me.is_admin
       ? `<select onclick="event.stopPropagation()" onchange="setProject(${l.id}, this.value)">${'<option value="">No project</option>' + projects.map(p => `<option value="${p.id}"${p.id === l.project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`
       : esc(l.project_name || '');
+    const dateLabel = l.date_ok
+      ? esc((l.start_utc || l.date_override || '').replace('T', ' ').slice(0, 19))
+      : '<span class="badge date-unknown" title="This log has no usable calendar date (often GPS week 0, shown as 1980)">date unknown</span>';
     tr.innerHTML = `<td>${l.id}</td><td>${esc(l.name)}<div class="mono mute">${l.sha256.slice(0, 12)}… · ${fmtSize(l.size_bytes)}${l.has_log ? '' : ' · no .log'}</div></td>
       <td onclick="event.stopPropagation()">${projectCell}</td>
-      <td>${esc(l.aircraft_names)}</td><td>${esc((l.start_utc || '').replace('T', ' ').slice(0, 19))}</td>
+      <td>${esc(l.aircraft_names)}</td><td>${dateLabel}</td>
       <td>${l.num_flights ?? ''}</td><td>${fmtDur(l.flight_time_s)}</td>
-      <td><span class="badge ${l.status}">${l.status}</span>${l.outdated ? ' <span class="badge outdated">outdated</span>' : ''}${l.error ? `<div class="mute">${esc(l.error).slice(0, 120)}</div>` : ''}</td>
+      <td><span class="badge ${l.status}">${l.status}</span>${l.outdated ? ' <span class="badge outdated">outdated</span>' : ''}${!l.date_ok ? ' <span class="badge date-unknown">date unknown</span>' : ''}${l.error ? `<div class="mute">${esc(l.error).slice(0, 120)}</div>` : ''}</td>
       <td class="mono">${esc(l.parser_version || '')}</td>`;
     tr.onclick = () => toggle(l.id);
     tb.appendChild(tr);
@@ -400,10 +405,33 @@ async function refresh() {
 
 function toggle(id) { expanded.has(id) ? expanded.delete(id) : expanded.add(id); refresh(); }
 
+function dateField(l) {
+  if (l.date_ok && !l.date_override) return '';
+  const hint = l.date_override
+    ? 'Calendar date was entered by hand; the time of day is from the log.'
+    : 'This log has no usable calendar date (often 1980 from GPS week 0). Enter the real date; the time of day from the log is kept.';
+  if (!l.can_edit_date)
+    return `<span class="mute">Calendar date</span><span>${l.date_override ? esc(l.date_override) + ' · ' : ''}<span class="mute">${esc(hint)}</span></span>`;
+  return `<span class="mute">Calendar date</span><span onclick="event.stopPropagation()">
+    <input type="date" id="date${l.id}" value="${esc(l.date_override || '')}">
+    <button type="button" class="sec" onclick="event.stopPropagation(); saveLogDate(${l.id})">Save date</button>
+    ${l.date_override ? `<button type="button" class="sec" onclick="event.stopPropagation(); saveLogDate(${l.id}, true)">Clear</button>` : ''}
+    <span class="mute"> ${esc(hint)}</span></span>`;
+}
+async function saveLogDate(id, clear) {
+  const value = clear ? null : (($('date' + id) && $('date' + id).value) || '').trim() || null;
+  const r = await fetch('/api/logs/' + id + '/date', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({date_override: value})});
+  if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the date'); return; }
+  expanded.add(id);
+  refresh();
+}
+
 async function loadDetail(id) {
   const l = await fetch('/api/logs/' + id).then(r => r.json());
   let h = `<div class="kv"><span class="mute">SHA-256</span><span class="mono">${l.sha256}</span>
     <span class="mute">Log period</span><span>${esc(l.first_data_utc)} → ${esc(l.end_utc)} (${fmtDur(l.duration_s)})</span>
+    ${dateField(l)}
     <span class="mute">Uploaded</span><span>${esc(l.uploaded_at)}</span>
     <span class="mute">Parsed</span><span>${esc(l.parsed_at || '-')} with ${esc(l.parser_name || '')} ${esc(l.parser_version || '-')} (${l.parse_seconds ?? '-'} s)</span></div>`;
   for (const a of l.aircraft) {

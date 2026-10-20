@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS logs (
     log_type TEXT,                     -- onboard_sd | gcs | unknown (detected by the parser)
     parsed_at TEXT,
     parse_seconds REAL,
-    start_utc TEXT, first_data_utc TEXT, end_utc TEXT, duration_s REAL
+    start_utc TEXT, first_data_utc TEXT, end_utc TEXT, duration_s REAL,
+    date_override TEXT                 -- YYYY-MM-DD typed in when the file clock is missing or 1980; kept across re-parse
 );
 CREATE TABLE IF NOT EXISTS drones (
     id INTEGER PRIMARY KEY,
@@ -248,6 +249,8 @@ def init(path):
         con.execute("ALTER TABLE logs ADD COLUMN log_type TEXT")
     if "project_id" not in cols:
         con.execute("ALTER TABLE logs ADD COLUMN project_id INTEGER")
+    if "date_override" not in cols:
+        con.execute("ALTER TABLE logs ADD COLUMN date_override TEXT")
     acols = {r[1] for r in con.execute("PRAGMA table_info(aircraft)")}
     if "drone_id" not in acols:
         con.execute("ALTER TABLE aircraft ADD COLUMN drone_id INTEGER")

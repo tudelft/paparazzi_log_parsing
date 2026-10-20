@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --ok:#1a7f37; --warn:#9a6700; }
+  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --ok:#1a7f37; --warn:#9a6700; --warnbg:#fff8c5; }
   * { box-sizing: border-box; }
   body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
   header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
@@ -49,6 +49,8 @@
   td.chk, th.chk { width:28px; padding-right:0; }
   textarea.comment { width:100%; max-width:640px; min-height:72px; font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; resize:vertical; }
   .note { white-space:pre-wrap; max-width:640px; }
+  .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; }
+  .date-unknown { background:var(--warnbg); color:var(--warn); font-weight:400; }
 </style>
 </head>
 <body>
@@ -203,7 +205,7 @@ function chk(ids, can) {
   const all = ids.length > 0 && ids.every(id => selected.has(id));
   return `<td class="chk"><input type="checkbox" ${all ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel([${ids.join(',')}], this.checked)"></td>`;
 }
-const text = f => [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.aircraft, f.aircraft_uid, f.project_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
+const text = f => [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
 
 function projectOptions(selected) {
   const addable = projects.filter(p => me && (me.is_admin || p.can_add || p.id === selected));
@@ -310,7 +312,21 @@ const TYPE_LABEL = {onboard_sd: 'SD', gcs: 'GCS'};
 const srcLabel = fl => ['onboard_sd', 'gcs'].filter(t => fl.some(f => f.sources.some(s => s.log_type === t))).map(t => TYPE_LABEL[t]).join(' + ');
 const verdictMark = f => f.verdict === 'ground' ? ' <span class="mute" title="Probably not a real flight">(ground)</span>'
   : f.verdict === 'uncertain' ? ' <span class="mute" title="Unsure whether this was a real flight">(?)</span>' : '';
-const cells = (f, o) => `${chk(o.ids, o.canEdit)}<td>${esc(fmtDate(f.takeoff_utc))}</td><td>${esc(fmtHm(f.takeoff_utc))}</td><td>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</td>
+function dateTd(f) {
+  const warn = '<span class="badge date-unknown" title="This log has no usable calendar date (often GPS week 0, shown as 1980)">date unknown</span>';
+  const label = f.date_ok ? esc(fmtDate(f.takeoff_utc) || f.date_override || '') : warn;
+  if (editOn() && f.can_edit_date && (!f.date_ok || f.date_override)) {
+    return `<td onclick="event.stopPropagation()">${label}<div class="mute" style="font-weight:400;margin-top:4px">Set date <input type="date" value="${esc(f.date_override || '')}" onchange="setLogDate(${f.log_id}, this.value)"></div></td>`;
+  }
+  return `<td>${label}</td>`;
+}
+async function setLogDate(logId, value) {
+  const r = await fetch('/api/logs/' + logId + '/date', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({date_override: value || null})});
+  if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the date'); return; }
+  loadFlights();
+}
+const cells = (f, o) => `${chk(o.ids, o.canEdit)}${dateTd(f)}<td>${esc(fmtHm(f.takeoff_utc))}</td><td>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</td>
     <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${o.sources}</td><td>${esc(f.aircraft)}${f.aircraft_uid ? ` <span class="mute">${esc(f.aircraft_uid)}</span>` : ''}${verdictMark(f)}</td>
     <td>${o.project}</td>
     <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place)}</td>

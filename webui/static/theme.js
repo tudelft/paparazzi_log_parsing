@@ -15,6 +15,9 @@
     ['/', 'Uploads'],
     ['/logbook', 'Logbook'],
     ['/stats', 'Statistics'],
+    ['/people', 'People'],
+    ['/projects', 'Projects'],
+    ['/aircraft', 'Aircraft'],
     ['/admin', 'Admin'],
   ];
 
@@ -28,7 +31,10 @@
     const p = location.pathname;
     if (p === '/logbook' || p.startsWith('/flight/')) return '/logbook';
     if (p === '/stats') return '/stats';
-    if (p === '/admin' || p === '/projects' || p === '/aircraft') return '/admin';
+    if (p === '/people') return '/people';
+    if (p === '/projects') return '/projects';
+    if (p === '/aircraft') return '/aircraft';
+    if (p === '/admin') return '/admin';
     if (p === '/' || p === '') return '/';
     return '';
   }
