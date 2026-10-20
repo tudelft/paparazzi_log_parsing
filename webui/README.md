@@ -50,7 +50,16 @@ Day-to-day:
 
 After an update that changes the parser version, click **Re-parse outdated** on the Uploads page.
 
-**Flight weather.** Flight pages show logged wind at takeoff and landing when available. The
+**Flight pages.** The Overview opens first, with takeoff/landing details and log sources folded
+away. Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
+and warnings for local (dirty) changes. Multiple reported builds remain visible; raw version messages
+can be expanded. Commit links use `paparazzi/paparazzi` and may not resolve for private forks.
+Tabs separate the path/charts, weather, settings, messages and pre-flight checks.
+Messages and settings show 25 rows per page, scoped to the flight by default; their checkboxes include
+the whole log. Tab counts reflect the flight scope (messages also include 30 seconds either side).
+Tabs support keyboard arrows and can be linked directly, for example `/flight/42#messages`.
+
+**Flight weather.** The Weather tab shows logged wind at takeoff and landing when available. The
 **Fetch historical weather** button requests an hourly Open-Meteo/ECMWF estimate (wind at 10 m,
 temperature, humidity, precipitation, cloud cover and pressure), separately from onboard data.
 Only clicking the button contacts the provider, sharing takeoff coordinates rounded to 0.01°
