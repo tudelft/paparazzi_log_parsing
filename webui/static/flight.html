@@ -50,6 +50,31 @@
   tr.out td { color:var(--mute); }
   textarea.comment { width:100%; max-width:520px; min-height:72px; font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; resize:vertical; }
   .note { white-space:pre-wrap; }
+  [hidden] { display:none !important; }
+  .flight-tabs { display:flex; gap:6px; overflow-x:auto; padding:4px 0 12px; margin-bottom:8px; }
+  .flight-tabs button { white-space:nowrap; border:1px solid var(--line); }
+  .flight-tabs button[aria-selected="true"] { background:var(--acc); color:#fff; }
+  summary { cursor:pointer; font-weight:600; }
+  details[open] > summary { margin-bottom:12px; }
+  .pager { display:flex; align-items:center; gap:12px; margin-top:12px; flex-wrap:wrap; }
+  button:disabled { cursor:default; opacity:.55; }
+  .list-scroll { max-height:65vh; overflow:auto; }
+  .cols > .summary-kv { width:100%; grid-template-columns:max-content minmax(0, 1fr) max-content minmax(0, 1fr); column-gap:18px; }
+  .flight-focus { display:flex; flex-wrap:wrap; gap:12px 32px; padding-bottom:14px; margin-bottom:14px; border-bottom:1px solid var(--line); }
+  .flight-focus > div { min-width:0; }
+  .flight-focus .goal { flex:1 1 280px; }
+  .flight-focus .label { display:block; font-size:12px; color:var(--mute); margin-bottom:3px; }
+  .flight-focus .value { font-size:18px; font-weight:600; overflow-wrap:anywhere; white-space:pre-wrap; }
+  @media (max-width:900px) {
+    .cols > .summary-kv { grid-template-columns:max-content minmax(0, 1fr); }
+  }
+  @media (max-width:600px) {
+    main { padding:10px; }
+    .cols { gap:20px; }
+    .cols > div { min-width:0; width:100%; }
+    .kv { grid-template-columns:minmax(90px, max-content) minmax(0, 1fr); overflow-wrap:anywhere; }
+    #map { height:360px; }
+  }
 </style>
 </head>
 <body>
@@ -59,9 +84,38 @@
   <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
 </header>
 <main>
+  <div class="flight-tabs" role="tablist" aria-label="Flight sections">
+    <button type="button" id="tab-overview" role="tab" aria-selected="true" aria-controls="panel-overview" data-tab="overview">Overview</button>
+    <button type="button" id="tab-path" role="tab" aria-selected="false" aria-controls="panel-path" tabindex="-1" data-tab="path">Path &amp; charts</button>
+    <button type="button" id="tab-weather" role="tab" aria-selected="false" aria-controls="panel-weather" tabindex="-1" data-tab="weather">Weather</button>
+    <button type="button" id="tab-settings" role="tab" aria-selected="false" aria-controls="panel-settings" tabindex="-1" data-tab="settings">Settings <span id="settingsBadge"></span></button>
+    <button type="button" id="tab-messages" role="tab" aria-selected="false" aria-controls="panel-messages" tabindex="-1" data-tab="messages">Messages <span id="messagesBadge"></span></button>
+    <button type="button" id="tab-checks" role="tab" aria-selected="false" aria-controls="panel-checks" tabindex="-1" data-tab="checks">Pre-flight checks</button>
+  </div>
+  <div id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
   <section class="card" id="summary"></section>
+  <section class="card"><h2>Autopilot software</h2><div id="versions"></div>
+    <small class="mute">Versions reported by the selected log. Commit links point to paparazzi/paparazzi;
+      commits from private forks may not be available there.</small></section>
+  <details class="card"><summary>Takeoff and landing details</summary><div class="cols" id="events"></div></details>
+  </div>
+  <section class="card" id="panel-weather" role="tabpanel" aria-labelledby="tab-weather" hidden>
+    <h2>Wind and weather</h2>
+    <div class="kv" id="loggedWind"></div>
+    <p class="mute">Historical weather is an hourly model estimate near takeoff, not an onboard measurement.
+      Fetching sends the takeoff location (rounded to 0.01°) and date to
+      <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>.
+      Wind is at 10 m above ground; direction is where it comes from.</p>
+    <button type="button" id="fetchWeather" disabled>Fetch historical weather</button>
+    <p id="weatherMsg" role="status" aria-live="polite"></p>
+    <div class="kv" id="historicalWeather"></div>
+    <small class="mute">Historical data: <a href="https://open-meteo.com/en/docs/historical-weather-api"
+      target="_blank" rel="noopener">Open-Meteo / ECMWF</a>,
+      <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.
+      Free API for non-commercial use only.</small>
+  </section>
 
-  <section class="card">
+  <section class="card" id="panel-path" role="tabpanel" aria-labelledby="tab-path" hidden>
     <div class="bar">
       <h2 style="margin:0">Flight path</h2>
       <label><input type="checkbox" id="showPlan" checked> Show flight plan</label>
@@ -78,22 +132,21 @@
     <div id="readout"></div>
   </section>
 
-  <section class="card"><div class="cols" id="events"></div></section>
-
-  <section class="card">
+  <section class="card" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
     <div class="bar"><h2 style="margin:0">Settings changed</h2>
       <label><input type="checkbox" id="allChanges"> Show all changes of the log</label><span class="mute" id="changeCount"></span></div>
-    <div class="scroll"><table><thead><tr><th>Time</th><th>Setting</th><th>From</th><th>To</th><th></th></tr></thead><tbody id="changes"></tbody></table></div>
+    <div class="scroll list-scroll"><table><thead><tr><th>Time</th><th>Setting</th><th>From</th><th>To</th><th></th></tr></thead><tbody id="changes"></tbody></table></div>
+    <div class="pager" id="changesPager"></div>
   </section>
 
-  <section class="card">
+  <section class="card" id="panel-messages" role="tabpanel" aria-labelledby="tab-messages" hidden>
     <div class="bar"><h2 style="margin:0">Messages</h2>
       <label><input type="checkbox" id="allMsgs"> Show all messages of the log</label><span class="mute" id="msgCount"></span></div>
-    <div class="scroll"><table><thead><tr><th>Time</th><th>Message</th></tr></thead><tbody id="msgs"></tbody></table></div>
+    <div class="scroll list-scroll"><table><thead><tr><th>Time</th><th>Message</th></tr></thead><tbody id="msgs"></tbody></table></div>
+    <div class="pager" id="msgsPager"></div>
   </section>
 
-  <section class="card"><h2>Pre-flight checks</h2><div class="scroll"><table><tbody id="pfc"></tbody></table></div>
-    <div class="kv" style="margin-top:10px" id="versions"></div></section>
+  <section class="card" id="panel-checks" role="tabpanel" aria-labelledby="tab-checks" hidden><h2>Pre-flight checks</h2><div class="scroll list-scroll"><table><tbody id="pfc"></tbody></table></div></section>
 </main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -118,6 +171,38 @@ fetch('/api/me').then(r => r.json()).then(async d => {
 
 let D, map, planLayer, marker, trail, chartGeom;
 const flightId = +location.pathname.split('/').pop();
+let activeTab = 'overview';
+function selectTab(name) {
+  const tabs = [...document.querySelectorAll('[data-tab]')];
+  if (!tabs.some(tab => tab.dataset.tab === name)) name = 'overview';
+  activeTab = name;
+  for (const tab of tabs) {
+    const selected = tab.dataset.tab === name;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    $(tab.getAttribute('aria-controls')).hidden = !selected;
+  }
+  if (name === 'path' && D) {
+    if (!map) initMap();
+    else { map.invalidateSize(); drawChart(+$('scrub').value); }
+  }
+}
+for (const tab of document.querySelectorAll('[data-tab]')) {
+  tab.onclick = () => { location.hash = tab.dataset.tab; selectTab(tab.dataset.tab); };
+  tab.onkeydown = event => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    let index = tabs.indexOf(tab);
+    if (event.key === 'ArrowRight') index = (index + 1) % tabs.length;
+    else if (event.key === 'ArrowLeft') index = (index + tabs.length - 1) % tabs.length;
+    else if (event.key === 'Home') index = 0;
+    else if (event.key === 'End') index = tabs.length - 1;
+    else return;
+    event.preventDefault();
+    tabs[index].click(); tabs[index].focus();
+  };
+}
+addEventListener('hashchange', () => selectTab(location.hash.slice(1)));
+selectTab(location.hash.slice(1));
 
 function projectField(e) {
   if (!e.can_edit_project) return e.project_id != null ? `<a href="/projects/${e.project_id}">${esc(e.project_name || '')}</a>` : '';
@@ -179,27 +264,70 @@ async function setCrew(role, value, ids) {
 }
 const coord = (p, name) => p ? `${name ? esc(name) + ' · ' : ''}${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} · ${p.alt_m} m` : '';
 const windTxt = w => w ? `${w.speed_ms} m/s from ${w.from_deg}°${w.temperature_c != null ? ', ' + w.temperature_c + ' °C' : ''}` : '';
+async function loadWeather(fetchRemote = false) {
+  const btn = $('fetchWeather');
+  btn.disabled = true;
+  $('weatherMsg').textContent = fetchRemote ? 'Fetching historical weather…' : 'Checking saved weather…';
+  try {
+    const r = await fetch(`/api/flights/${flightId}/weather`, {method: fetchRemote ? 'POST' : 'GET'});
+    if (!(r.headers.get('Content-Type') || '').includes('application/json')) {
+      throw new Error(`The server returned HTTP ${r.status} instead of weather data. Please check the server logs.`);
+    }
+    const d = await r.json();
+    if (!r.ok) {
+      $('weatherMsg').textContent = d.error || 'Could not load weather.';
+      btn.disabled = r.status === 400 || r.status === 404;
+      return;
+    }
+    const w = d.weather;
+    btn.hidden = !!w;
+    btn.disabled = false;
+    $('weatherMsg').textContent = w ? 'Saved historical estimate · ' + fmtTime(w.hour_utc)
+      : 'No weather fetched yet. Historical data is available for flights at least six days old.';
+    const value = (v, unit) => v == null ? 'Unavailable' : esc(v) + unit;
+    $('historicalWeather').innerHTML = w ? [
+      kv('Location used', `${esc(w.latitude)}, ${esc(w.longitude)}`),
+      kv('Wind (10 m)', value(w.wind_speed_ms, ' m/s') + ' from ' + value(w.wind_from_deg, '°')),
+      kv('Gusts (10 m)', value(w.wind_gusts_ms, ' m/s')),
+      kv('Temperature (2 m)', value(w.temperature_c, ' °C')),
+      kv('Humidity (2 m)', value(w.humidity_percent, '%')),
+      kv('Hourly precipitation', value(w.precipitation_mm, ' mm')),
+      kv('Cloud cover', value(w.cloud_cover_percent, '%')),
+      kv('Sea-level pressure', value(w.pressure_hpa, ' hPa')),
+    ].join('') : '';
+  } catch (err) {
+    $('weatherMsg').textContent = 'Could not load weather: ' + err.message;
+    btn.disabled = false;
+  }
+}
+$('fetchWeather').onclick = () => loadWeather(true);
 const ned = v => v ? `N ${v.north}, E ${v.east}, D ${v.down}` : '';
 
 function renderSummary() {
   const e = D.entry, a = e.assessment;
+  $('loggedWind').innerHTML = kv('Logged wind at takeoff', windTxt(e.takeoff?.wind) || 'Not available')
+    + kv('Logged wind at landing', windTxt(e.landing?.wind) || 'Not available');
   document.title = `${e.aircraft} ${fmtTime(e.takeoff_utc)}`;
   $('title').textContent = `${e.aircraft} · ${fmtTime(e.takeoff_utc)}`;
   const place = (p, lat, lon, id) => p ? (id != null ? `<a href="/locations/${id}">${esc(p)}</a>` : esc(p)) : (lat != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '');
-  $('summary').innerHTML = `<div class="cols"><div class="kv">
-      ${kv('Aircraft', (e.drone_id != null ? `<a href="/aircraft/${e.drone_id}">${esc(e.aircraft)}</a>` : esc(e.aircraft)) + (e.aircraft_uid ? ` <span class="mute">${esc(e.aircraft_uid)}</span>` : ''))}${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id))}
+  $('summary').innerHTML = `<div class="flight-focus">
+      <div><span class="label">Aircraft</span><div class="value">${e.drone_id != null ? `<a href="/aircraft/${e.drone_id}">${esc(e.aircraft)}</a>` : esc(e.aircraft)}</div>${e.aircraft_uid ? `<span class="mute">${esc(e.aircraft_uid)}</span>` : ''}</div>
+      <div class="goal"><span class="label">Flight goal</span><div class="value">${e.goal ? esc(e.goal) : '<span class="mute">Not recorded</span>'}</div></div>
+    </div><div class="cols"><div class="kv summary-kv">
+      ${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id))}
       ${kv('Landing (UTC)', e.landing_utc ? esc(fmtTime(e.landing_utc)) + ' · ' + place(e.landing_place, e.landing_lat, e.landing_lon, e.landing_place_id) : '')}
-      ${kv('Flight time', fmtDur(e.duration_s))}${kv('Distance flown', fmtDist(e.distance_m))}${kv('Max from takeoff', fmtDist(e.max_from_takeoff_m))}${kv('At landing', fmtDist(e.from_takeoff_m))}${kv('Goal', esc(e.goal))}
+      ${kv('Flight time', fmtDur(e.duration_s))}${kv('Distance flown', fmtDist(e.distance_m))}${kv('Max from takeoff', fmtDist(e.max_from_takeoff_m))}${kv('At landing', fmtDist(e.from_takeoff_m))}
       ${kv('Project', projectField(e))}
       ${kv('PIC', crewField(e, 'pic'))}${kv('PAC', crewField(e, 'pac'))}${kv('GCS operator', crewField(e, 'gcs'))}
       ${kv('Comment', commentField(e))}
       ${a ? kv('Real flight?', `<span class="tag ${esc(a.verdict)}">${esc(a.verdict)}</span> <span class="mute">${esc(a.reasons.join(', '))}</span>`) : ''}
       ${e.optitrack || e.indoor ? kv('Where', e.optitrack ? 'Indoor (OptiTrack)' : 'Indoor') : ''}
-    </div><div class="kv src">
+    </div></div>
+    <details style="margin-top:12px"><summary>Log sources and upload details</summary><div class="kv src">
       ${e.sources.map(s => kv(TYPE[s.log_type] || s.log_type, `<a href="/flight/${s.flight_id}" class="${s.flight_id === flightId ? 'cur' : ''}">${esc(s.log_name)}</a>${s.flight_id === flightId ? ' <span class="mute">(shown)</span>' : ''}
         · <a href="/api/logs/${s.log_id}/download">download .data + .log</a> · <a href="/#log${s.log_id}">log details</a>`)).join('')}
       ${kv('Uploaded', esc(fmtTime(e.uploaded_at)) + (e.uploaded_by_name ? ' by ' + esc(e.uploaded_by_name) : ''))}
-    </div></div>
+    </div></details>
     <div class="actions"><a class="btn sec" href="/api/flights/${flightId}/path" target="_blank">Path JSON</a>
       <a class="btn sec" href="/api/aircraft/${e.aircraft_pk}/config" target="_blank">Airframe / flight plan / settings</a></div>`;
   const ev = (title, x, utc, name, extra) => x ? `<div><h4>${title}</h4><div class="kv">${kv('Time (UTC)', esc(fmtTime(utc)))}${kv('Location', coord(x.location, name))}
@@ -491,9 +619,22 @@ function pickTime(e, el) {
   show(best);
 }
 $('resetZoom').onclick = resetZoom;
-addEventListener('resize', () => D && drawChart(+$('scrub').value));
-addEventListener('nightchange', () => D && drawChart(+$('scrub').value));
+addEventListener('resize', () => D && activeTab === 'path' && drawChart(+$('scrub').value));
+addEventListener('nightchange', () => D && activeTab === 'path' && drawChart(+$('scrub').value));
 
+const listPages = {changes: 0, msgs: 0}, LIST_PAGE_SIZE = 25;
+function pageRows(rows, key) {
+  const pages = Math.max(1, Math.ceil(rows.length / LIST_PAGE_SIZE));
+  listPages[key] = Math.min(listPages[key], pages - 1);
+  const start = listPages[key] * LIST_PAGE_SIZE;
+  $(key + 'Pager').innerHTML = `<button type="button" ${start === 0 ? 'disabled' : ''}>Previous</button>
+    <span>${rows.length ? start + 1 : 0}–${Math.min(start + LIST_PAGE_SIZE, rows.length)} of ${rows.length}</span>
+    <button type="button" ${listPages[key] === pages - 1 ? 'disabled' : ''}>Next</button>`;
+  const buttons = $(key + 'Pager').querySelectorAll('button');
+  buttons[0].onclick = () => { listPages[key]--; renderLists(); };
+  buttons[1].onclick = () => { listPages[key]++; renderLists(); };
+  return rows.slice(start, start + LIST_PAGE_SIZE);
+}
 function renderLists() {
   const t0 = D.takeoff_time_s, t1 = D.landing_time_s ?? Infinity;
   const inFlight = t => t >= t0 && t <= t1;
@@ -501,21 +642,43 @@ function renderLists() {
   const allC = $('allChanges').checked, allM = $('allMsgs').checked;
 
   const ch = D.setting_changes.filter(c => allC || inFlight(c.time_s));
+  $('settingsBadge').textContent = `(${D.setting_changes.filter(c => inFlight(c.time_s)).length})`;
   $('changeCount').textContent = `${ch.length} of ${D.setting_changes.length}`;
-  $('changes').innerHTML = ch.map(c => `<tr class="${inFlight(c.time_s) ? '' : 'out'}"><td class="mono">${rel(c.time_s)}</td><td>${esc(c.var || 'setting')} <span class="mute">#${c.idx}</span></td>
+  $('changes').innerHTML = pageRows(ch, 'changes').map(c => `<tr class="${inFlight(c.time_s) ? '' : 'out'}"><td class="mono">${rel(c.time_s)}</td><td>${esc(c.var || 'setting')} <span class="mute">#${c.idx}</span></td>
     <td class="mono">${esc(c.from_value)}</td><td class="mono">${esc(c.to_value)}</td><td>${inFlight(c.time_s) ? '<span class="tag">in flight</span>' : ''}</td></tr>`).join('')
     || '<tr><td colspan="5" class="mute">No setting changed during this flight.</td></tr>';
 
   const ms = D.info_messages.filter(m => allM || near(m.time_s));
+  $('messagesBadge').textContent = `(${D.info_messages.filter(m => near(m.time_s)).length})`;
   $('msgCount').textContent = `${ms.length} of ${D.info_messages.length}`;
-  $('msgs').innerHTML = ms.map(m => `<tr class="${inFlight(m.time_s) ? '' : 'out'}"><td class="mono" style="white-space:nowrap">${rel(m.time_s)}</td><td>${esc(m.text)}</td></tr>`).join('')
+  $('msgs').innerHTML = pageRows(ms, 'msgs').map(m => `<tr class="${inFlight(m.time_s) ? '' : 'out'}"><td class="mono" style="white-space:nowrap">${rel(m.time_s)}</td><td>${esc(m.text)}</td></tr>`).join('')
     || '<tr><td colspan="2" class="mute">No messages around this flight.</td></tr>';
+}
+
+function softwareVersion(raw) {
+  const match = String(raw).match(/^(\d+)\s+(.+)$/);
+  if (!match) return `<div class="mono">${esc(raw)}</div>`;
+  const code = Number(match[1]);
+  const version = `${Math.floor(code / 10000)}.${Math.floor(code / 100) % 100}.${code % 100}`;
+  const description = match[2].replace(/^"(.*)"$/, '$1');
+  const git = description.match(/^(.*)-(\d+|none)-g([0-9a-f]{7,40})(-dirty)?$/i);
+  const dirty = description.endsWith('-dirty');
+  const link = (path, text) => `<a href="https://github.com/paparazzi/paparazzi/${path}" target="_blank" rel="noopener">${esc(text)}</a>`;
+  return `<div style="margin-bottom:12px">
+    <div><strong>Paparazzi ${esc(version)}</strong>${dirty ? ' <span class="tag uncertain">Local changes (dirty)</span>' : ''}</div>
+    <div class="mono">${esc(description)}</div>
+    ${git ? `<div>${link('commit/' + git[3], git[3])} · based on ${link('tree/' + encodeURIComponent(git[1]), git[1])}
+      ${git[2] !== 'none' ? ` · ${esc(git[2])} commits after tag` : ' · commit distance not recorded'}</div>` : ''}
+    ${dirty ? '<div class="mute">The working tree had local changes; the linked commit does not include those changes.</div>' : ''}
+    <details><summary>Raw version message</summary><code>${esc(raw)}</code></details>
+  </div>`;
 }
 
 function renderMisc() {
   $('pfc').innerHTML = D.preflight_checks.map(m => `<tr><td class="mono" style="white-space:nowrap">${rel(m.time_s)}</td><td>${esc(m.text)}</td></tr>`).join('')
     || '<tr><td class="mute">No pre-flight check messages in the log.</td></tr>';
-  $('versions').innerHTML = kv('Autopilot', D.autopilot_versions.map(esc).join('<br>'));
+  $('versions').innerHTML = D.autopilot_versions.map(softwareVersion).join('')
+    || '<span class="mute">No autopilot version recorded in this log.</span>';
 }
 
 fetch(`/api/flights/${flightId}/detail`).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(d => {
@@ -528,8 +691,9 @@ fetch(`/api/flights/${flightId}/detail`).then(r => r.ok ? r.json() : Promise.rej
       if (dt > 0.05) b.groundspeed_ms = Math.max(0, (b.distance_m - a.distance_m) / dt);
     }
   }
-  renderSummary(); initMap(); renderLists(); renderMisc();
-  $('allChanges').onchange = $('allMsgs').onchange = renderLists;
+  renderSummary(); renderLists(); renderMisc(); loadWeather(); selectTab(activeTab);
+  $('allChanges').onchange = () => { listPages.changes = 0; renderLists(); };
+  $('allMsgs').onchange = () => { listPages.msgs = 0; renderLists(); };
 }).catch(err => { console.error(err); $('summary').textContent = typeof err === 'number' ? 'Flight not found (or not yours).' : 'Error: ' + err; });
 </script>
 </body>

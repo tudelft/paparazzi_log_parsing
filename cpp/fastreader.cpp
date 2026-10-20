@@ -408,6 +408,7 @@ struct AcConf {
 struct LogHeader {
   std::map<int, AcConf> confs;       // ac_id (-1 = airframe without ac_id) -> configuration
   std::map<std::string, std::vector<std::string>> mode_names;  // ROTORCRAFT_STATUS enum field -> values
+  std::map<std::string, std::vector<std::string>> telemetry;   // telemetry message -> field names in order
   std::map<int, std::string> names;  // ac_id -> name
   std::string default_name;          // airframe without ac_id
   double start_epoch = -1;  // unix time (UTC) of log time 0, -1 if unknown
@@ -467,7 +468,9 @@ LogHeader read_log_header(const std::string &log_file)
   std::ifstream f(log_file);
   std::string line;
   int cur_conf = -1;
-  bool in_blocks = false, in_status_msg = false;
+  bool in_blocks = false, in_protocol = false, in_telemetry_class = false;
+  std::vector<std::string> *cur_fields = nullptr;
+  std::string cur_msg;
   size_t block_indent = 0, cap_indent = 0;
   std::string cap_tag, cap_buf;
   while (std::getline(f, line)) {
@@ -510,17 +513,34 @@ LogHeader read_log_header(const std::string &log_file)
       }
     }
 
-    // Enumerated values of ROTORCRAFT_STATUS fields (ap_mode, ap_h_mode, ap_v_mode)
-    if (strncmp(l, "<message name=\"ROTORCRAFT_STATUS\"", 33) == 0) { in_status_msg = true; continue; }
-    if (in_status_msg) {
-      if (strncmp(l, "</message>", 10) == 0) { in_status_msg = false; continue; }
-      std::string vals = xml_attr(line, 0, "values"), fname = xml_attr(line, 0, "name");
-      if (!vals.empty() && !fname.empty()) {
-        std::vector<std::string> v;
-        std::stringstream ss(vals);
-        std::string item;
-        while (std::getline(ss, item, '|')) { v.push_back(item); }
-        h.mode_names[fname] = v;
+    // Message definitions of the telemetry class: field order of each message
+    if (strncmp(l, "<protocol>", 10) == 0) { in_protocol = true; continue; }
+    if (in_protocol) {
+      if (strncmp(l, "</protocol>", 11) == 0) {
+        in_protocol = in_telemetry_class = false;
+        cur_fields = nullptr;
+      } else if (strncmp(l, "<msg_class ", 11) == 0) {
+        in_telemetry_class = xml_attr(line, 0, "name") == "telemetry";
+      } else if (strncmp(l, "</msg_class>", 12) == 0) {
+        in_telemetry_class = false;
+        cur_fields = nullptr;
+      } else if (in_telemetry_class && strncmp(l, "<message ", 9) == 0) {
+        cur_msg = xml_attr(line, 0, "name");
+        cur_fields = &h.telemetry[cur_msg];
+      } else if (strncmp(l, "</message>", 10) == 0) {
+        cur_fields = nullptr;
+      } else if (cur_fields && strncmp(l, "<field ", 7) == 0) {
+        std::string fname = xml_attr(line, 0, "name");
+        cur_fields->push_back(fname);
+        // Enumerated values of ROTORCRAFT_STATUS fields (ap_mode, ap_h_mode, ap_v_mode)
+        std::string vals = xml_attr(line, 0, "values");
+        if (cur_msg == "ROTORCRAFT_STATUS" && !vals.empty()) {
+          std::vector<std::string> v;
+          std::stringstream ss(vals);
+          std::string item;
+          while (std::getline(ss, item, '|')) { v.push_back(item); }
+          h.mode_names[fname] = v;
+        }
       }
       continue;
     }
@@ -976,7 +996,60 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.3.10";
+constexpr const char *PARSER_VERSION = "1.4.1";
+
+// Payload positions of the wanted fields of one telemetry message, looked up by name in the
+// <protocol> of the .log once, so the per-line work stays a plain token split.
+struct MsgFields {
+  static constexpr int MAX_WANTED = 12, MAX_POS = 32;
+  int pos[MAX_WANTED];  // position of wanted field i, -1 if this protocol does not have it
+  int n = 0;
+  int split = 0;        // tokens to split: highest wanted position + 1, 0 = message not usable
+};
+
+struct Picked {
+  std::string_view v[MsgFields::MAX_WANTED];  // empty if the field is absent
+  std::string_view operator[](int i) const { return v[i]; }
+};
+
+inline Picked pick(const MsgFields &m, const char *q, const char *eol)
+{
+  std::string_view tok[MsgFields::MAX_POS];
+  for (int i = 0; i < m.split; i++) { tok[i] = next_token(q, eol); }
+  Picked f;
+  for (int i = 0; i < m.n; i++) {
+    if (m.pos[i] >= 0) { f.v[i] = tok[m.pos[i]]; }
+  }
+  return f;
+}
+
+// Field names ending in '?' are optional. A missing required field disables the message.
+MsgFields resolve_fields(const LogHeader &h, const char *msg, std::initializer_list<const char *> wanted)
+{
+  MsgFields m;
+  auto it = h.telemetry.find(msg);
+  if (it == h.telemetry.end()) {
+    std::cerr << " - " << msg << " is not in the protocol of the LOG file, ignored\n";
+    return m;
+  }
+  int split = 0;
+  for (const char *w : wanted) {
+    std::string name(w);
+    const bool optional = !name.empty() && name.back() == '?';
+    if (optional) { name.pop_back(); }
+    auto f = std::find(it->second.begin(), it->second.end(), name);
+    int p = f == it->second.end() ? -1 : static_cast<int>(f - it->second.begin());
+    if (p >= MsgFields::MAX_POS) { p = -1; }
+    if (p < 0 && !optional) {
+      std::cerr << " - " << msg << " has no field " << name << " in the protocol of the LOG file, ignored\n";
+      return MsgFields{};
+    }
+    m.pos[m.n++] = p;
+    split = std::max(split, p + 1);
+  }
+  m.split = split;
+  return m;
+}
 
 // Onboard logs often stamp each line with get_sys_time_usec()/1e6. That counter is
 // uint32 microseconds, so the time column wraps every 2^32 us (~71.58 min). Long
@@ -1065,6 +1138,46 @@ int main(int argc, char *argv[])
     std::cerr << "Usage: " << argv[0] << " [-r|--path-rate <points per second, default 5, 0 = off>] [--sha256 <hex of file, skips hashing>] [--version] <file.data>\n";
     return 1;
   }
+
+  std::string log_file = data_file;
+  if (log_file.size() > 4) { log_file.replace(log_file.size() - 4, 4, "log"); }
+  if (access(log_file.c_str(), R_OK) != 0) {
+    std::cerr << " - Cannot open LOG file " << log_file << "\n";
+    return 1;
+  }
+  const LogHeader hdr = read_log_header(log_file);
+  enum { FP_PHI, FP_THETA, FP_PSI };
+  const MsgFields fp_f = resolve_fields(hdr, "ROTORCRAFT_FP", {"phi", "theta", "psi"});
+  enum { NAV_BLOCK, NAV_STAGE };
+  const MsgFields nav_f = resolve_fields(hdr, "ROTORCRAFT_NAV_STATUS", {"cur_block", "cur_stage"});
+  enum { ST_MODE, ST_IN_FLIGHT, ST_MOTORS, ST_H_MODE, ST_V_MODE, ST_VSUPPLY };
+  const MsgFields st_f = resolve_fields(hdr, "ROTORCRAFT_STATUS", {"ap_mode", "ap_in_flight", "ap_motors_on?",
+                                                                   "ap_h_mode?", "ap_v_mode?", "vsupply?"});
+  enum { GPS_EX, GPS_EY, GPS_EZ, GPS_LAT, GPS_LON, GPS_ALT, GPS_NUMSV, GPS_FIX };
+  const MsgFields gps_f = resolve_fields(hdr, "GPS_INT", {"ecef_x", "ecef_y", "ecef_z", "lat", "lon", "alt",
+                                                          "numsv", "fix"});
+  enum { DL_INDEX, DL_VALUE_ };
+  const MsgFields dl_f = resolve_fields(hdr, "DL_VALUE", {"index", "value"});
+  enum { WI_FLAGS, WI_EAST, WI_NORTH, WI_UP, WI_TEMP };
+  const MsgFields wind_f = resolve_fields(hdr, "WIND_INFO_RET", {"flags", "east", "north", "up?", "temp?"});
+  const MsgFields ins_f = resolve_fields(hdr, "INS", {"ins_x", "ins_y", "ins_z", "ins_xd", "ins_yd", "ins_zd",
+                                                      "ins_xdd", "ins_ydd", "ins_zdd"});
+  enum { Q_I, Q_X, Q_Y, Q_Z };
+  const MsgFields quat_f = resolve_fields(hdr, "AHRS_REF_QUAT", {"body_qi", "body_qx", "body_qy", "body_qz"});
+  enum { AD_PRESS, AD_DIFF_P, AD_AMSL, AD_AIRSPEED, AD_TAS };
+  const MsgFields air_f = resolve_fields(hdr, "AIR_DATA", {"pressure", "diff_p?", "amsl_baro", "airspeed?", "tas?"});
+  enum { FW_NAV_BLOCK, FW_NAV_STAGE, FW_NAV_FT };
+  const MsgFields fw_nav_f = resolve_fields(hdr, "NAVIGATION", {"cur_block", "cur_stage", "flight_time"});
+  enum { PPRZ_AP };
+  const MsgFields pprz_f = resolve_fields(hdr, "PPRZ_MODE", {"ap_mode"});
+  enum { GPSU_MODE, GPSU_EAST, GPSU_NORTH, GPSU_ALT, GPSU_SPEED, GPSU_ZONE };
+  const MsgFields gpsu_f = resolve_fields(hdr, "GPS", {"mode", "utm_east", "utm_north", "alt", "speed?", "utm_zone"});
+  enum { AT_PHI, AT_THETA, AT_PSI };
+  const MsgFields att_f = resolve_fields(hdr, "ATTITUDE", {"phi", "theta", "psi"});
+  enum { AS_EAS };
+  const MsgFields as_f = resolve_fields(hdr, "AIRSPEED", {"airspeed"});
+  enum { EN_VOLT };
+  const MsgFields energy_f = resolve_fields(hdr, "ENERGY", {"voltage"});
 
   int fd = open(data_file.c_str(), O_RDONLY);
   struct stat st;
@@ -1191,11 +1304,11 @@ int main(int argc, char *argv[])
     switch (name[0]) {
       case 'R':
         if (name == "ROTORCRAFT_FP") {
-          // fields: 0-5 pos/vel, 6 phi, 7 theta, 8 psi (int32, 12 fractional bits, rad)
-          for (int i = 0; i < 6; i++) { next_token(q, eol); }
+          if (!fp_f.split) { break; }
+          // phi, theta, psi: int32 with 12 fractional bits, rad
+          const Picked f = pick(fp_f, q, eol);
           int32_t phi, theta, psi;
-          if (!to_num(next_token(q, eol), phi) || !to_num(next_token(q, eol), theta) ||
-              !to_num(next_token(q, eol), psi)) { break; }
+          if (!to_num(f[FP_PHI], phi) || !to_num(f[FP_THETA], theta) || !to_num(f[FP_PSI], psi)) { break; }
           constexpr double k = 180.0 / M_PI / 4096.0;
           AircraftState &s = touch(ac, t);
           s.has_euler = true;
@@ -1207,27 +1320,24 @@ int main(int argc, char *argv[])
           break;
         }
         if (name == "ROTORCRAFT_NAV_STATUS") {
-          // fields: 0 block_time, 1 stage_time, 2 dist_home, 3 dist_wp, 4 cur_block, 5 cur_stage
-          for (int i = 0; i < 4; i++) { next_token(q, eol); }
+          if (!nav_f.split) { break; }
+          const Picked f = pick(nav_f, q, eol);
           int block, stage;
-          if (!to_num(next_token(q, eol), block) || !to_num(next_token(q, eol), stage)) { break; }
+          if (!to_num(f[NAV_BLOCK], block) || !to_num(f[NAV_STAGE], stage)) { break; }
           AircraftState &s = touch(ac, t);
           s.block = block; s.stage = stage;
           break;
         }
         if (name == "ROTORCRAFT_STATUS") {
-          // fields: 0 link_imu_nb_err, 1 motor_nb_err, 2 rc, 3 frame_rate, 4 gps, 5 ap_mode, 6 ap_in_flight,
-          // 7 motors_on, 8 arming, 9 h_mode, 10 v_mode, 11 cpu_time, 12 vsupply
-          for (int i = 0; i < 5; i++) { next_token(q, eol); }
+          if (!st_f.split) { break; }
+          const Picked f = pick(st_f, q, eol);
           int ap_mode, in_flight, h_mode, v_mode;
-          if (!to_num(next_token(q, eol), ap_mode) || !to_num(next_token(q, eol), in_flight)) { break; }
+          if (!to_num(f[ST_MODE], ap_mode) || !to_num(f[ST_IN_FLIGHT], in_flight)) { break; }
           int motors_on = -1;
-          to_num(next_token(q, eol), motors_on);
-          next_token(q, eol);
-          bool has_hv = to_num(next_token(q, eol), h_mode) && to_num(next_token(q, eol), v_mode);
-          next_token(q, eol);
+          to_num(f[ST_MOTORS], motors_on);
+          bool has_hv = to_num(f[ST_H_MODE], h_mode) && to_num(f[ST_V_MODE], v_mode);
           float vsupply;
-          bool has_v = to_num(next_token(q, eol), vsupply);
+          bool has_v = to_num(f[ST_VSUPPLY], vsupply);
           AircraftState &s = touch(ac, t);
           s.ap_mode = ap_mode;
           if (has_hv) { s.h_mode = h_mode; s.v_mode = v_mode; }
@@ -1243,11 +1353,11 @@ int main(int argc, char *argv[])
         break;
       case 'N':
         if (name == "NAVIGATION") {
-          // fixed-wing: cur_block, cur_stage, pos_x/y, dist_wp, dist_home, flight_time, ...
+          if (!fw_nav_f.split) { break; }
+          const Picked f = pick(fw_nav_f, q, eol);
           int block, stage, flight_time;
-          if (!to_num(next_token(q, eol), block) || !to_num(next_token(q, eol), stage)) { break; }
-          for (int i = 0; i < 4; i++) { next_token(q, eol); }
-          if (!to_num(next_token(q, eol), flight_time)) { break; }
+          if (!to_num(f[FW_NAV_BLOCK], block) || !to_num(f[FW_NAV_STAGE], stage) ||
+              !to_num(f[FW_NAV_FT], flight_time)) { break; }
           AircraftState &s = touch(ac, t);
           s.block = block;
           s.stage = stage;
@@ -1256,22 +1366,24 @@ int main(int argc, char *argv[])
         break;
       case 'P':
         if (name == "PPRZ_MODE") {
+          if (!pprz_f.split) { break; }
+          const Picked f = pick(pprz_f, q, eol);
           int ap_mode;
-          if (!to_num(next_token(q, eol), ap_mode)) { break; }
+          if (!to_num(f[PPRZ_AP], ap_mode)) { break; }
           touch(ac, t).ap_mode = ap_mode;
         }
         break;
       case 'G':
         if (name == "GPS_INT") {
-          // fields: 0-2 ecef (cm), 3 lat, 4 lon (1e-7 deg), 5 alt (mm), 6 hmsl, ..., 14 numsv, 15 fix
+          if (!gps_f.split) { break; }
+          // ecef (cm), lat/lon (1e-7 deg), alt (mm)
+          const Picked f = pick(gps_f, q, eol);
           int32_t ex, ey, ez, lat, lon, alt;
-          if (!to_num(next_token(q, eol), ex) || !to_num(next_token(q, eol), ey) ||
-              !to_num(next_token(q, eol), ez) || !to_num(next_token(q, eol), lat) ||
-              !to_num(next_token(q, eol), lon) || !to_num(next_token(q, eol), alt)) { break; }
-          for (int i = 0; i < 8; i++) { next_token(q, eol); }  // hmsl .. pdop
+          if (!to_num(f[GPS_EX], ex) || !to_num(f[GPS_EY], ey) || !to_num(f[GPS_EZ], ez) ||
+              !to_num(f[GPS_LAT], lat) || !to_num(f[GPS_LON], lon) || !to_num(f[GPS_ALT], alt)) { break; }
           int numsv = 0, fix = 0;
-          to_num(next_token(q, eol), numsv);
-          to_num(next_token(q, eol), fix);
+          to_num(f[GPS_NUMSV], numsv);
+          to_num(f[GPS_FIX], fix);
           if (fix < 3) { break; }
           // OptiTrack injected as GPS typically has a 3D fix and no satellites.
           if (numsv == 0) { touch(ac, t).has_optitrack = true; }
@@ -1294,17 +1406,13 @@ int main(int argc, char *argv[])
           if (!Flight::plausible_ll(lat_d, lon_d)) { break; }
           use_gps(ac, t, lat_d, lon_d, alt_d);
         } else if (name == "GPS") {
-          // older / fixed-wing: mode, utm_east cm, utm_north cm, course, alt mm, speed, climb, week, itow, utm_zone
-          int mode = 0, zone = 0;
+          if (!gpsu_f.split) { break; }
+          const Picked f = pick(gpsu_f, q, eol);
+          int mode = 0, zone = 0, speed_cm = 0;
           int32_t east = 0, north = 0, alt = 0;
-          if (!to_num(next_token(q, eol), mode) || !to_num(next_token(q, eol), east) ||
-              !to_num(next_token(q, eol), north)) { break; }
-          next_token(q, eol);  // course
-          if (!to_num(next_token(q, eol), alt)) { break; }
-          int speed_cm = 0;
-          to_num(next_token(q, eol), speed_cm);  // cm/s
-          for (int i = 0; i < 3; i++) { next_token(q, eol); }  // climb week itow
-          if (!to_num(next_token(q, eol), zone)) { break; }
+          if (!to_num(f[GPSU_MODE], mode) || !to_num(f[GPSU_EAST], east) || !to_num(f[GPSU_NORTH], north) ||
+              !to_num(f[GPSU_ALT], alt) || !to_num(f[GPSU_ZONE], zone)) { break; }
+          to_num(f[GPSU_SPEED], speed_cm);
           if (mode < 3) { break; }
           double lat_d = 0, lon_d = 0;
           if (!utm_to_lla(east / 100.0, north / 100.0, zone, lat_d, lon_d)) { break; }
@@ -1316,9 +1424,11 @@ int main(int argc, char *argv[])
         break;
       case 'D':
         if (name == "DL_VALUE") {
+          if (!dl_f.split) { break; }
+          const Picked f = pick(dl_f, q, eol);
           int idx;
           double val;
-          if (!to_num(next_token(q, eol), idx) || !to_num(next_token(q, eol), val)) { break; }
+          if (!to_num(f[DL_INDEX], idx) || !to_num(f[DL_VALUE_], val)) { break; }
           AircraftState &s = touch(ac, t);
           s.setting_samples.push_back({t, idx, val, s.in_flight});
         }
@@ -1327,9 +1437,10 @@ int main(int argc, char *argv[])
         if (name == "EXTERNAL_POSE" || name == "EXTERNAL_POSE_SMALL" || name == "EXTERNAL_POSE_DOWN") {
           touch(ac, t).has_optitrack = true;
         } else if (name == "ENERGY") {
-          next_token(q, eol);  // throttle
+          if (!energy_f.split) { break; }
+          const Picked f = pick(energy_f, q, eol);
           float vsupply;
-          if (to_num(next_token(q, eol), vsupply)) {
+          if (to_num(f[EN_VOLT], vsupply)) {
             AircraftState &s = touch(ac, t);
             s.has_volt = true;
             s.vsupply = vsupply;
@@ -1338,26 +1449,27 @@ int main(int argc, char *argv[])
         break;
       case 'W':
         if (name == "WIND_INFO_RET") {
-          // fields: 0 flags, 1 east, 2 north, 3 up, 4 airspeed, 5 temp
+          if (!wind_f.split) { break; }
+          const Picked f = pick(wind_f, q, eol);
           int flags;
-          double e, n, u, as, tmp;
-          if (!to_num(next_token(q, eol), flags) || !to_num(next_token(q, eol), e) || !to_num(next_token(q, eol), n) ||
-              !to_num(next_token(q, eol), u) || !to_num(next_token(q, eol), as) || !to_num(next_token(q, eol), tmp)) {
-            break;
-          }
+          double e, n, u = 0, tmp = 0;
+          if (!to_num(f[WI_FLAGS], flags) || !to_num(f[WI_EAST], e) || !to_num(f[WI_NORTH], n)) { break; }
+          const bool has_u = to_num(f[WI_UP], u), has_tmp = to_num(f[WI_TEMP], tmp);
           Wind &w = touch(ac, t).wind;
           w.valid = flags & 1;
           w.east = e; w.north = n;
-          w.has_up = flags & 2; w.up = u;
-          w.has_temp = flags & 8; w.temp = tmp;
+          w.has_up = (flags & 2) && has_u; w.up = u;
+          w.has_temp = (flags & 8) && has_tmp; w.temp = tmp;
         }
         break;
       case 'I':
         if (name == "INS") {
-          // fields: x y z (north, east, down; 8 fractional bits), xd yd zd (19 bits), xdd ydd zdd (10 bits)
+          if (!ins_f.split) { break; }
+          // x y z (north, east, down; 8 fractional bits), xd yd zd (19 bits), xdd ydd zdd (10 bits)
+          const Picked f = pick(ins_f, q, eol);
           int32_t v[9];
           bool ok = true;
-          for (int i = 0; i < 9 && ok; i++) { ok = to_num(next_token(q, eol), v[i]); }
+          for (int i = 0; i < 9 && ok; i++) { ok = to_num(f[i], v[i]); }
           if (!ok) { break; }
           InsState &n = touch(ac, t).ins;
           n.valid = true;
@@ -1390,40 +1502,45 @@ int main(int argc, char *argv[])
           AircraftState &s = touch(ac, t);
           s.actuators_raw = next_token(q, eol);
         } else if (name == "AHRS_REF_QUAT") {
-          // fields: 0-3 ref quaternion, 4-7 body quaternion (int32, 15 fractional bits)
-          for (int i = 0; i < 4; i++) { next_token(q, eol); }
+          if (!quat_f.split) { break; }
+          // body quaternion: int32 with 15 fractional bits
+          const Picked f = pick(quat_f, q, eol);
           int32_t b[4];
-          if (!to_num(next_token(q, eol), b[0]) || !to_num(next_token(q, eol), b[1]) ||
-              !to_num(next_token(q, eol), b[2]) || !to_num(next_token(q, eol), b[3])) { break; }
+          if (!to_num(f[Q_I], b[0]) || !to_num(f[Q_X], b[1]) || !to_num(f[Q_Y], b[2]) || !to_num(f[Q_Z], b[3])) {
+            break;
+          }
           AircraftState &s = touch(ac, t);
           s.has_quat = true;
           s.qi = b[0] / 32768.0; s.qx = b[1] / 32768.0; s.qy = b[2] / 32768.0; s.qz = b[3] / 32768.0;
         } else if (name == "ATTITUDE") {
-          // Paparazzi ATTITUDE: phi, psi, theta in radians (roll, yaw, pitch)
-          float phi, psi, theta;
-          if (!to_num(next_token(q, eol), phi) || !to_num(next_token(q, eol), psi) ||
-              !to_num(next_token(q, eol), theta)) { break; }
+          if (!att_f.split) { break; }
+          const Picked f = pick(att_f, q, eol);
+          float phi, theta, psi;
+          if (!to_num(f[AT_PHI], phi) || !to_num(f[AT_THETA], theta) || !to_num(f[AT_PSI], psi)) { break; }
           AircraftState &s = touch(ac, t);
           s.has_euler = true;
           s.roll = phi * 180.0 / M_PI;
-          s.yaw = psi * 180.0 / M_PI;
           s.pitch = theta * 180.0 / M_PI;
+          s.yaw = psi * 180.0 / M_PI;
         } else if (name == "AIRSPEED") {
+          if (!as_f.split) { break; }
+          const Picked f = pick(as_f, q, eol);
           float eas;
-          if (!to_num(next_token(q, eol), eas)) { break; }
+          if (!to_num(f[AS_EAS], eas)) { break; }
           AircraftState &s = touch(ac, t);
           s.has_as = true;
           s.airspeed = eas;
         } else if (name == "AIR_DATA") {
-          // fields: 0 pressure [Pa], 1 diff_p, 2 temp, 3 qnh, 4 amsl_baro [m]
+          if (!air_f.split) { break; }
+          // pressure [Pa], amsl_baro [m]
+          const Picked f = pick(air_f, q, eol);
           float press, baro_alt, diff_p = 0;
-          if (!to_num(next_token(q, eol), press)) { break; }
-          to_num(next_token(q, eol), diff_p);
-          for (int i = 0; i < 2; i++) { next_token(q, eol); }
-          if (!to_num(next_token(q, eol), baro_alt)) { break; }
+          if (!to_num(f[AD_PRESS], press)) { break; }
+          to_num(f[AD_DIFF_P], diff_p);
+          if (!to_num(f[AD_AMSL], baro_alt)) { break; }
           float airspeed = 0, tas = 0;
-          bool has_as = to_num(next_token(q, eol), airspeed);
-          has_as = has_as && to_num(next_token(q, eol), tas);
+          bool has_as = to_num(f[AD_AIRSPEED], airspeed);
+          has_as = has_as && to_num(f[AD_TAS], tas);
           AircraftState &s = touch(ac, t);
           if (has_as) { s.has_as = true; s.airspeed = airspeed; s.tas = tas; s.diff_p = diff_p; }
           s.has_baro = true;
@@ -1458,9 +1575,6 @@ int main(int argc, char *argv[])
   }
 
   // Report (JSON)
-  std::string log_file = data_file;
-  if (log_file.size() > 4) { log_file.replace(log_file.size() - 4, 4, "log"); }
-  const LogHeader hdr = read_log_header(log_file);
   auto utc = [&](double t) { return utc_iso(hdr.start_epoch < 0 ? -1 : hdr.start_epoch + t); };
   const double t0 = first_time < 0 ? 0 : first_time;
 
