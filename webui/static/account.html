@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>My account</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --err:#cf222e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
+  header a { color:#9fb0c3; }
+  main { max-width:900px; margin:0 auto; padding:16px 12px 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow-x:auto; }
+  h2 { margin:0 0 8px; font-size:15px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
+  .mute { color:var(--mute); }
+  button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button.sec { background:var(--sec); color:var(--txt); }
+  button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
+  input { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
+  #err { color:var(--err); min-height:1.2em; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin-top:8px; }
+  code, pre { font-family:ui-monospace, monospace; font-size:12px; }
+  pre { background:var(--band, #f0f2f5); padding:10px; border-radius:6px; overflow-x:auto; margin:6px 0; }
+  #newKey { display:none; border:1px solid var(--acc); }
+  #newKey code { font-size:13px; word-break:break-all; user-select:all; }
+  .kv { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>My account</h1>
+  <span class="meta" id="nav"></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <div id="err"></div>
+  <section class="card"><div class="kv" id="info"></div></section>
+
+  <section class="card" id="newKey">
+    <h2>New API key</h2>
+    <div>Copy it now, it is not shown again:</div>
+    <pre><code id="keyText"></code></pre>
+    <button type="button" onclick="copyKey()" id="copyBtn">Copy</button>
+  </section>
+
+  <section class="card">
+    <h2>API keys</h2>
+    <div class="mute">A key lets a script use the API as you (upload and read logs you can access). It cannot manage keys.
+      Send it as <code>Authorization: Bearer &lt;key&gt;</code>. Revoke a key if it leaks.</div>
+    <form class="row" onsubmit="addKey(event)">
+      <input id="name" placeholder="Name, e.g. laptop uploader" required maxlength="60" style="min-width:240px">
+      <button type="submit">Create key</button>
+    </form>
+    <table style="margin-top:12px">
+      <thead><tr><th>Name</th><th>Key</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+      <tbody id="keys"></tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>Upload a folder with the script</h2>
+    <div class="mute">Finds every <code>.data</code>/<code>.log</code> pair below a folder and uploads those that are not on the server yet.</div>
+    <pre id="usage"></pre>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = t => t ? t.replace('T', ' ').replace('Z', ' UTC') : '<span class="mute">never</span>';
+async function api(url, opt) {
+  const r = await fetch(url, opt);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || r.statusText);
+  return d;
+}
+async function load() {
+  try {
+    const keys = await api('/api/keys');
+    $('keys').innerHTML = keys.map(k => `<tr><td>${esc(k.name)}</td><td><code>${esc(k.prefix)}…</code></td><td>${fmt(k.created_at)}</td><td>${fmt(k.last_used_at)}</td>
+      <td><button class="danger" onclick="revoke(${k.id}, '${esc(k.name).replace(/'/g, '')}')">Revoke</button></td></tr>`).join('')
+      || '<tr><td colspan="5" class="mute">No keys yet.</td></tr>';
+  } catch (e) { $('err').textContent = e.message; }
+}
+async function addKey(ev) {
+  ev.preventDefault();
+  $('err').textContent = '';
+  try {
+    const d = await api('/api/keys', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: $('name').value})});
+    $('keyText').textContent = d.key;
+    $('newKey').style.display = 'block';
+    $('copyBtn').textContent = 'Copy';
+    $('name').value = '';
+    $('usage').textContent = `python3 upload_logs.py ~/paparazzi/var/logs --server ${location.origin} --key ${d.key}\n\n# or set it once:\nexport PPRZ_API_KEY=${d.key}\nexport PPRZ_SERVER=${location.origin}\npython3 upload_logs.py ~/paparazzi/var/logs`;
+    load();
+  } catch (e) { $('err').textContent = e.message; }
+}
+async function copyKey() {
+  try { await navigator.clipboard.writeText($('keyText').textContent); $('copyBtn').textContent = 'Copied'; } catch (e) {}
+}
+async function revoke(id, name) {
+  if (!confirm(`Revoke key "${name}"? Scripts using it stop working.`)) return;
+  try { await api('/api/keys/' + id, {method: 'DELETE'}); load(); } catch (e) { $('err').textContent = e.message; }
+}
+$('usage').textContent = `python3 upload_logs.py ~/paparazzi/var/logs --server ${location.origin} --key <your key>`;
+fetch('/api/me').then(r => r.json()).then(d => {
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  $('info').innerHTML = `<span class="mute">Name</span><span>${esc(d.user.display_name)}</span><span class="mute">Username</span><span>${esc(d.user.username)}</span><span class="mute">Role</span><span>${d.user.is_admin ? 'Administrator' : 'User'}</span>`;
+});
+load();
+</script>
+</body>
+</html>

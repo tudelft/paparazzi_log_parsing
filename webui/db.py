@@ -122,6 +122,15 @@ CREATE TABLE IF NOT EXISTS project_members (
     role TEXT NOT NULL,                 -- view | add | full
     PRIMARY KEY (project_id, user_id)
 );
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,     -- sha256 of the key; the key itself is shown once and never stored
+    prefix TEXT NOT NULL,              -- first characters, to recognise the key in the list
+    created_at TEXT NOT NULL,
+    last_used_at TEXT
+);
 CREATE TABLE IF NOT EXISTS user_aliases (
     id INTEGER PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

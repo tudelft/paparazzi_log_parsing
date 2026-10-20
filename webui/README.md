@@ -209,6 +209,24 @@ Certbot installs a timer that renews the certificate; check it with `sudo certbo
 Behind a proxy the app sees every request as coming from 127.0.0.1, so the login rate limit is applied per user name
 instead of per client address.
 
+## API keys and the upload script
+
+Click your name at the top right to open your account page (`/account`) and create an API key. The key is shown once
+(only its SHA-256 is stored) and can be revoked there. Use it as `Authorization: Bearer <key>` on any `/api/...` URL;
+it acts as you, works for the API only (not for pages), and cannot create or revoke keys.
+
+    curl -H "Authorization: Bearer pprz_..." https://logs.example.org/api/me
+
+`upload_logs.py` (standard library only) searches a folder recursively for `.data`/`.log` pairs, hashes each `.data`
+file, asks the server which hashes it already has (`POST /api/logs/check`) and uploads only the rest. A log the server
+has without a `.log` is uploaded again so the `.log` is added.
+
+    python3 upload_logs.py ~/paparazzi/var/logs --server https://logs.example.org --key pprz_...
+    python3 upload_logs.py ~/paparazzi/var/logs -n          # dry run; server and key can also be set with
+                                                            # PPRZ_SERVER / PPRZ_API_KEY
+
+Add `--insecure` for a server with a self-signed certificate. Parsing happens on the server after the upload.
+
 ## Accounts
 
 Everything (pages, API, downloads) requires a login. Accounts are local for now and managed on the command line:
