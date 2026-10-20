@@ -98,7 +98,7 @@ async function addKey(ev) {
     $('newKey').style.display = 'block';
     $('copyBtn').textContent = 'Copy';
     $('name').value = '';
-    $('usage').textContent = `python3 upload_logs.py ~/paparazzi/var/logs --server ${location.origin} --key ${d.key}\n\n# or set it once:\nexport PPRZ_API_KEY=${d.key}\nexport PPRZ_SERVER=${location.origin}\npython3 upload_logs.py ~/paparazzi/var/logs`;
+    $('usage').textContent = `python3 upload_logs.py ~/paparazzi/var/logs --server ${location.origin} --key ${d.key}\n\n# or set it once:\nexport LOGDB_API_KEY=${d.key}\nexport LOGDB_SERVER=${location.origin}\npython3 upload_logs.py ~/paparazzi/var/logs`;
     load();
   } catch (e) { $('err').textContent = e.message; }
 }

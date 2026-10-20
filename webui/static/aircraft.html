@@ -103,7 +103,7 @@ window.fetch = async (...args) => {
 let data = {drones: [], unlinked: [], projects: []};
 const editOn = () => $('editFleet').checked;
 function toggleEdit() {
-  localStorage.setItem('pprzEditAircraft', editOn() ? '1' : '');
+  localStorage.setItem('logdbEditAircraft', editOn() ? '1' : '');
   $('add').hidden = !editOn();
   $('importRow').hidden = !editOn();
   render();
@@ -240,7 +240,7 @@ $('editFleet').onchange = toggleEdit;
 fetch('/api/me').then(r => r.json()).then(d => {
   if (!d.user.is_admin) { location.href = '/'; return; }
   $('who').textContent = d.user.display_name + ' (admin)';
-  $('editFleet').checked = localStorage.getItem('pprzEditAircraft') === '1';
+  $('editFleet').checked = localStorage.getItem('logdbEditAircraft') === '1';
   $('add').hidden = !editOn();
   $('importRow').hidden = !editOn();
   load();

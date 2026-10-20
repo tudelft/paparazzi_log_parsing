@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Upload Paparazzi .data/.log pairs from a folder to the log database through its API.
 
-    python3 upload_logs.py ~/paparazzi/var/logs --server https://logs.example.org --key pprz_...
+    python3 upload_logs.py ~/paparazzi/var/logs --server https://logs.example.org --key logdb_...
 
 Create the key on your account page (click your name at the top right). The folder is searched recursively. A pair is
 only uploaded if the SHA-256 of its .data file is not on the server yet (or if the server has the .data without a .log).
@@ -117,13 +117,13 @@ class Client:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("folder", help="folder to search recursively for .data/.log pairs")
-    ap.add_argument("--server", default=os.environ.get("PPRZ_SERVER"), help="server URL (or env PPRZ_SERVER)")
-    ap.add_argument("--key", default=os.environ.get("PPRZ_API_KEY"), help="API key (or env PPRZ_API_KEY)")
+    ap.add_argument("--server", default=os.environ.get("LOGDB_SERVER"), help="server URL (or env LOGDB_SERVER)")
+    ap.add_argument("--key", default=os.environ.get("LOGDB_API_KEY"), help="API key (or env LOGDB_API_KEY)")
     ap.add_argument("-n", "--dry-run", action="store_true", help="only list what would be uploaded")
     ap.add_argument("--insecure", action="store_true", help="do not verify the https certificate")
     a = ap.parse_args()
     if not a.server or not a.key:
-        ap.error("--server and --key (or PPRZ_SERVER / PPRZ_API_KEY) are required")
+        ap.error("--server and --key (or LOGDB_SERVER / LOGDB_API_KEY) are required")
     if not os.path.isdir(a.folder):
         ap.error(f"not a folder: {a.folder}")
 

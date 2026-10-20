@@ -13,6 +13,7 @@ import time
 import urllib.request
 from pathlib import Path
 
+from config import env, env_bool
 from onelogin.saml2.auth import OneLogin_Saml2_Auth
 from onelogin.saml2.idp_metadata_parser import OneLogin_Saml2_IdPMetadataParser
 
@@ -25,21 +26,18 @@ _CACHE_S = 3600
 
 
 def metadata_url():
-    return (os.environ.get("PPRZ_SAML_METADATA_URL") or TUD_SAML_IDP_METADATA_URL).strip()
+    return (env("SAML_METADATA_URL") or TUD_SAML_IDP_METADATA_URL).strip()
 
 
 def saml_enabled():
-    raw = os.environ.get("PPRZ_SAML_ENABLED")
-    if raw is not None:
-        return raw not in ("0", "false", "no")
-    return bool(metadata_url())
+    return env_bool("SAML_ENABLED") and bool(metadata_url())
 
 
 def _load_idp(url):
     now = time.time()
     if _idp_cache["data"] and _idp_cache["url"] == url and now - _idp_cache["at"] < _CACHE_S:
         return _idp_cache["data"]
-    req = urllib.request.Request(url, headers={"User-Agent": "paparazzi-log-webui"})
+    req = urllib.request.Request(url, headers={"User-Agent": "flight-log-database"})
     with urllib.request.urlopen(req, timeout=15) as resp:
         xml = resp.read()
     parsed = OneLogin_Saml2_IdPMetadataParser.parse(xml.decode("utf-8", errors="replace"))
@@ -57,7 +55,7 @@ def ensure_sp_certs(data_dir: Path):
     subprocess.run(
         ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-sha256", "-days", "3650",
          "-nodes", "-keyout", str(key), "-out", str(cert),
-         "-subj", "/CN=paparazzi-log-webui"],
+         "-subj", "/CN=flight-log-database"],
         check=True, capture_output=True)
     os.chmod(key, 0o600)
     return key.read_text(), cert.read_text()
@@ -68,9 +66,9 @@ def _strip_pem(pem):
 
 
 def sp_urls(base):
-    root = base.rstrip("/")
+    root = (env("PUBLIC_URL") or base).rstrip("/")
     return {
-        "entityId": os.environ.get("PPRZ_SAML_ENTITY_ID") or (root + "/saml/metadata"),
+        "entityId": env("SAML_ENTITY_ID") or (root + "/saml/metadata"),
         "acs": root + "/saml/acs",
         "sls": root + "/saml/sls",
     }
@@ -80,7 +78,7 @@ def settings_for(request, data_dir: Path):
     urls = sp_urls(request.url_root)
     key, cert = ensure_sp_certs(data_dir)
     idp = _load_idp(metadata_url())
-    https = request.is_secure or os.environ.get("PPRZ_COOKIE_SECURE") == "1"
+    https = request.is_secure or env_bool("COOKIE_SECURE")
     return {
         "strict": https,
         "debug": False,

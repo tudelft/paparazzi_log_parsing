@@ -113,7 +113,7 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
-const projectKey = 'pprzProject';
+const projectKey = 'logdbProject';
 function projectQuery() {
   const v = localStorage.getItem(projectKey) || '';
   return v ? ('?project=' + encodeURIComponent(v)) : '';
@@ -126,7 +126,7 @@ fetch('/api/me').then(r => r.json()).then(async d => {
     fetch('/api/people').then(r => r.json()),
   ]);
   fillBulkMenus();
-  $('editCrew').checked = localStorage.getItem('pprzEditCrew') === '1';
+  $('editCrew').checked = localStorage.getItem('logdbEditCrew') === '1';
   syncEditUi();
   const cur = localStorage.getItem(projectKey) || '';
   $('showProject').innerHTML = '<option value="">All projects</option>'
@@ -189,7 +189,7 @@ function syncEditUi() {
   $('projectFilter').hidden = !editOn();
 }
 function toggleEdit() {
-  localStorage.setItem('pprzEditCrew', editOn() ? '1' : '');
+  localStorage.setItem('logdbEditCrew', editOn() ? '1' : '');
   syncEditUi();
   if (!editOn()) { selected.clear(); $('bulkMsg').textContent = ''; }
   render();
