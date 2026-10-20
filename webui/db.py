@@ -26,8 +26,9 @@ CREATE TABLE IF NOT EXISTS logs (
     name TEXT NOT NULL,                -- original file name / relative path
     sha256 TEXT NOT NULL UNIQUE,       -- sha256 of the .data file (dedupe key)
     size_bytes INTEGER,
-    data_path TEXT NOT NULL,           -- stored .data file, relative to the storage dir
+    data_path TEXT NOT NULL,           -- stored .data file, relative to the log dir
     log_path TEXT,                     -- stored companion .log file (NULL if not uploaded)
+    paths_file TEXT,                   -- gzip JSON list of flight paths next to the log (flights.path_idx)
     status TEXT NOT NULL,              -- queued | parsing | done | error
     error TEXT,
     uploaded_at TEXT NOT NULL,
@@ -96,7 +97,7 @@ CREATE TABLE IF NOT EXISTS flights (
     pac_user_id INTEGER,
     gcs_user_id INTEGER,
     comment TEXT,                      -- notes added in the logbook / flight page
-    path_gz BLOB                       -- gzip JSON list of path points
+    path_idx INTEGER                   -- index of this flight's path in logs.paths_file
 );
 CREATE TABLE IF NOT EXISTS setting_changes (
     id INTEGER PRIMARY KEY,
@@ -147,7 +148,7 @@ CREATE TABLE IF NOT EXISTS ingest (
     id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL,                 -- pair | zip
     name TEXT NOT NULL,                 -- original .data path or zip name
-    stage_dir TEXT NOT NULL,            -- directory under the data dir (tmp/ingest/...)
+    stage_dir TEXT NOT NULL,            -- directory under <log dir>/.incoming
     data_name TEXT NOT NULL,            -- filename in stage_dir (.data or .zip)
     log_name TEXT,                      -- companion .log filename; null for a zip
     size_bytes INTEGER,
@@ -167,7 +168,7 @@ CREATE INDEX IF NOT EXISTS ix_changes_var ON setting_changes(var);
 _local = threading.local()
 # Only one worker stores a parse result at a time; others wait here instead of failing with "database is locked".
 write_lock = threading.Lock()
-BUSY_TIMEOUT_MS = 300_000  # 5 minutes; a large path insert can hold the write lock for a while
+BUSY_TIMEOUT_MS = 300_000  # 5 minutes
 
 
 def is_locked(exc):
@@ -280,17 +281,25 @@ def _loc(d):
     return p.get("lat"), p.get("lon"), p.get("alt_m")
 
 
-def store_parsed(con, log_id, doc):
-    """Replace the parsed content of a log by the output of the C++ parser (caller commits)."""
+def flight_paths(doc):
+    """All flight paths of a parse result, in the order store_parsed numbers them (path_idx)."""
+    return [f.get("path") or [] for ac in doc.get("aircraft", []) for f in ac.get("flights", [])]
+
+
+def store_parsed(con, log_id, doc, paths_file):
+    """Replace the parsed content of a log by the output of the C++ parser (caller commits).
+
+    The paths themselves are in paths_file (written by the caller from flight_paths(doc))."""
     con.execute("DELETE FROM aircraft WHERE log_id=?", (log_id,))
     lg = doc.get("log", {})
     pr = doc.get("parser", {})
     con.execute(
         "UPDATE logs SET start_utc=?, first_data_utc=?, end_utc=?, duration_s=?, log_type=?,"
-        " parser_name=?, parser_version=?, parser_path_rate_hz=? WHERE id=?",
+        " parser_name=?, parser_version=?, parser_path_rate_hz=?, paths_file=? WHERE id=?",
         (lg.get("start_utc"), lg.get("first_data_utc"), lg.get("end_utc"), lg.get("duration_s"), lg.get("type"),
-         pr.get("name"), pr.get("version"), pr.get("path_rate_hz"), log_id),
+         pr.get("name"), pr.get("version"), pr.get("path_rate_hz"), paths_file, log_id),
     )
+    path_idx = 0
     for ac in doc.get("aircraft", []):
         m = ac.get("mission") or {}
         span = ac.get("data_span") or {}
@@ -315,14 +324,15 @@ def store_parsed(con, log_id, doc):
                 "INSERT INTO flights (aircraft_id, idx, duration_s, distance_m, from_takeoff_m, max_from_takeoff_m, landed,"
                 " takeoff_time_s, takeoff_utc, takeoff_lat, takeoff_lon, takeoff_alt_m, takeoff_voltage_v,"
                 " landing_time_s, landing_utc, landing_lat, landing_lon, landing_alt_m, landing_voltage_v,"
-                " takeoff_json, landing_json, num_points, verdict, assessment_json, path_gz) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " takeoff_json, landing_json, num_points, verdict, assessment_json, path_idx) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (ac_pk, f.get("flight"), f.get("duration_s"), f.get("distance_m"), f.get("from_takeoff_m"),
                  f.get("max_from_takeoff_m"), int(bool(f.get("landed"))),
                  to.get("time_s"), to.get("utc"), tlat, tlon, talt, to.get("voltage_v"),
                  ld.get("time_s"), ld.get("utc"), llat, llon, lalt, ld.get("voltage_v"),
                  json.dumps(to), json.dumps(ld), len(path),
-                 (f.get("assessment") or {}).get("verdict"), json.dumps(f.get("assessment")), pack(path)),
+                 (f.get("assessment") or {}).get("verdict"), json.dumps(f.get("assessment")), path_idx),
             )
+            path_idx += 1
         changes = (ac.get("settings_changes") or {}).get("timeline") or []
         con.executemany(
             "INSERT INTO setting_changes (aircraft_id, time_s, utc, previous_report_s, idx, var, from_value, to_value,"
