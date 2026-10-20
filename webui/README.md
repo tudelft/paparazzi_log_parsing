@@ -1,4 +1,4 @@
-# Paparazzi log web interface
+# Flight log database web interface
 
 Upload Paparazzi logs (`.data` + `.log` files, `.zip` archives or whole folders) in the browser. Every log is kept on
 disk, parsed with the fast C++ parser (`../cpp`) and stored in a SQLite database.
@@ -10,9 +10,49 @@ disk, parsed with the fast C++ parser (`../cpp`) and stored in a SQLite database
     pip install -r requirements.txt
     python3 app.py                                                  # http://127.0.0.1:8000
 
-Environment variables: `PPRZ_WEB_DATA` (storage + database, default `./data`), `FASTREADER` (parser binary),
-`PPRZ_PATH_RATE` (flight path points per second, default 5), `PPRZ_WORKERS` (parallel parsers, default 2–4 from CPU count), `PPRZ_INGEST_WORKERS` (background hash/dedupe workers, default 2),
-`HOST`, `PORT`.
+The defaults work for a local test. For other settings see [Settings](#settings).
+
+## Settings
+
+All settings are named `LOGDB_<NAME>`. They are read from the environment first, then from one config file:
+`$LOGDB_CONFIG`, else `/etc/flight-logs/logdb.env`, else `webui/logdb.env`. The file has `LOGDB_NAME=value` lines and
+`#` comments. The app, gunicorn (through [gunicorn.conf.py](gunicorn.conf.py)) and the command-line tools all read
+the same file, so a server needs no other configuration.
+
+[logdb.env.example](logdb.env.example) lists every setting with an explanation; copy it and edit it. To see the
+effective values and where each comes from, and to catch typos, a missing parser, an unwritable data directory or an
+http/https mismatch, run:
+
+    python3 app.py check-config
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `LOGDB_PUBLIC_URL` | (empty) | Address users open, e.g. `https://logs.example.org`. Used for the SAML URLs |
+| `LOGDB_BIND` | `127.0.0.1:8000` | Address:port gunicorn and `python3 app.py` listen on |
+| `LOGDB_THREADS` | `8` | Gunicorn threads (always exactly one gunicorn process) |
+| `LOGDB_PROXIES` | `0` | Number of reverse proxies in front of the app; `1` behind nginx/Caddy |
+| `LOGDB_WEB_DATA` | `webui/data` | Database and all uploaded logs (back this up) |
+| `LOGDB_FASTREADER` | `../cpp/build/paparazzi_log_parsing` | Parser binary |
+| `LOGDB_WORKERS` | 2–4 from CPU count | Logs parsed in parallel |
+| `LOGDB_INGEST_WORKERS` | `2` | Background hash/dedupe/unzip threads |
+| `LOGDB_PATH_RATE` | `5` | Flight path points per second (0 disables the map path) |
+| `LOGDB_COOKIE_SECURE` | `0` | `1` when served over https |
+| `LOGDB_SESSION_HOURS` | `12` | How long a login lasts |
+| `LOGDB_SECRET_KEY` | generated in `WEB_DATA/secret_key` | Session signing key |
+| `LOGDB_SAML_ENABLED` | `1` | `0` hides *Sign in with TU Delft* |
+| `LOGDB_SAML_METADATA_URL` | TU Delft IdP | Identity provider metadata |
+| `LOGDB_SAML_ENTITY_ID` | `<PUBLIC_URL>/saml/metadata` | This service's SAML entity ID |
+
+Relative paths are relative to `webui/`. Typical values per setup:
+
+| Setup | `LOGDB_BIND` | `LOGDB_PROXIES` | `LOGDB_COOKIE_SECURE` | `LOGDB_PUBLIC_URL` |
+|---|---|---|---|---|
+| Local test | `127.0.0.1:8000` | `0` | `0` | (empty) |
+| nginx/Caddy on port 80, http | `127.0.0.1:8000` | `1` | `0` | `http://<server>` |
+| nginx/Caddy with https | `127.0.0.1:8000` | `1` | `1` | `https://<server>` |
+| gunicorn directly on port 80 | `0.0.0.0:80` | `0` | `0` | `http://<server>` |
+
+The upload script has its own client-side variables, `LOGDB_SERVER` and `LOGDB_API_KEY` (see below).
 
 ## Server installation (Ubuntu/Debian)
 
@@ -26,9 +66,9 @@ so only a compiler and CMake are required. Commands assume Ubuntu 22.04/24.04 or
 
 **2. Get the code and build the parser**
 
-    sudo mkdir -p /opt/pprz-logs && sudo chown $USER: /opt/pprz-logs
-    git clone https://github.com/tudelft/paparazzi_log_parsing.git /opt/pprz-logs/app
-    cd /opt/pprz-logs/app/cpp
+    sudo mkdir -p /opt/flight-logs && sudo chown $USER: /opt/flight-logs
+    git clone https://github.com/tudelft/paparazzi_log_parsing.git /opt/flight-logs/app
+    cd /opt/flight-logs/app/cpp
     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
     cmake --build build -j4
     ./build/paparazzi_log_parsing --version          # should print the parser name and version
@@ -37,46 +77,51 @@ Always build `Release`; a Debug build is many times slower.
 
 **3. Python environment**
 
-    cd /opt/pprz-logs/app/webui
+    cd /opt/flight-logs/app/webui
     python3 -m venv venv
     ./venv/bin/pip install --upgrade pip
     ./venv/bin/pip install -r requirements.txt gunicorn
 
-**4. Storage and first account**
+**4. Service user, storage and settings**
 
-The database and all uploaded logs go in one directory; back it up regularly (stop the service or use
-`sqlite3 logs.db ".backup copy.db"`).
+The app runs as its own user. The database and all uploaded logs go in one directory; back it up regularly (stop the
+service or use `sqlite3 logs.db ".backup copy.db"`).
 
-    sudo mkdir -p /var/lib/pprz-logs && sudo chown $USER: /var/lib/pprz-logs
-    PPRZ_WEB_DATA=/var/lib/pprz-logs ./venv/bin/python app.py create-user alice --admin --name "Alice"
+    sudo useradd --system --home /opt/flight-logs logdb
+    sudo mkdir -p /var/lib/flight-logs && sudo chown logdb: /var/lib/flight-logs
+    sudo mkdir -p /etc/flight-logs
+    sudo cp logdb.env.example /etc/flight-logs/logdb.env
+    sudo chown root:logdb /etc/flight-logs/logdb.env && sudo chmod 640 /etc/flight-logs/logdb.env
+    sudoedit /etc/flight-logs/logdb.env
+
+The example is set up for https behind a proxy. Set `LOGDB_PUBLIC_URL` to your address and adjust the values to your
+setup (see the table in [Settings](#settings); for plain http set `LOGDB_COOKIE_SECURE=0` and use `http://` in
+`LOGDB_PUBLIC_URL`). Then check it, as the service user, and create the first account:
+
+    sudo -u logdb ./venv/bin/python app.py check-config
+    sudo -u logdb ./venv/bin/python app.py create-user alice --admin --name "Alice"
 
 **5. Try it**
 
-    PPRZ_WEB_DATA=/var/lib/pprz-logs ./venv/bin/gunicorn -w 1 --threads 8 -t 0 -b 0.0.0.0:8000 app:app
+    sudo -u logdb LOGDB_BIND=0.0.0.0:8000 LOGDB_PROXIES=0 LOGDB_COOKIE_SECURE=0 ./venv/bin/gunicorn
 
-Open `http://<server>:8000`. Use **one** gunicorn process with several threads: the parse queue and its worker
-threads live inside the process, so multiple worker processes would each re-queue and parse the same logs. The
-timeout is disabled (`-t 0`) because uploads can be large and slow. Stop it with Ctrl+C.
+Open `http://<server>:8000` (environment variables override the file, so this works before a proxy is set up). Stop
+it with Ctrl+C. Gunicorn takes its settings from [gunicorn.conf.py](gunicorn.conf.py): **one** process with
+`LOGDB_THREADS` threads (the parse queue lives inside the process, so more processes would parse logs twice) and no
+timeout, because uploads can be large and slow.
 
 **6. Run it as a service**
 
-Create a dedicated user and give it the data directory:
-
-    sudo useradd --system --home /opt/pprz-logs pprz
-    sudo chown -R pprz: /var/lib/pprz-logs
-
-Create `/etc/systemd/system/pprz-logs.service`:
+Create `/etc/systemd/system/flight-logs.service`:
 
     [Unit]
-    Description=Paparazzi log database
+    Description=Flight log database
     After=network.target
 
     [Service]
-    User=pprz
-    WorkingDirectory=/opt/pprz-logs/app/webui
-    Environment=PPRZ_WEB_DATA=/var/lib/pprz-logs
-    Environment=PPRZ_COOKIE_SECURE=0
-    ExecStart=/opt/pprz-logs/app/webui/venv/bin/gunicorn -w 1 --threads 8 -t 0 -b 127.0.0.1:8000 app:app
+    User=logdb
+    WorkingDirectory=/opt/flight-logs/app/webui
+    ExecStart=/opt/flight-logs/app/webui/venv/bin/gunicorn
     Restart=on-failure
 
     [Install]
@@ -85,32 +130,35 @@ Create `/etc/systemd/system/pprz-logs.service`:
 Then:
 
     sudo systemctl daemon-reload
-    sudo systemctl enable --now pprz-logs
-    systemctl status pprz-logs                     # logs: journalctl -u pprz-logs -f
+    sudo systemctl enable --now flight-logs
+    systemctl status flight-logs                     # logs: journalctl -u flight-logs -f
 
-(`PPRZ_COOKIE_SECURE=0` is for plain http; with https set it to `1`.) Gunicorn only listens on localhost; a proxy on
-port 80 (and 443) makes it reachable, see the next two sections.
+All settings come from `/etc/flight-logs/logdb.env`; after changing it run `sudo systemctl restart flight-logs`.
+With the default `LOGDB_BIND` gunicorn only listens on localhost; a proxy on port 80 (and 443) makes it reachable,
+see the next two sections.
 
 **7. Updating**
 
-    cd /opt/pprz-logs/app && git pull
+    cd /opt/flight-logs/app && git pull
     cmake --build cpp/build -j4
     webui/venv/bin/pip install -r webui/requirements.txt
-    sudo systemctl restart pprz-logs
+    sudo -u logdb webui/venv/bin/python webui/app.py check-config   # new settings are listed in logdb.env.example
+    sudo systemctl restart flight-logs
 
 If the parser version changed, use **Re-parse outdated** in the upload overview afterwards.
 
 ## Port 80 without https
 
 Plain http: passwords and logs travel unencrypted, so only do this on a trusted network (e.g. the university network
-or a VPN). Pick one.
+or a VPN). Pick one. In `/etc/flight-logs/logdb.env` set `LOGDB_COOKIE_SECURE=0` and
+`LOGDB_PUBLIC_URL=http://<server>`, plus `LOGDB_PROXIES=1` for option A or B.
 
 **Option A: nginx on port 80** (keeps gunicorn unprivileged on localhost)
 
     sudo apt install -y nginx
     sudo rm -f /etc/nginx/sites-enabled/default
 
-Create `/etc/nginx/sites-available/pprz-logs`:
+Create `/etc/nginx/sites-available/flight-logs`:
 
     server {
         listen 80 default_server;
@@ -128,7 +176,7 @@ Create `/etc/nginx/sites-available/pprz-logs`:
 
 Then:
 
-    sudo ln -s /etc/nginx/sites-available/pprz-logs /etc/nginx/sites-enabled/
+    sudo ln -s /etc/nginx/sites-available/flight-logs /etc/nginx/sites-enabled/
     sudo nginx -t && sudo systemctl reload nginx
     sudo ufw allow 80/tcp                      # only if you use ufw
 
@@ -142,9 +190,9 @@ Then:
 
 then `sudo systemctl reload caddy`.
 
-**Option C: gunicorn directly on port 80** (no proxy). In the unit above, change `-b 127.0.0.1:8000` to
-`-b 0.0.0.0:80` and add `AmbientCapabilities=CAP_NET_BIND_SERVICE` under `[Service]`, then
-`sudo systemctl daemon-reload && sudo systemctl restart pprz-logs`. Uploads then go straight to gunicorn, which is fine
+**Option C: gunicorn directly on port 80** (no proxy). Set `LOGDB_BIND=0.0.0.0:80` and `LOGDB_PROXIES=0` in
+`/etc/flight-logs/logdb.env`, add `AmbientCapabilities=CAP_NET_BIND_SERVICE` under `[Service]` in the unit, then
+`sudo systemctl daemon-reload && sudo systemctl restart flight-logs`. Uploads then go straight to gunicorn, which is fine
 for a small trusted group but less robust against slow or broken clients than a proxy.
 
 ## Port 443 with https (recommended)
@@ -155,8 +203,9 @@ reachable from the internet for Let's Encrypt. On an internal network without pu
 for a certificate and use the nginx variant with `ssl_certificate`/`ssl_certificate_key` pointing at it.
 Use either the proxy below or one from the previous section, not both.
 
-1. Enable secure cookies: in `/etc/systemd/system/pprz-logs.service` set `Environment=PPRZ_COOKIE_SECURE=1`, then
-   `sudo systemctl daemon-reload && sudo systemctl restart pprz-logs`.
+1. In `/etc/flight-logs/logdb.env` set `LOGDB_PUBLIC_URL=https://<your host>`, `LOGDB_COOKIE_SECURE=1` and
+   `LOGDB_PROXIES=1` (the example file already has these), run `check-config`, then
+   `sudo systemctl restart flight-logs`.
 
 2. Open the firewall: `sudo ufw allow 80,443/tcp` (if you use ufw).
 
@@ -182,7 +231,7 @@ Then `sudo systemctl reload caddy`. Caddy redirects http to https on its own.
 
     sudo apt install -y nginx certbot python3-certbot-nginx
 
-Create `/etc/nginx/sites-available/pprz-logs` (replace the host name):
+Create `/etc/nginx/sites-available/flight-logs` (replace the host name):
 
     server {
         listen 80;
@@ -200,14 +249,15 @@ Create `/etc/nginx/sites-available/pprz-logs` (replace the host name):
 
 Then:
 
-    sudo ln -s /etc/nginx/sites-available/pprz-logs /etc/nginx/sites-enabled/
+    sudo ln -s /etc/nginx/sites-available/flight-logs /etc/nginx/sites-enabled/
     sudo nginx -t && sudo systemctl reload nginx
     sudo certbot --nginx -d logs.example.org      # obtains the certificate, adds the https server and the redirect
 
 Certbot installs a timer that renews the certificate; check it with `sudo certbot renew --dry-run`.
 
-Behind a proxy the app sees every request as coming from 127.0.0.1, so the login rate limit is applied per user name
-instead of per client address.
+With `LOGDB_PROXIES=1` the app takes the client address and https from the proxy's `X-Forwarded-*` headers (used for
+the login rate limit and the SAML URLs). Only set it when gunicorn listens on localhost behind a proxy; otherwise
+clients could fake those headers.
 
 ## API keys and the upload script
 
@@ -215,15 +265,15 @@ Click your name at the top right to open your account page (`/account`) and crea
 (only its SHA-256 is stored) and can be revoked there. Use it as `Authorization: Bearer <key>` on any `/api/...` URL;
 it acts as you, works for the API only (not for pages), and cannot create or revoke keys.
 
-    curl -H "Authorization: Bearer pprz_..." https://logs.example.org/api/me
+    curl -H "Authorization: Bearer logdb_..." https://logs.example.org/api/me
 
 `upload_logs.py` (standard library only) searches a folder recursively for `.data`/`.log` pairs, hashes each `.data`
 file, asks the server which hashes it already has (`POST /api/logs/check`) and uploads only the rest. A log the server
 has without a `.log` is uploaded again so the `.log` is added.
 
-    python3 upload_logs.py ~/paparazzi/var/logs --server https://logs.example.org --key pprz_...
+    python3 upload_logs.py ~/paparazzi/var/logs --server https://logs.example.org --key logdb_...
     python3 upload_logs.py ~/paparazzi/var/logs -n          # dry run; server and key can also be set with
-                                                            # PPRZ_SERVER / PPRZ_API_KEY
+                                                            # LOGDB_SERVER / LOGDB_API_KEY
 
 Add `--insecure` for a server with a self-signed certificate. Parsing happens on the server after the upload.
 
@@ -237,24 +287,25 @@ Everything (pages, API, downloads) requires a login. Accounts are local for now 
     python3 app.py list-users
     python3 app.py deactivate-user bob / activate-user bob
 
-Passwords are stored hashed, sessions last 12 hours (`PPRZ_SESSION_HOURS`), repeated failed logins are rate limited.
-Serve it over https and set `PPRZ_COOKIE_SECURE=1`. Logs can be deleted by their uploader or an admin.
+Passwords are stored hashed, sessions last 12 hours (`LOGDB_SESSION_HOURS`), repeated failed logins are rate limited.
+Serve it over https and set `LOGDB_COOKIE_SECURE=1`. On a server, run these commands as the service user
+(`sudo -u logdb ./venv/bin/python app.py ...`) so they use `/etc/flight-logs/logdb.env`. Logs can be deleted by their uploader or an admin.
 
 ### TU Delft SAML 2.0 (NetID)
 
 The sign-in page also offers **Sign in with TU Delft**. That uses SAML 2.0 against the TU Delft identity provider.
 
 - **IdP metadata URL** (also the IdP entity ID): `https://login.tudelft.nl/sso/saml2/idp/metadata.php`
-- Override with `PPRZ_SAML_METADATA_URL` if needed. Set `PPRZ_SAML_ENABLED=0` to hide the button.
+- Override with `LOGDB_SAML_METADATA_URL` if needed. Set `LOGDB_SAML_ENABLED=0` to hide the button.
 - This app’s service-provider metadata is at `GET /saml/metadata`. Register that with TU Delft ICT (`middleware-ictfm@tudelft.nl`) before the button will complete a live login. Assertion consumer service: `POST /saml/acs`.
-- Optional: `PPRZ_SAML_ENTITY_ID` (defaults to `<site>/saml/metadata`). SP signing certs are generated in `data/saml/` (not in git).
+- Set `LOGDB_PUBLIC_URL` so the metadata contains the public https address. Optional: `LOGDB_SAML_ENTITY_ID` (defaults to `<PUBLIC_URL>/saml/metadata`). SP signing certs are generated in `data/saml/` (not in git).
 - First SSO login creates a non-admin account (matched later by the SAML NameID, or by email if that person already has a local user). Give them project access on Admin → Projects.
 
 ## Behaviour
 
 - `.data` files are paired with the `.log` of the same name (same folder / zip directory). Other files are ignored.
 - Upload returns as soon as the files are on disk. SHA-256 fingerprinting, duplicate checks and parsing run in
-  background workers (`PPRZ_INGEST_WORKERS`, `PPRZ_WORKERS`). Zips are unpacked there too, not during the HTTP request.
+  background workers (`LOGDB_INGEST_WORKERS`, `LOGDB_WORKERS`). Zips are unpacked there too, not during the HTTP request.
 - The SHA-256 of the `.data` file identifies a log. A log that is already known is not stored or parsed again.
   (If the first upload had no `.log` and a later one has, the `.log` is added and the log is re-parsed.)
   The hash is passed to the parser (`--sha256`) and is also part of its JSON output (`log.sha256`).
@@ -299,4 +350,4 @@ flight (`motors_on` in ROTORCRAFT_STATUS) it is always `ground`. The logbook hid
 
 ## Flight page
 
-Click a logbook row and choose *Open flight page* (`/flight/<id>`). It shows the flight path on a map (with a *Show flight plan* checkbox for the waypoints), a time slider and altitude/speed chart, takeoff/landing details, the settings changed during the flight, the text messages around it, the pre-flight checks and the autopilot version. When both an SD and a GCS log exist, you can switch between them. Data comes from `GET /api/flights/<id>/detail`. The path needs a non-zero `PPRZ_PATH_RATE`.
+Click a logbook row and choose *Open flight page* (`/flight/<id>`). It shows the flight path on a map (with a *Show flight plan* checkbox for the waypoints), a time slider and altitude/speed chart, takeoff/landing details, the settings changed during the flight, the text messages around it, the pre-flight checks and the autopilot version. When both an SD and a GCS log exist, you can switch between them. Data comes from `GET /api/flights/<id>/detail`. The path needs a non-zero `LOGDB_PATH_RATE`.

@@ -28,25 +28,35 @@ from pathlib import Path
 
 from flask import (Flask, Response, abort, g, jsonify, redirect, request, send_from_directory, session,
                    stream_with_context)
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
+
+if __name__ == "__main__" and sys.argv[1:2] == ["check-config"]:
+    import config
+    sys.exit(1 if config.check() else 0)
 
 import db
 import saml
+import config
+from config import env, env_bool, env_float, env_int, env_path
 
 HERE = Path(__file__).resolve().parent
-DATA_DIR = Path(os.environ.get("PPRZ_WEB_DATA", HERE / "data")).resolve()
+DATA_DIR = env_path("WEB_DATA")
 STORAGE_DIR = DATA_DIR / "logs"
 TMP_DIR = DATA_DIR / "tmp"
 DB_PATH = str(DATA_DIR / "logs.db")
-FASTREADER = os.environ.get("FASTREADER", str(HERE.parent / "cpp" / "build" / "paparazzi_log_parsing"))
-PATH_RATE = float(os.environ.get("PPRZ_PATH_RATE", "5"))
+FASTREADER = str(env_path("FASTREADER"))
+PATH_RATE = env_float("PATH_RATE")
 # Parser binaries run in parallel; SQLite writes are still one-at-a-time (db.write_lock).
-WORKERS = int(os.environ.get("PPRZ_WORKERS", str(max(2, min(4, os.cpu_count() or 2)))))
-INGEST_WORKERS = int(os.environ.get("PPRZ_INGEST_WORKERS", "2"))
+WORKERS = env_int("WORKERS", str(max(2, min(4, os.cpu_count() or 2))))
+INGEST_WORKERS = env_int("INGEST_WORKERS")
 
 PAGES_DIR = HERE / "static"
 # Pages are served by explicit routes so nothing is reachable without logging in (except the login page)
 app = Flask(__name__, static_folder=None)
+if env_int("PROXIES"):
+    n = env_int("PROXIES")
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=n, x_proto=n, x_host=n)
 
 
 def load_secret_key():
@@ -60,12 +70,12 @@ def load_secret_key():
     return key_file.read_text().strip()
 
 
-app.secret_key = os.environ.get("PPRZ_SECRET_KEY") or load_secret_key()
+app.secret_key = env("SECRET_KEY") or load_secret_key()
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=os.environ.get("PPRZ_COOKIE_SECURE", "0") == "1",  # set to 1 when served over https
-    PERMANENT_SESSION_LIFETIME=int(os.environ.get("PPRZ_SESSION_HOURS", "12")) * 3600,
+    SESSION_COOKIE_SECURE=env_bool("COOKIE_SECURE"),  # set to 1 when served over https
+    PERMANENT_SESSION_LIFETIME=env_int("SESSION_HOURS") * 3600,
     MAX_CONTENT_LENGTH=None,
 )
 jobs: "queue.Queue[int]" = queue.Queue()
@@ -505,7 +515,7 @@ def theme_js():
     return send_from_directory(PAGES_DIR, "theme.js")
 
 
-API_KEY_PREFIX = "pprz_"
+API_KEY_PREFIX = "logdb_"
 
 
 def user_for_key(key):
@@ -779,6 +789,7 @@ def cli(argv):
     sp = sub.add_parser("set-password", help="change the password of an account")
     sp.add_argument("username")
     sub.add_parser("list-users")
+    sub.add_parser("check-config", help="show the effective settings and check them")
     al = sub.add_parser("add-alias", help="link a PIC/PAC/GCS name from the logs to a user")
     al.add_argument("username")
     al.add_argument("alias")
@@ -2590,4 +2601,5 @@ if not conn().execute("SELECT 1 FROM users LIMIT 1").fetchone():
     print("No accounts yet. Create one with:  python3 app.py create-user <username> --admin", file=sys.stderr)
 
 if __name__ == "__main__":
-    app.run(host=os.environ.get("HOST", "127.0.0.1"), port=int(os.environ.get("PORT", "8000")), threaded=True)
+    host, port = config.bind_address()
+    app.run(host=host, port=port, threaded=True)

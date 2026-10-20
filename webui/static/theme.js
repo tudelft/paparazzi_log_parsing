@@ -1,16 +1,16 @@
 (function () {
   try {
-    if (localStorage.getItem('pprzNight') === '1')
+    if (localStorage.getItem('logdbNight') === '1')
       document.documentElement.classList.add('night');
   } catch (e) {}
   window.toggleNight = function () {
     const root = document.documentElement;
     root.classList.toggle('night');
-    try { localStorage.setItem('pprzNight', root.classList.contains('night') ? '1' : '0'); } catch (e) {}
+    try { localStorage.setItem('logdbNight', root.classList.contains('night') ? '1' : '0'); } catch (e) {}
     window.dispatchEvent(new Event('nightchange'));
   };
 
-  const ADMIN_KEY = 'pprzAdmin';
+  const ADMIN_KEY = 'logdbAdmin';
   const TABS = [
     ['/', 'Uploads'],
     ['/logbook', 'Logbook'],
