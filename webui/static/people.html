@@ -22,7 +22,9 @@
   th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
   th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
   .mute { color:var(--mute); }
-  .chip { display:inline-flex; align-items:center; gap:4px; background:var(--chip); border-radius:12px; padding:1px 4px 1px 10px; margin:2px 4px 2px 0; }
+  .chip { display:inline-flex; align-items:center; gap:4px; background:var(--chip); border-radius:12px; padding:1px 8px; margin:2px 4px 2px 0; }
+  .chip.warn { background:var(--errbg, #f8d0d4); color:var(--err); }
+  .chip.pending { background:var(--warnbg, #fff8c5); color:var(--warn, #9a6700); }
   .chip button { background:none; color:var(--err); padding:0 6px; font-size:15px; }
   button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
   button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
@@ -50,8 +52,13 @@
   <div id="err"></div>
   <section class="card" id="unlinkedCard" hidden>
     <h2>Names in the logs that are not linked to a user</h2>
-    <div class="mute" style="margin-bottom:8px">PIC/PAC/GCS names from the [PFC] messages. They are shown as logged until you link them.</div>
+    <div class="mute" style="margin-bottom:8px">PIC/PAC/GCS names that could not be turned into a profile automatically. Link them by hand if they belong to someone already listed.</div>
     <div class="scroll"><table><thead><tr><th>Name in log</th><th>Seen</th><th>Link to user</th></tr></thead><tbody id="unlinked"></tbody></table></div>
+  </section>
+  <section class="card" id="unlinkedPersonnelCard" hidden>
+    <h2>Pilots in the licence list that are not linked to a user</h2>
+    <div class="mute" style="margin-bottom:8px">Names from the Teams personnel sheet and the Operations certificate folders. Link them so that person's page shows their licences. The extra names are kept as aliases.</div>
+    <div class="scroll"><table><thead><tr><th>Name</th><th>Also known as</th><th>Link to user</th></tr></thead><tbody id="unlinkedPersonnel"></tbody></table></div>
   </section>
   <section class="card">
     <h2>People</h2>
@@ -70,6 +77,12 @@
       <input id="setupUrl" readonly>
       <div style="margin-top:8px"><button type="button" class="sec" onclick="copySetup()">Copy link</button> <span id="copied" class="mute"></span></div>
     </div>
+    <div class="row editOnly" id="personnelRow" hidden style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:0 0 14px">
+      <label class="field">Personnel CSV<input id="personnelCsv" type="file" accept=".csv,text/csv"></label>
+      <button type="button" class="sec" onclick="importPersonnel()">Import licences</button>
+      <button type="button" class="sec" id="syncGithub" onclick="syncGithub()">Refresh certificates from GitHub</button>
+      <span id="personnelMsg" class="mute"></span>
+    </div>
     <div class="scroll"><table><thead id="usersHead"></thead><tbody id="users"></tbody></table></div>
   </section>
 </main>
@@ -82,7 +95,7 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
-let people = {users: [], unlinked: []};
+let people = {users: [], unlinked: [], unlinked_personnel: []};
 let me = null;
 
 async function load() {
@@ -91,40 +104,76 @@ async function load() {
     if (!r.ok) { $('err').textContent = 'Could not load people.'; return; }
     people = await r.json();
   } else {
-    const users = await fetch('/api/people').then(r => r.json());
-    people = {users, unlinked: [], projects: []};
+    const d = await fetch('/api/people-directory').then(r => r.json());
+    people = {users: d.users || [], unlinked: [], unlinked_personnel: [], projects: []};
   }
   render();
+}
+
+function notActive(u) { return !!(u && (u.pending || u.provider === 'log')); }
+function signInLabel(u) {
+  if (notActive(u)) return 'Not active yet';
+  return u.provider === 'saml' ? 'TU Delft SSO' : 'Local';
+}
+function nameCell(u, extra, showUser) {
+  const flag = notActive(u) ? ' <span class="chip pending">Not active yet</span>' : '';
+  const admin = u.is_admin ? (showUser === false ? ' <span class="mute">admin</span>' : ' · admin') : '';
+  const user = showUser === false ? admin : ` <span class="mute">${esc(u.username)}${admin}</span>`;
+  return `<a href="/people/${u.id}">${esc(u.display_name || u.username)}</a>${user}${flag}${extra || ''}`;
+}
+function qualBits(q) {
+  if (!q) return '';
+  const bit = (label, until, dead) => {
+    if (!label) return '';
+    const when = until ? ` · ${esc(until.slice(0, 10))}` : '';
+    return `<span class="chip${dead ? ' warn' : ''}">${esc(label)}${when}${dead ? ' expired' : ''}</span>`;
+  };
+  return [
+    q.a1a3 ? bit('A1/A3', q.a1a3_until, q.a1a3_expired) : '',
+    q.a2 ? bit('A2', q.a2_until, q.a2_expired) : '',
+    q.fi ? '<span class="chip">FI</span>' : '',
+    q.ctr ? '<span class="chip">CTR</span>' : '',
+  ].join('');
 }
 
 function render() {
   const admin = !!(me && me.is_admin);
   const editing = admin && window.editMode();
   const open = admin ? people.unlinked.length : 0;
+  const openP = admin ? (people.unlinked_personnel || []).length : 0;
   document.querySelectorAll('.editOnly').forEach(el => { el.hidden = !editing; });
   if (!editing) $('setupBox').hidden = true;
   $('unlinkedCard').hidden = !(editing && open);
-  $('pending').hidden = !(open && !editing);
-  $('pending').textContent = `${open} name${open === 1 ? ' in the logs is' : 's in the logs are'} not linked to a user yet. Turn on Edit in the menu to link ${open === 1 ? 'it' : 'them'}.`;
+  $('unlinkedPersonnelCard').hidden = !(editing && openP);
+  $('pending').hidden = !((open || openP) && !editing);
+  const bits = [];
+  if (open) bits.push(`${open} name${open === 1 ? ' in the logs is' : 's in the logs are'} not linked`);
+  if (openP) bits.push(`${openP} pilot${openP === 1 ? '' : 's'} in the licence list ${openP === 1 ? 'is' : 'are'} not linked`);
+  $('pending').textContent = bits.length
+    ? bits.join(', and ') + '. Turn on Edit in the menu to link them.'
+    : '';
+  if ($('syncGithub')) $('syncGithub').disabled = admin && people.github_configured === false;
   $('peopleHint').textContent = editing
-    ? 'A user is also matched automatically by username and display name. You create the account; they choose their own password from a link. The default project is used for flights when the aircraft has none (uploader first, then GCS operator, then PIC). Removing a user keeps the logs they uploaded.'
-    : 'Accounts that can sign in. Names from the logs are matched to these accounts.';
+    ? 'Importing the licence list creates an account for each pilot. Names that appear in logs also get a profile, marked Not active yet until they sign in with TU Delft (or a password link). The default project is used for flights when the aircraft has none (uploader first, then GCS operator, then PIC). Removing a user keeps the logs they uploaded.'
+    : 'Accounts that can sign in, including pilots from the licence list. Names from logs get a profile marked Not active yet until that person signs in.';
   if (admin && !editing) {
     const projName = id => ((people.projects || []).find(p => p.id === id) || {}).name || '';
-    $('usersHead').innerHTML = '<tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Aliases</th><th>Password</th></tr>';
-    $('users').innerHTML = people.users.map(u => `<tr><td><a href="/people/${u.id}">${esc(u.display_name || u.username)}</a> <span class="mute">${esc(u.username)}${u.is_admin ? ' · admin' : ''}</span></td>
-      <td>${esc(u.email || '')}</td><td>${u.provider === 'saml' ? 'TU Delft SSO' : 'Local'}</td>
+    $('usersHead').innerHTML = '<tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Licences</th><th>Aliases</th><th>Password</th></tr>';
+    $('users').innerHTML = people.users.map(u => `<tr><td>${nameCell(u)}</td>
+      <td>${esc(u.email || '')}</td><td>${signInLabel(u)}</td>
       <td>${esc(projName(u.default_project_id))}</td>
+      <td>${qualBits(u.qualifications) || '<span class="mute">—</span>'}</td>
       <td>${(u.aliases || []).map(a => `<span class="chip">${esc(a)}</span>`).join('')}</td>
       <td class="mute">${u.has_password ? 'Chosen' : 'Waiting'}</td></tr>`).join('')
-      || '<tr><td colspan="6" class="mute">No people yet.</td></tr>';
+      || '<tr><td colspan="7" class="mute">No people yet.</td></tr>';
     return;
   }
   if (!admin) {
-    $('usersHead').innerHTML = '<tr><th>Name</th><th>Username</th></tr>';
-    $('users').innerHTML = people.users.map(u => `<tr><td><a href="/people/${u.id}">${esc(u.display_name || u.username)}</a>${u.is_admin ? ' <span class="mute">admin</span>' : ''}</td>
-      <td class="mute">${esc(u.username)}</td></tr>`).join('')
-      || '<tr><td colspan="2" class="mute">No people yet.</td></tr>';
+    $('usersHead').innerHTML = '<tr><th>Name</th><th>Username</th><th>Licences</th></tr>';
+    $('users').innerHTML = people.users.map(u => `<tr><td>${nameCell(u, '', false)}</td>
+      <td class="mute">${esc(u.username)}</td>
+      <td>${qualBits(u.qualifications) || '<span class="mute">—</span>'}</td></tr>`).join('')
+      || '<tr><td colspan="3" class="mute">No people on your projects yet.</td></tr>';
     return;
   }
   const projOpts = '<option value="">No default</option>' + (people.projects || []).map(p =>
@@ -134,11 +183,18 @@ function render() {
   $('unlinked').innerHTML = people.unlinked.map((e, i) => `<tr><td>${esc(e.name)}</td><td>${e.count}×</td>
     <td><select id="sel${i}">${opts}</select> <button onclick="addAlias(${i}, null)">Link</button></td></tr>`).join('')
     || '<tr><td colspan="3" class="mute">Everything is linked.</td></tr>';
-  $('usersHead').innerHTML = '<tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Aliases</th><th>Add alias</th><th>Password</th><th></th></tr>';
-  $('users').innerHTML = people.users.map(u => `<tr><td><a href="/people/${u.id}">${esc(u.display_name || u.username)}</a> <span class="mute">${esc(u.username)}${u.is_admin ? ' · admin' : ''}</span></td>
+  $('unlinkedPersonnel').innerHTML = (people.unlinked_personnel || []).map((e, i) => {
+    const also = [e.tud_user, ...(e.also || [])].filter(n => n && n.toLowerCase() !== e.name.toLowerCase());
+    return `<tr><td>${esc(e.name)}${e.kind ? ` <span class="mute">${esc(e.kind)}</span>` : ''}</td>
+      <td>${also.map(n => esc(n)).join(', ')}</td>
+      <td><select id="psel${i}">${opts}</select> <button onclick="linkPersonnel(${i})">Link</button></td></tr>`;
+  }).join('') || '<tr><td colspan="3" class="mute">Everything is linked.</td></tr>';
+  $('usersHead').innerHTML = '<tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Licences</th><th>Aliases</th><th>Add alias</th><th>Password</th><th></th></tr>';
+  $('users').innerHTML = people.users.map(u => `<tr><td>${nameCell(u)}</td>
     <td><div class="pair"><input id="mail${u.id}" type="email" value="${esc(u.email || '')}" placeholder="email" maxlength="120"><button class="sec" onclick="saveEmail(${u.id})">Save</button></div></td>
-    <td>${u.provider === 'saml' ? 'TU Delft SSO' : 'Local'}</td>
+    <td>${signInLabel(u)}</td>
     <td><select onchange="setUserProject(${u.id}, this.value)">${'<option value="">No default</option>' + (people.projects || []).map(p => `<option value="${p.id}"${p.id === u.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></td>
+    <td>${qualBits(u.qualifications) || '<span class="mute">—</span>'}</td>
     <td>${(u.aliases || []).map(a => `<span class="chip">${esc(a)}<button title="Remove" data-alias="${esc(a)}" onclick="removeAlias(this.dataset.alias)">×</button></span>`).join('')}</td>
     <td><div class="pair"><input id="new${u.id}" placeholder="alias"><button onclick="addAlias(null, ${u.id})">Add</button></div></td>
     <td>${u.has_password ? '<span class="mute">Chosen</span>' : '<span class="mute">Waiting</span>'} <button class="sec" onclick="newSetupLink(${u.id})">New link</button></td>
@@ -210,6 +266,50 @@ function addAlias(i, uid) {
   if (v) send('POST', '/api/admin/aliases', {user_id: uid, alias: v});
 }
 const removeAlias = alias => send('DELETE', '/api/admin/aliases', {alias});
+
+async function linkPersonnel(i) {
+  const e = people.unlinked_personnel[i];
+  const uid = +$('psel' + i).value;
+  const names = [...new Set([e.name, e.tud_user, ...(e.also || [])].filter(Boolean))];
+  $('err').textContent = '';
+  for (const alias of names) {
+    const r = await fetch('/api/admin/aliases', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({user_id: uid, alias})});
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      if (r.status !== 409) { $('err').textContent = d.error || 'failed'; return; }
+    }
+  }
+  load();
+}
+
+async function importPersonnel() {
+  const f = $('personnelCsv').files[0];
+  if (!f) { $('personnelMsg').textContent = 'Choose the Teams personnel CSV first.'; return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  $('personnelMsg').textContent = 'Importing…';
+  const r = await fetch('/api/admin/personnel/import', {method: 'POST', body: fd});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { $('err').textContent = d.error || 'Import failed'; $('personnelMsg').textContent = ''; return; }
+  $('err').textContent = '';
+  $('personnelMsg').textContent = `Added ${d.created}, updated ${d.updated}`
+    + (d.users_created ? `, created ${d.users_created} account${d.users_created === 1 ? '' : 's'}` : '')
+    + (d.skipped ? `, skipped ${d.skipped}` : '');
+  $('personnelCsv').value = '';
+  load();
+}
+
+async function syncGithub() {
+  $('personnelMsg').textContent = 'Reading Operations…';
+  const r = await fetch('/api/admin/personnel/sync-github', {method: 'POST'});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { $('err').textContent = d.error || 'GitHub refresh failed'; $('personnelMsg').textContent = ''; return; }
+  $('err').textContent = '';
+  $('personnelMsg').textContent = `Indexed ${d.docs} certificates for ${d.people} pilots`
+    + (d.users_created ? `, created ${d.users_created} account${d.users_created === 1 ? '' : 's'}` : '') + '.';
+  load();
+}
 
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;

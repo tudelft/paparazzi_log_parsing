@@ -41,6 +41,7 @@ if __name__ == "__main__" and sys.argv[1:2] == ["check-config"]:
 import db
 import saml
 import config
+import personnel
 from config import env, env_bool, env_float, env_int, env_path
 
 HERE = Path(__file__).resolve().parent
@@ -84,6 +85,7 @@ app.config.update(
 )
 jobs: "queue.Queue[int]" = queue.Queue()
 ingest_jobs: "queue.Queue[int]" = queue.Queue()
+HAVE_PATH_GZ = False  # older databases kept each flight path on the flight row
 
 
 def now():
@@ -138,10 +140,15 @@ def load_paths(paths_file):
         return []
 
 
-def flight_path(paths_file, idx, days=0):
+def flight_path(paths_file, idx, days=0, path_gz=None):
     """One flight's path, with its times shifted by `days` (a copy, so the cached paths stay unchanged)."""
-    paths = load_paths(paths_file) if paths_file else []
-    path = paths[idx] if idx is not None and 0 <= idx < len(paths) else []
+    path = []
+    if paths_file:
+        paths = load_paths(paths_file)
+        if idx is not None and 0 <= idx < len(paths):
+            path = paths[idx]
+    if not path and path_gz:
+        path = db.unpack(path_gz) or []
     return apply_clock_to_obj(copy.deepcopy(path), days) if days else path
 
 
@@ -225,11 +232,14 @@ def worker():
 
 
 def start_workers():
+    global HAVE_PATH_GZ
     STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     TMP_DIR.mkdir(parents=True, exist_ok=True)
     STAGE_DIR.mkdir(parents=True, exist_ok=True)
     db.init(DB_PATH)
     con = conn()
+    HAVE_PATH_GZ = "path_gz" in {r[1] for r in con.execute("PRAGMA table_info(flights)")}
+    personnel.ensure_users_for_log_names(con)
     assign_open_flights(con)
     con.execute("UPDATE logs SET status='queued' WHERE status IN ('queued', 'parsing')")
     con.execute("UPDATE ingest SET status='accepted' WHERE status='hashing'")
@@ -659,6 +669,14 @@ def login_saml_identity(ident):
     if row is None and email:
         row = con.execute("SELECT * FROM users WHERE email=? COLLATE NOCASE AND is_active=1", (email,)).fetchone()
     if row is None:
+        names = personnel.user_keys(con)
+        for key in (ident.get("display_name"), ident.get("username")):
+            uid = names.get((key or "").casefold()) if key else None
+            if uid:
+                row = con.execute("SELECT * FROM users WHERE id=? AND is_active=1", (uid,)).fetchone()
+                if row:
+                    break
+    if row is None:
         username = unique_username(con, ident.get("username") or "user")
         cur = con.execute(
             "INSERT INTO users (username, display_name, email, password_hash, is_admin, provider, subject, created_at)"
@@ -673,8 +691,10 @@ def login_saml_identity(ident):
         if email and not row["email"]:
             con.execute("UPDATE users SET email=? WHERE id=?", (email, row["id"]))
         if not row["subject"]:
-            con.execute("UPDATE users SET subject=?, provider=COALESCE(NULLIF(provider,''),'saml') WHERE id=?",
-                        (subject, row["id"]))
+            prov = row["provider"] or ""
+            if prov in ("", "log", "saml"):
+                prov = "saml"
+            con.execute("UPDATE users SET subject=?, provider=? WHERE id=?", (subject, prov, row["id"]))
         row = con.execute("SELECT * FROM users WHERE id=?", (row["id"],)).fetchone()
     con.execute("UPDATE users SET last_login=? WHERE id=?", (now(), row["id"]))
     con.commit()
@@ -840,6 +860,28 @@ def list_people():
     return jsonify([{"id": r["id"], "username": r["username"],
                      "display_name": r["display_name"] or r["username"],
                      "is_admin": bool(r["is_admin"])} for r in rows])
+
+
+@app.get("/api/people-directory")
+def people_directory():
+    """People the current user may open, with qualifications they are allowed to see."""
+    con = conn()
+    allowed = personnel.directory_user_ids(con, g.user)
+    users = []
+    for r in con.execute(
+            "SELECT id, username, display_name, is_admin, provider FROM users WHERE is_active=1"
+            " ORDER BY COALESCE(display_name, username), username"):
+        if r["id"] not in allowed:
+            continue
+        quals = None
+        if personnel.can_see_quals(con, g.user, r["id"]):
+            prow, docs = personnel.personnel_for_user(con, r["id"])
+            quals = personnel.qualifications_payload(prow, docs, include_docs=False)
+        users.append({"id": r["id"], "username": r["username"],
+                      "display_name": r["display_name"] or r["username"],
+                      "is_admin": bool(r["is_admin"]), "provider": r["provider"] or "local",
+                      "pending": (r["provider"] or "") == "log", "qualifications": quals})
+    return jsonify(users=users)
 
 
 # ---- command line user management:  python3 app.py create-user|set-password|list-users|deactivate-user ----
@@ -1270,6 +1312,7 @@ def assign_log_flights(con, log_id, kept=None):
         pid = pick_flight_project(con, f, resolve)
         if pid:
             con.execute("UPDATE flights SET project_id=? WHERE id=?", (pid, f["id"]))
+    personnel.ensure_users_for_log_names(con)
     if log["project_id"] is None:
         ids = [r["project_id"] for r in con.execute(
             "SELECT DISTINCT f.project_id FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
@@ -2164,7 +2207,9 @@ def setup_password(token):
     if len(password) < 10:
         return jsonify(error="password must be at least 10 characters"), 400
     con = conn()
-    con.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(password), row["user_id"]))
+    con.execute(
+        "UPDATE users SET password_hash=?, provider=CASE WHEN provider='log' THEN 'local' ELSE provider END WHERE id=?",
+        (generate_password_hash(password), row["user_id"]))
     con.execute("UPDATE password_setup_tokens SET used_at=? WHERE user_id=? AND used_at IS NULL", (now(), row["user_id"]))
     con.commit()
     return jsonify(ok=True, username=row["username"])
@@ -2194,13 +2239,20 @@ def admin_people():
     """Users with their aliases, plus the names seen in logs that are not linked to any user yet."""
     admin_required()
     con = conn()
-    users = [dict(id=u["id"], username=u["username"], display_name=u["display_name"], email=u["email"],
-                  is_admin=bool(u["is_admin"]), has_password=bool(u["password_hash"]),
-                  provider=u["provider"] or "local",
-                  default_project_id=u["default_project_id"],
-                  aliases=[r["alias"] for r in con.execute(
-                      "SELECT alias FROM user_aliases WHERE user_id=? ORDER BY alias", (u["id"],))])
-             for u in con.execute("SELECT * FROM users ORDER BY username")]
+    personnel.ensure_users_for_log_names(con)
+    con.commit()
+    users = []
+    for u in con.execute("SELECT * FROM users ORDER BY username"):
+        prow, docs = personnel.personnel_for_user(con, u["id"])
+        prov = u["provider"] or "local"
+        users.append(dict(
+            id=u["id"], username=u["username"], display_name=u["display_name"], email=u["email"],
+            is_admin=bool(u["is_admin"]), has_password=bool(u["password_hash"]),
+            provider=prov, pending=prov == "log",
+            default_project_id=u["default_project_id"],
+            aliases=[r["alias"] for r in con.execute(
+                "SELECT alias FROM user_aliases WHERE user_id=? ORDER BY alias", (u["id"],))],
+            qualifications=personnel.qualifications_payload(prow, docs, include_docs=False)))
     resolve = person_resolver(con)
     unlinked = {}
     for a in con.execute("SELECT a.pic, a.pac, a.gcs FROM aircraft a JOIN logs l ON l.id = a.log_id"):
@@ -2210,7 +2262,9 @@ def admin_people():
                 e = unlinked.setdefault(name.casefold(), {"name": name, "count": 0})
                 e["count"] += 1
     projects = [dict(id=p["id"], name=p["name"]) for p in con.execute("SELECT id, name FROM projects ORDER BY name")]
-    return jsonify(users=users, unlinked=sorted(unlinked.values(), key=lambda e: -e["count"]), projects=projects)
+    return jsonify(users=users, unlinked=sorted(unlinked.values(), key=lambda e: -e["count"]),
+                   unlinked_personnel=personnel.unlinked_personnel(con), projects=projects,
+                   github_configured=bool(personnel.operations_token()))
 
 
 @app.post("/api/admin/aliases")
@@ -2240,6 +2294,80 @@ def admin_delete_alias():
     con.execute("DELETE FROM user_aliases WHERE alias=?", (alias,))
     con.commit()
     return jsonify(ok=True)
+
+
+@app.post("/api/admin/personnel/import")
+def admin_import_personnel():
+    """Load the Teams personnel CSV (Name, Type, TUD User, FI, CTR, A1/A3, A2, …)."""
+    admin_required()
+    uploaded = request.files.get("file")
+    if uploaded and uploaded.filename:
+        raw = uploaded.read()
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1")
+    else:
+        text = (request.get_json(silent=True) or {}).get("csv") or ""
+    if not text.strip():
+        return jsonify(error="choose a CSV file"), 400
+    con = conn()
+    try:
+        stats = personnel.import_personnel_csv(con, text)
+        con.commit()
+    except ValueError as e:
+        con.rollback()
+        return jsonify(error=str(e)), 400
+    return jsonify(ok=True, **stats)
+
+
+@app.post("/api/admin/personnel/sync-github")
+def admin_sync_personnel_github():
+    """Index certificate PDFs from the Operations GitHub folder."""
+    admin_required()
+    if not personnel.operations_token():
+        return jsonify(error="Set LOGDB_OPERATIONS_TOKEN so the server can read the Operations repo"), 400
+    con = conn()
+    try:
+        stats = personnel.sync_github_docs(con)
+        con.commit()
+    except RuntimeError as e:
+        con.rollback()
+        return jsonify(error=str(e)), 502
+    return jsonify(ok=True, **stats)
+
+
+def _may_read_doc(con, doc_id):
+    doc = con.execute("SELECT * FROM personnel_docs WHERE id=?", (doc_id,)).fetchone()
+    if doc is None:
+        return None, False
+    row = con.execute("SELECT * FROM personnel WHERE id=?", (doc["personnel_id"],)).fetchone()
+    if row is None:
+        return doc, False
+    uid = personnel.linked_user_id(row, personnel.user_keys(con))
+    if uid is None:
+        return doc, bool(g.user["is_admin"])
+    return doc, personnel.can_see_quals(con, g.user, uid)
+
+
+@app.get("/api/personnel-docs/<int:doc_id>")
+def personnel_doc(doc_id):
+    """Certificate PDF for a linked person the current user may see."""
+    con = conn()
+    doc, allowed = _may_read_doc(con, doc_id)
+    if doc is None:
+        abort(404)
+    if not allowed:
+        abort(404)
+    try:
+        data, filename = personnel.load_pdf(con, doc_id)
+    except RuntimeError as e:
+        return jsonify(error=str(e)), 502
+    if data is None:
+        abort(404)
+    safe = (filename or "certificate.pdf").replace('"', "")
+    return Response(data, mimetype="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{safe}"'})
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -2696,6 +2824,7 @@ def flight_detail(flight_id):
         "SELECT f.takeoff_time_s, f.landing_time_s, f.path_idx, l.paths_file, a.id AS aircraft_pk, a.name, a.ac_id,"
         " a.autopilot_versions, a.info_messages, a.preflight_checks, a.config_gz, l.id AS log_id, l.log_type,"
         " l.name AS log_name, l.start_utc AS log_start_utc, l.date_override"
+        + (", f.path_gz" if HAVE_PATH_GZ else "") +
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id WHERE f.id=?",
         (flight_id,)).fetchone()
     changes = [dict(r) for r in con.execute(
@@ -2703,7 +2832,7 @@ def flight_detail(flight_id):
         " WHERE aircraft_id=? ORDER BY time_s", (row["aircraft_pk"],))]
     config = db.unpack(row["config_gz"]) or {}
     days = clock_shift_days(row["log_start_utc"], row["date_override"])
-    path = flight_path(row["paths_file"], row["path_idx"], days)
+    path = flight_path(row["paths_file"], row["path_idx"], days, row["path_gz"] if HAVE_PATH_GZ else None)
     apply_clock_to_obj(changes, days)
     return jsonify(
         entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
@@ -2756,13 +2885,29 @@ def detail_person(con, uid, admin, mine):
         "SELECT p.id, p.name, m.role FROM project_members m JOIN projects p ON p.id = m.project_id"
         " WHERE m.user_id=? ORDER BY p.name", (uid,)) if admin or r["id"] in mine]
     default = con.execute("SELECT id, name FROM projects WHERE id=?", (u["default_project_id"],)).fetchone()
+    aliases = [r["alias"] for r in con.execute(
+        "SELECT alias FROM user_aliases WHERE user_id=? ORDER BY alias", (uid,))]
+    names, seen_names = [], set()
+    for extra in (u["display_name"], *aliases):
+        if extra and extra.casefold() not in seen_names:
+            names.append(extra)
+            seen_names.add(extra.casefold())
     out = dict(id=uid, name=u["display_name"] or u["username"], username=u["username"], is_admin=bool(u["is_admin"]),
-               is_active=bool(u["is_active"]), provider=u["provider"] or "local", projects=projects,
+               is_active=bool(u["is_active"]), provider=u["provider"] or "local",
+               pending=(u["provider"] or "") == "log", projects=projects,
                default_project=dict(default) if default and (admin or default["id"] in mine) else None,
-               aliases=[r["alias"] for r in con.execute(
-                   "SELECT alias FROM user_aliases WHERE user_id=? ORDER BY alias", (uid,))])
+               aliases=aliases, names=names)
     if admin or uid == g.user["id"]:
         out.update(email=u["email"], created_at=u["created_at"], last_login=u["last_login"])
+    if personnel.can_see_quals(con, g.user, uid):
+        prow, docs = personnel.personnel_for_user(con, uid)
+        out["qualifications"] = personnel.qualifications_payload(prow, docs)
+        if prow:
+            for extra in (prow["name"], prow["tud_user"], prow["github_folder"]):
+                if extra and extra.casefold() not in seen_names:
+                    names.append(extra)
+                    seen_names.add(extra.casefold())
+        out["names"] = names
     return out
 
 
@@ -2986,11 +3131,14 @@ def get_config(ac_pk):
 def get_path(flight_id):
     where, params = own_clause("l.")
     row = conn().execute(
-        "SELECT f.path_idx, l.paths_file, l.start_utc, l.date_override FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
+        "SELECT f.path_idx, l.paths_file, l.start_utc, l.date_override"
+        + (", f.path_gz" if HAVE_PATH_GZ else "") +
+        " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
         f" JOIN logs l ON l.id = a.log_id WHERE f.id=? AND {where}", (flight_id, *params)).fetchone()
     if row is None:
         abort(404)
-    return jsonify(flight_path(row["paths_file"], row["path_idx"], clock_shift_days(row["start_utc"], row["date_override"])))
+    return jsonify(flight_path(row["paths_file"], row["path_idx"], clock_shift_days(row["start_utc"], row["date_override"]),
+                               row["path_gz"] if HAVE_PATH_GZ else None))
 
 
 @app.get("/api/logs/<int:log_id>/download/<kind>")

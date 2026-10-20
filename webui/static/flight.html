@@ -211,8 +211,9 @@ function renderSummary() {
 }
 
 const pt = i => D.path[i];
-const alt = p => p.ins?.position_ned_m ? -p.ins.position_ned_m.down : null;
-const gs = p => p.ins?.groundspeed_ms ?? null;
+const alt = p => p.ins?.position_ned_m ? -p.ins.position_ned_m.down
+  : (p.position?.gps_alt_m ?? p.position?.baro_alt_m ?? null);
+const gs = p => p.ins?.groundspeed_ms ?? p.groundspeed_ms ?? null;
 const euler = (p, k) => p.attitude?.euler_deg?.[k] ?? null;
 const acc = (p, k) => p.ins?.acceleration_ned_ms2?.[k] ?? null;
 const SERIES = {
@@ -326,7 +327,7 @@ function show(i) {
   $('readout').innerHTML = cell('Time', rel(p.time_s) + ' · ' + esc(fmtTime(p.utc).slice(11)))
     + cell('Distance flown', p.distance_m != null ? fmtDist(p.distance_m) : null)
     + cell('From takeoff', p.from_takeoff_m != null ? fmtDist(p.from_takeoff_m) : null)
-    + cell('Height (INS)', a != null ? a.toFixed(1) + ' m' : null) + cell('GPS alt', p.position.gps_alt_m + ' m')
+    + cell('Height', a != null ? a.toFixed(1) + ' m' : null) + cell('GPS alt', p.position?.gps_alt_m != null ? p.position.gps_alt_m + ' m' : null)
     + cell('Baro alt', p.position.baro_alt_m != null ? p.position.baro_alt_m + ' m' : null)
     + cell('Ground speed', g != null ? g.toFixed(1) + ' m/s' : null) + cell('Airspeed', p.airspeed?.eas_ms != null ? p.airspeed.eas_ms + ' m/s' : null)
     + cell('Battery', p.battery_voltage_v != null ? p.battery_voltage_v + ' V' : null)
@@ -519,6 +520,14 @@ function renderMisc() {
 
 fetch(`/api/flights/${flightId}/detail`).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(d => {
   D = d;
+  const path = D.path || [];
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1], b = path[i];
+    if (b.groundspeed_ms == null && !(b.ins && b.ins.groundspeed_ms != null) && a.distance_m != null && b.distance_m != null) {
+      const dt = b.time_s - a.time_s;
+      if (dt > 0.05) b.groundspeed_ms = Math.max(0, (b.distance_m - a.distance_m) / dt);
+    }
+  }
   renderSummary(); initMap(); renderLists(); renderMisc();
   $('allChanges').onchange = $('allMsgs').onchange = renderLists;
 }).catch(err => { console.error(err); $('summary').textContent = typeof err === 'number' ? 'Flight not found (or not yours).' : 'Error: ' + err; });

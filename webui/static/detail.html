@@ -24,6 +24,7 @@
   .hero { display:flex; gap:12px 20px; align-items:baseline; flex-wrap:wrap; margin:2px 0 12px; }
   .hero h2 { font-size:22px; margin:0; }
   .chip { display:inline-block; padding:1px 9px; border-radius:10px; font-size:12px; background:var(--chip); color:var(--txt); }
+  .chip.pending { background:var(--warnbg, #fff8c5); color:var(--warn); }
   .totals { display:grid; grid-template-columns:repeat(auto-fill, minmax(125px, 1fr)); gap:12px 18px; }
   .totals strong { font-size:20px; display:block; font-variant-numeric:tabular-nums; }
   .totals span { color:var(--mute); font-size:12px; }
@@ -221,7 +222,16 @@ function renderHead() {
   if (KIND === 'people') {
     if (it.is_admin) chips.push('Admin');
     if (!it.is_active) chips.push('Deactivated');
-    chips.push(it.provider === 'saml' ? 'TU Delft sign-in' : 'Local account');
+    if (it.pending || it.provider === 'log') chips.push({t: 'Not active yet', cls: 'pending'});
+    else chips.push(it.provider === 'saml' ? 'TU Delft sign-in' : 'Local account');
+    const q = it.qualifications;
+    if (q) {
+      if (q.kind) chips.push(q.kind);
+      if (q.fi) chips.push('FI');
+      if (q.ctr) chips.push('CTR');
+      if (q.a1a3) chips.push(q.a1a3_expired ? 'A1/A3 expired' : 'A1/A3');
+      if (q.a2) chips.push(q.a2_expired ? 'A2 expired' : 'A2');
+    }
   } else if (KIND === 'aircraft') {
     if (it.unique_id) chips.push(it.unique_id);
     if (it.status) chips.push(it.status);
@@ -230,7 +240,11 @@ function renderHead() {
   } else if (KIND === 'locations') {
     chips.push(it.indoor ? 'Indoor' : 'Outdoor');
   }
-  $('chips').innerHTML = chips.map(c => `<span class="chip">${esc(c)}</span>`).join(' ');
+  $('chips').innerHTML = chips.map(c => {
+    const t = typeof c === 'string' ? c : c.t;
+    const cls = typeof c === 'string' ? '' : (c.cls ? ' ' + c.cls : '');
+    return `<span class="chip${cls}">${esc(t)}</span>`;
+  }).join(' ');
   $('scope').textContent = D.all ? '' : 'Only flights and log files you have access to are counted.';
   $('mapTitle').textContent = KIND === 'locations' ? 'Area and takeoff points' : 'Takeoff locations';
   renderInfo();
@@ -240,11 +254,30 @@ function renderInfo() {
   const it = D.item;
   let html = '';
   if (KIND === 'people') {
+    const q = it.qualifications;
+    const names = it.names || it.aliases || [];
+    const day = (d, dead) => d ? `${esc(d)}${dead ? ' <span class="mute">(expired)</span>' : ''}` : '';
     html = kv('Username', esc(it.username)) + kv('Email', it.email ? `<a href="mailto:${esc(it.email)}">${esc(it.email)}</a>` : '')
-      + kv('Names in logs', esc(it.aliases.join(', ')))
+      + kv('Names', names.length ? esc(names.join(', ')) : '')
       + kv('Default project', it.default_project ? link('projects', it.default_project.id, it.default_project.name) : '')
-      + kv('Projects', it.projects.map(p => `${link('projects', p.id, p.name)} <span class="mute">(${esc(ACCESS[p.role] || p.role)})</span>`).join('<br>'))
-      + kv('Account created', esc(fmtDate(it.created_at))) + kv('Last sign-in', esc(fmtTime(it.last_login)));
+      + kv('Projects', it.projects.map(p => `${link('projects', p.id, p.name)} <span class="mute">(${esc(ACCESS[p.role] || p.role)})</span>`).join('<br>'));
+    if (q) {
+      html += kv('On the licence list as', esc(q.name) + (q.tud_user && q.tud_user !== q.name ? ` <span class="mute">${esc(q.tud_user)}</span>` : ''))
+        + kv('A1/A3', q.a1a3 ? `${esc(q.a1a3)} · ${day(q.a1a3_until, q.a1a3_expired) || 'no date'}` : '')
+        + kv('A2', q.a2 ? `${esc(q.a2)} · ${day(q.a2_until, q.a2_expired) || 'no date'}` : '')
+        + kv('Flight instructor', q.fi ? 'Yes' : '')
+        + kv('CTR', q.ctr ? 'Yes' : '')
+        + kv('Cyberzoo quiz', fmtDate(q.cyberzoo))
+        + kv('ERP', fmtDate(q.erp));
+      if (q.docs && q.docs.length) {
+        html += kv('Certificates', q.docs.map(d =>
+          `<a href="/api/personnel-docs/${d.id}" target="_blank" rel="noopener">${esc(d.title)}</a>`
+          + (d.license ? ` <span class="mute">${esc(d.license)}</span>` : '')
+          + (d.validity ? ` <span class="mute">${esc(d.validity)}${d.expired ? ' expired' : ''}</span>` : '')
+        ).join('<br>'));
+      }
+    }
+    html += kv('Account created', esc(fmtDate(it.created_at))) + kv('Last sign-in', esc(fmtTime(it.last_login)));
   } else if (KIND === 'aircraft') {
     html = kv('Fleet ID', esc(it.unique_id)) + kv('Status', esc(it.status))
       + kv('Default project', it.default_project_id != null ? link('projects', it.default_project_id, it.default_project_name) : '')

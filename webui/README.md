@@ -121,6 +121,12 @@ generated in `<WEB_DATA>/saml/` and are part of the backup (losing them means re
 creates a non-admin account, linked to an existing local account with the same email. Give people access to projects
 on the Projects page.
 
+Pilot licences come from the MAVLab Teams personnel list (CSV import on People, in Edit mode) and the
+certificate PDFs in the Operations GitHub repo. Importing the list creates an account for each pilot;
+they attach to that account when they later sign in with TU Delft. Admins see everyone's qualifications;
+other users only see people who share a project with them. Set `LOGDB_OPERATIONS_TOKEN` so the app can
+open the PDFs (a fine-grained token with read access to `tudelft/Operations` is enough).
+
 ## Uploading with a script
 
 Click your name at the top right, create an API key on the account page (it is shown once) and download
