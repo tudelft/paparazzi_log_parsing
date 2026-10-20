@@ -1412,10 +1412,10 @@ def admin_required():
         abort(403)
 
 
-@app.get("/admin")
-def admin_page():
+@app.get("/locations")
+def locations_page():
     admin_required()
-    return send_from_directory(PAGES_DIR, "admin.html")
+    return send_from_directory(PAGES_DIR, "locations.html")
 
 
 @app.get("/people")

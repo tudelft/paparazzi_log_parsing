@@ -23,9 +23,12 @@ html.night {
 html.night header { background:#0c1218; }
 body > header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 18px;
   flex-wrap: nowrap;
+  padding-top: 0;
+  padding-bottom: 0;
+  min-height: 52px;
 }
 body > header h1 {
   margin: 0;
@@ -38,12 +41,35 @@ body > header h1 {
   text-overflow: ellipsis;
 }
 body > header #nav {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-self: stretch;
+  overflow-x: auto;
+  scrollbar-width: none;
   white-space: nowrap;
+  font-size: 14px;
+}
+body > header #nav a {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  color: #9fb0c3;
+  text-decoration: none;
+  border-bottom: 3px solid transparent;
+  border-top: 3px solid transparent;
+  transition: background .12s, color .12s;
+}
+body > header #nav a:hover { color: #fff; background: rgba(255,255,255,.07); }
+body > header #nav a.cur {
+  color: #fff;
+  font-weight: 600;
+  background: rgba(255,255,255,.1);
+  border-bottom-color: #58a6ff;
 }
 header .meta a { color:#9fb0c3; text-decoration:none; }
-header .meta a.cur { color:#fff; }
 header .meta a:hover { color:#fff; }
+body > header > .meta:last-child { flex: 0 0 auto; white-space: nowrap; }
 html.night header button {
   background:#243044; color:#e7eef6; border:1px solid #4a6078;
 }

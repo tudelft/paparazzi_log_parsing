@@ -18,7 +18,7 @@
     ['/people', 'People'],
     ['/projects', 'Projects'],
     ['/aircraft', 'Aircraft'],
-    ['/admin', 'Admin'],
+    ['/locations', 'Locations'],
   ];
 
   function cachedAdmin() {
@@ -34,7 +34,7 @@
     if (p === '/people') return '/people';
     if (p === '/projects') return '/projects';
     if (p === '/aircraft') return '/aircraft';
-    if (p === '/admin') return '/admin';
+    if (p === '/locations') return '/locations';
     if (p === '/' || p === '') return '/';
     return '';
   }
@@ -42,11 +42,9 @@
     const nav = document.getElementById('nav');
     if (!nav) return;
     const here = currentTab();
-    const items = TABS.filter(([href]) => href !== '/admin' || admin);
-    nav.innerHTML = items.map(([href, label], i) => {
-      const on = href === here;
-      return (i ? ' · ' : '') + `<a href="${href}" class="${on ? 'cur' : ''}">${label}</a>`;
-    }).join('');
+    const items = TABS.filter(([href]) => href !== '/locations' || admin);
+    nav.innerHTML = items.map(([href, label]) =>
+      `<a href="${href}"${href === here ? ' class="cur" aria-current="page"' : ''}>${label}</a>`).join('');
   }
 
   window.logout = async function () {
@@ -55,7 +53,7 @@
     location.href = '/login';
   };
 
-  let admin = cachedAdmin() || currentTab() === '/admin';
+  let admin = cachedAdmin() || currentTab() === '/locations';
   function ready(fn) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
     else fn();
