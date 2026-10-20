@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Admin – aircraft</title>
+<title>Aircraft</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/theme.js"></script>
 <link rel="stylesheet" href="/theme.css">
@@ -47,30 +47,25 @@
 </head>
 <body>
 <header>
-  <h1>Admin</h1>
+  <h1>Aircraft</h1>
   <span class="meta" id="nav"></span>
   <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
 </header>
 <main>
-  <nav class="tabs">
-    <a href="/admin">People</a>
-    <a href="/projects">Projects</a>
-    <a href="/aircraft" class="cur">Aircraft</a>
-  </nav>
   <div id="err"></div>
-  <section class="card">
+  <section class="card" id="unlinkedCard" hidden>
     <h2>Names in the logs that are not linked to an aircraft</h2>
     <div class="mute" style="margin-bottom:8px">These are the aircraft names stored in the logs. Link them so those logs belong to a fleet aircraft (and its default project, if you set one).</div>
     <div class="scroll"><table><thead id="unlinkedHead"></thead><tbody id="unlinked"></tbody></table></div>
   </section>
   <section class="card">
     <h2>Aircraft and their aliases</h2>
-    <div class="mute">Each aircraft has a unique serial (TUDxxxxx) that stays with it if you rename it. The list can be filled from the organisation CSV (AC Nice Name, Serial Unique, Manager, Current User, Status, Date Bought, Project, Comments). Names in the logs that differ from the nice name are aliases. Removing an aircraft keeps the logs.</div>
+    <div class="mute" id="fleetHint">Each aircraft has a unique serial (TUDxxxxx) that stays with it if the name changes. Names in the logs that differ from the nice name are aliases.</div>
     <div class="row">
       <label class="field">Filter<input id="q" placeholder="Filter by name, serial, person, project…"></label>
       <label class="field">Status<select id="statusFilter"><option value="">All statuses</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select></label>
       <label title="Aircraft marked Discard stay hidden until this is ticked"><input type="checkbox" id="showDiscarded"> Show discarded</label>
-      <label title="Show the form to add an aircraft, import a CSV, and edit the list"><input type="checkbox" id="editFleet"> Edit</label>
+      <label id="editFleetLabel" hidden title="Show the form to add an aircraft, import a CSV, and edit the list"><input type="checkbox" id="editFleet"> Edit</label>
     </div>
     <form class="row" id="add" hidden onsubmit="addDrone(event)">
       <label class="field">Name<input id="name" required maxlength="80" autocomplete="off"></label>
@@ -101,7 +96,8 @@ window.fetch = async (...args) => {
   return r;
 };
 let data = {drones: [], unlinked: [], projects: []};
-const editOn = () => $('editFleet').checked;
+let me = null;
+const editOn = () => !!(me && me.is_admin && $('editFleet').checked);
 function toggleEdit() {
   localStorage.setItem('logdbEditAircraft', editOn() ? '1' : '');
   $('add').hidden = !editOn();
@@ -171,12 +167,12 @@ function render() {
     <td><div class="pair"><input id="new${d.id}" placeholder="alias"><button onclick="addAlias(${d.id})">Add</button></div></td>
     <td><button class="danger" onclick="removeDrone(${d.id})">Remove</button></td></tr>`;
   }).join('')
-    || `<tr><td colspan="${cols}" class="mute">${data.drones.length ? 'Nothing matches the filter.' : 'No aircraft yet.'}</td></tr>`;
+    || `<tr><td colspan="${cols}" class="mute">${data.drones.length ? 'Nothing matches the filter.' : (me && me.is_admin ? 'No aircraft yet.' : 'No aircraft on your projects yet.')}</td></tr>`;
 }
 
 async function load() {
-  const r = await fetch('/api/admin/drones');
-  if (r.status === 403) { location.href = '/'; return; }
+  const r = await fetch('/api/drones');
+  if (!r.ok) { $('err').textContent = 'Could not load aircraft.'; return; }
   data = await r.json();
   $('newProject').innerHTML = projectOptions(null);
   render();
@@ -238,9 +234,14 @@ function removeDrone(id) {
 $('q').oninput = $('statusFilter').onchange = $('showDiscarded').onchange = render;
 $('editFleet').onchange = toggleEdit;
 fetch('/api/me').then(r => r.json()).then(d => {
-  if (!d.user.is_admin) { location.href = '/'; return; }
-  $('who').textContent = d.user.display_name + ' (admin)';
-  $('editFleet').checked = localStorage.getItem('logdbEditAircraft') === '1';
+  me = d.user;
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  $('editFleetLabel').hidden = !d.user.is_admin;
+  $('unlinkedCard').hidden = !d.user.is_admin;
+  $('fleetHint').textContent = d.user.is_admin
+    ? 'Each aircraft has a unique serial (TUDxxxxx) that stays with it if you rename it. The list can be filled from the organisation CSV (AC Nice Name, Serial Unique, Manager, Current User, Status, Date Bought, Project, Comments). Names in the logs that differ from the nice name are aliases. Removing an aircraft keeps the logs.'
+    : 'Aircraft whose default project you belong to. Each aircraft has a unique serial (TUDxxxxx). Names in the logs that differ from the nice name are aliases.';
+  if (d.user.is_admin) $('editFleet').checked = localStorage.getItem('logdbEditAircraft') === '1';
   $('add').hidden = !editOn();
   $('importRow').hidden = !editOn();
   load();
