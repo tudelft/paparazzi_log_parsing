@@ -21,6 +21,7 @@ html.night {
 }
 
 html.night header { background:#0c1218; }
+main a { color:var(--acc); }
 body > header {
   display: flex;
   align-items: center;

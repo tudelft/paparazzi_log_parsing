@@ -40,10 +40,8 @@
     const p = location.pathname;
     if (p === '/logbook' || p.startsWith('/flight/')) return '/logbook';
     if (p === '/stats') return '/stats';
-    if (p === '/people') return '/people';
-    if (p === '/projects') return '/projects';
-    if (p === '/aircraft') return '/aircraft';
-    if (p === '/locations') return '/locations';
+    for (const tab of ['/people', '/projects', '/aircraft', '/locations'])
+      if (p === tab || p.startsWith(tab + '/')) return tab;
     if (p === '/' || p === '') return '/';
     return '';
   }

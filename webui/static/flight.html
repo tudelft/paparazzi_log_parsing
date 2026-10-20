@@ -120,11 +120,11 @@ let D, map, planLayer, marker, trail, chartGeom;
 const flightId = +location.pathname.split('/').pop();
 
 function projectField(e) {
-  if (!e.can_edit_project) return esc(e.project_name || '');
+  if (!e.can_edit_project) return e.project_id != null ? `<a href="/projects/${e.project_id}">${esc(e.project_name || '')}</a>` : '';
   const ids = (e.sources || []).map(s => s.flight_id).join(',');
   const opts = '<option value="">No project</option>' + projects.filter(p => me && (me.is_admin || p.can_add || p.id === e.project_id)).map(p =>
     `<option value="${p.id}"${p.id === e.project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
-  return `<select onchange="setFlightProject(this.value, [${ids}])">${opts}</select>`;
+  return `<select onchange="setFlightProject(this.value, [${ids}])">${opts}</select>${goTo('projects', e.project_id)}`;
 }
 async function setFlightProject(value, ids) {
   for (const fid of [...new Set(ids || [flightId])]) {
@@ -155,9 +155,10 @@ async function saveComment(ids) {
 
 const person = (f, role) => {
   const raw = f[role], u = f[role + '_user'];
-  if (u) return esc(u.display_name);
+  if (u) return `<a href="/people/${u.id}">${esc(u.display_name)}</a>`;
   return raw ? esc(raw) : '';
 };
+const goTo = (kind, id) => id != null ? ` <a href="/${kind}/${id}" title="Overview">↗</a>` : '';
 function crewField(e, role) {
   if (!e.can_edit_crew) return person(e, role);
   const ids = [...new Set((e.sources || []).map(s => s.flight_id))];
@@ -167,7 +168,7 @@ function crewField(e, role) {
   return `<select onchange="setCrew('${role}', this.value, [${ids.join(',')}])">
     <option value="">${logged}</option>
     ${people.map(p => `<option value="${p.id}"${p.id === selectedId ? ' selected' : ''}>${esc(p.display_name)}</option>`).join('')}
-  </select>`;
+  </select>${goTo('people', u?.id)}`;
 }
 async function setCrew(role, value, ids) {
   const r = await fetch('/api/flights/crew', {method: 'PUT', headers: {'Content-Type': 'application/json'},
@@ -184,10 +185,10 @@ function renderSummary() {
   const e = D.entry, a = e.assessment;
   document.title = `${e.aircraft} ${fmtTime(e.takeoff_utc)}`;
   $('title').textContent = `${e.aircraft} · ${fmtTime(e.takeoff_utc)}`;
-  const place = (p, lat, lon) => p ? esc(p) : (lat != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '');
+  const place = (p, lat, lon, id) => p ? (id != null ? `<a href="/locations/${id}">${esc(p)}</a>` : esc(p)) : (lat != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '');
   $('summary').innerHTML = `<div class="cols"><div class="kv">
-      ${kv('Aircraft', esc(e.aircraft) + (e.aircraft_uid ? ` <span class="mute">${esc(e.aircraft_uid)}</span>` : ''))}${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon))}
-      ${kv('Landing (UTC)', e.landing_utc ? esc(fmtTime(e.landing_utc)) + ' · ' + place(e.landing_place, e.landing_lat, e.landing_lon) : '')}
+      ${kv('Aircraft', (e.drone_id != null ? `<a href="/aircraft/${e.drone_id}">${esc(e.aircraft)}</a>` : esc(e.aircraft)) + (e.aircraft_uid ? ` <span class="mute">${esc(e.aircraft_uid)}</span>` : ''))}${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id))}
+      ${kv('Landing (UTC)', e.landing_utc ? esc(fmtTime(e.landing_utc)) + ' · ' + place(e.landing_place, e.landing_lat, e.landing_lon, e.landing_place_id) : '')}
       ${kv('Flight time', fmtDur(e.duration_s))}${kv('Distance flown', fmtDist(e.distance_m))}${kv('Max from takeoff', fmtDist(e.max_from_takeoff_m))}${kv('At landing', fmtDist(e.from_takeoff_m))}${kv('Goal', esc(e.goal))}
       ${kv('Project', projectField(e))}
       ${kv('PIC', crewField(e, 'pic'))}${kv('PAC', crewField(e, 'pac'))}${kv('GCS operator', crewField(e, 'gcs'))}

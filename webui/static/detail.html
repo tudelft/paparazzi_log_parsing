@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Overview</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --ok:#1a7f37; --warn:#9a6700; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
+  main { max-width:1500px; margin:0 auto; padding:16px 12px 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  h2 { margin:0 0 10px; font-size:15px; }
+  a { color:var(--acc); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .bar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .crumb { color:var(--mute); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .hero { display:flex; gap:12px 20px; align-items:baseline; flex-wrap:wrap; margin:2px 0 12px; }
+  .hero h2 { font-size:22px; margin:0; }
+  .chip { display:inline-block; padding:1px 9px; border-radius:10px; font-size:12px; background:var(--chip); color:var(--txt); }
+  .totals { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:14px 20px; margin-top:14px; }
+  .totals strong { font-size:20px; display:block; font-variant-numeric:tabular-nums; }
+  .totals span { color:var(--mute); font-size:12px; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  .grid3 { display:grid; grid-template-columns:repeat(auto-fit, minmax(380px, 1fr)); gap:20px; }
+  @media (max-width: 960px) { .cols { grid-template-columns:1fr; } }
+  .kv { display:grid; grid-template-columns:max-content 1fr; gap:4px 16px; }
+  .kv > span:nth-child(odd) { color:var(--mute); }
+  .scroll { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  td.nowrap { white-space:nowrap; }
+  .mute { color:var(--mute); }
+  .meter { height:6px; background:var(--sec); border-radius:4px; min-width:60px; width:100%; max-width:120px; overflow:hidden; }
+  .meter > i { display:block; height:100%; background:var(--acc); }
+  #map { height:340px; border-radius:6px; border:1px solid var(--line); }
+  .months { display:flex; align-items:flex-end; gap:3px; height:150px; padding-top:6px; overflow-x:auto; }
+  .months .m { flex:1 0 14px; max-width:38px; display:flex; flex-direction:column; justify-content:flex-end; height:100%; }
+  .months .m i { display:block; background:var(--acc); border-radius:3px 3px 0 0; min-height:1px; }
+  .months .m.empty i { background:var(--sec); }
+  .monthAxis { display:flex; gap:3px; font-size:11px; color:var(--mute); overflow:hidden; }
+  .monthAxis span { flex:1 0 14px; max-width:38px; text-align:center; white-space:nowrap; }
+  .tag { display:inline-block; padding:0 8px; border-radius:10px; font-size:12px; background:var(--chip); }
+  .tag.uncertain { background:var(--uncertainbg); color:var(--warn); } .tag.ground { background:var(--groundbg); color:var(--err); }
+  button { font:inherit; background:var(--sec); color:var(--txt); border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
+  #missing { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Overview</h1>
+  <span class="meta" id="nav"></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <section class="card" id="missing"><h2>Not found</h2><p class="mute">This page does not exist, or you do not have access to it.</p></section>
+  <div id="page" hidden>
+    <section class="card">
+      <div class="crumb"><a id="back" href="#"></a></div>
+      <div class="hero"><h2 id="name"></h2><span id="chips"></span></div>
+      <div class="bar">
+        <label title="Places marked as indoors on the Locations page"><input type="checkbox" id="indoor" checked> Include indoor flights</label>
+        <label title="Uncertain flights, arming on the ground and other 'flights' the parser judged not to be real flights"><input type="checkbox" id="ground"> Include uncertain/non-flights</label>
+        <span class="mute" id="scope"></span>
+      </div>
+      <div class="totals" id="totals"></div>
+    </section>
+
+    <div class="cols">
+      <section class="card"><h2>Details</h2><div class="kv" id="info"></div></section>
+      <section class="card"><h2 id="mapTitle">Takeoff locations</h2><div id="map"></div></section>
+    </div>
+
+    <section class="card">
+      <h2>Flight time per month</h2>
+      <div class="months" id="months"></div>
+      <div class="monthAxis" id="monthAxis"></div>
+    </section>
+
+    <div class="grid3" id="breakdowns"></div>
+
+    <section class="card">
+      <div class="bar" style="margin-bottom:8px"><h2 style="margin:0">Flights</h2><span class="mute" id="flightCount"></span></div>
+      <div class="scroll"><table>
+        <thead id="flightHead"></thead>
+        <tbody id="flights"></tbody>
+      </table></div>
+      <div style="margin-top:8px"><button type="button" id="moreFlights" hidden>Show all flights</button></div>
+    </section>
+
+    <section class="card">
+      <div class="bar" style="margin-bottom:8px"><h2 style="margin:0">Log files</h2><span class="mute" id="logCount"></span></div>
+      <div class="scroll"><table>
+        <thead><tr><th>File</th><th>Type</th><th>Date (UTC)</th><th class="num">Size</th><th class="num">Flights</th><th>Aircraft</th><th>Project</th><th>Uploaded by</th><th></th></tr></thead>
+        <tbody id="logs"></tbody>
+      </table></div>
+      <div style="margin-top:8px"><button type="button" id="moreLogs" hidden>Show all log files</button></div>
+    </section>
+  </div>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtHours = s => {
+  const t = Math.max(0, Math.round(s || 0));
+  return `${Math.floor(t / 3600)}h ${String(Math.floor((t % 3600) / 60)).padStart(2, '0')}m`;
+};
+const fmtDur = s => s == null ? '' : `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, '0')}s`;
+const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km` : `${Math.round(m)} m`;
+const fmtSize = b => b == null ? '' : b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} kB`;
+const fmtDate = t => (t || '').slice(0, 10);
+const fmtTime = t => t ? t.slice(0, 16).replace('T', ' ') : '';
+const kv = (k, v) => v == null || v === '' ? '' : `<span>${esc(k)}</span><span>${v}</span>`;
+const realFetch = window.fetch;
+window.fetch = async (...args) => {
+  const r = await realFetch(...args);
+  if (r.status === 401) location.href = '/login';
+  return r;
+};
+
+const [, KIND, ID] = location.pathname.split('/');
+const ITEM_ID = +ID;
+const KINDS = {
+  people: {label: 'Person', list: '/people', listLabel: 'People'},
+  aircraft: {label: 'Aircraft', list: '/aircraft', listLabel: 'Aircraft'},
+  projects: {label: 'Project', list: '/projects', listLabel: 'Projects'},
+  locations: {label: 'Location', list: '/locations', listLabel: 'Locations'},
+};
+const ROLES = [['pic', 'PIC'], ['pac', 'PAC'], ['gcs', 'GCS operator']];
+const TYPE = {onboard_sd: 'Onboard SD', gcs: 'GCS'};
+const ACCESS = {view: 'See logs', add: 'Add logs', full: 'See, add and delete'};
+const PAGE = 100;
+let D = null, me = null, map = null, mapLayer = null, flightLimit = PAGE, logLimit = PAGE;
+
+// Links to the other overview pages; names that are not linked to anything stay plain text.
+const link = (kind, id, text) => id != null ? `<a href="/${kind}/${id}">${esc(text)}</a>` : esc(text);
+const aircraftLink = f => link('aircraft', f.drone_id, f.aircraft || 'Unknown');
+const projectLink = f => f.project_id != null ? link('projects', f.project_id, f.project_name || '?') : '<span class="mute">No project</span>';
+const placeLink = (name, id, lat, lon) => name ? link('locations', id, name)
+  : lat != null ? `<span class="mute">${lat.toFixed(4)}, ${lon.toFixed(4)}</span>` : '';
+const personLink = (f, role) => {
+  const u = f[role + '_user'];
+  if (u) return link('people', u.id, u.display_name);
+  return f[role] ? `${esc(f[role])} <span class="mute" title="Not linked to a user">?</span>` : '';
+};
+
+fetch('/api/me').then(r => r.json()).then(d => {
+  me = d.user;
+  $('who').textContent = me.display_name + (me.is_admin ? ' (admin)' : '');
+});
+fetch(`/api/detail/${KIND}/${ITEM_ID}`).then(async r => {
+  if (!r.ok) { $('missing').style.display = 'block'; document.title = 'Not found'; return; }
+  D = await r.json();
+  $('page').hidden = false;
+  renderHead();
+  render();
+});
+
+function shown() {
+  return D.flights.filter(f =>
+    ($('ground').checked || !['ground', 'uncertain'].includes(f.verdict)) &&
+    ($('indoor').checked || !f.indoor));
+}
+
+function renderHead() {
+  const k = KINDS[KIND], it = D.item;
+  document.title = `${it.name} · ${k.label}`;
+  $('title').textContent = k.label;
+  const listOk = KIND !== 'locations' || D.all;
+  $('back').textContent = `← ${k.listLabel}`;
+  if (listOk) $('back').href = k.list; else $('back').removeAttribute('href');
+  $('name').textContent = it.name;
+  const chips = [];
+  if (KIND === 'people') {
+    if (it.is_admin) chips.push('Admin');
+    if (!it.is_active) chips.push('Deactivated');
+    chips.push(it.provider === 'saml' ? 'TU Delft sign-in' : 'Local account');
+  } else if (KIND === 'aircraft') {
+    if (it.unique_id) chips.push(it.unique_id);
+    if (it.status) chips.push(it.status);
+  } else if (KIND === 'projects') {
+    if (it.role) chips.push(D.all ? 'Admin' : ACCESS[it.role] || it.role);
+  } else if (KIND === 'locations') {
+    chips.push(it.indoor ? 'Indoor' : 'Outdoor');
+  }
+  $('chips').innerHTML = chips.map(c => `<span class="chip">${esc(c)}</span>`).join(' ');
+  $('scope').textContent = D.all ? '' : 'Only flights and log files you have access to are counted.';
+  $('mapTitle').textContent = KIND === 'locations' ? 'Area and takeoff points' : 'Takeoff locations';
+  renderInfo();
+}
+
+function renderInfo() {
+  const it = D.item;
+  let html = '';
+  if (KIND === 'people') {
+    html = kv('Username', esc(it.username)) + kv('Email', it.email ? `<a href="mailto:${esc(it.email)}">${esc(it.email)}</a>` : '')
+      + kv('Names in logs', esc(it.aliases.join(', ')))
+      + kv('Default project', it.default_project ? link('projects', it.default_project.id, it.default_project.name) : '')
+      + kv('Projects', it.projects.map(p => `${link('projects', p.id, p.name)} <span class="mute">(${esc(ACCESS[p.role] || p.role)})</span>`).join('<br>'))
+      + kv('Account created', esc(fmtDate(it.created_at))) + kv('Last sign-in', esc(fmtTime(it.last_login)));
+  } else if (KIND === 'aircraft') {
+    html = kv('Fleet ID', esc(it.unique_id)) + kv('Status', esc(it.status))
+      + kv('Default project', it.default_project_id != null ? link('projects', it.default_project_id, it.default_project_name) : '')
+      + kv('Names in logs', esc([...new Set([...it.aliases, ...it.logged_names])].join(', ')))
+      + kv('Aircraft IDs (ac_id)', esc(it.ac_ids.join(', ')))
+      + kv('Manager', esc(it.manager)) + kv('Current user', esc(it.current_user))
+      + kv('Bought on', esc(it.bought_on)) + kv('Inventory project', esc(it.inventory_project))
+      + kv('Comments', esc(it.comments));
+  } else if (KIND === 'projects') {
+    html = kv('Created', esc(fmtDate(it.created_at)))
+      + kv('Members', it.members.length ? it.members.map(m => `${link('people', m.id, m.name)} <span class="mute">(${esc(ACCESS[m.role] || m.role)})</span>`).join('<br>') : '<span class="mute">None</span>')
+      + kv('Default project of', it.drones.map(d => link('aircraft', d.id, d.name)).join(', '));
+  } else if (KIND === 'locations') {
+    const sh = it.shape;
+    html = kv('Type', it.indoor ? 'Indoor (hidden in the logbook by default)' : 'Outdoor')
+      + kv('Shape', sh.type === 'circle' ? `Circle, ${fmtDist(sh.radius_m)} radius` : `Area with ${sh.points.length} corners`);
+  }
+  $('info').innerHTML = html || '<span class="mute">No details.</span>';
+}
+
+function group(list, keyFn, nameFn) {
+  const map = new Map();
+  for (const f of list) {
+    for (const k of [].concat(keyFn(f))) {
+      if (k == null) continue;
+      let b = map.get(k.key);
+      if (!b) map.set(k.key, b = {key: k.key, html: nameFn(f, k), name: k.name, flights: 0, seconds: 0, metres: 0, last: ''});
+      b.flights += 1;
+      b.seconds += f.duration_s || 0;
+      b.metres += f.distance_m || 0;
+      if ((f.takeoff_utc || '') > b.last) b.last = f.takeoff_utc || '';
+    }
+  }
+  return [...map.values()].sort((a, b) => b.seconds - a.seconds || b.flights - a.flights || a.name.localeCompare(b.name));
+}
+
+const byAircraft = list => group(list, f => ({key: f.drone_id != null ? 'd' + f.drone_id : 'n' + (f.aircraft || '').toLowerCase(), name: f.aircraft || 'Unknown'}), aircraftLink);
+const byProject = list => group(list, f => ({key: 'p' + (f.project_id ?? 'none'), name: f.project_name || 'No project'}), projectLink);
+const byPlace = list => group(list, f => ({key: f.takeoff_place_id != null ? 'l' + f.takeoff_place_id : 'none', name: f.takeoff_place || 'Unnamed location'}),
+  f => f.takeoff_place_id != null ? link('locations', f.takeoff_place_id, f.takeoff_place) : '<span class="mute">Unnamed location</span>');
+const personKey = (f, role) => {
+  const u = f[role + '_user'];
+  if (u) return {key: 'u' + u.id, name: u.display_name};
+  const raw = (f[role] || '').trim();
+  return raw ? {key: 'n' + raw.toLowerCase(), name: raw} : null;
+};
+const byPerson = (list, role, except) => group(list,
+  f => { const k = personKey(f, role); return k && k.key !== except ? k : null; },
+  f => personLink(f, role));
+const byCrew = (list, except) => group(list,
+  f => ROLES.map(([r]) => { const k = personKey(f, r); return k && k.key !== except ? {...k, role: r} : null; })
+    .filter((k, i, a) => k && a.findIndex(o => o && o.key === k.key) === i),
+  (f, k) => personLink(f, k.role));
+
+function table(title, hint, rows, nameCol) {
+  const max = rows[0]?.seconds || 0;
+  const meter = s => `<div class="meter" title="${fmtHours(s)}"><i style="width:${max > 0 ? Math.max(2, Math.round(100 * s / max)) : 0}%"></i></div>`;
+  return `<section class="card"><h2>${esc(title)}</h2>${hint ? `<div class="mute" style="margin-bottom:8px">${esc(hint)}</div>` : ''}
+    <div class="scroll"><table><thead><tr><th>${esc(nameCol)}</th><th class="num">Flights</th><th class="num">Hours</th><th class="num">Flown</th><th>Last flight</th><th></th></tr></thead><tbody>
+    ${rows.length ? rows.map(r => `<tr><td>${r.html}</td><td class="num">${r.flights}</td><td class="num">${fmtHours(r.seconds)}</td>
+      <td class="num">${fmtDist(r.metres)}</td><td class="nowrap">${esc(fmtDate(r.last))}</td><td>${meter(r.seconds)}</td></tr>`).join('')
+      : '<tr><td colspan="6" class="mute">No flights.</td></tr>'}
+    </tbody></table></div></section>`;
+}
+
+function rolesTable(list) {
+  const rows = ROLES.map(([r, label]) => {
+    const mine = list.filter(f => f[r + '_user']?.id === ITEM_ID);
+    return {html: esc(label), name: label, flights: mine.length,
+            seconds: mine.reduce((s, f) => s + (f.duration_s || 0), 0),
+            metres: mine.reduce((s, f) => s + (f.distance_m || 0), 0),
+            last: mine.reduce((s, f) => (f.takeoff_utc || '') > s ? f.takeoff_utc : s, '')};
+  }).filter(r => r.flights);
+  return table('Roles', 'A flight counts once per role.', rows, 'Role');
+}
+
+function renderTotals(list) {
+  const sum = k => list.reduce((s, f) => s + (f[k] || 0), 0);
+  const seconds = sum('duration_s');
+  const farthest = list.reduce((s, f) => Math.max(s, f.max_from_takeoff_m || 0), 0);
+  const days = new Set(list.map(f => fmtDate(f.takeoff_utc)).filter(Boolean)).size;
+  const dates = list.map(f => f.takeoff_utc).filter(Boolean).sort();
+  const size = D.logs.reduce((s, l) => s + (l.size_bytes || 0), 0);
+  const tiles = [
+    [list.length, 'Flights'],
+    [fmtHours(seconds), 'Flight time'],
+    [list.length ? fmtDur(seconds / list.length) : '—', 'Average flight'],
+    [fmtDist(sum('distance_m')) || '0 m', 'Distance flown'],
+    [fmtDist(farthest) || '—', 'Farthest from takeoff'],
+    [days, 'Flying days'],
+    [fmtDate(dates[0]) || '—', 'First flight'],
+    [fmtDate(dates[dates.length - 1]) || '—', 'Last flight'],
+  ];
+  if (KIND !== 'aircraft') tiles.push([new Set(list.map(f => f.drone_id ?? f.aircraft)).size, 'Aircraft']);
+  if (KIND !== 'projects') tiles.push([new Set(list.map(f => f.project_id)).size, 'Projects']);
+  if (KIND !== 'locations') tiles.push([new Set(list.map(f => f.takeoff_place_id ?? null).filter(x => x != null)).size, 'Named locations']);
+  if (KIND === 'people') tiles.push([list.filter(f => f.pic_user?.id === ITEM_ID).length, 'Flights as PIC']);
+  tiles.push([D.logs.length, 'Log files'], [fmtSize(size) || '0 kB', 'Log data']);
+  $('totals').innerHTML = tiles.map(([v, l]) => `<div><strong>${esc(v)}</strong><span>${esc(l)}</span></div>`).join('');
+}
+
+function renderMonths(list) {
+  const per = new Map();
+  for (const f of list) {
+    const m = (f.takeoff_utc || '').slice(0, 7);
+    if (m) per.set(m, (per.get(m) || 0) + (f.duration_s || 0));
+  }
+  const keys = [...per.keys()].sort();
+  if (!keys.length) { $('months').innerHTML = '<span class="mute">No dated flights.</span>'; $('monthAxis').innerHTML = ''; return; }
+  const months = [];
+  let [y, m] = keys[0].split('-').map(Number);
+  const [ly, lm] = keys[keys.length - 1].split('-').map(Number);
+  while (y < ly || (y === ly && m <= lm)) {
+    months.push(`${y}-${String(m).padStart(2, '0')}`);
+    if (++m > 12) { m = 1; y++; }
+  }
+  const shownMonths = months.slice(-48);
+  const max = Math.max(...shownMonths.map(k => per.get(k) || 0));
+  $('months').innerHTML = shownMonths.map(k => {
+    const s = per.get(k) || 0;
+    return `<div class="m${s ? '' : ' empty'}" title="${k}: ${fmtHours(s)}"><i style="height:${max ? Math.max(1, 100 * s / max) : 0}%"></i></div>`;
+  }).join('');
+  const every = Math.ceil(shownMonths.length / 12);
+  $('monthAxis').innerHTML = shownMonths.map((k, i) =>
+    `<span>${i % every === 0 || shownMonths.length <= 12 ? (k.endsWith('-01') || i === 0 ? k.slice(2) : k.slice(5)) : ''}</span>`).join('');
+}
+
+function renderBreakdowns(list) {
+  const self = KIND === 'people' ? 'u' + ITEM_ID : null;
+  const parts = [];
+  if (KIND === 'people') parts.push(rolesTable(list));
+  if (KIND !== 'aircraft') parts.push(table('Aircraft', '', byAircraft(list), 'Aircraft'));
+  if (KIND !== 'projects') parts.push(table('Projects', '', byProject(list), 'Project'));
+  if (KIND !== 'locations') parts.push(table('Locations', 'By takeoff location.', byPlace(list), 'Location'));
+  if (KIND === 'people') parts.push(table('Flew with', 'Other PICs, PACs and GCS operators on the same flights.', byCrew(list, self), 'Person'));
+  else {
+    parts.push(table('PIC', 'Pilot in command.', byPerson(list, 'pic'), 'PIC'));
+    parts.push(table('PAC', 'Payload / co-pilot.', byPerson(list, 'pac'), 'PAC'));
+  }
+  $('breakdowns').innerHTML = parts.join('');
+}
+
+function renderFlights(list) {
+  const roleCol = KIND === 'people';
+  $('flightHead').innerHTML = `<tr><th>Takeoff (UTC)</th>${KIND !== 'aircraft' ? '<th>Aircraft</th>' : ''}${KIND !== 'projects' ? '<th>Project</th>' : ''}
+    <th>From</th><th>To</th><th class="num">Duration</th><th class="num">Flown</th><th class="num">Max range</th>
+    ${roleCol ? '<th>Role</th>' : ''}<th>PIC</th><th>PAC</th><th>Goal</th><th></th></tr>`;
+  const rows = list.slice(0, flightLimit).map(f => {
+    const roles = roleCol ? ROLES.filter(([r]) => f[r + '_user']?.id === ITEM_ID).map(([, l]) => l).join(', ') : '';
+    const tag = f.verdict && f.verdict !== 'flight' ? ` <span class="tag ${esc(f.verdict)}">${esc(f.verdict)}</span>` : '';
+    return `<tr><td class="nowrap"><a href="/flight/${f.flight_id}">${esc(fmtTime(f.takeoff_utc)) || 'Unknown date'}</a>${f.date_ok ? '' : ' <span class="mute" title="The log clock was not set">?</span>'}${tag}</td>
+      ${KIND !== 'aircraft' ? `<td>${aircraftLink(f)}</td>` : ''}${KIND !== 'projects' ? `<td>${projectLink(f)}</td>` : ''}
+      <td>${placeLink(f.takeoff_place, f.takeoff_place_id, f.takeoff_lat, f.takeoff_lon)}</td>
+      <td>${placeLink(f.landing_place, f.landing_place_id)}</td>
+      <td class="num">${fmtDur(f.duration_s)}</td><td class="num">${fmtDist(f.distance_m)}</td><td class="num">${fmtDist(f.max_from_takeoff_m)}</td>
+      ${roleCol ? `<td>${esc(roles)}</td>` : ''}<td>${personLink(f, 'pic')}</td><td>${personLink(f, 'pac')}</td>
+      <td>${esc(f.goal)}</td><td>${f.comment ? `<span class="mute" title="${esc(f.comment)}">💬</span>` : ''}</td></tr>`;
+  });
+  $('flights').innerHTML = rows.join('') || '<tr><td colspan="13" class="mute">No flights.</td></tr>';
+  $('flightCount').textContent = list.length > flightLimit ? `${flightLimit} of ${list.length}` : `${list.length}`;
+  $('moreFlights').hidden = list.length <= flightLimit;
+}
+
+function renderLogs() {
+  const logs = D.logs;
+  $('logs').innerHTML = logs.slice(0, logLimit).map(l => {
+    const status = l.status !== 'done' ? ` <span class="tag">${esc(l.status)}</span>` : '';
+    return `<tr><td><a href="/#log${l.id}" title="Log details on the Uploads page">${esc(l.name)}</a>${status}</td>
+      <td class="nowrap">${esc(TYPE[l.log_type] || l.log_type || '')}</td>
+      <td class="nowrap">${esc(fmtTime(l.start_utc))}${l.date_ok || !l.start_utc ? '' : ' <span class="mute" title="The log clock was not set">?</span>'}</td>
+      <td class="num">${fmtSize(l.size_bytes)}</td><td class="num">${l.num_flights ?? ''}</td>
+      <td>${esc(l.aircraft_names)}</td>
+      <td>${l.project_id != null ? link('projects', l.project_id, l.project_name) : '<span class="mute">No project</span>'}</td>
+      <td>${esc(l.uploaded_by_name)}<div class="mute">${esc(fmtDate(l.uploaded_at))}</div></td>
+      <td class="nowrap"><a href="/api/logs/${l.id}/download" title="Download the .data file${l.has_log ? ' and the .log file' : ''}">Download</a></td></tr>`;
+  }).join('') || '<tr><td colspan="9" class="mute">No log files.</td></tr>';
+  $('logCount').textContent = logs.length > logLimit ? `${logLimit} of ${logs.length}` : `${logs.length}`;
+  $('moreLogs').hidden = logs.length <= logLimit;
+}
+
+function renderMap(list) {
+  if (!map) {
+    map = L.map('map', {scrollWheelZoom: false}).setView([52, 4.4], 6);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap contributors'}).addTo(map);
+  }
+  if (mapLayer) mapLayer.remove();
+  mapLayer = L.featureGroup().addTo(map);
+  if (KIND === 'locations') {
+    const sh = D.item.shape, style = {color: '#1f6feb', weight: 2, fillOpacity: .12};
+    if (sh.type === 'circle') L.circle(sh.center, {...style, radius: sh.radius_m}).addTo(mapLayer);
+    else L.polygon(sh.points, style).addTo(mapLayer);
+  }
+  const spots = new Map();
+  for (const f of list) {
+    if (f.takeoff_lat == null) continue;
+    const k = `${f.takeoff_lat.toFixed(4)},${f.takeoff_lon.toFixed(4)}`;
+    const s = spots.get(k) || {lat: f.takeoff_lat, lon: f.takeoff_lon, n: 0, seconds: 0, place: f.takeoff_place};
+    s.n += 1; s.seconds += f.duration_s || 0;
+    spots.set(k, s);
+  }
+  for (const s of spots.values()) {
+    L.circleMarker([s.lat, s.lon], {radius: Math.min(14, 5 + Math.sqrt(s.n) * 1.5), color: '#1a7f37', weight: 2, fillOpacity: .55})
+      .bindTooltip(`${s.place ? esc(s.place) + '<br>' : ''}${s.n} flight${s.n === 1 ? '' : 's'}, ${fmtHours(s.seconds)}`).addTo(mapLayer);
+  }
+  const b = mapLayer.getBounds();
+  if (b.isValid()) map.fitBounds(b.pad(0.2), {maxZoom: 16});
+}
+
+function render() {
+  const list = shown();
+  renderTotals(list);
+  renderMonths(list);
+  renderBreakdowns(list);
+  renderFlights(list);
+  renderLogs();
+  renderMap(list);
+}
+
+$('indoor').onchange = $('ground').onchange = () => { flightLimit = PAGE; render(); };
+$('moreFlights').onclick = () => { flightLimit = Infinity; renderFlights(shown()); };
+$('moreLogs').onclick = () => { logLimit = Infinity; renderLogs(); };
+</script>
+</body>
+</html>
