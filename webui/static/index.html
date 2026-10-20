@@ -71,15 +71,15 @@
   <p id="noUpload" class="mute" hidden>You can look at logs here. Adding logs needs access from an admin.</p>
 
   <section class="card">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+    <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap">
       <strong>Logs</strong>
-      <span><button class="sec" id="reparseAll" onclick="reparseOutdated()">Re-parse outdated</button></span>
-    </div>
-    <div id="pager" class="mute" style="display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap">
+    <div id="pager" class="mute" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
       <label>Logs per page <select id="logPageSize"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>
       <button type="button" class="sec" id="newerLogs">Newer</button>
       <span id="pageInfo"></span>
       <button type="button" class="sec" id="olderLogs">Older</button>
+    </div>
+      <button class="sec" id="reparseAll" style="margin-left:auto" onclick="reparseOutdated()" hidden>Re-parse outdated</button>
     </div>
     <div class="scroll">
     <table>
@@ -122,6 +122,7 @@ function fillProjects() {
 }
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
+  $('reparseAll').hidden = !me.is_admin;
   $('who').textContent = me.display_name + (me.is_admin ? ' (admin)' : '');
   projects = await fetch('/api/projects').then(r => r.json());
   fillProjects();
