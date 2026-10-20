@@ -45,6 +45,13 @@ SETTINGS = {
         "SAML_METADATA_URL": ("https://login.tudelft.nl/sso/saml2/idp/metadata.php", "Identity provider metadata"),
         "SAML_ENTITY_ID": (None, "This service's SAML entity ID (default: <PUBLIC_URL>/saml/metadata)"),
     },
+    "Pilot licences": {
+        "RETIRED_CERTIFICATE_TOKEN": (None, "GitHub token with read access to the RetiredSource repo, so the app can show "
+                                   "certificate PDFs without everyone needing GitHub"),
+        "RETIRED_CERTIFICATE_REPO": ("removed-private-repository", "owner/name of the RetiredSource repository"),
+        "RETIRED_CERTIFICATE_REF": ("removed-private-ref", "Branch that holds the Pilots folder"),
+        "RETIRED_CERTIFICATE_PATH": ("removed-private-path", "Folder of per-pilot certificate PDFs"),
+    },
 }
 ALL = {name: v for group in SETTINGS.values() for name, v in group.items()}
 CLIENT_ONLY = {"SERVER", "API_KEY", "CONFIG"}  # upload_logs.py and the config file path, not server settings
@@ -173,7 +180,8 @@ def check():
         print(f"\n{group}")
         for name in items:
             value = str(env_path(name)) if name in PORTABLE_DEFAULTS else env(name)
-            shown = "(hidden)" if name == "SECRET_KEY" and value else (value if value is not None else "(not set)")
+            shown = "(hidden)" if name in ("SECRET_KEY", "RETIRED_CERTIFICATE_TOKEN") and value else (
+                value if value is not None else "(not set)")
             print(f"  LOGDB_{name:<18} {shown:<52} {source(name)}")
 
     errors, warnings = [], []
