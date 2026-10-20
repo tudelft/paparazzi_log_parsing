@@ -772,11 +772,13 @@ def me():
 
 @app.get("/api/people")
 def list_people():
-    """Active accounts for PIC/PAC/GCS menus in the logbook."""
+    """Active accounts for PIC/PAC/GCS menus and the People directory (name and username only)."""
     rows = conn().execute(
-        "SELECT id, username, display_name FROM users WHERE is_active=1 ORDER BY COALESCE(display_name, username), username")
+        "SELECT id, username, display_name, is_admin FROM users WHERE is_active=1"
+        " ORDER BY COALESCE(display_name, username), username")
     return jsonify([{"id": r["id"], "username": r["username"],
-                     "display_name": r["display_name"] or r["username"]} for r in rows])
+                     "display_name": r["display_name"] or r["username"],
+                     "is_admin": bool(r["is_admin"])} for r in rows])
 
 
 # ---- command line user management:  python3 app.py create-user|set-password|list-users|deactivate-user ----
@@ -1303,15 +1305,18 @@ def admin_page():
     return send_from_directory(PAGES_DIR, "admin.html")
 
 
+@app.get("/people")
+def people_page():
+    return send_from_directory(PAGES_DIR, "people.html")
+
+
 @app.get("/projects")
 def projects_page():
-    admin_required()
     return send_from_directory(PAGES_DIR, "projects.html")
 
 
 @app.get("/aircraft")
 def aircraft_page():
-    admin_required()
     return send_from_directory(PAGES_DIR, "aircraft.html")
 
 
@@ -1331,8 +1336,14 @@ def list_projects():
     out = []
     for r in rows:
         n = con.execute("SELECT COUNT(*) AS n FROM logs WHERE project_id=?", (r["id"],)).fetchone()["n"]
+        members = [dict(user_id=m["user_id"], username=m["username"],
+                        display_name=m["display_name"] or m["username"], role=m["role"])
+                   for m in con.execute(
+                       "SELECT m.user_id, m.role, u.username, u.display_name FROM project_members m"
+                       " JOIN users u ON u.id = m.user_id WHERE m.project_id=? ORDER BY u.username", (r["id"],))]
         out.append({"id": r["id"], "name": r["name"], "role": r["role"], "log_count": n,
-                    "can_add": r["role"] in ("add", "full"), "can_delete": r["role"] == "full" or bool(g.user["is_admin"])})
+                    "can_add": r["role"] in ("add", "full"), "can_delete": r["role"] == "full" or bool(g.user["is_admin"]),
+                    "members": members})
     return jsonify(out)
 
 
@@ -1442,22 +1453,48 @@ def drone_payload(con, d):
             "comments": d["comments"], "aliases": aliases, "log_count": n}
 
 
+def fleet_payload(con, include_unlinked=False, project_ids=None):
+    """Fleet list. Unlinked log names and the project menu are only filled when include_unlinked is true.
+    project_ids, if given, keeps only aircraft whose default project is in that set."""
+    drones, names = drone_name_map(con)
+    if project_ids is None:
+        rows = con.execute("SELECT * FROM drones ORDER BY name")
+    elif not project_ids:
+        rows = []
+    else:
+        q = ",".join("?" * len(project_ids))
+        rows = con.execute(f"SELECT * FROM drones WHERE default_project_id IN ({q}) ORDER BY name", project_ids)
+    fleet = [drone_payload(con, d) for d in rows]
+    unlinked, projects = [], []
+    if include_unlinked:
+        seen = {}
+        for a in con.execute("SELECT name FROM aircraft WHERE name IS NOT NULL AND TRIM(name) != ''"):
+            if resolve_drone(names, drones, a["name"]) is None:
+                key = a["name"].strip().casefold()
+                e = seen.setdefault(key, {"name": a["name"].strip(), "count": 0})
+                e["count"] += 1
+        unlinked = sorted(seen.values(), key=lambda e: (-e["count"], e["name"].casefold()))
+        projects = [dict(id=p["id"], name=p["name"]) for p in con.execute("SELECT id, name FROM projects ORDER BY name")]
+    return dict(drones=fleet, unlinked=unlinked, projects=projects)
+
+
+@app.get("/api/drones")
+def list_drones():
+    """Fleet aircraft. Non-admins only see aircraft whose default project they belong to."""
+    con = conn()
+    admin = bool(g.user["is_admin"])
+    pids = None
+    if not admin:
+        pids = [r["project_id"] for r in con.execute(
+            "SELECT project_id FROM project_members WHERE user_id=?", (g.user["id"],))]
+    return jsonify(fleet_payload(con, include_unlinked=admin, project_ids=pids))
+
+
 @app.get("/api/admin/drones")
 def admin_drones():
     """Fleet aircraft, aliases, unlinked names from logs, and projects for the default-project menu."""
     admin_required()
-    con = conn()
-    drones, names = drone_name_map(con)
-    fleet = [drone_payload(con, d) for d in con.execute("SELECT * FROM drones ORDER BY name")]
-    unlinked = {}
-    for a in con.execute("SELECT name FROM aircraft WHERE name IS NOT NULL AND TRIM(name) != ''"):
-        if resolve_drone(names, drones, a["name"]) is None:
-            key = a["name"].strip().casefold()
-            e = unlinked.setdefault(key, {"name": a["name"].strip(), "count": 0})
-            e["count"] += 1
-    projects = [dict(id=p["id"], name=p["name"]) for p in con.execute("SELECT id, name FROM projects ORDER BY name")]
-    return jsonify(drones=fleet, unlinked=sorted(unlinked.values(), key=lambda e: (-e["count"], e["name"].casefold())),
-                   projects=projects)
+    return jsonify(fleet_payload(conn(), include_unlinked=True))
 
 
 @app.post("/api/admin/drones")
@@ -1713,6 +1750,23 @@ def set_log_project(log_id):
     con.execute("UPDATE logs SET project_id=? WHERE id=?", (project_id, log_id))
     con.commit()
     return jsonify(ok=True)
+
+
+@app.put("/api/logs/<int:log_id>/date")
+def set_log_date(log_id):
+    """Set or clear the calendar date used when the file clock is missing or 1980. Time of day is kept."""
+    con = conn()
+    row = visible_log(con, log_id)
+    if not can_set_log_date(con, row):
+        return jsonify(error="you cannot set the date of this log"), 403
+    value = parse_date_override((request.get_json(silent=True) or {}).get("date_override"))
+    if value is False:
+        return jsonify(error="enter a date as YYYY-MM-DD"), 400
+    con.execute("UPDATE logs SET date_override=? WHERE id=?", (value, log_id))
+    con.commit()
+    out = log_dict(con.execute("SELECT * FROM logs WHERE id=?", (log_id,)).fetchone())
+    out["can_edit_date"] = True
+    return jsonify(ok=True, date_override=value, date_ok=out["date_ok"], start_utc=out.get("start_utc"))
 
 
 @app.put("/api/flights/<int:flight_id>/project")
@@ -2071,8 +2125,126 @@ def current_version():
     return app.config["PARSER_VERSION"]
 
 
+# File clocks before this year are treated as missing (Unix epoch 1970 / GPS epoch 1980).
+CLOCK_MIN_YEAR = 1990
+_UTC_KEYS = {
+    "utc", "takeoff_utc", "landing_utc", "start_utc", "first_data_utc", "end_utc", "first_utc", "last_utc",
+}
+
+
+def parse_iso_utc(iso):
+    """Parse an API/parser UTC string to a timezone-aware datetime, or None."""
+    if not iso or not isinstance(iso, str):
+        return None
+    s = iso.strip()
+    if s.endswith("Z"):
+        s = s[:-1]
+    if "." in s:
+        try:
+            return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S.%f").replace(tzinfo=timezone.utc)
+        except ValueError:
+            s = s.split(".", 1)[0]
+    try:
+        return datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        try:
+            return datetime.strptime(s[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+
+
+def clock_implausible(start_utc):
+    """True when the file has no calendar date, or one before 1990 (GPS/Unix epoch)."""
+    dt = parse_iso_utc(start_utc)
+    return dt is None or dt.year < CLOCK_MIN_YEAR
+
+
+def parse_date_override(raw):
+    """Return YYYY-MM-DD, None to clear, or False if the value is not a usable date."""
+    if raw in (None, ""):
+        return None
+    if not isinstance(raw, str):
+        return False
+    try:
+        d = datetime.strptime(raw.strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return False
+    today = datetime.now(timezone.utc).date()
+    if d.year < CLOCK_MIN_YEAR or d.year > today.year + 1:
+        return False
+    return d.isoformat()
+
+
+def clock_shift_days(start_utc, date_override):
+    """Days to add so the file clock's date becomes date_override. 0 if it cannot be shifted."""
+    if not date_override:
+        return 0
+    dt = parse_iso_utc(start_utc)
+    if dt is None:
+        return 0
+    try:
+        target = datetime.strptime(date_override, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return 0
+    start_date = datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
+    return (target - start_date).days
+
+
+def shift_iso(iso, days):
+    if not iso or not days:
+        return iso
+    dt = parse_iso_utc(iso)
+    if dt is None:
+        return iso
+    out = dt + timedelta(days=days)
+    frac = ""
+    if isinstance(iso, str) and "." in iso:
+        tail = iso.rsplit(".", 1)[-1].rstrip("Z")
+        width = len(tail) if tail.isdigit() else 3
+        frac = "." + f"{out.microsecond:06d}"[:width]
+    return out.strftime("%Y-%m-%dT%H:%M:%S") + frac + "Z"
+
+
+def apply_clock_to_obj(obj, days):
+    """Shift utc / *_utc string fields in a dict or list. Skips upload/parse timestamps."""
+    if not days or obj is None:
+        return obj
+    if isinstance(obj, list):
+        for item in obj:
+            apply_clock_to_obj(item, days)
+        return obj
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in _UTC_KEYS and isinstance(v, str):
+                obj[k] = shift_iso(v, days)
+            elif isinstance(v, (dict, list)):
+                apply_clock_to_obj(v, days)
+    return obj
+
+
+def apply_row_clock(r):
+    """Set date_ok and shift takeoff/landing times on a logbook/flight dict using that log's override."""
+    raw_start = r.get("log_start_utc") if r.get("log_start_utc") is not None else r.get("start_utc")
+    override = r.get("date_override")
+    r["date_ok"] = bool(override) or not clock_implausible(raw_start)
+    days = clock_shift_days(raw_start, override)
+    if days:
+        r["takeoff_utc"] = shift_iso(r.get("takeoff_utc"), days)
+        r["landing_utc"] = shift_iso(r.get("landing_utc"), days)
+        apply_clock_to_obj(r.get("takeoff"), days)
+        apply_clock_to_obj(r.get("landing"), days)
+    return r
+
+
 def log_dict(row):
     d = dict(row)
+    raw_start = d.get("start_utc")
+    override = d.get("date_override")
+    d["date_ok"] = bool(override) or not clock_implausible(raw_start)
+    days = clock_shift_days(raw_start, override)
+    if days:
+        for k in ("start_utc", "first_data_utc", "end_utc"):
+            d[k] = shift_iso(d.get(k), days)
     d["outdated"] = d["status"] == "done" and d["parser_version"] != current_version()
     d["has_log"] = d.pop("log_path") is not None
     d.pop("data_path", None)
@@ -2162,6 +2334,24 @@ def can_delete_log(con, row):
     if row["project_id"] is None:
         return row["uploaded_by"] == g.user["id"]
     return role_on(con, row["project_id"]) == "full"
+
+
+def can_edit_log_date(con, row):
+    """Admin, full on the log's project, or the uploader when the log has no project."""
+    return can_delete_log(con, row)
+
+
+def can_set_log_date(con, log_row):
+    """True if this user may type a calendar date for the log (same people who can edit a logbook row)."""
+    if can_edit_log_date(con, log_row):
+        return True
+    for f in con.execute(
+            "SELECT f.project_id, l.project_id AS log_project_id, l.uploaded_by"
+            " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id"
+            " WHERE l.id=?", (log_row["id"],)):
+        if can_edit_flight_project(con, f):
+            return True
+    return False
 
 
 def effective_flight_project(row):
@@ -2329,27 +2519,36 @@ def logbook_rows():
         " d.unique_id AS aircraft_uid, a.drone_id, a.pic, a.pac, a.gcs, a.goal,"
         " f.verdict, f.assessment_json, f.takeoff_voltage_v, f.landing_voltage_v, f.num_points, f.takeoff_json, f.landing_json,"
         " l.id AS log_id, l.name AS log_name, l.log_type, l.uploaded_by, l.uploaded_at, l.sha256, l.log_path IS NOT NULL AS has_log,"
-        " l.project_id AS log_project_id,"
+        " l.project_id AS log_project_id, l.start_utc AS log_start_utc, l.date_override,"
         " (SELECT username FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name"
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id"
         " LEFT JOIN drones d ON d.id = a.drone_id"
         f" WHERE {where} AND l.status = 'done'"
         " ORDER BY COALESCE(f.takeoff_utc, l.start_utc) DESC, f.idx", params).fetchall()
     names = {p["id"]: p["name"] for p in con.execute("SELECT id, name FROM projects")}
-    out = merge_sources([dict(r) for r in rows])
+    prepared = []
+    for r in rows:
+        d = dict(r)
+        d["takeoff"] = json.loads(d.pop("takeoff_json") or "null")
+        d["landing"] = json.loads(d.pop("landing_json") or "null")
+        apply_row_clock(d)
+        prepared.append(d)
+    out = merge_sources(prepared)
     place = place_resolver(con)
     for r in out:
         r["takeoff_place"], r["indoor"] = place(r["takeoff_lat"], r["takeoff_lon"])
         r["landing_place"] = place(r["landing_lat"], r["landing_lon"])[0]
         r["assessment"] = json.loads(r.pop("assessment_json") or "null")
-        r["takeoff"] = json.loads(r.pop("takeoff_json") or "null")
-        r["landing"] = json.loads(r.pop("landing_json") or "null")
         pid = effective_flight_project(r)
         r["project_id"] = pid
         r["project_name"] = names.get(pid)
         r["can_edit_project"] = can_edit_flight_project(con, r)
         r["can_edit_crew"] = r["can_edit_project"]
         r["can_edit_comment"] = r["can_edit_project"]
+        r["can_edit_date"] = r["can_edit_project"]
+        r["date_ok"] = bool(r.get("date_override")) or not clock_implausible(r.get("log_start_utc"))
+    out.sort(key=lambda r: (r.get("takeoff_utc") or ((r.get("date_override") or "") + "T00:00:00Z"), r["flight_id"]),
+             reverse=True)
     return add_people(out, person_resolver(con))
 
 
@@ -2363,17 +2562,21 @@ def flight_detail(flight_id):
     con = conn()
     row = con.execute(
         "SELECT f.takeoff_time_s, f.landing_time_s, f.path_gz, a.id AS aircraft_pk, a.name, a.ac_id, a.autopilot_versions,"
-        " a.info_messages, a.preflight_checks, a.config_gz, l.id AS log_id, l.log_type, l.name AS log_name"
+        " a.info_messages, a.preflight_checks, a.config_gz, l.id AS log_id, l.log_type, l.name AS log_name,"
+        " l.start_utc AS log_start_utc, l.date_override"
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id WHERE f.id=?",
         (flight_id,)).fetchone()
     changes = [dict(r) for r in con.execute(
         "SELECT time_s, utc, idx, var, from_value, to_value, in_flight FROM setting_changes"
         " WHERE aircraft_id=? ORDER BY time_s", (row["aircraft_pk"],))]
     config = db.unpack(row["config_gz"]) or {}
+    days = clock_shift_days(row["log_start_utc"], row["date_override"])
+    path = apply_clock_to_obj(db.unpack(row["path_gz"]) or [], days)
+    apply_clock_to_obj(changes, days)
     return jsonify(
         entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
         takeoff_time_s=row["takeoff_time_s"], landing_time_s=row["landing_time_s"],
-        path=db.unpack(row["path_gz"]) or [], flight_plan=config.get("flight_plan"),
+        path=path, flight_plan=config.get("flight_plan"),
         setting_changes=changes, info_messages=json.loads(row["info_messages"] or "[]"),
         preflight_checks=json.loads(row["preflight_checks"] or "[]"),
         autopilot_versions=json.loads(row["autopilot_versions"] or "[]"))
@@ -2387,6 +2590,9 @@ def status():
               con.execute(f"SELECT status, COUNT(*) n FROM logs WHERE {where} GROUP BY status", params)}
     outdated = con.execute(f"SELECT COUNT(*) FROM logs WHERE {where} AND status='done'"
                            " AND COALESCE(parser_version,'') != ?", (*params, current_version() or "")).fetchone()[0]
+    date_unknown = con.execute(
+        f"SELECT COUNT(*) FROM logs WHERE {where} AND status='done' AND date_override IS NULL"
+        " AND (start_utc IS NULL OR start_utc < ?)", (*params, f"{CLOCK_MIN_YEAR:04d}-01-01")).fetchone()[0]
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     if g.user["is_admin"]:
         ingest_waiting = con.execute(
@@ -2402,7 +2608,7 @@ def status():
                          con.execute("SELECT status, COUNT(*) n FROM ingest WHERE uploaded_by=? AND uploaded_at>=?"
                                      " GROUP BY status", (g.user["id"], cutoff))}
     return jsonify(parser_version=current_version(), path_rate_hz=PATH_RATE, queue=jobs.qsize(), counts=counts,
-                   outdated=outdated, ingest=ingest_counts, ingest_waiting=ingest_waiting,
+                   outdated=outdated, date_unknown=date_unknown, ingest=ingest_counts, ingest_waiting=ingest_waiting,
                    ingest_queue=ingest_jobs.qsize())
 
 
@@ -2429,7 +2635,8 @@ def list_logs():
         " FROM logs l LEFT JOIN projects p ON p.id = l.project_id WHERE " + where +
         " ORDER BY l.id DESC LIMIT ? OFFSET ?",
         (*params, limit, offset)).fetchall()
-    return jsonify(logs=[{**log_dict(r), "can_delete": can_delete_log(con, r)} for r in rows],
+    return jsonify(logs=[{**log_dict(r), "can_delete": can_delete_log(con, r),
+                          "can_edit_date": can_edit_log_date(con, r)} for r in rows],
                    total=total, limit=limit, offset=offset)
 
 
@@ -2439,6 +2646,8 @@ def get_log(log_id):
     row = visible_log(con, log_id)
     out = log_dict(row)
     out["can_delete"] = can_delete_log(con, row)
+    out["can_edit_date"] = can_set_log_date(con, row)
+    days = clock_shift_days(row["start_utc"], row["date_override"])
     out["project_name"] = con.execute("SELECT name FROM projects WHERE id=?", (row["project_id"],)).fetchone()
     out["project_name"] = out["project_name"]["name"] if out["project_name"] else None
     resolve = person_resolver(con)
@@ -2456,11 +2665,19 @@ def get_log(log_id):
         add_people([ad], resolve)
         for k in ("autopilot_versions", "preflight_checks", "info_messages"):
             ad[k] = json.loads(ad[k]) if ad[k] else []
+        if days:
+            ad["first_utc"] = shift_iso(ad.get("first_utc"), days)
+            ad["last_utc"] = shift_iso(ad.get("last_utc"), days)
         flights = []
         for f in con.execute("SELECT * FROM flights WHERE aircraft_id=? ORDER BY idx", (a["id"],)):
             fd = {k: f[k] for k in f.keys() if k not in ("path_gz", "takeoff_json", "landing_json")}
             fd["takeoff"] = json.loads(f["takeoff_json"] or "null")
             fd["landing"] = json.loads(f["landing_json"] or "null")
+            if days:
+                fd["takeoff_utc"] = shift_iso(fd.get("takeoff_utc"), days)
+                fd["landing_utc"] = shift_iso(fd.get("landing_utc"), days)
+                apply_clock_to_obj(fd["takeoff"], days)
+                apply_clock_to_obj(fd["landing"], days)
             pid = f["project_id"]
             pn = con.execute("SELECT name FROM projects WHERE id=?", (pid,)).fetchone() if pid else None
             fd["project_name"] = pn["name"] if pn else None
@@ -2469,6 +2686,8 @@ def get_log(log_id):
         ad["setting_changes"] = [dict(c) for c in con.execute(
             "SELECT time_s, utc, previous_report_s, idx, var, from_value, to_value, in_flight"
             " FROM setting_changes WHERE aircraft_id=? ORDER BY time_s", (a["id"],))]
+        if days:
+            apply_clock_to_obj(ad["setting_changes"], days)
         out["aircraft"].append(ad)
     return jsonify(out)
 
@@ -2486,11 +2705,13 @@ def get_config(ac_pk):
 @app.get("/api/flights/<int:flight_id>/path")
 def get_path(flight_id):
     where, params = own_clause("l.")
-    row = conn().execute("SELECT f.path_gz FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
-                         f" JOIN logs l ON l.id = a.log_id WHERE f.id=? AND {where}", (flight_id, *params)).fetchone()
+    row = conn().execute(
+        "SELECT f.path_gz, l.start_utc, l.date_override FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
+        f" JOIN logs l ON l.id = a.log_id WHERE f.id=? AND {where}", (flight_id, *params)).fetchone()
     if row is None:
         abort(404)
-    return jsonify(db.unpack(row["path_gz"]) or [])
+    path = db.unpack(row["path_gz"]) or []
+    return jsonify(apply_clock_to_obj(path, clock_shift_days(row["start_utc"], row["date_override"])))
 
 
 @app.get("/api/logs/<int:log_id>/download/<kind>")
