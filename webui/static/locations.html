@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Admin</title>
+<title>Locations</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/theme.js"></script>
 <link rel="stylesheet" href="/theme.css">
@@ -34,7 +34,7 @@
 </head>
 <body>
 <header>
-  <h1>Admin</h1>
+  <h1>Locations</h1>
   <span class="meta" id="nav"></span>
   <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
 </header>
@@ -42,7 +42,7 @@
   <div id="err"></div>
   <section class="card">
     <h2>Named places (takeoff / landing locations)</h2>
-    <div class="mute" style="margin-bottom:8px">Draw a polygon, rectangle or circle with the tools on the map, then give it a name. Takeoffs and landings inside it show that name in the logbook (the smallest matching shape wins). Blue dots are positions where flights took off or landed. People, projects and aircraft are on the main tabs; you can still change them because you are an admin.</div>
+    <div class="mute" style="margin-bottom:8px">Draw a polygon, rectangle or circle with the tools on the map, then give it a name. Takeoffs and landings inside it show that name in the logbook (the smallest matching shape wins). Blue dots are positions where flights took off or landed.</div>
     <div id="map"></div>
     <div id="mapMsg" class="mute" style="margin-top:6px"></div>
     <div id="nameForm" style="margin-top:8px" hidden>

@@ -144,8 +144,8 @@ parser on older and failed logs.
 
 **Logbook.** The parser tells onboard SD logs from ground station logs. The logbook (`/logbook`) has one row per
 flight and merges the SD and GCS recordings of the same flight: flight data from the SD log, PIC/PAC/GCS operator and
-goal from whichever log has them. Admins link names in the logs to people and draw named takeoff areas on a map
-(an area can be marked indoors; indoor flights are hidden by default). Logs without a valid date (missing or 1980
+goal from whichever log has them. Admins link names in the logs to people and draw named takeoff areas on the
+Locations page (an area can be marked indoors; indoor flights are hidden by default). Logs without a valid date (missing or 1980
 clock) are flagged so the real day can be entered.
 
 **Real flight or not.** The autopilot's in-flight flag also toggles on the ground (arming, motor tests, carrying).
