@@ -21,7 +21,8 @@
   th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
   th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
   .mute { color:var(--mute); }
-  button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button, a.btn { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  a.btn { display:inline-block; text-decoration:none; padding:6px 12px; }
   button.sec { background:var(--sec); color:var(--txt); }
   button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
   input { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
@@ -67,7 +68,9 @@
 
   <section class="card">
     <h2>Upload a folder with the script</h2>
-    <div class="mute">Finds every <code>.data</code>/<code>.log</code> pair below a folder and uploads those that are not on the server yet.</div>
+    <div class="mute">Finds every <code>.data</code>/<code>.log</code> pair below a folder and uploads those that are not on the server yet.
+      Needs Python 3 only, no extra packages.</div>
+    <p><a class="btn" href="/download/upload_logs.py" download>Download upload_logs.py</a></p>
     <pre id="usage"></pre>
   </section>
 </main>

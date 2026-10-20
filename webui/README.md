@@ -267,7 +267,7 @@ it acts as you, works for the API only (not for pages), and cannot create or rev
 
     curl -H "Authorization: Bearer logdb_..." https://logs.example.org/api/me
 
-`upload_logs.py` (standard library only) searches a folder recursively for `.data`/`.log` pairs, hashes each `.data`
+`upload_logs.py` (standard library only; also downloadable from the account page) searches a folder recursively for `.data`/`.log` pairs, hashes each `.data`
 file, asks the server which hashes it already has (`POST /api/logs/check`) and uploads only the rest. A log the server
 has without a `.log` is uploaded again so the `.log` is added.
 
