@@ -40,7 +40,7 @@
   .person:last-child { border-bottom:0; }
 </style>
 </head>
-<body>
+<body data-edit="admin">
 <header>
   <h1>Projects</h1>
   <span class="meta" id="nav"></span>
@@ -99,12 +99,18 @@ function applyTicks(prefix) {
   return roleFromBoxes(see.checked, up.checked, del.checked);
 }
 
+const editing = () => !!(me && me.is_admin && window.editMode());
+function syncEdit() {
+  $('add').hidden = !editing();
+  $('hint').textContent = editing()
+    ? 'A project is a separate set of flight logs. Click a row and tick who can see, upload or delete.'
+    : me && me.is_admin
+      ? 'A project is a separate set of flight logs. Click a row to see who is on it.'
+      : 'Projects you belong to. Click a row to see who is on them.';
+}
 async function load() {
   const admin = !!(me && me.is_admin);
-  $('add').hidden = !admin;
-  $('hint').textContent = admin
-    ? 'A project is a separate set of flight logs. Click a row and tick who can see, upload or delete.'
-    : 'Projects you belong to. Click a row to see who is on them.';
+  syncEdit();
   if (admin) {
     const [p, people] = await Promise.all([
       fetch('/api/admin/projects').then(r => r.json()),
@@ -127,9 +133,8 @@ function projectRows(p) {
   const isOpen = open_.has(p.id);
   const members = p.members || [];
   const byId = Object.fromEntries(members.map(m => [m.user_id, m.role]));
-  const admin = !!(me && me.is_admin);
   let detail;
-  if (admin) {
+  if (editing()) {
     const list = users.map(u => `<div class="person"><span>${esc(u.display_name || u.username)} <span class="mute">${esc(u.username)}</span></span>${tickBoxes('m' + p.id + '_' + u.id, byId[u.id] || '', `saveTicks(${p.id}, ${u.id})`)}</div>`).join('')
       || '<p class="mute">Create a user on the People tab first.</p>';
     detail = `${list}
@@ -191,6 +196,7 @@ fetch('/api/me').then(r => r.json()).then(d => {
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   load();
 });
+window.addEventListener('editchange', () => { syncEdit(); render(); });
 </script>
 </body>
 </html>

@@ -53,7 +53,7 @@
   .date-unknown { background:var(--warnbg); color:var(--warn); font-weight:400; }
 </style>
 </head>
-<body>
+<body data-edit="all">
 <header>
   <h1>Flight logbook</h1>
   <span class="meta" id="nav"></span>
@@ -67,7 +67,6 @@
       <label title="Flights of the same aircraft and pilot on the same day within this distance of each other"><input type="checkbox" id="combine" checked> Combine flights (within <input type="number" id="radius" value="1" min="0.1" step="0.5" style="width:56px"> km)</label>
       <label title="Places marked as indoors on the Locations page"><input type="checkbox" id="indoor"> Show indoor flights</label>
       <label title="Uncertain flights, arming on the ground, flickering flight flags and other 'flights' the parser judged not to be real flights"><input type="checkbox" id="ground"> Show uncertain/non-flights</label>
-      <label title="Show menus to change project, PIC, PAC and GCS, including several flights at once"><input type="checkbox" id="editCrew"> Edit</label>
       <button onclick="exportCsv()">Export CSV</button>
     </div>
     <div id="bulkBar" class="bar" hidden>
@@ -128,7 +127,6 @@ fetch('/api/me').then(r => r.json()).then(async d => {
     fetch('/api/people').then(r => r.json()),
   ]);
   fillBulkMenus();
-  $('editCrew').checked = localStorage.getItem('logdbEditCrew') === '1';
   syncEditUi();
   const cur = localStorage.getItem(projectKey) || '';
   $('showProject').innerHTML = '<option value="">All projects</option>'
@@ -147,7 +145,7 @@ const person = (f, role) => {
   if (u) return esc(u.display_name);
   return raw ? esc(raw) : '';
 };
-const editOn = () => $('editCrew').checked;
+const editOn = () => window.editMode();
 const crewIds = f => [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)])];
 function crewSelect(f, role, ids) {
   if (!editOn() || !f.can_edit_crew) return person(f, role);
@@ -191,7 +189,6 @@ function syncEditUi() {
   $('projectFilter').hidden = !editOn();
 }
 function toggleEdit() {
-  localStorage.setItem('logdbEditCrew', editOn() ? '1' : '');
   syncEditUi();
   if (!editOn()) { selected.clear(); $('bulkMsg').textContent = ''; }
   render();
@@ -392,7 +389,7 @@ function exportCsv() {
 
 $('q').oninput = () => { page = 0; render(); };
 $('combine').onchange = $('radius').onchange = $('indoor').onchange = $('ground').onchange = () => { page = 0; render(); };
-$('editCrew').onchange = toggleEdit;
+window.addEventListener('editchange', toggleEdit);
 $('prev').onclick = () => { page--; render(); };
 $('next').onclick = () => { page++; render(); };
 $('size').onchange = () => { pageSize = +$('size').value; page = 0; render(); };

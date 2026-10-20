@@ -40,7 +40,7 @@
   [hidden] { display:none !important; }
 </style>
 </head>
-<body>
+<body data-edit="admin">
 <header>
   <h1>People</h1>
   <span class="meta" id="nav"></span>
@@ -48,7 +48,7 @@
 </header>
 <main>
   <div id="err"></div>
-  <section class="card adminOnly" id="unlinkedCard" hidden>
+  <section class="card" id="unlinkedCard" hidden>
     <h2>Names in the logs that are not linked to a user</h2>
     <div class="mute" style="margin-bottom:8px">PIC/PAC/GCS names from the [PFC] messages. They are shown as logged until you link them.</div>
     <div class="scroll"><table><thead><tr><th>Name in log</th><th>Seen</th><th>Link to user</th></tr></thead><tbody id="unlinked"></tbody></table></div>
@@ -56,7 +56,8 @@
   <section class="card">
     <h2>People</h2>
     <div class="mute" id="peopleHint">Accounts that can sign in. Names from the logs are matched to these accounts.</div>
-    <form id="addUser" class="adminOnly" hidden onsubmit="addUser(event)">
+    <div class="pending" id="pending" hidden></div>
+    <form id="addUser" class="editOnly" hidden onsubmit="addUser(event)">
       <label class="field">Username<input id="newUser" required maxlength="40" autocomplete="off"></label>
       <label class="field">Display name<input id="newName" maxlength="80" autocomplete="off"></label>
       <label class="field">Email<input id="newEmail" type="email" required maxlength="120" autocomplete="off"></label>
@@ -98,10 +99,27 @@ async function load() {
 
 function render() {
   const admin = !!(me && me.is_admin);
-  document.querySelectorAll('.adminOnly').forEach(el => { el.hidden = !admin; });
-  $('peopleHint').textContent = admin
+  const editing = admin && window.editMode();
+  const open = admin ? people.unlinked.length : 0;
+  document.querySelectorAll('.editOnly').forEach(el => { el.hidden = !editing; });
+  if (!editing) $('setupBox').hidden = true;
+  $('unlinkedCard').hidden = !(editing && open);
+  $('pending').hidden = !(open && !editing);
+  $('pending').textContent = `${open} name${open === 1 ? ' in the logs is' : 's in the logs are'} not linked to a user yet. Turn on Edit in the menu to link ${open === 1 ? 'it' : 'them'}.`;
+  $('peopleHint').textContent = editing
     ? 'A user is also matched automatically by username and display name. You create the account; they choose their own password from a link. The default project is used for flights when the aircraft has none (uploader first, then GCS operator, then PIC). Removing a user keeps the logs they uploaded.'
     : 'Accounts that can sign in. Names from the logs are matched to these accounts.';
+  if (admin && !editing) {
+    const projName = id => ((people.projects || []).find(p => p.id === id) || {}).name || '';
+    $('usersHead').innerHTML = '<tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Aliases</th><th>Password</th></tr>';
+    $('users').innerHTML = people.users.map(u => `<tr><td>${esc(u.display_name || u.username)} <span class="mute">${esc(u.username)}${u.is_admin ? ' · admin' : ''}</span></td>
+      <td>${esc(u.email || '')}</td><td>${u.provider === 'saml' ? 'TU Delft SSO' : 'Local'}</td>
+      <td>${esc(projName(u.default_project_id))}</td>
+      <td>${(u.aliases || []).map(a => `<span class="chip">${esc(a)}</span>`).join('')}</td>
+      <td class="mute">${u.has_password ? 'Chosen' : 'Waiting'}</td></tr>`).join('')
+      || '<tr><td colspan="6" class="mute">No people yet.</td></tr>';
+    return;
+  }
   if (!admin) {
     $('usersHead').innerHTML = '<tr><th>Name</th><th>Username</th></tr>';
     $('users').innerHTML = people.users.map(u => `<tr><td>${esc(u.display_name || u.username)}${u.is_admin ? ' <span class="mute">admin</span>' : ''}</td>
@@ -198,6 +216,7 @@ fetch('/api/me').then(r => r.json()).then(d => {
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   load();
 });
+window.addEventListener('editchange', render);
 </script>
 </body>
 </html>
