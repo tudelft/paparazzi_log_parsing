@@ -1353,19 +1353,31 @@ def place_resolver(con):
     return place
 
 
-@app.get("/api/admin/places")
-def admin_places():
-    admin_required()
+@app.get("/api/places")
+def list_places():
+    """Named places with the (real) flights the current user can see in them, plus the takeoff/landing positions
+    of those flights rounded to ~100 m as a hint where to draw. Admins get every place; others only the places
+    that appear on a flight they can see."""
     con = conn()
-    places = [dict(id=r["id"], name=r["name"], indoor=bool(r["indoor"]), shape=json.loads(r["shape"]))
-              for r in con.execute("SELECT * FROM places ORDER BY name")]
-    # takeoff/landing positions, rounded to ~100 m, as a hint where to draw
-    pts = {}
-    for r in con.execute("SELECT takeoff_lat a, takeoff_lon b FROM flights UNION ALL SELECT landing_lat, landing_lon FROM flights"):
-        if r["a"] is not None:
-            k = (round(r["a"], 3), round(r["b"], 3))
-            pts[k] = pts.get(k, 0) + 1
-    return jsonify(places=places, points=[{"lat": k[0], "lon": k[1], "count": n} for k, n in pts.items()])
+    admin = bool(g.user["is_admin"])
+    stats, pts = {}, {}
+    for f in logbook_rows():
+        real = f.get("verdict") not in ("ground", "uncertain")
+        for pid in {f.get("takeoff_place_id"), f.get("landing_place_id")} - {None}:
+            s = stats.setdefault(pid, {"flights": 0, "seconds": 0.0, "last": None})
+            if real:
+                s["flights"] += 1
+                s["seconds"] += f.get("duration_s") or 0
+                s["last"] = max(s["last"] or "", f.get("takeoff_utc") or "") or None
+        for lat, lon in ((f.get("takeoff_lat"), f.get("takeoff_lon")), (f.get("landing_lat"), f.get("landing_lon"))):
+            if lat is not None and lon is not None:
+                k = (round(lat, 3), round(lon, 3))
+                pts[k] = pts.get(k, 0) + 1
+    places = [dict(id=r["id"], name=r["name"], indoor=bool(r["indoor"]), shape=json.loads(r["shape"]),
+                   **stats.get(r["id"], {"flights": 0, "seconds": 0.0, "last": None}))
+              for r in con.execute("SELECT * FROM places ORDER BY name") if admin or r["id"] in stats]
+    return jsonify(places=places, points=[{"lat": k[0], "lon": k[1], "count": n} for k, n in pts.items()],
+                   admin=admin)
 
 
 @app.post("/api/admin/places")
@@ -1416,7 +1428,6 @@ def admin_required():
 
 @app.get("/locations")
 def locations_page():
-    admin_required()
     return send_from_directory(PAGES_DIR, "locations.html")
 
 

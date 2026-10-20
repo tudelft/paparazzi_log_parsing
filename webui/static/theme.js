@@ -45,12 +45,11 @@
     if (p === '/' || p === '') return '/';
     return '';
   }
-  function paintNav(admin) {
+  function paintNav() {
     const nav = document.getElementById('nav');
     if (!nav) return;
     const here = currentTab();
-    const items = TABS.filter(([href]) => href !== '/locations' || admin);
-    nav.innerHTML = items.map(([href, label]) =>
+    nav.innerHTML = TABS.map(([href, label]) =>
       `<a href="${href}"${href === here ? ' class="cur" aria-current="page"' : ''}>${label}</a>`).join('');
   }
 
@@ -79,13 +78,13 @@
     location.href = '/login';
   };
 
-  let admin = cachedAdmin() || currentTab() === '/locations';
+  let admin = cachedAdmin();
   function ready(fn) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
     else fn();
   }
   ready(() => {
-    paintNav(admin);
+    paintNav();
     paintEdit();
     const who = document.getElementById('who');
     if (who && !/^\/(login|setup)/.test(location.pathname)) {
@@ -105,7 +104,6 @@
       const d = await r.json().catch(() => ({}));
       admin = !!(d.user && d.user.is_admin);
       setCachedAdmin(admin);
-      paintNav(admin);
       paintEdit();
     }).catch(() => {});
   }

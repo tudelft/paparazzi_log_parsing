@@ -144,19 +144,21 @@ parser on older and failed logs.
 
 **Logbook.** The parser tells onboard SD logs from ground station logs. The logbook (`/logbook`) has one row per
 flight and merges the SD and GCS recordings of the same flight: flight data from the SD log, PIC/PAC/GCS operator and
-goal from whichever log has them. Admins draw named takeoff areas on the Locations page (an area can be marked
-indoors; indoor flights are hidden by default). Logs without a valid date (missing or 1980 clock) are flagged so the
+goal from whichever log has them. Named takeoff areas are listed on the Locations page; everyone sees the ones their
+flights used, and admins add, change or delete them there in edit mode (an area can be marked indoors; indoor flights
+are hidden by default). Logs without a valid date (missing or 1980 clock) are flagged so the
 real day can be entered.
 
 **Edit mode.** The Edit button in the menu bar shows the forms and menus to change things on the Logbook, People,
-Projects and Aircraft pages; it stays on until you turn it off. With edit mode on, admins also see the names in the
+Projects, Aircraft and Locations pages; it stays on until you turn it off. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
 are left.
 
 **Overview pages.** Every person, aircraft, project and location has its own page (`/people/<id>`, `/aircraft/<id>`,
 `/projects/<id>`, `/locations/<id>`; click a name anywhere). It shows totals (flights, flight time, distance, flying
-days, log files), a map of takeoff spots, flight time per month, breakdowns per aircraft/project/location/crew, and the
-lists of flights and log files. Admins see everything; others only see the pages and the flights and logs they have
+days, log files) next to a map of takeoff spots, a flight time chart (last year per month by default; the period and
+the step from day to year can be changed), breakdowns per aircraft/project/location/crew, and paged lists of flights
+and log files. Admins see everything; others only see the pages and the flights and logs they have
 access to.
 
 **Real flight or not.** The autopilot's in-flight flag also toggles on the ground (arming, motor tests, carrying).

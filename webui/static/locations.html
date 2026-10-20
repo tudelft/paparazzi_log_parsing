@@ -30,9 +30,10 @@
   button.sec { background:var(--sec); color:var(--txt); }
   input, select { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
   #err { color:var(--err); margin-bottom:8px; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
 </style>
 </head>
-<body>
+<body data-edit="admin">
 <header>
   <h1>Locations</h1>
   <span class="meta" id="nav"></span>
@@ -42,13 +43,13 @@
   <div id="err"></div>
   <section class="card">
     <h2>Named places (takeoff / landing locations)</h2>
-    <div class="mute" style="margin-bottom:8px">Draw a polygon, rectangle or circle with the tools on the map, then give it a name. Takeoffs and landings inside it show that name in the logbook (the smallest matching shape wins). Blue dots are positions where flights took off or landed.</div>
+    <div class="mute" style="margin-bottom:8px"><span id="intro"></span> Blue dots are positions where flights took off or landed.</div>
     <div id="map"></div>
     <div id="mapMsg" class="mute" style="margin-top:6px"></div>
     <div id="nameForm" style="margin-top:8px" hidden>
       <span id="nameLabel"></span> <input id="placeName" size="30" maxlength="80" placeholder="Name"> <label><input type="checkbox" id="placeIndoor"> Indoors</label> <button id="nameSave">Save</button> <button id="nameCancel" class="sec">Cancel</button>
     </div>
-    <div class="scroll"><table style="margin-top:8px"><thead><tr><th>Name</th><th>Type</th><th>Shape</th><th></th></tr></thead><tbody id="places"></tbody></table></div>
+    <div class="scroll"><table style="margin-top:8px"><thead><tr><th>Name</th><th>Type</th><th>Shape</th><th class="num">Flights</th><th class="num">Flight time</th><th>Last flight</th><th></th></tr></thead><tbody id="places"></tbody></table></div>
   </section>
 </main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -69,8 +70,13 @@ async function send(method, url, body) {
   if (r.ok) loadPlaces();
 }
 
-let map, layers, placeData = {places: [], points: []}, fitted = false;
+let map, layers, drawControl = null, placeData = {places: [], points: [], admin: false}, fitted = false;
 const layerById = new Map();
+const canEdit = () => placeData.admin && window.editMode();
+const fmtHours = s => {
+  const t = Math.max(0, Math.round(s || 0));
+  return `${Math.floor(t / 3600)}h ${String(Math.floor((t % 3600) / 60)).padStart(2, '0')}m`;
+};
 
 function shapeOf(layer) {
   if (layer instanceof L.Circle) { const c = layer.getLatLng(); return {type: 'circle', center: [c.lat, c.lng], radius_m: layer.getRadius()}; }
@@ -109,10 +115,6 @@ function initMap() {
   map = L.map('map').setView([52.0, 4.4], 8);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap contributors'}).addTo(map);
   layers = new L.FeatureGroup().addTo(map);
-  map.addControl(new L.Control.Draw({
-    edit: {featureGroup: layers},
-    draw: {polygon: {allowIntersection: false}, rectangle: {}, circle: {}, polyline: false, marker: false, circlemarker: false}
-  }));
   map.on(L.Draw.Event.CREATED, e => {
     pendingLayer = e.layer.addTo(map);
     askName({kind: 'new', shape: shapeOf(e.layer)}, 'Name for the new place:', '');
@@ -128,13 +130,43 @@ function initMap() {
   });
 }
 
-async function loadPlaces() {
-  const r = await fetch('/api/admin/places');
-  if (r.status === 403) { location.href = '/'; return; }
-  placeData = await r.json();
+// The drawing tools and the Edit/Delete buttons are only there for admins with edit mode on.
+function paintMode() {
+  const edit = canEdit();
+  $('intro').textContent = edit
+    ? 'Draw a polygon, rectangle or circle with the tools on the map, then give it a name. Takeoffs and landings inside it show that name in the logbook (the smallest matching shape wins).'
+    : placeData.admin
+      ? 'Takeoffs and landings inside a place show its name in the logbook. Turn on Edit (top right) to add, change or delete places.'
+      : 'Places where flights you have access to took off or landed.';
+  if (!edit) closeName();
+  if (map) {
+    if (edit && !drawControl) {
+      drawControl = new L.Control.Draw({
+        edit: {featureGroup: layers},
+        draw: {polygon: {allowIntersection: false}, rectangle: {}, circle: {}, polyline: false, marker: false, circlemarker: false}
+      });
+      map.addControl(drawControl);
+    } else if (!edit && drawControl) {
+      drawControl.remove();
+      drawControl = null;
+    }
+  }
+  renderTable();
+}
+
+function renderTable() {
+  const edit = canEdit();
   $('places').innerHTML = placeData.places.map(p => `<tr><td><a href="/locations/${p.id}">${esc(p.name)}</a></td><td>${p.indoor ? 'Indoors' : 'Outdoors'}</td><td class="mute">${p.shape.type === 'circle' ? 'circle, ' + Math.round(p.shape.radius_m) + ' m' : 'polygon, ' + p.shape.points.length + ' points'}</td>
-    <td><button onclick="renamePlace(${p.id})">Edit</button> <button onclick="zoomPlace(${p.id})">Show</button> <button class="danger" onclick="deletePlace(${p.id})">Delete</button></td></tr>`).join('')
-    || '<tr><td colspan="4" class="mute">No places yet.</td></tr>';
+    <td class="num">${p.flights}</td><td class="num">${fmtHours(p.seconds)}</td><td>${esc((p.last || '').slice(0, 10))}</td>
+    <td><button class="sec" onclick="zoomPlace(${p.id})">Show</button>${edit ? ` <button onclick="renamePlace(${p.id})">Edit</button> <button class="danger" onclick="deletePlace(${p.id})">Delete</button>` : ''}</td></tr>`).join('')
+    || `<tr><td colspan="7" class="mute">${placeData.admin ? 'No places yet.' : 'No named places on your flights yet.'}</td></tr>`;
+}
+
+async function loadPlaces() {
+  const r = await fetch('/api/places');
+  if (!r.ok) { $('err').textContent = 'Could not load the places.'; return; }
+  placeData = await r.json();
+  paintMode();
   if (!map) return;
   layers.clearLayers(); layerById.clear();
   if (window.pointLayer) pointLayer.remove();
@@ -156,9 +188,9 @@ function renamePlace(id) {
 async function deletePlace(id) { if (confirm('Delete this place?')) await send('DELETE', '/api/admin/places/' + id); }
 
 fetch('/api/me').then(r => r.json()).then(d => {
-  if (!d.user.is_admin) { location.href = '/'; return; }
-  $('who').textContent = d.user.display_name + ' (admin)';
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
 });
+window.addEventListener('editchange', paintMode);
 initMap();
 loadPlaces();
 </script>

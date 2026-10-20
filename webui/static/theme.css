@@ -61,6 +61,10 @@ body > header #nav a {
   border-top: 3px solid transparent;
   transition: background .12s, color .12s;
 }
+@media (max-width: 1150px) {
+  body > header h1 { flex-basis: 7em; width: 7em; min-width: 7em; }
+  body > header #nav a { padding: 0 9px; }
+}
 body > header #nav a:hover { color: #fff; background: rgba(255,255,255,.07); }
 body > header #nav a.cur {
   color: #fff;
