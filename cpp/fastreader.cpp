@@ -58,6 +58,26 @@ double step_distance_m(double lat1, double lon1, double alt1, double lat2, doubl
   return std::hypot(earth_distance_m(lat1, lon1, lat2, lon2), alt2 - alt1);
 }
 
+// WGS84 ECEF metres -> lat/lon degrees and height above the ellipsoid.
+bool ecef_to_lla(double x, double y, double z, double &lat_deg, double &lon_deg, double &alt_m)
+{
+  const double a = 6378137.0, e2 = 6.69437999014e-3;
+  double r = std::hypot(x, y);
+  if (r < 1000 && std::fabs(z) < 1000) { return false; }
+  lon_deg = std::atan2(y, x) * 180.0 / M_PI;
+  double phi = std::atan2(z, r * (1 - e2));
+  double alt = 0;
+  for (int i = 0; i < 8; i++) {
+    double s = std::sin(phi);
+    double N = a / std::sqrt(1 - e2 * s * s);
+    alt = r / std::cos(phi) - N;
+    phi = std::atan2(z, r * (1 - e2 * N / (N + alt)));
+  }
+  lat_deg = phi * 180.0 / M_PI;
+  alt_m = alt;
+  return lat_deg >= -90.0 && lat_deg <= 90.0;
+}
+
 struct PathPoint {
   double t, lat, lon, alt;
   double distance_m;       // cumulative 3D distance flown along the path [m]
@@ -892,7 +912,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.3.5";
+constexpr const char *PARSER_VERSION = "1.3.6";
 
 // Onboard logs often stamp each line with get_sys_time_usec()/1e6. That counter is
 // uint32 microseconds, so the time column wraps every 2^32 us (~71.58 min). Long
@@ -1132,18 +1152,35 @@ int main(int argc, char *argv[])
         break;
       case 'G':
         if (name == "GPS_INT") {
-          // fields: 0-2 ecef, 3 lat, 4 lon, 5 alt (WGS84), 6 hmsl, ..., 14 numsv, 15 fix
-          for (int i = 0; i < 3; i++) { next_token(q, eol); }
-          int32_t lat, lon, alt;
-          if (!to_num(next_token(q, eol), lat) || !to_num(next_token(q, eol), lon) ||
-              !to_num(next_token(q, eol), alt)) { break; }
+          // fields: 0-2 ecef (cm), 3 lat, 4 lon (1e-7 deg), 5 alt (mm), 6 hmsl, ..., 14 numsv, 15 fix
+          int32_t ex, ey, ez, lat, lon, alt;
+          if (!to_num(next_token(q, eol), ex) || !to_num(next_token(q, eol), ey) ||
+              !to_num(next_token(q, eol), ez) || !to_num(next_token(q, eol), lat) ||
+              !to_num(next_token(q, eol), lon) || !to_num(next_token(q, eol), alt)) { break; }
           for (int i = 0; i < 9; i++) { next_token(q, eol); }  // hmsl .. numsv
           int fix = 0;
           to_num(next_token(q, eol), fix);
           if (fix < 3) { break; }
+          double lat_d = lat * 1e-7, lon_d = lon * 1e-7, alt_d = alt * 1e-3;
+          // Some onboard dumps drop a digit of lat/lon (528654232 -> 52865423), which the 1e-7
+          // scale turns into West Africa. ECEF in the same message is still the real position.
+          double elat, elon, ealt;
+          if (ecef_to_lla(ex / 100.0, ey / 100.0, ez / 100.0, elat, elon, ealt)) {
+            const double R = std::hypot(ex / 100.0, std::hypot(ey / 100.0, ez / 100.0));
+            const bool dummy = std::fabs(R - 6378137.0) < 50 && std::abs(ey) < 100 && std::abs(ez) < 100;
+            if (!dummy && R > 6.3e6 && R < 6.5e6 && earth_distance_m(lat_d, lon_d, elat, elon) > 500) {
+              const double lat6 = lat * 1e-6, lon6 = lon * 1e-6;
+              if (earth_distance_m(lat6, lon6, elat, elon) < 500) {
+                lat_d = lat6; lon_d = lon6; alt_d = alt * 1e-2;
+              } else {
+                lat_d = elat; lon_d = elon; alt_d = ealt;
+              }
+            }
+          }
+          if (!Flight::plausible_ll(lat_d, lon_d)) { break; }
           AircraftState &s = touch(ac, t);
           s.has_gps = true;
-          s.lat = lat * 1e-7; s.lon = lon * 1e-7; s.alt = alt * 1e-3;
+          s.lat = lat_d; s.lon = lon_d; s.alt = alt_d;
           if (s.in_flight && !s.flights.empty()) {
             Flight &f = s.flights.back();
             f.stats.add_gps(s.lat, s.lon, s.alt);

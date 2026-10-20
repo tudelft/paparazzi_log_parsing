@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Admin – projects</title>
+<title>Projects</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/theme.js"></script>
 <link rel="stylesheet" href="/theme.css">
@@ -27,7 +27,9 @@
   button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
   input, select { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
   #err { color:var(--err); min-height:1.2em; }
-  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin-top:8px; }
+  .row { gap:8px; flex-wrap:wrap; align-items:end; margin-top:8px; }
+  .row:not([hidden]) { display:flex; }
+  [hidden] { display:none !important; }
   label.field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
   tr.project { cursor:pointer; font-weight:600; background:var(--band); }
   tr.project:hover { background:var(--hover); }
@@ -40,21 +42,16 @@
 </head>
 <body>
 <header>
-  <h1>Admin</h1>
+  <h1>Projects</h1>
   <span class="meta" id="nav"></span>
   <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
 </header>
 <main>
-  <nav class="tabs">
-    <a href="/admin">People</a>
-    <a href="/projects" class="cur">Projects</a>
-    <a href="/aircraft">Aircraft</a>
-  </nav>
   <div id="err"></div>
   <section class="card">
     <h2>Projects</h2>
-    <div class="mute">A project is a separate set of flight logs. Click a row and tick who can see, upload or delete.</div>
-    <form class="row" id="add" onsubmit="addProject(event)">
+    <div class="mute" id="hint">A project is a separate set of flight logs. Click a row to see who is on it.</div>
+    <form class="row" id="add" hidden onsubmit="addProject(event)">
       <label class="field">Name<input id="name" required maxlength="80"></label>
       <button type="submit">Create project</button>
     </form>
@@ -75,8 +72,9 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
-let projects = [], users = [];
+let projects = [], users = [], me = null;
 const open_ = new Set();
+const ROLE_LABEL = {view: 'See', add: 'See, upload', full: 'See, upload, delete'};
 const ticksOf = role => ({see: !!role, upload: role === 'add' || role === 'full', del: role === 'full'});
 function roleFromBoxes(see, upload, del) {
   if (del) return 'full';
@@ -102,29 +100,48 @@ function applyTicks(prefix) {
 }
 
 async function load() {
-  const [p, people] = await Promise.all([
-    fetch('/api/admin/projects').then(r => { if (r.status === 403) { location.href = '/'; return {projects: []}; } return r.json(); }),
-    fetch('/api/admin/people').then(r => r.ok ? r.json() : {users: []})
-  ]);
-  projects = p.projects || [];
-  users = people.users || [];
+  const admin = !!(me && me.is_admin);
+  $('add').hidden = !admin;
+  $('hint').textContent = admin
+    ? 'A project is a separate set of flight logs. Click a row and tick who can see, upload or delete.'
+    : 'Projects you belong to. Click a row to see who is on them.';
+  if (admin) {
+    const [p, people] = await Promise.all([
+      fetch('/api/admin/projects').then(r => r.json()),
+      fetch('/api/admin/people').then(r => r.ok ? r.json() : {users: []})
+    ]);
+    projects = p.projects || [];
+    users = people.users || [];
+  } else {
+    projects = await fetch('/api/projects').then(r => r.json());
+    users = [];
+  }
   render();
 }
 function peoplePreview(p) {
-  if (!p.members.length) return '<span class="mute">Nobody yet</span>';
-  return p.members.map(m => esc(m.display_name || m.username)).join(', ');
+  const members = p.members || [];
+  if (!members.length) return '<span class="mute">Nobody yet</span>';
+  return members.map(m => esc(m.display_name || m.username)).join(', ');
 }
 function projectRows(p) {
   const isOpen = open_.has(p.id);
-  const byId = Object.fromEntries(p.members.map(m => [m.user_id, m.role]));
-  const list = users.map(u => `<div class="person"><span>${esc(u.display_name || u.username)} <span class="mute">${esc(u.username)}</span></span>${tickBoxes('m' + p.id + '_' + u.id, byId[u.id] || '', `saveTicks(${p.id}, ${u.id})`)}</div>`).join('')
-    || '<p class="mute">Create a user on the People tab first.</p>';
-  const detail = `${list}
+  const members = p.members || [];
+  const byId = Object.fromEntries(members.map(m => [m.user_id, m.role]));
+  const admin = !!(me && me.is_admin);
+  let detail;
+  if (admin) {
+    const list = users.map(u => `<div class="person"><span>${esc(u.display_name || u.username)} <span class="mute">${esc(u.username)}</span></span>${tickBoxes('m' + p.id + '_' + u.id, byId[u.id] || '', `saveTicks(${p.id}, ${u.id})`)}</div>`).join('')
+      || '<p class="mute">Create a user on the People tab first.</p>';
+    detail = `${list}
     <div class="row">
       <label class="field">Rename<input id="ren${p.id}" value="${esc(p.name)}" maxlength="80" autocomplete="off"></label>
       <button type="button" class="sec" onclick="renameProject(${p.id})">Rename</button>
       <button type="button" class="danger" onclick="removeProject(${p.id})">Delete project</button>
     </div>`;
+  } else {
+    detail = members.map(m => `<div class="person"><span>${esc(m.display_name || m.username)} <span class="mute">${esc(m.username)}</span></span><span class="mute">${esc(ROLE_LABEL[m.role] || m.role)}</span></div>`).join('')
+      || '<p class="mute">Nobody listed on this project.</p>';
+  }
   return `<tr class="project" data-id="${p.id}"><td>${isOpen ? '▾' : '▸'} ${esc(p.name)}</td><td>${p.log_count}</td><td>${peoplePreview(p)}</td></tr>`
     + (isOpen ? `<tr><td colspan="3" class="detail">${detail}</td></tr>` : '');
 }
@@ -170,8 +187,8 @@ function removeProject(id) {
     send('/api/admin/projects/' + id, 'DELETE');
 }
 fetch('/api/me').then(r => r.json()).then(d => {
-  if (!d.user.is_admin) { location.href = '/'; return; }
-  $('who').textContent = d.user.display_name + ' (admin)';
+  me = d.user;
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   load();
 });
 </script>
