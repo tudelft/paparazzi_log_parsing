@@ -3276,6 +3276,7 @@ def reparse(log_id):
 @app.post("/api/reparse-outdated")
 def reparse_outdated():
     """Queue every log parsed by another parser version than the installed one, and failed ones."""
+    admin_required()
     version = parser_version()
     app.config["PARSER_VERSION"] = version
     con = conn()
