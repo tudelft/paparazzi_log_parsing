@@ -2666,6 +2666,11 @@ def logbook_rows():
         r["takeoff_place"], r["indoor"], r["takeoff_place_id"] = place(r["takeoff_lat"], r["takeoff_lon"])
         r["landing_place"], _, r["landing_place_id"] = place(r["landing_lat"], r["landing_lon"])
         r["assessment"] = json.loads(r.pop("assessment_json") or "null")
+        r["optitrack"] = bool((r["assessment"] or {}).get("optitrack"))
+        # Indoor: takeoff inside a named indoor place, or OptiTrack / motion capture in the log.
+        r["indoor"] = bool(r["indoor"] or r["optitrack"])
+        if r["optitrack"] and not r["takeoff_place"]:
+            r["takeoff_place"] = "OptiTrack"
         pid = effective_flight_project(r)
         r["project_id"] = pid
         r["project_name"] = names.get(pid)

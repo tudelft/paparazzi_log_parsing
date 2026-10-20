@@ -146,6 +146,7 @@ struct Flight {
   double takeoff_time = 0, landing_time = 0;
   double lat = 0, lon = 0, alt = 0;  // deg, deg, m (WGS84)
   bool has_pos = false;
+  bool has_optitrack = false;  // EXTERNAL_POSE / OptiTrack-as-GPS (3D fix, 0 satellites)
   bool has_takeoff_volt = false, has_land_volt = false;
   double takeoff_volt = 0, land_volt = 0;
   Wind takeoff_wind, land_wind;
@@ -239,19 +240,29 @@ Assessment assess(const Flight &f) {
   else if (dur < 10) { add(-1.5, "shorter than 10 s"); }
   else if (dur >= 30) { add(1, "longer than 30 s"); }
 
-  // A constant barometric altitude means the message carries no usable value
+  // A constant barometric altitude means the message carries no usable value.
+  // Skip the altitude penalty when there is no INS, GPS or changing baro — GPS-denied logs
+  // would otherwise be hidden from the logbook as "uncertain" / "ground".
+  const bool has_climb = st.ins_up.any || st.baro.span() > 0 || st.gps_alt.any;
   double climb = st.ins_up.any ? st.ins_up.span() : st.baro.span() > 0 ? st.baro.span() : st.gps_alt.span();
-  if (climb >= 1.5) { add(2.5, "altitude changed by more than 1.5 m"); }
-  else if (climb >= 0.5) { add(1, "altitude changed by more than 0.5 m"); }
-  else { add(-1.5, "altitude hardly changed"); }
+  if (has_climb) {
+    if (climb >= 1.5) { add(2.5, "altitude changed by more than 1.5 m"); }
+    else if (climb >= 0.5) { add(1, "altitude changed by more than 0.5 m"); }
+    else { add(-1.5, "altitude hardly changed"); }
+  } else {
+    add(0, "no GPS or altitude to judge movement");
+  }
 
+  const bool has_horiz = st.ins_n.any || st.gps_lat.any;
   double horiz = st.ins_n.any ? st.ins_horizontal_m() : st.gps_horizontal_m();
-  if (horiz >= 3) { add(1.5, "moved more than 3 m horizontally"); }
-  else if (horiz >= 1) { add(0.5, "moved more than 1 m horizontally"); }
+  if (has_horiz) {
+    if (horiz >= 3) { add(1.5, "moved more than 3 m horizontally"); }
+    else if (horiz >= 1) { add(0.5, "moved more than 1 m horizontally"); }
+  }
 
   // Taxi / ground test: motors on and rolling, but height hardly changes.
   // Known taxis climb < 0.5 m while rolling 16–66 m; real flights in the set climb ≥ 26 m.
-  bool ground_roll = climb < 1.5 && horiz >= 3;
+  bool ground_roll = has_climb && has_horiz && climb < 1.5 && horiz >= 3;
   if (ground_roll) { add(-4, "moved on the ground without climbing"); }
 
   if (st.max_speed >= 1) { add(1, "speed above 1 m/s"); }
@@ -268,6 +279,11 @@ Assessment assess(const Flight &f) {
     if (on < 0.5) { add(-3, "motors off for most of the flight"); motors_off = true; }
     else if (on < 0.9 && st.status_msgs >= 3) { add(-1, "motors off for part of the flight"); }
     else if (on >= 0.9) { add(0.5, "motors on throughout"); }
+  }
+  // GPS-denied: duration + motors is the evidence we have. Without this, indoor / no-GPS
+  // logs stay "uncertain" and the logbook hides them by default.
+  if (!has_climb && !has_horiz && !motors_off && dur >= 30) {
+    add(2, "in flight for over 30 s without GPS");
   }
   // Under 2 s the flag most likely flickered, whatever the movement
   const char *verdict = motors_off || ground_roll ? "ground"
@@ -296,6 +312,7 @@ struct AircraftState {
   std::set<std::string> versions;
   std::vector<InfoMsg> infos;
   bool has_gps = false;
+  bool has_optitrack = false;  // motion capture / OptiTrack on this aircraft in this log
   bool has_baro = false;
   double pressure = 0, baro_alt = 0;
   bool has_volt = false, has_as = false;
@@ -394,6 +411,24 @@ std::string xml_attr(const std::string &line, size_t from, const char *key)
     return e == std::string::npos ? "" : line.substr(v, e - v);
   }
   return "";
+}
+
+bool xml_contains_ci(const std::string &xml, const char *needle)
+{
+  if (!needle || !*needle || xml.empty()) { return false; }
+  const size_t n = std::strlen(needle);
+  for (size_t i = 0; i + n <= xml.size(); i++) {
+    bool ok = true;
+    for (size_t j = 0; j < n; j++) {
+      if (std::tolower(static_cast<unsigned char>(xml[i + j])) !=
+          std::tolower(static_cast<unsigned char>(needle[j]))) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) { return true; }
+  }
+  return false;
 }
 
 // Read aircraft names, configuration and start time from the .log file
@@ -912,7 +947,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.3.6";
+constexpr const char *PARSER_VERSION = "1.3.8";
 
 // Onboard logs often stamp each line with get_sys_time_usec()/1e6. That counter is
 // uint32 microseconds, so the time column wraps every 2^32 us (~71.58 min). Long
@@ -1133,6 +1168,7 @@ int main(int argc, char *argv[])
             f.takeoff_wind = s.wind;
             f.takeoff_ins = s.ins;
             f.has_pos = s.has_gps;
+            f.has_optitrack = s.has_optitrack;
             f.lat = s.lat; f.lon = s.lon; f.alt = s.alt;
             s.flights.push_back(f);
           } else if (!now && s.in_flight && !s.flights.empty()) {
@@ -1157,10 +1193,13 @@ int main(int argc, char *argv[])
           if (!to_num(next_token(q, eol), ex) || !to_num(next_token(q, eol), ey) ||
               !to_num(next_token(q, eol), ez) || !to_num(next_token(q, eol), lat) ||
               !to_num(next_token(q, eol), lon) || !to_num(next_token(q, eol), alt)) { break; }
-          for (int i = 0; i < 9; i++) { next_token(q, eol); }  // hmsl .. numsv
-          int fix = 0;
+          for (int i = 0; i < 8; i++) { next_token(q, eol); }  // hmsl .. pdop
+          int numsv = 0, fix = 0;
+          to_num(next_token(q, eol), numsv);
           to_num(next_token(q, eol), fix);
           if (fix < 3) { break; }
+          // OptiTrack injected as GPS typically has a 3D fix and no satellites.
+          if (numsv == 0) { touch(ac, t).has_optitrack = true; }
           double lat_d = lat * 1e-7, lon_d = lon * 1e-7, alt_d = alt * 1e-3;
           // Some onboard dumps drop a digit of lat/lon (528654232 -> 52865423), which the 1e-7
           // scale turns into West Africa. ECEF in the same message is still the real position.
@@ -1205,6 +1244,11 @@ int main(int argc, char *argv[])
           if (!to_num(next_token(q, eol), idx) || !to_num(next_token(q, eol), val)) { break; }
           AircraftState &s = touch(ac, t);
           s.setting_samples.push_back({t, idx, val, s.in_flight});
+        }
+        break;
+      case 'E':
+        if (name == "EXTERNAL_POSE" || name == "EXTERNAL_POSE_SMALL" || name == "EXTERNAL_POSE_DOWN") {
+          touch(ac, t).has_optitrack = true;
         }
         break;
       case 'W':
@@ -1335,6 +1379,16 @@ int main(int argc, char *argv[])
     if (it == hdr.confs.end()) { it = hdr.confs.find(-1); }
     return it == hdr.confs.end() ? nullptr : &it->second;
   };
+  for (int id : report_ids) {
+    AircraftState &s = acs[id];
+    const AcConf *cf = conf_of(id);
+    if (cf && (xml_contains_ci(cf->airframe_xml, "optitrack") || xml_contains_ci(cf->flight_plan_xml, "optitrack"))) {
+      s.has_optitrack = true;
+    }
+    if (s.has_optitrack) {
+      for (auto &fl : s.flights) { fl.has_optitrack = true; }
+    }
+  };
   auto mode_name = [&](const char *field, int v) {
     if (v < 0) { return std::string("null"); }
     auto it = hdr.mode_names.find(field);
@@ -1405,7 +1459,8 @@ int main(int argc, char *argv[])
                     ", \"gps_horizontal_m\": " + (st.gps_lat.any ? num(st.gps_horizontal_m()) : "null") +
                     ", \"max_speed_ms\": " + num(st.max_speed) + ", \"max_vertical_speed_ms\": " + num(st.max_vspeed) +
                     ", \"motors_on_fraction\": " + (st.status_msgs ? num(static_cast<double>(st.motors_on_msgs) / st.status_msgs) : "null") +
-                    ", \"max_tilt_deg\": " + num(st.max_tilt_deg) + ", \"acc_rms_ms2\": " + num(st.acc_rms()) + "}}";
+                    ", \"max_tilt_deg\": " + num(st.max_tilt_deg) + ", \"acc_rms_ms2\": " + num(st.acc_rms()) +
+                    "}, \"optitrack\": " + std::string(f.has_optitrack ? "true" : "false") + "}";
     return m;
   };
 
