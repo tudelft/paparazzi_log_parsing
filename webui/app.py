@@ -4,9 +4,12 @@ Uploaded logs are kept on disk, hashed (sha256 of the .data file) and parsed wit
 into a SQLite database. A log with a known hash is never stored or parsed twice. The version of the
 parser that produced the stored result is recorded so outdated results can be re-parsed later.
 """
+import contextlib
+import copy
 import csv
 import hashlib
 import difflib
+import functools
 import io
 import json
 import math
@@ -42,7 +45,8 @@ from config import env, env_bool, env_float, env_int, env_path
 
 HERE = Path(__file__).resolve().parent
 DATA_DIR = env_path("WEB_DATA")
-STORAGE_DIR = DATA_DIR / "logs"
+STORAGE_DIR = config.log_dir()
+STAGE_DIR = STORAGE_DIR / ".incoming"  # on the same filesystem as the logs, so storing a staged upload is a rename
 TMP_DIR = DATA_DIR / "tmp"
 DB_PATH = str(DATA_DIR / "logs.db")
 FASTREADER = str(env_path("FASTREADER"))
@@ -112,6 +116,35 @@ def clean_relpath(name):
     return "/".join(parts)
 
 
+def write_atomic(path, data):
+    """Write a file so readers (and backups of a network share) never see it half-written."""
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        with open(tmp, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+@functools.lru_cache(maxsize=32)
+def load_paths(paths_file):
+    """All flight paths of one log. File names change on every parse, so the cache never goes stale."""
+    try:
+        return db.unpack((STORAGE_DIR / paths_file).read_bytes()) or []
+    except FileNotFoundError:
+        return []
+
+
+def flight_path(paths_file, idx, days=0):
+    """One flight's path, with its times shifted by `days` (a copy, so the cached paths stay unchanged)."""
+    paths = load_paths(paths_file) if paths_file else []
+    path = paths[idx] if idx is not None and 0 <= idx < len(paths) else []
+    return apply_clock_to_obj(copy.deepcopy(path), days) if days else path
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------------------------------------------------
@@ -126,7 +159,7 @@ def parse_log(log_id):
         con.commit()
 
     db.retry_locked(mark_parsing, con)
-    out_path = None
+    out_path = new_paths = None
     try:
         data_path = STORAGE_DIR / row["data_path"]
         cmd = [FASTREADER, "-r", str(PATH_RATE), "--sha256", row["sha256"], str(data_path)]
@@ -140,12 +173,20 @@ def parse_log(log_id):
         seconds = time.time() - t0
         with open(out_path, "rb") as f:
             doc = json.load(f)
+        os.remove(out_path)
+        out_path = None
+        paths_rel = str(Path(row["data_path"]).parent / f"paths-{uuid.uuid4().hex[:12]}.json.gz")
+        write_atomic(STORAGE_DIR / paths_rel, db.pack(db.flight_paths(doc)))
+        new_paths = STORAGE_DIR / paths_rel
+        old_paths = None
 
         def save():
+            nonlocal old_paths
             with db.write_lock:
                 con.execute("BEGIN IMMEDIATE")
+                old_paths = con.execute("SELECT paths_file FROM logs WHERE id=?", (log_id,)).fetchone()[0]
                 kept = snapshot_flight_edits(con, log_id)
-                db.store_parsed(con, log_id, doc)
+                db.store_parsed(con, log_id, doc, paths_rel)
                 link_log_aircraft(con, log_id)
                 assign_log_flights(con, log_id, kept)
                 con.execute("UPDATE logs SET status='done', error=NULL, parsed_at=?, parse_seconds=? WHERE id=?",
@@ -153,11 +194,17 @@ def parse_log(log_id):
                 con.commit()
 
         db.retry_locked(save, con)
+        new_paths = None
+        if old_paths and old_paths != paths_rel:
+            (STORAGE_DIR / old_paths).unlink(missing_ok=True)
     except Exception as e:  # noqa: BLE001 - any failure is reported on the log row
         try:
             con.rollback()
         except sqlite3.Error:
             pass
+        if new_paths is not None:
+            new_paths.unlink(missing_ok=True)
+
         def mark_error():
             con.execute("UPDATE logs SET status='error', error=? WHERE id=?", (str(e)[:2000], log_id))
             con.commit()
@@ -180,7 +227,7 @@ def worker():
 def start_workers():
     STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     TMP_DIR.mkdir(parents=True, exist_ok=True)
-    (TMP_DIR / "ingest").mkdir(parents=True, exist_ok=True)
+    STAGE_DIR.mkdir(parents=True, exist_ok=True)
     db.init(DB_PATH)
     con = conn()
     assign_open_flights(con)
@@ -219,7 +266,19 @@ def store_files(sha, name, data_src, log_src):
 
 
 def ingest_stage(rel):
-    return DATA_DIR / rel
+    return STAGE_DIR / rel
+
+
+def drop_stage(stage):
+    """Delete a staging directory and its parents in STAGE_DIR once they are empty."""
+    shutil.rmtree(stage, ignore_errors=True)
+    for parent in stage.parents:
+        if parent == STAGE_DIR:
+            break
+        try:
+            parent.rmdir()
+        except OSError:
+            break
 
 
 def insert_ingest(con, kind, name, stage_rel, data_name, log_name, size_bytes, user_id):
@@ -281,7 +340,7 @@ def explode_zip(con, row):
         zf = zipfile.ZipFile(zip_path)
     except zipfile.BadZipFile:
         set_ingest(con, row["id"], status="error", error="not a valid zip file")
-        shutil.rmtree(stage, ignore_errors=True)
+        drop_stage(stage)
         return
     unpacked = stage / "unpacked"
     unpacked.mkdir(parents=True, exist_ok=True)
@@ -302,7 +361,7 @@ def explode_zip(con, row):
         name = posixpath.join(d, stem + ".data") if d else stem + ".data"
         if ".data" not in parts or ".log" not in parts:
             continue
-        pair_rel = str(Path(row["stage_dir"]) / "p" / uuid.uuid4().hex)
+        pair_rel = str(Path(row["stage_dir"]) / uuid.uuid4().hex)  # beside "unpacked", so the stage is not empty yet
         pair_dir = ingest_stage(pair_rel)
         pair_dir.mkdir(parents=True, exist_ok=True)
         data_name = "log.data"
@@ -320,7 +379,7 @@ def explode_zip(con, row):
         pass
     if n == 0:
         set_ingest(con, row["id"], status="rejected", error="zip had no .data/.log pairs")
-        shutil.rmtree(stage, ignore_errors=True)
+        drop_stage(stage)
         return
     set_ingest(con, row["id"], status="stored", error=None)
 
@@ -333,12 +392,12 @@ def ingest_pair(con, row):
     name = row["name"]
     if not data_src.is_file():
         set_ingest(con, row["id"], status="error", error="staged .data file is missing")
-        shutil.rmtree(stage, ignore_errors=True)
+        drop_stage(stage)
         return
     size = data_src.stat().st_size
     if size == 0:
         set_ingest(con, row["id"], status="rejected", error="empty .data file")
-        shutil.rmtree(stage, ignore_errors=True)
+        drop_stage(stage)
         return
     sha = sha256_file(str(data_src))
     existing = con.execute("SELECT id, log_path, uploaded_by FROM logs WHERE sha256=?", (sha,)).fetchone()
@@ -349,7 +408,7 @@ def ingest_pair(con, row):
         is_admin = bool(u and u["is_admin"])
     if existing is not None and not is_admin and existing["uploaded_by"] != user_id:
         set_ingest(con, row["id"], status="duplicate", error="already uploaded by another user", log_id=existing["id"])
-        shutil.rmtree(stage, ignore_errors=True)
+        drop_stage(stage)
         return
     if existing is not None:
         if existing["log_path"] is None and log_src and log_src.is_file():
@@ -370,7 +429,7 @@ def ingest_pair(con, row):
                        log_id=existing["id"])
         else:
             set_ingest(con, row["id"], status="duplicate", error="already uploaded", log_id=existing["id"])
-        shutil.rmtree(stage, ignore_errors=True)
+        drop_stage(stage)
         return
     data_rel, log_rel = store_files(sha, name, str(data_src), str(log_src) if log_src and log_src.is_file() else None)
 
@@ -389,7 +448,7 @@ def ingest_pair(con, row):
                 return None
 
     log_id = db.retry_locked(insert_log, con)
-    shutil.rmtree(stage, ignore_errors=True)
+    drop_stage(stage)
     if log_id is None:
         set_ingest(con, row["id"], status="duplicate", error="already uploaded")
         return
@@ -407,7 +466,7 @@ def upload():
     names = request.form.getlist("names")
     if not files:
         return jsonify(error="no files"), 400
-    stage_rel = str(Path("tmp") / "ingest" / uuid.uuid4().hex)
+    stage_rel = uuid.uuid4().hex
     stage = ingest_stage(stage_rel)
     stage.mkdir(parents=True, exist_ok=True)
     saved = []
@@ -420,13 +479,13 @@ def upload():
         f.save(dest)
         saved.append((rel, dest_name, dest))
     if not saved:
-        shutil.rmtree(stage, ignore_errors=True)
+        drop_stage(stage)
         return jsonify(error="no files"), 400
     results = []
     zips = [(rel, dest_name, dest) for rel, dest_name, dest in saved if rel.lower().endswith(".zip")]
     others = [(rel, dest_name, dest) for rel, dest_name, dest in saved if not rel.lower().endswith(".zip")]
     for rel, dest_name, dest in zips:
-        zip_rel = str(Path("tmp") / "ingest" / uuid.uuid4().hex)
+        zip_rel = uuid.uuid4().hex
         zip_dir = ingest_stage(zip_rel)
         zip_dir.mkdir(parents=True, exist_ok=True)
         shutil.move(str(dest), zip_dir / dest_name)
@@ -463,8 +522,10 @@ def upload():
         iid = insert_ingest(con, "pair", name, pair_rel, "log.data", "log.log", size, g.user["id"])
         ingest_jobs.put(iid)
         results.append({"name": name, "status": "accepted", "ingest_id": iid, "size_bytes": size})
-    if not any(r.get("ingest_id") for r in results):
-        shutil.rmtree(stage, ignore_errors=True)
+    for _, _, dest in saved:
+        dest.unlink(missing_ok=True)  # files that were not part of a pair
+    with contextlib.suppress(OSError):
+        stage.rmdir()
     return jsonify(results=results)
 
 
@@ -782,6 +843,55 @@ def list_people():
 
 
 # ---- command line user management:  python3 app.py create-user|set-password|list-users|deactivate-user ----
+def backup():
+    """Consistent copy of the live database (and the session/SAML keys) in LOGDB_BACKUP_DIR.
+
+    SQLite's online backup copies the database while the server keeps running. The copy is made and checked on the
+    local disk first, then written to the backup directory under a temporary name and renamed, so the directory
+    (and a backup of that share) always holds a complete, working database."""
+    if not env("BACKUP_DIR"):
+        return "LOGDB_BACKUP_DIR is not set"
+    if not os.path.exists(DB_PATH):
+        return f"no database at {DB_PATH}"
+    dest = env_path("BACKUP_DIR")
+    dest.mkdir(parents=True, exist_ok=True)
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+    t0 = time.time()
+    local = TMP_DIR / "backup.db"
+    local.unlink(missing_ok=True)
+    src = sqlite3.connect(DB_PATH, timeout=db.BUSY_TIMEOUT_MS / 1000)
+    dst = sqlite3.connect(local)
+    try:
+        src.backup(dst)
+        result = dst.execute("PRAGMA integrity_check").fetchone()[0]
+    finally:
+        dst.close()
+        src.close()
+    if result != "ok":
+        local.unlink(missing_ok=True)
+        return f"backup copy failed the integrity check ({result}); the previous backup was kept"
+    files = [(local, dest / "logs.db")]
+    if (DATA_DIR / "secret_key").exists():
+        files.append((DATA_DIR / "secret_key", dest / "secret_key"))
+    for pem in sorted((DATA_DIR / "saml").glob("*.pem")):
+        files.append((pem, dest / "saml" / pem.name))
+    try:
+        for src_file, dest_file in files:
+            dest_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = dest_file.with_name(f".{dest_file.name}.tmp")
+            with open(src_file, "rb") as fi, open(tmp, "wb") as fo:
+                shutil.copyfileobj(fi, fo, 8 << 20)
+                fo.flush()
+                os.fsync(fo.fileno())
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, dest_file)
+    finally:
+        local.unlink(missing_ok=True)
+    size = (dest / "logs.db").stat().st_size / 1e6
+    print(f"{now()} backup of {DB_PATH} ({size:.1f} MB) written to {dest} in {time.time() - t0:.1f} s")
+    return 0
+
+
 def cli(argv):
     import argparse
     import getpass
@@ -806,9 +916,12 @@ def cli(argv):
     d.add_argument("username")
     ac = sub.add_parser("activate-user")
     ac.add_argument("username")
+    sub.add_parser("backup", help="copy the database and keys to LOGDB_BACKUP_DIR (overwrites the previous copy)")
     a = p.parse_args(argv)
 
-    STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    if a.cmd == "backup":
+        sys.exit(backup())
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     db.init(DB_PATH)
     con = conn()
 
@@ -2248,6 +2361,7 @@ def log_dict(row):
     d["outdated"] = d["status"] == "done" and d["parser_version"] != current_version()
     d["has_log"] = d.pop("log_path") is not None
     d.pop("data_path", None)
+    d.pop("paths_file", None)
     return d
 
 
@@ -2561,9 +2675,9 @@ def flight_detail(flight_id):
         abort(404)
     con = conn()
     row = con.execute(
-        "SELECT f.takeoff_time_s, f.landing_time_s, f.path_gz, a.id AS aircraft_pk, a.name, a.ac_id, a.autopilot_versions,"
-        " a.info_messages, a.preflight_checks, a.config_gz, l.id AS log_id, l.log_type, l.name AS log_name,"
-        " l.start_utc AS log_start_utc, l.date_override"
+        "SELECT f.takeoff_time_s, f.landing_time_s, f.path_idx, l.paths_file, a.id AS aircraft_pk, a.name, a.ac_id,"
+        " a.autopilot_versions, a.info_messages, a.preflight_checks, a.config_gz, l.id AS log_id, l.log_type,"
+        " l.name AS log_name, l.start_utc AS log_start_utc, l.date_override"
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id WHERE f.id=?",
         (flight_id,)).fetchone()
     changes = [dict(r) for r in con.execute(
@@ -2571,7 +2685,7 @@ def flight_detail(flight_id):
         " WHERE aircraft_id=? ORDER BY time_s", (row["aircraft_pk"],))]
     config = db.unpack(row["config_gz"]) or {}
     days = clock_shift_days(row["log_start_utc"], row["date_override"])
-    path = apply_clock_to_obj(db.unpack(row["path_gz"]) or [], days)
+    path = flight_path(row["paths_file"], row["path_idx"], days)
     apply_clock_to_obj(changes, days)
     return jsonify(
         entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
@@ -2670,7 +2784,7 @@ def get_log(log_id):
             ad["last_utc"] = shift_iso(ad.get("last_utc"), days)
         flights = []
         for f in con.execute("SELECT * FROM flights WHERE aircraft_id=? ORDER BY idx", (a["id"],)):
-            fd = {k: f[k] for k in f.keys() if k not in ("path_gz", "takeoff_json", "landing_json")}
+            fd = {k: f[k] for k in f.keys() if k not in ("path_idx", "takeoff_json", "landing_json")}
             fd["takeoff"] = json.loads(f["takeoff_json"] or "null")
             fd["landing"] = json.loads(f["landing_json"] or "null")
             if days:
@@ -2706,12 +2820,11 @@ def get_config(ac_pk):
 def get_path(flight_id):
     where, params = own_clause("l.")
     row = conn().execute(
-        "SELECT f.path_gz, l.start_utc, l.date_override FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
+        "SELECT f.path_idx, l.paths_file, l.start_utc, l.date_override FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
         f" JOIN logs l ON l.id = a.log_id WHERE f.id=? AND {where}", (flight_id, *params)).fetchone()
     if row is None:
         abort(404)
-    path = db.unpack(row["path_gz"]) or []
-    return jsonify(apply_clock_to_obj(path, clock_shift_days(row["start_utc"], row["date_override"])))
+    return jsonify(flight_path(row["paths_file"], row["path_idx"], clock_shift_days(row["start_utc"], row["date_override"])))
 
 
 @app.get("/api/logs/<int:log_id>/download/<kind>")
@@ -2815,6 +2928,8 @@ def delete_log(log_id):
     con.execute("DELETE FROM logs WHERE id=?", (log_id,))
     con.commit()
     shutil.rmtree(STORAGE_DIR / row["sha256"][:2] / row["sha256"], ignore_errors=True)
+    with contextlib.suppress(OSError):
+        (STORAGE_DIR / row["sha256"][:2]).rmdir()  # only when empty
     return jsonify(deleted=log_id)
 
 

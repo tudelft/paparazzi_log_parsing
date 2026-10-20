@@ -96,3 +96,6 @@ ENV/
 .ropeproject
 
 .DS_Store
+
+# server settings (may contain secrets)
+webui/logdb.env

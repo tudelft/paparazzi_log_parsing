@@ -24,7 +24,12 @@ SETTINGS = {
                          "client addresses and https are seen correctly; keep 0 when clients connect directly"),
     },
     "Storage and parsing": {
-        "WEB_DATA": (str(HERE / "data"), "Directory with the database and all uploaded logs (back this up)"),
+        "WEB_DATA": (str(HERE / "data"), "Local directory with the database, session key and SAML keys. Keep it on "
+                                         "a local disk: SQLite must not run on a network share"),
+        "LOG_DIR": (None, "Directory for all uploaded logs and their flight paths; may be a network share "
+                          "(default: WEB_DATA/logs)"),
+        "BACKUP_DIR": (None, "Where `app.py backup` writes a consistent copy of the database and keys "
+                             "(overwritten each time; may be a network share)"),
         "FASTREADER": (str(HERE.parent / "cpp" / "build" / "paparazzi_log_parsing"), "Parser binary"),
         "WORKERS": (None, "Logs parsed in parallel (default: 2-4 depending on the CPU count)"),
         "INGEST_WORKERS": ("2", "Background threads that hash, deduplicate and unzip uploads"),
@@ -120,6 +125,15 @@ def env_path(name):
     return (HERE / os.path.expanduser(env(name))).resolve()
 
 
+def log_dir():
+    return env_path("LOG_DIR") if env("LOG_DIR") else env_path("WEB_DATA") / "logs"
+
+
+def _writable(path):
+    probe = path if path.exists() else next((p for p in path.parents if p.exists()), None)
+    return probe is not None and os.access(probe, os.W_OK)
+
+
 def bind_address():
     host, _, port = env("BIND").rpartition(":")
     if not host or not port.isdigit():
@@ -129,7 +143,8 @@ def bind_address():
 
 # Values for a typical server behind nginx/Caddy with https; everything else stays at its default
 SERVER_EXAMPLE = {"PUBLIC_URL": "https://logs.example.org", "PROXIES": "1", "COOKIE_SECURE": "1",
-                  "WEB_DATA": "/var/lib/flight-logs"}
+                  "WEB_DATA": "/var/lib/flight-logs", "LOG_DIR": "/mnt/flight-logs/logs",
+                  "BACKUP_DIR": "/mnt/flight-logs/backup"}
 PORTABLE_DEFAULTS = {"WEB_DATA": "data", "FASTREADER": "../cpp/build/paparazzi_log_parsing"}  # relative to webui/
 
 
@@ -192,14 +207,26 @@ def check():
             errors.append(f"parser does not run: {e}")
 
     data = env_path("WEB_DATA")
-    probe = data if data.exists() else next((p for p in data.parents if p.exists()), None)
-    if probe is None or not os.access(probe, os.W_OK):
+    if not _writable(data):
         errors.append(f"LOGDB_WEB_DATA {data} is not writable by this user")
     elif data.exists():
         free = shutil.disk_usage(data).free / 1e9
         print(f"Data directory: {data} ({free:.0f} GB free)")
-        if free < 5:
+        if free < 2:
             warnings.append(f"only {free:.1f} GB free in {data}")
+    logs = log_dir()
+    if not _writable(logs):
+        errors.append(f"log directory {logs} is not writable by this user (mounted?)")
+    elif logs.exists():
+        free = shutil.disk_usage(logs).free / 1e9
+        print(f"Log directory: {logs} ({free:.0f} GB free)")
+        if free < 5:
+            warnings.append(f"only {free:.1f} GB free in {logs}")
+    if env("BACKUP_DIR"):
+        if not _writable(env_path("BACKUP_DIR")):
+            errors.append(f"LOGDB_BACKUP_DIR {env_path('BACKUP_DIR')} is not writable by this user (mounted?)")
+    else:
+        warnings.append("LOGDB_BACKUP_DIR is not set: the database is not backed up by `app.py backup`")
 
     url = env("PUBLIC_URL") or ""
     secure = env_bool("COOKIE_SECURE")
