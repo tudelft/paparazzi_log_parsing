@@ -60,6 +60,21 @@
 </header>
 <main>
   <section class="card" id="summary"></section>
+  <section class="card">
+    <h2>Wind and weather</h2>
+    <div class="kv" id="loggedWind"></div>
+    <p class="mute">Historical weather is an hourly model estimate near takeoff, not an onboard measurement.
+      Fetching sends the takeoff location (rounded to 0.01°) and date to
+      <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>.
+      Wind is at 10 m above ground; direction is where it comes from.</p>
+    <button type="button" id="fetchWeather" disabled>Fetch historical weather</button>
+    <p id="weatherMsg" role="status" aria-live="polite"></p>
+    <div class="kv" id="historicalWeather"></div>
+    <small class="mute">Historical data: <a href="https://open-meteo.com/en/docs/historical-weather-api"
+      target="_blank" rel="noopener">Open-Meteo / ECMWF</a>,
+      <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.
+      Free API for non-commercial use only.</small>
+  </section>
 
   <section class="card">
     <div class="bar">
@@ -179,10 +194,49 @@ async function setCrew(role, value, ids) {
 }
 const coord = (p, name) => p ? `${name ? esc(name) + ' · ' : ''}${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} · ${p.alt_m} m` : '';
 const windTxt = w => w ? `${w.speed_ms} m/s from ${w.from_deg}°${w.temperature_c != null ? ', ' + w.temperature_c + ' °C' : ''}` : '';
+async function loadWeather(fetchRemote = false) {
+  const btn = $('fetchWeather');
+  btn.disabled = true;
+  $('weatherMsg').textContent = fetchRemote ? 'Fetching historical weather…' : 'Checking saved weather…';
+  try {
+    const r = await fetch(`/api/flights/${flightId}/weather`, {method: fetchRemote ? 'POST' : 'GET'});
+    if (!(r.headers.get('Content-Type') || '').includes('application/json')) {
+      throw new Error(`The server returned HTTP ${r.status} instead of weather data. Please check the server logs.`);
+    }
+    const d = await r.json();
+    if (!r.ok) {
+      $('weatherMsg').textContent = d.error || 'Could not load weather.';
+      btn.disabled = r.status === 400 || r.status === 404;
+      return;
+    }
+    const w = d.weather;
+    btn.hidden = !!w;
+    btn.disabled = false;
+    $('weatherMsg').textContent = w ? 'Saved historical estimate · ' + fmtTime(w.hour_utc)
+      : 'No weather fetched yet. Historical data is available for flights at least six days old.';
+    const value = (v, unit) => v == null ? 'Unavailable' : esc(v) + unit;
+    $('historicalWeather').innerHTML = w ? [
+      kv('Location used', `${esc(w.latitude)}, ${esc(w.longitude)}`),
+      kv('Wind (10 m)', value(w.wind_speed_ms, ' m/s') + ' from ' + value(w.wind_from_deg, '°')),
+      kv('Gusts (10 m)', value(w.wind_gusts_ms, ' m/s')),
+      kv('Temperature (2 m)', value(w.temperature_c, ' °C')),
+      kv('Humidity (2 m)', value(w.humidity_percent, '%')),
+      kv('Hourly precipitation', value(w.precipitation_mm, ' mm')),
+      kv('Cloud cover', value(w.cloud_cover_percent, '%')),
+      kv('Sea-level pressure', value(w.pressure_hpa, ' hPa')),
+    ].join('') : '';
+  } catch (err) {
+    $('weatherMsg').textContent = 'Could not load weather: ' + err.message;
+    btn.disabled = false;
+  }
+}
+$('fetchWeather').onclick = () => loadWeather(true);
 const ned = v => v ? `N ${v.north}, E ${v.east}, D ${v.down}` : '';
 
 function renderSummary() {
   const e = D.entry, a = e.assessment;
+  $('loggedWind').innerHTML = kv('Logged wind at takeoff', windTxt(e.takeoff?.wind) || 'Not available')
+    + kv('Logged wind at landing', windTxt(e.landing?.wind) || 'Not available');
   document.title = `${e.aircraft} ${fmtTime(e.takeoff_utc)}`;
   $('title').textContent = `${e.aircraft} · ${fmtTime(e.takeoff_utc)}`;
   const place = (p, lat, lon, id) => p ? (id != null ? `<a href="/locations/${id}">${esc(p)}</a>` : esc(p)) : (lat != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '');
@@ -519,7 +573,7 @@ function renderMisc() {
 
 fetch(`/api/flights/${flightId}/detail`).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(d => {
   D = d;
-  renderSummary(); initMap(); renderLists(); renderMisc();
+  renderSummary(); initMap(); renderLists(); renderMisc(); loadWeather();
   $('allChanges').onchange = $('allMsgs').onchange = renderLists;
 }).catch(err => { console.error(err); $('summary').textContent = typeof err === 'number' ? 'Flight not found (or not yours).' : 'Error: ' + err; });
 </script>

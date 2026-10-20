@@ -6,6 +6,10 @@ import threading
 import time
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS weather_cache (
+    cache_key TEXT PRIMARY KEY,
+    payload TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,

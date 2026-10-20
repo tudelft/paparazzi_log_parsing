@@ -50,6 +50,16 @@ Day-to-day:
 
 After an update that changes the parser version, click **Re-parse outdated** on the Uploads page.
 
+**Flight weather.** Flight pages show logged wind at takeoff and landing when available. The
+**Fetch historical weather** button requests an hourly Open-Meteo/ECMWF estimate (wind at 10 m,
+temperature, humidity, precipitation, cloud cover and pressure), separately from onboard data.
+Only clicking the button contacts the provider, sharing takeoff coordinates rounded to 0.01°
+and the UTC date. Results are saved in SQLite and reused for that location/hour, including after
+re-parsing. Requests are serialized and limited to one per 10 seconds across the server; failures
+are shown and can be retried. Flights need valid coordinates and a correct date from 1940 onwards,
+at least six days old. No API key is required; the free service is
+[non-commercial only](https://open-meteo.com/en/terms), with attribution under CC BY 4.0.
+
 ## Storage and backup
 
 SQLite must not run on a network share (locking over SMB is unreliable and can corrupt it), so storage is split:
