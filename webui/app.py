@@ -505,9 +505,46 @@ def theme_js():
     return send_from_directory(PAGES_DIR, "theme.js")
 
 
+API_KEY_PREFIX = "pprz_"
+
+
+def user_for_key(key):
+    if not key.startswith(API_KEY_PREFIX):
+        return None
+    con = conn()
+    h = hashlib.sha256(key.encode()).hexdigest()
+    row = con.execute("SELECT k.id AS key_id, k.last_used_at AS key_used, u.* FROM api_keys k JOIN users u ON u.id = k.user_id"
+                      " WHERE k.key_hash=? AND u.is_active=1", (h,)).fetchone()
+    if row is None:
+        return None
+    stamp = now()
+    if (row["key_used"] or "")[:16] != stamp[:16]:
+        try:
+            con.execute("UPDATE api_keys SET last_used_at=? WHERE id=?", (stamp, row["key_id"]))
+            con.commit()
+        except sqlite3.OperationalError:
+            con.rollback()
+    return row
+
+
+def session_required():
+    """Keys can upload and read, but cannot manage keys or the account."""
+    if g.via_key:
+        abort(403)
+
+
 @app.before_request
 def require_login():
     if request.endpoint in PUBLIC_ENDPOINTS:
+        return None
+    g.via_key = False
+    auth = request.headers.get("Authorization", "")
+    if auth[:7].lower() == "bearer ":
+        # API keys only work on the API, never on pages
+        user = user_for_key(auth[7:].strip()) if request.path.startswith("/api/") else None
+        if user is None:
+            return jsonify(error="invalid API key"), 401
+        g.user, g.via_key = user, True
         return None
     uid = session.get("uid")
     user = conn().execute("SELECT * FROM users WHERE id=? AND is_active=1", (uid,)).fetchone() if uid else None
@@ -654,6 +691,63 @@ def login():
 def logout():
     session.clear()
     return jsonify(ok=True)
+
+
+@app.get("/account")
+def account_page():
+    return send_from_directory(PAGES_DIR, "account.html")
+
+
+@app.get("/api/keys")
+def list_keys():
+    session_required()
+    rows = conn().execute("SELECT id, name, prefix, created_at, last_used_at FROM api_keys WHERE user_id=?"
+                          " ORDER BY id DESC", (g.user["id"],))
+    return jsonify([dict(r) for r in rows])
+
+
+@app.post("/api/keys")
+def create_key():
+    session_required()
+    name = ((request.get_json(silent=True) or {}).get("name") or "").strip()
+    if not name or len(name) > 60:
+        return jsonify(error="give the key a name (max 60 characters)"), 400
+    con = conn()
+    if con.execute("SELECT COUNT(*) FROM api_keys WHERE user_id=?", (g.user["id"],)).fetchone()[0] >= 20:
+        return jsonify(error="at most 20 keys per user"), 400
+    key = API_KEY_PREFIX + secrets.token_urlsafe(32)
+    cur = con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at) VALUES (?,?,?,?,?)",
+                      (g.user["id"], name, hashlib.sha256(key.encode()).hexdigest(), key[:10], now()))
+    con.commit()
+    return jsonify(id=cur.lastrowid, name=name, key=key)
+
+
+@app.delete("/api/keys/<int:key_id>")
+def delete_key(key_id):
+    session_required()
+    con = conn()
+    cur = con.execute("DELETE FROM api_keys WHERE id=? AND user_id=?", (key_id, g.user["id"]))
+    con.commit()
+    if cur.rowcount == 0:
+        return jsonify(error="no such key"), 404
+    return jsonify(ok=True)
+
+
+@app.post("/api/logs/check")
+def check_logs():
+    """Which of these .data hashes are already stored? Lets a client skip uploading them."""
+    hashes = (request.get_json(silent=True) or {}).get("sha256")
+    if not isinstance(hashes, list) or len(hashes) > 5000:
+        return jsonify(error="send {\"sha256\": [up to 5000 hashes]}"), 400
+    wanted = [h.lower() for h in hashes if isinstance(h, str) and len(h) == 64]
+    con = conn()
+    known = {}
+    for i in range(0, len(wanted), 500):
+        chunk = wanted[i:i + 500]
+        for r in con.execute("SELECT sha256, log_path IS NOT NULL AS has_log FROM logs WHERE sha256 IN (%s)"
+                             % ",".join("?" * len(chunk)), chunk):
+            known[r["sha256"]] = {"has_log": bool(r["has_log"])}
+    return jsonify(known=known)
 
 
 @app.get("/api/me")

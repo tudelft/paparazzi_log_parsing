@@ -54,7 +54,16 @@
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
     else fn();
   }
-  ready(() => paintNav(admin));
+  ready(() => {
+    paintNav(admin);
+    const who = document.getElementById('who');
+    if (who && !/^\/(login|setup)/.test(location.pathname)) {
+      who.style.cursor = 'pointer';
+      who.style.textDecoration = 'underline';
+      who.title = 'Your account and API keys';
+      who.onclick = () => { location.href = '/account'; };
+    }
+  });
 
   if (!/^\/(login|setup)/.test(location.pathname)) {
     fetch('/api/me').then(async r => {
