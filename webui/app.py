@@ -42,6 +42,7 @@ import db
 import saml
 import config
 import personnel
+import weather
 from config import env, env_bool, env_float, env_int, env_path
 
 HERE = Path(__file__).resolve().parent
@@ -2810,6 +2811,17 @@ def logbook_rows():
     out.sort(key=lambda r: (r.get("takeoff_utc") or ((r.get("date_override") or "") + "T00:00:00Z"), r["flight_id"]),
              reverse=True)
     return add_people(out, person_resolver(con))
+
+
+@app.route("/api/flights/<int:flight_id>/weather", methods=["GET", "POST"])
+def flight_weather(flight_id):
+    entry = next((r for r in logbook_rows() if any(s["flight_id"] == flight_id for s in r["sources"])), None)
+    if entry is None:
+        abort(404)
+    try:
+        return jsonify(weather=weather.lookup(conn(), entry, fetch=request.method == "POST"))
+    except weather.WeatherError as exc:
+        return jsonify(error=str(exc)), exc.status
 
 
 @app.get("/api/flights/<int:flight_id>/detail")
