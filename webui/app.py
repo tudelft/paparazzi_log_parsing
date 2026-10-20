@@ -708,6 +708,11 @@ def account_page():
     return send_from_directory(PAGES_DIR, "account.html")
 
 
+@app.get("/download/upload_logs.py")
+def download_upload_script():
+    return send_from_directory(HERE, "upload_logs.py", as_attachment=True, mimetype="text/x-python")
+
+
 @app.get("/api/keys")
 def list_keys():
     session_required()
