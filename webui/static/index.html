@@ -56,7 +56,7 @@
   <section class="card">
     <div id="drop">
       <strong>Drop log files, zip archives or folders here</strong>
-      <div>.data and .log files must come as a pair with the same name (zips and folders may contain several pairs). Files are accepted quickly; fingerprinting, duplicates and parsing run in the background. The list below shows the newest 100 logs. For hundreds of logs, drop a zip or a folder — picking thousands of files one by one can freeze the browser.</div>
+      <div>.data and .log files must come as a pair with the same name (zips and folders may contain several pairs). Files are accepted quickly; fingerprinting, duplicates and parsing run in the background. The list below shows 10 logs per page by default, newest first. For hundreds of logs, drop a zip or a folder — picking thousands of files one by one can freeze the browser.</div>
       <div class="mute" style="margin-top:8px">Project is set automatically from the aircraft (then the uploader, GCS operator or PIC). Admins can change it on a log after it is parsed.</div>
       <div class="row">
         <button type="button" id="pickFilesBtn">Select files</button>
@@ -73,19 +73,19 @@
   <section class="card">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
       <strong>Logs</strong>
-      <label>Project <select id="showProject"></select></label>
       <span><button class="sec" id="reparseAll" onclick="reparseOutdated()">Re-parse outdated</button></span>
+    </div>
+    <div id="pager" class="mute" style="display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap">
+      <label>Logs per page <select id="logPageSize"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>
+      <button type="button" class="sec" id="newerLogs">Newer</button>
+      <span id="pageInfo"></span>
+      <button type="button" class="sec" id="olderLogs">Older</button>
     </div>
     <div class="scroll">
     <table>
       <thead><tr><th>#</th><th>Log</th><th>Project</th><th>Aircraft</th><th>Date (UTC)</th><th>Flights</th><th>Flight time</th><th>Status</th><th>Parser</th></tr></thead>
       <tbody id="logs"></tbody>
     </table>
-    </div>
-    <div id="pager" class="mute" style="display:flex; gap:12px; align-items:center; margin-top:8px; flex-wrap:wrap">
-      <button type="button" class="sec" id="newerLogs">Newer</button>
-      <span id="pageInfo"></span>
-      <button type="button" class="sec" id="olderLogs">Older</button>
     </div>
   </section>
 </main>
@@ -98,7 +98,7 @@ const fmtDur = s => s == null ? '' : `${Math.floor(s/60)}m ${String(Math.round(s
 const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km` : `${Math.round(m)} m`;
 const fmtSize = b => b > 1e9 ? (b/1e9).toFixed(2)+' GB' : (b/1e6).toFixed(1)+' MB';
 let expanded = new Set(), me = null, projects = [];
-const LOG_PAGE = 100;
+let LOG_PAGE = 10;
 let logOffset = 0, logTotal = 0, sendTotal = 0, sendDone = 0, sendActive = 0;
 if (/^#log\d+$/.test(location.hash)) expanded.add(+location.hash.slice(4));
 
@@ -109,29 +109,17 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
-function projectQuery() {
-  const v = ($('showProject') && $('showProject').value) || '';
-  return v ? ('?project=' + encodeURIComponent(v)) : '';
-}
 function logsQuery() {
   const p = new URLSearchParams();
-  const v = ($('showProject') && $('showProject').value) || '';
-  if (v) p.set('project', v);
   p.set('limit', String(LOG_PAGE));
   p.set('offset', String(logOffset));
   return '?' + p.toString();
 }
 function fillProjects() {
-  const filter = $('showProject');
-  filter.innerHTML = '<option value="">All projects</option>'
-    + (me.is_admin ? '<option value="none">No project</option>' : '')
-    + projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
-  filter.value = '';
   const open = me.is_admin || projects.some(p => p.can_add);
   $('drop').hidden = !open;
   $('noUpload').hidden = open;
 }
-$('showProject').onchange = () => { logOffset = 0; refresh(); };
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
   $('who').textContent = me.display_name + (me.is_admin ? ' (admin)' : '');
@@ -367,11 +355,16 @@ async function refresh() {
   if (refreshBusy) { refreshWanted = true; return; }
   refreshBusy = true;
   try {
-  const q = projectQuery();
-  const [st, body] = await Promise.all([fetch('/api/status' + q).then(r => r.json()), fetch('/api/logs' + logsQuery()).then(r => r.json())]);
+  const [st, body] = await Promise.all([fetch('/api/status').then(r => r.json()), fetch('/api/logs' + logsQuery()).then(r => r.json())]);
   paintStatus(st);
   const logs = Array.isArray(body) ? body : (body.logs || []);
   logTotal = Array.isArray(body) ? logs.length : (body.total || 0);
+  const lastOffset = Math.max(0, Math.ceil(logTotal / LOG_PAGE) - 1) * LOG_PAGE;
+  if (logOffset > lastOffset) {
+    logOffset = lastOffset;
+    refreshWanted = true;
+    return;
+  }
   const from = logTotal ? logOffset + 1 : 0;
   const to = Math.min(logOffset + logs.length, logTotal);
   $('pageInfo').textContent = logTotal ? `Showing ${from}–${to} of ${logTotal} (newest first)` : 'No logs yet.';
@@ -476,12 +469,13 @@ async function del(id) {
   if (r.ok) expanded.delete(id);
   refresh();
 }
-async function reparseOutdated() { await fetch('/api/reparse-outdated' + projectQuery(), {method: 'POST'}); refresh(); }
+async function reparseOutdated() { await fetch('/api/reparse-outdated', {method: 'POST'}); refresh(); }
 async function setProject(id, value) {
   await fetch('/api/logs/' + id + '/project', {method: 'PUT', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({project_id: value ? +value : null})});
   refresh();
 }
+$('logPageSize').onchange = () => { LOG_PAGE = +$('logPageSize').value; logOffset = 0; refresh(); };
 $('newerLogs').onclick = () => { logOffset = Math.max(0, logOffset - LOG_PAGE); refresh(); };
 $('olderLogs').onclick = () => { if (logOffset + LOG_PAGE < logTotal) { logOffset += LOG_PAGE; refresh(); } };
 setInterval(() => {

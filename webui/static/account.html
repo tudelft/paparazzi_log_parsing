@@ -33,6 +33,11 @@
   #newKey { display:none; border:1px solid var(--acc); }
   #newKey code { font-size:13px; word-break:break-all; user-select:all; }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
+  [hidden] { display:none !important; }
+  summary { cursor:pointer; font-size:15px; font-weight:600; }
+  details[open] > summary { margin-bottom:12px; }
+  .table-scroll { max-height:45vh; overflow:auto; }
+  input, select { max-width:100%; }
 </style>
 </head>
 <body>
@@ -44,6 +49,16 @@
 <main>
   <div id="err"></div>
   <section class="card"><div class="kv" id="info"></div></section>
+  <details class="card" id="passwordCard" hidden>
+    <summary>Change password</summary>
+    <form id="passwordForm">
+      <p><label>Current password<br><input id="currentPassword" type="password" autocomplete="current-password" required maxlength="1024"></label></p>
+      <p><label>New password (at least 10 characters)<br><input id="password" type="password" autocomplete="new-password" required minlength="10" maxlength="1024"></label></p>
+      <p><label>Repeat new password<br><input id="repeatPassword" type="password" autocomplete="new-password" required minlength="10" maxlength="1024"></label></p>
+      <button type="submit">Change password</button>
+    </form>
+    <p id="passwordStatus" role="status" aria-live="polite"></p>
+  </details>
 
   <section class="card" id="newKey">
     <h2>New API key</h2>
@@ -60,19 +75,19 @@
       <input id="name" placeholder="Name, e.g. laptop uploader" required maxlength="60" style="min-width:240px">
       <button type="submit">Create key</button>
     </form>
-    <table style="margin-top:12px">
+    <div class="table-scroll"><table style="margin-top:12px">
       <thead><tr><th>Name</th><th>Key</th><th>Created</th><th>Last used</th><th></th></tr></thead>
       <tbody id="keys"></tbody>
-    </table>
+    </table></div>
   </section>
 
-  <section class="card">
-    <h2>Upload a folder with the script</h2>
+  <details class="card" id="uploadHelp">
+    <summary>Upload a folder with the script</summary>
     <div class="mute">Finds every <code>.data</code>/<code>.log</code> pair below a folder and uploads those that are not on the server yet.
       Needs Python 3 only, no extra packages.</div>
     <p><a class="btn" href="/download/upload_logs.py" download>Download upload_logs.py</a></p>
     <pre id="usage"></pre>
-  </section>
+  </details>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -113,10 +128,28 @@ async function revoke(id, name) {
   try { await api('/api/keys/' + id, {method: 'DELETE'}); load(); } catch (e) { $('err').textContent = e.message; }
 }
 $('usage').textContent = `python3 upload_logs.py ~/paparazzi/var/logs --server ${location.origin} --key <your key>`;
-fetch('/api/me').then(r => r.json()).then(d => {
+$('passwordForm').onsubmit = async ev => {
+  ev.preventDefault();
+  $('passwordStatus').textContent = '';
+  if ($('password').value !== $('repeatPassword').value) {
+    $('passwordStatus').textContent = 'New passwords do not match.';
+    return;
+  }
+  const button = ev.target.querySelector('button');
+  button.disabled = true;
+  try {
+    await api('/api/account/password', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({current_password:$('currentPassword').value, password:$('password').value})});
+    ev.target.reset();
+    $('passwordStatus').textContent = 'Password changed.';
+  } catch (e) { $('passwordStatus').textContent = e.message; }
+  finally { button.disabled = false; }
+};
+api('/api/me').then(d => {
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   $('info').innerHTML = `<span class="mute">Name</span><span>${esc(d.user.display_name)}</span><span class="mute">Username</span><span>${esc(d.user.username)}</span><span class="mute">Role</span><span>${d.user.is_admin ? 'Administrator' : 'User'}</span>`;
-});
+  $('passwordCard').hidden = d.user.provider !== 'local' || !d.user.has_password;
+}).catch(e => { $('err').textContent = e.message; });
 load();
 </script>
 </body>

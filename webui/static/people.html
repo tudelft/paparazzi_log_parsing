@@ -164,7 +164,7 @@ function render() {
       <td>${esc(projName(u.default_project_id))}</td>
       <td>${qualBits(u.qualifications) || '<span class="mute">—</span>'}</td>
       <td>${(u.aliases || []).map(a => `<span class="chip">${esc(a)}</span>`).join('')}</td>
-      <td class="mute">${u.has_password ? 'Chosen' : 'Waiting'}</td></tr>`).join('')
+      <td class="mute">${u.provider === 'saml' ? 'Managed by identity provider' : u.has_password ? 'Chosen' : 'Waiting'}</td></tr>`).join('')
       || '<tr><td colspan="7" class="mute">No people yet.</td></tr>';
     return;
   }
@@ -197,7 +197,7 @@ function render() {
     <td>${qualBits(u.qualifications) || '<span class="mute">—</span>'}</td>
     <td>${(u.aliases || []).map(a => `<span class="chip">${esc(a)}<button title="Remove" data-alias="${esc(a)}" onclick="removeAlias(this.dataset.alias)">×</button></span>`).join('')}</td>
     <td><div class="pair"><input id="new${u.id}" placeholder="alias"><button onclick="addAlias(null, ${u.id})">Add</button></div></td>
-    <td>${u.has_password ? '<span class="mute">Chosen</span>' : '<span class="mute">Waiting</span>'} <button class="sec" onclick="newSetupLink(${u.id})">New link</button></td>
+    <td>${['local', 'log'].includes(u.provider) ? `${u.has_password ? '<span class="mute">Chosen</span>' : '<span class="mute">Not set</span>'} <button class="sec" onclick="newSetupLink(${u.id})">${u.has_password ? 'Reset password' : 'Set password'}</button>${u.provider === 'local' && u.has_password ? ` <button class="danger" onclick="removePassword(${u.id})">Remove password</button>` : ''}` : '<span class="mute">Managed by identity provider</span>'}</td>
     <td>${me && u.id === me.id ? '<span class="mute">you</span>' : `<button class="danger" onclick="removeUser(${u.id})">Remove</button>`}</td></tr>`).join('');
 }
 
@@ -247,6 +247,21 @@ async function newSetupLink(id) {
   const data = await r.json();
   $('err').textContent = '';
   showSetup(data.setup_url, u ? u.username : 'This user', !!(u && u.has_password), data.expires_at);
+}
+async function removePassword(id) {
+  const u = people.users.find(x => x.id === id);
+  if (!confirm(`Remove password sign-in for ${u ? u.username : 'this user'}? The profile and all linked information are kept. Unused password links will stop working. Existing sessions and API keys are not revoked.`)) return;
+  try {
+    const r = await fetch('/api/admin/users/' + id + '/password', {method:'DELETE'});
+    if (!r.ok) {
+      $('err').textContent = ((await r.json().catch(() => ({}))).error) || 'Could not remove password.';
+      return;
+    }
+    $('setupBox').hidden = true;
+    $('setupUrl').value = '';
+    $('err').textContent = '';
+    await load();
+  } catch (e) { $('err').textContent = 'Could not remove password: ' + e.message; }
 }
 async function removeUser(id) {
   const u = people.users.find(x => x.id === id);

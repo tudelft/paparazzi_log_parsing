@@ -126,6 +126,17 @@ Relative paths are relative to `webui/`.
 
 ## Accounts and TU Delft login
 
+Click your name in the top bar to open **My account**. Local users can change their password
+by entering their current password and a new password of at least 10 characters. On **People**, admins
+can enable **Edit** and use **Reset password** (or **Set password**) in the Password column to
+generate a one-time, 48-hour link for a local account and share it privately.
+Generating a link does not change the password until it is used; a new link replaces older links.
+SAML/TU Delft passwords remain managed by the identity provider. API keys cannot manage passwords.
+Admins can also **Remove password** in the People page's Password column without deleting the profile,
+flights or other linked information. This clears unused setup/reset links and prevents new password
+sign-ins; existing sessions and API keys are not revoked. **Set password** can restore local sign-in
+later. The last administrator's login method cannot be removed.
+
 Everything requires a login. Admins create accounts on the People page or on the command line (on a server prefix
 `sudo -u logdb /opt/flight-logs/app/webui/venv/bin/`):
 
