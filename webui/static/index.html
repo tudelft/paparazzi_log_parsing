@@ -34,7 +34,8 @@
   .date-unknown { background:var(--warnbg); color:var(--warn); }
   .mono { font-family:ui-monospace, monospace; font-size:12px; }
   .mute { color:var(--mute); }
-  #uploads div { padding:3px 0; display:flex; gap:10px; align-items:center; }
+  #uploads div { padding:3px 0; display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
+  #batch { color:var(--txt); }
   progress { width:160px; }
   .detail { background:var(--detail); padding:12px 16px; }
   .detail h4 { margin:12px 0 6px; }
@@ -172,15 +173,18 @@ function paintBatch() {
   if (!sendTotal && !sendActive) { el.hidden = true; return; }
   el.hidden = false;
   if (sendActive)
-    el.textContent = `Sending ${sendActive} at a time · ${sendDone} / ${sendTotal} arrived on the server`;
+    el.innerHTML = `<strong>Uploading… ${sendDone} of ${sendTotal} logs sent</strong> <progress max="${sendTotal}" value="${sendDone}"></progress>
+      <span class="mute">Keep this page open until it is finished.</span>`;
   else
-    el.textContent = `${sendDone} / ${sendTotal} arrived on the server — fingerprinting and parsing continue in the background`;
+    el.innerHTML = `<strong>Upload finished: ${sendDone} of ${sendTotal} logs sent.</strong>
+      <span class="mute">Checking and parsing continue on the server; see the list below.</span>`
+      + (sendDone < sendTotal ? ` <span class="badge error">${sendTotal - sendDone} failed — see above</span>` : '');
 }
 
 function noteUpload(html) {
   const box = $('uploads');
   box.insertAdjacentHTML('beforeend', html);
-  while (box.children.length > 20) box.removeChild(box.firstChild);
+  while (box.children.length > 50) box.removeChild(box.firstChild);
 }
 
 function packJobs(jobs) {
@@ -206,6 +210,8 @@ function postBatch(pack) {
   for (const g of pack)
     for (const {file, rel} of g) { fd.append('files', file, file.name); fd.append('names', rel); }
   const n = pack.length;
+  const names = pack.map(g => g[0].rel.replace(/\.(data|log)$/i, ''));
+  const failAll = why => noteUpload(`<div><span class="badge error">failed</span> <span>${esc(why)}:</span> <span class="mute">${names.map(esc).join(', ')}</span></div>`);
   let arrived = 0;
   return new Promise(resolve => {
     const xhr = new XMLHttpRequest();
@@ -220,11 +226,11 @@ function postBatch(pack) {
             if (r.status === 'rejected' || r.status === 'error')
               noteUpload(`<div><span class="badge error">${esc(r.status)}</span> <span class="mute">${esc(r.name)}${r.reason ? ' — ' + esc(r.reason) : ''}</span></div>`);
           }
-        } else noteUpload(`<div><span class="badge error">${esc(body.error || ('error ' + xhr.status))}</span></div>`);
-      } catch { noteUpload(`<div><span class="badge error">error ${xhr.status}</span></div>`); }
+        } else failAll(body.error || ('server error ' + xhr.status));
+      } catch { failAll(xhr.status === 413 ? 'too large for the server' : 'server error ' + xhr.status); }
       resolve();
     };
-    xhr.onerror = () => { noteUpload('<div><span class="badge error">upload failed</span></div>'); resolve(); };
+    xhr.onerror = () => { failAll('connection lost'); resolve(); };
     xhr.send(fd);
   }).finally(() => { sendActive--; sendDone += arrived; paintBatch(); });
 }

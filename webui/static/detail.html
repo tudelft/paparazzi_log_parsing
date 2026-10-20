@@ -163,7 +163,7 @@ const TYPE = {onboard_sd: 'Onboard SD', gcs: 'GCS'};
 const ACCESS = {view: 'See logs', add: 'Add logs', full: 'See, add and delete'};
 const PAGE_SIZES = [10, 25, 50, 100];
 let D = null, me = null, map = null, mapLayer = null;
-const pages = {flights: {page: 0, size: 25}, logs: {page: 0, size: 25}};
+const pages = {flights: {page: 0, size: 10}, logs: {page: 0, size: 10}};
 
 function pager(id, key, total, redraw) {
   const p = pages[key], last = Math.max(0, Math.ceil(total / p.size) - 1);
