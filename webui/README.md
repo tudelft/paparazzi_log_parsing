@@ -144,9 +144,14 @@ parser on older and failed logs.
 
 **Logbook.** The parser tells onboard SD logs from ground station logs. The logbook (`/logbook`) has one row per
 flight and merges the SD and GCS recordings of the same flight: flight data from the SD log, PIC/PAC/GCS operator and
-goal from whichever log has them. Admins link names in the logs to people and draw named takeoff areas on the
-Locations page (an area can be marked indoors; indoor flights are hidden by default). Logs without a valid date (missing or 1980
-clock) are flagged so the real day can be entered.
+goal from whichever log has them. Admins draw named takeoff areas on the Locations page (an area can be marked
+indoors; indoor flights are hidden by default). Logs without a valid date (missing or 1980 clock) are flagged so the
+real day can be entered.
+
+**Edit mode.** The Edit button in the menu bar shows the forms and menus to change things on the Logbook, People,
+Projects and Aircraft pages; it stays on until you turn it off. With edit mode on, admins also see the names in the
+logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
+are left.
 
 **Real flight or not.** The autopilot's in-flight flag also toggles on the ground (arming, motor tests, carrying).
 The parser scores each takeoff/landing on duration, climb, distance, speed, tilt and acceleration and gives a verdict

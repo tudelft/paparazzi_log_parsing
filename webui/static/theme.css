@@ -85,6 +85,14 @@ html.night .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.
   border:1px solid #3d5168; border-radius:6px; padding:2px 8px; cursor:pointer;
 }
 #nightBtn:hover { color:#fff; }
+#editBtn {
+  font:inherit; width:auto; background:transparent; color:#9fb0c3;
+  border:1px solid #3d5168; border-radius:6px; padding:2px 8px; cursor:pointer;
+}
+#editBtn:hover { color:#fff; }
+#editBtn[aria-pressed="true"] { background:#1f6feb; border-color:#1f6feb; color:#fff; }
+#editBtn[hidden] { display:none; }
+.pending { margin-top:6px; color:var(--warn); }
 #nightBtn .when-night { display:none; }
 html.night #nightBtn .when-day { display:none; }
 html.night #nightBtn .when-night { display:inline; }

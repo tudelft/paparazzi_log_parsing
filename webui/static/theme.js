@@ -11,6 +11,15 @@
   };
 
   const ADMIN_KEY = 'logdbAdmin';
+  const EDIT_KEY = 'logdbEdit';
+  window.editMode = function () {
+    try { return localStorage.getItem(EDIT_KEY) === '1'; } catch (e) { return false; }
+  };
+  window.toggleEditMode = function () {
+    try { localStorage.setItem(EDIT_KEY, window.editMode() ? '0' : '1'); } catch (e) {}
+    paintEdit();
+    window.dispatchEvent(new Event('editchange'));
+  };
   const TABS = [
     ['/', 'Uploads'],
     ['/logbook', 'Logbook'],
@@ -47,6 +56,25 @@
       `<a href="${href}"${href === here ? ' class="cur" aria-current="page"' : ''}>${label}</a>`).join('');
   }
 
+  // Pages opt in with <body data-edit="all"> or <body data-edit="admin">.
+  function paintEdit() {
+    const night = document.getElementById('nightBtn');
+    const kind = document.body && document.body.dataset.edit;
+    if (!night || !kind) return;
+    let btn = document.getElementById('editBtn');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'editBtn';
+      btn.textContent = 'Edit';
+      btn.title = 'Edit mode: show the forms and menus to change things on the pages that have them';
+      btn.onclick = window.toggleEditMode;
+      night.before(btn, ' ');
+    }
+    btn.hidden = kind === 'admin' && !admin;
+    btn.setAttribute('aria-pressed', window.editMode() ? 'true' : 'false');
+  }
+
   window.logout = async function () {
     try { localStorage.removeItem(ADMIN_KEY); } catch (e) {}
     await fetch('/logout', {method: 'POST'});
@@ -60,6 +88,7 @@
   }
   ready(() => {
     paintNav(admin);
+    paintEdit();
     const who = document.getElementById('who');
     if (who && !/^\/(login|setup)/.test(location.pathname)) {
       who.style.cursor = 'pointer';
@@ -79,6 +108,7 @@
       admin = !!(d.user && d.user.is_admin);
       setCachedAdmin(admin);
       paintNav(admin);
+      paintEdit();
     }).catch(() => {});
   }
 })();

@@ -45,7 +45,7 @@
   #q { width:280px; }
 </style>
 </head>
-<body>
+<body data-edit="admin">
 <header>
   <h1>Aircraft</h1>
   <span class="meta" id="nav"></span>
@@ -61,11 +61,11 @@
   <section class="card">
     <h2>Aircraft and their aliases</h2>
     <div class="mute" id="fleetHint">Each aircraft has a unique serial (TUDxxxxx) that stays with it if the name changes. Names in the logs that differ from the nice name are aliases.</div>
+    <div class="pending" id="pending" hidden></div>
     <div class="row">
       <label class="field">Filter<input id="q" placeholder="Filter by name, serial, person, project…"></label>
       <label class="field">Status<select id="statusFilter"><option value="">All statuses</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select></label>
       <label title="Aircraft marked Discard stay hidden until this is ticked"><input type="checkbox" id="showDiscarded"> Show discarded</label>
-      <label id="editFleetLabel" hidden title="Show the form to add an aircraft, import a CSV, and edit the list"><input type="checkbox" id="editFleet"> Edit</label>
     </div>
     <form class="row" id="add" hidden onsubmit="addDrone(event)">
       <label class="field">Name<input id="name" required maxlength="80" autocomplete="off"></label>
@@ -97,9 +97,8 @@ window.fetch = async (...args) => {
 };
 let data = {drones: [], unlinked: [], projects: []};
 let me = null;
-const editOn = () => !!(me && me.is_admin && $('editFleet').checked);
+const editOn = () => !!(me && me.is_admin && window.editMode());
 function toggleEdit() {
-  localStorage.setItem('logdbEditAircraft', editOn() ? '1' : '');
   $('add').hidden = !editOn();
   $('importRow').hidden = !editOn();
   render();
@@ -129,13 +128,17 @@ function render() {
   const status = $('statusFilter').value;
   const editing = editOn();
   const opts = data.drones.map(d => `<option value="${d.id}">${esc(d.name)}${d.unique_id ? ' (' + esc(d.unique_id) + ')' : ''}</option>`).join('');
+  const open = me && me.is_admin ? data.unlinked.length : 0;
+  $('unlinkedCard').hidden = !(editing && open);
+  $('pending').hidden = !(open && !editing);
+  $('pending').textContent = `${open} name${open === 1 ? ' in the logs is' : 's in the logs are'} not linked to an aircraft yet. Turn on Edit in the menu to link ${open === 1 ? 'it' : 'them'}.`;
   const shownUnlinked = data.unlinked.filter(e => !q || e.name.toLowerCase().includes(q));
-  $('unlinkedHead').innerHTML = `<tr><th>Name in log</th><th>Seen</th>${editing ? '<th>Link to aircraft</th>' : ''}</tr>`;
-  $('unlinked').innerHTML = shownUnlinked.map((e, i) => {
+  $('unlinkedHead').innerHTML = '<tr><th>Name in log</th><th>Seen</th><th>Link to aircraft</th></tr>';
+  $('unlinked').innerHTML = shownUnlinked.map(e => {
     const idx = data.unlinked.indexOf(e);
-    const link = !editing ? '' : (opts ? `<select id="sel${idx}">${opts}</select> <button onclick="linkUnlinked(${idx})">Link</button>` : '<span class="mute">Add an aircraft first</span>');
-    return `<tr><td>${esc(e.name)}</td><td>${e.count}×</td>${editing ? `<td>${link}</td>` : ''}</tr>`;
-  }).join('') || `<tr><td colspan="${editing ? 3 : 2}" class="mute">${data.unlinked.length ? 'Nothing matches the filter.' : 'Everything is linked.'}</td></tr>`;
+    const link = opts ? `<select id="sel${idx}">${opts}</select> <button onclick="linkUnlinked(${idx})">Link</button>` : '<span class="mute">Add an aircraft first</span>';
+    return `<tr><td>${esc(e.name)}</td><td>${e.count}×</td><td>${link}</td></tr>`;
+  }).join('') || '<tr><td colspan="3" class="mute">Nothing matches the filter.</td></tr>';
   $('droneHead').innerHTML = `<tr><th>Aircraft</th><th>Serial</th><th>Status</th><th>Manager</th><th>Current user</th><th>Bought</th><th>Project</th><th>Comments</th><th>Logs</th><th>Aliases</th>${editing ? '<th>Add alias</th><th></th>' : ''}</tr>`;
   const shown = data.drones.filter(d => matches(d, q, status));
   const cols = editing ? 12 : 10;
@@ -232,16 +235,13 @@ function removeDrone(id) {
     send('DELETE', '/api/admin/drones/' + id);
 }
 $('q').oninput = $('statusFilter').onchange = $('showDiscarded').onchange = render;
-$('editFleet').onchange = toggleEdit;
+window.addEventListener('editchange', toggleEdit);
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
-  $('editFleetLabel').hidden = !d.user.is_admin;
-  $('unlinkedCard').hidden = !d.user.is_admin;
   $('fleetHint').textContent = d.user.is_admin
     ? 'Each aircraft has a unique serial (TUDxxxxx) that stays with it if you rename it. The list can be filled from the organisation CSV (AC Nice Name, Serial Unique, Manager, Current User, Status, Date Bought, Project, Comments). Names in the logs that differ from the nice name are aliases. Removing an aircraft keeps the logs.'
     : 'Aircraft whose default project you belong to. Each aircraft has a unique serial (TUDxxxxx). Names in the logs that differ from the nice name are aliases.';
-  if (d.user.is_admin) $('editFleet').checked = localStorage.getItem('logdbEditAircraft') === '1';
   $('add').hidden = !editOn();
   $('importRow').hidden = !editOn();
   load();
