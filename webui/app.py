@@ -567,7 +567,8 @@ def note_failure(key):
 
 def user_public(u):
     return {"id": u["id"], "username": u["username"], "display_name": u["display_name"] or u["username"],
-            "is_admin": bool(u["is_admin"])}
+            "is_admin": bool(u["is_admin"]), "provider": u["provider"],
+            "has_password": bool(u["password_hash"])}
 
 
 @app.after_request
@@ -793,6 +794,32 @@ def account_page():
 @app.get("/download/upload_logs.py")
 def download_upload_script():
     return send_from_directory(HERE, "upload_logs.py", as_attachment=True, mimetype="text/x-python")
+
+
+@app.post("/api/account/password")
+def change_password():
+    session_required()
+    if g.user["provider"] != "local" or not g.user["password_hash"]:
+        return jsonify(error="Passwords for this account are managed by its identity provider."), 403
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify(error="send a JSON object"), 400
+    current, password = body.get("current_password"), body.get("password")
+    if not isinstance(current, str) or not isinstance(password, str) or not 10 <= len(password) <= 1024:
+        return jsonify(error="new password must be 10–1024 characters"), 400
+    key = ("password-change", g.user["id"])
+    if too_many_failures(key):
+        return jsonify(error="Too many attempts. Try again in five minutes."), 429
+    if len(current) > 1024 or not check_password_hash(g.user["password_hash"], current):
+        note_failure(key)
+        return jsonify(error="Current password is incorrect."), 403
+    con = conn()
+    con.execute("UPDATE users SET password_hash=? WHERE id=?",
+                (generate_password_hash(password), g.user["id"]))
+    con.execute("UPDATE password_setup_tokens SET used_at=? WHERE user_id=? AND used_at IS NULL",
+                (now(), g.user["id"]))
+    con.commit()
+    return jsonify(ok=True)
 
 
 @app.get("/api/keys")
@@ -2105,10 +2132,11 @@ def setup_url(token):
 
 def lookup_setup(token):
     row = conn().execute(
-        "SELECT t.id AS token_id, t.expires_at, t.used_at, u.id AS user_id, u.username, u.display_name, u.is_active "
+        "SELECT t.id AS token_id, t.expires_at, t.used_at, u.id AS user_id, u.username, u.display_name, u.is_active, u.provider "
         "FROM password_setup_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash=?",
         (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
-    if row is None or row["used_at"] or not row["is_active"] or row["expires_at"] <= now():
+    if (row is None or row["used_at"] or not row["is_active"] or row["expires_at"] <= now()
+            or row["provider"] not in ("local", "log")):
         return None
     return row
 
@@ -2146,13 +2174,37 @@ def admin_add_user():
     return jsonify(id=cur.lastrowid, setup_url=setup_url(token), expires_at=expires_at)
 
 
+@app.delete("/api/admin/users/<int:user_id>/password")
+def admin_remove_password(user_id):
+    admin_required()
+    con = conn()
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute("SELECT id, provider, is_admin FROM users WHERE id=?", (user_id,)).fetchone()
+        if row is None:
+            return jsonify(error="no such user"), 404
+        if row["provider"] != "local":
+            return jsonify(error="This account does not use local password sign-in."), 400
+        if row["is_admin"] and not con.execute(
+                "SELECT 1 FROM users WHERE id!=? AND is_admin=1 AND is_active=1"
+                " AND (provider='saml' OR (provider='local' AND password_hash IS NOT NULL)) LIMIT 1",
+                (user_id,)).fetchone():
+            return jsonify(error="Cannot remove the last administrator's login method."), 400
+        con.execute("UPDATE users SET password_hash=NULL WHERE id=?", (user_id,))
+        con.execute("UPDATE password_setup_tokens SET used_at=? WHERE user_id=? AND used_at IS NULL",
+                    (now(), user_id))
+    return jsonify(ok=True)
+
+
 @app.post("/api/admin/users/<int:user_id>/setup-link")
 def admin_new_setup_link(user_id):
     admin_required()
     con = conn()
-    row = con.execute("SELECT id, is_active FROM users WHERE id=?", (user_id,)).fetchone()
+    row = con.execute("SELECT id, is_active, provider FROM users WHERE id=?", (user_id,)).fetchone()
     if row is None or not row["is_active"]:
         return jsonify(error="no such user"), 404
+    if row["provider"] not in ("local", "log"):
+        return jsonify(error="Passwords for this account are managed by its identity provider."), 403
     token, expires_at = issue_setup_token(con, user_id)
     con.commit()
     return jsonify(setup_url=setup_url(token), expires_at=expires_at)
@@ -2205,8 +2257,8 @@ def setup_password(token):
     if row is None:
         return jsonify(error="This link is no longer valid. Ask an admin for a new one."), 400
     password = (request.get_json(silent=True) or {}).get("password") or ""
-    if len(password) < 10:
-        return jsonify(error="password must be at least 10 characters"), 400
+    if not isinstance(password, str) or not 10 <= len(password) <= 1024:
+        return jsonify(error="password must be 10–1024 characters"), 400
     con = conn()
     con.execute(
         "UPDATE users SET password_hash=?, provider=CASE WHEN provider='log' THEN 'local' ELSE provider END WHERE id=?",

@@ -90,7 +90,7 @@
     if (who && !/^\/(login|setup)/.test(location.pathname)) {
       who.style.cursor = 'pointer';
       who.style.textDecoration = 'underline';
-      who.title = 'Your account and API keys';
+      who.title = 'Your account, passwords and API keys';
       who.onclick = () => { location.href = '/account'; };
     }
   });
