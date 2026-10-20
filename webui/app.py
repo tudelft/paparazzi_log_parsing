@@ -1338,15 +1338,17 @@ def _shape_size(sh):
 
 
 def place_resolver(con):
-    """Return place(lat, lon) -> (name, indoor) of the smallest named place containing the point, else (None, False)."""
-    places = sorted(((_shape_size(sh), r["name"], bool(r["indoor"]), sh)
-                     for r in con.execute("SELECT name, indoor, shape FROM places")
+    """Return place(lat, lon) -> (name, indoor, id) of the smallest named place containing the point,
+    else (None, False, None)."""
+    places = sorted(((_shape_size(sh), r["name"], bool(r["indoor"]), r["id"], sh)
+                     for r in con.execute("SELECT id, name, indoor, shape FROM places")
                      for sh in [json.loads(r["shape"])]), key=lambda t: t[0])
 
     def place(lat, lon):
         if lat is None or lon is None:
-            return None, False
-        return next(((name, indoor) for _, name, indoor, sh in places if _in_shape(sh, lat, lon)), (None, False))
+            return None, False, None
+        return next(((name, indoor, pid) for _, name, indoor, pid, sh in places if _in_shape(sh, lat, lon)),
+                    (None, False, None))
 
     return place
 
@@ -2650,8 +2652,8 @@ def logbook_rows():
     out = merge_sources(prepared)
     place = place_resolver(con)
     for r in out:
-        r["takeoff_place"], r["indoor"] = place(r["takeoff_lat"], r["takeoff_lon"])
-        r["landing_place"] = place(r["landing_lat"], r["landing_lon"])[0]
+        r["takeoff_place"], r["indoor"], r["takeoff_place_id"] = place(r["takeoff_lat"], r["takeoff_lon"])
+        r["landing_place"], _, r["landing_place_id"] = place(r["landing_lat"], r["landing_lon"])
         r["assessment"] = json.loads(r.pop("assessment_json") or "null")
         pid = effective_flight_project(r)
         r["project_id"] = pid
@@ -2694,6 +2696,154 @@ def flight_detail(flight_id):
         setting_changes=changes, info_messages=json.loads(row["info_messages"] or "[]"),
         preflight_checks=json.loads(row["preflight_checks"] or "[]"),
         autopilot_versions=json.loads(row["autopilot_versions"] or "[]"))
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Overview pages for one person, aircraft, project or location
+# ---------------------------------------------------------------------------------------------------------------------
+DETAIL_KINDS = ("people", "aircraft", "projects", "locations")
+DETAIL_FLIGHT_KEYS = (
+    "flight_id", "takeoff_utc", "landing_utc", "duration_s", "distance_m", "max_from_takeoff_m", "landed",
+    "aircraft", "aircraft_uid", "drone_id", "project_id", "project_name", "takeoff_lat", "takeoff_lon",
+    "takeoff_place", "takeoff_place_id", "landing_place", "landing_place_id", "indoor", "verdict", "date_ok",
+    "pic", "pac", "gcs", "pic_user", "pac_user", "gcs_user", "goal", "comment",
+    "takeoff_voltage_v", "landing_voltage_v")
+
+
+@app.get("/people/<int:item_id>")
+@app.get("/aircraft/<int:item_id>")
+@app.get("/projects/<int:item_id>")
+@app.get("/locations/<int:item_id>")
+def detail_page(item_id):
+    return send_from_directory(PAGES_DIR, "detail.html")
+
+
+def my_project_ids(con, user_id):
+    return {r["project_id"] for r in con.execute("SELECT project_id FROM project_members WHERE user_id=?", (user_id,))}
+
+
+def flight_matches(kind, item_id, f):
+    if kind == "people":
+        return any((f.get(role + "_user") or {}).get("id") == item_id for role in ROLES)
+    if kind == "aircraft":
+        return f.get("drone_id") == item_id
+    if kind == "projects":
+        return f.get("project_id") == item_id
+    return item_id in (f.get("takeoff_place_id"), f.get("landing_place_id"))
+
+
+def detail_person(con, uid, admin, mine):
+    u = con.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    if u is None:
+        return None
+    projects = [dict(id=r["id"], name=r["name"], role=r["role"]) for r in con.execute(
+        "SELECT p.id, p.name, m.role FROM project_members m JOIN projects p ON p.id = m.project_id"
+        " WHERE m.user_id=? ORDER BY p.name", (uid,)) if admin or r["id"] in mine]
+    default = con.execute("SELECT id, name FROM projects WHERE id=?", (u["default_project_id"],)).fetchone()
+    out = dict(id=uid, name=u["display_name"] or u["username"], username=u["username"], is_admin=bool(u["is_admin"]),
+               is_active=bool(u["is_active"]), provider=u["provider"] or "local", projects=projects,
+               default_project=dict(default) if default and (admin or default["id"] in mine) else None,
+               aliases=[r["alias"] for r in con.execute(
+                   "SELECT alias FROM user_aliases WHERE user_id=? ORDER BY alias", (uid,))])
+    if admin or uid == g.user["id"]:
+        out.update(email=u["email"], created_at=u["created_at"], last_login=u["last_login"])
+    return out
+
+
+def detail_aircraft(con, drone_id, admin, mine):
+    d = con.execute("SELECT * FROM drones WHERE id=?", (drone_id,)).fetchone()
+    if d is None:
+        return None
+    out = drone_payload(con, d)
+    out.pop("log_count")
+    if not admin and d["default_project_id"] not in mine:
+        out["default_project_id"] = out["default_project_name"] = None
+    out["logged_names"] = [r["name"] for r in con.execute(
+        "SELECT DISTINCT name FROM aircraft WHERE drone_id=? AND name IS NOT NULL ORDER BY name", (drone_id,))]
+    out["ac_ids"] = [r["ac_id"] for r in con.execute(
+        "SELECT DISTINCT ac_id FROM aircraft WHERE drone_id=? AND ac_id IS NOT NULL ORDER BY ac_id", (drone_id,))]
+    return out
+
+
+def detail_project(con, pid):
+    p = con.execute("SELECT * FROM projects WHERE id=?", (pid,)).fetchone()
+    if p is None:
+        return None
+    members = [dict(id=m["user_id"], name=m["display_name"] or m["username"], role=m["role"]) for m in con.execute(
+        "SELECT m.user_id, m.role, u.username, u.display_name FROM project_members m JOIN users u ON u.id = m.user_id"
+        " WHERE m.project_id=? ORDER BY COALESCE(u.display_name, u.username)", (pid,))]
+    drones = [dict(r) for r in con.execute(
+        "SELECT id, name, unique_id, status FROM drones WHERE default_project_id=? ORDER BY name", (pid,))]
+    return dict(id=pid, name=p["name"], created_at=p["created_at"], members=members, drones=drones,
+                role=role_on(con, pid))
+
+
+def detail_location(con, place_id):
+    r = con.execute("SELECT * FROM places WHERE id=?", (place_id,)).fetchone()
+    if r is None:
+        return None
+    return dict(id=place_id, name=r["name"], indoor=bool(r["indoor"]), shape=json.loads(r["shape"]))
+
+
+def detail_logs(con, kind, item_id, log_ids):
+    """Visible log files behind the flights, plus the files directly tied to this item."""
+    where, params = own_clause("l.")
+    extra = {"people": "l.uploaded_by = ?", "projects": "l.project_id = ?",
+             "aircraft": "l.id IN (SELECT log_id FROM aircraft WHERE drone_id = ?)"}.get(kind)
+    ids = sorted(log_ids)
+    cond = f"l.id IN ({','.join('?' * len(ids))})" if ids else "0"
+    args = list(ids)
+    if extra:
+        cond = f"({cond} OR {extra})"
+        args.append(item_id)
+    rows = con.execute(
+        "SELECT l.*, p.name AS project_name,"
+        " (SELECT COALESCE(display_name, username) FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name,"
+        " (SELECT group_concat(DISTINCT COALESCE(d.name, a.name, '?')) FROM aircraft a"
+        " LEFT JOIN drones d ON d.id = a.drone_id WHERE a.log_id = l.id) AS aircraft_names,"
+        " (SELECT COUNT(*) FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id = l.id) AS num_flights"
+        f" FROM logs l LEFT JOIN projects p ON p.id = l.project_id WHERE ({where}) AND {cond}"
+        " ORDER BY COALESCE(l.start_utc, l.uploaded_at) DESC", (*params, *args)).fetchall()
+    keep = ("id", "name", "log_type", "status", "size_bytes", "uploaded_at", "uploaded_by_name", "project_id",
+            "project_name", "start_utc", "duration_s", "date_ok", "has_log", "aircraft_names", "num_flights")
+    return [{k: d.get(k) for k in keep} for d in map(log_dict, rows)]
+
+
+@app.get("/api/detail/<kind>/<int:item_id>")
+def detail(kind, item_id):
+    """Overview of one person, aircraft, project or location: its details, the flights and log files the
+    current user may see (same rules as the logbook), from which the page builds the totals.
+
+    Non-admins get 404 for items they have no access to: projects they are not in, and people, aircraft and
+    locations that do not appear on any flight they can see (people sharing a project and aircraft whose default
+    project they are in are also allowed)."""
+    if kind not in DETAIL_KINDS:
+        abort(404)
+    con = conn()
+    admin = bool(g.user["is_admin"])
+    mine = my_project_ids(con, g.user["id"])
+    if kind == "projects" and not admin and item_id not in mine:
+        abort(404)
+    item = {"people": lambda: detail_person(con, item_id, admin, mine),
+            "aircraft": lambda: detail_aircraft(con, item_id, admin, mine),
+            "projects": lambda: detail_project(con, item_id),
+            "locations": lambda: detail_location(con, item_id)}[kind]()
+    if item is None:
+        abort(404)
+    flights = [f for f in logbook_rows() if flight_matches(kind, item_id, f)]
+    if not admin and not flights:
+        allowed = ((kind == "people" and (item_id == g.user["id"] or my_project_ids(con, item_id) & mine))
+                   or (kind == "aircraft" and item.get("default_project_id") in mine))
+        if not allowed:
+            abort(404)
+    log_ids = {s["log_id"] for f in flights for s in f["sources"]}
+    logs = detail_logs(con, kind, item_id, log_ids)
+    out = []
+    for f in flights:
+        d = {k: f.get(k) for k in DETAIL_FLIGHT_KEYS}
+        d["log_ids"] = sorted({s["log_id"] for s in f["sources"]})
+        out.append(d)
+    return jsonify(kind=kind, item=item, flights=out, logs=logs, all=admin)
 
 
 @app.get("/api/status")

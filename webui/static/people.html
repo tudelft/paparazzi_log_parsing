@@ -112,7 +112,7 @@ function render() {
   if (admin && !editing) {
     const projName = id => ((people.projects || []).find(p => p.id === id) || {}).name || '';
     $('usersHead').innerHTML = '<tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Aliases</th><th>Password</th></tr>';
-    $('users').innerHTML = people.users.map(u => `<tr><td>${esc(u.display_name || u.username)} <span class="mute">${esc(u.username)}${u.is_admin ? ' · admin' : ''}</span></td>
+    $('users').innerHTML = people.users.map(u => `<tr><td><a href="/people/${u.id}">${esc(u.display_name || u.username)}</a> <span class="mute">${esc(u.username)}${u.is_admin ? ' · admin' : ''}</span></td>
       <td>${esc(u.email || '')}</td><td>${u.provider === 'saml' ? 'TU Delft SSO' : 'Local'}</td>
       <td>${esc(projName(u.default_project_id))}</td>
       <td>${(u.aliases || []).map(a => `<span class="chip">${esc(a)}</span>`).join('')}</td>
@@ -122,7 +122,7 @@ function render() {
   }
   if (!admin) {
     $('usersHead').innerHTML = '<tr><th>Name</th><th>Username</th></tr>';
-    $('users').innerHTML = people.users.map(u => `<tr><td>${esc(u.display_name || u.username)}${u.is_admin ? ' <span class="mute">admin</span>' : ''}</td>
+    $('users').innerHTML = people.users.map(u => `<tr><td><a href="/people/${u.id}">${esc(u.display_name || u.username)}</a>${u.is_admin ? ' <span class="mute">admin</span>' : ''}</td>
       <td class="mute">${esc(u.username)}</td></tr>`).join('')
       || '<tr><td colspan="2" class="mute">No people yet.</td></tr>';
     return;
@@ -135,7 +135,7 @@ function render() {
     <td><select id="sel${i}">${opts}</select> <button onclick="addAlias(${i}, null)">Link</button></td></tr>`).join('')
     || '<tr><td colspan="3" class="mute">Everything is linked.</td></tr>';
   $('usersHead').innerHTML = '<tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Aliases</th><th>Add alias</th><th>Password</th><th></th></tr>';
-  $('users').innerHTML = people.users.map(u => `<tr><td>${esc(u.display_name || u.username)} <span class="mute">${esc(u.username)}${u.is_admin ? ' · admin' : ''}</span></td>
+  $('users').innerHTML = people.users.map(u => `<tr><td><a href="/people/${u.id}">${esc(u.display_name || u.username)}</a> <span class="mute">${esc(u.username)}${u.is_admin ? ' · admin' : ''}</span></td>
     <td><div class="pair"><input id="mail${u.id}" type="email" value="${esc(u.email || '')}" placeholder="email" maxlength="120"><button class="sec" onclick="saveEmail(${u.id})">Save</button></div></td>
     <td>${u.provider === 'saml' ? 'TU Delft SSO' : 'Local'}</td>
     <td><select onchange="setUserProject(${u.id}, this.value)">${'<option value="">No default</option>' + (people.projects || []).map(p => `<option value="${p.id}"${p.id === u.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></td>

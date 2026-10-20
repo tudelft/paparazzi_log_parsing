@@ -127,7 +127,7 @@ async function load() {
 function peoplePreview(p) {
   const members = p.members || [];
   if (!members.length) return '<span class="mute">Nobody yet</span>';
-  return members.map(m => esc(m.display_name || m.username)).join(', ');
+  return members.map(m => `<a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a>`).join(', ');
 }
 function projectRows(p) {
   const isOpen = open_.has(p.id);
@@ -144,10 +144,10 @@ function projectRows(p) {
       <button type="button" class="danger" onclick="removeProject(${p.id})">Delete project</button>
     </div>`;
   } else {
-    detail = members.map(m => `<div class="person"><span>${esc(m.display_name || m.username)} <span class="mute">${esc(m.username)}</span></span><span class="mute">${esc(ROLE_LABEL[m.role] || m.role)}</span></div>`).join('')
+    detail = members.map(m => `<div class="person"><span><a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a> <span class="mute">${esc(m.username)}</span></span><span class="mute">${esc(ROLE_LABEL[m.role] || m.role)}</span></div>`).join('')
       || '<p class="mute">Nobody listed on this project.</p>';
   }
-  return `<tr class="project" data-id="${p.id}"><td>${isOpen ? '▾' : '▸'} ${esc(p.name)}</td><td>${p.log_count}</td><td>${peoplePreview(p)}</td></tr>`
+  return `<tr class="project" data-id="${p.id}"><td>${isOpen ? '▾' : '▸'} <a href="/projects/${p.id}">${esc(p.name)}</a></td><td>${p.log_count}</td><td>${peoplePreview(p)}</td></tr>`
     + (isOpen ? `<tr><td colspan="3" class="detail">${detail}</td></tr>` : '');
 }
 function render() {

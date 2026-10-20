@@ -153,6 +153,12 @@ Projects and Aircraft pages; it stays on until you turn it off. With edit mode o
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
 are left.
 
+**Overview pages.** Every person, aircraft, project and location has its own page (`/people/<id>`, `/aircraft/<id>`,
+`/projects/<id>`, `/locations/<id>`; click a name anywhere). It shows totals (flights, flight time, distance, flying
+days, log files), a map of takeoff spots, flight time per month, breakdowns per aircraft/project/location/crew, and the
+lists of flights and log files. Admins see everything; others only see the pages and the flights and logs they have
+access to.
+
 **Real flight or not.** The autopilot's in-flight flag also toggles on the ground (arming, motor tests, carrying).
 The parser scores each takeoff/landing on duration, climb, distance, speed, tilt and acceleration and gives a verdict
 `flight`, `uncertain` or `ground` with the reasons. The logbook hides the last two unless **Show uncertain/non-flights**

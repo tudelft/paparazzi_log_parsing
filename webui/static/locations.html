@@ -132,7 +132,7 @@ async function loadPlaces() {
   const r = await fetch('/api/admin/places');
   if (r.status === 403) { location.href = '/'; return; }
   placeData = await r.json();
-  $('places').innerHTML = placeData.places.map(p => `<tr><td>${esc(p.name)}</td><td>${p.indoor ? 'Indoors' : 'Outdoors'}</td><td class="mute">${p.shape.type === 'circle' ? 'circle, ' + Math.round(p.shape.radius_m) + ' m' : 'polygon, ' + p.shape.points.length + ' points'}</td>
+  $('places').innerHTML = placeData.places.map(p => `<tr><td><a href="/locations/${p.id}">${esc(p.name)}</a></td><td>${p.indoor ? 'Indoors' : 'Outdoors'}</td><td class="mute">${p.shape.type === 'circle' ? 'circle, ' + Math.round(p.shape.radius_m) + ' m' : 'polygon, ' + p.shape.points.length + ' points'}</td>
     <td><button onclick="renamePlace(${p.id})">Edit</button> <button onclick="zoomPlace(${p.id})">Show</button> <button class="danger" onclick="deletePlace(${p.id})">Delete</button></td></tr>`).join('')
     || '<tr><td colspan="4" class="mute">No places yet.</td></tr>';
   if (!map) return;

@@ -150,14 +150,14 @@ function render() {
       : d.aliases.map(a => `<span class="chip">${esc(a)}</span>`).join('');
     if (!editing) {
       return `<tr>
-      <td>${esc(d.name)}</td><td>${esc(d.unique_id || '')}</td>
+      <td><a href="/aircraft/${d.id}">${esc(d.name)}</a></td><td>${esc(d.unique_id || '')}</td>
       <td>${st ? `<span class="badge st-${esc(st)}">${esc(st)}</span>` : ''}</td>
       <td>${esc(d.manager || '')}</td><td>${esc(d.current_user || '')}</td>
       <td>${esc(d.bought_on || '')}</td><td>${esc(projLabel)}</td>
       <td>${esc(d.comments || '')}</td><td>${d.log_count}</td><td>${aliases}</td></tr>`;
     }
     return `<tr>
-    <td><input class="wide" value="${esc(d.name)}" maxlength="80" title="Rename this aircraft. The old name is kept as an alias so existing logs still match." onchange="setField(${d.id}, 'name', this.value)"></td>
+    <td><input class="wide" value="${esc(d.name)}" maxlength="80" title="Rename this aircraft. The old name is kept as an alias so existing logs still match." onchange="setField(${d.id}, 'name', this.value)"> <a href="/aircraft/${d.id}" title="Overview">↗</a></td>
     <td><input class="wide" value="${esc(d.unique_id || '')}" maxlength="40" onchange="setField(${d.id}, 'unique_id', this.value)"></td>
     <td><select onchange="setField(${d.id}, 'status', this.value)">${statusOptions(st)}</select></td>
     <td><input class="wide" value="${esc(d.manager || '')}" maxlength="80" onchange="setField(${d.id}, 'manager', this.value)"></td>
