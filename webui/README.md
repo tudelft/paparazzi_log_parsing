@@ -59,6 +59,30 @@ Messages and settings show 25 rows per page, scoped to the flight by default; th
 the whole log. Tab counts reflect the flight scope (messages also include 30 seconds either side).
 Tabs support keyboard arrows and can be linked directly, for example `/flight/42#messages`.
 
+**Additional files.** Use the **Files** tab on a flight, **Additional files** on a paper record,
+or **Additional files** in an expanded upload. Photos, videos, wind-tunnel measurements, offboard
+computer logs and other files can be uploaded there. Search by aircraft, date, filename or numeric
+ID to select up to 100 flights/logs (including paper records); one uploaded file is stored once
+and linked to every selected entry. Files linked to a whole log also appear on its flights, provided
+the user can see that log. The management page lists existing files and lets you link them to more entries.
+
+Admins and users with full access to each selected target can upload/link files. Anyone who can
+read **any** linked target can download the file: linking across projects deliberately shares its
+contents. Inaccessible link names/IDs are not disclosed. Sharing an existing file further requires
+full access to all its existing links as well as the new targets. A user with full access can remove
+an individual link without affecting other links; the stored file is removed only after its last link
+is removed. Deleting a flight's parent log or a paper record removes the corresponding links.
+Re-parsing retains links to flights with the same aircraft ID, flight index and takeoff time; if that
+flight no longer exists, its file links move to the parent log instead of losing the file.
+Attachment mutations require a browser session (API keys can read/download but cannot manage files).
+
+Each file is limited to **10 GiB** by default (`LOGDB_ATTACHMENT_MAX_BYTES`).
+Uploads and downloads stream in bounded chunks; files upload sequentially with progress and errors.
+Keep your reverse proxy's body-size limits and timeouts large enough for your recordings.
+A compressibility sample avoids recompressing typical JPEG/video/archive files. Other files use
+fast gzip compression only if the stored result saves at least 5%. No resizing, transcoding or other
+lossy conversion is done; downloads reproduce the original filename and exact bytes.
+
 **Flight weather.** The Weather tab shows logged wind at takeoff and landing when available. The
 **Fetch historical weather** button requests an hourly Open-Meteo/ECMWF estimate (wind at 10 m,
 temperature, humidity, precipitation, cloud cover and pressure), separately from onboard data.
@@ -76,7 +100,17 @@ SQLite must not run on a network share (locking over SMB is unreliable and can c
 | What | Setting | Where | Backed up by |
 |---|---|---|---|
 | Database, session key, SAML keys (small, ~40 kB per log) | `LOGDB_WEB_DATA` | local disk | `app.py backup` → `LOGDB_BACKUP_DIR` |
-| `.data`/`.log` files and flight paths (large) | `LOGDB_LOG_DIR` | local disk or network share | the share's own backup |
+| Compressed `.data`/`.log` files, flight paths and attachments (large) | `LOGDB_LOG_DIR` | local disk or network share | the share's own backup |
+
+New `.data` and companion `.log` files are stored as `.data.gz` / `.log.gz` (fast, lossless gzip).
+Deduplication still hashes the original `.data` bytes. The parser temporarily decompresses the pair
+under `<WEB_DATA>/tmp` and removes it afterwards; allow local free space for one uncompressed pair
+per parse worker. Individual downloads restore the original files; paired downloads stream a compressed
+ZIP containing the original `.data` / `.log`, not nested gzip files.
+Uncompressed legacy log storage is **not supported** by this test-environment change: delete those
+test uploads and re-upload their originals. There is no automatic conversion or destructive reset.
+The database, accounts and paper records do not need to be deleted. Attachments live under
+`LOG_DIR/attachments`; include them in the log-directory backup, alongside the compressed source logs.
 
 A Samba share can be mounted with the service user as owner, in `/etc/fstab`:
 
@@ -118,6 +152,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `WORKERS` | 2–4, from CPU count | Logs parsed in parallel |
 | `INGEST_WORKERS` | `2` | Threads that hash, deduplicate and unzip uploads |
 | `PATH_RATE` | `5` | Flight path points per second (`0`: no map path) |
+| `ATTACHMENT_MAX_BYTES` | `10737418240` | Maximum original bytes per attachment (10 GiB) |
 | `FASTREADER` | `../cpp/build/paparazzi_log_parsing` | Parser binary |
 | `SESSION_HOURS` | `12` | How long a login lasts |
 | `SECRET_KEY` | generated in `<WEB_DATA>/secret_key` | Session signing key |

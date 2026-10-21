@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>Flight</title>
 <script src="/theme.js"></script>
+<script src="/attachments.js"></script>
 <link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -91,6 +92,7 @@
     <button type="button" id="tab-settings" role="tab" aria-selected="false" aria-controls="panel-settings" tabindex="-1" data-tab="settings">Settings <span id="settingsBadge"></span></button>
     <button type="button" id="tab-messages" role="tab" aria-selected="false" aria-controls="panel-messages" tabindex="-1" data-tab="messages">Messages <span id="messagesBadge"></span></button>
     <button type="button" id="tab-checks" role="tab" aria-selected="false" aria-controls="panel-checks" tabindex="-1" data-tab="checks">Pre-flight checks</button>
+    <button type="button" id="tab-files" role="tab" aria-selected="false" aria-controls="panel-files" tabindex="-1" data-tab="files">Files</button>
   </div>
   <div id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
   <section class="card" id="summary"></section>
@@ -147,6 +149,10 @@
   </section>
 
   <section class="card" id="panel-checks" role="tabpanel" aria-labelledby="tab-checks" hidden><h2>Pre-flight checks</h2><div class="scroll list-scroll"><table><tbody id="pfc"></tbody></table></div></section>
+  <section class="card" id="panel-files" role="tabpanel" aria-labelledby="tab-files" hidden>
+    <h2>Additional files</h2><p class="mute">Photos, videos and offboard recordings, including files linked to this flight's log.</p>
+    <div id="additionalFiles">Loading...</div>
+  </section>
 </main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -171,6 +177,7 @@ fetch('/api/me').then(r => r.json()).then(async d => {
 
 let D, map, planLayer, marker, trail, chartGeom;
 const flightId = +location.pathname.split('/').pop();
+AttachmentFiles.mount($('additionalFiles'), 'flight', flightId);
 let activeTab = 'overview';
 function selectTab(name) {
   const tabs = [...document.querySelectorAll('[data-tab]')];

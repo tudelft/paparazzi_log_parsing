@@ -12,7 +12,7 @@ import db
 import historical
 
 
-class HistoricalTests(unittest.TestCase):
+class AppTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Load the actual app and its routes, without starting ingest/parse workers or touching stored logs.
@@ -65,6 +65,8 @@ class HistoricalTests(unittest.TestCase):
     def create(self, **changes):
         return self.client.post("/api/historical", json={**self.body, **changes})
 
+
+class HistoricalTests(AppTests):
     def test_create_read_update_delete_and_no_fake_logs(self):
         response = self.create()
         self.assertEqual(response.status_code, 201, response.json)

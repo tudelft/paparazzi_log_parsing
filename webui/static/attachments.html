@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Additional flight files</title>
+<script src="/theme.js"></script>
+<script src="/attachments.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui,sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; gap:18px; flex-wrap:wrap; align-items:baseline; }
+  header h1 { font-size:18px; margin:0; } header .meta { color:#9fb0c3; }
+  main { max-width:1100px; margin:auto; padding:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:16px; }
+  input,textarea,button { font:inherit; padding:7px; border:1px solid var(--line); border-radius:5px; background:var(--field); color:var(--txt); max-width:100%; }
+  button { cursor:pointer; background:var(--sec); } button:disabled { opacity:.6; cursor:default; }
+  a { color:var(--acc); } .mute { color:var(--mute); }
+  label { display:block; margin:8px 0; overflow-wrap:anywhere; }
+  [hidden] { display:none !important; } fieldset { border:0; padding:0; margin:0; min-width:0; }
+  #results { max-height:280px; overflow:auto; } #selected { max-height:240px; overflow:auto; }
+  #status { white-space:pre-wrap; overflow-wrap:anywhere; } progress { width:100%; max-width:500px; }
+  #search { width:100%; max-width:500px; } textarea { width:100%; }
+  @media(max-width:600px) {
+    main { padding:10px; }
+    body > header { flex-wrap:wrap; gap:8px; padding:10px; }
+    body > header #nav { order:3; flex:1 0 100%; min-height:36px; }
+    body > header > .meta:last-child { white-space:normal; }
+  }
+</style>
+</head>
+<body>
+<header><h1>Additional flight files</h1><span class="meta" id="nav"></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span>
+  <button id="nightBtn" type="button" onclick="toggleNight()">Night / day</button>
+  <button type="button" onclick="logout()">Sign out</button></span></header>
+<main>
+  <p id="context"></p>
+  <section class="card"><h2>Photos, videos and other recordings</h2>
+    <p>Files are stored once and can be linked to multiple flights, paper records or whole logs.
+      A file linked to a log also appears on its flights. Text and other compressible files use lossless
+      compression; photos, videos and archives stay in their original form when compression would not help.
+      Downloads always restore the exact original bytes.</p>
+    <p><strong>Sharing:</strong> everyone with access to <em>any</em> linked flight/log can download the file.
+      Linking across projects deliberately shares its contents with those projects.</p>
+  </section>
+  <section class="card"><h2>Selected flights / logs</h2>
+    <fieldset id="selection">
+      <p class="mute">Upload new files or link an existing file below to all checked entries. Full access is required.
+        Search by aircraft, date, log filename or numeric ID.</p>
+      <div id="selected"></div>
+      <form id="searchForm"><label for="search">Find more flights / logs</label>
+        <input id="search" type="search" required placeholder="Aircraft name, 2026-10-21, log filename...">
+        <button type="submit">Search</button></form>
+      <div id="results"></div>
+    </fieldset>
+  </section>
+  <section class="card"><h2>Upload additional files</h2>
+    <form id="uploadForm">
+      <fieldset id="uploadFields" disabled>
+        <label>Files <input id="files" type="file" multiple required></label>
+        <label>Description (optional, applies to these files)<textarea id="description" maxlength="1000" rows="2"></textarea></label>
+        <p id="limit" class="mute"></p>
+        <button type="submit">Upload to selected flights / logs</button>
+      </fieldset>
+    </form>
+    <progress id="progress" hidden max="100" value="0" aria-label="File upload progress"></progress>
+    <p id="status" role="status" aria-live="polite"></p>
+  </section>
+  <section class="card"><h2>Files on this flight / log</h2><div id="fileList">Loading...</div></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const {api,size,render} = AttachmentFiles;
+const params = new URLSearchParams(location.search);
+const kind = params.get('kind'), id = params.get('id');
+const targets = new Map();
+let maxBytes = 0, busy = false;
+const key = target => `${target.kind}:${target.id}`;
+function chosen() {
+  return [...$('selected').querySelectorAll('input:checked')].map(input => targets.get(input.value));
+}
+function syncUpload() { $('uploadFields').disabled = busy || !chosen().length; }
+function addTarget(target) {
+  if (targets.has(key(target))) {
+    const input = [...$('selected').querySelectorAll('input')].find(input => input.value === key(target));
+    input.checked = true;
+    syncUpload(); return;
+  }
+  targets.set(key(target), target);
+  const label = document.createElement('label'), input = document.createElement('input');
+  input.type = 'checkbox'; input.value = key(target); input.checked = true; input.onchange = syncUpload;
+  label.append(input, ` ${target.kind}: ${target.label}`);
+  $('selected').append(label);
+  syncUpload();
+}
+async function reload() {
+  const data = await api(`/api/attachments?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`);
+  render($('fileList'), data.files, reload, async attachmentId => {
+    const selected = chosen();
+    if (!selected.length) { $('status').textContent = 'Select at least one flight/log first.'; return; }
+    if (!confirm('Share this file with every selected flight/log? Their project members will be able to download it.')) return;
+    try {
+      await api(`/api/attachments/${attachmentId}/links`, {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({targets:selected.map(t => ({kind:t.kind,id:t.id}))})});
+      $('status').textContent = 'File linked. No extra copy was stored.';
+      await reload();
+    } catch (error) { $('status').textContent = error.message; }
+  });
+  return data;
+}
+$('searchForm').onsubmit = async event => {
+  event.preventDefault();
+  $('results').textContent = 'Searching...';
+  try {
+    const data = await api('/api/attachments/targets?q=' + encodeURIComponent($('search').value));
+    $('results').replaceChildren();
+    if (!data.targets.length) $('results').textContent = 'No matching entries with full access.';
+    for (const t of data.targets) {
+      const line = document.createElement('div'), button = document.createElement('button');
+      button.type = 'button'; button.textContent = 'Add'; button.onclick = () => addTarget(t);
+      line.style.margin = '6px 0';
+      line.append(button, ` ${t.kind}: ${t.label}`);
+      $('results').append(line);
+    }
+  } catch (error) { $('results').textContent = error.message; }
+};
+function upload(file, selected) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/attachments');
+    const metadata = encodeURIComponent(JSON.stringify({filename:file.name, description:$('description').value,
+      targets:selected.map(t => ({kind:t.kind,id:t.id}))}));
+    if (metadata.length > 7000) { reject(Error('Upload metadata is too long; shorten the description or select fewer entries.')); return; }
+    xhr.setRequestHeader('X-Attachment-Metadata', metadata);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = event => {
+      if (event.lengthComputable) {
+        $('progress').value = 100 * event.loaded / event.total;
+        $('status').textContent = `${file.name}: ${Math.round($('progress').value)}% uploaded; saving/compressing...`;
+      }
+    };
+    xhr.onerror = () => reject(Error('Network error. Upload may have completed; refresh the file list before retrying.'));
+    xhr.onload = () => {
+      let data;
+      try { data = JSON.parse(xhr.responseText); }
+      catch (error) { reject(Error(`Server returned HTTP ${xhr.status}; check proxy upload limits/timeouts.`)); return; }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(Error(data.error || `HTTP ${xhr.status}`));
+    };
+    xhr.send(file);
+  });
+}
+$('uploadForm').onsubmit = async event => {
+  event.preventDefault();
+  const selected = chosen(), files = [...$('files').files];
+  if (!selected.length || selected.length > 100) { $('status').textContent = 'Select between 1 and 100 entries.'; return; }
+  if (files.some(file => !file.size || file.size > maxBytes)) {
+    $('status').textContent = `Files must be nonempty and at most ${size(maxBytes)} each.`; return;
+  }
+  busy = true; syncUpload(); $('selection').disabled = true; $('progress').hidden = false;
+  let completed = 0;
+  try {
+    for (const file of files) {
+      $('progress').value = 0; $('status').textContent = `Uploading ${file.name}...`;
+      await upload(file, selected); completed++;
+    }
+    $('files').value = '';
+    $('status').textContent = `${completed} file(s) saved and linked.`;
+  } catch (error) { $('status').textContent = `${completed} file(s) saved. ${error.message}`; }
+  finally {
+    busy = false; syncUpload(); $('selection').disabled = false; $('progress').hidden = true;
+    try { await reload(); } catch (error) { $('status').textContent += ` Unable to refresh: ${error.message}`; }
+  }
+};
+(async () => {
+  try {
+    const [me,data] = await Promise.all([api('/api/me'), reload()]);
+    $('who').textContent = me.user.display_name;
+    maxBytes = data.max_bytes;
+    $('limit').textContent = `Maximum ${size(maxBytes)} per file. Files upload one at a time, without loading them into browser memory.`;
+    const back = document.createElement('a');
+    back.href = data.target.url; back.textContent = `Back to ${data.target.label}`;
+    $('context').append(back);
+    if (data.target.can_edit) addTarget(data.target);
+    else $('status').textContent = 'Read-only here. Search for an entry where you have full access to upload files there.';
+  } catch (error) { $('status').textContent = error.message; $('fileList').textContent = 'Unable to load files.'; }
+})();
+</script>
+</body>
+</html>

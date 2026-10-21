@@ -456,6 +456,7 @@ async function loadDetail(id) {
     h += `<div class="actions"><a href="/api/aircraft/${a.id}/config" target="_blank" onclick="event.stopPropagation()">Flight plan / settings / airframe JSON</a></div>`;
   }
   h += `<div class="actions">
+    <a class="btn sec" href="/attachments?kind=log&id=${id}" onclick="event.stopPropagation()">Additional files</a>
     <a class="btn sec" href="/api/logs/${id}/download" onclick="event.stopPropagation()">Download .data + .log</a>
     <button class="sec" onclick="event.stopPropagation(); reparse(${id})">Re-parse</button>
     ${l.can_delete ? `<button class="danger" onclick="event.stopPropagation(); del(${id})">Delete</button>` : ''}</div>`;

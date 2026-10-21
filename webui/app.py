@@ -39,7 +39,9 @@ if __name__ == "__main__" and sys.argv[1:2] == ["check-config"]:
     sys.exit(1 if config.check() else 0)
 
 import db
+import attachments
 import historical
+import storage
 import saml
 import config
 import personnel
@@ -169,12 +171,21 @@ def parse_log(log_id):
 
     db.retry_locked(mark_parsing, con)
     out_path = new_paths = None
+    unpacked = None
     try:
-        data_path = STORAGE_DIR / row["data_path"]
-        cmd = [FASTREADER, "-r", str(PATH_RATE), "--sha256", row["sha256"], str(data_path)]
         TMP_DIR.mkdir(parents=True, exist_ok=True)
-        fd, out_path = tempfile.mkstemp(dir=TMP_DIR, suffix=".json")
         t0 = time.time()
+        unpacked = tempfile.TemporaryDirectory(dir=TMP_DIR, prefix="parse-")
+        for rel in (row["data_path"], row["log_path"]):
+            if rel:
+                if not rel.endswith(".gz"):
+                    raise RuntimeError("Uncompressed legacy log storage is unsupported; delete and re-upload this test log.")
+                with open(Path(unpacked.name) / Path(rel).name[:-3], "wb") as dst:
+                    for chunk in storage.chunks(STORAGE_DIR / rel, compressed=True):
+                        dst.write(chunk)
+        data_path = Path(unpacked.name) / Path(row["data_path"]).name[:-3]
+        cmd = [FASTREADER, "-r", str(PATH_RATE), "--sha256", row["sha256"], str(data_path)]
+        fd, out_path = tempfile.mkstemp(dir=TMP_DIR, suffix=".json")
         with os.fdopen(fd, "wb") as out:
             proc = subprocess.run(cmd, stdout=out, stderr=subprocess.PIPE)
         if proc.returncode != 0:
@@ -195,9 +206,11 @@ def parse_log(log_id):
                 con.execute("BEGIN IMMEDIATE")
                 old_paths = con.execute("SELECT paths_file FROM logs WHERE id=?", (log_id,)).fetchone()[0]
                 kept = snapshot_flight_edits(con, log_id)
+                kept_files = attachments.snapshot(con, log_id)
                 db.store_parsed(con, log_id, doc, paths_rel)
                 link_log_aircraft(con, log_id)
                 assign_log_flights(con, log_id, kept)
+                attachments.restore(con, log_id, kept_files)
                 con.execute("UPDATE logs SET status='done', error=NULL, parsed_at=?, parse_seconds=? WHERE id=?",
                             (now(), round(seconds, 3), log_id))
                 con.commit()
@@ -220,6 +233,8 @@ def parse_log(log_id):
 
         db.retry_locked(mark_error, con)
     finally:
+        if unpacked is not None:
+            unpacked.cleanup()
         if out_path and os.path.exists(out_path):
             os.remove(out_path)
 
@@ -264,16 +279,16 @@ def safe_filename(name):
 
 
 def store_files(sha, name, data_src, log_src):
-    """Move a staged log into permanent storage, returns the relative paths."""
+    """Compress a staged log into permanent storage, returning relative paths."""
     folder = Path(sha[:2]) / sha
     (STORAGE_DIR / folder).mkdir(parents=True, exist_ok=True)
     base = safe_filename(posixpath.basename(name))
-    data_rel = str(folder / base)
+    data_rel = str(folder / (base + ".gz"))
     log_rel = None
-    shutil.move(data_src, STORAGE_DIR / data_rel)
+    storage.gzip_file(data_src, STORAGE_DIR / data_rel)
     if log_src:
-        log_rel = str(folder / (posixpath.splitext(base)[0] + ".log"))
-        shutil.move(log_src, STORAGE_DIR / log_rel)
+        log_rel = str(folder / (posixpath.splitext(base)[0] + ".log.gz"))
+        storage.gzip_file(log_src, STORAGE_DIR / log_rel)
     return data_rel, log_rel
 
 
@@ -412,7 +427,7 @@ def ingest_pair(con, row):
         drop_stage(stage)
         return
     sha = sha256_file(str(data_src))
-    existing = con.execute("SELECT id, log_path, uploaded_by FROM logs WHERE sha256=?", (sha,)).fetchone()
+    existing = con.execute("SELECT id, data_path, log_path, uploaded_by FROM logs WHERE sha256=?", (sha,)).fetchone()
     user_id = row["uploaded_by"]
     is_admin = False
     if user_id:
@@ -424,9 +439,10 @@ def ingest_pair(con, row):
         return
     if existing is not None:
         if existing["log_path"] is None and log_src and log_src.is_file():
-            stem = posixpath.splitext(posixpath.basename(name))[0]
-            log_rel = str(Path(sha[:2]) / sha / (safe_filename(stem) + ".log"))
-            shutil.move(str(log_src), STORAGE_DIR / log_rel)
+            stored = Path(existing["data_path"])
+            stem = Path(stored.name.removesuffix(".gz")).stem
+            log_rel = str(stored.parent / (stem + ".log.gz"))
+            storage.gzip_file(log_src, STORAGE_DIR / log_rel)
 
             def add_log_file():
                 with db.write_lock:
@@ -574,7 +590,7 @@ def user_public(u):
 
 @app.after_request
 def no_cache_pages(resp):
-    if resp.mimetype == "text/html" or request.path in ("/theme.css", "/theme.js"):
+    if resp.mimetype == "text/html" or request.path in ("/theme.css", "/theme.js", "/attachments.js"):
         resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -2860,16 +2876,19 @@ def historical_record(record_id):
             record["project_name"] = con.execute("SELECT name FROM projects WHERE id=?", (row["project_id"],)).fetchone()["name"]
             return jsonify(record=record, can_edit=editable)
         session_required()
-        with db.write_lock, con:
-            con.execute("BEGIN IMMEDIATE")
-            row = historical.visible(con, g.user, record_id)
-            if not historical.can_edit(con, g.user, row["project_id"]):
-                raise historical.RecordError("Full project access is required to change this record.", 403)
-            values = historical.validate(con, g.user, request.get_json(silent=True)) if request.method == "PUT" else None
+        with db.write_lock:
+            with con:
+                con.execute("BEGIN IMMEDIATE")
+                row = historical.visible(con, g.user, record_id)
+                if not historical.can_edit(con, g.user, row["project_id"]):
+                    raise historical.RecordError("Full project access is required to change this record.", 403)
+                values = historical.validate(con, g.user, request.get_json(silent=True)) if request.method == "PUT" else None
+                if request.method == "DELETE":
+                    con.execute("DELETE FROM flight_records WHERE id=?", (record_id,))
+                else:
+                    historical.store(con, values, g.user["id"], now(), record_id)
             if request.method == "DELETE":
-                con.execute("DELETE FROM flight_records WHERE id=?", (record_id,))
-            else:
-                historical.store(con, values, g.user["id"], now(), record_id)
+                attachments.prune(con, STORAGE_DIR)
         return jsonify(ok=True)
     except historical.RecordError as exc:
         return jsonify(error=str(exc)), exc.status
@@ -3314,7 +3333,12 @@ def download(log_id, kind):
     rel = row["data_path"] if kind == "data" else row["log_path"] if kind == "log" else None
     if not rel:
         abort(404)
-    return send_from_directory(STORAGE_DIR, rel, as_attachment=True)
+    if not rel.endswith(".gz"):
+        return jsonify(error="Uncompressed legacy storage is unsupported; delete and re-upload this test log."), 409
+    headers = {"Content-Disposition": f'attachment; filename="{safe_filename(Path(rel).name[:-3])}"',
+               "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"}
+    return Response(storage.chunks(STORAGE_DIR / rel, compressed=True),
+                    mimetype="application/octet-stream", headers=headers)
 
 
 class _Sink:
@@ -3336,12 +3360,12 @@ class _Sink:
 
 
 def zip_stream(files):
-    """Yield an uncompressed (stored) zip of [(archive_name, path)] without building it on disk."""
+    """Stream original log files into a compressed ZIP without building it on disk."""
     sink = _Sink()
-    with zipfile.ZipFile(sink, "w", zipfile.ZIP_STORED, allowZip64=True) as z:
+    with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED, compresslevel=1, allowZip64=True) as z:
         for arc, path in files:
-            with open(path, "rb") as src, z.open(zipfile.ZipInfo.from_file(path, arc), "w", force_zip64=True) as dst:
-                while chunk := src.read(4 << 20):
+            with z.open(arc, "w", force_zip64=True) as dst:
+                for chunk in storage.chunks(path, compressed=True):
                     dst.write(chunk)
                     yield sink.take()
     yield sink.take()
@@ -3351,7 +3375,9 @@ def zip_stream(files):
 def download_both(log_id):
     """Zip with the .data and .log file of a log."""
     row = visible_log(conn(), log_id, "name, data_path, log_path")
-    files = [(posixpath.basename(rel), STORAGE_DIR / rel) for rel in (row["data_path"], row["log_path"]) if rel]
+    if any(not rel.endswith(".gz") for rel in (row["data_path"], row["log_path"]) if rel):
+        return jsonify(error="Uncompressed legacy storage is unsupported; delete and re-upload this test log."), 409
+    files = [(posixpath.basename(rel)[:-3], STORAGE_DIR / rel) for rel in (row["data_path"], row["log_path"]) if rel]
     stem = posixpath.splitext(posixpath.basename(row["name"]))[0]
     headers = {"Content-Disposition": f'attachment; filename="{safe_filename(stem)}.zip"'}
     return Response(stream_with_context(zip_stream(files)), mimetype="application/zip", headers=headers)
@@ -3407,12 +3433,23 @@ def delete_log(log_id):
         return jsonify(error="you cannot delete logs in this project"), 403
     if row["status"] == "parsing":
         return jsonify(error="log is being parsed"), 409
-    con.execute("DELETE FROM logs WHERE id=?", (log_id,))
-    con.commit()
+    with db.write_lock:
+        with con:
+            con.execute("BEGIN IMMEDIATE")
+            current = visible_log(con, log_id)
+            if not can_delete_log(con, current):
+                return jsonify(error="you cannot delete logs in this project"), 403
+            if current["status"] == "parsing":
+                return jsonify(error="log is being parsed"), 409
+            con.execute("DELETE FROM logs WHERE id=?", (log_id,))
+        attachments.prune(con, STORAGE_DIR)
     shutil.rmtree(STORAGE_DIR / row["sha256"][:2] / row["sha256"], ignore_errors=True)
     with contextlib.suppress(OSError):
         (STORAGE_DIR / row["sha256"][:2]).rmdir()  # only when empty
     return jsonify(deleted=log_id)
+
+
+attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, env_int("ATTACHMENT_MAX_BYTES"))
 
 
 if __name__ == "__main__" and len(sys.argv) > 1:

@@ -6,6 +6,32 @@ import threading
 import time
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    path TEXT NOT NULL UNIQUE,
+    compressed INTEGER NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    stored_bytes INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    uploaded_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS attachment_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    attachment_id INTEGER NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+    flight_id INTEGER REFERENCES flights(id) ON DELETE CASCADE,
+    log_id INTEGER REFERENCES logs(id) ON DELETE CASCADE,
+    record_id INTEGER REFERENCES flight_records(id) ON DELETE CASCADE,
+    CHECK((flight_id IS NOT NULL) + (log_id IS NOT NULL) + (record_id IS NOT NULL) = 1),
+    UNIQUE(attachment_id, flight_id),
+    UNIQUE(attachment_id, log_id),
+    UNIQUE(attachment_id, record_id)
+);
+CREATE INDEX IF NOT EXISTS ix_attachment_flight ON attachment_links(flight_id);
+CREATE INDEX IF NOT EXISTS ix_attachment_log ON attachment_links(log_id);
+CREATE INDEX IF NOT EXISTS ix_attachment_record ON attachment_links(record_id);
 CREATE TABLE IF NOT EXISTS flight_records (
     id INTEGER PRIMARY KEY,
     source_type TEXT NOT NULL DEFAULT 'paper' CHECK(source_type='paper'),
