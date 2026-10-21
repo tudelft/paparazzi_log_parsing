@@ -27,10 +27,16 @@ All pages require sign-in; the records you can see depend on your access.
 - In **Logbook**, Edit mode exposes crew/project corrections where permitted.
   Use **Add paper record** to enter historical flights without logs. Admins can also import CSV.
   Paper records add flight counts and time, not telemetry; check for overlap with digital logs.
+  CSV crew names follow log matching: use unique display names or explicit aliases, not login usernames
+  unless added as aliases. Unknown or ambiguous names produce a row error without importing any records.
+  The original CSV is attached to all imported records: anyone who can read one can download the
+  whole CSV, including rows from other projects. Failed imports retain no attachment.
 - Admins manage **People** by selecting a person and opening Account, Aliases or Qualifications.
   Email is optional when adding a user and can be cleared later.
-  The normal overview shows aliases too. A renamed username keeps its old name as a log alias,
-  not an alternative login.
+  Username, display name, email and default project share one **Save account** button.
+  The normal overview shows aliases too. Logs match explicit aliases or unique display names, not usernames.
+  Add a username as an alias only if it reliably identifies that person in logs. Duplicate display names
+  stay unresolved unless an explicit alias identifies the person. Renaming a username does not add an alias.
 - Admins manage **Aircraft** using Details, Project history and Aliases. Add/import buttons open dialogs;
   Close or Escape dismisses them. Link unrecognised log names to an existing aircraft/person in Edit mode.
 - Crew names in logs do not create user profiles. Admins can link multiple names to one person using

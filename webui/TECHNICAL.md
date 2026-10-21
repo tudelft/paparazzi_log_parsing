@@ -240,15 +240,22 @@ upload evidence for that person, or review/delete submissions. The people list i
 an additional Show filter. The approval queue on People opens the relevant person's
 Qualifications tab, enabling Edit if needed. The queue is hidden when empty; type settings are
 in a separate People section visible in Edit mode.
-Admins can rename usernames in the Account tab. Usernames must be unique (case-insensitive),
-1-40 characters and contain no spaces or control characters. The old username is kept as a log alias,
-not an alternative login. Passwords, SSO identity links, project memberships and existing records stay
-attached to the same person. Names conflicting with another person's log alias must be resolved first.
+Admins can edit username, display name, email and default project together with **Save account** in the Account tab.
+All four fields are saved atomically; previous unambiguous display names are preserved as log aliases. Display names are optional
+and at most 80 characters. Usernames must be unique (case-insensitive),
+1-40 characters and contain no spaces or control characters. Username changes do not create log aliases.
+Passwords, SSO identity links, project memberships and existing records stay attached to the same person.
+Display names conflicting with another person's log alias must be resolved first.
 
 Log ingestion, startup and opening People do not create profiles from crew names. Unmatched PIC/PAC/GCS
 names stay as logged text and appear under **Unlinked crew names** for admins in Edit mode. Link them
 to an existing person using aliases, or explicitly use **Add user** when a profile is needed.
-Username/display-name matching and explicit crew assignments remain supported. Previously generated
+Log crew matching uses case-insensitive explicit aliases first, then unique display names. Login usernames
+are not implicit log aliases; admins may add them deliberately. Duplicate display names stay unresolved
+unless an explicit alias selects the person. Existing aliases are preserved and should be reviewed if
+ambiguous. Explicit crew assignments override name matching; the existing unnamed-PIC uploader fallback
+is unchanged. Paper CSV imports use the same crew matching rules, rejecting unknown or ambiguous names;
+manual paper entry keeps direct person selection. SAML account linking is unaffected. Previously generated
 `provider='log'` profiles are preserved, including their data and password-setup workflow.
 Removing a profile no longer recreates it from log names. Deletion is not a merge: historical records
 and private qualifications still block deletion, and explicit digital crew assignments are cleared,
@@ -373,11 +380,20 @@ For admins only, the same page imports UTF-8 comma-separated CSV (up to 1000 rec
 Non-admins with full project access can enter records manually, but cannot use the CSV import API.
 Required headers: `aircraft,pic,project,date,duration_minutes,flight_count`. Optional headers:
 `kind,takeoff_time,location,pac,gcs,goal,comment,reference`. Use existing aircraft/project/location names
-(case-insensitive) and crew usernames; no accounts, aircraft or places are created by import. Dates are
+(case-insensitive) and unique crew display names or explicit aliases, just like log crew matching.
+Usernames match only if added as aliases. Unknown or ambiguous crew names reject the entire import
+with a row error; add an alias or use a unique display name before retrying.
+No accounts, aircraft or places are created by import. Dates are
 `YYYY-MM-DD`; `takeoff_time`, when known, is `HH:MM[:SS]` UTC. `kind` is `flight` or `daily`; if blank,
 it is inferred from the count. A count of 1 can also be explicitly marked `daily`. All rows are validated
 before saving; an invalid row or exact normalized duplicate rejects the entire file with a line error.
 Exact duplicate detection also applies to manual entry.
+Successful CSV imports store the original file once as an attachment linked to every new paper record
+(up to the CSV limit of 1000 records, not the interactive attachment selection limit of 100).
+Any reader of a linked record can download the entire CSV, intentionally including other projects' rows.
+Validation, record creation and attachment registration are atomic; storage failures roll back records,
+and failed imports remove staged/source files. Normal attachment permissions and last-link cleanup apply.
+The CSV is provenance, not a stable import identifier; it does not add fuzzy duplicate detection.
 
 Paper records contribute their flight counts and total duration to the logbook, statistics and entity
 overviews, but have no telemetry, synthetic log files, paths, distance or software version. Unknown times

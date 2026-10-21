@@ -6,6 +6,8 @@ import json
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
 
+import qualifications
+
 COLUMNS = ("aircraft", "pic", "project", "date", "duration_minutes", "flight_count",
            "kind", "takeoff_time", "location", "pac", "gcs", "goal", "comment", "reference")
 FIELDS = ("drone_id", "pic_user_id", "project_id", "date", "duration_s", "flight_count",
@@ -134,8 +136,8 @@ def parse_csv(con, user, text):
         "aircraft": list(con.execute("SELECT id, name FROM drones")),
         "project": list(con.execute("SELECT id, name FROM projects")),
         "location": list(con.execute("SELECT id, name FROM places")),
-        "person": list(con.execute("SELECT id, username AS name FROM users")),
     }
+    crew = qualifications.crew_keys(con)
     records = []
     seen = set()
     for row in reader:
@@ -152,9 +154,16 @@ def parse_csv(con, user, text):
                 value = body.get(key, "")
                 if not value and not required_field:
                     continue
+                if catalog == "person":
+                    uid = crew.get(value.casefold())
+                    if uid is None:
+                        raise RecordError(f"Unknown or ambiguous {key}: {value!r}. "
+                                          "Use a unique display name or ask an admin to add a crew alias.")
+                    body[target] = uid
+                    continue
                 matches = [r["id"] for r in catalogs[catalog] if r["name"].casefold() == value.casefold()]
                 if len(matches) != 1:
-                    raise RecordError(f"Unknown or ambiguous {key}: {value!r}. Use an existing name (username for crew).")
+                    raise RecordError(f"Unknown or ambiguous {key}: {value!r}. Use an existing name.")
                 body[target] = matches[0]
             values = validate(con, user, body)
             digest = fingerprint(values)

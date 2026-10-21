@@ -33,6 +33,18 @@ def user_keys(con, user_id=None):
     return names
 
 
+def crew_keys(con):
+    """Explicit aliases override unique display names; login usernames are not implicit aliases."""
+    names = {}
+    for user in con.execute("SELECT id,display_name FROM users WHERE display_name IS NOT NULL"):
+        name = user["display_name"].strip().casefold()
+        if name:
+            names[name] = None if name in names else user["id"]
+    for row in con.execute("SELECT user_id,alias FROM user_aliases"):
+        names[row["alias"].casefold()] = row["user_id"]
+    return names
+
+
 def can_see_quals(con, viewer, subject_id):
     return bool(viewer["is_admin"] or viewer["id"] == subject_id)
 

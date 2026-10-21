@@ -336,25 +336,24 @@ function renderPersonPanel() {
     qualificationManager.editing = editing;
     qualificationManager.load();
   } else if (selectedTab === 'aliases') {
-    $('personContent').innerHTML = `<p class="mute">Aliases link PIC/PAC/GCS names in logs to this person.</p>
+    $('personContent').innerHTML = `<p class="mute">Aliases link PIC/PAC/GCS names in logs to this person. Unique display names match automatically; usernames match only if explicitly added as aliases. Review existing aliases if a short name is ambiguous.</p>
       ${(user.aliases || []).map(alias => `<span class="chip">${esc(alias)}${editing
         ? `<button type="button" aria-label="Remove alias ${esc(alias)}" data-alias="${esc(alias)}" onclick="removeAlias(this.dataset.alias)">×</button>` : ''}</span>`).join('') || '<p>No aliases.</p>'}
       ${editing ? `<form class="panel-row" onsubmit="event.preventDefault();addAlias(null,${id})">
         <label class="field">New alias<input id="new${id}" required maxlength="80"></label><button type="submit">Add alias</button></form>` : ''}`;
   } else {
     const project = people.projects.find(p => p.id === user.default_project_id);
-    $('personContent').innerHTML = `${editing ? `<form class="panel-row" onsubmit="event.preventDefault();saveUsername(${id})">
+    $('personContent').innerHTML = `${editing ? `<form class="panel-row" onsubmit="event.preventDefault();saveProfile(${id})">
       <label class="field">Username<input id="username${id}" required maxlength="40" autocomplete="off" value="${esc(user.username)}"></label>
-      <button type="submit">Save username</button></form>
-      <p class="mute">Changes the local sign-in name. The old username remains a log alias, not a login. Existing records and SSO links stay attached.</p>`
+      <label class="field">Display name<input id="displayName${id}" maxlength="80" value="${esc(user.display_name || '')}"></label>
+      <label class="field">Email (optional)<input id="mail${id}" type="email" maxlength="120" value="${esc(user.email || '')}"></label>
+      <label class="field">Default project<select id="userProject${id}">
+      <option value="">No default</option>${people.projects.map(p => `<option value="${p.id}"${p.id === user.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+      <button type="submit">Save account</button></form>
+      <p class="mute">The username is only the local sign-in name, not an automatic log match. Unique display names and explicit aliases match logs. Previous unambiguous display names remain aliases; username changes do not add aliases. Existing records and SSO links stay attached.</p>`
       : `<p><strong>Username:</strong> ${esc(user.username)}</p>`}
       <p><strong>Sign-in:</strong> ${signInLabel(user)}${user.is_admin ? ' · Administrator' : ''}</p>
-      ${editing ? `<form class="panel-row" onsubmit="event.preventDefault();saveEmail(${id})">
-        <label class="field">Email (optional)<input id="mail${id}" type="email" maxlength="120" value="${esc(user.email || '')}"></label>
-        <button type="submit">Save email</button></form>
-        <label class="field">Default project<select onchange="setUserProject(${id},this.value)">
-        <option value="">No default</option>${people.projects.map(p => `<option value="${p.id}"${p.id === user.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>`
-        : `<p><strong>Email:</strong> ${esc(user.email || 'Not set')}</p><p><strong>Default project:</strong> ${esc(project?.name || 'No default')}</p>`}
+      ${editing ? '' : `<p><strong>Email:</strong> ${esc(user.email || 'Not set')}</p><p><strong>Default project:</strong> ${esc(project?.name || 'No default')}</p>`}
       <p><strong>Password:</strong> ${user.provider === 'saml' ? 'Managed by identity provider' : user.has_password ? 'Chosen' : 'Not set'}</p>
       ${editing && ['local','log'].includes(user.provider) ? `<div class="panel-row">
         <button type="button" onclick="newSetupLink(${id})">${user.has_password ? 'Reset password' : 'Set password'}</button>
@@ -363,11 +362,12 @@ function renderPersonPanel() {
   }
 }
 
-async function saveUsername(id) {
+async function saveProfile(id) {
   try {
-    await adminApi(`/api/admin/users/${id}/username`, {
+    await adminApi(`/api/admin/users/${id}/profile`, {
       method:'PUT', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({username:$('username' + id).value})
+      body:JSON.stringify({username:$('username' + id).value, display_name:$('displayName' + id).value,
+        email:$('mail' + id).value, default_project_id:$('userProject' + id).value || null})
     });
     $('err').textContent = '';
     me = await adminApi('/api/me').then(data => data.user);
@@ -422,18 +422,6 @@ async function addUser(ev) {
   selectedTab = 'account';
   await load();
   } catch (error) { $('addUserError').textContent = 'Could not add user: ' + error.message; }
-}
-async function setUserProject(id, value) {
-  const r = await fetch('/api/admin/users/' + id, {method: 'PUT', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({default_project_id: value ? +value : null})});
-  $('err').textContent = r.ok ? '' : (((await r.json().catch(() => ({}))).error) || 'failed');
-  if (r.ok) load();
-}
-async function saveEmail(id) {
-  const r = await fetch('/api/admin/users/' + id, {method: 'PUT', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({email: $('mail' + id).value.trim()})});
-  $('err').textContent = r.ok ? '' : (((await r.json().catch(() => ({}))).error) || 'failed');
-  if (r.ok) load();
 }
 async function newSetupLink(id) {
   const u = people.users.find(x => x.id === id);

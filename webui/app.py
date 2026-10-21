@@ -1196,18 +1196,11 @@ def person_resolver(con):
     """Return resolve(role, name, uploader_id) -> {id, username, display_name, source} or None.
 
     A logged name always stays visible to the caller; this only finds the linked user. Matching is
-    case-insensitive on explicit aliases, then username, then display name. Without any name in the log only the
+    case-insensitive on explicit aliases, then unique display names, never login usernames. Without any name in the log only the
     PIC falls back to the uploader (source 'uploader'); PAC and GCS stay empty."""
     users = {u["id"]: dict(id=u["id"], username=u["username"], display_name=u["display_name"] or u["username"])
              for u in con.execute("SELECT id, username, display_name FROM users")}
-    names = {}
-    for u in users.values():
-        names[u["username"].casefold()] = u["id"]
-    for u in users.values():
-        if u["display_name"]:
-            names.setdefault(u["display_name"].casefold(), u["id"])
-    for r in con.execute("SELECT user_id, alias FROM user_aliases"):
-        names[r["alias"].casefold()] = r["user_id"]  # explicit aliases win
+    names = qualifications.crew_keys(con)
 
     def resolve(role, name, uploader_id):
         name = (name or "").strip()
@@ -2690,12 +2683,24 @@ def admin_new_setup_link(user_id):
 
 
 @app.put("/api/admin/users/<int:user_id>/username")
+@app.put("/api/admin/users/<int:user_id>/profile")
 def admin_rename_user(user_id):
     admin_required()
     session_required()
     body = request.get_json(silent=True)
-    if not isinstance(body, dict) or set(body) != {"username"}:
-        return jsonify(error="send only a username"), 400
+    profile = request.path.endswith("/profile")
+    fields = {"username", "display_name", "email", "default_project_id"} if profile else {"username"}
+    if not isinstance(body, dict) or set(body) != fields:
+        return jsonify(error="send username, display_name, email and default_project_id" if profile else "send only a username"), 400
+    display_name = None
+    if profile:
+        display_name = body["display_name"]
+        if not isinstance(display_name, str):
+            return jsonify(error="display name must be at most 80 characters without control characters"), 400
+        display_name = display_name.strip()
+        if len(display_name) > 80 or any(ord(c) < 32 or ord(c) == 127 for c in display_name):
+            return jsonify(error="display name must be at most 80 characters without control characters"), 400
+        display_name = display_name or None
     username = body["username"]
     if not isinstance(username, str):
         return jsonify(error="username must be 1-40 characters with no spaces"), 400
@@ -2705,19 +2710,42 @@ def admin_rename_user(user_id):
     con = conn()
     with db.write_lock, con:
         con.execute("BEGIN IMMEDIATE")
-        user = con.execute("SELECT username FROM users WHERE id=?", (user_id,)).fetchone()
+        user = con.execute("SELECT username,display_name FROM users WHERE id=?", (user_id,)).fetchone()
         if user is None:
             return jsonify(error="no such user"), 404
+        if profile:
+            email = clean_email(body["email"])
+            if email is None:
+                return jsonify(error="enter a valid email address"), 400
+            if email and con.execute("SELECT 1 FROM users WHERE email=? COLLATE NOCASE AND id!=?",
+                                     (email, user_id)).fetchone():
+                return jsonify(error="that email address is already used"), 409
+            project_id = parse_project_id(body["default_project_id"])
+            if project_id is False:
+                return jsonify(error="no such project"), 400
+            if project_id is not None and not live_project(con, project_id):
+                return jsonify(error="no such project"), 404
         if con.execute("SELECT 1 FROM users WHERE username=? AND id!=?", (username, user_id)).fetchone():
             return jsonify(error="that username already exists"), 409
-        for name in (username, user["username"]):
+        old_display = user["display_name"] if profile and display_name != user["display_name"] else None
+        if old_display and any(
+                r["display_name"].strip().casefold() == old_display.strip().casefold()
+                for r in con.execute("SELECT display_name FROM users WHERE id!=? AND display_name IS NOT NULL",
+                                     (user_id,))):
+            old_display = None
+        for name in filter(None, (display_name, old_display)):
             alias = con.execute("SELECT user_id FROM user_aliases WHERE alias=?", (name,)).fetchone()
             if alias and alias["user_id"] != user_id:
-                return jsonify(error="a username conflicts with another person's log alias; resolve the alias first"), 409
+                return jsonify(error="a display name conflicts with another person's log alias; resolve the alias first"), 409
         if username != user["username"]:
-            if not con.execute("SELECT 1 FROM user_aliases WHERE alias=?", (user["username"],)).fetchone():
-                con.execute("INSERT INTO user_aliases(user_id,alias) VALUES (?,?)", (user_id, user["username"]))
             con.execute("UPDATE users SET username=? WHERE id=?", (username, user_id))
+        if profile:
+            if old_display and not con.execute("SELECT 1 FROM user_aliases WHERE alias=?", (old_display,)).fetchone():
+                con.execute("INSERT INTO user_aliases(user_id,alias) VALUES (?,?)", (user_id, old_display))
+            con.execute("UPDATE users SET display_name=? WHERE id=?", (display_name, user_id))
+            con.execute("UPDATE users SET email=?, default_project_id=? WHERE id=?",
+                        (email or None, project_id, user_id))
+            assign_open_flights(con)
     return jsonify(ok=True)
 
 
@@ -3331,17 +3359,44 @@ def import_historical():
     raw = upload.stream.read(1_000_001)
     if len(raw) > 1_000_000:
         return jsonify(error="CSV must be at most 1 MB."), 400
+    filename = (upload.filename or "paper-records.csv").replace("\\", "/").split("/")[-1]
+    if not filename or len(filename) > 255 or any(ord(c) < 32 or ord(c) == 127 for c in filename):
+        return jsonify(error="Supply a CSV filename of at most 255 characters without control characters."), 400
     con = conn()
+    staged = final = None
+    committed = False
     try:
         with db.write_lock, con:
             con.execute("BEGIN IMMEDIATE")
             records = historical.parse_csv(con, g.user, raw.decode("utf-8-sig"))
             ids = [historical.store(con, r, g.user["id"], now()) for r in records]
-        return jsonify(imported=len(ids), flights=sum(r["flight_count"] for r in records), ids=ids), 201
+            staged, compressed, size, stored, sha = storage.save_attachment(
+                io.BytesIO(raw), STORAGE_DIR / ".incoming-attachments", 1_000_000)
+            relative = f"attachments/{uuid.uuid4().hex}" + (".gz" if compressed else ".bin")
+            final = STORAGE_DIR / relative
+            final.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(staged, final)
+            attachment_id = con.execute(
+                "INSERT INTO attachments(filename,description,path,compressed,size_bytes,stored_bytes,sha256,"
+                " uploaded_by,uploaded_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (filename, "Original paper-record CSV import", relative, int(compressed), size, stored, sha,
+                 g.user["id"], now())).lastrowid
+            attachments.add_links(con, attachment_id, [dict(kind="paper", id=identity) for identity in ids])
+        committed = True
+        return jsonify(imported=len(ids), flights=sum(r["flight_count"] for r in records),
+                       ids=ids, attachment_id=attachment_id), 201
     except historical.RecordError as exc:
         return jsonify(error=str(exc)), exc.status
     except (UnicodeError, csv.Error) as exc:
         return jsonify(error=f"Invalid UTF-8 CSV: {exc}"), 400
+    except OSError:
+        app.logger.exception("Could not store the original paper-record import CSV")
+        return jsonify(error="Could not store the source CSV. No records were imported; retry or contact an administrator."), 503
+    finally:
+        if staged:
+            staged.unlink(missing_ok=True)
+        if final and not committed:
+            final.unlink(missing_ok=True)
 
 
 @app.get("/api/stats")

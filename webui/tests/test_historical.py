@@ -56,6 +56,8 @@ class AppTests(unittest.TestCase):
                          reference="Book 1 / page 2", goal="Old flight")
 
     def tearDown(self):
+        for row in self.con.execute("SELECT path FROM attachments"):
+            (self.ns["STORAGE_DIR"] / row["path"]).unlink(missing_ok=True)
         self.con.close()
 
     def sign_in(self, uid):
@@ -117,7 +119,7 @@ class HistoricalTests(AppTests):
     def test_csv_atomic_validation_dedup_and_retry(self):
         self.sign_in(1)
         header = "aircraft,pic,project,date,duration_minutes,flight_count,reference\n"
-        good = "Drone,pic,Research,2010-01-01,30,5,Paper\n"
+        good = "Drone,Pilot,Research,2010-01-01,30,5,Paper\n"
         bad = "Drone,unknown,Research,2010-01-02,10,1,Paper\n"
         result = self.csv(header + good + bad)
         self.assertEqual(result.status_code, 400)
@@ -129,6 +131,68 @@ class HistoricalTests(AppTests):
         self.assertEqual(result.json["flights"], 5)
         self.assertEqual(self.csv(header + good).status_code, 409)
         self.assertEqual(self.csv("unexpected\nx\n").status_code, 400)
+
+    def test_csv_crew_matches_logs_and_rejects_ambiguous_names(self):
+        self.sign_in(1)
+        header = "aircraft,pic,pac,gcs,project,date,duration_minutes,flight_count\n"
+        row = "Drone,Pilot,Viewer,Uploader,Research,2010-01-01,10,1\n"
+        self.con.execute("UPDATE users SET display_name='pilot' WHERE id=4")
+        self.con.commit()
+        response = self.csv(header + row)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("line 2", response.json["error"])
+        self.assertIn("crew alias", response.json["error"])
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM flight_records").fetchone()[0], 0)
+        self.con.execute("INSERT INTO user_aliases(user_id,alias) VALUES(2,'Pilot')")
+        self.con.execute("UPDATE users SET username='viewer-login' WHERE id=3")
+        self.con.execute("UPDATE users SET username='uploader-login' WHERE id=5")
+        self.con.commit()
+        for role, value in (("pic", "pic"), ("pac", "viewer-login"), ("gcs", "uploader-login")):
+            fields = ["Drone", "Pilot", "Viewer", "Uploader", "Research", "2010-01-01", "10", "1"]
+            fields[{"pic": 1, "pac": 2, "gcs": 3}[role]] = value
+            self.assertEqual(self.csv(header + ",".join(fields) + "\n").status_code, 400)
+        response = self.csv(header + row)
+        self.assertEqual(response.status_code, 201, response.json)
+        record = self.con.execute("SELECT pic_user_id,pac_user_id,gcs_user_id FROM flight_records").fetchone()
+        self.assertEqual(tuple(record), (2, 3, 5))
+        resolve = self.ns["person_resolver"](self.con)
+        for role, name, uid in (("pic", "Pilot", 2), ("pac", "Viewer", 3), ("gcs", "Uploader", 5)):
+            self.assertEqual(resolve(role, name, None)["id"], uid)
+
+    def test_csv_source_attached_once_shared_and_retry_safe(self):
+        self.sign_in(1)
+        header = "aircraft,pic,project,date,duration_minutes,flight_count\n"
+        text = header + "Drone,Pilot,Research,2010-01-01,10,1\nDrone,Pilot,Private,2010-01-02,20,1\n"
+        response = self.csv(text)
+        self.assertEqual(response.status_code, 201, response.json)
+        aid = response.json["attachment_id"]
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachments").fetchone()[0], 1)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachment_links").fetchone()[0], 2)
+        for identity in response.json["ids"]:
+            files = self.client.get(f"/api/attachments?kind=paper&id={identity}").json["files"]
+            self.assertEqual([f["id"] for f in files], [aid])
+        self.assertEqual(self.csv(text).status_code, 409)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachments").fetchone()[0], 1)
+        self.sign_in(3)
+        download = self.client.get(f"/api/attachments/{aid}/download")
+        self.assertEqual(download.data, text.encode())
+        download.close()
+        self.sign_in(4)
+        self.assertEqual(self.client.get(f"/api/attachments/{aid}/download").status_code, 404)
+
+    def test_failed_csv_keeps_no_records_or_source_attachment(self):
+        self.sign_in(1)
+        text = ("aircraft,pic,project,date,duration_minutes,flight_count\n"
+                "Drone,Pilot,Research,2010-01-01,10,1\n")
+        self.assertEqual(self.csv(text + "Drone,Unknown,Research,2010-01-02,10,1\n").status_code, 400)
+        with patch.object(self.ns["attachments"], "add_links", side_effect=OSError("test failure")):
+            with self.assertLogs(self.app.logger, level="ERROR"):
+                self.assertEqual(self.csv(text).status_code, 503)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM flight_records").fetchone()[0], 0)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachments").fetchone()[0], 0)
+        root = self.ns["STORAGE_DIR"]
+        self.assertEqual(list((root / "attachments").iterdir()), [])
+        self.assertEqual(list((root / ".incoming-attachments").iterdir()), [])
 
     def test_logbook_stats_entity_overviews_and_date_precision(self):
         rid = self.create().json["id"]
@@ -163,7 +227,7 @@ class HistoricalTests(AppTests):
     def test_csv_bom_quoting_limits_encoding_and_api_keys(self):
         self.sign_in(1)
         header = "aircraft,pic,project,date,duration_minutes,flight_count,comment\n"
-        row = 'Drone,pic,Research,2010-01-01,30,1,"Old, handwritten\nnotes"\n'
+        row = 'Drone,Pilot,Research,2010-01-01,30,1,"Old, handwritten\nnotes"\n'
         result = self.csv("\ufeff" + header + row)
         self.assertEqual(result.status_code, 201, result.json)
         record = self.client.get(f"/api/historical/{result.json['ids'][0]}").json["record"]
@@ -172,7 +236,7 @@ class HistoricalTests(AppTests):
         self.assertEqual(self.csv(header).status_code, 400)
         self.assertEqual(self.csv("x" * 1_000_001).status_code, 400)
         many = "aircraft,pic,project,date,duration_minutes,flight_count,reference\n" + "".join(
-            f"Drone,pic,Research,2010-02-01,10,1,{i}\n" for i in range(1001))
+            f"Drone,Pilot,Research,2010-02-01,10,1,{i}\n" for i in range(1001))
         result = self.csv(many)
         self.assertEqual(result.status_code, 400)
         self.assertIn("1000 records", result.json["error"])

@@ -90,6 +90,54 @@ class PeopleDirectoryTests(AppTests):
 
 
 class UsernameTests(AppTests):
+    def test_log_matching_uses_unique_display_names_and_explicit_aliases(self):
+        self.con.execute("UPDATE users SET username='piet',display_name='Piet ter Baas' WHERE id=2")
+        self.con.execute("UPDATE users SET username='pietj',display_name='Piet van der Plas' WHERE id=3")
+        resolve = self.ns["person_resolver"](self.con)
+        self.assertIsNone(resolve("pic", "Piet", None))
+        self.assertIsNone(resolve("pic", "pietj", None))
+        self.assertEqual(resolve("pic", "PIET TER BAAS", None)["id"], 2)
+        self.assertEqual(resolve("pic", "Piet van der Plas", None)["id"], 3)
+        self.con.execute("UPDATE users SET display_name='piet ter baas' WHERE id=3")
+        self.con.execute("UPDATE users SET display_name=NULL WHERE id=4")
+        resolve = self.ns["person_resolver"](self.con)
+        self.assertIsNone(resolve("pic", "Piet ter Baas", None))
+        self.assertIsNone(resolve("pic", "outsider", None))
+        self.con.execute("INSERT INTO user_aliases(user_id,alias) VALUES(2,'Piet')")
+        self.con.execute("INSERT INTO user_aliases(user_id,alias) VALUES(3,'Piet ter Baas')")
+        resolve = self.ns["person_resolver"](self.con)
+        self.assertEqual(resolve("pic", "piet", None)["id"], 2)
+        self.assertEqual(resolve("pic", "Piet ter Baas", None)["id"], 3)
+        rows = [{"pic": "Piet", "pic_user_id": 3}]
+        self.ns["add_people"](rows, resolve)
+        self.assertEqual(rows[0]["pic_user"]["id"], 3)
+        self.assertEqual(resolve("pic", "", 4)["id"], 4)
+
+    def test_combined_names_save_is_atomic_and_preserves_matching(self):
+        body = {"username": "newpilot", "display_name": "New Pilot",
+                "email": "new@example.test", "default_project_id": 1}
+        self.assertEqual(self.client.put("/api/admin/users/2/profile", json=body).status_code, 403)
+        self.sign_in(1)
+        for invalid in ({**body, "display_name": "x" * 81}, {**body, "username": "admin"},
+                        {**body, "email": "invalid"}, {**body, "default_project_id": 999}):
+            self.assertIn(self.client.put("/api/admin/users/2/profile", json=invalid).status_code, (400, 404, 409))
+            row = self.con.execute("SELECT username,display_name FROM users WHERE id=2").fetchone()
+            self.assertEqual(tuple(row), ("pic", "Pilot"))
+            self.assertIsNone(self.con.execute("SELECT email FROM users WHERE id=2").fetchone()[0])
+        self.assertEqual(self.client.put("/api/admin/users/2/profile", json=body).status_code, 200)
+        row = self.con.execute("SELECT username,display_name FROM users WHERE id=2").fetchone()
+        self.assertEqual(tuple(row), ("newpilot", "New Pilot"))
+        self.assertEqual(tuple(self.con.execute(
+            "SELECT email,default_project_id FROM users WHERE id=2").fetchone()), ("new@example.test", 1))
+        resolve = self.ns["person_resolver"](self.con)
+        for name in ("Pilot", "New Pilot"):
+            self.assertEqual(resolve("pic", name, None)["id"], 2)
+        for name in ("pic", "newpilot"):
+            self.assertIsNone(resolve("pic", name, None))
+        self.assertEqual(self.client.put("/api/admin/users/2/profile", json={
+            **body, "display_name": "", "email": "", "default_project_id": None}).status_code, 200)
+        self.assertIsNone(self.con.execute("SELECT display_name FROM users WHERE id=2").fetchone()[0])
+
     def rename(self, name, uid=2):
         return self.client.put(f"/api/admin/users/{uid}/username", json={"username": name})
 
@@ -102,11 +150,12 @@ class UsernameTests(AppTests):
         row = self.con.execute("SELECT * FROM users WHERE id=2").fetchone()
         self.assertEqual(row["username"], "newpilot")
         self.assertTrue(check_password_hash(row["password_hash"], "test-password"))
-        self.assertEqual(self.con.execute("SELECT user_id FROM user_aliases WHERE alias='pic'").fetchone()[0], 2)
+        self.assertIsNone(self.con.execute("SELECT user_id FROM user_aliases WHERE alias='pic'").fetchone())
         self.assertEqual(self.con.execute("SELECT role FROM project_members WHERE user_id=2").fetchone()[0], "full")
         resolver = self.ns["person_resolver"](self.con)
-        self.assertEqual(resolver("pic", "pic", None)["id"], 2)
-        self.assertEqual(resolver("pic", "newpilot", None)["id"], 2)
+        self.assertIsNone(resolver("pic", "pic", None))
+        self.assertIsNone(resolver("pic", "newpilot", None))
+        self.assertEqual(resolver("pic", "Pilot", None)["id"], 2)
         self.sign_in(2)
         self.assertEqual(self.client.get("/api/me").json["user"]["username"], "newpilot")
         self.assertEqual(self.client.post("/login", json={
@@ -125,11 +174,11 @@ class UsernameTests(AppTests):
         self.assertEqual(self.rename("new", uid=999).status_code, 404)
         self.con.execute("INSERT INTO user_aliases(user_id,alias) VALUES (3,'reserved')")
         self.con.commit()
-        self.assertEqual(self.rename("RESERVED").status_code, 409)
-        self.assertEqual(self.con.execute("SELECT username FROM users WHERE id=2").fetchone()[0], "pic")
+        self.assertEqual(self.rename("RESERVED").status_code, 200)
+        self.assertEqual(self.ns["person_resolver"](self.con)("pic", "reserved", None)["id"], 3)
         self.assertEqual(self.rename("PIC").status_code, 200)
         self.assertEqual(self.rename("PIC").status_code, 200)
-        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM user_aliases WHERE user_id=2").fetchone()[0], 1)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM user_aliases WHERE user_id=2").fetchone()[0], 0)
         self.con.execute("INSERT INTO api_keys(user_id,name,key_hash,prefix,created_at)"
                          " VALUES (1,'test',?,'test','now')", (hashlib.sha256(b"logdb_rename-test").hexdigest(),))
         self.con.commit()
