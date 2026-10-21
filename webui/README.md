@@ -197,11 +197,13 @@ remain visible alongside the relevant controls.
 ### Private licences and qualifications
 
 Users upload and manage their own qualifications on **My account**, alongside password settings.
-Admins use **People**: search by name, username, email or alias, then select someone to open their
+Admins see a compact People overview (name, username, sign-in and qualifications) with Edit off.
+Enable Edit to search by name, username, email or alias, then select someone to open their
 **Account**, **Aliases** or **Qualifications** tab. Enable Edit to change account settings, manage aliases,
 upload evidence for that person, or review/delete submissions. Filters include pending accounts, admins
 and people awaiting qualification review. The approval queue on People opens the relevant person's
-Qualifications tab; type settings are in a separate People section.
+Qualifications tab, enabling Edit if needed. The queue is hidden when empty; type settings are
+in a separate People section visible in Edit mode.
 
 Pilot pages are read-only and show only each type's current approved qualification, including expired
 approvals clearly marked as expired. Pending claims, previous submissions and evidence

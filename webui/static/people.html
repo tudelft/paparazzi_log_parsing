@@ -196,10 +196,10 @@ function qualBits(q) {
 function render() {
   const admin = !!(me && me.is_admin);
   const editing = admin && window.editMode();
-  $('adminPeople').hidden = !admin;
-  $('directoryTable').hidden = admin;
-  $('approvalSection').hidden = !admin;
-  $('typesSection').hidden = !admin;
+  $('adminPeople').hidden = !editing;
+  $('directoryTable').hidden = editing;
+  $('approvalSection').hidden = !admin || pendingQualifications.length === 0;
+  $('typesSection').hidden = !editing;
   const open = admin ? people.unlinked.length : 0;
   document.querySelectorAll('.editOnly').forEach(el => { el.hidden = !editing; });
   if (!editing) $('setupBox').hidden = true;
@@ -212,18 +212,16 @@ function render() {
     : '';
   $('peopleHint').textContent = editing
     ? 'Search and select a person to manage their account, aliases and private qualifications. Users submit their own evidence on My account. Removing a user keeps their uploaded logs.'
-    : admin ? 'Search and select a person to view account details, aliases and private qualifications. Turn on Edit to make changes.'
+    : admin ? 'People and their qualifications. Open a name to view the pilot page. Turn on Edit to manage accounts, aliases and qualifications.'
     : 'Accounts that can sign in. Names from logs get a profile marked Not active yet until that person signs in.';
-  if (admin && !editing) {
-    renderAdminPeople();
-    return;
-  }
-  if (!admin) {
-    $('usersHead').innerHTML = '<tr><th>Name</th><th>Username</th><th>Qualifications</th></tr>';
+  if (!editing) {
+    if (admin) renderAdminPeople();
+    $('usersHead').innerHTML = `<tr><th>Name</th><th>Username</th>${admin ? '<th>Sign-in</th>' : ''}<th>Qualifications</th></tr>`;
     $('users').innerHTML = people.users.map(u => `<tr><td>${nameCell(u, '', false)}</td>
       <td class="mute">${esc(u.username)}</td>
+      ${admin ? `<td>${signInLabel(u)}</td>` : ''}
       <td>${qualBits(u.qualifications) || '<span class="mute">—</span>'}</td></tr>`).join('')
-      || '<tr><td colspan="3" class="mute">No people on your projects yet.</td></tr>';
+      || `<tr><td colspan="${admin ? 4 : 3}" class="mute">${admin ? 'No people yet.' : 'No people on your projects yet.'}</td></tr>`;
     return;
   }
   const projOpts = '<option value="">No default</option>' + (people.projects || []).map(p =>
@@ -285,6 +283,7 @@ function selectPerson(id, tab = 'account') {
   selectedPerson = id;
   selectedTab = tab;
   $('setupBox').hidden = true;
+  if (!window.editMode()) window.toggleEditMode();
   renderPeopleList();
   renderPersonPanel();
   $('personPanel').scrollIntoView({block:'nearest'});
