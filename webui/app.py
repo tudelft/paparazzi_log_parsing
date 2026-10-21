@@ -39,6 +39,7 @@ if __name__ == "__main__" and sys.argv[1:2] == ["check-config"]:
     sys.exit(1 if config.check() else 0)
 
 import db
+import historical
 import saml
 import config
 import personnel
@@ -1437,7 +1438,7 @@ def list_places():
         for pid in {f.get("takeoff_place_id"), f.get("landing_place_id")} - {None}:
             s = stats.setdefault(pid, {"flights": 0, "seconds": 0.0, "last": None})
             if real:
-                s["flights"] += 1
+                s["flights"] += f.get("flight_count", 1)
                 s["seconds"] += f.get("duration_s") or 0
                 s["last"] = max(s["last"] or "", f.get("takeoff_utc") or "") or None
         for lat, lon in ((f.get("takeoff_lat"), f.get("takeoff_lon")), (f.get("landing_lat"), f.get("landing_lon"))):
@@ -1487,6 +1488,8 @@ def admin_update_place(place_id):
 def admin_delete_place(place_id):
     admin_required()
     con = conn()
+    if con.execute("SELECT 1 FROM flight_records WHERE place_id=?", (place_id,)).fetchone():
+        return jsonify(error="This location has historical records. Reassign or remove those records first."), 409
     con.execute("DELETE FROM places WHERE id=?", (place_id,))
     con.commit()
     return jsonify(ok=True)
@@ -1586,6 +1589,8 @@ def admin_delete_project(project_id):
     con = conn()
     if not con.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone():
         return jsonify(error="no such project"), 404
+    if con.execute("SELECT 1 FROM flight_records WHERE project_id=?", (project_id,)).fetchone():
+        return jsonify(error="This project has historical records. Reassign or remove those records first."), 409
     con.execute("UPDATE logs SET project_id=NULL WHERE project_id=?", (project_id,))
     con.execute("UPDATE flights SET project_id=NULL WHERE project_id=?", (project_id,))
     con.execute("UPDATE drones SET default_project_id=NULL WHERE default_project_id=?", (project_id,))
@@ -1890,6 +1895,8 @@ def admin_delete_drone(drone_id):
     con = conn()
     if not con.execute("SELECT 1 FROM drones WHERE id=?", (drone_id,)).fetchone():
         return jsonify(error="no such aircraft"), 404
+    if con.execute("SELECT 1 FROM flight_records WHERE drone_id=?", (drone_id,)).fetchone():
+        return jsonify(error="This aircraft has historical records. Reassign or remove those records first."), 409
     con.execute("UPDATE aircraft SET drone_id=NULL WHERE drone_id=?", (drone_id,))
     con.execute("DELETE FROM drones WHERE id=?", (drone_id,))
     con.commit()
@@ -2274,6 +2281,9 @@ def admin_delete_user(user_id):
     if user_id == g.user["id"]:
         return jsonify(error="you cannot remove your own account"), 400
     con = conn()
+    if con.execute("SELECT 1 FROM flight_records WHERE pic_user_id=? OR pac_user_id=? OR gcs_user_id=?",
+                   (user_id, user_id, user_id)).fetchone():
+        return jsonify(error="This person has historical records. Reassign or remove those records first."), 409
     row = con.execute("SELECT id, is_admin FROM users WHERE id=?", (user_id,)).fetchone()
     if row is None:
         return jsonify(error="no such user"), 404
@@ -2795,8 +2805,97 @@ def flight_page(flight_id):
 
 @app.get("/api/logbook")
 def logbook():
-    """One row per takeoff/landing over all visible logs, newest first."""
+    """Visible telemetry flights and paper records (including daily totals), newest first."""
     return jsonify(logbook_rows())
+
+
+@app.get("/historical/new")
+@app.get("/historical/<int:record_id>")
+def historical_page(record_id=None):
+    return send_from_directory(PAGES_DIR, "historical.html")
+
+
+@app.get("/api/historical/options")
+def historical_options():
+    con = conn()
+    projects = [dict(r) for r in con.execute("SELECT id,name FROM projects ORDER BY name")
+                if historical.can_edit(con, g.user, r["id"])]
+    # These are reference catalogs, like the existing crew menus; no flight details are exposed.
+    return jsonify(projects=projects,
+                   aircraft=[dict(r) for r in con.execute("SELECT id,name,unique_id FROM drones ORDER BY name")],
+                   people=[dict(r) for r in con.execute(
+                       "SELECT id,username,COALESCE(display_name,username) AS name FROM users ORDER BY username")],
+                   places=[dict(r) for r in con.execute("SELECT id,name FROM places ORDER BY name")])
+
+
+@app.get("/api/historical/template")
+def historical_template():
+    admin_required()
+    return Response(",".join(historical.COLUMNS) + "\n", mimetype="text/csv",
+                    headers={"Content-Disposition": 'attachment; filename="historical-flights.csv"'})
+
+
+@app.post("/api/historical")
+def create_historical():
+    session_required()
+    con = conn()
+    try:
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            values = historical.validate(con, g.user, request.get_json(silent=True))
+            record_id = historical.store(con, values, g.user["id"], now())
+        return jsonify(id=record_id), 201
+    except historical.RecordError as exc:
+        return jsonify(error=str(exc)), exc.status
+
+
+@app.route("/api/historical/<int:record_id>", methods=["GET", "PUT", "DELETE"])
+def historical_record(record_id):
+    con = conn()
+    try:
+        row = historical.visible(con, g.user, record_id)
+        editable = historical.can_edit(con, g.user, row["project_id"])
+        if request.method == "GET":
+            record = dict(row)
+            record["project_name"] = con.execute("SELECT name FROM projects WHERE id=?", (row["project_id"],)).fetchone()["name"]
+            return jsonify(record=record, can_edit=editable)
+        session_required()
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            row = historical.visible(con, g.user, record_id)
+            if not historical.can_edit(con, g.user, row["project_id"]):
+                raise historical.RecordError("Full project access is required to change this record.", 403)
+            values = historical.validate(con, g.user, request.get_json(silent=True)) if request.method == "PUT" else None
+            if request.method == "DELETE":
+                con.execute("DELETE FROM flight_records WHERE id=?", (record_id,))
+            else:
+                historical.store(con, values, g.user["id"], now(), record_id)
+        return jsonify(ok=True)
+    except historical.RecordError as exc:
+        return jsonify(error=str(exc)), exc.status
+
+
+@app.post("/api/historical/import")
+def import_historical():
+    session_required()
+    admin_required()
+    upload = request.files.get("file")
+    if upload is None:
+        return jsonify(error="Choose a CSV file."), 400
+    raw = upload.stream.read(1_000_001)
+    if len(raw) > 1_000_000:
+        return jsonify(error="CSV must be at most 1 MB."), 400
+    con = conn()
+    try:
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            records = historical.parse_csv(con, g.user, raw.decode("utf-8-sig"))
+            ids = [historical.store(con, r, g.user["id"], now()) for r in records]
+        return jsonify(imported=len(ids), flights=sum(r["flight_count"] for r in records), ids=ids), 201
+    except historical.RecordError as exc:
+        return jsonify(error=str(exc)), exc.status
+    except (UnicodeError, csv.Error) as exc:
+        return jsonify(error=f"Invalid UTF-8 CSV: {exc}"), 400
 
 
 @app.get("/api/stats")
@@ -2809,7 +2908,7 @@ def stats():
     """
     keys = ("aircraft", "aircraft_uid", "drone_id", "project_id", "project_name",
             "duration_s", "distance_m", "from_takeoff_m", "max_from_takeoff_m",
-            "takeoff_utc", "verdict", "indoor",
+            "takeoff_utc", "verdict", "indoor", "flight_count", "source_type",
             "pic", "pac", "pic_user", "pac_user")
     return jsonify(all=bool(g.user["is_admin"]),
                    flights=[{k: r.get(k) for k in keys} for r in logbook_rows()])
@@ -2842,6 +2941,8 @@ def logbook_rows():
         apply_row_clock(d)
         prepared.append(d)
     out = merge_sources(prepared)
+    for r in out:
+        r.update(record_key=f"log:{r['flight_id']}", source_type="telemetry", flight_count=1)
     place = place_resolver(con)
     for r in out:
         r["takeoff_place"], r["indoor"], r["takeoff_place_id"] = place(r["takeoff_lat"], r["takeoff_lon"])
@@ -2860,7 +2961,9 @@ def logbook_rows():
         r["can_edit_comment"] = r["can_edit_project"]
         r["can_edit_date"] = r["can_edit_project"]
         r["date_ok"] = bool(r.get("date_override")) or not clock_implausible(r.get("log_start_utc"))
-    out.sort(key=lambda r: (r.get("takeoff_utc") or ((r.get("date_override") or "") + "T00:00:00Z"), r["flight_id"]),
+    out.extend(historical.rows(con, g.user, request.args.get("project")))
+    out.sort(key=lambda r: (r.get("takeoff_utc") or ((r.get("date_override") or "") + "T00:00:00Z"),
+                            r.get("flight_id") or r["manual_id"], r["source_type"]),
              reverse=True)
     return add_people(out, person_resolver(con))
 
@@ -2916,7 +3019,7 @@ DETAIL_FLIGHT_KEYS = (
     "aircraft", "aircraft_uid", "drone_id", "project_id", "project_name", "takeoff_lat", "takeoff_lon",
     "takeoff_place", "takeoff_place_id", "landing_place", "landing_place_id", "indoor", "verdict", "date_ok",
     "pic", "pac", "gcs", "pic_user", "pac_user", "gcs_user", "goal", "comment",
-    "takeoff_voltage_v", "landing_voltage_v")
+    "takeoff_voltage_v", "landing_voltage_v", "manual_id", "source_type", "flight_count", "record_kind")
 
 
 @app.get("/people/<int:item_id>")

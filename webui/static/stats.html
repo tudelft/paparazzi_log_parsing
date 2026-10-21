@@ -144,13 +144,13 @@ function group(list, keyFn, nameFn, extraFn) {
     const k = keyFn(f);
     let b = map.get(k);
     if (!b) {
-      b = {key: k, name: nameFn(f), flights: 0, seconds: 0, metres: 0, maxFrom: 0, last: '', extra: extraFn ? extraFn(f) : {}};
+      b = {key: k, name: nameFn(f), flights: 0, seconds: 0, metres: null, maxFrom: null, last: '', extra: extraFn ? extraFn(f) : {}};
       map.set(k, b);
     }
-    b.flights += 1;
+    b.flights += f.flight_count || 1;
     b.seconds += f.duration_s || 0;
-    b.metres += f.distance_m || 0;
-    if ((f.max_from_takeoff_m || 0) > b.maxFrom) b.maxFrom = f.max_from_takeoff_m || 0;
+    if (f.distance_m != null) b.metres = (b.metres || 0) + f.distance_m;
+    if (f.max_from_takeoff_m != null) b.maxFrom = Math.max(b.maxFrom || 0, f.max_from_takeoff_m);
     if ((f.takeoff_utc || '') > b.last) b.last = f.takeoff_utc || '';
   }
   return [...map.values()].sort((a, b) => b.seconds - a.seconds || a.name.localeCompare(b.name));
@@ -200,12 +200,12 @@ function render() {
   const pacs = group(list, f => personKey(f, 'pac'), f => personName(f, 'pac', 'No PAC'));
   const named = rows => rows.filter(r => r.key !== 'none').length;
   const total = list.reduce((s, f) => s + (f.duration_s || 0), 0);
-  const flown = list.reduce((s, f) => s + (f.distance_m || 0), 0);
-  const farthest = list.reduce((s, f) => Math.max(s, f.max_from_takeoff_m || 0), 0);
+  const flown = list.some(f => f.distance_m != null) ? list.reduce((s, f) => s + (f.distance_m || 0), 0) : null;
+  const farthest = list.some(f => f.max_from_takeoff_m != null) ? list.reduce((s, f) => Math.max(s, f.max_from_takeoff_m || 0), 0) : null;
   $('totHours').textContent = fmtHours(total);
-  $('totFlown').textContent = fmtDist(flown);
-  $('totFrom').textContent = fmtDist(farthest);
-  $('totFlights').textContent = list.length;
+  $('totFlown').textContent = fmtDist(flown) || '—';
+  $('totFrom').textContent = fmtDist(farthest) || '—';
+  $('totFlights').textContent = list.reduce((s, f) => s + (f.flight_count || 1), 0);
   $('totAircraft').textContent = aircraft.length;
   $('totProjects').textContent = projects.length;
   $('totPics').textContent = named(pics);

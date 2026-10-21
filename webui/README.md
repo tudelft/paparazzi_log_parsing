@@ -185,6 +185,29 @@ flights used, and admins add, change or delete them there in edit mode (an area 
 are hidden by default). Logs without a valid date (missing or 1980 clock) are flagged so the
 real day can be entered.
 
+**Paper flight records.** In the Logbook, choose **Add paper records / import CSV**. Admins and members
+with **full** access to the selected project can create, edit and delete these records; other project
+members can read them. Select an existing aircraft, PIC and project, then enter the date, total flight
+time in minutes and flight count. An individual flight has count 1 and an optional UTC takeoff time.
+A daily summary has a count and a combined duration, with no fabricated individual takeoff times.
+Location, PAC, GCS operator, goal, notes and book/page reference are optional.
+
+For admins only, the same page imports UTF-8 comma-separated CSV (up to 1000 records / 1 MB) and offers a template.
+Non-admins with full project access can enter records manually, but cannot use the CSV import API.
+Required headers: `aircraft,pic,project,date,duration_minutes,flight_count`. Optional headers:
+`kind,takeoff_time,location,pac,gcs,goal,comment,reference`. Use existing aircraft/project/location names
+(case-insensitive) and crew usernames; no accounts, aircraft or places are created by import. Dates are
+`YYYY-MM-DD`; `takeoff_time`, when known, is `HH:MM[:SS]` UTC. `kind` is `flight` or `daily`; if blank,
+it is inferred from the count. A count of 1 can also be explicitly marked `daily`. All rows are validated
+before saving; an invalid row or exact normalized duplicate rejects the entire file with a line error.
+Exact duplicate detection also applies to manual entry.
+
+Paper records contribute their flight counts and total duration to the logbook, statistics and entity
+overviews, but have no telemetry, synthetic log files, paths, distance or software version. Unknown times
+remain date-only. They are never automatically merged with digital logs: check for overlap to avoid
+double counting. Referenced aircraft, people, projects and locations cannot be deleted until their paper records
+are reassigned or removed.
+
 **Edit mode.** The Edit button in the menu bar shows the forms and menus to change things on the Logbook, People,
 Projects, Aircraft and Locations pages; it stays on until you turn it off. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
@@ -208,6 +231,8 @@ and GCS log when both exist.
 
 **Database.** `logs` (hash, files, status, parser version) → `aircraft` (crew, goal, versions, messages, config) →
 `flights` (takeoff/landing, index into the paths file) and `setting_changes`.
+Independent `flight_records` hold paper provenance and totals, projected into the same logbook read model.
+Future telemetry formats can provide that read model without treating paper records as uploaded logs.
 
 **API** (all JSON, login or API key): `POST /api/upload`, `POST /api/logs/check`, `GET /api/logs`,
 `GET|DELETE /api/logs/<id>`, `POST /api/logs/<id>/reparse`, `POST /api/reparse-outdated`,

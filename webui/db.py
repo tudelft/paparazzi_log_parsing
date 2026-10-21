@@ -6,6 +6,25 @@ import threading
 import time
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS flight_records (
+    id INTEGER PRIMARY KEY,
+    source_type TEXT NOT NULL DEFAULT 'paper' CHECK(source_type='paper'),
+    drone_id INTEGER NOT NULL REFERENCES drones(id),
+    pic_user_id INTEGER NOT NULL REFERENCES users(id),
+    pac_user_id INTEGER REFERENCES users(id),
+    gcs_user_id INTEGER REFERENCES users(id),
+    project_id INTEGER NOT NULL REFERENCES projects(id),
+    date TEXT NOT NULL,
+    takeoff_time TEXT,
+    kind TEXT NOT NULL CHECK(kind IN ('flight','daily')),
+    flight_count INTEGER NOT NULL CHECK(flight_count BETWEEN 1 AND 1000),
+    duration_s REAL NOT NULL CHECK(duration_s > 0 AND duration_s <= 86400),
+    place_id INTEGER REFERENCES places(id),
+    goal TEXT, comment TEXT, reference TEXT,
+    fingerprint TEXT NOT NULL UNIQUE,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS weather_cache (
     cache_key TEXT PRIMARY KEY,
     payload TEXT NOT NULL
