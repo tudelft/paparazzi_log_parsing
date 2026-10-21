@@ -6,6 +6,14 @@ import threading
 import time
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS bulk_reservations (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    size_bytes INTEGER NOT NULL,
+    expires_at REAL NOT NULL,
+    uploading INTEGER NOT NULL DEFAULT 0,
+    ingest_id INTEGER REFERENCES ingest(id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS attachments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     filename TEXT NOT NULL,
