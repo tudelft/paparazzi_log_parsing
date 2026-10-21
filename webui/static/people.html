@@ -82,7 +82,7 @@
   <div id="err"></div>
   <section class="card" id="unlinkedCard" hidden>
     <div class="section-heading"><h2>Unlinked crew names</h2>
-    <details><summary>Help</summary><p>PIC/PAC/GCS names that could not be turned into a profile automatically. Link them by hand if they belong to someone already listed.</p></details></div>
+    <details><summary>Help</summary><p>PIC/PAC/GCS names from logs that do not match a person yet. Link each name to an existing person, or use Add user first if a new profile is needed. Logs do not create profiles automatically.</p></details></div>
     <div class="scroll"><table><thead><tr><th>Name in log</th><th>Seen</th><th>Link to user</th></tr></thead><tbody id="unlinked"></tbody></table></div>
   </section>
   <section class="card">
@@ -98,7 +98,7 @@
     <form id="addUser" onsubmit="addUser(event)">
       <label class="field">Username<input id="newUser" required maxlength="40" autocomplete="off"></label>
       <label class="field">Display name<input id="newName" maxlength="80" autocomplete="off"></label>
-      <label class="field">Email<input id="newEmail" type="email" required maxlength="120" autocomplete="off"></label>
+      <label class="field">Email (optional)<input id="newEmail" type="email" maxlength="120" autocomplete="off"></label>
       <label class="field">Default project<select id="newProject"></select></label>
       <label class="field" style="padding-bottom:6px">Admin<input type="checkbox" id="newAdmin"></label>
       <button type="submit">Add user</button>
@@ -220,7 +220,7 @@ function render() {
   $('peopleHint').textContent = editing
     ? 'Search and select a person to manage their account, aliases and private qualifications. Users submit their own evidence on My account. Removing a user keeps their uploaded logs.'
     : admin ? 'People and their qualifications. Open a name to view the pilot page. Turn on Edit to manage accounts, aliases and qualifications.'
-    : 'Accounts that can sign in. Names from logs get a profile marked Not active yet until that person signs in.';
+    : 'People and their aliases. Unmatched crew names remain in the logs until an admin links them to a profile.';
   if (!editing) {
     if (admin) renderAdminPeople();
     $('usersHead').innerHTML = `<tr><th>Name</th><th>Username</th><th>Aliases</th>${admin ? '<th>Sign-in</th>' : ''}<th>Qualifications</th></tr>`;
@@ -350,7 +350,7 @@ function renderPersonPanel() {
       : `<p><strong>Username:</strong> ${esc(user.username)}</p>`}
       <p><strong>Sign-in:</strong> ${signInLabel(user)}${user.is_admin ? ' · Administrator' : ''}</p>
       ${editing ? `<form class="panel-row" onsubmit="event.preventDefault();saveEmail(${id})">
-        <label class="field">Email<input id="mail${id}" type="email" maxlength="120" value="${esc(user.email || '')}"></label>
+        <label class="field">Email (optional)<input id="mail${id}" type="email" maxlength="120" value="${esc(user.email || '')}"></label>
         <button type="submit">Save email</button></form>
         <label class="field">Default project<select onchange="setUserProject(${id},this.value)">
         <option value="">No default</option>${people.projects.map(p => `<option value="${p.id}"${p.id === user.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>`

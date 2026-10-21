@@ -28,10 +28,13 @@ All pages require sign-in; the records you can see depend on your access.
   Use **Add paper record** to enter historical flights without logs. Admins can also import CSV.
   Paper records add flight counts and time, not telemetry; check for overlap with digital logs.
 - Admins manage **People** by selecting a person and opening Account, Aliases or Qualifications.
+  Email is optional when adding a user and can be cleared later.
   The normal overview shows aliases too. A renamed username keeps its old name as a log alias,
   not an alternative login.
 - Admins manage **Aircraft** using Details, Project history and Aliases. Add/import buttons open dialogs;
   Close or Escape dismisses them. Link unrecognised log names to an existing aircraft/person in Edit mode.
+- Crew names in logs do not create user profiles. Admins can link multiple names to one person using
+  aliases, or use Add user if a new profile is needed. Previously generated profiles are kept.
 - Admins manage project access on **Projects** and named takeoff areas on **Locations**.
 
 ## Qualifications and additional files

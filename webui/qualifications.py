@@ -3,7 +3,6 @@ import datetime
 import gzip
 import json
 import os
-import re
 import sqlite3
 import uuid
 from pathlib import Path
@@ -15,7 +14,6 @@ import db
 import storage
 
 MAX_EVIDENCE_BYTES = 20 * 1024 * 1024
-_SKIP_LOG_NAMES = {"unknown", "n/a", "na", "none", "tbd", "-", "--", "?", "??"}
 
 
 def _utc_now():
@@ -45,53 +43,6 @@ def directory_user_ids(con, viewer):
     return {viewer["id"]} | {r[0] for r in con.execute(
         "SELECT s.user_id FROM project_members m JOIN project_members s ON s.project_id=m.project_id"
         " WHERE m.user_id=?", (viewer["id"],))}
-
-
-def username_from_name(name):
-    return re.sub(r"[^A-Za-z0-9]+", "", name or "")[:40] or "pilot"
-
-
-def unique_username(con, base):
-    name, n = (base or "pilot")[:40], 2
-    while con.execute("SELECT 1 FROM users WHERE username=?", (name,)).fetchone():
-        suffix = str(n)
-        name = base[:40 - len(suffix)] + suffix
-        n += 1
-    return name
-
-
-def add_alias(con, user_id, alias):
-    alias = (alias or "").strip()
-    if not alias:
-        return False
-    try:
-        con.execute("INSERT INTO user_aliases(user_id,alias) VALUES (?,?)", (user_id, alias))
-        return True
-    except sqlite3.IntegrityError:
-        return False
-
-
-def looks_like_person_name(name):
-    name = (name or "").strip()
-    return len(name) >= 2 and name.casefold() not in _SKIP_LOG_NAMES and any(c.isalpha() for c in name)
-
-
-def ensure_users_for_log_names(con):
-    keys, created = user_keys(con), 0
-    for aircraft in con.execute("SELECT pic,pac,gcs FROM aircraft"):
-        for role in ("pic", "pac", "gcs"):
-            name = (aircraft[role] or "").strip()
-            if not looks_like_person_name(name) or name.casefold() in keys:
-                continue
-            username = unique_username(con, username_from_name(name))
-            uid = con.execute(
-                "INSERT INTO users(username,display_name,password_hash,is_admin,provider,created_at)"
-                " VALUES (?,?,NULL,0,'log',?)", (username, name[:80], _utc_now())).lastrowid
-            add_alias(con, uid, name)
-            keys[name.casefold()] = uid
-            keys[username.casefold()] = uid
-            created += 1
-    return created
 
 
 def qualifications_payload(con, viewer, user_id):

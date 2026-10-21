@@ -185,11 +185,17 @@ Everything requires a login. Admins create accounts on the People page or on the
     python3 app.py list-users
     python3 app.py deactivate-user alice                       # or activate-user
 
+Email is optional for admin-created accounts and can be cleared in the People Account tab.
+Non-empty addresses must be valid and unique (case-insensitive). Without an email, automatic SSO
+linking by email is unavailable; password setup/reset links can still be shared privately.
+
 **Sign in with TU Delft** uses SAML 2.0 against `https://login.tudelft.nl/sso/saml2/idp/metadata.php`. Register
 `<PUBLIC_URL>/saml/metadata` with TU Delft ICT (`middleware-ictfm@tudelft.nl`) once; the service's signing keys are
 generated in `<WEB_DATA>/saml/` and are part of the backup (losing them means registering again). A first SSO login
 creates a non-admin account, linked to an existing local account with the same email. Give people access to projects
 on the Projects page.
+SAML identity mapping accepts both `uid` / `UID` and `displayName` / `Displayname`, alongside
+the supported standard OID/URN names. NameID remains the preferred subject identifier; `mail` supplies email.
 
 ### Tests
 
@@ -238,6 +244,15 @@ Admins can rename usernames in the Account tab. Usernames must be unique (case-i
 1-40 characters and contain no spaces or control characters. The old username is kept as a log alias,
 not an alternative login. Passwords, SSO identity links, project memberships and existing records stay
 attached to the same person. Names conflicting with another person's log alias must be resolved first.
+
+Log ingestion, startup and opening People do not create profiles from crew names. Unmatched PIC/PAC/GCS
+names stay as logged text and appear under **Unlinked crew names** for admins in Edit mode. Link them
+to an existing person using aliases, or explicitly use **Add user** when a profile is needed.
+Username/display-name matching and explicit crew assignments remain supported. Previously generated
+`provider='log'` profiles are preserved, including their data and password-setup workflow.
+Removing a profile no longer recreates it from log names. Deletion is not a merge: historical records
+and private qualifications still block deletion, and explicit digital crew assignments are cleared,
+not transferred. Move aliases and review references before removing duplicates.
 
 Pilot pages are read-only and show only each type's current approved qualification, including expired
 approvals clearly marked as expired. Pending claims, previous submissions and evidence

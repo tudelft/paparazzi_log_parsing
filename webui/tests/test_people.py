@@ -1,11 +1,76 @@
 import hashlib
+import unittest
+from types import SimpleNamespace
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
+import saml
 from .test_historical import AppTests
 
 
+class SamlAttributeTests(unittest.TestCase):
+    def test_supported_attribute_spellings(self):
+        for uid_key, display_key in (
+                ("uid", "displayName"), ("UID", "Displayname"),
+                ("urn:oid:0.9.2342.19200300.100.1.1", "urn:oid:2.16.840.1.113730.3.1.241")):
+            with self.subTest(uid=uid_key, display=display_key):
+                attrs = {uid_key: ["hdegroot"], display_key: ["Hans de Groot"],
+                         "mail": ["H.J.deGroot@example.test"]}
+                auth = SimpleNamespace(get_attributes=lambda: attrs, get_nameid=lambda: "stable-subject")
+                self.assertEqual(saml.identity_from_auth(auth), {
+                    "subject": "stable-subject", "username": "hdegroot",
+                    "display_name": "Hans de Groot", "email": "H.J.deGroot@example.test"})
+
+
 class PeopleDirectoryTests(AppTests):
+    def test_optional_email_on_creation_and_update(self):
+        self.sign_in(1)
+        for index, fields in enumerate(({}, {"email": ""}, {"email": "  "}, {"email": None})):
+            response = self.client.post("/api/admin/users", json={"username": f"person{index}", **fields})
+            self.assertEqual(response.status_code, 200, response.json)
+            self.assertIsNone(self.con.execute(
+                "SELECT email FROM users WHERE id=?", (response.json["id"],)).fetchone()[0])
+        for email in ("invalid", 42, [], "bad @example.test"):
+            self.assertEqual(self.client.post("/api/admin/users", json={
+                "username": "invalid-email", "email": email}).status_code, 400)
+            self.assertEqual(self.client.put("/api/admin/users/2", json={"email": email}).status_code, 400)
+        self.assertEqual(self.client.put("/api/admin/users/2", json={"email": "pilot@example.test"}).status_code, 200)
+        self.assertEqual(self.client.put("/api/admin/users/3", json={"email": "PILOT@example.test"}).status_code, 409)
+        self.assertEqual(self.client.post("/api/admin/users", json={
+            "username": "duplicate-email", "email": "PILOT@example.test"}).status_code, 409)
+        self.assertEqual(self.client.put("/api/admin/users/2", json={"email": ""}).status_code, 200)
+        self.assertIsNone(self.con.execute("SELECT email FROM users WHERE id=2").fetchone()[0])
+
+    def test_log_names_stay_unlinked_until_admin_adds_aliases(self):
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by)"
+            " VALUES(1,'test','crew-test','test.data','done','now',2)")
+        self.con.execute(
+            "INSERT INTO aircraft(id,log_id,name,pic,pac,gcs)"
+            " VALUES(1,1,'Drone','Frans','Frans Hendrinks','Unlinked operator')")
+        self.con.commit()
+        self.sign_in(1)
+        self.ns["assign_log_flights"](self.con, 1)
+        response = self.client.get("/api/admin/people")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json["users"]), 5)
+        self.assertEqual({r["name"] for r in response.json["unlinked"]},
+                         {"Frans", "Frans Hendrinks", "Unlinked operator"})
+        for alias in ("Frans", "Frans Hendrinks"):
+            response = self.client.post("/api/admin/aliases", json={"user_id": 2, "alias": alias})
+            self.assertEqual(response.status_code, 200)
+        resolve = self.ns["person_resolver"](self.con)
+        self.assertEqual(resolve("pic", "Frans", None)["id"], 2)
+        self.assertEqual(resolve("pac", "Frans Hendrinks", None)["id"], 2)
+        self.assertIsNone(resolve("gcs", "Unlinked operator", None))
+        response = self.client.get("/api/admin/people")
+        self.assertEqual([r["name"] for r in response.json["unlinked"]], ["Unlinked operator"])
+        self.assertEqual(self.client.delete("/api/admin/users/2").status_code, 200)
+        response = self.client.get("/api/admin/people")
+        self.assertEqual(len(response.json["users"]), 4)
+        self.assertEqual({r["name"] for r in response.json["unlinked"]},
+                         {"Frans", "Frans Hendrinks", "Unlinked operator"})
+
     def test_aliases_visible_to_normal_users_within_directory_scope(self):
         self.con.executemany("INSERT INTO user_aliases(user_id,alias) VALUES (?,?)",
                              [(2, "Pilot alias"), (2, "<crew>"), (4, "Private alias")])

@@ -144,9 +144,9 @@ def identity_from_auth(auth):
     nameid = (auth.get_nameid() or "").strip()
     email = attr_first(attrs, "mail", "email", "urn:oid:0.9.2342.19200300.100.1.3",
                        "urn:oid:1.2.840.113549.1.9.1")
-    uid = attr_first(attrs, "uid", "eduPersonPrincipalName", "urn:oid:0.9.2342.19200300.100.1.1",
+    uid = attr_first(attrs, "uid", "UID", "eduPersonPrincipalName", "urn:oid:0.9.2342.19200300.100.1.1",
                      "urn:mace:dir:attribute-def:uid")
-    display = attr_first(attrs, "displayName", "cn", "urn:oid:2.16.840.1.113730.3.1.241",
+    display = attr_first(attrs, "displayName", "Displayname", "cn", "urn:oid:2.16.840.1.113730.3.1.241",
                          "urn:mace:dir:attribute-def:displayName")
     subject = nameid or uid or email
     username = (uid or (email.split("@")[0] if email else "") or "user")

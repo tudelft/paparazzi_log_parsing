@@ -263,7 +263,6 @@ def start_workers():
     db.init(DB_PATH)
     con = conn()
     HAVE_PATH_GZ = "path_gz" in {r[1] for r in con.execute("PRAGMA table_info(flights)")}
-    qualifications.ensure_users_for_log_names(con)
     seed_drone_projects_from_defaults(con)
     assign_open_flights(con)
     con.execute("UPDATE logs SET status='queued' WHERE status IN ('queued', 'parsing')")
@@ -1704,7 +1703,6 @@ def assign_log_flights(con, log_id, kept=None):
         pid = pick_flight_project(con, f, resolve)
         if pid:
             con.execute("UPDATE flights SET project_id=? WHERE id=?", (pid, f["id"]))
-    qualifications.ensure_users_for_log_names(con)
     if log["project_id"] is None:
         ids = [r["project_id"] for r in con.execute(
             "SELECT DISTINCT f.project_id FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
@@ -2592,8 +2590,14 @@ def issue_setup_token(con, user_id):
 
 
 def clean_email(value):
-    email = (value or "").strip()
-    if not email or len(email) > 120 or any(c.isspace() for c in email) or email.count("@") != 1:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        return None
+    email = value.strip()
+    if not email:
+        return ""
+    if len(email) > 120 or any(c.isspace() for c in email) or email.count("@") != 1:
         return None
     local, domain = email.split("@")
     if not local or "." not in domain or domain.startswith(".") or domain.endswith("."):
@@ -2641,7 +2645,7 @@ def admin_add_user():
         cur = con.execute(
             "INSERT INTO users (username, display_name, email, password_hash, is_admin, created_at, default_project_id)"
             " VALUES (?,?,?,?,?,?,?)",
-            (username, display_name, email, None, int(bool(body.get("is_admin"))), now(), default_project_id))
+            (username, display_name, email or None, None, int(bool(body.get("is_admin"))), now(), default_project_id))
         token, expires_at = issue_setup_token(con, cur.lastrowid)
         con.commit()
     except sqlite3.IntegrityError:
@@ -2730,7 +2734,7 @@ def admin_update_user(user_id):
             return jsonify(error="enter a valid email address"), 400
         if con.execute("SELECT 1 FROM users WHERE email=? COLLATE NOCASE AND id!=?", (email, user_id)).fetchone():
             return jsonify(error="that email address is already used"), 409
-        con.execute("UPDATE users SET email=? WHERE id=?", (email, user_id))
+        con.execute("UPDATE users SET email=? WHERE id=?", (email or None, user_id))
     if "default_project_id" in body:
         project_id = parse_project_id(body.get("default_project_id"))
         if project_id is False:
@@ -2805,8 +2809,6 @@ def admin_people():
     """Users with their aliases, plus the names seen in logs that are not linked to any user yet."""
     admin_required()
     con = conn()
-    qualifications.ensure_users_for_log_names(con)
-    con.commit()
     users = []
     for u in con.execute("SELECT * FROM users ORDER BY username"):
         prov = u["provider"] or "local"
