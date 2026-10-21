@@ -56,13 +56,13 @@
   <section class="card">
     <div id="drop">
       <strong>Drop log files, zip archives or folders here</strong>
-      <div>.data and .log files must come as a pair with the same name (zips and folders may contain several pairs). Files are accepted quickly; fingerprinting, duplicates and parsing run in the background. The list below shows 10 logs per page by default, newest first. For hundreds of logs, drop a zip or a folder — picking thousands of files one by one can freeze the browser.</div>
+      <div>Paparazzi .data and .log files must come as a pair with the same name. PX4 .ulg, ArduPilot .bin / .log and MAVLink .tlog files are uploaded on their own. Zips and folders may mix all of those. Files are accepted quickly; fingerprinting, duplicates and parsing run in the background. The list below shows 10 logs per page by default, newest first. For hundreds of logs, drop a zip or a folder — picking thousands of files one by one can freeze the browser.</div>
       <div class="mute" style="margin-top:8px">Project is set automatically from the aircraft (then the uploader, GCS operator or PIC). Admins can change it on a log after it is parsed.</div>
       <div class="row">
         <button type="button" id="pickFilesBtn">Select files</button>
         <button type="button" class="sec" id="pickDirBtn">Select folder</button>
       </div>
-      <input id="pickFiles" type="file" multiple hidden accept=".data,.log,.zip">
+      <input id="pickFiles" type="file" multiple hidden accept=".data,.log,.zip,.ulg,.bin,.tlog">
       <input id="pickDir" type="file" webkitdirectory hidden>
     </div>
     <div id="batch" class="mute" style="margin-top:12px" hidden></div>
@@ -94,6 +94,8 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const downloadLabel = t => ({px4_ulog:'PX4 .ulg', ardupilot:'ArduPilot log', mavlink_tlog:'MAVLink .tlog',
+  gcs:'GCS .data + .log', onboard_sd:'SD .data + .log'}[t] || 'log');
 const fmtDur = s => s == null ? '' : `${Math.floor(s/60)}m ${String(Math.round(s%60)).padStart(2,'0')}s`;
 const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km` : `${Math.round(m)} m`;
 const fmtSize = b => b > 1e9 ? (b/1e9).toFixed(2)+' GB' : (b/1e6).toFixed(1)+' MB';
@@ -130,12 +132,12 @@ fetch('/api/me').then(r => r.json()).then(async d => {
 });
 
 // ---- upload -------------------------------------------------------------------------------------------------
-// Groups: every zip alone, .data/.log files paired by directory + name.
+// Groups: every zip or PX4/ArduPilot/tlog file alone, Paparazzi .data/.log paired by directory + name.
 function groupFiles(items) {
   const groups = new Map(), skipped = [];
   for (const {file, rel} of items) {
     const lower = rel.toLowerCase();
-    if (lower.endsWith('.zip')) { groups.set(rel, [{file, rel}]); continue; }
+    if (lower.endsWith('.zip') || /\.(ulg|bin|tlog)$/i.test(lower)) { groups.set(rel, [{file, rel}]); continue; }
     const m = rel.match(/^(.*)\.(data|log)$/i);
     if (!m) { skipped.push(rel); continue; }
     if (!groups.has(m[1])) groups.set(m[1], []);
@@ -239,19 +241,22 @@ async function uploadItems(items) {
   await yieldToUi();
   const {groups, skipped} = groupFiles(items);
   if (skipped.length)
-    noteUpload(`<div class="mute">${skipped.length} ignored (not .data/.log/.zip)</div>`);
+    noteUpload(`<div class="mute">${skipped.length} ignored (not a recognised log or zip)</div>`);
   const jobs = [];
   let incomplete = 0;
   for (const g of groups) {
-    const isZip = g.length === 1 && g[0].rel.toLowerCase().endsWith('.zip');
-    if (!isZip && !(g.some(x => /\.data$/i.test(x.rel)) && g.some(x => /\.log$/i.test(x.rel)))) {
+    const one = g.length === 1 ? g[0].rel.toLowerCase() : '';
+    const isZip = one.endsWith('.zip');
+    const isMav = /\.(ulg|bin|tlog)$/.test(one);
+    const isLoneLog = /\.log$/.test(one);
+    if (!isZip && !isMav && !isLoneLog && !(g.some(x => /\.data$/i.test(x.rel)) && g.some(x => /\.log$/i.test(x.rel)))) {
       incomplete++;
       continue;
     }
     jobs.push(g);
   }
   if (incomplete)
-    noteUpload(`<div><span class="badge error">rejected</span> <span class="mute">${incomplete} skipped — each log needs both a .data and a matching .log file</span></div>`);
+    noteUpload(`<div><span class="badge error">rejected</span> <span class="mute">${incomplete} skipped — Paparazzi logs need both a .data and a matching .log file</span></div>`);
   if (!jobs.length) { paintBatch(); return; }
   const packs = packJobs(jobs);
   sendTotal += jobs.length;
@@ -382,7 +387,7 @@ async function refresh() {
     const dateLabel = l.date_ok
       ? esc((l.start_utc || l.date_override || '').replace('T', ' ').slice(0, 19))
       : '<span class="badge date-unknown" title="This log has no usable calendar date (often GPS week 0, shown as 1980)">date unknown</span>';
-    tr.innerHTML = `<td>${l.id}</td><td>${esc(l.name)}<div class="mono mute">${l.sha256.slice(0, 12)}… · ${fmtSize(l.size_bytes)}${l.has_log ? '' : ' · no .log'}</div></td>
+    tr.innerHTML = `<td>${l.id}</td><td>${esc(l.name)}<div class="mono mute">${l.sha256.slice(0, 12)}… · ${fmtSize(l.size_bytes)}${!l.has_log && (!l.log_type || l.log_type === 'onboard_sd' || l.log_type === 'gcs') ? ' · no .log' : ''}</div></td>
       <td onclick="event.stopPropagation()">${projectCell}</td>
       <td>${esc(l.aircraft_names)}</td><td>${dateLabel}</td>
       <td>${l.num_flights ?? ''}</td><td>${fmtDur(l.flight_time_s)}</td>
@@ -457,7 +462,7 @@ async function loadDetail(id) {
   }
   h += `<div class="actions">
     <a class="btn sec" href="/attachments?kind=log&id=${id}" onclick="event.stopPropagation()">Additional files</a>
-    <a class="btn sec" href="/api/logs/${id}/download" onclick="event.stopPropagation()">Download .data + .log</a>
+    <a class="btn sec" href="/api/logs/${id}/download" onclick="event.stopPropagation()">Download ${downloadLabel(l.log_type)}</a>
     <button class="sec" onclick="event.stopPropagation(); reparse(${id})">Re-parse</button>
     ${l.can_delete ? `<button class="danger" onclick="event.stopPropagation(); del(${id})">Delete</button>` : ''}</div>`;
   const el = $('d' + id);

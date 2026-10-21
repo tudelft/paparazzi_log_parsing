@@ -1,8 +1,9 @@
-"""Web interface to upload Paparazzi logs (.data/.log files, zip archives, folders).
+"""Web interface to upload flight logs (Paparazzi pairs, PX4 .ulg, ArduPilot, MAVLink tlog, zips).
 
-Uploaded logs are kept on disk, hashed (sha256 of the .data file) and parsed with the fast C++ parser
-into a SQLite database. A log with a known hash is never stored or parsed twice. The version of the
-parser that produced the stored result is recorded so outdated results can be re-parsed later.
+Uploaded logs are kept on disk, hashed (sha256 of the main log file) and parsed into a SQLite
+database. Paparazzi .data files go through the C++ parser; PX4/ArduPilot/tlog files go through
+the Python mav parser. A log with a known hash is never stored or parsed twice. The version of
+the parser that produced the stored result is recorded so outdated results can be re-parsed later.
 """
 import contextlib
 import copy
@@ -16,6 +17,7 @@ import math
 import os
 import posixpath
 import queue
+import re
 import secrets
 import sys
 import shutil
@@ -46,6 +48,7 @@ import saml
 import config
 import personnel
 import weather
+import mav_parse
 from config import env, env_bool, env_float, env_int, env_path
 
 HERE = Path(__file__).resolve().parent
@@ -184,17 +187,21 @@ def parse_log(log_id):
                     for chunk in storage.chunks(STORAGE_DIR / rel, compressed=True):
                         dst.write(chunk)
         data_path = Path(unpacked.name) / Path(row["data_path"]).name[:-3]
-        cmd = [FASTREADER, "-r", str(PATH_RATE), "--sha256", row["sha256"], str(data_path)]
-        fd, out_path = tempfile.mkstemp(dir=TMP_DIR, suffix=".json")
-        with os.fdopen(fd, "wb") as out:
-            proc = subprocess.run(cmd, stdout=out, stderr=subprocess.PIPE)
-        if proc.returncode != 0:
-            raise RuntimeError(proc.stderr.decode(errors="replace").strip() or f"parser exit code {proc.returncode}")
+        kind = mav_parse.sniff(data_path)
+        if kind:
+            doc = mav_parse.parse(data_path, sha256=row["sha256"], path_rate=PATH_RATE, log_type=kind)
+        else:
+            cmd = [FASTREADER, "-r", str(PATH_RATE), "--sha256", row["sha256"], str(data_path)]
+            fd, out_path = tempfile.mkstemp(dir=TMP_DIR, suffix=".json")
+            with os.fdopen(fd, "wb") as out:
+                proc = subprocess.run(cmd, stdout=out, stderr=subprocess.PIPE)
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr.decode(errors="replace").strip() or f"parser exit code {proc.returncode}")
+            with open(out_path, "rb") as f:
+                doc = json.load(f)
+            os.remove(out_path)
+            out_path = None
         seconds = time.time() - t0
-        with open(out_path, "rb") as f:
-            doc = json.load(f)
-        os.remove(out_path)
-        out_path = None
         paths_rel = str(Path(row["data_path"]).parent / f"paths-{uuid.uuid4().hex[:12]}.json.gz")
         write_atomic(STORAGE_DIR / paths_rel, db.pack(db.flight_paths(doc)))
         new_paths = STORAGE_DIR / paths_rel
@@ -363,8 +370,28 @@ def run_ingest(ingest_id):
         ingest_pair(con, row)
 
 
+def enqueue_staged_log(con, parent_stage, name, src, user_id, companion=None):
+    """Move a staged log (and optional Paparazzi .log twin) into its own ingest row."""
+    pair_rel = str(Path(parent_stage) / uuid.uuid4().hex)
+    pair_dir = ingest_stage(pair_rel)
+    pair_dir.mkdir(parents=True, exist_ok=True)
+    if companion:
+        data_name, log_name = "log.data", "log.log"
+        shutil.move(str(src), pair_dir / data_name)
+        shutil.move(str(companion), pair_dir / log_name)
+        kind = "pair"
+    else:
+        data_name, log_name = "log" + Path(name).suffix.lower(), None
+        shutil.move(str(src), pair_dir / data_name)
+        kind = "file"
+    size = (pair_dir / data_name).stat().st_size
+    iid = insert_ingest(con, kind, name, pair_rel, data_name, log_name, size, user_id)
+    ingest_jobs.put(iid)
+    return iid, size
+
+
 def explode_zip(con, row):
-    """Unpack a zip in the background and enqueue each .data/.log pair."""
+    """Unpack a zip in the background and enqueue Paparazzi pairs plus PX4/ArduPilot/tlog files."""
     stage = ingest_stage(row["stage_dir"])
     zip_path = stage / row["data_name"]
     try:
@@ -379,37 +406,38 @@ def explode_zip(con, row):
     with zf:
         for info in zf.infolist():
             member = clean_relpath(info.filename)
-            if info.is_dir() or not member.lower().endswith((".data", ".log")):
+            ext = posixpath.splitext(member)[1].lower()
+            if info.is_dir() or ext not in (".data", ".log", ".ulg", ".bin", ".tlog"):
                 continue
             dest = unpacked / uuid.uuid4().hex
             with zf.open(info) as src, open(dest, "wb") as dst:
                 shutil.copyfileobj(src, dst, 8 << 20)
             d, base = posixpath.split(member)
-            stem, ext = posixpath.splitext(base)
-            found.setdefault((d, stem), {})[ext.lower()] = (posixpath.join(d, stem + ext.lower()), str(dest))
+            stem, _ = posixpath.splitext(base)
+            found.setdefault((d, stem), {})[ext] = (posixpath.join(d, stem + ext) if d else stem + ext, str(dest))
     n = 0
     for (d, stem), parts in sorted(found.items()):
-        name = posixpath.join(d, stem + ".data") if d else stem + ".data"
-        if ".data" not in parts or ".log" not in parts:
+        if ".data" in parts and ".log" in parts:
+            name = posixpath.join(d, stem + ".data") if d else stem + ".data"
+            enqueue_staged_log(con, row["stage_dir"], name, parts[".data"][1], row["uploaded_by"],
+                               companion=parts[".log"][1])
+            n += 1
             continue
-        pair_rel = str(Path(row["stage_dir"]) / uuid.uuid4().hex)  # beside "unpacked", so the stage is not empty yet
-        pair_dir = ingest_stage(pair_rel)
-        pair_dir.mkdir(parents=True, exist_ok=True)
-        data_name = "log.data"
-        log_name = "log.log"
-        shutil.move(parts[".data"][1], pair_dir / data_name)
-        shutil.move(parts[".log"][1], pair_dir / log_name)
-        size = (pair_dir / data_name).stat().st_size
-        iid = insert_ingest(con, "pair", name, pair_rel, data_name, log_name, size, row["uploaded_by"])
-        ingest_jobs.put(iid)
-        n += 1
+        for ext in (".ulg", ".bin", ".tlog"):
+            if ext not in parts:
+                continue
+            enqueue_staged_log(con, row["stage_dir"], parts[ext][0], parts[ext][1], row["uploaded_by"])
+            n += 1
+        if ".log" in parts and ".data" not in parts and mav_parse.sniff(parts[".log"][1]) == mav_parse.LOG_AP:
+            enqueue_staged_log(con, row["stage_dir"], parts[".log"][0], parts[".log"][1], row["uploaded_by"])
+            n += 1
     shutil.rmtree(unpacked, ignore_errors=True)
     try:
         zip_path.unlink(missing_ok=True)
     except OSError:
         pass
     if n == 0:
-        set_ingest(con, row["id"], status="rejected", error="zip had no .data/.log pairs")
+        set_ingest(con, row["id"], status="rejected", error="zip had no recognised log files")
         drop_stage(stage)
         return
     set_ingest(con, row["id"], status="stored", error=None)
@@ -422,12 +450,19 @@ def ingest_pair(con, row):
     log_src = (stage / row["log_name"]) if row["log_name"] else None
     name = row["name"]
     if not data_src.is_file():
-        set_ingest(con, row["id"], status="error", error="staged .data file is missing")
+        set_ingest(con, row["id"], status="error", error="staged log file is missing")
         drop_stage(stage)
         return
     size = data_src.stat().st_size
     if size == 0:
-        set_ingest(con, row["id"], status="rejected", error="empty .data file")
+        set_ingest(con, row["id"], status="rejected", error="empty log file")
+        drop_stage(stage)
+        return
+    kind = mav_parse.sniff(data_src)
+    if row["log_name"] is None and Path(name).suffix.lower() == ".log" and kind != mav_parse.LOG_AP:
+        err = ("needs the matching .data file" if mav_parse.looks_paparazzi_xml(data_src)
+               else "unrecognised .log file (not ArduPilot)")
+        set_ingest(con, row["id"], status="rejected", error=err)
         drop_stage(stage)
         return
     sha = sha256_file(str(data_src))
@@ -610,30 +645,34 @@ def upload():
     for rel, dest_name, dest in others:
         d, base = posixpath.split(rel)
         stem, ext = posixpath.splitext(base)
-        if ext.lower() not in (".data", ".log"):
+        ext = ext.lower()
+        if ext in mav_parse.MAV_SINGLE_EXTS:
+            iid, size = enqueue_staged_log(con, stage_rel, rel, dest, g.user["id"])
+            results.append({"name": rel, "status": "accepted", "ingest_id": iid, "size_bytes": size})
+            continue
+        if ext not in (".data", ".log"):
             ignored.append(rel)
             continue
-        found.setdefault((d, stem), {})[ext.lower()] = dest_name
+        found.setdefault((d, stem), {})[ext] = dest_name
     for rel in ignored:
-        results.append({"name": rel, "status": "rejected", "reason": "not a .data, .log or .zip file"})
+        results.append({"name": rel, "status": "rejected", "reason": "not a recognised log or zip file"})
     for (d, stem), parts in sorted(found.items()):
         name = posixpath.join(d, stem + ".data") if d else stem + ".data"
-        if ".data" not in parts:
+        if ".data" in parts and ".log" in parts:
+            iid, size = enqueue_staged_log(con, stage_rel, name, stage / parts[".data"], g.user["id"],
+                                           companion=stage / parts[".log"])
+            results.append({"name": name, "status": "accepted", "ingest_id": iid, "size_bytes": size})
+            continue
+        if ".log" in parts and ".data" not in parts:
+            log_name = posixpath.join(d, stem + ".log") if d else stem + ".log"
+            iid, size = enqueue_staged_log(con, stage_rel, log_name, stage / parts[".log"], g.user["id"])
+            results.append({"name": log_name, "status": "accepted", "ingest_id": iid, "size_bytes": size})
+            continue
+        if ".data" in parts:
+            results.append({"name": name, "status": "rejected", "reason": "no matching .log file"})
+        else:
             results.append({"name": posixpath.join(d, stem + ".log") if d else stem + ".log",
                             "status": "rejected", "reason": "no matching .data file"})
-            continue
-        if ".log" not in parts:
-            results.append({"name": name, "status": "rejected", "reason": "no matching .log file"})
-            continue
-        pair_rel = str(Path(stage_rel) / uuid.uuid4().hex)
-        pair_dir = ingest_stage(pair_rel)
-        pair_dir.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(stage / parts[".data"]), pair_dir / "log.data")
-        shutil.move(str(stage / parts[".log"]), pair_dir / "log.log")
-        size = (pair_dir / "log.data").stat().st_size
-        iid = insert_ingest(con, "pair", name, pair_rel, "log.data", "log.log", size, g.user["id"])
-        ingest_jobs.put(iid)
-        results.append({"name": name, "status": "accepted", "ingest_id": iid, "size_bytes": size})
     for _, _, dest in saved:
         dest.unlink(missing_ok=True)  # files that were not part of a pair
     with contextlib.suppress(OSError):
@@ -1217,7 +1256,87 @@ def resolve_drone(names, drones, name):
     if not key:
         return None
     did = names.get(key)
-    return drones.get(did) if did else None
+    if did:
+        return drones.get(did)
+    for token in identity_tokens(name):
+        did = names.get(token.casefold())
+        if did:
+            return drones.get(did)
+    return None
+
+
+_HEX_ID = re.compile(r"[0-9A-Fa-f]{8,36}")
+_GENERIC_LOG_FOLDERS = {
+    "log", "logs", "ulg", "bin", "tlog", "data", "px4", "px4logs", "ardupilot", "upload",
+    "uploads", "download", "downloads", "desktop", "documents", "incoming",
+}
+
+
+def identity_tokens(logged_name):
+    """Board ids embedded in a logged name such as 'quad_x 00500040'."""
+    out = []
+    for tok in _HEX_ID.findall(logged_name or ""):
+        if tok not in out:
+            out.append(tok)
+        if len(tok) > 8:
+            short = tok[-8:]
+            if short not in out:
+                out.append(short)
+    return out
+
+
+def log_folder_label(log_name):
+    """Immediate parent folder of an uploaded log, or None for generic dump folders."""
+    rel = (log_name or "").replace("\\", "/")
+    parent = posixpath.basename(posixpath.dirname(rel)).strip()
+    if not parent or fold_ac(parent) in _GENERIC_LOG_FOLDERS:
+        return None
+    return parent
+
+
+def matching_drones_for_folder(con, folder):
+    """Fleet aircraft whose name overlaps an upload folder (Ranger 1600, Quadrotor, …)."""
+    want = fold_ac(folder or "")
+    if len(want) < 4:
+        return []
+    hits = []
+    for d in con.execute("SELECT id, name, unique_id, default_project_id FROM drones"):
+        have = fold_ac(d["name"])
+        if want == have or want in have or (len(have) >= 6 and have in want):
+            hits.append(dict(d))
+    return hits
+
+
+def guess_drone_from_log_path(con, log_name):
+    """If the upload folder uniquely matches one fleet aircraft, use that.
+
+    PX4 does not store a nickname; the folder the files were dropped from often is the aircraft.
+    Only links when exactly one drone matches, so 'Quadrotor' does not steal every quad in the fleet.
+    """
+    folder = log_folder_label(log_name)
+    if not folder:
+        return None
+    hits = matching_drones_for_folder(con, folder)
+    if len(hits) == 1:
+        return hits[0]
+    return None
+
+
+def remember_drone_log_identity(con, drone_id, logged_name):
+    """After a PX4/ArduPilot log is linked, remember the logged name and board id as aliases."""
+    labels = [(logged_name or "").strip()]
+    labels.extend(identity_tokens(logged_name))
+    for label in labels:
+        if len(label) < 4:
+            continue
+        if fold_ac(label) in _GENERIC_LOG_FOLDERS:
+            continue
+        if name_taken(con, label, drone_id):
+            continue
+        try:
+            con.execute("INSERT INTO drone_aliases (drone_id, alias) VALUES (?,?)", (drone_id, label))
+        except sqlite3.IntegrityError:
+            pass
 
 
 def name_taken(con, name, drone_id=None):
@@ -1343,16 +1462,21 @@ def parse_project_id(raw):
 
 def link_log_aircraft(con, log_id):
     drones, names = drone_name_map(con)
+    log = con.execute("SELECT name FROM logs WHERE id=?", (log_id,)).fetchone()
+    log_name = log["name"] if log else ""
     for a in con.execute("SELECT id, name FROM aircraft WHERE log_id=?", (log_id,)):
         d = resolve_drone(names, drones, a["name"])
+        if d is None:
+            d = guess_drone_from_log_path(con, log_name)
+        if d is not None:
+            remember_drone_log_identity(con, d["id"], a["name"])
+            drones, names = drone_name_map(con)
         con.execute("UPDATE aircraft SET drone_id=? WHERE id=?", (d["id"] if d else None, a["id"]))
 
 
 def relink_all_aircraft(con):
-    drones, names = drone_name_map(con)
-    for a in con.execute("SELECT id, name FROM aircraft"):
-        d = resolve_drone(names, drones, a["name"])
-        con.execute("UPDATE aircraft SET drone_id=? WHERE id=?", (d["id"] if d else None, a["id"]))
+    for r in con.execute("SELECT id FROM logs"):
+        link_log_aircraft(con, r["id"])
 
 
 def live_project(con, project_id):
@@ -1868,6 +1992,42 @@ def admin_set_member(project_id):
     return jsonify(ok=True)
 
 
+def _group_unlinked_by_board(entries):
+    """One Aircraft-page row per flight-controller id, even if airframe names differ."""
+    leftover, by_board = [], {}
+    for e in entries:
+        bids = e.get("board_ids") or []
+        if len(bids) != 1:
+            leftover.append(e)
+            continue
+        by_board.setdefault(bids[0], []).append(e)
+    out = leftover
+    for bid, group in by_board.items():
+        if len(group) == 1:
+            e = dict(group[0])
+            e.setdefault("names", [e["name"]])
+            out.append(e)
+            continue
+        names, folders, cand, seen_c = [], [], [], set()
+        count = 0
+        for e in sorted(group, key=lambda x: (-x["count"], x["name"].casefold())):
+            names.append(e["name"])
+            count += e["count"]
+            for folder in e["folders"]:
+                if folder not in folders:
+                    folders.append(folder)
+            for c in e.get("candidates") or []:
+                if c["id"] not in seen_c:
+                    seen_c.add(c["id"])
+                    cand.append(c)
+        out.append({
+            "name": names[0], "names": names, "count": count,
+            "folders": folders, "board_ids": [bid], "candidates": cand,
+        })
+    out.sort(key=lambda e: (-e["count"], e["name"].casefold()))
+    return out
+
+
 def drone_payload(con, d):
     aliases = [r["alias"] for r in con.execute(
         "SELECT alias FROM drone_aliases WHERE drone_id=? ORDER BY alias", (d["id"],))]
@@ -1901,12 +2061,32 @@ def fleet_payload(con, include_unlinked=False, project_ids=None):
     unlinked, projects = [], []
     if include_unlinked:
         seen = {}
-        for a in con.execute("SELECT name FROM aircraft WHERE name IS NOT NULL AND TRIM(name) != ''"):
-            if resolve_drone(names, drones, a["name"]) is None:
-                key = a["name"].strip().casefold()
-                e = seen.setdefault(key, {"name": a["name"].strip(), "count": 0})
-                e["count"] += 1
-        unlinked = sorted(seen.values(), key=lambda e: (-e["count"], e["name"].casefold()))
+        for a in con.execute(
+                "SELECT a.name AS ac_name, l.name AS log_name FROM aircraft a "
+                "JOIN logs l ON l.id = a.log_id WHERE a.name IS NOT NULL AND TRIM(a.name) != ''"):
+            ac_name = (a["ac_name"] or "").strip()
+            if not ac_name or resolve_drone(names, drones, ac_name) is not None:
+                continue
+            key = ac_name.casefold()
+            e = seen.setdefault(key, {"name": ac_name, "count": 0, "folders": [], "board_ids": []})
+            e["count"] += 1
+            folder = log_folder_label(a["log_name"])
+            if folder and folder not in e["folders"]:
+                e["folders"].append(folder)
+            for tok in identity_tokens(ac_name):
+                if tok not in e["board_ids"]:
+                    e["board_ids"].append(tok)
+        unlinked = []
+        for e in seen.values():
+            cand, seen_ids = [], set()
+            for folder in e["folders"]:
+                for d in matching_drones_for_folder(con, folder):
+                    if d["id"] not in seen_ids:
+                        seen_ids.add(d["id"])
+                        cand.append({"id": d["id"], "name": d["name"]})
+            e["candidates"] = cand
+            unlinked.append(e)
+        unlinked = _group_unlinked_by_board(unlinked)
         projects = [dict(id=p["id"], name=p["name"]) for p in con.execute("SELECT id, name FROM projects ORDER BY name")]
     return dict(drones=fleet, unlinked=unlinked, projects=projects)
 
@@ -2179,6 +2359,7 @@ def admin_add_drone_alias():
         con.execute("INSERT INTO drone_aliases (drone_id, alias) VALUES (?,?)", (drone_id, alias))
     except sqlite3.IntegrityError:
         return jsonify(error="that name is already used by an aircraft or alias"), 409
+    remember_drone_log_identity(con, drone_id, alias)
     relink_all_aircraft(con)
     fill_drone_defaults(con, drone_id)
     con.commit()
@@ -2725,6 +2906,20 @@ def current_version():
     return app.config["PARSER_VERSION"]
 
 
+def expected_parser_version(parser_name):
+    if parser_name == mav_parse.PARSER_NAME:
+        return mav_parse.PARSER_VERSION
+    return current_version()
+
+
+def outdated_sql():
+    """Match logs whose stored parser version is not the one that would parse them today."""
+    return ("((COALESCE(parser_name,'') = ? AND COALESCE(parser_version,'') != ?)"
+            " OR (COALESCE(parser_name,'') != ? AND COALESCE(parser_version,'') != ?))",
+            (mav_parse.PARSER_NAME, mav_parse.PARSER_VERSION,
+             mav_parse.PARSER_NAME, current_version() or ""))
+
+
 # File clocks before this year are treated as missing (Unix epoch 1970 / GPS epoch 1980).
 CLOCK_MIN_YEAR = 1990
 _UTC_KEYS = {
@@ -2845,7 +3040,7 @@ def log_dict(row):
     if days:
         for k in ("start_utc", "first_data_utc", "end_utc"):
             d[k] = shift_iso(d.get(k), days)
-    d["outdated"] = d["status"] == "done" and d["parser_version"] != current_version()
+    d["outdated"] = d["status"] == "done" and d["parser_version"] != expected_parser_version(d.get("parser_name"))
     d["has_log"] = d.pop("log_path") is not None
     d.pop("data_path", None)
     d.pop("paths_file", None)
@@ -2993,7 +3188,7 @@ def stats_page():
 
 
 SAME_FLIGHT_SLACK_S = 60
-TYPE_ORDER = {"onboard_sd": 0, "gcs": 1}  # which source supplies the flight data; people/goal prefer the GCS
+TYPE_ORDER = {"onboard_sd": 0, "px4_ulog": 0, "ardupilot": 0, "gcs": 1, "mavlink_tlog": 1}
 
 
 def _ts(iso):
@@ -3472,8 +3667,9 @@ def status():
     where, params = list_clause()
     counts = {r["status"]: r["n"] for r in
               con.execute(f"SELECT status, COUNT(*) n FROM logs WHERE {where} GROUP BY status", params)}
-    outdated = con.execute(f"SELECT COUNT(*) FROM logs WHERE {where} AND status='done'"
-                           " AND COALESCE(parser_version,'') != ?", (*params, current_version() or "")).fetchone()[0]
+    od_sql, od_params = outdated_sql()
+    outdated = con.execute(f"SELECT COUNT(*) FROM logs WHERE {where} AND status='done' AND {od_sql}",
+                           (*params, *od_params)).fetchone()[0]
     date_unknown = con.execute(
         f"SELECT COUNT(*) FROM logs WHERE {where} AND status='done' AND date_override IS NULL"
         " AND (start_utc IS NULL OR start_utc < ?)", (*params, f"{CLOCK_MIN_YEAR:04d}-01-01")).fetchone()[0]
@@ -3665,6 +3861,8 @@ def download_both(log_id):
     if any(not rel.endswith(".gz") for rel in (row["data_path"], row["log_path"]) if rel):
         return jsonify(error="Uncompressed legacy storage is unsupported; delete and re-upload this test log."), 409
     files = [(posixpath.basename(rel)[:-3], STORAGE_DIR / rel) for rel in (row["data_path"], row["log_path"]) if rel]
+    if len(files) == 1:
+        return download(log_id, "data")
     stem = posixpath.splitext(posixpath.basename(row["name"]))[0]
     headers = {"Content-Disposition": f'attachment; filename="{safe_filename(stem)}.zip"'}
     return Response(stream_with_context(zip_stream(files)), mimetype="application/zip", headers=headers)
@@ -3697,9 +3895,10 @@ def reparse_outdated():
     app.config["PARSER_VERSION"] = version
     con = conn()
     where, params = list_clause()
+    od_sql, od_params = outdated_sql()
     ids = [r["id"] for r in con.execute(
-        f"SELECT id FROM logs WHERE {where} AND (status='error' OR (status='done' AND COALESCE(parser_version,'') != ?))",
-        (*params, version or ""))]
+        f"SELECT id FROM logs WHERE {where} AND (status='error' OR (status='done' AND {od_sql}))",
+        (*params, *od_params))]
 
     def queue_all():
         for i in ids:

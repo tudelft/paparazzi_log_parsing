@@ -63,8 +63,19 @@
   <section class="card">
     <div class="bar">
       <label id="projectFilter" hidden>Project <select id="showProject"></select></label>
-      <label>From <input type="date" id="fromDate"></label>
-      <label>To <input type="date" id="toDate"></label>
+      <label>Period <select id="period">
+        <option value="30d">Last 30 days</option>
+        <option value="3m">Last 3 months</option>
+        <option value="1y" selected>Last year</option>
+        <option value="2y">Last 2 years</option>
+        <option value="5y">Last 5 years</option>
+        <option value="all">All time</option>
+      </select></label>
+      <label><input type="checkbox" id="specificRange"> Specific range</label>
+      <span id="customRange" class="bar" hidden style="margin:0">
+        <label>From <input type="date" id="fromDate"></label>
+        <label>To <input type="date" id="toDate"></label>
+      </span>
       <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date…)">
       <label title="Flights of the same aircraft and pilot on the same day within this distance of each other"><input type="checkbox" id="combine" checked> Combine flights (within <input type="number" id="radius" value="1" min="0.1" step="0.5" style="width:56px"> km)</label>
       <label title="Places marked as indoors on the Locations page, or flights with OptiTrack / motion capture"><input type="checkbox" id="indoor"> Show indoor flights</label>
@@ -229,8 +240,40 @@ function flightDay(f) {
   if (f.date_ok) return (f.takeoff_utc || f.date_override || '').slice(0, 10);
   return (f.date_override || '').slice(0, 10);
 }
+function periodStart(range) {
+  if (!range || range === 'all') return null;
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const n = parseInt(range, 10);
+  const unit = range.slice(-1);
+  if (unit === 'd') start.setUTCDate(start.getUTCDate() - n + 1);
+  else if (unit === 'm') {
+    start.setUTCMonth(start.getUTCMonth() - n);
+    start.setUTCDate(start.getUTCDate() + 1);
+  } else {
+    start.setUTCFullYear(start.getUTCFullYear() - n);
+    start.setUTCDate(start.getUTCDate() + 1);
+  }
+  return start.toISOString().slice(0, 10);
+}
+function syncRangeUi() {
+  const custom = $('specificRange').checked;
+  $('customRange').hidden = !custom;
+  $('period').disabled = custom;
+  if (custom && !$('fromDate').value && !$('toDate').value) {
+    const start = periodStart($('period').value);
+    if (start) $('fromDate').value = start;
+    $('toDate').value = new Date().toISOString().slice(0, 10);
+  }
+}
 function inDateRange(f) {
-  const from = $('fromDate').value, to = $('toDate').value;
+  let from = '', to = '';
+  if ($('specificRange').checked) {
+    from = $('fromDate').value;
+    to = $('toDate').value;
+  } else {
+    from = periodStart($('period').value) || '';
+  }
   if (!from && !to) return true;
   const day = flightDay(f);
   if (!day) return false;
@@ -295,7 +338,7 @@ function detail(f) {
   return `<div class="minimap" data-fid="${f.flight_id}"></div>
     <h4>Comment</h4>${commentBox(f)}
     <div class="actions"><a class="btn" href="/flight/${f.flight_id}">Open flight page</a>
-      ${f.sources.map(s => `<a class="btn sec" href="/api/logs/${s.log_id}/download">Download ${s.log_type === 'gcs' ? 'GCS' : 'SD'} .data + .log</a>`).join('')}</div>`;
+      ${f.sources.map(s => `<a class="btn sec" href="/api/logs/${s.log_id}/download">Download ${downloadLabel(s.log_type)}</a>`).join('')}</div>`;
 }
 
 const pathCache = new Map(), miniMaps = [];
@@ -347,8 +390,10 @@ function combine(list, radiusKm) {
   return groups.sort((a, b) => (b.flights[0].takeoff_utc || '').localeCompare(a.flights[0].takeoff_utc || ''));
 }
 
-const TYPE_LABEL = {onboard_sd: 'SD', gcs: 'GCS'};
-const srcLabel = fl => fl.some(f => f.manual_id) ? (fl[0].record_kind === 'daily' ? 'Paper daily total' : 'Paper') : ['onboard_sd', 'gcs'].filter(t => fl.some(f => f.sources.some(s => s.log_type === t))).map(t => TYPE_LABEL[t]).join(' + ');
+const TYPE_LABEL = {onboard_sd: 'SD', gcs: 'GCS', px4_ulog: 'PX4', ardupilot: 'ArduPilot', mavlink_tlog: 'tlog'};
+const downloadLabel = t => ({px4_ulog:'PX4 .ulg', ardupilot:'ArduPilot log', mavlink_tlog:'MAVLink .tlog',
+  gcs:'GCS .data + .log', onboard_sd:'SD .data + .log'}[t] || 'log');
+const srcLabel = fl => fl.some(f => f.manual_id) ? (fl[0].record_kind === 'daily' ? 'Paper daily total' : 'Paper') : ['onboard_sd', 'px4_ulog', 'ardupilot', 'mavlink_tlog', 'gcs'].filter(t => fl.some(f => (f.sources || []).some(s => s.log_type === t))).map(t => TYPE_LABEL[t]).join(' + ');
 const verdictMark = f => (f.verdict === 'ground' ? ' <span class="mute" title="Probably not a real flight">(ground)</span>'
   : f.verdict === 'uncertain' ? ' <span class="mute" title="Unsure whether this was a real flight">(?)</span>' : '')
   + (f.optitrack ? ' <span class="mute" title="OptiTrack or motion-capture pose in this log">(OptiTrack)</span>' : '')
@@ -432,7 +477,9 @@ function exportCsv() {
 }
 
 $('q').oninput = () => { page = 0; render(); };
-$('combine').onchange = $('radius').onchange = $('indoor').onchange = $('ground').onchange = $('fromDate').onchange = $('toDate').onchange = () => { page = 0; render(); };
+$('combine').onchange = $('radius').onchange = $('indoor').onchange = $('ground').onchange = $('period').onchange = $('fromDate').onchange = $('toDate').onchange = () => { page = 0; render(); };
+$('specificRange').onchange = () => { syncRangeUi(); page = 0; render(); };
+syncRangeUi();
 window.addEventListener('editchange', toggleEdit);
 $('prev').onclick = () => { page--; render(); };
 $('next').onclick = () => { page++; render(); };
