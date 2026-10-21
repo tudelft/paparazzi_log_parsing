@@ -304,10 +304,10 @@ function group(list, keyFn, nameFn) {
     for (const k of [].concat(keyFn(f))) {
       if (k == null) continue;
       let b = map.get(k.key);
-      if (!b) map.set(k.key, b = {key: k.key, html: nameFn(f, k), name: k.name, flights: 0, seconds: 0, metres: 0, last: ''});
-      b.flights += 1;
+      if (!b) map.set(k.key, b = {key: k.key, html: nameFn(f, k), name: k.name, flights: 0, seconds: 0, metres: null, last: ''});
+      b.flights += f.flight_count || 1;
       b.seconds += f.duration_s || 0;
-      b.metres += f.distance_m || 0;
+      if (f.distance_m != null) b.metres = (b.metres || 0) + f.distance_m;
       if ((f.takeoff_utc || '') > b.last) b.last = f.takeoff_utc || '';
     }
   }
@@ -346,9 +346,9 @@ function table(title, hint, rows, nameCol) {
 function rolesTable(list) {
   const rows = ROLES.map(([r, label]) => {
     const mine = list.filter(f => f[r + '_user']?.id === ITEM_ID);
-    return {html: esc(label), name: label, flights: mine.length,
+    return {html: esc(label), name: label, flights: mine.reduce((s, f) => s + (f.flight_count || 1), 0),
             seconds: mine.reduce((s, f) => s + (f.duration_s || 0), 0),
-            metres: mine.reduce((s, f) => s + (f.distance_m || 0), 0),
+            metres: mine.some(f => f.distance_m != null) ? mine.reduce((s, f) => s + (f.distance_m || 0), 0) : null,
             last: mine.reduce((s, f) => (f.takeoff_utc || '') > s ? f.takeoff_utc : s, '')};
   }).filter(r => r.flights);
   return table('Roles', 'A flight counts once per role.', rows, 'Role');
@@ -357,15 +357,16 @@ function rolesTable(list) {
 function renderTotals(list) {
   const sum = k => list.reduce((s, f) => s + (f[k] || 0), 0);
   const seconds = sum('duration_s');
-  const farthest = list.reduce((s, f) => Math.max(s, f.max_from_takeoff_m || 0), 0);
+  const count = list.reduce((s, f) => s + (f.flight_count || 1), 0);
+  const farthest = list.some(f => f.max_from_takeoff_m != null) ? list.reduce((s, f) => Math.max(s, f.max_from_takeoff_m || 0), 0) : null;
   const days = new Set(list.map(f => fmtDate(f.takeoff_utc)).filter(Boolean)).size;
   const dates = list.map(f => f.takeoff_utc).filter(Boolean).sort();
   const size = D.logs.reduce((s, l) => s + (l.size_bytes || 0), 0);
   const tiles = [
-    [list.length, 'Flights'],
+    [count, 'Flights'],
     [fmtHours(seconds), 'Flight time'],
-    [list.length ? fmtDur(seconds / list.length) : '—', 'Average flight'],
-    [fmtDist(sum('distance_m')) || '0 m', 'Distance flown'],
+    [count ? fmtDur(seconds / count) : '—', 'Average flight'],
+    [list.some(f => f.distance_m != null) ? fmtDist(sum('distance_m')) : '—', 'Recorded distance flown'],
     [fmtDist(farthest) || '—', 'Farthest from takeoff'],
     [days, 'Flying days'],
     [fmtDate(dates[0]) || '—', 'First flight'],
@@ -374,7 +375,7 @@ function renderTotals(list) {
   if (KIND !== 'aircraft') tiles.push([new Set(list.map(f => f.drone_id ?? f.aircraft)).size, 'Aircraft']);
   if (KIND !== 'projects') tiles.push([new Set(list.map(f => f.project_id)).size, 'Projects']);
   if (KIND !== 'locations') tiles.push([new Set(list.map(f => f.takeoff_place_id ?? null).filter(x => x != null)).size, 'Named locations']);
-  if (KIND === 'people') tiles.push([list.filter(f => f.pic_user?.id === ITEM_ID).length, 'Flights as PIC']);
+  if (KIND === 'people') tiles.push([list.filter(f => f.pic_user?.id === ITEM_ID).reduce((s, f) => s + (f.flight_count || 1), 0), 'Flights as PIC']);
   tiles.push([D.logs.length, 'Log files'], [fmtSize(size) || '0 kB', 'Log data']);
   $('totals').innerHTML = tiles.map(([v, l]) => `<div><strong>${esc(v)}</strong><span>${esc(l)}</span></div>`).join('');
 }
@@ -432,9 +433,9 @@ function renderChart(list) {
     const i = index.get(isoDay(bucketStart(dayOf(day), step)));
     if (i == null) continue;
     buckets[i].seconds += f.duration_s || 0;
-    buckets[i].flights += 1;
+    buckets[i].flights += f.flight_count || 1;
     seconds += f.duration_s || 0;
-    flights += 1;
+    flights += f.flight_count || 1;
   }
   const max = Math.max(0, ...buckets.map(b => b.seconds));
   const dense = buckets.length > 60;
@@ -470,22 +471,22 @@ function renderBreakdowns(list) {
 function renderFlights(list) {
   const roleCol = KIND === 'people';
   $('flightHead').innerHTML = `<tr><th>Takeoff (UTC)</th>${KIND !== 'aircraft' ? '<th>Aircraft</th>' : ''}${KIND !== 'projects' ? '<th>Project</th>' : ''}
-    <th>From</th><th>To</th><th class="num">Duration</th><th class="num">Flown</th><th class="num">Max range</th>
+    <th>From</th><th>To</th><th class="num">Flights</th><th class="num">Duration</th><th class="num">Flown</th><th class="num">Max range</th>
     ${roleCol ? '<th>Role</th>' : ''}<th>PIC</th><th>PAC</th><th>Goal</th><th></th></tr>`;
   const [from, to] = pager('flightPager', 'flights', list.length, () => renderFlights(shown()));
   const rows = list.slice(from, to).map(f => {
     const roles = roleCol ? ROLES.filter(([r]) => f[r + '_user']?.id === ITEM_ID).map(([, l]) => l).join(', ') : '';
     const tag = f.verdict && f.verdict !== 'flight' ? ` <span class="tag ${esc(f.verdict)}">${esc(f.verdict)}</span>` : '';
-    return `<tr><td class="nowrap"><a href="/flight/${f.flight_id}">${esc(fmtTime(f.takeoff_utc)) || 'Unknown date'}</a>${f.date_ok ? '' : ' <span class="mute" title="The log clock was not set">?</span>'}${tag}</td>
+    return `<tr><td class="nowrap"><a href="${f.manual_id ? '/historical/' + f.manual_id : '/flight/' + f.flight_id}">${esc(fmtTime(f.takeoff_utc)) || 'Unknown date'}</a>${f.manual_id ? ' <span class="mute">(paper)</span>' : ''}${f.date_ok ? '' : ' <span class="mute" title="The log clock was not set">?</span>'}${tag}</td>
       ${KIND !== 'aircraft' ? `<td>${aircraftLink(f)}</td>` : ''}${KIND !== 'projects' ? `<td>${projectLink(f)}</td>` : ''}
       <td>${placeLink(f.takeoff_place, f.takeoff_place_id, f.takeoff_lat, f.takeoff_lon)}</td>
       <td>${placeLink(f.landing_place, f.landing_place_id)}</td>
-      <td class="num">${fmtDur(f.duration_s)}</td><td class="num">${fmtDist(f.distance_m)}</td><td class="num">${fmtDist(f.max_from_takeoff_m)}</td>
+      <td class="num">${f.flight_count || 1}</td><td class="num">${fmtDur(f.duration_s)}</td><td class="num">${fmtDist(f.distance_m)}</td><td class="num">${fmtDist(f.max_from_takeoff_m)}</td>
       ${roleCol ? `<td>${esc(roles)}</td>` : ''}<td>${personLink(f, 'pic')}</td><td>${personLink(f, 'pac')}</td>
       <td>${esc(f.goal)}</td><td>${f.comment ? `<span class="mute" title="${esc(f.comment)}">💬</span>` : ''}</td></tr>`;
   });
   $('flights').innerHTML = rows.join('') || '<tr><td colspan="13" class="mute">No flights.</td></tr>';
-  $('flightCount').textContent = list.length > to - from ? `${from + 1}–${to} of ${list.length}` : `${list.length}`;
+  $('flightCount').textContent = (list.length > to - from ? `${from + 1}–${to} of ${list.length}` : `${list.length}`) + ' records';
 }
 
 function renderLogs() {

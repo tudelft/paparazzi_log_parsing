@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Historical flight record</title>
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui,sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; gap:18px; flex-wrap:wrap; align-items:baseline; }
+  header h1 { font-size:18px; margin:0; } header .meta { color:#9fb0c3; }
+  main { max-width:1000px; margin:auto; padding:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:16px; }
+  .fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; }
+  label { display:flex; flex-direction:column; gap:4px; } .wide { grid-column:1/-1; }
+  input,select,textarea,button { font:inherit; padding:7px; border:1px solid var(--line); border-radius:5px; background:var(--field); color:var(--txt); min-width:0; }
+  button { cursor:pointer; background:var(--sec); } button:disabled { opacity:.6; cursor:default; }
+  .actions { display:flex; gap:12px; margin-top:16px; align-items:center; flex-wrap:wrap; }
+  a { color:var(--acc); } .mute { color:var(--mute); } summary { cursor:pointer; font-weight:600; }
+  [hidden] { display:none !important; } fieldset { padding:0; border:0; margin:0; }
+  #status { white-space:pre-wrap; } .danger { color:var(--err); }
+</style>
+</head>
+<body>
+<header><h1 id="title">Historical flight record</h1><span class="meta" id="nav"></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span>
+    <button id="nightBtn" type="button" onclick="toggleNight()">Night / day</button>
+    <button type="button" onclick="logout()">Sign out</button></span></header>
+<main>
+  <p><a href="/logbook">Back to logbook</a></p>
+  <p class="mute">Transcribe an individual flight or a daily total. These are paper records, not telemetry:
+    unknown times, positions, distance and software remain unavailable. Daily totals count all flights but
+    do not invent individual takeoffs. Check for overlapping digital logs before importing; exact paper
+    duplicates are rejected, but overlaps with telemetry are not automatically merged.</p>
+  <section class="card">
+    <form id="recordForm">
+      <fieldset id="fields" disabled class="fields">
+        <label>Aircraft *<select id="drone_id" required></select></label>
+        <label>PIC *<select id="pic_user_id" required></select></label>
+        <label>Project *<select id="project_id" required></select></label>
+        <label>Date *<input id="date" type="date" required></label>
+        <label>Record type<select id="kind"><option value="flight">Individual flight</option><option value="daily">Daily summary</option></select></label>
+        <label>Flight count *<input id="flight_count" type="number" min="1" max="1000" value="1" required step="1"></label>
+        <label>Total flight time (minutes) *<input id="duration_minutes" type="number" min="0.001" max="1440" step="any" required></label>
+        <label>Takeoff time (UTC, optional)<input id="takeoff_time" type="time" step="1"></label>
+        <label>Location<select id="place_id"></select></label>
+        <label>PAC<select id="pac_user_id"></select></label>
+        <label>GCS operator<select id="gcs_user_id"></select></label>
+        <label>Paper reference<input id="reference" maxlength="500" placeholder="Book / page / entry"></label>
+        <label class="wide">Flight goal<input id="goal" maxlength="1000"></label>
+        <label class="wide">Notes<textarea id="comment" maxlength="4000" rows="3"></textarea></label>
+      </fieldset>
+      <div class="actions"><button type="submit" id="save" hidden>Save record</button>
+        <button type="button" id="delete" hidden class="danger">Delete paper record</button></div>
+    </form>
+    <p class="mute" id="provenance"></p>
+  </section>
+  <details class="card" id="importSection" hidden>
+    <summary>Import paper records from CSV</summary>
+    <p>Use UTF-8, comma-separated CSV. Required columns: aircraft, pic, project, date (YYYY-MM-DD),
+      duration_minutes (total), flight_count. Use existing aircraft/project/location names and crew
+      <strong>usernames</strong>. Optional kind: flight or daily; takeoff_time: HH:MM[:SS] UTC.
+      Blank time means unknown. No users or aircraft are created automatically.</p>
+    <p><a href="/api/historical/template" download>Download CSV template</a></p>
+    <p>At most 1000 rows / 1 MB. Every row is validated before saving: if any row is invalid or duplicated,
+      nothing is imported. Dates and flight totals are kept exactly as supplied.</p>
+    <form id="importForm"><input id="csvFile" type="file" accept=".csv,text/csv" required>
+      <button id="importButton" type="submit">Import CSV</button></form>
+  </details>
+  <p id="status" role="status" aria-live="polite"></p>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pathId = location.pathname.split('/').pop();
+const recordId = /^\d+$/.test(pathId) ? +pathId : null;
+const keys = ['drone_id','pic_user_id','project_id','date','kind','flight_count','duration_minutes',
+  'takeoff_time','place_id','pac_user_id','gcs_user_id','reference','goal','comment'];
+async function api(url, options) {
+  const r = await fetch(url, options);
+  if (!(r.headers.get('Content-Type') || '').includes('application/json')) throw Error(`Server returned HTTP ${r.status}.`);
+  const d = await r.json();
+  if (!r.ok) throw Error(d.error || `HTTP ${r.status}`);
+  return d;
+}
+function options(id, rows, name) {
+  $(id).innerHTML = '<option value="">Choose / not recorded</option>' + rows.map(r=>`<option value="${r.id}">${esc(name(r))}</option>`).join('');
+}
+function syncKind() {
+  const daily = $('kind').value === 'daily';
+  $('takeoff_time').disabled = daily;
+  $('flight_count').readOnly = !daily;
+  if (daily) $('takeoff_time').value = '';
+  else $('flight_count').value = '1';
+}
+$('kind').onchange = syncKind;
+async function start() {
+  const [me, catalogs, detail] = await Promise.all([api('/api/me'), api('/api/historical/options'),
+    recordId ? api(`/api/historical/${recordId}`) : Promise.resolve(null)]);
+  $('who').textContent = me.user.display_name;
+  options('drone_id',catalogs.aircraft,r=>r.name + (r.unique_id ? ` (${r.unique_id})` : ''));
+  options('project_id',catalogs.projects,r=>r.name);
+  for (const key of ['pic_user_id','pac_user_id','gcs_user_id'])
+    options(key,catalogs.people,r=>`${r.name} (${r.username})`);
+  options('place_id',catalogs.places,r=>r.name);
+  const editable = detail ? detail.can_edit : catalogs.projects.length > 0;
+  if (detail) {
+    const r = detail.record;
+    // A view-only user still sees the assigned project, which need not be in the editable catalog.
+    if (![...$('project_id').options].some(o=>o.value === String(r.project_id)))
+      $('project_id').add(new Option(r.project_name, r.project_id));
+    r.duration_minutes = r.duration_s / 60;
+    for (const key of keys) $(key).value = r[key] ?? '';
+    $('provenance').textContent = `Paper record ${r.id} · Created ${r.created_at} · Last updated ${r.updated_at}`;
+    $('title').textContent = 'Historical flight record ' + r.id;
+  }
+  $('fields').disabled = !editable;
+  syncKind();
+  $('save').hidden = !editable;
+  $('delete').hidden = !detail || !editable;
+  $('importSection').hidden = !!detail || !me.user.is_admin;
+  if (!editable) $('status').textContent = detail ? 'Read-only: full project access is required to edit.' : 'Full access to a project is required to add records.';
+}
+$('recordForm').onsubmit = async event => {
+  event.preventDefault();
+  $('save').disabled = true;
+  $('status').textContent = 'Saving…';
+  try {
+    const body = Object.fromEntries(keys.map(key=>[key,$(key).value]));
+    const result = await api('/api/historical' + (recordId ? '/' + recordId : ''), {
+      method:recordId ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    if (!recordId) location.href = '/historical/' + result.id;
+    else $('status').textContent = 'Saved.';
+  } catch (error) { $('status').textContent = error.message; }
+  finally { $('save').disabled = false; }
+};
+$('delete').onclick = async () => {
+  if (!confirm('Delete this paper record? This removes its contribution to flight totals, not the aircraft or people.')) return;
+  try { await api('/api/historical/' + recordId,{method:'DELETE'}); location.href='/logbook'; }
+  catch (error) { $('status').textContent=error.message; }
+};
+$('importForm').onsubmit = async event => {
+  event.preventDefault();
+  const file = $('csvFile').files[0];
+  if (!file) return;
+  if (file.size > 1000000) { $('status').textContent='CSV must be at most 1 MB.'; return; }
+  const body = new FormData(); body.append('file',file);
+  $('importButton').disabled=true; $('status').textContent='Validating and importing…';
+  try {
+    const result=await api('/api/historical/import',{method:'POST',body});
+    $('status').textContent=`Imported ${result.imported} records covering ${result.flights} flights. Open the logbook to review them.`;
+    $('importForm').reset();
+  } catch (error) { $('status').textContent=error.message; }
+  finally { $('importButton').disabled=false; }
+};
+start().catch(error=> { $('status').textContent=error.message; });
+</script>
+</body>
+</html>
