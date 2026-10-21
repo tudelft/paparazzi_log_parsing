@@ -55,11 +55,6 @@
     <div class="mute" style="margin-bottom:8px">PIC/PAC/GCS names that could not be turned into a profile automatically. Link them by hand if they belong to someone already listed.</div>
     <div class="scroll"><table><thead><tr><th>Name in log</th><th>Seen</th><th>Link to user</th></tr></thead><tbody id="unlinked"></tbody></table></div>
   </section>
-  <section class="card" id="unlinkedPersonnelCard" hidden>
-    <h2>Pilots in the licence list that are not linked to a user</h2>
-    <div class="mute" style="margin-bottom:8px">Names from the Teams personnel sheet and the RetiredSource certificate folders. Link them so that person's page shows their licences. The extra names are kept as aliases.</div>
-    <div class="scroll"><table><thead><tr><th>Name</th><th>Also known as</th><th>Link to user</th></tr></thead><tbody id="unlinkedPersonnel"></tbody></table></div>
-  </section>
   <section class="card">
     <h2>People</h2>
     <div class="mute" id="peopleHint">Accounts that can sign in. Names from the logs are matched to these accounts.</div>
@@ -77,12 +72,6 @@
       <input id="setupUrl" readonly>
       <div style="margin-top:8px"><button type="button" class="sec" onclick="copySetup()">Copy link</button> <span id="copied" class="mute"></span></div>
     </div>
-    <div class="row editOnly" id="personnelRow" hidden style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:0 0 14px">
-      <label class="field">Personnel CSV<input id="personnelCsv" type="file" accept=".csv,text/csv"></label>
-      <button type="button" class="sec" onclick="importPersonnel()">Import licences</button>
-      <button type="button" class="sec" id="syncGithub" onclick="syncGithub()">Refresh certificates from GitHub</button>
-      <span id="personnelMsg" class="mute"></span>
-    </div>
     <div class="scroll"><table><thead id="usersHead"></thead><tbody id="users"></tbody></table></div>
   </section>
 </main>
@@ -95,7 +84,7 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
-let people = {users: [], unlinked: [], unlinked_personnel: []};
+let people = {users: [], unlinked: []};
 let me = null;
 
 async function load() {
@@ -105,7 +94,7 @@ async function load() {
     people = await r.json();
   } else {
     const d = await fetch('/api/people-directory').then(r => r.json());
-    people = {users: d.users || [], unlinked: [], unlinked_personnel: [], projects: []};
+    people = {users: d.users || [], unlinked: [], projects: []};
   }
   render();
 }
@@ -128,37 +117,29 @@ function qualBits(q) {
     const when = until ? ` · ${esc(until.slice(0, 10))}` : '';
     return `<span class="chip${dead ? ' warn' : ''}">${esc(label)}${when}${dead ? ' expired' : ''}</span>`;
   };
-  return [
-    q.a1a3 ? bit('A1/A3', q.a1a3_until, q.a1a3_expired) : '',
-    q.a2 ? bit('A2', q.a2_until, q.a2_expired) : '',
-    q.fi ? '<span class="chip">FI</span>' : '',
-    q.ctr ? '<span class="chip">CTR</span>' : '',
-  ].join('');
+  return q.items.filter(item => ['approved', 'pending'].includes(item.status))
+    .map(item => bit(item.category + ' (' + item.status + ')', item.valid_until, item.expired)).join('');
 }
 
 function render() {
   const admin = !!(me && me.is_admin);
   const editing = admin && window.editMode();
   const open = admin ? people.unlinked.length : 0;
-  const openP = admin ? (people.unlinked_personnel || []).length : 0;
   document.querySelectorAll('.editOnly').forEach(el => { el.hidden = !editing; });
   if (!editing) $('setupBox').hidden = true;
   $('unlinkedCard').hidden = !(editing && open);
-  $('unlinkedPersonnelCard').hidden = !(editing && openP);
-  $('pending').hidden = !((open || openP) && !editing);
+  $('pending').hidden = !(open && !editing);
   const bits = [];
   if (open) bits.push(`${open} name${open === 1 ? ' in the logs is' : 's in the logs are'} not linked`);
-  if (openP) bits.push(`${openP} pilot${openP === 1 ? '' : 's'} in the licence list ${openP === 1 ? 'is' : 'are'} not linked`);
   $('pending').textContent = bits.length
     ? bits.join(', and ') + '. Turn on Edit in the menu to link them.'
     : '';
-  if ($('syncGithub')) $('syncGithub').disabled = admin && people.github_configured === false;
   $('peopleHint').textContent = editing
-    ? 'Importing the licence list creates an account for each pilot. Names that appear in logs also get a profile, marked Not active yet until they sign in with TU Delft (or a password link). The default project is used for flights when the aircraft has none (uploader first, then GCS operator, then PIC). Removing a user keeps the logs they uploaded.'
-    : 'Accounts that can sign in, including pilots from the licence list. Names from logs get a profile marked Not active yet until that person signs in.';
+    ? 'Manage private qualifications and evidence on each person’s page. Admins can upload for anyone and approve claims. Users can submit their own claims. Names from logs get a pending profile. Removing a user keeps their uploaded logs.'
+    : 'Accounts that can sign in. Names from logs get a profile marked Not active yet until that person signs in.';
   if (admin && !editing) {
     const projName = id => ((people.projects || []).find(p => p.id === id) || {}).name || '';
-    $('usersHead').innerHTML = '<tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Licences</th><th>Aliases</th><th>Password</th></tr>';
+    $('usersHead').innerHTML = '<tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Qualifications</th><th>Aliases</th><th>Password</th></tr>';
     $('users').innerHTML = people.users.map(u => `<tr><td>${nameCell(u)}</td>
       <td>${esc(u.email || '')}</td><td>${signInLabel(u)}</td>
       <td>${esc(projName(u.default_project_id))}</td>
@@ -169,7 +150,7 @@ function render() {
     return;
   }
   if (!admin) {
-    $('usersHead').innerHTML = '<tr><th>Name</th><th>Username</th><th>Licences</th></tr>';
+    $('usersHead').innerHTML = '<tr><th>Name</th><th>Username</th><th>Qualifications</th></tr>';
     $('users').innerHTML = people.users.map(u => `<tr><td>${nameCell(u, '', false)}</td>
       <td class="mute">${esc(u.username)}</td>
       <td>${qualBits(u.qualifications) || '<span class="mute">—</span>'}</td></tr>`).join('')
@@ -183,13 +164,7 @@ function render() {
   $('unlinked').innerHTML = people.unlinked.map((e, i) => `<tr><td>${esc(e.name)}</td><td>${e.count}×</td>
     <td><select id="sel${i}">${opts}</select> <button onclick="addAlias(${i}, null)">Link</button></td></tr>`).join('')
     || '<tr><td colspan="3" class="mute">Everything is linked.</td></tr>';
-  $('unlinkedPersonnel').innerHTML = (people.unlinked_personnel || []).map((e, i) => {
-    const also = [e.tud_user, ...(e.also || [])].filter(n => n && n.toLowerCase() !== e.name.toLowerCase());
-    return `<tr><td>${esc(e.name)}${e.kind ? ` <span class="mute">${esc(e.kind)}</span>` : ''}</td>
-      <td>${also.map(n => esc(n)).join(', ')}</td>
-      <td><select id="psel${i}">${opts}</select> <button onclick="linkPersonnel(${i})">Link</button></td></tr>`;
-  }).join('') || '<tr><td colspan="3" class="mute">Everything is linked.</td></tr>';
-  $('usersHead').innerHTML = '<tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Licences</th><th>Aliases</th><th>Add alias</th><th>Password</th><th></th></tr>';
+  $('usersHead').innerHTML = '<tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Qualifications</th><th>Aliases</th><th>Add alias</th><th>Password</th><th></th></tr>';
   $('users').innerHTML = people.users.map(u => `<tr><td>${nameCell(u)}</td>
     <td><div class="pair"><input id="mail${u.id}" type="email" value="${esc(u.email || '')}" placeholder="email" maxlength="120"><button class="sec" onclick="saveEmail(${u.id})">Save</button></div></td>
     <td>${signInLabel(u)}</td>
@@ -281,50 +256,6 @@ function addAlias(i, uid) {
   if (v) send('POST', '/api/admin/aliases', {user_id: uid, alias: v});
 }
 const removeAlias = alias => send('DELETE', '/api/admin/aliases', {alias});
-
-async function linkPersonnel(i) {
-  const e = people.unlinked_personnel[i];
-  const uid = +$('psel' + i).value;
-  const names = [...new Set([e.name, e.tud_user, ...(e.also || [])].filter(Boolean))];
-  $('err').textContent = '';
-  for (const alias of names) {
-    const r = await fetch('/api/admin/aliases', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({user_id: uid, alias})});
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}));
-      if (r.status !== 409) { $('err').textContent = d.error || 'failed'; return; }
-    }
-  }
-  load();
-}
-
-async function importPersonnel() {
-  const f = $('personnelCsv').files[0];
-  if (!f) { $('personnelMsg').textContent = 'Choose the Teams personnel CSV first.'; return; }
-  const fd = new FormData();
-  fd.append('file', f);
-  $('personnelMsg').textContent = 'Importing…';
-  const r = await fetch('/api/admin/personnel/import', {method: 'POST', body: fd});
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) { $('err').textContent = d.error || 'Import failed'; $('personnelMsg').textContent = ''; return; }
-  $('err').textContent = '';
-  $('personnelMsg').textContent = `Added ${d.created}, updated ${d.updated}`
-    + (d.users_created ? `, created ${d.users_created} account${d.users_created === 1 ? '' : 's'}` : '')
-    + (d.skipped ? `, skipped ${d.skipped}` : '');
-  $('personnelCsv').value = '';
-  load();
-}
-
-async function syncGithub() {
-  $('personnelMsg').textContent = 'Reading RetiredSource…';
-  const r = await fetch('/api/admin/personnel/sync-github', {method: 'POST'});
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) { $('err').textContent = d.error || 'GitHub refresh failed'; $('personnelMsg').textContent = ''; return; }
-  $('err').textContent = '';
-  $('personnelMsg').textContent = `Indexed ${d.docs} certificates for ${d.people} pilots`
-    + (d.users_created ? `, created ${d.users_created} account${d.users_created === 1 ? '' : 's'}` : '') + '.';
-  load();
-}
 
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;

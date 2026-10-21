@@ -69,6 +69,7 @@
   <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
 </header>
 <main>
+  <div id="err" role="alert"></div>
   <section class="card" id="missing"><h2>Not found</h2><p class="mute">This page does not exist, or you do not have access to it.</p></section>
   <div id="page" hidden>
     <section class="card">
@@ -152,6 +153,7 @@ window.fetch = async (...args) => {
 };
 
 const [, KIND, ID] = location.pathname.split('/');
+if (KIND === 'people') document.body.dataset.edit = 'all';
 const ITEM_ID = +ID;
 const KINDS = {
   people: {label: 'Person', list: '/people', listLabel: 'People'},
@@ -228,11 +230,8 @@ function renderHead() {
     else chips.push(it.provider === 'saml' ? 'TU Delft sign-in' : 'Local account');
     const q = it.qualifications;
     if (q) {
-      if (q.kind) chips.push(q.kind);
-      if (q.fi) chips.push('FI');
-      if (q.ctr) chips.push('CTR');
-      if (q.a1a3) chips.push(q.a1a3_expired ? 'A1/A3 expired' : 'A1/A3');
-      if (q.a2) chips.push(q.a2_expired ? 'A2 expired' : 'A2');
+      q.items.filter(item => item.status === 'approved').forEach(item =>
+        chips.push(item.category + (item.expired ? ' expired' : '')));
     }
   } else if (KIND === 'aircraft') {
     if (it.unique_id) chips.push(it.unique_id);
@@ -264,21 +263,55 @@ function renderInfo() {
       + kv('Default project', it.default_project ? link('projects', it.default_project.id, it.default_project.name) : '')
       + kv('Projects', it.projects.map(p => `${link('projects', p.id, p.name)} <span class="mute">(${esc(ACCESS[p.role] || p.role)})</span>`).join('<br>'));
     if (q) {
-      html += kv('On the licence list as', esc(q.name) + (q.tud_user && q.tud_user !== q.name ? ` <span class="mute">${esc(q.tud_user)}</span>` : ''))
-        + kv('A1/A3', q.a1a3 ? `${esc(q.a1a3)} · ${day(q.a1a3_until, q.a1a3_expired) || 'no date'}` : '')
-        + kv('A2', q.a2 ? `${esc(q.a2)} · ${day(q.a2_until, q.a2_expired) || 'no date'}` : '')
-        + kv('Flight instructor', q.fi ? 'Yes' : '')
-        + kv('CTR', q.ctr ? 'Yes' : '')
-        + kv('Cyberzoo quiz', fmtDate(q.cyberzoo))
-        + kv('ERP', fmtDate(q.erp));
-      if (q.docs && q.docs.length) {
-        html += kv('Certificates', q.docs.map(d =>
-          `<a href="/api/personnel-docs/${d.id}" target="_blank" rel="noopener">${esc(d.title)}</a>`
-          + (d.license ? ` <span class="mute">${esc(d.license)}</span>` : '')
-          + (d.validity ? ` <span class="mute">${esc(d.validity)}${d.expired ? ' expired' : ''}</span>` : '')
-        ).join('<br>'));
+      const editing = window.editMode();
+      const claim = item => `<div style="margin-bottom:12px"><strong>${esc(item.category)}</strong> · ${esc(item.status)}
+        · ${day(item.valid_until, item.expired) || 'expiry not recorded'}
+        <div class="mute">Submitted ${esc(fmtTime(item.submitted_at))}${item.reviewed_at
+          ? ` · ${item.status === 'withdrawn' ? 'Withdrawn' : 'Reviewed'} by ${esc(item.reviewer || 'former user')} ${esc(fmtTime(item.reviewed_at))}` : ''}</div>
+        ${item.has_evidence ? `<a href="/api/qualification-submissions/${item.id}/evidence">Download private evidence</a>`
+          : `<span class="mute">${item.evidence_deleted_at ? 'Evidence deleted by admin' : 'No evidence attached'}</span>`}
+        ${editing && item.status === 'pending' ? `${q.can_manage
+          ? `<button type="button" onclick="qualificationReview(${item.id},'approve')">Approve</button>
+             <button type="button" onclick="qualificationReview(${item.id},'reject')">Reject</button>` : ''}
+          <button type="button" onclick="qualificationReview(${item.id},'withdraw')">Withdraw</button>` : ''}
+        ${editing && q.can_manage ? `${item.has_evidence
+          ? `<button type="button" onclick="qualificationDelete(${item.id},true)">Delete evidence</button>` : ''}
+          <button type="button" onclick="qualificationDelete(${item.id},false)">Delete record</button>` : ''}</div>`;
+      html += kv('Private qualifications', '<p class="mute">Only this person and administrators can see these records and files.</p>'
+        + (q.items.filter(item => ['approved','pending'].includes(item.status)).map(claim).join('') || 'None recorded'));
+      const past = q.items.filter(item => !['approved','pending'].includes(item.status));
+      if (past.length) html += kv('Previous submissions', `<details><summary>${past.length} previous submissions</summary>${past.map(claim).join('')}</details>`);
+      if (editing) {
+        const types = q.types.filter(t => t.active);
+        html += kv('Submit qualification', types.length ? `<form onsubmit="submitQualification(event)">
+          <label>Type <select id="qualType" name="type_id" onchange="selectQualification()" required>${types.map(t =>
+            `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></label>
+          <label>Expiry (optional) <input type="date" name="valid_until" aria-label="Qualification expiry"></label>
+          <label>Evidence <input id="qualEvidence" name="evidence" type="file" accept=".pdf,.jpg,.jpeg,.png"
+            ${types[0].requires_evidence ? 'required' : ''}></label>
+          <p class="mute" id="qualProofHint">${types[0].requires_evidence ? 'Evidence is required.' : 'Evidence is optional.'}
+          One PDF, JPEG or PNG, up to 20 MiB.</p>
+          <button type="submit">Submit for approval</button>
+          <p class="mute">All claims need admin approval. An approved qualification remains active while a renewal is pending.
+          Blank expiry means unknown or not applicable. Use this private upload, not flight attachments, for licence evidence.</p>
+          </form>` : '<span class="mute">An admin must first add a qualification type.</span>');
+        if (q.can_manage) {
+          html += kv('Qualification types', `<details><summary>Configure types and evidence requirements</summary>
+            ${q.types.map(t => `<form onsubmit="saveQualificationType(event,${t.id})" style="margin:10px 0">
+              <input aria-label="Type name" name="name" value="${esc(t.name)}" required maxlength="80">
+              <label><input type="checkbox" name="requires_evidence" ${t.requires_evidence ? 'checked' : ''}> Evidence required</label>
+              <label><input type="checkbox" name="active" ${t.active ? 'checked' : ''}> Active</label>
+              <button type="submit">Save type</button></form>`).join('')}
+            <form onsubmit="saveQualificationType(event)">
+              <input name="name" aria-label="New qualification type" placeholder="e.g. A1/A3, A2, RT licence" required maxlength="80">
+              <label><input type="checkbox" name="requires_evidence" checked> Evidence required</label>
+              <button type="submit">Add type</button></form>
+            <p class="mute">Disable a type to stop new submissions. Existing approvals are retained. Admins may approve their own submissions.</p></details>`);
+        }
       }
+      html += kv('Qualification history', '<button type="button" onclick="qualificationHistory()">Show latest 100 events</button><pre id="qualHistory" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>');
     }
+
     html += kv('Account created', esc(fmtDate(it.created_at))) + kv('Last sign-in', esc(fmtTime(it.last_login)));
   } else if (KIND === 'aircraft') {
     html = kv('Fleet ID', esc(it.unique_id)) + kv('Status', esc(it.status))
@@ -300,6 +333,71 @@ function renderInfo() {
       + kv('Shape', sh.type === 'circle' ? `Circle, ${fmtDist(sh.radius_m)} radius` : `Area with ${sh.points.length} corners`);
   }
   $('info').innerHTML = html || '<span class="mute">No details.</span>';
+}
+
+function selectQualification() {
+  const type = D.item.qualifications.types.find(t => t.id === +$('qualType').value);
+  $('qualEvidence').required = !!type.requires_evidence;
+  $('qualProofHint').textContent = (type.requires_evidence ? 'Evidence is required. ' : 'Evidence is optional. ')
+    + 'One PDF, JPEG or PNG, up to 20 MiB.';
+}
+
+async function qualificationRequest(url, options) {
+  $('err').textContent = '';
+  let r;
+  try { r = await fetch(url, options); }
+  catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    $('err').textContent = 'Network error. Check the submission list before retrying.';
+    return false;
+  }
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({error:'Qualification request failed (' + r.status + ')'}));
+    $('err').textContent = d.error || 'Qualification request failed';
+    return false;
+  }
+  location.reload();
+  return true;
+}
+
+async function submitQualification(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const file = form.elements.evidence.files[0];
+  if (file && file.size > D.item.qualifications.max_evidence_bytes) {
+    $('err').textContent = 'Evidence must be at most 20 MiB.'; return;
+  }
+  await qualificationRequest(`/api/users/${ITEM_ID}/qualifications`, {method:'POST',body:new FormData(form)});
+}
+
+async function saveQualificationType(event, id) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const body = {name:form.elements.name.value, requires_evidence:form.elements.requires_evidence.checked,
+    active:id ? form.elements.active.checked : true};
+  await qualificationRequest('/api/qualification-types' + (id ? '/' + id : ''),
+    {method:id ? 'PUT' : 'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+}
+
+async function qualificationReview(id, action) {
+  if (!confirm(action === 'approve' ? 'Approve this exact submission after checking the evidence (if required)?'
+    : action === 'reject' ? 'Reject this submission? Its private evidence will be retained.'
+    : 'Withdraw this pending submission?')) return;
+  await qualificationRequest(`/api/qualification-submissions/${id}/review`,
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
+}
+
+async function qualificationDelete(id, evidenceOnly) {
+  if (!confirm(evidenceOnly ? 'Permanently delete this private evidence file? The qualification record will remain.'
+    : 'Permanently delete this qualification record and its evidence? A minimal audit event will remain.')) return;
+  await qualificationRequest(`/api/qualification-submissions/${id}` + (evidenceOnly ? '/evidence' : ''), {method:'DELETE'});
+}
+
+async function qualificationHistory() {
+  const r = await fetch(`/api/users/${ITEM_ID}/qualification-audit`);
+  if (!r.ok) { $('err').textContent = 'Cannot load qualification history'; return; }
+  $('qualHistory').textContent = (await r.json()).events.map(e =>
+    `${fmtTime(e.created_at)} · ${e.actor || 'former user'} · ${e.action}\n${e.details_json}`).join('\n\n') || 'No events.';
 }
 
 function group(list, keyFn, nameFn) {
@@ -552,6 +650,7 @@ $('indoor').onchange = $('ground').onchange = () => { pages.flights.page = 0; re
 const STEP_FOR = {'30d': 'day', '3m': 'week', '1y': 'month', '2y': 'month', '5y': 'month', all: 'month'};
 $('range').onchange = () => { $('step').value = STEP_FOR[$('range').value]; renderChart(shown()); };
 $('step').onchange = () => renderChart(shown());
+window.addEventListener('editchange', () => { if (D) renderInfo(); });
 </script>
 </body>
 </html>

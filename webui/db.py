@@ -228,33 +228,40 @@ CREATE INDEX IF NOT EXISTS ix_aircraft_log ON aircraft(log_id);
 CREATE INDEX IF NOT EXISTS ix_flights_ac ON flights(aircraft_id);
 CREATE INDEX IF NOT EXISTS ix_changes_ac ON setting_changes(aircraft_id);
 CREATE INDEX IF NOT EXISTS ix_changes_var ON setting_changes(var);
-CREATE TABLE IF NOT EXISTS personnel (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE COLLATE NOCASE,  -- Teams / GitHub folder name
-    tud_user TEXT,                             -- TU Delft display name from Teams
-    kind TEXT,                                 -- Staff, PhD Student, ...
-    fi INTEGER NOT NULL DEFAULT 0,
-    ctr INTEGER NOT NULL DEFAULT 0,
-    a1a3 TEXT,
-    a1a3_until TEXT,                           -- YYYY-MM-DD
-    a2 TEXT,
-    a2_until TEXT,
-    cyberzoo TEXT,
-    erp TEXT,
-    github_folder TEXT,
-    updated_at TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS qualification_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    requires_evidence INTEGER NOT NULL CHECK(requires_evidence IN (0,1)),
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
 );
-CREATE TABLE IF NOT EXISTS personnel_docs (
-    id INTEGER PRIMARY KEY,
-    personnel_id INTEGER NOT NULL REFERENCES personnel(id) ON DELETE CASCADE,
-    title TEXT,
+CREATE TABLE IF NOT EXISTS qualification_submissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type_id INTEGER NOT NULL REFERENCES qualification_types(id),
+    valid_until TEXT,
+    status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','superseded','withdrawn')),
+    submitted_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    submitted_at TEXT NOT NULL,
+    reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at TEXT,
+    evidence_path TEXT,
     filename TEXT,
-    license TEXT,
-    validity TEXT,
-    github_path TEXT UNIQUE,
-    cached_path TEXT,
-    size_bytes INTEGER
+    mime TEXT,
+    compressed INTEGER NOT NULL DEFAULT 0,
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    evidence_deleted_at TEXT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ix_qualification_pending ON qualification_submissions(user_id,type_id) WHERE status='pending';
+CREATE UNIQUE INDEX IF NOT EXISTS ix_qualification_approved ON qualification_submissions(user_id,type_id) WHERE status='approved';
+CREATE TABLE IF NOT EXISTS qualification_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    action TEXT NOT NULL,
+    details_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_qualification_audit_subject ON qualification_audit(subject_id,id);
 """
 
 _local = threading.local()

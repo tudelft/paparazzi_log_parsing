@@ -188,11 +188,44 @@ generated in `<WEB_DATA>/saml/` and are part of the backup (losing them means re
 creates a non-admin account, linked to an existing local account with the same email. Give people access to projects
 on the Projects page.
 
-Pilot licences come from the MAVLab Teams personnel list (CSV import on People, in Edit mode) and the
-certificate PDFs in the RetiredSource GitHub repo. Importing the list creates an account for each pilot;
-they attach to that account when they later sign in with TU Delft. Admins see everyone's qualifications;
-other users only see people who share a project with them. Set `LOGDB_RETIRED_CERTIFICATE_TOKEN` so the app can
-open the PDFs (a fine-grained token with read access to `removed-private-repository` is enough).
+### Private licences and qualifications
+
+Open a person's page and enable Edit to manage qualifications. The **entire record**, including type,
+expiry, approval history and evidence, is visible only to that person and administrators. Sharing a
+project never grants access. Use these private uploads, not flight/log attachments, for licence evidence.
+
+An admin first adds types under **Configure types and evidence requirements**, for example `A1/A3`, `A2`,
+`RT licence` or an internal qualification. Each type has an evidence-required switch and can be disabled.
+Types have no hard-coded proof rules. Disabling a type stops submissions and approvals, without erasing
+previous approvals. Changing the evidence requirement also applies to pending submissions.
+
+Users submit claims for themselves; **admins can also upload evidence and submit claims for any user**.
+Attach one PDF, JPEG or PNG per submission, up to **20 MiB**. Required-evidence types cannot be submitted
+or approved without a file. Optional-evidence types still require approval. An expiry date is optional;
+blank means unknown/not applicable, not indefinitely valid. File extensions and file signatures are checked,
+but this is not antivirus scanning. Downloads are forced attachments, not embedded previews.
+
+All submissions start pending. Only admins can approve or reject them, and **admins may approve themselves**.
+Users can withdraw their own pending submission and resubmit. A submitted claim and its evidence cannot be
+edited in place, so approval always applies to the exact submission reviewed. Only one pending submission
+and one current approval per user/type are allowed. A current approval remains active during renewal review;
+approving a renewal supersedes it. Rejection or withdrawal leaves the current approval unchanged.
+Approved claims can still be expired: approval is not a determination of current operational eligibility.
+
+Older evidence stays available privately after renewal, rejection or withdrawal until an admin deletes it.
+Admins can delete evidence alone (keeping the record) or delete the entire submission. Deleting evidence
+does not revoke an existing approval; removing that approval requires deleting its record. Files are removed
+from application storage, while minimal submission/review/deletion events are retained in the audit table
+(latest 100 shown per person). Remove private records before deleting a user to avoid orphaned evidence.
+API keys can read permitted records, but uploads, reviews, deletions and type changes require a browser session.
+
+Evidence is stored separately from shared attachments under `<LOG_DIR>/qualification-evidence/`, with opaque
+filenames and lossless compression when worthwhile. It is served only through permission-checked endpoints,
+with private/no-store caching and download hardening headers. Do not expose this folder through nginx or a
+public file share. Serve the application over HTTPS and restrict filesystem/share/backup access to trusted
+operators. Back up this folder along with the logs and the SQLite database; the `backup` command alone copies
+the database and keys, **not evidence files**. Backups contain sensitive information, and deleting live records
+does not erase retained backups or snapshots.
 
 ## Uploading with a script
 

@@ -46,7 +46,7 @@ import historical
 import storage
 import saml
 import config
-import personnel
+import qualifications
 import weather
 import mav_parse
 from config import env, env_bool, env_float, env_int, env_path
@@ -263,7 +263,7 @@ def start_workers():
     db.init(DB_PATH)
     con = conn()
     HAVE_PATH_GZ = "path_gz" in {r[1] for r in con.execute("PRAGMA table_info(flights)")}
-    personnel.ensure_users_for_log_names(con)
+    qualifications.ensure_users_for_log_names(con)
     seed_drone_projects_from_defaults(con)
     assign_open_flights(con)
     con.execute("UPDATE logs SET status='queued' WHERE status IN ('queued', 'parsing')")
@@ -713,6 +713,9 @@ def user_public(u):
 
 @app.after_request
 def no_cache_pages(resp):
+    if request.path in ("/api/people-directory", "/api/admin/people") or request.path.startswith((
+            "/api/detail/people/", "/api/users/", "/api/qualification-", "/api/admin/users/")):
+        resp.headers["Cache-Control"] = "private, no-store"
     if resp.mimetype == "text/html" or request.path in ("/theme.css", "/theme.js", "/attachments.js"):
         resp.headers["Cache-Control"] = "no-store"
     return resp
@@ -811,7 +814,7 @@ def login_saml_identity(ident):
     if row is None and email:
         row = con.execute("SELECT * FROM users WHERE email=? COLLATE NOCASE AND is_active=1", (email,)).fetchone()
     if row is None:
-        names = personnel.user_keys(con)
+        names = qualifications.user_keys(con)
         for key in (ident.get("display_name"), ident.get("username")):
             uid = names.get((key or "").casefold()) if key else None
             if uid:
@@ -1034,7 +1037,7 @@ def list_people():
 def people_directory():
     """People the current user may open, with qualifications they are allowed to see."""
     con = conn()
-    allowed = personnel.directory_user_ids(con, g.user)
+    allowed = qualifications.directory_user_ids(con, g.user)
     users = []
     for r in con.execute(
             "SELECT id, username, display_name, is_admin, provider FROM users WHERE is_active=1"
@@ -1042,9 +1045,8 @@ def people_directory():
         if r["id"] not in allowed:
             continue
         quals = None
-        if personnel.can_see_quals(con, g.user, r["id"]):
-            prow, docs = personnel.personnel_for_user(con, r["id"])
-            quals = personnel.qualifications_payload(prow, docs, include_docs=False)
+        if qualifications.can_see_quals(con, g.user, r["id"]):
+            quals = qualifications.qualifications_payload(con, g.user, r["id"])
         users.append({"id": r["id"], "username": r["username"],
                       "display_name": r["display_name"] or r["username"],
                       "is_admin": bool(r["is_admin"]), "provider": r["provider"] or "local",
@@ -1700,7 +1702,7 @@ def assign_log_flights(con, log_id, kept=None):
         pid = pick_flight_project(con, f, resolve)
         if pid:
             con.execute("UPDATE flights SET project_id=? WHERE id=?", (pid, f["id"]))
-    personnel.ensure_users_for_log_names(con)
+    qualifications.ensure_users_for_log_names(con)
     if log["project_id"] is None:
         ids = [r["project_id"] for r in con.execute(
             "SELECT DISTINCT f.project_id FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
@@ -2754,10 +2756,13 @@ def admin_delete_user(user_id):
     if row["is_admin"] and con.execute("SELECT COUNT(*) AS n FROM users WHERE is_admin=1 AND is_active=1 AND id!=?",
                                        (user_id,)).fetchone()["n"] < 1:
         return jsonify(error="the last admin account cannot be removed"), 400
-    for role in ROLES:
-        con.execute(f"UPDATE flights SET {role}_user_id=NULL WHERE {role}_user_id=?", (user_id,))
-    con.execute("DELETE FROM users WHERE id=?", (user_id,))
-    con.commit()
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        if con.execute("SELECT 1 FROM qualification_submissions WHERE user_id=?", (user_id,)).fetchone():
+            return jsonify(error="Remove this user's private qualification records and evidence before deleting the account."), 409
+        for role in ROLES:
+            con.execute(f"UPDATE flights SET {role}_user_id=NULL WHERE {role}_user_id=?", (user_id,))
+        con.execute("DELETE FROM users WHERE id=?", (user_id,))
     return jsonify(ok=True)
 
 
@@ -2766,11 +2771,10 @@ def admin_people():
     """Users with their aliases, plus the names seen in logs that are not linked to any user yet."""
     admin_required()
     con = conn()
-    personnel.ensure_users_for_log_names(con)
+    qualifications.ensure_users_for_log_names(con)
     con.commit()
     users = []
     for u in con.execute("SELECT * FROM users ORDER BY username"):
-        prow, docs = personnel.personnel_for_user(con, u["id"])
         prov = u["provider"] or "local"
         users.append(dict(
             id=u["id"], username=u["username"], display_name=u["display_name"], email=u["email"],
@@ -2779,7 +2783,7 @@ def admin_people():
             default_project_id=u["default_project_id"],
             aliases=[r["alias"] for r in con.execute(
                 "SELECT alias FROM user_aliases WHERE user_id=? ORDER BY alias", (u["id"],))],
-            qualifications=personnel.qualifications_payload(prow, docs, include_docs=False)))
+            qualifications=qualifications.qualifications_payload(con, g.user, u["id"])))
     resolve = person_resolver(con)
     unlinked = {}
     for a in con.execute("SELECT a.pic, a.pac, a.gcs FROM aircraft a JOIN logs l ON l.id = a.log_id"):
@@ -2790,8 +2794,7 @@ def admin_people():
                 e["count"] += 1
     projects = [dict(id=p["id"], name=p["name"]) for p in con.execute("SELECT id, name FROM projects ORDER BY name")]
     return jsonify(users=users, unlinked=sorted(unlinked.values(), key=lambda e: -e["count"]),
-                   unlinked_personnel=personnel.unlinked_personnel(con), projects=projects,
-                   github_configured=bool(personnel.RETIRED_CERTIFICATE_TOKEN()))
+                   projects=projects)
 
 
 @app.post("/api/admin/aliases")
@@ -2821,80 +2824,6 @@ def admin_delete_alias():
     con.execute("DELETE FROM user_aliases WHERE alias=?", (alias,))
     con.commit()
     return jsonify(ok=True)
-
-
-@app.post("/api/admin/personnel/import")
-def admin_import_personnel():
-    """Load the Teams personnel CSV (Name, Type, TUD User, FI, CTR, A1/A3, A2, …)."""
-    admin_required()
-    uploaded = request.files.get("file")
-    if uploaded and uploaded.filename:
-        raw = uploaded.read()
-        try:
-            text = raw.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            text = raw.decode("latin-1")
-    else:
-        text = (request.get_json(silent=True) or {}).get("csv") or ""
-    if not text.strip():
-        return jsonify(error="choose a CSV file"), 400
-    con = conn()
-    try:
-        stats = personnel.import_personnel_csv(con, text)
-        con.commit()
-    except ValueError as e:
-        con.rollback()
-        return jsonify(error=str(e)), 400
-    return jsonify(ok=True, **stats)
-
-
-@app.post("/api/admin/personnel/sync-github")
-def admin_sync_personnel_github():
-    """Index certificate PDFs from the RetiredSource GitHub folder."""
-    admin_required()
-    if not personnel.RETIRED_CERTIFICATE_TOKEN():
-        return jsonify(error="Set LOGDB_RETIRED_CERTIFICATE_TOKEN so the server can read the RetiredSource repo"), 400
-    con = conn()
-    try:
-        stats = personnel.sync_github_docs(con)
-        con.commit()
-    except RuntimeError as e:
-        con.rollback()
-        return jsonify(error=str(e)), 502
-    return jsonify(ok=True, **stats)
-
-
-def _may_read_doc(con, doc_id):
-    doc = con.execute("SELECT * FROM personnel_docs WHERE id=?", (doc_id,)).fetchone()
-    if doc is None:
-        return None, False
-    row = con.execute("SELECT * FROM personnel WHERE id=?", (doc["personnel_id"],)).fetchone()
-    if row is None:
-        return doc, False
-    uid = personnel.linked_user_id(row, personnel.user_keys(con))
-    if uid is None:
-        return doc, bool(g.user["is_admin"])
-    return doc, personnel.can_see_quals(con, g.user, uid)
-
-
-@app.get("/api/personnel-docs/<int:doc_id>")
-def personnel_doc(doc_id):
-    """Certificate PDF for a linked person the current user may see."""
-    con = conn()
-    doc, allowed = _may_read_doc(con, doc_id)
-    if doc is None:
-        abort(404)
-    if not allowed:
-        abort(404)
-    try:
-        data, filename = personnel.load_pdf(con, doc_id)
-    except RuntimeError as e:
-        return jsonify(error=str(e)), 502
-    if data is None:
-        abort(404)
-    safe = (filename or "certificate.pdf").replace('"', "")
-    return Response(data, mimetype="application/pdf",
-                    headers={"Content-Disposition": f'inline; filename="{safe}"'})
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -3547,14 +3476,8 @@ def detail_person(con, uid, admin, mine):
                aliases=aliases, names=names)
     if admin or uid == g.user["id"]:
         out.update(email=u["email"], created_at=u["created_at"], last_login=u["last_login"])
-    if personnel.can_see_quals(con, g.user, uid):
-        prow, docs = personnel.personnel_for_user(con, uid)
-        out["qualifications"] = personnel.qualifications_payload(prow, docs)
-        if prow:
-            for extra in (prow["name"], prow["tud_user"], prow["github_folder"]):
-                if extra and extra.casefold() not in seen_names:
-                    names.append(extra)
-                    seen_names.add(extra.casefold())
+    if qualifications.can_see_quals(con, g.user, uid):
+        out["qualifications"] = qualifications.qualifications_payload(con, g.user, uid)
         out["names"] = names
     return out
 
@@ -3936,6 +3859,7 @@ def delete_log(log_id):
 
 
 attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, env_int("ATTACHMENT_MAX_BYTES"))
+qualifications.register(app, lambda: conn(), STORAGE_DIR, session_required)
 
 
 if __name__ == "__main__" and len(sys.argv) > 1:
