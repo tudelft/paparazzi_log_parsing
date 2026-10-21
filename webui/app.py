@@ -1035,7 +1035,7 @@ def list_people():
 
 @app.get("/api/people-directory")
 def people_directory():
-    """People the current user may open, with qualifications they are allowed to see."""
+    """People the current user may open, with aliases and qualifications they are allowed to see."""
     con = conn()
     allowed = qualifications.directory_user_ids(con, g.user)
     users = []
@@ -1050,7 +1050,9 @@ def people_directory():
         users.append({"id": r["id"], "username": r["username"],
                       "display_name": r["display_name"] or r["username"],
                       "is_admin": bool(r["is_admin"]), "provider": r["provider"] or "local",
-                      "pending": (r["provider"] or "") == "log", "qualifications": quals})
+                      "pending": (r["provider"] or "") == "log", "qualifications": quals,
+                      "aliases": [a["alias"] for a in con.execute(
+                          "SELECT alias FROM user_aliases WHERE user_id=? ORDER BY alias", (r["id"],))]})
     return jsonify(users=users)
 
 

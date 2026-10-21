@@ -62,7 +62,6 @@
 <main>
   <section class="card">
     <div class="bar">
-      <label id="projectFilter" hidden>Project <select id="showProject"></select></label>
       <label>Period <select id="period">
         <option value="30d">Last 30 days</option>
         <option value="3m">Last 3 months</option>
@@ -129,11 +128,6 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
-const projectKey = 'logdbProject';
-function projectQuery() {
-  const v = localStorage.getItem(projectKey) || '';
-  return v ? ('?project=' + encodeURIComponent(v)) : '';
-}
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
@@ -143,15 +137,9 @@ fetch('/api/me').then(r => r.json()).then(async d => {
   ]);
   fillBulkMenus();
   syncEditUi();
-  const cur = localStorage.getItem(projectKey) || '';
-  $('showProject').innerHTML = '<option value="">All projects</option>'
-    + (d.user.is_admin ? '<option value="none">No project</option>' : '')
-    + projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
-  if ([...$('showProject').options].some(o => o.value === cur)) $('showProject').value = cur;
   loadFlights();
 });
-$('showProject').onchange = () => { localStorage.setItem(projectKey, $('showProject').value); page = 0; loadFlights(); };
-function loadFlights() { fetch('/api/logbook' + projectQuery()).then(r => r.json()).then(d => { flights = d; render(); }); }
+function loadFlights() { fetch('/api/logbook').then(r => r.json()).then(d => { flights = d; render(); }); }
 
 const place = (lat, lon, name) => lat == null ? (name ? esc(name) : '<span class="mute" title="No GPS fix">no GPS</span>') :
   `<a ${name ? '' : 'class="mono" '}target="_blank" rel="noopener" title="${lat.toFixed(5)}, ${lon.toFixed(5)}" href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}">${esc(name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`)}</a>`;
@@ -218,7 +206,6 @@ async function applyBulk() {
 }
 function syncEditUi() {
   $('bulkBar').hidden = !editOn();
-  $('projectFilter').hidden = !editOn();
   $('addHistorical').hidden = !(me && (me.is_admin || projects.some(p => p.role === 'full')));
   $('addHistorical').textContent = me?.is_admin ? 'Add paper records / import CSV' : 'Add paper record';
 }

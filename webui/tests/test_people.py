@@ -5,6 +5,25 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .test_historical import AppTests
 
 
+class PeopleDirectoryTests(AppTests):
+    def test_aliases_visible_to_normal_users_within_directory_scope(self):
+        self.con.executemany("INSERT INTO user_aliases(user_id,alias) VALUES (?,?)",
+                             [(2, "Pilot alias"), (2, "<crew>"), (4, "Private alias")])
+        self.con.commit()
+        self.sign_in(3)
+        response = self.client.get("/api/people-directory")
+        self.assertEqual(response.status_code, 200)
+        users = {u["id"]: u for u in response.json["users"]}
+        self.assertEqual(users[2]["aliases"], ["<crew>", "Pilot alias"])
+        self.assertEqual(users[3]["aliases"], [])
+        self.assertNotIn(4, users)
+        self.sign_in(1)
+        response = self.client.get("/api/admin/people")
+        self.assertEqual(response.status_code, 200)
+        users = {u["id"]: u for u in response.json["users"]}
+        self.assertEqual(users[2]["aliases"], ["<crew>", "Pilot alias"])
+
+
 class UsernameTests(AppTests):
     def rename(self, name, uid=2):
         return self.client.put(f"/api/admin/users/{uid}/username", json={"username": name})

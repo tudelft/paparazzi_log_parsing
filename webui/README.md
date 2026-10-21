@@ -206,14 +206,23 @@ Pages use a compact heading hierarchy with regular-weight supporting text. Longe
 available through expandable **Help** disclosures; field requirements, errors and sharing warnings
 remain visible alongside the relevant controls.
 
+Aircraft keeps its overview table with Edit off. In Edit mode, use the filtered aircraft list and
+the selected aircraft's **Details**, **Project history** and **Aliases** tabs. Add aircraft and CSV import
+open compact dialogs; unlinked aircraft names remain collapsible. Add user also opens a dialog.
+Dialogs can be closed with Close or Escape. Details are saved together; project
+periods keep their separate Save timeline action.
+Logbook has no top-level project filter and no longer applies a previously saved project filter.
+Project reassignment controls in Edit mode remain available.
+
 ### Private licences and qualifications
 
 Users upload and manage their own qualifications on **My account**, alongside password settings.
-Admins see a compact People overview (name, username, sign-in and qualifications) with Edit off.
+The read-only People overview shows names, usernames, aliases and qualifications, including for normal
+users within their existing directory access. Admins also see sign-in information with Edit off.
 Enable Edit to search by name, username, email or alias, then select someone to open their
 **Account**, **Aliases** or **Qualifications** tab. Enable Edit to change account settings, manage aliases,
-upload evidence for that person, or review/delete submissions. Filters include pending accounts, admins
-and people awaiting qualification review. The approval queue on People opens the relevant person's
+upload evidence for that person, or review/delete submissions. The people list is searchable, without
+an additional Show filter. The approval queue on People opens the relevant person's
 Qualifications tab, enabling Edit if needed. The queue is hidden when empty; type settings are
 in a separate People section visible in Edit mode.
 Admins can rename usernames in the Account tab. Usernames must be unique (case-insensitive),

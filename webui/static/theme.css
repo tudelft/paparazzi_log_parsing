@@ -147,3 +147,11 @@ main .section-heading > details[open] > summary { margin-bottom:0; }
 main .help-text { font-size:13px; font-weight:400; color:var(--mute); line-height:1.5; }
 main .help-text > summary { font-size:13px; font-weight:400; }
 main .help-text { margin:8px 0 12px; }
+dialog.entry-dialog { width:min(540px,calc(100% - 32px)); max-height:85vh; padding:20px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--txt); overflow:auto; }
+dialog.entry-dialog::backdrop { background:rgba(0,0,0,.45); }
+dialog.entry-dialog h2 { font-size:18px; margin:0; }
+.dialog-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
+.dialog-header button { background:var(--sec); color:var(--txt); }
+dialog.entry-dialog form, dialog.entry-dialog .dialog-fields { display:grid !important; grid-template-columns:1fr; gap:12px; }
+dialog.entry-dialog input, dialog.entry-dialog select { max-width:100%; }
+.dialog-error { color:var(--err); font-size:13px; }

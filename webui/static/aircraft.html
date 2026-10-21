@@ -47,6 +47,26 @@
   .pair { display:flex; align-items:center; gap:8px; white-space:nowrap; }
   .pair input { width:150px; }
   #q { width:280px; }
+  .aircraft-layout { display:grid; grid-template-columns:minmax(220px,300px) minmax(0,1fr); gap:16px; align-items:start; }
+  .aircraft-list { max-height:65vh; overflow:auto; }
+  .aircraft-button { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; text-align:left; margin:3px 0; padding:7px 8px; background:var(--card); color:var(--txt); border:1px solid var(--line); overflow-wrap:anywhere; }
+  .aircraft-button[aria-pressed="true"] { border-color:var(--acc); border-left:5px solid var(--acc); background:var(--hover); }
+  .aircraft-button .badge { flex-shrink:0; max-width:55%; font-size:11px; }
+  #aircraftCount { margin:6px 0; }
+  #aircraftPanel { border:1px solid var(--line); border-top:4px solid var(--acc); border-radius:8px; padding:16px; min-width:0; overflow-wrap:anywhere; }
+  #aircraftHeading { font-size:20px; margin:0; }
+  .panel-header { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center; }
+  .aircraft-tabs { display:flex; flex-wrap:wrap; gap:4px; margin:16px 0; border-bottom:1px solid var(--line); }
+  .aircraft-tabs button { background:var(--sec); color:var(--txt); border-bottom:3px solid transparent; border-radius:6px 6px 0 0; padding:9px 12px; }
+  .aircraft-tabs [aria-selected="true"] { background:var(--card); border-bottom-color:var(--acc); font-weight:600; }
+  .aircraft-button:focus-visible, .aircraft-tabs button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+  .detail-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+  .detail-fields .full { grid-column:1/-1; }
+  .detail-fields textarea { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; resize:vertical; }
+  #aircraftContent input, #aircraftContent select, #aircraftContent textarea { max-width:100%; min-width:0; }
+  .management-section { margin:12px 0; }
+  [hidden] { display:none !important; }
+  @media(max-width:760px) { .aircraft-layout { grid-template-columns:1fr; } .aircraft-list { max-height:32vh; } .detail-fields { grid-template-columns:1fr; } }
 </style>
 </head>
 <body data-edit="admin">
@@ -57,20 +77,25 @@
 </header>
 <main>
   <div id="err"></div>
-  <section class="card" id="unlinkedCard" hidden>
-    <div class="section-heading"><h2>Unlinked aircraft names</h2>
+  <details class="card" id="unlinkedCard" hidden>
+    <summary>Unlinked aircraft names</summary>
+    <div class="section-heading">
     <details><summary>Help</summary><p>Paparazzi logs usually already have the fleet name. PX4 logs do not: they show the airframe type plus the flight-controller id (for example <code>quad_x 00500040</code>). Link that once to the real aircraft; later logs from the same board attach automatically. The upload folder is only a hint, and is never used when more than one aircraft could match.</p></details></div>
     <div class="scroll"><table><thead id="unlinkedHead"></thead><tbody id="unlinked"></tbody></table></div>
-  </section>
+  </details>
   <section class="card">
-    <div class="section-heading"><h2>Aircraft and aliases</h2>
+    <div class="section-heading"><h2 id="fleetTitle">Aircraft</h2>
     <details><summary>Help</summary><p id="fleetHint">Each aircraft has a unique serial (TUDxxxxx) that stays with it if the name changes. Names in the logs that differ from the nice name are aliases.</p></details></div>
     <div class="pending" id="pending" hidden></div>
     <div class="row">
       <label class="field">Filter<input id="q" placeholder="Filter by name, serial, person, project…"></label>
       <label class="field">Status<select id="statusFilter"><option value="">All statuses</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select></label>
       <label title="Aircraft marked Discard stay hidden until this is ticked"><input type="checkbox" id="showDiscarded"> Show discarded</label>
-    </div>
+    <button id="addSection" type="button" hidden onclick="$('addAircraftDialog').showModal()">Add aircraft</button>
+    <button id="importSection" type="button" class="sec" hidden onclick="$('importAircraftDialog').showModal()">Import aircraft from CSV</button></div>
+    <dialog class="entry-dialog" id="addAircraftDialog" aria-labelledby="addAircraftTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="addAircraftTitle">Add aircraft</h2><button type="button" onclick="$('addAircraftDialog').close()" aria-label="Close Add aircraft">Close</button></div>
+    <p class="dialog-error" id="addAircraftError" role="alert"></p>
     <form class="row" id="add" hidden onsubmit="addDrone(event)">
       <label class="field">Name<input id="name" required maxlength="80" autocomplete="off"></label>
       <label class="field">Serial<input id="uid" required maxlength="40" autocomplete="off" placeholder="TUD00000"></label>
@@ -80,12 +105,30 @@
       <label class="field">Comments<input id="newComments" maxlength="400" autocomplete="off"></label>
       <button type="submit">Add aircraft</button>
     </form>
-    <div class="row" id="importRow" hidden style="margin-top:0">
+    </dialog>
+    <dialog class="entry-dialog" id="importAircraftDialog" aria-labelledby="importAircraftTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="importAircraftTitle">Import aircraft from CSV</h2><button type="button" onclick="$('importAircraftDialog').close()" aria-label="Close CSV import">Close</button></div>
+    <p class="dialog-error" id="importAircraftError" role="alert"></p>
+    <div class="dialog-fields" id="importRow" hidden>
       <label class="field">Import CSV<input id="csv" type="file" accept=".csv,text/csv"></label>
       <button type="button" class="sec" onclick="importCsv()">Import</button>
       <span id="importMsg" class="mute"></span>
     </div>
-    <div class="scroll"><table><thead id="droneHead"></thead><tbody id="drones"></tbody></table></div>
+    </dialog>
+    <div id="aircraftManagement" class="aircraft-layout" hidden>
+      <div><p class="mute" id="aircraftCount" role="status"></p><div class="aircraft-list" id="aircraftList"></div></div>
+      <section id="aircraftPanel" aria-label="Selected aircraft">
+        <div class="panel-header"><h2 id="aircraftHeading">No aircraft selected</h2><a id="aircraftLink" hidden>View aircraft overview</a></div>
+        <p class="mute" id="aircraftIdentity">Select an aircraft from the list to manage its details, project history and aliases.</p>
+        <div class="aircraft-tabs" id="aircraftTabs" role="tablist" aria-label="Aircraft management" hidden>
+          <button type="button" role="tab" id="aircraft-tab-details" aria-controls="aircraftContent" onclick="selectAircraftTab('details')">Details</button>
+          <button type="button" role="tab" id="aircraft-tab-projects" aria-controls="aircraftContent" onclick="selectAircraftTab('projects')">Project history</button>
+          <button type="button" role="tab" id="aircraft-tab-aliases" aria-controls="aircraftContent" onclick="selectAircraftTab('aliases')">Aliases</button>
+        </div>
+        <div id="aircraftContent" role="tabpanel"></div>
+      </section>
+    </div>
+    <div class="scroll" id="aircraftOverview"><table><thead id="droneHead"></thead><tbody id="drones"></tbody></table></div>
   </section>
 </main>
 <script>
@@ -99,6 +142,7 @@ window.fetch = async (...args) => {
 };
 let data = {drones: [], unlinked: [], projects: []};
 let me = null;
+let selectedAircraft = null, selectedAircraftTab = 'details';
 const editOn = () => !!(me && me.is_admin && window.editMode());
 function toggleEdit() {
   $('add').hidden = !editOn();
@@ -154,7 +198,7 @@ async function savePeriods(id) {
   });
   const d = await r.json().catch(() => ({}));
   $('err').textContent = r.ok ? '' : (d.error || 'Could not save the timeline');
-  if (r.ok) load();
+  if (r.ok) await load();
 }
 
 function matches(d, q, status) {
@@ -177,6 +221,10 @@ function render() {
   const q = ($('q').value || '').trim().toLowerCase();
   const status = $('statusFilter').value;
   const editing = editOn();
+  $('addSection').hidden = $('importSection').hidden = !editing;
+  $('aircraftManagement').hidden = !editing;
+  $('aircraftOverview').hidden = editing;
+  if (!editing) { $('addAircraftDialog').close(); $('importAircraftDialog').close(); }
   const opts = data.drones.map(d => `<option value="${d.id}">${esc(d.name)}${d.unique_id ? ' (' + esc(d.unique_id) + ')' : ''}</option>`).join('');
   const open = me && me.is_admin ? data.unlinked.length : 0;
   $('unlinkedCard').hidden = !(editing && open);
@@ -199,34 +247,86 @@ function render() {
     const link = opts ? `<select id="sel${idx}">${choices}</select> <button onclick="linkUnlinked(${idx})">Link</button>${hint}` : '<span class="mute">Add an aircraft first</span>';
     return `<tr><td>${esc(e.name)}${also}</td><td class="mono">${esc(boards)}</td><td>${e.count}×</td><td>${esc(folders)}</td><td>${link}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="mute">Nothing matches the filter.</td></tr>';
-  $('droneHead').innerHTML = `<tr><th>Aircraft</th><th>Serial</th><th>Status</th><th>Manager</th><th>Project</th><th>Comments</th><th>Logs</th><th>Aliases</th>${editing ? '<th>Add alias</th><th></th>' : ''}</tr>`;
   const shown = data.drones.filter(d => matches(d, q, status));
-  const cols = editing ? 10 : 8;
+  if (editing) {
+    $('drones').innerHTML = '';
+    $('aircraftCount').textContent = `${shown.length} of ${data.drones.length} aircraft`;
+    $('aircraftList').innerHTML = shown.map(d => `<button type="button" class="aircraft-button" aria-pressed="${d.id === selectedAircraft}" title="${esc(d.unique_id || 'No serial')}" onclick="selectAircraft(${d.id})">
+      <span>${esc(d.name)}</span><span class="badge${d.status ? ' st-' + esc(d.status) : ''}">${esc(d.status || 'No status')}</span></button>`).join('') || '<p class="mute">No matching aircraft.</p>';
+    renderAircraftPanel();
+    return;
+  }
+  $('droneHead').innerHTML = '<tr><th>Aircraft</th><th>Serial</th><th>Status</th><th>Manager</th><th>Project</th><th>Comments</th><th>Logs</th><th>Aliases</th></tr>';
+  const cols = 8;
   $('drones').innerHTML = shown.map(d => {
     const st = d.status || '';
-    const aliases = editing
-      ? d.aliases.map(a => `<span class="chip">${esc(a)}<button title="Remove" data-alias="${esc(a)}" onclick="removeAlias(this.dataset.alias)">×</button></span>`).join('')
-      : d.aliases.map(a => `<span class="chip">${esc(a)}</span>`).join('');
-    if (!editing) {
+    const aliases = d.aliases.map(a => `<span class="chip">${esc(a)}</span>`).join('');
       return `<tr>
       <td><a href="/aircraft/${d.id}">${esc(d.name)}</a></td><td>${esc(d.unique_id || '')}</td>
       <td>${st ? `<span class="badge st-${esc(st)}">${esc(st)}</span>` : ''}</td>
       <td>${esc(d.manager || '')}</td><td>${projectCell(d, false)}</td>
       <td>${esc(d.comments || '')}</td><td>${d.log_count}</td><td>${aliases}</td></tr>`;
-    }
-    return `<tr>
-    <td><input class="wide" value="${esc(d.name)}" maxlength="80" title="Rename this aircraft. The old name is kept as an alias so existing logs still match." onchange="setField(${d.id}, 'name', this.value)"> <a href="/aircraft/${d.id}" title="Overview">↗</a></td>
-    <td><input class="wide" value="${esc(d.unique_id || '')}" maxlength="40" onchange="setField(${d.id}, 'unique_id', this.value)"></td>
-    <td><select onchange="setField(${d.id}, 'status', this.value)">${statusOptions(st)}</select></td>
-    <td><input class="wide" value="${esc(d.manager || '')}" maxlength="80" onchange="setField(${d.id}, 'manager', this.value)"></td>
-    <td onclick="event.stopPropagation()">${projectCell(d, true)}</td>
-    <td><input class="wide" value="${esc(d.comments || '')}" maxlength="400" title="${esc(d.comments || '')}" onchange="setField(${d.id}, 'comments', this.value)"></td>
-    <td>${d.log_count}</td>
-    <td>${aliases}</td>
-    <td><div class="pair"><input id="new${d.id}" placeholder="alias"><button onclick="addAlias(${d.id})">Add</button></div></td>
-    <td><button class="danger" onclick="removeDrone(${d.id})">Remove</button></td></tr>`;
   }).join('')
     || `<tr><td colspan="${cols}" class="mute">${data.drones.length ? 'Nothing matches the filter.' : (me && me.is_admin ? 'No aircraft yet.' : 'No aircraft on your projects yet.')}</td></tr>`;
+}
+
+function selectAircraft(id) {
+  selectedAircraft = id;
+  render();
+  $('aircraftPanel').scrollIntoView({block:'nearest'});
+}
+function selectAircraftTab(tab) {
+  selectedAircraftTab = tab;
+  renderAircraftPanel();
+}
+$('aircraftTabs').addEventListener('keydown', event => {
+  if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+  event.preventDefault();
+  const tabs = ['details','projects','aliases'];
+  const index = tabs.indexOf(selectedAircraftTab);
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2
+    : (index + (event.key === 'ArrowRight' ? 1 : 2)) % 3;
+  selectAircraftTab(tabs[next]);
+  $('aircraft-tab-' + selectedAircraftTab).focus();
+});
+function renderAircraftPanel() {
+  const d = data.drones.find(d => d.id === selectedAircraft);
+  $('aircraftHeading').textContent = d ? d.name : 'No aircraft selected';
+  $('aircraftIdentity').textContent = d ? `${d.unique_id || 'No serial'} · ${d.log_count} logs`
+    : 'Select an aircraft from the list to manage its details, project history and aliases.';
+  $('aircraftLink').hidden = $('aircraftTabs').hidden = !d;
+  if (!d) { $('aircraftContent').innerHTML = ''; return; }
+  $('aircraftLink').href = '/aircraft/' + d.id;
+  for (const tab of ['details','projects','aliases']) {
+    $('aircraft-tab-' + tab).setAttribute('aria-selected', String(tab === selectedAircraftTab));
+    $('aircraft-tab-' + tab).tabIndex = tab === selectedAircraftTab ? 0 : -1;
+  }
+  $('aircraftContent').setAttribute('aria-labelledby', 'aircraft-tab-' + selectedAircraftTab);
+  if (selectedAircraftTab === 'projects') {
+    $('aircraftContent').innerHTML = `<p class="mute">Assign projects by date. Save the timeline after changing periods.</p>${projectCell(d, true)}`;
+  } else if (selectedAircraftTab === 'aliases') {
+    $('aircraftContent').innerHTML = `<p class="mute">Aliases link aircraft names in logs to this aircraft.</p>
+      ${d.aliases.map(a => `<span class="chip">${esc(a)}<button type="button" aria-label="Remove alias ${esc(a)}" data-alias="${esc(a)}" onclick="removeAlias(this.dataset.alias)">×</button></span>`).join('') || '<p class="mute">No aliases.</p>'}
+      <form class="row" onsubmit="event.preventDefault();addAlias(${d.id})">
+      <label class="field">New alias<input id="new${d.id}" required maxlength="80"></label><button type="submit">Add alias</button></form>`;
+  } else {
+    $('aircraftContent').innerHTML = `<form id="aircraftDetails" onsubmit="saveAircraftDetails(event,${d.id})">
+      <div class="detail-fields">
+      <label class="field">Name<input name="name" value="${esc(d.name)}" required maxlength="80"></label>
+      <label class="field">Serial<input name="unique_id" value="${esc(d.unique_id || '')}" required maxlength="40"></label>
+      <label class="field">Status<select name="status">${statusOptions(d.status)}</select></label>
+      <label class="field">Manager<input name="manager" value="${esc(d.manager || '')}" maxlength="80"></label>
+      <label class="field full">Comments<textarea name="comments" maxlength="400" rows="3">${esc(d.comments || '')}</textarea></label>
+      </div><p class="mute">Renaming keeps the old name as an alias so existing logs still match.</p>
+      <button type="submit">Save details</button></form>
+      <p><button type="button" class="danger" onclick="removeDrone(${d.id})">Remove aircraft</button></p>`;
+  }
+}
+async function saveAircraftDetails(event, id) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const body = Object.fromEntries(new FormData(form));
+  await send('PUT', '/api/admin/drones/' + id, body);
 }
 
 async function load() {
@@ -240,10 +340,10 @@ async function load() {
 async function send(method, url, body) {
   const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
   $('err').textContent = r.ok ? '' : (((await r.json().catch(() => ({}))).error) || 'failed');
-  if (r.ok) load();
+  if (r.ok) await load();
 }
 
-function addDrone(ev) {
+async function addDrone(ev) {
   ev.preventDefault();
   const name = $('name').value.trim();
   const unique_id = $('uid').value.trim();
@@ -251,14 +351,14 @@ function addDrone(ev) {
   const project = $('newProject').value;
   const body = {name, unique_id, default_project_id: project ? +project : null,
     status: $('newStatus').value, manager: $('newManager').value, comments: $('newComments').value};
-  $('name').value = $('uid').value = $('newManager').value = $('newComments').value = '';
-  $('newStatus').value = '';
-  send('POST', '/api/admin/drones', body);
-}
-function setField(id, key, value) {
-  const body = {};
-  body[key] = key === 'default_project_id' ? (value ? +value : null) : value;
-  send('PUT', '/api/admin/drones/' + id, body);
+  try {
+    const r = await fetch('/api/admin/drones', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    if (!r.ok) { $('addAircraftError').textContent = (await r.json()).error || 'Could not add aircraft'; return; }
+    $('addAircraftError').textContent = '';
+    $('add').reset();
+    $('addAircraftDialog').close();
+    await load();
+  } catch (error) { $('addAircraftError').textContent = 'Could not add aircraft: ' + error.message; }
 }
 async function importCsv() {
   const f = $('csv').files[0];
@@ -266,13 +366,16 @@ async function importCsv() {
   const fd = new FormData();
   fd.append('file', f);
   $('importMsg').textContent = 'Importing…';
+  $('importAircraftError').textContent = '';
+  try {
   const r = await fetch('/api/admin/drones/import', {method: 'POST', body: fd});
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) { $('err').textContent = d.error || 'Import failed'; $('importMsg').textContent = ''; return; }
-  $('err').textContent = (d.errors || []).join(' · ');
+  if (!r.ok) { $('importAircraftError').textContent = d.error || 'Import failed'; $('importMsg').textContent = ''; return; }
+  $('importAircraftError').textContent = (d.errors || []).join(' · ');
   $('importMsg').textContent = `Added ${d.created}, updated ${d.updated}` + (d.skipped ? `, skipped ${d.skipped}` : '');
   $('csv').value = '';
-  load();
+  await load();
+  } catch (error) { $('importAircraftError').textContent = 'Import failed: ' + error.message; $('importMsg').textContent = ''; }
 }
 async function linkUnlinked(i) {
   const sel = $('sel' + i);

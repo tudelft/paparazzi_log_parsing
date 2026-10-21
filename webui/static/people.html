@@ -42,15 +42,23 @@
   .pair input { width:150px; }
   .people-layout { display:grid; grid-template-columns:minmax(240px,320px) minmax(0,1fr); gap:16px; margin-top:16px; align-items:start; }
   .people-picker, #personPanel { border:1px solid var(--line); border-radius:8px; padding:16px; background:var(--detail); }
+  .people-picker { padding:10px; }
+  .people-picker #peopleCount { margin:6px 0; }
+  .people-title-row { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+  .people-title-row h2 { margin:0; }
+  .people-help { margin-left:auto; }
+  .people-help summary { font-size:13px; font-weight:400; color:var(--mute); }
   #personPanel { border-top:4px solid var(--acc); background:var(--card); }
   .person-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
   #personHeading { font-size:20px; margin:0; }
   #personIdentity { color:var(--mute); margin:4px 0 12px; }
   .people-list { max-height:65vh; overflow:auto; }
-  .person-button { display:block; text-align:left; width:100%; margin:4px 0; padding:10px; border:1px solid var(--line); background:var(--card); color:var(--txt); overflow-wrap:anywhere; }
+  .person-button { display:flex; align-items:center; justify-content:space-between; gap:8px; text-align:left; width:100%; margin:3px 0; padding:7px 8px; border:1px solid var(--line); background:var(--card); color:var(--txt); overflow-wrap:anywhere; }
   .person-button[aria-pressed="true"] { border-color:var(--acc); border-left:5px solid var(--acc); background:var(--hover); }
-  .selected-marker { display:block; color:var(--txt); font-size:12px; font-weight:700; margin-top:4px; }
-  .person-button small { display:block; color:var(--mute); }
+  .person-status { display:flex; justify-content:flex-end; gap:4px; flex-wrap:wrap; flex-shrink:0; max-width:55%; }
+  .person-status span { font-size:11px; border-radius:10px; padding:1px 6px; background:var(--sec); color:var(--mute); }
+  .person-status .active { background:var(--okbg); color:var(--ok); }
+  .person-status .inactive { background:var(--warnbg); color:var(--warn); }
   .tabs { display:flex; gap:4px; flex-wrap:wrap; margin:16px 0 0; border-bottom:2px solid var(--line); }
   .tabs [role="tab"] { background:var(--sec); color:var(--txt); border:1px solid var(--line); border-bottom:3px solid transparent; border-radius:6px 6px 0 0; padding:10px 14px; margin-bottom:-2px; }
   .tabs [aria-selected="true"] { background:var(--card); border-bottom-color:var(--acc); font-weight:700; }
@@ -78,13 +86,15 @@
     <div class="scroll"><table><thead><tr><th>Name in log</th><th>Seen</th><th>Link to user</th></tr></thead><tbody id="unlinked"></tbody></table></div>
   </section>
   <section class="card">
-    <div class="section-heading"><h2>People</h2>
-    <details><summary>Help</summary>
+    <div class="people-title-row"><h2>People</h2>
+    <button type="button" class="editOnly" hidden onclick="$('addUserDialog').showModal()">Add user</button>
+    <details class="people-help"><summary>Help</summary>
     <p id="peopleHint">Accounts that can sign in. Names from the logs are matched to these accounts.</p>
     </details></div>
     <div class="pending" id="pending" hidden></div>
-    <details class="editOnly" id="addUserSection" hidden>
-    <summary>Add user</summary>
+    <dialog class="entry-dialog" id="addUserDialog" aria-labelledby="addUserTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="addUserTitle">Add user</h2><button type="button" onclick="$('addUserDialog').close()" aria-label="Close Add user">Close</button></div>
+    <p id="addUserError" class="dialog-error" role="alert"></p>
     <form id="addUser" onsubmit="addUser(event)">
       <label class="field">Username<input id="newUser" required maxlength="40" autocomplete="off"></label>
       <label class="field">Display name<input id="newName" maxlength="80" autocomplete="off"></label>
@@ -93,7 +103,7 @@
       <label class="field" style="padding-bottom:6px">Admin<input type="checkbox" id="newAdmin"></label>
       <button type="submit">Add user</button>
     </form>
-    </details>
+    </dialog>
     <div id="setupBox" hidden>
       <strong id="setupHint"></strong>
       <input id="setupUrl" readonly>
@@ -103,10 +113,6 @@
       <div class="people-layout">
         <div class="people-picker">
           <label class="field">Search people<input type="search" id="peopleSearch" placeholder="Name, username, email or alias" oninput="renderPeopleList()"></label>
-          <label class="field">Show<select id="peopleFilter" onchange="renderPeopleList()">
-            <option value="all">All people</option><option value="pending">Not active yet</option>
-            <option value="admin">Administrators</option><option value="review">Awaiting qualification review</option>
-          </select></label>
           <p class="mute" id="peopleCount" role="status"></p>
           <div class="people-list" id="peopleList"></div>
         </div>
@@ -203,6 +209,7 @@ function render() {
   const open = admin ? people.unlinked.length : 0;
   document.querySelectorAll('.editOnly').forEach(el => { el.hidden = !editing; });
   if (!editing) $('setupBox').hidden = true;
+  if (!editing) $('addUserDialog').close();
   $('unlinkedCard').hidden = !(editing && open);
   $('pending').hidden = !(open && !editing);
   const bits = [];
@@ -216,12 +223,13 @@ function render() {
     : 'Accounts that can sign in. Names from logs get a profile marked Not active yet until that person signs in.';
   if (!editing) {
     if (admin) renderAdminPeople();
-    $('usersHead').innerHTML = `<tr><th>Name</th><th>Username</th>${admin ? '<th>Sign-in</th>' : ''}<th>Qualifications</th></tr>`;
+    $('usersHead').innerHTML = `<tr><th>Name</th><th>Username</th><th>Aliases</th>${admin ? '<th>Sign-in</th>' : ''}<th>Qualifications</th></tr>`;
     $('users').innerHTML = people.users.map(u => `<tr><td>${nameCell(u, '', false)}</td>
       <td class="mute">${esc(u.username)}</td>
+      <td>${(u.aliases || []).map(alias => `<span class="chip">${esc(alias)}</span>`).join('') || '<span class="mute">—</span>'}</td>
       ${admin ? `<td>${signInLabel(u)}</td>` : ''}
       <td>${qualBits(u.qualifications) || '<span class="mute">—</span>'}</td></tr>`).join('')
-      || `<tr><td colspan="${admin ? 4 : 3}" class="mute">${admin ? 'No people yet.' : 'No people on your projects yet.'}</td></tr>`;
+      || `<tr><td colspan="${admin ? 5 : 4}" class="mute">${admin ? 'No people yet.' : 'No people on your projects yet.'}</td></tr>`;
     return;
   }
   const projOpts = '<option value="">No default</option>' + (people.projects || []).map(p =>
@@ -265,17 +273,14 @@ function renderAdminPeople() {
 
 function renderPeopleList() {
   const query = $('peopleSearch').value.trim().toLocaleLowerCase();
-  const filter = $('peopleFilter').value;
   const rows = people.users.filter(u => [u.display_name,u.username,u.email,...(u.aliases || [])].filter(Boolean)
-    .some(v => v.toLocaleLowerCase().includes(query)) && (filter === 'all'
-      || filter === 'pending' && notActive(u) || filter === 'admin' && u.is_admin
-      || filter === 'review' && pendingQualifications.some(s => s.user_id === u.id)));
+    .some(v => v.toLocaleLowerCase().includes(query)));
   $('peopleCount').textContent = `${rows.length} of ${people.users.length} people`;
   $('peopleList').innerHTML = rows.map(u => `<button type="button" class="person-button" aria-pressed="${u.id === selectedPerson}"
-    onclick="selectPerson(${u.id})">${esc(u.display_name || u.username)}
-    <small>${esc(u.username)} · ${signInLabel(u)}${u.is_admin ? ' · Admin' : ''}</small>
-    ${u.id === selectedPerson ? '<span class="selected-marker">Selected</span>' : ''}
-    ${pendingQualifications.some(s => s.user_id === u.id) ? '<small>Qualification review pending</small>' : ''}</button>`).join('')
+    title="${esc(u.username)}${pendingQualifications.some(s => s.user_id === u.id) ? ' · Qualification review pending' : ''}"
+    onclick="selectPerson(${u.id})"><span>${esc(u.display_name || u.username)}</span>
+    <span class="person-status"><span class="${notActive(u) ? 'inactive' : 'active'}">${notActive(u) ? 'Not active yet' : 'Active'}</span>
+    ${u.is_admin ? '<span>Admin</span>' : ''}</span></button>`).join('')
     || '<p class="mute">No matching people.</p>';
 }
 
@@ -401,19 +406,22 @@ async function copySetup() {
 }
 async function addUser(ev) {
   ev.preventDefault();
+  try {
   const username = $('newUser').value.trim();
   const r = await fetch('/api/admin/users', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({username, display_name: $('newName').value.trim(), email: $('newEmail').value.trim(),
       is_admin: $('newAdmin').checked, default_project_id: $('newProject').value ? +$('newProject').value : null})});
-  if (!r.ok) { $('err').textContent = ((await r.json().catch(() => ({}))).error) || 'failed'; return; }
+  if (!r.ok) { $('addUserError').textContent = ((await r.json().catch(() => ({}))).error) || 'Could not add user'; return; }
   const data = await r.json();
   $('err').textContent = '';
   $('addUser').reset();
-  $('addUserSection').open = false;
+  $('addUserError').textContent = '';
+  $('addUserDialog').close();
   showSetup(data.setup_url, username, false, data.expires_at);
   selectedPerson = data.id;
   selectedTab = 'account';
   await load();
+  } catch (error) { $('addUserError').textContent = 'Could not add user: ' + error.message; }
 }
 async function setUserProject(id, value) {
   const r = await fetch('/api/admin/users/' + id, {method: 'PUT', headers: {'Content-Type': 'application/json'},
