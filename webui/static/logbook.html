@@ -63,6 +63,8 @@
   <section class="card">
     <div class="bar">
       <label id="projectFilter" hidden>Project <select id="showProject"></select></label>
+      <label>From <input type="date" id="fromDate"></label>
+      <label>To <input type="date" id="toDate"></label>
       <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date…)">
       <label title="Flights of the same aircraft and pilot on the same day within this distance of each other"><input type="checkbox" id="combine" checked> Combine flights (within <input type="number" id="radius" value="1" min="0.1" step="0.5" style="width:56px"> km)</label>
       <label title="Places marked as indoors on the Locations page, or flights with OptiTrack / motion capture"><input type="checkbox" id="indoor"> Show indoor flights</label>
@@ -73,6 +75,7 @@
     <div id="bulkBar" class="bar" hidden>
       <label><input type="checkbox" id="selAll"> Select all on this page</label>
       <span class="mute">Apply to selected</span>
+      <label>Project <select id="bulkProject"></select></label>
       <label>PIC <select id="bulkPic"></select></label>
       <label>PAC <select id="bulkPac"></select></label>
       <label>GCS <select id="bulkGcs"></select></label>
@@ -162,6 +165,11 @@ function fillBulkMenus() {
   const opts = '<option value="__keep__">Keep</option><option value="">From log / none</option>'
     + people.map(p => `<option value="${p.id}">${esc(p.display_name)}</option>`).join('');
   ['bulkPic', 'bulkPac', 'bulkGcs'].forEach(id => { if ($(id)) $(id).innerHTML = opts; });
+  const addable = projects.filter(p => me && (me.is_admin || p.can_add));
+  if ($('bulkProject')) {
+    $('bulkProject').innerHTML = '<option value="__keep__">Keep</option><option value="">No project</option>'
+      + addable.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  }
 }
 async function setCrew(ids, role, value) {
   const r = await fetch('/api/flights/crew', {method: 'PUT', headers: {'Content-Type': 'application/json'},
@@ -177,12 +185,24 @@ async function applyBulk() {
     const v = $(id).value;
     if (v !== '__keep__') body[key] = v ? +v : null;
   });
-  if (Object.keys(body).length === 1) { $('bulkMsg').textContent = 'Choose a PIC, PAC or GCS.'; return; }
-  const r = await fetch('/api/flights/crew', {method: 'PUT', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body)});
-  if (!r.ok) { $('bulkMsg').textContent = ((await r.json().catch(() => ({}))).error) || 'Could not save'; return; }
+  const projectV = $('bulkProject').value;
+  const changeProject = projectV !== '__keep__';
+  if (Object.keys(body).length === 1 && !changeProject) {
+    $('bulkMsg').textContent = 'Choose a project, PIC, PAC or GCS.';
+    return;
+  }
+  if (changeProject) {
+    const r = await fetch('/api/flights/project', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({flight_ids: ids, project_id: projectV ? +projectV : null})});
+    if (!r.ok) { $('bulkMsg').textContent = ((await r.json().catch(() => ({}))).error) || 'Could not save the project'; return; }
+  }
+  if (Object.keys(body).length > 1) {
+    const r = await fetch('/api/flights/crew', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)});
+    if (!r.ok) { $('bulkMsg').textContent = ((await r.json().catch(() => ({}))).error) || 'Could not save'; return; }
+  }
   $('bulkMsg').textContent = 'Saved.';
-  ['bulkPic', 'bulkPac', 'bulkGcs'].forEach(id => { $(id).value = '__keep__'; });
+  ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs'].forEach(id => { $(id).value = '__keep__'; });
   loadFlights();
 }
 function syncEditUi() {
@@ -204,6 +224,19 @@ function chk(ids, can) {
   if (!editOn() || !can) return '<td class="chk"></td>';
   const all = ids.length > 0 && ids.every(id => selected.has(id));
   return `<td class="chk"><input type="checkbox" ${all ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel([${ids.join(',')}], this.checked)"></td>`;
+}
+function flightDay(f) {
+  if (f.date_ok) return (f.takeoff_utc || f.date_override || '').slice(0, 10);
+  return (f.date_override || '').slice(0, 10);
+}
+function inDateRange(f) {
+  const from = $('fromDate').value, to = $('toDate').value;
+  if (!from && !to) return true;
+  const day = flightDay(f);
+  if (!day) return false;
+  if (from && day < from) return false;
+  if (to && day > to) return false;
+  return true;
 }
 const text = f => [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
 
@@ -357,7 +390,7 @@ function groupRows(g) {
 
 function render() {
   const q = $('q').value.trim().toLowerCase();
-  const shown = flights.filter(f => ($('ground').checked || !['ground', 'uncertain'].includes(f.verdict)) && ($('indoor').checked || !f.indoor) && (!q || q.split(/\s+/).every(w => text(f).includes(w))));
+  const shown = flights.filter(f => ($('ground').checked || !['ground', 'uncertain'].includes(f.verdict)) && ($('indoor').checked || !f.indoor) && inDateRange(f) && (!q || q.split(/\s+/).every(w => text(f).includes(w))));
   const entries = $('combine').checked ? combine(shown, Math.max(+$('radius').value || 1, 0.1)) : shown.map(f => ({flights: [f], id: f.record_key}));
   const pages = Math.max(1, Math.ceil(entries.length / pageSize));
   page = Math.min(page, pages - 1);
@@ -399,7 +432,7 @@ function exportCsv() {
 }
 
 $('q').oninput = () => { page = 0; render(); };
-$('combine').onchange = $('radius').onchange = $('indoor').onchange = $('ground').onchange = () => { page = 0; render(); };
+$('combine').onchange = $('radius').onchange = $('indoor').onchange = $('ground').onchange = $('fromDate').onchange = $('toDate').onchange = () => { page = 0; render(); };
 window.addEventListener('editchange', toggleEdit);
 $('prev').onclick = () => { page--; render(); };
 $('next').onclick = () => { page++; render(); };

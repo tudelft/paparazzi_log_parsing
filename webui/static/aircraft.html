@@ -21,6 +21,10 @@
   .st-Development { background:var(--chip); color:var(--acc); }
   .st-Discard { background:var(--errbg); color:var(--err); }
   input.wide { width:140px; }
+  .periods { display:flex; flex-direction:column; gap:4px; min-width:280px; }
+  .period { display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
+  .period input[type=date] { width:132px; }
+  .period select { max-width:140px; }
   textarea.note { width:180px; min-height:38px; font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; resize:vertical; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
   .scroll { overflow-x:auto; }
@@ -54,7 +58,7 @@
   <div id="err"></div>
   <section class="card" id="unlinkedCard" hidden>
     <h2>Names in the logs that are not linked to an aircraft</h2>
-    <div class="mute" style="margin-bottom:8px">These are the aircraft names stored in the logs. Link them so those logs belong to a fleet aircraft (and its default project, if you set one).</div>
+    <div class="mute" style="margin-bottom:8px">These are the aircraft names stored in the logs. Link them so those logs belong to a fleet aircraft (and its project timeline).</div>
     <div class="scroll"><table><thead id="unlinkedHead"></thead><tbody id="unlinked"></tbody></table></div>
   </section>
   <section class="card">
@@ -71,7 +75,7 @@
       <label class="field">Serial<input id="uid" required maxlength="40" autocomplete="off" placeholder="TUD00000"></label>
       <label class="field">Status<select id="newStatus"><option value="">—</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select></label>
       <label class="field">Manager<input id="newManager" maxlength="80" autocomplete="off"></label>
-      <label class="field">Default project<select id="newProject"></select></label>
+      <label class="field">Project<select id="newProject"></select></label>
       <label class="field">Comments<input id="newComments" maxlength="400" autocomplete="off"></label>
       <button type="submit">Add aircraft</button>
     </form>
@@ -102,8 +106,54 @@ function toggleEdit() {
 }
 
 function projectOptions(selected) {
-  return '<option value="">No default</option>' + data.projects.map(p =>
+  return '<option value="">No project</option>' + data.projects.map(p =>
     `<option value="${p.id}"${p.id === selected ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+}
+function periodText(p) {
+  const name = p.project_name || '?';
+  if (!p.end_date) return `${name} from ${p.start_date || '?'} (current)`;
+  return `${name} ${p.start_date || '?'}–${p.end_date}`;
+}
+function projectCell(d, editing) {
+  const ps = d.projects || [];
+  if (!editing) {
+    if (ps.length) return ps.map(p => esc(periodText(p))).join('<br>');
+    return esc(d.default_project_name || d.inventory_project || '');
+  }
+  const rows = (ps.length ? ps : [{project_id: d.default_project_id, start_date: (d.bought_on || '').slice(0, 10), end_date: ''}]).map(p => periodRow(p)).join('');
+  return `<div class="periods" id="per${d.id}">${rows}</div>
+    <div class="pair" style="margin-top:4px"><button type="button" class="sec" onclick="addPeriod(${d.id})">Add period</button>
+    <button type="button" onclick="savePeriods(${d.id})">Save timeline</button></div>
+    ${d.inventory_project ? `<div class="mute">${esc(d.inventory_project)}</div>` : ''}`;
+}
+function periodRow(p) {
+  return `<div class="period">
+    <select class="p-proj">${projectOptions(p.project_id)}</select>
+    <input type="date" class="p-from" value="${esc(p.start_date || '')}" title="From">
+    <input type="date" class="p-until" value="${esc(p.end_date || '')}" title="Until — leave empty if this is the current project">
+    <button type="button" class="danger" title="Remove" onclick="this.closest('.period').remove()">×</button>
+  </div>`;
+}
+function addPeriod(id) {
+  const box = $('per' + id);
+  if (!box) return;
+  box.insertAdjacentHTML('beforeend', periodRow({project_id: '', start_date: '', end_date: ''}));
+}
+async function savePeriods(id) {
+  const box = $('per' + id);
+  if (!box) return;
+  const periods = [...box.querySelectorAll('.period')].map(row => ({
+    project_id: row.querySelector('.p-proj').value ? +row.querySelector('.p-proj').value : null,
+    start_date: row.querySelector('.p-from').value || null,
+    end_date: row.querySelector('.p-until').value || null,
+  })).filter(p => p.project_id || p.start_date || p.end_date);
+  const r = await fetch('/api/admin/drones/' + id + '/projects', {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({periods}),
+  });
+  const d = await r.json().catch(() => ({}));
+  $('err').textContent = r.ok ? '' : (d.error || 'Could not save the timeline');
+  if (r.ok) load();
 }
 
 function matches(d, q, status) {
@@ -111,7 +161,9 @@ function matches(d, q, status) {
   if (status && (d.status || '') !== status) return false;
   if (!q) return true;
   const blob = [d.name, d.unique_id, d.manager, d.status,
-    d.inventory_project, d.default_project_name, d.comments, ...(d.aliases || [])].join(' ').toLowerCase();
+    d.inventory_project, d.default_project_name, d.comments,
+    ...(d.projects || []).map(p => [p.project_name, p.start_date, p.end_date].join(' ')),
+    ...(d.aliases || [])].join(' ').toLowerCase();
   return blob.includes(q);
 }
 
@@ -141,7 +193,6 @@ function render() {
   const cols = editing ? 10 : 8;
   $('drones').innerHTML = shown.map(d => {
     const st = d.status || '';
-    const projLabel = d.default_project_name || d.inventory_project || '';
     const aliases = editing
       ? d.aliases.map(a => `<span class="chip">${esc(a)}<button title="Remove" data-alias="${esc(a)}" onclick="removeAlias(this.dataset.alias)">×</button></span>`).join('')
       : d.aliases.map(a => `<span class="chip">${esc(a)}</span>`).join('');
@@ -149,7 +200,7 @@ function render() {
       return `<tr>
       <td><a href="/aircraft/${d.id}">${esc(d.name)}</a></td><td>${esc(d.unique_id || '')}</td>
       <td>${st ? `<span class="badge st-${esc(st)}">${esc(st)}</span>` : ''}</td>
-      <td>${esc(d.manager || '')}</td><td>${esc(projLabel)}</td>
+      <td>${esc(d.manager || '')}</td><td>${projectCell(d, false)}</td>
       <td>${esc(d.comments || '')}</td><td>${d.log_count}</td><td>${aliases}</td></tr>`;
     }
     return `<tr>
@@ -157,7 +208,7 @@ function render() {
     <td><input class="wide" value="${esc(d.unique_id || '')}" maxlength="40" onchange="setField(${d.id}, 'unique_id', this.value)"></td>
     <td><select onchange="setField(${d.id}, 'status', this.value)">${statusOptions(st)}</select></td>
     <td><input class="wide" value="${esc(d.manager || '')}" maxlength="80" onchange="setField(${d.id}, 'manager', this.value)"></td>
-    <td><select onchange="setField(${d.id}, 'default_project_id', this.value)">${projectOptions(d.default_project_id)}</select>${d.inventory_project && d.inventory_project !== projLabel ? `<div class="mute">${esc(d.inventory_project)}</div>` : ''}</td>
+    <td onclick="event.stopPropagation()">${projectCell(d, true)}</td>
     <td><input class="wide" value="${esc(d.comments || '')}" maxlength="400" title="${esc(d.comments || '')}" onchange="setField(${d.id}, 'comments', this.value)"></td>
     <td>${d.log_count}</td>
     <td>${aliases}</td>
@@ -233,8 +284,8 @@ fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   $('fleetHint').textContent = d.user.is_admin
-    ? 'Each aircraft has a unique serial (TUDxxxxx) that stays with it if you rename it. The list can be filled from the organisation CSV (AC Nice Name, Serial Unique, Manager, Status, Project, Comments). Names in the logs that differ from the nice name are aliases. Removing an aircraft keeps the logs.'
-    : 'Aircraft whose default project you belong to. Each aircraft has a unique serial (TUDxxxxx). Names in the logs that differ from the nice name are aliases.';
+    ? 'Each aircraft has a unique serial (TUDxxxxx) that stays with it if you rename it. Import the organisation CSV to add the fleet; the Project column becomes the current period on that aircraft (from Date Bought, no end date). Add more periods only for airframes that moved project. Names in the logs that differ from the nice name are aliases. Removing an aircraft keeps the logs.'
+    : 'Aircraft on a project you belong to. Each aircraft has a unique serial (TUDxxxxx). Names in the logs that differ from the nice name are aliases.';
   $('add').hidden = !editOn();
   $('importRow').hidden = !editOn();
   load();
