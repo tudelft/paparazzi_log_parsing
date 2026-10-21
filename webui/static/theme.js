@@ -21,12 +21,12 @@
     window.dispatchEvent(new Event('editchange'));
   };
   const TABS = [
-    ['/', 'Uploads'],
     ['/logbook', 'Logbook'],
+    ['/', 'Uploads'],
     ['/stats', 'Statistics'],
+    ['/aircraft', 'Aircraft'],
     ['/people', 'People'],
     ['/projects', 'Projects'],
-    ['/aircraft', 'Aircraft'],
     ['/locations', 'Locations'],
   ];
 

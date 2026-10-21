@@ -141,11 +141,12 @@ fetch('/api/me').then(r => r.json()).then(async d => {
 });
 function loadFlights() { fetch('/api/logbook').then(r => r.json()).then(d => { flights = d; render(); }); }
 
-const place = (lat, lon, name) => lat == null ? (name ? esc(name) : '<span class="mute" title="No GPS fix">no GPS</span>') :
+const entityLink = (kind, id, name) => id != null ? `<a href="/${kind}/${id}">${esc(name)}</a>` : esc(name);
+const place = (lat, lon, name, id) => id != null ? entityLink('locations', id, name) : lat == null ? (name ? esc(name) : '<span class="mute" title="No GPS fix">no GPS</span>') :
   `<a ${name ? '' : 'class="mono" '}target="_blank" rel="noopener" title="${lat.toFixed(5)}, ${lon.toFixed(5)}" href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}">${esc(name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`)}</a>`;
 const person = (f, role) => {
   const u = f[role + '_user'], raw = f[role];
-  if (u) return esc(u.display_name);
+  if (u) return entityLink('people', u.id, u.display_name);
   return raw ? esc(raw) : '';
 };
 const editOn = () => window.editMode();
@@ -276,7 +277,7 @@ function projectOptions(selected) {
     `<option value="${p.id}"${p.id === selected ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
 }
 function projectCell(f) {
-  if (!editOn() || !f.can_edit_project) return esc(f.project_name || '');
+  if (!editOn() || !f.can_edit_project) return entityLink('projects', f.project_id, f.project_name || '');
   const ids = (f.sources || []).map(s => s.flight_id).join(',');
   return `<select onclick="event.stopPropagation()" onchange="setFlightProject(${f.flight_id}, this.value, [${ids}])">${projectOptions(f.project_id)}</select>`;
 }
@@ -370,6 +371,7 @@ function combine(list, radiusKm) {
     g.max_from_takeoff_m = fl.reduce((s, f) => Math.max(s, f.max_from_takeoff_m || 0), 0);
     g.landing_utc = last.landing_utc;
     g.landing_lat = last.landing_lat; g.landing_lon = last.landing_lon; g.landing_place = last.landing_place;
+    g.landing_place_id = last.landing_place_id;
     const uniq = k => [...new Set(fl.map(f => f[k]).filter(Boolean))];
     g.goals = uniq('goal');
     g.comments = uniq('comment');
@@ -399,15 +401,15 @@ async function setLogDate(logId, value) {
   if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the date'); return; }
   loadFlights();
 }
-const cells = (f, o) => `${chk(o.ids, o.canEdit)}${dateTd(f)}<td>${esc(fmtHm(f.takeoff_utc))}</td><td>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</td>
-    <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${o.sources}</td><td>${esc(f.aircraft)}${f.aircraft_uid ? ` <span class="mute">${esc(f.aircraft_uid)}</span>` : ''}${verdictMark(f)}</td>
+const cells = (f, o, landingPlaceId) => `${chk(o.ids, o.canEdit)}${dateTd(f)}<td>${esc(fmtHm(f.takeoff_utc))}</td><td>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</td>
+    <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${o.sources}</td><td><span${f.aircraft_uid ? ` title="${esc(f.aircraft_uid)}"` : ''}>${entityLink('aircraft', f.drone_id, f.aircraft)}</span>${verdictMark(f)}</td>
     <td>${o.project}</td>
-    <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place)}</td>
+    <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place, f.takeoff_place_id)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place, landingPlaceId)}</td>
     <td>${crewSelect(f, 'pic', o.ids)}</td><td>${crewSelect(f, 'pac', o.ids)}</td><td>${crewSelect(f, 'gcs', o.ids)}</td><td>${esc(o.goal)}</td><td>${esc(o.comment)}</td>`;
 
 function flightRows(f, cls = '') {
   const ids = crewIds(f);
-  return `<tr class="flight ${cls}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: f.can_edit_crew})}</tr>`
+  return `<tr class="flight ${cls}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: f.can_edit_crew}, f.landing_place_id)}</tr>`
     + (open_.has(f.record_key) ? `<tr><td colspan="17" class="detail">${detail(f)}</td></tr>` : '');
 }
 
@@ -416,7 +418,7 @@ function groupRows(g) {
   const first = g.flights[0], isOpen = openGroups.has(g.id);
   const times = g.flights.map(f => `${fmtHm(f.takeoff_utc)}–${fmtHm(f.landing_utc) || '?'}`).join(', ');
   const ids = [...new Set(g.flights.flatMap(crewIds))];
-  return `<tr class="group" data-gid="${g.id}" title="${esc(times)}">${cells(first, {landing_utc: g.landing_utc, count: (isOpen ? '▾ ' : '▸ ') + g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: projectCell(first), ids, canEdit: g.flights.every(f => f.can_edit_crew)})}</tr>`
+  return `<tr class="group" data-gid="${g.id}" title="${esc(times)}">${cells(first, {landing_utc: g.landing_utc, count: (isOpen ? '▾ ' : '▸ ') + g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: projectCell(first), ids, canEdit: g.flights.every(f => f.can_edit_crew)}, g.landing_place_id)}</tr>`
     + (isOpen ? g.flights.map(f => flightRows(f, 'sub')).join('') : '');
 }
 
