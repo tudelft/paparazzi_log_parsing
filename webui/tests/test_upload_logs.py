@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 import upload_logs as upload
 import config
-from test_historical import AppTests
+from .test_historical import AppTests
 
 
 class UploadScriptTests(unittest.TestCase):

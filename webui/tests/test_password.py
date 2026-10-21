@@ -45,7 +45,7 @@ class PasswordTests(unittest.TestCase):
                          check_password_hash=check_password_hash, generate_password_hash=generate_password_hash,
                          issue_setup_token=lambda con, uid: ("new-token", "later"),
                          setup_url=lambda token: "/setup/" + token, db=db)
-        tree = ast.parse(Path(__file__).with_name("app.py").read_text())
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "app.py").read_text())
         names = {"change_password", "admin_new_setup_link", "admin_remove_password"}
         nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
         self.assertEqual(len(nodes), len(names))

@@ -2683,6 +2683,38 @@ def admin_new_setup_link(user_id):
     return jsonify(setup_url=setup_url(token), expires_at=expires_at)
 
 
+@app.put("/api/admin/users/<int:user_id>/username")
+def admin_rename_user(user_id):
+    admin_required()
+    session_required()
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or set(body) != {"username"}:
+        return jsonify(error="send only a username"), 400
+    username = body["username"]
+    if not isinstance(username, str):
+        return jsonify(error="username must be 1-40 characters with no spaces"), 400
+    username = username.strip()
+    if not username or len(username) > 40 or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in username):
+        return jsonify(error="username must be 1-40 characters with no spaces or control characters"), 400
+    con = conn()
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        user = con.execute("SELECT username FROM users WHERE id=?", (user_id,)).fetchone()
+        if user is None:
+            return jsonify(error="no such user"), 404
+        if con.execute("SELECT 1 FROM users WHERE username=? AND id!=?", (username, user_id)).fetchone():
+            return jsonify(error="that username already exists"), 409
+        for name in (username, user["username"]):
+            alias = con.execute("SELECT user_id FROM user_aliases WHERE alias=?", (name,)).fetchone()
+            if alias and alias["user_id"] != user_id:
+                return jsonify(error="a username conflicts with another person's log alias; resolve the alias first"), 409
+        if username != user["username"]:
+            if not con.execute("SELECT 1 FROM user_aliases WHERE alias=?", (user["username"],)).fetchone():
+                con.execute("INSERT INTO user_aliases(user_id,alias) VALUES (?,?)", (user_id, user["username"]))
+            con.execute("UPDATE users SET username=? WHERE id=?", (username, user_id))
+    return jsonify(ok=True)
+
+
 @app.put("/api/admin/users/<int:user_id>")
 def admin_update_user(user_id):
     admin_required()

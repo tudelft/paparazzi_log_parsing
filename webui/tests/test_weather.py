@@ -90,7 +90,7 @@ class WeatherTests(unittest.TestCase):
 
     def test_endpoint_visibility_and_explicit_fetch(self):
         # Load only the route, without starting the application's parse workers.
-        source = Path(__file__).with_name("app.py").read_text()
+        source = (Path(__file__).resolve().parents[1] / "app.py").read_text()
         module = ast.parse(source)
         self.assertTrue(any(isinstance(n, ast.Import) and any(a.name == "weather" for a in n.names)
                             for n in module.body), "weather must be imported during normal server startup")

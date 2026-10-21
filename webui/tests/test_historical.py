@@ -16,7 +16,7 @@ class AppTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Load the actual app and its routes, without starting ingest/parse workers or touching stored logs.
-        path = Path(__file__).with_name("app.py")
+        path = Path(__file__).resolve().parents[1] / "app.py"
         tree = ast.parse(path.read_text())
         stop = next(i for i, n in enumerate(tree.body)
                     if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)

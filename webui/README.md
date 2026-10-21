@@ -188,6 +188,18 @@ generated in `<WEB_DATA>/saml/` and are part of the backup (losing them means re
 creates a non-admin account, linked to an existing local account with the same email. Give people access to projects
 on the Projects page.
 
+### Tests
+
+Regression tests live in `tests/`. From the repository root, run them with the project's Python environment:
+
+```sh
+cd webui
+python -m unittest discover -s tests -t . -v
+```
+
+For a focused run, use module names such as `python -m unittest tests.test_people tests.test_password`.
+App tests use temporary storage and in-memory databases, without starting ingestion workers or using real logs.
+
 ### Interface layout
 
 Pages use a compact heading hierarchy with regular-weight supporting text. Longer instructions are
@@ -204,6 +216,10 @@ upload evidence for that person, or review/delete submissions. Filters include p
 and people awaiting qualification review. The approval queue on People opens the relevant person's
 Qualifications tab, enabling Edit if needed. The queue is hidden when empty; type settings are
 in a separate People section visible in Edit mode.
+Admins can rename usernames in the Account tab. Usernames must be unique (case-insensitive),
+1-40 characters and contain no spaces or control characters. The old username is kept as a log alias,
+not an alternative login. Passwords, SSO identity links, project memberships and existing records stay
+attached to the same person. Names conflicting with another person's log alias must be resolved first.
 
 Pilot pages are read-only and show only each type's current approved qualification, including expired
 approvals clearly marked as expired. Pending claims, previous submissions and evidence

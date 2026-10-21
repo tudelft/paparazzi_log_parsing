@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 
 import mav_parse
-from test_historical import AppTests
+from .test_historical import AppTests
 
 
 def _tiny_ulog(path):

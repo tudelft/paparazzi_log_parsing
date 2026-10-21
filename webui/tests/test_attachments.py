@@ -13,7 +13,7 @@ from urllib.parse import quote
 import attachments
 import db
 import storage
-import test_historical
+from . import test_historical
 
 
 class AttachmentTests(test_historical.AppTests):

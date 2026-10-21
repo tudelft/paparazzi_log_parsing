@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import qualifications
 import db
-from test_historical import AppTests
+from .test_historical import AppTests
 
 PDF = b"%PDF-1.4\nTest evidence\n%%EOF\n"
 PNG = b"\x89PNG\r\n\x1a\n" + b"test"

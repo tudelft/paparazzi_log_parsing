@@ -338,7 +338,11 @@ function renderPersonPanel() {
         <label class="field">New alias<input id="new${id}" required maxlength="80"></label><button type="submit">Add alias</button></form>` : ''}`;
   } else {
     const project = people.projects.find(p => p.id === user.default_project_id);
-    $('personContent').innerHTML = `<p><strong>Username:</strong> ${esc(user.username)}</p>
+    $('personContent').innerHTML = `${editing ? `<form class="panel-row" onsubmit="event.preventDefault();saveUsername(${id})">
+      <label class="field">Username<input id="username${id}" required maxlength="40" autocomplete="off" value="${esc(user.username)}"></label>
+      <button type="submit">Save username</button></form>
+      <p class="mute">Changes the local sign-in name. The old username remains a log alias, not a login. Existing records and SSO links stay attached.</p>`
+      : `<p><strong>Username:</strong> ${esc(user.username)}</p>`}
       <p><strong>Sign-in:</strong> ${signInLabel(user)}${user.is_admin ? ' · Administrator' : ''}</p>
       ${editing ? `<form class="panel-row" onsubmit="event.preventDefault();saveEmail(${id})">
         <label class="field">Email<input id="mail${id}" type="email" maxlength="120" value="${esc(user.email || '')}"></label>
@@ -352,6 +356,18 @@ function renderPersonPanel() {
         ${user.provider === 'local' && user.has_password ? `<button type="button" class="danger" onclick="removePassword(${id})">Remove password</button>` : ''}</div>` : ''}
       ${editing && id !== me.id ? `<p><button type="button" class="danger" onclick="removeUser(${id})">Remove user</button></p>` : ''}`;
   }
+}
+
+async function saveUsername(id) {
+  try {
+    await adminApi(`/api/admin/users/${id}/username`, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:$('username' + id).value})
+    });
+    $('err').textContent = '';
+    me = await adminApi('/api/me').then(data => data.user);
+    await load();
+  } catch (error) { $('err').textContent = error.message; }
 }
 
 async function saveQualificationType(event, id) {
