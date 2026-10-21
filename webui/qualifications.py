@@ -8,7 +8,7 @@ import sqlite3
 import uuid
 from pathlib import Path
 
-from flask import Response, g, jsonify, request
+from flask import Response, g, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 import db
@@ -114,6 +114,18 @@ def qualifications_payload(con, viewer, user_id):
         max_evidence_bytes=MAX_EVIDENCE_BYTES)
 
 
+def current_payload(con, viewer, user_id):
+    if not can_see_quals(con, viewer, user_id):
+        return None
+    return dict(items=[
+        dict(category=r["category"], valid_until=r["valid_until"], status="approved",
+             expired=bool(r["valid_until"] and r["valid_until"] < datetime.date.today().isoformat()))
+        for r in con.execute(
+            "SELECT t.name AS category,q.valid_until FROM qualification_submissions q"
+            " JOIN qualification_types t ON t.id=q.type_id WHERE q.user_id=? AND q.status='approved'"
+            " ORDER BY t.name", (user_id,))])
+
+
 class QualificationError(ValueError):
     def __init__(self, message, status=400):
         super().__init__(message)
@@ -154,7 +166,7 @@ def private_subject(con, user, uid):
 
 def visible_submission(con, user, sid):
     row = con.execute(
-        "SELECT q.*,t.name AS category,t.requires_evidence,t.active FROM qualification_submissions q"
+        "SELECT q.*,t.name AS category,t.requires_evidence,t.requires_expiry,t.active FROM qualification_submissions q"
         " JOIN qualification_types t ON t.id=q.type_id WHERE q.id=?", (sid,)).fetchone()
     if row is None or not can_see_quals(con, user, row["user_id"]):
         raise QualificationError("No such qualification.", 404)
@@ -176,6 +188,25 @@ def evidence_format(path, compressed, filename):
 
 def register(app, connection, root, require_session):
     app.config["QUALIFICATION_EVIDENCE_DIR"] = Path(root) / "qualification-evidence"
+
+    @app.get("/qualifications.js")
+    def qualifications_script():
+        return send_from_directory(Path(__file__).parent / "static", "qualifications.js")
+
+    @app.get("/api/admin/qualification-types")
+    def list_qualification_types():
+        admin()
+        return jsonify(types=[dict(r) for r in connection().execute("SELECT * FROM qualification_types ORDER BY name")])
+
+    @app.get("/api/admin/qualification-pending")
+    def qualification_pending():
+        admin()
+        rows = connection().execute(
+            "SELECT q.id,q.user_id,t.name AS category,q.valid_until,q.submitted_at,"
+            " COALESCE(u.display_name,u.username) AS person FROM qualification_submissions q"
+            " JOIN users u ON u.id=q.user_id JOIN qualification_types t ON t.id=q.type_id"
+            " WHERE q.status='pending' ORDER BY q.id").fetchall()
+        return jsonify(submissions=[dict(r) for r in rows])
 
     @app.errorhandler(QualificationError)
     def qualification_error(exc):
@@ -199,28 +230,33 @@ def register(app, connection, root, require_session):
     @app.put("/api/qualification-types/<int:type_id>")
     def save_qualification_type(type_id=None):
         admin()
-        body = json_body(("name", "requires_evidence", "active"))
+        body = json_body(("name", "requires_evidence", "requires_expiry", "active"))
         name = body.get("name")
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
             raise QualificationError("Type name must be 1-80 characters.")
-        if type(body.get("requires_evidence")) is not bool or type(body.get("active", True)) is not bool:
-            raise QualificationError("Evidence requirement and active must be true or false.")
+        if (type(body.get("requires_evidence")) is not bool
+                or type(body.get("requires_expiry", False)) is not bool
+                or type(body.get("active", True)) is not bool):
+            raise QualificationError("Evidence requirement, expiry requirement and active must be true or false.")
         con = connection()
         try:
             with db.write_lock, con:
                 con.execute("BEGIN IMMEDIATE")
                 if type_id is not None:
-                    if not con.execute("SELECT 1 FROM qualification_types WHERE id=?", (type_id,)).fetchone():
+                    existing = con.execute("SELECT * FROM qualification_types WHERE id=?", (type_id,)).fetchone()
+                    if existing is None:
                         raise QualificationError("No such qualification type.", 404)
-                    con.execute("UPDATE qualification_types SET name=?,requires_evidence=?,active=? WHERE id=?",
-                                (name.strip(), body["requires_evidence"], body.get("active", True), type_id))
+                    requires_expiry = body.get("requires_expiry", bool(existing["requires_expiry"]))
+                    con.execute("UPDATE qualification_types SET name=?,requires_evidence=?,requires_expiry=?,active=? WHERE id=?",
+                                (name.strip(), body["requires_evidence"], requires_expiry, body.get("active", True), type_id))
                 else:
-                    type_id = con.execute("INSERT INTO qualification_types(name,requires_evidence,active)"
-                                          " VALUES (?,?,?)", (name.strip(), body["requires_evidence"],
+                    requires_expiry = body.get("requires_expiry", False)
+                    type_id = con.execute("INSERT INTO qualification_types(name,requires_evidence,requires_expiry,active)"
+                                          " VALUES (?,?,?,?)", (name.strip(), body["requires_evidence"], requires_expiry,
                                                               body.get("active", True))).lastrowid
                 audit(con, None, g.user["id"], "type-updated",
                       dict(type_id=type_id, name=name.strip(), requires_evidence=body["requires_evidence"],
-                           active=body.get("active", True)))
+                           requires_expiry=requires_expiry, active=body.get("active", True)))
         except sqlite3.IntegrityError as exc:
             if "qualification_types.name" not in str(exc):
                 raise
@@ -269,6 +305,8 @@ def register(app, connection, root, require_session):
                     raise QualificationError("Choose an active qualification type.")
                 if kind["requires_evidence"] and staged is None:
                     raise QualificationError("This qualification requires evidence.")
+                if kind["requires_expiry"] and until is None:
+                    raise QualificationError("This qualification requires an expiry date.")
                 if con.execute("SELECT 1 FROM qualification_submissions WHERE user_id=? AND type_id=? AND status='pending'",
                                (user_id, tid)).fetchone():
                     raise QualificationError("There is already a pending submission for this type. Withdraw it first.", 409)
@@ -308,6 +346,8 @@ def register(app, connection, root, require_session):
             if action == "approve":
                 if not row["active"]:
                     raise QualificationError("This qualification type is disabled.")
+                if row["requires_expiry"] and not row["valid_until"]:
+                    raise QualificationError("An expiry date is required before approval. Withdraw and resubmit with an expiry date.")
                 if row["requires_evidence"] and (
                         not row["evidence_path"] or not (evidence_root() / row["evidence_path"]).is_file()):
                     raise QualificationError("Evidence must be available before approval.")
@@ -357,6 +397,7 @@ def register(app, connection, root, require_session):
 
     @app.get("/api/users/<int:user_id>/qualification-audit")
     def qualification_history(user_id):
+        admin()
         con = connection()
         private_subject(con, g.user, user_id)
         rows = con.execute(

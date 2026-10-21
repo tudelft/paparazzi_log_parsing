@@ -232,6 +232,7 @@ CREATE TABLE IF NOT EXISTS qualification_types (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
     requires_evidence INTEGER NOT NULL CHECK(requires_evidence IN (0,1)),
+    requires_expiry INTEGER NOT NULL DEFAULT 0 CHECK(requires_expiry IN (0,1)),
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
 );
 CREATE TABLE IF NOT EXISTS qualification_submissions (
@@ -311,6 +312,9 @@ def connect(path):
 def init(path):
     con = connect(path)
     con.executescript(SCHEMA)
+    if "requires_expiry" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_types)")}:
+        con.execute("ALTER TABLE qualification_types ADD COLUMN requires_expiry"
+                    " INTEGER NOT NULL DEFAULT 0 CHECK(requires_expiry IN (0,1))")
     cols = {r["name"] for r in con.execute("PRAGMA table_info(logs)")}
     if "uploaded_by" not in cols:  # database created before accounts existed
         con.execute("ALTER TABLE logs ADD COLUMN uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL")

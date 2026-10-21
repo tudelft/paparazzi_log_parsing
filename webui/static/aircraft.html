@@ -58,13 +58,13 @@
 <main>
   <div id="err"></div>
   <section class="card" id="unlinkedCard" hidden>
-    <h2>Names in the logs that are not linked to an aircraft</h2>
-    <div class="mute" style="margin-bottom:8px">Paparazzi logs usually already have the fleet name. PX4 logs do not: they show the airframe type plus the flight-controller id (for example <code>quad_x 00500040</code>). Link that once to the real aircraft; later logs from the same board attach automatically. The upload folder is only a hint, and is never used when more than one aircraft could match.</div>
+    <div class="section-heading"><h2>Unlinked aircraft names</h2>
+    <details><summary>Help</summary><p>Paparazzi logs usually already have the fleet name. PX4 logs do not: they show the airframe type plus the flight-controller id (for example <code>quad_x 00500040</code>). Link that once to the real aircraft; later logs from the same board attach automatically. The upload folder is only a hint, and is never used when more than one aircraft could match.</p></details></div>
     <div class="scroll"><table><thead id="unlinkedHead"></thead><tbody id="unlinked"></tbody></table></div>
   </section>
   <section class="card">
-    <h2>Aircraft and their aliases</h2>
-    <div class="mute" id="fleetHint">Each aircraft has a unique serial (TUDxxxxx) that stays with it if the name changes. Names in the logs that differ from the nice name are aliases.</div>
+    <div class="section-heading"><h2>Aircraft and aliases</h2>
+    <details><summary>Help</summary><p id="fleetHint">Each aircraft has a unique serial (TUDxxxxx) that stays with it if the name changes. Names in the logs that differ from the nice name are aliases.</p></details></div>
     <div class="pending" id="pending" hidden></div>
     <div class="row">
       <label class="field">Filter<input id="q" placeholder="Filter by name, serial, person, project…"></label>

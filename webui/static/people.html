@@ -5,6 +5,7 @@
 <title>People</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/theme.js"></script>
+<script src="/qualifications.js"></script>
 <link rel="stylesheet" href="/theme.css">
 <style>
   :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --err:#cf222e; }
@@ -39,6 +40,27 @@
   #err { color:var(--err); margin-bottom:8px; }
   .pair { display:flex; align-items:center; gap:8px; white-space:nowrap; }
   .pair input { width:150px; }
+  .people-layout { display:grid; grid-template-columns:minmax(240px,320px) minmax(0,1fr); gap:16px; margin-top:16px; align-items:start; }
+  .people-picker, #personPanel { border:1px solid var(--line); border-radius:8px; padding:16px; background:var(--detail); }
+  #personPanel { border-top:4px solid var(--acc); background:var(--card); }
+  .person-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
+  #personHeading { font-size:20px; margin:0; }
+  #personIdentity { color:var(--mute); margin:4px 0 12px; }
+  .people-list { max-height:65vh; overflow:auto; }
+  .person-button { display:block; text-align:left; width:100%; margin:4px 0; padding:10px; border:1px solid var(--line); background:var(--card); color:var(--txt); overflow-wrap:anywhere; }
+  .person-button[aria-pressed="true"] { border-color:var(--acc); border-left:5px solid var(--acc); background:var(--hover); }
+  .selected-marker { display:block; color:var(--txt); font-size:12px; font-weight:700; margin-top:4px; }
+  .person-button small { display:block; color:var(--mute); }
+  .tabs { display:flex; gap:4px; flex-wrap:wrap; margin:16px 0 0; border-bottom:2px solid var(--line); }
+  .tabs [role="tab"] { background:var(--sec); color:var(--txt); border:1px solid var(--line); border-bottom:3px solid transparent; border-radius:6px 6px 0 0; padding:10px 14px; margin-bottom:-2px; }
+  .tabs [aria-selected="true"] { background:var(--card); border-bottom-color:var(--acc); font-weight:700; }
+  .tabs [role="tab"]:focus-visible, .person-button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+  #personContent { padding-top:16px; }
+  .panel-row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin:12px 0; }
+  input, select { max-width:100%; min-width:0; }
+  #personPanel, #personContent { min-width:0; overflow-wrap:anywhere; }
+  #typeSettings form { display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
+  @media (max-width:760px) { .people-layout { grid-template-columns:1fr; } .people-list { max-height:32vh; } }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -51,15 +73,19 @@
 <main>
   <div id="err"></div>
   <section class="card" id="unlinkedCard" hidden>
-    <h2>Names in the logs that are not linked to a user</h2>
-    <div class="mute" style="margin-bottom:8px">PIC/PAC/GCS names that could not be turned into a profile automatically. Link them by hand if they belong to someone already listed.</div>
+    <div class="section-heading"><h2>Unlinked crew names</h2>
+    <details><summary>Help</summary><p>PIC/PAC/GCS names that could not be turned into a profile automatically. Link them by hand if they belong to someone already listed.</p></details></div>
     <div class="scroll"><table><thead><tr><th>Name in log</th><th>Seen</th><th>Link to user</th></tr></thead><tbody id="unlinked"></tbody></table></div>
   </section>
   <section class="card">
-    <h2>People</h2>
-    <div class="mute" id="peopleHint">Accounts that can sign in. Names from the logs are matched to these accounts.</div>
+    <div class="section-heading"><h2>People</h2>
+    <details><summary>Help</summary>
+    <p id="peopleHint">Accounts that can sign in. Names from the logs are matched to these accounts.</p>
+    </details></div>
     <div class="pending" id="pending" hidden></div>
-    <form id="addUser" class="editOnly" hidden onsubmit="addUser(event)">
+    <details class="editOnly" id="addUserSection" hidden>
+    <summary>Add user</summary>
+    <form id="addUser" onsubmit="addUser(event)">
       <label class="field">Username<input id="newUser" required maxlength="40" autocomplete="off"></label>
       <label class="field">Display name<input id="newName" maxlength="80" autocomplete="off"></label>
       <label class="field">Email<input id="newEmail" type="email" required maxlength="120" autocomplete="off"></label>
@@ -67,12 +93,49 @@
       <label class="field" style="padding-bottom:6px">Admin<input type="checkbox" id="newAdmin"></label>
       <button type="submit">Add user</button>
     </form>
+    </details>
     <div id="setupBox" hidden>
       <strong id="setupHint"></strong>
       <input id="setupUrl" readonly>
       <div style="margin-top:8px"><button type="button" class="sec" onclick="copySetup()">Copy link</button> <span id="copied" class="mute"></span></div>
     </div>
-    <div class="scroll"><table><thead id="usersHead"></thead><tbody id="users"></tbody></table></div>
+    <div id="adminPeople" hidden>
+      <div class="people-layout">
+        <div class="people-picker">
+          <label class="field">Search people<input type="search" id="peopleSearch" placeholder="Name, username, email or alias" oninput="renderPeopleList()"></label>
+          <label class="field">Show<select id="peopleFilter" onchange="renderPeopleList()">
+            <option value="all">All people</option><option value="pending">Not active yet</option>
+            <option value="admin">Administrators</option><option value="review">Awaiting qualification review</option>
+          </select></label>
+          <p class="mute" id="peopleCount" role="status"></p>
+          <div class="people-list" id="peopleList"></div>
+        </div>
+        <section id="personPanel" aria-label="Selected person">
+          <div class="person-header">
+            <h2 id="personHeading">No person selected</h2>
+            <a id="personLink" hidden>View pilot page</a>
+          </div>
+          <p id="personIdentity">Choose a person from the list to see their account, aliases and qualifications here.</p>
+          <div class="tabs" role="tablist" aria-label="Person management" id="personTabs" hidden>
+            <button type="button" role="tab" id="tab-account" aria-controls="personContent" onclick="selectPersonTab('account')">Account</button>
+            <button type="button" role="tab" id="tab-aliases" aria-controls="personContent" onclick="selectPersonTab('aliases')">Aliases</button>
+            <button type="button" role="tab" id="tab-qualifications" aria-controls="personContent" onclick="selectPersonTab('qualifications')">Qualifications</button>
+          </div>
+          <div id="personContent" role="tabpanel"></div>
+        </section>
+      </div>
+    </div>
+    <div class="scroll" id="directoryTable"><table><thead id="usersHead"></thead><tbody id="users"></tbody></table></div>
+  </section>
+  <section class="card" id="approvalSection" hidden>
+    <div class="section-heading"><h2>Qualification approval queue</h2>
+    <details><summary>Help</summary><p>Select a submission to review its evidence in that person's Qualifications tab.</p></details></div>
+    <div id="approvalQueue"></div>
+  </section>
+  <section class="card" id="typesSection" hidden>
+    <div class="section-heading"><h2>Qualification types</h2>
+    <details><summary>Help</summary><p>Admins define types and evidence requirements here. Turn on Edit to change settings.</p></details></div>
+    <div id="typeSettings"></div>
   </section>
 </main>
 <script>
@@ -86,12 +149,21 @@ window.fetch = async (...args) => {
 };
 let people = {users: [], unlinked: []};
 let me = null;
+let selectedPerson = null, selectedTab = 'account', qualificationManager = null;
+let qualificationTypes = [], pendingQualifications = [];
+let panelGeneration = 0;
 
 async function load() {
   if (me && me.is_admin) {
     const r = await fetch('/api/admin/people');
     if (!r.ok) { $('err').textContent = 'Could not load people.'; return; }
     people = await r.json();
+    try {
+      const [types, queue] = await Promise.all([
+        adminApi('/api/admin/qualification-types'), adminApi('/api/admin/qualification-pending')]);
+      qualificationTypes = types.types;
+      pendingQualifications = queue.submissions;
+    } catch (error) { $('err').textContent = error.message; return; }
   } else {
     const d = await fetch('/api/people-directory').then(r => r.json());
     people = {users: d.users || [], unlinked: [], projects: []};
@@ -124,6 +196,10 @@ function qualBits(q) {
 function render() {
   const admin = !!(me && me.is_admin);
   const editing = admin && window.editMode();
+  $('adminPeople').hidden = !admin;
+  $('directoryTable').hidden = admin;
+  $('approvalSection').hidden = !admin;
+  $('typesSection').hidden = !admin;
   const open = admin ? people.unlinked.length : 0;
   document.querySelectorAll('.editOnly').forEach(el => { el.hidden = !editing; });
   if (!editing) $('setupBox').hidden = true;
@@ -135,18 +211,11 @@ function render() {
     ? bits.join(', and ') + '. Turn on Edit in the menu to link them.'
     : '';
   $('peopleHint').textContent = editing
-    ? 'Manage private qualifications and evidence on each person’s page. Admins can upload for anyone and approve claims. Users can submit their own claims. Names from logs get a pending profile. Removing a user keeps their uploaded logs.'
+    ? 'Search and select a person to manage their account, aliases and private qualifications. Users submit their own evidence on My account. Removing a user keeps their uploaded logs.'
+    : admin ? 'Search and select a person to view account details, aliases and private qualifications. Turn on Edit to make changes.'
     : 'Accounts that can sign in. Names from logs get a profile marked Not active yet until that person signs in.';
   if (admin && !editing) {
-    const projName = id => ((people.projects || []).find(p => p.id === id) || {}).name || '';
-    $('usersHead').innerHTML = '<tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Qualifications</th><th>Aliases</th><th>Password</th></tr>';
-    $('users').innerHTML = people.users.map(u => `<tr><td>${nameCell(u)}</td>
-      <td>${esc(u.email || '')}</td><td>${signInLabel(u)}</td>
-      <td>${esc(projName(u.default_project_id))}</td>
-      <td>${qualBits(u.qualifications) || '<span class="mute">—</span>'}</td>
-      <td>${(u.aliases || []).map(a => `<span class="chip">${esc(a)}</span>`).join('')}</td>
-      <td class="mute">${u.provider === 'saml' ? 'Managed by identity provider' : u.has_password ? 'Chosen' : 'Waiting'}</td></tr>`).join('')
-      || '<tr><td colspan="7" class="mute">No people yet.</td></tr>';
+    renderAdminPeople();
     return;
   }
   if (!admin) {
@@ -164,16 +233,140 @@ function render() {
   $('unlinked').innerHTML = people.unlinked.map((e, i) => `<tr><td>${esc(e.name)}</td><td>${e.count}×</td>
     <td><select id="sel${i}">${opts}</select> <button onclick="addAlias(${i}, null)">Link</button></td></tr>`).join('')
     || '<tr><td colspan="3" class="mute">Everything is linked.</td></tr>';
-  $('usersHead').innerHTML = '<tr><th>User</th><th>Email</th><th>Sign-in</th><th>Default project</th><th>Qualifications</th><th>Aliases</th><th>Add alias</th><th>Password</th><th></th></tr>';
-  $('users').innerHTML = people.users.map(u => `<tr><td>${nameCell(u)}</td>
-    <td><div class="pair"><input id="mail${u.id}" type="email" value="${esc(u.email || '')}" placeholder="email" maxlength="120"><button class="sec" onclick="saveEmail(${u.id})">Save</button></div></td>
-    <td>${signInLabel(u)}</td>
-    <td><select onchange="setUserProject(${u.id}, this.value)">${'<option value="">No default</option>' + (people.projects || []).map(p => `<option value="${p.id}"${p.id === u.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></td>
-    <td>${qualBits(u.qualifications) || '<span class="mute">—</span>'}</td>
-    <td>${(u.aliases || []).map(a => `<span class="chip">${esc(a)}<button title="Remove" data-alias="${esc(a)}" onclick="removeAlias(this.dataset.alias)">×</button></span>`).join('')}</td>
-    <td><div class="pair"><input id="new${u.id}" placeholder="alias"><button onclick="addAlias(null, ${u.id})">Add</button></div></td>
-    <td>${['local', 'log'].includes(u.provider) ? `${u.has_password ? '<span class="mute">Chosen</span>' : '<span class="mute">Not set</span>'} <button class="sec" onclick="newSetupLink(${u.id})">${u.has_password ? 'Reset password' : 'Set password'}</button>${u.provider === 'local' && u.has_password ? ` <button class="danger" onclick="removePassword(${u.id})">Remove password</button>` : ''}` : '<span class="mute">Managed by identity provider</span>'}</td>
-    <td>${me && u.id === me.id ? '<span class="mute">you</span>' : `<button class="danger" onclick="removeUser(${u.id})">Remove</button>`}</td></tr>`).join('');
+  renderAdminPeople();
+}
+
+async function adminApi(url, options) {
+  const r = await fetch(url, options);
+  const data = await r.json().catch(() => { throw new Error(`Invalid server response (${r.status}). Reload before retrying.`); });
+  if (!r.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+function renderAdminPeople() {
+  renderPeopleList();
+  renderPersonPanel();
+  $('approvalQueue').innerHTML = pendingQualifications.map(s =>
+    `<div class="panel-row"><strong>${esc(s.person)}</strong> ${esc(s.category)} · ${esc(s.valid_until || 'expiry not recorded')}
+      <span class="mute">${esc(s.submitted_at)}</span>
+      <button type="button" onclick="selectPerson(${s.user_id},'qualifications')">Review submission</button></div>`).join('')
+    || '<p class="mute">No submissions awaiting approval.</p>';
+  const editing = window.editMode();
+  $('typeSettings').innerHTML = qualificationTypes.map(t => editing ? `<form onsubmit="saveQualificationType(event,${t.id})">
+    <input aria-label="Type name" name="name" value="${esc(t.name)}" required maxlength="80">
+    <label><input type="checkbox" name="requires_evidence" ${t.requires_evidence ? 'checked' : ''}> Evidence required</label>
+    <label><input type="checkbox" name="requires_expiry" ${t.requires_expiry ? 'checked' : ''}> Expiry required</label>
+    <label><input type="checkbox" name="active" ${t.active ? 'checked' : ''}> Active</label><button type="submit">Save type</button></form>`
+    : `<p><strong>${esc(t.name)}</strong> · ${t.requires_evidence ? 'Evidence required' : 'Evidence optional'} · ${t.requires_expiry ? 'Expiry required' : 'Expiry optional'} · ${t.active ? 'Active' : 'Disabled'}</p>`).join('')
+    + (editing ? `<form onsubmit="saveQualificationType(event)">
+      <input name="name" aria-label="New qualification type" placeholder="e.g. A1/A3, A2, RT licence" required maxlength="80">
+      <label><input type="checkbox" name="requires_evidence" checked> Evidence required</label>
+      <label><input type="checkbox" name="requires_expiry"> Expiry required</label>
+      <button type="submit">Add type</button></form>` : '');
+}
+
+function renderPeopleList() {
+  const query = $('peopleSearch').value.trim().toLocaleLowerCase();
+  const filter = $('peopleFilter').value;
+  const rows = people.users.filter(u => [u.display_name,u.username,u.email,...(u.aliases || [])].filter(Boolean)
+    .some(v => v.toLocaleLowerCase().includes(query)) && (filter === 'all'
+      || filter === 'pending' && notActive(u) || filter === 'admin' && u.is_admin
+      || filter === 'review' && pendingQualifications.some(s => s.user_id === u.id)));
+  $('peopleCount').textContent = `${rows.length} of ${people.users.length} people`;
+  $('peopleList').innerHTML = rows.map(u => `<button type="button" class="person-button" aria-pressed="${u.id === selectedPerson}"
+    onclick="selectPerson(${u.id})">${esc(u.display_name || u.username)}
+    <small>${esc(u.username)} · ${signInLabel(u)}${u.is_admin ? ' · Admin' : ''}</small>
+    ${u.id === selectedPerson ? '<span class="selected-marker">Selected</span>' : ''}
+    ${pendingQualifications.some(s => s.user_id === u.id) ? '<small>Qualification review pending</small>' : ''}</button>`).join('')
+    || '<p class="mute">No matching people.</p>';
+}
+
+function selectPerson(id, tab = 'account') {
+  selectedPerson = id;
+  selectedTab = tab;
+  $('setupBox').hidden = true;
+  renderPeopleList();
+  renderPersonPanel();
+  $('personPanel').scrollIntoView({block:'nearest'});
+}
+
+function selectPersonTab(tab) {
+  selectedTab = tab;
+  renderPersonPanel();
+}
+
+$('personTabs').addEventListener('keydown', event => {
+  if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+  event.preventDefault();
+  const tabs = ['account','aliases','qualifications'];
+  const index = tabs.indexOf(selectedTab);
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2
+    : (index + (event.key === 'ArrowRight' ? 1 : 2)) % 3;
+  selectPersonTab(tabs[next]);
+  $('tab-' + selectedTab).focus();
+});
+
+function renderPersonPanel() {
+  const generation = ++panelGeneration;
+  const user = people.users.find(u => u.id === selectedPerson);
+  $('personTabs').hidden = !user;
+  $('personLink').hidden = !user;
+  $('personHeading').textContent = user ? (user.display_name || user.username) : 'No person selected';
+  $('personIdentity').textContent = user ? `@${user.username}`
+    : 'Choose a person from the list to see their account, aliases and qualifications here.';
+  if (!user) { $('personContent').textContent = ''; return; }
+  $('personLink').href = '/people/' + user.id;
+  $('personLink').textContent = 'View pilot page';
+  for (const tab of ['account','aliases','qualifications']) {
+    $('tab-' + tab).setAttribute('aria-selected', String(selectedTab === tab));
+    $('tab-' + tab).tabIndex = selectedTab === tab ? 0 : -1;
+  }
+  $('personContent').setAttribute('aria-labelledby', 'tab-' + selectedTab);
+  const editing = window.editMode();
+  const id = user.id;
+  if (selectedTab === 'qualifications') {
+    $('personContent').innerHTML = '<div id="personQualifications">Loading qualifications...</div>';
+    qualificationManager = new QualificationManager($('personQualifications'), id, true, () => {
+      if (generation === panelGeneration) return load();
+    });
+    qualificationManager.editing = editing;
+    qualificationManager.load();
+  } else if (selectedTab === 'aliases') {
+    $('personContent').innerHTML = `<p class="mute">Aliases link PIC/PAC/GCS names in logs to this person.</p>
+      ${(user.aliases || []).map(alias => `<span class="chip">${esc(alias)}${editing
+        ? `<button type="button" aria-label="Remove alias ${esc(alias)}" data-alias="${esc(alias)}" onclick="removeAlias(this.dataset.alias)">×</button>` : ''}</span>`).join('') || '<p>No aliases.</p>'}
+      ${editing ? `<form class="panel-row" onsubmit="event.preventDefault();addAlias(null,${id})">
+        <label class="field">New alias<input id="new${id}" required maxlength="80"></label><button type="submit">Add alias</button></form>` : ''}`;
+  } else {
+    const project = people.projects.find(p => p.id === user.default_project_id);
+    $('personContent').innerHTML = `<p><strong>Username:</strong> ${esc(user.username)}</p>
+      <p><strong>Sign-in:</strong> ${signInLabel(user)}${user.is_admin ? ' · Administrator' : ''}</p>
+      ${editing ? `<form class="panel-row" onsubmit="event.preventDefault();saveEmail(${id})">
+        <label class="field">Email<input id="mail${id}" type="email" maxlength="120" value="${esc(user.email || '')}"></label>
+        <button type="submit">Save email</button></form>
+        <label class="field">Default project<select onchange="setUserProject(${id},this.value)">
+        <option value="">No default</option>${people.projects.map(p => `<option value="${p.id}"${p.id === user.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>`
+        : `<p><strong>Email:</strong> ${esc(user.email || 'Not set')}</p><p><strong>Default project:</strong> ${esc(project?.name || 'No default')}</p>`}
+      <p><strong>Password:</strong> ${user.provider === 'saml' ? 'Managed by identity provider' : user.has_password ? 'Chosen' : 'Not set'}</p>
+      ${editing && ['local','log'].includes(user.provider) ? `<div class="panel-row">
+        <button type="button" onclick="newSetupLink(${id})">${user.has_password ? 'Reset password' : 'Set password'}</button>
+        ${user.provider === 'local' && user.has_password ? `<button type="button" class="danger" onclick="removePassword(${id})">Remove password</button>` : ''}</div>` : ''}
+      ${editing && id !== me.id ? `<p><button type="button" class="danger" onclick="removeUser(${id})">Remove user</button></p>` : ''}`;
+  }
+}
+
+async function saveQualificationType(event, id) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const body = {name:form.elements.name.value,requires_evidence:form.elements.requires_evidence.checked,
+    requires_expiry:form.elements.requires_expiry.checked,
+    active:id ? form.elements.active.checked : true};
+  try {
+    await adminApi('/api/qualification-types' + (id ? '/' + id : ''),
+      {method:id ? 'PUT' : 'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    $('err').textContent = '';
+    await load();
+  } catch (error) { $('err').textContent = error.message; }
 }
 
 function showSetup(url, username, hasPassword, expiresAt) {
@@ -201,13 +394,17 @@ async function addUser(ev) {
   const data = await r.json();
   $('err').textContent = '';
   $('addUser').reset();
+  $('addUserSection').open = false;
   showSetup(data.setup_url, username, false, data.expires_at);
-  load();
+  selectedPerson = data.id;
+  selectedTab = 'account';
+  await load();
 }
 async function setUserProject(id, value) {
   const r = await fetch('/api/admin/users/' + id, {method: 'PUT', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({default_project_id: value ? +value : null})});
   $('err').textContent = r.ok ? '' : (((await r.json().catch(() => ({}))).error) || 'failed');
+  if (r.ok) load();
 }
 async function saveEmail(id) {
   const r = await fetch('/api/admin/users/' + id, {method: 'PUT', headers: {'Content-Type': 'application/json'},

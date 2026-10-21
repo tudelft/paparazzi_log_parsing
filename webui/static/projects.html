@@ -49,8 +49,8 @@
 <main>
   <div id="err"></div>
   <section class="card">
-    <h2>Projects</h2>
-    <div class="mute" id="hint">A project is a separate set of flight logs. Click a row to see who is on it.</div>
+    <div class="section-heading"><h2>Projects</h2>
+    <details><summary>Help</summary><p id="hint">A project is a separate set of flight logs. Click a row to see who is on it.</p></details></div>
     <form class="row" id="add" hidden onsubmit="addProject(event)">
       <label class="field">Name<input id="name" required maxlength="80"></label>
       <button type="submit">Create project</button>

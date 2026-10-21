@@ -1,10 +1,13 @@
 import hashlib
 import io
 import json
+import sqlite3
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import qualifications
+import db
 from test_historical import AppTests
 
 PDF = b"%PDF-1.4\nTest evidence\n%%EOF\n"
@@ -81,7 +84,7 @@ class QualificationTests(AppTests):
             self.sign_in(uid)
             self.assertEqual(self.listing().status_code, 404)
             self.assertEqual(self.client.get(file_url).status_code, 404)
-            self.assertEqual(self.client.get("/api/users/2/qualification-audit").status_code, 404)
+            self.assertEqual(self.client.get("/api/users/2/qualification-audit").status_code, 403)
             self.assertEqual(self.review(sid, "withdraw").status_code, 404)
             detail = self.client.get("/api/detail/people/2")
             if detail.status_code == 200:
@@ -235,3 +238,134 @@ class QualificationTests(AppTests):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(self.review(sid).status_code, 400)
         self.assertEqual(self.row(sid)["status"], "pending")
+
+    def test_pilot_page_exposes_only_current_approved_summaries(self):
+        old = self.submit(until="2020-01-01").json["id"]
+        self.review(old)
+        new = self.submit(until="2030-01-01").json["id"]
+        self.review(new)
+        expired_type = self.create_type("Expired licence", False)
+        expired = self.submit(tid=expired_type, content=None, until="2020-01-01").json["id"]
+        self.review(expired)
+        self.submit(until="2031-01-01")
+        expected = [
+            dict(category="A1/A3", valid_until="2030-01-01", status="approved", expired=False),
+            dict(category="Expired licence", valid_until="2020-01-01", status="approved", expired=True)]
+        for uid in (1, 2):
+            self.sign_in(uid)
+            data = self.client.get("/api/detail/people/2").json["item"]["qualifications"]
+            self.assertEqual(data, {"items": expected})
+            self.assertEqual(len(self.listing().json["items"]), 4)
+        self.sign_in(3)
+        self.assertIsNone(self.client.get("/api/detail/people/2").json["item"].get("qualifications"))
+
+    def test_people_admin_type_settings_and_pending_queue(self):
+        sid = self.submit().json["id"]
+        types = self.client.get("/api/admin/qualification-types")
+        self.assertEqual(types.status_code, 200)
+        self.assertEqual(types.json["types"][0]["id"], self.tid)
+        self.assertIn("no-store", types.headers["Cache-Control"])
+        queue = self.client.get("/api/admin/qualification-pending")
+        self.assertEqual(queue.status_code, 200)
+        self.assertEqual(queue.json["submissions"][0]["id"], sid)
+        self.assertEqual(queue.json["submissions"][0]["user_id"], 2)
+        self.assertEqual(queue.json["submissions"][0]["person"], "Pilot")
+        self.assertNotIn("evidence_path", queue.json["submissions"][0])
+        self.assertIn("no-store", queue.headers["Cache-Control"])
+        for uid in (2, 3, 4):
+            self.sign_in(uid)
+            self.assertEqual(self.client.get("/api/admin/qualification-pending").status_code, 403)
+            self.assertEqual(self.client.get("/api/admin/qualification-types").status_code, 403)
+        self.sign_in(1)
+        self.review(sid)
+        self.assertEqual(self.client.get("/api/admin/qualification-pending").json["submissions"], [])
+
+    def test_qualification_history_is_admin_only_even_for_record_owner(self):
+        self.submit()
+        for uid in (2, 3, 4, 5):
+            self.sign_in(uid)
+            response = self.client.get("/api/users/2/qualification-audit")
+            self.assertEqual(response.status_code, 403)
+            self.assertNotIn("events", response.json)
+            self.assertIn("no-store", response.headers["Cache-Control"])
+        self.sign_in(1)
+        response = self.client.get("/api/users/2/qualification-audit")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["events"][0]["action"], "submitted")
+
+    def test_per_type_expiry_requirement_submission_and_approval(self):
+        tid = self.create_type("Expiry-controlled", False)
+        pending = self.submit(tid=tid, content=None, until="").json["id"]
+        settings = dict(name="Expiry-controlled", requires_evidence=False, requires_expiry=True)
+        self.assertEqual(self.client.put(f"/api/qualification-types/{tid}", json=settings).status_code, 200)
+        self.assertEqual(self.review(pending).status_code, 400)
+        self.assertEqual(self.row(pending)["status"], "pending")
+        self.review(pending, "withdraw")
+        for uid in (1, 2):
+            self.sign_in(uid)
+            response = self.submit(tid=tid, content=None, until="")
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("expiry date", response.json["error"])
+            self.assertEqual(self.submit(tid=tid, content=None, until="invalid").status_code, 400)
+            self.assertTrue(next(t for t in self.listing().json["types"] if t["id"] == tid)["requires_expiry"])
+        sid = self.submit(tid=tid, content=None, until="2030-01-01").json["id"]
+        self.sign_in(1)
+        self.assertEqual(self.review(sid).status_code, 200)
+        self.assertEqual(self.submit(content=None, until="").status_code, 400)  # Evidence is independently required.
+        self.assertEqual(self.submit(until="").status_code, 201)  # Other types still allow no expiry.
+        for value in ("true", 1, None, []):
+            self.assertEqual(self.client.put(f"/api/qualification-types/{tid}",
+                                            json={**settings, "requires_expiry": value}).status_code, 400)
+        self.client.put(f"/api/qualification-types/{tid}",
+                        json=dict(name="Expiry-controlled", requires_evidence=False))
+        self.assertEqual(self.con.execute("SELECT requires_expiry FROM qualification_types WHERE id=?", (tid,)).fetchone()[0], 1)
+        self.client.put(f"/api/qualification-types/{tid}", json={**settings, "requires_expiry": False})
+        self.assertEqual(self.submit(tid=tid, content=None, until="").status_code, 201)
+
+    def test_expiry_requirement_creation_and_existing_database_upgrade(self):
+        response = self.client.post("/api/qualification-types", json=dict(
+            name="New expiry type", requires_evidence=False, requires_expiry=True))
+        self.assertEqual(response.status_code, 200)
+        tid = response.json["id"]
+        self.assertEqual(self.submit(tid=tid, content=None, until="").status_code, 400)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "legacy.sqlite"
+            con = sqlite3.connect(path)
+            con.row_factory = sqlite3.Row
+            self.addCleanup(con.close)
+            con.execute("CREATE TABLE qualification_types (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                        " name TEXT NOT NULL UNIQUE COLLATE NOCASE, requires_evidence INTEGER NOT NULL,"
+                        " active INTEGER NOT NULL DEFAULT 1)")
+            con.execute("INSERT INTO qualification_types(name,requires_evidence) VALUES ('Legacy',1)")
+            con.commit()
+            with patch.object(db, "connect", return_value=con):
+                for _ in range(2):
+                    db.init(path)
+                    row = con.execute("SELECT * FROM qualification_types").fetchone()
+                    self.assertEqual(row["name"], "Legacy")
+                    self.assertEqual(row["requires_expiry"], 0)
+            con.close()
+
+    def test_management_page_assets_and_read_only_pilot_page(self):
+        with self.client.get("/qualifications.js") as response:
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("no-store", response.headers["Cache-Control"])
+        with self.client.get("/people") as response:
+            people = response.get_data(as_text=True)
+        with self.client.get("/account") as response:
+            account = response.get_data(as_text=True)
+        with self.client.get("/people/2") as response:
+            pilot = response.get_data(as_text=True)
+        self.assertIn('id="peopleSearch"', people)
+        self.assertIn('id="personTabs"', people)
+        self.assertIn('id="typeSettings"', people)
+        self.assertIn('id="approvalQueue"', people)
+        self.assertNotIn("1. Choose a person", people)
+        self.assertNotIn("2. Selected person", people)
+        self.assertIn('class="section-heading"', people)
+        self.assertIn("<summary>Help</summary>", people)
+        self.assertIn('id="myQualifications"', account)
+        self.assertIn('src="/qualifications.js"', account)
+        self.assertNotIn('submitQualification', pilot)
+        self.assertNotIn('qualificationHistory', pilot)
+        self.assertNotIn('saveQualificationType', pilot)

@@ -188,20 +188,40 @@ generated in `<WEB_DATA>/saml/` and are part of the backup (losing them means re
 creates a non-admin account, linked to an existing local account with the same email. Give people access to projects
 on the Projects page.
 
+### Interface layout
+
+Pages use a compact heading hierarchy with regular-weight supporting text. Longer instructions are
+available through expandable **Help** disclosures; field requirements, errors and sharing warnings
+remain visible alongside the relevant controls.
+
 ### Private licences and qualifications
 
-Open a person's page and enable Edit to manage qualifications. The **entire record**, including type,
-expiry, approval history and evidence, is visible only to that person and administrators. Sharing a
+Users upload and manage their own qualifications on **My account**, alongside password settings.
+Admins use **People**: search by name, username, email or alias, then select someone to open their
+**Account**, **Aliases** or **Qualifications** tab. Enable Edit to change account settings, manage aliases,
+upload evidence for that person, or review/delete submissions. Filters include pending accounts, admins
+and people awaiting qualification review. The approval queue on People opens the relevant person's
+Qualifications tab; type settings are in a separate People section.
+
+Pilot pages are read-only and show only each type's current approved qualification, including expired
+approvals clearly marked as expired. Pending claims, previous submissions and evidence
+remain in My account and the admin per-person management panel, not the pilot page.
+**Qualification history (the audit of submission, review and deletion actions) is admin-only**,
+available in the admin per-person panel, never on My account. Its API requires an admin browser session.
+Qualification records, including type,
+expiry, submission status and evidence, are visible only to that person and administrators. Sharing a
 project never grants access. Use these private uploads, not flight/log attachments, for licence evidence.
 
-An admin first adds types under **Configure types and evidence requirements**, for example `A1/A3`, `A2`,
-`RT licence` or an internal qualification. Each type has an evidence-required switch and can be disabled.
+An admin first adds types under **Qualification types** on People, for example `A1/A3`, `A2`,
+`RT licence` or an internal qualification. Each type has evidence-required and expiry-required switches and can be disabled.
 Types have no hard-coded proof rules. Disabling a type stops submissions and approvals, without erasing
-previous approvals. Changing the evidence requirement also applies to pending submissions.
+previous approvals. Changing either requirement also applies to pending submissions at approval time.
+An existing submission without a newly required expiry must be withdrawn and resubmitted; approved records
+are not changed retroactively. Existing types keep expiry optional after upgrading.
 
 Users submit claims for themselves; **admins can also upload evidence and submit claims for any user**.
 Attach one PDF, JPEG or PNG per submission, up to **20 MiB**. Required-evidence types cannot be submitted
-or approved without a file. Optional-evidence types still require approval. An expiry date is optional;
+or approved without a file. Optional-evidence types still require approval. An expiry date is required only when configured for the type;
 blank means unknown/not applicable, not indefinitely valid. File extensions and file signatures are checked,
 but this is not antivirus scanning. Downloads are forced attachments, not embedded previews.
 
@@ -216,7 +236,7 @@ Older evidence stays available privately after renewal, rejection or withdrawal 
 Admins can delete evidence alone (keeping the record) or delete the entire submission. Deleting evidence
 does not revoke an existing approval; removing that approval requires deleting its record. Files are removed
 from application storage, while minimal submission/review/deletion events are retained in the audit table
-(latest 100 shown per person). Remove private records before deleting a user to avoid orphaned evidence.
+(latest 100 shown per person to admins only). Remove private records before deleting a user to avoid orphaned evidence.
 API keys can read permitted records, but uploads, reviews, deletions and type changes require a browser session.
 
 Evidence is stored separately from shared attachments under `<LOG_DIR>/qualification-evidence/`, with opaque

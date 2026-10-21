@@ -714,9 +714,9 @@ def user_public(u):
 @app.after_request
 def no_cache_pages(resp):
     if request.path in ("/api/people-directory", "/api/admin/people") or request.path.startswith((
-            "/api/detail/people/", "/api/users/", "/api/qualification-", "/api/admin/users/")):
+            "/api/detail/people/", "/api/users/", "/api/qualification-", "/api/admin/qualification-", "/api/admin/users/")):
         resp.headers["Cache-Control"] = "private, no-store"
-    if resp.mimetype == "text/html" or request.path in ("/theme.css", "/theme.js", "/attachments.js"):
+    if resp.mimetype == "text/html" or request.path in ("/theme.css", "/theme.js", "/attachments.js", "/qualifications.js"):
         resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -3477,7 +3477,7 @@ def detail_person(con, uid, admin, mine):
     if admin or uid == g.user["id"]:
         out.update(email=u["email"], created_at=u["created_at"], last_login=u["last_login"])
     if qualifications.can_see_quals(con, g.user, uid):
-        out["qualifications"] = qualifications.qualifications_payload(con, g.user, uid)
+        out["qualifications"] = qualifications.current_payload(con, g.user, uid)
         out["names"] = names
     return out
 

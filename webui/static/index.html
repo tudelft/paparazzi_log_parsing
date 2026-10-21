@@ -55,9 +55,11 @@
 <main>
   <section class="card">
     <div id="drop">
-      <strong>Drop log files, zip archives or folders here</strong>
-      <div>Paparazzi .data and .log files must come as a pair with the same name. PX4 .ulg, ArduPilot .bin / .log and MAVLink .tlog files are uploaded on their own. Zips and folders may mix all of those. Files are accepted quickly; fingerprinting, duplicates and parsing run in the background. The list below shows 10 logs per page by default, newest first. For hundreds of logs, drop a zip or a folder — picking thousands of files one by one can freeze the browser.</div>
+      <div class="section-heading"><h2>Drop log files, zip archives or folders here</h2>
+      <details><summary>Help</summary>
+      <p>Paparazzi .data and .log files must come as a pair with the same name. PX4 .ulg, ArduPilot .bin / .log and MAVLink .tlog files are uploaded on their own. Zips and folders may mix all of those. Files are accepted quickly; fingerprinting, duplicates and parsing run in the background. The list below shows 10 logs per page by default, newest first. For hundreds of logs, drop a zip or a folder — picking thousands of files one by one can freeze the browser.</p>
       <div class="mute" style="margin-top:8px">Project is set automatically from the aircraft (then the uploader, GCS operator or PIC). Admins can change it on a log after it is parsed.</div>
+      </details></div>
       <div class="row">
         <button type="button" id="pickFilesBtn">Select files</button>
         <button type="button" class="sec" id="pickDirBtn">Select folder</button>
