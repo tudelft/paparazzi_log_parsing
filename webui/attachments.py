@@ -1,0 +1,305 @@
+"""Shared files linked to telemetry flights, uploaded logs, and paper records."""
+import json
+import os
+import uuid
+from pathlib import Path
+from urllib.parse import quote, unquote
+
+from flask import Response, g, jsonify, request, send_file, send_from_directory
+from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.http import dump_options_header
+
+import db
+import historical
+import storage
+
+COLUMNS = {"flight": "flight_id", "log": "log_id", "paper": "record_id"}
+Error = historical.RecordError
+
+
+def target(con, user, kind, identity, edit=False):
+    if not isinstance(kind, str) or kind not in COLUMNS:
+        raise Error("Unknown attachment target.")
+    identity = historical.integer(identity, "Target ID")
+    if kind == "paper":
+        row = historical.visible(con, user, identity)
+        project, uploader = row["project_id"], None
+        label = f'Paper record {identity} - {row["date"]}'
+        url = f"/historical/{identity}"
+    else:
+        if kind == "log":
+            row = con.execute("SELECT project_id,uploaded_by,name FROM logs WHERE id=?", (identity,)).fetchone()
+            label = f'Log {identity} - {row["name"]}' if row else ""
+            url = f"/#log{identity}"
+        else:
+            row = con.execute(
+                "SELECT COALESCE(f.project_id,l.project_id) AS project_id,l.uploaded_by,"
+                " a.name,f.idx,f.takeoff_utc FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+                " JOIN logs l ON l.id=a.log_id WHERE f.id=?", (identity,)).fetchone()
+            label = f'{row["name"]} - flight {row["idx"]} - {row["takeoff_utc"] or "unknown time"}' if row else ""
+            url = f"/flight/{identity}"
+        if row is None:
+            raise Error("No such flight or log.", 404)
+        project, uploader = row["project_id"], row["uploaded_by"]
+        if not user["is_admin"] and not (
+                project is None and uploader == user["id"] or con.execute(
+                    "SELECT 1 FROM project_members WHERE user_id=? AND project_id=?",
+                    (user["id"], project)).fetchone()):
+            raise Error("No such flight or log.", 404)
+    editable = historical.can_edit(con, user, project) or project is None and uploader == user["id"]
+    if edit and not editable:
+        raise Error("Full access to every selected flight/log is required.", 403)
+    return dict(kind=kind, id=identity, label=label, url=url, can_edit=bool(editable))
+
+
+def link_targets(con, user, attachment_id):
+    links = []
+    for row in con.execute("SELECT * FROM attachment_links WHERE attachment_id=?", (attachment_id,)):
+        kind = next(k for k, column in COLUMNS.items() if row[column] is not None)
+        try:
+            item = target(con, user, kind, row[COLUMNS[kind]])
+        except Error as exc:
+            if exc.status != 404:
+                raise
+            continue  # Do not disclose the names or IDs of links in inaccessible projects.
+        links.append(dict(item, link_id=row["id"]))
+    return links
+
+
+def visible(con, user, attachment_id):
+    row = con.execute("SELECT * FROM attachments WHERE id=?", (attachment_id,)).fetchone()
+    links = link_targets(con, user, attachment_id) if row else []
+    if not links:
+        raise Error("No such attachment.", 404)
+    return row, links
+
+
+def checked_targets(con, user, values):
+    if not isinstance(values, list) or not 1 <= len(values) <= 100:
+        raise Error("Select between 1 and 100 flights/logs.")
+    result = {}
+    for item in values:
+        if not isinstance(item, dict):
+            raise Error("Invalid attachment target.")
+        t = target(con, user, item.get("kind"), item.get("id"), edit=True)
+        result[(t["kind"], t["id"])] = t
+    return list(result.values())
+
+
+def add_links(con, attachment_id, targets):
+    for t in targets:
+        column = COLUMNS[t["kind"]]
+        con.execute(f"INSERT OR IGNORE INTO attachment_links(attachment_id,{column}) VALUES (?,?)",
+                    (attachment_id, t["id"]))
+
+
+def prune(con, root):
+    """Called under the write lock after commit; cleanup errors propagate for logging."""
+    rows = con.execute("SELECT id,path FROM attachments WHERE NOT EXISTS"
+                       " (SELECT 1 FROM attachment_links WHERE attachment_id=attachments.id)").fetchall()
+    for row in rows:
+        with con:
+            (root / row["path"]).unlink(missing_ok=True)
+            con.execute("DELETE FROM attachments WHERE id=?", (row["id"],))
+
+
+def snapshot(con, log_id):
+    return [dict(r) for r in con.execute(
+        "SELECT x.attachment_id,a.ac_id,f.idx,f.takeoff_time_s FROM attachment_links x"
+        " JOIN flights f ON f.id=x.flight_id JOIN aircraft a ON a.id=f.aircraft_id WHERE a.log_id=?", (log_id,))]
+
+
+def restore(con, log_id, saved):
+    for old in saved:
+        match = con.execute(
+            "SELECT f.id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+            " WHERE a.log_id=? AND a.ac_id IS ? AND f.idx IS ? AND f.takeoff_time_s IS ?",
+            (log_id, old["ac_id"], old["idx"], old["takeoff_time_s"])).fetchone()
+        add_links(con, old["attachment_id"], [
+            dict(kind="flight", id=match["id"]) if match else dict(kind="log", id=log_id)])
+
+
+def register(app, connection, root, require_session, timestamp, max_bytes):
+    root = Path(root)
+    if max_bytes <= 0:
+        raise ValueError("LOGDB_ATTACHMENT_MAX_BYTES must be positive")
+    app.config["ATTACHMENT_MAX_BYTES"] = max_bytes
+
+    @app.errorhandler(Error)
+    def attachment_error(exc):
+        return jsonify(error=str(exc)), exc.status
+
+    @app.get("/attachments")
+    def attachments_page():
+        return send_from_directory(Path(__file__).parent / "static", "attachments.html")
+
+    @app.get("/attachments.js")
+    def attachments_script():
+        return send_from_directory(Path(__file__).parent / "static", "attachments.js")
+
+    @app.get("/api/attachments/targets")
+    def attachment_targets():
+        con = connection()
+        kind, identity = request.args.get("kind"), request.args.get("id")
+        if kind is not None:
+            return jsonify(target=target(con, g.user, kind, identity),
+                           max_bytes=app.config["ATTACHMENT_MAX_BYTES"])
+        query = request.args.get("q", "").strip().casefold()
+        if len(query) < 2 and not (query.isascii() and query.isdigit()):
+            return jsonify(targets=[])
+        found = []
+        for category in COLUMNS:
+            if category == "log":
+                sql = "SELECT l.id FROM logs l WHERE (l.name LIKE ? OR CAST(l.id AS TEXT)=?)"
+                project, uploader, order = "l.project_id", "l.uploaded_by", "l.id"
+            elif category == "flight":
+                sql = ("SELECT f.id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+                       " LEFT JOIN drones d ON d.id=a.drone_id"
+                       " JOIN logs l ON l.id=a.log_id"
+                       " WHERE (a.name LIKE ? OR d.name LIKE ? OR f.takeoff_utc LIKE ? OR CAST(f.id AS TEXT)=?)")
+                project, uploader, order = "COALESCE(f.project_id,l.project_id)", "l.uploaded_by", "f.id"
+            else:
+                sql = ("SELECT r.id FROM flight_records r JOIN drones d ON d.id=r.drone_id"
+                       " WHERE (d.name LIKE ? OR r.date LIKE ? OR CAST(r.id AS TEXT)=?)")
+                project, uploader, order = "r.project_id", "NULL", "r.id"
+            if category == "log":
+                params = (f"%{query}%", query)
+            elif category == "flight":
+                params = (f"%{query}%", f"%{query}%", f"%{query}%", query)
+            else:
+                params = (f"%{query}%", f"%{query}%", query)
+            sql += (f" AND (? OR {project} IN (SELECT project_id FROM project_members WHERE user_id=? AND role='full')"
+                    f" OR ({project} IS NULL AND {uploader}=?)) ORDER BY {order} DESC LIMIT 100")
+            for r in con.execute(sql, (*params, g.user["is_admin"], g.user["id"], g.user["id"])):
+                found.append(target(con, g.user, category, r["id"], edit=True))
+        return jsonify(targets=found[:100])
+
+    @app.get("/api/attachments")
+    def list_attachments():
+        con = connection()
+        kind = request.args.get("kind")
+        t = target(con, g.user, kind, request.args.get("id"))
+        column = COLUMNS[kind]
+        ids = {r[0] for r in con.execute(f"SELECT attachment_id FROM attachment_links WHERE {column}=?", (t["id"],))}
+        if kind == "flight":
+            log = con.execute("SELECT a.log_id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE f.id=?",
+                              (t["id"],)).fetchone()
+            # Parent-log files are inherited only when the user can also see that log.
+            try:
+                target(con, g.user, "log", log["log_id"])
+            except Error as exc:
+                if exc.status != 404:
+                    raise
+            else:
+                ids.update(r[0] for r in con.execute(
+                    "SELECT attachment_id FROM attachment_links WHERE log_id=?", (log["log_id"],)))
+        result = []
+        for aid in sorted(ids, reverse=True):
+            row, links = visible(con, g.user, aid)
+            item = {k: row[k] for k in ("id", "filename", "description", "size_bytes", "stored_bytes",
+                                        "compressed", "uploaded_at", "sha256")}
+            item["links"] = links
+            item["can_share"] = all(x["can_edit"] for x in links) and len(links) == con.execute(
+                "SELECT COUNT(*) FROM attachment_links WHERE attachment_id=?", (aid,)).fetchone()[0]
+            result.append(item)
+        return jsonify(files=result, target=t, max_bytes=app.config["ATTACHMENT_MAX_BYTES"])
+
+    @app.post("/api/attachments")
+    def upload_attachment():
+        require_session()
+        limit = app.config["ATTACHMENT_MAX_BYTES"]
+        request.max_content_length = limit
+        try:
+            metadata = json.loads(unquote(request.headers.get("X-Attachment-Metadata", "")))
+        except (ValueError, UnicodeError) as exc:
+            raise Error("Invalid attachment metadata.") from exc
+        if not isinstance(metadata, dict):
+            raise Error("Invalid attachment metadata.")
+        filename = metadata.get("filename")
+        description = metadata.get("description", "")
+        if (not isinstance(filename, str) or not 1 <= len(filename) <= 255
+                or any(ord(c) < 32 or c in "/\\" for c in filename) or filename in (".", "..")):
+            raise Error("Supply a filename without directories (at most 255 characters).")
+        if not isinstance(description, str) or len(description) > 1000:
+            raise Error("Description must be at most 1000 characters.")
+        con = connection()
+        checked_targets(con, g.user, metadata.get("targets"))
+        staged = final = None
+        try:
+            try:
+                staged, compressed, size, stored, sha = storage.save_attachment(
+                    request.stream, root / ".incoming-attachments", limit)
+            except ValueError as exc:
+                raise Error(str(exc), 413 if "exceeds" in str(exc) else 400) from exc
+            relative = f"attachments/{uuid.uuid4().hex}" + (".gz" if compressed else ".bin")
+            final = root / relative
+            final.parent.mkdir(parents=True, exist_ok=True)
+            with db.write_lock, con:
+                con.execute("BEGIN IMMEDIATE")
+                targets = checked_targets(con, g.user, metadata.get("targets"))
+                os.replace(staged, final)
+                cur = con.execute(
+                    "INSERT INTO attachments(filename,description,path,compressed,size_bytes,stored_bytes,sha256,"
+                    " uploaded_by,uploaded_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (filename, description.strip(), relative, int(compressed), size, stored, sha, g.user["id"], timestamp()))
+                add_links(con, cur.lastrowid, targets)
+            final = None
+            return jsonify(id=cur.lastrowid), 201
+        except RequestEntityTooLarge:
+            return jsonify(error=f"File exceeds the {limit / (1 << 30):g} GiB limit."), 413
+        finally:
+            if staged:
+                staged.unlink(missing_ok=True)
+            if final:
+                final.unlink(missing_ok=True)
+
+    @app.get("/api/attachments/<int:attachment_id>/download")
+    def download_attachment(attachment_id):
+        row, _ = visible(connection(), g.user, attachment_id)
+        path = root / row["path"]
+        if not path.is_file():
+            raise Error("Attachment is missing from storage; contact an administrator.", 410)
+        if not row["compressed"]:
+            response = send_file(path, as_attachment=True, download_name=row["filename"],
+                                 mimetype="application/octet-stream", conditional=True)
+        else:
+            response = Response(storage.chunks(path, compressed=True), mimetype="application/octet-stream",
+                                headers={"Content-Disposition": dump_options_header(
+                                    "attachment", {"filename": row["filename"].encode("ascii", "ignore").decode() or "attachment"})
+                                    + "; filename*=UTF-8''" + quote(row["filename"], safe="")})
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
+
+    @app.post("/api/attachments/<int:attachment_id>/links")
+    def share_attachment(attachment_id):
+        require_session()
+        con = connection()
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            raise Error("Send a JSON object.")
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            visible(con, g.user, attachment_id)
+            for row in con.execute("SELECT * FROM attachment_links WHERE attachment_id=?", (attachment_id,)):
+                kind = next(k for k, column in COLUMNS.items() if row[column] is not None)
+                target(con, g.user, kind, row[COLUMNS[kind]], edit=True)
+            add_links(con, attachment_id, checked_targets(con, g.user, body.get("targets")))
+        return jsonify(ok=True)
+
+    @app.delete("/api/attachments/<int:attachment_id>/links/<int:link_id>")
+    def unlink_attachment(attachment_id, link_id):
+        require_session()
+        con = connection()
+        with db.write_lock:
+            with con:
+                con.execute("BEGIN IMMEDIATE")
+                row = con.execute("SELECT * FROM attachment_links WHERE id=? AND attachment_id=?",
+                                  (link_id, attachment_id)).fetchone()
+                if row is None:
+                    raise Error("No such attachment link.", 404)
+                kind = next(k for k, column in COLUMNS.items() if row[column] is not None)
+                target(con, g.user, kind, row[COLUMNS[kind]], edit=True)
+                con.execute("DELETE FROM attachment_links WHERE id=?", (link_id,))
+            prune(con, root)
+        return jsonify(ok=True)

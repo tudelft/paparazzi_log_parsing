@@ -26,7 +26,7 @@ SETTINGS = {
     "Storage and parsing": {
         "WEB_DATA": (str(HERE / "data"), "Local directory with the database, session key and SAML keys. Keep it on "
                                          "a local disk: SQLite must not run on a network share"),
-        "LOG_DIR": (None, "Directory for all uploaded logs and their flight paths; may be a network share "
+        "LOG_DIR": (None, "Directory for compressed logs, flight paths and attachments; may be a network share "
                           "(default: WEB_DATA/logs)"),
         "BACKUP_DIR": (None, "Where `app.py backup` writes a consistent copy of the database and keys "
                              "(overwritten each time; may be a network share)"),
@@ -34,6 +34,7 @@ SETTINGS = {
         "WORKERS": (None, "Logs parsed in parallel (default: 2-4 depending on the CPU count)"),
         "INGEST_WORKERS": ("2", "Background threads that hash, deduplicate and unzip uploads"),
         "PATH_RATE": ("5", "Flight path points stored per second (0 disables the map path)"),
+        "ATTACHMENT_MAX_BYTES": ("10737418240", "Maximum original size per attachment in bytes (default: 10 GiB)"),
     },
     "Login": {
         "COOKIE_SECURE": ("0", "1 when the site is served over https (cookies are then only sent over https)"),
@@ -185,6 +186,8 @@ def check():
             print(f"  LOGDB_{name:<18} {shown:<52} {source(name)}")
 
     errors, warnings = [], []
+    if env_int("ATTACHMENT_MAX_BYTES") <= 0:
+        errors.append("LOGDB_ATTACHMENT_MAX_BYTES must be positive")
     known = set(ALL) | CLIENT_ONLY
     for key in FILE_VALUES:
         if key not in known:
