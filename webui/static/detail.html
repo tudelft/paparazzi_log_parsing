@@ -280,7 +280,9 @@ function renderInfo() {
     html += kv('Account created', esc(fmtDate(it.created_at))) + kv('Last sign-in', esc(fmtTime(it.last_login)));
   } else if (KIND === 'aircraft') {
     html = kv('Fleet ID', esc(it.unique_id)) + kv('Status', esc(it.status))
-      + kv('Default project', it.default_project_id != null ? link('projects', it.default_project_id, it.default_project_name) : '')
+      + kv('Projects', (it.projects || []).length
+        ? it.projects.map(p => `${link('projects', p.project_id, p.project_name)} <span class="mute">${esc(p.start_date || '?')}–${p.end_date ? esc(p.end_date) : 'now'}</span>`).join('<br>')
+        : (it.default_project_id != null ? link('projects', it.default_project_id, it.default_project_name) : ''))
       + kv('Names in logs', esc([...new Set([...it.aliases, ...it.logged_names])].join(', ')))
       + kv('Aircraft IDs (ac_id)', esc(it.ac_ids.join(', ')))
       + kv('Manager', esc(it.manager)) + kv('Current user', esc(it.current_user))

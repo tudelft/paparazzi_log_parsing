@@ -242,6 +242,7 @@ def start_workers():
     con = conn()
     HAVE_PATH_GZ = "path_gz" in {r[1] for r in con.execute("PRAGMA table_info(flights)")}
     personnel.ensure_users_for_log_names(con)
+    seed_drone_projects_from_defaults(con)
     assign_open_flights(con)
     con.execute("UPDATE logs SET status='queued' WHERE status IN ('queued', 'parsing')")
     con.execute("UPDATE ingest SET status='accepted' WHERE status='hashing'")
@@ -1298,22 +1299,156 @@ def snapshot_flight_edits(con, log_id):
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id=?", (log_id,))}
 
 
-def pick_flight_project(con, row, resolve):
-    """Aircraft default if the uploader is on that project, otherwise the uploader's default, then GCS, then PIC."""
-    ac_pid = None
-    if row["drone_id"]:
-        d = con.execute("SELECT default_project_id FROM drones WHERE id=?", (row["drone_id"],)).fetchone()
-        ac_pid = live_project(con, d["default_project_id"] if d else None)
-    pid = pick_project_for_user(con, row["uploaded_by"], ac_pid)
-    if pid:
-        return pid
-    gcs = resolve("gcs", row["gcs"], None)
-    pic = resolve("gcs", row["pic"], None)  # name only; do not fall back to the uploader
-    for uid in (gcs["id"] if gcs else None, pic["id"] if pic else None):
-        pid = user_main_project(con, uid)
-        if pid:
-            return pid
+def drone_periods(con, drone_id):
+    return [dict(r) for r in con.execute(
+        "SELECT dp.id, dp.project_id, p.name AS project_name, dp.start_date, dp.end_date"
+        " FROM drone_projects dp JOIN projects p ON p.id = dp.project_id"
+        " WHERE dp.drone_id=? ORDER BY dp.start_date, dp.id", (drone_id,))]
+
+
+def project_for_drone_on(con, drone_id, day):
+    """Project this airframe was on for YYYY-MM-DD, or None if the timeline has a gap."""
+    if not drone_id or not day:
+        return None
+    row = con.execute(
+        "SELECT project_id FROM drone_projects WHERE drone_id=? AND start_date<=?"
+        " AND (end_date IS NULL OR end_date>=?) ORDER BY start_date DESC, id DESC LIMIT 1",
+        (drone_id, day, day)).fetchone()
+    return live_project(con, row["project_id"] if row else None)
+
+
+def flight_calendar_day(takeoff_utc, log_start_utc, date_override):
+    """Takeoff calendar date used to match the aircraft timeline. None if the clock is missing/1980."""
+    if date_override:
+        days = clock_shift_days(log_start_utc, date_override)
+        shifted = shift_iso(takeoff_utc, days) if days else takeoff_utc
+        dt = parse_iso_utc(shifted)
+        return dt.date().isoformat() if dt else date_override
+    raw = takeoff_utc or log_start_utc
+    if clock_implausible(raw):
+        return None
+    dt = parse_iso_utc(takeoff_utc)
+    return dt.date().isoformat() if dt else None
+
+
+def parse_loose_date(raw):
+    """YYYY-MM-DD from a fleet-list date, or None if it is not usable."""
+    if not raw or not isinstance(raw, str):
+        return None
+    s = raw.strip()
+    if not s:
+        return None
+    iso = parse_date_override(s[:10] if len(s) >= 10 and s[4] == "-" else "")
+    if iso:
+        return iso
+    for fmt, size in (("%d-%m-%Y", 10), ("%d/%m/%Y", 10), ("%Y/%m/%d", 10), ("%d.%m.%Y", 10),
+                      ("%Y-%m-%d", 10), ("%d-%m-%y", 8), ("%d/%m/%y", 8)):
+        try:
+            d = datetime.strptime(s[:size], fmt).date()
+        except ValueError:
+            continue
+        if d.year < 100:
+            d = d.replace(year=2000 + d.year)
+        if CLOCK_MIN_YEAR <= d.year <= datetime.now(timezone.utc).year + 1:
+            return d.isoformat()
     return None
+
+
+def first_flight_day(con, drone_id):
+    row = con.execute(
+        "SELECT MIN(f.takeoff_utc) AS t FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
+        " WHERE a.drone_id=? AND f.takeoff_utc IS NOT NULL AND f.takeoff_utc>=?",
+        (drone_id, f"{CLOCK_MIN_YEAR:04d}-01-01")).fetchone()
+    dt = parse_iso_utc(row["t"] if row else None)
+    return dt.date().isoformat() if dt else None
+
+
+def seed_drone_period(con, drone_id, project_id, start_date=None):
+    """Add one open-ended period if this aircraft has no timeline yet."""
+    project_id = live_project(con, project_id)
+    if not drone_id or not project_id:
+        return False
+    if con.execute("SELECT 1 FROM drone_projects WHERE drone_id=?", (drone_id,)).fetchone():
+        return False
+    start = start_date or first_flight_day(con, drone_id) or datetime.now(timezone.utc).date().isoformat()
+    con.execute(
+        "INSERT INTO drone_projects (drone_id, project_id, start_date, end_date) VALUES (?,?,?,NULL)",
+        (drone_id, project_id, start))
+    con.execute(
+        "UPDATE drones SET default_project_id=? WHERE id=? AND default_project_id IS NULL",
+        (project_id, drone_id))
+    return True
+
+
+def seed_drone_projects_from_defaults(con):
+    for d in con.execute("SELECT id, default_project_id, bought_on FROM drones"):
+        seed_drone_period(con, d["id"], d["default_project_id"], parse_loose_date(d["bought_on"]))
+
+
+def current_drone_project_id(periods):
+    open_ = [p for p in periods if not p.get("end_date")]
+    if len(open_) == 1:
+        return open_[0]["project_id"]
+    if periods:
+        return max(periods, key=lambda p: (p.get("end_date") or p["start_date"], p["start_date"]))["project_id"]
+    return None
+
+
+def validate_drone_periods(periods):
+    """periods is a list of {project_id, start_date, end_date}. Returns an error string or None."""
+    if not periods:
+        return None
+    cleaned = []
+    for p in periods:
+        pid = parse_project_id(p.get("project_id"))
+        if not pid:
+            return "each period needs a project"
+        start = parse_date_override(p.get("start_date"))
+        if not start:
+            return "each period needs a from date"
+        end = parse_date_override(p.get("end_date")) if p.get("end_date") not in (None, "") else None
+        if end is False:
+            return "enter dates as YYYY-MM-DD"
+        if end and end < start:
+            return "until must be on or after from"
+        cleaned.append({"project_id": pid, "start_date": start, "end_date": end})
+    cleaned.sort(key=lambda p: (p["start_date"], p["end_date"] or "9999-12-31"))
+    prev_end = None
+    for p in cleaned:
+        end = p["end_date"] or "9999-12-31"
+        if prev_end and p["start_date"] <= prev_end:
+            return "these dates overlap; one aircraft cannot be on two projects on the same day"
+        prev_end = end
+    return None
+
+
+def replace_drone_periods(con, drone_id, periods):
+    err = validate_drone_periods(periods)
+    if err:
+        return err
+    cleaned = []
+    for p in periods:
+        start = parse_date_override(p.get("start_date"))
+        end = parse_date_override(p.get("end_date")) if p.get("end_date") not in (None, "") else None
+        cleaned.append({"project_id": int(p["project_id"]), "start_date": start, "end_date": end})
+    con.execute("DELETE FROM drone_projects WHERE drone_id=?", (drone_id,))
+    for p in cleaned:
+        if not live_project(con, p["project_id"]):
+            return "no such project"
+        con.execute(
+            "INSERT INTO drone_projects (drone_id, project_id, start_date, end_date) VALUES (?,?,?,?)",
+            (drone_id, p["project_id"], p["start_date"], p["end_date"]))
+    current = current_drone_project_id(cleaned)
+    con.execute("UPDATE drones SET default_project_id=? WHERE id=?", (current, drone_id))
+    return None
+
+
+def pick_flight_project(con, row, resolve):
+    """Aircraft timeline on the takeoff day. People are not used to guess the project."""
+    if not row["drone_id"]:
+        return None
+    day = flight_calendar_day(row["takeoff_utc"], row["log_start_utc"], row["date_override"])
+    return project_for_drone_on(con, row["drone_id"], day)
 
 
 def assign_log_flights(con, log_id, kept=None):
@@ -1324,7 +1459,8 @@ def assign_log_flights(con, log_id, kept=None):
     if log is None:
         return
     for f in con.execute(
-            "SELECT f.id, f.idx, f.project_id, a.ac_id, a.drone_id, a.pic, a.gcs, l.uploaded_by"
+            "SELECT f.id, f.idx, f.project_id, f.takeoff_utc, a.ac_id, a.drone_id, a.pic, a.gcs,"
+            " l.uploaded_by, l.start_utc AS log_start_utc, l.date_override"
             " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id"
             " WHERE a.log_id=?", (log_id,)):
         restore = kept.get((f["ac_id"], f["idx"])) or {}
@@ -1358,18 +1494,8 @@ def assign_open_flights(con):
 
 
 def fill_drone_defaults(con, drone_id):
-    """Fill unassigned logs/flights for this drone: aircraft project if the uploader is on it, else the uploader's default."""
+    """Fill unassigned flights from this aircraft's project timeline."""
     assign_open_flights(con)
-    d = con.execute("SELECT default_project_id FROM drones WHERE id=?", (drone_id,)).fetchone()
-    ac_pid = live_project(con, d["default_project_id"] if d else None)
-    if not ac_pid:
-        return
-    for log in con.execute(
-            "SELECT DISTINCT l.id, l.uploaded_by FROM logs l JOIN aircraft a ON a.log_id = l.id"
-            " WHERE a.drone_id=? AND l.project_id IS NULL", (drone_id,)):
-        pid = pick_project_for_user(con, log["uploaded_by"], ac_pid)
-        if pid:
-            con.execute("UPDATE logs SET project_id=? WHERE id=? AND project_id IS NULL", (pid, log["id"]))
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1595,6 +1721,7 @@ def admin_delete_project(project_id):
     con.execute("UPDATE flights SET project_id=NULL WHERE project_id=?", (project_id,))
     con.execute("UPDATE drones SET default_project_id=NULL WHERE default_project_id=?", (project_id,))
     con.execute("UPDATE users SET default_project_id=NULL WHERE default_project_id=?", (project_id,))
+    con.execute("DELETE FROM drone_projects WHERE project_id=?", (project_id,))
     con.execute("DELETE FROM project_members WHERE project_id=?", (project_id,))
     con.execute("DELETE FROM projects WHERE id=?", (project_id,))
     con.commit()
@@ -1647,9 +1774,11 @@ def drone_payload(con, d):
         "SELECT alias FROM drone_aliases WHERE drone_id=? ORDER BY alias", (d["id"],))]
     n = con.execute("SELECT COUNT(DISTINCT log_id) AS n FROM aircraft WHERE drone_id=?", (d["id"],)).fetchone()["n"]
     proj = con.execute("SELECT name FROM projects WHERE id=?", (d["default_project_id"],)).fetchone() if d["default_project_id"] else None
+    periods = drone_periods(con, d["id"])
     return {"id": d["id"], "name": d["name"], "unique_id": d["unique_id"],
             "default_project_id": d["default_project_id"],
             "default_project_name": proj["name"] if proj else None,
+            "projects": periods,
             "manager": d["manager"], "current_user": d["current_user"], "status": d["status"],
             "bought_on": d["bought_on"], "inventory_project": d["inventory_project"],
             "comments": d["comments"], "aliases": aliases, "log_count": n}
@@ -1657,7 +1786,7 @@ def drone_payload(con, d):
 
 def fleet_payload(con, include_unlinked=False, project_ids=None):
     """Fleet list. Unlinked log names and the project menu are only filled when include_unlinked is true.
-    project_ids, if given, keeps only aircraft whose default project is in that set."""
+    project_ids, if given, keeps only aircraft whose default or timeline project is in that set."""
     drones, names = drone_name_map(con)
     if project_ids is None:
         rows = con.execute("SELECT * FROM drones ORDER BY name")
@@ -1665,7 +1794,10 @@ def fleet_payload(con, include_unlinked=False, project_ids=None):
         rows = []
     else:
         q = ",".join("?" * len(project_ids))
-        rows = con.execute(f"SELECT * FROM drones WHERE default_project_id IN ({q}) ORDER BY name", project_ids)
+        rows = con.execute(
+            f"SELECT * FROM drones WHERE default_project_id IN ({q})"
+            f" OR id IN (SELECT drone_id FROM drone_projects WHERE project_id IN ({q})) ORDER BY name",
+            (*project_ids, *project_ids))
     fleet = [drone_payload(con, d) for d in rows]
     unlinked, projects = [], []
     if include_unlinked:
@@ -1732,6 +1864,7 @@ def admin_add_drone():
     except sqlite3.IntegrityError:
         return jsonify(error="that ID is already used by another aircraft"), 409
     relink_all_aircraft(con)
+    seed_drone_period(con, cur.lastrowid, project_id, datetime.now(timezone.utc).date().isoformat())
     fill_drone_defaults(con, cur.lastrowid)
     con.commit()
     return jsonify(id=cur.lastrowid)
@@ -1793,9 +1926,30 @@ def admin_update_drone(drone_id):
         con.rollback()
         return jsonify(error="that name or ID is already used by another aircraft"), 409
     relink_all_aircraft(con)
+    if "default_project_id" in body:
+        seed_drone_period(con, drone_id, project_id, parse_loose_date(bought_on) or first_flight_day(con, drone_id))
     fill_drone_defaults(con, drone_id)
     con.commit()
     return jsonify(ok=True)
+
+
+@app.put("/api/admin/drones/<int:drone_id>/projects")
+def admin_set_drone_projects(drone_id):
+    """Replace this aircraft's project timeline. Empty until is the current project."""
+    admin_required()
+    body = request.get_json(silent=True) or {}
+    periods = body.get("periods")
+    if not isinstance(periods, list):
+        return jsonify(error="send a list of periods"), 400
+    con = conn()
+    if not con.execute("SELECT 1 FROM drones WHERE id=?", (drone_id,)).fetchone():
+        return jsonify(error="no such aircraft"), 404
+    err = replace_drone_periods(con, drone_id, periods)
+    if err:
+        return jsonify(error=err), 400
+    fill_drone_defaults(con, drone_id)
+    con.commit()
+    return jsonify(ok=True, projects=drone_periods(con, drone_id))
 
 
 @app.post("/api/admin/drones/import")
@@ -1872,15 +2026,18 @@ def admin_import_drones():
         try:
             if existing:
                 apply_drone_fields(con, existing["id"], fields, existing["name"])
+                drone_id = existing["id"]
                 updated += 1
             else:
-                con.execute(
+                cur = con.execute(
                     "INSERT INTO drones (name, unique_id, default_project_id, manager, current_user, status,"
                     " bought_on, inventory_project, comments, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (fields["name"], fields["unique_id"], fields["default_project_id"], fields["manager"],
                      fields["current_user"], fields["status"], fields["bought_on"], fields["inventory_project"],
                      fields["comments"], now()))
+                drone_id = cur.lastrowid
                 created += 1
+            seed_drone_period(con, drone_id, fields["default_project_id"], parse_loose_date(fields["bought_on"]))
         except sqlite3.IntegrityError as exc:
             errors.append(f"row {i}: {exc}")
     relink_all_aircraft(con)
@@ -1975,33 +2132,46 @@ def set_log_date(log_id):
 
 @app.put("/api/flights/<int:flight_id>/project")
 def set_flight_project(flight_id):
-    con = conn()
-    row = con.execute(
-        "SELECT f.id, f.project_id, l.id AS log_id, l.project_id AS log_project_id, l.uploaded_by"
-        " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id WHERE f.id=?",
-        (flight_id,)).fetchone()
-    if row is None:
-        abort(404)
-    where, params = flight_own_clause()
-    seen = con.execute(
-        "SELECT f.id FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id"
-        f" WHERE f.id=? AND {where}", (flight_id, *params)).fetchone()
-    if seen is None:
-        abort(404)
-    if not can_edit_flight_project(con, row):
-        return jsonify(error="you cannot change the project of this flight"), 403
     raw = (request.get_json(silent=True) or {}).get("project_id")
     project_id = parse_project_id(raw)
     if project_id is False:
         return jsonify(error="no such project"), 400
-    if project_id is not None and not live_project(con, project_id):
-        return jsonify(error="no such project"), 404
-    if project_id is not None and not can_upload(con, project_id) and not g.user["is_admin"]:
-        return jsonify(error="you cannot put flights in this project"), 403
-    con.execute("UPDATE flights SET project_id=? WHERE id=?", (project_id, flight_id))
+    con = conn()
+    msg, code = apply_flight_project(con, flight_id, project_id)
+    if msg == "missing":
+        abort(404)
+    if msg:
+        return jsonify(error=msg), code
     con.commit()
     name = con.execute("SELECT name FROM projects WHERE id=?", (project_id,)).fetchone() if project_id else None
     return jsonify(ok=True, project_id=project_id, project_name=name["name"] if name else None)
+
+
+@app.put("/api/flights/project")
+def set_flights_project():
+    """Set the project on several flights. null clears the project."""
+    body = request.get_json(silent=True) or {}
+    ids = body.get("flight_ids") or []
+    try:
+        ids = [int(x) for x in ids]
+    except (TypeError, ValueError):
+        return jsonify(error="choose flights"), 400
+    if not ids:
+        return jsonify(error="choose flights"), 400
+    if "project_id" not in body:
+        return jsonify(error="choose a project"), 400
+    project_id = parse_project_id(body.get("project_id"))
+    if project_id is False:
+        return jsonify(error="no such project"), 400
+    con = conn()
+    for fid in ids:
+        msg, code = apply_flight_project(con, fid, project_id)
+        if msg == "missing":
+            abort(404)
+        if msg:
+            return jsonify(error=msg), code
+    con.commit()
+    return jsonify(ok=True, updated=len(ids))
 
 
 def parse_user_id(raw):
@@ -2028,6 +2198,20 @@ def visible_editable_flight(con, flight_id):
     if not can_edit_flight_project(con, row):
         return None, "forbidden"
     return row, None
+
+
+def apply_flight_project(con, flight_id, project_id):
+    row, err = visible_editable_flight(con, flight_id)
+    if err == "missing":
+        return "missing", 404
+    if err == "forbidden":
+        return "you cannot change the project of this flight", 403
+    if project_id is not None and not live_project(con, project_id):
+        return "no such project", 404
+    if project_id is not None and not can_upload(con, project_id) and not g.user["is_admin"]:
+        return "you cannot put flights in this project", 403
+    con.execute("UPDATE flights SET project_id=? WHERE id=?", (project_id, flight_id))
+    return None, None
 
 
 def apply_flight_crew(con, flight_id, body):
@@ -3101,7 +3285,9 @@ def detail_project(con, pid):
         "SELECT m.user_id, m.role, u.username, u.display_name FROM project_members m JOIN users u ON u.id = m.user_id"
         " WHERE m.project_id=? ORDER BY COALESCE(u.display_name, u.username)", (pid,))]
     drones = [dict(r) for r in con.execute(
-        "SELECT id, name, unique_id, status FROM drones WHERE default_project_id=? ORDER BY name", (pid,))]
+        "SELECT DISTINCT d.id, d.name, d.unique_id, d.status FROM drones d"
+        " LEFT JOIN drone_projects dp ON dp.drone_id = d.id"
+        " WHERE d.default_project_id=? OR dp.project_id=? ORDER BY d.name", (pid, pid))]
     return dict(id=pid, name=p["name"], created_at=p["created_at"], members=members, drones=drones,
                 role=role_on(con, pid))
 
@@ -3160,8 +3346,12 @@ def detail(kind, item_id):
         abort(404)
     flights = [f for f in logbook_rows() if flight_matches(kind, item_id, f)]
     if not admin and not flights:
-        allowed = ((kind == "people" and (item_id == g.user["id"] or my_project_ids(con, item_id) & mine))
-                   or (kind == "aircraft" and item.get("default_project_id") in mine))
+        allowed = (kind == "people" and (item_id == g.user["id"] or my_project_ids(con, item_id) & mine))
+        if kind == "aircraft":
+            drone_pids = {p["project_id"] for p in item.get("projects") or []}
+            if item.get("default_project_id"):
+                drone_pids.add(item["default_project_id"])
+            allowed = bool(drone_pids & mine)
         if not allowed:
             abort(404)
     log_ids = {s["log_id"] for f in flights for s in f["sources"]}

@@ -84,6 +84,14 @@ CREATE TABLE IF NOT EXISTS drone_aliases (
     drone_id INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
     alias TEXT NOT NULL UNIQUE COLLATE NOCASE   -- name as it appears in the log aircraft field
 );
+CREATE TABLE IF NOT EXISTS drone_projects (
+    id INTEGER PRIMARY KEY,
+    drone_id INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    start_date TEXT NOT NULL,          -- YYYY-MM-DD this airframe joined the project
+    end_date TEXT                      -- YYYY-MM-DD last day, NULL = still on this project
+);
+CREATE INDEX IF NOT EXISTS ix_drone_projects_drone ON drone_projects(drone_id, start_date);
 CREATE TABLE IF NOT EXISTS aircraft (
     id INTEGER PRIMARY KEY,
     log_id INTEGER NOT NULL REFERENCES logs(id) ON DELETE CASCADE,
@@ -319,6 +327,14 @@ def init(path):
         if col not in dcols:
             con.execute(f"ALTER TABLE drones ADD COLUMN {col} TEXT")
     con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_drones_unique_id ON drones(unique_id COLLATE NOCASE)")
+    con.execute(
+        "CREATE TABLE IF NOT EXISTS drone_projects ("
+        " id INTEGER PRIMARY KEY,"
+        " drone_id INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,"
+        " project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,"
+        " start_date TEXT NOT NULL,"
+        " end_date TEXT)")
+    con.execute("CREATE INDEX IF NOT EXISTS ix_drone_projects_drone ON drone_projects(drone_id, start_date)")
     con.commit()
 
 
