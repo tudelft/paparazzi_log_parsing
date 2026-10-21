@@ -160,7 +160,9 @@ const KINDS = {
   locations: {label: 'Location', list: '/locations', listLabel: 'Locations'},
 };
 const ROLES = [['pic', 'PIC'], ['pac', 'PAC'], ['gcs', 'GCS operator']];
-const TYPE = {onboard_sd: 'Onboard SD', gcs: 'GCS'};
+const TYPE = {onboard_sd: 'Onboard SD', gcs: 'GCS', px4_ulog: 'PX4', ardupilot: 'ArduPilot', mavlink_tlog: 'tlog'};
+const downloadLabel = t => ({px4_ulog:'PX4 .ulg', ardupilot:'ArduPilot log', mavlink_tlog:'MAVLink .tlog',
+  gcs:'.data + .log', onboard_sd:'.data + .log'}[t] || 'log');
 const ACCESS = {view: 'See logs', add: 'Add logs', full: 'See, add and delete'};
 const PAGE_SIZES = [10, 25, 50, 100];
 let D = null, me = null, map = null, mapLayer = null;
@@ -503,7 +505,7 @@ function renderLogs() {
       <td>${esc(l.aircraft_names)}</td>
       <td>${l.project_id != null ? link('projects', l.project_id, l.project_name) : '<span class="mute">No project</span>'}</td>
       <td>${esc(l.uploaded_by_name)}<div class="mute">${esc(fmtDate(l.uploaded_at))}</div></td>
-      <td class="nowrap"><a href="/api/logs/${l.id}/download" title="Download the .data file${l.has_log ? ' and the .log file' : ''}">Download</a></td></tr>`;
+      <td class="nowrap"><a href="/api/logs/${l.id}/download" title="Download ${downloadLabel(l.log_type)}">Download</a></td></tr>`;
   }).join('') || '<tr><td colspan="9" class="mute">No log files.</td></tr>';
   $('logCount').textContent = logs.length > to - from ? `${from + 1}–${to} of ${logs.length}` : `${logs.length}`;
 }
