@@ -163,7 +163,9 @@ const fmtTime = iso => iso ? iso.replace('T', ' ').replace(/\.\d+Z$/, 'Z') : '';
 const fmtDur = s => s == null ? '' : `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, '0')}s`;
 const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km` : `${Math.round(m)} m`;
 const rel = t => { const d = t - D.takeoff_time_s, a = Math.abs(d); return (d < 0 ? '−' : '+') + Math.floor(a / 60) + ':' + String(Math.floor(a % 60)).padStart(2, '0') + '.' + String(Math.floor(a % 1 * 10)); };
-const TYPE = {onboard_sd: 'Onboard SD log', gcs: 'GCS log'};
+const TYPE = {onboard_sd: 'Onboard SD log', gcs: 'GCS log', px4_ulog: 'PX4 ULog', ardupilot: 'ArduPilot log', mavlink_tlog: 'MAVLink tlog'};
+const downloadLabel = t => ({px4_ulog:'PX4 .ulg', ardupilot:'ArduPilot log', mavlink_tlog:'MAVLink .tlog',
+  gcs:'.data + .log', onboard_sd:'.data + .log'}[t] || 'log');
 let me = null, projects = [], people = [];
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
@@ -332,7 +334,7 @@ function renderSummary() {
     </div></div>
     <details style="margin-top:12px"><summary>Log sources and upload details</summary><div class="kv src">
       ${e.sources.map(s => kv(TYPE[s.log_type] || s.log_type, `<a href="/flight/${s.flight_id}" class="${s.flight_id === flightId ? 'cur' : ''}">${esc(s.log_name)}</a>${s.flight_id === flightId ? ' <span class="mute">(shown)</span>' : ''}
-        · <a href="/api/logs/${s.log_id}/download">download .data + .log</a> · <a href="/#log${s.log_id}">log details</a>`)).join('')}
+        · <a href="/api/logs/${s.log_id}/download">download ${downloadLabel(s.log_type)}</a> · <a href="/#log${s.log_id}">log details</a>`)).join('')}
       ${kv('Uploaded', esc(fmtTime(e.uploaded_at)) + (e.uploaded_by_name ? ' by ' + esc(e.uploaded_by_name) : ''))}
     </div></details>
     <div class="actions"><a class="btn sec" href="/api/flights/${flightId}/path" target="_blank">Path JSON</a>
