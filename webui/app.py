@@ -57,7 +57,7 @@ DB_PATH = str(DATA_DIR / "logs.db")
 FASTREADER = str(env_path("FASTREADER"))
 PATH_RATE = env_float("PATH_RATE")
 # Parser binaries run in parallel; SQLite writes are still one-at-a-time (db.write_lock).
-WORKERS = env_int("WORKERS", str(max(2, min(4, os.cpu_count() or 2))))
+WORKERS = env_int("WORKERS")
 INGEST_WORKERS = env_int("INGEST_WORKERS")
 
 PAGES_DIR = HERE / "static"
@@ -309,7 +309,7 @@ def drop_stage(stage):
             break
 
 
-def insert_ingest(con, kind, name, stage_rel, data_name, log_name, size_bytes, user_id):
+def insert_ingest(con, kind, name, stage_rel, data_name, log_name, size_bytes, user_id, reservation=None):
     def go():
         with db.write_lock:
             con.execute("BEGIN IMMEDIATE")
@@ -317,6 +317,9 @@ def insert_ingest(con, kind, name, stage_rel, data_name, log_name, size_bytes, u
                 "INSERT INTO ingest (kind, name, stage_dir, data_name, log_name, size_bytes, status,"
                 " uploaded_by, uploaded_at) VALUES (?,?,?,?,?,?,'accepted',?,?)",
                 (kind, name, stage_rel, data_name, log_name, size_bytes, user_id, now()))
+            if reservation:
+                con.execute("UPDATE bulk_reservations SET ingest_id=?,uploading=0 WHERE token=?",
+                            (cur.lastrowid, reservation))
             con.commit()
             return cur.lastrowid
 
@@ -485,12 +488,92 @@ def ingest_pair(con, row):
     set_ingest(con, row["id"], status="stored", log_id=log_id)
 
 
+def pending_upload_work(con):
+    return dict(con.execute(
+        "SELECT COUNT(*) AS count, COALESCE(SUM(size_bytes),0) AS bytes FROM ("
+        " SELECT size_bytes FROM ingest WHERE status IN ('accepted','hashing')"
+        " UNION ALL SELECT size_bytes FROM logs WHERE status IN ('queued','parsing'))").fetchone())
+
+
+@app.post("/api/upload-reservations")
+def reserve_bulk_upload():
+    con = conn()
+    if not can_upload_any(con):
+        return jsonify(error="you cannot add logs"), 403
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify(error="Send a JSON object."), 400
+    token, size = body.get("token"), body.get("size_bytes")
+    if (not isinstance(token, str) or len(token) != 32 or any(c not in "0123456789abcdef" for c in token)
+            or type(size) is not int or not 0 < size <= 2**63 - 1):
+        return jsonify(error="Supply a 32-character hex token and positive size_bytes."), 400
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        con.execute("DELETE FROM bulk_reservations WHERE expires_at<?", (time.time(),))
+        existing = con.execute("SELECT * FROM bulk_reservations WHERE token=?", (token,)).fetchone()
+        if existing:
+            if existing["user_id"] != g.user["id"] or existing["size_bytes"] != size:
+                return jsonify(error="Reservation token conflict."), 409
+            return jsonify(token=token)
+        backlog = pending_upload_work(con)
+        held = con.execute("SELECT COUNT(*) AS count,COALESCE(SUM(size_bytes),0) AS bytes"
+                           " FROM bulk_reservations WHERE ingest_id IS NULL").fetchone()
+        count, size_pending = backlog["count"] + held["count"], backlog["bytes"] + held["bytes"]
+        if count and (count >= env_int("BULK_MAX_PENDING") or size_pending + size > env_int("BULK_MAX_BYTES")):
+            return jsonify(error="Bulk upload budget is full; retry later."), 429, {"Retry-After": "5"}
+        con.execute("INSERT INTO bulk_reservations(token,user_id,size_bytes,expires_at) VALUES (?,?,?,?)",
+                    (token, g.user["id"], size, time.time() + 3600))
+    return jsonify(token=token), 201
+
+
+def upload_reserved_pair(con, token):
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute("SELECT * FROM bulk_reservations WHERE token=? AND user_id=?",
+                          (token, g.user["id"])).fetchone()
+        if row is None or row["expires_at"] < time.time():
+            return jsonify(error="Bulk reservation expired; rerun the script."), 409
+        if row["ingest_id"] is not None:
+            return jsonify(results=[dict(status="accepted", ingest_id=row["ingest_id"])])
+        if row["uploading"]:
+            return jsonify(error="This upload is still being received."), 429, {"Retry-After": "5"}
+        con.execute("UPDATE bulk_reservations SET uploading=1 WHERE token=?", (token,))
+    request.max_content_length = row["size_bytes"] + (1 << 20)
+    stage_rel = uuid.uuid4().hex
+    stage = ingest_stage(stage_rel)
+    stage.mkdir(parents=True, exist_ok=True)
+    accepted = False
+    try:
+        files, names = request.files.getlist("files"), request.form.getlist("names")
+        if (len(files) != 2 or len(names) != 2 or not names[0].endswith(".data")
+                or names[1] != names[0][:-5] + ".log"):
+            return jsonify(error="Reserved uploads require exactly one .data/.log pair."), 400
+        files[0].save(stage / "log.data")
+        files[1].save(stage / "log.log")
+        size = sum((stage / name).stat().st_size for name in ("log.data", "log.log"))
+        if size != row["size_bytes"]:
+            return jsonify(error="Files changed size after reservation; rerun the script."), 400
+        iid = insert_ingest(con, "pair", clean_relpath(names[0]), stage_rel, "log.data", "log.log",
+                            size, g.user["id"], reservation=token)
+        accepted = True
+        ingest_jobs.put(iid)
+        return jsonify(results=[dict(status="accepted", ingest_id=iid)])
+    finally:
+        if not accepted:
+            drop_stage(stage)
+            with db.write_lock, con:
+                con.execute("DELETE FROM bulk_reservations WHERE token=? AND ingest_id IS NULL", (token,))
+
+
 @app.post("/api/upload")
 def upload():
     """Save files to disk and return immediately. Hashing, duplicates and parse run in the background."""
     con = conn()
     if not can_upload_any(con):
         return jsonify(error="you cannot add logs"), 403
+    reservation = request.headers.get("X-Bulk-Reservation")
+    if reservation:
+        return upload_reserved_pair(con, reservation)
     files = request.files.getlist("files")
     names = request.form.getlist("names")
     if not files:
@@ -3408,9 +3491,23 @@ def status():
         ingest_counts = {r["status"]: r["n"] for r in
                          con.execute("SELECT status, COUNT(*) n FROM ingest WHERE uploaded_by=? AND uploaded_at>=?"
                                      " GROUP BY status", (g.user["id"], cutoff))}
+    backlog = pending_upload_work(con)
     return jsonify(parser_version=current_version(), path_rate_hz=PATH_RATE, queue=jobs.qsize(), counts=counts,
                    outdated=outdated, date_unknown=date_unknown, ingest=ingest_counts, ingest_waiting=ingest_waiting,
-                   ingest_queue=ingest_jobs.qsize())
+                   ingest_queue=ingest_jobs.qsize(), backlog=dict(backlog))
+
+
+@app.get("/api/ingest/<int:ingest_id>")
+def ingest_result(ingest_id):
+    """Upload receipts remain accessible to their uploader after automatic project assignment."""
+    row = conn().execute(
+        "SELECT i.id,i.status,i.error,i.log_id,l.status AS log_status,l.error AS log_error"
+        " FROM ingest i LEFT JOIN logs l ON l.id=i.log_id"
+        " WHERE i.id=? AND (? OR i.uploaded_by=?)",
+        (ingest_id, g.user["is_admin"], g.user["id"])).fetchone()
+    if row is None:
+        abort(404)
+    return jsonify(dict(row))
 
 
 @app.get("/api/logs")

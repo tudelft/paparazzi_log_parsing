@@ -31,10 +31,12 @@ SETTINGS = {
         "BACKUP_DIR": (None, "Where `app.py backup` writes a consistent copy of the database and keys "
                              "(overwritten each time; may be a network share)"),
         "FASTREADER": (str(HERE.parent / "cpp" / "build" / "paparazzi_log_parsing"), "Parser binary"),
-        "WORKERS": (None, "Logs parsed in parallel (default: 2-4 depending on the CPU count)"),
-        "INGEST_WORKERS": ("2", "Background threads that hash, deduplicate and unzip uploads"),
+        "WORKERS": ("1", "Logs parsed in parallel; increase only with sufficient RAM and local temporary disk"),
+        "INGEST_WORKERS": ("1", "Background threads that hash, deduplicate and unzip uploads"),
         "PATH_RATE": ("5", "Flight path points stored per second (0 disables the map path)"),
         "ATTACHMENT_MAX_BYTES": ("10737418240", "Maximum original size per attachment in bytes (default: 10 GiB)"),
+        "BULK_MAX_PENDING": ("8", "Global job budget for cooperating bulk upload scripts"),
+        "BULK_MAX_BYTES": ("17179869184", "Estimated pending byte budget for bulk uploads (16 GiB)"),
     },
     "Login": {
         "COOKIE_SECURE": ("0", "1 when the site is served over https (cookies are then only sent over https)"),
@@ -188,6 +190,9 @@ def check():
     errors, warnings = [], []
     if env_int("ATTACHMENT_MAX_BYTES") <= 0:
         errors.append("LOGDB_ATTACHMENT_MAX_BYTES must be positive")
+    for setting in ("BULK_MAX_PENDING", "BULK_MAX_BYTES"):
+        if env_int(setting) <= 0:
+            errors.append(f"LOGDB_{setting} must be positive")
     known = set(ALL) | CLIENT_ONLY
     for key in FILE_VALUES:
         if key not in known:

@@ -149,10 +149,12 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `SAML_METADATA_URL` | TU Delft IdP | Identity provider metadata |
 | `SAML_ENTITY_ID` | `<PUBLIC_URL>/saml/metadata` | This service's SAML entity ID |
 | `THREADS` | `8` | Gunicorn threads (always one gunicorn process: the parse queue lives in it) |
-| `WORKERS` | 2–4, from CPU count | Logs parsed in parallel |
-| `INGEST_WORKERS` | `2` | Threads that hash, deduplicate and unzip uploads |
+| `WORKERS` | `1` | Logs parsed in parallel; increase only with sufficient RAM and temporary disk |
+| `INGEST_WORKERS` | `1` | Threads that hash, deduplicate and unzip uploads |
 | `PATH_RATE` | `5` | Flight path points per second (`0`: no map path) |
 | `ATTACHMENT_MAX_BYTES` | `10737418240` | Maximum original bytes per attachment (10 GiB) |
+| `BULK_MAX_PENDING` | `8` | Shared pending-job budget for bulk scripts |
+| `BULK_MAX_BYTES` | `17179869184` | Shared estimated-byte budget for bulk scripts (16 GiB) |
 | `FASTREADER` | `../cpp/build/paparazzi_log_parsing` | Parser binary |
 | `SESSION_HOURS` | `12` | How long a login lasts |
 | `SECRET_KEY` | generated in `<WEB_DATA>/secret_key` | Session signing key |
@@ -200,9 +202,45 @@ pairs and uploads the ones the server does not have yet (compared by SHA-256):
 
     python3 upload_logs.py ~/paparazzi/var/logs --server https://logs.example.org --key logdb_...
     python3 upload_logs.py ~/paparazzi/var/logs -n      # dry run
+    python3 upload_logs.py ~/paparazzi/var/logs --bulk  # controlled initial import
 
 `--server` and `--key` can also be set as `LOGDB_SERVER` and `LOGDB_API_KEY`; add `--insecure` for a self-signed
 certificate. The key works on every `/api/...` URL as `Authorization: Bearer <key>` and acts as you.
+
+For initial imports, use `--bulk` on **each user's script**. Compression remains server-side.
+The script uploads sequentially, polls the global pending ingestion/parsing workload, and reserves
+capacity atomically before transferring each pair. Concurrent bulk scripts share the same server budget:
+`LOGDB_BULK_MAX_PENDING=8` pending jobs and `LOGDB_BULK_MAX_BYTES=17179869184` (16 GiB estimated).
+Reservations count immediately and are exchanged for queued jobs atomically, so multiple users cannot
+all claim the same free slot. A pair larger than the byte budget is allowed only when no work/reservations
+remain. Abandoned reservations expire after one hour; an upload must start and finish within that window.
+Retrying the same reservation after a lost response returns the existing receipt, not a second upload.
+
+The script can use stricter local thresholds with `--max-pending` (default 8) and `--max-pending-gib`
+(default 16). Estimates count staged pair bytes and queued/parsing `.data` sizes; ZIP jobs use archive sizes.
+They do not reserve physical disk space or account for every temporary copy. Browser uploads and scripts
+without `--bulk` remain unchanged and do not acquire reservations, although their queued work counts
+towards the bulk budget. For the controlled initial import, have all importers use `--bulk`.
+
+The defaults target a small server (2 vCPUs / 4 GiB RAM): one parser and one ingestion worker.
+With `LOG_DIR` on Samba, waiting uploads use the share, not RAM; active parsing decompresses a pair
+under `<WEB_DATA>/tmp` on local disk. Keep `WEB_DATA` on persistent local storage, not a RAM-backed
+`/tmp`. Local free space must cover the largest uncompressed pair, parser JSON output and OS headroom;
+the 16 GiB backlog budget does not guarantee that a single large log fits locally.
+On a 20 GiB system disk with roughly 12 GiB free, start with a representative large log and monitor
+disk/memory use before the full import. Increase worker counts only after adding or verifying capacity.
+
+Bulk mode follows accepted receipts through storage and parsing, reports errors, and exits nonzero on
+failure. An upload/capacity failure stops further submissions; already accepted receipts are still checked.
+Use `--poll-seconds` (default 5) and `--max-wait-seconds` (default 3600 per wait) to tune waiting.
+Without `--bulk`, completion means accepted uploads only; parsing continues on the server.
+Dry runs do not upload, reserve capacity or wait.
+
+Transient network failures and HTTP 408/429/500/502/503/504 retry with exponential backoff and honor
+`Retry-After`. `--retries` defaults to 3 (0 disables request retries); bulk capacity waits continue up to
+their wait limit. Upload retries reopen the original files instead of keeping them in memory.
+Rerunning skips already stored pairs; existing parser-error logs are not automatically reparsed
+(use the Uploads page). A timed-out upload may still complete on the server.
 
 ## How it works
 
