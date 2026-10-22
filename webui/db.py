@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS qualification_types (
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
     requires_evidence INTEGER NOT NULL CHECK(requires_evidence IN (0,1)),
     requires_expiry INTEGER NOT NULL DEFAULT 0 CHECK(requires_expiry IN (0,1)),
+    requires_start INTEGER NOT NULL DEFAULT 0 CHECK(requires_start IN (0,1)),
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
 );
 CREATE TABLE IF NOT EXISTS qualification_submissions (
@@ -240,6 +241,7 @@ CREATE TABLE IF NOT EXISTS qualification_submissions (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     type_id INTEGER NOT NULL REFERENCES qualification_types(id),
     valid_until TEXT,
+    valid_from TEXT,
     status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','superseded','withdrawn')),
     submitted_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     submitted_at TEXT NOT NULL,
@@ -312,6 +314,11 @@ def connect(path):
 def init(path):
     con = connect(path)
     con.executescript(SCHEMA)
+    if "requires_start" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_types)")}:
+        con.execute("ALTER TABLE qualification_types ADD COLUMN requires_start"
+                    " INTEGER NOT NULL DEFAULT 0 CHECK(requires_start IN (0,1))")
+    if "valid_from" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}:
+        con.execute("ALTER TABLE qualification_submissions ADD COLUMN valid_from TEXT")
     if "requires_expiry" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_types)")}:
         con.execute("ALTER TABLE qualification_types ADD COLUMN requires_expiry"
                     " INTEGER NOT NULL DEFAULT 0 CHECK(requires_expiry IN (0,1))")

@@ -67,7 +67,7 @@ def qualifications_payload(con, viewer, user_id):
             " JOIN qualification_types t ON t.id=q.type_id LEFT JOIN users u ON u.id=q.reviewed_by"
             " WHERE q.user_id=? ORDER BY q.id DESC", (user_id,)):
         item = {key: row[key] for key in (
-            "id", "type_id", "category", "status", "valid_until", "submitted_at",
+            "id", "type_id", "category", "status", "valid_from", "valid_until", "submitted_at",
             "reviewed_at", "reviewer", "evidence_deleted_at", "filename", "requires_evidence")}
         item["has_evidence"] = bool(row["evidence_path"])
         item["expired"] = bool(row["valid_until"] and row["valid_until"] < datetime.date.today().isoformat())
@@ -81,10 +81,10 @@ def current_payload(con, viewer, user_id):
     if not can_see_quals(con, viewer, user_id):
         return None
     return dict(items=[
-        dict(category=r["category"], valid_until=r["valid_until"], status="approved",
+        dict(category=r["category"], valid_from=r["valid_from"], valid_until=r["valid_until"], status="approved",
              expired=bool(r["valid_until"] and r["valid_until"] < datetime.date.today().isoformat()))
         for r in con.execute(
-            "SELECT t.name AS category,q.valid_until FROM qualification_submissions q"
+            "SELECT t.name AS category,q.valid_from,q.valid_until FROM qualification_submissions q"
             " JOIN qualification_types t ON t.id=q.type_id WHERE q.user_id=? AND q.status='approved'"
             " ORDER BY t.name", (user_id,))])
 
@@ -101,16 +101,16 @@ def audit(con, subject_id, actor_id, action, details):
         (subject_id, actor_id, action, json.dumps(details), _utc_now()))
 
 
-def expiry(raw):
+def expiry(raw, label="Valid until"):
     if raw in (None, ""):
         return None
     if not isinstance(raw, str):
-        raise QualificationError("Expiry must be YYYY-MM-DD or empty.")
+        raise QualificationError(f"{label} must be YYYY-MM-DD or empty.")
     try:
         if datetime.date.fromisoformat(raw).isoformat() != raw:
             raise ValueError
     except ValueError as exc:
-        raise QualificationError("Expiry must be a valid YYYY-MM-DD date.") from exc
+        raise QualificationError(f"{label} must be a valid YYYY-MM-DD date.") from exc
     return raw
 
 
@@ -129,7 +129,7 @@ def private_subject(con, user, uid):
 
 def visible_submission(con, user, sid):
     row = con.execute(
-        "SELECT q.*,t.name AS category,t.requires_evidence,t.requires_expiry,t.active FROM qualification_submissions q"
+        "SELECT q.*,t.name AS category,t.requires_evidence,t.requires_expiry,t.requires_start,t.active FROM qualification_submissions q"
         " JOIN qualification_types t ON t.id=q.type_id WHERE q.id=?", (sid,)).fetchone()
     if row is None or not can_see_quals(con, user, row["user_id"]):
         raise QualificationError("No such qualification.", 404)
@@ -165,7 +165,7 @@ def register(app, connection, root, require_session):
     def qualification_pending():
         admin()
         rows = connection().execute(
-            "SELECT q.id,q.user_id,t.name AS category,q.valid_until,q.submitted_at,"
+            "SELECT q.id,q.user_id,t.name AS category,q.valid_from,q.valid_until,q.submitted_at,"
             " COALESCE(u.display_name,u.username) AS person FROM qualification_submissions q"
             " JOIN users u ON u.id=q.user_id JOIN qualification_types t ON t.id=q.type_id"
             " WHERE q.status='pending' ORDER BY q.id").fetchall()
@@ -193,14 +193,15 @@ def register(app, connection, root, require_session):
     @app.put("/api/qualification-types/<int:type_id>")
     def save_qualification_type(type_id=None):
         admin()
-        body = json_body(("name", "requires_evidence", "requires_expiry", "active"))
+        body = json_body(("name", "requires_evidence", "requires_expiry", "requires_start", "active"))
         name = body.get("name")
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
             raise QualificationError("Type name must be 1-80 characters.")
         if (type(body.get("requires_evidence")) is not bool
                 or type(body.get("requires_expiry", False)) is not bool
+                or type(body.get("requires_start", False)) is not bool
                 or type(body.get("active", True)) is not bool):
-            raise QualificationError("Evidence requirement, expiry requirement and active must be true or false.")
+            raise QualificationError("Evidence requirement, date requirements and active must be true or false.")
         con = connection()
         try:
             with db.write_lock, con:
@@ -210,16 +211,18 @@ def register(app, connection, root, require_session):
                     if existing is None:
                         raise QualificationError("No such qualification type.", 404)
                     requires_expiry = body.get("requires_expiry", bool(existing["requires_expiry"]))
-                    con.execute("UPDATE qualification_types SET name=?,requires_evidence=?,requires_expiry=?,active=? WHERE id=?",
-                                (name.strip(), body["requires_evidence"], requires_expiry, body.get("active", True), type_id))
+                    requires_start = body.get("requires_start", bool(existing["requires_start"]))
+                    con.execute("UPDATE qualification_types SET name=?,requires_evidence=?,requires_expiry=?,requires_start=?,active=? WHERE id=?",
+                                (name.strip(), body["requires_evidence"], requires_expiry, requires_start, body.get("active", True), type_id))
                 else:
-                    requires_expiry = body.get("requires_expiry", False)
-                    type_id = con.execute("INSERT INTO qualification_types(name,requires_evidence,requires_expiry,active)"
-                                          " VALUES (?,?,?,?)", (name.strip(), body["requires_evidence"], requires_expiry,
+                    requires_expiry = body.get("requires_expiry", True)
+                    requires_start = body.get("requires_start", True)
+                    type_id = con.execute("INSERT INTO qualification_types(name,requires_evidence,requires_expiry,requires_start,active)"
+                                          " VALUES (?,?,?,?,?)", (name.strip(), body["requires_evidence"], requires_expiry, requires_start,
                                                               body.get("active", True))).lastrowid
                 audit(con, None, g.user["id"], "type-updated",
                       dict(type_id=type_id, name=name.strip(), requires_evidence=body["requires_evidence"],
-                           requires_expiry=requires_expiry, active=body.get("active", True)))
+                           requires_expiry=requires_expiry, requires_start=requires_start, active=body.get("active", True)))
         except sqlite3.IntegrityError as exc:
             if "qualification_types.name" not in str(exc):
                 raise
@@ -238,11 +241,14 @@ def register(app, connection, root, require_session):
         con = connection()
         private_subject(con, g.user, user_id)
         request.max_content_length = MAX_EVIDENCE_BYTES + 1024 * 1024
-        if set(request.form) - {"type_id", "valid_until"} or set(request.files) - {"evidence"}:
-            raise QualificationError("Send only a type, expiry and optional evidence.")
+        if set(request.form) - {"type_id", "valid_from", "valid_until"} or set(request.files) - {"evidence"}:
+            raise QualificationError("Send only a type, validity dates and optional evidence.")
         if len(request.files.getlist("evidence")) > 1:
             raise QualificationError("Attach one PDF, JPEG or PNG per submission.")
         tid, until = integer(request.form.get("type_id")), expiry(request.form.get("valid_until"))
+        start = expiry(request.form.get("valid_from"), "Valid from")
+        if start and until and start > until:
+            raise QualificationError("Valid from must be on or before Valid until.")
         uploaded = request.files.get("evidence")
         staged = destination = None
         committed = False
@@ -270,6 +276,8 @@ def register(app, connection, root, require_session):
                     raise QualificationError("This qualification requires evidence.")
                 if kind["requires_expiry"] and until is None:
                     raise QualificationError("This qualification requires an expiry date.")
+                if kind["requires_start"] and start is None:
+                    raise QualificationError("This qualification requires a Valid from date.")
                 if con.execute("SELECT 1 FROM qualification_submissions WHERE user_id=? AND type_id=? AND status='pending'",
                                (user_id, tid)).fetchone():
                     raise QualificationError("There is already a pending submission for this type. Withdraw it first.", 409)
@@ -277,12 +285,12 @@ def register(app, connection, root, require_session):
                     destination = evidence_root() / (uuid.uuid4().hex + (".gz" if compressed else ".bin"))
                     os.replace(staged, destination)
                 sid = con.execute(
-                    "INSERT INTO qualification_submissions(user_id,type_id,valid_until,status,submitted_by,submitted_at,"
-                    " evidence_path,filename,mime,compressed,size_bytes) VALUES (?,?,?,'pending',?,?,?,?,?,?,?)",
-                    (user_id, tid, until, g.user["id"], _utc_now(), destination.name if destination else None,
+                    "INSERT INTO qualification_submissions(user_id,type_id,valid_from,valid_until,status,submitted_by,submitted_at,"
+                    " evidence_path,filename,mime,compressed,size_bytes) VALUES (?,?,?,?,'pending',?,?,?,?,?,?,?)",
+                    (user_id, tid, start, until, g.user["id"], _utc_now(), destination.name if destination else None,
                      filename, mime, int(compressed), size)).lastrowid
                 audit(con, user_id, g.user["id"], "submitted",
-                      dict(id=sid, category=kind["name"], valid_until=until, has_evidence=bool(destination)))
+                      dict(id=sid, category=kind["name"], valid_from=start, valid_until=until, has_evidence=bool(destination)))
             committed = True
             return jsonify(ok=True, id=sid), 201
         finally:
@@ -311,6 +319,8 @@ def register(app, connection, root, require_session):
                     raise QualificationError("This qualification type is disabled.")
                 if row["requires_expiry"] and not row["valid_until"]:
                     raise QualificationError("An expiry date is required before approval. Withdraw and resubmit with an expiry date.")
+                if row["requires_start"] and not row["valid_from"]:
+                    raise QualificationError("A Valid from date is required before approval. Withdraw and resubmit with a Valid from date.")
                 if row["requires_evidence"] and (
                         not row["evidence_path"] or not (evidence_root() / row["evidence_path"]).is_file()):
                     raise QualificationError("Evidence must be available before approval.")
@@ -320,7 +330,7 @@ def register(app, connection, root, require_session):
             con.execute("UPDATE qualification_submissions SET status=?,reviewed_by=?,reviewed_at=? WHERE id=?",
                         (state, g.user["id"], _utc_now(), sid))
             audit(con, row["user_id"], g.user["id"], state,
-                  dict(id=sid, category=row["category"], valid_until=row["valid_until"]))
+                  dict(id=sid, category=row["category"], valid_from=row["valid_from"], valid_until=row["valid_until"]))
         return jsonify(ok=True)
 
     @app.get("/api/qualification-submissions/<int:sid>/evidence")
@@ -355,7 +365,8 @@ def register(app, connection, root, require_session):
             else:
                 con.execute("DELETE FROM qualification_submissions WHERE id=?", (sid,))
             audit(con, row["user_id"], g.user["id"], "evidence-deleted" if evidence_only else "deleted",
-                  dict(id=sid, category=row["category"], valid_until=row["valid_until"], status=row["status"]))
+                  dict(id=sid, category=row["category"], valid_from=row["valid_from"],
+                       valid_until=row["valid_until"], status=row["status"]))
         return jsonify(ok=True)
 
     @app.get("/api/users/<int:user_id>/qualification-audit")

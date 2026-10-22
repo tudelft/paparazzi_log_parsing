@@ -140,7 +140,7 @@
   </section>
   <section class="card" id="typesSection" hidden>
     <div class="section-heading"><h2>Qualification types</h2>
-    <details><summary>Help</summary><p>Admins define types and evidence requirements here. Turn on Edit to change settings.</p></details></div>
+    <details><summary>Help</summary><p>Admins define qualification types here. Checked Evidence, Valid from and Valid until switches make those fields mandatory; unchecked fields are optional. Both dates start checked for new types. Turn on Edit to change settings.</p></details></div>
     <div id="typeSettings"></div>
   </section>
 </main>
@@ -190,13 +190,13 @@ function nameCell(u, extra, showUser) {
 }
 function qualBits(q) {
   if (!q) return '';
-  const bit = (label, until, dead) => {
+  const bit = (label, start, until, dead) => {
     if (!label) return '';
-    const when = until ? ` · ${esc(until.slice(0, 10))}` : '';
+    const when = (start ? ` · from ${esc(start.slice(0, 10))}` : '') + (until ? ` · until ${esc(until.slice(0, 10))}` : '');
     return `<span class="chip${dead ? ' warn' : ''}">${esc(label)}${when}${dead ? ' expired' : ''}</span>`;
   };
-  return q.items.filter(item => ['approved', 'pending'].includes(item.status))
-    .map(item => bit(item.category + ' (' + item.status + ')', item.valid_until, item.expired)).join('');
+  return q.items.filter(item => item.status === 'approved' && !item.expired)
+    .map(item => bit(item.category, item.valid_from, item.valid_until, false)).join('');
 }
 
 function render() {
@@ -253,21 +253,23 @@ function renderAdminPeople() {
   renderPeopleList();
   renderPersonPanel();
   $('approvalQueue').innerHTML = pendingQualifications.map(s =>
-    `<div class="panel-row"><strong>${esc(s.person)}</strong> ${esc(s.category)} · ${esc(s.valid_until || 'expiry not recorded')}
+    `<div class="panel-row"><strong>${esc(s.person)}</strong> ${esc(s.category)} · Valid from ${esc(s.valid_from || 'not recorded')} · Valid until ${esc(s.valid_until || 'not recorded')}
       <span class="mute">${esc(s.submitted_at)}</span>
       <button type="button" onclick="selectPerson(${s.user_id},'qualifications')">Review submission</button></div>`).join('')
     || '<p class="mute">No submissions awaiting approval.</p>';
   const editing = window.editMode();
   $('typeSettings').innerHTML = qualificationTypes.map(t => editing ? `<form onsubmit="saveQualificationType(event,${t.id})">
     <input aria-label="Type name" name="name" value="${esc(t.name)}" required maxlength="80">
-    <label><input type="checkbox" name="requires_evidence" ${t.requires_evidence ? 'checked' : ''}> Evidence required</label>
-    <label><input type="checkbox" name="requires_expiry" ${t.requires_expiry ? 'checked' : ''}> Expiry required</label>
+    <label><input type="checkbox" name="requires_evidence" ${t.requires_evidence ? 'checked' : ''}> Evidence</label>
+    <label><input type="checkbox" name="requires_start" ${t.requires_start ? 'checked' : ''}> Valid from</label>
+    <label><input type="checkbox" name="requires_expiry" ${t.requires_expiry ? 'checked' : ''}> Valid until</label>
     <label><input type="checkbox" name="active" ${t.active ? 'checked' : ''}> Active</label><button type="submit">Save type</button></form>`
     : `<p><strong>${esc(t.name)}</strong> · ${t.requires_evidence ? 'Evidence required' : 'Evidence optional'} · ${t.requires_expiry ? 'Expiry required' : 'Expiry optional'} · ${t.active ? 'Active' : 'Disabled'}</p>`).join('')
     + (editing ? `<form onsubmit="saveQualificationType(event)">
       <input name="name" aria-label="New qualification type" placeholder="e.g. A1/A3, A2, RT licence" required maxlength="80">
-      <label><input type="checkbox" name="requires_evidence" checked> Evidence required</label>
-      <label><input type="checkbox" name="requires_expiry"> Expiry required</label>
+      <label><input type="checkbox" name="requires_evidence" checked> Evidence</label>
+      <label><input type="checkbox" name="requires_start" checked> Valid from</label>
+      <label><input type="checkbox" name="requires_expiry" checked> Valid until</label>
       <button type="submit">Add type</button></form>` : '');
 }
 
@@ -379,7 +381,7 @@ async function saveQualificationType(event, id) {
   event.preventDefault();
   const form = event.currentTarget;
   const body = {name:form.elements.name.value,requires_evidence:form.elements.requires_evidence.checked,
-    requires_expiry:form.elements.requires_expiry.checked,
+    requires_expiry:form.elements.requires_expiry.checked, requires_start:form.elements.requires_start.checked,
     active:id ? form.elements.active.checked : true};
   try {
     await adminApi('/api/qualification-types' + (id ? '/' + id : ''),

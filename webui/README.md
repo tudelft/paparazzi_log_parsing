@@ -51,6 +51,11 @@ up to **20 MiB**. Submissions need admin approval, and the previous approval sta
 Expired approvals are marked; approval alone does not establish operational eligibility.
 Evidence and submission history are private to you and admins; audit history is admin-only.
 Pilot pages show approved summaries, not evidence.
+Use **Valid from** and **Valid until** to record the licence period, including past qualifications.
+Admins can make either date optional per type; both date switches start checked for new types.
+Dates are entered manually, and existing records keep an unknown start date. Historical flight
+eligibility is not checked. The read-only People list shows only approved, non-expired qualifications,
+without an approval-status label; management still shows pending, expired and previous submissions.
 
 **Additional files:** use a flight's Files tab, a paper record's Additional files section or an
 expanded upload to attach photos, video or other recordings (default limit **10 GiB** per file).

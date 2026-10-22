@@ -274,6 +274,16 @@ An admin first adds types under **Qualification types** on People, for example `
 `RT licence` or an internal qualification. Each type has evidence-required and expiry-required switches and can be disabled.
 Types have no hard-coded proof rules. Disabling a type stops submissions and approvals, without erasing
 previous approvals. Changing either requirement also applies to pending submissions at approval time.
+Types also have a **Valid from** requirement (`requires_start`); submissions store `valid_from`
+alongside `valid_until`. Both date requirements default on for newly created types and can be disabled
+independently. Existing types retain their expiry setting and get an optional start date; existing
+submissions keep a null start. Migrations are idempotent. Dates stay blank in the form until entered.
+Both dates accept past periods, and when both are supplied the start cannot follow the end.
+Enabling the start requirement also applies to pending approvals, requiring withdrawal/resubmission
+if a start date is missing. Existing approvals are not changed. Dates are retained in private history,
+audit events and approved summaries; no historical flight-eligibility checking is performed.
+Read-only People chips show only approved, non-expired submissions and omit the approval label;
+management views retain all submission states.
 An existing submission without a newly required expiry must be withdrawn and resubmitted; approved records
 are not changed retroactively. Existing types keep expiry optional after upgrading.
 

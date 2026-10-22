@@ -26,7 +26,7 @@ window.QualificationManager = class {
   render() {
     const q = this.data, esc = v => this.esc(v);
     const claim = item => `<div style="margin:12px 0">
-      <strong>${esc(item.category)}</strong> · ${esc(item.status)} · ${esc(item.valid_until || 'expiry not recorded')}${item.expired ? ' (expired)' : ''}
+      <strong>${esc(item.category)}</strong> · ${esc(item.status)} · Valid from ${esc(item.valid_from || 'not recorded')} · Valid until ${esc(item.valid_until || 'not recorded')}${item.expired ? ' (expired)' : ''}
       <div class="mute">Submitted ${esc(item.submitted_at)}${item.reviewed_at
         ? ` · ${item.status === 'withdrawn' ? 'Withdrawn' : 'Reviewed'} by ${esc(item.reviewer || 'former user')} ${esc(item.reviewed_at)}` : ''}</div>
       ${item.has_evidence ? `<a href="/api/qualification-submissions/${item.id}/evidence">Download</a>`
@@ -48,11 +48,13 @@ window.QualificationManager = class {
       ${previous.length ? `<details class="help-text"><summary>${previous.length} previous submissions</summary>${previous.map(claim).join('')}</details>` : ''}
       ${this.editing ? `<div class="section-heading"><h3>${this.admin ? 'Upload for this person' : 'Submit a qualification'}</h3>
       <details><summary>Help</summary><p>Every submission needs admin approval. Your current approval remains active during renewal review.
-      Blank expiry means unknown or not applicable. Use this private upload, not flight attachments, for licence evidence.</p></details></div>
+      Blank dates mean unknown or not applicable. Past validity periods can be recorded; flight eligibility is not checked.
+      Use this private upload, not flight attachments, for licence evidence.</p></details></div>
       ${types.length ? `<form data-submit>
         <p><label>Qualification <select name="type_id" required>${types.map(t =>
           `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></label></p>
-        <p><label><span data-expiry-label>Expiry</span> <input type="date" name="valid_until"></label></p>
+        <p><label>Valid from <input type="date" name="valid_from"></label></p>
+        <p><label>Valid until <input type="date" name="valid_until"></label></p>
         <p><label>Evidence <input name="evidence" type="file" accept=".pdf,.jpg,.jpeg,.png" ${types[0].requires_evidence ? 'required' : ''}></label></p>
         <p class="mute" data-proof-hint></p><button type="submit">Submit for approval</button>
       </form>` : '<p class="mute">An admin must first add a qualification type on People.</p>'}`
@@ -73,11 +75,13 @@ window.QualificationManager = class {
         const type = types.find(t => t.id === +form.elements.type_id.value);
         form.elements.evidence.required = !!type.requires_evidence;
         form.elements.valid_until.required = !!type.requires_expiry;
-        this.element.querySelector('[data-expiry-label]').textContent = type.requires_expiry ? 'Expiry (required)' : 'Expiry (optional)';
+        form.elements.valid_from.required = !!type.requires_start;
         this.element.querySelector('[data-proof-hint]').textContent =
           (type.requires_evidence ? 'Evidence is required. ' : 'Evidence is optional. ') + 'One PDF, JPEG or PNG, up to 20 MiB.';
       };
       form.elements.type_id.onchange = hint;
+      form.elements.valid_from.onchange = () => { form.elements.valid_until.min = form.elements.valid_from.value; };
+      form.elements.valid_until.onchange = () => { form.elements.valid_from.max = form.elements.valid_until.value; };
       hint();
       form.onsubmit = event => {
         event.preventDefault();
@@ -95,7 +99,7 @@ window.QualificationManager = class {
         this.element.querySelector('[data-events]').textContent = d.events.map(e => {
           const detail = JSON.parse(e.details_json);
           return `${e.created_at} · ${e.actor || 'former user'} · ${e.action.replaceAll('-', ' ')}`
-            + `\n${detail.category || 'Qualification'} · expiry ${detail.valid_until || 'not recorded'}`
+            + `\n${detail.category || 'Qualification'} · Valid from ${detail.valid_from || 'not recorded'} · Valid until ${detail.valid_until || 'not recorded'}`
             + (typeof detail.has_evidence === 'boolean' ? ` · ${detail.has_evidence ? 'evidence attached' : 'no evidence attached'}` : '')
             + (detail.status ? ` · previously ${detail.status}` : '');
         }).join('\n\n') || 'No events.';

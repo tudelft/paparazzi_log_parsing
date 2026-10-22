@@ -29,12 +29,13 @@ class QualificationTests(AppTests):
 
     def create_type(self, name, required):
         r = self.client.post("/api/qualification-types",
-                             json={"name": name, "requires_evidence": required})
+                             json={"name": name, "requires_evidence": required,
+                                   "requires_start": False, "requires_expiry": False})
         self.assertEqual(r.status_code, 200, r.json)
         return r.json["id"]
 
-    def submit(self, uid=2, content=PDF, filename="evidence.pdf", tid=None, until="2028-06-30"):
-        data = {"type_id": str(tid or self.tid), "valid_until": until}
+    def submit(self, uid=2, content=PDF, filename="evidence.pdf", tid=None, until="2028-06-30", start=""):
+        data = {"type_id": str(tid or self.tid), "valid_until": until, "valid_from": start}
         if content is not None:
             data["evidence"] = (io.BytesIO(content), filename)
         r = self.client.post(f"/api/users/{uid}/qualifications", data=data)
@@ -249,8 +250,8 @@ class QualificationTests(AppTests):
         self.review(expired)
         self.submit(until="2031-01-01")
         expected = [
-            dict(category="A1/A3", valid_until="2030-01-01", status="approved", expired=False),
-            dict(category="Expired licence", valid_until="2020-01-01", status="approved", expired=True)]
+            dict(category="A1/A3", valid_from=None, valid_until="2030-01-01", status="approved", expired=False),
+            dict(category="Expired licence", valid_from=None, valid_until="2020-01-01", status="approved", expired=True)]
         for uid in (1, 2):
             self.sign_in(uid)
             data = self.client.get("/api/detail/people/2").json["item"]["qualifications"]
@@ -344,7 +345,44 @@ class QualificationTests(AppTests):
                     row = con.execute("SELECT * FROM qualification_types").fetchone()
                     self.assertEqual(row["name"], "Legacy")
                     self.assertEqual(row["requires_expiry"], 0)
+                    self.assertEqual(row["requires_start"], 0)
+                    self.assertIn("valid_from", {r["name"] for r in con.execute(
+                        "PRAGMA table_info(qualification_submissions)")})
             con.close()
+
+    def test_validity_dates_defaults_optional_requirements_and_history(self):
+        response = self.client.post("/api/qualification-types", json={
+            "name": "Validity dates", "requires_evidence": False})
+        self.assertEqual(response.status_code, 200)
+        tid = response.json["id"]
+        kind = next(t for t in self.listing().json["types"] if t["id"] == tid)
+        self.assertTrue(kind["requires_start"])
+        self.assertTrue(kind["requires_expiry"])
+        self.assertEqual(self.submit(tid=tid, content=None, until="2020-01-01").status_code, 400)
+        self.assertEqual(self.submit(tid=tid, content=None, start="2019-01-01", until="").status_code, 400)
+        for start in ("invalid", "2020-02-30", "2021-01-01"):
+            self.assertEqual(self.submit(tid=tid, content=None, start=start, until="2020-01-01").status_code, 400)
+        response = self.submit(tid=tid, content=None, start="2019-01-01", until="2020-01-01")
+        self.assertEqual(response.status_code, 201, response.json)
+        sid = response.json["id"]
+        self.assertEqual(self.review(sid).status_code, 200)
+        item = next(i for i in self.listing().json["items"] if i["id"] == sid)
+        self.assertEqual(item["valid_from"], "2019-01-01")
+        self.assertTrue(item["expired"])
+        current = self.client.get("/api/detail/people/2").json["item"]["qualifications"]["items"][0]
+        self.assertEqual(current["valid_from"], "2019-01-01")
+        events = self.client.get("/api/users/2/qualification-audit").json["events"]
+        self.assertEqual(json.loads(events[0]["details_json"])["valid_from"], "2019-01-01")
+        settings = dict(name="Validity dates", requires_evidence=False, requires_start=False, requires_expiry=False)
+        self.assertEqual(self.client.put(f"/api/qualification-types/{tid}", json=settings).status_code, 200)
+        pending = self.submit(tid=tid, content=None, until="").json["id"]
+        self.assertEqual(self.client.put(f"/api/qualification-types/{tid}",
+                                        json={**settings, "requires_start": True}).status_code, 200)
+        self.assertEqual(self.review(pending).status_code, 400)
+        self.assertEqual(self.row(sid)["status"], "approved")
+        for invalid in (1, "true", None):
+            self.assertEqual(self.client.put(f"/api/qualification-types/{tid}", json={
+                **settings, "requires_start": invalid}).status_code, 400)
 
     def test_management_page_assets_and_read_only_pilot_page(self):
         with self.client.get("/qualifications.js") as response:
