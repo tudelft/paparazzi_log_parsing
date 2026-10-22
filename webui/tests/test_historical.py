@@ -352,5 +352,108 @@ class HistoricalTests(AppTests):
         self.assertEqual(len(row["sources"]), 2)
 
 
+class LogbookBulkTests(AppTests):
+    def setUp(self):
+        super().setUp()
+        self.assertEqual(self.create().status_code, 201)
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,log_type)"
+            " VALUES(1,'Digital','test','test.data','done','now',2,1,'onboard_sd')")
+        self.con.execute("INSERT INTO aircraft(id,log_id,drone_id,name,ac_id) VALUES(1,1,1,'Drone',7)")
+        self.con.executemany(
+            "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,verdict,project_id)"
+            " VALUES(?,1,?,100,?,'flight',1)",
+            [(1, 0, "2010-01-01T12:00:00.000Z"), (2, 1, "2010-01-01T13:00:00.000Z")])
+        self.con.commit()
+        self.sign_in(1)
+
+    def update(self, **changes):
+        return self.client.put("/api/logbook/records", json={
+            "record_keys": ["log:1", "paper:1"], **changes})
+
+    def test_mixed_edit_and_reversible_hide(self):
+        response = self.update(project_id=2, pic_user_id=4, pac_user_id=3, gcs_user_id=5)
+        self.assertEqual(response.status_code, 200, response.json)
+        for table in ("flights", "flight_records"):
+            row = self.con.execute(f"SELECT * FROM {table} WHERE id=1").fetchone()
+            self.assertEqual(tuple(row[k] for k in ("project_id", "pic_user_id", "pac_user_id", "gcs_user_id")),
+                             (2, 4, 3, 5))
+        self.assertEqual(self.update(hidden=True).status_code, 200)
+        self.assertEqual([r["record_key"] for r in self.client.get("/api/logbook").json], ["log:2"])
+        self.assertEqual(len(self.client.get("/api/stats").json["flights"]), 1)
+        hidden = self.client.get("/api/logbook?hidden=1")
+        self.assertEqual({r["record_key"] for r in hidden.json}, {"log:1", "paper:1"})
+        self.assertTrue(all(r["hidden"] for r in hidden.json))
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM logs").fetchone()[0], 1)
+        self.assertEqual(self.update(hidden=False).status_code, 200)
+        rows = self.client.get("/api/logbook").json
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(sum(r["flight_count"] for r in rows), 7)
+        self.assertEqual(sum(r["duration_s"] for r in rows), 2030)
+        self.assertEqual(self.client.get("/api/logbook?hidden=1").json, [])
+        self.assertEqual(self.update(pac_user_id=None, gcs_user_id=None).status_code, 200)
+        self.assertIsNone(self.con.execute("SELECT pac_user_id FROM flight_records").fetchone()[0])
+
+    def test_hiding_merged_sources_does_not_leave_a_duplicate(self):
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,log_type)"
+            " VALUES(2,'GCS','gcs','gcs.data','done','now',2,1,'gcs')")
+        self.con.execute("INSERT INTO aircraft(id,log_id,drone_id,name,ac_id) VALUES(2,2,1,'Drone',7)")
+        self.con.execute(
+            "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,verdict,project_id)"
+            " VALUES(3,2,0,100,'2010-01-01T12:00:00.000Z','flight',1)")
+        self.con.commit()
+        row = next(r for r in self.client.get("/api/logbook").json if r["record_key"] == "log:1")
+        keys = [f"log:{s['flight_id']}" for s in row["sources"]]
+        self.assertEqual(set(keys), {"log:1", "log:3"})
+        self.assertEqual(self.update(record_keys=keys, hidden=True).status_code, 200)
+        self.assertEqual({r["record_key"] for r in self.client.get("/api/logbook").json}, {"log:2", "paper:1"})
+        hidden = self.client.get("/api/logbook?hidden=1").json
+        self.assertEqual(len(hidden), 1)
+        self.assertEqual(len(hidden[0]["sources"]), 2)
+        self.assertEqual(self.update(record_keys=keys, hidden=False).status_code, 200)
+        self.assertEqual(len(self.client.get("/api/logbook").json), 3)
+
+    def test_validation_and_permissions_are_atomic(self):
+        for change in ({"pic_user_id": None}, {"project_id": None}, {"pic_user_id": 999},
+                       {"hidden": "true"}, {"record_keys": ["log:1", "paper:999"], "project_id": 2}):
+            response = self.update(**change)
+            self.assertIn(response.status_code, (400, 404), response.json)
+            self.assertEqual(self.con.execute("SELECT project_id FROM flights WHERE id=1").fetchone()[0], 1)
+            self.assertIsNone(self.con.execute("SELECT pic_user_id FROM flights WHERE id=1").fetchone()[0])
+        self.sign_in(2)
+        self.assertEqual(self.update(pic_user_id=3).status_code, 403)
+        self.assertEqual(self.update(hidden=True).status_code, 403)
+        self.assertEqual(self.client.get("/api/logbook?hidden=1").status_code, 403)
+        response = self.update(record_keys=["log:1"], pac_user_id=3)
+        self.assertEqual(response.status_code, 200, response.json)
+
+    def test_paper_duplicate_rejection_rolls_back_telemetry(self):
+        self.assertEqual(self.create(pic_user_id=3).status_code, 201)
+        response = self.update(pic_user_id=3)
+        self.assertEqual(response.status_code, 409, response.json)
+        self.assertIsNone(self.con.execute("SELECT pic_user_id FROM flights WHERE id=1").fetchone()[0])
+        self.assertEqual(self.con.execute("SELECT pic_user_id FROM flight_records WHERE id=1").fetchone()[0], 2)
+
+    def test_hidden_state_survives_reparse_and_schema_migration(self):
+        self.assertEqual(self.update(hidden=True).status_code, 200)
+        kept = self.ns["snapshot_flight_edits"](self.con, 1)
+        doc = {"aircraft": [{"ac_id": 7, "name": "Drone", "flights": [
+            {"flight": 0, "duration_s": 100, "takeoff": {"utc": "2010-01-01T12:00:00.000Z"}},
+            {"flight": 1, "duration_s": 100, "takeoff": {"utc": "2010-01-01T13:00:00.000Z"}}]}]}
+        db.store_parsed(self.con, 1, doc, "paths.gz")
+        self.ns["assign_log_flights"](self.con, 1, kept)
+        self.con.commit()
+        self.assertEqual([r["hidden"] for r in self.con.execute("SELECT hidden FROM flights ORDER BY idx")], [1, 0])
+        self.con.execute("ALTER TABLE flights DROP COLUMN hidden")
+        self.con.execute("ALTER TABLE flight_records DROP COLUMN hidden")
+        self.con.commit()
+        with patch.object(db, "connect", return_value=self.con):
+            db.init("unused")
+            db.init("unused")
+        for table in ("flights", "flight_records"):
+            self.assertEqual(self.con.execute(f"SELECT SUM(hidden) FROM {table}").fetchone()[0], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

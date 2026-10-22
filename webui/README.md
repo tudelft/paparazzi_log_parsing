@@ -43,6 +43,9 @@ existing `/logbook` links still work.
 ## Add or correct information
 
 - In **Logbook**, Edit mode exposes crew/project corrections where permitted.
+  Admins can bulk-edit paper and telemetry records together, or **Hide selected** to remove entries
+  from the logbook and totals without deleting files. Use **Hidden records only** and **Restore selected**
+  to undo this. Paper records must keep a PIC and project.
   Use **Add paper record** to enter historical flights without logs. Admins can also import CSV.
   Paper records add flight counts and time, not telemetry; check for overlap with digital logs.
   CSV crew names follow log matching: use unique display names or explicit aliases, not login usernames

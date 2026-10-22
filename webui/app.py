@@ -1515,7 +1515,7 @@ def pick_project_for_user(con, user_id, aircraft_project_id):
 def snapshot_flight_edits(con, log_id):
     """Keep edited flight project and crew across a re-parse (flights are deleted with the aircraft rows)."""
     return {(r["ac_id"], r["idx"]): dict(r) for r in con.execute(
-        "SELECT a.ac_id, f.idx, f.project_id, f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment"
+        "SELECT a.ac_id, f.idx, f.project_id, f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment, f.hidden"
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id=?", (log_id,))}
 
 
@@ -1685,9 +1685,9 @@ def assign_log_flights(con, log_id, kept=None):
             " WHERE a.log_id=?", (log_id,)):
         restore = kept.get((f["ac_id"], f["idx"])) or {}
         if restore:
-            con.execute("UPDATE flights SET pic_user_id=?, pac_user_id=?, gcs_user_id=?, comment=? WHERE id=?",
+            con.execute("UPDATE flights SET pic_user_id=?, pac_user_id=?, gcs_user_id=?, comment=?, hidden=? WHERE id=?",
                         (restore.get("pic_user_id"), restore.get("pac_user_id"), restore.get("gcs_user_id"),
-                         restore.get("comment"), f["id"]))
+                         restore.get("comment"), restore.get("hidden", 0), f["id"]))
         saved = restore.get("project_id")
         if saved and live_project(con, saved):
             con.execute("UPDATE flights SET project_id=? WHERE id=?", (saved, f["id"]))
@@ -2537,6 +2537,82 @@ def set_flights_crew():
     return jsonify(ok=True, updated=len(ids))
 
 
+@app.put("/api/logbook/records")
+def update_logbook_records():
+    """Atomically edit mixed logbook sources, or hide/restore them without deleting data."""
+    session_required()
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify(error="Send a JSON object."), 400
+    keys = body.get("record_keys")
+    if not isinstance(keys, list) or not keys or len(keys) > 5000:
+        return jsonify(error="Select between 1 and 5000 source records."), 400
+    targets = set()
+    for key in keys:
+        if not isinstance(key, str) or not re.fullmatch(r"(log|paper):[1-9][0-9]{0,18}", key):
+            return jsonify(error="Invalid record key."), 400
+        kind, identity = key.split(":")
+        if int(identity) > 2**63 - 1:
+            return jsonify(error="Invalid record key."), 400
+        targets.add((kind, int(identity)))
+    changes = {k: body[k] for k in ("project_id", "pic_user_id", "pac_user_id", "gcs_user_id", "hidden") if k in body}
+    if not changes:
+        return jsonify(error="Choose fields to change."), 400
+    if ("hidden" in changes or any(kind == "paper" for kind, _ in targets)) and not g.user["is_admin"]:
+        return jsonify(error="Administrator access is required."), 403
+    if "hidden" in changes and type(changes["hidden"]) is not bool:
+        return jsonify(error="Hidden must be true or false."), 400
+    con = conn()
+    try:
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            for key in ("pic_user_id", "pac_user_id", "gcs_user_id"):
+                if key not in changes:
+                    continue
+                uid = parse_user_id(changes[key])
+                if uid is False or (uid is not None and not 1 <= uid <= 2**63 - 1):
+                    raise historical.RecordError("Choose an active person.")
+                if uid is not None and not con.execute(
+                        "SELECT 1 FROM users WHERE id=? AND is_active=1", (uid,)).fetchone():
+                    raise historical.RecordError("Choose an active person.")
+                changes[key] = uid
+            if "project_id" in changes:
+                pid = parse_project_id(changes["project_id"])
+                if pid is False or (pid is not None and not 1 <= pid <= 2**63 - 1):
+                    raise historical.RecordError("Choose an existing project.")
+                if pid is not None and not live_project(con, pid):
+                    raise historical.RecordError("Choose an existing project.")
+                changes["project_id"] = pid
+            for kind, identity in sorted(targets):
+                if kind == "paper":
+                    row = historical.visible(con, g.user, identity)
+                    values = {key: row[key] for key in historical.FIELDS}
+                    values.update({key: value for key, value in changes.items() if key != "hidden"})
+                    if values["pic_user_id"] is None or values["project_id"] is None:
+                        raise historical.RecordError("Paper records require a PIC and project; choose Keep or a person/project.")
+                    if any(key != "hidden" for key in changes):
+                        historical.store(con, values, g.user["id"], now(), identity)
+                    if "hidden" in changes:
+                        con.execute("UPDATE flight_records SET hidden=? WHERE id=?", (int(changes["hidden"]), identity))
+                else:
+                    _, err = visible_editable_flight(con, identity)
+                    if err:
+                        raise historical.RecordError("No such editable flight.", 404 if err == "missing" else 403)
+                    if "project_id" in changes:
+                        msg, code = apply_flight_project(con, identity, changes["project_id"])
+                        if msg:
+                            raise historical.RecordError(msg, code)
+                    if any(key.endswith("_user_id") for key in changes):
+                        msg, code = apply_flight_crew(con, identity, changes)
+                        if msg:
+                            raise historical.RecordError(msg, code)
+                    if "hidden" in changes:
+                        con.execute("UPDATE flights SET hidden=? WHERE id=?", (int(changes["hidden"]), identity))
+        return jsonify(ok=True, updated=len(targets))
+    except historical.RecordError as exc:
+        return jsonify(error=str(exc)), exc.status
+
+
 @app.put("/api/flights/<int:flight_id>/crew")
 def set_flight_crew(flight_id):
     con = conn()
@@ -3279,7 +3355,12 @@ def flight_page(flight_id):
 @app.get("/api/logbook")
 def logbook():
     """Visible telemetry flights and paper records (including daily totals), newest first."""
-    return jsonify(logbook_rows())
+    hidden = request.args.get("hidden") == "1"
+    if hidden:
+        session_required()
+        if not g.user["is_admin"]:
+            abort(403)
+    return jsonify(logbook_rows(hidden=hidden))
 
 
 @app.get("/historical/new")
@@ -3417,7 +3498,7 @@ def stats():
                    flights=[{k: r.get(k) for k in keys} for r in logbook_rows()])
 
 
-def logbook_rows():
+def logbook_rows(hidden=False):
     where, params = flight_list_clause()
     con = conn()
     rows = con.execute(
@@ -3433,8 +3514,8 @@ def logbook_rows():
         " (SELECT username FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name"
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id"
         " LEFT JOIN drones d ON d.id = a.drone_id"
-        f" WHERE {where} AND l.status = 'done'"
-        " ORDER BY COALESCE(f.takeoff_utc, l.start_utc) DESC, f.idx", params).fetchall()
+        f" WHERE {where} AND l.status = 'done' AND f.hidden=?"
+        " ORDER BY COALESCE(f.takeoff_utc, l.start_utc) DESC, f.idx", (*params, int(hidden))).fetchall()
     names = {p["id"]: p["name"] for p in con.execute("SELECT id, name FROM projects")}
     prepared = []
     for r in rows:
@@ -3445,7 +3526,7 @@ def logbook_rows():
         prepared.append(d)
     out = merge_sources(prepared)
     for r in out:
-        r.update(record_key=f"log:{r['flight_id']}", source_type="telemetry", flight_count=1)
+        r.update(record_key=f"log:{r['flight_id']}", source_type="telemetry", flight_count=1, hidden=hidden)
     place = place_resolver(con)
     for r in out:
         r["takeoff_place"], r["indoor"], r["takeoff_place_id"] = place(r["takeoff_lat"], r["takeoff_lon"])
@@ -3464,7 +3545,7 @@ def logbook_rows():
         r["can_edit_comment"] = r["can_edit_project"]
         r["can_edit_date"] = r["can_edit_project"]
         r["date_ok"] = bool(r.get("date_override")) or not clock_implausible(r.get("log_start_utc"))
-    out.extend(historical.rows(con, g.user, request.args.get("project")))
+    out.extend(historical.rows(con, g.user, request.args.get("project"), hidden=hidden))
     out.sort(key=lambda r: (r.get("takeoff_utc") or ((r.get("date_override") or "") + "T00:00:00Z"),
                             r.get("flight_id") or r["manual_id"], r["source_type"]),
              reverse=True)

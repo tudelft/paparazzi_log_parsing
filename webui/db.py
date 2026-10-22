@@ -42,6 +42,7 @@ CREATE INDEX IF NOT EXISTS ix_attachment_log ON attachment_links(log_id);
 CREATE INDEX IF NOT EXISTS ix_attachment_record ON attachment_links(record_id);
 CREATE TABLE IF NOT EXISTS flight_records (
     id INTEGER PRIMARY KEY,
+    hidden INTEGER NOT NULL DEFAULT 0,
     source_type TEXT NOT NULL DEFAULT 'paper' CHECK(source_type='paper'),
     drone_id INTEGER NOT NULL REFERENCES drones(id),
     pic_user_id INTEGER NOT NULL REFERENCES users(id),
@@ -144,6 +145,7 @@ CREATE TABLE IF NOT EXISTS aircraft (
 );
 CREATE TABLE IF NOT EXISTS flights (
     id INTEGER PRIMARY KEY,
+    hidden INTEGER NOT NULL DEFAULT 0,
     aircraft_id INTEGER NOT NULL REFERENCES aircraft(id) ON DELETE CASCADE,
     idx INTEGER,
     duration_s REAL,
@@ -336,6 +338,9 @@ def init(path):
     if "uploaded_by" not in cols:  # database created before accounts existed
         con.execute("ALTER TABLE logs ADD COLUMN uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
     fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
+    for table in ("flights", "flight_records"):
+        if "hidden" not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
     for col in ("verdict", "assessment_json"):
         if col not in fcols:
             con.execute(f"ALTER TABLE flights ADD COLUMN {col} TEXT")

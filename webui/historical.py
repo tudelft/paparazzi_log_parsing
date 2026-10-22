@@ -178,10 +178,10 @@ def parse_csv(con, user, text):
     return records
 
 
-def rows(con, user, project=None):
-    where, params = "1=1", []
+def rows(con, user, project=None, hidden=False):
+    where, params = "r.hidden=?", [int(hidden)]
     if not user["is_admin"]:
-        where = "r.project_id IN (SELECT project_id FROM project_members WHERE user_id=?)"
+        where += " AND r.project_id IN (SELECT project_id FROM project_members WHERE user_id=?)"
         params.append(user["id"])
     if project == "none":
         return []
@@ -209,7 +209,8 @@ def rows(con, user, project=None):
             indoor=bool(r["indoor"]), verdict="flight", optitrack=False, date_ok=True, date_override=None,
             goal=r["goal"], comment=r["comment"], pic=None, pac=None, gcs=None,
             pic_user_id=r["pic_user_id"], pac_user_id=r["pac_user_id"], gcs_user_id=r["gcs_user_id"],
-            can_edit_record=editable, can_edit_crew=False, can_edit_project=False, can_edit_date=False,
+            hidden=bool(r["hidden"]), can_edit_record=editable,
+            can_edit_crew=bool(user["is_admin"]), can_edit_project=bool(user["is_admin"]), can_edit_date=False,
             can_edit_comment=False, takeoff_voltage_v=None, landing_voltage_v=None,
         ))
     return out

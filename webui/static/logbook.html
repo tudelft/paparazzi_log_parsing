@@ -90,6 +90,9 @@
       <label>PAC <select id="bulkPac"></select></label>
       <label>GCS <select id="bulkGcs"></select></label>
       <button type="button" onclick="applyBulk()">Apply</button>
+      <label id="hiddenFilter" hidden><input type="checkbox" id="hiddenRecords" onchange="selected.clear(); page=0; loadFlights()"> Hidden records only</label>
+      <button type="button" id="hideSelected" hidden onclick="setHidden(true)">Hide selected</button>
+      <button type="button" id="restoreSelected" hidden onclick="setHidden(false)">Restore selected</button>
       <span id="bulkMsg" class="mute"></span>
     </div>
     <div class="scroll">
@@ -139,7 +142,18 @@ fetch('/api/me').then(r => r.json()).then(async d => {
   syncEditUi();
   loadFlights();
 });
-function loadFlights() { fetch('/api/logbook').then(r => r.json()).then(d => { flights = d; render(); }); }
+async function loadFlights() {
+  try {
+    const r = await fetch('/api/logbook' + ($('hiddenRecords').checked ? '?hidden=1' : ''));
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Could not load the logbook');
+    flights = d;
+    const available = new Set(flights.flatMap(crewIds));
+    for (const id of selected) if (!available.has(id)) selected.delete(id);
+    syncEditUi();
+    render();
+  } catch (error) { $('bulkMsg').textContent = error.message; }
+}
 
 const entityLink = (kind, id, name) => id != null ? `<a href="/${kind}/${id}">${esc(name)}</a>` : esc(name);
 const place = (lat, lon, name, id) => id != null ? entityLink('locations', id, name) : lat == null ? (name ? esc(name) : '<span class="mute" title="No GPS fix">no GPS</span>') :
@@ -150,14 +164,14 @@ const person = (f, role) => {
   return raw ? esc(raw) : '';
 };
 const editOn = () => window.editMode();
-const crewIds = f => [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)].filter(id => id != null))];
+const crewIds = f => f.manual_id ? [`paper:${f.manual_id}`] : [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)].filter(id => id != null))].map(id => `log:${id}`);
 function crewSelect(f, role, ids) {
   if (!editOn() || !f.can_edit_crew) return person(f, role);
   const u = f[role + '_user'];
-  const selectedId = u && (u.source === 'edit' || u.source === 'alias') ? u.id : '';
+  const selectedId = u && (f.manual_id || u.source === 'edit' || u.source === 'alias') ? u.id : '';
   const logged = f[role] ? esc(f[role]) : '—';
-  return `<select onclick="event.stopPropagation()" onchange="setCrew([${ids.join(',')}], '${role}', this.value)">
-    <option value="">${logged}</option>
+  return `<select onclick="event.stopPropagation()" onchange="setCrew(${esc(JSON.stringify(ids))}, '${role}', this.value)">
+    ${f.manual_id && role === 'pic' ? '' : `<option value="">${logged}</option>`}
     ${people.map(p => `<option value="${p.id}"${p.id === selectedId ? ' selected' : ''}>${esc(p.display_name)}</option>`).join('')}
   </select>`;
 }
@@ -172,47 +186,65 @@ function fillBulkMenus() {
   }
 }
 async function setCrew(ids, role, value) {
-  const r = await fetch('/api/flights/crew', {method: 'PUT', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({flight_ids: ids, [role + '_user_id']: value ? +value : null})});
-  if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the name'); return; }
+  if (!await updateRecords(ids, {[role + '_user_id']: value ? +value : null})) return;
+  loadFlights();
+}
+async function updateRecords(ids, changes) {
+  try {
+    const r = await fetch('/api/logbook/records', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({record_keys: ids, ...changes})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Could not save');
+    return true;
+  } catch (error) { $('bulkMsg').textContent = error.message; return false; }
+}
+async function setHidden(hidden) {
+  const ids = [...selected];
+  if (!ids.length) { $('bulkMsg').textContent = 'Tick the records you want to change.'; return; }
+  if (!confirm(hidden
+    ? 'Hide the selected entries from the logbook and totals? Source logs and attachments are kept. You can restore these entries using Hidden records only.'
+    : 'Restore the selected entries to the logbook and totals?')) return;
+  if (!await updateRecords(ids, {hidden})) return;
+  selected.clear();
+  $('bulkMsg').textContent = hidden ? 'Selected entries hidden.' : 'Selected entries restored.';
   loadFlights();
 }
 async function applyBulk() {
   const ids = [...selected];
   if (!ids.length) { $('bulkMsg').textContent = 'Tick the flights you want to change.'; return; }
-  const body = {flight_ids: ids};
+  const body = {};
   [['bulkPic', 'pic_user_id'], ['bulkPac', 'pac_user_id'], ['bulkGcs', 'gcs_user_id']].forEach(([id, key]) => {
     const v = $(id).value;
     if (v !== '__keep__') body[key] = v ? +v : null;
   });
   const projectV = $('bulkProject').value;
   const changeProject = projectV !== '__keep__';
-  if (Object.keys(body).length === 1 && !changeProject) {
+  if (!Object.keys(body).length && !changeProject) {
     $('bulkMsg').textContent = 'Choose a project, PIC, PAC or GCS.';
     return;
   }
   if (changeProject) {
-    const r = await fetch('/api/flights/project', {method: 'PUT', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({flight_ids: ids, project_id: projectV ? +projectV : null})});
-    if (!r.ok) { $('bulkMsg').textContent = ((await r.json().catch(() => ({}))).error) || 'Could not save the project'; return; }
+    body.project_id = projectV ? +projectV : null;
   }
-  if (Object.keys(body).length > 1) {
-    const r = await fetch('/api/flights/crew', {method: 'PUT', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body)});
-    if (!r.ok) { $('bulkMsg').textContent = ((await r.json().catch(() => ({}))).error) || 'Could not save'; return; }
-  }
+  if (!await updateRecords(ids, body)) return;
   $('bulkMsg').textContent = 'Saved.';
   ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs'].forEach(id => { $(id).value = '__keep__'; });
   loadFlights();
 }
 function syncEditUi() {
   $('bulkBar').hidden = !editOn();
+  $('hiddenFilter').hidden = !me?.is_admin;
+  $('hideSelected').hidden = !me?.is_admin || $('hiddenRecords').checked;
+  $('restoreSelected').hidden = !me?.is_admin || !$('hiddenRecords').checked;
   $('addHistorical').hidden = !(me && (me.is_admin || projects.some(p => p.role === 'full')));
   $('addHistorical').textContent = me?.is_admin ? 'Add paper records / import CSV' : 'Add paper record';
 }
 function toggleEdit() {
   syncEditUi();
-  if (!editOn()) { selected.clear(); $('bulkMsg').textContent = ''; }
+  if (!editOn()) {
+    selected.clear(); $('bulkMsg').textContent = '';
+    if ($('hiddenRecords').checked) { $('hiddenRecords').checked = false; loadFlights(); }
+  }
   render();
 }
 function toggleSel(ids, on) {
@@ -222,7 +254,7 @@ function toggleSel(ids, on) {
 function chk(ids, can) {
   if (!editOn() || !can) return '<td class="chk"></td>';
   const all = ids.length > 0 && ids.every(id => selected.has(id));
-  return `<td class="chk"><input type="checkbox" ${all ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel([${ids.join(',')}], this.checked)"></td>`;
+  return `<td class="chk"><input type="checkbox" ${all ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel(${esc(JSON.stringify(ids))}, this.checked)"></td>`;
 }
 function flightDay(f) {
   if (f.date_ok) return (f.takeoff_utc || f.date_override || '').slice(0, 10);
@@ -278,8 +310,12 @@ function projectOptions(selected) {
 }
 function projectCell(f) {
   if (!editOn() || !f.can_edit_project) return entityLink('projects', f.project_id, f.project_name || '');
+  if (f.manual_id) return `<select onclick="event.stopPropagation()" onchange="setPaperProject(${f.manual_id}, this.value)">${projectOptions(f.project_id).replace('<option value="">No project</option>', '')}</select>`;
   const ids = (f.sources || []).map(s => s.flight_id).join(',');
   return `<select onclick="event.stopPropagation()" onchange="setFlightProject(${f.flight_id}, this.value, [${ids}])">${projectOptions(f.project_id)}</select>`;
+}
+async function setPaperProject(id, value) {
+  if (await updateRecords([`paper:${id}`], {project_id: +value})) loadFlights();
 }
 async function setFlightProject(id, value, ids) {
   const all = [...new Set([id, ...(ids || [])])];
@@ -298,7 +334,7 @@ const windTxt = w => w ? `${w.speed_ms} m/s from ${w.from_deg}°${w.temperature_
 const ned = v => v ? `N ${v.north}, E ${v.east}, D ${v.down}` : '';
 
 function commentBox(f) {
-  const ids = crewIds(f);
+  const ids = crewIds(f).map(key => Number(key.split(':')[1]));
   if (!f.can_edit_comment) return f.comment ? `<div class="note">${esc(f.comment)}</div>` : '<span class="mute">No comment</span>';
   return `<textarea class="comment" id="cmt${f.flight_id}" maxlength="4000" placeholder="Notes about this flight" onclick="event.stopPropagation()">${esc(f.comment || '')}</textarea>
     <div class="actions" style="margin-top:6px"><button type="button" onclick="saveComment(${f.flight_id}, [${ids.join(',')}])">Save comment</button> <span id="cmtMsg${f.flight_id}" class="mute"></span></div>`;

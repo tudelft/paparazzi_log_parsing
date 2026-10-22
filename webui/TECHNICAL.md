@@ -417,6 +417,20 @@ remain date-only. They are never automatically merged with digital logs: check f
 double counting. Referenced aircraft, people, projects and locations cannot be deleted until their paper records
 are reassigned or removed.
 
+Admins can select paper and telemetry records together in Logbook Edit mode and apply PIC, PAC,
+GCS and project changes in one transaction. Paper records still require a PIC and project:
+leave these fields on **Keep** or select a person/project rather than clearing them. Duplicate
+paper-record checks still apply, including hidden records; an invalid selection rolls back the whole change.
+Paper crew/project cells also support individual inline edits for admins.
+
+**Hide selected** is reversible removal from the logbook and its statistics/entity totals, not file deletion.
+It hides all selected telemetry sources (including both SD/GCS sources of a merged row) or entire paper
+records/daily summaries. Unselected flights in the same uploaded log are unaffected. In Edit mode,
+admins can select **Hidden records only**, select entries and choose **Restore selected**.
+Source logs, CSV attachments and record data stay on disk; uploaded-log views retain their source summaries.
+The hidden state is preserved across re-parsing using the same aircraft/flight-index matching as crew edits.
+Permanent deletion from existing record/upload detail pages remains a separate operation.
+
 **Edit mode.** The Edit button in the menu bar shows the forms and menus to change things on the Logbook, People,
 Projects, Aircraft and Locations pages; it stays on until you turn it off. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
