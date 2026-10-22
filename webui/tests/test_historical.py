@@ -69,6 +69,15 @@ class AppTests(unittest.TestCase):
 
 
 class HistoricalTests(AppTests):
+    def test_home_is_logbook_and_uploads_has_own_route(self):
+        for path in ("/", "/logbook"):
+            with self.client.get(path) as response:
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("<title>Flight logbook</title>", response.get_data(as_text=True))
+        with self.client.get("/uploads") as response:
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('id="drop', response.get_data(as_text=True))
+
     def test_create_read_update_delete_and_no_fake_logs(self):
         response = self.create()
         self.assertEqual(response.status_code, 201, response.json)

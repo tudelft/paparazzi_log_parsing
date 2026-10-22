@@ -334,7 +334,7 @@ function renderSummary() {
     </div></div>
     <details style="margin-top:12px"><summary>Log sources and upload details</summary><div class="kv src">
       ${e.sources.map(s => kv(TYPE[s.log_type] || s.log_type, `<a href="/flight/${s.flight_id}" class="${s.flight_id === flightId ? 'cur' : ''}">${esc(s.log_name)}</a>${s.flight_id === flightId ? ' <span class="mute">(shown)</span>' : ''}
-        · <a href="/api/logs/${s.log_id}/download">download ${downloadLabel(s.log_type)}</a> · <a href="/#log${s.log_id}">log details</a>`)).join('')}
+        · <a href="/api/logs/${s.log_id}/download">download ${downloadLabel(s.log_type)}</a> · <a href="/uploads#log${s.log_id}">log details</a>`)).join('')}
       ${kv('Uploaded', esc(fmtTime(e.uploaded_at)) + (e.uploaded_by_name ? ' by ' + esc(e.uploaded_by_name) : ''))}
     </div></details>
     <div class="actions"><a class="btn sec" href="/api/flights/${flightId}/path" target="_blank">Path JSON</a>

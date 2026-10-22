@@ -30,7 +30,7 @@
     <button id="nightBtn" type="button" onclick="toggleNight()">Night / day</button>
     <button type="button" onclick="logout()">Sign out</button></span></header>
 <main>
-  <p><a href="/logbook">Back to logbook</a></p>
+  <p><a href="/">Back to logbook</a></p>
   <details class="help-text"><summary>Help with paper records</summary>
   <p>Transcribe an individual flight or a daily total. These are paper records, not telemetry:
     unknown times, positions, distance and software remain unavailable. Daily totals count all flights but
@@ -150,7 +150,7 @@ $('recordForm').onsubmit = async event => {
 };
 $('delete').onclick = async () => {
   if (!confirm('Delete this paper record? This removes its contribution to flight totals, not the aircraft or people.')) return;
-  try { await api('/api/historical/' + recordId,{method:'DELETE'}); location.href='/logbook'; }
+  try { await api('/api/historical/' + recordId,{method:'DELETE'}); location.href='/'; }
   catch (error) { $('status').textContent=error.message; }
 };
 $('importForm').onsubmit = async event => {

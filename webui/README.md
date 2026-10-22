@@ -2,6 +2,8 @@
 
 Upload flight logs and browse flights, crew, projects, aircraft and locations in one logbook.
 All pages require sign-in; the records you can see depend on your access.
+The home page (`/`) opens the logbook. Uploads has its own page at `/uploads`;
+existing `/logbook` links still work.
 
 ## Everyday use
 

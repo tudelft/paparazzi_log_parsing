@@ -3165,11 +3165,12 @@ def visible_log(con, log_id, columns="*"):
     return row
 
 
-@app.get("/")
+@app.get("/uploads")
 def index():
     return send_from_directory(PAGES_DIR, "index.html")
 
 
+@app.get("/")
 @app.get("/logbook")
 def logbook_page():
     return send_from_directory(PAGES_DIR, "logbook.html")

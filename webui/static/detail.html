@@ -486,7 +486,7 @@ function renderLogs() {
   const [from, to] = pager('logPager', 'logs', logs.length, renderLogs);
   $('logs').innerHTML = logs.slice(from, to).map(l => {
     const status = l.status !== 'done' ? ` <span class="tag">${esc(l.status)}</span>` : '';
-    return `<tr><td><a href="/#log${l.id}" title="Log details on the Uploads page">${esc(l.name)}</a>${status}</td>
+    return `<tr><td><a href="/uploads#log${l.id}" title="Log details on the Uploads page">${esc(l.name)}</a>${status}</td>
       <td class="nowrap">${esc(TYPE[l.log_type] || l.log_type || '')}</td>
       <td class="nowrap">${esc(fmtTime(l.start_utc))}${l.date_ok || !l.start_utc ? '' : ' <span class="mute" title="The log clock was not set">?</span>'}</td>
       <td class="num">${fmtSize(l.size_bytes)}</td><td class="num">${l.num_flights ?? ''}</td>

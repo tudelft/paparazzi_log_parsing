@@ -21,8 +21,8 @@
     window.dispatchEvent(new Event('editchange'));
   };
   const TABS = [
-    ['/logbook', 'Logbook'],
-    ['/', 'Uploads'],
+    ['/', 'Logbook'],
+    ['/uploads', 'Uploads'],
     ['/stats', 'Statistics'],
     ['/aircraft', 'Aircraft'],
     ['/people', 'People'],
@@ -38,7 +38,8 @@
   }
   function currentTab() {
     const p = location.pathname;
-    if (p === '/logbook' || p === '/attachments' || p.startsWith('/flight/') || p.startsWith('/historical/')) return '/logbook';
+    if (p === '/logbook' || p === '/attachments' || p.startsWith('/flight/') || p.startsWith('/historical/')) return '/';
+    if (p === '/uploads') return '/uploads';
     if (p === '/stats') return '/stats';
     for (const tab of ['/people', '/projects', '/aircraft', '/locations'])
       if (p === tab || p.startsWith(tab + '/')) return tab;

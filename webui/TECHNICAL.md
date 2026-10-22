@@ -223,7 +223,8 @@ Dialogs can be closed with Close or Escape. Details are saved together; project
 periods keep their separate Save timeline action.
 Logbook has no top-level project filter and no longer applies a previously saved project filter.
 Project reassignment controls in Edit mode remain available.
-The menu puts Logbook first, followed by Uploads, Statistics, Aircraft, People, Projects and Locations.
+The menu puts Logbook (`/`) first, followed by Uploads (`/uploads`), Statistics, Aircraft, People, Projects and Locations.
+`/logbook` remains a working alias. Upload log-detail anchors use `/uploads#log<id>`.
 Linked aircraft, crew, projects and named locations in the logbook open their detail pages.
 Coordinates without a linked location still open the external map; Edit mode keeps its reassignment menus.
 Aircraft serial numbers in the logbook appear on hover over the aircraft name rather than inline.

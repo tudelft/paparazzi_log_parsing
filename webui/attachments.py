@@ -30,7 +30,7 @@ def target(con, user, kind, identity, edit=False):
         if kind == "log":
             row = con.execute("SELECT project_id,uploaded_by,name FROM logs WHERE id=?", (identity,)).fetchone()
             label = f'Log {identity} - {row["name"]}' if row else ""
-            url = f"/#log{identity}"
+            url = f"/uploads#log{identity}"
         else:
             row = con.execute(
                 "SELECT COALESCE(f.project_id,l.project_id) AS project_id,l.uploaded_by,"
