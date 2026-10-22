@@ -62,7 +62,7 @@ def qualifications_payload(con, viewer, user_id):
         return None
     items = []
     for row in con.execute(
-            "SELECT q.*,t.name AS category,t.requires_evidence,t.requires_start,t.requires_expiry,"
+            "SELECT q.*,t.name AS category,t.requires_evidence,t.requires_start,t.requires_expiry,t.internal,"
             " COALESCE(u.display_name,u.username) AS reviewer FROM qualification_submissions q"
             " JOIN qualification_types t ON t.id=q.type_id LEFT JOIN users u ON u.id=q.reviewed_by"
             " WHERE q.user_id=? ORDER BY q.id DESC", (user_id,)):
@@ -70,11 +70,12 @@ def qualifications_payload(con, viewer, user_id):
             "id", "type_id", "category", "status", "valid_from", "valid_until", "submitted_at",
             "reviewed_at", "reviewer", "evidence_deleted_at", "filename", "requires_evidence",
             "requires_start", "requires_expiry")}
+        item["internal"] = bool(row["internal"])
         item["has_evidence"] = bool(row["evidence_path"])
         item["expired"] = bool(row["valid_until"] and row["valid_until"] < datetime.date.today().isoformat())
         items.append(item)
     return dict(items=items, types=[dict(r) for r in con.execute(
-        "SELECT * FROM qualification_types ORDER BY name")], can_manage=bool(viewer["is_admin"]),
+        "SELECT * FROM qualification_types ORDER BY sort_order, name")], can_manage=bool(viewer["is_admin"]),
         max_evidence_bytes=MAX_EVIDENCE_BYTES)
 
 
@@ -83,11 +84,12 @@ def current_payload(con, viewer, user_id):
         return None
     return dict(items=[
         dict(category=r["category"], valid_from=r["valid_from"], valid_until=r["valid_until"], status="approved",
-             expired=bool(r["valid_until"] and r["valid_until"] < datetime.date.today().isoformat()))
+             expired=bool(r["valid_until"] and r["valid_until"] < datetime.date.today().isoformat()),
+             internal=bool(r["internal"]))
         for r in con.execute(
-            "SELECT t.name AS category,q.valid_from,q.valid_until FROM qualification_submissions q"
+            "SELECT t.name AS category,q.valid_from,q.valid_until,t.internal FROM qualification_submissions q"
             " JOIN qualification_types t ON t.id=q.type_id WHERE q.user_id=? AND q.status='approved'"
-            " ORDER BY t.name", (user_id,))])
+            " ORDER BY t.sort_order, t.name", (user_id,))])
 
 
 class QualificationError(ValueError):
@@ -160,7 +162,82 @@ def register(app, connection, root, require_session):
     @app.get("/api/admin/qualification-types")
     def list_qualification_types():
         admin()
-        return jsonify(types=[dict(r) for r in connection().execute("SELECT * FROM qualification_types ORDER BY name")])
+        return jsonify(types=[dict(r) for r in connection().execute(
+            "SELECT * FROM qualification_types ORDER BY sort_order, name")])
+
+    @app.put("/api/admin/qualification-types")
+    def save_qualification_types():
+        admin()
+        body = request.get_json(silent=True)
+        allowed = {"id", "name", "requires_evidence", "requires_expiry", "requires_start", "internal", "active"}
+        if not isinstance(body, dict) or set(body) - {"types"} or not isinstance(body.get("types"), list):
+            raise QualificationError("Invalid qualification request.")
+        parsed = []
+        seen_names, seen_ids = set(), set()
+        for raw in body["types"]:
+            if not isinstance(raw, dict) or set(raw) - allowed:
+                raise QualificationError("Invalid qualification request.")
+            name = raw.get("name")
+            if isinstance(name, str) and not name.strip() and raw.get("id") is None:
+                continue
+            if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
+                raise QualificationError("Type name must be 1-80 characters.")
+            name = name.strip()
+            if name.casefold() in seen_names:
+                raise QualificationError("A type with that name already exists.", 409)
+            seen_names.add(name.casefold())
+            tid = raw.get("id")
+            if tid is not None:
+                if type(tid) is not int or isinstance(tid, bool) or tid <= 0:
+                    raise QualificationError("Choose a valid qualification type.")
+                if tid in seen_ids:
+                    raise QualificationError("Invalid qualification request.")
+                seen_ids.add(tid)
+            if (type(raw.get("requires_evidence")) is not bool
+                    or type(raw.get("requires_expiry", False)) is not bool
+                    or type(raw.get("requires_start", False)) is not bool
+                    or type(raw.get("internal", False)) is not bool
+                    or type(raw.get("active", True)) is not bool):
+                raise QualificationError(
+                    "Evidence requirement, date requirements, internal and active must be true or false.")
+            parsed.append(dict(
+                id=tid, name=name, requires_evidence=raw["requires_evidence"],
+                requires_expiry=raw.get("requires_expiry", True), requires_start=raw.get("requires_start", True),
+                internal=raw.get("internal", False), active=raw.get("active", True)))
+        con = connection()
+        try:
+            with db.write_lock, con:
+                con.execute("BEGIN IMMEDIATE")
+                existing = {r["id"]: r for r in con.execute("SELECT * FROM qualification_types")}
+                for item in parsed:
+                    if item["id"] is not None and item["id"] not in existing:
+                        raise QualificationError("No such qualification type.", 404)
+                for order, item in enumerate(parsed, 1):
+                    if item["id"] is None:
+                        item["id"] = con.execute(
+                            "INSERT INTO qualification_types(name,requires_evidence,requires_expiry,requires_start,"
+                            "internal,sort_order,active) VALUES (?,?,?,?,?,?,?)",
+                            (item["name"], item["requires_evidence"], item["requires_expiry"], item["requires_start"],
+                             item["internal"], order, item["active"])).lastrowid
+                    else:
+                        con.execute(
+                            "UPDATE qualification_types SET name=?,requires_evidence=?,requires_expiry=?,"
+                            "requires_start=?,internal=?,sort_order=?,active=? WHERE id=?",
+                            (item["name"], item["requires_evidence"], item["requires_expiry"], item["requires_start"],
+                             item["internal"], order, item["active"], item["id"]))
+                leftover = [rid for rid in existing if rid not in {item["id"] for item in parsed}]
+                leftover.sort(key=lambda rid: (existing[rid]["sort_order"], existing[rid]["name"].casefold()))
+                for offset, rid in enumerate(leftover, len(parsed) + 1):
+                    con.execute("UPDATE qualification_types SET sort_order=? WHERE id=?", (offset, rid))
+                audit(con, None, g.user["id"], "types-updated", dict(types=[
+                    {key: item[key] for key in (
+                        "id", "name", "requires_evidence", "requires_expiry", "requires_start", "internal", "active")}
+                    for item in parsed]))
+        except sqlite3.IntegrityError as exc:
+            if "qualification_types.name" not in str(exc):
+                raise
+            raise QualificationError("A type with that name already exists.", 409) from exc
+        return jsonify(ok=True, ids=[item["id"] for item in parsed])
 
     @app.get("/api/admin/qualification-pending")
     def qualification_pending():
@@ -195,15 +272,16 @@ def register(app, connection, root, require_session):
     @app.put("/api/qualification-types/<int:type_id>")
     def save_qualification_type(type_id=None):
         admin()
-        body = json_body(("name", "requires_evidence", "requires_expiry", "requires_start", "active"))
+        body = json_body(("name", "requires_evidence", "requires_expiry", "requires_start", "internal", "active"))
         name = body.get("name")
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
             raise QualificationError("Type name must be 1-80 characters.")
         if (type(body.get("requires_evidence")) is not bool
                 or type(body.get("requires_expiry", False)) is not bool
                 or type(body.get("requires_start", False)) is not bool
+                or type(body.get("internal", False)) is not bool
                 or type(body.get("active", True)) is not bool):
-            raise QualificationError("Evidence requirement, date requirements and active must be true or false.")
+            raise QualificationError("Evidence requirement, date requirements, internal and active must be true or false.")
         con = connection()
         try:
             with db.write_lock, con:
@@ -214,17 +292,25 @@ def register(app, connection, root, require_session):
                         raise QualificationError("No such qualification type.", 404)
                     requires_expiry = body.get("requires_expiry", bool(existing["requires_expiry"]))
                     requires_start = body.get("requires_start", bool(existing["requires_start"]))
-                    con.execute("UPDATE qualification_types SET name=?,requires_evidence=?,requires_expiry=?,requires_start=?,active=? WHERE id=?",
-                                (name.strip(), body["requires_evidence"], requires_expiry, requires_start, body.get("active", True), type_id))
+                    internal = body.get("internal", bool(existing["internal"]))
+                    con.execute("UPDATE qualification_types SET name=?,requires_evidence=?,requires_expiry=?,"
+                                "requires_start=?,internal=?,active=? WHERE id=?",
+                                (name.strip(), body["requires_evidence"], requires_expiry, requires_start,
+                                 internal, body.get("active", True), type_id))
                 else:
                     requires_expiry = body.get("requires_expiry", True)
                     requires_start = body.get("requires_start", True)
-                    type_id = con.execute("INSERT INTO qualification_types(name,requires_evidence,requires_expiry,requires_start,active)"
-                                          " VALUES (?,?,?,?,?)", (name.strip(), body["requires_evidence"], requires_expiry, requires_start,
-                                                              body.get("active", True))).lastrowid
+                    internal = body.get("internal", False)
+                    nxt = con.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM qualification_types").fetchone()[0]
+                    type_id = con.execute(
+                        "INSERT INTO qualification_types(name,requires_evidence,requires_expiry,requires_start,"
+                        "internal,sort_order,active) VALUES (?,?,?,?,?,?,?)",
+                        (name.strip(), body["requires_evidence"], requires_expiry, requires_start, internal, nxt,
+                         body.get("active", True))).lastrowid
                 audit(con, None, g.user["id"], "type-updated",
                       dict(type_id=type_id, name=name.strip(), requires_evidence=body["requires_evidence"],
-                           requires_expiry=requires_expiry, requires_start=requires_start, active=body.get("active", True)))
+                           requires_expiry=requires_expiry, requires_start=requires_start, internal=internal,
+                           active=body.get("active", True)))
         except sqlite3.IntegrityError as exc:
             if "qualification_types.name" not in str(exc):
                 raise

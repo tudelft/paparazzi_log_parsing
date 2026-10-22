@@ -264,6 +264,7 @@ function renderInfo() {
     if (q) {
       html += kv('Current qualifications', q.items.filter(item => item.status === 'approved').map(item => {
         const bits = [`<strong>${esc(item.category)}</strong>`];
+        if (item.internal) bits.push('Internal');
         if (item.valid_from) bits.push(`Valid from ${day(item.valid_from, false)}`);
         if (item.valid_until) bits.push(`Valid until ${day(item.valid_until, item.expired)}`);
         return `<div>${bits.join(' · ')}</div>`;

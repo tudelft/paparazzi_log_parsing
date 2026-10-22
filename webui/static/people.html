@@ -67,7 +67,13 @@
   .panel-row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin:12px 0; }
   input, select { max-width:100%; min-width:0; }
   #personPanel, #personContent { min-width:0; overflow-wrap:anywhere; }
-  #typeSettings form { display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
+  #typeList, #typeNew { display:flex; flex-direction:column; }
+  .type-row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
+  .type-row.dragging { opacity:.45; }
+  .drag-handle { cursor:grab; background:var(--sec); color:var(--txt); padding:2px 8px; }
+  .drag-handle:active { cursor:grabbing; }
+  .drag-handle[hidden] { visibility:hidden; }
+  #typeActions { display:flex; gap:8px; align-items:center; margin-top:12px; }
   @media (max-width:760px) { .people-layout { grid-template-columns:1fr; } .people-list { max-height:32vh; } }
   [hidden] { display:none !important; }
 </style>
@@ -140,7 +146,7 @@
   </section>
   <section class="card" id="typesSection" hidden>
     <div class="section-heading"><h2>Qualification types</h2>
-    <details><summary>Help</summary><p>Admins define qualification types here. Checked Evidence, Valid from and Valid until switches make those fields mandatory; unchecked fields are optional. Both dates start checked for new types. Turn on Edit to change settings.</p></details></div>
+    <details><summary>Help</summary><p>Admins define qualification types here. Checked Evidence, Valid from and Valid until switches make those fields mandatory; unchecked fields are optional. Internal marks an in-house qualification rather than an external licence. Drag the handle to change the order. One Save writes every type. Both dates start checked for new types.</p></details></div>
     <div id="typeSettings"></div>
   </section>
 </main>
@@ -262,19 +268,63 @@ function renderAdminPeople() {
       <button type="button" onclick="selectPerson(${s.user_id},'qualifications')">Review submission</button></div>`;
   }).join('') || '<p class="mute">No submissions awaiting approval.</p>';
   const editing = window.editMode();
-  $('typeSettings').innerHTML = qualificationTypes.map(t => editing ? `<form onsubmit="saveQualificationType(event,${t.id})">
-    <input aria-label="Type name" name="name" value="${esc(t.name)}" required maxlength="80">
-    <label><input type="checkbox" name="requires_evidence" ${t.requires_evidence ? 'checked' : ''}> Evidence</label>
-    <label><input type="checkbox" name="requires_start" ${t.requires_start ? 'checked' : ''}> Valid from</label>
-    <label><input type="checkbox" name="requires_expiry" ${t.requires_expiry ? 'checked' : ''}> Valid until</label>
-    <label><input type="checkbox" name="active" ${t.active ? 'checked' : ''}> Active</label><button type="submit">Save type</button></form>`
-    : `<p><strong>${esc(t.name)}</strong> · ${t.requires_evidence ? 'Evidence required' : 'Evidence optional'} · ${t.requires_expiry ? 'Expiry required' : 'Expiry optional'} · ${t.active ? 'Active' : 'Disabled'}</p>`).join('')
-    + (editing ? `<form onsubmit="saveQualificationType(event)">
-      <input name="name" aria-label="New qualification type" placeholder="e.g. A1/A3, A2, RT licence" required maxlength="80">
-      <label><input type="checkbox" name="requires_evidence" checked> Evidence</label>
-      <label><input type="checkbox" name="requires_start" checked> Valid from</label>
-      <label><input type="checkbox" name="requires_expiry" checked> Valid until</label>
-      <button type="submit">Add type</button></form>` : '');
+  if (!editing) {
+    $('typeSettings').innerHTML = qualificationTypes.map(t =>
+      `<p><strong>${esc(t.name)}</strong> · ${t.requires_evidence ? 'Evidence required' : 'Evidence optional'} · ${t.requires_start ? 'Valid from required' : 'Valid from optional'} · ${t.requires_expiry ? 'Valid until required' : 'Valid until optional'} · ${t.internal ? 'Internal' : 'External'} · ${t.active ? 'Active' : 'Disabled'}</p>`).join('');
+    return;
+  }
+  $('typeSettings').innerHTML = `<form id="typeForm" onsubmit="saveQualificationTypes(event)">
+    <div id="typeList">${qualificationTypes.map(t => typeRowHtml(t)).join('')}</div>
+    <div id="typeNew">${typeRowHtml(null)}</div>
+    <div id="typeActions"><button type="button" class="sec" onclick="addTypeRow()">Add type</button>
+      <button type="submit">Save</button>
+      <span class="mute" id="typeStatus" role="status"></span></div>
+  </form>`;
+  bindTypeDrag();
+}
+
+function typeRowHtml(t) {
+  const existing = !!(t && t.id);
+  return `<div class="type-row" data-type-row ${existing ? `data-id="${t.id}"` : ''}>
+    <button type="button" class="drag-handle" ${existing ? '' : 'hidden'} aria-label="Reorder" ${existing ? '' : 'tabindex="-1"'}>↕</button>
+    <input aria-label="${existing ? 'Type name' : 'New qualification type'}" name="name" value="${existing ? esc(t.name) : ''}" ${existing ? 'required' : ''} maxlength="80" placeholder="${existing ? '' : 'e.g. A1/A3, A2, RT licence'}">
+    <label><input type="checkbox" name="requires_evidence" ${!t || t.requires_evidence ? 'checked' : ''}> Evidence</label>
+    <label><input type="checkbox" name="requires_start" ${!t || t.requires_start ? 'checked' : ''}> Valid from</label>
+    <label><input type="checkbox" name="requires_expiry" ${!t || t.requires_expiry ? 'checked' : ''}> Valid until</label>
+    <label><input type="checkbox" name="internal" ${t && t.internal ? 'checked' : ''}> Internal</label>
+    ${existing ? `<label><input type="checkbox" name="active" ${t.active ? 'checked' : ''}> Active</label>` : ''}
+  </div>`;
+}
+
+function addTypeRow() {
+  $('typeNew').insertAdjacentHTML('beforeend', typeRowHtml(null));
+}
+
+function bindTypeDrag() {
+  const list = $('typeList');
+  if (!list) return;
+  let dragged = null;
+  list.querySelectorAll('[data-type-row]').forEach(row => {
+    const handle = row.querySelector('.drag-handle');
+    handle.addEventListener('mousedown', () => { row.draggable = true; });
+    row.addEventListener('dragstart', event => {
+      dragged = row;
+      row.classList.add('dragging');
+      event.dataTransfer.setData('text/plain', row.dataset.id || '');
+      event.dataTransfer.effectAllowed = 'move';
+    });
+    row.addEventListener('dragend', () => {
+      row.draggable = false;
+      row.classList.remove('dragging');
+      dragged = null;
+    });
+    row.addEventListener('dragover', event => {
+      event.preventDefault();
+      if (!dragged || dragged === row) return;
+      const mid = row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
+      list.insertBefore(dragged, event.clientY < mid ? row : row.nextSibling);
+    });
+  });
 }
 
 function renderPeopleList() {
@@ -381,16 +431,29 @@ async function saveProfile(id) {
   } catch (error) { $('err').textContent = error.message; }
 }
 
-async function saveQualificationType(event, id) {
+async function saveQualificationTypes(event) {
   event.preventDefault();
-  const form = event.currentTarget;
-  const body = {name:form.elements.name.value,requires_evidence:form.elements.requires_evidence.checked,
-    requires_expiry:form.elements.requires_expiry.checked, requires_start:form.elements.requires_start.checked,
-    active:id ? form.elements.active.checked : true};
+  const rows = [...document.querySelectorAll('#typeList [data-type-row], #typeNew [data-type-row]')];
+  const types = [];
+  for (const row of rows) {
+    const name = row.querySelector('[name=name]').value.trim();
+    if (!name && !row.dataset.id) continue;
+    const item = {
+      name,
+      requires_evidence: row.querySelector('[name=requires_evidence]').checked,
+      requires_start: row.querySelector('[name=requires_start]').checked,
+      requires_expiry: row.querySelector('[name=requires_expiry]').checked,
+      internal: row.querySelector('[name=internal]').checked,
+      active: row.querySelector('[name=active]') ? row.querySelector('[name=active]').checked : true,
+    };
+    if (row.dataset.id) item.id = +row.dataset.id;
+    types.push(item);
+  }
   try {
-    await adminApi('/api/qualification-types' + (id ? '/' + id : ''),
-      {method:id ? 'PUT' : 'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    await adminApi('/api/admin/qualification-types',
+      {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({types})});
     $('err').textContent = '';
+    $('typeStatus').textContent = 'Saved.';
     await load();
   } catch (error) { $('err').textContent = error.message; }
 }

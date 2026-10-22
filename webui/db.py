@@ -234,6 +234,8 @@ CREATE TABLE IF NOT EXISTS qualification_types (
     requires_evidence INTEGER NOT NULL CHECK(requires_evidence IN (0,1)),
     requires_expiry INTEGER NOT NULL DEFAULT 0 CHECK(requires_expiry IN (0,1)),
     requires_start INTEGER NOT NULL DEFAULT 0 CHECK(requires_start IN (0,1)),
+    internal INTEGER NOT NULL DEFAULT 0 CHECK(internal IN (0,1)),
+    sort_order INTEGER NOT NULL DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
 );
 CREATE TABLE IF NOT EXISTS qualification_submissions (
@@ -322,6 +324,14 @@ def init(path):
     if "requires_expiry" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_types)")}:
         con.execute("ALTER TABLE qualification_types ADD COLUMN requires_expiry"
                     " INTEGER NOT NULL DEFAULT 0 CHECK(requires_expiry IN (0,1))")
+    type_cols = {r["name"] for r in con.execute("PRAGMA table_info(qualification_types)")}
+    if "internal" not in type_cols:
+        con.execute("ALTER TABLE qualification_types ADD COLUMN internal"
+                    " INTEGER NOT NULL DEFAULT 0 CHECK(internal IN (0,1))")
+    if "sort_order" not in type_cols:
+        con.execute("ALTER TABLE qualification_types ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+        for i, row in enumerate(con.execute("SELECT id FROM qualification_types ORDER BY name"), 1):
+            con.execute("UPDATE qualification_types SET sort_order=? WHERE id=?", (i, row["id"]))
     cols = {r["name"] for r in con.execute("PRAGMA table_info(logs)")}
     if "uploaded_by" not in cols:  # database created before accounts existed
         con.execute("ALTER TABLE logs ADD COLUMN uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL")

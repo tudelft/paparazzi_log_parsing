@@ -46,7 +46,7 @@ window.QualificationManager = class {
       const dates = this.dateBits(item);
       const tip = this.metaTip(item).map(line => this.esc(line)).join('<br>');
       return `<div style="margin:12px 0">
-      <strong>${esc(item.category)}</strong> · ${esc(item.status)}${dates.length ? ' · ' + dates.map(esc).join(' · ') : ''}${item.expired ? ' (expired)' : ''}
+      <strong>${esc(item.category)}</strong> · ${esc(item.status)}${item.internal ? ' · Internal' : ''}${dates.length ? ' · ' + dates.map(esc).join(' · ') : ''}${item.expired ? ' (expired)' : ''}
       <span class="info-tip"><button type="button" aria-label="Submission details">i</button><span class="tip" role="tooltip">${tip}</span></span>
       <div>${item.has_evidence ? `<a href="/api/qualification-submissions/${item.id}/evidence">Download</a>`
         : `<span class="mute">${item.evidence_deleted_at ? 'Evidence deleted by admin' : 'No evidence attached'}</span>`}
@@ -77,7 +77,7 @@ window.QualificationManager = class {
         Only the fields required by the chosen type are shown. Past validity periods can be recorded; flight eligibility is not checked.</p>
         <form data-submit>
           <label class="field">Qualification <select name="type_id" required>${types.map(t =>
-            `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></label>
+            `<option value="${t.id}">${esc(t.name)}${t.internal ? ' (internal)' : ''}</option>`).join('')}</select></label>
           <label class="field" data-field="valid_from">Valid from <input type="date" name="valid_from"></label>
           <label class="field" data-field="valid_until">Valid until <input type="date" name="valid_until"></label>
           <label class="field" data-field="evidence">Evidence <input name="evidence" type="file" accept=".pdf,.jpg,.jpeg,.png"></label>

@@ -250,8 +250,8 @@ class QualificationTests(AppTests):
         self.review(expired)
         self.submit(until="2031-01-01")
         expected = [
-            dict(category="A1/A3", valid_from=None, valid_until="2030-01-01", status="approved", expired=False),
-            dict(category="Expired licence", valid_from=None, valid_until="2020-01-01", status="approved", expired=True)]
+            dict(category="A1/A3", valid_from=None, valid_until="2030-01-01", status="approved", expired=False, internal=False),
+            dict(category="Expired licence", valid_from=None, valid_until="2020-01-01", status="approved", expired=True, internal=False)]
         for uid in (1, 2):
             self.sign_in(uid)
             data = self.client.get("/api/detail/people/2").json["item"]["qualifications"]
@@ -346,6 +346,8 @@ class QualificationTests(AppTests):
                     self.assertEqual(row["name"], "Legacy")
                     self.assertEqual(row["requires_expiry"], 0)
                     self.assertEqual(row["requires_start"], 0)
+                    self.assertEqual(row["internal"], 0)
+                    self.assertEqual(row["sort_order"], 1)
                     self.assertIn("valid_from", {r["name"] for r in con.execute(
                         "PRAGMA table_info(qualification_submissions)")})
             con.close()
@@ -384,6 +386,34 @@ class QualificationTests(AppTests):
             self.assertEqual(self.client.put(f"/api/qualification-types/{tid}", json={
                 **settings, "requires_start": invalid}).status_code, 400)
 
+    def test_type_internal_flag_order_and_bulk_save(self):
+        second = self.create_type("Rotorcraft", True)
+        self.assertFalse(next(t for t in self.listing().json["types"] if t["id"] == self.tid)["internal"])
+        self.assertEqual(self.client.put(f"/api/qualification-types/{second}", json={
+            "name": "Rotorcraft", "requires_evidence": True, "internal": True}).status_code, 200)
+        self.assertTrue(next(t for t in self.listing().json["types"] if t["id"] == second)["internal"])
+        response = self.client.put("/api/admin/qualification-types", json={"types": [
+            dict(id=second, name="Rotorcraft", requires_evidence=True, requires_start=False,
+                 requires_expiry=True, internal=True, active=True),
+            dict(id=self.tid, name="A1/A3", requires_evidence=True, requires_start=False,
+                 requires_expiry=False, internal=False, active=True),
+            dict(name="Crew check", requires_evidence=False, requires_start=False,
+                 requires_expiry=False, internal=True, active=True)]})
+        self.assertEqual(response.status_code, 200, response.json)
+        names = [t["name"] for t in self.client.get("/api/admin/qualification-types").json["types"]]
+        self.assertEqual(names[:3], ["Rotorcraft", "A1/A3", "Crew check"])
+        created = next(t for t in self.listing().json["types"] if t["name"] == "Crew check")
+        self.assertTrue(created["internal"])
+        self.assertFalse(created["requires_start"])
+        for uid in (2, 3):
+            self.sign_in(uid)
+            self.assertEqual(self.client.put("/api/admin/qualification-types", json={"types": []}).status_code, 403)
+        self.sign_in(1)
+        self.assertEqual(self.client.put("/api/admin/qualification-types", json={"types": "no"}).status_code, 400)
+        for invalid in (1, "true", None):
+            self.assertEqual(self.client.put(f"/api/qualification-types/{second}", json={
+                "name": "Rotorcraft", "requires_evidence": True, "internal": invalid}).status_code, 400)
+
     def test_management_page_assets_and_read_only_pilot_page(self):
         with self.client.get("/qualifications.js") as response:
             self.assertEqual(response.status_code, 200)
@@ -401,6 +431,10 @@ class QualificationTests(AppTests):
         self.assertIn('id="peopleSearch"', people)
         self.assertIn('id="personTabs"', people)
         self.assertIn('id="typeSettings"', people)
+        self.assertIn('saveQualificationTypes', people)
+        self.assertIn('Internal', people)
+        self.assertNotIn('saveQualificationType(', people)
+        self.assertNotIn('Save type', people)
         self.assertIn('id="approvalQueue"', people)
         self.assertNotIn("1. Choose a person", people)
         self.assertNotIn("2. Selected person", people)
