@@ -62,13 +62,14 @@ def qualifications_payload(con, viewer, user_id):
         return None
     items = []
     for row in con.execute(
-            "SELECT q.*,t.name AS category,t.requires_evidence,"
+            "SELECT q.*,t.name AS category,t.requires_evidence,t.requires_start,t.requires_expiry,"
             " COALESCE(u.display_name,u.username) AS reviewer FROM qualification_submissions q"
             " JOIN qualification_types t ON t.id=q.type_id LEFT JOIN users u ON u.id=q.reviewed_by"
             " WHERE q.user_id=? ORDER BY q.id DESC", (user_id,)):
         item = {key: row[key] for key in (
             "id", "type_id", "category", "status", "valid_from", "valid_until", "submitted_at",
-            "reviewed_at", "reviewer", "evidence_deleted_at", "filename", "requires_evidence")}
+            "reviewed_at", "reviewer", "evidence_deleted_at", "filename", "requires_evidence",
+            "requires_start", "requires_expiry")}
         item["has_evidence"] = bool(row["evidence_path"])
         item["expired"] = bool(row["valid_until"] and row["valid_until"] < datetime.date.today().isoformat())
         items.append(item)
@@ -165,7 +166,8 @@ def register(app, connection, root, require_session):
     def qualification_pending():
         admin()
         rows = connection().execute(
-            "SELECT q.id,q.user_id,t.name AS category,q.valid_from,q.valid_until,q.submitted_at,"
+            "SELECT q.id,q.user_id,q.type_id,t.name AS category,t.requires_start,t.requires_expiry,"
+            " q.valid_from,q.valid_until,q.submitted_at,"
             " COALESCE(u.display_name,u.username) AS person FROM qualification_submissions q"
             " JOIN users u ON u.id=q.user_id JOIN qualification_types t ON t.id=q.type_id"
             " WHERE q.status='pending' ORDER BY q.id").fetchall()

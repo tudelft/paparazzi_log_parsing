@@ -262,9 +262,12 @@ function renderInfo() {
       + kv('Default project', it.default_project ? link('projects', it.default_project.id, it.default_project.name) : '')
       + kv('Projects', it.projects.map(p => `${link('projects', p.id, p.name)} <span class="mute">(${esc(ACCESS[p.role] || p.role)})</span>`).join('<br>'));
     if (q) {
-      html += kv('Current qualifications', q.items.filter(item => item.status === 'approved').map(item =>
-        `<div><strong>${esc(item.category)}</strong> · Valid from ${day(item.valid_from, false) || 'not recorded'} · Valid until ${day(item.valid_until, item.expired) || 'not recorded'}</div>`
-      ).join('') || '<span class="mute">None approved.</span>');
+      html += kv('Current qualifications', q.items.filter(item => item.status === 'approved').map(item => {
+        const bits = [`<strong>${esc(item.category)}</strong>`];
+        if (item.valid_from) bits.push(`Valid from ${day(item.valid_from, false)}`);
+        if (item.valid_until) bits.push(`Valid until ${day(item.valid_until, item.expired)}`);
+        return `<div>${bits.join(' · ')}</div>`;
+      }).join('') || '<span class="mute">None approved.</span>');
     }
 
     html += kv('Account created', esc(fmtDate(it.created_at))) + kv('Last sign-in', esc(fmtTime(it.last_login)));
