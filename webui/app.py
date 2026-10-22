@@ -11,6 +11,7 @@ import csv
 import hashlib
 import difflib
 import functools
+import gzip
 import io
 import json
 import math
@@ -3481,6 +3482,55 @@ def flight_weather(flight_id):
         return jsonify(error=str(exc)), exc.status
 
 
+_GCS_RUNTIME_VERSION = re.compile(rb"logged with runtime paparazzi_version\s+(\S+)")
+_GCS_PLAIN_VERSION = re.compile(rb"logged with paparazzi_version\s+(\S+)")
+_GCS_BUILD_VERSION = re.compile(rb"logged with build paparazzi_version\s+(\S+)")
+_PPRZ_VERSION_TAG = re.compile(r"^v(\d+)\.(\d+)(?:\.(\d+))?", re.I)
+
+
+def gcs_paparazzi_version(rel_path):
+    """Runtime Paparazzi version from the companion .log header comments, or None.
+
+    GCS logs stamp `<!-- logged with runtime paparazzi_version ... -->` when recording starts.
+    That is the ground station, not AUTOPILOT_VERSION from the aircraft; it is used only when
+    the aircraft never sent a version in this log.
+    """
+    if not rel_path:
+        return None
+    path = STORAGE_DIR / rel_path
+    if not path.is_file():
+        return None
+    try:
+        opener = gzip.open if str(rel_path).endswith(".gz") else open
+        with opener(path, "rb") as f:
+            head = f.read(4096)
+    except OSError:
+        return None
+    match = _GCS_RUNTIME_VERSION.search(head) or _GCS_PLAIN_VERSION.search(head) or _GCS_BUILD_VERSION.search(head)
+    if not match:
+        return None
+    return match.group(1).decode("ascii", "replace").removesuffix("-->").strip()
+
+
+def format_paparazzi_version_message(desc):
+    """Match AUTOPILOT_VERSION's `MAJOR*10000+MINOR*100+PATCH desc` form when the tag is vMAJOR.MINOR."""
+    match = _PPRZ_VERSION_TAG.match(desc or "")
+    if not match:
+        return desc
+    code = int(match.group(1)) * 10000 + int(match.group(2)) * 100 + int(match.group(3) or 0)
+    return f"{code} {desc}"
+
+
+def with_gcs_autopilot_fallback(versions, log_rel):
+    """Keep aircraft AUTOPILOT_VERSION when present; otherwise the GCS .log header."""
+    if versions:
+        return versions, False
+    desc = gcs_paparazzi_version(log_rel)
+    if not desc:
+        return [], False
+    return [format_paparazzi_version_message(desc)], True
+
+
 @app.get("/api/flights/<int:flight_id>/detail")
 def flight_detail(flight_id):
     """Everything for the flight page: the logbook entry (merged sources), this log's path, flight plan,
@@ -3492,7 +3542,7 @@ def flight_detail(flight_id):
     row = con.execute(
         "SELECT f.takeoff_time_s, f.landing_time_s, f.path_idx, l.paths_file, a.id AS aircraft_pk, a.name, a.ac_id,"
         " a.autopilot_versions, a.info_messages, a.preflight_checks, a.config_gz, l.id AS log_id, l.log_type,"
-        " l.name AS log_name, l.start_utc AS log_start_utc, l.date_override"
+        " l.name AS log_name, l.log_path, l.start_utc AS log_start_utc, l.date_override"
         + (", f.path_gz" if HAVE_PATH_GZ else "") +
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id WHERE f.id=?",
         (flight_id,)).fetchone()
@@ -3503,13 +3553,14 @@ def flight_detail(flight_id):
     days = clock_shift_days(row["log_start_utc"], row["date_override"])
     path = flight_path(row["paths_file"], row["path_idx"], days, row["path_gz"] if HAVE_PATH_GZ else None)
     apply_clock_to_obj(changes, days)
+    versions, from_gcs = with_gcs_autopilot_fallback(json.loads(row["autopilot_versions"] or "[]"), row["log_path"])
     return jsonify(
         entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
         takeoff_time_s=row["takeoff_time_s"], landing_time_s=row["landing_time_s"],
         path=path, flight_plan=config.get("flight_plan"),
         setting_changes=changes, info_messages=json.loads(row["info_messages"] or "[]"),
         preflight_checks=json.loads(row["preflight_checks"] or "[]"),
-        autopilot_versions=json.loads(row["autopilot_versions"] or "[]"))
+        autopilot_versions=versions, autopilot_versions_from_gcs=from_gcs)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -3772,8 +3823,10 @@ def get_log(log_id):
             ad["drone_name"] = None
             ad["drone_uid"] = None
         add_people([ad], resolve)
-        for k in ("autopilot_versions", "preflight_checks", "info_messages"):
+        for k in ("preflight_checks", "info_messages"):
             ad[k] = json.loads(ad[k]) if ad[k] else []
+        ad["autopilot_versions"], ad["autopilot_versions_from_gcs"] = with_gcs_autopilot_fallback(
+            json.loads(ad["autopilot_versions"]) if ad["autopilot_versions"] else [], row["log_path"])
         if days:
             ad["first_utc"] = shift_iso(ad.get("first_utc"), days)
             ad["last_utc"] = shift_iso(ad.get("last_utc"), days)

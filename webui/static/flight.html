@@ -97,8 +97,9 @@
   <div id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
   <section class="card" id="summary"></section>
   <section class="card"><h2>Autopilot software</h2><div id="versions"></div>
-    <small class="mute">Versions reported by the selected log. Commit links point to paparazzi/paparazzi;
-      commits from private forks may not be available there.</small></section>
+    <small class="mute">Versions sent by the aircraft when present. If that message is missing, the Paparazzi
+      version from the GCS <span class="mono">.log</span> header is shown instead. Commit links point to
+      paparazzi/paparazzi; commits from private forks may not be available there.</small></section>
   <details class="card"><summary>Takeoff and landing details</summary><div class="cols" id="events"></div></details>
   </div>
   <section class="card" id="panel-weather" role="tabpanel" aria-labelledby="tab-weather" hidden>
@@ -686,7 +687,10 @@ function softwareVersion(raw) {
 function renderMisc() {
   $('pfc').innerHTML = D.preflight_checks.map(m => `<tr><td class="mono" style="white-space:nowrap">${rel(m.time_s)}</td><td>${esc(m.text)}</td></tr>`).join('')
     || '<tr><td class="mute">No pre-flight check messages in the log.</td></tr>';
-  $('versions').innerHTML = D.autopilot_versions.map(softwareVersion).join('')
+  const note = D.autopilot_versions_from_gcs
+    ? '<div class="mute">The aircraft did not send AUTOPILOT_VERSION; this is the Paparazzi version from the GCS log header.</div>'
+    : '';
+  $('versions').innerHTML = (D.autopilot_versions.map(softwareVersion).join('') + note)
     || '<span class="mute">No autopilot version recorded in this log.</span>';
 }
 
