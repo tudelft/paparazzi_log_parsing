@@ -253,10 +253,44 @@ class HistoricalTests(AppTests):
         result = self.client.post("/api/historical/import",
                                   data={"file": (io.BytesIO(b"\xff\xfe"), "paper.csv")})
         self.assertEqual(result.status_code, 400)
-        self.ns["user_for_key"] = lambda key: self.con.execute("SELECT * FROM users WHERE id=2").fetchone()
-        result = self.client.post("/api/historical", json=self.body,
-                                  headers={"Authorization": "Bearer test-only"})
-        self.assertEqual(result.status_code, 403)
+
+    def test_api_keys_add_records_but_cannot_change_them_or_manage_keys(self):
+        original = self.ns["user_for_key"]
+        self.addCleanup(self.ns.__setitem__, "user_for_key", original)
+        key = {"Authorization": "Bearer test-only"}
+
+        def as_key(uid):
+            self.ns["user_for_key"] = lambda token: self.con.execute("SELECT * FROM users WHERE id=?",
+                                                                     (uid,)).fetchone()
+
+        def key_csv(text):
+            response = self.client.post("/api/historical/import", headers=key,
+                                        data={"file": (io.BytesIO(text.encode()), "paper.csv")})
+            response.request.input_stream.close()
+            return response
+
+        csv_text = "aircraft,pic,project,date,duration_minutes,flight_count\nDrone,Pilot,Research,2010-03-01,10,1\n"
+        as_key(3)  # view-only member: same project rule as in the browser
+        self.assertEqual(self.client.post("/api/historical", json=self.body, headers=key).status_code, 403)
+        as_key(2)  # full project member, not admin
+        result = self.client.post("/api/historical", json=self.body, headers=key)
+        self.assertEqual(result.status_code, 201, result.json)
+        rid = result.json["id"]
+        self.assertEqual(self.client.get(f"/api/historical/{rid}", headers=key).status_code, 200)
+        self.assertEqual(self.client.put(f"/api/historical/{rid}", json={**self.body, "duration_minutes": 45},
+                                         headers=key).status_code, 403)
+        self.assertEqual(self.client.delete(f"/api/historical/{rid}", headers=key).status_code, 403)
+        self.assertEqual(key_csv(csv_text).status_code, 403)  # CSV import stays admin-only
+        self.assertEqual(self.client.get("/api/keys", headers=key).status_code, 403)
+        self.assertEqual(self.client.post("/api/keys", json={"name": "x"}, headers=key).status_code, 403)
+        as_key(1)  # admin key: scripted CSV import of old logbooks
+        result = key_csv(csv_text)
+        self.assertEqual(result.status_code, 201, result.json)
+        self.assertEqual(self.client.post("/api/keys", json={"name": "x"}, headers=key).status_code, 403)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM flight_records").fetchone()[0], 2)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM api_keys").fetchone()[0], 0)
+        self.sign_in(2)  # the browser session is unchanged
+        self.assertEqual(self.client.delete(f"/api/historical/{rid}").status_code, 200)
 
     def test_csv_import_and_template_are_admin_only(self):
         for uid in (2, 3, 4, 5):

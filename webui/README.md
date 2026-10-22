@@ -96,3 +96,7 @@ python3 upload_logs.py ~/paparazzi/var/logs         # upload
 ```
 
 Keep the key private. For a large initial import, see [controlled bulk uploads](TECHNICAL.md#uploading-with-a-script).
+
+A key can also add paper records: `POST /api/historical` (full project access) and, with an admin's key,
+the CSV import `POST /api/historical/import`. Changing or deleting records, and managing keys or the
+account, still need a browser session.

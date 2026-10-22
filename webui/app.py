@@ -3309,7 +3309,8 @@ def historical_template():
 
 @app.post("/api/historical")
 def create_historical():
-    session_required()
+    # API keys may add paper records (scripted transcription of old logbooks); changing and deleting
+    # them stays browser-only, like key and account management
     con = conn()
     try:
         with db.write_lock, con:
@@ -3352,8 +3353,7 @@ def historical_record(record_id):
 
 @app.post("/api/historical/import")
 def import_historical():
-    session_required()
-    admin_required()
+    admin_required()  # also with an admin's API key, for scripted imports of old logbooks
     upload = request.files.get("file")
     if upload is None:
         return jsonify(error="Choose a CSV file."), 400
