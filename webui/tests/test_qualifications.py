@@ -388,6 +388,10 @@ class QualificationTests(AppTests):
         with self.client.get("/qualifications.js") as response:
             self.assertEqual(response.status_code, 200)
             self.assertIn("no-store", response.headers["Cache-Control"])
+            script = response.get_data(as_text=True)
+            self.assertIn("data-open-upload", script)
+            self.assertIn("info-tip", script)
+            self.assertNotIn("not recorded", script)
         with self.client.get("/people") as response:
             people = response.get_data(as_text=True)
         with self.client.get("/account") as response:

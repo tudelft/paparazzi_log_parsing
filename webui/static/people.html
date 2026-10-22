@@ -252,11 +252,15 @@ async function adminApi(url, options) {
 function renderAdminPeople() {
   renderPeopleList();
   renderPersonPanel();
-  $('approvalQueue').innerHTML = pendingQualifications.map(s =>
-    `<div class="panel-row"><strong>${esc(s.person)}</strong> ${esc(s.category)} · Valid from ${esc(s.valid_from || 'not recorded')} · Valid until ${esc(s.valid_until || 'not recorded')}
-      <span class="mute">${esc(s.submitted_at)}</span>
-      <button type="button" onclick="selectPerson(${s.user_id},'qualifications')">Review submission</button></div>`).join('')
-    || '<p class="mute">No submissions awaiting approval.</p>';
+  $('approvalQueue').innerHTML = pendingQualifications.map(s => {
+    const dates = [];
+    if (s.valid_from) dates.push(`Valid from ${esc(s.valid_from)}`);
+    if (s.valid_until) dates.push(`Valid until ${esc(s.valid_until)}`);
+    return `<div class="panel-row"><strong>${esc(s.person)}</strong> ${esc(s.category)}${dates.length ? ' · ' + dates.join(' · ') : ''}
+      <span class="info-tip"><button type="button" aria-label="Submission details">i</button>
+      <span class="tip" role="tooltip">Submitted ${esc(String(s.submitted_at || '').replace('T', ' ').replace(/Z$/, ' UTC'))}</span></span>
+      <button type="button" onclick="selectPerson(${s.user_id},'qualifications')">Review submission</button></div>`;
+  }).join('') || '<p class="mute">No submissions awaiting approval.</p>';
   const editing = window.editMode();
   $('typeSettings').innerHTML = qualificationTypes.map(t => editing ? `<form onsubmit="saveQualificationType(event,${t.id})">
     <input aria-label="Type name" name="name" value="${esc(t.name)}" required maxlength="80">

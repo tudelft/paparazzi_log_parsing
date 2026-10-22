@@ -23,41 +23,68 @@ window.QualificationManager = class {
       this.render();
     } catch (error) { this.element.textContent = error.message; }
   }
+  dateBits(item) {
+    const bits = [];
+    if (item.valid_from) bits.push(`Valid from ${item.valid_from}`);
+    if (item.valid_until) bits.push(`Valid until ${item.valid_until}`);
+    return bits;
+  }
+  when(value) {
+    return String(value || '').replace('T', ' ').replace(/Z$/, ' UTC');
+  }
+  metaTip(item) {
+    const lines = [`Submitted ${this.when(item.submitted_at)}`];
+    if (item.reviewed_at) {
+      const verb = item.status === 'withdrawn' ? 'Withdrawn' : (item.status === 'approved' ? 'Approved' : 'Reviewed');
+      lines.push(`${verb} by ${item.reviewer || 'former user'} ${this.when(item.reviewed_at)}`);
+    }
+    return lines;
+  }
   render() {
     const q = this.data, esc = v => this.esc(v);
-    const claim = item => `<div style="margin:12px 0">
-      <strong>${esc(item.category)}</strong> · ${esc(item.status)} · Valid from ${esc(item.valid_from || 'not recorded')} · Valid until ${esc(item.valid_until || 'not recorded')}${item.expired ? ' (expired)' : ''}
-      <div class="mute">Submitted ${esc(item.submitted_at)}${item.reviewed_at
-        ? ` · ${item.status === 'withdrawn' ? 'Withdrawn' : 'Reviewed'} by ${esc(item.reviewer || 'former user')} ${esc(item.reviewed_at)}` : ''}</div>
-      ${item.has_evidence ? `<a href="/api/qualification-submissions/${item.id}/evidence">Download</a>`
+    const claim = item => {
+      const dates = this.dateBits(item);
+      const tip = this.metaTip(item).map(line => this.esc(line)).join('<br>');
+      return `<div style="margin:12px 0">
+      <strong>${esc(item.category)}</strong> · ${esc(item.status)}${dates.length ? ' · ' + dates.map(esc).join(' · ') : ''}${item.expired ? ' (expired)' : ''}
+      <span class="info-tip"><button type="button" aria-label="Submission details">i</button><span class="tip" role="tooltip">${tip}</span></span>
+      <div>${item.has_evidence ? `<a href="/api/qualification-submissions/${item.id}/evidence">Download</a>`
         : `<span class="mute">${item.evidence_deleted_at ? 'Evidence deleted by admin' : 'No evidence attached'}</span>`}
       ${this.editing && item.status === 'pending' ? `${this.admin
         ? `<button type="button" data-review="approve" data-id="${item.id}">Approve</button>
            <button type="button" data-review="reject" data-id="${item.id}">Reject</button>` : ''}
         <button type="button" data-review="withdraw" data-id="${item.id}">Withdraw</button>` : ''}
       ${this.admin && this.editing ? `${item.has_evidence ? `<button type="button" data-delete="evidence" data-id="${item.id}">Delete evidence</button>` : ''}
-        <button type="button" data-delete="record" data-id="${item.id}">Delete record</button>` : ''}</div>`;
+        <button type="button" data-delete="record" data-id="${item.id}">Delete record</button>` : ''}</div></div>`;
+    };
     const current = q.items.filter(i => ['pending','approved'].includes(i.status));
     const previous = q.items.filter(i => !['pending','approved'].includes(i.status));
     const types = q.types.filter(t => t.active);
+    const uploadTitle = this.admin ? 'Upload for this person' : 'Submit a qualification';
     this.element.innerHTML = `<div data-error role="alert" style="color:var(--err);overflow-wrap:anywhere"></div>
       <div class="section-heading"><h3>Current qualifications</h3>
       <details><summary>Help</summary><p>Approved qualifications and pending submissions.
-      Only the linked person and administrators can see these records and files.</p></details></div>
+      Only the linked person and administrators can see these records and files.
+      Dates only appear when they were recorded for that qualification.</p></details></div>
       ${current.map(claim).join('') || '<p class="mute">None recorded.</p>'}
       ${previous.length ? `<details class="help-text"><summary>${previous.length} previous submissions</summary>${previous.map(claim).join('')}</details>` : ''}
-      ${this.editing ? `<div class="section-heading"><h3>${this.admin ? 'Upload for this person' : 'Submit a qualification'}</h3>
-      <details><summary>Help</summary><p>Every submission needs admin approval. Your current approval remains active during renewal review.
-      Blank dates mean unknown or not applicable. Past validity periods can be recorded; flight eligibility is not checked.
-      Use this private upload, not flight attachments, for licence evidence.</p></details></div>
-      ${types.length ? `<form data-submit>
-        <p><label>Qualification <select name="type_id" required>${types.map(t =>
-          `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></label></p>
-        <p><label>Valid from <input type="date" name="valid_from"></label></p>
-        <p><label>Valid until <input type="date" name="valid_until"></label></p>
-        <p><label>Evidence <input name="evidence" type="file" accept=".pdf,.jpg,.jpeg,.png" ${types[0].requires_evidence ? 'required' : ''}></label></p>
-        <p class="mute" data-proof-hint></p><button type="submit">Submit for approval</button>
-      </form>` : '<p class="mute">An admin must first add a qualification type on People.</p>'}`
+      ${this.editing ? (types.length ? `<p><button type="button" data-open-upload>${uploadTitle}</button></p>
+      <dialog class="entry-dialog" data-upload-dialog aria-labelledby="uploadTitle-${this.userId}">
+        <div class="dialog-header"><h2 id="uploadTitle-${this.userId}">${uploadTitle}</h2>
+          <button type="button" data-close-upload aria-label="Close">Close</button></div>
+        <p class="dialog-error" data-dialog-error hidden role="alert"></p>
+        <p class="mute">Every submission needs admin approval. Your current approval remains active during renewal review.
+        Only the fields required by the chosen type are shown. Past validity periods can be recorded; flight eligibility is not checked.</p>
+        <form data-submit>
+          <label class="field">Qualification <select name="type_id" required>${types.map(t =>
+            `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></label>
+          <label class="field" data-field="valid_from">Valid from <input type="date" name="valid_from"></label>
+          <label class="field" data-field="valid_until">Valid until <input type="date" name="valid_until"></label>
+          <label class="field" data-field="evidence">Evidence <input name="evidence" type="file" accept=".pdf,.jpg,.jpeg,.png"></label>
+          <p class="mute" data-proof-hint></p>
+          <button type="submit">Submit for approval</button>
+        </form>
+      </dialog>` : '<p class="mute">An admin must first add a qualification type on People.</p>')
         : '<p class="mute">Turn on Edit to upload, review or delete qualifications for this person.</p>'}
       ${this.admin ? `<details class="help-text"><summary>Qualification history (admins only)</summary>
         <p class="mute">An audit of submission, review and deletion actions, separate from the previous submissions and files above.</p>
@@ -69,13 +96,25 @@ window.QualificationManager = class {
     this.element.querySelectorAll('[data-delete]').forEach(button => {
       button.onclick = () => this.remove(+button.dataset.id, button.dataset.delete === 'evidence');
     });
+    const dialog = this.element.querySelector('[data-upload-dialog]');
+    const openUpload = this.element.querySelector('[data-open-upload]');
+    if (openUpload && dialog) {
+      openUpload.onclick = () => dialog.showModal();
+      this.element.querySelector('[data-close-upload]').onclick = () => dialog.close();
+    }
     const form = this.element.querySelector('[data-submit]');
     if (form) {
       const hint = () => {
         const type = types.find(t => t.id === +form.elements.type_id.value);
+        const show = (name, on) => {
+          form.querySelector(`[data-field="${name}"]`).hidden = !on;
+          form.elements[name].required = !!on;
+          if (!on) form.elements[name].value = '';
+        };
+        show('valid_from', type.requires_start);
+        show('valid_until', type.requires_expiry);
+        show('evidence', true);
         form.elements.evidence.required = !!type.requires_evidence;
-        form.elements.valid_until.required = !!type.requires_expiry;
-        form.elements.valid_from.required = !!type.requires_start;
         this.element.querySelector('[data-proof-hint]').textContent =
           (type.requires_evidence ? 'Evidence is required. ' : 'Evidence is optional. ') + 'One PDF, JPEG or PNG, up to 20 MiB.';
       };
@@ -98,8 +137,11 @@ window.QualificationManager = class {
         const d = await this.request(`/api/users/${this.userId}/qualification-audit`);
         this.element.querySelector('[data-events]').textContent = d.events.map(e => {
           const detail = JSON.parse(e.details_json);
+          const dates = [];
+          if (detail.valid_from) dates.push(`Valid from ${detail.valid_from}`);
+          if (detail.valid_until) dates.push(`Valid until ${detail.valid_until}`);
           return `${e.created_at} · ${e.actor || 'former user'} · ${e.action.replaceAll('-', ' ')}`
-            + `\n${detail.category || 'Qualification'} · Valid from ${detail.valid_from || 'not recorded'} · Valid until ${detail.valid_until || 'not recorded'}`
+            + `\n${detail.category || 'Qualification'}${dates.length ? ' · ' + dates.join(' · ') : ''}`
             + (typeof detail.has_evidence === 'boolean' ? ` · ${detail.has_evidence ? 'evidence attached' : 'no evidence attached'}` : '')
             + (detail.status ? ` · previously ${detail.status}` : '');
         }).join('\n\n') || 'No events.';
@@ -107,7 +149,13 @@ window.QualificationManager = class {
     };
   }
   error(message) {
-    this.element.querySelector('[data-error]').textContent = message;
+    const box = this.element.querySelector('[data-error]');
+    if (box) box.textContent = message;
+    const dialogErr = this.element.querySelector('[data-dialog-error]');
+    if (dialogErr) {
+      dialogErr.textContent = message;
+      dialogErr.hidden = !message;
+    }
   }
   async mutate(url, options) {
     const buttons = this.element.querySelectorAll('button');
