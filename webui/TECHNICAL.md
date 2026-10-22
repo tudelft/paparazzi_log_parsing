@@ -57,6 +57,8 @@ After an update that changes the parser version, click **Re-parse outdated** on 
 away. Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
 and warnings for local (dirty) changes. Multiple reported builds remain visible; raw version messages
 can be expanded. Commit links use `paparazzi/paparazzi` and may not resolve for private forks.
+When the aircraft did not send `AUTOPILOT_VERSION`, the GCS `runtime paparazzi_version` comment at
+the top of the companion `.log` is shown instead and labelled as coming from the GCS log.
 Tabs separate the path/charts, weather, settings, messages and pre-flight checks.
 Messages and settings show 25 rows per page, scoped to the flight by default; their checkboxes include
 the whole log. Tab counts reflect the flight scope (messages also include 30 seconds either side).
@@ -434,7 +436,7 @@ is ticked.
 
 **Flight page** (`/flight/<id>`). Path on a map with the flight plan waypoints, a time slider, altitude/speed chart,
 takeoff/landing details, setting changes, messages, pre-flight checks and autopilot version; switch between the SD
-and GCS log when both exist.
+and GCS log when both exist. Missing `AUTOPILOT_VERSION` falls back to the GCS `.log` header.
 
 **Database.** `logs` (hash, files, status, parser version) → `aircraft` (crew, goal, versions, messages, config) →
 `flights` (takeoff/landing, index into the paths file) and `setting_changes`.
