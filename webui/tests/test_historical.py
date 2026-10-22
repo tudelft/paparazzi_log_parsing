@@ -287,6 +287,36 @@ class HistoricalTests(AppTests):
         self.assertEqual(rows[0]["sources"][0]["log_id"], 1)
         self.assertEqual(self.client.get("/api/places").json["places"][0]["flights"], 5)
 
+    def test_logbook_borrows_decoded_landing_from_completed_source(self):
+        landing = {"location": {"lat": 52.0, "lon": 4.0, "alt_m": 12}}
+        for identity, kind, landed in ((1, "onboard_sd", 0), (2, "gcs", 1)):
+            self.con.execute(
+                "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,log_type)"
+                " VALUES(?,?,?,'test.data','done','now',2,1,?)",
+                (identity, kind, kind, kind))
+            self.con.execute("INSERT INTO aircraft(id,log_id,drone_id,name,ac_id) VALUES(?,?,1,'Drone',7)",
+                             (identity, identity))
+            self.con.execute(
+                "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,landing_utc,landed,"
+                " landing_lat,landing_lon,landing_json,verdict)"
+                " VALUES(?,?,0,?,'2010-01-01T12:00:00.000Z',?,?,?,?,?,'flight')",
+                (identity, identity, 100 if landed else 60,
+                 "2010-01-01T12:01:40.000Z" if landed else None, landed,
+                 52.0 if landed else None, 4.0 if landed else None,
+                 json.dumps(landing) if landed else None))
+        self.con.commit()
+        response = self.client.get("/api/logbook")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json), 1)
+        row = response.json[0]
+        self.assertEqual(row["flight_id"], 1)
+        self.assertEqual(row["landing"], landing)
+        self.assertEqual(row["landing_utc"], "2010-01-01T12:01:40.000Z")
+        self.assertEqual((row["landing_lat"], row["landing_lon"]), (52.0, 4.0))
+        self.assertEqual(row["duration_s"], 100)
+        self.assertTrue(row["landed"])
+        self.assertEqual(len(row["sources"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

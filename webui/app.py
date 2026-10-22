@@ -3250,7 +3250,7 @@ def merge_sources(flights):
         if not main["landed"]:
             donor = next((o for o in fl[1:] if o["landed"]), None)
             if donor:
-                for k in ("landing_utc", "landing_lat", "landing_lon", "landing_voltage_v", "landing_json",
+                for k in ("landing_utc", "landing_lat", "landing_lon", "landing_voltage_v", "landing",
                           "duration_s", "distance_m", "from_takeoff_m", "max_from_takeoff_m", "landed"):
                     main[k] = donor[k]
         for role in ROLES + ("goal",):
