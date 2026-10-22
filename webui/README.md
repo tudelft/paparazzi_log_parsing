@@ -1,5 +1,20 @@
 # Flight logbook
 
+## Setup and further help
+
+For a local trial, run from `webui/` using your Python environment after building the
+[C++ parser](../cpp/) in **Release** mode:
+
+```sh
+cmake -S ../cpp -B ../cpp/build -DCMAKE_BUILD_TYPE=Release && cmake --build ../cpp/build
+pip install -r requirements.txt
+python3 app.py create-user alice --admin
+python3 app.py                                  # http://127.0.0.1:8000
+```
+
+For server installation, configuration, backups, account administration, detailed feature rules,
+tests and API/storage architecture, use the [technical guide](TECHNICAL.md).
+
 Upload flight logs and browse flights, crew, projects, aircraft and locations in one logbook.
 All pages require sign-in; the records you can see depend on your access.
 The home page (`/`) opens the logbook. Uploads has its own page at `/uploads`;
@@ -10,7 +25,7 @@ existing `/logbook` links still work.
 | Page | What to do |
 |---|---|
 | **Logbook** | Filter flights, review flight time, expand a row or open its flight page. Click aircraft, crew, project or location names for their detail pages. |
-| **Uploads** | Drop logs, ZIP archives or folders; check parsing progress and errors. Paparazzi logs need matching `.data` and `.log` files. |
+| **Uploads** | Drop logs, ZIP archives or folders; check parsing progress and errors. Paparazzi logs need matching `.data` and `.log` files. PX4 `.ulg`, ArduPilot `.bin`/`.log` and `.tlog` files can also be uploaded. |
 | **Statistics** | View totals for aircraft, projects and crew within your access. |
 | **Aircraft / People / Projects / Locations** | Browse records and open their histories, totals and flights. |
 | **My account** | Click your name at the top right to manage your password, API keys and private qualification submissions. |
@@ -55,6 +70,7 @@ Evidence and submission history are private to you and admins; audit history is 
 Pilot pages show approved summaries, not evidence.
 Use **Valid from** and **Valid until** to record the licence period, including past qualifications.
 Admins can make either date optional per type; both date switches start checked for new types.
+An Internal switch marks in-house qualifications. Drag types to set their order, then use one Save.
 Dates are entered manually, and existing records keep an unknown start date. Historical flight
 eligibility is not checked. The read-only People list shows only approved, non-expired qualifications,
 without an approval-status label; management still shows pending, expired and previous submissions.
@@ -80,17 +96,3 @@ python3 upload_logs.py ~/paparazzi/var/logs         # upload
 ```
 
 Keep the key private. For a large initial import, see [controlled bulk uploads](TECHNICAL.md#uploading-with-a-script).
-
-## Setup and further help
-
-For a local trial, run from `webui/` using your Python environment after building the
-[C++ parser](../cpp/) in **Release** mode:
-
-```sh
-pip install -r requirements.txt
-python3 app.py create-user alice --admin
-python3 app.py                                  # http://127.0.0.1:8000
-```
-
-For server installation, configuration, backups, account administration, detailed feature rules,
-tests and API/storage architecture, use the [technical guide](TECHNICAL.md).
