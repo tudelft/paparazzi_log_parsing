@@ -17,6 +17,66 @@ from .test_historical import AppTests
 
 
 class UploadScriptTests(unittest.TestCase):
+    def test_progress_counts_skipped_accepted_processed_and_failed(self):
+        progress = upload.Progress(10, bulk=True)
+        progress.checked = 8
+        progress.skipped = 3
+        progress.accepted = 4
+        progress.processed = 2
+        progress.failed = 1
+        output = io.StringIO()
+        with patch("sys.stdout", output):
+            progress.report()
+        self.assertEqual(output.getvalue(), "Progress: 6/10 (60.0%) | 4 remaining | 8 checked | "
+                         "3 skipped | 4 accepted, 2 processed | 1 failed\n")
+
+    def test_progress_acceptance_only_dry_run_and_empty(self):
+        for bulk, dry_run, total, expected in (
+                (False, False, 4, "3/4 (75.0%) | 1 remaining"),
+                (True, True, 4, "3/4 (75.0%) | 1 remaining"),
+                (False, False, 0, "0/0 (100.0%) | 0 remaining")):
+            with self.subTest(bulk=bulk, dry_run=dry_run, total=total):
+                progress = upload.Progress(total, bulk, dry_run)
+                if total:
+                    progress.skipped = 1
+                    progress.accepted = progress.planned = 2
+                output = io.StringIO()
+                with patch("sys.stdout", output):
+                    progress.report()
+                self.assertIn(expected, output.getvalue())
+
+    def test_scan_errors_are_not_silently_ignored(self):
+        def walk(root, onerror):
+            onerror(PermissionError("cannot list folder"))
+            return iter(())
+
+        with patch.object(upload.os, "walk", side_effect=walk):
+            with self.assertRaisesRegex(PermissionError, "cannot list folder"):
+                list(upload.find_pairs("fixture"))
+
+    def test_bulk_progress_tracks_processing_results_and_remaining(self):
+        for processing_error in (False, True):
+            with self.subTest(processing_error=processing_error), tempfile.TemporaryDirectory() as directory:
+                data = Path(directory) / "flight.data"
+                data.write_bytes(b"test")
+                data.with_suffix(".log").write_bytes(b"xml")
+                client = Mock()
+                client._request.return_value = {"user": {"display_name": "Pilot"}}
+                client.check.return_value = {}
+                client.upload.return_value = {"results": [{"status": "accepted", "ingest_id": 7}]}
+                output = io.StringIO()
+                args = ["upload_logs.py", directory, "--bulk", "--server", "http://fixture", "--key", "test"]
+                error = RuntimeError("parse failed") if processing_error else None
+                with patch.object(upload, "Client", return_value=client), patch("sys.argv", args), \
+                        patch.object(upload, "wait_capacity"), patch.object(upload, "reserve_capacity"), \
+                        patch.object(upload, "wait_result", side_effect=error), patch("sys.stdout", output):
+                    self.assertEqual(upload.main(), int(processing_error))
+                self.assertIn("Progress: 0/1 (0.0%) | 1 remaining | 1 checked | 0 skipped | "
+                              "1 accepted, 0 processed | 0 failed", output.getvalue())
+                expected = "1 accepted, 0 processed | 1 failed" if processing_error else "1 accepted, 1 processed | 0 failed"
+                self.assertIn("Progress: 1/1 (100.0%) | 0 remaining | 1 checked | 0 skipped | " + expected,
+                              output.getvalue())
+
     def test_upload_starts_before_later_batches_are_hashed_and_deduplicates(self):
         with tempfile.TemporaryDirectory() as directory:
             for index, content in enumerate((b"first", b"second", b"first", b"known")):
@@ -24,6 +84,7 @@ class UploadScriptTests(unittest.TestCase):
                 data.write_bytes(content)
                 data.with_suffix(".log").write_bytes(b"xml")
             events = []
+            output = io.StringIO()
             real_hash = upload.sha256_file
             known_hash = real_hash(Path(directory) / "3.data")
             client = Mock()
@@ -42,12 +103,15 @@ class UploadScriptTests(unittest.TestCase):
             args = ["upload_logs.py", directory, "--server", "http://fixture", "--key", "test",
                     "--hash-batch-files", "1"]
             with patch.object(upload, "Client", return_value=client), patch("sys.argv", args), \
-                    patch.object(upload, "sha256_file", side_effect=hashed):
+                    patch.object(upload, "sha256_file", side_effect=hashed), patch("sys.stdout", output):
                 self.assertEqual(upload.main(), 0)
             self.assertEqual(events, [("hash", "0.data"), ("upload", "0.data"),
                                       ("hash", "1.data"), ("upload", "1.data"),
                                       ("hash", "2.data"), ("hash", "3.data")])
             self.assertEqual(client.check.call_count, 4)
+            self.assertIn("Found 4 pairs.", output.getvalue())
+            self.assertIn("Progress: 4/4 (100.0%) | 0 remaining | 4 checked | 2 skipped | 2 accepted | 0 failed",
+                          output.getvalue())
 
     def test_hash_batches_enforce_count_bytes_and_oversized_files(self):
         pairs = [(str(i), str(i), "log") for i in range(5)]
@@ -80,6 +144,8 @@ class UploadScriptTests(unittest.TestCase):
                 self.assertEqual(upload.main(), 0)
             self.assertEqual(output.getvalue().count("would upload"), 1)
             self.assertEqual(client.check.call_count, 2)
+            self.assertIn("Progress: 2/2 (100.0%) | 0 remaining | 2 checked | 1 skipped | 1 planned | 0 failed",
+                          output.getvalue())
             client.upload.assert_not_called()
             client._request.assert_called_once_with("GET", "/api/me")
 
@@ -95,14 +161,18 @@ class UploadScriptTests(unittest.TestCase):
             client.upload.return_value = {"results": [{"status": "accepted", "ingest_id": 7}]}
             args = ["upload_logs.py", directory, "--bulk", "--server", "http://fixture", "--key", "test",
                     "--hash-batch-files", "1"]
+            output = io.StringIO()
             with patch.object(upload, "Client", return_value=client), patch("sys.argv", args), \
                     patch.object(upload, "sha256_file", side_effect=["digest", OSError("read failed")]), \
                     patch.object(upload, "wait_capacity"), \
                     patch.object(upload, "reserve_capacity", return_value="a" * 32), \
-                    patch.object(upload, "wait_result") as result:
+                    patch.object(upload, "wait_result") as result, patch("sys.stdout", output):
                 self.assertEqual(upload.main(), 1)
             self.assertEqual(client.upload.call_count, 1)
             result.assert_called_once_with(client, 7, 5, 3600)
+            self.assertIn("Progress: 1/2 (50.0%) | 1 remaining", output.getvalue())
+            self.assertIn("1 discovery/hash/check errors", output.getvalue())
+            self.assertNotIn("(100.0%)", output.getvalue())
 
     def test_small_vm_defaults_and_script_byte_threshold(self):
         with patch.dict(config.FILE_VALUES, {}, clear=True), patch.dict(config.os.environ, {}, clear=True):

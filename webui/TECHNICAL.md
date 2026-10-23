@@ -407,14 +407,22 @@ pairs and uploads the ones the server does not have yet (compared by SHA-256):
 `--server` and `--key` can also be set as `LOGDB_SERVER` and `LOGDB_API_KEY`; add `--insecure` for a self-signed
 certificate. The key works on every `/api/...` URL as `Authorization: Bearer <key>` and acts as you.
 
-Discovery and hashing are incremental: each batch is checked and missing pairs are uploaded before
-hashing the next batch, so server-side processing can start without reading the entire source tree.
+The script first lists all matching pairs to establish an accurate total, without reading their contents.
+It reports every 1,000 pairs found during discovery; listing a large network folder can still take time.
+Hashing remains incremental: each batch is checked and missing pairs are uploaded before
+hashing the next batch, so server-side processing can start without hashing the entire source tree.
 Hashing batches are capped at 32 `.data` files and 256 MiB of `.data` contents by default.
 Use `--hash-batch-files` and `--hash-batch-mib` to change these limits; a single larger file is
 hashed alone. These are separate from the server backlog limits below. Identical content is
 deduplicated across batches, including in dry runs. Files still need to be read for hashing and
-again for upload; batching reduces startup delay, not total source reads. Progress uses batch
-counts rather than a full-tree total.
+again for upload; batching reduces hashing startup delay, not total source reads.
+Progress shows completed/total, percentage, remaining, checked, skipped, accepted and failed counts.
+Skipped counts include existing server content and repeated input content. Without `--bulk`, accepted
+uploads count as complete for this script, not as successfully parsed. With `--bulk`, accepted uploads
+remain outstanding until their processing result is checked; processed and failed outcomes are reported
+separately. Failed pairs count as finished attempts; unattempted pairs remain outstanding after an abort.
+Dry runs show planned uploads instead of accepted/processed counts. Unpaired `.data` files are reported
+separately and excluded from the total. Directory listing errors stop the scan explicitly.
 
 For initial imports, use `--bulk` on **each user's script**. Compression remains server-side.
 The script uploads sequentially, polls the global pending ingestion/parsing workload, and reserves

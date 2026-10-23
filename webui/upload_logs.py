@@ -58,7 +58,11 @@ def find_pairs(root):
     """Yield (relative name, data path, log path) for every .data with a .log of the same name in the same folder."""
     root = os.path.abspath(root)
     missing = []
-    for folder, _, files in os.walk(root):
+
+    def scan_error(error):
+        raise error
+
+    for folder, _, files in os.walk(root, onerror=scan_error):
         by_stem = {}
         for f in files:
             stem, ext = os.path.splitext(f)
@@ -92,7 +96,32 @@ def hash_batches(pairs, max_files, max_bytes):
         yield batch
 
 
-def missing_pairs(client, pairs, max_files, max_bytes):
+class Progress:
+    def __init__(self, total, bulk=False, dry_run=False):
+        self.total = total
+        self.bulk = bulk
+        self.dry_run = dry_run
+        self.checked = self.skipped = self.accepted = self.processed = self.failed = self.planned = 0
+        self.errors = 0
+        self.last_report = None
+
+    def report(self):
+        done = self.skipped + self.failed + (self.planned if self.dry_run else
+                                           self.processed if self.bulk else self.accepted)
+        percent = 100 * done / self.total if self.total else 100
+        action = (f"{self.planned} planned" if self.dry_run else
+                  f"{self.accepted} accepted, {self.processed} processed" if self.bulk else
+                  f"{self.accepted} accepted")
+        line = (f"Progress: {done}/{self.total} ({percent:.1f}%) | {self.total - done} remaining | "
+                f"{self.checked} checked | {self.skipped} skipped | {action} | {self.failed} failed")
+        if self.errors:
+            line += f" | {self.errors} discovery/hash/check errors"
+        if line != self.last_report:
+            print(line, flush=True)
+            self.last_report = line
+
+
+def missing_pairs(client, pairs, max_files, max_bytes, progress=None):
     seen = set()
     for number, batch in enumerate(hash_batches(pairs, max_files, max_bytes), 1):
         known = client.check([digest for _, digest in batch])
@@ -108,6 +137,10 @@ def missing_pairs(client, pairs, max_files, max_bytes):
             seen.add(digest)
         print(f"Batch {number}: {len(batch)} pairs checked, {existing} already on the server, "
               f"{duplicates} repeated, {len(todo)} to upload", flush=True)
+        if progress is not None:
+            progress.checked += len(batch)
+            progress.skipped += existing + duplicates
+            progress.report()
         yield from todo
 
 
@@ -296,7 +329,21 @@ def main():
         print(f"cannot log in to the server: {e}", file=sys.stderr)
         return 1
     print(f"logged in as {who['display_name']}")
-    todo = iter(missing_pairs(client, find_pairs(a.folder), a.hash_batch_files, a.hash_batch_mib * (1 << 20)))
+    print("Scanning folders for .data/.log pairs (file contents are not read) ...", flush=True)
+    try:
+        pairs = []
+        for pair in find_pairs(a.folder):
+            pairs.append(pair)
+            if len(pairs) % 1000 == 0:
+                print(f"Scanning: {len(pairs)} pairs found ...", flush=True)
+    except OSError as e:
+        print(f"FAILED scanning folders: {e}", file=sys.stderr)
+        return 1
+    print(f"Found {len(pairs)} pairs. Hashing and uploading in batches.", flush=True)
+    progress = Progress(len(pairs), a.bulk, a.dry_run)
+    progress.report()
+    todo = iter(missing_pairs(client, iter(pairs), a.hash_batch_files,
+                              a.hash_batch_mib * (1 << 20), progress))
 
     failed = 0
     pending = []
@@ -309,11 +356,14 @@ def main():
             break
         except (RuntimeError, OSError, http.client.HTTPException) as e:
             failed += 1
+            progress.errors += 1
             print(f"FAILED discovering, hashing or checking logs: {e}", file=sys.stderr)
             break
         i += 1
         if a.dry_run:
             print(f"[{i}] would upload {name} ({size_mb:.1f} MB)")
+            progress.planned += 1
+            progress.report()
             continue
         print(f"[{i}] uploading {name} ({size_mb:.1f} MB) ...", end=" ", flush=True)
         try:
@@ -333,6 +383,8 @@ def main():
             if receipt.get("status") != "accepted" or type(receipt.get("ingest_id")) is not int:
                 raise RuntimeError(receipt.get("reason") or f"Upload not accepted: {receipt}")
             print(f"accepted (upload {receipt['ingest_id']})")
+            progress.accepted += 1
+            progress.report()
             if a.bulk:
                 pending.append((name, receipt["ingest_id"]))
                 if len(pending) >= a.max_pending:
@@ -340,12 +392,17 @@ def main():
                     try:
                         wait_result(client, first_id, a.poll_seconds, a.max_wait_seconds)
                         print(f"Processed: {first_name}")
+                        progress.processed += 1
                     except (RuntimeError, OSError, http.client.HTTPException) as e:
                         failed += 1
                         print(f"FAILED processing {first_name}: {e}")
+                        progress.failed += 1
+                    progress.report()
         except (RuntimeError, OSError, http.client.HTTPException) as e:
             failed += 1
             print(f"FAILED: {e}")
+            progress.failed += 1
+            progress.report()
             if a.bulk:
                 print("Stopping bulk submission after a failure; checking previously accepted uploads.")
                 break
@@ -353,9 +410,13 @@ def main():
         try:
             wait_result(client, ingest_id, a.poll_seconds, a.max_wait_seconds)
             print(f"Processed: {name}")
+            progress.processed += 1
         except (RuntimeError, OSError, http.client.HTTPException) as e:
             failed += 1
             print(f"FAILED processing {name}: {e}")
+            progress.failed += 1
+        progress.report()
+    progress.report()
     if not a.dry_run:
         print(f"Finished: {failed} failure(s)." + (
             " Accepted bulk uploads checked through parsing." if a.bulk else
