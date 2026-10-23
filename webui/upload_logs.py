@@ -320,6 +320,10 @@ def wait_capacity(client, pair_bytes, max_pending, max_bytes, poll, max_wait):
         time.sleep(poll)
 
 
+class ProcessingFailed(RuntimeError):
+    """A server receipt has reached a terminal failure, rather than a polling timeout."""
+
+
 def wait_result(client, ingest_id, poll, max_wait):
     started = time.monotonic()
     last = None
@@ -327,16 +331,16 @@ def wait_result(client, ingest_id, poll, max_wait):
         result = client._request("GET", f"/api/ingest/{ingest_id}")
         state, log_state = result.get("status"), result.get("log_status")
         if state in ("error", "rejected"):
-            raise RuntimeError(result.get("error") or f"Upload {state}.")
+            raise ProcessingFailed(result.get("error") or f"Upload {state}.")
         if state in ("stored", "duplicate"):
             if not result.get("log_id"):
-                raise RuntimeError(result.get("error") or "Upload has no stored log.")
+                raise ProcessingFailed(result.get("error") or "Upload has no stored log.")
             if log_state == "done":
                 return
             if log_state == "error":
-                raise RuntimeError("Parsing failed: " + (result.get("log_error") or "unknown error"))
+                raise ProcessingFailed("Parsing failed: " + (result.get("log_error") or "unknown error"))
             if log_state is None:
-                raise RuntimeError("Stored log was deleted before completion.")
+                raise ProcessingFailed("Stored log was deleted before completion.")
         if state not in ("accepted", "hashing", "stored", "duplicate"):
             raise RuntimeError(f"Unexpected upload status: {state!r}")
         if time.monotonic() - started >= max_wait:
@@ -413,6 +417,7 @@ def main():
     print(f"Found {len(pairs)} pairs. Hashing and uploading in batches.", flush=True)
     progress = Progress(len(pairs), a.bulk, a.dry_run)
     resume = None
+    resumed_failures = set()
     if a.bulk and not a.no_resume and not a.dry_run:
         try:
             resume = Resume(a.folder, a.server, who.get("id", who["display_name"]))
@@ -426,6 +431,11 @@ def main():
                 print(f"Resuming processing check: {pair[0]} (upload {entry['ingest_id']})", flush=True)
                 try:
                     wait_result(client, entry["ingest_id"], a.poll_seconds, a.max_wait_seconds)
+                except ProcessingFailed as exc:
+                    print(f"FAILED previous processing {pair[0]}: {exc}; continuing with other files.",
+                          file=sys.stderr)
+                    resumed_failures.add(pair[0])
+                    progress.failed += 1
                 except (RuntimeError, OSError, http.client.HTTPException) as exc:
                     if not isinstance(exc, HTTPError) or exc.status != 404:
                         print(f"Previous upload could not be confirmed: {exc}; checkpoint retained. "
@@ -437,10 +447,10 @@ def main():
             print(f"FAILED loading/saving resume checkpoint: {exc}", file=sys.stderr)
             return 1
     progress.report()
-    todo = iter(missing_pairs(client, iter(pairs), a.hash_batch_files,
+    todo = iter(missing_pairs(client, (pair for pair in pairs if pair[0] not in resumed_failures), a.hash_batch_files,
                               a.hash_batch_mib * (1 << 20), progress, resume))
 
-    failed = 0
+    failed = len(resumed_failures)
     pending = []
     i = 0
     while True:
@@ -493,6 +503,8 @@ def main():
                         print(f"Processed: {first_name}")
                         progress.processed += 1
                     except (RuntimeError, OSError, http.client.HTTPException) as e:
+                        if resume and isinstance(e, ProcessingFailed):
+                            resume.completed(first_name)
                         failed += 1
                         print(f"FAILED processing {first_name}: {e}")
                         progress.failed += 1
@@ -513,6 +525,8 @@ def main():
             print(f"Processed: {name}")
             progress.processed += 1
         except (RuntimeError, OSError, http.client.HTTPException) as e:
+            if resume and isinstance(e, ProcessingFailed):
+                resume.completed(name)
             failed += 1
             print(f"FAILED processing {name}: {e}")
             progress.failed += 1

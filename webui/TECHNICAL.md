@@ -515,6 +515,12 @@ does not silently skip previously completed files. Files modified without changi
 also disables checkpoint use/writes. Keep the script directory writable and on local disk.
 Run only one uploader for a given folder/server/account at a time. Checkpoints contain filenames,
 hashes and upload IDs, not API keys. Moving the script without its checkpoint starts fresh.
+On resume, terminal server failures (for example an empty log or a parser error) are reported
+and counted as failures, but do not block the rest of the batch. Their completed receipts are
+removed; hashes remain cached. A failed resumed pair is not resubmitted in the same run and the
+script exits nonzero after processing the remaining files. Later runs may retry it; fix/remove
+invalid source pairs or resolve server parsing errors as appropriate. Timeouts, network failures
+and unexpected responses retain pending receipts and stop resume rather than claiming completion.
 
 The script uploads sequentially, polls the global pending ingestion/parsing workload, and reserves
 capacity atomically before transferring each pair. Concurrent bulk scripts share the same server budget:

@@ -66,6 +66,79 @@ class UploadScriptTests(unittest.TestCase):
             self.assertNotEqual(loaded.path, upload.Resume(directory, "http://other", 1).path)
             self.assertNotEqual(loaded.path, upload.Resume(directory, "http://fixture", 2).path)
 
+    def test_resumed_terminal_failure_does_not_block_remaining_uploads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pairs = []
+            for name in ("bad", "good"):
+                data = Path(directory) / (name + ".data")
+                data.write_bytes(name.encode())
+                log = data.with_suffix(".log")
+                log.write_bytes(b"xml")
+                pairs.append((data.name, str(data), str(log)))
+            resume = upload.Resume(directory, "http://fixture", 1)
+            resume.digest(pairs[0])
+            resume.accepted(pairs[0], 1379)
+            client = Mock()
+            client._request.return_value = {"user": {"id": 1, "display_name": "Pilot"}}
+            client.check.return_value = {}
+            client.upload.return_value = {"results": [{"status": "accepted", "ingest_id": 1380}]}
+            args = ["upload_logs.py", directory, "--bulk", "--server", "http://fixture", "--key", "test"]
+            output, errors = io.StringIO(), io.StringIO()
+            with patch.object(upload, "Client", return_value=client), patch("sys.argv", args), \
+                    patch.object(upload, "wait_capacity"), patch.object(upload, "reserve_capacity"), \
+                    patch.object(upload, "wait_result", side_effect=[upload.ProcessingFailed("empty log file"), None]), \
+                    patch("sys.stdout", output), patch("sys.stderr", errors):
+                self.assertEqual(upload.main(), 1)
+            client.upload.assert_called_once()
+            self.assertEqual(client.upload.call_args.args[0][0][0], "good.data")
+            self.assertIn("empty log file", errors.getvalue())
+            self.assertIn("2/2 (100.0%)", output.getvalue())
+            self.assertIn("1 failure(s)", output.getvalue())
+            saved = upload.Resume(directory, "http://fixture", 1)
+            self.assertTrue(all("ingest_id" not in e for e in saved.entries.values()))
+            self.assertIn("digest", saved.entry(pairs[0]))
+
+    def test_resumed_timeout_retains_pending_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory) / "flight.data"
+            data.write_bytes(b"test")
+            log = data.with_suffix(".log")
+            log.write_bytes(b"xml")
+            pair = (data.name, str(data), str(log))
+            resume = upload.Resume(directory, "http://fixture", 1)
+            resume.accepted(pair, 7)
+            client = Mock()
+            client._request.return_value = {"user": {"id": 1, "display_name": "Pilot"}}
+            args = ["upload_logs.py", directory, "--bulk", "--server", "http://fixture", "--key", "test"]
+            with patch.object(upload, "Client", return_value=client), patch("sys.argv", args), \
+                    patch.object(upload, "wait_result", side_effect=RuntimeError("Timed out")), \
+                    patch("sys.stdout", io.StringIO()), patch("sys.stderr", io.StringIO()):
+                self.assertEqual(upload.main(), 1)
+            self.assertEqual(upload.Resume(directory, "http://fixture", 1).entry(pair)["ingest_id"], 7)
+            client.upload.assert_not_called()
+
+    def test_new_terminal_failure_clears_receipt_in_fifo_and_final_drain(self):
+        for max_pending in (1, 8):
+            with self.subTest(max_pending=max_pending), tempfile.TemporaryDirectory() as directory:
+                data = Path(directory) / "flight.data"
+                data.write_bytes(b"test")
+                log = data.with_suffix(".log")
+                log.write_bytes(b"xml")
+                client = Mock()
+                client._request.return_value = {"user": {"id": 1, "display_name": "Pilot"}}
+                client.check.return_value = {}
+                client.upload.return_value = {"results": [{"status": "accepted", "ingest_id": 7}]}
+                args = ["upload_logs.py", directory, "--bulk", "--server", "http://fixture", "--key", "test",
+                        "--max-pending", str(max_pending)]
+                with patch.object(upload, "Client", return_value=client), patch("sys.argv", args), \
+                        patch.object(upload, "wait_capacity"), patch.object(upload, "reserve_capacity"), \
+                        patch.object(upload, "wait_result", side_effect=upload.ProcessingFailed("empty log file")), \
+                        patch("sys.stdout", io.StringIO()):
+                    self.assertEqual(upload.main(), 1)
+                entry = upload.Resume(directory, "http://fixture", 1).entry((data.name, str(data), str(log)))
+                self.assertNotIn("ingest_id", entry)
+                self.assertIn("digest", entry)
+
     def test_progress_counts_skipped_accepted_processed_and_failed(self):
         progress = upload.Progress(10, bulk=True)
         progress.checked = 8
@@ -331,7 +404,7 @@ class UploadScriptTests(unittest.TestCase):
                 ({"status": "stored", "log_id": 1, "log_status": "error", "log_error": "bad protocol"}, "bad protocol"),
                 ({"status": "stored", "log_id": 1, "log_status": None}, "deleted")]:
             client._request.return_value = result
-            with self.assertRaisesRegex(RuntimeError, message):
+            with self.assertRaisesRegex(upload.ProcessingFailed, message):
                 upload.wait_result(client, 1, 5, 60)
 
     def test_retries_replay_body_and_respect_retry_after(self):
