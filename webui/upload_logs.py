@@ -75,6 +75,42 @@ def find_pairs(root):
         print(f"skip (no .log next to it): {m}", file=sys.stderr)
 
 
+def hash_batches(pairs, max_files, max_bytes):
+    batch, size = [], 0
+    for pair in pairs:
+        data_size = os.path.getsize(pair[1])
+        if batch and (len(batch) >= max_files or size + data_size > max_bytes):
+            yield batch
+            batch, size = [], 0
+        print(f"hashing {pair[0]} ({data_size / 1e6:.1f} MB) ...", flush=True)
+        batch.append((pair, sha256_file(pair[1])))
+        size += data_size
+        if len(batch) >= max_files or size >= max_bytes:
+            yield batch
+            batch, size = [], 0
+    if batch:
+        yield batch
+
+
+def missing_pairs(client, pairs, max_files, max_bytes):
+    seen = set()
+    for number, batch in enumerate(hash_batches(pairs, max_files, max_bytes), 1):
+        known = client.check([digest for _, digest in batch])
+        todo = []
+        existing = duplicates = 0
+        for pair, digest in batch:
+            if digest in seen:
+                duplicates += 1
+            elif digest in known and known[digest]["has_log"]:
+                existing += 1
+            else:
+                todo.append(pair)
+            seen.add(digest)
+        print(f"Batch {number}: {len(batch)} pairs checked, {existing} already on the server, "
+              f"{duplicates} repeated, {len(todo)} to upload", flush=True)
+        yield from todo
+
+
 class Client:
     def __init__(self, server, key, insecure=False, timeout=600, retries=3):
         u = urlsplit(server if "//" in server else "//" + server, scheme="http")
@@ -242,13 +278,15 @@ def main():
     ap.add_argument("--poll-seconds", type=float, default=5, help="bulk polling interval (default: 5)")
     ap.add_argument("--max-wait-seconds", type=float, default=3600, help="maximum wait per bulk stage (default: 3600)")
     ap.add_argument("--retries", type=int, default=3, help="retries per transient request failure (default: 3)")
+    ap.add_argument("--hash-batch-files", type=int, default=32, help="maximum files hashed before checking/uploading (default: 32)")
+    ap.add_argument("--hash-batch-mib", type=float, default=256, help="maximum .data MiB per hashing batch; larger files run alone (default: 256)")
     a = ap.parse_args()
     if not a.server or not a.key:
         ap.error("--server and --key (or LOGDB_SERVER / LOGDB_API_KEY) are required")
     if not os.path.isdir(a.folder):
         ap.error(f"not a folder: {a.folder}")
-    if a.max_pending <= 0 or a.retries < 0 or any(not math.isfinite(v) or v <= 0 for v in
-            (a.max_pending_gib, a.poll_seconds, a.max_wait_seconds)):
+    if a.max_pending <= 0 or a.hash_batch_files <= 0 or a.retries < 0 or any(not math.isfinite(v) or v <= 0 for v in
+            (a.max_pending_gib, a.poll_seconds, a.max_wait_seconds, a.hash_batch_mib)):
         ap.error("queue limits and wait intervals must be positive; retries must be nonnegative")
 
     client = Client(a.server, a.key, a.insecure, retries=a.retries)
@@ -258,39 +296,26 @@ def main():
         print(f"cannot log in to the server: {e}", file=sys.stderr)
         return 1
     print(f"logged in as {who['display_name']}")
-    pairs = list(find_pairs(a.folder))
-    print(f"{len(pairs)} .data/.log pairs found")
-    if not pairs:
-        return 0
-
-    print("hashing ...")
-    hashes = []
-    for i, (name, data, _) in enumerate(pairs, 1):
-        hashes.append(sha256_file(data))
-        print(f"\r  {i}/{len(pairs)}", end="", flush=True)
-    print()
-
-    try:
-        known = client.check(hashes)
-    except (RuntimeError, OSError, http.client.HTTPException) as e:
-        print(f"cannot reach the server: {e}", file=sys.stderr)
-        return 1
-
-    need = [(p, h) for p, h in zip(pairs, hashes) if h not in known or not known[h]["has_log"]]
-    unique = {}
-    for p, h in need:  # identical .data content twice in the folder: upload once
-        unique.setdefault(h, p)
-    todo = list(unique.values())
-    print(f"{len(pairs) - len(need)} already on the server, {len(todo)} to upload")
+    todo = iter(missing_pairs(client, find_pairs(a.folder), a.hash_batch_files, a.hash_batch_mib * (1 << 20)))
 
     failed = 0
     pending = []
-    for i, (name, data, log) in enumerate(todo, 1):
-        size_mb = os.path.getsize(data) / 1e6
+    i = 0
+    while True:
+        try:
+            name, data, log = next(todo)
+            size_mb = os.path.getsize(data) / 1e6
+        except StopIteration:
+            break
+        except (RuntimeError, OSError, http.client.HTTPException) as e:
+            failed += 1
+            print(f"FAILED discovering, hashing or checking logs: {e}", file=sys.stderr)
+            break
+        i += 1
         if a.dry_run:
-            print(f"[{i}/{len(todo)}] would upload {name} ({size_mb:.1f} MB)")
+            print(f"[{i}] would upload {name} ({size_mb:.1f} MB)")
             continue
-        print(f"[{i}/{len(todo)}] uploading {name} ({size_mb:.1f} MB) ...", end=" ", flush=True)
+        print(f"[{i}] uploading {name} ({size_mb:.1f} MB) ...", end=" ", flush=True)
         try:
             reservation = None
             if a.bulk:

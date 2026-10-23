@@ -1,4 +1,5 @@
 """Streaming, lossless storage for uploads."""
+import errno
 import gzip
 import hashlib
 import os
@@ -9,10 +10,35 @@ from pathlib import Path
 CHUNK = 1 << 20
 
 
-def gzip_file(source, destination):
+def ensure_space(folder, required=0, minimum_free=0):
+    free = shutil.disk_usage(folder).free
+    if free < required + minimum_free:
+        raise OSError(errno.ENOSPC, "Insufficient local temporary disk space; "
+                      f"need {(required + minimum_free) / (1 << 30):.1f} GiB free.")
+
+
+def copy_local(source, destination, minimum_free):
+    """Bounded streaming copy with periodic local-disk headroom checks."""
+    destination = Path(destination)
+    with open(destination, "wb") as dst:
+        checked = 64 << 20
+        while chunk := source.read(CHUNK):
+            if checked >= 64 << 20:
+                ensure_space(destination.parent, 64 << 20, minimum_free)
+                checked = 0
+            dst.write(chunk)
+            checked += len(chunk)
+
+
+def gzip_file(source, destination, work_dir=None, minimum_free=0):
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(dir=destination.parent, prefix=".compress-")
+    if work_dir is not None:
+        work_dir = Path(work_dir)
+        work_dir.mkdir(parents=True, exist_ok=True)
+        ensure_space(work_dir, Path(source).stat().st_size + (1 << 20), minimum_free)
+    fd, temporary = tempfile.mkstemp(dir=work_dir or destination.parent, prefix=".compress-")
+    shared_temporary = None
     try:
         with os.fdopen(fd, "wb") as raw:
             with open(source, "rb") as src, gzip.GzipFile(filename="", fileobj=raw, mode="wb", compresslevel=1,
@@ -20,9 +46,19 @@ def gzip_file(source, destination):
                 shutil.copyfileobj(src, dst, CHUNK)
             raw.flush()
             os.fsync(raw.fileno())
-        os.replace(temporary, destination)
+        if work_dir is not None:
+            fd, shared_temporary = tempfile.mkstemp(dir=destination.parent, prefix=".upload-")
+            with os.fdopen(fd, "wb") as dst, open(temporary, "rb") as src:
+                shutil.copyfileobj(src, dst, CHUNK)
+                dst.flush()
+                os.fsync(dst.fileno())
+            os.replace(shared_temporary, destination)
+        else:
+            os.replace(temporary, destination)
     finally:
         Path(temporary).unlink(missing_ok=True)
+        if shared_temporary:
+            Path(shared_temporary).unlink(missing_ok=True)
 
 
 def chunks(path, compressed=False):

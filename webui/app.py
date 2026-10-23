@@ -8,6 +8,7 @@ the parser that produced the stored result is recorded so outdated results can b
 import contextlib
 import copy
 import csv
+import errno
 import hashlib
 import difflib
 import functools
@@ -55,7 +56,8 @@ from config import env, env_bool, env_float, env_int, env_path
 HERE = Path(__file__).resolve().parent
 DATA_DIR = env_path("WEB_DATA")
 STORAGE_DIR = config.log_dir()
-STAGE_DIR = STORAGE_DIR / ".incoming"  # on the same filesystem as the logs, so storing a staged upload is a rename
+STAGE_DIR = STORAGE_DIR / ".incoming"  # legacy queued uploads remain readable after upgrading
+LOCAL_STAGE_DIR = DATA_DIR / "incoming"
 TMP_DIR = DATA_DIR / "tmp"
 DB_PATH = str(DATA_DIR / "logs.db")
 FASTREADER = str(env_path("FASTREADER"))
@@ -184,9 +186,9 @@ def parse_log(log_id):
             if rel:
                 if not rel.endswith(".gz"):
                     raise RuntimeError("Uncompressed legacy log storage is unsupported; delete and re-upload this test log.")
-                with open(Path(unpacked.name) / Path(rel).name[:-3], "wb") as dst:
-                    for chunk in storage.chunks(STORAGE_DIR / rel, compressed=True):
-                        dst.write(chunk)
+                with gzip.open(STORAGE_DIR / rel, "rb") as src:
+                    storage.copy_local(src, Path(unpacked.name) / Path(rel).name[:-3],
+                                       env_int("LOCAL_MIN_FREE_BYTES"))
         data_path = Path(unpacked.name) / Path(row["data_path"]).name[:-3]
         kind = mav_parse.sniff(data_path)
         if kind:
@@ -261,6 +263,7 @@ def start_workers():
     STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     TMP_DIR.mkdir(parents=True, exist_ok=True)
     STAGE_DIR.mkdir(parents=True, exist_ok=True)
+    LOCAL_STAGE_DIR.mkdir(parents=True, exist_ok=True)
     db.init(DB_PATH)
     con = conn()
     HAVE_PATH_GZ = "path_gz" in {r[1] for r in con.execute("PRAGMA table_info(flights)")}
@@ -293,22 +296,30 @@ def store_files(sha, name, data_src, log_src):
     base = safe_filename(posixpath.basename(name))
     data_rel = str(folder / (base + ".gz"))
     log_rel = None
-    storage.gzip_file(data_src, STORAGE_DIR / data_rel)
+    storage.gzip_file(data_src, STORAGE_DIR / data_rel, work_dir=TMP_DIR,
+                      minimum_free=env_int("LOCAL_MIN_FREE_BYTES"))
     if log_src:
         log_rel = str(folder / (posixpath.splitext(base)[0] + ".log.gz"))
-        storage.gzip_file(log_src, STORAGE_DIR / log_rel)
+        storage.gzip_file(log_src, STORAGE_DIR / log_rel, work_dir=TMP_DIR,
+                          minimum_free=env_int("LOCAL_MIN_FREE_BYTES"))
     return data_rel, log_rel
 
 
 def ingest_stage(rel):
+    if Path(rel).parts[0] == "local":
+        return LOCAL_STAGE_DIR / Path(rel).relative_to("local")
     return STAGE_DIR / rel
+
+
+def new_stage_rel():
+    return str(Path("local") / uuid.uuid4().hex)
 
 
 def drop_stage(stage):
     """Delete a staging directory and its parents in STAGE_DIR once they are empty."""
     shutil.rmtree(stage, ignore_errors=True)
     for parent in stage.parents:
-        if parent == STAGE_DIR:
+        if parent in (STAGE_DIR, LOCAL_STAGE_DIR):
             break
         try:
             parent.rmdir()
@@ -367,7 +378,11 @@ def run_ingest(ingest_id):
     if row["kind"] == "zip":
         explode_zip(con, row)
     else:
-        ingest_pair(con, row)
+        try:
+            ingest_pair(con, row)
+        except OSError:
+            drop_stage(ingest_stage(row["stage_dir"]))
+            raise
 
 
 def enqueue_staged_log(con, parent_stage, name, src, user_id, companion=None):
@@ -411,6 +426,7 @@ def explode_zip(con, row):
                 continue
             dest = unpacked / uuid.uuid4().hex
             with zf.open(info) as src, open(dest, "wb") as dst:
+                storage.ensure_space(dest.parent, info.file_size, env_int("LOCAL_MIN_FREE_BYTES"))
                 shutil.copyfileobj(src, dst, 8 << 20)
             d, base = posixpath.split(member)
             stem, _ = posixpath.splitext(base)
@@ -481,7 +497,8 @@ def ingest_pair(con, row):
             stored = Path(existing["data_path"])
             stem = Path(stored.name.removesuffix(".gz")).stem
             log_rel = str(stored.parent / (stem + ".log.gz"))
-            storage.gzip_file(log_src, STORAGE_DIR / log_rel)
+            storage.gzip_file(log_src, STORAGE_DIR / log_rel, work_dir=TMP_DIR,
+                              minimum_free=env_int("LOCAL_MIN_FREE_BYTES"))
 
             def add_log_file():
                 with db.write_lock:
@@ -556,6 +573,12 @@ def reserve_bulk_upload():
         count, size_pending = backlog["count"] + held["count"], backlog["bytes"] + held["bytes"]
         if count and (count >= env_int("BULK_MAX_PENDING") or size_pending + size > env_int("BULK_MAX_BYTES")):
             return jsonify(error="Bulk upload budget is full; retry later."), 429, {"Retry-After": "5"}
+        try:
+            storage.ensure_space(DATA_DIR, 2 * size + held["bytes"], env_int("LOCAL_MIN_FREE_BYTES"))
+        except OSError as exc:
+            if exc.errno != errno.ENOSPC:
+                raise
+            return jsonify(error=str(exc)), 429, {"Retry-After": "5"}
         con.execute("INSERT INTO bulk_reservations(token,user_id,size_bytes,expires_at) VALUES (?,?,?,?)",
                     (token, g.user["id"], size, time.time() + 3600))
     return jsonify(token=token), 201
@@ -574,7 +597,7 @@ def upload_reserved_pair(con, token):
             return jsonify(error="This upload is still being received."), 429, {"Retry-After": "5"}
         con.execute("UPDATE bulk_reservations SET uploading=1 WHERE token=?", (token,))
     request.max_content_length = row["size_bytes"] + (1 << 20)
-    stage_rel = uuid.uuid4().hex
+    stage_rel = new_stage_rel()
     stage = ingest_stage(stage_rel)
     stage.mkdir(parents=True, exist_ok=True)
     accepted = False
@@ -583,8 +606,9 @@ def upload_reserved_pair(con, token):
         if (len(files) != 2 or len(names) != 2 or not names[0].endswith(".data")
                 or names[1] != names[0][:-5] + ".log"):
             return jsonify(error="Reserved uploads require exactly one .data/.log pair."), 400
-        files[0].save(stage / "log.data")
-        files[1].save(stage / "log.log")
+        storage.ensure_space(stage, row["size_bytes"], env_int("LOCAL_MIN_FREE_BYTES"))
+        storage.copy_local(files[0].stream, stage / "log.data", env_int("LOCAL_MIN_FREE_BYTES"))
+        storage.copy_local(files[1].stream, stage / "log.log", env_int("LOCAL_MIN_FREE_BYTES"))
         size = sum((stage / name).stat().st_size for name in ("log.data", "log.log"))
         if size != row["size_bytes"]:
             return jsonify(error="Files changed size after reservation; rerun the script."), 400
@@ -593,6 +617,9 @@ def upload_reserved_pair(con, token):
         accepted = True
         ingest_jobs.put(iid)
         return jsonify(results=[dict(status="accepted", ingest_id=iid)])
+    except OSError as exc:
+        app.logger.exception("Could not stage reserved upload")
+        return jsonify(error=f"Could not stage upload: {exc}"), 503, {"Retry-After": "5"}
     finally:
         if not accepted:
             drop_stage(stage)
@@ -613,18 +640,23 @@ def upload():
     names = request.form.getlist("names")
     if not files:
         return jsonify(error="no files"), 400
-    stage_rel = uuid.uuid4().hex
+    stage_rel = new_stage_rel()
     stage = ingest_stage(stage_rel)
     stage.mkdir(parents=True, exist_ok=True)
     saved = []
-    for i, f in enumerate(files):
-        rel = clean_relpath(names[i] if i < len(names) else f.filename or f"file{i}")
-        if not rel:
-            continue
-        dest_name = f"{i}_{safe_filename(posixpath.basename(rel))}"
-        dest = stage / dest_name
-        f.save(dest)
-        saved.append((rel, dest_name, dest))
+    try:
+        for i, f in enumerate(files):
+            rel = clean_relpath(names[i] if i < len(names) else f.filename or f"file{i}")
+            if not rel:
+                continue
+            dest_name = f"{i}_{safe_filename(posixpath.basename(rel))}"
+            dest = stage / dest_name
+            storage.copy_local(f.stream, dest, env_int("LOCAL_MIN_FREE_BYTES"))
+            saved.append((rel, dest_name, dest))
+    except OSError as exc:
+        drop_stage(stage)
+        app.logger.exception("Could not stage upload")
+        return jsonify(error=f"Could not stage upload: {exc}"), 503, {"Retry-After": "5"}
     if not saved:
         drop_stage(stage)
         return jsonify(error="no files"), 400
@@ -632,7 +664,7 @@ def upload():
     zips = [(rel, dest_name, dest) for rel, dest_name, dest in saved if rel.lower().endswith(".zip")]
     others = [(rel, dest_name, dest) for rel, dest_name, dest in saved if not rel.lower().endswith(".zip")]
     for rel, dest_name, dest in zips:
-        zip_rel = uuid.uuid4().hex
+        zip_rel = new_stage_rel()
         zip_dir = ingest_stage(zip_rel)
         zip_dir.mkdir(parents=True, exist_ok=True)
         shutil.move(str(dest), zip_dir / dest_name)

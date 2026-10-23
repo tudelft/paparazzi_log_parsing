@@ -262,6 +262,46 @@ class AttachmentTests(test_historical.AppTests):
 
 
 class StorageTests(unittest.TestCase):
+    def test_local_compression_transfers_only_finished_gzip_and_cleans_up(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            work = root / "local"
+            work.mkdir()
+            source = work / "sample.data"
+            raw = b"example telemetry\n" * 10000
+            source.write_bytes(raw)
+            destination = root / "shared" / "sample.data.gz"
+            real_replace = storage.os.replace
+
+            def publish(temporary, final):
+                self.assertEqual(Path(temporary).parent, destination.parent)
+                self.assertEqual(gzip.decompress(Path(temporary).read_bytes()), raw)
+                self.assertFalse(destination.exists())
+                real_replace(temporary, final)
+
+            with patch.object(storage.os, "replace", side_effect=publish):
+                storage.gzip_file(source, destination, work_dir=work)
+            self.assertEqual(gzip.decompress(destination.read_bytes()), raw)
+            self.assertLess(destination.stat().st_size, len(raw) // 10)
+            self.assertEqual(list(work.iterdir()), [source])
+            self.assertEqual(list(destination.parent.iterdir()), [destination])
+            destination.unlink()
+            with patch.object(storage.os, "replace", side_effect=OSError("share disconnected")):
+                with self.assertRaisesRegex(OSError, "disconnected"):
+                    storage.gzip_file(source, destination, work_dir=work)
+            self.assertEqual(list(work.iterdir()), [source])
+            self.assertEqual(list(destination.parent.iterdir()), [])
+
+    def test_local_disk_headroom_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(storage.shutil, "disk_usage", return_value=type("Usage", (), {"free": 100})()):
+                with self.assertRaisesRegex(OSError, "disk space"):
+                    storage.ensure_space(directory, required=51, minimum_free=50)
+                storage.ensure_space(directory, required=50, minimum_free=50)
+                with self.assertRaisesRegex(OSError, "disk space"):
+                    storage.copy_local(io.BytesIO(b"data"), Path(directory) / "stage", minimum_free=100)
+            self.assertEqual((Path(directory) / "stage").stat().st_size, 0)
+
     def test_stream_limit_without_content_length_and_cleanup(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(ValueError, "exceeds"):

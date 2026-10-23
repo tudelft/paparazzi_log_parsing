@@ -160,6 +160,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `ATTACHMENT_MAX_BYTES` | `10737418240` | Maximum original bytes per attachment (10 GiB) |
 | `BULK_MAX_PENDING` | `8` | Shared pending-job budget for bulk scripts |
 | `BULK_MAX_BYTES` | `17179869184` | Shared estimated-byte budget for bulk scripts (16 GiB) |
+| `LOCAL_MIN_FREE_BYTES` | `2147483648` | Local staging/decompression headroom (2 GiB; parser output needs extra space) |
 | `FASTREADER` | `../cpp/build/paparazzi_log_parsing` | Parser binary |
 | `SESSION_HOURS` | `12` | How long a login lasts |
 | `SECRET_KEY` | generated in `<WEB_DATA>/secret_key` | Session signing key |
@@ -387,6 +388,15 @@ pairs and uploads the ones the server does not have yet (compared by SHA-256):
 `--server` and `--key` can also be set as `LOGDB_SERVER` and `LOGDB_API_KEY`; add `--insecure` for a self-signed
 certificate. The key works on every `/api/...` URL as `Authorization: Bearer <key>` and acts as you.
 
+Discovery and hashing are incremental: each batch is checked and missing pairs are uploaded before
+hashing the next batch, so server-side processing can start without reading the entire source tree.
+Hashing batches are capped at 32 `.data` files and 256 MiB of `.data` contents by default.
+Use `--hash-batch-files` and `--hash-batch-mib` to change these limits; a single larger file is
+hashed alone. These are separate from the server backlog limits below. Identical content is
+deduplicated across batches, including in dry runs. Files still need to be read for hashing and
+again for upload; batching reduces startup delay, not total source reads. Progress uses batch
+counts rather than a full-tree total.
+
 For initial imports, use `--bulk` on **each user's script**. Compression remains server-side.
 The script uploads sequentially, polls the global pending ingestion/parsing workload, and reserves
 capacity atomically before transferring each pair. Concurrent bulk scripts share the same server budget:
@@ -403,10 +413,27 @@ without `--bulk` remain unchanged and do not acquire reservations, although thei
 towards the bulk budget. For the controlled initial import, have all importers use `--bulk`.
 
 The defaults target a small server (2 vCPUs / 4 GiB RAM): one parser and one ingestion worker.
-With `LOG_DIR` on Samba, waiting uploads use the share, not RAM; active parsing decompresses a pair
-under `<WEB_DATA>/tmp` on local disk. Keep `WEB_DATA` on persistent local storage, not a RAM-backed
-`/tmp`. Local free space must cover the largest uncompressed pair, parser JSON output and OS headroom;
-the 16 GiB backlog budget does not guarantee that a single large log fits locally.
+Uploads now stage under `<WEB_DATA>/incoming` on local disk, rather than writing uncompressed files
+to `LOG_DIR`. Hashing and gzip compression run locally; only the finished compressed files are copied
+to a temporary file on the share and atomically published. Legacy queued uploads under
+`<LOG_DIR>/.incoming` are still processed after upgrading; no manual queue migration is needed.
+Active parsing decompresses a pair under `<WEB_DATA>/tmp`. Keep `WEB_DATA` on persistent local storage,
+not a RAM-backed `/tmp`. The local incoming directory is pending work, not disposable cache while
+uploads are queued. Stop uploaders and let ingestion drain before moving an installation.
+
+`LOGDB_LOCAL_MIN_FREE_BYTES` defaults to 2147483648 (2 GiB). New bulk reservations check local disk
+space for twice the incoming pair size plus outstanding reservations and this headroom, returning
+429 when space is insufficient. Upload staging and parser decompression check free space during
+streaming; local compression checks space before starting. Storage failures are reported explicitly,
+not accepted as successful uploads. Additional space is needed for concurrent work, multipart
+temporary files, ZIP expansion and parser JSON output; these checks are not a disk quota or a hard
+guarantee. Set queue/worker counts with that in mind; a backlog budget is not physical disk capacity.
+
+When source logs live on a macOS-mounted Samba share exposed to a VM through VMware shared folders,
+running `upload_logs.py` on macOS avoids the VMware layer for source hashing/reads. Point `--server`
+to `http://<VM-IP>:8000` (or the configured HTTPS URL), and use the host's source folder path.
+The standalone script needs only Python 3. Do not run old and new uploader instances on the same
+source tree simultaneously just to switch versions; finish or stop the previous run first.
 On a 20 GiB system disk with roughly 12 GiB free, start with a representative large log and monitor
 disk/memory use before the full import. Increase worker counts only after adding or verifying capacity.
 
@@ -428,7 +455,7 @@ Rerunning skips already stored pairs; existing parser-error logs are not automat
 The upload returns as soon as the files are on disk; hashing, duplicate checks, unzipping and parsing run in the
 background. The SHA-256 of the `.data` file identifies a log, so a known log is not stored twice (a missing `.log` is
 added later). Files are kept in `<LOG_DIR>/<sha[:2]>/<sha>/` with the flight paths in `paths-<id>.json.gz`; uploads
-are staged in `<LOG_DIR>/.incoming`. Each log records its parser version; **Re-parse outdated** re-runs the current
+are staged in `<WEB_DATA>/incoming`. Each log records its parser version; **Re-parse outdated** re-runs the current
 parser on older and failed logs.
 
 **Logbook.** The parser tells onboard SD logs from ground station logs. The logbook (`/logbook`) has one row per

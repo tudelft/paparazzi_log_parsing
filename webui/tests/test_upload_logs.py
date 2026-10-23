@@ -1,4 +1,6 @@
 import http.client
+import errno
+import gzip
 import io
 import json
 import sqlite3
@@ -15,6 +17,93 @@ from .test_historical import AppTests
 
 
 class UploadScriptTests(unittest.TestCase):
+    def test_upload_starts_before_later_batches_are_hashed_and_deduplicates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for index, content in enumerate((b"first", b"second", b"first", b"known")):
+                data = Path(directory) / f"{index}.data"
+                data.write_bytes(content)
+                data.with_suffix(".log").write_bytes(b"xml")
+            events = []
+            real_hash = upload.sha256_file
+            known_hash = real_hash(Path(directory) / "3.data")
+            client = Mock()
+            client._request.return_value = {"user": {"display_name": "Pilot"}}
+            client.check.side_effect = lambda hashes: {known_hash: {"has_log": True}} if known_hash in hashes else {}
+
+            def hashed(path):
+                events.append(("hash", Path(path).name))
+                return real_hash(path)
+
+            def uploaded(files, **kwargs):
+                events.append(("upload", files[0][0]))
+                return {"results": [{"status": "accepted", "ingest_id": len(events)}]}
+
+            client.upload.side_effect = uploaded
+            args = ["upload_logs.py", directory, "--server", "http://fixture", "--key", "test",
+                    "--hash-batch-files", "1"]
+            with patch.object(upload, "Client", return_value=client), patch("sys.argv", args), \
+                    patch.object(upload, "sha256_file", side_effect=hashed):
+                self.assertEqual(upload.main(), 0)
+            self.assertEqual(events, [("hash", "0.data"), ("upload", "0.data"),
+                                      ("hash", "1.data"), ("upload", "1.data"),
+                                      ("hash", "2.data"), ("hash", "3.data")])
+            self.assertEqual(client.check.call_count, 4)
+
+    def test_hash_batches_enforce_count_bytes_and_oversized_files(self):
+        pairs = [(str(i), str(i), "log") for i in range(5)]
+        sizes = {"0": 4, "1": 6, "2": 11, "3": 3, "4": 3}
+        with patch.object(upload.os.path, "getsize", side_effect=sizes.get), \
+                patch.object(upload, "sha256_file", side_effect=lambda path: path):
+            batches = list(upload.hash_batches(iter(pairs), 2, 10))
+        self.assertEqual([[p[0][0] for p in batch] for batch in batches], [["0", "1"], ["2"], ["3", "4"]])
+        with patch.object(upload.os.path, "getsize", return_value=6), \
+                patch.object(upload, "sha256_file", side_effect=lambda path: path):
+            batches = list(upload.hash_batches(iter(pairs[:2]), 32, 10))
+        self.assertEqual([len(batch) for batch in batches], [1, 1])
+        self.assertEqual(list(upload.hash_batches(iter([]), 2, 10)), [])
+
+    def test_dry_run_batches_deduplicate_and_include_missing_companion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for i in range(2):
+                data = Path(directory) / f"{i}.data"
+                data.write_bytes(b"same")
+                data.with_suffix(".log").write_bytes(b"xml")
+            client = Mock()
+            client._request.return_value = {"user": {"display_name": "Pilot"}}
+            digest = upload.sha256_file(data)
+            client.check.return_value = {digest: {"has_log": False}}
+            args = ["upload_logs.py", directory, "--bulk", "--dry-run",
+                    "--server", "http://fixture", "--key", "test", "--hash-batch-files", "1"]
+            output = io.StringIO()
+            with patch.object(upload, "Client", return_value=client), patch("sys.argv", args), \
+                    patch("sys.stdout", output):
+                self.assertEqual(upload.main(), 0)
+            self.assertEqual(output.getvalue().count("would upload"), 1)
+            self.assertEqual(client.check.call_count, 2)
+            client.upload.assert_not_called()
+            client._request.assert_called_once_with("GET", "/api/me")
+
+    def test_later_hash_failure_drains_accepted_bulk_receipts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for i in range(2):
+                data = Path(directory) / f"{i}.data"
+                data.write_bytes(b"test")
+                data.with_suffix(".log").write_bytes(b"xml")
+            client = Mock()
+            client._request.return_value = {"user": {"display_name": "Pilot"}}
+            client.check.return_value = {}
+            client.upload.return_value = {"results": [{"status": "accepted", "ingest_id": 7}]}
+            args = ["upload_logs.py", directory, "--bulk", "--server", "http://fixture", "--key", "test",
+                    "--hash-batch-files", "1"]
+            with patch.object(upload, "Client", return_value=client), patch("sys.argv", args), \
+                    patch.object(upload, "sha256_file", side_effect=["digest", OSError("read failed")]), \
+                    patch.object(upload, "wait_capacity"), \
+                    patch.object(upload, "reserve_capacity", return_value="a" * 32), \
+                    patch.object(upload, "wait_result") as result:
+                self.assertEqual(upload.main(), 1)
+            self.assertEqual(client.upload.call_count, 1)
+            result.assert_called_once_with(client, 7, 5, 3600)
+
     def test_small_vm_defaults_and_script_byte_threshold(self):
         with patch.dict(config.FILE_VALUES, {}, clear=True), patch.dict(config.os.environ, {}, clear=True):
             self.assertEqual(config.env_int("WORKERS"), 1)
@@ -156,6 +245,58 @@ class UploadScriptTests(unittest.TestCase):
 
 
 class UploadStatusTests(AppTests):
+    def test_upload_stages_locally_and_can_resume_legacy_share_staging(self):
+        response = self.client.post("/api/upload", data={
+            "names": ["example.data", "example.log"],
+            "files": [(io.BytesIO(b"telemetry"), "example.data"), (io.BytesIO(b"xml"), "example.log")]})
+        response.request.input_stream.close()
+        self.assertEqual(response.status_code, 200, response.json)
+        iid = response.json["results"][0]["ingest_id"]
+        row = self.con.execute("SELECT * FROM ingest WHERE id=?", (iid,)).fetchone()
+        stage = self.ns["ingest_stage"](row["stage_dir"])
+        self.addCleanup(self.ns["drop_stage"], stage)
+        self.assertTrue(stage.is_relative_to(self.ns["LOCAL_STAGE_DIR"]))
+        self.assertFalse(stage.is_relative_to(self.ns["STORAGE_DIR"]))
+        self.assertEqual(self.ns["ingest_stage"]("legacy/pair"), self.ns["STAGE_DIR"] / "legacy/pair")
+        self.assertEqual((stage / "log.data").read_bytes(), b"telemetry")
+        self.ns["run_ingest"](iid)
+        log = self.con.execute("SELECT * FROM logs").fetchone()
+        self.assertIsNotNone(log)
+        self.assertEqual(gzip.decompress((self.ns["STORAGE_DIR"] / log["data_path"]).read_bytes()), b"telemetry")
+        self.assertEqual(gzip.decompress((self.ns["STORAGE_DIR"] / log["log_path"]).read_bytes()), b"xml")
+        self.assertFalse(stage.exists())
+
+    def test_failed_ingestion_releases_local_raw_staging(self):
+        relative = self.ns["new_stage_rel"]()
+        stage = self.ns["ingest_stage"](relative)
+        stage.mkdir(parents=True)
+        (stage / "log.data").write_bytes(b"test data")
+        iid = self.ns["insert_ingest"](self.con, "file", "example.data", relative,
+                                      "log.data", None, 9, 2)
+        with patch.object(self.ns["storage"], "gzip_file", side_effect=OSError("share disconnected")):
+            with self.assertRaisesRegex(OSError, "disconnected"):
+                self.ns["run_ingest"](iid)
+        self.assertFalse(stage.exists())
+
+    def test_low_space_refuses_reservation_and_cleans_rejected_upload(self):
+        no_space = OSError(errno.ENOSPC, "Insufficient local temporary disk space")
+        with patch.object(self.ns["storage"], "ensure_space", side_effect=no_space):
+            response = self.reserve("c" * 32)
+            self.assertEqual(response.status_code, 429, response.json)
+            self.assertIn("disk space", response.json["error"])
+        self.assertEqual(self.reserve("a" * 32, 7).status_code, 201)
+        before = set(self.ns["LOCAL_STAGE_DIR"].glob("*"))
+        with patch.object(self.ns["storage"], "ensure_space", side_effect=no_space):
+            response = self.client.post("/api/upload", data={
+                "names": ["example.data", "example.log"],
+                "files": [(io.BytesIO(b"data"), "example.data"), (io.BytesIO(b"log"), "example.log")]},
+                headers={"X-Bulk-Reservation": "a" * 32})
+            response.request.input_stream.close()
+        self.assertEqual(response.status_code, 503, response.json)
+        self.assertEqual(set(self.ns["LOCAL_STAGE_DIR"].glob("*")), before)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM ingest").fetchone()[0], 0)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM bulk_reservations").fetchone()[0], 0)
+
     def test_concurrent_importers_cannot_overbook(self):
         with tempfile.TemporaryDirectory() as directory:
             path = str(Path(directory) / "reservations.db")

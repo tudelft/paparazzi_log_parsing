@@ -33,6 +33,8 @@ SETTINGS = {
         "FASTREADER": (str(HERE.parent / "cpp" / "build" / "paparazzi_log_parsing"), "Parser binary"),
         "WORKERS": ("1", "Logs parsed in parallel; increase only with sufficient RAM and local temporary disk"),
         "INGEST_WORKERS": ("1", "Background threads that hash, deduplicate and unzip uploads"),
+        "LOCAL_MIN_FREE_BYTES": ("2147483648", "Local disk headroom retained while staging/decompressing uploads "
+                                "(default: 2 GiB; additional space is needed for parser output)"),
         "PATH_RATE": ("5", "Flight path points stored per second (0 disables the map path)"),
         "ATTACHMENT_MAX_BYTES": ("10737418240", "Maximum original size per attachment in bytes (default: 10 GiB)"),
         "BULK_MAX_PENDING": ("8", "Global job budget for cooperating bulk upload scripts"),
@@ -183,7 +185,7 @@ def check():
     errors, warnings = [], []
     if env_int("ATTACHMENT_MAX_BYTES") <= 0:
         errors.append("LOGDB_ATTACHMENT_MAX_BYTES must be positive")
-    for setting in ("BULK_MAX_PENDING", "BULK_MAX_BYTES"):
+    for setting in ("BULK_MAX_PENDING", "BULK_MAX_BYTES", "LOCAL_MIN_FREE_BYTES"):
         if env_int(setting) <= 0:
             errors.append(f"LOGDB_{setting} must be positive")
     known = set(ALL) | CLIENT_ONLY
