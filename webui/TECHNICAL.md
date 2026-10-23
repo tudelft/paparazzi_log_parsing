@@ -234,7 +234,7 @@ Overview table links use the theme's blue accent colour, with an underline on ho
 
 ### Project and aircraft CSV imports
 
-For initial setup, import the qualification ZIP on People first (it can create accounts), then the
+For initial setup, import the qualification ZIP on People first (it can create accounts and types), then the
 project CSV on Projects, then the aircraft CSV on Aircraft. Both catalog imports are admin-only,
 available in Edit mode, with downloadable templates. Files are comma-separated UTF-8 (optional BOM);
 Latin-1 uploads are also accepted for older fleet spreadsheets. Limit: 1 MB / 5000 rows. All changes
@@ -340,7 +340,11 @@ periods are stored as `superseded` (archived) records. Periods already recorded 
 or repeated in the file, are skipped, so a ZIP can be re-imported. This import is the one deliberate
 exception to never creating profiles from names: on confirmation, a person not matched by display name,
 alias or username is added (username = name without spaces, no password, email or admin rights), labelled
-**New user** in the preview. Ambiguous names and unknown types are reported and block the import. The qualifications panel splits Current (pending and non-expired approvals) from
+**New user** in the preview. Unknown types are likewise created on confirmation, labelled **New type**:
+active, external, no start date required, and evidence or Valid until required only if every row of that
+type in the file has them; adjust them afterwards under Qualification types. A row with only a person
+(no type, dates or file) adds that person without a qualification, e.g. project members without a
+licence, so initial setup needs no manual Add user step. Ambiguous names block the import. The qualifications panel splits Current (pending and non-expired approvals) from
 Archive (expired approvals and superseded records); rejected and withdrawn submissions stay under Current.
 API keys cannot import. The original ZIP is not stored as a shared attachment.
 Attach one PDF, JPEG or PNG per submission, up to **20 MiB**. Required-evidence types cannot be submitted
