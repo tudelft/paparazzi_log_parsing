@@ -250,7 +250,9 @@ remain visible alongside the relevant controls.
 
 Aircraft keeps its overview table with Edit off. In Edit mode, use the filtered aircraft list and
 the selected aircraft's **Details**, **Project history** and **Aliases** tabs. Add aircraft and CSV import
-open compact dialogs; unlinked aircraft names remain collapsible. Add user also opens a dialog.
+open compact dialogs; unlinked aircraft names remain collapsible. Their link menu always lists every
+aircraft, including Discard (Show discarded only filters the list); its search box at the top of the
+menu filters the list below, names starting with the typed text first (Enter picks the first match). Add user also opens a dialog.
 Dialogs can be closed with Close or Escape. Details are saved together; project
 periods keep their separate Save timeline action.
 Logbook has no top-level project filter and no longer applies a previously saved project filter.

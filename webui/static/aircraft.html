@@ -38,6 +38,13 @@
   .chip button { background:none; color:var(--err); padding:0 6px; font-size:15px; }
   button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
   button.sec { background:var(--sec); color:var(--txt); }
+  .pick-button { min-width:240px; max-width:320px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pick-button::after { content:' ▾'; color:var(--mute); }
+  .pick-menu { position:fixed; z-index:20; width:380px; background:var(--card); border:1px solid var(--line); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.25); padding:6px; }
+  .pick-menu input { width:100%; box-sizing:border-box; margin-bottom:4px; }
+  .pick-list { max-height:280px; overflow-y:auto; }
+  .pick-list button { display:block; width:100%; text-align:left; background:none; color:var(--txt); border-radius:4px; padding:5px 8px; }
+  .pick-list button:hover, .pick-list button:focus, .pick-list button[aria-selected=true] { background:var(--hover); outline:none; }
   button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
   input, select { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
   #err { color:var(--err); min-height:1.2em; }
@@ -83,6 +90,10 @@
     <details><summary>Help</summary><p>Paparazzi logs usually already have the fleet name. PX4 logs do not: they show the airframe type plus the flight-controller id (for example <code>quad_x 00500040</code>). Link that once to the real aircraft; later logs from the same board attach automatically. The upload folder is only a hint, and is never used when more than one aircraft could match.</p></details></div>
     <div class="scroll"><table><thead id="unlinkedHead"></thead><tbody id="unlinked"></tbody></table></div>
   </details>
+  <div class="pick-menu" id="pickMenu" hidden>
+    <input type="search" id="pickSearch" placeholder="Search aircraft" aria-label="Search aircraft" autocomplete="off">
+    <div class="pick-list" id="pickList" role="listbox" aria-label="Aircraft"></div>
+  </div>
   <section class="card">
     <div class="section-heading"><h2 id="fleetTitle">Aircraft</h2>
     <details><summary>Help</summary><p id="fleetHint">Each aircraft has a unique serial (TUDxxxxx) that stays with it if the name changes. Names in the logs that differ from the nice name are aliases.</p></details></div>
@@ -144,6 +155,7 @@ window.fetch = async (...args) => {
   return r;
 };
 let data = {drones: [], unlinked: [], projects: []};
+let pickFor = null;
 let me = null;
 let selectedAircraft = null, selectedAircraftTab = 'details';
 const editOn = () => !!(me && me.is_admin && window.editMode());
@@ -221,6 +233,7 @@ function statusOptions(selected) {
 }
 
 function render() {
+  closePick(false);
   const q = ($('q').value || '').trim().toLowerCase();
   const status = $('statusFilter').value;
   const editing = editOn();
@@ -246,8 +259,9 @@ function render() {
       ? `<div class="mute">Folder matches ${esc(cand[0].name)}</div>`
       : (cand.length > 1 ? `<div class="mute">Folder matches ${cand.map(c => esc(c.name)).join(', ')} — pick one</div>` : '');
     const preferred = cand.length === 1 ? cand[0].id : null;
-    const choices = data.drones.map(d => `<option value="${d.id}"${d.id === preferred ? ' selected' : ''}>${esc(d.name)}${d.unique_id ? ' (' + esc(d.unique_id) + ')' : ''}</option>`).join('');
-    const link = opts ? `<select id="sel${idx}">${choices}</select> <button onclick="linkUnlinked(${idx})">Link</button>${hint}` : '<span class="mute">Add an aircraft first</span>';
+    const first = data.drones.find(d => d.id === preferred);
+    const link = opts ? `<button type="button" class="sec pick-button" id="sel${idx}" data-value="${first ? first.id : ''}" aria-haspopup="listbox" onclick="openPick(${idx})">${first ? esc(droneLabel(first)) : 'Choose aircraft'}</button>
+      <button onclick="linkUnlinked(${idx})">Link</button>${hint}` : '<span class="mute">Add an aircraft first</span>';
     return `<tr><td>${esc(e.name)}${also}</td><td class="mono">${esc(boards)}</td><td>${e.count}×</td><td>${esc(folders)}</td><td>${link}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="mute">Nothing matches the filter.</td></tr>';
   const shown = data.drones.filter(d => matches(d, q, status));
@@ -380,15 +394,63 @@ async function importCsv() {
   await load();
   } catch (error) { $('importAircraftError').textContent = 'Import failed: ' + error.message; $('importMsg').textContent = ''; }
 }
+const droneLabel = d => d.name + (d.unique_id ? ' (' + d.unique_id + ')' : '');
+function openPick(i) {
+  if (pickFor === i) return closePick();
+  pickFor = i;
+  const r = $('sel' + i).getBoundingClientRect(), menu = $('pickMenu');
+  menu.hidden = false;
+  menu.style.left = Math.max(4, Math.min(r.left, document.documentElement.clientWidth - menu.offsetWidth - 4)) + 'px';
+  menu.style.top = (r.bottom + menu.offsetHeight + 4 > innerHeight ? Math.max(4, r.top - menu.offsetHeight - 4) : r.bottom + 4) + 'px';
+  $('pickSearch').value = '';
+  renderPick();
+  $('pickSearch').focus();
+}
+function closePick(refocus = true) {
+  if (pickFor === null) return;
+  $('pickMenu').hidden = true;
+  const button = $('sel' + pickFor);
+  pickFor = null;
+  if (button && refocus) button.focus();
+}
+function renderPick() {
+  const q = $('pickSearch').value.trim().toLowerCase();
+  const current = +$('sel' + pickFor).dataset.value;
+  const starts = d => droneLabel(d).toLowerCase().startsWith(q);
+  const found = data.drones.filter(d => !q || droneLabel(d).toLowerCase().includes(q))
+    .sort((a, b) => starts(b) - starts(a));
+  $('pickList').innerHTML = found.map(d => `<button type="button" role="option" data-id="${d.id}" aria-selected="${d.id === current}">${esc(droneLabel(d))}${d.status === 'Discard' ? ' <span class="mute">· Discard</span>' : ''}</button>`).join('')
+    || '<p class="mute">No aircraft match</p>';
+}
+function choosePick(id) {
+  const d = data.drones.find(x => x.id === id), button = $('sel' + pickFor);
+  button.dataset.value = d.id;
+  button.textContent = droneLabel(d);
+  closePick();
+}
+$('pickSearch').oninput = renderPick;
+$('pickList').onclick = e => { const b = e.target.closest('button[data-id]'); if (b) choosePick(+b.dataset.id); };
+$('pickMenu').onkeydown = e => {
+  const items = [...$('pickList').querySelectorAll('button[data-id]')], at = items.indexOf(document.activeElement);
+  if (e.key === 'Escape') { e.preventDefault(); closePick(); }
+  else if (e.key === 'Enter' && document.activeElement === $('pickSearch') && items.length) { e.preventDefault(); choosePick(+items[0].dataset.id); }
+  else if (e.key === 'ArrowDown' && items.length) { e.preventDefault(); items[Math.min(at + 1, items.length - 1)].focus(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); (at > 0 ? items[at - 1] : $('pickSearch')).focus(); }
+};
+document.addEventListener('mousedown', e => {
+  if (pickFor !== null && !$('pickMenu').contains(e.target) && e.target !== $('sel' + pickFor)) closePick(false);
+});
+addEventListener('resize', () => closePick(false));
+document.addEventListener('scroll', e => { if (!$('pickMenu').contains(e.target)) closePick(false); }, true);
 async function linkUnlinked(i) {
   const sel = $('sel' + i);
-  if (!sel || !sel.value) { $('err').textContent = 'Add an aircraft first.'; return; }
+  if (!sel || !sel.dataset.value) { $('err').textContent = data.drones.length ? 'Pick an aircraft to link.' : 'Add an aircraft first.'; return; }
   const e = data.unlinked[i];
   const names = (e.names && e.names.length) ? e.names : [e.name];
   for (const alias of names) {
     const r = await fetch('/api/admin/drone-aliases', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({drone_id: +sel.value, alias}),
+      body: JSON.stringify({drone_id: +sel.dataset.value, alias}),
     });
     $('err').textContent = r.ok ? '' : (((await r.json().catch(() => ({}))).error) || 'failed');
     if (!r.ok) return;
