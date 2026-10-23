@@ -1,4 +1,5 @@
 import hashlib
+import io
 import unittest
 from types import SimpleNamespace
 
@@ -70,6 +71,44 @@ class PeopleDirectoryTests(AppTests):
         self.assertEqual(len(response.json["users"]), 4)
         self.assertEqual({r["name"] for r in response.json["unlinked"]},
                          {"Example", "Example Pilot", "Unlinked operator"})
+
+    def test_unlinked_names_can_be_added_as_external_people(self):
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by)"
+            " VALUES(1,'test','crew-test','test.data','done','now',2)")
+        self.con.execute("INSERT INTO aircraft(id,log_id,name,pic,pac,gcs) VALUES(1,1,'Drone','Guest Pilot','Pilot',NULL)")
+        self.con.commit()
+        self.sign_in(1)
+        self.ns["assign_log_flights"](self.con, 1)
+        response = self.client.post("/api/admin/people/external", json={"name": " Guest Pilot "})
+        self.assertEqual(response.status_code, 201, response.json)
+        uid = response.json["id"]
+        user = self.con.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+        self.assertEqual((user["username"], user["display_name"], user["password_hash"], user["is_external"]),
+                         ("GuestPilot", "Guest Pilot", None, 1))
+        self.assertEqual(self.ns["person_resolver"](self.con)("pic", "guest pilot", None)["id"], uid)
+        people = self.client.get("/api/admin/people").json
+        self.assertEqual(people["unlinked"], [])
+        self.assertTrue({u["id"]: u for u in people["users"]}[uid]["is_external"])
+        for name in ("Guest Pilot", "Pilot", ""):
+            self.assertIn(self.client.post("/api/admin/people/external", json={"name": name}).status_code, (400, 409))
+        self.assertEqual(self.client.post(f"/api/admin/users/{uid}/setup-link").status_code, 403)
+        self.assertEqual(self.client.put("/api/admin/projects/1/members", json={"user_id": uid, "role": "view"}).status_code, 400)
+        upload = self.client.post("/api/admin/projects/import", data={"file": (
+            io.BytesIO(b"project,person,role\nResearch,Guest Pilot,view\n"), "projects.csv")})
+        self.assertEqual(upload.status_code, 400)
+        self.assertIn("is external", upload.json["error"])
+
+        self.assertEqual(self.client.put("/api/admin/users/1/external", json={"is_external": True}).status_code, 400)
+        self.assertEqual(self.client.put("/api/admin/users/2/external", json={"is_external": "yes"}).status_code, 400)
+        self.assertEqual(self.client.put("/api/admin/users/2/external", json={"is_external": True}).status_code, 200)
+        self.assertFalse(self.con.execute("SELECT 1 FROM project_members WHERE user_id=2").fetchone())
+        self.sign_in(2)
+        self.assertEqual(self.client.get("/api/me").status_code, 401)
+        self.sign_in(1)
+        self.assertEqual(self.client.put("/api/admin/users/2/external", json={"is_external": False}).status_code, 200)
+        self.sign_in(2)
+        self.assertEqual(self.client.get("/api/me").status_code, 200)
 
     def test_aliases_visible_to_normal_users_within_directory_scope(self):
         self.con.executemany("INSERT INTO user_aliases(user_id,alias) VALUES (?,?)",

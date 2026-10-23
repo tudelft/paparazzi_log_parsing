@@ -772,7 +772,7 @@ def user_for_key(key):
     con = conn()
     h = hashlib.sha256(key.encode()).hexdigest()
     row = con.execute("SELECT k.id AS key_id, k.last_used_at AS key_used, u.* FROM api_keys k JOIN users u ON u.id = k.user_id"
-                      " WHERE k.key_hash=? AND u.is_active=1", (h,)).fetchone()
+                      " WHERE k.key_hash=? AND u.is_active=1 AND u.is_external=0", (h,)).fetchone()
     if row is None:
         return None
     stamp = now()
@@ -805,7 +805,7 @@ def require_login():
         g.user, g.via_key = user, True
         return None
     uid = session.get("uid")
-    user = conn().execute("SELECT * FROM users WHERE id=? AND is_active=1", (uid,)).fetchone() if uid else None
+    user = conn().execute("SELECT * FROM users WHERE id=? AND is_active=1 AND is_external=0", (uid,)).fetchone() if uid else None
     if user is None:
         session.clear()
         if request.path.startswith("/api/"):
@@ -850,7 +850,7 @@ def login_saml_identity(ident):
         for key in (ident.get("display_name"), ident.get("username")):
             uid = names.get((key or "").casefold()) if key else None
             if uid:
-                row = con.execute("SELECT * FROM users WHERE id=? AND is_active=1", (uid,)).fetchone()
+                row = con.execute("SELECT * FROM users WHERE id=? AND is_active=1 AND is_external=0", (uid,)).fetchone()
                 if row:
                     break
     if row is None:
@@ -862,6 +862,8 @@ def login_saml_identity(ident):
         row = con.execute("SELECT * FROM users WHERE id=?", (cur.lastrowid,)).fetchone()
     elif not row["is_active"]:
         return None, "this account is disabled"
+    elif row["is_external"]:
+        return None, "external people cannot sign in"
     else:
         if ident.get("display_name") and not row["display_name"]:
             con.execute("UPDATE users SET display_name=? WHERE id=?", (ident["display_name"], row["id"]))
@@ -939,7 +941,7 @@ def login():
     key = f"{request.remote_addr}|{username.lower()}"
     if too_many_failures(key):
         return jsonify(error="too many failed attempts, try again in a few minutes"), 429
-    user = conn().execute("SELECT * FROM users WHERE username=? AND is_active=1 AND provider='local'",
+    user = conn().execute("SELECT * FROM users WHERE username=? AND is_active=1 AND is_external=0 AND provider='local'",
                           (username,)).fetchone()
     # check against a dummy hash for unknown users so timing does not reveal which usernames exist
     pw_hash = (user and user["password_hash"]) or generate_password_hash("x")
@@ -1058,11 +1060,11 @@ def me():
 def list_people():
     """Active accounts for PIC/PAC/GCS menus and the People directory (name and username only)."""
     rows = conn().execute(
-        "SELECT id, username, display_name, is_admin FROM users WHERE is_active=1"
+        "SELECT id, username, display_name, is_admin, is_external FROM users WHERE is_active=1"
         " ORDER BY COALESCE(display_name, username), username")
     return jsonify([{"id": r["id"], "username": r["username"],
                      "display_name": r["display_name"] or r["username"],
-                     "is_admin": bool(r["is_admin"])} for r in rows])
+                     "is_admin": bool(r["is_admin"]), "is_external": bool(r["is_external"])} for r in rows])
 
 
 @app.get("/api/people-directory")
@@ -1072,7 +1074,7 @@ def people_directory():
     allowed = qualifications.directory_user_ids(con, g.user)
     users = []
     for r in con.execute(
-            "SELECT id, username, display_name, is_admin, provider FROM users WHERE is_active=1"
+            "SELECT id, username, display_name, is_admin, is_external, provider FROM users WHERE is_active=1"
             " ORDER BY COALESCE(display_name, username), username"):
         if r["id"] not in allowed:
             continue
@@ -1081,7 +1083,8 @@ def people_directory():
             quals = qualifications.qualifications_payload(con, g.user, r["id"])
         users.append({"id": r["id"], "username": r["username"],
                       "display_name": r["display_name"] or r["username"],
-                      "is_admin": bool(r["is_admin"]), "provider": r["provider"] or "local",
+                      "is_admin": bool(r["is_admin"]), "is_external": bool(r["is_external"]),
+                      "provider": r["provider"] or "local",
                       "pending": (r["provider"] or "") == "log", "qualifications": quals,
                       "aliases": [a["alias"] for a in con.execute(
                           "SELECT alias FROM user_aliases WHERE user_id=? ORDER BY alias", (r["id"],))]})
@@ -2040,6 +2043,7 @@ def admin_import_projects():
             raise historical.RecordError("CSV columns must be project,person,role (role is optional).")
         names = qualifications.crew_keys(con)
         active = {r["id"] for r in con.execute("SELECT id FROM users WHERE is_active=1")}
+        external = {r["id"] for r in con.execute("SELECT id FROM users WHERE is_external=1")}
         projects = {}
         for line, row in rows:
             name, person = row["project"], row["person"]
@@ -2056,6 +2060,8 @@ def admin_import_projects():
             uid = names.get(person.casefold())
             if uid is None or uid not in active:
                 raise historical.RecordError(f"Row {line}: unknown or ambiguous person '{person}'. Use a unique display name or alias.")
+            if uid in external:
+                raise historical.RecordError(f"Row {line}: '{person}' is external and cannot be a project member.")
             if uid in project["members"] and project["members"][uid] != role:
                 raise historical.RecordError(f"Row {line}: conflicting roles for '{person}'.")
             project["members"][uid] = role
@@ -2146,8 +2152,11 @@ def admin_set_member(project_id):
     con = conn()
     if not con.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone():
         return jsonify(error="no such project"), 404
-    if not con.execute("SELECT 1 FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone():
+    member = con.execute("SELECT is_external FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone()
+    if member is None:
         return jsonify(error="no such user"), 404
+    if member["is_external"] and role in ACCESS_ROLES:
+        return jsonify(error="external people cannot be project members"), 400
     if role in ACCESS_ROLES:
         con.execute("INSERT INTO project_members (project_id, user_id, role) VALUES (?,?,?)"
                     " ON CONFLICT(project_id, user_id) DO UPDATE SET role=excluded.role",
@@ -2919,9 +2928,11 @@ def admin_remove_password(user_id):
 def admin_new_setup_link(user_id):
     admin_required()
     con = conn()
-    row = con.execute("SELECT id, is_active, provider FROM users WHERE id=?", (user_id,)).fetchone()
+    row = con.execute("SELECT id, is_active, is_external, provider FROM users WHERE id=?", (user_id,)).fetchone()
     if row is None or not row["is_active"]:
         return jsonify(error="no such user"), 404
+    if row["is_external"]:
+        return jsonify(error="External people cannot sign in."), 403
     if row["provider"] not in ("local", "log"):
         return jsonify(error="Passwords for this account are managed by its identity provider."), 403
     token, expires_at = issue_setup_token(con, user_id)
@@ -3089,7 +3100,7 @@ def admin_people():
         prov = u["provider"] or "local"
         users.append(dict(
             id=u["id"], username=u["username"], display_name=u["display_name"], email=u["email"],
-            is_admin=bool(u["is_admin"]), has_password=bool(u["password_hash"]),
+            is_admin=bool(u["is_admin"]), is_external=bool(u["is_external"]), has_password=bool(u["password_hash"]),
             provider=prov, pending=prov == "log",
             default_project_id=u["default_project_id"],
             aliases=[r["alias"] for r in con.execute(
@@ -3124,6 +3135,55 @@ def admin_add_alias():
         con.commit()
     except sqlite3.IntegrityError:
         return jsonify(error="alias is already linked to a user"), 409
+    return jsonify(ok=True)
+
+
+@app.post("/api/admin/people/external")
+def admin_add_external():
+    """Explicitly add an unlinked crew name as an external person: crew of another operator, without sign-in."""
+    admin_required()
+    session_required()
+    name = (request.get_json(silent=True) or {}).get("name")
+    name = name.strip() if isinstance(name, str) else ""
+    if not name or len(name) > 80 or any(ord(c) < 32 or ord(c) == 127 for c in name):
+        return jsonify(error="name must be 1-80 characters without control characters"), 400
+    con = conn()
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        names = qualifications.crew_keys(con)
+        if name.casefold() in names:
+            return jsonify(error="this name already matches a person" if names[name.casefold()]
+                           else "this name matches more than one person; link it instead"), 409
+        cur = con.execute(
+            "INSERT INTO users (username, display_name, password_hash, is_external, created_at) VALUES (?,?,NULL,1,?)",
+            (unique_username(con, "".join(name.split())[:40] or "external"), name, now()))
+        assign_open_flights(con)
+    return jsonify(id=cur.lastrowid), 201
+
+
+@app.put("/api/admin/users/<int:user_id>/external")
+def admin_set_external(user_id):
+    """Mark a person as external (no sign-in, no project access) or as a MAVLab person again."""
+    admin_required()
+    session_required()
+    external = (request.get_json(silent=True) or {}).get("is_external")
+    if not isinstance(external, bool):
+        return jsonify(error="send is_external as true or false"), 400
+    if user_id == g.user["id"]:
+        return jsonify(error="you cannot mark your own account as external"), 400
+    con = conn()
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute("SELECT is_admin FROM users WHERE id=?", (user_id,)).fetchone()
+        if row is None:
+            return jsonify(error="no such user"), 404
+        if external and row["is_admin"]:
+            return jsonify(error="administrators cannot be external"), 400
+        con.execute("UPDATE users SET is_external=? WHERE id=?", (int(external), user_id))
+        if external:
+            con.execute("DELETE FROM project_members WHERE user_id=?", (user_id,))
+            con.execute("UPDATE password_setup_tokens SET used_at=? WHERE user_id=? AND used_at IS NULL",
+                        (now(), user_id))
     return jsonify(ok=True)
 
 
