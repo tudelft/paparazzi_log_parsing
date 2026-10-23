@@ -163,9 +163,33 @@ class AttachmentTests(test_historical.AppTests):
         self.con.execute("INSERT INTO api_keys(user_id,name,key_hash,prefix,created_at) VALUES (2,'test',?,?, 'now')",
                          (hashlib.sha256(token.encode()).hexdigest(), "test"))
         self.con.commit()
-        response = self.client.post("/api/attachments", data=b"x",
-                                    headers={"Authorization": "Bearer " + token})
-        self.assertEqual(response.status_code, 403)
+        key = {"Authorization": "Bearer " + token}
+        # A key uploads to records its user may edit and links the same file to more of them
+        other = self.paper(date="2010-01-02")
+        metadata = quote(json.dumps(dict(filename="ctr.pdf", targets=[paper])))
+        response = self.client.post("/api/attachments", data=b"%PDF", content_type="application/octet-stream",
+                                    headers={**key, "X-Attachment-Metadata": metadata})
+        self.assertEqual(response.status_code, 201, response.json)
+        aid = response.json["id"]
+        response = self.client.post(f"/api/attachments/{aid}/links", json=dict(targets=[other]), headers=key)
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachment_links WHERE attachment_id=?",
+                                          (aid,)).fetchone()[0], 2)
+        # ... but not to records of a project without edit rights
+        self.sign_in(1)
+        private = self.paper(project_id=2)
+        self.sign_in(2)
+        metadata = quote(json.dumps(dict(filename="ctr.pdf", targets=[private])))
+        response = self.client.post("/api/attachments", data=b"%PDF", content_type="application/octet-stream",
+                                    headers={**key, "X-Attachment-Metadata": metadata})
+        self.assertIn(response.status_code, (403, 404))
+        response = self.client.post(f"/api/attachments/{aid}/links", json=dict(targets=[private]), headers=key)
+        self.assertIn(response.status_code, (403, 404))
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachments").fetchone()[0], 1)
+        # Unlinking (and so deleting) still needs a browser session
+        link = self.con.execute("SELECT id FROM attachment_links WHERE attachment_id=?", (aid,)).fetchone()["id"]
+        self.assertEqual(self.client.delete(f"/api/attachments/{aid}/links/{link}", headers=key).status_code, 403)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachment_links").fetchone()[0], 2)
 
     def test_upload_rechecks_permissions_and_cleans_staging(self):
         paper = self.paper()

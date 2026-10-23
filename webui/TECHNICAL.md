@@ -119,7 +119,9 @@ an individual link without affecting other links; the stored file is removed onl
 is removed. Deleting a flight's parent log or a paper record removes the corresponding links.
 Re-parsing retains links to flights with the same aircraft ID, flight index and takeoff time; if that
 flight no longer exists, its file links move to the parent log instead of losing the file.
-Attachment mutations require a browser session (API keys can read/download but cannot manage files).
+API keys can upload files (`POST /api/attachments`) and link an existing file to more targets
+(`POST /api/attachments/<id>/links`) with the same permission checks; the upload returns the file `id`.
+Removing links (and so deleting files) requires a browser session.
 
 Each file is limited to **10 GiB** by default (`LOGDB_ATTACHMENT_MAX_BYTES`).
 Uploads and downloads stream in bounded chunks; files upload sequentially with progress and errors.
