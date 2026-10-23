@@ -4256,7 +4256,7 @@ def detail(kind, item_id):
             "locations": lambda: detail_location(con, item_id)}[kind]()
     if item is None:
         abort(404)
-    flights = [f for f in logbook_rows(hide_unlinked=kind == "locations" and env_bool("HIDE_UNLINKED_AIRCRAFT"))
+    flights = [f for f in logbook_rows(hide_unlinked=kind in ("people", "locations") and env_bool("HIDE_UNLINKED_AIRCRAFT"))
                if flight_matches(kind, item_id, f)]
     if not admin and not flights:
         allowed = (kind == "people" and (item_id == g.user["id"] or my_project_ids(con, item_id) & mine))

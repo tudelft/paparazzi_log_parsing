@@ -23,7 +23,7 @@ SETTINGS = {
         "PROXIES": ("0", "Number of reverse proxies (nginx/Caddy) in front of the app. Set to 1 behind a proxy so "
                          "client addresses and https are seen correctly; keep 0 when clients connect directly"),
         "HIDE_UNLINKED_AIRCRAFT": ("0", "Exclude flights without a linked fleet aircraft from statistics, logbook "
-                                      "and locations; hide the aircraft-page notice outside Edit mode"),
+                                      "person details and locations; hide the aircraft-page notice outside Edit mode"),
     },
     "Storage and parsing": {
         "WEB_DATA": (str(HERE / "data"), "Local directory with the database, session key and SAML keys. Keep it on "

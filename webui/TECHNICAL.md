@@ -226,7 +226,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `COOKIE_SECURE` | `0` | `1` when served over https |
 | `PROXIES` | `0` | `1` behind nginx/Caddy (trust its `X-Forwarded-*` headers) |
 | `BIND` | `127.0.0.1:8000` | Address gunicorn listens on |
-| `HIDE_UNLINKED_AIRCRAFT` | `0` | `1` excludes unlinked telemetry flights from Logbook, Statistics and Locations, and hides the Aircraft notice outside Edit mode |
+| `HIDE_UNLINKED_AIRCRAFT` | `0` | `1` excludes unlinked telemetry flights from Logbook, Statistics, person details and Locations, and hides the Aircraft notice outside Edit mode |
 | `WEB_DATA` | `webui/data` | Database and keys; local disk only |
 | `LOG_DIR` | `<WEB_DATA>/logs` | Uploaded logs and flight paths; may be a share |
 | `BACKUP_DIR` | (empty) | Destination of `app.py backup` |
@@ -255,7 +255,10 @@ stays visible if either source is linked. Paper records are unchanged (they alre
 fleet aircraft). The Aircraft page keeps unlinked names available to admins in Edit mode for
 linking, but hides its read-only unlinked-name notice. Direct flight/upload details remain
 accessible under the existing permissions; this is a display setting, not an access restriction.
-People/project detail pages and uploads are unchanged. Set the value back to `0` to restore
+Person detail flight lists, charts and role totals use the same filter as Statistics, so PIC/PAC
+totals agree when the indoor/non-flight filters match. Person headline flight time includes
+participation in any crew role, not just PIC/PAC. Project detail pages and uploads are unchanged.
+Set the value back to `0` to restore
 the previous overviews; no records are deleted or reparsed.
 
 ## Accounts and TU Delft login

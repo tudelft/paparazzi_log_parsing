@@ -65,7 +65,7 @@ existing `/logbook` links still work.
   stay unresolved unless an explicit alias identifies the person. Renaming a username does not add an alias.
 - Admins manage **Aircraft** using Details, Project history and Aliases. Add/import buttons open dialogs;
   Close or Escape dismisses them. Link unrecognised log names to an existing aircraft/person in Edit mode.
-  Servers can hide unlinked aircraft flights from Logbook, Statistics and Locations until linked;
+  Servers can hide unlinked aircraft flights from Logbook, Statistics, person details and Locations until linked;
   admins can still find the names in Aircraft Edit mode (see the [settings](TECHNICAL.md#settings)).
   Mark generic airframe names as **ambiguous** in Edit mode instead of linking every recording
   to one aircraft. A uniquely matching GCS recording can identify its SD source; use the

@@ -140,6 +140,27 @@ class AmbiguousAircraftTests(AppTests):
         self.ns["link_log_aircraft"](self.con, 1)
         self.assertIsNone(self.con.execute("SELECT drone_id FROM aircraft WHERE id=1").fetchone()[0])
 
+    def test_person_role_totals_match_statistics_when_unlinked_aircraft_hidden(self):
+        self.mark()
+        self.con.execute("DELETE FROM logs WHERE id=2")
+        self.con.execute("UPDATE aircraft SET pic='Pilot',pac='Pilot' WHERE id=1")
+        self.con.commit()
+        for setting, expected in (("0", 1), ("1", 0)):
+            with patch.dict(os.environ, LOGDB_HIDE_UNLINKED_AIRCRAFT=setting):
+                for uid in (1, 2, 3):
+                    self.sign_in(uid)
+                    stats = self.client.get("/api/stats").json["flights"]
+                    detail = self.client.get("/api/detail/people/2")
+                    self.assertEqual(detail.status_code, 200)
+                    mine = detail.json["flights"]
+                    self.assertEqual(len(mine), expected)
+                    for role in ("pic", "pac"):
+                        seconds = lambda rows: sum(r["duration_s"] or 0 for r in rows
+                                                   if (r.get(role + "_user") or {}).get("id") == 2)
+                        self.assertEqual(seconds(mine), seconds(stats))
+                    # Uploaded files remain accessible even when excluded from flight totals.
+                    self.assertEqual(self.client.get("/api/flights/1/detail").status_code, 200)
+
     def test_admin_management_visibility_validation_and_remove(self):
         for name in ("", " ", 123, "x" * 81):
             self.assertEqual(self.client.post("/api/admin/ambiguous-drone-names", json={"name": name}).status_code, 400)
