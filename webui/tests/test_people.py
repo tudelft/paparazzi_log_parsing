@@ -72,6 +72,21 @@ class PeopleDirectoryTests(AppTests):
         self.assertEqual({r["name"] for r in response.json["unlinked"]},
                          {"Example", "Example Pilot", "Unlinked operator"})
 
+    def test_people_and_aircraft_report_whether_they_have_logs(self):
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by)"
+            " VALUES(1,'test','has-logs','test.data','done','now',5)")
+        self.con.execute("INSERT INTO aircraft(id,log_id,name,pic,pac,gcs,drone_id) VALUES(1,1,'Drone','Pilot','Unknown',NULL,1)")
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (2,'Spare','UID2','now')")
+        self.con.commit()
+        self.sign_in(1)
+        admin = {u["id"]: u["has_logs"] for u in self.client.get("/api/admin/people").json["users"]}
+        self.assertEqual(admin, {1: False, 2: True, 3: False, 4: False, 5: True})
+        directory = {u["id"]: u["has_logs"] for u in self.client.get("/api/people-directory").json["users"]}
+        self.assertTrue(directory[2] and directory[5] and not directory[3])
+        drones = {d["id"]: (d["log_count"], d["record_count"]) for d in self.client.get("/api/drones").json["drones"]}
+        self.assertEqual(drones, {1: (1, 0), 2: (0, 0)})
+
     def test_unlinked_names_can_be_added_as_external_people(self):
         self.con.execute(
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by)"

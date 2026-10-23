@@ -320,6 +320,10 @@ aircraft, including Discard (Show discarded only filters the list); its search b
 menu filters the list below, names starting with the typed text first (Enter picks the first match). Add user also opens a dialog.
 Dialogs can be closed with Close or Escape. Details are saved together; project
 periods keep their separate Save timeline action.
+Aircraft without uploaded logs or paper records, and people without any log, paper record or approved
+qualification, stay hidden until **Show aircraft without logs** / **Show people without logs or licences**
+is ticked. A person counts as having logs as uploader or as linked PIC/PAC/GCS; the aircraft or person
+selected in Edit mode stays listed. Non-admins only count qualifications they may see.
 Logbook has no top-level project filter and no longer applies a previously saved project filter.
 Project reassignment controls in Edit mode remain available.
 The menu puts Logbook (`/`) first, followed by Uploads (`/uploads`), Statistics, Aircraft, People, Projects and Locations.
