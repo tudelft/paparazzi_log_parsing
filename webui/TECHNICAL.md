@@ -575,6 +575,12 @@ flights used, and admins add, change or delete them there in edit mode (an area 
 are hidden by default). Logs without a valid date (missing or 1980 clock) are flagged so the
 real day can be entered.
 
+Source merging keeps an active window of groups whose landing times could overlap the next
+takeoff (including the existing 60-second slack). Aircraft-name/GPS comparisons only run on
+time-compatible groups. First-matching-group precedence, same-log exclusion, fleet identity
+checks and SD/GCS field selection are unchanged. Non-chronological fractional timestamp
+spellings rebuild the candidate window so earlier groups are not lost.
+
 **Paper flight records.** In the Logbook, choose **Add paper records / import CSV**. Admins and members
 with **full** access to the selected project can create, edit and delete these records; other project
 members can read them. Select an existing aircraft, PIC and project, then enter the date, total flight

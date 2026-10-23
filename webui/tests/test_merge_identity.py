@@ -1,4 +1,6 @@
 import os
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import config
@@ -6,6 +8,55 @@ from .test_historical import AppTests
 
 
 class MergeIdentityTests(AppTests):
+    def merge_fixture(self):
+        self.sources(1, None)
+        return self.client.get("/api/logbook").json[0]
+
+    def merge_row(self, template, identity, seconds, duration=100, **changes):
+        start = datetime(2010, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seconds)
+        row = deepcopy(template)
+        row.update(flight_id=identity, log_id=identity,
+                   takeoff_utc=start.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                   landing_utc=(start + timedelta(seconds=duration)).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                   duration_s=duration)
+        row.update(changes)
+        return row
+
+    def test_nonoverlapping_flights_do_not_compare_aircraft(self):
+        template = self.merge_fixture()
+        rows = [self.merge_row(template, i + 1, i * 1000) for i in range(1000)]
+        with patch.dict(self.ns, _same_aircraft=lambda *args: self.fail("Expired group compared")):
+            self.assertEqual(len(self.ns["merge_sources"](rows)), 1000)
+
+    def test_overlap_slack_boundary_chains_and_original_group_precedence(self):
+        template = self.merge_fixture()
+        merge = self.ns["merge_sources"]
+        for gap, expected in ((160, 1), (160.001, 2)):
+            rows = [self.merge_row(template, 1, 0), self.merge_row(template, 2, gap)]
+            self.assertEqual(len(merge(rows)), expected)
+        rows = [self.merge_row(template, i + 1, i * 150) for i in range(5)]
+        self.assertEqual(len(merge(rows)), 1)
+        rows = [self.merge_row(template, 1, 0),
+                self.merge_row(template, 2, 1, log_id=1),
+                self.merge_row(template, 3, 2)]
+        groups = merge(rows)
+        self.assertEqual({tuple(s["flight_id"] for s in g["sources"]) for g in groups}, {(1, 3), (2,)})
+
+    def test_long_intervals_unknown_dates_and_backwards_fractional_order(self):
+        template = self.merge_fixture()
+        merge = self.ns["merge_sources"]
+        rows = [self.merge_row(template, 1, 0, duration=10000),
+                self.merge_row(template, 2, 1000),
+                self.merge_row(template, 3, 2000, takeoff_utc=None)]
+        self.assertEqual(sorted(len(g["sources"]) for g in merge(rows)), [1, 2])
+        # .0001Z sorts before .000Z even though it is chronologically later.
+        rows = [self.merge_row(template, 1, 0, duration=0),
+                self.merge_row(template, 2, 60.0001, duration=0),
+                self.merge_row(template, 3, 60, duration=0)]
+        rows[2]["takeoff_utc"] = "2010-01-01T00:01:00.000Z"
+        self.assertEqual({tuple(s["flight_id"] for s in g["sources"]) for g in merge(rows)},
+                         {(1, 3), (2,)})
+
     def sources(self, sd_drone, gcs_drone):
         for identity, kind, drone, name in (
                 (1, "onboard_sd", sd_drone, "Airframe"),

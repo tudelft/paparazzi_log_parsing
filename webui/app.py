@@ -3487,6 +3487,8 @@ def merge_sources(flights):
     goal are taken from the first source that has them (GCS first, as the pre-flight messages are sent over the link).
     """
     groups = []
+    active = []
+    previous_start = None
     for f in sorted(flights, key=lambda r: r["takeoff_utc"] or ""):
         f["log_type"] = _type_of(f)
         start = _ts(f["takeoff_utc"])
@@ -3495,16 +3497,25 @@ def merge_sources(flights):
         ident = {"name": name, "ac_id": f["ac_id"], "lat": f["takeoff_lat"], "lon": f["takeoff_lon"]}
         home = None
         if start is not None:
-            for g in groups:
+            # Fractional timestamp spellings can sort out of chronological order.
+            candidates = groups if previous_start is not None and start < previous_start else active
+            active = [g for g in candidates if g["end"] is not None
+                      and start <= g["end"] + SAME_FLIGHT_SLACK_S]
+            previous_start = start
+            for g in active:
+                if f["log_id"] in g["logs"] or (end or start) < g["start"] - SAME_FLIGHT_SLACK_S:
+                    continue
                 linked_ids = {o["drone_id"] for o in g["flights"] if o["drone_id"] is not None}
                 if (f["drone_id"] is not None and linked_ids and f["drone_id"] not in linked_ids):
                     continue
-                if (_same_aircraft(g, ident) and g["end"] is not None and f["log_id"] not in g["logs"]
-                        and start <= g["end"] + SAME_FLIGHT_SLACK_S and (end or start) >= g["start"] - SAME_FLIGHT_SLACK_S):
+                if _same_aircraft(g, ident):
                     home = g
                     break
         if home is None:
-            groups.append({**ident, "start": start, "end": end, "logs": {f["log_id"]}, "flights": [f]})
+            group = {**ident, "start": start, "end": end, "logs": {f["log_id"]}, "flights": [f]}
+            groups.append(group)
+            if start is not None:
+                active.append(group)
         else:
             home["flights"].append(f)
             home["logs"].add(f["log_id"])
