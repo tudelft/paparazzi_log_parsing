@@ -215,8 +215,8 @@ function qualBits(q) {
   if (!q) return '';
   const bit = (label, start, until, dead) => {
     if (!label) return '';
-    const when = (start ? ` · from ${esc(start.slice(0, 10))}` : '') + (until ? ` · until ${esc(until.slice(0, 10))}` : '');
-    return `<span class="chip${dead ? ' warn' : ''}">${esc(label)}${when}${dead ? ' expired' : ''}</span>`;
+    const when = [start ? `from ${start.slice(0, 10)}` : '', until ? `until ${until.slice(0, 10)}` : ''].filter(Boolean).join(' · ');
+    return `<span class="chip${dead ? ' warn' : ''}"${when ? ` title="${esc(when)}"` : ''}>${esc(label)}${dead ? ' expired' : ''}</span>`;
   };
   return q.items.filter(item => item.status === 'approved' && !item.expired)
     .map(item => bit(item.category, item.valid_from, item.valid_until, false)).join('');

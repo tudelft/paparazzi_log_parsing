@@ -232,6 +232,43 @@ Coordinates without a linked location still open the external map; Edit mode kee
 Aircraft serial numbers in the logbook appear on hover over the aircraft name rather than inline.
 Overview table links use the theme's blue accent colour, with an underline on hover or keyboard focus.
 
+### Project and aircraft CSV imports
+
+For initial setup, import the qualification ZIP on People first (it can create accounts), then the
+project CSV on Projects, then the aircraft CSV on Aircraft. Both catalog imports are admin-only,
+available in Edit mode, with downloadable templates. Files are comma-separated UTF-8 (optional BOM);
+Latin-1 uploads are also accepted for older fleet spreadsheets. Limit: 1 MB / 5000 rows. All changes
+from one file are committed together; any invalid row leaves the database unchanged.
+
+Project columns are `project,person,role`, one row per member. `role` is optional and defaults to
+`add` (view/upload); other values are `view` and `full` (view/upload/delete). Person matching uses
+unique display names or explicit aliases, case-insensitively, not implicit usernames. Unknown,
+ambiguous or inactive people and conflicting roles reject the file with a row error.
+Projects match existing names case-insensitively; reimport keeps project IDs and linked data.
+Each included project's **entire member list is replaced**, including changed permissions and removal
+of omitted members. Projects absent from the file stay untouched. A row with a blank person and role
+creates or retains a project without members. Changing a project's name in the CSV creates a new project;
+use the existing Rename control for a rename that preserves identity.
+
+Aircraft retain the fleet columns `AC Nice Name`, `Serial Unique`, `Manager (Post Holder)`,
+`Current User`, `Status`, `Date Bought`, `Project`, `Comments`. `name` and `unique_id`/`serial`
+are accepted alternatives for the first two columns. Reimports use the existing serial/name matching,
+update provided fields and preserve omitted optional columns. Empty Project cells preserve existing
+project/default/history values; a non-empty Project must match an existing project.
+Changing an existing aircraft's project requires `project_effective_date` (or `Project Effective Date`),
+strictly YYYY-MM-DD. This starts a new inclusive project period on that date, truncating any period
+crossing it and retaining earlier history and later scheduled periods. The new period ends the day
+before the next existing period, if any. Repeating the same import does not duplicate aircraft or periods.
+For new aircraft the effective date is optional: without one, the existing purchase-date/first-flight/
+today fallback seeds the initial period.
+
+Flights now record whether their project came from a timeline or a manual edit. A CSV period change
+reassigns known automatic flights in that date range, including hidden flights, but preserves manual
+assignments (including a manually cleared project). Existing non-empty assignments of unknown origin
+are deliberately preserved; no migration guesses which were manual. Unassigned flights can still be
+filled from the timeline. Assignment origin is retained across re-parsing alongside crew edits.
+Paper records are not reassigned by an aircraft CSV import.
+
 ### Private licences and qualifications
 
 Users upload and manage their own qualifications on **My account**, alongside password settings.

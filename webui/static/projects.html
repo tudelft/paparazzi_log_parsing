@@ -55,6 +55,21 @@
       <label class="field">Name<input id="name" required maxlength="80"></label>
       <button type="submit">Create project</button>
     </form>
+    <div class="row" id="importSection" hidden>
+      <button type="button" class="sec" onclick="$('importProjectsDialog').showModal()">Import projects from CSV</button>
+    </div>
+    <dialog class="entry-dialog" id="importProjectsDialog" aria-labelledby="importProjectsTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+      <div class="dialog-header"><h2 id="importProjectsTitle">Import projects from CSV</h2><button type="button" onclick="$('importProjectsDialog').close()" aria-label="Close CSV import">Close</button></div>
+      <p>Columns: <code>project,person,role</code>, one row per member. Roles: <code>view</code>, <code>add</code> (view/upload; default), <code>full</code> (also delete). Match people by unique display name or alias.</p>
+      <p><strong>Reimport replaces all members of each included project.</strong> Omitted projects are unchanged. A blank person leaves the project without members. Any invalid row rejects the entire import.</p>
+      <p><a href="/api/admin/projects/template">Download CSV template</a></p>
+      <p class="dialog-error" id="importError" role="alert"></p>
+      <div class="dialog-fields">
+        <label class="field">CSV file<input id="csv" type="file" accept=".csv,text/csv"></label>
+        <button type="button" id="importButton" onclick="importProjects()">Import / update projects</button>
+        <span class="mute" id="importMsg" role="status"></span>
+      </div>
+    </dialog>
     <div class="scroll">
       <table>
         <thead><tr><th>Project</th><th>Logs</th><th>People</th></tr></thead>
@@ -102,6 +117,8 @@ function applyTicks(prefix) {
 const editing = () => !!(me && me.is_admin && window.editMode());
 function syncEdit() {
   $('add').hidden = !editing();
+  $('importSection').hidden = !editing();
+  if (!editing()) $('importProjectsDialog').close();
   $('hint').textContent = editing()
     ? 'A project is a separate set of flight logs. Click a row and tick who can see, upload or delete.'
     : me && me.is_admin
@@ -176,6 +193,25 @@ async function addProject(ev) {
   await send('/api/admin/projects', 'POST', {name});
   const created = projects.find(p => !before.has(p.id));
   if (created) { open_.add(created.id); render(); }
+}
+async function importProjects() {
+  const file = $('csv').files[0];
+  $('importError').textContent = '';
+  $('importMsg').textContent = '';
+  if (!file) { $('importError').textContent = 'Choose a CSV file first.'; return; }
+  if (!confirm('Replace all member permissions for each project in this CSV? Members not listed will lose access.')) return;
+  const data = new FormData();
+  data.append('file', file);
+  $('importButton').disabled = true;
+  try {
+    const response = await fetch('/api/admin/projects/import', {method:'POST', body:data});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Import failed');
+    $('importMsg').textContent = `Added ${result.created}, updated ${result.updated}`;
+    $('csv').value = '';
+    await load();
+  } catch (error) { $('importError').textContent = error.message; }
+  finally { $('importButton').disabled = false; }
 }
 function saveTicks(pid, uid) {
   setRole(pid, uid, applyTicks('m' + pid + '_' + uid));

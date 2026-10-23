@@ -160,6 +160,7 @@ CREATE TABLE IF NOT EXISTS flights (
     verdict TEXT,                      -- parser estimate: flight | uncertain | ground
     assessment_json TEXT,              -- score, reasons and metrics behind the verdict
     project_id INTEGER,                -- projects.id; auto from aircraft / uploader / GCS / PIC, then editable
+    project_source TEXT,               -- timeline | manual; NULL preserves legacy assignments of unknown origin
     pic_user_id INTEGER,               -- override PIC/PAC/GCS with a linked user; NULL keeps the name from the log
     pac_user_id INTEGER,
     gcs_user_id INTEGER,
@@ -338,6 +339,8 @@ def init(path):
     if "uploaded_by" not in cols:  # database created before accounts existed
         con.execute("ALTER TABLE logs ADD COLUMN uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
     fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
+    if "project_source" not in fcols:
+        con.execute("ALTER TABLE flights ADD COLUMN project_source TEXT")
     for table in ("flights", "flight_records"):
         if "hidden" not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
             con.execute(f"ALTER TABLE {table} ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")

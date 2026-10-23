@@ -63,6 +63,10 @@ existing `/logbook` links still work.
 - Crew names in logs do not create user profiles. Admins can link multiple names to one person using
   aliases, or use Add user if a new profile is needed. Previously generated profiles are kept.
 - Admins manage project access on **Projects** and named takeoff areas on **Locations**.
+  In Edit mode, Projects supports CSV import with `project,person,role`; blank roles mean view/upload.
+  Reimports replace all members of included projects. For initial setup, import qualifications first,
+  then projects, then aircraft. Aircraft project changes require a `project_effective_date`;
+  manual and legacy flight assignments are preserved. Both import dialogs offer templates.
 
 ## Qualifications and additional files
 

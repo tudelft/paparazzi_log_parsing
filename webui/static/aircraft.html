@@ -108,6 +108,9 @@
     </dialog>
     <dialog class="entry-dialog" id="importAircraftDialog" aria-labelledby="importAircraftTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
     <div class="dialog-header"><h2 id="importAircraftTitle">Import aircraft from CSV</h2><button type="button" onclick="$('importAircraftDialog').close()" aria-label="Close CSV import">Close</button></div>
+    <p>Reimport matches serials and updates aircraft details. Import projects first. A changed Project requires <code>project_effective_date</code> (YYYY-MM-DD); blank Project leaves its assignment unchanged.</p>
+    <p>The effective date starts a new project period until the next existing period. Known automatic flight assignments in that period are updated; manual and legacy assignments are preserved. Any invalid row rejects the whole file.</p>
+    <p><a href="/api/admin/drones/template">Download CSV template</a></p>
     <p class="dialog-error" id="importAircraftError" role="alert"></p>
     <div class="dialog-fields" id="importRow" hidden>
       <label class="field">Import CSV<input id="csv" type="file" accept=".csv,text/csv"></label>

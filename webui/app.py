@@ -1515,7 +1515,7 @@ def pick_project_for_user(con, user_id, aircraft_project_id):
 def snapshot_flight_edits(con, log_id):
     """Keep edited flight project and crew across a re-parse (flights are deleted with the aircraft rows)."""
     return {(r["ac_id"], r["idx"]): dict(r) for r in con.execute(
-        "SELECT a.ac_id, f.idx, f.project_id, f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment, f.hidden"
+        "SELECT a.ac_id, f.idx, f.project_id, f.project_source, f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment, f.hidden"
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id=?", (log_id,))}
 
 
@@ -1671,6 +1671,33 @@ def pick_flight_project(con, row, resolve):
     return project_for_drone_on(con, row["drone_id"], day)
 
 
+def import_drone_project_period(con, drone_id, project_id, start):
+    periods = drone_periods(con, drone_id)
+    before = [dict(p) for p in periods if p["start_date"] < start]
+    after = [dict(p) for p in periods if p["start_date"] > start]
+    previous_day = (datetime.strptime(start, "%Y-%m-%d").date() - timedelta(days=1)).isoformat()
+    for p in before:
+        if not p["end_date"] or p["end_date"] >= start:
+            p["end_date"] = previous_day
+    next_start = min((p["start_date"] for p in after), default=None)
+    end = ((datetime.strptime(next_start, "%Y-%m-%d").date() - timedelta(days=1)).isoformat()
+           if next_start else None)
+    err = replace_drone_periods(con, drone_id, [
+        *before, {"project_id": project_id, "start_date": start, "end_date": end}, *after])
+    if err:
+        raise historical.RecordError(err)
+    rows = con.execute(
+        "SELECT f.id, f.takeoff_utc, l.start_utc AS log_start_utc, l.date_override"
+        " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id"
+        " WHERE a.drone_id=? AND (f.project_source='timeline'"
+        " OR (f.project_source IS NULL AND f.project_id IS NULL))", (drone_id,)).fetchall()
+    for row in rows:
+        day = flight_calendar_day(row["takeoff_utc"], row["log_start_utc"], row["date_override"])
+        if day and day >= start and (end is None or day <= end):
+            con.execute("UPDATE flights SET project_id=?, project_source='timeline' WHERE id=?",
+                        (project_id, row["id"]))
+
+
 def assign_log_flights(con, log_id, kept=None):
     """Fill empty flight projects, restoring kept values from a re-parse first."""
     kept = kept or {}
@@ -1679,7 +1706,7 @@ def assign_log_flights(con, log_id, kept=None):
     if log is None:
         return
     for f in con.execute(
-            "SELECT f.id, f.idx, f.project_id, f.takeoff_utc, a.ac_id, a.drone_id, a.pic, a.gcs,"
+            "SELECT f.id, f.idx, f.project_id, f.project_source, f.takeoff_utc, a.ac_id, a.drone_id, a.pic, a.gcs,"
             " l.uploaded_by, l.start_utc AS log_start_utc, l.date_override"
             " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id"
             " WHERE a.log_id=?", (log_id,)):
@@ -1689,14 +1716,19 @@ def assign_log_flights(con, log_id, kept=None):
                         (restore.get("pic_user_id"), restore.get("pac_user_id"), restore.get("gcs_user_id"),
                          restore.get("comment"), restore.get("hidden", 0), f["id"]))
         saved = restore.get("project_id")
+        source = restore.get("project_source") if restore else f["project_source"]
+        if source == "manual":
+            con.execute("UPDATE flights SET project_id=?, project_source='manual' WHERE id=?",
+                        (saved if restore else f["project_id"], f["id"]))
+            continue
         if saved and live_project(con, saved):
-            con.execute("UPDATE flights SET project_id=? WHERE id=?", (saved, f["id"]))
+            con.execute("UPDATE flights SET project_id=?, project_source=? WHERE id=?", (saved, source, f["id"]))
             continue
         if f["project_id"]:
             continue
         pid = pick_flight_project(con, f, resolve)
         if pid:
-            con.execute("UPDATE flights SET project_id=? WHERE id=?", (pid, f["id"]))
+            con.execute("UPDATE flights SET project_id=?, project_source='timeline' WHERE id=?", (pid, f["id"]))
     if log["project_id"] is None:
         ids = [r["project_id"] for r in con.execute(
             "SELECT DISTINCT f.project_id FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
@@ -1708,7 +1740,7 @@ def assign_log_flights(con, log_id, kept=None):
 def assign_open_flights(con):
     for r in con.execute(
             "SELECT DISTINCT a.log_id FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
-            " WHERE f.project_id IS NULL"):
+            " WHERE f.project_id IS NULL AND COALESCE(f.project_source,'')!='manual'"):
         assign_log_flights(con, r["log_id"])
 
 
@@ -1905,6 +1937,97 @@ def admin_add_project():
     except sqlite3.IntegrityError:
         return jsonify(error="a project with that name already exists"), 409
     return jsonify(id=cur.lastrowid)
+
+
+def read_catalog_csv():
+    upload = request.files.get("file")
+    if upload and upload.filename:
+        raw = upload.read(1_000_001)
+        if len(raw) > 1_000_000:
+            raise historical.RecordError("CSV must be at most 1 MB.")
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1")
+    else:
+        body = request.get_json(silent=True)
+        text = body.get("csv") if isinstance(body, dict) else None
+        if not isinstance(text, str) or len(text.encode("utf-8")) > 1_000_000:
+            raise historical.RecordError("Send a CSV file of at most 1 MB.")
+    reader = csv.DictReader(io.StringIO(text.lstrip("\ufeff")), strict=True)
+    if not reader.fieldnames:
+        raise historical.RecordError("CSV has no header row.")
+    headers = [key.strip().casefold() for key in reader.fieldnames]
+    if any(not key for key in headers) or len(set(headers)) != len(headers):
+        raise historical.RecordError("CSV headers must be non-empty and unique.")
+    rows = []
+    for line, raw in enumerate(reader, 2):
+        if len(rows) >= 5000:
+            raise historical.RecordError("Import at most 5000 CSV rows.")
+        if None in raw or any(value is None for value in raw.values()):
+            raise historical.RecordError(f"Row {line}: incorrect number of columns.")
+        record = {key.strip().casefold(): value.strip() for key, value in raw.items()}
+        if any(record.values()):
+            rows.append((line, record))
+    if not rows:
+        raise historical.RecordError("CSV contains no records.")
+    return headers, rows
+
+
+@app.get("/api/admin/projects/template")
+def project_csv_template():
+    admin_required()
+    return Response("project,person,role\nExample project,Example Pilot,add\n", mimetype="text/csv",
+                    headers={"Content-Disposition": 'attachment; filename="projects.csv"'})
+
+
+@app.post("/api/admin/projects/import")
+def admin_import_projects():
+    admin_required()
+    con = conn()
+    try:
+        headers, rows = read_catalog_csv()
+        if "project" not in headers or "person" not in headers or set(headers) - {"project", "person", "role"}:
+            raise historical.RecordError("CSV columns must be project,person,role (role is optional).")
+        names = qualifications.crew_keys(con)
+        active = {r["id"] for r in con.execute("SELECT id FROM users WHERE is_active=1")}
+        projects = {}
+        for line, row in rows:
+            name, person = row["project"], row["person"]
+            if not name or len(name) > 80:
+                raise historical.RecordError(f"Row {line}: project name is required (max 80 characters).")
+            project = projects.setdefault(name.casefold(), {"name": name, "members": {}})
+            role = row.get("role") or "add"
+            if role not in ACCESS_ROLES:
+                raise historical.RecordError(f"Row {line}: role must be view, add or full.")
+            if not person:
+                if row.get("role"):
+                    raise historical.RecordError(f"Row {line}: a role needs a person.")
+                continue
+            uid = names.get(person.casefold())
+            if uid is None or uid not in active:
+                raise historical.RecordError(f"Row {line}: unknown or ambiguous person '{person}'. Use a unique display name or alias.")
+            if uid in project["members"] and project["members"][uid] != role:
+                raise historical.RecordError(f"Row {line}: conflicting roles for '{person}'.")
+            project["members"][uid] = role
+        created = updated = 0
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            for project in projects.values():
+                existing = con.execute("SELECT id FROM projects WHERE name=?", (project["name"],)).fetchone()
+                if existing:
+                    pid = existing["id"]
+                    updated += 1
+                else:
+                    pid = con.execute("INSERT INTO projects(name,created_at) VALUES(?,?)",
+                                      (project["name"], now())).lastrowid
+                    created += 1
+                con.execute("DELETE FROM project_members WHERE project_id=?", (pid,))
+                con.executemany("INSERT INTO project_members(project_id,user_id,role) VALUES(?,?,?)",
+                                [(pid, uid, role) for uid, role in project["members"].items()])
+        return jsonify(created=created, updated=updated)
+    except (historical.RecordError, csv.Error) as exc:
+        return jsonify(error=str(exc)), 400
 
 
 @app.put("/api/admin/projects/<int:project_id>")
@@ -2231,94 +2354,91 @@ def admin_set_drone_projects(drone_id):
 def admin_import_drones():
     """Create or update fleet aircraft from the organisation CSV (AC Nice Name, Serial Unique, …)."""
     admin_required()
-    uploaded = request.files.get("file")
-    if uploaded and uploaded.filename:
-        raw = uploaded.read()
-        try:
-            text = raw.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            text = raw.decode("latin-1")
-    else:
-        text = (request.get_json(silent=True) or {}).get("csv") or ""
-    if not text.strip():
-        return jsonify(error="choose a CSV file"), 400
-    reader = csv.DictReader(io.StringIO(text))
-    if not reader.fieldnames:
-        return jsonify(error="the CSV has no header row"), 400
-    def col(*names):
-        keys = {k: k for k in reader.fieldnames}
-        fold = {k.strip().casefold(): k for k in reader.fieldnames}
-        for n in names:
-            if n in keys:
-                return n
-            if n.casefold() in fold:
-                return fold[n.casefold()]
-        return None
-    name_k = col("AC Nice Name", "name")
-    uid_k = col("Serial Unique", "unique_id", "serial")
-    if not name_k or not uid_k:
-        return jsonify(error="CSV needs columns AC Nice Name and Serial Unique"), 400
-    mgr_k = col("Manager (Post Holder)", "manager")
-    user_k = col("Current User", "current_user")
-    status_k = col("Status")
-    bought_k = col("Date Bought", "bought_on")
-    proj_k = col("Project", "inventory_project")
-    cmt_k = col("Comments", "comments")
     con = conn()
     created = updated = skipped = 0
-    errors = []
-    for i, rec in enumerate(reader, start=2):
-        name = (rec.get(name_k) or "").strip()
-        uid = (rec.get(uid_k) or "").strip()
-        if not name or not uid:
-            skipped += 1
-            continue
-        if len(name) > 80:
-            name = name[:80]
-        if len(uid) > 40:
-            errors.append(f"row {i}: serial {uid} is too long")
-            continue
-        status = parse_status(rec.get(status_k) if status_k else None)
-        if status is False:
-            status = clip_text(rec.get(status_k), 40)
-        proj_id, proj_label = match_inventory_project(con, rec.get(proj_k) if proj_k else None)
-        existing = find_import_drone(con, name, uid)
-        if existing and unique_id_taken(con, uid, existing["id"]):
-            errors.append(f"row {i}: serial {uid} is already used")
-            continue
-        if not existing and unique_id_taken(con, uid):
-            errors.append(f"row {i}: serial {uid} is already used")
-            continue
-        name = unique_import_name(con, name, uid, existing["id"] if existing else None)
-        fields = {
-            "name": name, "unique_id": uid,
-            "default_project_id": existing["default_project_id"] if existing and existing["default_project_id"] else proj_id,
-            "manager": clip_text(rec.get(mgr_k) if mgr_k else None, 80),
-            "current_user": clip_text(rec.get(user_k) if user_k else None, 80),
-            "status": status, "bought_on": clip_text(rec.get(bought_k) if bought_k else None, 20),
-            "inventory_project": proj_label, "comments": clip_text(rec.get(cmt_k) if cmt_k else None, 400),
-        }
-        try:
-            if existing:
-                apply_drone_fields(con, existing["id"], fields, existing["name"])
-                drone_id = existing["id"]
-                updated += 1
-            else:
-                cur = con.execute(
-                    "INSERT INTO drones (name, unique_id, default_project_id, manager, current_user, status,"
-                    " bought_on, inventory_project, comments, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                    (fields["name"], fields["unique_id"], fields["default_project_id"], fields["manager"],
-                     fields["current_user"], fields["status"], fields["bought_on"], fields["inventory_project"],
-                     fields["comments"], now()))
-                drone_id = cur.lastrowid
-                created += 1
-            seed_drone_period(con, drone_id, fields["default_project_id"], parse_loose_date(fields["bought_on"]))
-        except sqlite3.IntegrityError as exc:
-            errors.append(f"row {i}: {exc}")
-    relink_all_aircraft(con)
-    assign_open_flights(con)
-    con.commit()
-    return jsonify(created=created, updated=updated, skipped=skipped, errors=errors)
+    try:
+        headers, rows = read_catalog_csv()
+        def col(*names):
+            return next((name.casefold() for name in names if name.casefold() in headers), None)
+        name_k = col("AC Nice Name", "name")
+        uid_k = col("Serial Unique", "unique_id", "serial")
+        if not name_k or not uid_k:
+            raise historical.RecordError("CSV needs columns AC Nice Name and Serial Unique.")
+        mgr_k = col("Manager (Post Holder)", "manager")
+        user_k = col("Current User", "current_user")
+        status_k = col("Status")
+        bought_k = col("Date Bought", "bought_on")
+        proj_k = col("Project", "inventory_project")
+        effective_k = col("project_effective_date", "Project Effective Date")
+        cmt_k = col("Comments", "comments")
+        seen = set()
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            for line, rec in rows:
+                name, uid = rec[name_k], rec[uid_k]
+                if not name or not uid:
+                    raise historical.RecordError(f"Row {line}: aircraft name and serial are required.")
+                if len(name) > 80 or len(uid) > 40:
+                    raise historical.RecordError(f"Row {line}: name must be at most 80 characters and serial at most 40.")
+                if uid.casefold() in seen:
+                    raise historical.RecordError(f"Row {line}: duplicate aircraft serial '{uid}'.")
+                seen.add(uid.casefold())
+                existing = find_import_drone(con, name, uid)
+                if unique_id_taken(con, uid, existing["id"] if existing else None):
+                    raise historical.RecordError(f"Row {line}: serial '{uid}' is already used.")
+                project_label = rec.get(proj_k) or ""
+                proj_id, proj_label = match_inventory_project(con, project_label)
+                if project_label and not proj_id:
+                    raise historical.RecordError(f"Row {line}: unknown or ambiguous project '{project_label}'. Import projects first.")
+                effective = rec.get(effective_k) or ""
+                if effective and (parse_date_override(effective) is False or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", effective)):
+                    raise historical.RecordError(f"Row {line}: project_effective_date must be YYYY-MM-DD.")
+                if existing and proj_id and proj_id != existing["default_project_id"] and not effective:
+                    raise historical.RecordError(f"Row {line}: changing the project requires project_effective_date (YYYY-MM-DD).")
+                if effective and not proj_id:
+                    raise historical.RecordError(f"Row {line}: project_effective_date requires a project.")
+                status = parse_status(rec.get(status_k) if status_k else None)
+                if status is False:
+                    status = clip_text(rec.get(status_k), 40)
+                fields = {
+                    "name": unique_import_name(con, name, uid, existing["id"] if existing else None), "unique_id": uid,
+                    "default_project_id": proj_id if proj_id else (existing["default_project_id"] if existing else None),
+                    "inventory_project": proj_label if project_label else (existing["inventory_project"] if existing else None),
+                }
+                for field, key, limit in (("manager", mgr_k, 80), ("current_user", user_k, 80),
+                                          ("bought_on", bought_k, 20), ("comments", cmt_k, 400)):
+                    fields[field] = clip_text(rec.get(key), limit) if key else (existing[field] if existing else None)
+                fields["status"] = status if status_k else (existing["status"] if existing else None)
+                if existing:
+                    apply_drone_fields(con, existing["id"], fields, existing["name"])
+                    drone_id = existing["id"]
+                    updated += 1
+                else:
+                    cur = con.execute(
+                        "INSERT INTO drones (name, unique_id, default_project_id, manager, current_user, status,"
+                        " bought_on, inventory_project, comments, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (fields["name"], uid, fields["default_project_id"], fields["manager"],
+                         fields["current_user"], fields["status"], fields["bought_on"], fields["inventory_project"],
+                         fields["comments"], now()))
+                    drone_id = cur.lastrowid
+                    created += 1
+                if effective:
+                    import_drone_project_period(con, drone_id, proj_id, effective)
+                else:
+                    seed_drone_period(con, drone_id, fields["default_project_id"], parse_loose_date(fields["bought_on"]))
+            relink_all_aircraft(con)
+            assign_open_flights(con)
+        return jsonify(created=created, updated=updated, skipped=skipped, errors=[])
+    except (historical.RecordError, csv.Error, sqlite3.IntegrityError) as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@app.get("/api/admin/drones/template")
+def aircraft_csv_template():
+    admin_required()
+    return Response("AC Nice Name,Serial Unique,Project,project_effective_date\n"
+                    "Example aircraft,EXAMPLE-001,Example project,2024-01-01\n", mimetype="text/csv",
+                    headers={"Content-Disposition": 'attachment; filename="aircraft.csv"'})
 
 
 @app.delete("/api/admin/drones/<int:drone_id>")
@@ -2486,7 +2606,7 @@ def apply_flight_project(con, flight_id, project_id):
         return "no such project", 404
     if project_id is not None and not can_upload(con, project_id) and not g.user["is_admin"]:
         return "you cannot put flights in this project", 403
-    con.execute("UPDATE flights SET project_id=? WHERE id=?", (project_id, flight_id))
+    con.execute("UPDATE flights SET project_id=?, project_source='manual' WHERE id=?", (project_id, flight_id))
     return None, None
 
 
