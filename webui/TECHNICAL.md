@@ -519,14 +519,26 @@ with a row error; add an alias or use a unique display name before retrying.
 No accounts, aircraft or places are created by import. Dates are
 `YYYY-MM-DD`; `takeoff_time`, when known, is `HH:MM[:SS]` UTC. `kind` is `flight` or `daily`; if blank,
 it is inferred from the count. A count of 1 can also be explicitly marked `daily`. All rows are validated
-before saving; an invalid row or exact normalized duplicate rejects the entire file with a line error.
-Exact duplicate detection also applies to manual entry.
-Successful CSV imports store the original file once as an attachment linked to every new paper record
-(up to the CSV limit of 1000 records, not the interactive attachment selection limit of 100).
+before saving; an invalid row rejects the entire file with a line error.
+
+Importing a corrected CSV again updates records instead of adding them twice. Each row is matched, in order, to:
+an identical record (left **unchanged**); the record with the same `reference`, e.g. a unique flight number
+such as `F00001` (a reference shared by several records, such as a book page, only matches the one with the same
+date and takeoff time); or an individual flight with the same aircraft, date and takeoff time and no other
+reference. A matched record is **updated** with all values of the row; a row without reference keeps the
+record's reference. Other rows **create** a record. Daily summaries and flights without takeoff time are only
+recognised by reference or when identical, because several can share an aircraft and day. A row that matches
+several records, two lines for the same record, and two identical lines reject the whole file (409).
+Hidden records are matched and stay hidden. The page shows this per row before importing
+(`preview=1` form field: the same validation, nothing is written). Manual entry still rejects exact duplicates.
+
+Successful CSV imports store the original file once as an attachment linked to every created or updated paper
+record (up to the CSV limit of 1000 records, not the interactive attachment selection limit of 100); an import
+that changes nothing stores no attachment. The response lists `ids` (created), `updated_ids` and
+`unchanged_ids`; it is 201 when records were created, otherwise 200.
 Any reader of a linked record can download the entire CSV, intentionally including other projects' rows.
-Validation, record creation and attachment registration are atomic; storage failures roll back records,
+Validation, record writes and attachment registration are atomic; storage failures roll back records,
 and failed imports remove staged/source files. Normal attachment permissions and last-link cleanup apply.
-The CSV is provenance, not a stable import identifier; it does not add fuzzy duplicate detection.
 
 Paper records contribute their flight counts and total duration to the logbook, statistics and entity
 overviews, but have no telemetry, synthetic log files, paths, distance or software version. Unknown times

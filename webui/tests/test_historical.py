@@ -138,7 +138,9 @@ class HistoricalTests(AppTests):
         result = self.csv(header + good)
         self.assertEqual(result.status_code, 201, result.json)
         self.assertEqual(result.json["flights"], 5)
-        self.assertEqual(self.csv(header + good).status_code, 409)
+        again = self.csv(header + good)  # an identical re-import changes nothing
+        self.assertEqual(again.status_code, 200, again.json)
+        self.assertEqual((again.json["imported"], again.json["unchanged"]), (0, 1))
         self.assertEqual(self.csv("unexpected\nx\n").status_code, 400)
 
     def test_csv_crew_matches_logs_and_rejects_ambiguous_names(self):
@@ -180,7 +182,7 @@ class HistoricalTests(AppTests):
         for identity in response.json["ids"]:
             files = self.client.get(f"/api/attachments?kind=paper&id={identity}").json["files"]
             self.assertEqual([f["id"] for f in files], [aid])
-        self.assertEqual(self.csv(text).status_code, 409)
+        self.assertEqual(self.csv(text).status_code, 200)
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachments").fetchone()[0], 1)
         self.sign_in(3)
         download = self.client.get(f"/api/attachments/{aid}/download")
@@ -188,6 +190,85 @@ class HistoricalTests(AppTests):
         download.close()
         self.sign_in(4)
         self.assertEqual(self.client.get(f"/api/attachments/{aid}/download").status_code, 404)
+
+    def records(self):
+        return [dict(r) for r in self.con.execute("SELECT * FROM flight_records ORDER BY id")]
+
+    def test_csv_reimport_updates_by_reference(self):
+        self.sign_in(1)
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (2,'Other','UID2','now')")
+        self.con.commit()
+        header = "aircraft,pic,project,date,duration_minutes,flight_count,location,comment,reference\n"
+        first = self.csv(header + "Drone,Pilot,Research,2010-01-01,10,1,,first,F00001\n"
+                                  "Drone,Pilot,Research,2010-01-01,12,1,,second,F00002\n")
+        self.assertEqual(first.status_code, 201, first.json)
+        ids = first.json["ids"]
+        corrected = header + ("Other,Pilot,Private,2010-01-01,10,1,Field,fixed,F00001\n"
+                              "Drone,Pilot,Research,2010-01-01,12,1,,second,F00002\n"
+                              "Drone,Pilot,Research,2010-01-01,15,1,,third,F00003\n")
+        preview = self.client.post("/api/historical/import", data={
+            "file": (io.BytesIO(corrected.encode()), "paper.csv"), "preview": "1"})
+        preview.request.input_stream.close()
+        self.assertEqual([(r["action"], r["record_id"]) for r in preview.json["rows"]],
+                         [("update", ids[0]), ("unchanged", ids[1]), ("create", None)])
+        self.assertEqual(preview.json["rows"][0]["changes"], ["aircraft", "project", "location", "comment"])
+        self.assertEqual(len(self.records()), 2)  # the preview writes nothing
+        result = self.csv(corrected)
+        self.assertEqual(result.status_code, 201, result.json)
+        self.assertEqual((result.json["imported"], result.json["updated"], result.json["unchanged"]), (1, 1, 1))
+        self.assertEqual(result.json["updated_ids"], [ids[0]])
+        rows = self.records()
+        self.assertEqual(len(rows), 3)
+        self.assertEqual((rows[0]["drone_id"], rows[0]["project_id"], rows[0]["place_id"], rows[0]["comment"]),
+                         (2, 2, 1, "fixed"))
+        # the CSV is linked to the records it created or changed, not to the unchanged one
+        linked = {r[0] for r in self.con.execute(
+            "SELECT record_id FROM attachment_links WHERE attachment_id=?", (result.json["attachment_id"],))}
+        self.assertEqual(linked, {ids[0], rows[2]["id"]})
+
+    def test_csv_reimport_matches_timed_flights_and_keeps_reference(self):
+        self.sign_in(1)
+        header = "aircraft,pic,project,date,duration_minutes,flight_count,takeoff_time,comment,reference\n"
+        self.assertEqual(self.csv(header + "Drone,Pilot,Research,2010-01-01,10,1,09:30,a,F00001\n"
+                                           "Drone,Pilot,Research,2010-01-01,10,1,11:00,b,\n").status_code, 201)
+        header = "aircraft,pic,project,date,duration_minutes,flight_count,takeoff_time,comment\n"
+        result = self.csv(header + "Drone,Pilot,Research,2010-01-01,10,1,09:30,changed\n"
+                                   "Drone,Pilot,Research,2010-01-01,10,1,11:00,b\n")
+        self.assertEqual(result.status_code, 200, result.json)
+        self.assertEqual((result.json["updated"], result.json["unchanged"]), (1, 1))
+        rows = self.records()
+        self.assertEqual([(r["comment"], r["reference"]) for r in rows], [("changed", "F00001"), ("b", None)])
+        # a different reference at the same takeoff is a different flight
+        header = "aircraft,pic,project,date,duration_minutes,flight_count,takeoff_time,reference\n"
+        result = self.csv(header + "Drone,Pilot,Research,2010-01-01,10,1,09:30,F00009\n")
+        self.assertEqual(result.json["imported"], 1)
+
+    def test_csv_untimed_flights_and_daily_summaries_need_a_reference(self):
+        self.sign_in(1)
+        header = "aircraft,pic,project,date,duration_minutes,flight_count,comment\n"
+        self.assertEqual(self.csv(header + "Drone,Pilot,Research,2010-01-01,10,1,a\n"
+                                           "Drone,Pilot,Research,2010-01-01,20,3,day\n").status_code, 201)
+        result = self.csv(header + "Drone,Pilot,Research,2010-01-01,10,1,b\n"
+                                   "Drone,Pilot,Research,2010-01-01,20,3,other day\n")
+        self.assertEqual((result.json["imported"], result.json["updated"]), (2, 0))
+
+    def test_csv_ambiguous_or_repeated_targets_reject_the_file(self):
+        self.sign_in(1)
+        header = "aircraft,pic,project,date,duration_minutes,flight_count,takeoff_time,comment,reference\n"
+        self.assertEqual(self.csv(header + "Drone,Pilot,Research,2010-01-01,10,1,09:30,a,Book 1\n"
+                                           "Drone,Pilot,Research,2010-01-01,10,1,09:30,b,Book 1\n").status_code, 201)
+        result = self.csv(header + "Drone,Pilot,Research,2010-01-01,10,1,09:30,c,Book 1\n")
+        self.assertEqual(result.status_code, 409)
+        self.assertIn("Matches paper records", result.json["error"])
+        # a shared reference only matches the record with the same date and takeoff time
+        self.assertEqual(self.csv(header + "Drone,Pilot,Research,2010-01-02,10,1,09:30,d,Book 1\n").status_code, 201)
+        result = self.csv(header + "Drone,Pilot,Research,2010-01-02,10,1,09:30,e,Book 1\n")
+        self.assertEqual(result.json["updated"], 1)
+        result = self.csv(header + "Drone,Pilot,Research,2010-01-02,10,1,09:30,f,Book 1\n"
+                                   "Drone,Pilot,Research,2010-01-02,10,1,09:30,g,Book 1\n")
+        self.assertEqual(result.status_code, 409)
+        self.assertIn("line 2", result.json["error"])
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM flight_records").fetchone()[0], 3)
 
     def test_failed_csv_keeps_no_records_or_source_attachment(self):
         self.sign_in(1)

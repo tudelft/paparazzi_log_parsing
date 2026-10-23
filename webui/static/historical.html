@@ -22,6 +22,8 @@
   a { color:var(--acc); } .mute { color:var(--mute); } summary { cursor:pointer; font-weight:600; }
   [hidden] { display:none !important; } fieldset { padding:0; border:0; margin:0; }
   #status { white-space:pre-wrap; } .danger { color:var(--err); }
+  .scroll { overflow-x:auto; margin-top:12px; } table { border-collapse:collapse; width:100%; }
+  th, td { text-align:left; padding:4px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -70,12 +72,18 @@
       Optional kind: flight or daily; takeoff_time: HH:MM[:SS] UTC.
       Blank time means unknown. No users or aircraft are created automatically.</p>
     <p><a href="/api/historical/template" download>Download CSV template</a></p>
-    <p>At most 1000 rows / 1 MB. Every row is validated before saving: if any row is invalid or duplicated,
+    <p>At most 1000 rows / 1 MB. Every row is validated before saving: if any row is invalid,
       nothing is imported. Dates and flight totals are kept exactly as supplied.</p>
-    <p>The original CSV is attached once to all imported records. Anyone who can read any of those
+    <p>Importing a corrected CSV again updates the records instead of adding them twice. A row updates the
+      record with the same <strong>reference</strong> (use a unique flight number such as F00001), or the
+      individual flight with the same aircraft, date and takeoff time. Daily summaries and flights without
+      takeoff time are only recognised by reference. Identical rows are left unchanged. You see what each
+      row will do before anything is saved.</p>
+    <p>The original CSV is attached once to all records it created or updated. Anyone who can read any of those
       records can download the entire CSV, including rows for other projects. Failed imports keep no attachment.</p>
     <form id="importForm"><input id="csvFile" type="file" accept=".csv,text/csv" required>
-      <button id="importButton" type="submit">Import CSV</button></form>
+      <button id="importButton" type="submit">Check CSV</button></form>
+    <div id="importPreview" class="scroll" hidden></div>
   </details>
   <p id="status" role="status" aria-live="polite"></p>
 </main>
@@ -153,18 +161,47 @@ $('delete').onclick = async () => {
   try { await api('/api/historical/' + recordId,{method:'DELETE'}); location.href='/'; }
   catch (error) { $('status').textContent=error.message; }
 };
+// The first submit shows what each row would do; the second one imports the checked file.
+let checked = null;
+function resetImport() {
+  checked = null;
+  $('importButton').textContent = 'Check CSV';
+  $('importPreview').hidden = true;
+}
+$('csvFile').onchange = resetImport;
+function showPreview(rows) {
+  const count = action => rows.filter(r=>r.action === action).length;
+  const what = {create:'New record', update:'Update record', unchanged:'Unchanged record'};
+  $('importPreview').innerHTML = `<p>${count('create')} new, ${count('update')} updated, ${count('unchanged')} unchanged.</p>
+    <table><thead><tr><th>Line</th><th>Aircraft</th><th>Date</th><th>Takeoff</th><th>Reference</th><th>Action</th><th>Changed</th></tr></thead><tbody>` +
+    rows.map(r=>`<tr><td>${r.line}</td><td>${esc(r.label.aircraft)}</td><td>${esc(r.label.date)}</td>
+      <td>${esc(r.label.takeoff_time)}</td><td>${esc(r.label.reference)}</td>
+      <td>${what[r.action]}${r.record_id ? ` <a href="/historical/${r.record_id}">${r.record_id}</a>` : ''}${r.hidden ? ' (hidden)' : ''}</td>
+      <td>${esc(r.changes.join(', '))}</td></tr>`).join('') + '</tbody></table>';
+  $('importPreview').hidden = false;
+}
 $('importForm').onsubmit = async event => {
   event.preventDefault();
   const file = $('csvFile').files[0];
   if (!file) return;
   if (file.size > 1000000) { $('status').textContent='CSV must be at most 1 MB.'; return; }
   const body = new FormData(); body.append('file',file);
-  $('importButton').disabled=true; $('status').textContent='Validating and importing…';
+  const preview = checked !== file;
+  if (preview) body.append('preview','1');
+  $('importButton').disabled=true; $('status').textContent=preview ? 'Checking…' : 'Importing…';
   try {
     const result=await api('/api/historical/import',{method:'POST',body});
-    $('status').textContent=`Imported ${result.imported} records covering ${result.flights} flights. The original CSV is attached to every record. Open the logbook to review them.`;
+    if (preview) {
+      showPreview(result.rows);
+      const changes = result.rows.filter(r=>r.action !== 'unchanged').length;
+      $('status').textContent = changes ? 'Check the rows below, then import.' : 'Nothing to import: every row matches an existing record.';
+      if (changes) { checked = file; $('importButton').textContent = 'Import ' + changes + ' records'; }
+      return;
+    }
+    $('status').textContent=`Imported ${result.imported} new records covering ${result.flights} flights, updated ${result.updated}, ${result.unchanged} unchanged. The original CSV is attached to every new or updated record. Open the logbook to review them.`;
     $('importForm').reset();
-  } catch (error) { $('status').textContent=error.message; }
+    resetImport();
+  } catch (error) { $('status').textContent=error.message; resetImport(); }
   finally { $('importButton').disabled=false; }
 };
 start().catch(error=> { $('status').textContent=error.message; });
