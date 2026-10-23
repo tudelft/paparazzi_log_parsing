@@ -438,6 +438,10 @@ async function loadDetail(id) {
   const l = await fetch('/api/logs/' + id).then(r => r.json());
   let h = `<div class="kv"><span class="mute">SHA-256</span><span class="mono">${l.sha256}</span>
     <span class="mute">Log period</span><span>${esc(l.first_data_utc)} → ${esc(l.end_utc)} (${fmtDur(l.duration_s)})</span>
+    ${l.timing ? `<span class="mute">Timing</span><span>${esc(l.timing.source)} · original start: ${esc(l.timing.original_start_utc || 'unknown')}
+      · effective start: ${esc(l.timing.effective_start_utc || 'unknown')}
+      ${l.timing.correction_s != null ? ' · parser correction: ' + esc(l.timing.correction_s) + ' s' : ''}
+      ${l.timing.warning ? '<br>' + esc(l.timing.warning) : ''}</span>` : ''}
     ${dateField(l)}
     <span class="mute">Uploaded</span><span>${esc(l.uploaded_at)}</span>
     <span class="mute">Parsed</span><span>${esc(l.parsed_at || '-')} with ${esc(l.parser_name || '')} ${esc(l.parser_version || '-')} (${l.parse_seconds ?? '-'} s)</span></div>`;

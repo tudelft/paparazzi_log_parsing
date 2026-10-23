@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS logs (
     parsed_at TEXT,
     parse_seconds REAL,
     start_utc TEXT, first_data_utc TEXT, end_utc TEXT, duration_s REAL,
+    timing TEXT,                       -- JSON clock evidence; original clock is never overwritten
     date_override TEXT                 -- YYYY-MM-DD typed in when the file clock is missing or 1980; kept across re-parse
 );
 CREATE TABLE IF NOT EXISTS drones (
@@ -336,6 +337,8 @@ def init(path):
         for i, row in enumerate(con.execute("SELECT id FROM qualification_types ORDER BY name"), 1):
             con.execute("UPDATE qualification_types SET sort_order=? WHERE id=?", (i, row["id"]))
     cols = {r["name"] for r in con.execute("PRAGMA table_info(logs)")}
+    if "timing" not in cols:
+        con.execute("ALTER TABLE logs ADD COLUMN timing TEXT")
     if "uploaded_by" not in cols:  # database created before accounts existed
         con.execute("ALTER TABLE logs ADD COLUMN uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
     fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
@@ -435,9 +438,10 @@ def store_parsed(con, log_id, doc, paths_file):
     pr = doc.get("parser", {})
     con.execute(
         "UPDATE logs SET start_utc=?, first_data_utc=?, end_utc=?, duration_s=?, log_type=?,"
-        " parser_name=?, parser_version=?, parser_path_rate_hz=?, paths_file=? WHERE id=?",
+        " parser_name=?, parser_version=?, parser_path_rate_hz=?, paths_file=?, timing=? WHERE id=?",
         (lg.get("start_utc"), lg.get("first_data_utc"), lg.get("end_utc"), lg.get("duration_s"), lg.get("type"),
-         pr.get("name"), pr.get("version"), pr.get("path_rate_hz"), paths_file, log_id),
+         pr.get("name"), pr.get("version"), pr.get("path_rate_hz"), paths_file,
+         json.dumps(lg["timing"]) if lg.get("timing") else None, log_id),
     )
     path_idx = 0
     for ac in doc.get("aircraft", []):

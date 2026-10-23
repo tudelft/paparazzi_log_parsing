@@ -3253,8 +3253,20 @@ def apply_row_clock(r):
     return r
 
 
+def log_timing(row):
+    timing = json.loads(row["timing"]) if row["timing"] else None
+    if row["date_override"]:
+        timing = dict(timing or {})
+        timing["parsed_source"] = timing.get("source")
+        timing["source"] = "manual"
+        timing["effective_start_utc"] = shift_iso(
+            row["start_utc"], clock_shift_days(row["start_utc"], row["date_override"]))
+    return timing
+
+
 def log_dict(row):
     d = dict(row)
+    d["timing"] = log_timing(row)
     raw_start = d.get("start_utc")
     override = d.get("date_override")
     d["date_ok"] = bool(override) or not clock_implausible(raw_start)
@@ -3775,7 +3787,7 @@ def flight_detail(flight_id):
     row = con.execute(
         "SELECT f.takeoff_time_s, f.landing_time_s, f.path_idx, l.paths_file, a.id AS aircraft_pk, a.name, a.ac_id,"
         " a.autopilot_versions, a.info_messages, a.preflight_checks, a.config_gz, l.id AS log_id, l.log_type,"
-        " l.name AS log_name, l.log_path, l.start_utc AS log_start_utc, l.date_override"
+        " l.name AS log_name, l.log_path, l.start_utc AS log_start_utc, l.start_utc, l.timing, l.date_override"
         + (", f.path_gz" if HAVE_PATH_GZ else "") +
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id WHERE f.id=?",
         (flight_id,)).fetchone()
@@ -3789,6 +3801,7 @@ def flight_detail(flight_id):
     versions, from_gcs = with_gcs_autopilot_fallback(json.loads(row["autopilot_versions"] or "[]"), row["log_path"])
     return jsonify(
         entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
+        timing=log_timing(row),
         takeoff_time_s=row["takeoff_time_s"], landing_time_s=row["landing_time_s"],
         path=path, flight_plan=config.get("flight_plan"),
         setting_changes=changes, info_messages=json.loads(row["info_messages"] or "[]"),

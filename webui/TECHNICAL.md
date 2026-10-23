@@ -53,6 +53,25 @@ Day-to-day:
 
 After an update that changes the parser version, click **Re-parse outdated** on the Uploads page.
 
+**Paparazzi clock validation.** Parser 1.5.0 checks `GPS` / `GPS_LLA` messages containing a full GPS
+week, time-of-week and a valid 3D fix. It converts GPS time to UTC with historical leap-second offsets;
+time-of-week alone cannot establish a date. At least three samples spanning 30 seconds must imply a
+log start within a five-second range. Aircraft contributing usable clock evidence must also agree.
+Invalid fixes and implausible dates (before 2000 or more than a day in the future) are excluded.
+With consistent evidence, an offset within 60 seconds of a nonzero whole number of days is corrected
+using the GPS-derived start, including its small seconds offset. Other offsets greater than five seconds
+only produce a warning; smaller differences leave companion timing unchanged.
+Missing companion timing can be recovered from consistent GPS evidence. Insufficient/inconsistent
+evidence or conflicting aircraft clocks retain the companion clock with a warning.
+
+Uploads details and the flight Overview's **Log sources and upload details** show the original
+companion start, effective start, parser correction in seconds, source and any warning for the selected
+recording. Manual calendar-date overrides remain authoritative and survive reparsing; the parser's
+original clock evidence remains visible. Old results have no clock evidence until reparsed. All absolute
+timestamps in newly parsed results, including paths and messages, use the chosen clock; relative times
+and flight durations are unchanged. Normal source merging then uses the corrected absolute times;
+there is no track-similarity matching across dates.
+
 **Flight pages.** The Overview opens first, with takeoff/landing details and log sources folded
 away. Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
 and warnings for local (dirty) changes. Multiple reported builds remain visible; raw version messages

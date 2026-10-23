@@ -996,7 +996,74 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.4.1";
+constexpr const char *PARSER_VERSION = "1.5.0";
+
+struct GpsClock {
+  size_t count = 0;
+  double first = 0, last = 0, low = 0, high = 0, mean = 0;
+
+  void add(double t, int week, double itow, int fix) {
+    if (fix < 3 || week < 0 || !std::isfinite(itow) || itow < 0 || itow >= 604800000) { return; }
+    const double gps = 315964800.0 + week * 604800.0 + itow / 1000;
+    // UTC instants at which GPS-UTC increased, from July 1981 through January 2017.
+    static const double leaps[] = {362793600, 394329600, 425865600, 489024000, 567993600,
+      631152000, 662688000, 709948800, 741484800, 773020800, 820454400, 867715200,
+      915148800, 1136073600, 1230768000, 1341100800, 1435708800, 1483228800};
+    int offset = 0;
+    for (double leap : leaps) {
+      if (gps >= leap + offset + 1) { ++offset; }
+    }
+    const double utc = gps - offset;
+    if (utc < 946684800 || utc > std::time(nullptr) + 86400.0 || !std::isfinite(t)) { return; }
+    const double start = utc - t;
+    if (!count) { first = last = t; low = high = mean = start; }
+    low = std::min(low, start);
+    high = std::max(high, start);
+    last = std::max(last, t);
+    mean += (start - mean) / ++count;
+  }
+};
+
+struct ClockDecision {
+  double start;
+  const char *source;
+  std::string warning;
+};
+
+ClockDecision choose_clock(double companion, const std::map<int, GpsClock> &clocks) {
+  ClockDecision out{companion, companion < 0 ? "unknown" : "companion", ""};
+  double low = 0, high = 0, sum = 0;
+  size_t aircraft = 0;
+  for (const auto &entry : clocks) {
+    const auto &c = entry.second;
+    if (!c.count) { continue; }
+    if (c.count < 3 || c.last - c.first < 30 || c.high - c.low > 5) {
+      out.warning = "GPS clock evidence is insufficient or inconsistent; companion timing retained.";
+      return out;
+    }
+    low = aircraft ? std::min(low, c.low) : c.low;
+    high = aircraft ? std::max(high, c.high) : c.high;
+    sum += c.mean;
+    ++aircraft;
+  }
+  if (!aircraft) { return out; }
+  if (high - low > 5) {
+    out.warning = "Aircraft GPS clocks conflict; companion timing retained.";
+    return out;
+  }
+  const double gps_start = sum / aircraft;
+  const double delta = gps_start - companion;
+  const double days = std::round(delta / 86400);
+  if (companion < 0 || (std::fabs(days) >= 1 && std::fabs(delta - days * 86400) <= 60)) {
+    out.start = gps_start;
+    out.source = "gps_corrected";
+    out.warning = "Timing corrected using consistent GPS week/time-of-week samples spanning at least 30 seconds.";
+  } else if (std::fabs(delta) > 5) {
+    out.warning = "GPS and companion clocks disagree by " + std::to_string(delta)
+      + " seconds; not a clear whole-day error, so companion timing retained.";
+  }
+  return out;
+}
 
 // Payload positions of the wanted fields of one telemetry message, looked up by name in the
 // <protocol> of the .log once, so the per-line work stays a plain token split.
@@ -1172,6 +1239,8 @@ int main(int argc, char *argv[])
   const MsgFields pprz_f = resolve_fields(hdr, "PPRZ_MODE", {"ap_mode"});
   enum { GPSU_MODE, GPSU_EAST, GPSU_NORTH, GPSU_ALT, GPSU_SPEED, GPSU_ZONE };
   const MsgFields gpsu_f = resolve_fields(hdr, "GPS", {"mode", "utm_east", "utm_north", "alt", "speed?", "utm_zone"});
+  const MsgFields gps_clock_f = resolve_fields(hdr, "GPS", {"mode?", "week?", "itow?"});
+  const MsgFields lla_clock_f = resolve_fields(hdr, "GPS_LLA", {"mode?", "week?", "itow?"});
   enum { AT_PHI, AT_THETA, AT_PSI };
   const MsgFields att_f = resolve_fields(hdr, "ATTITUDE", {"phi", "theta", "psi"});
   enum { AS_EAS };
@@ -1210,6 +1279,7 @@ int main(int argc, char *argv[])
   }
 
   std::map<int, AircraftState> acs;
+  std::map<int, GpsClock> gps_clocks;
   double first_time = -1, last_time = 0;
   double prev_raw_time = -1, time_offset = 0;
 
@@ -1374,6 +1444,14 @@ int main(int argc, char *argv[])
         }
         break;
       case 'G':
+        if (name == "GPS" || name == "GPS_LLA") {
+          const Picked clock = pick(name == "GPS" ? gps_clock_f : lla_clock_f, q, eol);
+          int fix, week;
+          double itow;
+          if (to_num(clock[0], fix) && to_num(clock[1], week) && to_num(clock[2], itow)) {
+            gps_clocks[ac].add(t, week, itow, fix);
+          }
+        }
         if (name == "GPS_INT") {
           if (!gps_f.split) { break; }
           // ecef (cm), lat/lon (1e-7 deg), alt (mm)
@@ -1575,7 +1653,8 @@ int main(int argc, char *argv[])
   }
 
   // Report (JSON)
-  auto utc = [&](double t) { return utc_iso(hdr.start_epoch < 0 ? -1 : hdr.start_epoch + t); };
+  const ClockDecision clock = choose_clock(hdr.start_epoch, gps_clocks);
+  auto utc = [&](double t) { return utc_iso(clock.start < 0 ? -1 : clock.start + t); };
   const double t0 = first_time < 0 ? 0 : first_time;
 
   // Aircraft without a name entry fall back to the single unnamed airframe of the log
@@ -1654,6 +1733,11 @@ int main(int argc, char *argv[])
     << "\", \"path_rate_hz\": " << num(path_rate) << "},\n  \"log\": {\n    \"file\": " << json_escape(data_file)
     << ",\n    \"type\": \"" << log_type << "\",\n    \"type_basis\": \"" << type_basis
     << "\",\n    \"sha256\": \"" << sha256 << "\",\n    \"size_bytes\": " << size << ",\n    \"start_utc\": " << utc(0)
+    << ",\n    \"timing\": {\"source\": " << json_escape(clock.source)
+    << ", \"original_start_utc\": " << utc_iso(hdr.start_epoch)
+    << ", \"effective_start_utc\": " << utc(0)
+    << ", \"correction_s\": " << (hdr.start_epoch < 0 || clock.start < 0 ? "null" : num(clock.start - hdr.start_epoch))
+    << ", \"warning\": " << json_escape(clock.warning) << "}"
     << ",\n    \"first_data_utc\": " << utc(t0) << ",\n    \"end_utc\": " << utc(last_time)
     << ",\n    \"duration_s\": " << num(last_time - t0)
     << ",\n    \"total_flight_distance_m\": " << num(log_flight_dist) << "\n  },\n  \"aircraft\": [";

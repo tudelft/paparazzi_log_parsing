@@ -334,6 +334,10 @@ function renderSummary() {
       ${e.optitrack || e.indoor ? kv('Where', e.optitrack ? 'Indoor (OptiTrack)' : 'Indoor') : ''}
     </div></div>
     <details style="margin-top:12px"><summary>Log sources and upload details</summary><div class="kv src">
+      ${D.timing ? kv('Timing (shown source)', esc(D.timing.source) + ' · original start: ' + esc(D.timing.original_start_utc || 'unknown')
+        + ' · effective start: ' + esc(D.timing.effective_start_utc || 'unknown')
+        + (D.timing.correction_s != null ? ' · parser correction: ' + esc(D.timing.correction_s) + ' s' : '')
+        + (D.timing.warning ? '<br>' + esc(D.timing.warning) : '')) : ''}
       ${e.sources.map(s => kv(TYPE[s.log_type] || s.log_type, `<a href="/flight/${s.flight_id}" class="${s.flight_id === flightId ? 'cur' : ''}">${esc(s.log_name)}</a>${s.flight_id === flightId ? ' <span class="mute">(shown)</span>' : ''}
         · <a href="/api/logs/${s.log_id}/download">download ${downloadLabel(s.log_type)}</a> · <a href="/uploads#log${s.log_id}">log details</a>`)).join('')}
       ${kv('Uploaded', esc(fmtTime(e.uploaded_at)) + (e.uploaded_by_name ? ' by ' + esc(e.uploaded_by_name) : ''))}
