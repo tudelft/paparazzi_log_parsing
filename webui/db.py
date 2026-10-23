@@ -122,6 +122,15 @@ CREATE TABLE IF NOT EXISTS drone_aliases (
     drone_id INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
     alias TEXT NOT NULL UNIQUE COLLATE NOCASE   -- name as it appears in the log aircraft field
 );
+CREATE TABLE IF NOT EXISTS ambiguous_drone_names (
+    name TEXT PRIMARY KEY COLLATE NOCASE
+);
+CREATE TABLE IF NOT EXISTS log_aircraft_links (
+    log_id INTEGER NOT NULL REFERENCES logs(id) ON DELETE CASCADE,
+    ac_id INTEGER NOT NULL,
+    drone_id INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
+    PRIMARY KEY(log_id, ac_id)
+);
 CREATE TABLE IF NOT EXISTS drone_projects (
     id INTEGER PRIMARY KEY,
     drone_id INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,

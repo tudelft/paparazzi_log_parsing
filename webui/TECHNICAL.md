@@ -589,6 +589,35 @@ time-compatible groups. First-matching-group precedence, same-log exclusion, fle
 checks and SD/GCS field selection are unchanged. Non-chronological fractional timestamp
 spellings rebuild the candidate window so earlier groups are not lost.
 
+**Shared aircraft names.** In Aircraft Edit mode, mark a generic log name as ambiguous using
+the Aliases tab or **Ambiguous / shared aircraft names**. For example, an SD airframe name
+such as `RotatingWing25Kg` can be shared by several physical aircraft even though GCS
+configuration names are specific. Ambiguity is explicit, case-insensitive and applies to that
+exact trimmed logged name; it is not guessed from spelling or automatically enabled for
+particular aircraft.
+
+Marking a name removes its global alias and recomputes the affected logs' automatic fleet
+links. Neither the name nor upload-folder hints may assign that shared name to a fleet aircraft.
+Other aliases, raw logs, existing flight project assignments and paper records are unchanged.
+Existing global alias assignments were automatic; they were not per-log confirmations.
+
+An unresolved SD source with an ambiguous name is considered separately after normal source
+grouping. It may join exactly one candidate group containing a linked GCS source when their
+intervals overlap within the existing 60-second slack, autopilot IDs agree and both takeoff
+positions are valid and within 2 km. Missing evidence or multiple candidate groups leaves it
+unresolved; matching generic names alone is insufficient. Specifically linked conflicting
+aircraft still cannot merge. Identity is inherited only in the merged read model, with an
+explanation on the flight page; no inferred global alias or permanent SD assignment is created.
+With `HIDE_UNLINKED_AIRCRAFT=1`, uniquely resolved merged flights remain visible and standalone
+unresolved recordings remain hidden from overviews.
+
+The shared-name panel also lists recordings, with an explicit per-log aircraft selector.
+Those assignments are stored by log and autopilot ID, survive reparsing, and take precedence
+over aliases, ambiguity and folder matching. Clearing one restores automatic/unresolved matching.
+Removing ambiguity resumes normal name/folder matching but does not restore a deleted global alias: add it explicitly if the name
+really identifies one aircraft. These management actions require an admin browser session,
+not an API key. No raw-log reparse is needed to mark names or update assignments.
+
 **Paper flight records.** In the Logbook, choose **Add paper records / import CSV**. Admins and members
 with **full** access to the selected project can create, edit and delete these records; other project
 members can read them. Select an existing aircraft, PIC and project, then enter the date, total flight

@@ -321,7 +321,7 @@ function renderSummary() {
   $('title').textContent = `${e.aircraft} · ${fmtTime(e.takeoff_utc)}`;
   const place = (p, lat, lon, id) => p ? (id != null ? `<a href="/locations/${id}">${esc(p)}</a>` : esc(p)) : (lat != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '');
   $('summary').innerHTML = `<div class="flight-focus">
-      <div><span class="label">Aircraft</span><div class="value">${e.drone_id != null ? `<a href="/aircraft/${e.drone_id}">${esc(e.aircraft)}</a>` : esc(e.aircraft)}</div>${e.aircraft_uid ? `<span class="mute">${esc(e.aircraft_uid)}</span>` : ''}</div>
+      <div><span class="label">Aircraft</span><div class="value">${e.drone_id != null ? `<a href="/aircraft/${e.drone_id}">${esc(e.aircraft)}</a>` : esc(e.aircraft)}</div>${e.aircraft_uid ? `<span class="mute">${esc(e.aircraft_uid)}</span>` : ''}${e.aircraft_identity_inferred ? '<div class="mute">Identity inferred from matching GCS recording; SD name is shared.</div>' : (e.aircraft_ambiguous && e.drone_id == null ? '<div class="mute">Shared aircraft name; fleet identity unresolved.</div>' : '')}</div>
       <div class="goal"><span class="label">Flight goal</span><div class="value">${e.goal ? esc(e.goal) : '<span class="mute">Not recorded</span>'}</div></div>
     </div><div class="cols"><div class="kv summary-kv">
       ${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id)

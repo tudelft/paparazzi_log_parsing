@@ -1303,12 +1303,16 @@ def drone_name_map(con):
             names.setdefault(uid.casefold(), d["id"])
     for r in con.execute("SELECT drone_id, alias FROM drone_aliases"):
         names[r["alias"].casefold()] = r["drone_id"]
+    for r in con.execute("SELECT name FROM ambiguous_drone_names"):
+        names[r["name"].casefold()] = None
     return drones, names
 
 
 def resolve_drone(names, drones, name):
     key = (name or "").strip().casefold()
     if not key:
+        return None
+    if key in names and names[key] is None:
         return None
     did = names.get(key)
     if did:
@@ -1399,6 +1403,8 @@ def name_taken(con, name, drone_id=None):
     name = (name or "").strip()
     if not name:
         return False
+    if con.execute("SELECT 1 FROM ambiguous_drone_names WHERE name=?", (name,)).fetchone():
+        return True
     row = con.execute("SELECT id FROM drones WHERE name=?", (name,)).fetchone()
     if row and row["id"] != drone_id:
         return True
@@ -1515,15 +1521,26 @@ def parse_project_id(raw):
     return False
 
 
-def link_log_aircraft(con, log_id):
+def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None):
     drones, names = drone_name_map(con)
     log = con.execute("SELECT name FROM logs WHERE id=?", (log_id,)).fetchone()
     log_name = log["name"] if log else ""
-    for a in con.execute("SELECT id, name FROM aircraft WHERE log_id=?", (log_id,)):
-        d = resolve_drone(names, drones, a["name"])
-        if d is None:
+    where, params = "log_id=?", [log_id]
+    if logged_name is not None:
+        where += " AND TRIM(name)=? COLLATE NOCASE"
+        params.append(logged_name)
+    if ac_id is not None:
+        where += " AND ac_id=?"
+        params.append(ac_id)
+    for a in con.execute(f"SELECT id, name, ac_id FROM aircraft WHERE {where}", params):
+        override = con.execute("SELECT drone_id FROM log_aircraft_links WHERE log_id=? AND ac_id=?",
+                               (log_id, a["ac_id"])).fetchone()
+        key = (a["name"] or "").strip().casefold()
+        ambiguous = key in names and names[key] is None
+        d = drones.get(override["drone_id"]) if override else resolve_drone(names, drones, a["name"])
+        if d is None and not ambiguous:
             d = guess_drone_from_log_path(con, log_name)
-        if d is not None:
+        if d is not None and not ambiguous and not override:
             remember_drone_log_identity(con, d["id"], a["name"])
             drones, names = drone_name_map(con)
         con.execute("UPDATE aircraft SET drone_id=? WHERE id=?", (d["id"] if d else None, a["id"]))
@@ -2251,6 +2268,8 @@ def fleet_payload(con, include_unlinked=False, project_ids=None):
             if not ac_name or resolve_drone(names, drones, ac_name) is not None:
                 continue
             key = ac_name.casefold()
+            if key in names and names[key] is None:
+                continue
             e = seen.setdefault(key, {"name": ac_name, "count": 0, "folders": [], "board_ids": []})
             e["count"] += 1
             folder = log_folder_label(a["log_name"])
@@ -2271,7 +2290,16 @@ def fleet_payload(con, include_unlinked=False, project_ids=None):
             unlinked.append(e)
         unlinked = _group_unlinked_by_board(unlinked)
         projects = [dict(id=p["id"], name=p["name"]) for p in con.execute("SELECT id, name FROM projects ORDER BY name")]
-    return dict(drones=fleet, unlinked=unlinked, projects=projects)
+    ambiguous = []
+    if include_unlinked:
+        for row in con.execute("SELECT name FROM ambiguous_drone_names ORDER BY name"):
+            recordings = [dict(r) for r in con.execute(
+                "SELECT a.log_id,a.ac_id,a.drone_id,l.name AS log_name,"
+                " EXISTS(SELECT 1 FROM log_aircraft_links x WHERE x.log_id=a.log_id AND x.ac_id=a.ac_id) AS manual"
+                " FROM aircraft a JOIN logs l ON l.id=a.log_id WHERE TRIM(a.name)=? COLLATE NOCASE"
+                " ORDER BY l.name,a.ac_id", (row["name"],))]
+            ambiguous.append(dict(name=row["name"], recordings=recordings))
+    return dict(drones=fleet, unlinked=unlinked, projects=projects, ambiguous=ambiguous)
 
 
 @app.get("/api/drones")
@@ -2544,6 +2572,55 @@ def admin_add_drone_alias():
     relink_all_aircraft(con)
     fill_drone_defaults(con, drone_id)
     con.commit()
+    return jsonify(ok=True)
+
+
+@app.route("/api/admin/ambiguous-drone-names", methods=["POST", "DELETE"])
+def admin_ambiguous_drone_name():
+    session_required()
+    admin_required()
+    body = request.get_json(silent=True)
+    name = body.get("name") if isinstance(body, dict) else None
+    if not isinstance(name, str) or not name.strip() or len(name.strip()) > 80:
+        return jsonify(error="name must be 1-80 characters"), 400
+    name = name.strip()
+    con = conn()
+    if request.method == "POST":
+        if con.execute("SELECT 1 FROM drones WHERE name=? OR unique_id=?", (name, name)).fetchone():
+            return jsonify(error="A fleet name or serial cannot be marked ambiguous; use the generic logged name."), 409
+        with con:
+            con.execute("INSERT OR IGNORE INTO ambiguous_drone_names(name) VALUES(?)", (name,))
+            con.execute("DELETE FROM drone_aliases WHERE alias=?", (name,))
+            for row in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE TRIM(name)=? COLLATE NOCASE", (name,)):
+                link_log_aircraft(con, row["log_id"], logged_name=name)
+    else:
+        with con:
+            con.execute("DELETE FROM ambiguous_drone_names WHERE name=?", (name,))
+            for row in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE TRIM(name)=? COLLATE NOCASE", (name,)):
+                link_log_aircraft(con, row["log_id"], logged_name=name)
+    return jsonify(ok=True)
+
+
+@app.put("/api/admin/logs/<int:log_id>/aircraft/<int:ac_id>")
+def admin_log_aircraft_link(log_id, ac_id):
+    session_required()
+    admin_required()
+    con = conn()
+    if not con.execute("SELECT 1 FROM aircraft WHERE log_id=? AND ac_id=?", (log_id, ac_id)).fetchone():
+        abort(404)
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or "drone_id" not in body:
+        return jsonify(error="send drone_id (or null to clear the manual assignment)"), 400
+    drone_id = body["drone_id"]
+    if drone_id is not None and (type(drone_id) is not int or not con.execute(
+            "SELECT 1 FROM drones WHERE id=?", (drone_id,)).fetchone()):
+        return jsonify(error="choose an existing fleet aircraft or clear the manual assignment"), 400
+    with con:
+        con.execute("DELETE FROM log_aircraft_links WHERE log_id=? AND ac_id=?", (log_id, ac_id))
+        if drone_id is not None:
+            con.execute("INSERT INTO log_aircraft_links(log_id,ac_id,drone_id) VALUES(?,?,?)",
+                        (log_id, ac_id, drone_id))
+        link_log_aircraft(con, log_id, ac_id=ac_id)
     return jsonify(ok=True)
 
 
@@ -3549,12 +3626,16 @@ def merge_sources(flights):
     groups = []
     active = []
     previous_start = None
+    ambiguous = []
     for f in sorted(flights, key=lambda r: r["takeoff_utc"] or ""):
         f["log_type"] = _type_of(f)
         start = _ts(f["takeoff_utc"])
         end = _ts(f["landing_utc"]) or (start + (f["duration_s"] or 0) if start is not None else None)
         name = (f["aircraft"] or "").casefold()
         ident = {"name": name, "ac_id": f["ac_id"], "lat": f["takeoff_lat"], "lon": f["takeoff_lon"]}
+        if f.get("aircraft_ambiguous") and f["drone_id"] is None:
+            ambiguous.append((f, start, end, ident))
+            continue
         home = None
         if start is not None:
             # Fractional timestamp spellings can sort out of chronological order.
@@ -3580,6 +3661,37 @@ def merge_sources(flights):
             home["flights"].append(f)
             home["logs"].add(f["log_id"])
             home["start"], home["end"] = min(home["start"], start), max(home["end"], end or start)
+
+    for f, start, end, ident in ambiguous:
+        candidates = []
+        if f["log_type"] == "onboard_sd" and start is not None and valid_gps_location(ident["lat"], ident["lon"]):
+            for group in groups:
+                if (group["start"] is None or group["end"] is None
+                        or start > group["end"] + SAME_FLIGHT_SLACK_S
+                        or (end or start) < group["start"] - SAME_FLIGHT_SLACK_S
+                        or f["log_id"] in group["logs"]):
+                    continue
+                for source in group["flights"]:
+                    if source["log_type"] != "gcs" or source["drone_id"] is None:
+                        continue
+                    other_start = _ts(source["takeoff_utc"])
+                    other_end = _ts(source["landing_utc"]) or (
+                        other_start + (source["duration_s"] or 0) if other_start is not None else None)
+                    if (other_start is not None and other_end is not None
+                            and start <= other_end + SAME_FLIGHT_SLACK_S
+                            and (end or start) >= other_start - SAME_FLIGHT_SLACK_S
+                            and f["ac_id"] is not None and f["ac_id"] == source["ac_id"]
+                            and valid_gps_location(source["takeoff_lat"], source["takeoff_lon"])
+                            and _km(ident["lat"], ident["lon"], source["takeoff_lat"], source["takeoff_lon"]) <= 2):
+                        candidates.append(group)
+                        break
+        if len(candidates) == 1:
+            home = candidates[0]
+            home["flights"].append(f)
+            home["logs"].add(f["log_id"])
+        else:
+            # Unresolved generic names must not acquire identity through another generic recording.
+            groups.append({**ident, "start": start, "end": end, "logs": {f["log_id"]}, "flights": [f]})
 
     out = []
     for g in groups:
@@ -3608,6 +3720,7 @@ def merge_sources(flights):
         main["sources"] = [{"log_id": o["log_id"], "log_type": o["log_type"], "log_name": o["log_name"], "flight_id": o["flight_id"],
                             "has_log": bool(o["has_log"]), "takeoff_utc": o["takeoff_utc"], "duration_s": o["duration_s"],
                             "uploaded_by_name": o["uploaded_by_name"]} for o in fl]
+        main["aircraft_identity_inferred"] = any(o.get("aircraft_ambiguous") and o["drone_id"] is None for o in fl) and identity is not None
         out.append(main)
     out.sort(key=lambda r: (r["takeoff_utc"] or "", r["flight_id"]), reverse=True)
     return out
@@ -3843,6 +3956,7 @@ def logbook_rows(hidden=False, hide_unlinked=False):
         " f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment,"
         " a.id AS aircraft_pk, a.ac_id, COALESCE(d.name, a.name) AS aircraft, a.name AS aircraft_logged,"
         " d.unique_id AS aircraft_uid, a.drone_id, a.pic, a.pac, a.gcs, a.goal,"
+        " EXISTS(SELECT 1 FROM ambiguous_drone_names n WHERE n.name=TRIM(a.name) COLLATE NOCASE) AS aircraft_ambiguous,"
         " f.verdict, f.assessment_json, f.takeoff_voltage_v, f.landing_voltage_v, f.num_points, f.takeoff_json, f.landing_json,"
         " l.id AS log_id, l.name AS log_name, l.log_type, l.uploaded_by, l.uploaded_at, l.sha256, l.log_path IS NOT NULL AS has_log,"
         " l.project_id AS log_project_id, l.start_utc AS log_start_utc, l.date_override,"

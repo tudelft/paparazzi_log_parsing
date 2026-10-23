@@ -67,6 +67,9 @@ existing `/logbook` links still work.
   Close or Escape dismisses them. Link unrecognised log names to an existing aircraft/person in Edit mode.
   Servers can hide unlinked aircraft flights from Logbook, Statistics and Locations until linked;
   admins can still find the names in Aircraft Edit mode (see the [settings](TECHNICAL.md#settings)).
+  Mark generic airframe names as **ambiguous** in Edit mode instead of linking every recording
+  to one aircraft. A uniquely matching GCS recording can identify its SD source; use the
+  shared-name panel for explicit per-log assignments when needed.
 - Crew names in logs do not create user profiles. Admins can link multiple names to one person using
   aliases, or use Add user if a new profile is needed. Previously generated profiles are kept.
 - Admins manage project access on **Projects** and named takeoff areas on **Locations**.

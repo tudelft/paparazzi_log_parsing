@@ -90,6 +90,15 @@
     <details><summary>Help</summary><p>Paparazzi logs usually already have the fleet name. PX4 logs do not: they show the airframe type plus the flight-controller id (for example <code>quad_x 00500040</code>). Link that once to the real aircraft; later logs from the same board attach automatically. The upload folder is only a hint, and is never used when more than one aircraft could match.</p></details></div>
     <div class="scroll"><table><thead id="unlinkedHead"></thead><tbody id="unlinked"></tbody></table></div>
   </details>
+  <details class="card" id="ambiguousCard" hidden>
+    <summary>Ambiguous / shared aircraft names</summary>
+    <p class="mute">Shared airframe names do not identify a physical aircraft. SD recordings may inherit a uniquely matched GCS identity in the logbook. Manual assignments below affect only one log and survive reparsing.</p>
+    <form class="row" onsubmit="event.preventDefault();markAmbiguous($('ambiguousName').value)">
+      <label class="field">Generic logged name<input id="ambiguousName" required maxlength="80"></label>
+      <button type="submit">Mark ambiguous</button>
+    </form>
+    <div id="ambiguousNames"></div>
+  </details>
   <div class="pick-menu" id="pickMenu" hidden>
     <input type="search" id="pickSearch" placeholder="Search aircraft" aria-label="Search aircraft" autocomplete="off">
     <div class="pick-list" id="pickList" role="listbox" aria-label="Aircraft"></div>
@@ -237,6 +246,16 @@ function render() {
   const q = ($('q').value || '').trim().toLowerCase();
   const status = $('statusFilter').value;
   const editing = editOn();
+  $('ambiguousCard').hidden = !editing;
+  $('ambiguousNames').innerHTML = (data.ambiguous || []).map((item, i) => `<details>
+    <summary>${esc(item.name)} — ambiguous (${item.recordings.length} recordings)</summary>
+    <button type="button" data-name="${esc(item.name)}" onclick="clearAmbiguous(this.dataset.name)">Remove ambiguous status</button>
+    <div class="scroll"><table><thead><tr><th>Recording</th><th>Autopilot ID</th><th>Explicit aircraft assignment</th></tr></thead><tbody>
+    ${item.recordings.map((r, j) => `<tr><td><a href="/uploads#log${r.log_id}">${esc(r.log_name)}</a></td><td>${esc(r.ac_id)}</td><td>
+      ${r.ac_id == null ? 'No autopilot ID; manual assignment unavailable' : `<select id="manual-${i}-${j}" aria-label="Aircraft for ${esc(r.log_name)}">
+      <option value="">Automatic / unresolved</option>${data.drones.map(d => `<option value="${d.id}"${r.manual && r.drone_id === d.id ? ' selected' : ''}>${esc(droneLabel(d))}</option>`).join('')}</select>
+      <button type="button" onclick="saveManualAircraft(${r.log_id},${r.ac_id},'manual-${i}-${j}')">Save</button>`}</td></tr>`).join('')}
+    </tbody></table></div></details>`).join('') || '<p class="mute">No shared names marked ambiguous.</p>';
   $('addSection').hidden = $('importSection').hidden = !editing;
   $('aircraftManagement').hidden = !editing;
   $('aircraftOverview').hidden = editing;
@@ -323,7 +342,7 @@ function renderAircraftPanel() {
     $('aircraftContent').innerHTML = `<p class="mute">Assign projects by date. Save the timeline after changing periods.</p>${projectCell(d, true)}`;
   } else if (selectedAircraftTab === 'aliases') {
     $('aircraftContent').innerHTML = `<p class="mute">Aliases link aircraft names in logs to this aircraft.</p>
-      ${d.aliases.map(a => `<span class="chip">${esc(a)}<button type="button" aria-label="Remove alias ${esc(a)}" data-alias="${esc(a)}" onclick="removeAlias(this.dataset.alias)">×</button></span>`).join('') || '<p class="mute">No aliases.</p>'}
+      ${d.aliases.map(a => `<span class="chip">${esc(a)}<button type="button" data-name="${esc(a)}" onclick="markAmbiguous(this.dataset.name)">Mark ambiguous</button><button type="button" aria-label="Remove alias ${esc(a)}" data-alias="${esc(a)}" onclick="removeAlias(this.dataset.alias)">×</button></span>`).join('') || '<p class="mute">No aliases.</p>'}
       <form class="row" onsubmit="event.preventDefault();addAlias(${d.id})">
       <label class="field">New alias<input id="new${d.id}" required maxlength="80"></label><button type="submit">Add alias</button></form>`;
   } else {
@@ -462,6 +481,19 @@ function addAlias(id) {
   if (v) send('POST', '/api/admin/drone-aliases', {drone_id: id, alias: v});
 }
 const removeAlias = alias => send('DELETE', '/api/admin/drone-aliases', {alias});
+function markAmbiguous(name) {
+  name = name.trim();
+  if (name && confirm(`Mark "${name}" as shared/ambiguous? Its global alias and automatic aircraft links will be removed. Explicit per-log assignments stay.`))
+    send('POST', '/api/admin/ambiguous-drone-names', {name});
+}
+function clearAmbiguous(name) {
+  if (confirm(`Remove ambiguous status from "${name}"? Normal name/folder matching will resume, but no deleted global alias will be restored.`))
+    send('DELETE', '/api/admin/ambiguous-drone-names', {name});
+}
+function saveManualAircraft(logId, acId, selectId) {
+  const value = $(selectId).value;
+  send('PUT', `/api/admin/logs/${logId}/aircraft/${acId}`, {drone_id: value ? +value : null});
+}
 function removeDrone(id) {
   const d = data.drones.find(x => x.id === id);
   if (confirm('Remove ' + (d ? d.name : 'this aircraft') + '? The logs stay. They will no longer be linked to this aircraft.'))
