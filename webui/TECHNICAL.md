@@ -169,6 +169,15 @@ with `LOGDB_LOG_DIR=/mnt/flight-logs/logs` and `LOGDB_BACKUP_DIR=/mnt/flight-log
 written copy). It keeps one copy and overwrites it each time; older versions come from the share's snapshots. The
 backup contains the SAML private key, so keep that directory private.
 
+By default, a backup fails if it cannot set private Unix file permissions (`chmod 600`).
+VMware shared folders or SMB mounts may reject this even when writes work. Prefer a private local
+backup destination, or restrict the destination using share/host ACLs and explicitly set
+`LOGDB_BACKUP_EXTERNAL_PERMISSIONS=1`. With that option, permission-denied/unsupported `chmod`
+errors produce warnings and the backup continues; write, flush and rename failures still fail.
+The option does not configure or verify those external ACLs. Temporary destination files are
+cleaned up on failure; the previous copy of that file is retained. Files are published individually,
+not as an atomic database-and-keys snapshot.
+
 **Restore.** Stop the service, copy `logs.db`, `secret_key` and `saml/` from the backup into `/var/lib/flight-logs`
 (owner `logdb`, mode 600) and start it again. On a new server `install.sh` offers to do this. Logs uploaded after the
 last backup are not in the restored database: run the [upload script](#uploading-with-a-script) again, it only
@@ -190,6 +199,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `WEB_DATA` | `webui/data` | Database and keys; local disk only |
 | `LOG_DIR` | `<WEB_DATA>/logs` | Uploaded logs and flight paths; may be a share |
 | `BACKUP_DIR` | (empty) | Destination of `app.py backup` |
+| `BACKUP_EXTERNAL_PERMISSIONS` | `0` | Opt in to externally managed backup ACLs when chmod is denied/unsupported; warns instead of failing on those chmod errors |
 | `SAML_ENABLED` | `1` | `0` hides *Sign in with TU Delft* |
 | `SAML_METADATA_URL` | TU Delft IdP | Identity provider metadata |
 | `SAML_ENTITY_ID` | `<PUBLIC_URL>/saml/metadata` | This service's SAML entity ID |

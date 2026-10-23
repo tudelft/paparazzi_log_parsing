@@ -1100,6 +1100,10 @@ def backup():
     if not os.path.exists(DB_PATH):
         return f"no database at {DB_PATH}"
     dest = env_path("BACKUP_DIR")
+    external_permissions = env_bool("BACKUP_EXTERNAL_PERMISSIONS")
+    if external_permissions:
+        print("WARNING: Backup permissions are externally managed. The destination must restrict access "
+              "to account data and private keys using share/host ACLs.", file=sys.stderr)
     dest.mkdir(parents=True, exist_ok=True)
     TMP_DIR.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
@@ -1125,12 +1129,25 @@ def backup():
         for src_file, dest_file in files:
             dest_file.parent.mkdir(parents=True, exist_ok=True)
             tmp = dest_file.with_name(f".{dest_file.name}.tmp")
-            with open(src_file, "rb") as fi, open(tmp, "wb") as fo:
-                shutil.copyfileobj(fi, fo, 8 << 20)
-                fo.flush()
-                os.fsync(fo.fileno())
-            os.chmod(tmp, 0o600)
-            os.replace(tmp, dest_file)
+            try:
+                with open(src_file, "rb") as fi, open(tmp, "wb") as fo:
+                    try:
+                        os.chmod(tmp, 0o600)
+                    except OSError as exc:
+                        if exc.errno not in (errno.EACCES, errno.EPERM, errno.ENOTSUP, errno.ENOSYS):
+                            raise
+                        if not external_permissions:
+                            return (f"Cannot enforce private permissions on {tmp}: {exc}. "
+                                    "Use a local backup directory, or set LOGDB_BACKUP_EXTERNAL_PERMISSIONS=1 "
+                                    "only after restricting access with share/host ACLs.")
+                        print(f"WARNING: Cannot enforce chmod 600 on {tmp}: {exc}; "
+                              "continuing with externally managed permissions.", file=sys.stderr)
+                    shutil.copyfileobj(fi, fo, 8 << 20)
+                    fo.flush()
+                    os.fsync(fo.fileno())
+                os.replace(tmp, dest_file)
+            finally:
+                tmp.unlink(missing_ok=True)
     finally:
         local.unlink(missing_ok=True)
     size = (dest / "logs.db").stat().st_size / 1e6

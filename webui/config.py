@@ -30,6 +30,8 @@ SETTINGS = {
                           "(default: WEB_DATA/logs)"),
         "BACKUP_DIR": (None, "Where `app.py backup` writes a consistent copy of the database and keys "
                              "(overwritten each time; may be a network share)"),
+        "BACKUP_EXTERNAL_PERMISSIONS": ("0", "Allow backups when the destination cannot enforce chmod 600. "
+                                       "Enable only when share/host ACLs restrict access to trusted operators"),
         "FASTREADER": (str(HERE.parent / "cpp" / "build" / "paparazzi_log_parsing"), "Parser binary"),
         "WORKERS": ("1", "Logs parsed in parallel; increase only with sufficient RAM and local temporary disk"),
         "INGEST_WORKERS": ("1", "Background threads that hash, deduplicate and unzip uploads"),
@@ -236,6 +238,8 @@ def check():
     if env("BACKUP_DIR"):
         if not _writable(env_path("BACKUP_DIR")):
             errors.append(f"LOGDB_BACKUP_DIR {env_path('BACKUP_DIR')} is not writable by this user (mounted?)")
+        if env_bool("BACKUP_EXTERNAL_PERMISSIONS"):
+            warnings.append("Backup permissions are externally managed: restrict database/key access with share/host ACLs")
     else:
         warnings.append("LOGDB_BACKUP_DIR is not set: the database is not backed up by `app.py backup`")
 
