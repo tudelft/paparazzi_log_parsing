@@ -206,7 +206,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes):
 
     @app.post("/api/attachments")
     def upload_attachment():
-        require_session()
+        # Also with an API key, for scripted evidence uploads; the key's user needs edit rights on every target
         limit = app.config["ATTACHMENT_MAX_BYTES"]
         request.max_content_length = limit
         try:
@@ -273,7 +273,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes):
 
     @app.post("/api/attachments/<int:attachment_id>/links")
     def share_attachment(attachment_id):
-        require_session()
+        # Also with an API key: one file (e.g. a CTR request) can cover several flights
         con = connection()
         body = request.get_json(silent=True)
         if not isinstance(body, dict):
