@@ -3620,25 +3620,37 @@ def import_historical():
     staged = final = None
     committed = False
     try:
+        if request.form.get("preview") == "1":  # what an import would do, without writing anything
+            records = historical.parse_csv(con, g.user, raw.decode("utf-8-sig"))
+            return jsonify(preview=True, rows=[{k: r[k] for k in (
+                "line", "action", "record_id", "hidden", "changes", "label")} for r in records])
+        attachment_id = None
         with db.write_lock, con:
             con.execute("BEGIN IMMEDIATE")
             records = historical.parse_csv(con, g.user, raw.decode("utf-8-sig"))
-            ids = [historical.store(con, r, g.user["id"], now()) for r in records]
-            staged, compressed, size, stored, sha = storage.save_attachment(
-                io.BytesIO(raw), STORAGE_DIR / ".incoming-attachments", 1_000_000)
-            relative = f"attachments/{uuid.uuid4().hex}" + (".gz" if compressed else ".bin")
-            final = STORAGE_DIR / relative
-            final.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(staged, final)
-            attachment_id = con.execute(
-                "INSERT INTO attachments(filename,description,path,compressed,size_bytes,stored_bytes,sha256,"
-                " uploaded_by,uploaded_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                (filename, "Original paper-record CSV import", relative, int(compressed), size, stored, sha,
-                 g.user["id"], now())).lastrowid
-            attachments.add_links(con, attachment_id, [dict(kind="paper", id=identity) for identity in ids])
+            written = historical.save_import(con, records, g.user["id"], now())
+            if written:  # the source CSV is linked to every record it created or changed
+                staged, compressed, size, stored, sha = storage.save_attachment(
+                    io.BytesIO(raw), STORAGE_DIR / ".incoming-attachments", 1_000_000)
+                relative = f"attachments/{uuid.uuid4().hex}" + (".gz" if compressed else ".bin")
+                final = STORAGE_DIR / relative
+                final.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(staged, final)
+                attachment_id = con.execute(
+                    "INSERT INTO attachments(filename,description,path,compressed,size_bytes,stored_bytes,sha256,"
+                    " uploaded_by,uploaded_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (filename, "Original paper-record CSV import", relative, int(compressed), size, stored, sha,
+                     g.user["id"], now())).lastrowid
+                attachments.add_links(con, attachment_id, [dict(kind="paper", id=identity) for identity in written])
         committed = True
-        return jsonify(imported=len(ids), flights=sum(r["flight_count"] for r in records),
-                       ids=ids, attachment_id=attachment_id), 201
+        by_action = {a: [r for r in records if r["action"] == a] for a in ("create", "update", "unchanged")}
+        return jsonify(imported=len(by_action["create"]), updated=len(by_action["update"]),
+                       unchanged=len(by_action["unchanged"]),
+                       flights=sum(r["values"]["flight_count"] for r in by_action["create"]),
+                       ids=[r["record_id"] for r in by_action["create"]],
+                       updated_ids=[r["record_id"] for r in by_action["update"]],
+                       unchanged_ids=[r["record_id"] for r in by_action["unchanged"]],
+                       attachment_id=attachment_id), 201 if by_action["create"] else 200
     except historical.RecordError as exc:
         return jsonify(error=str(exc)), exc.status
     except (UnicodeError, csv.Error) as exc:

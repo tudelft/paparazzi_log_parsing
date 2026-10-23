@@ -12,6 +12,7 @@ COLUMNS = ("aircraft", "pic", "project", "date", "duration_minutes", "flight_cou
            "kind", "takeoff_time", "location", "pac", "gcs", "goal", "comment", "reference")
 FIELDS = ("drone_id", "pic_user_id", "project_id", "date", "duration_s", "flight_count",
           "kind", "takeoff_time", "place_id", "pac_user_id", "gcs_user_id", "goal", "comment", "reference")
+COLUMN_OF = dict(zip(FIELDS, COLUMNS))  # stored field -> CSV column
 
 
 class RecordError(ValueError):
@@ -124,6 +125,41 @@ def store(con, values, user_id, stamp, record_id=None):
     return record_id
 
 
+def match(con, values):
+    """Return (action, existing row, values) for a CSV row: unchanged, update or create.
+
+    A row describes an existing record when it is identical, has the same reference (such as a flight number
+    F00001), or, without a reference match, is an individual flight with the same aircraft, date and takeoff time
+    and no different reference. A reference shared by several records (such as a book page) only matches those
+    with the same date and takeoff time. Daily summaries and flights without takeoff time are only recognised by
+    reference or when identical, because several of them can share an aircraft and day. A row without reference
+    keeps the reference of the record it updates."""
+    row = con.execute("SELECT * FROM flight_records WHERE fingerprint=?", (fingerprint(values),)).fetchone()
+    if row is not None:
+        return "unchanged", row, values
+    found = []
+    if values["reference"]:
+        found = con.execute("SELECT * FROM flight_records WHERE reference=? ORDER BY id", (values["reference"],)).fetchall()
+        if len(found) > 1:
+            found = [r for r in found if r["date"] == values["date"] and r["takeoff_time"] == values["takeoff_time"]]
+    if not found and values["kind"] == "flight" and values["takeoff_time"]:
+        found = [r for r in con.execute(
+            "SELECT * FROM flight_records WHERE kind='flight' AND drone_id=? AND date=? AND takeoff_time=? ORDER BY id",
+            (values["drone_id"], values["date"], values["takeoff_time"]))
+            if not (r["reference"] and values["reference"])]
+    if len(found) > 1:
+        raise RecordError("Matches paper records " + ", ".join(str(r["id"]) for r in found) +
+                          ". Give each flight a unique reference to choose one.", 409)
+    if not found:
+        return "create", None, values
+    row = found[0]
+    if not values["reference"] and row["reference"]:
+        values = {**values, "reference": row["reference"]}
+        if fingerprint(values) == row["fingerprint"]:
+            return "unchanged", row, values
+    return "update", row, values
+
+
 def parse_csv(con, user, text):
     reader = csv.DictReader(io.StringIO(text.lstrip("\ufeff")), strict=True)
     required = {"aircraft", "pic", "project", "date", "duration_minutes", "flight_count"}
@@ -140,6 +176,7 @@ def parse_csv(con, user, text):
     crew = qualifications.crew_keys(con)
     records = []
     seen = set()
+    targets = {}  # existing record id -> CSV line that updates it
     for row in reader:
         if len(records) >= 1000:
             raise RecordError("Import at most 1000 records at once.")
@@ -165,17 +202,38 @@ def parse_csv(con, user, text):
                 if len(matches) != 1:
                     raise RecordError(f"Unknown or ambiguous {key}: {value!r}. Use an existing name.")
                 body[target] = matches[0]
-            values = validate(con, user, body)
+            action, existing, values = match(con, validate(con, user, body))
             digest = fingerprint(values)
-            if digest in seen or con.execute("SELECT 1 FROM flight_records WHERE fingerprint=?", (digest,)).fetchone():
-                raise RecordError("Duplicate historical record.", 409)
+            if digest in seen:
+                raise RecordError("Same record as an earlier line.", 409)
             seen.add(digest)
-            records.append(values)
+            if existing is not None:
+                if existing["id"] in targets:
+                    raise RecordError(f"Same paper record {existing['id']} as CSV line {targets[existing['id']]}.", 409)
+                targets[existing["id"]] = reader.line_num
+            records.append(dict(
+                line=reader.line_num, action=action, values=values,
+                record_id=existing["id"] if existing is not None else None,
+                hidden=bool(existing is not None and existing["hidden"]),
+                changes=[COLUMN_OF[f] for f in FIELDS if existing is not None and values[f] != existing[f]],
+                label=dict(aircraft=body["aircraft"], date=values["date"], takeoff_time=values["takeoff_time"],
+                           reference=values["reference"])))
         except RecordError as exc:
             raise RecordError(f"CSV line {reader.line_num}: {exc}", exc.status) from exc
     if not records:
         raise RecordError("The CSV contains no records.")
     return records
+
+
+def save_import(con, records, user_id, stamp):
+    """Create or update the records of a parsed CSV; returns the ids that were written."""
+    written = []
+    for r in records:
+        if r["action"] == "unchanged":
+            continue
+        r["record_id"] = store(con, r["values"], user_id, stamp, r["record_id"])
+        written.append(r["record_id"])
+    return written
 
 
 def rows(con, user, project=None, hidden=False):
