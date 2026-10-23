@@ -30,8 +30,8 @@ class GcsAutopilotFallbackTests(test_historical.AppTests):
             "INSERT INTO aircraft(log_id,ac_id,name,autopilot_versions) VALUES (?,?,?,?)",
             (log_id, 129, "Adam", json.dumps(versions or []))).lastrowid
         fid = self.con.execute(
-            "INSERT INTO flights(aircraft_id,idx,duration_s,takeoff_utc,landing_utc,verdict,project_id)"
-            " VALUES (?,1,60,'2010-01-01T12:00:00.000Z','2010-01-01T12:01:00.000Z','flight',1)",
+            "INSERT INTO flights(aircraft_id,idx,duration_s,takeoff_utc,landing_utc,verdict,project_id,has_gps_position)"
+            " VALUES (?,1,60,'2010-01-01T12:00:00.000Z','2010-01-01T12:01:00.000Z','flight',1,0)",
             (aircraft,)).lastrowid
         self.con.commit()
         return log_id, fid

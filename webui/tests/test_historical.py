@@ -390,8 +390,8 @@ class HistoricalTests(AppTests):
         self.con.execute("INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,log_type)"
                          " VALUES(1,'Digital','test','test.data','done','now',2,1,'onboard_sd')")
         self.con.execute("INSERT INTO aircraft(id,log_id,drone_id,name,pic) VALUES(1,1,1,'Drone','pic')")
-        self.con.execute("INSERT INTO flights(id,aircraft_id,idx,duration_s,distance_m,takeoff_utc,landing_utc,verdict)"
-                         " VALUES(1,1,0,100,1000,'2010-01-01T12:00:00.000Z','2010-01-01T12:01:40.000Z','flight')")
+        self.con.execute("INSERT INTO flights(id,aircraft_id,idx,duration_s,distance_m,takeoff_utc,landing_utc,verdict,"
+                         "has_gps_position) VALUES(1,1,0,100,1000,'2010-01-01T12:00:00.000Z','2010-01-01T12:01:40.000Z','flight',0)")
         self.con.commit()
         self.assertEqual(self.create().status_code, 201)
         response = self.client.get("/api/logbook")
@@ -445,8 +445,8 @@ class LogbookBulkTests(AppTests):
             " VALUES(1,'Digital','test','test.data','done','now',2,1,'onboard_sd')")
         self.con.execute("INSERT INTO aircraft(id,log_id,drone_id,name,ac_id) VALUES(1,1,1,'Drone',7)")
         self.con.executemany(
-            "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,verdict,project_id)"
-            " VALUES(?,1,?,100,?,'flight',1)",
+            "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,verdict,project_id,has_gps_position)"
+            " VALUES(?,1,?,100,?,'flight',1,0)",
             [(1, 0, "2010-01-01T12:00:00.000Z"), (2, 1, "2010-01-01T13:00:00.000Z")])
         self.con.commit()
         self.sign_in(1)
@@ -484,8 +484,8 @@ class LogbookBulkTests(AppTests):
             " VALUES(2,'GCS','gcs','gcs.data','done','now',2,1,'gcs')")
         self.con.execute("INSERT INTO aircraft(id,log_id,drone_id,name,ac_id) VALUES(2,2,1,'Drone',7)")
         self.con.execute(
-            "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,verdict,project_id)"
-            " VALUES(3,2,0,100,'2010-01-01T12:00:00.000Z','flight',1)")
+            "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,verdict,project_id,has_gps_position)"
+            " VALUES(3,2,0,100,'2010-01-01T12:00:00.000Z','flight',1,0)")
         self.con.commit()
         row = next(r for r in self.client.get("/api/logbook").json if r["record_key"] == "log:1")
         keys = [f"log:{s['flight_id']}" for s in row["sources"]]
