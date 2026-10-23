@@ -382,6 +382,12 @@ Display names conflicting with another person's log alias must be resolved first
 Log ingestion, startup and opening People do not create profiles from crew names. Unmatched PIC/PAC/GCS
 names stay as logged text and appear under **Unlinked crew names** for admins in Edit mode. Link them
 to an existing person using aliases, or explicitly use **Add user** when a profile is needed.
+**Add as external** (browser session only) creates an external person for crew of another operator, e.g.
+flights under their operational authorisation: display name = the logged name, no password or email, and
+`users.is_external=1`. Their flights link and count like anyone's, but they cannot sign in (password,
+SAML, setup links and API keys are refused), cannot be project members (UI and project CSV reject them),
+and stay hidden on People until **Show external** is ticked. The Account tab's External checkbox converts
+a person either way (not admins or yourself); marking someone external removes their project memberships.
 Log crew matching uses case-insensitive explicit aliases first, then unique display names. Login usernames
 are not implicit log aliases; admins may add them deliberately. Duplicate display names stay unresolved
 unless an explicit alias selects the person. Existing aliases are preserved and should be reviewed if

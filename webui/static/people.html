@@ -88,12 +88,13 @@
   <div id="err"></div>
   <section class="card" id="unlinkedCard" hidden>
     <div class="section-heading"><h2>Unlinked crew names</h2>
-    <details><summary>Help</summary><p>PIC/PAC/GCS names from logs that do not match a person yet. Link each name to an existing person, or use Add user first if a new profile is needed. Logs do not create profiles automatically.</p></details></div>
-    <div class="scroll"><table><thead><tr><th>Name in log</th><th>Seen</th><th>Link to user</th></tr></thead><tbody id="unlinked"></tbody></table></div>
+    <details><summary>Help</summary><p>PIC/PAC/GCS names from logs that do not match a person yet. Link each name to an existing person, or use Add user first if a new profile is needed. Add as external records crew of another operator (for example when flying under their operational authorisation): their flights are linked, but they cannot sign in or join projects. Logs do not create profiles automatically.</p></details></div>
+    <div class="scroll"><table><thead><tr><th>Name in log</th><th>Seen</th><th>Link to user</th><th></th></tr></thead><tbody id="unlinked"></tbody></table></div>
   </section>
   <section class="card">
     <div class="people-title-row"><h2>People</h2>
     <button type="button" class="editOnly" hidden onclick="$('addUserDialog').showModal()">Add user</button>
+    <label id="showExternalLabel" title="External people stay hidden until this is ticked" hidden><input type="checkbox" id="showExternal" onchange="render()"> Show external</label>
     <details class="people-help"><summary>Help</summary>
     <p id="peopleHint">Accounts that can sign in. Names from the logs are matched to these accounts.</p>
     </details></div>
@@ -202,12 +203,15 @@ async function load() {
 }
 
 function notActive(u) { return !!(u && (u.pending || u.provider === 'log')); }
+const shownPeople = () => people.users.filter(u => !u.is_external || $('showExternal').checked);
 function signInLabel(u) {
+  if (u.is_external) return 'External, no sign-in';
   if (notActive(u)) return 'Not active yet';
   return u.provider === 'saml' ? 'TU Delft SSO' : 'Local';
 }
 function nameCell(u, extra, showUser) {
-  const flag = notActive(u) ? ' <span class="chip pending">Not active yet</span>' : '';
+  const flag = u.is_external ? ' <span class="chip">External</span>'
+    : notActive(u) ? ' <span class="chip pending">Not active yet</span>' : '';
   const admin = u.is_admin ? (showUser === false ? ' <span class="mute">admin</span>' : ' · admin') : '';
   const user = showUser === false ? admin : ` <span class="mute">${esc(u.username)}${admin}</span>`;
   return `<a href="/people/${u.id}">${esc(u.display_name || u.username)}</a>${user}${flag}${extra || ''}`;
@@ -236,6 +240,7 @@ function render() {
   if (!editing) $('addUserDialog').close();
   if (!editing) $('qualImportDialog').close();
   $('unlinkedCard').hidden = !(editing && open);
+  $('showExternalLabel').hidden = !people.users.some(u => u.is_external);
   $('pending').hidden = !(open && !editing);
   const bits = [];
   if (open) bits.push(`${open} name${open === 1 ? ' in the logs is' : 's in the logs are'} not linked`);
@@ -249,7 +254,7 @@ function render() {
   if (!editing) {
     if (admin) renderAdminPeople();
     $('usersHead').innerHTML = `<tr><th>Name</th><th>Username</th><th>Aliases</th>${admin ? '<th>Sign-in</th>' : ''}<th>Qualifications</th></tr>`;
-    $('users').innerHTML = people.users.map(u => `<tr><td>${nameCell(u, '', false)}</td>
+    $('users').innerHTML = shownPeople().map(u => `<tr><td>${nameCell(u, '', false)}</td>
       <td class="mute">${esc(u.username)}</td>
       <td>${(u.aliases || []).map(alias => `<span class="chip">${esc(alias)}</span>`).join('') || '<span class="mute">—</span>'}</td>
       ${admin ? `<td>${signInLabel(u)}</td>` : ''}
@@ -260,10 +265,11 @@ function render() {
   const projOpts = '<option value="">No default</option>' + (people.projects || []).map(p =>
     `<option value="${p.id}">${esc(p.name)}</option>`).join('');
   $('newProject').innerHTML = projOpts;
-  const opts = people.users.map(u => `<option value="${u.id}">${esc(u.display_name || u.username)} (${esc(u.username)})</option>`).join('');
+  const opts = people.users.map(u => `<option value="${u.id}">${esc(u.display_name || u.username)} (${esc(u.username)})${u.is_external ? ' · External' : ''}</option>`).join('');
   $('unlinked').innerHTML = people.unlinked.map((e, i) => `<tr><td>${esc(e.name)}</td><td>${e.count}×</td>
-    <td><select id="sel${i}">${opts}</select> <button onclick="addAlias(${i}, null)">Link</button></td></tr>`).join('')
-    || '<tr><td colspan="3" class="mute">Everything is linked.</td></tr>';
+    <td><select id="sel${i}">${opts}</select> <button onclick="addAlias(${i}, null)">Link</button></td>
+    <td><button type="button" class="sec" onclick="addExternal(${i})">Add as external</button></td></tr>`).join('')
+    || '<tr><td colspan="4" class="mute">Everything is linked.</td></tr>';
   renderAdminPeople();
 }
 
@@ -348,13 +354,14 @@ function bindTypeDrag() {
 
 function renderPeopleList() {
   const query = $('peopleSearch').value.trim().toLocaleLowerCase();
-  const rows = people.users.filter(u => [u.display_name,u.username,u.email,...(u.aliases || [])].filter(Boolean)
+  const rows = shownPeople().filter(u => [u.display_name,u.username,u.email,...(u.aliases || [])].filter(Boolean)
     .some(v => v.toLocaleLowerCase().includes(query)));
   $('peopleCount').textContent = `${rows.length} of ${people.users.length} people`;
   $('peopleList').innerHTML = rows.map(u => `<button type="button" class="person-button" aria-pressed="${u.id === selectedPerson}"
     title="${esc(u.username)}${pendingQualifications.some(s => s.user_id === u.id) ? ' · Qualification review pending' : ''}"
     onclick="selectPerson(${u.id})"><span>${esc(u.display_name || u.username)}</span>
-    <span class="person-status"><span class="${notActive(u) ? 'inactive' : 'active'}">${notActive(u) ? 'Not active yet' : 'Active'}</span>
+    <span class="person-status">${u.is_external ? '<span>External</span>'
+      : `<span class="${notActive(u) ? 'inactive' : 'active'}">${notActive(u) ? 'Not active yet' : 'Active'}</span>`}
     ${u.is_admin ? '<span>Admin</span>' : ''}</span></button>`).join('')
     || '<p class="mute">No matching people.</p>';
 }
@@ -429,8 +436,10 @@ function renderPersonPanel() {
       : `<p><strong>Username:</strong> ${esc(user.username)}</p>`}
       <p><strong>Sign-in:</strong> ${signInLabel(user)}${user.is_admin ? ' · Administrator' : ''}</p>
       ${editing ? '' : `<p><strong>Email:</strong> ${esc(user.email || 'Not set')}</p><p><strong>Default project:</strong> ${esc(project?.name || 'No default')}</p>`}
-      <p><strong>Password:</strong> ${user.provider === 'saml' ? 'Managed by identity provider' : user.has_password ? 'Chosen' : 'Not set'}</p>
-      ${editing && ['local','log'].includes(user.provider) ? `<div class="panel-row">
+      ${editing && id !== me.id && !user.is_admin ? `<p><label><input type="checkbox" ${user.is_external ? 'checked' : ''} onchange="setExternal(${id}, this.checked)">
+        External</label> <span class="mute">Crew of another operator: flights stay linked, no sign-in, no project access.</span></p>` : ''}
+      ${user.is_external ? '' : `<p><strong>Password:</strong> ${user.provider === 'saml' ? 'Managed by identity provider' : user.has_password ? 'Chosen' : 'Not set'}</p>`}
+      ${editing && !user.is_external && ['local','log'].includes(user.provider) ? `<div class="panel-row">
         <button type="button" onclick="newSetupLink(${id})">${user.has_password ? 'Reset password' : 'Set password'}</button>
         ${user.provider === 'local' && user.has_password ? `<button type="button" class="danger" onclick="removePassword(${id})">Remove password</button>` : ''}</div>` : ''}
       ${editing && id !== me.id ? `<p><button type="button" class="danger" onclick="removeUser(${id})">Remove user</button></p>` : ''}`;
@@ -552,6 +561,11 @@ function addAlias(i, uid) {
   if (v) send('POST', '/api/admin/aliases', {user_id: uid, alias: v});
 }
 const removeAlias = alias => send('DELETE', '/api/admin/aliases', {alias});
+const addExternal = i => send('POST', '/api/admin/people/external', {name: people.unlinked[i].name});
+function setExternal(id, external) {
+  if (external && !confirm('Mark this person as external? They can no longer sign in and lose their project access. Their flights stay linked.')) return render();
+  send('PUT', `/api/admin/users/${id}/external`, {is_external: external});
+}
 
 async function previewQualImport() {
   $('qualImportError').textContent = '';

@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL,
     last_login TEXT,
     default_project_id INTEGER,        -- used when a flight has no aircraft default
+    is_external INTEGER NOT NULL DEFAULT 0 CHECK(is_external IN (0,1)),  -- crew from another operator; cannot sign in
     UNIQUE (provider, subject)
 );
 CREATE TABLE IF NOT EXISTS logs (
@@ -338,6 +339,8 @@ def init(path):
         con.execute("ALTER TABLE qualification_types ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
         for i, row in enumerate(con.execute("SELECT id FROM qualification_types ORDER BY name"), 1):
             con.execute("UPDATE qualification_types SET sort_order=? WHERE id=?", (i, row["id"]))
+    if "is_external" not in {r["name"] for r in con.execute("PRAGMA table_info(users)")}:
+        con.execute("ALTER TABLE users ADD COLUMN is_external INTEGER NOT NULL DEFAULT 0 CHECK(is_external IN (0,1))")
     cols = {r["name"] for r in con.execute("PRAGMA table_info(logs)")}
     if "timing" not in cols:
         con.execute("ALTER TABLE logs ADD COLUMN timing TEXT")
