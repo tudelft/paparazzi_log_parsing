@@ -458,6 +458,17 @@ Dry runs show planned uploads instead of accepted/processed counts. Unpaired `.d
 separately and excluded from the total. Directory listing errors stop the scan explicitly.
 
 For initial imports, use `--bulk` on **each user's script**. Compression remains server-side.
+Bulk runs automatically maintain a `.upload_logs-resume-<scope>.json` file next to the script,
+separate for each source folder, server URL and account. Each hash and accepted upload receipt is
+saved with an atomic replacement. After Ctrl+C, rerun the same command: unchanged pairs reuse their
+hashes and pending upload IDs are checked before submission continues. Both files' sizes and
+nanosecond modification times must match. Server hash checks still run, so resetting the server
+does not silently skip previously completed files. Files modified without changing size/time need
+`--no-resume` to force fresh hashing. Dry runs do not read or write checkpoints; `--no-resume`
+also disables checkpoint use/writes. Keep the script directory writable and on local disk.
+Run only one uploader for a given folder/server/account at a time. Checkpoints contain filenames,
+hashes and upload IDs, not API keys. Moving the script without its checkpoint starts fresh.
+
 The script uploads sequentially, polls the global pending ingestion/parsing workload, and reserves
 capacity atomically before transferring each pair. Concurrent bulk scripts share the same server budget:
 `LOGDB_BULK_MAX_PENDING=8` pending jobs and `LOGDB_BULK_MAX_BYTES=17179869184` (16 GiB estimated).

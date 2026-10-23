@@ -17,6 +17,8 @@ import ssl
 import sys
 import time
 import uuid
+import tempfile
+from pathlib import Path
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
@@ -79,7 +81,75 @@ def find_pairs(root):
         print(f"skip (no .log next to it): {m}", file=sys.stderr)
 
 
-def hash_batches(pairs, max_files, max_bytes):
+class Resume:
+    def __init__(self, folder, server, user):
+        scope = [os.path.realpath(folder), server.rstrip("/"), user]
+        tag = hashlib.sha256(json.dumps(scope).encode()).hexdigest()[:20]
+        self.path = Path(__file__).resolve().with_name(f".upload_logs-resume-{tag}.json")
+        self.entries = {}
+        if self.path.exists():
+            saved = json.loads(self.path.read_text())
+            if (not isinstance(saved, dict) or saved.get("version") != 1
+                    or saved.get("scope") != scope or not isinstance(saved.get("entries"), dict)):
+                raise RuntimeError(f"Invalid resume file: {self.path}; move it aside or use --no-resume.")
+            self.entries = saved["entries"]
+        self.scope = scope
+        for entry in self.entries.values():
+            if (not isinstance(entry, dict) or not isinstance(entry.get("signature"), list)
+                    or ("digest" in entry and (not isinstance(entry["digest"], str)
+                        or len(entry["digest"]) != 64
+                        or any(c not in "0123456789abcdef" for c in entry["digest"])))
+                    or ("ingest_id" in entry and type(entry["ingest_id"]) is not int)):
+                raise RuntimeError(f"Invalid resume entries: {self.path}; move it aside or use --no-resume.")
+
+    def save(self):
+        temp = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", dir=self.path.parent, prefix=self.path.name,
+                                             suffix=".tmp", delete=False) as handle:
+                temp = Path(handle.name)
+                json.dump({"version": 1, "scope": self.scope, "entries": self.entries}, handle)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp, self.path)
+        finally:
+            if temp is not None:
+                temp.unlink(missing_ok=True)
+
+    def entry(self, pair):
+        signature = []
+        for path in pair[1:]:
+            stat = os.stat(path)
+            signature.append([stat.st_size, stat.st_mtime_ns])
+        entry = self.entries.get(pair[0])
+        if not isinstance(entry, dict) or entry.get("signature") != signature:
+            entry = {"signature": signature}
+            self.entries[pair[0]] = entry
+        return entry
+
+    def digest(self, pair):
+        entry = self.entry(pair)
+        if "digest" not in entry:
+            before = entry["signature"]
+            digest = sha256_file(pair[1])
+            if self.entry(pair)["signature"] != before:
+                raise RuntimeError(f"Files changed while hashing {pair[0]}; retry when the files are stable.")
+            entry["digest"] = digest
+            self.save()
+        else:
+            print(f"Resuming: cached hash for {pair[0]}", flush=True)
+        return entry["digest"]
+
+    def accepted(self, pair, ingest_id):
+        self.entry(pair)["ingest_id"] = ingest_id
+        self.save()
+
+    def completed(self, name):
+        self.entries[name].pop("ingest_id", None)
+        self.save()
+
+
+def hash_batches(pairs, max_files, max_bytes, resume=None):
     batch, size = [], 0
     for pair in pairs:
         data_size = os.path.getsize(pair[1])
@@ -87,7 +157,7 @@ def hash_batches(pairs, max_files, max_bytes):
             yield batch
             batch, size = [], 0
         print(f"hashing {pair[0]} ({data_size / 1e6:.1f} MB) ...", flush=True)
-        batch.append((pair, sha256_file(pair[1])))
+        batch.append((pair, resume.digest(pair) if resume else sha256_file(pair[1])))
         size += data_size
         if len(batch) >= max_files or size >= max_bytes:
             yield batch
@@ -121,9 +191,9 @@ class Progress:
             self.last_report = line
 
 
-def missing_pairs(client, pairs, max_files, max_bytes, progress=None):
+def missing_pairs(client, pairs, max_files, max_bytes, progress=None, resume=None):
     seen = set()
-    for number, batch in enumerate(hash_batches(pairs, max_files, max_bytes), 1):
+    for number, batch in enumerate(hash_batches(pairs, max_files, max_bytes, resume), 1):
         known = client.check([digest for _, digest in batch])
         todo = []
         existing = duplicates = 0
@@ -306,6 +376,7 @@ def main():
     ap.add_argument("-n", "--dry-run", action="store_true", help="only list what would be uploaded")
     ap.add_argument("--insecure", action="store_true", help="do not verify the https certificate")
     ap.add_argument("--bulk", action="store_true", help="throttle initial imports and wait for processing results")
+    ap.add_argument("--no-resume", action="store_true", help="ignore and do not write local resume checkpoints")
     ap.add_argument("--max-pending", type=int, default=8, help="bulk server backlog count threshold (default: 8)")
     ap.add_argument("--max-pending-gib", type=float, default=16, help="bulk estimated backlog GiB threshold (default: 16)")
     ap.add_argument("--poll-seconds", type=float, default=5, help="bulk polling interval (default: 5)")
@@ -341,9 +412,33 @@ def main():
         return 1
     print(f"Found {len(pairs)} pairs. Hashing and uploading in batches.", flush=True)
     progress = Progress(len(pairs), a.bulk, a.dry_run)
+    resume = None
+    if a.bulk and not a.no_resume and not a.dry_run:
+        try:
+            resume = Resume(a.folder, a.server, who.get("id", who["display_name"]))
+            # Check writability before accepting any uploads.
+            resume.save()
+            print(f"Resume file: {resume.path}", flush=True)
+            for pair in pairs:
+                entry = resume.entry(pair)
+                if "ingest_id" not in entry:
+                    continue
+                print(f"Resuming processing check: {pair[0]} (upload {entry['ingest_id']})", flush=True)
+                try:
+                    wait_result(client, entry["ingest_id"], a.poll_seconds, a.max_wait_seconds)
+                except (RuntimeError, OSError, http.client.HTTPException) as exc:
+                    if not isinstance(exc, HTTPError) or exc.status != 404:
+                        print(f"Previous upload could not be confirmed: {exc}; checkpoint retained. "
+                              "Retry later or use --no-resume for a fresh server check.", file=sys.stderr)
+                        return 1
+                    print(f"Previous receipt no longer exists: {exc}; checking file hash again.", file=sys.stderr)
+                resume.completed(pair[0])
+        except (RuntimeError, OSError, ValueError) as exc:
+            print(f"FAILED loading/saving resume checkpoint: {exc}", file=sys.stderr)
+            return 1
     progress.report()
     todo = iter(missing_pairs(client, iter(pairs), a.hash_batch_files,
-                              a.hash_batch_mib * (1 << 20), progress))
+                              a.hash_batch_mib * (1 << 20), progress, resume))
 
     failed = 0
     pending = []
@@ -383,6 +478,8 @@ def main():
             if receipt.get("status") != "accepted" or type(receipt.get("ingest_id")) is not int:
                 raise RuntimeError(receipt.get("reason") or f"Upload not accepted: {receipt}")
             print(f"accepted (upload {receipt['ingest_id']})")
+            if resume:
+                resume.accepted((name, data, log), receipt["ingest_id"])
             progress.accepted += 1
             progress.report()
             if a.bulk:
@@ -391,6 +488,8 @@ def main():
                     first_name, first_id = pending.pop(0)
                     try:
                         wait_result(client, first_id, a.poll_seconds, a.max_wait_seconds)
+                        if resume:
+                            resume.completed(first_name)
                         print(f"Processed: {first_name}")
                         progress.processed += 1
                     except (RuntimeError, OSError, http.client.HTTPException) as e:
@@ -409,6 +508,8 @@ def main():
     for name, ingest_id in pending:
         try:
             wait_result(client, ingest_id, a.poll_seconds, a.max_wait_seconds)
+            if resume:
+                resume.completed(name)
             print(f"Processed: {name}")
             progress.processed += 1
         except (RuntimeError, OSError, http.client.HTTPException) as e:
@@ -425,4 +526,8 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print("\nStopped. Any saved bulk checkpoint will be reused on the next run.", file=sys.stderr)
+        sys.exit(130)

@@ -17,6 +17,55 @@ from .test_historical import AppTests
 
 
 class UploadScriptTests(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        script = patch.object(upload, "__file__", str(Path(folder.name) / "upload_logs.py"))
+        script.start()
+        self.addCleanup(script.stop)
+
+    def test_resume_survives_ctrl_c_and_checks_pending_without_rehashing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory) / "flight.data"
+            data.write_bytes(b"test")
+            data.with_suffix(".log").write_bytes(b"xml")
+            client = Mock()
+            client._request.return_value = {"user": {"id": 1, "display_name": "Pilot"}}
+            client.check.return_value = {}
+            client.upload.return_value = {"results": [{"status": "accepted", "ingest_id": 7}]}
+            args = ["upload_logs.py", directory, "--bulk", "--server", "http://fixture", "--key", "test"]
+            with patch.object(upload, "Client", return_value=client), patch("sys.argv", args), \
+                    patch.object(upload, "wait_capacity"), patch.object(upload, "reserve_capacity"), \
+                    patch.object(upload, "wait_result", side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    upload.main()
+            client.check.return_value = {upload.sha256_file(data): {"has_log": True}}
+            with patch.object(upload, "Client", return_value=client), patch("sys.argv", args), \
+                    patch.object(upload, "sha256_file", side_effect=AssertionError("must not rehash")), \
+                    patch.object(upload, "wait_result") as result:
+                self.assertEqual(upload.main(), 0)
+                result.assert_called_once_with(client, 7, 5, 3600)
+            self.assertEqual(client.upload.call_count, 1)
+
+    def test_resume_invalidates_changed_companion_and_separates_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory) / "flight.data"
+            data.write_bytes(b"test")
+            log = data.with_suffix(".log")
+            log.write_bytes(b"xml")
+            pair = ("flight.data", str(data), str(log))
+            resume = upload.Resume(directory, "http://fixture", 1)
+            digest = resume.digest(pair)
+            loaded = upload.Resume(directory, "http://fixture", 1)
+            with patch.object(upload, "sha256_file", side_effect=AssertionError("cached")):
+                self.assertEqual(loaded.digest(pair), digest)
+            log.write_bytes(b"changed XML")
+            with patch.object(upload, "sha256_file", return_value="new") as hashed:
+                self.assertEqual(loaded.digest(pair), "new")
+                hashed.assert_called_once()
+            self.assertNotEqual(loaded.path, upload.Resume(directory, "http://other", 1).path)
+            self.assertNotEqual(loaded.path, upload.Resume(directory, "http://fixture", 2).path)
+
     def test_progress_counts_skipped_accepted_processed_and_failed(self):
         progress = upload.Progress(10, bulk=True)
         progress.checked = 8
