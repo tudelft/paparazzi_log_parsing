@@ -180,10 +180,19 @@ def resolve_rows(con, rows, files, folder=""):
             user = users[uid]
             item["person_name"] = user["display_name"] or user["username"]
         kind = types.get(raw["type"].casefold()) if raw["type"] else None
+        item["new_type"] = None
+        item["person_only"] = not any(raw[key] for key in ("type", "valid_from", "valid_until", "file"))
+        if item["person_only"]:
+            out.append(item)
+            continue
         if not raw["type"]:
             item["error"] = item["error"] or "Type is required."
         elif kind is None:
-            item["error"] = item["error"] or f"Unknown qualification type: {raw['type']!r}."
+            if len(raw["type"]) > 80:
+                item["error"] = item["error"] or "Type name must be 1-80 characters."
+            else:
+                item["new_type"] = raw["type"].casefold()
+                item["category"] = raw["type"]
         elif not kind["active"]:
             item["error"] = item["error"] or f"Qualification type {kind['name']!r} is disabled."
         else:
@@ -218,6 +227,29 @@ def resolve_rows(con, rows, files, folder=""):
             item["error"] = item["error"] or "This qualification requires evidence."
         out.append(item)
     return plan(con, out)
+
+
+def add_types(con, rows):
+    """Create each new type: evidence and Valid until are required if every row of it has them."""
+    created = {}
+    for row in rows:
+        key = row.get("new_type")
+        if not key:
+            continue
+        if key not in created:
+            existing = con.execute("SELECT id FROM qualification_types WHERE name=?", (row["category"],)).fetchone()
+            if existing:
+                created[key] = existing["id"]
+            else:
+                same = [r for r in rows if r.get("new_type") == key]
+                created[key] = con.execute(
+                    "INSERT INTO qualification_types(name,requires_evidence,requires_expiry,requires_start,"
+                    "internal,sort_order,active) VALUES (?,?,?,0,0,"
+                    "(SELECT COALESCE(MAX(sort_order),0)+1 FROM qualification_types),1)",
+                    (row["category"], int(all(r.get("evidence_file") or r.get("evidence_key") for r in same)),
+                     int(all(r["valid_until"] for r in same)))).lastrowid
+        row["type_id"] = created[key]
+    return len(created)
 
 
 def new_username(name):
@@ -256,15 +288,19 @@ def _period(row):
 
 def plan(con, rows):
     """Per person and type, the newest new period becomes current; older ones are archived.
-    Periods already recorded (or repeated in the file) are skipped, so re-importing is harmless."""
+    Periods already recorded (or repeated in the file) are skipped, so re-importing is harmless.
+    A row with only a name adds that person."""
     groups = {}
     for row in rows:
         row["outcome"] = None
-        if not row.get("error"):
-            groups.setdefault((row["user_id"] or row["new_person"], row["type_id"]), []).append(row)
+        if row.get("person_only"):
+            row["outcome"] = "person" if row["new_person"] else "skip"
+            row["warning"] = None if row["new_person"] else "Already on People; skipped."
+        elif not row.get("error"):
+            groups.setdefault((row["user_id"] or row["new_person"], row["type_id"] or row["new_type"]), []).append(row)
     for pair, group in groups.items():
-        if not isinstance(pair[0], int):
-            pair = (0, pair[1])
+        if not all(isinstance(key, int) for key in pair):
+            pair = (0, 0)
         known = {(r["valid_from"], r["valid_until"]) for r in con.execute(
             "SELECT valid_from,valid_until FROM qualification_submissions"
             " WHERE user_id=? AND type_id=? AND status IN ('approved','superseded')", pair)}
@@ -290,7 +326,7 @@ def plan(con, rows):
 
 
 def public_rows(rows):
-    keys = ("line", "person", "person_name", "new_person", "type", "category", "valid_from", "valid_until",
+    keys = ("line", "person", "person_name", "new_person", "type", "new_type", "category", "valid_from", "valid_until",
             "file", "outcome", "error", "warning")
     return [{key: row.get(key) for key in keys} for row in rows]
 
@@ -323,7 +359,8 @@ def store_preview(app, con, filename, raw):
     stored = []
     for index, row in enumerate(rows):
         item = {key: row.get(key) for key in (
-            "line", "person", "user_id", "new_person", "type_id", "category", "valid_from", "valid_until",
+            "line", "person", "user_id", "new_person", "person_only", "type_id", "new_type", "category",
+            "valid_from", "valid_until",
             "file", "filename", "error", "warning")}
         key = row.get("evidence_key")
         if key and not row.get("error") and row["outcome"] != "skip":
@@ -340,6 +377,7 @@ def store_preview(app, con, filename, raw):
     return dict(token=token, rows=public_rows(rows), ok=len(rows) - errors, errors=errors,
                 current=count("current"), archived=count("archive"), skipped=count("skip"),
                 new_people=len({row["new_person"] for row in rows if row["new_person"] and not row.get("error")}),
+                new_types=len({row["new_type"] for row in rows if row["new_type"] and not row.get("error")}),
                 can_commit=errors == 0 and count("skip") < len(rows))
 
 
@@ -370,13 +408,14 @@ def commit(app, con, token):
     try:
         with db.write_lock, con:
             con.execute("BEGIN IMMEDIATE")
+            new_types = add_types(con, rows)
             added = add_people(con, rows)
             plan(con, rows)
             failed = next((row["error"] for row in rows if row.get("error")), None)
             if failed:
                 raise qualifications.QualificationError(failed, 409)
             for row in rows:
-                if row["outcome"] == "skip":
+                if row["outcome"] in ("skip", "person"):
                     continue
                 kind = con.execute("SELECT * FROM qualification_types WHERE id=? AND active=1",
                                    (row["type_id"],)).fetchone()
@@ -426,7 +465,7 @@ def commit(app, con, token):
         session.pop("qual_import_token", None)
         shutil.rmtree(folder, ignore_errors=True)
         count = lambda outcome: sum(1 for row in rows if row["outcome"] == outcome)
-        return dict(imported=len(imported), new_people=added, current=count("current"), archived=count("archive"),
+        return dict(imported=len(imported), new_people=added, new_types=new_types, current=count("current"), archived=count("archive"),
                     skipped=count("skip"), ids=[row["id"] for row in imported], rows=imported)
     except Exception:
         for path in written:

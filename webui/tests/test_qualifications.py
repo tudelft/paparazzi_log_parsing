@@ -549,20 +549,54 @@ class QualificationImportTests(AppTests):
         detail = self.client.get("/api/detail/people/2").json["item"]["qualifications"]["items"]
         self.assertEqual([i["valid_until"] for i in detail], ["2029-01-01"])
 
+    def test_unknown_types_are_created_on_commit(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("manifest.csv", "person,type,valid_from,valid_until,file\n"
+                             "Pilot,CTR,,2027-01-01,Pilot/CTR.pdf\nViewer,ctr,,,\nPilot,GVC,,2028-01-01,Pilot/GVC.pdf\n")
+            archive.writestr("Pilot/CTR.pdf", PDF)
+            archive.writestr("Pilot/GVC.pdf", PDF)
+        buf.seek(0)
+        preview = self.preview(buf)
+        self.assertTrue(preview.json["can_commit"], preview.json)
+        self.assertEqual(preview.json["new_types"], 2)
+        self.assertFalse(self.con.execute("SELECT 1 FROM qualification_types WHERE name='CTR'").fetchone())
+        commit = self.client.post("/api/admin/qualifications/import/commit", json={"token": preview.json["token"]})
+        self.assertEqual((commit.status_code, commit.json["new_types"], commit.json["current"]), (201, 2, 3))
+        types = {r["name"]: tuple(r)[1:] for r in self.con.execute(
+            "SELECT name,requires_evidence,requires_expiry,requires_start,internal,active FROM qualification_types")}
+        self.assertEqual(types["CTR"], (0, 0, 0, 0, 1))
+        self.assertEqual(types["GVC"], (1, 1, 0, 0, 1))
+        self.assertEqual(self.preview(self.zip_payload(type_name="ctr")).json["rows"][0]["new_type"], None)
+
+    def test_rows_with_only_a_name_add_people(self):
+        csv_text = b"person,type,valid_from,valid_until,file\nExample Member,,,,\nPilot,,,,\nNobody,,,2027-01-01,\n"
+        blocked = self.preview(io.BytesIO(csv_text), "manifest.csv").json
+        self.assertEqual([r["outcome"] for r in blocked["rows"]][:2], ["person", "skip"])
+        self.assertIn("Type is required", blocked["rows"][2]["error"])
+        preview = self.preview(io.BytesIO(csv_text.rsplit(b"Nobody", 1)[0]), "manifest.csv").json
+        self.assertTrue(preview["can_commit"], preview)
+        commit = self.client.post("/api/admin/qualifications/import/commit", json={"token": preview["token"]})
+        self.assertEqual((commit.status_code, commit.json["new_people"], commit.json["imported"]), (201, 1, 0))
+        uid = self.con.execute("SELECT id FROM users WHERE display_name='Example Member'").fetchone()[0]
+        self.assertFalse(self.con.execute("SELECT 1 FROM qualification_submissions WHERE user_id=?", (uid,)).fetchone())
+        again = self.preview(io.BytesIO(b"person,type,valid_from,valid_until,file\nExample Member,,,,\n"), "manifest.csv").json
+        self.assertEqual((again["rows"][0]["outcome"], again["can_commit"]), ("skip", False))
+
     def test_new_names_become_users_and_ambiguous_or_csv_only_rows_are_blocked(self):
         before = self.con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-        preview = self.preview(self.zip_payload(person="Dennis van Wijngaarden"))
+        preview = self.preview(self.zip_payload(person="Example Newcomer"))
         self.assertTrue(preview.json["can_commit"])
         self.assertEqual((preview.json["new_people"], preview.json["rows"][0]["outcome"]), (1, "current"))
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM users").fetchone()[0], before)
         commit = self.client.post("/api/admin/qualifications/import/commit", json={"token": preview.json["token"]})
         self.assertEqual((commit.status_code, commit.json["new_people"]), (201, 1))
-        user = self.con.execute("SELECT * FROM users WHERE display_name='Dennis van Wijngaarden'").fetchone()
+        user = self.con.execute("SELECT * FROM users WHERE display_name='Example Newcomer'").fetchone()
         self.assertEqual((user["username"], user["password_hash"], user["email"], user["is_admin"]),
-                         ("DennisvanWijngaarden", None, None, 0))
+                         ("ExampleNewcomer", None, None, 0))
         self.assertEqual(self.con.execute("SELECT status FROM qualification_submissions WHERE user_id=?",
                                           (user["id"],)).fetchone()[0], "approved")
-        self.assertEqual(self.preview(self.zip_payload(person="Dennis van Wijngaarden")).json["rows"][0]["outcome"], "skip")
+        self.assertEqual(self.preview(self.zip_payload(person="Example Newcomer")).json["rows"][0]["outcome"], "skip")
         self.con.execute("UPDATE users SET display_name='Pilot' WHERE id=3")
         self.con.commit()
         ambiguous = self.preview(self.zip_payload(person="Pilot"))
