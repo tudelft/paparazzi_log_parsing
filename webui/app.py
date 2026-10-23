@@ -3472,6 +3472,9 @@ def merge_sources(flights):
         home = None
         if start is not None:
             for g in groups:
+                linked_ids = {o["drone_id"] for o in g["flights"] if o["drone_id"] is not None}
+                if (f["drone_id"] is not None and linked_ids and f["drone_id"] not in linked_ids):
+                    continue
                 if (_same_aircraft(g, ident) and g["end"] is not None and f["log_id"] not in g["logs"]
                         and start <= g["end"] + SAME_FLIGHT_SLACK_S and (end or start) >= g["start"] - SAME_FLIGHT_SLACK_S):
                     home = g
@@ -3488,6 +3491,10 @@ def merge_sources(flights):
         fl = sorted(g["flights"], key=lambda r: TYPE_ORDER[r["log_type"]])
         main = dict(fl[0])
         main["aircraft"] = next((o["aircraft"] for o in reversed(fl) if o["log_type"] == "gcs"), main["aircraft"])
+        identity = next((o for o in fl if o["drone_id"] is not None), None)
+        if identity is not None:
+            for key in ("aircraft", "drone_id", "aircraft_uid"):
+                main[key] = identity[key]
         if not main["landed"]:
             donor = next((o for o in fl[1:] if o["landed"]), None)
             if donor:

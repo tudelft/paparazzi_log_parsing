@@ -85,6 +85,9 @@ and warnings for local (dirty) changes. Multiple reported builds remain visible;
 can be expanded. Commit links use `paparazzi/paparazzi` and may not resolve for private forks.
 When the aircraft did not send `AUTOPILOT_VERSION`, the GCS `runtime paparazzi_version` comment at
 the top of the companion `.log` is shown instead and labelled as coming from the GCS log.
+Merged SD/GCS entries retain the fleet name, aircraft link and TUD/serial number from a linked
+source even if the main telemetry source is unlinked. Sources linked to different fleet aircraft
+are kept separate rather than choosing an identity.
 Tabs separate the path/charts, weather, settings, messages and pre-flight checks.
 Messages and settings show 25 rows per page, scoped to the flight by default; their checkboxes include
 the whole log. Tab counts reflect the flight scope (messages also include 30 seconds either side).
