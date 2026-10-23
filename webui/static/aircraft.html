@@ -111,6 +111,7 @@
       <label class="field">Filter<input id="q" placeholder="Filter by name, serial, person, project…"></label>
       <label class="field">Status<select id="statusFilter"><option value="">All statuses</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select></label>
       <label title="Aircraft marked Discard stay hidden until this is ticked"><input type="checkbox" id="showDiscarded"> Show discarded</label>
+      <label title="Aircraft without uploaded logs or paper records stay hidden until this is ticked"><input type="checkbox" id="showWithoutLogs"> Show aircraft without logs</label>
     <button id="addSection" type="button" hidden onclick="$('addAircraftDialog').showModal()">Add aircraft</button>
     <button id="importSection" type="button" class="sec" hidden onclick="$('importAircraftDialog').showModal()">Import aircraft from CSV</button></div>
     <dialog class="entry-dialog" id="addAircraftDialog" aria-labelledby="addAircraftTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
@@ -227,6 +228,7 @@ async function savePeriods(id) {
 
 function matches(d, q, status) {
   if ((d.status || '') === 'Discard' && !$('showDiscarded').checked && status !== 'Discard') return false;
+  if (!d.log_count && !d.record_count && !$('showWithoutLogs').checked && !(editOn() && d.id === selectedAircraft)) return false;
   if (status && (d.status || '') !== status) return false;
   if (!q) return true;
   const blob = [d.name, d.unique_id, d.manager, d.status,
@@ -301,7 +303,7 @@ function render() {
       <td><a href="/aircraft/${d.id}">${esc(d.name)}</a></td><td>${esc(d.unique_id || '')}</td>
       <td>${st ? `<span class="badge st-${esc(st)}">${esc(st)}</span>` : ''}</td>
       <td>${esc(d.manager || '')}</td><td>${projectCell(d, false)}</td>
-      <td>${esc(d.comments || '')}</td><td>${d.log_count}</td><td>${aliases}</td></tr>`;
+      <td>${esc(d.comments || '')}</td><td>${d.log_count}${d.record_count ? ` <span class="mute">+ ${d.record_count} paper</span>` : ''}</td><td>${aliases}</td></tr>`;
   }).join('')
     || `<tr><td colspan="${cols}" class="mute">${data.drones.length ? 'Nothing matches the filter.' : (me && me.is_admin ? 'No aircraft yet.' : 'No aircraft on your projects yet.')}</td></tr>`;
 }
@@ -499,7 +501,7 @@ function removeDrone(id) {
   if (confirm('Remove ' + (d ? d.name : 'this aircraft') + '? The logs stay. They will no longer be linked to this aircraft.'))
     send('DELETE', '/api/admin/drones/' + id);
 }
-$('q').oninput = $('statusFilter').onchange = $('showDiscarded').onchange = render;
+$('q').oninput = $('statusFilter').onchange = $('showDiscarded').onchange = $('showWithoutLogs').onchange = render;
 window.addEventListener('editchange', toggleEdit);
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;

@@ -95,6 +95,7 @@
     <div class="people-title-row"><h2>People</h2>
     <button type="button" class="editOnly" hidden onclick="$('addUserDialog').showModal()">Add user</button>
     <label id="showExternalLabel" title="External people stay hidden until this is ticked" hidden><input type="checkbox" id="showExternal" onchange="render()"> Show external</label>
+    <label title="People without logs, paper records or approved qualifications stay hidden until this is ticked"><input type="checkbox" id="showWithoutLogs" onchange="render()"> Show people without logs or licences</label>
     <details class="people-help"><summary>Help</summary>
     <p id="peopleHint">Accounts that can sign in. Names from the logs are matched to these accounts.</p>
     </details></div>
@@ -203,7 +204,9 @@ async function load() {
 }
 
 function notActive(u) { return !!(u && (u.pending || u.provider === 'log')); }
-const shownPeople = () => people.users.filter(u => !u.is_external || $('showExternal').checked);
+const hasLicence = u => ((u.qualifications && u.qualifications.items) || []).some(item => item.status === 'approved');
+const shownPeople = () => people.users.filter(u => (!u.is_external || $('showExternal').checked)
+  && (u.has_logs || hasLicence(u) || $('showWithoutLogs').checked || (window.editMode() && u.id === selectedPerson)));
 function signInLabel(u) {
   if (u.is_external) return 'External, no sign-in';
   if (notActive(u)) return 'Not active yet';

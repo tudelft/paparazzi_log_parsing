@@ -1073,6 +1073,7 @@ def people_directory():
     """People the current user may open, with aliases and qualifications they are allowed to see."""
     con = conn()
     allowed = qualifications.directory_user_ids(con, g.user)
+    with_logs = people_with_logs(con)
     users = []
     for r in con.execute(
             "SELECT id, username, display_name, is_admin, is_external, provider FROM users WHERE is_active=1"
@@ -1087,6 +1088,7 @@ def people_directory():
                       "is_admin": bool(r["is_admin"]), "is_external": bool(r["is_external"]),
                       "provider": r["provider"] or "local",
                       "pending": (r["provider"] or "") == "log", "qualifications": quals,
+                      "has_logs": r["id"] in with_logs,
                       "aliases": [a["alias"] for a in con.execute(
                           "SELECT alias FROM user_aliases WHERE user_id=? ORDER BY alias", (r["id"],))]})
     return jsonify(users=users)
@@ -1271,6 +1273,22 @@ def person_resolver(con):
         return None
 
     return resolve
+
+
+def people_with_logs(con):
+    """Ids of users who uploaded a log or are crew on a log flight or paper record."""
+    ids = {r[0] for r in con.execute("SELECT DISTINCT uploaded_by FROM logs WHERE uploaded_by IS NOT NULL")}
+    resolve = person_resolver(con)
+    for a in con.execute("SELECT DISTINCT pic, pac, gcs FROM aircraft"):
+        for role in ROLES:
+            person = resolve(role, a[role], None)
+            if person:
+                ids.add(person["id"])
+    for table in ("flights", "flight_records"):
+        for role in ROLES:
+            ids.update(r[0] for r in con.execute(
+                f"SELECT DISTINCT {role}_user_id FROM {table} WHERE {role}_user_id IS NOT NULL"))
+    return ids
 
 
 def add_people(rows, resolve, users=None):
@@ -2232,6 +2250,7 @@ def drone_payload(con, d):
     aliases = [r["alias"] for r in con.execute(
         "SELECT alias FROM drone_aliases WHERE drone_id=? ORDER BY alias", (d["id"],))]
     n = con.execute("SELECT COUNT(DISTINCT log_id) AS n FROM aircraft WHERE drone_id=?", (d["id"],)).fetchone()["n"]
+    records = con.execute("SELECT COUNT(*) AS n FROM flight_records WHERE drone_id=?", (d["id"],)).fetchone()["n"]
     proj = con.execute("SELECT name FROM projects WHERE id=?", (d["default_project_id"],)).fetchone() if d["default_project_id"] else None
     periods = drone_periods(con, d["id"])
     return {"id": d["id"], "name": d["name"], "unique_id": d["unique_id"],
@@ -2240,7 +2259,7 @@ def drone_payload(con, d):
             "projects": periods,
             "manager": d["manager"], "current_user": d["current_user"], "status": d["status"],
             "bought_on": d["bought_on"], "inventory_project": d["inventory_project"],
-            "comments": d["comments"], "aliases": aliases, "log_count": n}
+            "comments": d["comments"], "aliases": aliases, "log_count": n, "record_count": records}
 
 
 def fleet_payload(con, include_unlinked=False, project_ids=None):
@@ -3178,13 +3197,14 @@ def admin_people():
     """Users with their aliases, plus the names seen in logs that are not linked to any user yet."""
     admin_required()
     con = conn()
+    with_logs = people_with_logs(con)
     users = []
     for u in con.execute("SELECT * FROM users ORDER BY username"):
         prov = u["provider"] or "local"
         users.append(dict(
             id=u["id"], username=u["username"], display_name=u["display_name"], email=u["email"],
             is_admin=bool(u["is_admin"]), is_external=bool(u["is_external"]), has_password=bool(u["password_hash"]),
-            provider=prov, pending=prov == "log",
+            provider=prov, pending=prov == "log", has_logs=u["id"] in with_logs,
             default_project_id=u["default_project_id"],
             aliases=[r["alias"] for r in con.execute(
                 "SELECT alias FROM user_aliases WHERE user_id=? ORDER BY alias", (u["id"],))],
@@ -4180,6 +4200,7 @@ def detail_aircraft(con, drone_id, admin, mine):
         return None
     out = drone_payload(con, d)
     out.pop("log_count")
+    out.pop("record_count")
     if not admin and d["default_project_id"] not in mine:
         out["default_project_id"] = out["default_project_name"] = None
     out["logged_names"] = [r["name"] for r in con.execute(
