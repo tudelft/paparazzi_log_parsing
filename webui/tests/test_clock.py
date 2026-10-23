@@ -215,14 +215,20 @@ class ClockMigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "test.db"
             with sqlite3.connect(path) as con:
-                schema = "\n".join(line for line in db.SCHEMA.splitlines() if not line.strip().startswith("timing TEXT"))
+                schema = "\n".join(line for line in db.SCHEMA.splitlines()
+                                   if not line.strip().startswith(("timing TEXT", "has_gps_position INTEGER")))
                 con.executescript(schema)
                 con.execute("INSERT INTO logs(name,sha256,data_path,status,uploaded_at)"
                             " VALUES ('legacy','hash','legacy.data','done','now')")
+                con.execute("INSERT INTO aircraft(id,log_id,name) VALUES(1,1,'Legacy aircraft')")
+                con.execute("INSERT INTO flights(aircraft_id,idx,duration_s) VALUES(1,1,60)")
             db.init(path)
             db.init(path)
             with sqlite3.connect(path) as con:
                 self.assertEqual(con.execute("SELECT name,timing FROM logs").fetchone(), ("legacy", None))
+                self.assertIn("has_gps_position", {r[1] for r in con.execute("PRAGMA table_info(flights)")})
+                self.assertEqual(con.execute("SELECT duration_s,has_gps_position FROM flights").fetchone(),
+                                 (60, None))
 
 
 if __name__ == "__main__":

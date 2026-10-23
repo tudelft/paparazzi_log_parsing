@@ -1,6 +1,7 @@
 """SQLite storage for parsed Paparazzi logs."""
 import gzip
 import json
+import math
 import sqlite3
 import threading
 import time
@@ -158,6 +159,7 @@ CREATE TABLE IF NOT EXISTS flights (
     landing_time_s REAL, landing_utc TEXT, landing_lat REAL, landing_lon REAL, landing_alt_m REAL, landing_voltage_v REAL,
     takeoff_json TEXT, landing_json TEXT,   -- full takeoff/landing objects (wind, ins, ...)
     num_points INTEGER,
+    has_gps_position INTEGER CHECK(has_gps_position IN (0,1)),
     verdict TEXT,                      -- parser estimate: flight | uncertain | ground
     assessment_json TEXT,              -- score, reasons and metrics behind the verdict
     project_id INTEGER,                -- projects.id; auto from aircraft / uploader / GCS / PIC, then editable
@@ -342,6 +344,8 @@ def init(path):
     if "uploaded_by" not in cols:  # database created before accounts existed
         con.execute("ALTER TABLE logs ADD COLUMN uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
     fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
+    if "has_gps_position" not in fcols:
+        con.execute("ALTER TABLE flights ADD COLUMN has_gps_position INTEGER CHECK(has_gps_position IN (0,1))")
     if "project_source" not in fcols:
         con.execute("ALTER TABLE flights ADD COLUMN project_source TEXT")
     for table in ("flights", "flight_records"):
@@ -429,6 +433,17 @@ def flight_paths(doc):
     return [f.get("path") or [] for ac in doc.get("aircraft", []) for f in ac.get("flights", [])]
 
 
+def valid_gps_location(lat, lon):
+    return (isinstance(lat, (int, float)) and isinstance(lon, (int, float))
+            and math.isfinite(lat) and math.isfinite(lon)
+            and -90 <= lat <= 90 and -180 <= lon <= 180 and (lat != 0 or lon != 0))
+
+
+def path_has_gps_position(path):
+    return any(valid_gps_location((p.get("position") or {}).get("lat"),
+                                  (p.get("position") or {}).get("lon")) for p in path)
+
+
 def store_parsed(con, log_id, doc, paths_file):
     """Replace the parsed content of a log by the output of the C++ parser (caller commits).
 
@@ -468,13 +483,16 @@ def store_parsed(con, log_id, doc, paths_file):
                 "INSERT INTO flights (aircraft_id, idx, duration_s, distance_m, from_takeoff_m, max_from_takeoff_m, landed,"
                 " takeoff_time_s, takeoff_utc, takeoff_lat, takeoff_lon, takeoff_alt_m, takeoff_voltage_v,"
                 " landing_time_s, landing_utc, landing_lat, landing_lon, landing_alt_m, landing_voltage_v,"
-                " takeoff_json, landing_json, num_points, verdict, assessment_json, path_idx) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " takeoff_json, landing_json, num_points, verdict, assessment_json, path_idx, has_gps_position)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (ac_pk, f.get("flight"), f.get("duration_s"), f.get("distance_m"), f.get("from_takeoff_m"),
                  f.get("max_from_takeoff_m"), int(bool(f.get("landed"))),
                  to.get("time_s"), to.get("utc"), tlat, tlon, talt, to.get("voltage_v"),
                  ld.get("time_s"), ld.get("utc"), llat, llon, lalt, ld.get("voltage_v"),
                  json.dumps(to), json.dumps(ld), len(path),
-                 (f.get("assessment") or {}).get("verdict"), json.dumps(f.get("assessment")), path_idx),
+                 (f.get("assessment") or {}).get("verdict"), json.dumps(f.get("assessment")), path_idx,
+                 int(valid_gps_location(tlat, tlon) or valid_gps_location(llat, llon)
+                     or path_has_gps_position(path))),
             )
             path_idx += 1
         changes = (ac.get("settings_changes") or {}).get("timeline") or []

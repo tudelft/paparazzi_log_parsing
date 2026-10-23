@@ -31,6 +31,9 @@ class AppTests(unittest.TestCase):
         cls.app.config.update(TESTING=True, SECRET_KEY="historical-tests", SESSION_COOKIE_SECURE=False)
 
     def setUp(self):
+        settings = patch.dict(os.environ, LOGDB_HIDE_UNLINKED_AIRCRAFT="0")
+        settings.start()
+        self.addCleanup(settings.stop)
         self.con = sqlite3.connect(":memory:")
         self.con.row_factory = sqlite3.Row
         self.con.execute("PRAGMA foreign_keys=ON")

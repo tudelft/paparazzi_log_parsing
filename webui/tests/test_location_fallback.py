@@ -18,6 +18,9 @@ class LocationFallbackTests(AppTests):
             " takeoff_lat,takeoff_lon,landing_lat,landing_lon,takeoff_json,landing_json,verdict,path_idx)"
             " VALUES(?,?,1,60,'2010-01-01T12:00:00.000Z',NULL,?,?,?,?,?,NULL,'flight',0)",
             (identity, identity, *takeoff, *landing, json.dumps({"location": None})))
+        self.con.execute("UPDATE flights SET has_gps_position=? WHERE id=?",
+                         (int(db.valid_gps_location(*takeoff) or db.valid_gps_location(*landing)
+                              or db.path_has_gps_position(path or [])), identity))
         if path is not None:
             target = self.ns["STORAGE_DIR"] / f"location-{identity}.json.gz"
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -33,7 +36,7 @@ class LocationFallbackTests(AppTests):
             with self.subTest(inferred=inferred, takeoff=takeoff):
                 self.con.execute("DELETE FROM logs")
                 self.insert_flight(takeoff, landing)
-                with patch.dict(self.ns, flight_has_gps_path=lambda *args: self.fail("No path scan needed")):
+                with patch.dict(self.ns, flight_path=lambda *args, **kwargs: self.fail("No path scan needed")):
                     entry = self.client.get("/api/logbook").json[0]
                 for end in ("takeoff", "landing"):
                     self.assertEqual((entry[end + "_lat"], entry[end + "_lon"]), (52, 4))
@@ -109,3 +112,65 @@ class LocationFallbackTests(AppTests):
         entry = self.client.get("/api/logbook").json[0]
         self.assertEqual(entry["source_type"], "paper")
         self.assertFalse(entry["indoor"])
+
+    def test_overviews_use_summary_without_loading_paths(self):
+        self.insert_flight(path=[{"position": {"lat": 52, "lon": 4}}])
+        with patch.dict(self.ns, load_paths=lambda *args: self.fail("Overview loaded paths"),
+                        flight_path=lambda *args, **kwargs: self.fail("Overview loaded a path")):
+            for url in ("/api/logbook", "/api/stats", "/api/detail/projects/1", "/api/places"):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200, url)
+            self.assertFalse(self.client.get("/api/logbook").json[0]["indoor"])
+
+    def test_legacy_backfill_preserves_gps_detection_and_is_idempotent(self):
+        self.insert_flight(path=[{"position": {"lat": 52, "lon": 4}}])
+        self.insert_flight(path=[{"position": {"lat": 0, "lon": 0}}], identity=2)
+        self.insert_flight(takeoff=(52, 4), identity=3)
+        self.con.execute("UPDATE flights SET has_gps_position=NULL")
+        self.con.commit()
+        self.ns["backfill_gps_positions"](self.con)
+        self.assertEqual([r[0] for r in self.con.execute("SELECT has_gps_position FROM flights ORDER BY id")],
+                         [1, 0, 1])
+        with patch("pathlib.Path.read_bytes", side_effect=AssertionError("Already backfilled")):
+            self.ns["backfill_gps_positions"](self.con)
+
+    def test_missing_legacy_path_fails_explicitly_and_can_retry(self):
+        self.insert_flight(path=[{"position": {"lat": 52, "lon": 4}}])
+        self.con.execute("UPDATE flights SET has_gps_position=NULL")
+        self.con.commit()
+        with patch("pathlib.Path.read_bytes", side_effect=FileNotFoundError("missing share file")):
+            with self.assertLogs(self.app.logger, level="ERROR"), self.assertRaises(FileNotFoundError):
+                self.ns["backfill_gps_positions"](self.con)
+        self.assertIsNone(self.con.execute("SELECT has_gps_position FROM flights").fetchone()[0])
+        self.assertEqual(self.client.get("/api/logbook").status_code, 503)
+        self.ns["backfill_gps_positions"](self.con)
+        self.assertFalse(self.client.get("/api/logbook").json[0]["indoor"])
+
+    def test_legacy_blob_backfill_and_parse_storage(self):
+        self.insert_flight()
+        self.con.execute("ALTER TABLE flights ADD COLUMN path_gz BLOB")
+        self.con.execute("UPDATE flights SET has_gps_position=NULL,path_gz=?",
+                         (db.pack([{"position": {"lat": 52, "lon": 4}}]),))
+        self.con.commit()
+        self.ns["backfill_gps_positions"](self.con)
+        self.assertEqual(self.con.execute("SELECT has_gps_position FROM flights").fetchone()[0], 1)
+        for path, expected in (([], 0), ([{"position": {"lat": 52, "lon": 4}}], 1),
+                               ([{"position": {"lat": 0, "lon": 0}}], 0)):
+            doc = {"aircraft": [{"flights": [{"path": path}]}]}
+            db.store_parsed(self.con, 1, doc, None)
+            self.assertEqual(self.con.execute("SELECT has_gps_position FROM flights").fetchone()[0], expected)
+        db.store_parsed(self.con, 1, {"aircraft": [{"flights": [
+            {"takeoff": {"location": {"lat": 52, "lon": 4}}, "path": []}]}]}, None)
+        self.assertEqual(self.con.execute("SELECT has_gps_position FROM flights").fetchone()[0], 1)
+
+    def test_backfill_reads_each_log_once_and_preserves_flight_data(self):
+        self.insert_flight(path=[{"position": {"lat": 52, "lon": 4}}])
+        self.con.execute("UPDATE flights SET has_gps_position=NULL")
+        self.con.execute("INSERT INTO flights(aircraft_id,idx,path_idx,duration_s) VALUES(1,2,0,25)")
+        self.con.commit()
+        with patch("pathlib.Path.read_bytes", return_value=db.pack([
+                [{"position": {"lat": 52, "lon": 4}}]])) as read:
+            self.ns["backfill_gps_positions"](self.con)
+            read.assert_called_once()
+        self.assertEqual([tuple(r) for r in self.con.execute(
+            "SELECT duration_s,has_gps_position FROM flights ORDER BY id")], [(60, 1), (25, 1)])

@@ -185,6 +185,34 @@ uploads what the server does not know.
 
 ## Settings
 
+### Overview GPS summaries
+
+Logbook, statistics and entity overviews determine no-GPS indoor flights from a small
+`flights.has_gps_position` summary, not by opening compressed flight paths on each request.
+New parses store whether a flight has a valid endpoint or a valid GPS sample in its saved path.
+Merged recordings use evidence from all sources; coordinate validity and indoor classification
+rules are unchanged.
+
+On the first startup after upgrading, the server fills missing summaries before starting workers
+or serving requests. Flights with valid endpoints need no path reads; the remaining legacy paths
+are checked once (including old SQLite path blobs). No raw telemetry reparse is needed.
+The backfill commits per log and resumes after interruption. Missing/unreadable/corrupt path files
+fail the backfill explicitly rather than permanently misclassifying flights as indoors; restore
+storage access and retry. Subsequent startups skip completed summaries.
+
+To run the backfill separately, stop the server and run from the repository root with the same
+environment/configuration as the service:
+
+```sh
+./pprzlog_env/bin/python webui/app.py backfill-gps-positions
+```
+
+Then restart the server. Reparse replaces summaries along with the flight rows. Flight maps and
+charts still load their paths when requested; overviews do not. This does not cache source merging
+or add server-side pagination.
+
+### Environment configuration
+
 Settings are `LOGDB_<NAME>` values, read from the environment, else from one file: `$LOGDB_CONFIG`, else
 `/etc/flight-logs/logdb.env`, else `webui/logdb.env`. [logdb.env.example](logdb.env.example) lists them all with an
 explanation. `python3 app.py check-config` shows the effective values and where they come from, and catches typos,

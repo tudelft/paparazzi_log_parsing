@@ -267,6 +267,7 @@ def start_workers():
     db.init(DB_PATH)
     con = conn()
     HAVE_PATH_GZ = "path_gz" in {r[1] for r in con.execute("PRAGMA table_info(flights)")}
+    backfill_gps_positions(con)
     seed_drone_projects_from_defaults(con)
     assign_open_flights(con)
     con.execute("UPDATE logs SET status='queued' WHERE status IN ('queued', 'parsing')")
@@ -1180,6 +1181,7 @@ def cli(argv):
     ac = sub.add_parser("activate-user")
     ac.add_argument("username")
     sub.add_parser("backup", help="copy the database and keys to LOGDB_BACKUP_DIR (overwrites the previous copy)")
+    sub.add_parser("backfill-gps-positions", help="populate legacy GPS summaries without reparsing logs")
     a = p.parse_args(argv)
 
     if a.cmd == "backup":
@@ -1187,6 +1189,10 @@ def cli(argv):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     db.init(DB_PATH)
     con = conn()
+
+    if a.cmd == "backfill-gps-positions":
+        backfill_gps_positions(con)
+        return
 
     def ask_password():
         pw = getpass.getpass("Password: ")
@@ -3701,9 +3707,47 @@ def stats():
 
 
 def valid_gps_location(lat, lon):
-    return (isinstance(lat, (int, float)) and isinstance(lon, (int, float))
-            and math.isfinite(lat) and math.isfinite(lon)
-            and -90 <= lat <= 90 and -180 <= lon <= 180 and (lat != 0 or lon != 0))
+    return db.valid_gps_location(lat, lon)
+
+
+def backfill_gps_positions(con):
+    """Read legacy paths once, outside requests; commit per log so interrupted upgrades resume."""
+    legacy = "path_gz" in {r[1] for r in con.execute("PRAGMA table_info(flights)")}
+    rows = con.execute(
+        "SELECT f.id, f.takeoff_lat, f.takeoff_lon, f.landing_lat, f.landing_lon, f.path_idx,"
+        " a.log_id, l.paths_file" + (", f.path_gz" if legacy else "") +
+        " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id"
+        " WHERE f.has_gps_position IS NULL ORDER BY a.log_id, f.id").fetchall()
+    if not rows:
+        return
+    print(f"Backfilling GPS summaries for {len(rows)} flights (one-time path check) ...", flush=True)
+    last_log, paths = None, None
+    try:
+        for row in rows:
+            if row["log_id"] != last_log:
+                con.commit()
+                last_log, paths = row["log_id"], None
+            known = (valid_gps_location(row["takeoff_lat"], row["takeoff_lon"])
+                     or valid_gps_location(row["landing_lat"], row["landing_lon"]))
+            if not known:
+                path = []
+                if row["paths_file"]:
+                    if paths is None:
+                        paths = db.unpack((STORAGE_DIR / row["paths_file"]).read_bytes()) or []
+                    idx = row["path_idx"]
+                    if idx is not None and 0 <= idx < len(paths):
+                        path = paths[idx]
+                if not path and legacy and row["path_gz"]:
+                    path = db.unpack(row["path_gz"]) or []
+                known = db.path_has_gps_position(path)
+            con.execute("UPDATE flights SET has_gps_position=? WHERE id=? AND has_gps_position IS NULL",
+                        (int(known), row["id"]))
+        con.commit()
+    except (OSError, EOFError, ValueError, sqlite3.Error):
+        con.rollback()
+        app.logger.exception("GPS summary backfill failed at log %s; retry before serving overviews", last_log)
+        raise
+    print("GPS summary backfill complete.", flush=True)
 
 
 def endpoint_location_fallback(row):
@@ -3718,27 +3762,12 @@ def endpoint_location_fallback(row):
     return any(known.values())
 
 
-def flight_has_gps_path(con, sources):
-    for source in sources:
-        row = con.execute(
-            "SELECT f.path_idx, l.paths_file" + (", f.path_gz" if HAVE_PATH_GZ else "") +
-            " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
-            " JOIN logs l ON l.id=a.log_id WHERE f.id=?", (source["flight_id"],)).fetchone()
-        if row is not None:
-            path = flight_path(row["paths_file"], row["path_idx"],
-                               path_gz=row["path_gz"] if HAVE_PATH_GZ else None)
-            if any(valid_gps_location((p.get("position") or {}).get("lat"),
-                                      (p.get("position") or {}).get("lon")) for p in path):
-                return True
-    return False
-
-
 def logbook_rows(hidden=False, hide_unlinked=False):
     where, params = flight_list_clause()
     con = conn()
     rows = con.execute(
         "SELECT f.id AS flight_id, f.idx, f.takeoff_utc, f.landing_utc, f.duration_s, f.distance_m,"
-        " f.from_takeoff_m, f.max_from_takeoff_m, f.landed,"
+        " f.from_takeoff_m, f.max_from_takeoff_m, f.landed, f.has_gps_position,"
         " f.takeoff_lat, f.takeoff_lon, f.landing_lat, f.landing_lon, f.project_id,"
         " f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment,"
         " a.id AS aircraft_pk, a.ac_id, COALESCE(d.name, a.name) AS aircraft, a.name AS aircraft_logged,"
@@ -3780,7 +3809,11 @@ def logbook_rows(hidden=False, hide_unlinked=False):
         r["landing_place"], _, r["landing_place_id"] = place(r["landing_lat"], r["landing_lon"])
         r["assessment"] = json.loads(r.pop("assessment_json") or "null")
         r["optitrack"] = bool((r["assessment"] or {}).get("optitrack"))
-        r["indoor_no_gps"] = not has_endpoint and not flight_has_gps_path(con, r["sources"])
+        gps_summaries = [source_rows[s["flight_id"]]["has_gps_position"] for s in r["sources"]]
+        r.pop("has_gps_position")
+        if not has_endpoint and not any(gps_summaries) and None in gps_summaries:
+            abort(503, description="GPS summaries are incomplete; run app.py backfill-gps-positions.")
+        r["indoor_no_gps"] = not has_endpoint and not any(gps_summaries)
         r["indoor"] = bool(r["indoor"] or r["optitrack"] or r["indoor_no_gps"])
         if r["optitrack"] and not r["takeoff_place"]:
             r["takeoff_place"] = "OptiTrack"
