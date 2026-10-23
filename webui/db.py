@@ -150,9 +150,9 @@ CREATE TABLE IF NOT EXISTS flights (
     aircraft_id INTEGER NOT NULL REFERENCES aircraft(id) ON DELETE CASCADE,
     idx INTEGER,
     duration_s REAL,
-    distance_m REAL,                   -- 3D path length flown from the parser [m]
-    from_takeoff_m REAL,               -- 3D range from takeoff at landing / last sample [m]
-    max_from_takeoff_m REAL,           -- farthest 3D range from takeoff during the flight [m]
+    distance_m REAL,                   -- horizontal path length flown from the parser [m]
+    from_takeoff_m REAL,               -- horizontal range from takeoff at landing / last sample [m]
+    max_from_takeoff_m REAL,           -- farthest horizontal range from takeoff during the flight [m]
     landed INTEGER,
     takeoff_time_s REAL, takeoff_utc TEXT, takeoff_lat REAL, takeoff_lon REAL, takeoff_alt_m REAL, takeoff_voltage_v REAL,
     landing_time_s REAL, landing_utc TEXT, landing_lat REAL, landing_lon REAL, landing_alt_m REAL, landing_voltage_v REAL,

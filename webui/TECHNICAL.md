@@ -53,6 +53,13 @@ Day-to-day:
 
 After an update that changes the parser version, click **Re-parse outdated** on the Uploads page.
 
+**Paparazzi distances.** From parser 1.6.0, distance flown, distance from takeoff and maximum
+distance from takeoff are horizontal (ground-plane) metres, including cumulative distances in saved
+paths and aircraft/log totals. GPS uses latitude/longitude; the GPS-free INS fallback uses north/east
+displacement only. Vertical movement adds no distance. Altitudes remain available for charts and
+flight assessment. This prevents differing GPS altitude reference levels from inflating distances;
+horizontal GPS noise/jumps can still affect them. Reparse existing uploads to replace old 3D distances.
+
 **Paparazzi clock validation.** Parser 1.5.0 checks `GPS` / `GPS_LLA` messages containing a full GPS
 week, time-of-week and a valid 3D fix. It converts GPS time to UTC with historical leap-second offsets;
 time-of-week alone cannot establish a date. At least three samples spanning 30 seconds must imply a

@@ -21,13 +21,13 @@ def gps_line(t, utc, ac=5, fix=3, message="GPS"):
     return f"{t:.4f} {ac} {message} {fix} {int(week)} {tow * 1000:.0f}\n"
 
 
-def parse_fixture(lines, start=START, message="GPS", fields=("mode", "week", "itow")):
+def parse_fixture(lines, start=START, message="GPS", fields=("mode", "week", "itow"), extra_messages=()):
     with tempfile.TemporaryDirectory() as folder:
         path = Path(folder) / "fixture.data"
         path.write_text("".join(lines))
         header = f'<configuration time_of_day="{start.timestamp()}">\n' if start else "<configuration>\n"
         header += '<aircraft name="ClockTest" ac_id="5"/>\n<protocol>\n<msg_class name="telemetry">\n'
-        for name, names in ((message, fields), ("ROTORCRAFT_STATUS", ("ap_mode", "ap_in_flight"))):
+        for name, names in ((message, fields), ("ROTORCRAFT_STATUS", ("ap_mode", "ap_in_flight")), *extra_messages):
             header += f'<message name="{name}">\n'
             header += "".join(f'<field name="{field}"/>\n' for field in names)
             header += "</message>\n"
@@ -41,7 +41,7 @@ class ParserClockTests(unittest.TestCase):
     def setUp(self):
         self.assertTrue(PARSER.exists(), "Build the C++ parser first")
         version = subprocess.check_output([str(PARSER), "--version"], text=True).strip()
-        self.assertEqual(version, "1.5.0", "Rebuild the parser before running clock tests")
+        self.assertEqual(version, "1.6.0", "Rebuild the parser before running clock tests")
 
     def samples(self, start=START, ac=5, fix=3, message="GPS"):
         return [gps_line(t, start + timedelta(seconds=t), ac, fix, message) for t in (0, 20, 40, 60)]

@@ -43,7 +43,7 @@ struct InsState {
   double pos[3] = {0, 0, 0}, vel[3] = {0, 0, 0}, acc[3] = {0, 0, 0};
 };
 
-// Horizontal metres on the WGS84 sphere, then 3D with altitude.
+// Horizontal metres on the WGS84 sphere.
 double earth_distance_m(double lat1, double lon1, double lat2, double lon2)
 {
   const double r = M_PI / 180.0;
@@ -51,11 +51,6 @@ double earth_distance_m(double lat1, double lon1, double lat2, double lon2)
   const double a = std::sin(dp / 2) * std::sin(dp / 2) +
                    std::cos(p1) * std::cos(p2) * std::sin(dl / 2) * std::sin(dl / 2);
   return 2 * 6371000.0 * std::atan2(std::sqrt(a), std::sqrt(std::max(0.0, 1.0 - a)));
-}
-
-double step_distance_m(double lat1, double lon1, double alt1, double lat2, double lon2, double alt2)
-{
-  return std::hypot(earth_distance_m(lat1, lon1, lat2, lon2), alt2 - alt1);
 }
 
 // WGS84 ECEF metres -> lat/lon degrees and height above the ellipsoid.
@@ -107,8 +102,8 @@ bool utm_to_lla(double east_m, double north_m, int zone, double &lat_deg, double
 
 struct PathPoint {
   double t, lat, lon, alt;
-  double distance_m;       // cumulative 3D distance flown along the path [m]
-  double from_takeoff_m;   // 3D range from the takeoff location [m]
+  double distance_m;       // cumulative horizontal distance flown along the path [m]
+  double from_takeoff_m;   // horizontal range from the takeoff location [m]
   bool has_baro;
   double pressure_pa, baro_alt_m;  // AIR_DATA static pressure and barometric altitude (AMSL)
   bool has_volt, has_as;
@@ -183,14 +178,14 @@ struct Flight {
   double land_lat = 0, land_lon = 0, land_alt = 0;
   bool has_land_pos = false;
   bool complete = false;  // false if the log ended while in flight
-  double distance_m = 0;            // 3D path length flown; GPS when available, else INS
-  double from_takeoff_m = 0;        // 3D range from takeoff at the latest sample
-  double max_from_takeoff_m = 0;    // farthest 3D range from takeoff during the flight
+  double distance_m = 0;            // horizontal path length flown; GPS when available, else INS
+  double from_takeoff_m = 0;        // horizontal range from takeoff at the latest sample
+  double max_from_takeoff_m = 0;    // farthest horizontal range from takeoff during the flight
   bool has_prev_gps = false, has_prev_ins = false, has_gps_origin = false, has_ins_origin = false;
-  double prev_lat = 0, prev_lon = 0, prev_alt = 0;
-  double prev_n = 0, prev_e = 0, prev_d = 0;
-  double origin_lat = 0, origin_lon = 0, origin_alt = 0;
-  double origin_n = 0, origin_e = 0, origin_d = 0;
+  double prev_lat = 0, prev_lon = 0;
+  double prev_n = 0, prev_e = 0;
+  double origin_lat = 0, origin_lon = 0;
+  double origin_n = 0, origin_e = 0;
 
   double duration() const { return landing_time - takeoff_time; }
 
@@ -203,46 +198,46 @@ struct Flight {
     return !(lat == 0.0 && lon == 0.0) && lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0;
   }
 
-  // Every GPS_INT with a 3D fix. Jumps over 500 m in one sample are ignored (glitches).
-  void add_gps_step(double lat, double lon, double alt) {
+  // GPS/GPS_INT with a 3D fix. Horizontal jumps over 500 m are ignored (glitches).
+  void add_gps_step(double lat, double lon) {
     bool use = true;
     if (has_prev_gps) {
-      const double d = step_distance_m(prev_lat, prev_lon, prev_alt, lat, lon, alt);
+      const double d = earth_distance_m(prev_lat, prev_lon, lat, lon);
       if (d < 500) { distance_m += d; }
       else { use = false; }
     }
     if (use && plausible_ll(lat, lon)) {
       if (!has_gps_origin) {
         if (has_pos && plausible_ll(this->lat, this->lon)) {
-          origin_lat = this->lat; origin_lon = this->lon; origin_alt = this->alt;
+          origin_lat = this->lat; origin_lon = this->lon;
         } else {
-          origin_lat = lat; origin_lon = lon; origin_alt = alt;
+          origin_lat = lat; origin_lon = lon;
         }
         has_gps_origin = true;
         from_takeoff_m = 0;
         max_from_takeoff_m = 0;
       }
-      set_from_takeoff(step_distance_m(origin_lat, origin_lon, origin_alt, lat, lon, alt));
+      set_from_takeoff(earth_distance_m(origin_lat, origin_lon, lat, lon));
     }
     has_prev_gps = true;
-    prev_lat = lat; prev_lon = lon; prev_alt = alt;
+    prev_lat = lat; prev_lon = lon;
   }
   // INS NED steps only until the first GPS fix, so indoor flights still get a length and range.
   void add_ins_step(const InsState &n) {
     if (has_prev_gps) { return; }
     if (has_prev_ins) {
-      distance_m += std::hypot(n.pos[0] - prev_n, n.pos[1] - prev_e, n.pos[2] - prev_d);
+      distance_m += std::hypot(n.pos[0] - prev_n, n.pos[1] - prev_e);
     } else if (takeoff_ins.valid) {
-      origin_n = takeoff_ins.pos[0]; origin_e = takeoff_ins.pos[1]; origin_d = takeoff_ins.pos[2];
+      origin_n = takeoff_ins.pos[0]; origin_e = takeoff_ins.pos[1];
       has_ins_origin = true;
     } else {
-      origin_n = n.pos[0]; origin_e = n.pos[1]; origin_d = n.pos[2];
+      origin_n = n.pos[0]; origin_e = n.pos[1];
       has_ins_origin = true;
     }
     has_prev_ins = true;
-    prev_n = n.pos[0]; prev_e = n.pos[1]; prev_d = n.pos[2];
+    prev_n = n.pos[0]; prev_e = n.pos[1];
     if (has_ins_origin) {
-      set_from_takeoff(std::hypot(n.pos[0] - origin_n, n.pos[1] - origin_e, n.pos[2] - origin_d));
+      set_from_takeoff(std::hypot(n.pos[0] - origin_n, n.pos[1] - origin_e));
     }
   }
 };
@@ -996,7 +991,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.5.0";
+constexpr const char *PARSER_VERSION = "1.6.0";
 
 struct GpsClock {
   size_t count = 0;
@@ -1325,7 +1320,7 @@ int main(int argc, char *argv[])
     if (s.in_flight && !s.flights.empty()) {
       Flight &f = s.flights.back();
       f.stats.add_gps(s.lat, s.lon, s.alt);
-      f.add_gps_step(s.lat, s.lon, s.alt);
+      f.add_gps_step(s.lat, s.lon);
     }
     if (path_rate > 0 && s.in_flight && !s.flights.empty() &&
         static_cast<long>(t * path_rate) != s.last_path_bucket) {
