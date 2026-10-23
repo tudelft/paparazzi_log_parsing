@@ -3,6 +3,7 @@ import io
 import json
 import sqlite3
 import tempfile
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -445,3 +446,145 @@ class QualificationTests(AppTests):
         self.assertNotIn('submitQualification', pilot)
         self.assertNotIn('qualificationHistory', pilot)
         self.assertNotIn('saveQualificationType', pilot)
+        self.assertIn("Import ZIP", people)
+        self.assertIn("previewQualImport", people)
+        self.assertIn("data-view", script)
+        self.assertIn("Archive (", script)
+        self.assertIn("/api/admin/qualifications/import", people)
+
+
+class QualificationImportTests(AppTests):
+    def setUp(self):
+        super().setUp()
+        self.sign_in(1)
+        evidence = tempfile.TemporaryDirectory()
+        staging = tempfile.TemporaryDirectory()
+        self.addCleanup(evidence.cleanup)
+        self.addCleanup(staging.cleanup)
+        self.root = Path(evidence.name)
+        self.stage = Path(staging.name)
+        old_ev = self.app.config["QUALIFICATION_EVIDENCE_DIR"]
+        old_imp = self.app.config["QUALIFICATION_IMPORT_DIR"]
+        self.app.config["QUALIFICATION_EVIDENCE_DIR"] = self.root
+        self.app.config["QUALIFICATION_IMPORT_DIR"] = self.stage
+        self.addCleanup(self.app.config.__setitem__, "QUALIFICATION_EVIDENCE_DIR", old_ev)
+        self.addCleanup(self.app.config.__setitem__, "QUALIFICATION_IMPORT_DIR", old_imp)
+        self.tid = self.client.post("/api/qualification-types", json={
+            "name": "A2", "requires_evidence": True, "requires_start": False, "requires_expiry": True}).json["id"]
+
+    def zip_payload(self, person="Pilot", type_name="A2", until="2026-12-01", pdf=PDF,
+                    filename="Pilot/A2_until-2026-12-01.pdf"):
+        csv_text = "person,type,valid_from,valid_until,file\n" f"{person},{type_name},,{until},{filename}\n"
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("manifest.csv", csv_text)
+            archive.writestr(filename, pdf)
+        buf.seek(0)
+        return buf
+
+    def preview(self, payload, name="qualifications.zip"):
+        response = self.client.post("/api/admin/qualifications/import",
+                                    data={"file": (payload, name)})
+        payload.close()
+        return response
+
+    def test_preview_and_commit_approves_with_evidence_and_dates(self):
+        preview = self.preview(self.zip_payload())
+        self.assertEqual(preview.status_code, 200, preview.json)
+        self.assertTrue(preview.json["can_commit"])
+        self.assertEqual(preview.json["ok"], 1)
+        self.assertEqual(preview.json["rows"][0]["person_name"], "Pilot")
+        self.assertEqual(preview.json["rows"][0]["valid_until"], "2026-12-01")
+        commit = self.client.post("/api/admin/qualifications/import/commit",
+                                  json={"token": preview.json["token"]})
+        self.assertEqual(commit.status_code, 201, commit.json)
+        sid = commit.json["ids"][0]
+        row = self.con.execute("SELECT * FROM qualification_submissions WHERE id=?", (sid,)).fetchone()
+        self.assertEqual(row["status"], "approved")
+        self.assertEqual(row["user_id"], 2)
+        self.assertEqual(row["valid_until"], "2026-12-01")
+        self.assertEqual(row["submitted_by"], 1)
+        self.assertEqual(row["reviewed_by"], 1)
+        downloaded = self.client.get(f"/api/qualification-submissions/{sid}/evidence")
+        self.assertEqual(downloaded.status_code, 200)
+        self.assertEqual(downloaded.data, PDF)
+
+    def archive_zip(self, *periods):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("manifest.csv", "person,type,valid_from,valid_until,file\n" + "".join(
+                f"Pilot,A2,,{until},Pilot/A2_until-{until}.pdf\n" for until in periods))
+            for until in periods:
+                archive.writestr(f"Pilot/A2_until-{until}.pdf", PDF)
+        buf.seek(0)
+        return buf
+
+    def import_zip(self, payload):
+        preview = self.preview(payload)
+        self.assertEqual(preview.status_code, 200, preview.json)
+        commit = self.client.post("/api/admin/qualifications/import/commit", json={"token": preview.json["token"]})
+        return preview.json, commit
+
+    def statuses(self):
+        return [tuple(r) for r in self.con.execute(
+            "SELECT valid_until,status FROM qualification_submissions WHERE user_id=2 ORDER BY valid_until")]
+
+    def test_older_periods_are_archived_and_reimport_is_skipped(self):
+        preview, commit = self.import_zip(self.archive_zip("2019-06-01", "2027-03-01", "2022-06-01"))
+        self.assertEqual([r["outcome"] for r in preview["rows"]], ["archive", "current", "archive"])
+        self.assertEqual((commit.status_code, commit.json["current"], commit.json["archived"]), (201, 1, 2))
+        self.assertEqual(self.statuses(), [("2019-06-01", "superseded"), ("2022-06-01", "superseded"),
+                                           ("2027-03-01", "approved")])
+        preview, commit = self.import_zip(self.archive_zip("2019-06-01", "2027-03-01", "2017-01-01"))
+        self.assertEqual([r["outcome"] for r in preview["rows"]], ["skip", "skip", "archive"])
+        self.assertEqual((commit.status_code, commit.json["archived"], commit.json["skipped"]), (201, 1, 2))
+        self.assertEqual(self.statuses()[-1], ("2027-03-01", "approved"))
+        self.assertEqual(len(self.statuses()), 4)
+        repeat = self.preview(self.archive_zip("2019-06-01"))
+        self.assertFalse(repeat.json["can_commit"])
+        preview, commit = self.import_zip(self.archive_zip("2029-01-01"))
+        self.assertEqual(preview["rows"][0]["outcome"], "current")
+        self.assertIn("Archive", preview["rows"][0]["warning"])
+        self.assertEqual(self.statuses()[-2:], [("2027-03-01", "superseded"), ("2029-01-01", "approved")])
+        detail = self.client.get("/api/detail/people/2").json["item"]["qualifications"]["items"]
+        self.assertEqual([i["valid_until"] for i in detail], ["2029-01-01"])
+
+    def test_new_names_become_users_and_ambiguous_or_csv_only_rows_are_blocked(self):
+        before = self.con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        preview = self.preview(self.zip_payload(person="Dennis van Wijngaarden"))
+        self.assertTrue(preview.json["can_commit"])
+        self.assertEqual((preview.json["new_people"], preview.json["rows"][0]["outcome"]), (1, "current"))
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM users").fetchone()[0], before)
+        commit = self.client.post("/api/admin/qualifications/import/commit", json={"token": preview.json["token"]})
+        self.assertEqual((commit.status_code, commit.json["new_people"]), (201, 1))
+        user = self.con.execute("SELECT * FROM users WHERE display_name='Dennis van Wijngaarden'").fetchone()
+        self.assertEqual((user["username"], user["password_hash"], user["email"], user["is_admin"]),
+                         ("DennisvanWijngaarden", None, None, 0))
+        self.assertEqual(self.con.execute("SELECT status FROM qualification_submissions WHERE user_id=?",
+                                          (user["id"],)).fetchone()[0], "approved")
+        self.assertEqual(self.preview(self.zip_payload(person="Dennis van Wijngaarden")).json["rows"][0]["outcome"], "skip")
+        self.con.execute("UPDATE users SET display_name='Pilot' WHERE id=3")
+        self.con.commit()
+        ambiguous = self.preview(self.zip_payload(person="Pilot"))
+        self.assertFalse(ambiguous.json["can_commit"])
+        self.assertIn("Ambiguous person", ambiguous.json["rows"][0]["error"])
+        csv_only = io.BytesIO(b"person,type,valid_from,valid_until,file\nAdmin,A2,,2026-12-01,Admin/A2.pdf\n")
+        missing = self.preview(csv_only, "manifest.csv")
+        self.assertEqual(missing.status_code, 200)
+        self.assertFalse(missing.json["can_commit"])
+        self.assertIn("ZIP", missing.json["rows"][0]["error"])
+
+    def test_import_is_admin_session_only(self):
+        payload = self.zip_payload()
+        self.sign_in(2)
+        self.assertEqual(self.preview(payload).status_code, 403)
+        self.con.execute("INSERT INTO api_keys(user_id,name,key_hash,prefix,created_at) VALUES (1,'test',?,'test','now')",
+                         (hashlib.sha256(b"logdb_test-key").hexdigest(),))
+        self.con.commit()
+        self.sign_in(1)
+        headers = {"Authorization": "Bearer logdb_test-key"}
+        zipped = self.zip_payload()
+        self.assertEqual(self.client.post("/api/admin/qualifications/import",
+                                          data={"file": (zipped, "qualifications.zip")},
+                                          headers=headers).status_code, 403)
+        zipped.close()
