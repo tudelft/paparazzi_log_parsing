@@ -14,12 +14,12 @@ class SamlAttributeTests(unittest.TestCase):
                 ("uid", "displayName"), ("UID", "Displayname"),
                 ("urn:oid:0.9.2342.19200300.100.1.1", "urn:oid:2.16.840.1.113730.3.1.241")):
             with self.subTest(uid=uid_key, display=display_key):
-                attrs = {uid_key: ["hdegroot"], display_key: ["Hans de Groot"],
-                         "mail": ["H.J.deGroot@example.test"]}
+                attrs = {uid_key: ["examplepilot"], display_key: ["Example Pilot"],
+                         "mail": ["pilot@example.test"]}
                 auth = SimpleNamespace(get_attributes=lambda: attrs, get_nameid=lambda: "stable-subject")
                 self.assertEqual(saml.identity_from_auth(auth), {
-                    "subject": "stable-subject", "username": "hdegroot",
-                    "display_name": "Hans de Groot", "email": "H.J.deGroot@example.test"})
+                    "subject": "stable-subject", "username": "examplepilot",
+                    "display_name": "Example Pilot", "email": "pilot@example.test"})
 
 
 class PeopleDirectoryTests(AppTests):
@@ -47,7 +47,7 @@ class PeopleDirectoryTests(AppTests):
             " VALUES(1,'test','crew-test','test.data','done','now',2)")
         self.con.execute(
             "INSERT INTO aircraft(id,log_id,name,pic,pac,gcs)"
-            " VALUES(1,1,'Drone','Frans','Frans Hendrinks','Unlinked operator')")
+            " VALUES(1,1,'Drone','Example','Example Pilot','Unlinked operator')")
         self.con.commit()
         self.sign_in(1)
         self.ns["assign_log_flights"](self.con, 1)
@@ -55,13 +55,13 @@ class PeopleDirectoryTests(AppTests):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json["users"]), 5)
         self.assertEqual({r["name"] for r in response.json["unlinked"]},
-                         {"Frans", "Frans Hendrinks", "Unlinked operator"})
-        for alias in ("Frans", "Frans Hendrinks"):
+                         {"Example", "Example Pilot", "Unlinked operator"})
+        for alias in ("Example", "Example Pilot"):
             response = self.client.post("/api/admin/aliases", json={"user_id": 2, "alias": alias})
             self.assertEqual(response.status_code, 200)
         resolve = self.ns["person_resolver"](self.con)
-        self.assertEqual(resolve("pic", "Frans", None)["id"], 2)
-        self.assertEqual(resolve("pac", "Frans Hendrinks", None)["id"], 2)
+        self.assertEqual(resolve("pic", "Example", None)["id"], 2)
+        self.assertEqual(resolve("pac", "Example Pilot", None)["id"], 2)
         self.assertIsNone(resolve("gcs", "Unlinked operator", None))
         response = self.client.get("/api/admin/people")
         self.assertEqual([r["name"] for r in response.json["unlinked"]], ["Unlinked operator"])
@@ -69,7 +69,7 @@ class PeopleDirectoryTests(AppTests):
         response = self.client.get("/api/admin/people")
         self.assertEqual(len(response.json["users"]), 4)
         self.assertEqual({r["name"] for r in response.json["unlinked"]},
-                         {"Frans", "Frans Hendrinks", "Unlinked operator"})
+                         {"Example", "Example Pilot", "Unlinked operator"})
 
     def test_aliases_visible_to_normal_users_within_directory_scope(self):
         self.con.executemany("INSERT INTO user_aliases(user_id,alias) VALUES (?,?)",

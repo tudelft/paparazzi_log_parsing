@@ -19,7 +19,7 @@ import storage
 
 COLUMNS = ("person", "type", "valid_from", "valid_until", "file")
 TEMPLATE = """person,type,valid_from,valid_until,file
-Freek van Tienen,A2,2024-01-15,2026-01-14,Freek van Tienen/A2.pdf
+Example Pilot,A2,2024-01-15,2026-01-14,Example Pilot/A2.pdf
 """
 MAX_ROWS = 500
 MAX_CSV_BYTES = 1_000_000
