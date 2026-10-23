@@ -294,6 +294,18 @@ An existing submission without a newly required expiry must be withdrawn and res
 are not changed retroactively. Existing types keep expiry optional after upgrading.
 
 Users submit claims for themselves; **admins can also upload evidence and submit claims for any user**.
+Admins can bulk-import from People in Edit mode: a ZIP with `manifest.csv` and evidence files
+(`person,type,valid_from,valid_until,file`). Preview matches unique display names or aliases and
+active types; Import and approve stores private evidence and sets the dates. Rows may repeat a person
+and type for different periods: per person/type the newest period (latest `valid_until`, blank counting
+as newest) becomes the approval if it is newer than the current one, which is then superseded. Other
+periods are stored as `superseded` (archived) records. Periods already recorded as approved or superseded,
+or repeated in the file, are skipped, so a ZIP can be re-imported. This import is the one deliberate
+exception to never creating profiles from names: on confirmation, a person not matched by display name,
+alias or username is added (username = name without spaces, no password, email or admin rights), labelled
+**New user** in the preview. Ambiguous names and unknown types are reported and block the import. The qualifications panel splits Current (pending and non-expired approvals) from
+Archive (expired approvals and superseded records); rejected and withdrawn submissions stay under Current.
+API keys cannot import. The original ZIP is not stored as a shared attachment.
 Attach one PDF, JPEG or PNG per submission, up to **20 MiB**. Required-evidence types cannot be submitted
 or approved without a file. Optional-evidence types still require approval. An expiry date is required only when configured for the type;
 blank means unknown/not applicable, not indefinitely valid. File extensions and file signatures are checked,

@@ -75,6 +75,9 @@ Pilot pages show approved summaries, not evidence.
 Use **Valid from** and **Valid until** to record the licence period, including past qualifications.
 Admins can make either date optional per type; both date switches start checked for new types.
 An Internal switch marks in-house qualifications. Drag types to set their order, then use one Save.
+In Edit mode, **Import ZIP** on People loads a `manifest.csv` plus evidence PDFs: preview, then import
+and approve in one step. Older licence periods go to the **Archive** tab of each person's qualifications.
+Names not yet on People are added as new users (shown as **New user** in the preview).
 Dates are entered manually, and existing records keep an unknown start date. Historical flight
 eligibility is not checked. The read-only People list shows only approved, non-expired qualifications,
 without an approval-status label; management still shows pending, expired and previous submissions.

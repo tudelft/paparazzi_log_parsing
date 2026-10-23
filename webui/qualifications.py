@@ -11,6 +11,7 @@ from flask import Response, g, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 import db
+import qualification_import
 import storage
 
 MAX_EVIDENCE_BYTES = 20 * 1024 * 1024
@@ -154,6 +155,7 @@ def evidence_format(path, compressed, filename):
 
 def register(app, connection, root, require_session):
     app.config["QUALIFICATION_EVIDENCE_DIR"] = Path(root) / "qualification-evidence"
+    app.config.setdefault("QUALIFICATION_IMPORT_DIR", Path(root).parent / "tmp" / "qual-import")
 
     @app.get("/qualifications.js")
     def qualifications_script():
@@ -249,6 +251,34 @@ def register(app, connection, root, require_session):
             " JOIN users u ON u.id=q.user_id JOIN qualification_types t ON t.id=q.type_id"
             " WHERE q.status='pending' ORDER BY q.id").fetchall()
         return jsonify(submissions=[dict(r) for r in rows])
+
+    @app.get("/api/admin/qualifications/import/template")
+    def qualification_import_template():
+        admin()
+        return Response(qualification_import.TEMPLATE, mimetype="text/csv", headers={
+            "Content-Disposition": 'attachment; filename="qualification-import.csv"',
+            "Cache-Control": "private, no-store"})
+
+    @app.post("/api/admin/qualifications/import")
+    def qualification_import_preview():
+        admin()
+        request.max_content_length = qualification_import.MAX_UPLOAD_BYTES + 1024 * 1024
+        upload = request.files.get("file")
+        if upload is None or not upload.filename:
+            raise QualificationError("Choose a CSV or a ZIP that contains manifest.csv.")
+        raw = upload.stream.read(qualification_import.MAX_UPLOAD_BYTES + 1)
+        if len(raw) > qualification_import.MAX_UPLOAD_BYTES:
+            raise QualificationError("Import must be at most 200 MiB.")
+        return jsonify(qualification_import.store_preview(app, connection(), upload.filename, raw))
+
+    @app.post("/api/admin/qualifications/import/commit")
+    def qualification_import_commit():
+        admin()
+        body = json_body(("token",))
+        token = body.get("token")
+        if not isinstance(token, str) or not token:
+            raise QualificationError("Upload the CSV or ZIP again to preview it.")
+        return jsonify(qualification_import.commit(app, connection(), token)), 201
 
     @app.errorhandler(QualificationError)
     def qualification_error(exc):

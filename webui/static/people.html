@@ -146,9 +146,25 @@
   </section>
   <section class="card" id="typesSection" hidden>
     <div class="section-heading"><h2>Qualification types</h2>
-    <details><summary>Help</summary><p>Admins define qualification types here. Checked Evidence, Valid from and Valid until switches make those fields mandatory; unchecked fields are optional. Internal marks an in-house qualification rather than an external licence. Drag the handle to change the order. One Save writes every type. Both dates start checked for new types.</p></details></div>
+    <details><summary>Help</summary><p>Admins define qualification types here. Checked Evidence, Valid from and Valid until switches make those fields mandatory; unchecked fields are optional. Internal marks an in-house qualification rather than an external licence. Drag the handle to change the order. One Save writes every type. Both dates start checked for new types. Import a ZIP with <span class="mono">manifest.csv</span> and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
     <div id="typeSettings"></div>
+    <p><button type="button" class="sec" onclick="$('qualImportDialog').showModal()">Import ZIP</button>
+      <a class="mute" href="/api/admin/qualifications/import/template">CSV template</a></p>
   </section>
+  <dialog class="entry-dialog" id="qualImportDialog" aria-labelledby="qualImportTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="qualImportTitle">Import qualifications</h2>
+      <button type="button" onclick="$('qualImportDialog').close()" aria-label="Close import">Close</button></div>
+    <p class="mute">Upload a ZIP that contains <span class="mono">manifest.csv</span> and the evidence files.
+      Preview checks people, types, dates and files. Per person and type, the latest period becomes current;
+      older periods go to Archive. Periods already recorded are skipped, so the same ZIP can be imported again.
+      Names not yet on People are added as new users without password or email.</p>
+    <p id="qualImportError" class="dialog-error" role="alert"></p>
+    <label class="field">ZIP or CSV<input type="file" id="qualImportFile" accept=".zip,.csv,application/zip,text/csv"></label>
+    <div class="panel-row"><button type="button" class="sec" onclick="previewQualImport()">Preview</button>
+      <button type="button" id="qualImportCommit" hidden onclick="commitQualImport()">Import and approve</button>
+      <span class="mute" id="qualImportStatus" role="status"></span></div>
+    <div class="scroll" id="qualImportPreview"></div>
+  </dialog>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -164,6 +180,7 @@ let me = null;
 let selectedPerson = null, selectedTab = 'account', qualificationManager = null;
 let qualificationTypes = [], pendingQualifications = [];
 let panelGeneration = 0;
+let qualImportToken = null;
 
 async function load() {
   if (me && me.is_admin) {
@@ -216,6 +233,7 @@ function render() {
   document.querySelectorAll('.editOnly').forEach(el => { el.hidden = !editing; });
   if (!editing) $('setupBox').hidden = true;
   if (!editing) $('addUserDialog').close();
+  if (!editing) $('qualImportDialog').close();
   $('unlinkedCard').hidden = !(editing && open);
   $('pending').hidden = !(open && !editing);
   const bits = [];
@@ -533,6 +551,60 @@ function addAlias(i, uid) {
   if (v) send('POST', '/api/admin/aliases', {user_id: uid, alias: v});
 }
 const removeAlias = alias => send('DELETE', '/api/admin/aliases', {alias});
+
+async function previewQualImport() {
+  $('qualImportError').textContent = '';
+  $('qualImportStatus').textContent = '';
+  $('qualImportCommit').hidden = true;
+  $('qualImportPreview').innerHTML = '';
+  qualImportToken = null;
+  const file = $('qualImportFile').files[0];
+  if (!file) { $('qualImportError').textContent = 'Choose a ZIP or CSV first.'; return; }
+  const body = new FormData();
+  body.append('file', file);
+  try {
+    const data = await adminApi('/api/admin/qualifications/import', {method: 'POST', body});
+    qualImportToken = data.token;
+    const plan = `${data.current} current, ${data.archived} archive, ${data.skipped} already recorded`
+      + (data.new_people ? `, ${data.new_people} new ${data.new_people === 1 ? 'person' : 'people'}` : '');
+    $('qualImportStatus').textContent = data.errors ? `${plan}; ${data.errors} with errors.` : `${plan}.`;
+    $('qualImportCommit').hidden = !data.can_commit;
+    $('qualImportPreview').innerHTML = `<table><thead><tr><th>Line</th><th>Person</th><th>Type</th><th>From</th><th>Until</th><th>File</th><th></th></tr></thead><tbody>
+      ${(data.rows || []).map(row => `<tr>
+        <td>${row.line}</td>
+        <td>${esc(row.person_name || row.person)}${row.new_person && !row.error ? ' <span class="chip">New user</span>' : ''}</td>
+        <td>${esc(row.category || row.type)}</td>
+        <td class="mono">${esc(row.valid_from || '')}</td>
+        <td class="mono">${esc(row.valid_until || '')}</td>
+        <td class="mono">${esc(row.file || '')}</td>
+        <td>${row.error ? `<span class="dialog-error">${esc(row.error)}</span>`
+          : esc({current: 'Current', archive: 'Archive', skip: 'Skip'}[row.outcome] + (row.warning ? ` · ${row.warning}` : ''))}</td>
+      </tr>`).join('')}</tbody></table>`;
+  } catch (error) { $('qualImportError').textContent = error.message; }
+}
+
+async function commitQualImport() {
+  if (!qualImportToken) { $('qualImportError').textContent = 'Preview the ZIP first.'; return; }
+  $('qualImportError').textContent = '';
+  $('qualImportStatus').textContent = 'Importing…';
+  $('qualImportCommit').disabled = true;
+  try {
+    const data = await adminApi('/api/admin/qualifications/import/commit', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token: qualImportToken})});
+    $('qualImportStatus').textContent =
+      `Imported ${data.current} current and ${data.archived} archived; ${data.skipped} already recorded.`
+      + (data.new_people ? ` Added ${data.new_people} new ${data.new_people === 1 ? 'person' : 'people'}.` : '');
+    $('qualImportCommit').hidden = true;
+    qualImportToken = null;
+    await load();
+  } catch (error) {
+    $('qualImportError').textContent = error.message;
+    $('qualImportStatus').textContent = '';
+  } finally {
+    $('qualImportCommit').disabled = false;
+  }
+}
 
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
