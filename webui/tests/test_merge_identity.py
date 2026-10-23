@@ -1,3 +1,7 @@
+import os
+from unittest.mock import patch
+
+import config
 from .test_historical import AppTests
 
 
@@ -50,3 +54,74 @@ class MergeIdentityTests(AppTests):
         self.assertEqual(rows[0]["aircraft"], "GCS configuration")
         self.assertIsNone(rows[0]["drone_id"])
         self.assertIsNone(rows[0]["aircraft_uid"])
+
+    def test_hiding_unlinked_filters_lists_totals_and_location_logs_not_paper(self):
+        self.sources(1, None)
+        self.con.execute(
+            "UPDATE flights SET takeoff_utc='2010-01-02T12:00:00.000Z',"
+            " landing_utc='2010-01-02T12:01:40.000Z' WHERE id=2")
+        self.con.commit()
+        self.assertEqual(self.create().status_code, 201)
+        self.assertEqual(config.ALL["HIDE_UNLINKED_AIRCRAFT"][0], "0")
+        for value, count, flights, seconds in (("0", 3, 7, 2030), ("1", 2, 6, 1930)):
+            with patch.dict(os.environ, LOGDB_HIDE_UNLINKED_AIRCRAFT=value):
+                for uid in (1, 2, 3):
+                    self.sign_in(uid)
+                    for endpoint in ("/api/logbook", "/api/stats", "/api/detail/locations/1"):
+                        payload = self.client.get(endpoint).json
+                        rows = payload if isinstance(payload, list) else payload["flights"]
+                        self.assertEqual(len(rows), count, (value, uid, endpoint))
+                        self.assertEqual(sum(r.get("flight_count", 1) for r in rows), flights)
+                        self.assertEqual(sum(r["duration_s"] for r in rows), seconds)
+                    place = self.client.get("/api/places").json["places"][0]
+                    self.assertEqual((place["flights"], place["seconds"]), (flights, seconds))
+                detail = self.client.get("/api/detail/locations/1").json
+                self.assertEqual({r["id"] for r in detail["logs"]}, {1} if value == "1" else {1, 2})
+
+    def test_hiding_keeps_merged_flights_when_either_source_is_linked(self):
+        with patch.dict(os.environ, LOGDB_HIDE_UNLINKED_AIRCRAFT="1"):
+            for sd, gcs in ((1, None), (None, 1), (1, 1)):
+                self.con.execute("DELETE FROM logs")
+                self.sources(sd, gcs)
+                rows = self.client.get("/api/logbook").json
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["drone_id"], 1)
+                self.assertEqual(len(rows[0]["sources"]), 2)
+                self.assertEqual(self.client.get("/api/flights/1/detail").status_code, 200)
+
+    def test_hiding_preserves_direct_details_and_existing_access_checks(self):
+        self.sources(None, None)
+        self.con.execute("UPDATE flights SET project_id=1")
+        self.con.commit()
+        with patch.dict(os.environ, LOGDB_HIDE_UNLINKED_AIRCRAFT="1"):
+            for uid in (1, 2, 3):
+                self.sign_in(uid)
+                self.assertEqual(self.client.get("/api/logbook").json, [])
+                self.assertEqual(self.client.get("/api/stats").json["flights"], [])
+                self.assertEqual(self.client.get("/api/flights/1/detail").status_code, 200)
+                self.assertEqual(self.client.get("/api/logs/1").status_code, 200)
+                self.assertEqual(len(self.client.get("/api/detail/projects/1").json["flights"]), 1)
+            self.sign_in(1)
+            location = self.client.get("/api/detail/locations/1").json
+            self.assertEqual((location["flights"], location["logs"]), ([], []))
+            places = self.client.get("/api/places").json
+            self.assertEqual(places["points"], [])
+            self.assertEqual(places["places"][0]["flights"], 0)
+            self.sign_in(4)
+            self.assertEqual(self.client.get("/api/flights/1/detail").status_code, 404)
+            self.assertEqual(self.client.get("/api/logs/1").status_code, 404)
+            self.assertEqual(self.client.get("/api/detail/locations/1").status_code, 404)
+
+    def test_aircraft_edit_data_remains_available_with_notice_hidden(self):
+        self.sources(None, None)
+        self.sign_in(1)
+        with patch.dict(os.environ, LOGDB_HIDE_UNLINKED_AIRCRAFT="1"):
+            payload = self.client.get("/api/drones").json
+            self.assertTrue(payload["hide_unlinked_aircraft"])
+            self.assertTrue(payload["unlinked"])
+            self.assertEqual(self.client.get("/api/admin/drones").json["unlinked"], payload["unlinked"])
+            self.sign_in(3)
+            self.assertEqual(self.client.get("/api/drones").json["unlinked"], [])
+            self.assertEqual(self.client.get("/api/admin/drones").status_code, 403)
+        with patch.dict(os.environ, LOGDB_HIDE_UNLINKED_AIRCRAFT="0"):
+            self.assertFalse(self.client.get("/api/drones").json["hide_unlinked_aircraft"])

@@ -196,6 +196,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `COOKIE_SECURE` | `0` | `1` when served over https |
 | `PROXIES` | `0` | `1` behind nginx/Caddy (trust its `X-Forwarded-*` headers) |
 | `BIND` | `127.0.0.1:8000` | Address gunicorn listens on |
+| `HIDE_UNLINKED_AIRCRAFT` | `0` | `1` excludes unlinked telemetry flights from Logbook, Statistics and Locations, and hides the Aircraft notice outside Edit mode |
 | `WEB_DATA` | `webui/data` | Database and keys; local disk only |
 | `LOG_DIR` | `<WEB_DATA>/logs` | Uploaded logs and flight paths; may be a share |
 | `BACKUP_DIR` | (empty) | Destination of `app.py backup` |
@@ -216,6 +217,16 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `SECRET_KEY` | generated in `<WEB_DATA>/secret_key` | Session signing key |
 
 Relative paths are relative to `webui/`.
+
+Set `LOGDB_HIDE_UNLINKED_AIRCRAFT=1` and restart the server to hide telemetry flights whose
+merged aircraft identity has no fleet link. Lists, counts, flight time, charts and location
+map hints use only the remaining flights, for all users including admins. A merged SD/GCS flight
+stays visible if either source is linked. Paper records are unchanged (they already require a
+fleet aircraft). The Aircraft page keeps unlinked names available to admins in Edit mode for
+linking, but hides its read-only unlinked-name notice. Direct flight/upload details remain
+accessible under the existing permissions; this is a display setting, not an access restriction.
+People/project detail pages and uploads are unchanged. Set the value back to `0` to restore
+the previous overviews; no records are deleted or reparsed.
 
 ## Accounts and TU Delft login
 

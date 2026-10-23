@@ -65,6 +65,8 @@ existing `/logbook` links still work.
   stay unresolved unless an explicit alias identifies the person. Renaming a username does not add an alias.
 - Admins manage **Aircraft** using Details, Project history and Aliases. Add/import buttons open dialogs;
   Close or Escape dismisses them. Link unrecognised log names to an existing aircraft/person in Edit mode.
+  Servers can hide unlinked aircraft flights from Logbook, Statistics and Locations until linked;
+  admins can still find the names in Aircraft Edit mode (see the [settings](TECHNICAL.md#settings)).
 - Crew names in logs do not create user profiles. Admins can link multiple names to one person using
   aliases, or use Add user if a new profile is needed. Previously generated profiles are kept.
 - Admins manage project access on **Projects** and named takeoff areas on **Locations**.

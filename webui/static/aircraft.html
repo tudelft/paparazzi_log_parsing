@@ -244,7 +244,7 @@ function render() {
   const opts = data.drones.map(d => `<option value="${d.id}">${esc(d.name)}${d.unique_id ? ' (' + esc(d.unique_id) + ')' : ''}</option>`).join('');
   const open = me && me.is_admin ? data.unlinked.length : 0;
   $('unlinkedCard').hidden = !(editing && open);
-  $('pending').hidden = !(open && !editing);
+  $('pending').hidden = !!data.hide_unlinked_aircraft || !(open && !editing);
   $('pending').textContent = `${open} name${open === 1 ? ' in the logs is' : 's in the logs are'} not linked to an aircraft yet. Turn on Edit in the menu to link ${open === 1 ? 'it' : 'them'}.`;
   const shownUnlinked = data.unlinked.filter(e => !q || e.name.toLowerCase().includes(q));
   $('unlinkedHead').innerHTML = '<tr><th>Name in log</th><th>Board id</th><th>Seen</th><th>Upload folder</th><th>Link to aircraft</th></tr>';

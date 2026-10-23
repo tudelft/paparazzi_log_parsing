@@ -1859,7 +1859,7 @@ def list_places():
     con = conn()
     admin = bool(g.user["is_admin"])
     stats, pts = {}, {}
-    for f in logbook_rows():
+    for f in logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT")):
         real = f.get("verdict") not in ("ground", "uncertain")
         for pid in {f.get("takeoff_place_id"), f.get("landing_place_id")} - {None}:
             s = stats.setdefault(pid, {"flights": 0, "seconds": 0.0, "last": None})
@@ -2268,7 +2268,8 @@ def list_drones():
     if not admin:
         pids = [r["project_id"] for r in con.execute(
             "SELECT project_id FROM project_members WHERE user_id=?", (g.user["id"],))]
-    return jsonify(fleet_payload(con, include_unlinked=admin, project_ids=pids))
+    return jsonify(**fleet_payload(con, include_unlinked=admin, project_ids=pids),
+                   hide_unlinked_aircraft=env_bool("HIDE_UNLINKED_AIRCRAFT"))
 
 
 @app.get("/api/admin/drones")
@@ -3548,7 +3549,7 @@ def logbook():
         session_required()
         if not g.user["is_admin"]:
             abort(403)
-    return jsonify(logbook_rows(hidden=hidden))
+    return jsonify(logbook_rows(hidden=hidden, hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT")))
 
 
 @app.get("/historical/new")
@@ -3695,7 +3696,8 @@ def stats():
             "takeoff_utc", "verdict", "indoor", "flight_count", "source_type",
             "pic", "pac", "pic_user", "pac_user")
     return jsonify(all=bool(g.user["is_admin"]),
-                   flights=[{k: r.get(k) for k in keys} for r in logbook_rows()])
+                   flights=[{k: r.get(k) for k in keys}
+                            for r in logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT"))])
 
 
 def valid_gps_location(lat, lon):
@@ -3731,7 +3733,7 @@ def flight_has_gps_path(con, sources):
     return False
 
 
-def logbook_rows(hidden=False):
+def logbook_rows(hidden=False, hide_unlinked=False):
     where, params = flight_list_clause()
     con = conn()
     rows = con.execute(
@@ -3758,6 +3760,8 @@ def logbook_rows(hidden=False):
         apply_row_clock(d)
         prepared.append(d)
     out = merge_sources(prepared)
+    if hide_unlinked:
+        out = [r for r in out if r["drone_id"] is not None]
     for r in out:
         r.update(record_key=f"log:{r['flight_id']}", source_type="telemetry", flight_count=1, hidden=hidden)
     place = place_resolver(con)
@@ -4034,7 +4038,8 @@ def detail(kind, item_id):
             "locations": lambda: detail_location(con, item_id)}[kind]()
     if item is None:
         abort(404)
-    flights = [f for f in logbook_rows() if flight_matches(kind, item_id, f)]
+    flights = [f for f in logbook_rows(hide_unlinked=kind == "locations" and env_bool("HIDE_UNLINKED_AIRCRAFT"))
+               if flight_matches(kind, item_id, f)]
     if not admin and not flights:
         allowed = (kind == "people" and (item_id == g.user["id"] or my_project_ids(con, item_id) & mine))
         if kind == "aircraft":
