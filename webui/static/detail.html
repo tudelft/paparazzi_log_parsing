@@ -354,7 +354,6 @@ function renderTotals(list) {
   const sum = k => list.reduce((s, f) => s + (f[k] || 0), 0);
   const seconds = sum('duration_s');
   const count = list.reduce((s, f) => s + (f.flight_count || 1), 0);
-  const farthest = list.some(f => f.max_from_takeoff_m != null) ? list.reduce((s, f) => Math.max(s, f.max_from_takeoff_m || 0), 0) : null;
   const days = new Set(list.map(f => fmtDate(f.takeoff_utc)).filter(Boolean)).size;
   const dates = list.map(f => f.takeoff_utc).filter(Boolean).sort();
   const size = D.logs.reduce((s, l) => s + (l.size_bytes || 0), 0);
@@ -363,7 +362,6 @@ function renderTotals(list) {
     [fmtHours(seconds), 'Flight time'],
     [count ? fmtDur(seconds / count) : '—', 'Average flight'],
     [list.some(f => f.distance_m != null) ? fmtDist(sum('distance_m')) : '—', 'Recorded distance flown'],
-    [fmtDist(farthest) || '—', 'Farthest from takeoff'],
     [days, 'Flying days'],
     [fmtDate(dates[0]) || '—', 'First flight'],
     [fmtDate(dates[dates.length - 1]) || '—', 'Last flight'],
@@ -467,7 +465,7 @@ function renderBreakdowns(list) {
 function renderFlights(list) {
   const roleCol = KIND === 'people';
   $('flightHead').innerHTML = `<tr><th>Takeoff (UTC)</th>${KIND !== 'aircraft' ? '<th>Aircraft</th>' : ''}${KIND !== 'projects' ? '<th>Project</th>' : ''}
-    <th>From</th><th>To</th><th class="num">Flights</th><th class="num">Duration</th><th class="num">Flown</th><th class="num">Max range</th>
+    <th>From</th><th>To</th><th class="num">Flights</th><th class="num">Duration</th><th class="num">Flown</th>
     ${roleCol ? '<th>Role</th>' : ''}<th>PIC</th><th>PAC</th><th>Goal</th><th></th></tr>`;
   const [from, to] = pager('flightPager', 'flights', list.length, () => renderFlights(shown()));
   const rows = list.slice(from, to).map(f => {
@@ -477,11 +475,11 @@ function renderFlights(list) {
       ${KIND !== 'aircraft' ? `<td>${aircraftLink(f)}</td>` : ''}${KIND !== 'projects' ? `<td>${projectLink(f)}</td>` : ''}
       <td>${placeLink(f.takeoff_place, f.takeoff_place_id, f.takeoff_lat, f.takeoff_lon)}</td>
       <td>${placeLink(f.landing_place, f.landing_place_id)}</td>
-      <td class="num">${f.flight_count || 1}</td><td class="num">${fmtDur(f.duration_s)}</td><td class="num">${fmtDist(f.distance_m)}</td><td class="num">${fmtDist(f.max_from_takeoff_m)}</td>
+      <td class="num">${f.flight_count || 1}</td><td class="num">${fmtDur(f.duration_s)}</td><td class="num">${fmtDist(f.distance_m)}</td>
       ${roleCol ? `<td>${esc(roles)}</td>` : ''}<td>${personLink(f, 'pic')}</td><td>${personLink(f, 'pac')}</td>
       <td>${esc(f.goal)}</td><td>${f.comment ? `<span class="mute" title="${esc(f.comment)}">💬</span>` : ''}</td></tr>`;
   });
-  $('flights').innerHTML = rows.join('') || '<tr><td colspan="13" class="mute">No flights.</td></tr>';
+  $('flights').innerHTML = rows.join('') || `<tr><td colspan="${10 + (KIND !== 'aircraft') + (KIND !== 'projects') + roleCol}" class="mute">No flights.</td></tr>`;
   $('flightCount').textContent = (list.length > to - from ? `${from + 1}–${to} of ${list.length}` : `${list.length}`) + ' records';
 }
 

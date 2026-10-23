@@ -50,7 +50,6 @@
     <div class="totals">
       <div><strong id="totHours">—</strong><span>Total flight hours</span></div>
       <div><strong id="totFlown">—</strong><span>Distance flown</span></div>
-      <div><strong id="totFrom">—</strong><span>Farthest from takeoff</span></div>
       <div><strong id="totFlights">—</strong><span>Flights</span></div>
       <div><strong id="totAircraft">—</strong><span>Aircraft</span></div>
       <div><strong id="totProjects">—</strong><span>Projects</span></div>
@@ -61,10 +60,10 @@
   <div class="cols">
     <section class="card">
       <div class="section-heading"><h2>Aircraft</h2>
-      <details><summary>Help</summary><p>Hours and distance on each aircraft from the flights you can see. Flown is along the path; from takeoff is the farthest range. Names that are not linked yet are listed on their own.</p></details></div>
+      <details><summary>Help</summary><p>Hours and distance on each aircraft from the flights you can see. Flown is along the path. Names that are not linked yet are listed on their own.</p></details></div>
       <div class="scroll">
         <table>
-          <thead><tr><th>Aircraft</th><th>ID</th><th class="num">Flights</th><th class="num">Hours</th><th class="num">Flown</th><th class="num">From takeoff</th><th>Last flight</th><th></th></tr></thead>
+          <thead><tr><th>Aircraft</th><th>ID</th><th class="num">Flights</th><th class="num">Hours</th><th class="num">Flown</th><th>Last flight</th><th></th></tr></thead>
           <tbody id="aircraft"></tbody>
         </table>
       </div>
@@ -74,7 +73,7 @@
       <details><summary>Help</summary><p>Hours and distance on each project you can open, from the same flights as the logbook.</p></details></div>
       <div class="scroll">
         <table>
-          <thead><tr><th>Project</th><th class="num">Flights</th><th class="num">Hours</th><th class="num">Flown</th><th class="num">From takeoff</th><th>Last flight</th><th></th></tr></thead>
+          <thead><tr><th>Project</th><th class="num">Flights</th><th class="num">Hours</th><th class="num">Flown</th><th>Last flight</th><th></th></tr></thead>
           <tbody id="projects"></tbody>
         </table>
       </div>
@@ -86,7 +85,7 @@
       <details><summary>Help</summary><p>Hours and distance as pilot in command. Linked accounts are one row; names that are not linked yet are listed on their own.</p></details></div>
       <div class="scroll">
         <table>
-          <thead><tr><th>PIC</th><th class="num">Flights</th><th class="num">Hours</th><th class="num">Flown</th><th class="num">From takeoff</th><th>Last flight</th><th></th></tr></thead>
+          <thead><tr><th>PIC</th><th class="num">Flights</th><th class="num">Hours</th><th class="num">Flown</th><th>Last flight</th><th></th></tr></thead>
           <tbody id="pics"></tbody>
         </table>
       </div>
@@ -96,7 +95,7 @@
       <details><summary>Help</summary><p>Hours and distance as payload / co-pilot. Linked accounts are one row; names that are not linked yet are listed on their own.</p></details></div>
       <div class="scroll">
         <table>
-          <thead><tr><th>PAC</th><th class="num">Flights</th><th class="num">Hours</th><th class="num">Flown</th><th class="num">From takeoff</th><th>Last flight</th><th></th></tr></thead>
+          <thead><tr><th>PAC</th><th class="num">Flights</th><th class="num">Hours</th><th class="num">Flown</th><th>Last flight</th><th></th></tr></thead>
           <tbody id="pacs"></tbody>
         </table>
       </div>
@@ -144,13 +143,12 @@ function group(list, keyFn, nameFn, extraFn) {
     const k = keyFn(f);
     let b = map.get(k);
     if (!b) {
-      b = {key: k, name: nameFn(f), flights: 0, seconds: 0, metres: null, maxFrom: null, last: '', extra: extraFn ? extraFn(f) : {}};
+      b = {key: k, name: nameFn(f), flights: 0, seconds: 0, metres: null, last: '', extra: extraFn ? extraFn(f) : {}};
       map.set(k, b);
     }
     b.flights += f.flight_count || 1;
     b.seconds += f.duration_s || 0;
     if (f.distance_m != null) b.metres = (b.metres || 0) + f.distance_m;
-    if (f.max_from_takeoff_m != null) b.maxFrom = Math.max(b.maxFrom || 0, f.max_from_takeoff_m);
     if ((f.takeoff_utc || '') > b.last) b.last = f.takeoff_utc || '';
   }
   return [...map.values()].sort((a, b) => b.seconds - a.seconds || a.name.localeCompare(b.name));
@@ -171,7 +169,7 @@ function peopleRows(id, rows, max, emptyCols) {
   $(id).innerHTML = rows.length ? rows.map(p =>
     `<tr><td>${nameCell(p)}</td>
      <td class="num">${p.flights}</td><td class="num">${fmtHours(p.seconds)}</td>
-     <td class="num">${fmtDist(p.metres)}</td><td class="num">${fmtDist(p.maxFrom)}</td>
+     <td class="num">${fmtDist(p.metres)}</td>
      <td>${esc(fmtDate(p.last))}</td><td>${meter(p.seconds, max)}</td></tr>`).join('')
     : `<tr><td colspan="${emptyCols}" class="mute">No flights to summarise.</td></tr>`;
 }
@@ -201,10 +199,8 @@ function render() {
   const named = rows => rows.filter(r => r.key !== 'none').length;
   const total = list.reduce((s, f) => s + (f.duration_s || 0), 0);
   const flown = list.some(f => f.distance_m != null) ? list.reduce((s, f) => s + (f.distance_m || 0), 0) : null;
-  const farthest = list.some(f => f.max_from_takeoff_m != null) ? list.reduce((s, f) => Math.max(s, f.max_from_takeoff_m || 0), 0) : null;
   $('totHours').textContent = fmtHours(total);
   $('totFlown').textContent = fmtDist(flown) || '—';
-  $('totFrom').textContent = fmtDist(farthest) || '—';
   $('totFlights').textContent = list.reduce((s, f) => s + (f.flight_count || 1), 0);
   $('totAircraft').textContent = aircraft.length;
   $('totProjects').textContent = projects.length;
@@ -217,12 +213,12 @@ function render() {
   $('aircraft').innerHTML = aircraft.length ? aircraft.map(a =>
     `<tr><td>${nameCell(a)}</td><td class="mute">${esc(a.extra.uid)}</td>
      <td class="num">${a.flights}</td><td class="num">${fmtHours(a.seconds)}</td>
-     <td class="num">${fmtDist(a.metres)}</td><td class="num">${fmtDist(a.maxFrom)}</td>
+     <td class="num">${fmtDist(a.metres)}</td>
      <td>${esc(fmtDate(a.last))}</td><td>${meter(a.seconds, aMax)}</td></tr>`).join('')
-    : '<tr><td colspan="8" class="mute">No flights to summarise.</td></tr>';
-  peopleRows('projects', projects, pMax, 7);
-  peopleRows('pics', pics, picMax, 7);
-  peopleRows('pacs', pacs, pacMax, 7);
+    : '<tr><td colspan="7" class="mute">No flights to summarise.</td></tr>';
+  peopleRows('projects', projects, pMax, 6);
+  peopleRows('pics', pics, picMax, 6);
+  peopleRows('pacs', pacs, pacMax, 6);
 }
 
 $('indoor').onchange = $('ground').onchange = render;

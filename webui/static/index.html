@@ -450,8 +450,8 @@ async function loadDetail(id) {
       <div class="kv"><span class="mute">PIC / PAC / GCS</span><span>${esc(a.pic)} / ${esc(a.pac)} / ${esc(a.gcs)}</span>
       <span class="mute">Goal</span><span>${esc(a.goal)}</span>
       <span class="mute">Autopilot</span><span class="mono">${esc((a.autopilot_versions || []).join(', '))}${a.autopilot_versions_from_gcs ? '</span> <span class="mute">from GCS log' : ''}</span></div>
-      <table><thead><tr><th>Flight</th><th>Takeoff (UTC)</th><th>Duration</th><th>Flown</th><th>From takeoff</th><th>Project</th><th>Takeoff location</th><th>Landing location</th><th>Battery</th><th>Path</th></tr></thead><tbody>
-      ${a.flights.map(f => `<tr><td>${f.idx}</td><td>${esc(f.takeoff_utc)}</td><td>${fmtDur(f.duration_s)}</td><td>${fmtDist(f.distance_m)}</td><td>${fmtDist(f.max_from_takeoff_m)}</td>
+      <table><thead><tr><th>Flight</th><th>Takeoff (UTC)</th><th>Duration</th><th>Flown</th><th>Project</th><th>Takeoff location</th><th>Landing location</th><th>Battery</th><th>Path</th></tr></thead><tbody>
+      ${a.flights.map(f => `<tr><td>${f.idx}</td><td>${esc(f.takeoff_utc)}</td><td>${fmtDur(f.duration_s)}</td><td>${fmtDist(f.distance_m)}</td>
         <td>${esc(f.project_name || '')}</td>
         <td class="mono">${f.takeoff_lat != null ? f.takeoff_lat.toFixed(5) + ', ' + f.takeoff_lon.toFixed(5) : ''}</td>
         <td class="mono">${f.landing_lat != null ? f.landing_lat.toFixed(5) + ', ' + f.landing_lon.toFixed(5) : ''}</td>
