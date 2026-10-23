@@ -1,0 +1,111 @@
+import json
+from unittest.mock import patch
+
+import db
+from .test_historical import AppTests
+
+
+class LocationFallbackTests(AppTests):
+    def insert_flight(self, takeoff=(None, None), landing=(None, None), path=None, identity=1,
+                      kind="onboard_sd"):
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,paths_file,status,uploaded_at,uploaded_by,project_id,log_type)"
+            " VALUES(?,?,?,'test.data',?,'done','now',2,1,?)",
+            (identity, str(identity), str(identity), f"location-{identity}.json.gz" if path is not None else None, kind))
+        self.con.execute("INSERT INTO aircraft(id,log_id,name,ac_id) VALUES(?,?,'Drone',7)", (identity, identity))
+        self.con.execute(
+            "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,landing_utc,"
+            " takeoff_lat,takeoff_lon,landing_lat,landing_lon,takeoff_json,landing_json,verdict,path_idx)"
+            " VALUES(?,?,1,60,'2010-01-01T12:00:00.000Z',NULL,?,?,?,?,?,NULL,'flight',0)",
+            (identity, identity, *takeoff, *landing, json.dumps({"location": None})))
+        if path is not None:
+            target = self.ns["STORAGE_DIR"] / f"location-{identity}.json.gz"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(db.pack([path]))
+            self.addCleanup(target.unlink, missing_ok=True)
+            self.addCleanup(self.ns["load_paths"].cache_clear)
+        self.con.commit()
+
+    def test_each_missing_endpoint_uses_other_without_changing_events_or_database(self):
+        for takeoff, landing, inferred in (((52, 4), (None, None), "landing"),
+                                           ((None, None), (52, 4), "takeoff"),
+                                           ((0, 0), (52, 4), "takeoff")):
+            with self.subTest(inferred=inferred, takeoff=takeoff):
+                self.con.execute("DELETE FROM logs")
+                self.insert_flight(takeoff, landing)
+                with patch.dict(self.ns, flight_has_gps_path=lambda *args: self.fail("No path scan needed")):
+                    entry = self.client.get("/api/logbook").json[0]
+                for end in ("takeoff", "landing"):
+                    self.assertEqual((entry[end + "_lat"], entry[end + "_lon"]), (52, 4))
+                    self.assertEqual(entry[end + "_place"], "Field")
+                    self.assertEqual(entry[end + "_place_id"], 1)
+                    self.assertEqual(entry[end + "_location_inferred"], end == inferred)
+                self.assertFalse(entry["indoor"])
+                detail = self.client.get("/api/flights/1/detail").json["entry"]
+                self.assertEqual(detail["takeoff"], {"location": None})
+                self.assertIsNone(detail["landing"])
+                self.assertIsNone(detail["landing_utc"])
+                if inferred == "takeoff":
+                    weather = self.client.get("/api/flights/1/weather")
+                    self.assertEqual(weather.status_code, 400)
+                    self.assertIn("inferred", weather.json["error"])
+                raw = self.con.execute("SELECT * FROM flights").fetchone()
+                self.assertEqual((raw["takeoff_lat"], raw["takeoff_lon"]), takeoff)
+                self.assertEqual((raw["landing_lat"], raw["landing_lon"]), landing)
+                upload = self.client.get("/api/logs/1").json["aircraft"][0]["flights"][0]
+                self.assertEqual((upload[inferred + "_lat"], upload[inferred + "_lon"]), (52, 4))
+
+    def test_known_distinct_endpoints_stay_distinct(self):
+        self.insert_flight((52, 4), (53, 5))
+        entry = self.client.get("/api/logbook").json[0]
+        self.assertEqual((entry["landing_lat"], entry["landing_lon"]), (53, 5))
+        self.assertFalse(entry["takeoff_location_inferred"])
+        self.assertFalse(entry["landing_location_inferred"])
+
+    def test_no_endpoint_or_path_gps_is_indoor_in_all_shared_views(self):
+        self.insert_flight(path=[{"position": {"lat": 0, "lon": 0}}])
+        entry = self.client.get("/api/logbook").json[0]
+        self.assertTrue(entry["indoor"])
+        self.assertTrue(entry["indoor_no_gps"])
+        self.assertIsNone(entry["takeoff_lat"])
+        self.assertTrue(self.client.get("/api/stats").json["flights"][0]["indoor"])
+        self.assertTrue(self.client.get("/api/flights/1/detail").json["entry"]["indoor_no_gps"])
+
+    def test_no_endpoints_but_valid_path_is_not_inferred_indoor(self):
+        self.insert_flight(path=[{"position": {"lat": 52, "lon": 4}}])
+        entry = self.client.get("/api/logbook").json[0]
+        self.assertFalse(entry["indoor"])
+        self.assertFalse(entry["indoor_no_gps"])
+        self.assertIsNone(entry["takeoff_lat"])
+
+    def test_merged_secondary_path_prevents_indoor_inference(self):
+        self.insert_flight(path=[])
+        self.insert_flight(path=[{"position": {"lat": 52, "lon": 4}}], identity=2, kind="gcs")
+        entry = self.client.get("/api/logbook").json[0]
+        self.assertEqual(len(entry["sources"]), 2)
+        self.assertFalse(entry["indoor"])
+
+    def test_merged_secondary_endpoint_is_used_before_indoor_inference(self):
+        self.insert_flight()
+        self.insert_flight(landing=(52, 4), identity=2, kind="gcs")
+        entry = self.client.get("/api/logbook").json[0]
+        self.assertEqual(len(entry["sources"]), 2)
+        self.assertFalse(entry["indoor"])
+        self.assertEqual((entry["takeoff_lat"], entry["landing_lat"]), (52, 52))
+        self.assertTrue(entry["takeoff_location_inferred"])
+
+    def test_missing_paths_and_invalid_endpoints_are_no_gps(self):
+        for coords in ((None, None), (0, 0), (91, 4), (52, None)):
+            with self.subTest(coords=coords):
+                self.con.execute("DELETE FROM logs")
+                self.insert_flight(takeoff=coords, landing=coords)
+                entry = self.client.get("/api/logbook").json[0]
+                self.assertTrue(entry["indoor_no_gps"])
+                self.assertIsNone(entry["takeoff_lat"])
+
+    def test_no_gps_does_not_modify_paper_records(self):
+        response = self.create(place_id=None)
+        self.assertEqual(response.status_code, 201)
+        entry = self.client.get("/api/logbook").json[0]
+        self.assertEqual(entry["source_type"], "paper")
+        self.assertFalse(entry["indoor"])

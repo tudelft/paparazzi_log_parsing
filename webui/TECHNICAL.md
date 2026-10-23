@@ -60,6 +60,17 @@ displacement only. Vertical movement adds no distance. Altitudes remain availabl
 flight assessment. This prevents differing GPS altitude reference levels from inflating distances;
 horizontal GPS noise/jumps can still affect them. Reparse existing uploads to replace old 3D distances.
 
+**Missing telemetry locations.** The shared logbook read model copies the known endpoint's GPS
+latitude/longitude for display and named-place resolution when the other endpoint is missing.
+The flight Overview labels the inferred location; no event, time, altitude or raw coordinates are
+written or fabricated. Historical weather still requires a logged takeoff position, not a landing
+position copied for display. Upload details use the same coordinate fallback. When neither endpoint has
+valid coordinates and no saved path from any merged source has a valid GPS position, the entry is
+classified as indoors for display/filtering (labelled as inferred on the flight page). Valid positions
+exclude zero/zero, non-finite and out-of-range coordinates. This is a no-GPS heuristic, not proof of
+indoor operation; existing named-indoor-place and OptiTrack rules still apply. Paper records are
+unchanged. These fallbacks apply to existing records without reparsing.
+
 **Paparazzi clock validation.** Parser 1.5.0 checks `GPS` / `GPS_LLA` messages containing a full GPS
 week, time-of-week and a valid 3D fix. It converts GPS time to UTC with historical leap-second offsets;
 time-of-week alone cannot establish a date. At least three samples spanning 30 seconds must imply a

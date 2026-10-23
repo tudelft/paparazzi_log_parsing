@@ -3681,6 +3681,39 @@ def stats():
                    flights=[{k: r.get(k) for k in keys} for r in logbook_rows()])
 
 
+def valid_gps_location(lat, lon):
+    return (isinstance(lat, (int, float)) and isinstance(lon, (int, float))
+            and math.isfinite(lat) and math.isfinite(lon)
+            and -90 <= lat <= 90 and -180 <= lon <= 180 and (lat != 0 or lon != 0))
+
+
+def endpoint_location_fallback(row):
+    """Infer display coordinates only; leave logged event objects and altitudes unchanged."""
+    known = {end: valid_gps_location(row.get(end + "_lat"), row.get(end + "_lon"))
+             for end in ("takeoff", "landing")}
+    for end, other in (("takeoff", "landing"), ("landing", "takeoff")):
+        row[end + "_location_inferred"] = not known[end] and known[other]
+        if not known[end]:
+            for axis in ("lat", "lon"):
+                row[end + "_" + axis] = row.get(other + "_" + axis) if known[other] else None
+    return any(known.values())
+
+
+def flight_has_gps_path(con, sources):
+    for source in sources:
+        row = con.execute(
+            "SELECT f.path_idx, l.paths_file" + (", f.path_gz" if HAVE_PATH_GZ else "") +
+            " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+            " JOIN logs l ON l.id=a.log_id WHERE f.id=?", (source["flight_id"],)).fetchone()
+        if row is not None:
+            path = flight_path(row["paths_file"], row["path_idx"],
+                               path_gz=row["path_gz"] if HAVE_PATH_GZ else None)
+            if any(valid_gps_location((p.get("position") or {}).get("lat"),
+                                      (p.get("position") or {}).get("lon")) for p in path):
+                return True
+    return False
+
+
 def logbook_rows(hidden=False):
     where, params = flight_list_clause()
     con = conn()
@@ -3711,13 +3744,23 @@ def logbook_rows(hidden=False):
     for r in out:
         r.update(record_key=f"log:{r['flight_id']}", source_type="telemetry", flight_count=1, hidden=hidden)
     place = place_resolver(con)
+    source_rows = {r["flight_id"]: r for r in prepared}
     for r in out:
+        for end in ("takeoff", "landing"):
+            if not valid_gps_location(r[end + "_lat"], r[end + "_lon"]):
+                donor = next((source_rows[s["flight_id"]] for s in r["sources"]
+                              if valid_gps_location(source_rows[s["flight_id"]][end + "_lat"],
+                                                    source_rows[s["flight_id"]][end + "_lon"])), None)
+                if donor is not None:
+                    for axis in ("lat", "lon"):
+                        r[end + "_" + axis] = donor[end + "_" + axis]
+        has_endpoint = endpoint_location_fallback(r)
         r["takeoff_place"], r["indoor"], r["takeoff_place_id"] = place(r["takeoff_lat"], r["takeoff_lon"])
         r["landing_place"], _, r["landing_place_id"] = place(r["landing_lat"], r["landing_lon"])
         r["assessment"] = json.loads(r.pop("assessment_json") or "null")
         r["optitrack"] = bool((r["assessment"] or {}).get("optitrack"))
-        # Indoor: takeoff inside a named indoor place, or OptiTrack / motion capture in the log.
-        r["indoor"] = bool(r["indoor"] or r["optitrack"])
+        r["indoor_no_gps"] = not has_endpoint and not flight_has_gps_path(con, r["sources"])
+        r["indoor"] = bool(r["indoor"] or r["optitrack"] or r["indoor_no_gps"])
         if r["optitrack"] and not r["takeoff_place"]:
             r["takeoff_place"] = "OptiTrack"
         pid = effective_flight_project(r)
@@ -3740,6 +3783,8 @@ def flight_weather(flight_id):
     entry = next((r for r in logbook_rows() if any(s["flight_id"] == flight_id for s in r["sources"])), None)
     if entry is None:
         abort(404)
+    if entry.get("takeoff_location_inferred"):
+        return jsonify(error="Weather needs logged takeoff coordinates; the displayed location is inferred from landing."), 400
     try:
         return jsonify(weather=weather.lookup(conn(), entry, fetch=request.method == "POST"))
     except weather.WeatherError as exc:
@@ -4100,6 +4145,7 @@ def get_log(log_id):
             fd = {k: f[k] for k in f.keys() if k not in ("path_idx", "takeoff_json", "landing_json")}
             fd["takeoff"] = json.loads(f["takeoff_json"] or "null")
             fd["landing"] = json.loads(f["landing_json"] or "null")
+            endpoint_location_fallback(fd)
             if days:
                 fd["takeoff_utc"] = shift_iso(fd.get("takeoff_utc"), days)
                 fd["landing_utc"] = shift_iso(fd.get("landing_utc"), days)

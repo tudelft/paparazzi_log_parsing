@@ -32,6 +32,8 @@ existing `/logbook` links still work.
 
 - Dates and times are **UTC**. Indoor and uncertain/non-flight records are hidden by default;
   enable their filters when needed.
+- A missing telemetry endpoint location uses the other endpoint's GPS position for display.
+  Flights with no endpoint or saved-path GPS are treated as indoors; the flight page labels these inferences.
 - SD and GCS recordings of the same flight are merged. **Combine flights** additionally groups nearby
   flights into sessions; it does not change stored flights.
 - Hover over an aircraft name in the logbook for its TUD/serial number; it is also on the aircraft detail page.

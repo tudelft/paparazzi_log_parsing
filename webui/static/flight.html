@@ -324,14 +324,16 @@ function renderSummary() {
       <div><span class="label">Aircraft</span><div class="value">${e.drone_id != null ? `<a href="/aircraft/${e.drone_id}">${esc(e.aircraft)}</a>` : esc(e.aircraft)}</div>${e.aircraft_uid ? `<span class="mute">${esc(e.aircraft_uid)}</span>` : ''}</div>
       <div class="goal"><span class="label">Flight goal</span><div class="value">${e.goal ? esc(e.goal) : '<span class="mute">Not recorded</span>'}</div></div>
     </div><div class="cols"><div class="kv summary-kv">
-      ${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id))}
-      ${kv('Landing (UTC)', e.landing_utc ? esc(fmtTime(e.landing_utc)) + ' · ' + place(e.landing_place, e.landing_lat, e.landing_lon, e.landing_place_id) : '')}
+      ${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id)
+        + (e.takeoff_location_inferred ? ' <span class="mute">(location inferred from landing)</span>' : ''))}
+      ${kv('Landing (UTC)', (e.landing_utc ? esc(fmtTime(e.landing_utc)) + ' · ' : '') + place(e.landing_place, e.landing_lat, e.landing_lon, e.landing_place_id)
+        + (e.landing_location_inferred ? ' <span class="mute">(location inferred from takeoff)</span>' : ''))}
       ${kv('Flight time', fmtDur(e.duration_s))}${kv('Distance flown', fmtDist(e.distance_m))}${kv('Max from takeoff', fmtDist(e.max_from_takeoff_m))}${kv('At landing', fmtDist(e.from_takeoff_m))}
       ${kv('Project', projectField(e))}
       ${kv('PIC', crewField(e, 'pic'))}${kv('PAC', crewField(e, 'pac'))}${kv('GCS operator', crewField(e, 'gcs'))}
       ${kv('Comment', commentField(e))}
       ${a ? kv('Real flight?', `<span class="tag ${esc(a.verdict)}">${esc(a.verdict)}</span> <span class="mute">${esc(a.reasons.join(', '))}</span>`) : ''}
-      ${e.optitrack || e.indoor ? kv('Where', e.optitrack ? 'Indoor (OptiTrack)' : 'Indoor') : ''}
+      ${e.optitrack || e.indoor ? kv('Where', e.optitrack ? 'Indoor (OptiTrack)' : e.indoor_no_gps ? 'Indoor (inferred: no endpoint or path GPS)' : 'Indoor') : ''}
     </div></div>
     <details style="margin-top:12px"><summary>Log sources and upload details</summary><div class="kv src">
       ${D.timing ? kv('Timing (shown source)', esc(D.timing.source) + ' · original start: ' + esc(D.timing.original_start_utc || 'unknown')
