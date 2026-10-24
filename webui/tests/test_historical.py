@@ -72,6 +72,22 @@ class AppTests(unittest.TestCase):
 
 
 class HistoricalTests(AppTests):
+    def test_overviews_show_recorded_place_for_both_paper_endpoints(self):
+        self.assertEqual(self.create().status_code, 201)
+        for url in ("/api/logbook", "/api/detail/projects/1", "/api/detail/aircraft/1"):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200)
+            entry = (response.json if url == "/api/logbook" else response.json["flights"])[0]
+            self.assertEqual(entry["takeoff_place"], "Field")
+            self.assertEqual(entry["landing_place"], "Field")
+            self.assertEqual(entry["landing_place_id"], entry["takeoff_place_id"])
+            self.assertIsNone(entry["landing_utc"])
+            self.assertIsNone(entry.get("landing_lat"))
+        self.assertEqual(self.create(date="2010-01-02", place_id=None).status_code, 201)
+        missing = next(r for r in self.client.get("/api/logbook").json if r["takeoff_utc"] == "2010-01-02")
+        self.assertIsNone(missing["takeoff_place"])
+        self.assertIsNone(missing["landing_place"])
+
     def test_favicon_is_available_without_sign_in(self):
         with self.client.session_transaction() as session:
             session.clear()

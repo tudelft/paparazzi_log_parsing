@@ -79,6 +79,8 @@ existing `/logbook` links still work.
   importing a corrected CSV again updates records matched by reference (e.g. flight number F00001)
   or by aircraft, date and takeoff time, after a preview of what each row will do.
   Paper records add flight counts and time, not telemetry; check for overlap with digital logs.
+  Overviews show their recorded location in both the takeoff and landing location columns;
+  this does not add a landing time or GPS coordinates.
   CSV crew names follow log matching: use unique display names or explicit aliases, not login usernames
   unless added as aliases. Unknown or ambiguous names produce a row error without importing any records.
   The original CSV is attached to all imported records: anyone who can read one can download the
