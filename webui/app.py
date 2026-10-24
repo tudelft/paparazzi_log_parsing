@@ -4247,7 +4247,7 @@ def logbook_rows(hidden=False, hide_unlinked=False):
         r.pop("has_gps_position")
         if not has_endpoint and not any(gps_summaries) and None in gps_summaries:
             abort(503, description="GPS summaries are incomplete; run app.py backfill-gps-positions.")
-        r["indoor_no_gps"] = not has_endpoint and not any(gps_summaries)
+        r["indoor_no_gps"] = not has_endpoint
         r["indoor"] = bool(r["indoor"] or r["optitrack"] or r["indoor_no_gps"])
         if r["optitrack"] and not r["takeoff_place"]:
             r["takeoff_place"] = "OptiTrack"

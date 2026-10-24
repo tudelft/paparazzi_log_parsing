@@ -336,7 +336,7 @@ function renderSummary() {
         ? '<span class="tag">Simulation</span> ' + esc(e.simulation.evidence.join(', '))
         : 'No simulation evidence detected')}
       ${a ? kv('Real flight?', `<span class="tag ${esc(a.verdict)}">${esc(a.verdict)}</span> <span class="mute">${esc(a.reasons.join(', '))}</span>`) : ''}
-      ${e.optitrack || e.indoor ? kv('Where', e.optitrack ? 'Indoor (OptiTrack)' : e.indoor_no_gps ? 'Indoor (inferred: no endpoint or path GPS)' : 'Indoor') : ''}
+      ${e.optitrack || e.indoor ? kv('Where', e.optitrack ? 'Indoor (OptiTrack)' : e.indoor_no_gps ? 'Indoor / no GPS (inferred: both endpoint locations unknown; a partial path may exist)' : 'Indoor') : ''}
     </div></div>
     <details style="margin-top:12px"><summary>Log sources and upload details</summary><div class="kv src">
       ${D.timing ? kv('Timing (shown source)', esc(D.timing.source) + ' · original start: ' + esc(D.timing.original_start_utc || 'unknown')

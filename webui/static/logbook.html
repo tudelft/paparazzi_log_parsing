@@ -331,20 +331,45 @@ function loadMiniMap(el) {
     const p = await r.json();
     const points = p.points || p;
     if (!Array.isArray(points)) throw new Error('Invalid path response.');
-    return points.filter(x => x.position).map(x => [x.position.lat, x.position.lon]);
+    const segments = [];
+    let segment = null, previous = null;
+    for (const point of points) {
+      const position = point?.position;
+      if (!position || !Number.isFinite(position.lat) || !Number.isFinite(position.lon)
+          || Math.abs(position.lat) > 90 || Math.abs(position.lon) > 180
+          || (position.lat === 0 && position.lon === 0)) {
+        segment = null;
+        previous = null;
+        continue;
+      }
+      if (!segment || point.time_s - previous.time_s > 5) {
+        segment = [];
+        segments.push(segment);
+      }
+      segment.push([position.lat, position.lon]);
+      previous = point;
+    }
+    return segments;
   }));
   const pending = pathCache.get(id);
-  pending.then(ll => {
+  pending.then(segments => {
     if (!el.isConnected) return;
-    if (!ll.length) { el.textContent = 'No path available'; el.className = 'mute'; return; }
+    if (!segments.length) { el.textContent = 'No valid geographic positions in the stored path'; el.className = 'mute'; return; }
     el.textContent = '';
-    const m = L.map(el, {scrollWheelZoom: false}).setView(ll[0], 15);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap contributors'}).addTo(m);
-    const line = L.polyline(ll, {color: '#1f6feb', weight: 3}).addTo(m);
-    L.circleMarker(ll[0], {radius: 5, color: '#1a7f37', fillOpacity: .9}).addTo(m);
-    L.circleMarker(ll[ll.length - 1], {radius: 5, color: '#c62828', fillOpacity: .9}).addTo(m);
-    m.fitBounds(line.getBounds().pad(0.15), {maxZoom: 19});
+    const first = segments[0][0], last = segments[segments.length - 1].slice(-1)[0];
+    const m = L.map(el, {scrollWheelZoom: false}).setView(first, 15);
     miniMaps.push(m);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap contributors'}).addTo(m);
+    const group = L.featureGroup().addTo(m);
+    for (const segment of segments) {
+      if (segment.length > 1) L.polyline(segment, {color: '#1f6feb', weight: 3}).addTo(group);
+      else L.circleMarker(segment[0], {radius: 3, color: '#1f6feb', fillOpacity: 1}).addTo(group);
+    }
+    L.circleMarker(first, {radius: 5, color: '#1f6feb', fillOpacity: .9})
+      .bindTooltip('First recorded position').addTo(group);
+    L.circleMarker(last, {radius: 5, color: '#1f6feb', fillOpacity: .9})
+      .bindTooltip('Last recorded position').addTo(group);
+    m.fitBounds(group.getBounds().pad(0.15), {maxZoom: 19});
   }).catch(error => {
     if (pathCache.get(id) === pending) pathCache.delete(id);
     if (!el.isConnected) return;

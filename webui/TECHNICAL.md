@@ -96,12 +96,17 @@ only; it does not invent a takeoff before the recording. A flight still active a
 is left incomplete. Deploy the rebuilt parser and reparse affected uploads; the existing
 web UI consumes the unchanged JSON format.
 
-**PX4 navigation and flight boundaries.** MAV reader 1.0.2 uses `vehicle_land_detected`
+**PX4 navigation and flight boundaries.** MAV reader 1.0.3 uses `vehicle_land_detected`
 airborne intervals intersected with arming when both are available. An armed ground recording
 does not become a flight; disarming while still reported airborne does not prove a landing.
 Logs without land-detection telemetry retain the armed-interval fallback.
-Geographic positions use `vehicle_global_position` when that topic has samples; only logs
-without it fall back to raw `vehicle_gps_position`. The two streams are never blended.
+Geographic positions prefer quality-accepted raw `vehicle_gps_position` when it covers the
+recording: the first/last accepted fixes must be within five seconds of the logger start/end,
+with no gaps over five seconds between accepted fixes. Otherwise, `vehicle_global_position`
+is used when that topic has samples; logs without it retain the quality-filtered raw GPS
+fallback. One source is selected for the recording, never alternating between streams.
+This preserves continuous outdoor GPS when the estimator is late, resetting or intermittently
+dead-reckoning, without using partially initialized GPS to replace a usable estimator path.
 Global dead-reckoning samples are rejected. Positions must have valid nonzero latitude/longitude;
 reported horizontal/vertical error must be finite and at most 10/15 m respectively.
 Raw GPS additionally requires a 3D fix and at least six satellites when those fields are present.
@@ -163,10 +168,11 @@ latitude/longitude for display and named-place resolution when the other endpoin
 The flight Overview labels the inferred location; no event, time, altitude or raw coordinates are
 written or fabricated. Historical weather still requires a logged takeoff position, not a landing
 position copied for display. Upload details use the same coordinate fallback. When neither endpoint has
-valid coordinates and no saved path from any merged source has a valid GPS position, the entry is
+valid coordinates after checking endpoints from every merged source, the entry is
 classified as indoors for display/filtering (labelled as inferred on the flight page). Valid positions
 exclude zero/zero, non-finite and out-of-range coordinates. This is a no-GPS heuristic, not proof of
-indoor operation; existing named-indoor-place and OptiTrack rules still apply. Paper records are
+indoor operation; a partial GPS path does not override this endpoint-based classification and
+remains available on the map. Existing named-indoor-place and OptiTrack rules still apply. Paper records are
 unchanged. These fallbacks apply to existing records without reparsing.
 
 **Paparazzi clock validation.** Parser 1.5.0 checks `GPS` / `GPS_LLA` messages containing a full GPS
@@ -300,11 +306,11 @@ uploads what the server does not know.
 
 ### Overview GPS summaries
 
-Logbook, statistics and entity overviews determine no-GPS indoor flights from a small
-`flights.has_gps_position` summary, not by opening compressed flight paths on each request.
+Logbook, statistics and entity overviews determine no-GPS indoor flights from endpoint
+coordinates across merged sources, not by opening compressed flight paths on each request.
 New parses store whether a flight has a valid endpoint or a valid GPS sample in its saved path.
-Merged recordings use evidence from all sources; coordinate validity and indoor classification
-rules are unchanged.
+This summary is retained for legacy data validation; a valid path does not override the
+indoor/no-GPS classification when both endpoints are unknown.
 
 On the first startup after upgrading, the server fills missing summaries before starting workers
 or serving requests. Flights with valid endpoints need no path reads; the remaining legacy paths

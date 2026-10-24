@@ -123,7 +123,7 @@ class PX4NavigationTests(unittest.TestCase):
 
     def test_global_priority_does_not_mix_raw_gps_or_dead_reckoning(self):
         flight = self.parse(
-            gps=[(t, 52.01, 4, 10, 3, 12, 1, 2) for t in range(1, 10)],
+            gps=[(t, 52.01, 4, 10, 3, 12, 1 if t >= 7 else 61, 2) for t in range(1, 10)],
             global_positions=[(3, 52, 4, 10, 1, 2, False, 0),
                               (5, 52, 4, 10, 1, 2, False, 0),
                               (6, 52, 4, 10, 1, 2, True, 0)])[0]
@@ -140,12 +140,31 @@ class PX4NavigationTests(unittest.TestCase):
             (7, 53, 4, 10, 1, 2, False, 1)])[0]
         self.assertEqual(flight["distance_m"], 0)
 
+    def test_continuous_raw_gps_restores_endpoints_despite_sparse_estimator(self):
+        flight = self.parse(
+            gps=[(t, 52 + t * .00001, 4, 10, 3, 12, 1, 2) for t in range(11)],
+            global_positions=[(4, 53, 4, 10, 1, 2, False, 0),
+                              (6, 53, 4, 10, 1, 2, True, 1)])[0]
+        self.assertAlmostEqual(flight["takeoff"]["location"]["lat"], 52.00002)
+        self.assertAlmostEqual(flight["landing"]["location"]["lat"], 52.00008)
+        self.assertTrue(all(52 <= p["position"]["lat"] < 52.001 for p in flight["path"]))
+        self.assertGreater(flight["distance_m"], 5)
+        self.assertLess(flight["distance_m"], 10)
+
+    def test_raw_gps_gap_does_not_displace_estimator(self):
+        flight = self.parse(
+            gps=[(0, 53, 4, 10, 3, 12, 1, 2), (9, 53, 4, 10, 3, 12, 1, 2)],
+            global_positions=[(t, 52, 4, 10, 1, 2, False, 0) for t in range(11)])[0]
+        self.assertEqual(flight["takeoff"]["location"]["lat"], 52)
+        self.assertEqual(flight["landing"]["location"]["lat"], 52)
+        self.assertEqual(flight["distance_m"], 0)
+
     def test_invalid_global_coordinates_or_accuracy_are_not_replaced_with_raw_gps(self):
         for lat, lon, eph, epv in ((91, 4, 1, 2), (52, 181, 1, 2), (0, 0, 1, 2),
                                    (52, 4, 20, 2), (52, 4, 1, 30)):
             with self.subTest(lat=lat, lon=lon, eph=eph, epv=epv):
                 flight = self.parse(
-                    gps=[(1, 52, 4, 10, 3, 12, 1, 2)],
+                    gps=[(7, 52, 4, 10, 3, 12, 1, 2)],
                     global_positions=[(1, lat, lon, 10, eph, epv, False, 0)])[0]
                 self.assertIsNone(flight["takeoff"]["location"])
                 self.assertEqual(flight["distance_m"], 0)

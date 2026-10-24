@@ -97,19 +97,24 @@ class LocationFallbackTests(AppTests):
         self.assertTrue(self.client.get("/api/stats").json["flights"][0]["indoor"])
         self.assertTrue(self.client.get("/api/flights/1/detail").json["entry"]["indoor_no_gps"])
 
-    def test_no_endpoints_but_valid_path_is_not_inferred_indoor(self):
+    def test_no_endpoints_but_valid_path_is_inferred_indoor(self):
         self.insert_flight(path=[{"position": {"lat": 52, "lon": 4}}])
         entry = self.client.get("/api/logbook").json[0]
-        self.assertFalse(entry["indoor"])
-        self.assertFalse(entry["indoor_no_gps"])
+        self.assertTrue(entry["indoor"])
+        self.assertTrue(entry["indoor_no_gps"])
         self.assertIsNone(entry["takeoff_lat"])
+        self.assertTrue(self.client.get("/api/stats").json["flights"][0]["indoor"])
+        self.assertTrue(self.client.get("/api/detail/projects/1").json["flights"][0]["indoor"])
+        self.assertTrue(self.client.get("/api/flights/1/detail").json["entry"]["indoor_no_gps"])
+        self.assertEqual(self.client.get("/api/flights/1/path").json,
+                         [{"position": {"lat": 52, "lon": 4}}])
 
-    def test_merged_secondary_path_prevents_indoor_inference(self):
+    def test_merged_secondary_path_does_not_replace_endpoint_evidence(self):
         self.insert_flight(path=[])
         self.insert_flight(path=[{"position": {"lat": 52, "lon": 4}}], identity=2, kind="gcs")
         entry = self.client.get("/api/logbook").json[0]
         self.assertEqual(len(entry["sources"]), 2)
-        self.assertFalse(entry["indoor"])
+        self.assertTrue(entry["indoor"])
 
     def test_merged_secondary_endpoint_is_used_before_indoor_inference(self):
         self.insert_flight()
@@ -143,7 +148,7 @@ class LocationFallbackTests(AppTests):
             for url in ("/api/logbook", "/api/stats", "/api/detail/projects/1", "/api/places"):
                 response = self.client.get(url)
                 self.assertEqual(response.status_code, 200, url)
-            self.assertFalse(self.client.get("/api/logbook").json[0]["indoor"])
+            self.assertTrue(self.client.get("/api/logbook").json[0]["indoor"])
 
     def test_legacy_backfill_preserves_gps_detection_and_is_idempotent(self):
         self.insert_flight(path=[{"position": {"lat": 52, "lon": 4}}])
@@ -167,7 +172,7 @@ class LocationFallbackTests(AppTests):
         self.assertIsNone(self.con.execute("SELECT has_gps_position FROM flights").fetchone()[0])
         self.assertEqual(self.client.get("/api/logbook").status_code, 503)
         self.ns["backfill_gps_positions"](self.con)
-        self.assertFalse(self.client.get("/api/logbook").json[0]["indoor"])
+        self.assertTrue(self.client.get("/api/logbook").json[0]["indoor"])
 
     def test_legacy_blob_backfill_and_parse_storage(self):
         self.insert_flight()

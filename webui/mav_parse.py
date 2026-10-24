@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 PARSER_NAME = "mav-log"
-PARSER_VERSION = "1.0.2"
+PARSER_VERSION = "1.0.3"
 
 LOG_PX4 = "px4_ulog"
 LOG_AP = "ardupilot"
@@ -839,7 +839,16 @@ def _parse_ulog(path, digest, size, path_rate):
 
     streams = []
     global_position = _ds(ulog, "vehicle_global_position")
-    if global_position is not None and len(global_position.data.get("timestamp", [])):
+    gps_rows = series_rows(gps, gps_builder)
+    recording_start = rel(ulog.start_timestamp)
+    recording_end = rel(ulog.last_timestamp)
+    continuous_gps = bool(gps_rows) and (
+        gps_rows[0][0] <= recording_start + 5
+        and gps_rows[-1][0] >= recording_end - 5
+        and all(b[0] - a[0] <= 5 for a, b in zip(gps_rows, gps_rows[1:])))
+    if continuous_gps:
+        position_source, position_builder, ds = "vehicle_gps_position", gps_builder, gps
+    elif global_position is not None and len(global_position.data.get("timestamp", [])):
         position_source, position_builder, ds = "vehicle_global_position", gpos_builder, global_position
     else:
         position_source, position_builder, ds = "vehicle_gps_position", gps_builder, gps
