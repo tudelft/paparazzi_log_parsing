@@ -444,8 +444,13 @@ and private qualifications still block deletion, and explicit digital crew assig
 not transferred. Move aliases and review references before removing duplicates.
 
 Pilot pages are read-only and show only each type's current approved qualification, including expired
-approvals clearly marked as expired. Pending claims, previous submissions and evidence
-remain in My account and the admin per-person management panel, not the pilot page.
+approvals clearly marked as expired. Validity dates appear on hover; qualification names link to
+available evidence using the existing private download endpoint. These summaries and links remain
+visible only to the person and admins. The People overview wraps names, aliases and qualification
+chips to avoid horizontal scrolling; it continues to show only non-expired approvals.
+Pending claims and previous submissions remain in My account and the admin per-person management
+panel, not the pilot page. Management-panel dates are also available on hover and in the submission
+details tooltip, with expired status kept visible.
 **Qualification history (the audit of submission, review and deletion actions) is admin-only**,
 available in the admin per-person panel, never on My account. Its API requires an admin browser session.
 Private submission records and evidence are visible only to that person and administrators.

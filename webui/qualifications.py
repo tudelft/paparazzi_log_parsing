@@ -84,11 +84,12 @@ def current_payload(con, viewer, user_id):
     if not can_see_quals(con, viewer, user_id):
         return None
     return dict(items=[
-        dict(category=r["category"], valid_from=r["valid_from"], valid_until=r["valid_until"], status="approved",
+        dict(id=r["id"], has_evidence=bool(r["evidence_path"]),
+             category=r["category"], valid_from=r["valid_from"], valid_until=r["valid_until"], status="approved",
              expired=bool(r["valid_until"] and r["valid_until"] < datetime.date.today().isoformat()),
              internal=bool(r["internal"]))
         for r in con.execute(
-            "SELECT t.name AS category,q.valid_from,q.valid_until,t.internal FROM qualification_submissions q"
+            "SELECT q.id,q.evidence_path,t.name AS category,q.valid_from,q.valid_until,t.internal FROM qualification_submissions q"
             " JOIN qualification_types t ON t.id=q.type_id WHERE q.user_id=? AND q.status='approved'"
             " ORDER BY t.sort_order, t.name", (user_id,))])
 

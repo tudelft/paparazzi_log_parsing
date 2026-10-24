@@ -251,13 +251,19 @@ class QualificationTests(AppTests):
         self.review(expired)
         self.submit(until="2031-01-01")
         expected = [
-            dict(category="A1/A3", valid_from=None, valid_until="2030-01-01", status="approved", expired=False, internal=False),
-            dict(category="Expired licence", valid_from=None, valid_until="2020-01-01", status="approved", expired=True, internal=False)]
+            dict(id=new, has_evidence=True, category="A1/A3", valid_from=None, valid_until="2030-01-01", status="approved", expired=False, internal=False),
+            dict(id=expired, has_evidence=False, category="Expired licence", valid_from=None, valid_until="2020-01-01", status="approved", expired=True, internal=False)]
         for uid in (1, 2):
             self.sign_in(uid)
             data = self.client.get("/api/detail/people/2").json["item"]["qualifications"]
             self.assertEqual(data, {"items": expected})
             self.assertEqual(len(self.listing().json["items"]), 4)
+            self.assertEqual(self.client.get(f"/api/qualification-submissions/{new}/evidence").data, PDF)
+        self.sign_in(1)
+        self.client.delete(f"/api/qualification-submissions/{new}/evidence")
+        items = self.client.get("/api/detail/people/2").json["item"]["qualifications"]["items"]
+        self.assertFalse(items[0]["has_evidence"])
+        self.assertNotIn("evidence_path", items[0])
         self.sign_in(3)
         self.assertIsNone(self.client.get("/api/detail/people/2").json["item"].get("qualifications"))
 

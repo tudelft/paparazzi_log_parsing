@@ -46,9 +46,10 @@ window.QualificationManager = class {
     const q = this.data, esc = v => this.esc(v);
     const claim = item => {
       const dates = this.dateBits(item);
-      const tip = this.metaTip(item).map(line => this.esc(line)).join('<br>');
+      const tip = [...dates, ...this.metaTip(item)].map(line => this.esc(line)).join('<br>');
+      const name = `<strong>${esc(item.category)}</strong>`;
       return `<div style="margin:12px 0">
-      <strong>${esc(item.category)}</strong> · ${esc(item.status === 'superseded' ? 'archived' : item.status)}${item.internal ? ' · Internal' : ''}${dates.length ? ' · ' + dates.map(esc).join(' · ') : ''}${item.expired ? ' (expired)' : ''}
+      <span title="${esc(dates.join(' · '))}">${item.has_evidence ? `<a href="/api/qualification-submissions/${item.id}/evidence">${name}</a>` : name}</span> · ${esc(item.status === 'superseded' ? 'archived' : item.status)}${item.internal ? ' · Internal' : ''}${item.expired ? ' (expired)' : ''}
       <span class="info-tip"><button type="button" aria-label="Submission details">i</button><span class="tip" role="tooltip">${tip}</span></span>
       <div>${item.has_evidence ? `<a href="/api/qualification-submissions/${item.id}/evidence">Download</a>`
         : `<span class="mute">${item.evidence_deleted_at ? 'Evidence deleted by admin' : 'No evidence attached'}</span>`}
@@ -73,7 +74,8 @@ window.QualificationManager = class {
       <details><summary>Help</summary><p>Current shows valid approvals and pending submissions.
       Archive shows expired and earlier licences, newest first, so past flights can be checked.
       Only the linked person and administrators can see these records and files.
-      Dates only appear when they were recorded for that qualification.</p></details></div>
+      Hover over a qualification for recorded validity dates, or open Submission details.
+      Click its name to download available evidence.</p></details></div>
       <div class="qual-tabs" role="tablist" aria-label="Qualification views">${tab('current', 'Current')}${tab('archive', `Archive (${archive.length})`)}</div>
       ${this.view === 'archive'
         ? archive.map(claim).join('') || '<p class="mute">No archived licences.</p>'

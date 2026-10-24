@@ -20,6 +20,10 @@
   .scroll { overflow-x:auto; }
   h2 { margin:0 0 8px; font-size:15px; }
   table { width:max-content; min-width:100%; border-collapse:collapse; }
+  #directoryTable table { width:100%; table-layout:fixed; }
+  #directoryTable th, #directoryTable td { overflow-wrap:anywhere; }
+  #directoryTable th:last-child { width:42%; }
+  #directoryTable .chip { max-width:100%; white-space:normal; }
   th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
   th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
   .mute { color:var(--mute); }
@@ -44,7 +48,7 @@
   .people-picker, #personPanel { border:1px solid var(--line); border-radius:8px; padding:16px; background:var(--detail); }
   .people-picker { padding:10px; }
   .people-picker #peopleCount { margin:6px 0; }
-  .people-title-row { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+  .people-title-row { display:flex; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
   .people-title-row h2 { margin:0; }
   .people-help { margin-left:auto; }
   .people-help summary { font-size:13px; font-weight:400; color:var(--mute); }
@@ -221,13 +225,17 @@ function nameCell(u, extra, showUser) {
 }
 function qualBits(q) {
   if (!q) return '';
-  const bit = (label, start, until, dead) => {
+  const bit = (item) => {
+    const {category: label, valid_from: start, valid_until: until, expired: dead} = item;
     if (!label) return '';
     const when = [start ? `from ${start.slice(0, 10)}` : '', until ? `until ${until.slice(0, 10)}` : ''].filter(Boolean).join(' · ');
-    return `<span class="chip${dead ? ' warn' : ''}"${when ? ` title="${esc(when)}"` : ''}>${esc(label)}${dead ? ' expired' : ''}</span>`;
+    const attrs = `class="chip${dead ? ' warn' : ''}"${when ? ` title="${esc(when)}"` : ''}`;
+    const labelText = `${esc(label)}${dead ? ' expired' : ''}`;
+    return item.has_evidence ? `<a ${attrs} href="/api/qualification-submissions/${item.id}/evidence">${labelText}</a>`
+      : `<span ${attrs}>${labelText}</span>`;
   };
   return q.items.filter(item => item.status === 'approved' && !item.expired)
-    .map(item => bit(item.category, item.valid_from, item.valid_until, false)).join('');
+    .map(bit).join('');
 }
 
 function render() {

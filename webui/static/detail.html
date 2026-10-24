@@ -256,18 +256,19 @@ function renderInfo() {
   if (KIND === 'people') {
     const q = it.qualifications;
     const names = it.names || it.aliases || [];
-    const day = (d, dead) => d ? `${esc(d)}${dead ? ' <span class="mute">(expired)</span>' : ''}` : '';
     html = kv('Username', esc(it.username)) + kv('Email', it.email ? `<a href="mailto:${esc(it.email)}">${esc(it.email)}</a>` : '')
       + kv('Names', names.length ? esc(names.join(', ')) : '')
       + kv('Default project', it.default_project ? link('projects', it.default_project.id, it.default_project.name) : '')
       + kv('Projects', it.projects.map(p => `${link('projects', p.id, p.name)} <span class="mute">(${esc(ACCESS[p.role] || p.role)})</span>`).join('<br>'));
     if (q) {
       html += kv('Current qualifications', q.items.filter(item => item.status === 'approved').map(item => {
-        const bits = [`<strong>${esc(item.category)}</strong>`];
+        const dates = [item.valid_from ? `Valid from ${item.valid_from}` : '', item.valid_until ? `Valid until ${item.valid_until}` : ''].filter(Boolean).join(' · ');
+        const name = `<strong>${esc(item.category)}</strong>`;
+        const bits = [item.has_evidence
+          ? `<a href="/api/qualification-submissions/${item.id}/evidence">${name}</a>` : name];
         if (item.internal) bits.push('Internal');
-        if (item.valid_from) bits.push(`Valid from ${day(item.valid_from, false)}`);
-        if (item.valid_until) bits.push(`Valid until ${day(item.valid_until, item.expired)}`);
-        return `<div>${bits.join(' · ')}</div>`;
+        if (item.expired) bits.push('<span class="mute">(expired)</span>');
+        return `<div title="${esc(dates)}">${bits.join(' · ')}</div>`;
       }).join('') || '<span class="mute">None approved.</span>');
     }
 
