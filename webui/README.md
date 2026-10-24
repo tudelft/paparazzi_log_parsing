@@ -32,6 +32,8 @@ existing `/logbook` links still work.
 
 - Dates and times are **UTC**. Indoor and uncertain/non-flight records are hidden by default;
   enable their filters when needed.
+- Uploads has a **Status** filter: **Parser errors**, **Unfinished logs** (queued, parsing or
+  error), or **All failures** (also failed/rejected upload receipts). Filters cover all pages.
 - Statistics uses the same period presets and custom UTC date range as Logbook (default: last
   three years). **Total log data (GB)** sums original telemetry sizes for logs contributing to
   filtered flights, counting each SD/GCS source once and excluding companion files.

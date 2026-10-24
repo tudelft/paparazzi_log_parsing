@@ -4155,13 +4155,16 @@ def flight_detail(flight_id):
     days = clock_shift_days(row["log_start_utc"], row["date_override"])
     path = flight_path(row["paths_file"], row["path_idx"], days, row["path_gz"] if HAVE_PATH_GZ else None)
     apply_clock_to_obj(changes, days)
+    invalid_reports = config.get("invalid_setting_reports") or []
+    apply_clock_to_obj(invalid_reports, days)
     versions, from_gcs = with_gcs_autopilot_fallback(json.loads(row["autopilot_versions"] or "[]"), row["log_path"])
     return jsonify(
         entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
         timing=log_timing(row),
         takeoff_time_s=row["takeoff_time_s"], landing_time_s=row["landing_time_s"],
         path=path, flight_plan=config.get("flight_plan"),
-        setting_changes=changes, info_messages=json.loads(row["info_messages"] or "[]"),
+        setting_changes=changes, invalid_setting_reports=invalid_reports,
+        info_messages=json.loads(row["info_messages"] or "[]"),
         preflight_checks=json.loads(row["preflight_checks"] or "[]"),
         autopilot_versions=versions, autopilot_versions_from_gcs=from_gcs)
 
@@ -4380,6 +4383,13 @@ def ingest_result(ingest_id):
 @app.get("/api/logs")
 def list_logs():
     where, params = list_clause("l.")
+    status_filter = request.args.get("status", "all")
+    if status_filter not in ("all", "errors", "unfinished", "failures"):
+        return jsonify(error="Invalid log status filter"), 400
+    if status_filter in ("errors", "failures"):
+        where += " AND l.status='error'"
+    elif status_filter == "unfinished":
+        where += " AND l.status IN ('queued','parsing','error')"
     con = conn()
     try:
         limit = min(max(int(request.args.get("limit", 100)), 1), 200)
@@ -4389,7 +4399,34 @@ def list_logs():
         offset = max(int(request.args.get("offset", 0)), 0)
     except (TypeError, ValueError):
         offset = 0
-    total = con.execute("SELECT COUNT(*) FROM logs l WHERE " + where, params).fetchone()[0]
+    page = None
+    receipts = {}
+    row_offset = offset
+    if status_filter == "failures":
+        receipt_where = "i.status IN ('error','rejected') AND (? OR i.uploaded_by=?)"
+        receipt_params = (g.user["is_admin"], g.user["id"])
+        if request.args.get("project", "").isdigit():
+            receipt_where += " AND 0=1"
+        candidates = (
+            "WITH results AS (SELECT 'log' AS row_type,l.id,l.uploaded_at FROM logs l WHERE " + where +
+            " UNION ALL SELECT 'ingest',i.id,i.uploaded_at FROM ingest i WHERE " + receipt_where +
+            " AND NOT EXISTS (SELECT 1 FROM logs l WHERE l.id=i.log_id AND " + where + ")) ")
+        candidate_params = (*params, *receipt_params, *params)
+        total = con.execute(candidates + "SELECT COUNT(*) FROM results", candidate_params).fetchone()[0]
+        page = con.execute(
+            candidates + "SELECT * FROM results ORDER BY uploaded_at DESC,id DESC,row_type LIMIT ? OFFSET ?",
+            (*candidate_params, limit, offset)).fetchall()
+        log_ids = [r["id"] for r in page if r["row_type"] == "log"]
+        ingest_ids = [r["id"] for r in page if r["row_type"] == "ingest"]
+        if ingest_ids:
+            receipts = {r["id"]: {**dict(r), "row_type": "ingest"} for r in con.execute(
+                "SELECT id,name,size_bytes,status,error,uploaded_at FROM ingest WHERE id IN (" +
+                ",".join("?" for _ in ingest_ids) + ")", ingest_ids)}
+        where = "l.id IN (" + ",".join("?" for _ in log_ids) + ")" if log_ids else "0=1"
+        params = tuple(log_ids)
+        row_offset = 0
+    else:
+        total = con.execute("SELECT COUNT(*) FROM logs l WHERE " + where, params).fetchone()[0]
     rows = con.execute(
         "SELECT l.*, p.name AS project_name,"
         " (SELECT username FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name,"
@@ -4399,10 +4436,13 @@ def list_logs():
         " (SELECT SUM(a.total_flight_time_s) FROM aircraft a WHERE a.log_id = l.id) AS flight_time_s"
         " FROM logs l LEFT JOIN projects p ON p.id = l.project_id WHERE " + where +
         " ORDER BY l.id DESC LIMIT ? OFFSET ?",
-        (*params, limit, offset)).fetchall()
-    return jsonify(logs=[{**log_dict(r), "can_delete": can_delete_log(con, r),
-                          "can_edit_date": can_edit_log_date(con, r)} for r in rows],
-                   total=total, limit=limit, offset=offset)
+        (*params, limit, row_offset)).fetchall()
+    logs = [{**log_dict(r), "row_type": "log", "can_delete": can_delete_log(con, r),
+             "can_edit_date": can_edit_log_date(con, r)} for r in rows]
+    if page is not None:
+        by_id = {r["id"]: r for r in logs}
+        logs = [by_id[r["id"]] if r["row_type"] == "log" else receipts[r["id"]] for r in page]
+    return jsonify(logs=logs, total=total, limit=limit, offset=offset)
 
 
 @app.get("/api/logs/<int:log_id>")

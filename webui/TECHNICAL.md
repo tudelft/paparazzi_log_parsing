@@ -53,6 +53,15 @@ Day-to-day:
 
 After an update that changes the parser version, click **Re-parse outdated** on the Uploads page.
 
+**Non-finite Paparazzi values.** Parser 1.7.1 serializes non-finite numeric output as JSON `null`,
+not invalid bare NaN/Infinity tokens. Non-finite numeric telemetry is rejected before calculations.
+`DL_VALUE` is retained separately: `settings_changes.invalid_reports` records timestamp, setting
+index/name, `value: null` and `invalid_value` (`NaN`, `+Infinity` or `-Infinity`).
+Invalid reports do not become ordinary setting changes or fabricated zero values. Comparisons
+resume after two consecutive finite reports; defaults/finals can be null. Flight settings lists
+show these reports as **Invalid value (...)**, using the existing flight/all-recording filter.
+Original uploads remain unchanged; reparse failed logs to recover affected recordings.
+
 **Paparazzi simulation metadata.** Parser 1.7.0 adds a `simulation` object to each aircraft in its
 JSON output, for example `{"detected": true, "evidence": ["telemetry:NPS_WIND"]}`.
 It detects recorded `NPS_RATE_ATTITUDE`, `NPS_POS_LLH`, `NPS_SPEED_POS`, `NPS_GYRO_BIAS`,
@@ -609,6 +618,18 @@ background. The SHA-256 of the `.data` file identifies a log, so a known log is 
 added later). Files are kept in `<LOG_DIR>/<sha[:2]>/<sha>/` with the flight paths in `paths-<id>.json.gz`; uploads
 are staged in `<WEB_DATA>/incoming`. Each log records its parser version; **Re-parse outdated** re-runs the current
 parser on older and failed logs.
+
+The Uploads **Status** dropdown filters `/api/logs` before counting and pagination:
+`status=all` (default), `errors` (parser errors), `unfinished` (queued/parsing/error), or
+`failures` (parser errors plus error/rejected ingestion receipts). The combined failures view
+sorts by upload timestamp, with stable ID/type tie-breaks; ordinary log views retain descending
+log-ID order. Receipts use `row_type=ingest`, distinct from `row_type=log`, and expose no storage
+paths or stored-log controls. Only the uploader or an admin can see a receipt, regardless of
+project membership. A receipt is omitted when its linked failed log is already visible in the
+results. Receipts have no project, so an explicit numeric `project` filter excludes them;
+`project=none` includes eligible receipts. The recent ingestion counters remain limited to the
+last hour, while the failure filter includes all retained receipts. Failures rejected before
+a receipt is created remain upload-response errors, not persisted results.
 
 **Logbook.** The parser tells onboard SD logs from ground station logs. The logbook (`/logbook`) has one row per
 flight and merges the SD and GCS recordings of the same flight: flight data from the SD log, PIC/PAC/GCS operator and

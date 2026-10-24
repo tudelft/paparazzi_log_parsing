@@ -478,7 +478,8 @@ def store_parsed(con, log_id, doc, paths_file):
         m = ac.get("mission") or {}
         span = ac.get("data_span") or {}
         summ = ac.get("summary") or {}
-        config = {"flight_plan": ac.get("flight_plan"), "settings": ac.get("settings"), "xml": ac.get("xml")}
+        config = {"flight_plan": ac.get("flight_plan"), "settings": ac.get("settings"), "xml": ac.get("xml"),
+                  "invalid_setting_reports": (ac.get("settings_changes") or {}).get("invalid_reports", [])}
         cur = con.execute(
             "INSERT INTO aircraft (log_id, ac_id, name, pic, pac, gcs, goal, autopilot_versions, first_utc, last_utc,"
             " num_flights, total_flight_time_s, total_flight_distance_m, preflight_checks, info_messages, config_gz, simulation)"

@@ -660,11 +660,13 @@ function renderLists() {
   const near = t => t >= t0 - 30 && t <= t1 + 30;
   const allC = $('allChanges').checked, allM = $('allMsgs').checked;
 
-  const ch = D.setting_changes.filter(c => allC || inFlight(c.time_s));
-  $('settingsBadge').textContent = `(${D.setting_changes.filter(c => inFlight(c.time_s)).length})`;
-  $('changeCount').textContent = `${ch.length} of ${D.setting_changes.length}`;
+  const reports = [...D.setting_changes, ...(D.invalid_setting_reports || []).map(r => ({...r, idx:r.index}))]
+    .sort((a, b) => a.time_s - b.time_s);
+  const ch = reports.filter(c => allC || inFlight(c.time_s));
+  $('settingsBadge').textContent = `(${reports.filter(c => inFlight(c.time_s)).length})`;
+  $('changeCount').textContent = `${ch.length} of ${reports.length} changes / invalid reports`;
   $('changes').innerHTML = pageRows(ch, 'changes').map(c => `<tr class="${inFlight(c.time_s) ? '' : 'out'}"><td class="mono">${rel(c.time_s)}</td><td>${esc(c.var || 'setting')} <span class="mute">#${c.idx}</span></td>
-    <td class="mono">${esc(c.from_value)}</td><td class="mono">${esc(c.to_value)}</td><td>${inFlight(c.time_s) ? '<span class="tag">in flight</span>' : ''}</td></tr>`).join('')
+    <td class="mono">${esc(c.from_value)}</td><td class="mono">${c.invalid_value ? 'Invalid value (' + esc(c.invalid_value) + ')' : esc(c.to_value)}</td><td>${inFlight(c.time_s) ? '<span class="tag">in flight</span>' : ''}</td></tr>`).join('')
     || '<tr><td colspan="5" class="mute">No setting changed during this flight.</td></tr>';
 
   const ms = D.info_messages.filter(m => allM || near(m.time_s));

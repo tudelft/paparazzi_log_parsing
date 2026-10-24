@@ -367,7 +367,7 @@ template <typename T>
 inline bool to_num(std::string_view sv, T &out)
 {
   auto r = std::from_chars(sv.data(), sv.data() + sv.size(), out);
-  return r.ec == std::errc();
+  return r.ec == std::errc() && std::isfinite(out);
 }
 
 std::vector<int16_t> parse_int_list(std::string_view v)
@@ -515,7 +515,10 @@ LogHeader read_log_header(const std::string &log_file)
     if (ind == std::string::npos) { continue; }
     if (h.start_epoch < 0) {
       size_t t = line.find("time_of_day=\"");
-      if (t != std::string::npos) { h.start_epoch = atof(line.c_str() + t + 13); }
+      if (t != std::string::npos) {
+        const double epoch = atof(line.c_str() + t + 13);
+        if (std::isfinite(epoch)) { h.start_epoch = epoch; }
+      }
     }
     const char *l = line.c_str() + ind;
     if (strncmp(l, "<aircraft ", 10) == 0) { h.has_aircraft_tag = true; }
@@ -851,7 +854,7 @@ std::string flight_plan_summary_json(const std::string &x)
     if (i == at.end()) { return false; }
     char *endp;
     out = strtod(i->second.c_str(), &endp);
-    return endp != i->second.c_str();
+    return endp != i->second.c_str() && std::isfinite(out);
   };
 
   // WGS84 local tangent plane approximation (accurate to cm over a few km)
@@ -936,6 +939,7 @@ std::string utc_iso(double epoch)
 
 std::string num(double v)
 {
+  if (!std::isfinite(v)) { return "null"; }
   char buf[32];
   snprintf(buf, sizeof(buf), "%.7g", v);
   return buf;
@@ -957,7 +961,8 @@ std::string settings_changes_json(const AircraftState &s, const std::vector<Sett
       tr.seen = true; tr.first = tr.last = sm.value; tr.last_t = sm.t;
       continue;
     }
-    if (fabs(sm.value - tr.last) > 1e-5 * std::max(1.0, fabs(tr.last))) {
+    if (std::isfinite(sm.value) && std::isfinite(tr.last) &&
+        fabs(sm.value - tr.last) > 1e-5 * std::max(1.0, fabs(tr.last))) {
       Change c{tr.last_t, sm.t, tr.last, sm.value, sm.in_flight, sm.index};
       tr.changes.push_back(c);
       timeline.push_back(c);
@@ -984,7 +989,7 @@ std::string settings_changes_json(const AircraftState &s, const std::vector<Sett
   f = true;
   for (const auto &kv : tracks) {
     const Track &tr = kv.second;
-    if (tr.changes.empty()) { continue; }
+    if (tr.changes.empty() && std::isfinite(tr.first) && std::isfinite(tr.last)) { continue; }
     const SettingInfo *si = kv.first >= 0 && (size_t)kv.first < info.size() ? &info[kv.first] : nullptr;
     o << (f ? "" : ",") << "\n          {\"index\": " << kv.first << ", \"var\": " << name_of_idx(kv.first)
       << ", \"shortname\": " << (si ? json_escape(si->shortname) : "null")
@@ -1002,7 +1007,17 @@ std::string settings_changes_json(const AircraftState &s, const std::vector<Sett
     o << "]}";
     f = false;
   }
-  o << (changed ? "\n        " : "") << "]\n      }";
+  o << "\n        ],\n        \"invalid_reports\": [";
+  bool first_invalid = true;
+  for (const auto &sm : s.setting_samples) {
+    if (std::isfinite(sm.value)) { continue; }
+    const char *value = std::isnan(sm.value) ? "NaN" : sm.value > 0 ? "+Infinity" : "-Infinity";
+    o << (first_invalid ? "" : ", ") << "{\"time_s\": " << num(sm.t) << ", \"utc\": " << utc(sm.t)
+      << ", \"index\": " << sm.index << ", \"var\": " << name_of_idx(sm.index)
+      << ", \"value\": null, \"invalid_value\": " << json_escape(value) << "}";
+    first_invalid = false;
+  }
+  o << "]\n      }";
   return o.str();
 }
 
@@ -1033,7 +1048,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.7.0";
+constexpr const char *PARSER_VERSION = "1.7.1";
 
 struct GpsClock {
   size_t count = 0;
@@ -1388,7 +1403,7 @@ int main(int argc, char *argv[])
     const char *q = line;
     double t;
     auto r = std::from_chars(q, eol, t);
-    if (r.ec != std::errc()) { continue; }
+    if (r.ec != std::errc() || !std::isfinite(t)) { continue; }
     q = r.ptr;
     if (prev_raw_time >= 0 && t + 2000.0 < prev_raw_time) { time_offset += SYS_TIME_WRAP_S; }
     prev_raw_time = t;
@@ -1548,7 +1563,10 @@ int main(int argc, char *argv[])
           const Picked f = pick(dl_f, q, eol);
           int idx;
           double val;
-          if (!to_num(f[DL_INDEX], idx) || !to_num(f[DL_VALUE_], val)) { break; }
+          const auto value = f[DL_VALUE_];
+          const auto parsed = std::from_chars(value.data(), value.data() + value.size(), val);
+          if (!to_num(f[DL_INDEX], idx) || parsed.ec != std::errc() ||
+              parsed.ptr != value.data() + value.size()) { break; }
           AircraftState &s = touch(ac, t);
           s.setting_samples.push_back({t, idx, val, s.in_flight});
         }

@@ -75,6 +75,7 @@
   <section class="card">
     <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap">
       <strong>Logs</strong>
+      <label>Status <select id="logStatus"><option value="all">All logs</option><option value="errors">Parser errors</option><option value="unfinished">Unfinished logs</option><option value="failures">All failures</option></select></label>
     <div id="pager" class="mute" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
       <label>Logs per page <select id="logPageSize"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>
       <button type="button" class="sec" id="newerLogs">Newer</button>
@@ -117,6 +118,7 @@ function logsQuery() {
   const p = new URLSearchParams();
   p.set('limit', String(LOG_PAGE));
   p.set('offset', String(logOffset));
+  p.set('status', $('logStatus').value);
   return '?' + p.toString();
 }
 function fillProjects() {
@@ -363,7 +365,15 @@ async function refresh() {
   if (refreshBusy) { refreshWanted = true; return; }
   refreshBusy = true;
   try {
-  const [st, body] = await Promise.all([fetch('/api/status').then(r => r.json()), fetch('/api/logs' + logsQuery()).then(r => r.json())]);
+  const query = logsQuery();
+  const [st, response] = await Promise.all([fetch('/api/status').then(r => r.json()), fetch('/api/logs' + query)]);
+  const body = await response.json();
+  if (query !== logsQuery()) { refreshWanted = true; return; }
+  if (!response.ok) {
+    $('pageInfo').textContent = body.error || 'Could not load logs';
+    $('logs').innerHTML = '';
+    return;
+  }
   paintStatus(st);
   const logs = Array.isArray(body) ? body : (body.logs || []);
   logTotal = Array.isArray(body) ? logs.length : (body.total || 0);
@@ -375,13 +385,20 @@ async function refresh() {
   }
   const from = logTotal ? logOffset + 1 : 0;
   const to = Math.min(logOffset + logs.length, logTotal);
-  $('pageInfo').textContent = logTotal ? `Showing ${from}–${to} of ${logTotal} (newest first)` : 'No logs yet.';
+  $('pageInfo').textContent = logTotal ? `Showing ${from}–${to} of ${logTotal} (newest first)` : 'No matching results.';
   $('newerLogs').disabled = logOffset <= 0;
   $('olderLogs').disabled = logOffset + LOG_PAGE >= logTotal;
   const tb = $('logs');
   tb.innerHTML = '';
   for (const l of logs) {
     const tr = document.createElement('tr');
+    if (l.row_type === 'ingest') {
+      tr.innerHTML = `<td>Upload ${l.id}</td><td>${esc(l.name)}<div class="mute">Upload receipt · ${fmtSize(l.size_bytes)} · ${esc(l.uploaded_at)}</div></td>
+        <td colspan="5" class="mute">Upload failure; receipt only, no stored-log controls.</td>
+        <td><span class="badge error">${esc(l.status)}</span><div class="mute">${esc(l.error || '')}</div></td><td></td>`;
+      tb.appendChild(tr);
+      continue;
+    }
     tr.className = 'log';
     const projectCell = me && me.is_admin
       ? `<select onclick="event.stopPropagation()" onchange="setProject(${l.id}, this.value)">${'<option value="">No project</option>' + projects.map(p => `<option value="${p.id}"${p.id === l.project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`
@@ -489,6 +506,7 @@ async function setProject(id, value) {
   refresh();
 }
 $('logPageSize').onchange = () => { LOG_PAGE = +$('logPageSize').value; logOffset = 0; refresh(); };
+$('logStatus').onchange = () => { logOffset = 0; refresh(); };
 $('newerLogs').onclick = () => { logOffset = Math.max(0, logOffset - LOG_PAGE); refresh(); };
 $('olderLogs').onclick = () => { if (logOffset + LOG_PAGE < logTotal) { logOffset += LOG_PAGE; refresh(); } };
 setInterval(() => {

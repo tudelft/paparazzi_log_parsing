@@ -436,6 +436,70 @@ class UploadScriptTests(unittest.TestCase):
         self.assertEqual(upload.retry_delay("invalid", 3), 3)
 
 
+class UploadFilterTests(AppTests):
+    def setUp(self):
+        super().setUp()
+        self.con.executemany(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            [(i, f"log{i}", f"hash{i}", "fixture.gz", status, f"2026-01-{i:02d}T00:00:00Z", owner, project)
+             for i, status, owner, project in
+             [(1, "error", 2, 1), (2, "done", 2, 1), (3, "queued", 2, 1),
+              (4, "parsing", 2, 1), (5, "error", 4, 2), (6, "error", 2, None)]])
+        self.con.executemany(
+            "INSERT INTO ingest(id,kind,name,stage_dir,data_name,status,error,uploaded_at,uploaded_by,log_id)"
+            " VALUES (?,'pair',?,'private-stage','log.data',?,'fixture error',?,?,?)",
+            [(i, f"upload{i}", status, f"2026-02-{i:02d}T00:00:00Z", owner, log_id)
+             for i, status, owner, log_id in
+             [(1, "error", 2, None), (2, "rejected", 2, None), (3, "error", 2, 1),
+              (4, "error", 4, None), (5, "stored", 2, 1), (6, "accepted", 2, None),
+              (7, "error", 2, 5)]])
+        self.con.commit()
+
+    def test_log_filters_and_server_pagination(self):
+        for status, ids in (("all", [6, 4, 3, 2, 1]), ("errors", [6, 1]),
+                            ("unfinished", [6, 4, 3, 1])):
+            with self.subTest(status=status):
+                body = self.client.get(f"/api/logs?status={status}").json
+                self.assertEqual([r["id"] for r in body["logs"]], ids)
+                self.assertEqual(body["total"], len(ids))
+        body = self.client.get("/api/logs?status=unfinished&limit=2&offset=2").json
+        self.assertEqual(body["total"], 4)
+        self.assertEqual([r["id"] for r in body["logs"]], [3, 1])
+        self.assertEqual(self.client.get("/api/logs").json["total"], 5)
+        self.assertEqual(self.client.get("/api/logs?status=bad").status_code, 400)
+
+    def test_combined_failures_are_paginated_and_deduplicated(self):
+        expected = [("ingest", 7), ("ingest", 2), ("ingest", 1), ("log", 6), ("log", 1)]
+        collected = []
+        for offset in (0, 2, 4):
+            body = self.client.get(f"/api/logs?status=failures&limit=2&offset={offset}").json
+            self.assertEqual(body["total"], 5)
+            collected.extend((r["row_type"], r["id"]) for r in body["logs"])
+            for row in body["logs"]:
+                if row["row_type"] == "ingest":
+                    self.assertEqual(set(row), {"row_type", "id", "name", "size_bytes",
+                                                "status", "error", "uploaded_at"})
+        self.assertEqual(collected, expected)
+        self.assertEqual(self.client.get("/api/logs?status=failures&offset=99").json["logs"], [])
+
+    def test_receipt_access_and_project_scope(self):
+        self.sign_in(3)
+        body = self.client.get("/api/logs?status=failures").json
+        self.assertEqual([(r["row_type"], r["id"]) for r in body["logs"]], [("log", 1)])
+        self.sign_in(1)
+        body = self.client.get("/api/logs?status=failures").json
+        self.assertEqual(body["total"], 6)
+        self.assertIn(("ingest", 4), [(r["row_type"], r["id"]) for r in body["logs"]])
+        self.assertNotIn(("ingest", 7), [(r["row_type"], r["id"]) for r in body["logs"]])
+        self.sign_in(2)
+        self.assertEqual(self.client.get("/api/logs?status=failures&project=1").json["total"], 1)
+        self.assertEqual(self.client.get("/api/logs?status=failures&project=2").json["total"], 0)
+        body = self.client.get("/api/logs?status=failures&project=none").json
+        self.assertEqual(body["total"], 5)
+        self.assertEqual([r["id"] for r in body["logs"] if r["row_type"] == "log"], [6])
+
+
 class UploadStatusTests(AppTests):
     def test_upload_stages_locally_and_can_resume_legacy_share_staging(self):
         response = self.client.post("/api/upload", data={
