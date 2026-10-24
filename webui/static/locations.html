@@ -35,6 +35,7 @@
   #pointReview { margin:8px 0; }
   #pointReview select { max-width:100%; }
   button:disabled { opacity:.5; cursor:default; }
+  .place-marker { background:var(--acc); color:#fff; border:2px solid var(--card); border-radius:50%; text-align:center; line-height:30px; font-weight:700; box-shadow:0 1px 5px #0005; }
 </style>
 </head>
 <body data-edit="admin">
@@ -61,6 +62,7 @@
     </div>
     <div id="map"></div>
     <div id="mapMsg" class="mute" style="margin-top:6px"></div>
+    <p class="mute">Click a numbered group to zoom in. Hover for a name; click a location or use Show to select it. Boundaries appear when zoomed in or editing.</p>
     <div id="shapeForm" style="margin-top:8px" hidden>
       <span id="shapeLabel"></span>
       <label>New shape <select id="shapeType"><option value="polygon">Polygon</option><option value="rectangle">Rectangle</option><option value="circle">Circle</option></select></label>
@@ -85,6 +87,7 @@
     <div class="scroll" id="placesPreview"></div>
     <p><button type="button" id="importPlaces" hidden onclick="importPlaces(false)"></button> <span id="importPlacesMsg" class="mute"></span></p>
     </dialog>
+    <label>Find location <input id="placeSearch" type="search" placeholder="Search by name" oninput="renderTable()"></label>
     <div class="scroll"><table style="margin-top:8px"><thead><tr><th>Name</th><th>Type</th><th>Shape</th><th class="num">Flights</th><th class="num">Flight time</th><th>Last flight</th><th></th></tr></thead><tbody id="places"></tbody></table></div>
   </section>
 </main>
@@ -108,6 +111,7 @@ async function send(method, url, body) {
 
 let map, layers, drawControl = null, placeData = {places: [], points: [], admin: false}, fitted = false;
 let reviewPoints = [], pointMarkers = [], selectedPoint = 0;
+let namedMarkers, visibleBoundaries, selectedPlace = null;
 const layerById = new Map();
 const canEdit = () => placeData.admin && window.editMode();
 const fmtHours = s => {
@@ -122,6 +126,9 @@ function shapeOf(layer) {
 }
 function layerOf(sh) {
   return sh.type === 'circle' ? L.circle(sh.center, {radius: sh.radius_m}) : L.polygon(sh.points);
+}
+function boundaryBounds(layer) {
+  return layer instanceof L.Circle ? layer.getLatLng().toBounds(2 * layer.getRadius()) : layer.getBounds();
 }
 
 let pendingLayer = null, naming = null;
@@ -228,15 +235,24 @@ function initMap() {
   if (typeof L === 'undefined') { $('mapMsg').textContent = 'The map library (Leaflet) could not be loaded; the server needs internet access for the map and tiles in your browser.'; return; }
   map = L.map('map').setView([52.0, 4.4], 8);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap contributors'}).addTo(map);
-  layers = new L.FeatureGroup().addTo(map);
+  layers = new L.FeatureGroup();
+  visibleBoundaries = L.layerGroup().addTo(map);
+  namedMarkers = L.layerGroup().addTo(map);
+  layers.on('layerremove', e => visibleBoundaries.removeLayer(e.layer));
+  layers.on('layeradd', e => {
+    if (canEdit() || map.getZoom() >= 13 || e.layer.placeId === selectedPlace)
+      visibleBoundaries.addLayer(e.layer);
+  });
+  map.on('zoomend', renderNamedPlaces);
   map.on(L.Draw.Event.CREATED, e => {
     if (shapeEdit && shapeEdit.drawer) {
       layers.removeLayer(shapeEdit.layer);
       shapeEdit.layer = e.layer;
       e.layer.placeId = shapeEdit.id;
-      e.layer.bindTooltip(placeData.places.find(p => p.id === shapeEdit.id).name, {permanent: true, direction: 'center'});
+      bindPlace(e.layer, placeData.places.find(p => p.id === shapeEdit.id));
       layers.addLayer(e.layer);
       layerById.set(shapeEdit.id, e.layer);
+      renderNamedPlaces();
       shapeEdit.editor = new L.EditToolbar.Edit(map, {featureGroup: L.featureGroup([e.layer])});
       return;
     }
@@ -288,6 +304,7 @@ function paintMode() {
     }
   }
   renderTable();
+  renderNamedPlaces();
   $('pointHint').textContent = edit ? 'Draw a boundary around the selected dot, then name it.'
     : placeData.admin ? 'Turn on Edit to draw and name a place.' : '';
 }
@@ -297,10 +314,15 @@ function visitPoint(index) {
   $('pointSelect').value = String(selectedPoint);
   $('pointPrev').disabled = !reviewPoints.length || selectedPoint === 0;
   $('pointNext').disabled = !reviewPoints.length || selectedPoint === reviewPoints.length - 1;
-  pointMarkers.forEach((marker, i) => marker.closeTooltip().setStyle({
-    radius: i === selectedPoint ? 7 : 4,
-    color: i === selectedPoint ? '#cf222e' : '#1f6feb',
-  }));
+  pointMarkers.forEach((marker, i) => {
+    marker.closeTooltip();
+    marker.setStyle({
+      radius: i === selectedPoint ? 7 : 4,
+      color: i === selectedPoint ? '#cf222e' : '#1f6feb',
+      fillOpacity: i === selectedPoint ? .85 : .25,
+      opacity: i === selectedPoint ? 1 : .4,
+    });
+  });
   if (map && reviewPoints.length) {
     const p = reviewPoints[selectedPoint];
     map.setView([p.lat, p.lon], Math.max(map.getZoom(), 16));
@@ -330,7 +352,8 @@ function renderPoints(focus = false) {
   pointMarkers = (only ? reviewPoints : placeData.points).map((p, i) => {
     const selected = only && i === selectedPoint;
     const marker = L.circleMarker([p.lat, p.lon], {
-      radius: selected ? 7 : 4, weight: 1, color: selected ? '#cf222e' : '#1f6feb', fillOpacity: .6,
+      radius: selected ? 7 : 4, weight: 1, color: selected ? '#cf222e' : '#1f6feb',
+      fillOpacity: only && !selected ? .25 : .6, opacity: only && !selected ? .4 : 1,
     }).bindTooltip(`${only ? p.unnamed_count : p.count} takeoffs/landings at ${p.lat.toFixed(3)}, ${p.lon.toFixed(3)}`);
     if (only) marker.on('click', () => visitPoint(i));
     return marker;
@@ -341,10 +364,57 @@ function renderPoints(focus = false) {
 
 function renderTable() {
   const edit = canEdit();
-  $('places').innerHTML = placeData.places.map(p => `<tr><td><a href="/locations/${p.id}">${esc(p.name)}</a></td><td>${p.indoor ? 'Indoors' : 'Outdoors'}</td><td class="mute">${p.shape.type === 'circle' ? 'circle, ' + Math.round(p.shape.radius_m) + ' m' : 'polygon, ' + p.shape.points.length + ' points'}</td>
+  const query = $('placeSearch').value.trim().toLocaleLowerCase();
+  $('places').innerHTML = placeData.places.filter(p => p.name.toLocaleLowerCase().includes(query)).map(p => `<tr><td><a href="/locations/${p.id}">${esc(p.name)}</a></td><td>${p.indoor ? 'Indoors' : 'Outdoors'}</td><td class="mute">${p.shape.type === 'circle' ? 'circle, ' + Math.round(p.shape.radius_m) + ' m' : 'polygon, ' + p.shape.points.length + ' points'}</td>
     <td class="num">${p.flights}</td><td class="num">${fmtHours(p.seconds)}</td><td>${esc((p.last || '').slice(0, 10))}</td>
     <td><button class="sec" onclick="zoomPlace(${p.id})">Show</button>${edit ? ` <button onclick="renamePlace(${p.id})">Name / type</button> <button onclick="editShape(${p.id})">Edit shape</button> <button class="danger" onclick="deletePlace(${p.id})">Delete</button>` : ''}</td></tr>`).join('')
-    || `<tr><td colspan="7" class="mute">${placeData.admin ? 'No places yet.' : 'No named places on your flights yet.'}</td></tr>`;
+    || `<tr><td colspan="7" class="mute">${query ? 'No matching locations.' : placeData.admin ? 'No places yet.' : 'No named places on your flights yet.'}</td></tr>`;
+}
+
+function bindPlace(layer, place) {
+  layer.bindTooltip(esc(place.name), {permanent: place.id === selectedPlace, direction: 'top'});
+  layer.on('click', () => zoomPlace(place.id));
+  return layer;
+}
+
+function renderNamedPlaces() {
+  if (!map || !visibleBoundaries) return;
+  const local = map.getZoom() >= 13, editing = canEdit();
+  for (const layer of visibleBoundaries.getLayers()) {
+    if (!layers.hasLayer(layer) || (!local && !editing && layer.placeId !== selectedPlace))
+      visibleBoundaries.removeLayer(layer);
+  }
+  for (const layer of layers.getLayers()) {
+    const selected = layer.placeId === selectedPlace;
+    if (local || editing || selected) visibleBoundaries.addLayer(layer);
+    if (layer.getTooltip().options.permanent !== selected) {
+      const content = layer.getTooltip().getContent();
+      layer.unbindTooltip().bindTooltip(content, {permanent: selected, direction: 'top'});
+    }
+  }
+  namedMarkers.clearLayers();
+  if (local || editing) return;
+  const groups = new Map();
+  for (const place of placeData.places) {
+    if (place.id === selectedPlace) continue;
+    const center = boundaryBounds(layerById.get(place.id)).getCenter();
+    const pixel = map.project(center);
+    const key = `${Math.floor(pixel.x / 64)},${Math.floor(pixel.y / 64)}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({place, center});
+  }
+  for (const group of groups.values()) {
+    const bounds = L.latLngBounds(group.map(p => p.center));
+    const marker = L.marker(bounds.getCenter(), {
+      icon: L.divIcon({className: 'place-marker', html: group.length > 1 ? String(group.length) : '', iconSize: [34, 34]}),
+      title: group.length > 1 ? `${group.length} locations: click to zoom in` : group[0].place.name,
+    }).addTo(namedMarkers);
+    marker.bindTooltip(group.length > 1 ? `${group.length} locations` : esc(group[0].place.name));
+    marker.on('click', () => {
+      if (group.length === 1) zoomPlace(group[0].place.id);
+      else map.fitBounds(bounds.pad(.3), {maxZoom: Math.min(13, map.getZoom() + 3), animate: false});
+    });
+  }
 }
 
 async function loadPlaces() {
@@ -353,20 +423,30 @@ async function loadPlaces() {
   const r = await fetch('/api/places' + ($('nonflights').checked ? '?nonflights=1' : ''));
   if (!r.ok) { $('err').textContent = 'Could not load the places.'; return; }
   placeData = await r.json();
-  paintMode();
-  renderPoints($('unnamedOnly').checked);
-  if (!map) return;
+  if (!map) { paintMode(); return; }
   layers.clearLayers(); layerById.clear();
+  if (!placeData.places.some(p => p.id === selectedPlace)) selectedPlace = null;
   for (const p of placeData.places) {
-    const layer = layerOf(p.shape).bindTooltip(p.name, {permanent: true, direction: 'center'});
+    const layer = bindPlace(layerOf(p.shape), p);
     layer.placeId = p.id; layers.addLayer(layer); layerById.set(p.id, layer);
   }
+  paintMode();
+  renderPoints($('unnamedOnly').checked);
   if (!fitted && !$('unnamedOnly').checked) {
-    const b = L.featureGroup([...layers.getLayers(), ...pointLayer.getLayers()]).getBounds();
+    const b = L.latLngBounds([]);
+    layers.getLayers().forEach(layer => b.extend(boundaryBounds(layer)));
+    pointMarkers.forEach(marker => b.extend(marker.getLatLng()));
     if (b.isValid()) { map.fitBounds(b.pad(0.2), {maxZoom: 16}); fitted = true; }
   }
 }
-function zoomPlace(id) { const l = layerById.get(id); if (l) map.fitBounds(l.getBounds().pad(0.3)); }
+function zoomPlace(id) {
+  const layer = layerById.get(id);
+  if (!layer || !map) return;
+  selectedPlace = id;
+  map.fitBounds(boundaryBounds(layer).pad(.3), {maxZoom: 18, animate: false});
+  renderNamedPlaces();
+  layer.openTooltip();
+}
 function renamePlace(id) {
   const cur = placeData.places.find(p => p.id === id);
   askName({kind: 'rename', id}, 'Name and type:', cur.name, cur.indoor);

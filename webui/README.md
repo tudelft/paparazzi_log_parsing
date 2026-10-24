@@ -55,6 +55,10 @@ existing `/logbook` links still work.
 
 ## Add or correct information
 
+- The **Locations** map groups nearby places into numbered markers when zoomed out.
+  Click a group to zoom in; hover for names or select a location to keep its label visible.
+  Boundaries appear when zoomed in or editing. Use **Find location** to filter the table,
+  then **Show** to select and zoom to a place.
 - On **Locations**, admins can turn on **Edit**, choose **Edit shape** beside a place,
   then drag the map handles to move or resize its circle or polygon. Choose **Save shape**
   to apply the boundary or **Cancel** to discard changes. **Name / type** changes its name

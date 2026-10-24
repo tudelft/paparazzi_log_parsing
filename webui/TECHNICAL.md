@@ -702,6 +702,14 @@ keeps named boundaries visible as context. It uses the same accessible flights a
 non-flight toggle as the normal map. Saving a place refreshes the review without changing
 flight records or requiring reparse.
 
+The Locations map groups named-place centres into 64-pixel projected grid cells below
+zoom 13, using built-in Leaflet markers (no additional map dependency). Counts represent
+places, not flights; clicking a group zooms in up to three levels. At zoom 13 or above,
+or in admin Edit mode, the actual boundaries replace the overview markers. The selected
+place always retains its boundary and name label; other names appear on hover.
+Selection and the case-insensitive table name search are browser-only and do not merge
+places, change access rules or change the smallest-containing-shape resolution rule.
+
 Replacing a named boundary uses the same `PUT /api/admin/places/<id>` shape update
 as resizing it; it never deletes/recreates the place. Circle, polygon and rectangle
 redraws are previews until saved (rectangles are stored as polygons). The place ID,
