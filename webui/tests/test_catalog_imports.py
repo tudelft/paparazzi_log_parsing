@@ -1,4 +1,5 @@
 import io
+import json
 from unittest.mock import patch
 
 import db
@@ -33,6 +34,62 @@ class CatalogImportTests(AppTests):
             "SELECT user_id,role FROM project_members WHERE project_id=1")], [(3, "full")])
         self.assertEqual(self.con.execute("SELECT id FROM projects WHERE name='New project'").fetchone()[0], pid)
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM project_members WHERE project_id=?", (pid,)).fetchone()[0], 0)
+
+    def upload_places(self, text, preview=False):
+        data = {"file": (io.BytesIO(text.encode("utf-8")), "places.csv")}
+        if preview:
+            data["preview"] = "1"
+        return self.client.post("/api/admin/places/import", data=data)
+
+    def places(self):
+        return {r["name"]: (r["indoor"], json.loads(r["shape"])) for r in self.con.execute("SELECT * FROM places")}
+
+    def test_places_import_accepts_svn_format_previews_and_is_repeatable(self):
+        # Same header and quoting as logbooks/places.csv in SVN.
+        text = ("place,lat,lon,radius_m,indoor,timezone,log_names,source,confirmed\n"
+                "Field,52.1,4.4,500,no,Europe/Amsterdam,Field,estimate,no\n"
+                "Hall,51.99,4.37,50,yes,Europe/Amsterdam,H;Hall,\"survey, 22 Oct 2026\",yes\n"
+                "'t Hill,-27.27,151.29,500,no,Australia/Brisbane,t Hill,estimate,no\n")
+        before = self.places()
+        preview = self.upload_places(text, preview=True)
+        self.assertEqual(preview.status_code, 200, preview.json)
+        self.assertEqual([r["action"] for r in preview.json["rows"]], ["update", "create", "create"])
+        self.assertEqual(preview.json["rows"][0]["id"], 1)
+        self.assertEqual(self.places(), before)
+        response = self.upload_places(text)
+        self.assertEqual((response.json["created"], response.json["updated"], response.json["unchanged"]), (2, 1, 0))
+        places = self.places()
+        self.assertEqual(places["Hall"], (1, {"type": "circle", "center": [51.99, 4.37], "radius_m": 50.0}))
+        self.assertEqual(places["Field"][1]["radius_m"], 500.0)
+        self.assertEqual(self.con.execute("SELECT id FROM places WHERE name='Field'").fetchone()[0], 1)
+        again = self.upload_places(text)
+        self.assertEqual((again.json["created"], again.json["updated"], again.json["unchanged"]), (0, 0, 3))
+        self.assertEqual(self.places(), places)
+
+    def test_places_import_warns_polygon_and_rejects_bad_files_atomically(self):
+        self.con.execute("INSERT INTO places(name,indoor,shape) VALUES ('Drawn',0,?)",
+                         (json.dumps({"type": "polygon", "points": [[52, 4], [52.1, 4], [52, 4.1]]}),))
+        self.con.commit()
+        row = self.upload_places("place,lat,lon,radius_m\nDrawn,52,4,100\n", preview=True).json["rows"][0]
+        self.assertEqual(row["action"], "update")
+        self.assertIn("polygon", row["warning"])
+        before = self.places()
+        good = "New place,52,4,100,no\n"
+        for bad in ("Other,52,abc,100,no\n", "Other,95,4,100,no\n", "Other,52,4,0,no\n",
+                    "Other,52,4,100,maybe\n", "new PLACE,52,4,100,no\n", ",52,4,100,no\n"):
+            response = self.upload_places("place,lat,lon,radius_m,indoor\n" + good + bad)
+            self.assertEqual(response.status_code, 400, bad)
+            self.assertEqual(self.places(), before, bad)
+        self.assertEqual(self.upload_places("place,lat,lon\nX,52,4\n").status_code, 400)
+        self.assertEqual(self.upload_places("place,lat,lon,radius_m,colour\nX,52,4,1,red\n").status_code, 400)
+        self.con.execute("INSERT INTO places(name,indoor,shape) VALUES ('drawn',0,?)",
+                         (json.dumps({"type": "circle", "center": [52, 4], "radius_m": 10}),))
+        self.con.commit()
+        response = self.upload_places("place,lat,lon,radius_m\nDrawn,52,4,100\n")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("more than one", response.json["error"])
+        self.sign_in(2)
+        self.assertEqual(self.upload_places(good).status_code, 403)
 
     def test_project_validation_is_atomic(self):
         cases = (
