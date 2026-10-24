@@ -14,6 +14,8 @@
   function render(element, files, reload, onshare) {
     element.innerHTML = files.length ? files.map(file => `<div style="padding:12px 0;border-bottom:1px solid var(--line)">
       <a href="/api/attachments/${file.id}/download" style="overflow-wrap:anywhere">${esc(file.filename)}</a>
+      ${file.viewable ? `<a href="/api/attachments/${file.id}/view" target="_blank" rel="noopener"
+        title="View in a new tab" aria-label="View ${esc(file.filename)} in a new tab" style="text-decoration:none">&#128065;</a>` : ''}
       <span class="mute">${size(file.size_bytes)}${file.compressed ?
         ` · stored ${size(file.stored_bytes)} (${Math.round(100 * (1 - file.stored_bytes / file.size_bytes))}% saved)` : ' · original stored'}</span>
       ${file.description ? `<p style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(file.description)}</p>` : ''}

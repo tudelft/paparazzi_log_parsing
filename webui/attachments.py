@@ -14,7 +14,17 @@ import historical
 import storage
 
 COLUMNS = {"flight": "flight_id", "log": "log_id", "paper": "record_id"}
+# Types the browser may show inline, chosen by extension only. HTML, SVG, XML and other active
+# content are deliberately absent: they stay downloads so a stored file can never run script here.
+# Flask adds "charset=utf-8" to text/plain.
+VIEWABLE = {".pdf": "application/pdf", ".txt": "text/plain", ".csv": "text/plain",
+            ".md": "text/plain", ".log": "text/plain", ".png": "image/png",
+            ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 Error = historical.RecordError
+
+
+def view_type(filename):
+    return VIEWABLE.get(Path(filename).suffix.lower())
 
 
 def target(con, user, kind, identity, edit=False):
@@ -199,6 +209,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes):
             item = {k: row[k] for k in ("id", "filename", "description", "size_bytes", "stored_bytes",
                                         "compressed", "uploaded_at", "sha256")}
             item["links"] = links
+            item["viewable"] = view_type(row["filename"]) is not None
             item["can_share"] = all(x["can_edit"] for x in links) and len(links) == con.execute(
                 "SELECT COUNT(*) FROM attachment_links WHERE attachment_id=?", (aid,)).fetchone()[0]
             result.append(item)
@@ -253,23 +264,36 @@ def register(app, connection, root, require_session, timestamp, max_bytes):
             if final:
                 final.unlink(missing_ok=True)
 
-    @app.get("/api/attachments/<int:attachment_id>/download")
-    def download_attachment(attachment_id):
+    def send(attachment_id, inline):
         row, _ = visible(connection(), g.user, attachment_id)
+        mimetype = view_type(row["filename"]) if inline else "application/octet-stream"
+        if not mimetype:
+            raise Error("This file type cannot be viewed in the browser; download it instead.", 415)
         path = root / row["path"]
         if not path.is_file():
             raise Error("Attachment is missing from storage; contact an administrator.", 410)
+        disposition = "inline" if inline else "attachment"
         if not row["compressed"]:
-            response = send_file(path, as_attachment=True, download_name=row["filename"],
-                                 mimetype="application/octet-stream", conditional=True)
+            response = send_file(path, mimetype=mimetype, conditional=True)
         else:
-            response = Response(storage.chunks(path, compressed=True), mimetype="application/octet-stream",
-                                headers={"Content-Disposition": dump_options_header(
-                                    "attachment", {"filename": row["filename"].encode("ascii", "ignore").decode() or "attachment"})
-                                    + "; filename*=UTF-8''" + quote(row["filename"], safe="")})
+            response = Response(storage.chunks(path, compressed=True), mimetype=mimetype)
+        response.headers["Content-Disposition"] = dump_options_header(
+            disposition, {"filename": row["filename"].encode("ascii", "ignore").decode() or "attachment"}) \
+            + "; filename*=UTF-8''" + quote(row["filename"], safe="")
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Cache-Control"] = "private, no-store"
+        if inline and mimetype != "application/pdf":
+            # Defense in depth for text and images; browsers' built-in PDF viewers break under a sandbox.
+            response.headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src 'self'"
         return response
+
+    @app.get("/api/attachments/<int:attachment_id>/download")
+    def download_attachment(attachment_id):
+        return send(attachment_id, inline=False)
+
+    @app.get("/api/attachments/<int:attachment_id>/view")
+    def view_attachment(attachment_id):
+        return send(attachment_id, inline=True)
 
     @app.post("/api/attachments/<int:attachment_id>/links")
     def share_attachment(attachment_id):

@@ -81,6 +81,35 @@ class AttachmentTests(test_historical.AppTests):
         self.assertEqual(response.data, data[10:20])
         response.close()
 
+    def test_view_inline_only_for_allowlisted_types(self):
+        paper = self.paper()
+        pdf = self.upload_file([paper], b"%PDF-1.4\n" + os.urandom(4096), "Flight request.PDF").json["id"]
+        text = self.upload_file([paper], b"wind,temperature\n1,20\n" * 1000, "wind.csv").json["id"]
+        image = self.upload_file([paper], os.urandom(2048), "photo.jpeg").json["id"]
+        listing = {f["id"]: f for f in self.client.get(f'/api/attachments?kind=paper&id={paper["id"]}').json["files"]}
+        for aid, mimetype in ((pdf, "application/pdf"), (text, "text/plain; charset=utf-8"), (image, "image/jpeg")):
+            self.assertTrue(listing[aid]["viewable"])
+            response = self.client.get(f"/api/attachments/{aid}/view")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers["Content-Type"], mimetype)
+            self.assertTrue(response.headers["Content-Disposition"].startswith("inline;"))
+            self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+            self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+            download = self.client.get(f"/api/attachments/{aid}/download")
+            self.assertEqual(response.data, download.data)
+            response.close()
+            download.close()
+        self.assertNotIn("Content-Security-Policy", self.client.get(f"/api/attachments/{pdf}/view").headers)
+        self.assertIn("sandbox", self.client.get(f"/api/attachments/{text}/view").headers["Content-Security-Policy"])
+        for name in ("page.html", "drawing.svg", "data.xml", "report.docx", "noextension"):
+            aid = self.upload_file([paper], b"<script>alert(1)</script>" * 100, name).json["id"]
+            self.assertEqual(self.client.get(f"/api/attachments/{aid}/view").status_code, 415, name)
+            download = self.client.get(f"/api/attachments/{aid}/download")
+            self.assertEqual(download.headers["Content-Type"], "application/octet-stream")
+            self.assertTrue(download.headers["Content-Disposition"].startswith("attachment;"))
+        self.sign_in(4)
+        self.assertEqual(self.client.get(f"/api/attachments/{pdf}/view").status_code, 404)
+
     def test_permissions_sharing_and_hidden_links(self):
         paper = self.paper()
         response = self.upload_file([paper])
