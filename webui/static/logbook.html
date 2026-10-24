@@ -365,9 +365,9 @@ function loadMiniMap(el) {
       if (segment.length > 1) L.polyline(segment, {color: '#1f6feb', weight: 3}).addTo(group);
       else L.circleMarker(segment[0], {radius: 3, color: '#1f6feb', fillOpacity: 1}).addTo(group);
     }
-    L.circleMarker(first, {radius: 5, color: '#1f6feb', fillOpacity: .9})
+    L.circleMarker(first, {radius: 4, color: '#1f6feb', fillOpacity: .9})
       .bindTooltip('First recorded position').addTo(group);
-    L.circleMarker(last, {radius: 5, color: '#1f6feb', fillOpacity: .9})
+    L.circleMarker(last, {radius: 4, color: '#1f6feb', fillOpacity: .9})
       .bindTooltip('Last recorded position').addTo(group);
     m.fitBounds(group.getBounds().pad(0.15), {maxZoom: 19});
   }).catch(error => {

@@ -86,6 +86,14 @@ volt-valued and unitless protocols retain their previous scaling.
 Deploying the rebuilt parser and reparsing affected uploads is sufficient: no web UI or
 database migration is required. Previously stored paths/voltages are not changed until reparse.
 
+**Flight-plan sectors.** Paparazzi parser 1.7.6 includes `flight_plan.sectors` with each
+sector's name, optional color and ordered corner waypoint names. The flight page resolves
+those names against the parsed geographic waypoints and draws closed polygons, using the
+declared color when valid or the default purple otherwise. **Show sectors** toggles polygons
+independently of **Show flight plan** waypoint markers. Sectors without at least three
+located corners are not drawn; the control tooltip lists those sectors. Logs without sectors
+disable the control. Reparse outdated Paparazzi logs to populate sectors in existing results.
+
 **Legacy fixed-wing flight detection.** Parser 1.7.4 uses `BAT.flight_time` when
 the protocol has no usable `NAVIGATION.flight_time` field. A positive timer marks
 flight; zero marks ground. Navigation block/stage updates still work without that field.

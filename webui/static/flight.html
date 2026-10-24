@@ -122,6 +122,7 @@
     <div class="bar">
       <h2 style="margin:0">Flight path</h2>
       <label><input type="checkbox" id="showPlan" checked> Show flight plan</label>
+      <label><input type="checkbox" id="showSectors" checked> Show sectors</label>
       <span class="mute" id="mapMsg"></span>
     </div>
     <div id="map"></div>
@@ -457,8 +458,8 @@ function initMap() {
     else L.circleMarker(points[0], {radius: 3, color: '#1f6feb', fillOpacity: 1}).addTo(group);
   }
   if (ll.length) {
-    L.circleMarker(ll[0], {radius: 5, color: '#1f6feb', fillOpacity: .9}).bindTooltip('First recorded position').addTo(group);
-    L.circleMarker(ll[ll.length - 1], {radius: 5, color: '#1f6feb', fillOpacity: .9}).bindTooltip('Last recorded position').addTo(group);
+    L.circleMarker(ll[0], {radius: 4, color: '#1f6feb', fillOpacity: .9}).bindTooltip('First recorded position').addTo(group);
+    L.circleMarker(ll[ll.length - 1], {radius: 4, color: '#1f6feb', fillOpacity: .9}).bindTooltip('Last recorded position').addTo(group);
     marker = L.circleMarker(ll[0], {radius: 8, color: '#000', weight: 2, fillColor: '#ffd33d', fillOpacity: 1});
     $('mapMsg').textContent = path.length < D.path.length || segments.length > 1
       ? 'Partial path: samples without valid geographic coordinates and gaps over 5 seconds are not connected.' : '';
@@ -470,20 +471,42 @@ function initMap() {
   for (const [event, label, color] of [['takeoff', 'Takeoff', '#1a7f37'], ['landing', 'Landing', '#c62828']]) {
     const position = D.entry?.[event]?.location;
     if (geographicPosition(position)) {
-      L.circleMarker([position.lat, position.lon], {radius: 7, color, fillOpacity: .9})
+      L.circleMarker([position.lat, position.lon], {radius: 5, color, fillOpacity: .9})
         .bindTooltip(label).addTo(group);
     }
   }
   group.addTo(map);
   const fp = D.flight_plan;
   planLayer = L.layerGroup();
-  const wps = (fp?.waypoints || []).filter(w => w.lat != null && w.lon != null);
+  const wps = (fp?.waypoints || []).filter(geographicPosition);
+  const sectorLayer = L.featureGroup();
+  const waypoints = new Map(wps.map(w => [w.name, w]));
+  const invalidSectors = [];
+  for (const sector of fp?.sectors || []) {
+    const corners = (sector.corners || []).map(name => waypoints.get(name));
+    if (corners.length < 3 || corners.some(p => !p)) {
+      invalidSectors.push(sector.name || 'Unnamed sector');
+      continue;
+    }
+    const color = typeof sector.color === 'string' && CSS.supports('color', sector.color) ? sector.color : '#8250df';
+    L.polygon(corners.map(p => [p.lat, p.lon]), {color, weight: 2, fillOpacity: .08})
+      .bindTooltip(esc(sector.name || 'Unnamed sector')).addTo(sectorLayer);
+  }
+  $('showSectors').disabled = !sectorLayer.getLayers().length;
+  $('showSectors').parentElement.title = invalidSectors.length
+    ? 'Cannot draw sectors with missing/unlocated corners or fewer than three corners: ' + invalidSectors.join(', ')
+    : sectorLayer.getLayers().length ? '' : 'No sectors in the log';
+  const toggleSectors = () => { $('showSectors').checked ? sectorLayer.addTo(map) : sectorLayer.remove(); };
+  $('showSectors').onchange = toggleSectors;
+  toggleSectors();
   for (const w of wps) {
-    L.circleMarker([w.lat, w.lon], {radius: 5, color: '#8250df', weight: 2, fillColor: '#fff', fillOpacity: 1})
-      .bindTooltip(`${esc(w.name)}${w.alt_m != null ? ' · ' + w.alt_m + ' m' : ''}`, {direction: 'right'}).addTo(planLayer);
+    L.circleMarker([w.lat, w.lon], {radius: 4, color: '#8250df', weight: 2, fillColor: '#fff', fillOpacity: 1})
+      .bindTooltip(`<span${w.alt_m != null ? ' title="Altitude: ' + esc(w.alt_m) + ' m"' : ''}>${esc(w.name)}</span>`,
+        {permanent: true, interactive: true, direction: 'right', offset: [5, 0], className: 'wp'})
+      .addTo(planLayer);
   }
   if (!wps.length) { $('showPlan').disabled = true; $('showPlan').parentElement.title = 'No flight plan in the log'; }
-  const bounds = L.featureGroup([group, ...wps.map(w => L.marker([w.lat, w.lon]))]).getBounds();
+  const bounds = L.featureGroup([group, sectorLayer, ...wps.map(w => L.marker([w.lat, w.lon]))]).getBounds();
   const fit = () => { const b = group.getBounds().isValid() ? group.getBounds() : bounds; if (b.isValid()) map.fitBounds(b.pad(0.1), {maxZoom: 19}); else map.setView([52, 4.4], 6); };
   const togglePlan = () => { $('showPlan').checked ? planLayer.addTo(map) : planLayer.remove(); };
   $('showPlan').onchange = togglePlan;

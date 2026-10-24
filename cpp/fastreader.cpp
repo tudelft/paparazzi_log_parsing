@@ -719,7 +719,9 @@ void for_each_tag(const std::string &x, F cb)
     if (x.compare(p, 2, "<?") == 0 || x.compare(p, 2, "<!") == 0) { p = x.find('>', p); if (p == std::string::npos) { break; } continue; }
     size_t e = p + 1;
     if (e < x.size() && x[e] == '/') {
-      cb(std::string(), XmlAttrs(), true, false);
+      const size_t ns = ++e;
+      while (e < x.size() && !isspace(static_cast<unsigned char>(x[e])) && x[e] != '>') { ++e; }
+      cb(x.substr(ns, e - ns), XmlAttrs(), true, false);
       p = x.find('>', p);
       if (p == std::string::npos) { break; }
       continue;
@@ -843,15 +845,15 @@ std::string setting_var_json(const std::vector<SettingInfo> &info, int i)
   return "null";
 }
 
-// Flight plan reduced to its reference point, waypoints (with lat/lon) and blocks (with index).
+// Flight plan reduced to its reference point, waypoints, sectors and indexed blocks.
 // Waypoints given as local x (east) / y (north) in meters are converted to lat/lon around lat0/lon0.
 std::string flight_plan_summary_json(const std::string &x)
 {
   double lat0 = 0, lon0 = 0, default_alt = 0, ground_alt = 0;
   bool has_ref = false;
-  std::string name, wps, blocks;
+  std::string name, wps, blocks, sectors, sector_name, sector_color, corners;
   int wp_index = 0, block_index = 0;
-  bool in_wps = false, in_blocks = false;
+  bool in_wps = false, in_blocks = false, in_sectors = false, in_sector = false;
   int block_depth = 0;
 
   auto num_attr = [](const XmlAttrs &at, const char *k, double &out) {
@@ -874,8 +876,14 @@ std::string flight_plan_summary_json(const std::string &x)
 
   for_each_tag(x, [&](const std::string &tag, const XmlAttrs &at, bool closing, bool selfclose) {
     if (closing) {
+      if (tag == "sector" && in_sector) {
+        sectors += std::string(sectors.empty() ? "" : ",") + "\n          {\"name\": " + sector_name +
+                   ", \"color\": " + sector_color + ", \"corners\": [" + corners + "]}";
+        in_sector = false;
+      }
+      if (tag == "sectors") { in_sectors = false; }
       if (in_blocks && block_depth > 0) { block_depth--; if (block_depth == 0) { in_blocks = false; } }
-      else if (in_wps) { in_wps = false; }
+      else if (tag == "waypoints") { in_wps = false; }
       return;
     }
     if (tag == "flight_plan") {
@@ -889,6 +897,19 @@ std::string flight_plan_summary_json(const std::string &x)
     } else if (tag == "blocks") {
       in_blocks = !selfclose;
       block_depth = in_blocks ? 1 : 0;
+    } else if (tag == "sectors") {
+      in_sectors = !selfclose;
+    } else if (in_sectors && tag == "sector") {
+      sector_name = attr_json(at, "name");
+      sector_color = attr_json(at, "color");
+      corners.clear();
+      in_sector = !selfclose;
+      if (selfclose) {
+        sectors += std::string(sectors.empty() ? "" : ",") + "\n          {\"name\": " + sector_name +
+                   ", \"color\": " + sector_color + ", \"corners\": []}";
+      }
+    } else if (in_sector && tag == "corner") {
+      corners += std::string(corners.empty() ? "" : ", ") + attr_json(at, "name");
     } else if (in_wps && tag == "waypoint") {
       double wx, wy, wlat, wlon, walt = default_alt;
       bool has_xy = num_attr(at, "x", wx) && num_attr(at, "y", wy);
@@ -924,7 +945,8 @@ std::string flight_plan_summary_json(const std::string &x)
   snprintf(buf, sizeof(buf), "\"lat0\": %.7f, \"lon0\": %.7f, \"default_alt_m\": %.1f, \"ground_alt_m\": %.1f", lat0, lon0,
            default_alt, ground_alt);
   return "{\n        \"name\": " + json_escape(name) + ",\n        " + (has_ref ? std::string(buf) : "\"lat0\": null, \"lon0\": null") +
-         ",\n        \"waypoints\": [" + wps + "\n        ],\n        \"blocks\": [" + blocks + "\n        ]\n      }";
+         ",\n        \"waypoints\": [" + wps + "\n        ],\n        \"sectors\": [" + sectors +
+         "\n        ],\n        \"blocks\": [" + blocks + "\n        ]\n      }";
 }
 
 // JSON string with the UTC time (ISO 8601) or null when unknown
@@ -1053,7 +1075,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.7.5";
+constexpr const char *PARSER_VERSION = "1.7.6";
 
 struct GpsClock {
   size_t count = 0;
