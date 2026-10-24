@@ -151,6 +151,14 @@ A compressibility sample avoids recompressing typical JPEG/video/archive files. 
 fast gzip compression only if the stored result saves at least 5%. No resizing, transcoding or other
 lossy conversion is done; downloads reproduce the original filename and exact bytes.
 
+`GET /api/attachments/<id>/view` serves the same bytes with `Content-Disposition: inline`, with the same
+access checks as the download. The type comes only from an extension allowlist (`VIEWABLE` in
+`attachments.py`): PDF, `.txt`/`.csv`/`.md`/`.log` as `text/plain`, and PNG/JPEG/GIF/WebP. Any other
+file (HTML, SVG, XML, Office documents, no extension) gets 415 and stays a download, so stored files
+never run script in the site's origin. `nosniff` and `Cache-Control: private, no-store` apply to both
+routes; inline text and images also get `Content-Security-Policy: sandbox` (not PDF, whose built-in
+browser viewers break under a sandbox).
+
 **Flight weather.** The Weather tab shows logged wind at takeoff and landing when available. The
 **Fetch historical weather** button requests an hourly Open-Meteo/ECMWF estimate (wind at 10 m,
 temperature, humidity, precipitation, cloud cover and pressure), separately from onboard data.
