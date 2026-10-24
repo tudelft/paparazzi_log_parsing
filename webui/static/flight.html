@@ -47,7 +47,7 @@
   .tag { display:inline-block; padding:0 8px; border-radius:10px; font-size:12px; background:var(--chip); }
   .tag.flight { background:var(--flightbg); color:var(--ok); } .tag.uncertain { background:var(--uncertainbg); color:var(--warn); } .tag.ground { background:var(--groundbg); color:var(--err); }
   .leaflet-tooltip.wp {
-    background:transparent; color:var(--txt); border:0; box-shadow:none; padding:0;
+    background:transparent; color:var(--txt); border:0; box-shadow:none; padding:0; margin-top:0;
     font-size:11px; font-weight:600;
     text-shadow:-1px -1px 1px var(--card), 1px -1px 1px var(--card), -1px 1px 1px var(--card), 1px 1px 1px var(--card);
   }
@@ -510,7 +510,7 @@ function initMap() {
   for (const w of wps) {
     L.circleMarker([w.lat, w.lon], {radius: 4, color: '#8250df', weight: 2, fillColor: '#fff', fillOpacity: 1})
       .bindTooltip(`<span${w.alt_m != null ? ' title="Altitude: ' + esc(w.alt_m) + ' m"' : ''}>${esc(w.name)}</span>`,
-        {permanent: true, interactive: true, direction: 'top', offset: [0, -4], opacity: 1, className: 'wp'})
+        {permanent: true, interactive: true, direction: 'top', offset: [0, -6], opacity: 1, className: 'wp'})
       .addTo(typeof w.name === 'string' && w.name.startsWith('_') ? hiddenWaypoints : visibleWaypoints);
   }
   if (!wps.length) { $('showPlan').disabled = true; $('showPlan').parentElement.title = 'No flight plan in the log'; }
