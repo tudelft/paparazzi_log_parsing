@@ -3657,7 +3657,9 @@ def can_set_log_date(con, log_row):
 
 
 def effective_flight_project(row):
-    return row["project_id"] if row["project_id"] is not None else row.get("log_project_id")
+    if row["project_id"] is not None:
+        return row["project_id"]
+    return row["log_project_id"] if "log_project_id" in row.keys() else None
 
 
 def can_edit_flight_project(con, row):
@@ -3877,7 +3879,47 @@ def logbook():
         session_required()
         if not g.user["is_admin"]:
             abort(403)
-    return jsonify(logbook_rows(hidden=hidden, hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT")))
+    rows = logbook_rows(hidden=hidden, hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT"))
+    if request.args.get("compact") == "1":
+        rows = [compact_logbook_row(row) for row in rows]
+    response = jsonify(rows)
+    response.headers["Cache-Control"] = "private, no-store"
+    response.vary.add("Accept-Encoding")
+    if request.accept_encodings.best_match(("gzip", "identity")) == "gzip":
+        body = response.get_data()
+        if len(body) >= 1024:
+            compressed = gzip.compress(body, compresslevel=5, mtime=0)
+            if len(compressed) < len(body):
+                response.set_data(compressed)
+                response.headers["Content-Encoding"] = "gzip"
+    return response
+
+
+LOGBOOK_OVERVIEW_KEYS = (
+    "record_key", "source_type", "flight_id", "manual_id", "log_id", "flight_count",
+    "record_kind", "reference", "takeoff_utc", "landing_utc", "duration_s",
+    "distance_m", "from_takeoff_m", "max_from_takeoff_m", "aircraft", "aircraft_uid", "drone_id",
+    "project_id", "project_name", "takeoff_place", "takeoff_place_id", "takeoff_lat", "takeoff_lon",
+    "landing_place", "landing_place_id", "landing_lat", "landing_lon",
+    "pic", "pac", "gcs", "goal", "comment", "verdict", "indoor", "optitrack",
+    "date_ok", "date_override", "hidden", "can_edit_record", "can_edit_crew",
+    "can_edit_project", "can_edit_date",
+)
+
+
+def compact_logbook_row(row):
+    """Fields used by the web overview, including full-result CSV and edit operations."""
+    out = {key: row[key] for key in LOGBOOK_OVERVIEW_KEYS if key in row}
+    simulation = row.get("simulation")
+    if "simulation" in row:
+        out["simulation"] = {"detected": simulation["detected"]} if simulation is not None else None
+    for role in ROLES:
+        person = row.get(role + "_user")
+        out[role + "_user"] = ({key: person[key] for key in ("id", "display_name", "source") if key in person}
+                               if person is not None else None)
+    out["sources"] = [{key: source[key] for key in ("flight_id", "log_id", "log_type")}
+                      for source in row["sources"]]
+    return out
 
 
 @app.get("/historical/new")

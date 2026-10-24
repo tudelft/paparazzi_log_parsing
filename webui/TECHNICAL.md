@@ -669,6 +669,34 @@ flights used, and admins add, change or delete them there in edit mode (an area 
 are hidden by default). Logs without a valid date (missing or 1980 clock) are flagged so the
 real day can be entered.
 
+The browser requests `GET /api/logbook?compact=1` for its overview. This opt-in projection
+keeps all rows and the fields needed for filtering, totals, grouping, CSV export and permitted
+crew/project/date edits. It omits full telemetry events, assessments and source/uploader metadata;
+source IDs/types and resolved crew IDs/display names/edit provenance remain available.
+Without `compact=1`, the existing full response schema is unchanged. Both representations use
+the same access checks, hidden/unlinked rules, source merging and paper-record read model.
+Comments remain searchable and exportable, but are read-only here; edit them on the flight page.
+
+Paths are fetched from the existing permission-checked `/api/flights/<id>/path` endpoint only
+when a flight row is expanded, not once per overview row. Successful paths are reused during
+the current overview load. Reloading the overview (including after date/project/crew edits)
+clears that cache. Failed requests show an explicit error and a retry button instead of being
+cached as an empty path; retrying leaves the rest of the row unchanged. Further telemetry,
+assessments and simulation evidence remain on the flight page.
+
+Logbook JSON responses negotiate gzip using `Accept-Encoding` (including quality values);
+responses under 1 KiB or with no size benefit stay uncompressed. This works with direct Flask
+or gunicorn access and behind nginx/Caddy. Proxies must forward `Accept-Encoding` and pass
+already encoded responses through rather than recompressing them. No proxy compression
+configuration is required for this endpoint. Responses carry `Vary: Accept-Encoding` and
+`Cache-Control: private, no-store`; this is transport compression, not shared response caching.
+To repeat the synthetic benchmark without production data or workers, run from `webui/`:
+`python -m unittest tests.test_logbook_overview.LogbookOverviewTests.test_synthetic_payload_before_after_measurement -q`.
+It compares full JSON, compact JSON and compact gzip on the same 500 merged flights plus
+a paper record, reporting response sizes and median in-process request time (three requests).
+Actual gains depend on record content, server and connection; database/read-model work is
+still performed for every request.
+
 Source merging keeps an active window of groups whose landing times could overlap the next
 takeoff (including the existing 60-second slack). Aircraft-name/GPS comparisons only run on
 time-compatible groups. Actual interval overlap takes precedence over slack-only matches;

@@ -48,6 +48,8 @@ existing `/logbook` links still work.
 - Turn on **Edit** to show permitted editing controls. It stays enabled across pages until turned off.
   Turn it off for the simpler browsing view. Longer explanations are under **Help**.
 - Flight pages include the path, charts, weather, settings, messages, pre-flight checks and software version.
+  Expanded Logbook rows show comments and buttons beside the map (stacked on small screens).
+  Comments are read-only there; edit them on the flight page.
   Distance from takeoff and maximum range are shown only on the flight page, not in overview tables or statistics.
   If the aircraft did not send a version, the Paparazzi version from the GCS `.log` header is shown instead.
 

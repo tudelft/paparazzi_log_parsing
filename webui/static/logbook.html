@@ -45,10 +45,14 @@
   .cols { display:flex; gap:40px; flex-wrap:wrap; }
   .actions { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
   .minimap { height:240px; max-width:640px; border:1px solid var(--line); border-radius:6px; margin-bottom:10px; }
+  .flight-detail { display:grid; grid-template-columns:minmax(0,640px) minmax(200px,1fr); gap:16px; width:min(1100px,calc(100vw - 80px)); }
+  .flight-detail .minimap { max-width:none; margin:0; }
+  .detail-info { min-width:0; }
+  .detail-info h4 { margin-top:0; }
+  @media (max-width:760px) { .flight-detail { grid-template-columns:minmax(0,1fr); } }
   table.log:not(.editing) .chk { display:none; }
   td.chk, th.chk { width:28px; padding-right:0; }
-  textarea.comment { width:100%; max-width:640px; min-height:72px; font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; resize:vertical; }
-  .note { white-space:pre-wrap; max-width:640px; }
+  .note { white-space:pre-wrap; max-width:640px; overflow-wrap:anywhere; }
   .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; }
   .date-unknown { background:var(--warnbg); color:var(--warn); font-weight:400; }
 </style>
@@ -144,17 +148,21 @@ fetch('/api/me').then(r => r.json()).then(async d => {
   loadFlights();
 });
 async function loadFlights() {
+  const generation = ++loadGeneration;
+  pathCache.clear();
   try {
-    const r = await fetch('/api/logbook' + ($('hiddenRecords').checked ? '?hidden=1' : ''));
+    const r = await fetch('/api/logbook?compact=1' + ($('hiddenRecords').checked ? '&hidden=1' : ''));
     const d = await r.json();
+    if (generation !== loadGeneration) return;
     if (!r.ok) throw new Error(d.error || 'Could not load the logbook');
     flights = d;
     const available = new Set(flights.flatMap(crewIds));
     for (const id of selected) if (!available.has(id)) selected.delete(id);
     syncEditUi();
     render();
-  } catch (error) { $('bulkMsg').textContent = error.message; }
+  } catch (error) { if (generation === loadGeneration) $('bulkMsg').textContent = error.message; }
 }
+let loadGeneration = 0;
 
 const entityLink = (kind, id, name) => id != null ? `<a href="/${kind}/${id}">${esc(name)}</a>` : esc(name);
 const place = (lat, lon, name, id) => id != null ? entityLink('locations', id, name) : lat == null ? (name ? esc(name) : '<span class="mute" title="No GPS fix">no GPS</span>') :
@@ -290,30 +298,11 @@ async function setFlightProject(id, value, ids) {
 }
 
 const open_ = new Set();
-const kv = (k, v) => v == null || v === '' ? '' : `<span class="mute">${k}</span><span>${v}</span>`;
 const coord = (p, name) => p ? `${name ? esc(name) + ' · ' : ''}${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} · ${p.alt_m} m` : '';
 const windTxt = w => w ? `${w.speed_ms} m/s from ${w.from_deg}°${w.temperature_c != null ? ', ' + w.temperature_c + ' °C' : ''}` : '';
 const ned = v => v ? `N ${v.north}, E ${v.east}, D ${v.down}` : '';
+const kv = (k, v) => v == null || v === '' ? '' : `<span class="mute">${k}</span><span>${v}</span>`;
 
-function commentBox(f) {
-  const ids = crewIds(f).map(key => Number(key.split(':')[1]));
-  if (!f.can_edit_comment) return f.comment ? `<div class="note">${esc(f.comment)}</div>` : '<span class="mute">No comment</span>';
-  return `<textarea class="comment" id="cmt${f.flight_id}" maxlength="4000" placeholder="Notes about this flight" onclick="event.stopPropagation()">${esc(f.comment || '')}</textarea>
-    <div class="actions" style="margin-top:6px"><button type="button" onclick="saveComment(${f.flight_id}, [${ids.join(',')}])">Save comment</button> <span id="cmtMsg${f.flight_id}" class="mute"></span></div>`;
-}
-async function saveComment(id, ids) {
-  const text = ($('cmt' + id).value || '').trim();
-  const all = [...new Set(ids)];
-  for (const fid of all) {
-    const r = await fetch('/api/flights/' + fid + '/comment', {method: 'PUT', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({comment: text})});
-    if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the comment'); return; }
-  }
-  flights.forEach(f => {
-    if (all.includes(f.flight_id) || (f.sources || []).some(s => all.includes(s.flight_id))) f.comment = text;
-  });
-  $('cmtMsg' + id).textContent = 'Saved.';
-}
 function detail(f) {
   if (f.manual_id) return `<h4>Paper ${f.record_kind === 'daily' ? 'daily summary' : 'flight record'}</h4>
     <p>${f.flight_count} flight(s) · ${fmtDur(f.duration_s)} total. ${f.takeoff_utc.length === 10 ? 'Takeoff time not recorded.' : ''}</p>
@@ -321,29 +310,55 @@ function detail(f) {
     ${f.comment ? `<p class="note">${esc(f.comment)}</p>` : ''}
     <p class="mute">No telemetry, flight path, distance or software version recorded. Not automatically merged with digital logs.</p>
     <a class="btn" href="/historical/${f.manual_id}">${f.can_edit_record ? 'View / edit paper record' : 'View paper record'}</a>`;
-  return `<div class="minimap" data-fid="${f.flight_id}"></div>
-    <h4>Comment</h4>${commentBox(f)}
-    <div class="actions"><a class="btn" href="/flight/${f.flight_id}">Open flight page</a>
-      ${f.sources.map(s => `<a class="btn sec" href="/api/logs/${s.log_id}/download">Download ${downloadLabel(s.log_type)}</a>`).join('')}</div>`;
+  return `<div class="flight-detail">
+    <div class="minimap" data-fid="${f.flight_id}" role="status">Loading path...</div>
+    <div class="detail-info"><h4>Comment</h4>${f.comment ? `<div class="note">${esc(f.comment)}</div>` : '<span class="mute">No comment</span>'}
+      <div class="actions"><a class="btn" href="/flight/${f.flight_id}">Open flight page</a>
+        ${f.sources.map(s => `<a class="btn sec" href="/api/logs/${s.log_id}/download">Download ${downloadLabel(s.log_type)}</a>`).join('')}</div>
+    </div>
+  </div>`;
 }
 
 const pathCache = new Map(), miniMaps = [];
 function initMiniMaps() {
   miniMaps.splice(0).forEach(m => m.remove());
-  document.querySelectorAll('.minimap').forEach(el => {
-    const id = +el.dataset.fid;
-    if (!pathCache.has(id)) pathCache.set(id, fetch(`/api/flights/${id}/path`).then(r => r.ok ? r.json() : []).then(p => (p.points || p).filter(x => x.position).map(x => [x.position.lat, x.position.lon])).catch(() => []));
-    pathCache.get(id).then(ll => {
-      if (!el.isConnected) return;
-      if (!ll.length) { el.textContent = 'No path available'; el.className = 'mute'; return; }
-      const m = L.map(el, {scrollWheelZoom: false}).setView(ll[0], 15);
-      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap contributors'}).addTo(m);
-      const line = L.polyline(ll, {color: '#1f6feb', weight: 3}).addTo(m);
-      L.circleMarker(ll[0], {radius: 5, color: '#1a7f37', fillOpacity: .9}).addTo(m);
-      L.circleMarker(ll[ll.length - 1], {radius: 5, color: '#c62828', fillOpacity: .9}).addTo(m);
-      m.fitBounds(line.getBounds().pad(0.15), {maxZoom: 19});
-      miniMaps.push(m);
-    });
+  document.querySelectorAll('.minimap').forEach(loadMiniMap);
+}
+function loadMiniMap(el) {
+  const id = +el.dataset.fid;
+  if (!pathCache.has(id)) pathCache.set(id, fetch(`/api/flights/${id}/path`).then(async r => {
+    if (!r.ok) throw new Error(`Could not load path (${r.status}).`);
+    const p = await r.json();
+    const points = p.points || p;
+    if (!Array.isArray(points)) throw new Error('Invalid path response.');
+    return points.filter(x => x.position).map(x => [x.position.lat, x.position.lon]);
+  }));
+  const pending = pathCache.get(id);
+  pending.then(ll => {
+    if (!el.isConnected) return;
+    if (!ll.length) { el.textContent = 'No path available'; el.className = 'mute'; return; }
+    el.textContent = '';
+    const m = L.map(el, {scrollWheelZoom: false}).setView(ll[0], 15);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap contributors'}).addTo(m);
+    const line = L.polyline(ll, {color: '#1f6feb', weight: 3}).addTo(m);
+    L.circleMarker(ll[0], {radius: 5, color: '#1a7f37', fillOpacity: .9}).addTo(m);
+    L.circleMarker(ll[ll.length - 1], {radius: 5, color: '#c62828', fillOpacity: .9}).addTo(m);
+    m.fitBounds(line.getBounds().pad(0.15), {maxZoom: 19});
+    miniMaps.push(m);
+  }).catch(error => {
+    if (pathCache.get(id) === pending) pathCache.delete(id);
+    if (!el.isConnected) return;
+    el.className = 'mute';
+    el.textContent = error.message + ' ';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.textContent = 'Retry path';
+    retry.onclick = () => {
+      el.className = 'minimap';
+      el.textContent = 'Loading path...';
+      loadMiniMap(el);
+    };
+    el.appendChild(retry);
   });
 }
 
