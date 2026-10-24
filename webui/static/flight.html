@@ -46,7 +46,12 @@
   .chartOpts .rm { margin-left:auto; }
   .tag { display:inline-block; padding:0 8px; border-radius:10px; font-size:12px; background:var(--chip); }
   .tag.flight { background:var(--flightbg); color:var(--ok); } .tag.uncertain { background:var(--uncertainbg); color:var(--warn); } .tag.ground { background:var(--groundbg); color:var(--err); }
-  .wp { background:var(--field); color:var(--txt); border:1px solid var(--mute); border-radius:3px; padding:0 3px; font-size:11px; }
+  .leaflet-tooltip.wp {
+    background:transparent; color:var(--txt); border:0; box-shadow:none; padding:0;
+    font-size:11px; font-weight:600;
+    text-shadow:-1px -1px 1px var(--card), 1px -1px 1px var(--card), -1px 1px 1px var(--card), 1px 1px 1px var(--card);
+  }
+  .leaflet-tooltip.wp::before { display:none; }
   .src a.cur { font-weight:600; text-decoration:none; color:var(--txt); }
   tr.out td { color:var(--mute); }
   textarea.comment { width:100%; max-width:520px; min-height:72px; font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; resize:vertical; }
@@ -122,6 +127,7 @@
     <div class="bar">
       <h2 style="margin:0">Flight path</h2>
       <label><input type="checkbox" id="showPlan" checked> Show flight plan</label>
+      <label><input type="checkbox" id="showHiddenWaypoints"> Show hidden waypoints</label>
       <label><input type="checkbox" id="showSectors" checked> Show sectors</label>
       <span class="mute" id="mapMsg"></span>
     </div>
@@ -478,6 +484,8 @@ function initMap() {
   group.addTo(map);
   const fp = D.flight_plan;
   planLayer = L.layerGroup();
+  const visibleWaypoints = L.featureGroup().addTo(planLayer);
+  const hiddenWaypoints = L.featureGroup();
   const wps = (fp?.waypoints || []).filter(geographicPosition);
   const sectorLayer = L.featureGroup();
   const waypoints = new Map(wps.map(w => [w.name, w]));
@@ -502,12 +510,25 @@ function initMap() {
   for (const w of wps) {
     L.circleMarker([w.lat, w.lon], {radius: 4, color: '#8250df', weight: 2, fillColor: '#fff', fillOpacity: 1})
       .bindTooltip(`<span${w.alt_m != null ? ' title="Altitude: ' + esc(w.alt_m) + ' m"' : ''}>${esc(w.name)}</span>`,
-        {permanent: true, interactive: true, direction: 'right', offset: [5, 0], className: 'wp'})
-      .addTo(planLayer);
+        {permanent: true, interactive: true, direction: 'top', offset: [0, -4], opacity: 1, className: 'wp'})
+      .addTo(typeof w.name === 'string' && w.name.startsWith('_') ? hiddenWaypoints : visibleWaypoints);
   }
   if (!wps.length) { $('showPlan').disabled = true; $('showPlan').parentElement.title = 'No flight plan in the log'; }
-  const bounds = L.featureGroup([group, sectorLayer, ...wps.map(w => L.marker([w.lat, w.lon]))]).getBounds();
-  const fit = () => { const b = group.getBounds().isValid() ? group.getBounds() : bounds; if (b.isValid()) map.fitBounds(b.pad(0.1), {maxZoom: 19}); else map.setView([52, 4.4], 6); };
+  $('showHiddenWaypoints').disabled = !hiddenWaypoints.getLayers().length;
+  $('showHiddenWaypoints').parentElement.title = hiddenWaypoints.getLayers().length
+    ? 'Reveal waypoint dots and names starting with _' : 'No hidden waypoints in the log';
+  const toggleHiddenWaypoints = () => {
+    if ($('showHiddenWaypoints').checked) hiddenWaypoints.addTo(planLayer);
+    else planLayer.removeLayer(hiddenWaypoints);
+  };
+  $('showHiddenWaypoints').onchange = toggleHiddenWaypoints;
+  toggleHiddenWaypoints();
+  const fit = () => {
+    const bounds = L.featureGroup([group, sectorLayer, visibleWaypoints,
+      ...($('showHiddenWaypoints').checked ? [hiddenWaypoints] : [])]).getBounds();
+    const b = group.getBounds().isValid() ? group.getBounds() : bounds;
+    if (b.isValid()) map.fitBounds(b.pad(0.1), {maxZoom: 19}); else map.setView([52, 4.4], 6);
+  };
   const togglePlan = () => { $('showPlan').checked ? planLayer.addTo(map) : planLayer.remove(); };
   $('showPlan').onchange = togglePlan;
   togglePlan(); fit();

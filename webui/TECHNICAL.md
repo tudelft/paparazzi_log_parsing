@@ -93,6 +93,10 @@ declared color when valid or the default purple otherwise. **Show sectors** togg
 independently of **Show flight plan** waypoint markers. Sectors without at least three
 located corners are not drawn; the control tooltip lists those sectors. Logs without sectors
 disable the control. Reparse outdated Paparazzi logs to populate sectors in existing results.
+Waypoint dots and labels whose names start with `_` are hidden by default and can be revealed
+with **Show hidden waypoints** while **Show flight plan** is enabled. Hidden waypoints remain
+available as sector corners; their visibility does not change sector geometry. This display-only
+rule also applies to existing parsed waypoints without reparsing.
 
 **Legacy fixed-wing flight detection.** Parser 1.7.4 uses `BAT.flight_time` when
 the protocol has no usable `NAVIGATION.flight_time` field. A positive timer marks

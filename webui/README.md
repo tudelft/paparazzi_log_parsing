@@ -33,8 +33,9 @@ existing `/logbook` links still work.
 - Dates and times are **UTC**. Indoor and uncertain/non-flight records are hidden by default;
   enable their filters when needed.
 - On a flight's **Path & charts** tab, use **Show sectors** to hide/show flight-plan sector
-  boundaries independently of the flight-plan waypoint markers. Waypoint names appear beside
-  their dots; **Show flight plan** hides/shows both the dots and names.
+  boundaries independently of the flight-plan waypoint markers. Waypoint names appear above
+  their dots with a subtle text halo; **Show flight plan** hides/shows both the dots and names. Waypoints whose names
+  start with `_` are hidden by default; enable **Show hidden waypoints** to reveal them.
 - Uploads has a **Status** filter: **Parser errors**, **Unfinished logs** (queued, parsing or
   error), or **All failures** (also failed/rejected upload receipts). Filters cover all pages.
 - Statistics uses the same period presets and custom UTC date range as Logbook (default: last
