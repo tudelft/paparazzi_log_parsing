@@ -1096,11 +1096,7 @@ def people_directory():
 
 # ---- command line user management:  python3 app.py create-user|set-password|list-users|deactivate-user ----
 def backup():
-    """Consistent copy of the live database (and the session/SAML keys) in LOGDB_BACKUP_DIR.
-
-    SQLite's online backup copies the database while the server keeps running. The copy is made and checked on the
-    local disk first, then written to the backup directory under a temporary name and renamed, so the directory
-    (and a backup of that share) always holds a complete, working database."""
+    """Publish a complete timestamped database-and-keys backup, retaining the latest 14 sets."""
     if not env("BACKUP_DIR"):
         return "LOGDB_BACKUP_DIR is not set"
     if not os.path.exists(DB_PATH):
@@ -1113,29 +1109,31 @@ def backup():
     dest.mkdir(parents=True, exist_ok=True)
     TMP_DIR.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
-    local = TMP_DIR / "backup.db"
-    local.unlink(missing_ok=True)
-    src = sqlite3.connect(DB_PATH, timeout=db.BUSY_TIMEOUT_MS / 1000)
-    dst = sqlite3.connect(local)
-    try:
-        src.backup(dst)
-        result = dst.execute("PRAGMA integrity_check").fetchone()[0]
-    finally:
-        dst.close()
-        src.close()
-    if result != "ok":
-        local.unlink(missing_ok=True)
-        return f"backup copy failed the integrity check ({result}); the previous backup was kept"
-    files = [(local, dest / "logs.db")]
-    if (DATA_DIR / "secret_key").exists():
-        files.append((DATA_DIR / "secret_key", dest / "secret_key"))
-    for pem in sorted((DATA_DIR / "saml").glob("*.pem")):
-        files.append((pem, dest / "saml" / pem.name))
-    try:
-        for src_file, dest_file in files:
-            dest_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp = dest_file.with_name(f".{dest_file.name}.tmp")
+    with tempfile.TemporaryDirectory(prefix="backup-", dir=TMP_DIR) as local_dir:
+        local = Path(local_dir) / "logs.db"
+        src = sqlite3.connect(DB_PATH, timeout=db.BUSY_TIMEOUT_MS / 1000)
+        try:
+            dst = sqlite3.connect(local)
             try:
+                src.backup(dst)
+                result = dst.execute("PRAGMA integrity_check").fetchone()[0]
+            finally:
+                dst.close()
+        finally:
+            src.close()
+        if result != "ok":
+            return f"backup copy failed the integrity check ({result}); previous backups were kept"
+        snapshot = dest / datetime.now(timezone.utc).strftime("backup-%Y-%m-%dT%H-%M-%S.%fZ")
+        staging = Path(tempfile.mkdtemp(prefix=".backup-", dir=dest))
+        files = [(local, staging / "logs.db")]
+        if (DATA_DIR / "secret_key").exists():
+            files.append((DATA_DIR / "secret_key", staging / "secret_key"))
+        for pem in sorted((DATA_DIR / "saml").glob("*.pem")):
+            files.append((pem, staging / "saml" / pem.name))
+        try:
+            for src_file, dest_file in files:
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
+                tmp = dest_file.with_name(f".{dest_file.name}.tmp")
                 with open(src_file, "rb") as fi, open(tmp, "wb") as fo:
                     try:
                         os.chmod(tmp, 0o600)
@@ -1152,12 +1150,18 @@ def backup():
                     fo.flush()
                     os.fsync(fo.fileno())
                 os.replace(tmp, dest_file)
-            finally:
-                tmp.unlink(missing_ok=True)
-    finally:
-        local.unlink(missing_ok=True)
-    size = (dest / "logs.db").stat().st_size / 1e6
-    print(f"{now()} backup of {DB_PATH} ({size:.1f} MB) written to {dest} in {time.time() - t0:.1f} s")
+            os.rename(staging, snapshot)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)
+    snapshots = sorted(
+        p for p in dest.iterdir()
+        if re.fullmatch(r"backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{6}Z", p.name)
+        and not p.is_symlink() and p.is_dir() and (p / "logs.db").is_file())
+    for old in snapshots[:-14]:
+        shutil.rmtree(old)
+    size = (snapshot / "logs.db").stat().st_size / 1e6
+    print(f"{now()} backup of {DB_PATH} ({size:.1f} MB) written to {snapshot} in {time.time() - t0:.1f} s")
     return 0
 
 
@@ -1185,7 +1189,7 @@ def cli(argv):
     d.add_argument("username")
     ac = sub.add_parser("activate-user")
     ac.add_argument("username")
-    sub.add_parser("backup", help="copy the database and keys to LOGDB_BACKUP_DIR (overwrites the previous copy)")
+    sub.add_parser("backup", help="back up the database and keys to dated folders, retaining the latest 14")
     sub.add_parser("backfill-gps-positions", help="populate legacy GPS summaries without reparsing logs")
     a = p.parse_args(argv)
 

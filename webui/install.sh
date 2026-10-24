@@ -161,7 +161,7 @@ if [ "$CONFIGURE" -eq 1 ]; then
     ask LOG_DIR "Directory for the uploaded logs" "${LOG_DIR:-/mnt/flight-logs/logs}"
     ask BACKUP_DIR "Directory for the database backup (empty: no backup)" "${BACKUP_DIR:-/mnt/flight-logs/backup}"
     if [ -n "$BACKUP_DIR" ]; then
-        echo "The backup is a single copy, overwritten each time; keep history with the share's own backup policy."
+        echo "Backups use UTC date-time folders; the latest 14 complete backup sets are retained."
         ask BACKUP_SCHEDULE "How often (systemd OnCalendar value: hourly, daily, *-*-* 02:00, ...)" "$BACKUP_SCHEDULE"
         systemd-analyze calendar "$BACKUP_SCHEDULE" >/dev/null 2>&1 || die "'$BACKUP_SCHEDULE' is not a valid OnCalendar value"
     fi
@@ -284,15 +284,24 @@ for dir in "$LOG_DIR" ${BACKUP_DIR:+"$BACKUP_DIR"}; do
 done
 
 # ---------------------------------------------------------------- restore
-if [ ! -f "$WEB_DATA/logs.db" ] && [ -n "$BACKUP_DIR" ] && [ -f "$BACKUP_DIR/logs.db" ]; then
+RESTORE_DIR=""
+if [ -n "$BACKUP_DIR" ]; then
+    [ -f "$BACKUP_DIR/logs.db" ] && RESTORE_DIR="$BACKUP_DIR"
+    for snapshot in "$BACKUP_DIR"/backup-????-??-??T??-??-??.??????Z; do
+        if [ -d "$snapshot" ] && [ ! -L "$snapshot" ] && [ -f "$snapshot/logs.db" ]; then
+            RESTORE_DIR="$snapshot"
+        fi
+    done
+fi
+if [ ! -f "$WEB_DATA/logs.db" ] && [ -n "$RESTORE_DIR" ]; then
     say "Database backup found"
-    ls -l "$BACKUP_DIR/logs.db"
-    if ask_yn "There is no database yet. Restore it from $BACKUP_DIR?" y; then
-        install -o "$SVC_USER" -g "$SVC_USER" -m 600 "$BACKUP_DIR/logs.db" "$WEB_DATA/logs.db"
-        [ -f "$BACKUP_DIR/secret_key" ] && install -o "$SVC_USER" -g "$SVC_USER" -m 600 "$BACKUP_DIR/secret_key" "$WEB_DATA/secret_key"
-        if [ -d "$BACKUP_DIR/saml" ]; then
+    ls -l "$RESTORE_DIR/logs.db"
+    if ask_yn "There is no database yet. Restore it from $RESTORE_DIR?" y; then
+        install -o "$SVC_USER" -g "$SVC_USER" -m 600 "$RESTORE_DIR/logs.db" "$WEB_DATA/logs.db"
+        [ -f "$RESTORE_DIR/secret_key" ] && install -o "$SVC_USER" -g "$SVC_USER" -m 600 "$RESTORE_DIR/secret_key" "$WEB_DATA/secret_key"
+        if [ -d "$RESTORE_DIR/saml" ]; then
             install -d -o "$SVC_USER" -g "$SVC_USER" -m 700 "$WEB_DATA/saml"
-            for pem in "$BACKUP_DIR"/saml/*.pem; do
+            for pem in "$RESTORE_DIR"/saml/*.pem; do
                 [ -f "$pem" ] && install -o "$SVC_USER" -g "$SVC_USER" -m 600 "$pem" "$WEB_DATA/saml/"
             done
         fi
@@ -464,7 +473,7 @@ if [ -z "$(app_cmd list-users)" ]; then
     app_cmd create-user "$ADMIN" --admin ${ADMIN_NAME:+--name "$ADMIN_NAME"}
 fi
 
-if [ -n "$BACKUP_DIR" ] && [ ! -f "$BACKUP_DIR/logs.db" ]; then
+if [ -n "$BACKUP_DIR" ] && [ -z "$RESTORE_DIR" ]; then
     say "First backup"
     systemctl start flight-logs-backup.service && ls -l "$BACKUP_DIR"
 fi

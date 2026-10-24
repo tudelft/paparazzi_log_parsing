@@ -197,9 +197,12 @@ with `LOGDB_LOG_DIR=/mnt/flight-logs/logs` and `LOGDB_BACKUP_DIR=/mnt/flight-log
 `username=` and `password=` lines (mode 600).
 
 **Backup.** `app.py backup` copies the database while the app keeps running, checks the copy, and writes `logs.db`,
-`secret_key` and `saml/*.pem` to `LOGDB_BACKUP_DIR` (via a temporary file and rename, so it never leaves a half
-written copy). It keeps one copy and overwrites it each time; older versions come from the share's snapshots. The
-backup contains the SAML private key, so keep that directory private.
+`secret_key` and `saml/*.pem` into a UTC timestamped folder under `LOGDB_BACKUP_DIR`, for example
+`backup-2026-10-24T12-45-00.123456Z`. It keeps the latest **14 complete backup sets**, not 14 days:
+after a successful backup, older timestamped folders are removed. A hidden staging folder is renamed
+only after all files have been written, so failed backups do not publish partial sets or prune history.
+Legacy files directly in `LOGDB_BACKUP_DIR` and unrelated folders are left untouched and do not count
+toward the 14 sets. The backup contains the SAML private key, so keep that directory private.
 
 By default, a backup fails if it cannot set private Unix file permissions (`chmod 600`).
 VMware shared folders or SMB mounts may reject this even when writes work. Prefer a private local
@@ -207,11 +210,13 @@ backup destination, or restrict the destination using share/host ACLs and explic
 `LOGDB_BACKUP_EXTERNAL_PERMISSIONS=1`. With that option, permission-denied/unsupported `chmod`
 errors produce warnings and the backup continues; write, flush and rename failures still fail.
 The option does not configure or verify those external ACLs. Temporary destination files are
-cleaned up on failure; the previous copy of that file is retained. Files are published individually,
-not as an atomic database-and-keys snapshot.
+cleaned up on handled failure; previous complete backup sets are retained. An abrupt process stop may
+leave a hidden `.backup-*` staging folder; it is not a completed backup and is not used for restore.
 
-**Restore.** Stop the service, copy `logs.db`, `secret_key` and `saml/` from the backup into `/var/lib/flight-logs`
-(owner `logdb`, mode 600) and start it again. On a new server `install.sh` offers to do this. Logs uploaded after the
+**Restore.** Stop the service, choose a timestamped backup folder and copy its `logs.db`, `secret_key` and `saml/`
+into `/var/lib/flight-logs` (owner `logdb`, files mode 600) and start it again.
+On a new server `install.sh` offers the newest timestamped set, falling back to a legacy flat backup.
+Logs uploaded after the
 last backup are not in the restored database: run the [upload script](#uploading-with-a-script) again, it only
 uploads what the server does not know.
 
