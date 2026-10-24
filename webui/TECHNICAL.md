@@ -67,6 +67,16 @@ volt-valued and unitless protocols retain their previous scaling.
 Deploying the rebuilt parser and reparsing affected uploads is sufficient: no web UI or
 database migration is required. Previously stored paths/voltages are not changed until reparse.
 
+**Legacy fixed-wing flight detection.** Parser 1.7.4 uses `BAT.flight_time` when
+the protocol has no usable `NAVIGATION.flight_time` field. A positive timer marks
+flight; zero marks ground. Navigation block/stage updates still work without that field.
+`BAT.voltage` declared as `1e-1V` or `decivolt` is converted to volts. Newer navigation
+timers retain precedence over the legacy timer.
+If recording starts with a positive timer, the parser reports the observed flight interval
+only; it does not invent a takeoff before the recording. A flight still active at the end
+is left incomplete. Deploy the rebuilt parser and reparse affected uploads; the existing
+web UI consumes the unchanged JSON format.
+
 **Non-finite Paparazzi values.** Parser 1.7.1 serializes non-finite numeric output as JSON `null`,
 not invalid bare NaN/Infinity tokens. Non-finite numeric telemetry is rejected before calculations.
 `DL_VALUE` is retained separately: `settings_changes.invalid_reports` records timestamp, setting

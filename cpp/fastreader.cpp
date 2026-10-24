@@ -1050,7 +1050,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.7.3";
+constexpr const char *PARSER_VERSION = "1.7.4";
 
 struct GpsClock {
   size_t count = 0;
@@ -1288,7 +1288,12 @@ int main(int argc, char *argv[])
   enum { AD_PRESS, AD_DIFF_P, AD_AMSL, AD_AIRSPEED, AD_TAS };
   const MsgFields air_f = resolve_fields(hdr, "AIR_DATA", {"pressure", "diff_p?", "amsl_baro", "airspeed?", "tas?"});
   enum { FW_NAV_BLOCK, FW_NAV_STAGE, FW_NAV_FT };
-  const MsgFields fw_nav_f = resolve_fields(hdr, "NAVIGATION", {"cur_block", "cur_stage", "flight_time"});
+  const MsgFields fw_nav_f = resolve_fields(hdr, "NAVIGATION", {"cur_block", "cur_stage", "flight_time?"});
+  const MsgFields bat_f = resolve_fields(hdr, "BAT", {"flight_time", "voltage?"});
+  const auto bat_units = hdr.units.find("BAT");
+  const std::string bat_voltage_unit = bat_units != hdr.units.end() && bat_units->second.count("voltage")
+      ? bat_units->second.at("voltage") : "";
+  const double bat_voltage_scale = bat_voltage_unit == "1e-1V" || bat_voltage_unit == "decivolt" ? 0.1 : 1.0;
   enum { PPRZ_AP };
   const MsgFields pprz_f = resolve_fields(hdr, "PPRZ_MODE", {"ap_mode"});
   enum { GPSU_MODE, GPSU_EAST, GPSU_NORTH, GPSU_ALT, GPSU_SPEED, GPSU_ZONE };
@@ -1452,6 +1457,24 @@ int main(int argc, char *argv[])
 
     // Only look at messages of interest, dispatch on first char first
     switch (name[0]) {
+      case 'B':
+        if (name == "BAT") {
+          if (!bat_f.split) { break; }
+          const Picked f = pick(bat_f, q, eol);
+          int flight_time;
+          if (!to_num(f[0], flight_time) || flight_time < 0) { break; }
+          AircraftState &s = touch(ac, t);
+          double voltage;
+          if (to_num(f[1], voltage)) {
+            s.has_volt = true;
+            s.vsupply = voltage * bat_voltage_scale;
+          }
+          // Newer fixed-wing protocols carry the authoritative timer in NAVIGATION.
+          if (!fw_nav_f.split || fw_nav_f.pos[FW_NAV_FT] < 0) {
+            apply_in_flight(s, t, flight_time > 0);
+          }
+        }
+        break;
       case 'R':
         if (name == "ROTORCRAFT_FP" || name == "ROTORCRAFT_FP_MIN") {
           const bool compact = name == "ROTORCRAFT_FP_MIN";
@@ -1553,12 +1576,13 @@ int main(int argc, char *argv[])
           if (!fw_nav_f.split) { break; }
           const Picked f = pick(fw_nav_f, q, eol);
           int block, stage, flight_time;
-          if (!to_num(f[FW_NAV_BLOCK], block) || !to_num(f[FW_NAV_STAGE], stage) ||
-              !to_num(f[FW_NAV_FT], flight_time)) { break; }
+          if (!to_num(f[FW_NAV_BLOCK], block) || !to_num(f[FW_NAV_STAGE], stage)) { break; }
           AircraftState &s = touch(ac, t);
           s.block = block;
           s.stage = stage;
-          apply_in_flight(s, t, flight_time > 0);
+          if (to_num(f[FW_NAV_FT], flight_time) && flight_time >= 0) {
+            apply_in_flight(s, t, flight_time > 0);
+          }
         }
         break;
       case 'P':

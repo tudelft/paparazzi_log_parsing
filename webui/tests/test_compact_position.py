@@ -5,10 +5,11 @@ import unittest
 from pathlib import Path
 
 from .test_simulation import PARSER
+from .test_clock import parse_fixture
 
 
 class CompactPositionTests(unittest.TestCase):
-    def parse(self, lines, unit="decivolt", rate="5"):
+    def parse(self, lines, unit="decivolt", rate="5", extra_messages=None):
         messages = {
             "ROTORCRAFT_STATUS": ("ap_mode", "ap_in_flight", "vsupply"),
             "ROTORCRAFT_FP_MIN": ("east", "north", "up", "gspeed"),
@@ -16,10 +17,11 @@ class CompactPositionTests(unittest.TestCase):
             "INS_REF": ("ecef_x0", "ecef_y0", "ecef_z0", "lat0", "lon0", "alt0", "hmsl0"),
             "AIR_DATA": ("pressure", "amsl_baro", "airspeed", "tas"),
         }
+        messages.update(extra_messages or {})
         protocol = ""
         for name, fields in messages.items():
             protocol += f'<message name="{name}">\n'
-            protocol += "".join(f'<field name="{f}" unit="{unit if f == "vsupply" else ""}"/>\n'
+            protocol += "".join(f'<field name="{f}" unit="{unit if f in ("vsupply", "voltage") else ""}"/>\n'
                                 for f in fields)
             protocol += "</message>\n"
         with tempfile.TemporaryDirectory() as folder:
@@ -35,6 +37,39 @@ class CompactPositionTests(unittest.TestCase):
             return json.loads(result.stdout)["aircraft"][0]["flights"][0]
 
     origin = "INS_REF 0 637813700 0 0 900000000 0 -30000"
+
+    def test_legacy_bat_timer_positions_voltage_and_navigation(self):
+        flight = self.parse([
+            "0 5 " + self.origin, "1 5 NAVIGATION 7 2",
+            "2 5 BAT 126 102",
+            "3 5 ROTORCRAFT_FP_MIN 0 0 0 1800",
+            "4 5 NAVIGATION 8 3",
+            "5 5 ROTORCRAFT_FP_MIN 25600 0 0 1800",
+            "6 5 BAT 130 99", "7 5 BAT 0 98"],
+            unit="1e-1V", extra_messages={"BAT": ("flight_time", "voltage"),
+                                        "NAVIGATION": ("cur_block", "cur_stage")})
+        self.assertEqual(flight["duration_s"], 5)
+        self.assertEqual(flight["takeoff"]["voltage_v"], 10.2)
+        self.assertEqual(flight["landing"]["voltage_v"], 9.8)
+        self.assertEqual(len(flight["path"]), 2)
+        self.assertEqual(flight["path"][-1]["nav"]["block_id"], 8)
+
+    def test_bat_timer_end_of_recording_and_modern_precedence(self):
+        messages = {"BAT": ("flight_time", "voltage"),
+                    "NAVIGATION": ("cur_block", "cur_stage", "flight_time")}
+        flight = self.parse(["0 5 NAVIGATION 1 0 1", "1 5 BAT 0 24", "4 5 NAVIGATION 1 0 0"],
+                            unit="V", extra_messages=messages)
+        self.assertEqual(flight["duration_s"], 4)
+        self.assertEqual(flight["landing"]["voltage_v"], 24)
+        flight = self.parse(["1 5 BAT 126 102", "5 5 BAT 130 100"], unit="1e-1V",
+                            extra_messages={"BAT": ("flight_time", "voltage")})
+        self.assertEqual(flight["duration_s"], 4)
+
+    def test_ground_only_bat_does_not_create_flights(self):
+        doc = parse_fixture(["1 5 BAT 0 102\n", "5 5 BAT 0 100\n"],
+                            extra_messages=(("BAT", ("flight_time", "voltage")),))
+        self.assertEqual(len(doc["aircraft"]), 1)
+        self.assertEqual(doc["aircraft"][0]["flights"], [])
 
     def test_full_position_retains_attitude_and_reconstructs_speed(self):
         flight = self.parse([
