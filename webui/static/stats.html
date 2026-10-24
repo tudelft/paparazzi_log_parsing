@@ -21,15 +21,36 @@
   .cols { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
   @media (max-width: 960px) { .cols { grid-template-columns:1fr; } }
   .scroll { overflow-x:auto; }
+  .cols .card { min-width:0; }
+  .cols .scroll { max-height:360px; overflow-y:auto; overscroll-behavior-y:contain; scrollbar-gutter:stable; }
+  .cols thead th { position:sticky; top:0; z-index:1; background:var(--card); box-shadow:0 1px 0 var(--line); }
   table { width:100%; border-collapse:collapse; }
   th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
   th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; }
   td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
   th.num { text-align:right; }
   .mute { color:var(--mute); }
-  .totals { display:flex; gap:28px; flex-wrap:wrap; }
+  .overview-heading { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+  .overview-heading p { margin:0; font-size:12px; }
+  .overview-heading details { margin-left:auto; color:var(--mute); font-size:12px; }
+  .overview-heading summary { cursor:pointer; text-align:right; }
+  .overview-heading details p { margin-top:6px; max-width:480px; }
+  .totals { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:16px 20px; }
+  @media (min-width:1600px) { .totals { grid-template-columns:repeat(10, minmax(0, 1fr)); } }
+  @media (max-width:700px) { .totals { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
   .totals strong { font-size:20px; display:block; }
   .totals span { color:var(--mute); font-size:12px; }
+  .activity-controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .activity-controls label { font-size:12px; }
+  .activity-controls select { font:inherit; color:var(--txt); background:var(--card); border:1px solid var(--line); border-radius:4px; padding:4px; }
+  .activity-chart { min-width:100%; }
+  .activity-bars, .activity-axis { display:flex; gap:2px; }
+  .activity-bars { height:150px; align-items:stretch; border-bottom:1px solid var(--line); }
+  .activity-bars > div { flex:1; min-width:0; display:flex; align-items:flex-end; }
+  .activity-bars i { display:block; width:100%; background:var(--acc); border-radius:3px 3px 0 0; }
+  .activity-axis { margin-top:6px; color:var(--mute); font-size:11px; }
+  .activity-axis span { flex:1; min-width:0; white-space:nowrap; }
+  #activitySummary { font-size:12px; }
   .meter { height:6px; background:var(--sec); border-radius:4px; min-width:72px; width:100%; max-width:140px; overflow:hidden; }
   .meter > i { display:block; height:100%; background:var(--acc); }
   button { font:inherit; background:var(--sec); color:var(--txt); border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
@@ -43,18 +64,35 @@
 </header>
 <main>
   <section class="card">
-    <p class="mute" data-flight-filter-summary></p>
-    <p class="mute" id="scope" style="margin:0 0 12px"></p>
+    <div class="overview-heading">
+      <p class="mute" data-flight-filter-summary></p>
+      <details><summary>Help</summary><p id="scope"></p></details>
+    </div>
     <div class="totals">
       <div><strong id="totHours">—</strong><span>Total flight hours</span></div>
       <div><strong id="totFlown">—</strong><span>Distance flown</span></div>
       <div><strong id="totFlights">—</strong><span>Flights</span></div>
+      <div title="Distinct UTC flight dates; records without a valid or corrected date are excluded"><strong id="totDays">—</strong><span>Flying days</span></div>
+      <div title="Total flight time divided by flight count, including the flight count recorded on paper records"><strong id="avgDuration">—</strong><span>Average flight</span></div>
       <div title="Original telemetry bytes, counting each contributing source log once; excludes companion files and paper records"><strong id="totData">—</strong><span>Total log data (GB)</span></div>
       <div><strong id="totAircraft">—</strong><span>Aircraft</span></div>
       <div><strong id="totProjects">—</strong><span>Projects</span></div>
       <div><strong id="totPics">—</strong><span>PICs</span></div>
       <div><strong id="totPacs">—</strong><span>PACs</span></div>
     </div>
+  </section>
+  <section class="card">
+    <div class="section-heading"><h2>Monthly activity</h2>
+      <details><summary>Help</summary><p>Flight hours or flight counts per UTC month, using the shared filters. Paper records contribute their recorded time and flight count. Records without a valid or corrected date are excluded. Hover over a bar for both totals.</p></details>
+    </div>
+    <div class="activity-controls">
+      <label>Show <select id="activityMetric"><option value="hours">Flight hours</option><option value="flights">Flights</option></select></label>
+      <span class="mute" id="activitySummary" role="status"></span>
+    </div>
+    <div class="scroll"><div class="activity-chart" id="activityChart">
+      <div class="activity-bars" id="activityBars" role="list" aria-label="Monthly flight activity"></div>
+      <div class="activity-axis" id="activityAxis" aria-hidden="true"></div>
+    </div></div>
   </section>
   <div class="cols">
     <section class="card">
@@ -111,6 +149,11 @@ const fmtHours = s => {
 };
 const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km` : `${Math.round(m)} m`;
 const fmtDate = t => (t || '').slice(0, 10);
+const fmtDuration = s => {
+  const t = Math.max(0, Math.round(s));
+  return t >= 3600 ? `${Math.floor(t / 3600)}h ${String(Math.floor(t % 3600 / 60)).padStart(2, '0')}m`
+    : `${Math.floor(t / 60)}m ${String(t % 60).padStart(2, '0')}s`;
+};
 const realFetch = window.fetch;
 window.fetch = async (...args) => {
   const r = await realFetch(...args);
@@ -184,6 +227,42 @@ function meter(seconds, max) {
   return `<div class="meter" title="${fmtHours(seconds)}"><i style="width:${pct}%"></i></div>`;
 }
 
+function renderActivity(list) {
+  const dated = list.map(f => ({day: window.flightFilters.day(f), seconds: f.duration_s || 0,
+    flights: f.flight_count || 1})).filter(f => f.day);
+  const days = dated.map(f => f.day).sort();
+  const {from, to} = window.flightFilters.bounds();
+  const today = new Date().toISOString().slice(0, 10);
+  const start = (from || days[0] || to || today).slice(0, 7);
+  const end = (to || (days.at(-1) > today ? days.at(-1) : today)).slice(0, 7);
+  const buckets = [];
+  let year = Number(start.slice(0, 4)), month = Number(start.slice(5, 7));
+  const endYear = Number(end.slice(0, 4)), endMonth = Number(end.slice(5, 7));
+  while (year < endYear || (year === endYear && month <= endMonth)) {
+    const key = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`;
+    buckets.push({key, seconds: 0, flights: 0});
+    if (++month > 12) { month = 1; year++; }
+  }
+  const index = new Map(buckets.map(b => [b.key, b]));
+  for (const f of dated) {
+    const bucket = index.get(f.day.slice(0, 7));
+    if (bucket) { bucket.seconds += f.seconds; bucket.flights += f.flights; }
+  }
+  const metric = $('activityMetric').value === 'flights' ? 'flights' : 'seconds';
+  const max = buckets.reduce((n, b) => Math.max(n, b[metric]), 0);
+  const every = Math.max(1, Math.ceil(buckets.length / 10));
+  $('activityChart').style.minWidth = `${Math.max(0, buckets.length * 17)}px`;
+  $('activityBars').innerHTML = buckets.map(b => {
+    const label = `${b.key}: ${fmtHours(b.seconds)}, ${b.flights} flight${b.flights === 1 ? '' : 's'}`;
+    return `<div role="listitem" tabindex="0" aria-label="${label}" title="${label}"><i style="height:${max && b[metric] ? Math.max(1, 100 * b[metric] / max) : 0}%"></i></div>`;
+  }).join('');
+  $('activityAxis').innerHTML = buckets.map((b, i) => `<span>${i % every === 0 ? b.key : ''}</span>`).join('');
+  const undated = list.filter(f => !window.flightFilters.day(f)).reduce((n, f) => n + (f.flight_count || 1), 0);
+  const count = dated.reduce((n, f) => n + f.flights, 0);
+  $('activitySummary').textContent = `${fmtHours(dated.reduce((n, f) => n + f.seconds, 0))} in ${count} flight${count === 1 ? '' : 's'}`
+    + (undated ? ` · ${undated} without a valid date not shown` : '');
+}
+
 function render() {
   const list = shown();
   const aircraft = group(list,
@@ -200,7 +279,11 @@ function render() {
   const flown = list.some(f => f.distance_m != null) ? list.reduce((s, f) => s + (f.distance_m || 0), 0) : null;
   $('totHours').textContent = fmtHours(total);
   $('totFlown').textContent = fmtDist(flown) || '—';
-  $('totFlights').textContent = list.reduce((s, f) => s + (f.flight_count || 1), 0);
+  const count = list.reduce((s, f) => s + (f.flight_count || 1), 0);
+  $('totFlights').textContent = count;
+  $('totDays').textContent = new Set(list.map(f => window.flightFilters.day(f)).filter(Boolean)).size;
+  $('avgDuration').textContent = count ? fmtDuration(total / count) : '—';
+  renderActivity(list);
   const logIds = new Set(list.flatMap(f => f.log_ids));
   let bytes = 0, unknown = 0;
   for (const id of logIds) {
@@ -230,6 +313,7 @@ function render() {
 }
 
 window.addEventListener('flightfilterschange', render);
+$('activityMetric').onchange = () => renderActivity(shown());
 </script>
 </body>
 </html>

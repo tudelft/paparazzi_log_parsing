@@ -47,6 +47,10 @@ existing `/logbook` links still work.
   error), or **All failures** (also failed/rejected upload receipts). Filters cover all pages.
 - Statistics uses the shared flight filters. **Total log data (GB)** sums original telemetry sizes for logs contributing to
   filtered flights, counting each SD/GCS source once and excluding companion files.
+  **Flying days** counts distinct UTC dates; **Average flight** divides total time by the recorded flight count,
+  including paper records. **Monthly activity** switches between hours and flights; hover over a bar for both.
+  Unknown dates are excluded from flying days and monthly activity, with an explanatory count on the chart.
+  Aircraft, project and crew tables scroll independently, with column headings kept visible.
 - Detected simulations are labelled and excluded from overview totals by default. Enable **Show
   non-flights** to include simulations, uncertain flights and ground records. Flight details show the evidence; reparse outdated Paparazzi
   uploads to assess older recordings.
