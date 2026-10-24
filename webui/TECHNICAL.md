@@ -53,6 +53,19 @@ Day-to-day:
 
 After an update that changes the parser version, click **Re-parse outdated** on the Uploads page.
 
+**Fixed-wing navigation fallback.** Parser 1.7.9 can fill gaps in direct GPS using recorded
+`NAVIGATION.pos_x/pos_y` (metres east/north) and the latest received `NAVIGATION_REF`
+UTM origin. GPS still takes precedence for two seconds. A reference must first agree
+within 25 m with a valid GPS fix within 0.25 seconds of a navigation sample, per aircraft;
+that validation expires after 120 seconds. Changed/invalid references, contradictory
+near-simultaneous GPS, invalid local positions or implausible movement revoke trust.
+Without GPS corroboration no navigation fallback is used. Repeated identical references
+do not renew validation. Recovered path positions have `source: "navigation"` and
+`gps_alt_m: null` because this message supplies no altitude; barometric/sensor data remain
+separate. The Height chart does not splice barometric altitude into these GPS-height gaps
+(the barometric datum may differ). Navigation-derived endpoints similarly have `alt_m: null`. Real gaps over five
+seconds remain disconnected on the map. Reparse affected logs to recover stored sections.
+
 **Legacy compact rotorcraft telemetry.** Parser 1.7.2 decodes `ROTORCRAFT_FP_MIN`
 east/north/up (1/256 m) and ground speed (cm/s) using the aircraft's `INS_REF`
 ECEF origin and tangent frame. Parser 1.7.3 also decodes `ROTORCRAFT_FP` positions

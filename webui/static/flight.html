@@ -279,7 +279,7 @@ async function setCrew(role, value, ids) {
   const d = await fetch(`/api/flights/${flightId}/detail`).then(r => r.json());
   D.entry = d.entry; renderSummary();
 }
-const coord = (p, name) => p ? `${name ? esc(name) + ' · ' : ''}${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} · ${p.alt_m} m` : '';
+const coord = (p, name) => p ? `${name ? esc(name) + ' · ' : ''}${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}${p.alt_m != null ? ' · ' + p.alt_m + ' m' : ''}` : '';
 const windTxt = w => w ? `${w.speed_ms} m/s from ${w.from_deg}°${w.temperature_c != null ? ', ' + w.temperature_c + ' °C' : ''}` : '';
 async function loadWeather(fetchRemote = false) {
   const btn = $('fetchWeather');
@@ -366,6 +366,7 @@ function renderSummary() {
 
 const pt = i => D.path[i];
 const alt = p => p.ins?.position_ned_m ? -p.ins.position_ned_m.down
+  : p.position?.source === 'navigation' ? null
   : (p.position?.gps_alt_m ?? p.position?.baro_alt_m ?? null);
 const gs = p => p.ins?.groundspeed_ms ?? p.groundspeed_ms ?? null;
 const euler = (p, k) => p.attitude?.euler_deg?.[k] ?? null;
@@ -469,6 +470,8 @@ function initMap() {
     marker = L.circleMarker(ll[0], {radius: 8, color: '#000', weight: 2, fillColor: '#ffd33d', fillOpacity: 1});
     $('mapMsg').textContent = path.length < D.path.length || segments.length > 1
       ? 'Partial path: samples without valid geographic coordinates and gaps over 5 seconds are not connected.' : '';
+    const recovered = path.filter(p => p.position.source === 'navigation').length;
+    if (recovered) $('mapMsg').textContent += `${$('mapMsg').textContent ? ' ' : ''}Includes ${recovered} GPS-validated navigation positions; these have no GPS altitude.`;
   } else {
     $('mapMsg').textContent = D.path.length
       ? 'No valid geographic positions in the stored path. Sensor data may still be available in the charts.'
@@ -549,6 +552,7 @@ function show(i) {
   const a = alt(p), g = gs(p), m = p.flight_mode, n = p.nav, at = p.attitude?.euler_deg;
   const cell = (k, v) => v == null || v === '' ? '' : `<div><b>${k}</b>${v}</div>`;
   $('readout').innerHTML = cell('Time', rel(p.time_s) + ' · ' + esc(fmtTime(p.utc).slice(11)))
+    + cell('Position source', p.position?.source === 'navigation' ? 'GPS-validated navigation' : null)
     + cell('Distance flown', p.distance_m != null ? fmtDist(p.distance_m) : null)
     + cell('From takeoff', p.from_takeoff_m != null ? fmtDist(p.from_takeoff_m) : null)
     + cell('Height', a != null ? a.toFixed(1) + ' m' : null) + cell('GPS alt', p.position?.gps_alt_m != null ? p.position.gps_alt_m + ' m' : null)

@@ -15,6 +15,7 @@
 #include <ctime>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <set>
 #include <thread>
@@ -118,6 +119,7 @@ struct PathPoint {
   InsState ins;
   bool has_gs = false;
   double gndspeed = 0;  // GPS 2D ground speed [m/s]
+  bool navigation_position = false;
 };
 
 struct Range {
@@ -152,7 +154,8 @@ struct FlightStats {
   }
   void add_gps(double lat, double lon, double alt) {
     gps_lat_ref = lat;
-    gps_lat.add(lat); gps_lon.add(lon); gps_alt.add(alt);
+    gps_lat.add(lat); gps_lon.add(lon);
+    if (std::isfinite(alt)) { gps_alt.add(alt); }
   }
   double acc_rms() const {  // standard deviation of the 3D INS acceleration [m/s2]
     if (acc_count < 2) { return 0; }
@@ -1073,7 +1076,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.7.8";
+constexpr const char *PARSER_VERSION = "1.7.9";
 
 struct GpsClock {
   size_t count = 0;
@@ -1312,6 +1315,8 @@ int main(int argc, char *argv[])
   const MsgFields air_f = resolve_fields(hdr, "AIR_DATA", {"pressure", "diff_p?", "amsl_baro", "airspeed?", "tas?"});
   enum { FW_NAV_BLOCK, FW_NAV_STAGE, FW_NAV_FT };
   const MsgFields fw_nav_f = resolve_fields(hdr, "NAVIGATION", {"cur_block", "cur_stage", "flight_time?"});
+  const MsgFields fw_pos_f = resolve_fields(hdr, "NAVIGATION", {"pos_x", "pos_y"});
+  const MsgFields fw_ref_f = resolve_fields(hdr, "NAVIGATION_REF", {"utm_east", "utm_north", "utm_zone"});
   const MsgFields bat_f = resolve_fields(hdr, "BAT", {"flight_time", "voltage?"});
   const auto bat_units = hdr.units.find("BAT");
   const std::string bat_voltage_unit = bat_units != hdr.units.end() && bat_units->second.count("voltage")
@@ -1405,7 +1410,7 @@ int main(int argc, char *argv[])
     s.seen_status = true;
   };
 
-  auto use_gps = [&](int ac, double t, double lat_d, double lon_d, double alt_d) {
+  auto use_gps = [&](int ac, double t, double lat_d, double lon_d, double alt_d, bool navigation = false) {
     if (!Flight::plausible_ll(lat_d, lon_d)) { return; }
     AircraftState &s = touch(ac, t);
     s.has_gps = true;
@@ -1416,6 +1421,12 @@ int main(int argc, char *argv[])
       f.stats.add_gps(s.lat, s.lon, s.alt);
       f.add_gps_step(s.lat, s.lon);
     }
+    if (path_rate > 0 && s.in_flight && !s.flights.empty() && !navigation &&
+        static_cast<long>(t * path_rate) == s.last_path_bucket &&
+        !s.flights.back().path.empty() && s.flights.back().path.back().navigation_position) {
+      s.flights.back().path.pop_back();
+      s.last_path_bucket = -1;
+    }
     if (path_rate > 0 && s.in_flight && !s.flights.empty() &&
         static_cast<long>(t * path_rate) != s.last_path_bucket) {
       s.last_path_bucket = static_cast<long>(t * path_rate);
@@ -1424,7 +1435,8 @@ int main(int argc, char *argv[])
                                           s.has_volt, s.has_as, s.vsupply, s.airspeed, s.tas, s.diff_p,
                                           s.has_euler, s.has_quat, s.roll, s.pitch, s.yaw, s.qi, s.qx,
                                           s.qy, s.qz, s.ap_mode, s.h_mode, s.v_mode, s.block, s.stage,
-                                          parse_int_list(s.actuators_raw), s.wind, s.ins, s.has_gs, s.gndspeed});
+                                          parse_int_list(s.actuators_raw), s.wind, s.ins, s.has_gs, s.gndspeed,
+                                          navigation});
     }
   };
 
@@ -1501,9 +1513,17 @@ int main(int argc, char *argv[])
   std::map<int, std::vector<Reference>> references;
   std::map<int, std::vector<Fix>> fixes;
   std::set<int> gps_streams;
+  struct NavReference {
+    double east = 0, north = 0, checked = -1;
+    int zone = 0;
+  };
+  std::map<int, NavReference> nav_references;
+  std::map<int, size_t> rejected_navigation_positions;
   // Index once: a GCS can receive an updated reference after positions already use it.
   double index_prev = -1, index_offset = 0;
-  for (const char *scan = base; origin_f.split && (compact_f.split || position_f.split) && scan < end;) {
+  const bool index_positions = (origin_f.split && (compact_f.split || position_f.split))
+      || (fw_ref_f.split && fw_pos_f.split);
+  for (const char *scan = base; index_positions && scan < end;) {
     const char *nl = static_cast<const char *>(memchr(scan, '\n', end - scan));
     if (!nl) { nl = end; }
     const char *line = scan, *q = scan;
@@ -1724,7 +1744,20 @@ int main(int argc, char *argv[])
           if (messages.find(name) == messages.end()) { messages.emplace(name); }
           break;
         }
-        if (name == "NAVIGATION") {
+        if (name == "NAVIGATION_REF" && fw_ref_f.split) {
+          const Picked f = pick(fw_ref_f, q, eol);
+          double east, north, lat, lon;
+          int zone;
+          NavReference &ref = nav_references[ac];
+          if (!to_num(f[0], east) || !to_num(f[1], north) || !to_num(f[2], zone) ||
+              !std::isfinite(east) || !std::isfinite(north) ||
+              east < 100000 || east > 900000 || north < 0 || north > 10000000 ||
+              !utm_to_lla(east, north, zone, lat, lon)) {
+            ref = NavReference{};
+          } else if (east != ref.east || north != ref.north || zone != ref.zone) {
+            ref = {east, north, -1, zone};
+          }
+        } else if (name == "NAVIGATION") {
           if (!fw_nav_f.split) { break; }
           const Picked f = pick(fw_nav_f, q, eol);
           int block, stage, flight_time;
@@ -1735,6 +1768,42 @@ int main(int argc, char *argv[])
           if (to_num(f[FW_NAV_FT], flight_time) && flight_time >= 0) {
             apply_in_flight(s, t, flight_time > 0);
           }
+          if (!fw_pos_f.split || !fw_ref_f.split) { break; }
+          NavReference &ref = nav_references[ac];
+          const Picked pos = pick(fw_pos_f, q, eol);
+          double east, north, lat, lon;
+          if (!ref.zone || !to_num(pos[0], east) || !to_num(pos[1], north) ||
+              !std::isfinite(east) || !std::isfinite(north) ||
+              std::hypot(east, north) > 100000 ||
+              !utm_to_lla(ref.east + east, ref.north + north, ref.zone, lat, lon)) {
+            ++rejected_navigation_positions[ac];
+            ref.checked = -1;
+            break;
+          }
+          const auto &gps = fixes[ac];
+          auto next = std::lower_bound(gps.begin(), gps.end(), t,
+                                      [](const Fix &fix, double time) { return fix.t < time; });
+          const Fix *nearby = next != gps.end() ? &*next : nullptr;
+          if (next != gps.begin() && (!nearby || t - (next - 1)->t < std::fabs(nearby->t - t))) {
+            nearby = &*(next - 1);
+          }
+          // Tight time/position agreement validates this particular UTM reference, not just its location.
+          if (nearby && std::fabs(nearby->t - t) <= .25) {
+            ref.checked = earth_distance_m(lat, lon, nearby->lat, nearby->lon) <= 25 ? t : -1;
+          }
+          if (ref.checked < 0 || t - ref.checked > 120) {
+            ++rejected_navigation_positions[ac];
+            break;
+          }
+          if (s.direct_gps_time >= 0 && t - s.direct_gps_time <= 2) { break; }
+          if (s.has_gps && t > s.position_time &&
+              earth_distance_m(s.lat, s.lon, lat, lon) > 25 + 100 * (t - s.position_time)) {
+            ++rejected_navigation_positions[ac];
+            ref.checked = -1;
+            break;
+          }
+          // NAVIGATION records horizontal position only; do not invent a GPS altitude.
+          use_gps(ac, t, lat, lon, std::numeric_limits<double>::quiet_NaN(), true);
         }
         break;
       case 'P':
@@ -1942,6 +2011,10 @@ int main(int argc, char *argv[])
     std::cerr << " - aircraft " << entry.first << ": ignored " << entry.second
               << " local positions without a compatible reference/GPS frame; associated INS fallback disabled\n";
   }
+  for (const auto &entry : rejected_navigation_positions) {
+    std::cerr << " - aircraft " << entry.first << ": ignored " << entry.second
+              << " navigation positions without a recent GPS-validated UTM reference or plausible movement\n";
+  }
   const ClockDecision clock = choose_clock(hdr.start_epoch, gps_clocks);
   auto utc = [&](double t) { return utc_iso(clock.start < 0 ? -1 : clock.start + t); };
   const double t0 = first_time < 0 ? 0 : first_time;
@@ -1993,8 +2066,13 @@ int main(int argc, char *argv[])
   auto loc = [&](bool has, double lat, double lon, double alt) {
     if (!has) { return std::string("null"); }
     char buf[96];
-    snprintf(buf, sizeof(buf), "{\"lat\": %.7f, \"lon\": %.7f, \"alt_m\": %.1f}", lat, lon, alt);
-    return std::string(buf);
+    snprintf(buf, sizeof(buf), "{\"lat\": %.7f, \"lon\": %.7f, \"alt_m\": ", lat, lon);
+    std::string out(buf);
+    if (std::isfinite(alt)) {
+      snprintf(buf, sizeof(buf), "%.1f", alt);
+      out += buf;
+    } else { out += "null"; }
+    return out + "}";
   };
 
   // Onboard SD logs are named *_SD.data; ground station (GCS) logs have <aircraft> entries and link messages
@@ -2123,9 +2201,13 @@ int main(int argc, char *argv[])
         o << (fp ? "" : ",") << "\n            {\"time_s\": " << num(pt.t) << ", \"utc\": " << utc(pt.t)
           << ", \"distance_m\": " << num(pt.distance_m)
           << ", \"from_takeoff_m\": " << num(pt.from_takeoff_m);
-        snprintf(buf, sizeof(buf), ", \"position\": {\"lat\": %.7f, \"lon\": %.7f, \"gps_alt_m\": %.1f", pt.lat, pt.lon,
-                 pt.alt);
+        snprintf(buf, sizeof(buf), ", \"position\": {\"lat\": %.7f, \"lon\": %.7f, \"gps_alt_m\": ", pt.lat, pt.lon);
         o << buf;
+        if (std::isfinite(pt.alt)) {
+          snprintf(buf, sizeof(buf), "%.1f", pt.alt);
+          o << buf;
+        } else { o << "null"; }
+        if (pt.navigation_position) { o << ", \"source\": \"navigation\""; }
         if (pt.has_baro) {
           snprintf(buf, sizeof(buf), ", \"baro_alt_m\": %.2f, \"pressure_pa\": %.0f}", pt.baro_alt_m, pt.pressure_pa);
           o << buf;
