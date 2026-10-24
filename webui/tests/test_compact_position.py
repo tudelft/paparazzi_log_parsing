@@ -12,6 +12,7 @@ class CompactPositionTests(unittest.TestCase):
         messages = {
             "ROTORCRAFT_STATUS": ("ap_mode", "ap_in_flight", "vsupply"),
             "ROTORCRAFT_FP_MIN": ("east", "north", "up", "gspeed"),
+            "ROTORCRAFT_FP": ("east", "north", "up", "veast", "vnorth", "phi", "theta", "psi"),
             "INS_REF": ("ecef_x0", "ecef_y0", "ecef_z0", "lat0", "lon0", "alt0", "hmsl0"),
             "AIR_DATA": ("pressure", "amsl_baro", "airspeed", "tas"),
         }
@@ -34,6 +35,18 @@ class CompactPositionTests(unittest.TestCase):
             return json.loads(result.stdout)["aircraft"][0]["flights"][0]
 
     origin = "INS_REF 0 637813700 0 0 900000000 0 -30000"
+
+    def test_full_position_retains_attitude_and_reconstructs_speed(self):
+        flight = self.parse([
+            "0 5 ROTORCRAFT_STATUS 13 1 242",
+            "1 5 ROTORCRAFT_FP 0 0 2560 1572864 2097152 0 0 4096",
+            "2 5 ROTORCRAFT_FP 25600 0 2560 1572864 2097152 0 0 4096",
+            "3 5 " + self.origin,
+            "4 5 ROTORCRAFT_STATUS 13 0 230"])
+        self.assertEqual(len(flight["path"]), 2)
+        self.assertAlmostEqual(flight["distance_m"], 100, delta=.2)
+        self.assertEqual(flight["path"][0]["groundspeed_ms"], 5)
+        self.assertAlmostEqual(flight["path"][0]["attitude"]["euler_deg"]["yaw"], 57.3, delta=.01)
 
     def test_delayed_reference_preserves_early_path_sensors_and_speed(self):
         flight = self.parse([

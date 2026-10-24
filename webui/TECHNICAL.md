@@ -55,7 +55,9 @@ After an update that changes the parser version, click **Re-parse outdated** on 
 
 **Legacy compact rotorcraft telemetry.** Parser 1.7.2 decodes `ROTORCRAFT_FP_MIN`
 east/north/up (1/256 m) and ground speed (cm/s) using the aircraft's `INS_REF`
-ECEF origin and tangent frame. Paths, endpoint coordinates, distance and sensor graphs use
+ECEF origin and tangent frame. Parser 1.7.3 also decodes `ROTORCRAFT_FP` positions
+and horizontal velocity (1/524288 m/s), retaining its attitude fields, using the same
+reference conversion. Paths, endpoint coordinates, distance and sensor graphs use
 the existing JSON format; altitude is converted to the reference's mean-sea-level datum.
 When a recording starts before its first periodic reference, the parser looks ahead once
 for that aircraft's first valid reference. Subsequent reference changes are applied in

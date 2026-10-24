@@ -1050,7 +1050,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.7.2";
+constexpr const char *PARSER_VERSION = "1.7.3";
 
 struct GpsClock {
   size_t count = 0;
@@ -1302,6 +1302,7 @@ int main(int argc, char *argv[])
   enum { EN_VOLT };
   const MsgFields energy_f = resolve_fields(hdr, "ENERGY", {"voltage"});
   const MsgFields compact_f = resolve_fields(hdr, "ROTORCRAFT_FP_MIN", {"east", "north", "up", "gspeed?"});
+  const MsgFields position_f = resolve_fields(hdr, "ROTORCRAFT_FP", {"east", "north", "up", "veast?", "vnorth?"});
   const MsgFields origin_f = resolve_fields(hdr, "INS_REF", {"ecef_x0", "ecef_y0", "ecef_z0", "lat0", "lon0", "alt0", "hmsl0"});
   const auto status_units = hdr.units.find("ROTORCRAFT_STATUS");
   const double voltage_scale = status_units != hdr.units.end() && status_units->second.count("vsupply") &&
@@ -1452,8 +1453,24 @@ int main(int argc, char *argv[])
     // Only look at messages of interest, dispatch on first char first
     switch (name[0]) {
       case 'R':
-        if (name == "ROTORCRAFT_FP_MIN") {
-          if (!compact_f.split) { break; }
+        if (name == "ROTORCRAFT_FP" || name == "ROTORCRAFT_FP_MIN") {
+          const bool compact = name == "ROTORCRAFT_FP_MIN";
+          if (!compact && fp_f.split) {
+            const Picked f = pick(fp_f, q, eol);
+            int32_t phi, theta, psi;
+            if (to_num(f[FP_PHI], phi) && to_num(f[FP_THETA], theta) && to_num(f[FP_PSI], psi)) {
+              constexpr double k = 180.0 / M_PI / 4096.0;
+              AircraftState &s = touch(ac, t);
+              s.has_euler = true;
+              s.roll = phi * k; s.pitch = theta * k; s.yaw = psi * k;
+              if (s.in_flight && !s.flights.empty()) {
+                FlightStats &fs = s.flights.back().stats;
+                fs.max_tilt_deg = std::max(fs.max_tilt_deg, std::hypot(s.roll, s.pitch));
+              }
+            }
+          }
+          const MsgFields &position = compact ? compact_f : position_f;
+          if (!position.split) { break; }
           Origin &o = origins[ac];
           // Iridium streams can start in flight, before the first periodic reference.
           // Look ahead once per aircraft; later reference changes are applied in stream order.
@@ -1471,7 +1488,7 @@ int main(int argc, char *argv[])
             }
           }
           if (!o.valid) { break; }
-          const Picked f = pick(compact_f, q, eol);
+          const Picked f = pick(position, q, eol);
           int32_t east, north, up;
           if (!to_num(f[0], east) || !to_num(f[1], north) || !to_num(f[2], up)) { break; }
           const double e = east / 256.0, n = north / 256.0, u = up / 256.0;
@@ -1482,24 +1499,16 @@ int main(int argc, char *argv[])
                            o.z + cp * n + sp * u, lat, lon, alt)) { break; }
           AircraftState &s = touch(ac, t);
           double speed;
-          if (to_num(f[3], speed) && speed >= 0) { s.has_gs = true; s.gndspeed = speed / 100.0; }
-          use_gps(ac, t, lat, lon, o.hmsl + alt - o.alt);
-          break;
-        }
-        if (name == "ROTORCRAFT_FP") {
-          if (!fp_f.split) { break; }
-          // phi, theta, psi: int32 with 12 fractional bits, rad
-          const Picked f = pick(fp_f, q, eol);
-          int32_t phi, theta, psi;
-          if (!to_num(f[FP_PHI], phi) || !to_num(f[FP_THETA], theta) || !to_num(f[FP_PSI], psi)) { break; }
-          constexpr double k = 180.0 / M_PI / 4096.0;
-          AircraftState &s = touch(ac, t);
-          s.has_euler = true;
-          s.roll = phi * k; s.pitch = theta * k; s.yaw = psi * k;
-          if (s.in_flight && !s.flights.empty()) {
-            FlightStats &fs = s.flights.back().stats;
-            fs.max_tilt_deg = std::max(fs.max_tilt_deg, std::hypot(s.roll, s.pitch));
+          if (compact) {
+            if (to_num(f[3], speed) && speed >= 0) { s.has_gs = true; s.gndspeed = speed / 100.0; }
+          } else {
+            int32_t ve, vn;
+            if (to_num(f[3], ve) && to_num(f[4], vn)) {
+              s.has_gs = true;
+              s.gndspeed = std::hypot(ve / 524288.0, vn / 524288.0);
+            }
           }
+          use_gps(ac, t, lat, lon, o.hmsl + alt - o.alt);
           break;
         }
         if (name == "ROTORCRAFT_NAV_STATUS") {

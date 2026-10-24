@@ -41,7 +41,7 @@ class ParserClockTests(unittest.TestCase):
     def setUp(self):
         self.assertTrue(PARSER.exists(), "Build the C++ parser first")
         version = subprocess.check_output([str(PARSER), "--version"], text=True).strip()
-        self.assertEqual(version, "1.7.2", "Rebuild the parser before running clock tests")
+        self.assertEqual(version, "1.7.3", "Rebuild the parser before running clock tests")
 
     def samples(self, start=START, ac=5, fix=3, message="GPS"):
         return [gps_line(t, start + timedelta(seconds=t), ac, fix, message) for t in (0, 20, 40, 60)]
