@@ -100,6 +100,9 @@ rule also applies to existing parsed waypoints without reparsing.
 Parser 1.7.7 also accepts legacy uppercase and mixed-case flight-plan attributes, including
 reference coordinates, waypoint positions/names, blocks and sector corner references.
 Rebuild the parser and reparse affected older logs to restore their mapped flight plans.
+Parser 1.7.8 also accepts uppercase and mixed-case `time_of_day` header attributes,
+preserving the companion recording timestamp even without GPS timing. Reparse affected logs
+after deploying the rebuilt parser; no database migration is required.
 
 **Legacy fixed-wing flight detection.** Parser 1.7.4 uses `BAT.flight_time` when
 the protocol has no usable `NAVIGATION.flight_time` field. A positive timer marks

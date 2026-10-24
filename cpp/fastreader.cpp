@@ -518,9 +518,9 @@ LogHeader read_log_header(const std::string &log_file)
     size_t ind = line.find_first_not_of(' ');
     if (ind == std::string::npos) { continue; }
     if (h.start_epoch < 0) {
-      size_t t = line.find("time_of_day=\"");
-      if (t != std::string::npos) {
-        const double epoch = atof(line.c_str() + t + 13);
+      const std::string timestamp = xml_attr(line, 0, "time_of_day");
+      if (!timestamp.empty()) {
+        const double epoch = atof(timestamp.c_str());
         if (std::isfinite(epoch)) { h.start_epoch = epoch; }
       }
     }
@@ -1073,7 +1073,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.7.7";
+constexpr const char *PARSER_VERSION = "1.7.8";
 
 struct GpsClock {
   size_t count = 0;
