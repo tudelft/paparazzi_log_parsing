@@ -38,7 +38,7 @@ class ParserSimulationTests(unittest.TestCase):
         for name in NPS_MESSAGES:
             with self.subTest(message=name):
                 doc = parse_simulation_fixture({5: ("Aircraft", "")}, [f"1 5 {name} 0 0 0\n"])
-                self.assertEqual(doc["parser"]["version"], "1.7.1")
+                self.assertEqual(doc["parser"]["version"], "1.7.2")
                 self.assertEqual(doc["aircraft"][0]["simulation"], {
                     "detected": True, "evidence": [f"telemetry:{name}"],
                 })

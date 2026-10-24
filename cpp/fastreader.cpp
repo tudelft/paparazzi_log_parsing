@@ -405,6 +405,7 @@ struct LogHeader {
   std::map<int, AcConf> confs;       // ac_id (-1 = airframe without ac_id) -> configuration
   std::map<std::string, std::vector<std::string>> mode_names;  // ROTORCRAFT_STATUS enum field -> values
   std::map<std::string, std::vector<std::string>> telemetry;   // telemetry message -> field names in order
+  std::map<std::string, std::map<std::string, std::string>> units;
   std::map<int, std::string> names;  // ac_id -> name
   std::string default_name;          // airframe without ac_id
   double start_epoch = -1;  // unix time (UTC) of log time 0, -1 if unknown
@@ -572,6 +573,7 @@ LogHeader read_log_header(const std::string &log_file)
       } else if (cur_fields && strncmp(l, "<field ", 7) == 0) {
         std::string fname = xml_attr(line, 0, "name");
         cur_fields->push_back(fname);
+        h.units[cur_msg][fname] = xml_attr(line, 0, "unit");
         // Enumerated values of ROTORCRAFT_STATUS fields (ap_mode, ap_h_mode, ap_v_mode)
         std::string vals = xml_attr(line, 0, "values");
         if (cur_msg == "ROTORCRAFT_STATUS" && !vals.empty()) {
@@ -1048,7 +1050,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.7.1";
+constexpr const char *PARSER_VERSION = "1.7.2";
 
 struct GpsClock {
   size_t count = 0;
@@ -1299,6 +1301,11 @@ int main(int argc, char *argv[])
   const MsgFields as_f = resolve_fields(hdr, "AIRSPEED", {"airspeed"});
   enum { EN_VOLT };
   const MsgFields energy_f = resolve_fields(hdr, "ENERGY", {"voltage"});
+  const MsgFields compact_f = resolve_fields(hdr, "ROTORCRAFT_FP_MIN", {"east", "north", "up", "gspeed?"});
+  const MsgFields origin_f = resolve_fields(hdr, "INS_REF", {"ecef_x0", "ecef_y0", "ecef_z0", "lat0", "lon0", "alt0", "hmsl0"});
+  const auto status_units = hdr.units.find("ROTORCRAFT_STATUS");
+  const double voltage_scale = status_units != hdr.units.end() && status_units->second.count("vsupply") &&
+      status_units->second.at("vsupply") == "decivolt" ? 0.1 : 1.0;
 
   int fd = open(data_file.c_str(), O_RDONLY);
   struct stat st;
@@ -1391,6 +1398,26 @@ int main(int argc, char *argv[])
     }
   };
 
+  struct Origin {
+    bool valid = false, searched = false;
+    double x = 0, y = 0, z = 0, lat = 0, lon = 0, alt = 0, hmsl = 0;
+  };
+  std::map<int, Origin> origins;
+  auto read_origin = [&](Origin &o, const char *q, const char *eol) {
+    if (!origin_f.split) { return false; }
+    const Picked f = pick(origin_f, q, eol);
+    int32_t v[7];
+    for (int i = 0; i < 7; ++i) { if (!to_num(f[i], v[i])) { return false; } }
+    const double radius = std::hypot(std::hypot(v[0] * .01, v[1] * .01), v[2] * .01);
+    if (!Flight::plausible_ll(v[3] * 1e-7, v[4] * 1e-7) ||
+        radius < 6000000 || radius > 7000000) { return false; }
+    o.valid = true;
+    o.x = v[0] * .01; o.y = v[1] * .01; o.z = v[2] * .01;
+    o.lat = v[3] * 1e-7 * M_PI / 180; o.lon = v[4] * 1e-7 * M_PI / 180;
+    o.alt = v[5] * .001; o.hmsl = v[6] * .001;
+    return true;
+  };
+
   uint64_t ground_msgs = 0;
   const char *p = base;
   while (p < end) {
@@ -1425,6 +1452,40 @@ int main(int argc, char *argv[])
     // Only look at messages of interest, dispatch on first char first
     switch (name[0]) {
       case 'R':
+        if (name == "ROTORCRAFT_FP_MIN") {
+          if (!compact_f.split) { break; }
+          Origin &o = origins[ac];
+          // Iridium streams can start in flight, before the first periodic reference.
+          // Look ahead once per aircraft; later reference changes are applied in stream order.
+          if (!o.valid && !o.searched) {
+            o.searched = true;
+            for (const char *scan = p; scan < end;) {
+              const char *nl = static_cast<const char *>(memchr(scan, '\n', end - scan));
+              if (!nl) { nl = end; }
+              const char *payload = scan;
+              next_token(payload, nl);
+              int other;
+              if (to_num(next_token(payload, nl), other) && other == ac &&
+                  next_token(payload, nl) == "INS_REF" && read_origin(o, payload, nl)) { break; }
+              scan = nl == end ? end : nl + 1;
+            }
+          }
+          if (!o.valid) { break; }
+          const Picked f = pick(compact_f, q, eol);
+          int32_t east, north, up;
+          if (!to_num(f[0], east) || !to_num(f[1], north) || !to_num(f[2], up)) { break; }
+          const double e = east / 256.0, n = north / 256.0, u = up / 256.0;
+          const double sp = std::sin(o.lat), cp = std::cos(o.lat), sl = std::sin(o.lon), cl = std::cos(o.lon);
+          double lat, lon, alt;
+          if (!ecef_to_lla(o.x - sl * e - sp * cl * n + cp * cl * u,
+                           o.y + cl * e - sp * sl * n + cp * sl * u,
+                           o.z + cp * n + sp * u, lat, lon, alt)) { break; }
+          AircraftState &s = touch(ac, t);
+          double speed;
+          if (to_num(f[3], speed) && speed >= 0) { s.has_gs = true; s.gndspeed = speed / 100.0; }
+          use_gps(ac, t, lat, lon, o.hmsl + alt - o.alt);
+          break;
+        }
         if (name == "ROTORCRAFT_FP") {
           if (!fp_f.split) { break; }
           // phi, theta, psi: int32 with 12 fractional bits, rad
@@ -1463,7 +1524,7 @@ int main(int argc, char *argv[])
           AircraftState &s = touch(ac, t);
           s.ap_mode = ap_mode;
           if (has_hv) { s.h_mode = h_mode; s.v_mode = v_mode; }
-          if (has_v) { s.has_volt = true; s.vsupply = vsupply; }
+          if (has_v) { s.has_volt = true; s.vsupply = vsupply * voltage_scale; }
           bool now = in_flight != 0;
           if (now && motors_on >= 0 && !s.flights.empty() && s.in_flight) {
             FlightStats &fs = s.flights.back().stats;
@@ -1601,6 +1662,13 @@ int main(int argc, char *argv[])
         }
         break;
       case 'I':
+        if (name == "INS_REF") {
+          Origin &o = origins[ac];
+          o.searched = true;
+          o.valid = false;
+          read_origin(o, q, eol);
+          break;
+        }
         if (name == "INS") {
           if (!ins_f.split) { break; }
           // x y z (north, east, down; 8 fractional bits), xd yd zd (19 bits), xdd ydd zdd (10 bits)

@@ -53,6 +53,18 @@ Day-to-day:
 
 After an update that changes the parser version, click **Re-parse outdated** on the Uploads page.
 
+**Legacy compact rotorcraft telemetry.** Parser 1.7.2 decodes `ROTORCRAFT_FP_MIN`
+east/north/up (1/256 m) and ground speed (cm/s) using the aircraft's `INS_REF`
+ECEF origin and tangent frame. Paths, endpoint coordinates, distance and sensor graphs use
+the existing JSON format; altitude is converted to the reference's mean-sea-level datum.
+When a recording starts before its first periodic reference, the parser looks ahead once
+for that aircraft's first valid reference. Subsequent reference changes are applied in
+record order; without a valid reference no geographic positions are invented.
+`ROTORCRAFT_STATUS.vsupply` with the protocol unit `decivolt` is converted to volts;
+volt-valued and unitless protocols retain their previous scaling.
+Deploying the rebuilt parser and reparsing affected uploads is sufficient: no web UI or
+database migration is required. Previously stored paths/voltages are not changed until reparse.
+
 **Non-finite Paparazzi values.** Parser 1.7.1 serializes non-finite numeric output as JSON `null`,
 not invalid bare NaN/Infinity tokens. Non-finite numeric telemetry is rejected before calculations.
 `DL_VALUE` is retained separately: `settings_changes.invalid_reports` records timestamp, setting
