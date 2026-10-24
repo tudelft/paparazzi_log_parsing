@@ -697,13 +697,18 @@ a paper record, reporting response sizes and median in-process request time (thr
 Actual gains depend on record content, server and connection; database/read-model work is
 still performed for every request.
 
-Source merging keeps an active window of groups whose landing times could overlap the next
-takeoff (including the existing 60-second slack). Aircraft-name/GPS comparisons only run on
-time-compatible groups. Actual interval overlap takes precedence over slack-only matches;
-normal sources then prefer the smallest sum of takeoff and landing time differences, with
-stable first-group precedence on ties. Same-log exclusion, fleet identity checks, simulation
-separation and SD/GCS field selection are unchanged. Non-chronological fractional timestamp
-spellings rebuild the candidate window so earlier groups are not lost.
+Source merging sorts recordings by numeric takeoff time and keeps an active window of recordings
+whose landing could overlap the next takeoff (including the 60-second slack). Aircraft-name/GPS
+comparisons only run inside that window. Every compatible pair is scored (actual interval overlap
+first, then the smallest sum of takeoff and landing time differences) and pairs are joined best
+first, so a recording is not taken by an earlier, worse partner (e.g. an SD flight by a short GCS
+flight 25 s earlier in the same GCS log while the matching GCS flight takes off 0.4 s after it).
+Ties keep the earlier recording. A group never holds two flights of one log or two fleet aircraft.
+Two recordings of the **same type** (SD+SD, GCS+GCS, PX4+PX4) join only when they cover the same
+time, at least half of the shorter one: back-to-back logs (restarts, battery swaps, consecutive PX4
+files) stay separate flights instead of chaining through the slack. The longest onboard recording
+leads a merged entry (duration, verdict, track). Simulation separation and SD/GCS field selection
+are unchanged.
 
 Statistics sends only accessible contributing source-log IDs and stored original `size_bytes`,
 not filesystem sizes. The browser applies the same shared UTC date-range helper as Logbook and

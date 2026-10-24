@@ -3735,18 +3735,27 @@ def _interval_match_rank(start, end, other_start, other_end):
     return (not overlaps, abs(start - other_start) + abs(end - other_end))
 
 
+def _same_type_overlap(start, end, other_start, other_end):
+    """Two recordings of the same type (two SD logs, two ground stations) only describe one flight when they cover
+    the same time: at least half of the shorter one, with 1 s for timestamp rounding. Back-to-back logs (a restart,
+    a battery swap, consecutive PX4 files) are separate flights, even when the gap is within the merge slack."""
+    end, other_end = end if end is not None else start, other_end if other_end is not None else other_start
+    overlap = min(end, other_end) - max(start, other_start)
+    return overlap >= 0.5 * min(end - start, other_end - other_start) - 1
+
+
 def merge_sources(flights):
     """Merge the same flight recorded by an onboard SD log and a ground station (GCS) log into one entry.
 
     Two flights are the same when they belong to the same aircraft and their takeoff-landing intervals overlap
-    (with a small slack) and they come from different logs. The onboard log provides the flight data; the people and
+    (with a small slack) and they come from different logs; two recordings of the same type must really overlap
+    (_same_type_overlap). Each recording joins its best-matching partner. The onboard log provides the flight data; the people and
     goal are taken from the first source that has them (GCS first, as the pre-flight messages are sent over the link).
     """
-    groups = []
-    active = []
-    previous_start = None
-    ambiguous = []
-    for f in sorted(flights, key=lambda r: r["takeoff_utc"] or ""):
+    # Score every compatible pair of recordings first and join the best-matching pairs first, so a source is not
+    # taken by an earlier, worse partner just because that partner took off first.
+    items, ambiguous, groups = [], [], []
+    for f in flights:
         f["log_type"] = _type_of(f)
         start = _ts(f["takeoff_utc"])
         end = _ts(f["landing_utc"]) or (start + (f["duration_s"] or 0) if start is not None else None)
@@ -3754,37 +3763,55 @@ def merge_sources(flights):
         ident = {"name": name, "ac_id": f["ac_id"], "lat": f["takeoff_lat"], "lon": f["takeoff_lon"]}
         if f.get("aircraft_ambiguous") and f["drone_id"] is None:
             ambiguous.append((f, start, end, ident))
-            continue
-        home = None
-        best_rank = None
-        if start is not None:
-            # Fractional timestamp spellings can sort out of chronological order.
-            candidates = groups if previous_start is not None and start < previous_start else active
-            active = [g for g in candidates if g["end"] is not None
-                      and start <= g["end"] + SAME_FLIGHT_SLACK_S]
-            previous_start = start
-            for g in active:
-                if f["log_id"] in g["logs"] or (end or start) < g["start"] - SAME_FLIGHT_SLACK_S:
-                    continue
-                if bool((f.get("simulation") or {}).get("detected")) != bool(
-                        (g["flights"][0].get("simulation") or {}).get("detected")):
-                    continue
-                linked_ids = {o["drone_id"] for o in g["flights"] if o["drone_id"] is not None}
-                if (f["drone_id"] is not None and linked_ids and f["drone_id"] not in linked_ids):
-                    continue
-                if _same_aircraft(g, ident):
-                    rank = _interval_match_rank(start, end, g["start"], g["end"])
-                    if best_rank is None or rank < best_rank:
-                        home, best_rank = g, rank
-        if home is None:
-            group = {**ident, "start": start, "end": end, "logs": {f["log_id"]}, "flights": [f]}
-            groups.append(group)
-            if start is not None:
-                active.append(group)
+        elif start is None:
+            groups.append({**ident, "start": None, "end": None, "logs": {f["log_id"]}, "flights": [f], "spans": []})
         else:
-            home["flights"].append(f)
-            home["logs"].add(f["log_id"])
-            home["start"], home["end"] = min(home["start"], start), max(home["end"], end or start)
+            items.append((f, start, end if end is not None else start, ident))
+    items.sort(key=lambda item: item[1])
+    edges, active = [], []
+    for i, (f, start, end, ident) in enumerate(items):
+        active = [k for k in active if items[k][2] + SAME_FLIGHT_SLACK_S >= start]
+        for k in active:
+            other, other_start, other_end, other_ident = items[k]
+            if (other["log_id"] == f["log_id"]
+                    or bool((f.get("simulation") or {}).get("detected"))
+                    != bool((other.get("simulation") or {}).get("detected"))
+                    or None not in (f["drone_id"], other["drone_id"]) and f["drone_id"] != other["drone_id"]
+                    or f["log_type"] == other["log_type"]
+                    and not _same_type_overlap(start, end, other_start, other_end)
+                    or not _same_aircraft(other_ident, ident)):
+                continue
+            edges.append((_interval_match_rank(start, end, other_start, other_end), k, i))
+        active.append(i)
+    root = list(range(len(items)))
+    members = {i: [i] for i in range(len(items))}
+
+    def find(i):
+        while root[i] != i:
+            root[i] = root[root[i]]
+            i = root[i]
+        return i
+
+    for _, k, i in sorted(edges):
+        a, b = find(k), find(i)
+        if a == b:
+            continue
+        both = members[a] + members[b]
+        if (len({items[m][0]["log_id"] for m in both}) < len(both)
+                or len({items[m][0]["drone_id"] for m in both} - {None}) > 1
+                or any(items[x][0]["log_type"] == items[y][0]["log_type"]
+                       and not _same_type_overlap(items[x][1], items[x][2], items[y][1], items[y][2])
+                       for x in members[a] for y in members[b])):
+            continue
+        root[b] = a
+        members[a] = both
+        del members[b]
+    for indexes in members.values():
+        indexes.sort()
+        first = items[indexes[0]]
+        groups.append({**first[3], "start": min(items[m][1] for m in indexes), "end": max(items[m][2] for m in indexes),
+                       "logs": {items[m][0]["log_id"] for m in indexes}, "flights": [items[m][0] for m in indexes],
+                       "spans": [(items[m][0]["log_type"], items[m][1], items[m][2]) for m in indexes]})
 
     for f, start, end, ident in ambiguous:
         candidates = []
@@ -3793,7 +3820,9 @@ def merge_sources(flights):
                 if (group["start"] is None or group["end"] is None
                         or start > group["end"] + SAME_FLIGHT_SLACK_S
                         or (end or start) < group["start"] - SAME_FLIGHT_SLACK_S
-                        or f["log_id"] in group["logs"]):
+                        or f["log_id"] in group["logs"]
+                        or any(t == f["log_type"] and not _same_type_overlap(start, end, s, e)
+                               for t, s, e in group.get("spans", []))):
                     continue
                 group_rank = None
                 for source in group["flights"]:
@@ -3823,13 +3852,17 @@ def merge_sources(flights):
             home = candidates[0][0]
             home["flights"].append(f)
             home["logs"].add(f["log_id"])
+            home.setdefault("spans", []).append((f["log_type"], start, end))
         else:
             # Unresolved generic names must not acquire identity through another generic recording.
-            groups.append({**ident, "start": start, "end": end, "logs": {f["log_id"]}, "flights": [f]})
+            groups.append({**ident, "start": start, "end": end, "logs": {f["log_id"]}, "flights": [f],
+                           "spans": [(f["log_type"], start, end)] if start is not None else []})
 
     out = []
     for g in groups:
-        fl = sorted(g["flights"], key=lambda r: TYPE_ORDER[r["log_type"]])
+        # The longest onboard recording leads: it holds the most of the flight (duration, verdict, track).
+        fl = sorted(sorted(g["flights"], key=lambda r: r["takeoff_utc"] or ""),
+                    key=lambda r: (TYPE_ORDER[r["log_type"]], -(r["duration_s"] or 0)))
         main = dict(fl[0])
         assessed = [o["simulation"] for o in fl if o.get("simulation") is not None]
         if assessed:
