@@ -76,7 +76,7 @@
         <label>From <input type="date" id="fromDate"></label>
         <label>To <input type="date" id="toDate"></label>
       </span>
-      <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date…)">
+      <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date, reference…)">
       <label title="Flights of the same aircraft and pilot on the same day within this distance of each other"><input type="checkbox" id="combine" checked> Combine flights (within <input type="number" id="radius" value="1" min="0.1" step="0.5" style="width:56px"> km)</label>
       <label title="Places marked as indoors on the Locations page, or flights with OptiTrack / motion capture"><input type="checkbox" id="indoor"> Show indoor flights</label>
       <label title="Uncertain flights, arming on the ground, flickering flight flags and other 'flights' the parser judged not to be real flights"><input type="checkbox" id="ground"> Show uncertain/non-flights</label>
@@ -302,7 +302,7 @@ function inDateRange(f) {
   if (to && day > to) return false;
   return true;
 }
-const text = f => [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
+const text = f => [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
 
 function projectOptions(selected) {
   const addable = projects.filter(p => me && (me.is_admin || p.can_add || p.id === selected));
