@@ -50,6 +50,19 @@
     <div id="nameForm" style="margin-top:8px" hidden>
       <span id="nameLabel"></span> <input id="placeName" size="30" maxlength="80" placeholder="Name"> <label><input type="checkbox" id="placeIndoor"> Indoors</label> <button id="nameSave">Save</button> <button id="nameCancel" class="sec">Cancel</button>
     </div>
+    <p id="importSection" hidden><button type="button" class="sec" onclick="$('importPlacesDialog').showModal()">Import places from CSV</button></p>
+    <dialog class="entry-dialog" id="importPlacesDialog" aria-labelledby="importPlacesTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="importPlacesTitle">Import places from CSV</h2><button type="button" onclick="$('importPlacesDialog').close()" aria-label="Close CSV import">Close</button></div>
+    <p>Each row is a circle (<code>place</code>, <code>lat</code>, <code>lon</code>, <code>radius_m</code>, optional <code>indoor</code> yes/no). A place with the same name is updated; importing the same file again changes nothing. One bad row imports nothing. Other columns of <code>logbooks/places.csv</code> are ignored.</p>
+    <p><a href="/api/admin/places/template">Download CSV template</a></p>
+    <p class="dialog-error" id="importPlacesError" role="alert"></p>
+    <div class="dialog-fields">
+      <label class="field">CSV file<input id="placesCsv" type="file" accept=".csv,text/csv" onchange="$('importPlaces').hidden = true; $('placesPreview').innerHTML = ''"></label>
+      <button type="button" class="sec" onclick="importPlaces(true)">Check CSV</button>
+    </div>
+    <div class="scroll" id="placesPreview"></div>
+    <p><button type="button" id="importPlaces" hidden onclick="importPlaces(false)"></button> <span id="importPlacesMsg" class="mute"></span></p>
+    </dialog>
     <div class="scroll"><table style="margin-top:8px"><thead><tr><th>Name</th><th>Type</th><th>Shape</th><th class="num">Flights</th><th class="num">Flight time</th><th>Last flight</th><th></th></tr></thead><tbody id="places"></tbody></table></div>
   </section>
 </main>
@@ -139,7 +152,8 @@ function paintMode() {
     : placeData.admin
       ? 'Takeoffs and landings inside a place show its name in the logbook. Turn on Edit (top right) to add, change or delete places.'
       : 'Places where flights you have access to took off or landed.';
-  if (!edit) closeName();
+  if (!edit) { closeName(); $('importPlacesDialog').close(); }
+  $('importSection').hidden = !edit;
   if (map) {
     if (edit && !drawControl) {
       drawControl = new L.Control.Draw({
@@ -185,6 +199,35 @@ function zoomPlace(id) { const l = layerById.get(id); if (l) map.fitBounds(l.get
 function renamePlace(id) {
   const cur = placeData.places.find(p => p.id === id);
   askName({kind: 'rename', id}, 'Name and type:', cur.name, cur.indoor);
+}
+// Check first (preview=1 writes nothing), then import the same file.
+async function importPlaces(preview) {
+  const f = $('placesCsv').files[0];
+  $('importPlacesError').textContent = $('importPlacesMsg').textContent = '';
+  if (!f) { $('importPlacesError').textContent = 'Choose a CSV file first.'; return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  if (preview) fd.append('preview', '1');
+  try {
+    const r = await fetch('/api/admin/places/import', {method: 'POST', body: fd});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { $('importPlacesError').textContent = d.error || 'Import failed'; $('importPlaces').hidden = true; return; }
+    const label = {create: 'New', update: 'Update', unchanged: 'Unchanged'};
+    $('placesPreview').innerHTML = `<table><thead><tr><th>Row</th><th>Place</th><th>Action</th><th>Type</th><th>Circle</th></tr></thead><tbody>${d.rows.map(row => `<tr>
+      <td>${row.line}</td><td>${esc(row.name)}</td><td>${label[row.action]}${row.warning ? `<br><span class="dialog-error">${esc(row.warning)}</span>` : ''}</td>
+      <td>${row.indoor ? 'Indoors' : 'Outdoors'}</td><td class="mute">${row.shape.center.map(v => v.toFixed(5)).join(', ')}, ${Math.round(row.shape.radius_m)} m</td></tr>`).join('')}</tbody></table>`;
+    const changes = d.created + d.updated;
+    if (preview) {
+      $('importPlaces').textContent = `Import ${changes} place${changes === 1 ? '' : 's'}`;
+      $('importPlaces').hidden = !changes;
+      $('importPlacesMsg').textContent = changes ? '' : 'Nothing to change.';
+    } else {
+      $('importPlaces').hidden = true;
+      $('importPlacesMsg').textContent = `Added ${d.created}, updated ${d.updated}, unchanged ${d.unchanged}.`;
+      $('placesCsv').value = '';
+      await loadPlaces();
+    }
+  } catch (error) { $('importPlacesError').textContent = 'Import failed: ' + error.message; }
 }
 async function deletePlace(id) { if (confirm('Delete this place?')) await send('DELETE', '/api/admin/places/' + id); }
 

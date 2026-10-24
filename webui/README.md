@@ -85,6 +85,8 @@ existing `/logbook` links still work.
   Reimports replace all members of included projects. For initial setup, import qualifications first,
   then projects, then aircraft. Aircraft project changes require a `project_effective_date`;
   manual and legacy flight assignments are preserved. Both import dialogs offer templates.
+- Locations has **Import places from CSV** in Edit mode. It accepts `logbooks/places.csv` from SVN as is
+  (`place,lat,lon,radius_m,indoor`; the other columns are ignored) and shows a preview before importing.
 
 ## Qualifications and additional files
 

@@ -1972,6 +1972,90 @@ def admin_delete_place(place_id):
     return jsonify(ok=True)
 
 
+PLACE_CSV_COLUMNS = ("place", "lat", "lon", "radius_m", "indoor")
+# Columns of logbooks/places.csv that the database does not keep; they are accepted and ignored.
+PLACE_CSV_IGNORED = ("timezone", "log_names", "source", "confirmed")
+
+
+@app.post("/api/admin/places/import")
+def admin_import_places():
+    """Create or update circular places by name from a CSV (place, lat, lon, radius_m, indoor).
+    With the form field preview=1 nothing is written. One bad row imports nothing."""
+    admin_required()
+    con = conn()
+    preview = request.form.get("preview") == "1"
+    try:
+        headers, rows = read_catalog_csv()
+        missing = [c for c in PLACE_CSV_COLUMNS[:4] if c not in headers]
+        unknown = set(headers) - set(PLACE_CSV_COLUMNS) - set(PLACE_CSV_IGNORED)
+        if missing or unknown:
+            raise historical.RecordError("CSV columns are place, lat, lon, radius_m and optionally indoor"
+                                         + (f"; missing {', '.join(missing)}" if missing else "")
+                                         + (f"; unknown {', '.join(sorted(unknown))}" if unknown else "") + ".")
+        existing = {}
+        for r in con.execute("SELECT * FROM places"):
+            existing.setdefault(r["name"].casefold(), []).append(r)
+        result, seen = [], {}
+        for line, rec in rows:
+            name = rec["place"]
+            if not name or len(name) > 80:
+                raise historical.RecordError(f"Row {line}: place name is required (max 80 characters).")
+            if name.casefold() in seen:
+                raise historical.RecordError(f"Row {line}: place '{name}' is already on row {seen[name.casefold()]}.")
+            seen[name.casefold()] = line
+            try:
+                lat, lon, radius = float(rec["lat"]), float(rec["lon"]), float(rec["radius_m"])
+            except ValueError:
+                raise historical.RecordError(f"Row {line}: lat, lon and radius_m must be numbers.") from None
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180 and 0 < radius <= 100_000):
+                raise historical.RecordError(f"Row {line}: lat/lon out of range or radius_m not between 0 and 100000.")
+            indoor_text = rec.get("indoor", "").casefold()
+            if indoor_text not in ("", "yes", "no", "1", "0", "true", "false"):
+                raise historical.RecordError(f"Row {line}: indoor must be yes or no.")
+            indoor = int(indoor_text in ("yes", "1", "true"))
+            shape = {"type": "circle", "center": [lat, lon], "radius_m": radius}
+            matches = existing.get(name.casefold(), [])
+            if len(matches) > 1:
+                raise historical.RecordError(f"Row {line}: more than one place is called '{name}'. Rename or delete one first.")
+            item = dict(line=line, name=name, indoor=bool(indoor), shape=shape, warning=None)
+            if not matches:
+                item["action"] = "create"
+            else:
+                old = matches[0]
+                item["id"] = old["id"]
+                old_shape = json.loads(old["shape"])
+                if old_shape == shape and old["indoor"] == indoor and old["name"] == name:
+                    item["action"] = "unchanged"
+                else:
+                    item["action"] = "update"
+                    if old_shape["type"] == "polygon":
+                        item["warning"] = "replaces a polygon drawn on the map with a circle"
+            result.append(item)
+        if not preview:
+            with db.write_lock, con:
+                con.execute("BEGIN IMMEDIATE")
+                for item in result:
+                    values = (item["name"], int(item["indoor"]), json.dumps(item["shape"]))
+                    if item["action"] == "create":
+                        item["id"] = con.execute("INSERT INTO places (name, indoor, shape) VALUES (?,?,?)",
+                                                 values).lastrowid
+                    elif item["action"] == "update":
+                        con.execute("UPDATE places SET name=?, indoor=?, shape=? WHERE id=?", (*values, item["id"]))
+        counts = {a: sum(i["action"] == a for i in result) for a in ("create", "update", "unchanged")}
+        return jsonify(preview=preview, rows=result, created=counts["create"], updated=counts["update"],
+                       unchanged=counts["unchanged"])
+    except (historical.RecordError, csv.Error) as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@app.get("/api/admin/places/template")
+def places_csv_template():
+    admin_required()
+    return Response(",".join(PLACE_CSV_COLUMNS + PLACE_CSV_IGNORED) + "\n"
+                    'Example field,52.0,4.4,500,no,Europe/Amsterdam,Field;Example,"survey, 2026",yes\n',
+                    mimetype="text/csv", headers={"Content-Disposition": 'attachment; filename="places.csv"'})
+
+
 def admin_required():
     if not g.user["is_admin"]:
         abort(403)
