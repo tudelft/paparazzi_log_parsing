@@ -47,6 +47,12 @@
     <label title="Include simulations, uncertain flights and ground records"><input type="checkbox" id="nonflights"> Show non-flights</label>
     <div id="map"></div>
     <div id="mapMsg" class="mute" style="margin-top:6px"></div>
+    <div id="shapeForm" style="margin-top:8px" hidden>
+      <span id="shapeLabel"></span>
+      <button type="button" id="shapeSave" onclick="saveShape()">Save shape</button>
+      <button type="button" id="shapeCancel" class="sec" onclick="cancelShape()">Cancel</button>
+      <span id="shapeError" role="alert"></span>
+    </div>
     <div id="nameForm" style="margin-top:8px" hidden>
       <span id="nameLabel"></span> <input id="placeName" size="30" maxlength="80" placeholder="Name"> <label><input type="checkbox" id="placeIndoor"> Indoors</label> <button id="nameSave">Save</button> <button id="nameCancel" class="sec">Cancel</button>
     </div>
@@ -102,7 +108,58 @@ function layerOf(sh) {
 }
 
 let pendingLayer = null, naming = null;
+let shapeEdit = null, shapeSaving = false;
+function cancelShape() {
+  if (!shapeEdit || shapeSaving) return;
+  shapeEdit.editor.revertLayers();
+  shapeEdit.editor.disable();
+  shapeEdit = null;
+  $('shapeForm').hidden = true;
+  paintMode();
+}
+function editShape(id) {
+  if (!canEdit() || !map || shapeSaving) return;
+  cancelShape();
+  closeName();
+  const layer = layerById.get(id), place = placeData.places.find(p => p.id === id);
+  if (!layer || !place) return;
+  if (drawControl) { drawControl.remove(); drawControl = null; }
+  const editor = new L.EditToolbar.Edit(map, {featureGroup: L.featureGroup([layer])});
+  shapeEdit = {id, layer, editor};
+  editor.enable();
+  zoomPlace(id);
+  $('shapeLabel').textContent = `Editing ${place.name}: drag the handles to move or resize the boundary.`;
+  $('shapeError').textContent = '';
+  $('shapeForm').hidden = false;
+  $('map').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+async function saveShape() {
+  if (!shapeEdit || shapeSaving || !canEdit()) return;
+  shapeSaving = true;
+  $('shapeSave').disabled = $('shapeCancel').disabled = true;
+  $('shapeSave').textContent = 'Saving...';
+  $('shapeError').textContent = '';
+  try {
+    const r = await fetch('/api/admin/places/' + shapeEdit.id, {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({shape: shapeOf(shapeEdit.layer)}),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not save shape.');
+    shapeEdit.editor.disable();
+    shapeEdit = null;
+    $('shapeForm').hidden = true;
+    await loadPlaces();
+  } catch (error) {
+    $('shapeError').textContent = error.message;
+    if (!shapeEdit) $('err').textContent = 'Shape saved, but refreshing locations failed: ' + error.message;
+  } finally {
+    shapeSaving = false;
+    $('shapeSave').disabled = $('shapeCancel').disabled = false;
+    $('shapeSave').textContent = 'Save shape';
+  }
+}
 function askName(mode, label, value, indoor = false) {
+  cancelShape();
   naming = mode;
   $('placeIndoor').checked = indoor;
   $('nameLabel').textContent = label;
@@ -147,15 +204,16 @@ function initMap() {
 // The drawing tools and the Edit/Delete buttons are only there for admins with edit mode on.
 function paintMode() {
   const edit = canEdit();
+  if (!edit && shapeEdit && !shapeSaving) { cancelShape(); return; }
   $('intro').textContent = edit
-    ? 'Draw a polygon, rectangle or circle with the tools on the map, then give it a name. Takeoffs and landings inside it show that name in the logbook (the smallest matching shape wins).'
+    ? 'Draw a polygon, rectangle or circle with the tools on the map, then give it a name. Use Edit shape in the table to move or resize an existing boundary, then Save shape or Cancel. Takeoffs and landings inside it show that name in the logbook (the smallest matching shape wins).'
     : placeData.admin
       ? 'Takeoffs and landings inside a place show its name in the logbook. Turn on Edit (top right) to add, change or delete places.'
       : 'Places where flights you have access to took off or landed.';
   if (!edit) { closeName(); $('importPlacesDialog').close(); }
   $('importSection').hidden = !edit;
   if (map) {
-    if (edit && !drawControl) {
+    if (edit && !drawControl && !shapeEdit) {
       drawControl = new L.Control.Draw({
         edit: {featureGroup: layers},
         draw: {polygon: {allowIntersection: false}, rectangle: {}, circle: {}, polyline: false, marker: false, circlemarker: false}
@@ -173,11 +231,13 @@ function renderTable() {
   const edit = canEdit();
   $('places').innerHTML = placeData.places.map(p => `<tr><td><a href="/locations/${p.id}">${esc(p.name)}</a></td><td>${p.indoor ? 'Indoors' : 'Outdoors'}</td><td class="mute">${p.shape.type === 'circle' ? 'circle, ' + Math.round(p.shape.radius_m) + ' m' : 'polygon, ' + p.shape.points.length + ' points'}</td>
     <td class="num">${p.flights}</td><td class="num">${fmtHours(p.seconds)}</td><td>${esc((p.last || '').slice(0, 10))}</td>
-    <td><button class="sec" onclick="zoomPlace(${p.id})">Show</button>${edit ? ` <button onclick="renamePlace(${p.id})">Edit</button> <button class="danger" onclick="deletePlace(${p.id})">Delete</button>` : ''}</td></tr>`).join('')
+    <td><button class="sec" onclick="zoomPlace(${p.id})">Show</button>${edit ? ` <button onclick="renamePlace(${p.id})">Name / type</button> <button onclick="editShape(${p.id})">Edit shape</button> <button class="danger" onclick="deletePlace(${p.id})">Delete</button>` : ''}</td></tr>`).join('')
     || `<tr><td colspan="7" class="mute">${placeData.admin ? 'No places yet.' : 'No named places on your flights yet.'}</td></tr>`;
 }
 
 async function loadPlaces() {
+  if (shapeSaving && shapeEdit) return;
+  cancelShape();
   const r = await fetch('/api/places' + ($('nonflights').checked ? '?nonflights=1' : ''));
   if (!r.ok) { $('err').textContent = 'Could not load the places.'; return; }
   placeData = await r.json();

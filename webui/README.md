@@ -55,6 +55,11 @@ existing `/logbook` links still work.
 
 ## Add or correct information
 
+- On **Locations**, admins can turn on **Edit**, choose **Edit shape** beside a place,
+  then drag the map handles to move or resize its circle or polygon. Choose **Save shape**
+  to apply the boundary or **Cancel** to discard changes. **Name / type** changes its name
+  or indoor status separately.
+
 - In **Logbook**, Edit mode exposes crew/project corrections where permitted.
   Admins can bulk-edit paper and telemetry records together, or **Hide selected** to remove entries
   from the logbook and totals without deleting files. Use **Hidden records only** and **Restore selected**
