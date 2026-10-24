@@ -693,6 +693,21 @@ flights used, and admins add, change or delete them there in edit mode (an area 
 are hidden by default). Logs without a valid date (missing or 1980 clock) are flagged so the
 real day can be entered.
 
+`GET /api/places` groups endpoint dots at three decimal places (about 100 m).
+Each dot has a total `count` and an `unnamed_count`, determined from the endpoints'
+resolved place IDs before rounding, not from whether the rounded dot lies inside a shape.
+The Locations unnamed-dot review is available only to admins in Edit mode. Leaving
+Edit mode clears the filter and returns to all dots. It filters on `unnamed_count`, orders by that count, and
+keeps named boundaries visible as context. It uses the same accessible flights and
+non-flight toggle as the normal map. Saving a place refreshes the review without changing
+flight records or requiring reparse.
+
+Replacing a named boundary uses the same `PUT /api/admin/places/<id>` shape update
+as resizing it; it never deletes/recreates the place. Circle, polygon and rectangle
+redraws are previews until saved (rectangles are stored as polygons). The place ID,
+name, indoor flag and historical-record references remain intact. Cancel or leaving
+Edit mode restores the original boundary; a failed save retains the preview for retry.
+
 The browser requests `GET /api/logbook?compact=1` for its overview. This opt-in projection
 keeps all rows and the fields needed for filtering, totals, grouping, CSV export and permitted
 crew/project/date edits. It omits full telemetry events, assessments and source/uploader metadata;

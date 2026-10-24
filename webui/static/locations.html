@@ -31,6 +31,10 @@
   input, select { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
   #err { color:var(--err); margin-bottom:8px; }
   td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .point-tools { display:flex; gap:8px 16px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  #pointReview { margin:8px 0; }
+  #pointReview select { max-width:100%; }
+  button:disabled { opacity:.5; cursor:default; }
 </style>
 </head>
 <body data-edit="admin">
@@ -43,12 +47,24 @@
   <div id="err"></div>
   <section class="card">
     <div class="section-heading"><h2>Takeoff and landing locations</h2>
-    <details><summary>Help</summary><p><span id="intro"></span> Blue dots are positions where flights took off or landed.</p></details></div>
-    <label title="Include simulations, uncertain flights and ground records"><input type="checkbox" id="nonflights"> Show non-flights</label>
+    <details><summary>Help</summary><p><span id="intro"></span> Blue dots are positions where flights took off or landed, grouped to about 100 m. <span id="unnamedHelp" hidden>Use Only unnamed dots to review positions outside named places. Select a dot or use Previous / Next to visit it. Draw a boundary around it and give the place a name; covered positions leave the unnamed list after saving.</span></p></details></div>
+    <div class="point-tools">
+      <label title="Include simulations, uncertain flights and ground records"><input type="checkbox" id="nonflights"> Show non-flights</label>
+      <label id="unnamedFilter" hidden><input type="checkbox" id="unnamedOnly"> Only unnamed dots</label>
+      <span id="pointSummary" class="mute" role="status" hidden></span>
+    </div>
+    <div id="pointReview" hidden>
+      <button type="button" id="pointPrev" class="sec" onclick="visitPoint(selectedPoint - 1)">Previous</button>
+      <select id="pointSelect" aria-label="Unnamed location" onchange="visitPoint(Number(this.value))"></select>
+      <button type="button" id="pointNext" class="sec" onclick="visitPoint(selectedPoint + 1)">Next</button>
+      <span id="pointHint" class="mute"></span>
+    </div>
     <div id="map"></div>
     <div id="mapMsg" class="mute" style="margin-top:6px"></div>
     <div id="shapeForm" style="margin-top:8px" hidden>
       <span id="shapeLabel"></span>
+      <label>New shape <select id="shapeType"><option value="polygon">Polygon</option><option value="rectangle">Rectangle</option><option value="circle">Circle</option></select></label>
+      <button type="button" id="shapeRedraw" class="sec" onclick="redrawShape()">Redraw boundary</button>
       <button type="button" id="shapeSave" onclick="saveShape()">Save shape</button>
       <button type="button" id="shapeCancel" class="sec" onclick="cancelShape()">Cancel</button>
       <span id="shapeError" role="alert"></span>
@@ -91,6 +107,7 @@ async function send(method, url, body) {
 }
 
 let map, layers, drawControl = null, placeData = {places: [], points: [], admin: false}, fitted = false;
+let reviewPoints = [], pointMarkers = [], selectedPoint = 0;
 const layerById = new Map();
 const canEdit = () => placeData.admin && window.editMode();
 const fmtHours = s => {
@@ -111,11 +128,36 @@ let pendingLayer = null, naming = null;
 let shapeEdit = null, shapeSaving = false;
 function cancelShape() {
   if (!shapeEdit || shapeSaving) return;
-  shapeEdit.editor.revertLayers();
-  shapeEdit.editor.disable();
+  const edit = shapeEdit;
   shapeEdit = null;
+  if (edit.drawer) edit.drawer.disable();
+  edit.editor.revertLayers();
+  edit.editor.disable();
+  if (edit.layer !== edit.originalLayer) {
+    layers.removeLayer(edit.layer);
+    layers.addLayer(edit.originalLayer);
+    layerById.set(edit.id, edit.originalLayer);
+  }
   $('shapeForm').hidden = true;
   paintMode();
+}
+function shapeControls() {
+  const drawing = !!(shapeEdit && shapeEdit.drawer);
+  $('shapeSave').disabled = shapeSaving || drawing;
+  $('shapeCancel').disabled = shapeSaving;
+  $('shapeRedraw').disabled = $('shapeType').disabled = shapeSaving || drawing;
+}
+function redrawShape() {
+  if (!shapeEdit || shapeSaving || shapeEdit.drawer || !canEdit()) return;
+  shapeEdit.editor.revertLayers();
+  shapeEdit.editor.disable();
+  const type = $('shapeType').value;
+  const Draw = {polygon: L.Draw.Polygon, rectangle: L.Draw.Rectangle, circle: L.Draw.Circle}[type];
+  shapeEdit.drawer = new Draw(map, type === 'polygon' ? {allowIntersection: false} : {});
+  shapeEdit.drawer.enable();
+  $('shapeLabel').textContent = 'Draw the replacement boundary on the map. Escape stops drawing; Cancel restores the original boundary.';
+  $('shapeError').textContent = '';
+  shapeControls();
 }
 function editShape(id) {
   if (!canEdit() || !map || shapeSaving) return;
@@ -125,8 +167,9 @@ function editShape(id) {
   if (!layer || !place) return;
   if (drawControl) { drawControl.remove(); drawControl = null; }
   const editor = new L.EditToolbar.Edit(map, {featureGroup: L.featureGroup([layer])});
-  shapeEdit = {id, layer, editor};
+  shapeEdit = {id, layer, originalLayer: layer, editor, drawer: null};
   editor.enable();
+  shapeControls();
   zoomPlace(id);
   $('shapeLabel').textContent = `Editing ${place.name}: drag the handles to move or resize the boundary.`;
   $('shapeError').textContent = '';
@@ -134,9 +177,9 @@ function editShape(id) {
   $('map').scrollIntoView({behavior: 'smooth', block: 'center'});
 }
 async function saveShape() {
-  if (!shapeEdit || shapeSaving || !canEdit()) return;
+  if (!shapeEdit || shapeSaving || shapeEdit.drawer || !canEdit()) return;
   shapeSaving = true;
-  $('shapeSave').disabled = $('shapeCancel').disabled = true;
+  shapeControls();
   $('shapeSave').textContent = 'Saving...';
   $('shapeError').textContent = '';
   try {
@@ -154,7 +197,7 @@ async function saveShape() {
     if (!shapeEdit) $('err').textContent = 'Shape saved, but refreshing locations failed: ' + error.message;
   } finally {
     shapeSaving = false;
-    $('shapeSave').disabled = $('shapeCancel').disabled = false;
+    shapeControls();
     $('shapeSave').textContent = 'Save shape';
   }
 }
@@ -187,8 +230,25 @@ function initMap() {
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap contributors'}).addTo(map);
   layers = new L.FeatureGroup().addTo(map);
   map.on(L.Draw.Event.CREATED, e => {
+    if (shapeEdit && shapeEdit.drawer) {
+      layers.removeLayer(shapeEdit.layer);
+      shapeEdit.layer = e.layer;
+      e.layer.placeId = shapeEdit.id;
+      e.layer.bindTooltip(placeData.places.find(p => p.id === shapeEdit.id).name, {permanent: true, direction: 'center'});
+      layers.addLayer(e.layer);
+      layerById.set(shapeEdit.id, e.layer);
+      shapeEdit.editor = new L.EditToolbar.Edit(map, {featureGroup: L.featureGroup([e.layer])});
+      return;
+    }
     pendingLayer = e.layer.addTo(map);
     askName({kind: 'new', shape: shapeOf(e.layer)}, 'Name for the new place:', '');
+  });
+  map.on(L.Draw.Event.DRAWSTOP, () => {
+    if (!shapeEdit || !shapeEdit.drawer) return;
+    shapeEdit.drawer = null;
+    shapeEdit.editor.enable();
+    $('shapeLabel').textContent = 'Adjust the boundary if needed, then Save shape or Cancel. The location keeps its name and linked records.';
+    shapeControls();
   });
   $('nameSave').onclick = saveName;
   $('nameCancel').onclick = closeName;
@@ -204,9 +264,12 @@ function initMap() {
 // The drawing tools and the Edit/Delete buttons are only there for admins with edit mode on.
 function paintMode() {
   const edit = canEdit();
+  $('unnamedFilter').hidden = $('pointSummary').hidden = $('unnamedHelp').hidden = !edit;
+  if (!edit) $('unnamedOnly').checked = false;
+  renderPoints();
   if (!edit && shapeEdit && !shapeSaving) { cancelShape(); return; }
   $('intro').textContent = edit
-    ? 'Draw a polygon, rectangle or circle with the tools on the map, then give it a name. Use Edit shape in the table to move or resize an existing boundary, then Save shape or Cancel. Takeoffs and landings inside it show that name in the logbook (the smallest matching shape wins).'
+    ? 'Draw a polygon, rectangle or circle with the tools on the map, then give it a name. Use Edit shape in the table to adjust a boundary, or choose a New shape and Redraw boundary to replace it. Save shape keeps the same location and linked records; Cancel restores its original boundary. Takeoffs and landings inside it show that name in the logbook (the smallest matching shape wins).'
     : placeData.admin
       ? 'Takeoffs and landings inside a place show its name in the logbook. Turn on Edit (top right) to add, change or delete places.'
       : 'Places where flights you have access to took off or landed.';
@@ -225,6 +288,55 @@ function paintMode() {
     }
   }
   renderTable();
+  $('pointHint').textContent = edit ? 'Draw a boundary around the selected dot, then name it.'
+    : placeData.admin ? 'Turn on Edit to draw and name a place.' : '';
+}
+
+function visitPoint(index) {
+  selectedPoint = Math.max(0, Math.min(index, reviewPoints.length - 1));
+  $('pointSelect').value = String(selectedPoint);
+  $('pointPrev').disabled = !reviewPoints.length || selectedPoint === 0;
+  $('pointNext').disabled = !reviewPoints.length || selectedPoint === reviewPoints.length - 1;
+  pointMarkers.forEach((marker, i) => marker.closeTooltip().setStyle({
+    radius: i === selectedPoint ? 7 : 4,
+    color: i === selectedPoint ? '#cf222e' : '#1f6feb',
+  }));
+  if (map && reviewPoints.length) {
+    const p = reviewPoints[selectedPoint];
+    map.setView([p.lat, p.lon], Math.max(map.getZoom(), 16));
+    pointMarkers[selectedPoint].openTooltip();
+  }
+}
+
+function renderPoints(focus = false) {
+  const previous = reviewPoints[selectedPoint];
+  const only = canEdit() && $('unnamedOnly').checked;
+  reviewPoints = placeData.points.filter(p => p.unnamed_count > 0)
+    .sort((a, b) => b.unnamed_count - a.unnamed_count || a.lat - b.lat || a.lon - b.lon);
+  const preserved = previous ? reviewPoints.findIndex(p => p.lat === previous.lat && p.lon === previous.lon) : -1;
+  selectedPoint = preserved >= 0 ? preserved : Math.min(selectedPoint, Math.max(0, reviewPoints.length - 1));
+  const total = reviewPoints.reduce((n, p) => n + p.unnamed_count, 0);
+  $('pointSummary').textContent = `${reviewPoints.length} unnamed dot${reviewPoints.length === 1 ? '' : 's'} (${total} takeoffs/landings)`;
+  $('pointReview').hidden = !only;
+  $('pointSelect').innerHTML = reviewPoints.map((p, i) =>
+    `<option value="${i}">${i + 1} / ${reviewPoints.length}: ${p.lat.toFixed(3)}, ${p.lon.toFixed(3)} (${p.unnamed_count} takeoffs/landings)</option>`).join('')
+    || '<option>No unnamed dots</option>';
+  $('pointSelect').disabled = !reviewPoints.length;
+  $('pointSelect').value = reviewPoints.length ? String(selectedPoint) : '';
+  $('pointPrev').disabled = !reviewPoints.length || selectedPoint === 0;
+  $('pointNext').disabled = !reviewPoints.length || selectedPoint === reviewPoints.length - 1;
+  if (!map) return;
+  if (window.pointLayer) window.pointLayer.remove();
+  pointMarkers = (only ? reviewPoints : placeData.points).map((p, i) => {
+    const selected = only && i === selectedPoint;
+    const marker = L.circleMarker([p.lat, p.lon], {
+      radius: selected ? 7 : 4, weight: 1, color: selected ? '#cf222e' : '#1f6feb', fillOpacity: .6,
+    }).bindTooltip(`${only ? p.unnamed_count : p.count} takeoffs/landings at ${p.lat.toFixed(3)}, ${p.lon.toFixed(3)}`);
+    if (only) marker.on('click', () => visitPoint(i));
+    return marker;
+  });
+  window.pointLayer = L.layerGroup(pointMarkers).addTo(map);
+  if (only && focus) visitPoint(selectedPoint);
 }
 
 function renderTable() {
@@ -242,15 +354,14 @@ async function loadPlaces() {
   if (!r.ok) { $('err').textContent = 'Could not load the places.'; return; }
   placeData = await r.json();
   paintMode();
+  renderPoints($('unnamedOnly').checked);
   if (!map) return;
   layers.clearLayers(); layerById.clear();
-  if (window.pointLayer) pointLayer.remove();
-  window.pointLayer = L.layerGroup(placeData.points.map(p => L.circleMarker([p.lat, p.lon], {radius: 4, weight: 1, color: '#1f6feb', fillOpacity: .6}).bindTooltip(`${p.count} takeoffs/landings`))).addTo(map);
   for (const p of placeData.places) {
     const layer = layerOf(p.shape).bindTooltip(p.name, {permanent: true, direction: 'center'});
     layer.placeId = p.id; layers.addLayer(layer); layerById.set(p.id, layer);
   }
-  if (!fitted) {
+  if (!fitted && !$('unnamedOnly').checked) {
     const b = L.featureGroup([...layers.getLayers(), ...pointLayer.getLayers()]).getBounds();
     if (b.isValid()) { map.fitBounds(b.pad(0.2), {maxZoom: 16}); fitted = true; }
   }
@@ -297,6 +408,7 @@ fetch('/api/me').then(r => r.json()).then(d => {
 window.addEventListener('editchange', paintMode);
 initMap();
 $('nonflights').onchange = () => loadPlaces().catch(e => { $('err').textContent = e.message; });
+$('unnamedOnly').onchange = () => renderPoints(true);
 loadPlaces();
 </script>
 </body>

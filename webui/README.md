@@ -59,6 +59,12 @@ existing `/logbook` links still work.
   then drag the map handles to move or resize its circle or polygon. Choose **Save shape**
   to apply the boundary or **Cancel** to discard changes. **Name / type** changes its name
   or indoor status separately.
+  To replace the boundary entirely, use **Edit shape**, select a **New shape** (polygon,
+  rectangle or circle), then **Redraw boundary** and draw it on the map. **Save shape**
+  keeps the location's name and linked records; **Cancel** restores the original boundary.
+  Admins in **Edit** mode can use **Only unnamed dots** to hide already named endpoint dots, then select a coordinate
+  or use **Previous / Next** to visit each remaining dot on the map. In **Edit** mode,
+  draw and name a boundary around it; covered positions leave the review list after saving.
 
 - In **Logbook**, Edit mode exposes crew/project corrections where permitted.
   Admins can bulk-edit paper and telemetry records together, or **Hide selected** to remove entries

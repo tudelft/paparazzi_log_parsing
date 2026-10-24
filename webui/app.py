@@ -1923,14 +1923,18 @@ def list_places():
                 s["flights"] += f.get("flight_count", 1)
                 s["seconds"] += f.get("duration_s") or 0
                 s["last"] = max(s["last"] or "", f.get("takeoff_utc") or "") or None
-        for lat, lon in ((f.get("takeoff_lat"), f.get("takeoff_lon")), (f.get("landing_lat"), f.get("landing_lon"))):
+        for end in ("takeoff", "landing"):
+            lat, lon = f.get(end + "_lat"), f.get(end + "_lon")
             if lat is not None and lon is not None:
                 k = (round(lat, 3), round(lon, 3))
-                pts[k] = pts.get(k, 0) + 1
+                point = pts.setdefault(k, {"count": 0, "unnamed_count": 0})
+                point["count"] += 1
+                if f.get(end + "_place_id") is None:
+                    point["unnamed_count"] += 1
     places = [dict(id=r["id"], name=r["name"], indoor=bool(r["indoor"]), shape=json.loads(r["shape"]),
                    **stats.get(r["id"], {"flights": 0, "seconds": 0.0, "last": None}))
               for r in con.execute("SELECT * FROM places ORDER BY name") if admin or r["id"] in stats]
-    return jsonify(places=places, points=[{"lat": k[0], "lon": k[1], "count": n} for k, n in pts.items()],
+    return jsonify(places=places, points=[{"lat": k[0], "lon": k[1], **n} for k, n in pts.items()],
                    admin=admin)
 
 

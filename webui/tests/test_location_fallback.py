@@ -65,6 +65,29 @@ class LocationFallbackTests(AppTests):
         self.assertFalse(entry["takeoff_location_inferred"])
         self.assertFalse(entry["landing_location_inferred"])
 
+    def test_places_marks_unnamed_endpoints_and_refreshes_after_naming(self):
+        self.insert_flight((52, 4), (53, 5))
+        points = self.client.get("/api/places").json["points"]
+        self.assertEqual(points, [
+            {"lat": 52, "lon": 4, "count": 1, "unnamed_count": 0},
+            {"lat": 53, "lon": 5, "count": 1, "unnamed_count": 1},
+        ])
+        self.sign_in(1)
+        response = self.client.post("/api/admin/places", json={
+            "name": "New field", "shape": {"type": "circle", "center": [53, 5], "radius_m": 200},
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(all(p["unnamed_count"] == 0 for p in self.client.get("/api/places").json["points"]))
+        self.sign_in(4)
+        self.assertEqual(self.client.get("/api/places").json["points"], [])
+
+    def test_places_unnamed_count_uses_exact_endpoints_before_rounding(self):
+        self.con.execute("UPDATE places SET shape=? WHERE id=1",
+                         (json.dumps({"type": "circle", "center": [52, 4], "radius_m": 10}),))
+        self.insert_flight((52, 4), (52.0004, 4))
+        self.assertEqual(self.client.get("/api/places").json["points"],
+                         [{"lat": 52, "lon": 4, "count": 2, "unnamed_count": 1}])
+
     def test_no_endpoint_or_path_gps_is_indoor_in_all_shared_views(self):
         self.insert_flight(path=[{"position": {"lat": 0, "lon": 0}}])
         entry = self.client.get("/api/logbook").json[0]
