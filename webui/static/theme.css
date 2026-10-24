@@ -95,6 +95,50 @@ html.night .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.
   border:1px solid #3d5168; border-radius:6px; padding:2px 8px; cursor:pointer;
 }
 #nightBtn:hover { color:#fff; }
+#flightFiltersMenu { flex:0 0 auto; }
+#flightFiltersButton {
+  font:inherit; font-size:12px; background:#263b54; color:#d6e6f6; border:1px solid #7299c2;
+  border-radius:6px; padding:5px 8px; cursor:pointer; max-width:260px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+#flightFiltersPanel {
+  position:fixed; z-index:2000; width:338px; max-width:calc(100vw - 24px); overflow:auto;
+  margin:0; padding:18px; background:var(--card); color:var(--txt); border:1px solid var(--line);
+  border-radius:10px; box-shadow:0 10px 35px #0003; white-space:normal; font-size:14px;
+}
+#flightFiltersPanel[hidden] { display:none; }
+#flightFiltersPanel button {
+  font:inherit; color:var(--txt); background:var(--sec); padding:6px 12px;
+  border:1px solid var(--line); border-radius:6px; cursor:pointer;
+}
+#flightFiltersPanel .filter-heading { display:flex; justify-content:space-between; align-items:center; }
+#flightFiltersPanel .filter-heading strong { font-size:16px; }
+#flightFiltersPanel #flightFiltersReset { padding:0; border:0; background:none; color:var(--acc); }
+#flightFiltersPanel .filter-field { display:block; margin:12px 0; }
+#flightFiltersPanel select, #flightFiltersPanel input[type="date"] {
+  display:block; width:100%; margin-top:5px; padding:7px; font:inherit; color:var(--txt);
+  background:var(--field); border:1px solid var(--fieldline); border-radius:5px;
+}
+#flightFiltersPanel .filter-dates { display:flex; gap:12px; }
+#flightFiltersPanel .filter-dates[hidden] { display:none; }
+#flightFiltersPanel .filter-dates label { flex:1; min-width:0; }
+#flightFiltersPanel .filter-options { padding:12px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+#flightFiltersPanel .filter-options label { display:block; padding:5px 0; }
+#flightFiltersPanel p { margin:10px 0 0; color:var(--mute); font-size:12px; }
+#flightFiltersPanel #flightFiltersNotice { color:var(--warn); }
+#flightFiltersPanel .filter-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
+#flightFiltersPanel button[type="submit"] { background:#1f6feb; color:#fff; border-color:#1f6feb; }
+@media (max-width:1500px) {
+  body > header.has-flight-filters h1 { flex-basis:7em; width:7em; min-width:7em; }
+  body > header.has-flight-filters #nav a { padding-left:8px; padding-right:8px; }
+}
+@media (max-width:750px) {
+  body > header.has-flight-filters { flex-wrap:wrap; gap:8px; padding:10px 12px; }
+  body > header.has-flight-filters #nav { order:3; flex-basis:100%; }
+  body > header.has-flight-filters #nav a { padding-top:8px; padding-bottom:8px; }
+  body > header.has-flight-filters h1 { flex:1 1 100%; width:auto; min-width:0; }
+  #flightFiltersButton { max-width:calc(100vw - 180px); }
+}
 #editBtn {
   font:inherit; width:auto; background:transparent; color:#9fb0c3;
   border:1px solid #3d5168; border-radius:6px; padding:2px 8px; cursor:pointer;

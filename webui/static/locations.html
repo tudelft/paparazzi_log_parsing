@@ -50,7 +50,7 @@
     <div class="section-heading"><h2>Takeoff and landing locations</h2>
     <details><summary>Help</summary><p><span id="intro"></span> Blue dots are positions where flights took off or landed, grouped to about 100 m. <span id="unnamedHelp" hidden>Use Only unnamed dots to review positions outside named places. Select a dot or use Previous / Next to visit it. Draw a boundary around it and give the place a name; covered positions leave the unnamed list after saving.</span></p></details></div>
     <div class="point-tools">
-      <label title="Include simulations, uncertain flights and ground records"><input type="checkbox" id="nonflights"> Show non-flights</label>
+      <span class="mute" data-flight-filter-summary></span>
       <label id="unnamedFilter" hidden><input type="checkbox" id="unnamedOnly"> Only unnamed dots</label>
       <span id="pointSummary" class="mute" role="status" hidden></span>
     </div>
@@ -110,6 +110,7 @@ async function send(method, url, body) {
 }
 
 let map, layers, drawControl = null, placeData = {places: [], points: [], admin: false}, fitted = false;
+let placesGeneration = 0, filtersPending = false;
 let reviewPoints = [], pointMarkers = [], selectedPoint = 0;
 let namedMarkers, visibleBoundaries, selectedPlace = null;
 const layerById = new Map();
@@ -147,6 +148,7 @@ function cancelShape() {
   }
   $('shapeForm').hidden = true;
   paintMode();
+  if (filtersPending) loadPlaces().catch(error => { $('err').textContent = error.message; });
 }
 function shapeControls() {
   const drawing = !!(shapeEdit && shapeEdit.drawer);
@@ -206,6 +208,8 @@ async function saveShape() {
     shapeSaving = false;
     shapeControls();
     $('shapeSave').textContent = 'Save shape';
+    if (filtersPending && !shapeEdit) loadPlaces().catch(error => { $('err').textContent = error.message; });
+    else if (filtersPending) $('err').textContent = 'Filter refresh is waiting. Retry saving the boundary or cancel the edit.';
   }
 }
 function askName(mode, label, value, indoor = false) {
@@ -418,11 +422,17 @@ function renderNamedPlaces() {
 }
 
 async function loadPlaces() {
-  if (shapeSaving && shapeEdit) return;
+  if (shapeSaving && shapeEdit) { filtersPending = true; return; }
+  filtersPending = false;
+  const generation = ++placesGeneration;
   cancelShape();
-  const r = await fetch('/api/places' + ($('nonflights').checked ? '?nonflights=1' : ''));
-  if (!r.ok) { $('err').textContent = 'Could not load the places.'; return; }
-  placeData = await r.json();
+  const r = await fetch('/api/places?' + window.flightFilters.params());
+  if (generation !== placesGeneration) return;
+  if (!r.ok) { $('err').textContent = (await r.json()).error || 'Could not load the places.'; return; }
+  const data = await r.json();
+  if (generation !== placesGeneration) return;
+  placeData = data;
+  $('err').textContent = '';
   if (!map) { paintMode(); return; }
   layers.clearLayers(); layerById.clear();
   if (!placeData.places.some(p => p.id === selectedPlace)) selectedPlace = null;
@@ -487,7 +497,7 @@ fetch('/api/me').then(r => r.json()).then(d => {
 });
 window.addEventListener('editchange', paintMode);
 initMap();
-$('nonflights').onchange = () => loadPlaces().catch(e => { $('err').textContent = e.message; });
+window.addEventListener('flightfilterschange', () => loadPlaces().catch(e => { $('err').textContent = e.message; }));
 $('unnamedOnly').onchange = () => renderPoints(true);
 loadPlaces();
 </script>

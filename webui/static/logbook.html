@@ -66,24 +66,8 @@
 <main>
   <section class="card">
     <div class="bar">
-      <label>Period <select id="period">
-        <option value="30d">Last 30 days</option>
-        <option value="3m">Last 3 months</option>
-        <option value="1y">Last year</option>
-        <option value="2y">Last 2 years</option>
-        <option value="3y" selected>Last 3 years</option>
-        <option value="5y">Last 5 years</option>
-        <option value="all">All time</option>
-      </select></label>
-      <label><input type="checkbox" id="specificRange"> Specific range</label>
-      <span id="customRange" class="bar" hidden style="margin:0">
-        <label>From <input type="date" id="fromDate"></label>
-        <label>To <input type="date" id="toDate"></label>
-      </span>
       <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date, reference…)">
       <label title="Flights of the same aircraft and pilot on the same day within this distance of each other"><input type="checkbox" id="combine" checked> Combine flights (within <input type="number" id="radius" value="1" min="0.1" step="0.5" style="width:56px"> km)</label>
-      <label title="Places marked as indoors on the Locations page, or flights with OptiTrack / motion capture"><input type="checkbox" id="indoor"> Show indoor flights</label>
-      <label title="Include simulations, uncertain flights and ground records"><input type="checkbox" id="ground"> Show non-flights</label>
       <button onclick="exportCsv()">Export CSV</button>
       <a class="btn sec" href="/historical/new" id="addHistorical" hidden>Add paper records / import CSV</a>
     </div>
@@ -264,12 +248,6 @@ function chk(ids, can) {
   if (!editOn() || !can) return '<td class="chk"></td>';
   const all = ids.length > 0 && ids.every(id => selected.has(id));
   return `<td class="chk"><input type="checkbox" ${all ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel(${esc(JSON.stringify(ids))}, this.checked)"></td>`;
-}
-function syncRangeUi() {
-  window.flightDateRange.sync();
-}
-function inDateRange(f) {
-  return window.flightDateRange.includes(f);
 }
 const text = f => [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
 
@@ -462,7 +440,7 @@ function groupRows(g) {
 
 function render() {
   const q = $('q').value.trim().toLowerCase();
-  const shown = flights.filter(f => ($('ground').checked || (!f.simulation?.detected && !['ground', 'uncertain'].includes(f.verdict))) && ($('indoor').checked || !f.indoor) && inDateRange(f) && (!q || q.split(/\s+/).every(w => text(f).includes(w))));
+  const shown = flights.filter(f => window.flightFilters.includes(f) && (!q || q.split(/\s+/).every(w => text(f).includes(w))));
   const entries = $('combine').checked ? combine(shown, Math.max(+$('radius').value || 1, 0.1)) : shown.map(f => ({flights: [f], id: f.record_key}));
   const pages = Math.max(1, Math.ceil(entries.length / pageSize));
   page = Math.min(page, pages - 1);
@@ -504,9 +482,8 @@ function exportCsv() {
 }
 
 $('q').oninput = () => { page = 0; render(); };
-$('combine').onchange = $('radius').onchange = $('indoor').onchange = $('ground').onchange = $('period').onchange = $('fromDate').onchange = $('toDate').onchange = () => { page = 0; render(); };
-$('specificRange').onchange = () => { syncRangeUi(); page = 0; render(); };
-syncRangeUi();
+$('combine').onchange = $('radius').onchange = () => { page = 0; render(); };
+window.addEventListener('flightfilterschange', () => { selected.clear(); page = 0; render(); });
 window.addEventListener('editchange', toggleEdit);
 $('prev').onclick = () => { page--; render(); };
 $('next').onclick = () => { page++; render(); };

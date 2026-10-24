@@ -1927,18 +1927,40 @@ def list_places():
     that appear on a flight they can see."""
     con = conn()
     admin = bool(g.user["is_admin"])
-    stats, pts = {}, {}
+    dates = {}
+    for key in ("from", "to"):
+        value = request.args.get(key, "")
+        if value:
+            try:
+                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+                    raise ValueError
+                datetime.strptime(value, "%Y-%m-%d")
+            except ValueError:
+                return jsonify(error=f"Invalid {key} date; use YYYY-MM-DD."), 400
+        dates[key] = value
+    if dates["from"] and dates["to"] and dates["from"] > dates["to"]:
+        return jsonify(error="The end date must be on or after the start date."), 400
+    stats, pts, visible_places = {}, {}, set()
     include_nonflights = request.args.get("nonflights") == "1"
+    include_indoor = request.args.get("indoor") != "0"
     for f in logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT")):
-        if (f.get("simulation") or {}).get("detected") and not include_nonflights:
+        place_ids = {f.get("takeoff_place_id"), f.get("landing_place_id")} - {None}
+        visible_places.update(place_ids)
+        if not include_indoor and f.get("indoor"):
             continue
         real = f.get("verdict") not in ("ground", "uncertain")
-        for pid in {f.get("takeoff_place_id"), f.get("landing_place_id")} - {None}:
+        if not include_nonflights and (not real or (f.get("simulation") or {}).get("detected")):
+            continue
+        if dates["from"] or dates["to"]:
+            day = ((f.get("takeoff_utc") or f.get("date_override") or "") if f.get("date_ok")
+                   else (f.get("date_override") or ""))[:10]
+            if not day or (dates["from"] and day < dates["from"]) or (dates["to"] and day > dates["to"]):
+                continue
+        for pid in place_ids:
             s = stats.setdefault(pid, {"flights": 0, "seconds": 0.0, "last": None})
-            if real or include_nonflights:
-                s["flights"] += f.get("flight_count", 1)
-                s["seconds"] += f.get("duration_s") or 0
-                s["last"] = max(s["last"] or "", f.get("takeoff_utc") or "") or None
+            s["flights"] += f.get("flight_count", 1)
+            s["seconds"] += f.get("duration_s") or 0
+            s["last"] = max(s["last"] or "", f.get("takeoff_utc") or "") or None
         for end in ("takeoff", "landing"):
             lat, lon = f.get(end + "_lat"), f.get(end + "_lon")
             if lat is not None and lon is not None:
@@ -1949,7 +1971,7 @@ def list_places():
                     point["unnamed_count"] += 1
     places = [dict(id=r["id"], name=r["name"], indoor=bool(r["indoor"]), shape=json.loads(r["shape"]),
                    **stats.get(r["id"], {"flights": 0, "seconds": 0.0, "last": None}))
-              for r in con.execute("SELECT * FROM places ORDER BY name") if admin or r["id"] in stats]
+              for r in con.execute("SELECT * FROM places ORDER BY name") if admin or r["id"] in visible_places]
     return jsonify(places=places, points=[{"lat": k[0], "lon": k[1], **n} for k, n in pts.items()],
                    admin=admin)
 
@@ -4371,7 +4393,7 @@ DETAIL_KINDS = ("people", "aircraft", "projects", "locations")
 DETAIL_FLIGHT_KEYS = (
     "flight_id", "takeoff_utc", "landing_utc", "duration_s", "distance_m", "max_from_takeoff_m", "landed",
     "aircraft", "aircraft_uid", "drone_id", "project_id", "project_name", "takeoff_lat", "takeoff_lon",
-    "takeoff_place", "takeoff_place_id", "landing_place", "landing_place_id", "indoor", "verdict", "date_ok",
+    "takeoff_place", "takeoff_place_id", "landing_place", "landing_place_id", "indoor", "verdict", "date_ok", "date_override",
     "pic", "pac", "gcs", "pic_user", "pac_user", "gcs_user", "goal", "comment", "simulation",
     "takeoff_voltage_v", "landing_voltage_v", "manual_id", "source_type", "flight_count", "record_kind")
 
@@ -4484,7 +4506,7 @@ def detail_logs(con, kind, item_id, log_ids):
         f" FROM logs l LEFT JOIN projects p ON p.id = l.project_id WHERE ({where}) AND {cond}"
         " ORDER BY COALESCE(l.start_utc, l.uploaded_at) DESC", (*params, *args)).fetchall()
     keep = ("id", "name", "log_type", "status", "size_bytes", "uploaded_at", "uploaded_by_name", "project_id",
-            "project_name", "start_utc", "duration_s", "date_ok", "has_log", "aircraft_names", "num_flights")
+            "project_name", "start_utc", "duration_s", "date_ok", "date_override", "has_log", "aircraft_names", "num_flights")
     return [{k: d.get(k) for k in keep} for d in map(log_dict, rows)]
 
 

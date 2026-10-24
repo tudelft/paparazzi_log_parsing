@@ -43,24 +43,7 @@
 </header>
 <main>
   <section class="card">
-    <div class="bar">
-      <label>Period <select id="period">
-        <option value="30d">Last 30 days</option>
-        <option value="3m">Last 3 months</option>
-        <option value="1y">Last year</option>
-        <option value="2y">Last 2 years</option>
-        <option value="3y" selected>Last 3 years</option>
-        <option value="5y">Last 5 years</option>
-        <option value="all">All time</option>
-      </select></label>
-      <label><input type="checkbox" id="specificRange"> Specific range</label>
-      <span id="customRange" class="bar" hidden style="margin:0">
-        <label>From <input type="date" id="fromDate"></label>
-        <label>To <input type="date" id="toDate"></label>
-      </span>
-      <label title="Places marked as indoors on the Locations page, or flights with OptiTrack / motion capture"><input type="checkbox" id="indoor"> Show indoor flights</label>
-      <label title="Include simulations, uncertain flights and ground records"><input type="checkbox" id="ground"> Show non-flights</label>
-    </div>
+    <p class="mute" data-flight-filter-summary></p>
     <p class="mute" id="scope" style="margin:0 0 12px"></p>
     <div class="totals">
       <div><strong id="totHours">—</strong><span>Total flight hours</span></div>
@@ -150,9 +133,7 @@ fetch('/api/stats').then(r => r.json()).then(d => {
 });
 
 function shown() {
-  return flights.filter(f =>
-    ($('ground').checked || (!f.simulation?.detected && !['ground', 'uncertain'].includes(f.verdict))) &&
-    ($('indoor').checked || !f.indoor) && window.flightDateRange.includes(f));
+  return flights.filter(f => window.flightFilters.includes(f));
 }
 
 function group(list, keyFn, nameFn, extraFn) {
@@ -248,9 +229,7 @@ function render() {
   peopleRows('pacs', pacs, pacMax, 6);
 }
 
-$('indoor').onchange = $('ground').onchange = $('period').onchange = $('fromDate').onchange = $('toDate').onchange = render;
-$('specificRange').onchange = () => { window.flightDateRange.sync(); render(); };
-window.flightDateRange.sync();
+window.addEventListener('flightfilterschange', render);
 </script>
 </body>
 </html>

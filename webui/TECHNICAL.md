@@ -942,10 +942,30 @@ are left.
 
 **Overview pages.** Every person, aircraft, project and location has its own page (`/people/<id>`, `/aircraft/<id>`,
 `/projects/<id>`, `/locations/<id>`; click a name anywhere). It shows totals (flights, flight time, distance, flying
-days, log files) next to a map of takeoff spots, a flight time chart (last year per month by default; the period and
+days, log files) next to a map of takeoff spots, a flight time chart (monthly by default;
 the step from day to year can be changed), breakdowns per aircraft/project/location/crew, and paged lists of flights
 and log files. Admins see everything; others only see the pages and the flights and logs they have
 access to.
+
+**Shared flight filters.** The menu's **Flight filters** popover stores its applied selection in
+browser `localStorage` (`logdbFlightFilters`): period preset or inclusive custom UTC dates,
+indoor/no-GPS visibility and non-flight visibility. Defaults are last three years with both
+visibility options off. Apply commits changes; Cancel/Escape/outside-click discard the draft;
+Reset fills the defaults for the next Apply. Other tabs update on storage changes. Storage
+failures are reported in the popover instead of claiming the selection was saved.
+Logbook, Statistics and all four entity-detail kinds use the same predicate before building
+their flight totals, maps, chart buckets, breakdowns, pagination and exports. Unknown dates
+are excluded when either date boundary is set, but included for All time or unbounded custom
+dates. Corrected dates and paper records follow the same rule. Single-flight pages, entity
+metadata/qualifications/memberships, directory administration and Uploads remain unfiltered.
+Detail log inventories and log-data totals count each accessible contributing source once;
+parsed zero-flight logs are additionally included only with non-flights enabled and a matching
+recording/corrected date. Upload time is not substituted for a missing recording date.
+The Locations overview sends `from`, `to`, `indoor=0/1` and `nonflights=0/1` to `/api/places`.
+The endpoint validates ISO dates/order and applies the selection to both counters and endpoint
+dots (including unnamed-dot review), without changing place access or hiding accessible
+location boundaries. Omitting the date arguments retains all-time API behavior; omitting
+`indoor` retains the API's existing inclusion of indoor records.
 
 **Real flight or not.** The autopilot's in-flight flag also toggles on the ground (arming, motor tests, carrying).
 The parser scores each takeoff/landing on duration, climb, distance, speed, tilt and acceleration and gives a verdict

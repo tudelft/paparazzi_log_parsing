@@ -76,8 +76,7 @@
       <div class="crumb"><a id="back" href="#"></a></div>
       <div class="hero"><h2 id="name"></h2><span id="chips"></span></div>
       <div class="bar">
-        <label title="Places marked as indoors on the Locations page, or flights with OptiTrack / motion capture"><input type="checkbox" id="indoor" checked> Include indoor flights</label>
-        <label title="Include simulations, uncertain flights and ground records"><input type="checkbox" id="ground"> Show non-flights</label>
+        <span class="mute" data-flight-filter-summary></span>
         <span class="mute" id="scope"></span>
       </div>
     </section>
@@ -93,11 +92,6 @@
     <section class="card">
       <div class="bar" style="margin-bottom:6px">
         <h2 style="margin:0">Flight time</h2>
-        <label>Period <select id="range">
-          <option value="30d">Last 30 days</option><option value="3m">Last 3 months</option>
-          <option value="1y" selected>Last year</option><option value="2y">Last 2 years</option>
-          <option value="5y">Last 5 years</option><option value="all">All time</option>
-        </select></label>
         <label>Per <select id="step">
           <option value="day">Day</option><option value="week">Week</option>
           <option value="month" selected>Month</option><option value="year">Year</option>
@@ -209,11 +203,12 @@ fetch(`/api/detail/${KIND}/${ITEM_ID}`).then(async r => {
 });
 
 function shown() {
-  return D.flights.filter(f =>
-    ($('ground').checked || (!f.simulation?.detected && !['ground', 'uncertain'].includes(f.verdict))) &&
-    ($('indoor').checked || !f.indoor));
+  return D.flights.filter(f => window.flightFilters.includes(f));
 }
 
+function shownLogs(list = shown()) {
+  return window.flightFilters.logs(D.logs, D.flights, list);
+}
 function renderHead() {
   const k = KINDS[KIND], it = D.item;
   document.title = `${it.name} · ${k.label}`;
@@ -357,7 +352,8 @@ function renderTotals(list) {
   const count = list.reduce((s, f) => s + (f.flight_count || 1), 0);
   const days = new Set(list.map(f => fmtDate(f.takeoff_utc)).filter(Boolean)).size;
   const dates = list.map(f => f.takeoff_utc).filter(Boolean).sort();
-  const size = D.logs.reduce((s, l) => s + (l.size_bytes || 0), 0);
+  const logs = shownLogs(list);
+  const size = logs.reduce((s, l) => s + (l.size_bytes || 0), 0);
   const tiles = [
     [count, 'Flights'],
     [fmtHours(seconds), 'Flight time'],
@@ -371,7 +367,7 @@ function renderTotals(list) {
   if (KIND !== 'projects') tiles.push([new Set(list.map(f => f.project_id)).size, 'Projects']);
   if (KIND !== 'locations') tiles.push([new Set(list.map(f => f.takeoff_place_id ?? null).filter(x => x != null)).size, 'Named locations']);
   if (KIND === 'people') tiles.push([list.filter(f => f.pic_user?.id === ITEM_ID).reduce((s, f) => s + (f.flight_count || 1), 0), 'Flights as PIC']);
-  tiles.push([D.logs.length, 'Log files'], [fmtSize(size) || '0 kB', 'Log data']);
+  tiles.push([logs.length, 'Log files'], [fmtSize(size) || '0 kB', 'Log data']);
   $('totals').innerHTML = tiles.map(([v, l]) => `<div><strong>${esc(v)}</strong><span>${esc(l)}</span></div>`).join('');
 }
 
@@ -401,29 +397,22 @@ function bucketLabel(d, step, prev) {
 }
 
 function renderChart(list) {
-  const range = $('range').value, step = $('step').value;
+  const step = $('step').value;
   const today = dayOf(new Date().toISOString());
-  const dated = list.filter(f => f.takeoff_utc && f.date_ok !== false && f.date_ok !== 0);
-  let start;
-  if (range === 'all') {
-    const first = dated.map(f => f.takeoff_utc).sort()[0];
-    start = first ? dayOf(first) : today;
-  } else {
-    const n = parseInt(range), unit = range.slice(-1);
-    start = new Date(today);
-    if (unit === 'd') start.setUTCDate(start.getUTCDate() - n + 1);
-    else if (unit === 'm') start.setUTCMonth(start.getUTCMonth() - n);
-    else start.setUTCFullYear(start.getUTCFullYear() - n);
-    if (unit !== 'd') start.setUTCDate(start.getUTCDate() + 1);
-  }
+  const dated = list.map(f => ({...f, day: window.flightFilters.day(f)})).filter(f => f.day);
+  const days = dated.map(f => f.day).sort();
+  const bounds = window.flightFilters.bounds();
+  const start = bounds.from ? dayOf(bounds.from) : days.length ? dayOf(days[0]) : today;
+  const end = bounds.to ? dayOf(bounds.to)
+    : days.length && days[days.length - 1] > isoDay(today) ? dayOf(days[days.length - 1]) : today;
   const buckets = [];
-  for (let d = bucketStart(start, step); d <= today; d = nextBucket(d, step))
+  for (let d = bucketStart(start, step); d <= end; d = nextBucket(d, step))
     buckets.push({key: isoDay(d), date: d, seconds: 0, flights: 0});
   const index = new Map(buckets.map((b, i) => [b.key, i]));
   const startDay = isoDay(start);
   let seconds = 0, flights = 0;
   for (const f of dated) {
-    const day = f.takeoff_utc.slice(0, 10);
+    const day = f.day;
     if (day < startDay) continue;
     const i = index.get(isoDay(bucketStart(dayOf(day), step)));
     if (i == null) continue;
@@ -485,9 +474,8 @@ function renderFlights(list) {
   $('flightCount').textContent = (list.length > to - from ? `${from + 1}–${to} of ${list.length}` : `${list.length}`) + ' records';
 }
 
-function renderLogs() {
-  const logs = D.logs;
-  const [from, to] = pager('logPager', 'logs', logs.length, renderLogs);
+function renderLogs(logs = shownLogs()) {
+  const [from, to] = pager('logPager', 'logs', logs.length, () => renderLogs());
   $('logs').innerHTML = logs.slice(from, to).map(l => {
     const status = l.status !== 'done' ? ` <span class="tag">${esc(l.status)}</span>` : '';
     return `<tr><td><a href="/uploads#log${l.id}" title="Log details on the Uploads page">${esc(l.name)}</a>${status}</td>
@@ -531,6 +519,7 @@ function renderMap(list) {
 }
 
 function render() {
+  if (!D) return;
   const list = shown();
   renderTotals(list);
   renderChart(list);
@@ -540,9 +529,10 @@ function render() {
   renderMap(list);
 }
 
-$('indoor').onchange = $('ground').onchange = () => { pages.flights.page = 0; render(); };
-const STEP_FOR = {'30d': 'day', '3m': 'week', '1y': 'month', '2y': 'month', '5y': 'month', all: 'month'};
-$('range').onchange = () => { $('step').value = STEP_FOR[$('range').value]; renderChart(shown()); };
+window.addEventListener('flightfilterschange', () => {
+  pages.flights.page = pages.logs.page = 0;
+  render();
+});
 $('step').onchange = () => renderChart(shown());
 </script>
 </body>

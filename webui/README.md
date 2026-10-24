@@ -32,14 +32,20 @@ existing `/logbook` links still work.
 
 - Dates and times are **UTC**. Indoor and uncertain/non-flight records are hidden by default;
   enable their filters when needed.
+- Use **Flight filters** in the top menu to select a period (default: last three years), custom
+  UTC dates, **Show indoor / no-GPS flights** and **Show non-flights**. Choose **Apply filters**;
+  the selection stays the same when moving between pages in this browser. **Reset** restores
+  the defaults after applying. The filters cover Logbook, Statistics, Locations and individual
+  person, aircraft, project and location overviews, including their totals, maps, charts and
+  flight lists. Detail-page log lists show contributing logs; zero-flight logs appear only
+  with **Show non-flights** enabled and within the selected period.
 - On a flight's **Path & charts** tab, use **Show sectors** to hide/show flight-plan sector
   boundaries independently of the flight-plan waypoint markers. Waypoint names appear above
   their dots with a subtle text halo; **Show flight plan** hides/shows both the dots and names. Waypoints whose names
   start with `_` are hidden by default; enable **Show hidden waypoints** to reveal them.
 - Uploads has a **Status** filter: **Parser errors**, **Unfinished logs** (queued, parsing or
   error), or **All failures** (also failed/rejected upload receipts). Filters cover all pages.
-- Statistics uses the same period presets and custom UTC date range as Logbook (default: last
-  three years). **Total log data (GB)** sums original telemetry sizes for logs contributing to
+- Statistics uses the shared flight filters. **Total log data (GB)** sums original telemetry sizes for logs contributing to
   filtered flights, counting each SD/GCS source once and excluding companion files.
 - Detected simulations are labelled and excluded from overview totals by default. Enable **Show
   non-flights** to include simulations, uncertain flights and ground records. Flight details show the evidence; reparse outdated Paparazzi

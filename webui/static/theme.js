@@ -1,4 +1,34 @@
-window.flightDateRange = {
+(function () {
+  const KEY = 'logdbFlightFilters';
+  const PERIODS = {'30d': 'Last 30 days', '3m': 'Last 3 months', '1y': 'Last year',
+    '2y': 'Last 2 years', '3y': 'Last 3 years', '5y': 'Last 5 years', all: 'All time', custom: 'Custom dates'};
+  const defaults = () => ({period: '3y', from: '', to: '', indoor: false, nonflights: false});
+  let storageWarning = '';
+  const validDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)
+    && !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
+  function read() {
+    storageWarning = '';
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) return defaults();
+      const value = JSON.parse(raw);
+      if (!value || !Object.hasOwn(PERIODS, value.period)
+          || !['from', 'to'].every(k => value[k] === '' || validDay(value[k]))
+          || typeof value.indoor !== 'boolean' || typeof value.nonflights !== 'boolean'
+          || (value.from && value.to && value.from > value.to)) {
+        throw new Error('Invalid saved flight filters');
+      }
+      return {period: value.period, from: value.from, to: value.to,
+        indoor: value.indoor, nonflights: value.nonflights};
+    } catch (error) {
+      console.warn('Could not restore flight filters:', error);
+      storageWarning = 'Saved filters could not be restored. Using the default selection.';
+      return defaults();
+    }
+  }
+  let state = read();
+  const api = window.flightFilters = {
+  get state() { return {...state}; },
   periodStart(range) {
     if (!range || range === 'all') return null;
     const now = new Date();
@@ -14,27 +44,151 @@ window.flightDateRange = {
     }
     return start.toISOString().slice(0, 10);
   },
-  sync() {
-    const el = id => document.getElementById(id);
-    const custom = el('specificRange').checked;
-    el('customRange').hidden = !custom;
-    el('period').disabled = custom;
-    if (custom && !el('fromDate').value && !el('toDate').value) {
-      const start = this.periodStart(el('period').value);
-      if (start) el('fromDate').value = start;
-      el('toDate').value = new Date().toISOString().slice(0, 10);
-    }
+  bounds() {
+    return state.period === 'custom' ? {from: state.from, to: state.to}
+      : {from: this.periodStart(state.period) || '', to: ''};
   },
-  includes(f) {
-    const el = id => document.getElementById(id);
-    const custom = el('specificRange').checked;
-    const from = custom ? el('fromDate').value : this.periodStart(el('period').value) || '';
-    const to = custom ? el('toDate').value : '';
+  day(f) {
+    return (f.date_ok ? f.takeoff_utc || f.date_override || '' : f.date_override || '').slice(0, 10);
+  },
+  includesDate(f) {
+    const {from, to} = this.bounds();
     if (!from && !to) return true;
-    const day = (f.date_ok ? f.takeoff_utc || f.date_override || '' : f.date_override || '').slice(0, 10);
+    const day = this.day(f);
     return !!day && (!from || day >= from) && (!to || day <= to);
   },
+  includes(f) {
+    return (state.indoor || !f.indoor)
+      && (state.nonflights || (!f.simulation?.detected && !['ground', 'uncertain'].includes(f.verdict)))
+      && this.includesDate(f);
+  },
+  logs(logs, allFlights, shownFlights) {
+    const ids = new Set(shownFlights.flatMap(f => f.log_ids || []));
+    const flightIds = new Set(allFlights.flatMap(f => f.log_ids || []));
+    return logs.filter(l => ids.has(l.id) || (state.nonflights && l.status === 'done'
+      && l.num_flights === 0 && !flightIds.has(l.id)
+      && this.includesDate({takeoff_utc: l.start_utc, date_ok: l.date_ok, date_override: l.date_override})));
+  },
+  params() {
+    const {from, to} = this.bounds();
+    return new URLSearchParams({from, to, indoor: state.indoor ? '1' : '0',
+      nonflights: state.nonflights ? '1' : '0'});
+  },
+  periodLabel() {
+    return state.period === 'custom' ? `${state.from || 'Any date'} – ${state.to || 'Any date'}`
+      : PERIODS[state.period];
+  },
+  summary() {
+    return `${this.periodLabel()} · Indoor/no-GPS ${state.indoor ? 'shown' : 'hidden'} · Non-flights ${state.nonflights ? 'shown' : 'hidden'}`;
+  },
 };
+
+  function changed() {
+    paint();
+    window.dispatchEvent(new Event('flightfilterschange'));
+  }
+  function paint() {
+    const button = document.getElementById('flightFiltersButton');
+    if (!button) return;
+    const extra = Number(state.indoor) + Number(state.nonflights);
+    button.textContent = `Flight filters · ${api.periodLabel()}${extra ? ' · +' + extra : ''} ▾`;
+    button.title = api.summary();
+    document.querySelectorAll('[data-flight-filter-summary]').forEach(el => { el.textContent = api.summary(); });
+    document.getElementById('flightFiltersNotice').textContent = storageWarning;
+  }
+  function mount() {
+    const nav = document.getElementById('nav');
+    if (!nav || /^\/(login|setup)/.test(location.pathname)) return;
+    const wrapper = document.createElement('div');
+    wrapper.id = 'flightFiltersMenu';
+    wrapper.innerHTML = `<button type="button" id="flightFiltersButton" aria-expanded="false" aria-controls="flightFiltersPanel"></button>
+      <form id="flightFiltersPanel" hidden aria-label="Flight filters">
+        <div class="filter-heading"><strong>Flight filters</strong><button type="button" id="flightFiltersReset">Reset</button></div>
+        <label class="filter-field">Period (UTC)<select name="period">${Object.entries(PERIODS).map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select></label>
+        <div class="filter-dates" hidden>
+          <label class="filter-field">From<input type="date" name="from"></label>
+          <label class="filter-field">To<input type="date" name="to"></label>
+        </div>
+        <div class="filter-options">
+          <label><input type="checkbox" name="indoor"> Show indoor / no-GPS flights</label>
+          <label><input type="checkbox" name="nonflights"> Show non-flights</label>
+          <p>Non-flights include simulations, uncertain flights, ground records and zero-flight log files.</p>
+        </div>
+        <p>Shared across flight overviews in this browser. Changing pages keeps these settings.</p>
+        <p id="flightFiltersNotice" role="status"></p>
+        <div class="filter-actions"><button type="button" id="flightFiltersCancel">Cancel</button><button type="submit">Apply filters</button></div>
+      </form>`;
+    nav.after(wrapper);
+    document.body.querySelector('header').classList.add('has-flight-filters');
+    const button = wrapper.querySelector('#flightFiltersButton'), form = wrapper.querySelector('form');
+    const fields = form.elements;
+    function syncDates() {
+      const custom = fields.period.value === 'custom';
+      form.querySelector('.filter-dates').hidden = !custom;
+      fields.from.disabled = fields.to.disabled = !custom;
+      fields.to.setCustomValidity('');
+    }
+    function fill(value) {
+      for (const key of ['period', 'from', 'to']) fields[key].value = value[key];
+      for (const key of ['indoor', 'nonflights']) fields[key].checked = value[key];
+      syncDates();
+    }
+    function close(focus = false) {
+      form.hidden = true;
+      button.setAttribute('aria-expanded', 'false');
+      if (focus) button.focus();
+    }
+    button.onclick = () => {
+      if (!form.hidden) { close(); return; }
+      fill(state);
+      form.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      const rect = button.getBoundingClientRect();
+      form.style.left = `${Math.max(12, Math.min(rect.right - 338, innerWidth - 350))}px`;
+      form.style.top = `${rect.bottom + 8}px`;
+      form.style.maxHeight = `${Math.max(120, innerHeight - rect.bottom - 20)}px`;
+      fields.period.focus();
+    };
+    fields.period.onchange = () => {
+      if (fields.period.value === 'custom' && !fields.from.value && !fields.to.value) {
+        const bounds = api.bounds();
+        fields.from.value = bounds.from;
+        fields.to.value = bounds.to || new Date().toISOString().slice(0, 10);
+      }
+      syncDates();
+    };
+    fields.from.oninput = fields.to.oninput = () => fields.to.setCustomValidity('');
+    wrapper.querySelector('#flightFiltersReset').onclick = () => fill(defaults());
+    wrapper.querySelector('#flightFiltersCancel').onclick = () => close(true);
+    form.onsubmit = event => {
+      event.preventDefault();
+      const custom = fields.period.value === 'custom';
+      if (custom && fields.from.value && fields.to.value && fields.from.value > fields.to.value) {
+        fields.to.setCustomValidity('The end date must be on or after the start date.');
+        fields.to.reportValidity();
+        return;
+      }
+      state = {period: fields.period.value, from: custom ? fields.from.value : '', to: custom ? fields.to.value : '',
+        indoor: fields.indoor.checked, nonflights: fields.nonflights.checked};
+      try { localStorage.setItem(KEY, JSON.stringify(state)); storageWarning = ''; }
+      catch (error) {
+        console.warn('Could not save flight filters:', error);
+        storageWarning = 'Filters are active here but could not be saved for other pages in this browser.';
+      }
+      changed();
+      if (!storageWarning) close(true);
+    };
+    document.addEventListener('click', event => { if (!wrapper.contains(event.target)) close(); });
+    document.addEventListener('keydown', event => { if (event.key === 'Escape' && !form.hidden) close(true); });
+    window.addEventListener('resize', () => close());
+    window.addEventListener('storage', event => {
+      if (event.key === KEY || event.key === null) { state = read(); close(); changed(); }
+    });
+    paint();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
+  else mount();
+})();
 
 (function () {
   const icon = document.createElement('link');
