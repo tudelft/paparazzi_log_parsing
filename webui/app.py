@@ -3769,7 +3769,7 @@ def merge_sources(flights):
         main["max_from_takeoff_m"] = next((o["max_from_takeoff_m"] for o in fl if o.get("max_from_takeoff_m") is not None), main.get("max_from_takeoff_m"))
         main["sources"] = [{"log_id": o["log_id"], "log_type": o["log_type"], "log_name": o["log_name"], "flight_id": o["flight_id"],
                             "has_log": bool(o["has_log"]), "takeoff_utc": o["takeoff_utc"], "duration_s": o["duration_s"],
-                            "uploaded_by_name": o["uploaded_by_name"]} for o in fl]
+                            "uploaded_by_name": o["uploaded_by_name"], "size_bytes": o.get("size_bytes")} for o in fl]
         main["aircraft_identity_inferred"] = any(o.get("aircraft_ambiguous") and o["drone_id"] is None for o in fl) and identity is not None
         out.append(main)
     out.sort(key=lambda r: (r["takeoff_utc"] or "", r["flight_id"]), reverse=True)
@@ -3933,11 +3933,14 @@ def stats():
     """
     keys = ("aircraft", "aircraft_uid", "drone_id", "project_id", "project_name",
             "duration_s", "distance_m", "from_takeoff_m", "max_from_takeoff_m",
-            "takeoff_utc", "verdict", "indoor", "simulation", "flight_count", "source_type",
+            "takeoff_utc", "date_ok", "date_override", "verdict", "indoor", "simulation", "flight_count", "source_type",
             "pic", "pac", "pic_user", "pac_user")
+    rows = logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT"))
+    logs = {s["log_id"]: s.get("size_bytes") for r in rows for s in r["sources"]}
     return jsonify(all=bool(g.user["is_admin"]),
-                   flights=[{k: r.get(k) for k in keys}
-                            for r in logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT"))])
+                   logs=[{"id": identity, "size_bytes": size} for identity, size in logs.items()],
+                   flights=[{**{k: r.get(k) for k in keys},
+                             "log_ids": sorted({s["log_id"] for s in r["sources"]})} for r in rows])
 
 
 def valid_gps_location(lat, lon):
@@ -4008,7 +4011,7 @@ def logbook_rows(hidden=False, hide_unlinked=False):
         " d.unique_id AS aircraft_uid, a.drone_id, a.pic, a.pac, a.gcs, a.goal,"
         " EXISTS(SELECT 1 FROM ambiguous_drone_names n WHERE n.name=TRIM(a.name) COLLATE NOCASE) AS aircraft_ambiguous,"
         " f.verdict, f.assessment_json, f.takeoff_voltage_v, f.landing_voltage_v, f.num_points, f.takeoff_json, f.landing_json,"
-        " l.id AS log_id, l.name AS log_name, l.log_type, l.uploaded_by, l.uploaded_at, l.sha256, l.log_path IS NOT NULL AS has_log,"
+        " l.id AS log_id, l.name AS log_name, l.size_bytes, l.log_type, l.uploaded_by, l.uploaded_at, l.sha256, l.log_path IS NOT NULL AS has_log,"
         " l.project_id AS log_project_id, l.start_utc AS log_start_utc, l.date_override,"
         " (SELECT username FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name"
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id"

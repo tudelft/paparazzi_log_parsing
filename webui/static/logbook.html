@@ -107,7 +107,7 @@
       <span id="summary"></span>
       <span class="bar" style="margin:0">
         <span class="mute">Rows per page</span>
-        <select id="size"><option>10</option><option selected>25</option><option>50</option><option>100</option></select>
+        <select id="size"><option>10</option><option selected>15</option><option>25</option><option>50</option><option>100</option></select>
         <button id="prev">‹ Previous</button><span id="pageInfo" class="mute"></span><button id="next">Next ›</button>
       </span>
     </div>
@@ -122,7 +122,7 @@ const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 100
 const fmtDate = t => (t || '').slice(0, 10);
 const fmtHm = t => (t || '').slice(11, 16);
 const fmtTime = t => (t || '').replace('T', ' ').slice(0, 19);
-let flights = [], page = 0, pageSize = 25, me = null, projects = [], people = [];
+let flights = [], page = 0, pageSize = 15, me = null, projects = [], people = [];
 const selected = new Set();
 const openGroups = new Set();
 
@@ -257,50 +257,11 @@ function chk(ids, can) {
   const all = ids.length > 0 && ids.every(id => selected.has(id));
   return `<td class="chk"><input type="checkbox" ${all ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel(${esc(JSON.stringify(ids))}, this.checked)"></td>`;
 }
-function flightDay(f) {
-  if (f.date_ok) return (f.takeoff_utc || f.date_override || '').slice(0, 10);
-  return (f.date_override || '').slice(0, 10);
-}
-function periodStart(range) {
-  if (!range || range === 'all') return null;
-  const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const n = parseInt(range, 10);
-  const unit = range.slice(-1);
-  if (unit === 'd') start.setUTCDate(start.getUTCDate() - n + 1);
-  else if (unit === 'm') {
-    start.setUTCMonth(start.getUTCMonth() - n);
-    start.setUTCDate(start.getUTCDate() + 1);
-  } else {
-    start.setUTCFullYear(start.getUTCFullYear() - n);
-    start.setUTCDate(start.getUTCDate() + 1);
-  }
-  return start.toISOString().slice(0, 10);
-}
 function syncRangeUi() {
-  const custom = $('specificRange').checked;
-  $('customRange').hidden = !custom;
-  $('period').disabled = custom;
-  if (custom && !$('fromDate').value && !$('toDate').value) {
-    const start = periodStart($('period').value);
-    if (start) $('fromDate').value = start;
-    $('toDate').value = new Date().toISOString().slice(0, 10);
-  }
+  window.flightDateRange.sync();
 }
 function inDateRange(f) {
-  let from = '', to = '';
-  if ($('specificRange').checked) {
-    from = $('fromDate').value;
-    to = $('toDate').value;
-  } else {
-    from = periodStart($('period').value) || '';
-  }
-  if (!from && !to) return true;
-  const day = flightDay(f);
-  if (!day) return false;
-  if (from && day < from) return false;
-  if (to && day > to) return false;
-  return true;
+  return window.flightDateRange.includes(f);
 }
 const text = f => [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
 

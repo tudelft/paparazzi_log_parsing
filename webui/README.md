@@ -32,6 +32,9 @@ existing `/logbook` links still work.
 
 - Dates and times are **UTC**. Indoor and uncertain/non-flight records are hidden by default;
   enable their filters when needed.
+- Statistics uses the same period presets and custom UTC date range as Logbook (default: last
+  three years). **Total log data (GB)** sums original telemetry sizes for logs contributing to
+  filtered flights, counting each SD/GCS source once and excluding companion files.
 - Detected simulations are labelled and excluded from overview totals by default. Enable **Show
   non-flights** to include simulations, uncertain flights and ground records. Flight details show the evidence; reparse outdated Paparazzi
   uploads to assess older recordings.

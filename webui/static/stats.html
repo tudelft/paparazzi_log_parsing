@@ -17,6 +17,7 @@
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
   h2 { margin:0 0 10px; font-size:15px; }
   .bar { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+  .bar[hidden] { display:none; }
   .cols { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
   @media (max-width: 960px) { .cols { grid-template-columns:1fr; } }
   .scroll { overflow-x:auto; }
@@ -43,6 +44,20 @@
 <main>
   <section class="card">
     <div class="bar">
+      <label>Period <select id="period">
+        <option value="30d">Last 30 days</option>
+        <option value="3m">Last 3 months</option>
+        <option value="1y">Last year</option>
+        <option value="2y">Last 2 years</option>
+        <option value="3y" selected>Last 3 years</option>
+        <option value="5y">Last 5 years</option>
+        <option value="all">All time</option>
+      </select></label>
+      <label><input type="checkbox" id="specificRange"> Specific range</label>
+      <span id="customRange" class="bar" hidden style="margin:0">
+        <label>From <input type="date" id="fromDate"></label>
+        <label>To <input type="date" id="toDate"></label>
+      </span>
       <label title="Places marked as indoors on the Locations page, or flights with OptiTrack / motion capture"><input type="checkbox" id="indoor"> Show indoor flights</label>
       <label title="Include simulations, uncertain flights and ground records"><input type="checkbox" id="ground"> Show non-flights</label>
     </div>
@@ -51,6 +66,7 @@
       <div><strong id="totHours">—</strong><span>Total flight hours</span></div>
       <div><strong id="totFlown">—</strong><span>Distance flown</span></div>
       <div><strong id="totFlights">—</strong><span>Flights</span></div>
+      <div title="Original telemetry bytes, counting each contributing source log once; excludes companion files and paper records"><strong id="totData">—</strong><span>Total log data (GB)</span></div>
       <div><strong id="totAircraft">—</strong><span>Aircraft</span></div>
       <div><strong id="totProjects">—</strong><span>Projects</span></div>
       <div><strong id="totPics">—</strong><span>PICs</span></div>
@@ -120,11 +136,13 @@ window.fetch = async (...args) => {
 };
 
 let flights = [];
+let logSizes = new Map();
 fetch('/api/me').then(r => r.json()).then(d => {
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
 });
 fetch('/api/stats').then(r => r.json()).then(d => {
   flights = d.flights || [];
+  logSizes = new Map(d.logs.map(log => [log.id, log.size_bytes]));
   $('scope').textContent = d.all
     ? 'You can see hours and distance for every project, aircraft, PIC and PAC.'
     : 'Hours and distance are only for the projects you can open, and for aircraft and crew on those flights.';
@@ -134,7 +152,7 @@ fetch('/api/stats').then(r => r.json()).then(d => {
 function shown() {
   return flights.filter(f =>
     ($('ground').checked || (!f.simulation?.detected && !['ground', 'uncertain'].includes(f.verdict))) &&
-    ($('indoor').checked || !f.indoor));
+    ($('indoor').checked || !f.indoor) && window.flightDateRange.includes(f));
 }
 
 function group(list, keyFn, nameFn, extraFn) {
@@ -202,6 +220,15 @@ function render() {
   $('totHours').textContent = fmtHours(total);
   $('totFlown').textContent = fmtDist(flown) || '—';
   $('totFlights').textContent = list.reduce((s, f) => s + (f.flight_count || 1), 0);
+  const logIds = new Set(list.flatMap(f => f.log_ids));
+  let bytes = 0, unknown = 0;
+  for (const id of logIds) {
+    const size = logSizes.get(id);
+    if (size == null) unknown++;
+    else bytes += size;
+  }
+  $('totData').textContent = (bytes / 1e9).toFixed(2) + (unknown ? ' + unknown' : '');
+  $('totData').title = `${logIds.size} unique source logs; ${unknown} with unknown size. Whole logs counted, even when only some flights match.`;
   $('totAircraft').textContent = aircraft.length;
   $('totProjects').textContent = projects.length;
   $('totPics').textContent = named(pics);
@@ -221,7 +248,9 @@ function render() {
   peopleRows('pacs', pacs, pacMax, 6);
 }
 
-$('indoor').onchange = $('ground').onchange = render;
+$('indoor').onchange = $('ground').onchange = $('period').onchange = $('fromDate').onchange = $('toDate').onchange = render;
+$('specificRange').onchange = () => { window.flightDateRange.sync(); render(); };
+window.flightDateRange.sync();
 </script>
 </body>
 </html>

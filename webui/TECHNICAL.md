@@ -625,6 +625,13 @@ stable first-group precedence on ties. Same-log exclusion, fleet identity checks
 separation and SD/GCS field selection are unchanged. Non-chronological fractional timestamp
 spellings rebuild the candidate window so earlier groups are not lost.
 
+Statistics sends only accessible contributing source-log IDs and stored original `size_bytes`,
+not filesystem sizes. The browser applies the same shared UTC date-range helper as Logbook and
+deduplicates source IDs after filtering. GB uses decimal units (1 GB = 1,000,000,000 bytes).
+An entire source log counts when any of its flights qualifies; this is not a byte estimate for
+just that flight interval. Unknown sizes are explicitly reported, and paper records contribute
+no log bytes. Period/filter changes require no file reads or additional Statistics API requests.
+
 **Shared aircraft names.** In Aircraft Edit mode, mark a generic log name as ambiguous using
 the Aliases tab or **Ambiguous / shared aircraft names**. For example, an SD airframe name
 such as `RotatingWing25Kg` can be shared by several physical aircraft even though GCS
