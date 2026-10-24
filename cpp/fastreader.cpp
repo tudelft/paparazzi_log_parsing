@@ -933,7 +933,7 @@ std::string utc_iso(double epoch)
   if (ms == 1000) { sec++; ms = 0; }
   struct tm tm;
   gmtime_r(&sec, &tm);
-  char buf[40];
+  char buf[128];
   snprintf(buf, sizeof(buf), "\"%04d-%02d-%02dT%02d:%02d:%02d.%03dZ\"", tm.tm_year + 1900, tm.tm_mon + 1,
            tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, ms);
   return buf;
