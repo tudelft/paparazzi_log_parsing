@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import tempfile
 import unittest
@@ -8,19 +9,24 @@ from .test_clock import PARSER
 
 
 class FlightPlanTests(unittest.TestCase):
-    def parse(self, sectors):
+    def parse(self, sectors, attribute_case=None):
+        plan = (
+            '<flight_plan lat0="52" lon0="4" alt="20" ground_alt="5" name="Test">\n'
+            + sectors +
+            '<waypoints>\n<waypoint name="A" x="0" y="0"/>\n'
+            '<waypoint name="B" x="100" y="0" alt="25"/>\n'
+            '<waypoint name="C" lat="52.001" lon="4.001"/>\n</waypoints>\n'
+            '<blocks><block name="Wait"><while cond="TRUE"/></block><block name="Land"/></blocks>\n'
+            '</flight_plan>\n')
+        if attribute_case:
+            plan = re.sub(r'\b([a-z_][a-z_0-9]*)=', lambda m: attribute_case(m[1]) + '=', plan)
         with tempfile.TemporaryDirectory() as folder:
             data = Path(folder) / "fixture.data"
             data.write_text("0 5 ROTORCRAFT_STATUS 0 0\n")
             data.with_suffix(".log").write_text(
                 '<configuration time_of_day="1751457600">\n<aircraft ac_id="5" name="Synthetic">\n'
-                '<flight_plan lat0="52" lon0="4" alt="20" name="Test">\n'
-                + sectors +
-                '<waypoints>\n<waypoint name="A" x="0" y="0"/>\n'
-                '<waypoint name="B" x="100" y="0"/>\n'
-                '<waypoint name="C" lat="52.001" lon="4.001"/>\n</waypoints>\n'
-                '<blocks><block name="Wait"><while cond="TRUE"/></block><block name="Land"/></blocks>\n'
-                '</flight_plan>\n</aircraft>\n<protocol>\n<msg_class name="telemetry">\n'
+                + plan +
+                '</aircraft>\n<protocol>\n<msg_class name="telemetry">\n'
                 '<message name="ROTORCRAFT_STATUS">\n<field name="ap_mode"/>\n'
                 '<field name="ap_in_flight"/>\n</message>\n'
                 '</msg_class>\n</protocol>\n</configuration>\n')
@@ -45,3 +51,18 @@ class FlightPlanTests(unittest.TestCase):
 
     def test_flight_plan_without_sectors_has_empty_list(self):
         self.assertEqual(self.parse("")["sectors"], [])
+
+    def test_legacy_uppercase_and_mixed_case_attributes_match_lowercase(self):
+        sectors = (
+            '<sectors><sector name="Flight &amp; area" color="orange">'
+            '<corner name="C"/><corner name="A"/><corner name="B"/>'
+            '</sector><sector name="Empty"/></sectors>\n')
+        expected = self.parse(sectors)
+        self.assertEqual(expected["name"], "Test")
+        self.assertEqual(expected["default_alt_m"], 20)
+        self.assertEqual(expected["ground_alt_m"], 5)
+        self.assertEqual(expected["waypoints"][0]["alt_m"], 20)
+        self.assertEqual(expected["waypoints"][1]["alt_m"], 25)
+        for attribute_case in (str.upper, str.title):
+            with self.subTest(attribute_case=attribute_case.__name__):
+                self.assertEqual(self.parse(sectors, attribute_case), expected)

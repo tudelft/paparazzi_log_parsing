@@ -97,6 +97,9 @@ Waypoint dots and labels whose names start with `_` are hidden by default and ca
 with **Show hidden waypoints** while **Show flight plan** is enabled. Hidden waypoints remain
 available as sector corners; their visibility does not change sector geometry. This display-only
 rule also applies to existing parsed waypoints without reparsing.
+Parser 1.7.7 also accepts legacy uppercase and mixed-case flight-plan attributes, including
+reference coordinates, waypoint positions/names, blocks and sector corner references.
+Rebuild the parser and reparse affected older logs to restore their mapped flight plans.
 
 **Legacy fixed-wing flight detection.** Parser 1.7.4 uses `BAT.flight_time` when
 the protocol has no usable `NAVIGATION.flight_time` field. A positive timer marks

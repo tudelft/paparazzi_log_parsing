@@ -753,8 +753,7 @@ void for_each_tag(const std::string &x, F cb)
 
 std::string attr_json(const XmlAttrs &at, const char *k)
 {
-  auto i = at.find(k);
-  return i == at.end() ? std::string("null") : json_escape(i->second);
+  return has_attr_ci(at, k) ? json_escape(attr_ci(at, k)) : std::string("null");
 }
 
 struct SettingInfo {
@@ -857,11 +856,11 @@ std::string flight_plan_summary_json(const std::string &x)
   int block_depth = 0;
 
   auto num_attr = [](const XmlAttrs &at, const char *k, double &out) {
-    auto i = at.find(k);
-    if (i == at.end()) { return false; }
+    const std::string value = attr_ci(at, k);
+    if (value.empty()) { return false; }
     char *endp;
-    out = strtod(i->second.c_str(), &endp);
-    return endp != i->second.c_str() && std::isfinite(out);
+    out = strtod(value.c_str(), &endp);
+    return endp != value.c_str() && std::isfinite(out);
   };
 
   // WGS84 local tangent plane approximation (accurate to cm over a few km)
@@ -890,8 +889,7 @@ std::string flight_plan_summary_json(const std::string &x)
       has_ref = num_attr(at, "lat0", lat0) && num_attr(at, "lon0", lon0);
       num_attr(at, "alt", default_alt);
       num_attr(at, "ground_alt", ground_alt);
-      auto n = at.find("name");
-      if (n != at.end()) { name = n->second; }
+      name = attr_ci(at, "name");
     } else if (tag == "waypoints") {
       in_wps = !selfclose;
     } else if (tag == "blocks") {
@@ -1075,7 +1073,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.7.6";
+constexpr const char *PARSER_VERSION = "1.7.7";
 
 struct GpsClock {
   size_t count = 0;
