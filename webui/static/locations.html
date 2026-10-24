@@ -44,6 +44,7 @@
   <section class="card">
     <div class="section-heading"><h2>Takeoff and landing locations</h2>
     <details><summary>Help</summary><p><span id="intro"></span> Blue dots are positions where flights took off or landed.</p></details></div>
+    <label title="Include simulations, uncertain flights and ground records"><input type="checkbox" id="nonflights"> Show non-flights</label>
     <div id="map"></div>
     <div id="mapMsg" class="mute" style="margin-top:6px"></div>
     <div id="nameForm" style="margin-top:8px" hidden>
@@ -163,7 +164,7 @@ function renderTable() {
 }
 
 async function loadPlaces() {
-  const r = await fetch('/api/places');
+  const r = await fetch('/api/places' + ($('nonflights').checked ? '?nonflights=1' : ''));
   if (!r.ok) { $('err').textContent = 'Could not load the places.'; return; }
   placeData = await r.json();
   paintMode();
@@ -192,6 +193,7 @@ fetch('/api/me').then(r => r.json()).then(d => {
 });
 window.addEventListener('editchange', paintMode);
 initMap();
+$('nonflights').onchange = () => loadPlaces().catch(e => { $('err').textContent = e.message; });
 loadPlaces();
 </script>
 </body>

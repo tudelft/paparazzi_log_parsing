@@ -79,7 +79,7 @@
       <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date, reference…)">
       <label title="Flights of the same aircraft and pilot on the same day within this distance of each other"><input type="checkbox" id="combine" checked> Combine flights (within <input type="number" id="radius" value="1" min="0.1" step="0.5" style="width:56px"> km)</label>
       <label title="Places marked as indoors on the Locations page, or flights with OptiTrack / motion capture"><input type="checkbox" id="indoor"> Show indoor flights</label>
-      <label title="Uncertain flights, arming on the ground, flickering flight flags and other 'flights' the parser judged not to be real flights"><input type="checkbox" id="ground"> Show uncertain/non-flights</label>
+      <label title="Include simulations, uncertain flights and ground records"><input type="checkbox" id="ground"> Show non-flights</label>
       <button onclick="exportCsv()">Export CSV</button>
       <a class="btn sec" href="/historical/new" id="addHistorical" hidden>Add paper records / import CSV</a>
     </div>
@@ -396,7 +396,7 @@ const picKey = f => f.pic_user ? 'u' + f.pic_user.id : 'n' + (f.pic || '').toLow
 function combine(list, radiusKm) {
   const groups = [];
   for (const f of [...list].sort((a, b) => (a.takeoff_utc || '').localeCompare(b.takeoff_utc || ''))) {
-    const key = [f.aircraft, picKey(f), fmtDate(f.takeoff_utc)].join('|');
+    const key = [f.aircraft, picKey(f), fmtDate(f.takeoff_utc), !!f.simulation?.detected].join('|');
     const g = !f.manual_id && f.takeoff_lat != null && groups.find(g => g.key === key && !g.flights[0].manual_id && g.flights[0].takeoff_lat != null && km(g.flights[0], f) <= radiusKm);
     if (g) g.flights.push(f); else groups.push({key, flights: [f]});
   }
@@ -420,7 +420,7 @@ const TYPE_LABEL = {onboard_sd: 'SD', gcs: 'GCS', px4_ulog: 'PX4', ardupilot: 'A
 const downloadLabel = t => ({px4_ulog:'PX4 .ulg', ardupilot:'ArduPilot log', mavlink_tlog:'MAVLink .tlog',
   gcs:'GCS .data + .log', onboard_sd:'SD .data + .log'}[t] || 'log');
 const srcLabel = fl => fl.some(f => f.manual_id) ? (fl[0].record_kind === 'daily' ? 'Paper daily total' : 'Paper') : ['onboard_sd', 'px4_ulog', 'ardupilot', 'mavlink_tlog', 'gcs'].filter(t => fl.some(f => (f.sources || []).some(s => s.log_type === t))).map(t => TYPE_LABEL[t]).join(' + ');
-const verdictMark = f => (f.verdict === 'ground' ? ' <span class="mute" title="Probably not a real flight">(ground)</span>'
+const verdictMark = f => (f.simulation?.detected ? ' <span class="mute">(Simulation)</span>' : '') + (f.verdict === 'ground' ? ' <span class="mute" title="Probably not a real flight">(ground)</span>'
   : f.verdict === 'uncertain' ? ' <span class="mute" title="Unsure whether this was a real flight">(?)</span>' : '')
   + (f.optitrack ? ' <span class="mute" title="OptiTrack or motion-capture pose in this log">(OptiTrack)</span>' : '')
   + (f.indoor && !f.optitrack ? ' <span class="mute" title="Takeoff is inside a named indoor place">(indoor)</span>' : '');
@@ -461,7 +461,7 @@ function groupRows(g) {
 
 function render() {
   const q = $('q').value.trim().toLowerCase();
-  const shown = flights.filter(f => ($('ground').checked || !['ground', 'uncertain'].includes(f.verdict)) && ($('indoor').checked || !f.indoor) && inDateRange(f) && (!q || q.split(/\s+/).every(w => text(f).includes(w))));
+  const shown = flights.filter(f => ($('ground').checked || (!f.simulation?.detected && !['ground', 'uncertain'].includes(f.verdict))) && ($('indoor').checked || !f.indoor) && inDateRange(f) && (!q || q.split(/\s+/).every(w => text(f).includes(w))));
   const entries = $('combine').checked ? combine(shown, Math.max(+$('radius').value || 1, 0.1)) : shown.map(f => ({flights: [f], id: f.record_key}));
   const pages = Math.max(1, Math.ceil(entries.length / pageSize));
   page = Math.min(page, pages - 1);
@@ -493,9 +493,9 @@ $('rows').onclick = e => {
 };
 
 function exportCsv() {
-  const cols = ['source_type', 'flight_count', 'record_kind', 'reference', 'takeoff_utc', 'landing_utc', 'duration_s', 'distance_m', 'from_takeoff_m', 'max_from_takeoff_m', 'aircraft', 'aircraft_uid', 'project_name', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
+  const cols = ['source_type', 'simulation', 'flight_count', 'record_kind', 'reference', 'takeoff_utc', 'landing_utc', 'duration_s', 'distance_m', 'from_takeoff_m', 'max_from_takeoff_m', 'aircraft', 'aircraft_uid', 'project_name', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
   const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const csv = [cols.join(',')].concat(render().map(f => cols.map(c => cell(c.endsWith('_user') ? f[c]?.display_name : f[c])).join(','))).join('\n');
+  const csv = [cols.join(',')].concat(render().map(f => cols.map(c => cell(c === 'simulation' ? f.simulation?.detected : c.endsWith('_user') ? f[c]?.display_name : f[c])).join(','))).join('\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
   a.download = 'logbook.csv';

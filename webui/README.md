@@ -32,6 +32,9 @@ existing `/logbook` links still work.
 
 - Dates and times are **UTC**. Indoor and uncertain/non-flight records are hidden by default;
   enable their filters when needed.
+- Detected simulations are labelled and excluded from overview totals by default. Enable **Show
+  non-flights** to include simulations, uncertain flights and ground records. Flight details show the evidence; reparse outdated Paparazzi
+  uploads to assess older recordings.
 - A missing telemetry endpoint location uses the other endpoint's GPS position for display.
   Flights with no endpoint or saved-path GPS are treated as indoors; the flight page labels these inferences.
 - SD and GCS recordings of the same flight are merged. **Combine flights** additionally groups nearby

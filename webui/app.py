@@ -1903,11 +1903,14 @@ def list_places():
     con = conn()
     admin = bool(g.user["is_admin"])
     stats, pts = {}, {}
+    include_nonflights = request.args.get("nonflights") == "1"
     for f in logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT")):
+        if (f.get("simulation") or {}).get("detected") and not include_nonflights:
+            continue
         real = f.get("verdict") not in ("ground", "uncertain")
         for pid in {f.get("takeoff_place_id"), f.get("landing_place_id")} - {None}:
             s = stats.setdefault(pid, {"flights": 0, "seconds": 0.0, "last": None})
-            if real:
+            if real or include_nonflights:
                 s["flights"] += f.get("flight_count", 1)
                 s["seconds"] += f.get("duration_s") or 0
                 s["last"] = max(s["last"] or "", f.get("takeoff_utc") or "") or None
@@ -3666,6 +3669,9 @@ def merge_sources(flights):
             for g in active:
                 if f["log_id"] in g["logs"] or (end or start) < g["start"] - SAME_FLIGHT_SLACK_S:
                     continue
+                if bool((f.get("simulation") or {}).get("detected")) != bool(
+                        (g["flights"][0].get("simulation") or {}).get("detected")):
+                    continue
                 linked_ids = {o["drone_id"] for o in g["flights"] if o["drone_id"] is not None}
                 if (f["drone_id"] is not None and linked_ids and f["drone_id"] not in linked_ids):
                     continue
@@ -3694,6 +3700,9 @@ def merge_sources(flights):
                 for source in group["flights"]:
                     if source["log_type"] != "gcs" or source["drone_id"] is None:
                         continue
+                    if bool((f.get("simulation") or {}).get("detected")) != bool(
+                            (source.get("simulation") or {}).get("detected")):
+                        continue
                     other_start = _ts(source["takeoff_utc"])
                     other_end = _ts(source["landing_utc"]) or (
                         other_start + (source["duration_s"] or 0) if other_start is not None else None)
@@ -3717,6 +3726,12 @@ def merge_sources(flights):
     for g in groups:
         fl = sorted(g["flights"], key=lambda r: TYPE_ORDER[r["log_type"]])
         main = dict(fl[0])
+        assessed = [o["simulation"] for o in fl if o.get("simulation") is not None]
+        if assessed:
+            main["simulation"] = {
+                "detected": any(s["detected"] for s in assessed),
+                "evidence": sorted({reason for s in assessed for reason in s["evidence"]}),
+            }
         main["aircraft"] = next((o["aircraft"] for o in reversed(fl) if o["log_type"] == "gcs"), main["aircraft"])
         identity = next((o for o in fl if o["drone_id"] is not None), None)
         if identity is not None:
@@ -3903,7 +3918,7 @@ def stats():
     """
     keys = ("aircraft", "aircraft_uid", "drone_id", "project_id", "project_name",
             "duration_s", "distance_m", "from_takeoff_m", "max_from_takeoff_m",
-            "takeoff_utc", "verdict", "indoor", "flight_count", "source_type",
+            "takeoff_utc", "verdict", "indoor", "simulation", "flight_count", "source_type",
             "pic", "pac", "pic_user", "pac_user")
     return jsonify(all=bool(g.user["is_admin"]),
                    flights=[{k: r.get(k) for k in keys}
@@ -3974,7 +3989,7 @@ def logbook_rows(hidden=False, hide_unlinked=False):
         " f.from_takeoff_m, f.max_from_takeoff_m, f.landed, f.has_gps_position,"
         " f.takeoff_lat, f.takeoff_lon, f.landing_lat, f.landing_lon, f.project_id,"
         " f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment,"
-        " a.id AS aircraft_pk, a.ac_id, COALESCE(d.name, a.name) AS aircraft, a.name AS aircraft_logged,"
+        " a.id AS aircraft_pk, a.ac_id, a.simulation, COALESCE(d.name, a.name) AS aircraft, a.name AS aircraft_logged,"
         " d.unique_id AS aircraft_uid, a.drone_id, a.pic, a.pac, a.gcs, a.goal,"
         " EXISTS(SELECT 1 FROM ambiguous_drone_names n WHERE n.name=TRIM(a.name) COLLATE NOCASE) AS aircraft_ambiguous,"
         " f.verdict, f.assessment_json, f.takeoff_voltage_v, f.landing_voltage_v, f.num_points, f.takeoff_json, f.landing_json,"
@@ -3991,6 +4006,7 @@ def logbook_rows(hidden=False, hide_unlinked=False):
         d = dict(r)
         d["takeoff"] = json.loads(d.pop("takeoff_json") or "null")
         d["landing"] = json.loads(d.pop("landing_json") or "null")
+        d["simulation"] = json.loads(d["simulation"]) if d["simulation"] is not None else None
         apply_row_clock(d)
         prepared.append(d)
     out = merge_sources(prepared)
@@ -4140,7 +4156,7 @@ DETAIL_FLIGHT_KEYS = (
     "flight_id", "takeoff_utc", "landing_utc", "duration_s", "distance_m", "max_from_takeoff_m", "landed",
     "aircraft", "aircraft_uid", "drone_id", "project_id", "project_name", "takeoff_lat", "takeoff_lon",
     "takeoff_place", "takeoff_place_id", "landing_place", "landing_place_id", "indoor", "verdict", "date_ok",
-    "pic", "pac", "gcs", "pic_user", "pac_user", "gcs_user", "goal", "comment",
+    "pic", "pac", "gcs", "pic_user", "pac_user", "gcs_user", "goal", "comment", "simulation",
     "takeoff_voltage_v", "landing_voltage_v", "manual_id", "source_type", "flight_count", "record_kind")
 
 
@@ -4396,6 +4412,7 @@ def get_log(log_id):
         add_people([ad], resolve)
         for k in ("preflight_checks", "info_messages"):
             ad[k] = json.loads(ad[k]) if ad[k] else []
+        ad["simulation"] = json.loads(a["simulation"]) if a["simulation"] is not None else None
         ad["autopilot_versions"], ad["autopilot_versions_from_gcs"] = with_gcs_autopilot_fallback(
             json.loads(ad["autopilot_versions"]) if ad["autopilot_versions"] else [], row["log_path"])
         if days:

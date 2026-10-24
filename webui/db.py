@@ -153,6 +153,7 @@ CREATE TABLE IF NOT EXISTS aircraft (
     total_flight_distance_m REAL,
     preflight_checks TEXT,             -- JSON
     info_messages TEXT,                -- JSON
+    simulation TEXT,                   -- JSON detection/evidence; NULL = not assessed
     config_gz BLOB                     -- gzip JSON: flight_plan, settings, xml
 );
 CREATE TABLE IF NOT EXISTS flights (
@@ -353,6 +354,8 @@ def init(path):
     cols = {r["name"] for r in con.execute("PRAGMA table_info(logs)")}
     if "timing" not in cols:
         con.execute("ALTER TABLE logs ADD COLUMN timing TEXT")
+    if "simulation" not in {r["name"] for r in con.execute("PRAGMA table_info(aircraft)")}:
+        con.execute("ALTER TABLE aircraft ADD COLUMN simulation TEXT")
     if "uploaded_by" not in cols:  # database created before accounts existed
         con.execute("ALTER TABLE logs ADD COLUMN uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
     fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
@@ -478,12 +481,13 @@ def store_parsed(con, log_id, doc, paths_file):
         config = {"flight_plan": ac.get("flight_plan"), "settings": ac.get("settings"), "xml": ac.get("xml")}
         cur = con.execute(
             "INSERT INTO aircraft (log_id, ac_id, name, pic, pac, gcs, goal, autopilot_versions, first_utc, last_utc,"
-            " num_flights, total_flight_time_s, total_flight_distance_m, preflight_checks, info_messages, config_gz)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " num_flights, total_flight_time_s, total_flight_distance_m, preflight_checks, info_messages, config_gz, simulation)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (log_id, ac.get("ac_id"), ac.get("name"), m.get("pic"), m.get("pac"), m.get("gcs"), m.get("goal"),
              json.dumps(ac.get("autopilot_versions", [])), span.get("first_utc"), span.get("last_utc"),
              summ.get("num_flights"), summ.get("total_flight_time_s"), summ.get("total_flight_distance_m"),
-             json.dumps(ac.get("preflight_checks", [])), json.dumps(ac.get("info_messages", [])), pack(config)),
+             json.dumps(ac.get("preflight_checks", [])), json.dumps(ac.get("info_messages", [])), pack(config),
+             json.dumps(ac["simulation"]) if ac.get("simulation") is not None else None),
         )
         ac_pk = cur.lastrowid
         for f in ac.get("flights", []):

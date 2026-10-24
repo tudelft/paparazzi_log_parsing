@@ -334,6 +334,7 @@ struct AircraftState {
   double first_time = -1, last_time = 0;
   long last_path_bucket = -1;
   std::set<std::string> versions;
+  std::set<std::string, std::less<>> simulation_messages;
   std::vector<InfoMsg> infos;
   bool has_gps = false;
   bool has_optitrack = false;  // motion capture / OptiTrack on this aircraft in this log
@@ -454,6 +455,47 @@ bool xml_contains_ci(const std::string &xml, const char *needle)
     if (ok) { return true; }
   }
   return false;
+}
+
+bool nps_only_configuration(const std::string &xml)
+{
+  bool found = false;
+  size_t pos = 0;
+  while ((pos = xml.find('<', pos)) != std::string::npos) {
+    if (xml.compare(pos, 4, "<!--") == 0) {
+      const size_t end = xml.find("-->", pos + 4);
+      if (end == std::string::npos) { return false; }
+      pos = end + 3;
+      continue;
+    }
+    size_t end = pos + 1;
+    char quote = 0;
+    for (; end < xml.size(); ++end) {
+      const char ch = xml[end];
+      if (quote) {
+        if (ch == quote) { quote = 0; }
+      } else if (ch == '"' || ch == '\'') {
+        quote = ch;
+      } else if (ch == '>') {
+        break;
+      }
+    }
+    if (end == xml.size()) { return false; }
+    const std::string tag = xml.substr(pos, end - pos + 1);
+    const size_t name_end = tag.find_first_of(" \t\r\n/>", 1);
+    if (tag.substr(1, name_end - 1) == "target") {
+      if (xml_attr(tag, 0, "name") != "nps" || xml_attr(tag, 0, "board") != "pc") { return false; }
+      found = true;
+    }
+    pos = end + 1;
+  }
+  return found;
+}
+
+bool nps_message(std::string_view name)
+{
+  return name == "NPS_RATE_ATTITUDE" || name == "NPS_POS_LLH" || name == "NPS_SPEED_POS" ||
+         name == "NPS_GYRO_BIAS" || name == "NPS_SENSORS_SCALED" || name == "NPS_WIND";
 }
 
 // Read aircraft names, configuration and start time from the .log file
@@ -991,7 +1033,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.6.0";
+constexpr const char *PARSER_VERSION = "1.7.0";
 
 struct GpsClock {
   size_t count = 0;
@@ -1417,6 +1459,11 @@ int main(int argc, char *argv[])
         }
         break;
       case 'N':
+        if (nps_message(name)) {
+          auto &messages = touch(ac, t).simulation_messages;
+          if (messages.find(name) == messages.end()) { messages.emplace(name); }
+          break;
+        }
         if (name == "NAVIGATION") {
           if (!fw_nav_f.split) { break; }
           const Picked f = pick(fw_nav_f, q, eol);
@@ -1787,7 +1834,19 @@ int main(int argc, char *argv[])
 
     // Identification, crew and summary
     o << (first_ac ? "" : ",") << "\n    {\n      \"ac_id\": " << id << ",\n      \"name\": "
-      << json_escape(name_of(id)) << ",\n      \"autopilot_versions\": [";
+      << json_escape(name_of(id));
+    const bool simulation_config = cf && nps_only_configuration(cf->airframe_xml);
+    o << ",\n      \"simulation\": {\"detected\": "
+      << (simulation_config || !s.simulation_messages.empty() ? "true" : "false") << ", \"evidence\": [";
+    bool first_evidence = true;
+    for (const auto &message : s.simulation_messages) {
+      o << (first_evidence ? "" : ", ") << json_escape("telemetry:" + message);
+      first_evidence = false;
+    }
+    if (simulation_config) {
+      o << (first_evidence ? "" : ", ") << json_escape("configuration:nps-only-pc");
+    }
+    o << "]},\n      \"autopilot_versions\": [";
     first_ac = false;
     bool fv = true;
     for (const auto &v : s.versions) { o << (fv ? "" : ", ") << json_escape(v); fv = false; }

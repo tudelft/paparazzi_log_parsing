@@ -53,6 +53,27 @@ Day-to-day:
 
 After an update that changes the parser version, click **Re-parse outdated** on the Uploads page.
 
+**Paparazzi simulation metadata.** Parser 1.7.0 adds a `simulation` object to each aircraft in its
+JSON output, for example `{"detected": true, "evidence": ["telemetry:NPS_WIND"]}`.
+It detects recorded `NPS_RATE_ATTITUDE`, `NPS_POS_LLH`, `NPS_SPEED_POS`, `NPS_GYRO_BIAS`,
+`NPS_SENSORS_SCALED` or `NPS_WIND` messages for that aircraft, or an embedded airframe whose
+targets are exclusively `nps` on board `pc` (`configuration:nps-only-pc`). Both evidence sources
+are retained when present. Names, paths, protocol message definitions and an NPS target alongside
+hardware targets do not trigger detection. `detected: false` with empty evidence means no supported
+simulation evidence was found, not proof of a physical flight.
+The web database persists this per-aircraft metadata. Flight details show the detection evidence;
+upload details and flight lists label detected simulations. Logbook, Statistics and person/aircraft/
+project/location details exclude them from displayed flights, totals and charts unless **Show
+non-flights** is selected, which includes simulations, uncertain flights and ground records.
+Locations overview counts follow the same default (`GET /api/places?nonflights=1` includes
+all three categories); its map hints retain non-simulation ground positions by default.
+Other overview APIs retain the metadata and
+all accessible rows so their browser filters can switch without refetching.
+Simulation and non-simulation sources cannot merge, including day/session grouping. Existing fleet
+links and direct flight/upload access are preserved. Legacy results and parsers without this metadata
+remain unassessed (`simulation: null`), not automatically excluded; reparse outdated Paparazzi uploads
+with parser 1.7.0 to detect existing simulations. Flight details explicitly identify unassessed records.
+
 **Paparazzi distances.** From parser 1.6.0, distance flown, distance from takeoff and maximum
 distance from takeoff are horizontal (ground-plane) metres, including cumulative distances in saved
 paths and aircraft/log totals. GPS uses latitude/longitude; the GPS-free INS fallback uses north/east
@@ -703,7 +724,7 @@ access to.
 
 **Real flight or not.** The autopilot's in-flight flag also toggles on the ground (arming, motor tests, carrying).
 The parser scores each takeoff/landing on duration, climb, distance, speed, tilt and acceleration and gives a verdict
-`flight`, `uncertain` or `ground` with the reasons. The logbook hides the last two unless **Show uncertain/non-flights**
+`flight`, `uncertain` or `ground` with the reasons. The logbook hides the last two unless **Show non-flights**
 is ticked.
 
 **Flight page** (`/flight/<id>`). Path on a map with the flight plan waypoints, a time slider, altitude/speed chart,

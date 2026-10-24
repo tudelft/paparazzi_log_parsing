@@ -77,7 +77,7 @@
       <div class="hero"><h2 id="name"></h2><span id="chips"></span></div>
       <div class="bar">
         <label title="Places marked as indoors on the Locations page, or flights with OptiTrack / motion capture"><input type="checkbox" id="indoor" checked> Include indoor flights</label>
-        <label title="Uncertain flights, arming on the ground and other 'flights' the parser judged not to be real flights"><input type="checkbox" id="ground"> Include uncertain/non-flights</label>
+        <label title="Include simulations, uncertain flights and ground records"><input type="checkbox" id="ground"> Show non-flights</label>
         <span class="mute" id="scope"></span>
       </div>
     </section>
@@ -210,7 +210,7 @@ fetch(`/api/detail/${KIND}/${ITEM_ID}`).then(async r => {
 
 function shown() {
   return D.flights.filter(f =>
-    ($('ground').checked || !['ground', 'uncertain'].includes(f.verdict)) &&
+    ($('ground').checked || (!f.simulation?.detected && !['ground', 'uncertain'].includes(f.verdict))) &&
     ($('indoor').checked || !f.indoor));
 }
 
@@ -470,7 +470,8 @@ function renderFlights(list) {
   const [from, to] = pager('flightPager', 'flights', list.length, () => renderFlights(shown()));
   const rows = list.slice(from, to).map(f => {
     const roles = roleCol ? ROLES.filter(([r]) => f[r + '_user']?.id === ITEM_ID).map(([, l]) => l).join(', ') : '';
-    const tag = f.verdict && f.verdict !== 'flight' ? ` <span class="tag ${esc(f.verdict)}">${esc(f.verdict)}</span>` : '';
+    const tag = (f.simulation?.detected ? ' <span class="tag">Simulation</span>' : '') +
+      (f.verdict && f.verdict !== 'flight' ? ` <span class="tag ${esc(f.verdict)}">${esc(f.verdict)}</span>` : '');
     return `<tr><td class="nowrap"><a href="${f.manual_id ? '/historical/' + f.manual_id : '/flight/' + f.flight_id}">${esc(fmtTime(f.takeoff_utc)) || 'Unknown date'}</a>${f.manual_id ? ' <span class="mute">(paper)</span>' : ''}${f.date_ok ? '' : ' <span class="mute" title="The log clock was not set">?</span>'}${tag}</td>
       ${KIND !== 'aircraft' ? `<td>${aircraftLink(f)}</td>` : ''}${KIND !== 'projects' ? `<td>${projectLink(f)}</td>` : ''}
       <td>${placeLink(f.takeoff_place, f.takeoff_place_id, f.takeoff_lat, f.takeoff_lon)}</td>

@@ -332,6 +332,9 @@ function renderSummary() {
       ${kv('Project', projectField(e))}
       ${kv('PIC', crewField(e, 'pic'))}${kv('PAC', crewField(e, 'pac'))}${kv('GCS operator', crewField(e, 'gcs'))}
       ${kv('Comment', commentField(e))}
+      ${kv('Simulation', e.simulation == null ? 'Not assessed; reparse with the current parser' : e.simulation.detected
+        ? '<span class="tag">Simulation</span> ' + esc(e.simulation.evidence.join(', '))
+        : 'No simulation evidence detected')}
       ${a ? kv('Real flight?', `<span class="tag ${esc(a.verdict)}">${esc(a.verdict)}</span> <span class="mute">${esc(a.reasons.join(', '))}</span>`) : ''}
       ${e.optitrack || e.indoor ? kv('Where', e.optitrack ? 'Indoor (OptiTrack)' : e.indoor_no_gps ? 'Indoor (inferred: no endpoint or path GPS)' : 'Indoor') : ''}
     </div></div>

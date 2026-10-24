@@ -44,7 +44,7 @@
   <section class="card">
     <div class="bar">
       <label title="Places marked as indoors on the Locations page, or flights with OptiTrack / motion capture"><input type="checkbox" id="indoor"> Show indoor flights</label>
-      <label title="Uncertain flights, arming on the ground, flickering flight flags and other 'flights' the parser judged not to be real flights"><input type="checkbox" id="ground"> Show uncertain/non-flights</label>
+      <label title="Include simulations, uncertain flights and ground records"><input type="checkbox" id="ground"> Show non-flights</label>
     </div>
     <p class="mute" id="scope" style="margin:0 0 12px"></p>
     <div class="totals">
@@ -133,7 +133,7 @@ fetch('/api/stats').then(r => r.json()).then(d => {
 
 function shown() {
   return flights.filter(f =>
-    ($('ground').checked || !['ground', 'uncertain'].includes(f.verdict)) &&
+    ($('ground').checked || (!f.simulation?.detected && !['ground', 'uncertain'].includes(f.verdict))) &&
     ($('indoor').checked || !f.indoor));
 }
 

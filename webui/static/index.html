@@ -446,7 +446,7 @@ async function loadDetail(id) {
     <span class="mute">Uploaded</span><span>${esc(l.uploaded_at)}</span>
     <span class="mute">Parsed</span><span>${esc(l.parsed_at || '-')} with ${esc(l.parser_name || '')} ${esc(l.parser_version || '-')} (${l.parse_seconds ?? '-'} s)</span></div>`;
   for (const a of l.aircraft) {
-    h += `<h4>${esc(a.drone_name || a.name)} <span class="mute">${a.drone_uid ? esc(a.drone_uid) + ' · ' : ''}AC ${a.ac_id}${a.drone_name && a.drone_name !== a.name ? ' · logged as ' + esc(a.name) : ''}</span></h4>
+    h += `<h4>${esc(a.drone_name || a.name)} ${a.simulation?.detected ? '<span class="badge">Simulation</span>' : ''}<span class="mute">${a.drone_uid ? esc(a.drone_uid) + ' · ' : ''}AC ${a.ac_id}${a.drone_name && a.drone_name !== a.name ? ' · logged as ' + esc(a.name) : ''}</span></h4>
       <div class="kv"><span class="mute">PIC / PAC / GCS</span><span>${esc(a.pic)} / ${esc(a.pac)} / ${esc(a.gcs)}</span>
       <span class="mute">Goal</span><span>${esc(a.goal)}</span>
       <span class="mute">Autopilot</span><span class="mono">${esc((a.autopilot_versions || []).join(', '))}${a.autopilot_versions_from_gcs ? '</span> <span class="mute">from GCS log' : ''}</span></div>
