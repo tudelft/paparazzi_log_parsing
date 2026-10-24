@@ -37,6 +37,100 @@ class CompactPositionTests(unittest.TestCase):
             return json.loads(result.stdout)["aircraft"][0]["flights"][0]
 
     origin = "INS_REF 0 637813700 0 0 900000000 0 -30000"
+    gps_fields = {"GPS_INT": ("ecef_x", "ecef_y", "ecef_z", "lat", "lon", "alt", "numsv", "fix")}
+    gps = "GPS_INT 0 637813700 0 0 900000000 0 8 3"
+
+    def test_inconsistent_reference_does_not_replace_recent_gps(self):
+        flight = self.parse([
+            "0 5 INS_REF -637813700 0 0 0 1800000000 0 -30000",
+            "1 5 " + self.gps,
+            "1.1 5 ROTORCRAFT_FP_MIN 0 0 0 0",
+            "1.2 5 ROTORCRAFT_STATUS 13 1 242",
+            "2 5 " + self.gps,
+            "2.1 5 ROTORCRAFT_FP_MIN 0 0 0 0",
+            "3 5 ROTORCRAFT_STATUS 13 0 230",
+        ], extra_messages=self.gps_fields)
+        self.assertAlmostEqual(flight["takeoff"]["location"]["lon"], 90)
+        self.assertEqual(len(flight["path"]), 1)
+        self.assertAlmostEqual(flight["path"][0]["position"]["lon"], 90)
+        self.assertEqual(flight["distance_m"], 0)
+
+    def test_delayed_changed_reference_is_applied_before_receipt_with_gps_evidence(self):
+        flight = self.parse([
+            "0 5 INS_REF -637813700 0 0 0 1800000000 0 -30000",
+            "1 5 " + self.gps,
+            "4 5 ROTORCRAFT_FP_MIN 0 0 0 0",
+            "4.1 5 ROTORCRAFT_STATUS 13 1 242",
+            "5 5 ROTORCRAFT_FP_MIN 256 0 0 0",
+            "6 5 " + self.origin,
+            "7 5 ROTORCRAFT_STATUS 13 0 230",
+        ], extra_messages=self.gps_fields)
+        self.assertAlmostEqual(flight["takeoff"]["location"]["lon"], 90)
+        self.assertEqual(len(flight["path"]), 1)
+        self.assertAlmostEqual(flight["path"][0]["position"]["lon"], 90.000009, places=6)
+
+    def test_stale_fix_and_uninitialized_frame_leave_takeoff_unknown(self):
+        flight = self.parse([
+            "0 5 INS_REF -637813700 0 0 0 1800000000 0 -30000",
+            "1 5 " + self.gps,
+            "20 5 ROTORCRAFT_FP_MIN 0 0 0 0",
+            "21 5 ROTORCRAFT_STATUS 13 1 242",
+            "25 5 " + self.gps,
+            "26 5 ROTORCRAFT_STATUS 13 0 230",
+        ], extra_messages=self.gps_fields)
+        self.assertIsNone(flight["takeoff"]["location"])
+        self.assertAlmostEqual(flight["landing"]["location"]["lon"], 90)
+        self.assertEqual(len(flight["path"]), 1)
+
+    def test_inconsistent_vertical_frame_is_rejected(self):
+        flight = self.parse([
+            "0 5 " + self.origin, "1 5 " + self.gps,
+            "4 5 ROTORCRAFT_STATUS 13 1 242",
+            "5 5 ROTORCRAFT_FP_MIN 0 0 2560000 0",
+            "7 5 ROTORCRAFT_STATUS 13 0 230",
+        ], extra_messages=self.gps_fields)
+        self.assertEqual(flight["path"], [])
+
+    def test_established_reference_survives_gps_outage_and_repeated_reports(self):
+        flight = self.parse([
+            "0 5 " + self.origin, "1 5 " + self.gps,
+            "4 5 ROTORCRAFT_FP_MIN 0 0 0 0",
+            "80 5 " + self.origin,
+            "80.5 5 INS_REF 0 637814200 0 0 900000000 5000 -25000",
+            "81 5 ROTORCRAFT_STATUS 13 1 242",
+            "82 5 ROTORCRAFT_FP_MIN 25600 0 0 0",
+            "83 5 ROTORCRAFT_STATUS 13 0 230",
+        ], extra_messages=self.gps_fields)
+        self.assertEqual(len(flight["path"]), 1)
+        self.assertAlmostEqual(flight["path"][0]["position"]["lon"], 90.0008983, places=6)
+
+    def test_material_reference_change_requires_new_corroboration(self):
+        flight = self.parse([
+            "0 5 " + self.origin, "1 5 " + self.gps,
+            "4 5 ROTORCRAFT_FP_MIN 0 0 0 0",
+            "80 5 INS_REF -637813700 0 0 0 1800000000 0 -30000",
+            "81 5 ROTORCRAFT_STATUS 13 1 242",
+            "82 5 ROTORCRAFT_FP_MIN 0 0 0 0",
+            "83 5 ROTORCRAFT_STATUS 13 0 230",
+        ], extra_messages=self.gps_fields)
+        self.assertEqual(flight["path"], [])
+
+    def test_rejected_frame_does_not_accumulate_ins_initialization_jumps(self):
+        messages = {**self.gps_fields,
+                    "INS": ("ins_x", "ins_y", "ins_z", "ins_xd", "ins_yd", "ins_zd",
+                            "ins_xdd", "ins_ydd", "ins_zdd")}
+        flight = self.parse([
+            "0 5 INS_REF -637813700 0 0 0 1800000000 0 -30000",
+            "1 5 ROTORCRAFT_FP_MIN 0 0 0 0",
+            "2 5 ROTORCRAFT_STATUS 13 1 242",
+            "3 5 INS 0 0 0 0 0 0 0 0 0",
+            "4 5 INS 240000000 54000000 0 2000000000 2000000000 0 0 0 0",
+            "5 5 " + self.gps,
+            "6 5 ROTORCRAFT_STATUS 13 0 230",
+        ], extra_messages=messages)
+        self.assertEqual(flight["distance_m"], 0)
+        self.assertIsNone(flight["assessment"]["metrics"]["ins_horizontal_m"])
+        self.assertEqual(flight["assessment"]["metrics"]["max_speed_ms"], 0)
 
     def test_legacy_bat_timer_positions_voltage_and_navigation(self):
         flight = self.parse([

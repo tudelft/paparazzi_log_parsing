@@ -182,6 +182,7 @@ struct Flight {
   double from_takeoff_m = 0;        // horizontal range from takeoff at the latest sample
   double max_from_takeoff_m = 0;    // farthest horizontal range from takeoff during the flight
   bool has_prev_gps = false, has_prev_ins = false, has_gps_origin = false, has_ins_origin = false;
+  bool ins_discontinuous = false;
   double prev_lat = 0, prev_lon = 0;
   double prev_n = 0, prev_e = 0;
   double origin_lat = 0, origin_lon = 0;
@@ -227,7 +228,7 @@ struct Flight {
     if (has_prev_gps) { return; }
     if (has_prev_ins) {
       distance_m += std::hypot(n.pos[0] - prev_n, n.pos[1] - prev_e);
-    } else if (takeoff_ins.valid) {
+    } else if (takeoff_ins.valid && !ins_discontinuous) {
       origin_n = takeoff_ins.pos[0]; origin_e = takeoff_ins.pos[1];
       has_ins_origin = true;
     } else {
@@ -337,6 +338,8 @@ struct AircraftState {
   std::set<std::string, std::less<>> simulation_messages;
   std::vector<InfoMsg> infos;
   bool has_gps = false;
+  double position_time = -1, direct_gps_time = -1;
+  bool local_frame_usable = true;
   bool has_optitrack = false;  // motion capture / OptiTrack on this aircraft in this log
   bool has_baro = false;
   double pressure = 0, baro_alt = 0;
@@ -1050,7 +1053,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.7.4";
+constexpr const char *PARSER_VERSION = "1.7.5";
 
 struct GpsClock {
   size_t count = 0;
@@ -1363,7 +1366,7 @@ int main(int argc, char *argv[])
       f.takeoff_volt = s.vsupply;
       f.takeoff_wind = s.wind;
       f.takeoff_ins = s.ins;
-      f.has_pos = s.has_gps;
+      f.has_pos = s.has_gps && t - s.position_time <= 5;
       f.has_optitrack = s.has_optitrack;
       f.lat = s.lat; f.lon = s.lon; f.alt = s.alt;
       s.flights.push_back(f);
@@ -1375,7 +1378,7 @@ int main(int argc, char *argv[])
       f.land_volt = s.vsupply;
       f.land_wind = s.wind;
       f.land_ins = s.ins;
-      f.has_land_pos = s.has_gps;
+      f.has_land_pos = s.has_gps && t - s.position_time <= 5;
       f.land_lat = s.lat; f.land_lon = s.lon; f.land_alt = s.alt;
     }
     s.in_flight = now;
@@ -1386,6 +1389,7 @@ int main(int argc, char *argv[])
     if (!Flight::plausible_ll(lat_d, lon_d)) { return; }
     AircraftState &s = touch(ac, t);
     s.has_gps = true;
+    s.position_time = t;
     s.lat = lat_d; s.lon = lon_d; s.alt = alt_d;
     if (s.in_flight && !s.flights.empty()) {
       Flight &f = s.flights.back();
@@ -1405,10 +1409,12 @@ int main(int argc, char *argv[])
   };
 
   struct Origin {
-    bool valid = false, searched = false;
+    bool valid = false, searched = false, corroborated = false;
     double x = 0, y = 0, z = 0, lat = 0, lon = 0, alt = 0, hmsl = 0;
+    double trusted_x = 0, trusted_y = 0, trusted_z = 0, trusted_lat = 0, trusted_lon = 0, trusted_datum = 0;
   };
   std::map<int, Origin> origins;
+  std::map<int, size_t> rejected_local_positions;
   auto read_origin = [&](Origin &o, const char *q, const char *eol) {
     if (!origin_f.split) { return false; }
     const Picked f = pick(origin_f, q, eol);
@@ -1417,12 +1423,102 @@ int main(int argc, char *argv[])
     const double radius = std::hypot(std::hypot(v[0] * .01, v[1] * .01), v[2] * .01);
     if (!Flight::plausible_ll(v[3] * 1e-7, v[4] * 1e-7) ||
         radius < 6000000 || radius > 7000000) { return false; }
+    if (o.corroborated &&
+        (std::hypot(std::hypot(o.trusted_x - v[0] * .01, o.trusted_y - v[1] * .01),
+                    o.trusted_z - v[2] * .01) > 100 ||
+         earth_distance_m(o.trusted_lat, o.trusted_lon, v[3] * 1e-7, v[4] * 1e-7) > 100 ||
+         std::fabs(o.trusted_datum - (v[6] - static_cast<double>(v[5])) * .001) > 100)) {
+      o.corroborated = false;
+    }
     o.valid = true;
     o.x = v[0] * .01; o.y = v[1] * .01; o.z = v[2] * .01;
     o.lat = v[3] * 1e-7 * M_PI / 180; o.lon = v[4] * 1e-7 * M_PI / 180;
     o.alt = v[5] * .001; o.hmsl = v[6] * .001;
     return true;
   };
+
+  struct Fix { double t, lat, lon, alt; bool optitrack; };
+  auto read_fix = [&](const char *q, const char *eol, Fix &fix) {
+    if (!gps_f.split) { return false; }
+    const Picked f = pick(gps_f, q, eol);
+    int32_t ex, ey, ez, lat, lon, alt;
+    int quality = 0, satellites = 0;
+    if (!to_num(f[GPS_EX], ex) || !to_num(f[GPS_EY], ey) || !to_num(f[GPS_EZ], ez) ||
+        !to_num(f[GPS_LAT], lat) || !to_num(f[GPS_LON], lon) || !to_num(f[GPS_ALT], alt) ||
+        !to_num(f[GPS_FIX], quality) || quality < 3) { return false; }
+    to_num(f[GPS_NUMSV], satellites);
+    fix.lat = lat * 1e-7; fix.lon = lon * 1e-7; fix.alt = alt * 1e-3;
+    fix.optitrack = satellites == 0;
+    double elat, elon, ealt;
+    if (ecef_to_lla(ex / 100.0, ey / 100.0, ez / 100.0, elat, elon, ealt)) {
+      const double radius = std::hypot(ex / 100.0, std::hypot(ey / 100.0, ez / 100.0));
+      const bool dummy = std::fabs(radius - 6378137.0) < 50 && std::abs(ey) < 100 && std::abs(ez) < 100;
+      if (!dummy && radius > 6.3e6 && radius < 6.5e6 &&
+          earth_distance_m(fix.lat, fix.lon, elat, elon) > 500) {
+        const double lat6 = lat * 1e-6, lon6 = lon * 1e-6;
+        if (earth_distance_m(lat6, lon6, elat, elon) < 500) {
+          fix.lat = lat6; fix.lon = lon6; fix.alt = alt * 1e-2;
+        } else {
+          fix.lat = elat; fix.lon = elon; fix.alt = ealt;
+        }
+      }
+    }
+    return Flight::plausible_ll(fix.lat, fix.lon);
+  };
+  auto read_utm_fix = [&](const char *q, const char *eol, Fix &fix, int &speed) {
+    if (!gpsu_f.split) { return false; }
+    const Picked f = pick(gpsu_f, q, eol);
+    int mode = 0, zone = 0;
+    int32_t east, north, alt;
+    if (!to_num(f[GPSU_MODE], mode) || mode < 3 || !to_num(f[GPSU_EAST], east) ||
+        !to_num(f[GPSU_NORTH], north) || !to_num(f[GPSU_ALT], alt) ||
+        !to_num(f[GPSU_ZONE], zone)) { return false; }
+    to_num(f[GPSU_SPEED], speed);
+    fix.alt = alt * .001;
+    return utm_to_lla(east / 100.0, north / 100.0, zone, fix.lat, fix.lon);
+  };
+  struct Reference { double t; const char *line; Origin origin; };
+  std::map<int, std::vector<Reference>> references;
+  std::map<int, std::vector<Fix>> fixes;
+  std::set<int> gps_streams;
+  // Index once: a GCS can receive an updated reference after positions already use it.
+  double index_prev = -1, index_offset = 0;
+  for (const char *scan = base; origin_f.split && (compact_f.split || position_f.split) && scan < end;) {
+    const char *nl = static_cast<const char *>(memchr(scan, '\n', end - scan));
+    if (!nl) { nl = end; }
+    const char *line = scan, *q = scan;
+    scan = nl == end ? end : nl + 1;
+    double t;
+    if (!to_num(next_token(q, nl), t) || !std::isfinite(t)) { continue; }
+    if (index_prev >= 0 && t + 2000 < index_prev) { index_offset += SYS_TIME_WRAP_S; }
+    index_prev = t;
+    t += index_offset;
+    int ac;
+    if (!to_num(next_token(q, nl), ac)) { continue; }
+    const auto name = next_token(q, nl);
+    if (name == "INS_REF") {
+      Origin o;
+      read_origin(o, q, nl);
+      auto &refs = references[ac];
+      if (refs.empty() || o.valid != refs.back().origin.valid || o.x != refs.back().origin.x ||
+          o.y != refs.back().origin.y || o.z != refs.back().origin.z ||
+          o.lat != refs.back().origin.lat || o.lon != refs.back().origin.lon ||
+          o.alt != refs.back().origin.alt || o.hmsl != refs.back().origin.hmsl) {
+        refs.push_back({t, line, o});
+      }
+    } else if (name == "GPS_INT" || name == "GPS") {
+      gps_streams.insert(ac);
+      Fix fix{t, 0, 0, 0, false};
+      int speed = 0;
+      if (name == "GPS_INT" ? read_fix(q, nl, fix) : read_utm_fix(q, nl, fix, speed)) {
+        fixes[ac].push_back(fix);
+      }
+    }
+  }
+  for (auto &entry : fixes) {
+    std::stable_sort(entry.second.begin(), entry.second.end(),
+                     [](const Fix &a, const Fix &b) { return a.t < b.t; });
+  }
 
   uint64_t ground_msgs = 0;
   const char *p = base;
@@ -1495,32 +1591,68 @@ int main(int argc, char *argv[])
           const MsgFields &position = compact ? compact_f : position_f;
           if (!position.split) { break; }
           Origin &o = origins[ac];
-          // Iridium streams can start in flight, before the first periodic reference.
-          // Look ahead once per aircraft; later reference changes are applied in stream order.
-          if (!o.valid && !o.searched) {
-            o.searched = true;
-            for (const char *scan = p; scan < end;) {
-              const char *nl = static_cast<const char *>(memchr(scan, '\n', end - scan));
-              if (!nl) { nl = end; }
-              const char *payload = scan;
-              next_token(payload, nl);
-              int other;
-              if (to_num(next_token(payload, nl), other) && other == ac &&
-                  next_token(payload, nl) == "INS_REF" && read_origin(o, payload, nl)) { break; }
-              scan = nl == end ? end : nl + 1;
-            }
-          }
-          if (!o.valid) { break; }
           const Picked f = pick(position, q, eol);
           int32_t east, north, up;
           if (!to_num(f[0], east) || !to_num(f[1], north) || !to_num(f[2], up)) { break; }
           const double e = east / 256.0, n = north / 256.0, u = up / 256.0;
-          const double sp = std::sin(o.lat), cp = std::cos(o.lat), sl = std::sin(o.lon), cl = std::cos(o.lon);
           double lat, lon, alt;
-          if (!ecef_to_lla(o.x - sl * e - sp * cl * n + cp * cl * u,
-                           o.y + cl * e - sp * sl * n + cp * sl * u,
-                           o.z + cp * n + sp * u, lat, lon, alt)) { break; }
+          const auto &gps = fixes[ac];
+          const Fix *nearby = nullptr;
+          auto next = std::lower_bound(gps.begin(), gps.end(), t,
+                                      [](const Fix &fix, double time) { return fix.t < time; });
+          if (next != gps.end()) { nearby = &*next; }
+          if (next != gps.begin() && (!nearby || t - (next - 1)->t < std::fabs(nearby->t - t))) {
+            nearby = &*(next - 1);
+          }
+          if (nearby && std::fabs(nearby->t - t) > 60) { nearby = nullptr; }
+          auto convert = [&](const Origin &candidate) {
+            if (!candidate.valid) { return false; }
+            const double sp = std::sin(candidate.lat), cp = std::cos(candidate.lat);
+            const double sl = std::sin(candidate.lon), cl = std::cos(candidate.lon);
+            if (!ecef_to_lla(candidate.x - sl * e - sp * cl * n + cp * cl * u,
+                             candidate.y + cl * e - sp * sl * n + cp * sl * u,
+                             candidate.z + cp * n + sp * u, lat, lon, alt)) { return false; }
+            if (nearby) {
+              if (earth_distance_m(lat, lon, nearby->lat, nearby->lon) > 500 ||
+                  std::fabs(alt - nearby->alt) > 250) { return false; }
+            } else if (gps_streams.count(ac) && !candidate.corroborated) {
+              return false;
+            }
+            alt = candidate.hmsl + alt - candidate.alt;
+            return true;
+          };
+          bool converted = convert(o);
+          if (converted && nearby) {
+            o.corroborated = true;
+            o.trusted_x = o.x; o.trusted_y = o.y; o.trusted_z = o.z;
+            o.trusted_lat = o.lat * 180 / M_PI; o.trusted_lon = o.lon * 180 / M_PI;
+            o.trusted_datum = o.hmsl - o.alt;
+          }
+          if (!converted && nearby) { o.corroborated = false; }
+          if (!converted && (o.valid || !o.searched)) {
+            const auto &refs = references[ac];
+            auto future = std::upper_bound(refs.begin(), refs.end(), line,
+                [](const char *pos, const Reference &ref) { return pos < ref.line; });
+            for (; future != refs.end() && future->t - t <= 60; ++future) {
+              if (!future->origin.valid) { break; }
+              // Replacing an existing reference retrospectively requires GPS corroboration.
+              if (o.searched && !nearby) { break; }
+              if (convert(future->origin)) { converted = true; break; }
+            }
+          }
           AircraftState &s = touch(ac, t);
+          s.local_frame_usable = converted;
+          if (!converted) {
+            ++rejected_local_positions[ac];
+            s.ins.valid = false;
+            if (s.position_time > s.direct_gps_time) { s.has_gps = false; }
+            if (s.in_flight && !s.flights.empty()) {
+              s.flights.back().has_prev_ins = false;
+              s.flights.back().ins_discontinuous = true;
+            }
+            break;
+          }
+          if (s.direct_gps_time >= 0 && t - s.direct_gps_time <= 2) { break; }
           double speed;
           if (compact) {
             if (to_num(f[3], speed) && speed >= 0) { s.has_gs = true; s.gndspeed = speed / 100.0; }
@@ -1531,7 +1663,7 @@ int main(int argc, char *argv[])
               s.gndspeed = std::hypot(ve / 524288.0, vn / 524288.0);
             }
           }
-          use_gps(ac, t, lat, lon, o.hmsl + alt - o.alt);
+          use_gps(ac, t, lat, lon, alt);
           break;
         }
         if (name == "ROTORCRAFT_NAV_STATUS") {
@@ -1604,51 +1736,21 @@ int main(int argc, char *argv[])
           }
         }
         if (name == "GPS_INT") {
-          if (!gps_f.split) { break; }
-          // ecef (cm), lat/lon (1e-7 deg), alt (mm)
-          const Picked f = pick(gps_f, q, eol);
-          int32_t ex, ey, ez, lat, lon, alt;
-          if (!to_num(f[GPS_EX], ex) || !to_num(f[GPS_EY], ey) || !to_num(f[GPS_EZ], ez) ||
-              !to_num(f[GPS_LAT], lat) || !to_num(f[GPS_LON], lon) || !to_num(f[GPS_ALT], alt)) { break; }
-          int numsv = 0, fix = 0;
-          to_num(f[GPS_NUMSV], numsv);
-          to_num(f[GPS_FIX], fix);
-          if (fix < 3) { break; }
-          // OptiTrack injected as GPS typically has a 3D fix and no satellites.
-          if (numsv == 0) { touch(ac, t).has_optitrack = true; }
-          double lat_d = lat * 1e-7, lon_d = lon * 1e-7, alt_d = alt * 1e-3;
-          // Some onboard dumps drop a digit of lat/lon (528654232 -> 52865423), which the 1e-7
-          // scale turns into West Africa. ECEF in the same message is still the real position.
-          double elat, elon, ealt;
-          if (ecef_to_lla(ex / 100.0, ey / 100.0, ez / 100.0, elat, elon, ealt)) {
-            const double R = std::hypot(ex / 100.0, std::hypot(ey / 100.0, ez / 100.0));
-            const bool dummy = std::fabs(R - 6378137.0) < 50 && std::abs(ey) < 100 && std::abs(ez) < 100;
-            if (!dummy && R > 6.3e6 && R < 6.5e6 && earth_distance_m(lat_d, lon_d, elat, elon) > 500) {
-              const double lat6 = lat * 1e-6, lon6 = lon * 1e-6;
-              if (earth_distance_m(lat6, lon6, elat, elon) < 500) {
-                lat_d = lat6; lon_d = lon6; alt_d = alt * 1e-2;
-              } else {
-                lat_d = elat; lon_d = elon; alt_d = ealt;
-              }
-            }
-          }
-          if (!Flight::plausible_ll(lat_d, lon_d)) { break; }
-          use_gps(ac, t, lat_d, lon_d, alt_d);
+          Fix fix{t, 0, 0, 0, false};
+          if (!read_fix(q, eol, fix)) { break; }
+          AircraftState &s = touch(ac, t);
+          s.direct_gps_time = t;
+          if (fix.optitrack) { s.has_optitrack = true; }
+          use_gps(ac, t, fix.lat, fix.lon, fix.alt);
         } else if (name == "GPS") {
-          if (!gpsu_f.split) { break; }
-          const Picked f = pick(gpsu_f, q, eol);
-          int mode = 0, zone = 0, speed_cm = 0;
-          int32_t east = 0, north = 0, alt = 0;
-          if (!to_num(f[GPSU_MODE], mode) || !to_num(f[GPSU_EAST], east) || !to_num(f[GPSU_NORTH], north) ||
-              !to_num(f[GPSU_ALT], alt) || !to_num(f[GPSU_ZONE], zone)) { break; }
-          to_num(f[GPSU_SPEED], speed_cm);
-          if (mode < 3) { break; }
-          double lat_d = 0, lon_d = 0;
-          if (!utm_to_lla(east / 100.0, north / 100.0, zone, lat_d, lon_d)) { break; }
+          Fix fix{t, 0, 0, 0, false};
+          int speed_cm = 0;
+          if (!read_utm_fix(q, eol, fix, speed_cm)) { break; }
           AircraftState &st = touch(ac, t);
           st.has_gs = true;
+          st.direct_gps_time = t;
           st.gndspeed = speed_cm / 100.0;
-          use_gps(ac, t, lat_d, lon_d, alt * 1e-3);
+          use_gps(ac, t, fix.lat, fix.lon, fix.alt);
         }
         break;
       case 'D':
@@ -1699,11 +1801,13 @@ int main(int argc, char *argv[])
           Origin &o = origins[ac];
           o.searched = true;
           o.valid = false;
-          read_origin(o, q, eol);
+          if (!read_origin(o, q, eol)) { o.corroborated = false; }
           break;
         }
         if (name == "INS") {
           if (!ins_f.split) { break; }
+          AircraftState &state = touch(ac, t);
+          if (!state.local_frame_usable) { state.ins.valid = false; break; }
           // x y z (north, east, down; 8 fractional bits), xd yd zd (19 bits), xdd ydd zdd (10 bits)
           const Picked f = pick(ins_f, q, eol);
           int32_t v[9];
@@ -1808,12 +1912,16 @@ int main(int argc, char *argv[])
       f.land_volt = s.vsupply;
       f.land_wind = s.wind;
       f.land_ins = s.ins;
-      f.has_land_pos = s.has_gps;
+      f.has_land_pos = s.has_gps && s.last_time - s.position_time <= 5;
       f.land_lat = s.lat; f.land_lon = s.lon; f.land_alt = s.alt;
     }
   }
 
   // Report (JSON)
+  for (const auto &entry : rejected_local_positions) {
+    std::cerr << " - aircraft " << entry.first << ": ignored " << entry.second
+              << " local positions without a compatible reference/GPS frame; associated INS fallback disabled\n";
+  }
   const ClockDecision clock = choose_clock(hdr.start_epoch, gps_clocks);
   auto utc = [&](double t) { return utc_iso(clock.start < 0 ? -1 : clock.start + t); };
   const double t0 = first_time < 0 ? 0 : first_time;

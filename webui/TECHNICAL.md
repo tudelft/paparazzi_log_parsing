@@ -59,9 +59,28 @@ ECEF origin and tangent frame. Parser 1.7.3 also decodes `ROTORCRAFT_FP` positio
 and horizontal velocity (1/524288 m/s), retaining its attitude fields, using the same
 reference conversion. Paths, endpoint coordinates, distance and sensor graphs use
 the existing JSON format; altitude is converted to the reference's mean-sea-level datum.
-When a recording starts before its first periodic reference, the parser looks ahead once
-for that aircraft's first valid reference. Subsequent reference changes are applied in
-record order; without a valid reference no geographic positions are invented.
+Parser 1.7.5 indexes reference changes and valid GPS fixes per aircraft before streaming
+the report. A first reference can arrive up to 60 seconds after local samples; an updated
+reference can also explain earlier samples within that window when GPS corroborates it.
+An invalid reference is a barrier: lookahead does not cross an explicit invalidation.
+The closest GPS fix within 60 seconds must agree within 500 m horizontally and 250 m
+vertically (allowing for vertical datums and timing). The check is per sample, not just
+whether the reference itself is geographically plausible. A GPS-corroborated reference
+remains usable during longer GPS outages. Small reference refinements within 100 m of
+the GPS-validated reference retain trust (including altitude refinements); cumulative
+changes are compared against that validated anchor, not just the preceding report.
+Contradictory evidence, material reference changes or invalidation remove that trust.
+Without any GPS stream, compact/local-only recordings
+still use valid references without requiring unavailable GPS corroboration.
+Direct GPS takes precedence over local positions for two seconds after a valid fix.
+Endpoint positions expire after five seconds without accepted updates; an exact takeoff
+or landing location can therefore be null rather than an old or uninitialized coordinate.
+Nearby future GPS is used only to check a frame, not to fabricate an earlier endpoint.
+Rejected local frames also disable associated INS fallback until a compatible local sample
+is received, avoiding initialization jumps in distance/assessment metrics. The parser
+reports rejected local-position counts on stderr. Sensor data in a rejected INS frame is
+not treated as trustworthy flight evidence. Reparse to remove previously stored bad paths
+and metrics. The web UI's existing endpoint-inference rules still apply to null endpoints.
 `ROTORCRAFT_STATUS.vsupply` with the protocol unit `decivolt` is converted to volts;
 volt-valued and unitless protocols retain their previous scaling.
 Deploying the rebuilt parser and reparsing affected uploads is sufficient: no web UI or
