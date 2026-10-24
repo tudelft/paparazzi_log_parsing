@@ -37,6 +37,12 @@ window.flightDateRange = {
 };
 
 (function () {
+  const icon = document.createElement('link');
+  icon.rel = 'icon';
+  icon.type = 'image/svg+xml';
+  icon.href = '/favicon.svg';
+  document.head.appendChild(icon);
+
   try {
     if (localStorage.getItem('logdbNight') === '1')
       document.documentElement.classList.add('night');

@@ -719,7 +719,7 @@ def upload():
 # Local passwords plus TU Delft NetID SAML 2.0. IdP metadata:
 #   https://login.tudelft.nl/sso/saml2/idp/metadata.php
 PUBLIC_ENDPOINTS = {"login_page", "login", "login_options", "setup_page", "setup_info", "setup_password",
-                    "theme_css", "theme_js", "saml_login", "saml_acs", "saml_metadata", "saml_sls"}
+                    "theme_css", "theme_js", "favicon", "saml_login", "saml_acs", "saml_metadata", "saml_sls"}
 SETUP_HOURS = 48
 MAX_FAILURES, FAILURE_WINDOW_S = 8, 300
 _failures: dict = {}
@@ -762,6 +762,11 @@ def theme_css():
 @app.get("/theme.js")
 def theme_js():
     return send_from_directory(PAGES_DIR, "theme.js")
+
+
+@app.get("/favicon.svg")
+def favicon():
+    return send_from_directory(PAGES_DIR, "favicon.svg", mimetype="image/svg+xml")
 
 
 API_KEY_PREFIX = "logdb_"

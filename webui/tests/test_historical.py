@@ -72,6 +72,14 @@ class AppTests(unittest.TestCase):
 
 
 class HistoricalTests(AppTests):
+    def test_favicon_is_available_without_sign_in(self):
+        with self.client.session_transaction() as session:
+            session.clear()
+        with self.client.get("/favicon.svg") as response:
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.mimetype, "image/svg+xml")
+            self.assertIn(b'viewBox="0 0 64 64"', response.data)
+
     def test_home_is_logbook_and_uploads_has_own_route(self):
         for path in ("/", "/logbook"):
             with self.client.get(path) as response:
