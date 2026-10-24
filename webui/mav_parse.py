@@ -10,11 +10,12 @@ import hashlib
 import math
 import re
 import struct
+from bisect import bisect_right
 from datetime import datetime, timezone
 from pathlib import Path
 
 PARSER_NAME = "mav-log"
-PARSER_VERSION = "1.0.1"
+PARSER_VERSION = "1.0.2"
 
 LOG_PX4 = "px4_ulog"
 LOG_AP = "ardupilot"
@@ -170,7 +171,7 @@ def _ins(n, e, d, vn=None, ve=None, vd=None, an=None, ae=None, ad=None):
     if vn is not None and ve is not None:
         gs = math.hypot(vn, ve)
     return {
-        "position_ned_m": {"north": _num(n or 0), "east": _num(e or 0), "down": _num(d or 0)},
+        "position_ned_m": {"north": _num(n), "east": _num(e), "down": _num(d)},
         "velocity_ned_ms": {
             "north": _num(vn) if vn is not None else None,
             "east": _num(ve) if ve is not None else None,
@@ -349,10 +350,25 @@ def _merge_latest(streams):
     return out
 
 
-def _split_flights(samples, armed, t0_epoch, path_rate):
+def _split_flights(samples, armed, t0_epoch, path_rate, *, airborne=None, strict_positions=False):
     """samples: list of (t, dict). armed: list of (t, bool)."""
     if not samples:
         return []
+    has_arming = bool(armed)
+    if airborne is not None:
+        events = sorted([(t, "armed", on) for t, on in armed]
+                        + [(t, "airborne", on) for t, on in airborne])
+        armed_on, flying = not armed, False
+        active = []
+        for t, kind, on in events:
+            if kind == "armed":
+                armed_on = on
+            else:
+                flying = on
+            state = armed_on and flying
+            if not active or state != active[-1][1]:
+                active.append((t, state))
+        armed = active
     t_end = samples[-1][0]
     if not armed:
         segments = [(samples[0][0], t_end, True)]
@@ -364,15 +380,18 @@ def _split_flights(samples, armed, t0_epoch, path_rate):
                 start = t
                 state = True
             elif not on and state:
-                segments.append((start, t, True))
+                complete = airborne is None or not next(
+                    (flying for time_s, flying in reversed(airborne) if time_s <= t), True)
+                segments.append((start, t, complete))
                 state = False
                 start = None
         if state:
             segments.append((start if start is not None else samples[0][0], t_end, False))
-        if not segments:
+        if not segments and airborne is None:
             segments = [(samples[0][0], t_end, True)]
 
     dt = (1.0 / path_rate) if path_rate and path_rate > 0 else None
+    sample_times = [s[0] for s in samples]
     flights = []
     for i, (t_a, t_b, complete) in enumerate(segments, start=1):
         window = [s for s in samples if t_a <= s[0] <= t_b]
@@ -394,7 +413,7 @@ def _split_flights(samples, armed, t0_epoch, path_rate):
         prev = None
         origin = None
         climb_lo = climb_hi = None
-        max_gs = 0.0
+        max_gs = None if strict_positions else 0.0
         max_tilt = 0.0
         path = []
         for t, sm in picked:
@@ -406,7 +425,11 @@ def _split_flights(samples, armed, t0_epoch, path_rate):
                 from_to = math.hypot(horiz, dalt)
             else:
                 from_to = 0.0
-            if prev and sm.get("lat") is not None and prev.get("lat") is not None:
+            continuous = not strict_positions or (
+                prev is not None and sm.get("_position_frame") == prev.get("_position_frame")
+                and sm.get("_position_time") is not None and prev.get("_position_time") is not None
+                and sm["_position_time"] - prev["_position_time"] <= 5)
+            if prev and continuous and sm.get("lat") is not None and prev.get("lat") is not None:
                 dist += _haversine_m(prev["lat"], prev["lon"], sm["lat"], sm["lon"])
             sm = dict(sm)
             sm["distance_m"] = dist
@@ -417,7 +440,7 @@ def _split_flights(samples, armed, t0_epoch, path_rate):
                 climb_lo = alt if climb_lo is None else min(climb_lo, alt)
                 climb_hi = alt if climb_hi is None else max(climb_hi, alt)
             if sm.get("gs") is not None:
-                max_gs = max(max_gs, sm["gs"])
+                max_gs = max(max_gs, sm["gs"]) if max_gs is not None else sm["gs"]
             if sm.get("roll") is not None and sm.get("pitch") is not None:
                 max_tilt = max(max_tilt, math.hypot(sm["roll"], sm["pitch"]))
             path.append(_path_point(t, t0_epoch + t if t0_epoch is not None else None, sm))
@@ -426,14 +449,27 @@ def _split_flights(samples, armed, t0_epoch, path_rate):
         first, last = window[0][1], window[-1][1]
         gps_first = next((s[1] for s in window if s[1].get("lat") is not None), first)
         gps_last = next((s[1] for s in reversed(window) if s[1].get("lat") is not None), last)
+        if strict_positions:
+            def endpoint(t):
+                idx = bisect_right(sample_times, t) - 1
+                sm = samples[idx][1] if idx >= 0 else {}
+                if sm.get("_position_time") is None or not 0 <= t - sm["_position_time"] <= 5:
+                    return {}
+                return sm
+            gps_first, gps_last = endpoint(t_a), endpoint(t_b)
         duration = t_b - t_a
         climb = (climb_hi - climb_lo) if climb_lo is not None else None
+        if strict_positions:
+            altitudes = [sm["alt"] for _, sm in window if sm.get("alt") is not None]
+            if not altitudes:
+                altitudes = [sm["baro_alt"] for _, sm in window if sm.get("baro_alt") is not None]
+            climb = max(altitudes) - min(altitudes) if altitudes else None
         horiz = None
         gps_pts = [s[1] for s in window if s[1].get("lat") is not None]
         if len(gps_pts) >= 2:
             o = gps_pts[0]
             horiz = max(_haversine_m(o["lat"], o["lon"], p["lat"], p["lon"]) for p in gps_pts)
-        motors = 1.0 if armed else None
+        motors = 1.0 if has_arming else None
         to = _event(t_a, t0_epoch + t_a if t0_epoch is not None else None,
                     gps_first.get("lat"), gps_first.get("lon"), gps_first.get("alt"), gps_first.get("volt") or first.get("volt"),
                     _wind(first.get("we"), first.get("wn")) if first.get("we") is not None else None,
@@ -706,9 +742,10 @@ def _parse_ulog(path, digest, size, path_rate):
             if alt is not None and abs(alt) > 100000:
                 alt *= 0.001
         fix = _at(data.get("fix_type"), i)
-        if lat is None or lon is None or (lat == 0 and lon == 0):
+        if not position_valid(lat, lon, data, i) or (fix is not None and fix < 3):
             return None
-        if fix is not None and fix < 2:
+        satellites = _at(data.get("satellites_used"), i)
+        if satellites is not None and satellites < 6:
             return None
         gs = _at(data.get("vel_m_s"), i)
         vn, ve, vd = _at(data.get("vel_n_m_s"), i), _at(data.get("vel_e_m_s"), i), _at(data.get("vel_d_m_s"), i)
@@ -718,9 +755,21 @@ def _parse_ulog(path, digest, size, path_rate):
 
     def gpos_builder(data, i):
         lat, lon, alt = _at(data.get("lat"), i), _at(data.get("lon"), i), _at(data.get("alt"), i)
-        if lat is None or lon is None or (lat == 0 and lon == 0):
+        if not position_valid(lat, lon, data, i) or _at(data.get("dead_reckoning"), i):
             return None
         return {"lat": lat, "lon": lon, "alt": alt}
+
+    def position_valid(lat, lon, data, i):
+        if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            return False
+        if lat == 0 and lon == 0:
+            return False
+        for field, limit in (("eph", 10), ("epv", 15)):
+            if field in data:
+                error = _at(data[field], i)
+                if error is None or not 0 <= error <= limit:
+                    return False
+        return True
 
     def att_builder(data, i):
         w = _at(_col(data, "q[0]", "q0"), i)
@@ -733,10 +782,20 @@ def _parse_ulog(path, digest, size, path_rate):
         return {"qi": w, "qx": x, "qy": y, "qz": z, "roll": roll, "pitch": pitch, "yaw": yaw}
 
     def local_builder(data, i):
+        def valid(field):
+            return field not in data or bool(_at(data[field], i))
+
         return {
-            "n": _at(data.get("x"), i), "e": _at(data.get("y"), i), "d": _at(data.get("z"), i),
-            "vn": _at(data.get("vx"), i), "ve": _at(data.get("vy"), i), "vd": _at(data.get("vz"), i),
-            "an": _at(data.get("ax"), i), "ae": _at(data.get("ay"), i), "ad": _at(data.get("az"), i),
+            "_local_time": rel(data["timestamp"][i]),
+            "n": _at(data.get("x"), i) if valid("xy_valid") else None,
+            "e": _at(data.get("y"), i) if valid("xy_valid") else None,
+            "d": _at(data.get("z"), i) if valid("z_valid") else None,
+            "vn": _at(data.get("vx"), i) if valid("v_xy_valid") else None,
+            "ve": _at(data.get("vy"), i) if valid("v_xy_valid") else None,
+            "vd": _at(data.get("vz"), i) if valid("v_z_valid") else None,
+            "an": _at(data.get("ax"), i) if valid("v_xy_valid") else None,
+            "ae": _at(data.get("ay"), i) if valid("v_xy_valid") else None,
+            "ad": _at(data.get("az"), i) if valid("v_z_valid") else None,
         }
 
     def bat_builder(data, i):
@@ -779,9 +838,25 @@ def _parse_ulog(path, digest, size, path_rate):
         return {"mode": PX4_NAV.get(int(nav), f"nav_{int(nav)}") if nav is not None else None}
 
     streams = []
+    global_position = _ds(ulog, "vehicle_global_position")
+    if global_position is not None and len(global_position.data.get("timestamp", [])):
+        position_source, position_builder, ds = "vehicle_global_position", gpos_builder, global_position
+    else:
+        position_source, position_builder, ds = "vehicle_gps_position", gps_builder, gps
+    positions = []
+    if ds is not None:
+        for i, tus in enumerate(ds.data["timestamp"]):
+            t = rel(tus)
+            row = position_builder(ds.data, i)
+            frame = (position_source, _at(ds.data.get("lat_lon_reset_counter"), i),
+                     _at(ds.data.get("alt_reset_counter"), i))
+            position = dict(lat=None, lon=None, alt=None, gs=None, _position_time=None, _position_frame=None)
+            if row is not None:
+                position.update(row, _position_time=t, _position_frame=frame)
+            positions.append((t, position))
+    if positions:
+        streams.append(positions)
     for topic, builder in (
-        ("vehicle_global_position", gpos_builder),
-        ("vehicle_gps_position", gps_builder),
         ("vehicle_attitude", att_builder),
         ("vehicle_local_position", local_builder),
         ("battery_status", bat_builder),
@@ -796,8 +871,6 @@ def _parse_ulog(path, digest, size, path_rate):
         rows = series_rows(_ds(ulog, topic), builder)
         if rows:
             streams.append(rows)
-
-    samples = _merge_latest(streams)
 
     armed_series = []
     cm = _ds(ulog, "vehicle_control_mode")
@@ -818,7 +891,31 @@ def _parse_ulog(path, digest, size, path_rate):
                 armed_series.append((rel(tus), on))
                 prev = on
 
-    flights = _split_flights(samples, armed_series, t0_epoch, path_rate)
+    land = _ds(ulog, "vehicle_land_detected")
+    airborne = None
+    if land is not None and "landed" in land.data and len(land.data["timestamp"]):
+        airborne = []
+        streams.append([(rel(tus), {"_airborne": not bool(land.data["landed"][i])})
+                        for i, tus in enumerate(land.data["timestamp"])])
+        for i, tus in enumerate(land.data["timestamp"]):
+            on = not bool(land.data["landed"][i])
+            if not airborne or on != airborne[-1][1]:
+                airborne.append((rel(tus), on))
+    if cm is not None and "flag_armed" in cm.data:
+        streams.append([(rel(tus), {"_armed": bool(cm.data["flag_armed"][i])})
+                        for i, tus in enumerate(cm.data["timestamp"])])
+    else:
+        streams.append([(t, {"_armed": on}) for t, on in armed_series])
+    samples = _merge_latest(streams)
+    for t, sm in samples:
+        if sm.get("_position_time") is not None and t - sm["_position_time"] > 5:
+            sm.update(lat=None, lon=None, alt=None, gs=None, _position_time=None, _position_frame=None)
+        if sm.get("_local_time") is not None and t - sm["_local_time"] > 5:
+            sm.update(n=None, e=None, d=None, vn=None, ve=None, vd=None, an=None, ae=None, ad=None)
+        if sm.get("gs") is None and sm.get("vn") is not None and sm.get("ve") is not None:
+            sm["gs"] = math.hypot(sm["vn"], sm["ve"])
+    flights = _split_flights(samples, armed_series, t0_epoch, path_rate,
+                             airborne=airborne, strict_positions=True)
 
     # Messages: every logged printf, events, status changes, then other topics up to the cap.
     info_messages = []

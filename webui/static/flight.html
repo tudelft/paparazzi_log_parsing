@@ -430,19 +430,49 @@ function fmtAxis(v) {
   return a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : v.toFixed(2);
 }
 
+function geographicPosition(p) {
+  return p && Number.isFinite(p.lat) && Number.isFinite(p.lon)
+    && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180 && (p.lat !== 0 || p.lon !== 0);
+}
+
 function initMap() {
   map = L.map('map').setView([52, 4.4], 6);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap contributors'}).addTo(map);
-  const path = D.path.filter(p => p.position);
+  const path = D.path.filter(p => geographicPosition(p.position));
   const ll = path.map(p => [p.position.lat, p.position.lon]);
   const group = L.featureGroup();
+  const segments = [];
+  let segment = null, previous = null;
+  for (const p of D.path) {
+    if (!geographicPosition(p.position)) { segment = null; previous = null; continue; }
+    if (!segment || p.time_s - previous.time_s > 5) {
+      segment = [];
+      segments.push(segment);
+    }
+    segment.push([p.position.lat, p.position.lon]);
+    previous = p;
+  }
+  for (const points of segments) {
+    if (points.length > 1) L.polyline(points, {color: '#1f6feb', weight: 4}).addTo(group);
+    else L.circleMarker(points[0], {radius: 3, color: '#1f6feb', fillOpacity: 1}).addTo(group);
+  }
   if (ll.length) {
-    L.polyline(ll, {color: '#1f6feb', weight: 4}).addTo(group);
-    L.circleMarker(ll[0], {radius: 7, color: '#1a7f37', fillOpacity: .9}).bindTooltip('Takeoff').addTo(group);
-    L.circleMarker(ll[ll.length - 1], {radius: 7, color: '#c62828', fillOpacity: .9}).bindTooltip('Landing').addTo(group);
-    marker = L.circleMarker(ll[0], {radius: 8, color: '#000', weight: 2, fillColor: '#ffd33d', fillOpacity: 1}).addTo(group);
+    L.circleMarker(ll[0], {radius: 5, color: '#1f6feb', fillOpacity: .9}).bindTooltip('First recorded position').addTo(group);
+    L.circleMarker(ll[ll.length - 1], {radius: 5, color: '#1f6feb', fillOpacity: .9}).bindTooltip('Last recorded position').addTo(group);
+    marker = L.circleMarker(ll[0], {radius: 8, color: '#000', weight: 2, fillColor: '#ffd33d', fillOpacity: 1});
+    $('mapMsg').textContent = path.length < D.path.length || segments.length > 1
+      ? 'Partial path: samples without valid geographic coordinates and gaps over 5 seconds are not connected.' : '';
   } else {
-    $('mapMsg').textContent = 'No path stored for this flight (parsed with path rate 0?).';
+    $('mapMsg').textContent = D.path.length
+      ? 'No valid geographic positions in the stored path. Sensor data may still be available in the charts.'
+      : 'No path samples stored for this flight.';
+  }
+  for (const [event, label, color] of [['takeoff', 'Takeoff', '#1a7f37'], ['landing', 'Landing', '#c62828']]) {
+    const position = D.entry?.[event]?.location;
+    if (geographicPosition(position)) {
+      L.circleMarker([position.lat, position.lon], {radius: 7, color, fillOpacity: .9})
+        .bindTooltip(label).addTo(group);
+    }
   }
   group.addTo(map);
   const fp = D.flight_plan;
@@ -454,7 +484,7 @@ function initMap() {
   }
   if (!wps.length) { $('showPlan').disabled = true; $('showPlan').parentElement.title = 'No flight plan in the log'; }
   const bounds = L.featureGroup([group, ...wps.map(w => L.marker([w.lat, w.lon]))]).getBounds();
-  const fit = () => { const b = ll.length ? group.getBounds() : bounds; if (b.isValid()) map.fitBounds(b.pad(0.1), {maxZoom: 19}); else map.setView([52, 4.4], 6); };
+  const fit = () => { const b = group.getBounds().isValid() ? group.getBounds() : bounds; if (b.isValid()) map.fitBounds(b.pad(0.1), {maxZoom: 19}); else map.setView([52, 4.4], 6); };
   const togglePlan = () => { $('showPlan').checked ? planLayer.addTo(map) : planLayer.remove(); };
   $('showPlan').onchange = togglePlan;
   togglePlan(); fit();
@@ -467,7 +497,10 @@ function initMap() {
 function show(i) {
   const p = pt(i);
   if (!p) { $('readout').innerHTML = ''; return; }
-  if (marker && p.position) marker.setLatLng([p.position.lat, p.position.lon]);
+  if (marker) {
+    if (geographicPosition(p.position)) marker.setLatLng([p.position.lat, p.position.lon]).addTo(map);
+    else marker.remove();
+  }
   $('scrub').value = i;
   const a = alt(p), g = gs(p), m = p.flight_mode, n = p.nav, at = p.attitude?.euler_deg;
   const cell = (k, v) => v == null || v === '' ? '' : `<div><b>${k}</b>${v}</div>`;
@@ -475,7 +508,7 @@ function show(i) {
     + cell('Distance flown', p.distance_m != null ? fmtDist(p.distance_m) : null)
     + cell('From takeoff', p.from_takeoff_m != null ? fmtDist(p.from_takeoff_m) : null)
     + cell('Height', a != null ? a.toFixed(1) + ' m' : null) + cell('GPS alt', p.position?.gps_alt_m != null ? p.position.gps_alt_m + ' m' : null)
-    + cell('Baro alt', p.position.baro_alt_m != null ? p.position.baro_alt_m + ' m' : null)
+    + cell('Baro alt', p.position?.baro_alt_m != null ? p.position.baro_alt_m + ' m' : null)
     + cell('Ground speed', g != null ? g.toFixed(1) + ' m/s' : null) + cell('Airspeed', p.airspeed?.eas_ms != null ? p.airspeed.eas_ms + ' m/s' : null)
     + cell('Battery', p.battery_voltage_v != null ? p.battery_voltage_v + ' V' : null)
     + cell('Mode', m ? esc([m.ap_mode, m.h_mode, m.v_mode].join(' / ')) : null) + cell('Block', n?.block ? esc(n.block) + (n.stage ? ' · ' + esc(n.stage) : '') : null)

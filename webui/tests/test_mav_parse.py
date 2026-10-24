@@ -69,6 +69,119 @@ def _tiny_ap_log(path):
     )
 
 
+def _navigation_ulog(path, *, gps=(), global_positions=(), local=(),
+                     landed=((0, True), (2, False), (8, True)), armed=((0, True), (10, False))):
+    formats = [
+        "vehicle_control_mode:uint64_t timestamp;bool flag_armed;",
+        "vehicle_land_detected:uint64_t timestamp;bool landed;",
+        "vehicle_gps_position:uint64_t timestamp;double latitude_deg;double longitude_deg;"
+        "float altitude_msl_m;uint8_t fix_type;uint8_t satellites_used;float eph;float epv;",
+        "vehicle_global_position:uint64_t timestamp;double lat;double lon;float alt;"
+        "float eph;float epv;bool dead_reckoning;uint8_t lat_lon_reset_counter;",
+        "vehicle_local_position:uint64_t timestamp;float x;float y;float z;"
+        "bool xy_valid;bool z_valid;float vx;float vy;float vz;bool v_xy_valid;bool v_z_valid;",
+    ]
+    add = [(0, i, fmt.split(":")[0]) for i, fmt in enumerate(formats, 1)]
+    rows = [(1, struct.pack("<Q?", 1_000_000 + t * 1_000_000, on)) for t, on in armed]
+    for msg_id, fmt, values in ((2, "<Q?", landed), (3, "<QddfBBff", gps),
+                                (4, "<Qddfff?B", global_positions), (5, "<Qfff??fff??", local)):
+        for t, *fields in values:
+            rows.append((msg_id, struct.pack(fmt, 1_000_000 + t * 1_000_000, *fields)))
+    rows.sort(key=lambda row: struct.unpack_from("<Q", row[1])[0])
+    mav_parse.write_ulog(path, start_us=1_000_000, info={}, formats=formats, add=add, samples=rows, logged=[])
+
+
+class PX4NavigationTests(unittest.TestCase):
+    def parse(self, **kwargs):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "navigation.ulg"
+            _navigation_ulog(path, **kwargs)
+            return mav_parse.parse(path, path_rate=5)["aircraft"][0]["flights"]
+
+    def test_land_detector_boundaries_and_no_future_takeoff_fix(self):
+        flight = self.parse(gps=[(4, 52, 4, 10, 3, 12, 1, 2),
+                                 (8, 52.00001, 4, 10, 3, 12, 1, 2)])[0]
+        self.assertEqual(flight["takeoff"]["time_s"], 2)
+        self.assertEqual(flight["landing"]["time_s"], 8)
+        self.assertEqual(flight["duration_s"], 6)
+        self.assertIsNone(flight["takeoff"]["location"])
+        self.assertIsNotNone(flight["landing"]["location"])
+
+    def test_fresh_preceding_position_is_used_and_stale_landing_is_unknown(self):
+        flight = self.parse(gps=[(1, 52, 4, 10, 3, 12, 1, 2)])[0]
+        self.assertEqual(flight["takeoff"]["location"]["lat"], 52)
+        self.assertIsNone(flight["landing"]["location"])
+        self.assertIsNone(flight["path"][-1]["position"])
+
+    def test_bad_gps_quality_is_rejected(self):
+        for fix, sats, eph, epv in ((2, 12, 1, 2), (3, 4, 1, 2), (3, 12, 61, 2),
+                                     (3, 12, 1, 78), (3, 12, float("nan"), 2)):
+            with self.subTest(fix=fix, sats=sats, eph=eph, epv=epv):
+                flight = self.parse(gps=[(1, 52, 4, 10, fix, sats, eph, epv)])[0]
+                self.assertIsNone(flight["takeoff"]["location"])
+                self.assertTrue(all(p["position"] is None for p in flight["path"]))
+
+    def test_global_priority_does_not_mix_raw_gps_or_dead_reckoning(self):
+        flight = self.parse(
+            gps=[(t, 52.01, 4, 10, 3, 12, 1, 2) for t in range(1, 10)],
+            global_positions=[(3, 52, 4, 10, 1, 2, False, 0),
+                              (5, 52, 4, 10, 1, 2, False, 0),
+                              (6, 52, 4, 10, 1, 2, True, 0)])[0]
+        self.assertEqual(flight["distance_m"], 0)
+        positions = [p["position"]["lat"] for p in flight["path"] if p["position"]]
+        self.assertIn(52, positions)
+        self.assertNotIn(52.01, positions)
+        self.assertIsNone(flight["takeoff"]["location"])
+        self.assertIsNone(flight["landing"]["location"])
+
+    def test_global_reset_does_not_add_distance(self):
+        flight = self.parse(global_positions=[
+            (1, 52, 4, 10, 1, 2, False, 0), (4, 53, 4, 10, 1, 2, False, 1),
+            (7, 53, 4, 10, 1, 2, False, 1)])[0]
+        self.assertEqual(flight["distance_m"], 0)
+
+    def test_invalid_global_coordinates_or_accuracy_are_not_replaced_with_raw_gps(self):
+        for lat, lon, eph, epv in ((91, 4, 1, 2), (52, 181, 1, 2), (0, 0, 1, 2),
+                                   (52, 4, 20, 2), (52, 4, 1, 30)):
+            with self.subTest(lat=lat, lon=lon, eph=eph, epv=epv):
+                flight = self.parse(
+                    gps=[(1, 52, 4, 10, 3, 12, 1, 2)],
+                    global_positions=[(1, lat, lon, 10, eph, epv, False, 0)])[0]
+                self.assertIsNone(flight["takeoff"]["location"])
+                self.assertEqual(flight["distance_m"], 0)
+
+    def test_position_gap_does_not_bridge_distance(self):
+        flight = self.parse(
+            landed=[(0, True), (1, False), (10, True)],
+            gps=[(1, 52, 4, 10, 3, 12, 1, 2), (8, 53, 4, 10, 3, 12, 1, 2)])[0]
+        self.assertEqual(flight["distance_m"], 0)
+
+    def test_invalid_local_axes_are_not_fabricated(self):
+        flight = self.parse(local=[(1, 20000, 3000, -2, False, True, 99, 99, 1, False, True)])[0]
+        ins = flight["takeoff"]["ins"]
+        self.assertIsNone(ins["position_ned_m"]["north"])
+        self.assertIsNone(ins["position_ned_m"]["east"])
+        self.assertEqual(ins["position_ned_m"]["down"], -2)
+        self.assertIsNone(ins["velocity_ned_ms"]["north"])
+        self.assertIsNone(flight["assessment"]["metrics"]["max_speed_ms"])
+
+    def test_armed_ground_recording_has_no_flights(self):
+        self.assertEqual(self.parse(landed=[(0, True), (10, True)]), [])
+        self.assertEqual(self.parse(armed=[(0, False), (10, False)]), [])
+
+    def test_unfinished_airborne_recording_and_multiple_takeoffs(self):
+        flights = self.parse(landed=[(0, True), (2, False), (4, True), (6, False), (8, True)])
+        self.assertEqual([f["duration_s"] for f in flights], [2, 2])
+        flights = self.parse(landed=[(0, True), (2, False)])
+        self.assertEqual(flights[0]["duration_s"], 8)
+        self.assertFalse(flights[0]["landed"])
+        flights = self.parse(landed=[(0, True), (2, False), (10, False)], armed=[(0, True)])
+        self.assertEqual(flights[0]["duration_s"], 8)
+        self.assertFalse(flights[0]["landed"])
+        flights = self.parse(landed=[])
+        self.assertEqual(flights[0]["duration_s"], 10)
+
+
 def _tiny_tlog(path):
     from pymavlink import mavutil
 

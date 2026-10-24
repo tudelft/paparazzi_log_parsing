@@ -96,6 +96,31 @@ only; it does not invent a takeoff before the recording. A flight still active a
 is left incomplete. Deploy the rebuilt parser and reparse affected uploads; the existing
 web UI consumes the unchanged JSON format.
 
+**PX4 navigation and flight boundaries.** MAV reader 1.0.2 uses `vehicle_land_detected`
+airborne intervals intersected with arming when both are available. An armed ground recording
+does not become a flight; disarming while still reported airborne does not prove a landing.
+Logs without land-detection telemetry retain the armed-interval fallback.
+Geographic positions use `vehicle_global_position` when that topic has samples; only logs
+without it fall back to raw `vehicle_gps_position`. The two streams are never blended.
+Global dead-reckoning samples are rejected. Positions must have valid nonzero latitude/longitude;
+reported horizontal/vertical error must be finite and at most 10/15 m respectively.
+Raw GPS additionally requires a 3D fix and at least six satellites when those fields are present.
+Missing quality fields in older formats do not by themselves invalidate a position.
+Position updates expire after five seconds. Endpoints use only preceding fresh positions,
+never a later fix; unknown endpoints remain null in parser output. The UI's existing
+endpoint-inference labels still apply. Distance does not bridge position gaps or estimator
+reset-counter changes, and is only the accepted recorded path, not a guaranteed complete flight
+distance. Local position/velocity validity flags are respected; invalid axes remain null.
+Altitude-range assessment uses one datum (accepted global altitude, or barometric altitude
+when no global altitude is available). Missing GPS does not by itself prove an indoor flight.
+Deploy and reparse outdated uploads to update existing PX4 results. Paparazzi parsing is unchanged.
+
+The flight map uses only finite, in-range geographic coordinates, not barometer-only position
+objects. Missing coordinates and sample gaps over five seconds split the displayed line; isolated
+positions remain visible as dots. First/last recorded-position markers are distinct from takeoff/
+landing markers, which require coordinates in the recorded endpoint itself. The scrubber marker
+is hidden when its selected sample has no geographic position. Sensor-only paths still support charts.
+
 **Non-finite Paparazzi values.** Parser 1.7.1 serializes non-finite numeric output as JSON `null`,
 not invalid bare NaN/Infinity tokens. Non-finite numeric telemetry is rejected before calculations.
 `DL_VALUE` is retained separately: `settings_changes.invalid_reports` records timestamp, setting
