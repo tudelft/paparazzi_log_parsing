@@ -1835,14 +1835,30 @@ def assign_log_flights(con, log_id, kept=None):
         ids = [r["project_id"] for r in con.execute(
             "SELECT DISTINCT f.project_id FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
             " WHERE a.log_id=? AND f.project_id IS NOT NULL", (log_id,))]
+        if not con.execute(
+                "SELECT 1 FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE a.log_id=? LIMIT 1",
+                (log_id,)).fetchone():
+            recording = con.execute("SELECT start_utc, date_override, status FROM logs WHERE id=?",
+                                    (log_id,)).fetchone()
+            if recording["status"] in ("done", "parsing"):
+                day = flight_calendar_day(recording["start_utc"], recording["start_utc"],
+                                          recording["date_override"])
+                ids = {project_for_drone_on(con, a["drone_id"], day) for a in con.execute(
+                    "SELECT drone_id FROM aircraft WHERE log_id=?", (log_id,))}
+                if None in ids:
+                    ids = set()
         if len(ids) == 1:
-            con.execute("UPDATE logs SET project_id=? WHERE id=? AND project_id IS NULL", (ids[0], log_id))
+            con.execute("UPDATE logs SET project_id=? WHERE id=? AND project_id IS NULL",
+                        (next(iter(ids)), log_id))
 
 
 def assign_open_flights(con):
     for r in con.execute(
             "SELECT DISTINCT a.log_id FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
-            " WHERE f.project_id IS NULL AND COALESCE(f.project_source,'')!='manual'"):
+            " WHERE f.project_id IS NULL AND COALESCE(f.project_source,'')!='manual'"
+            " UNION SELECT l.id FROM logs l WHERE l.status='done' AND l.project_id IS NULL"
+            " AND NOT EXISTS(SELECT 1 FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+            " WHERE a.log_id=l.id)"):
         assign_log_flights(con, r["log_id"])
 
 
@@ -4495,17 +4511,18 @@ def detail(kind, item_id):
         abort(404)
     flights = [f for f in logbook_rows(hide_unlinked=kind in ("people", "locations") and env_bool("HIDE_UNLINKED_AIRCRAFT"))
                if flight_matches(kind, item_id, f)]
+    log_ids = {s["log_id"] for f in flights for s in f["sources"]}
+    logs = detail_logs(con, kind, item_id, log_ids)
     if not admin and not flights:
-        allowed = (kind == "people" and (item_id == g.user["id"] or my_project_ids(con, item_id) & mine))
+        allowed = (kind == "projects" and item_id in mine) or (
+            kind == "people" and (item_id == g.user["id"] or my_project_ids(con, item_id) & mine))
         if kind == "aircraft":
             drone_pids = {p["project_id"] for p in item.get("projects") or []}
             if item.get("default_project_id"):
                 drone_pids.add(item["default_project_id"])
-            allowed = bool(drone_pids & mine)
+            allowed = bool(drone_pids & mine) or bool(logs)
         if not allowed:
             abort(404)
-    log_ids = {s["log_id"] for f in flights for s in f["sources"]}
-    logs = detail_logs(con, kind, item_id, log_ids)
     out = []
     for f in flights:
         d = {k: f.get(k) for k in DETAIL_FLIGHT_KEYS}

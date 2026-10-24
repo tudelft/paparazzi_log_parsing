@@ -6,6 +6,73 @@ import db
 from .test_historical import AppTests
 
 
+class ZeroFlightProjectTests(AppTests):
+    def setUp(self):
+        super().setUp()
+        self.con.execute(
+            "INSERT INTO drone_projects(drone_id,project_id,start_date,end_date)"
+            " VALUES(1,1,'2009-01-01','2010-12-31'),(1,2,'2011-01-01',NULL)")
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,start_utc)"
+            " VALUES(1,'Ground recording','ground','ground.data.gz','done','now',1,'2010-06-01T12:00:00Z')")
+        self.con.execute("INSERT INTO aircraft(log_id,ac_id,name,drone_id,num_flights)"
+                         " VALUES(1,5,'Drone',1,0)")
+        self.con.commit()
+
+    def project(self):
+        return self.con.execute("SELECT project_id FROM logs WHERE id=1").fetchone()[0]
+
+    def test_existing_ground_log_uses_historical_project_and_is_visible(self):
+        self.ns["assign_open_flights"](self.con)
+        self.assertEqual(self.project(), 1)
+        self.ns["assign_open_flights"](self.con)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM flights").fetchone()[0], 0)
+        for kind in ("projects", "aircraft"):
+            response = self.client.get(f"/api/detail/{kind}/1")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json["flights"], [])
+            self.assertEqual([r["id"] for r in response.json["logs"]], [1])
+        uploads = self.client.get("/api/logs").json["logs"]
+        self.assertEqual(uploads[0]["project_id"], 1)
+        self.sign_in(4)
+        self.assertEqual(self.client.get("/api/detail/projects/1").status_code, 404)
+        self.assertEqual(self.client.get("/api/detail/aircraft/1").status_code, 404)
+
+    def test_parse_assignment_and_explicit_project_preservation(self):
+        self.con.execute("UPDATE logs SET status='parsing' WHERE id=1")
+        self.ns["assign_log_flights"](self.con, 1)
+        self.assertEqual(self.project(), 1)
+        self.con.execute("UPDATE logs SET project_id=2 WHERE id=1")
+        self.ns["assign_log_flights"](self.con, 1)
+        self.assertEqual(self.project(), 2)
+
+    def test_unknown_date_gap_unlinked_or_conflicting_aircraft_remain_unassigned(self):
+        for changes in (
+                "UPDATE logs SET start_utc=NULL WHERE id=1",
+                "UPDATE logs SET start_utc='2008-01-01T12:00:00Z' WHERE id=1",
+                "UPDATE aircraft SET drone_id=NULL WHERE log_id=1",
+                "DELETE FROM aircraft WHERE log_id=1"):
+            with self.subTest(changes=changes):
+                self.con.execute("SAVEPOINT scenario")
+                self.con.execute(changes)
+                self.ns["assign_open_flights"](self.con)
+                self.assertIsNone(self.project())
+                self.con.execute("ROLLBACK TO scenario")
+                self.con.execute("RELEASE scenario")
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES(2,'Other','OTHER','now')")
+        self.con.execute("INSERT INTO drone_projects(drone_id,project_id,start_date)"
+                         " VALUES(2,2,'2009-01-01')")
+        self.con.execute("INSERT INTO aircraft(log_id,ac_id,name,drone_id) VALUES(1,6,'Other',2)")
+        self.ns["assign_open_flights"](self.con)
+        self.assertIsNone(self.project())
+
+    def test_corrected_date_and_all_aircraft_must_agree(self):
+        self.con.execute("UPDATE logs SET start_utc=NULL,date_override='2010-06-01' WHERE id=1")
+        self.con.execute("INSERT INTO aircraft(log_id,ac_id,name,drone_id) VALUES(1,6,'Drone',1)")
+        self.ns["assign_open_flights"](self.con)
+        self.assertEqual(self.project(), 1)
+
+
 class CatalogImportTests(AppTests):
     def setUp(self):
         super().setUp()

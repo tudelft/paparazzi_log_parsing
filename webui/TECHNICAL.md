@@ -456,6 +456,12 @@ are deliberately preserved; no migration guesses which were manual. Unassigned f
 filled from the timeline. Assignment origin is retained across re-parsing alongside crew edits.
 Paper records are not reassigned by an aircraft CSV import.
 
+Successfully parsed logs with no flight records inherit a project from their linked aircraft's
+timeline on the recording date (including a corrected date). Every aircraft in the log must resolve
+to the same project; missing dates, unlinked aircraft and timeline gaps leave the log unassigned.
+Existing non-empty log project assignments are preserved. Eligible existing zero-flight logs are
+also filled at startup and when aircraft assignments are updated, without reparsing telemetry.
+These logs appear in the aircraft/project detail pages' Log files section but add no flight time.
 
 ### Places CSV import
 
