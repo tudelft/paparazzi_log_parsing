@@ -619,8 +619,10 @@ real day can be entered.
 
 Source merging keeps an active window of groups whose landing times could overlap the next
 takeoff (including the existing 60-second slack). Aircraft-name/GPS comparisons only run on
-time-compatible groups. First-matching-group precedence, same-log exclusion, fleet identity
-checks and SD/GCS field selection are unchanged. Non-chronological fractional timestamp
+time-compatible groups. Actual interval overlap takes precedence over slack-only matches;
+normal sources then prefer the smallest sum of takeoff and landing time differences, with
+stable first-group precedence on ties. Same-log exclusion, fleet identity checks, simulation
+separation and SD/GCS field selection are unchanged. Non-chronological fractional timestamp
 spellings rebuild the candidate window so earlier groups are not lost.
 
 **Shared aircraft names.** In Aircraft Edit mode, mark a generic log name as ambiguous using
@@ -638,8 +640,10 @@ Existing global alias assignments were automatic; they were not per-log confirma
 An unresolved SD source with an ambiguous name is considered separately after normal source
 grouping. It may join exactly one candidate group containing a linked GCS source when their
 intervals overlap within the existing 60-second slack, autopilot IDs agree and both takeoff
-positions are valid and within 2 km. Missing evidence or multiple candidate groups leaves it
-unresolved; matching generic names alone is insufficient. Specifically linked conflicting
+positions are valid and within 2 km. If any qualifying groups actually overlap, slack-only
+candidates are discarded. Exactly one remaining group is required: multiple genuine overlaps
+remain unresolved even when one has closer timestamps, as do multiple slack-only candidates.
+Missing evidence leaves it unresolved; matching generic names alone is insufficient. Specifically linked conflicting
 aircraft still cannot merge. Identity is inherited only in the merged read model, with an
 explanation on the flight page; no inferred global alias or permanent SD assignment is created.
 With `HIDE_UNLINKED_AIRCRAFT=1`, uniquely resolved merged flights remain visible and standalone

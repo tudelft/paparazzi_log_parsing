@@ -3639,6 +3639,12 @@ def _km(lat1, lon1, lat2, lon2):
     return 6371 * math.hypot(dx, math.radians(lat2 - lat1))
 
 
+def _interval_match_rank(start, end, other_start, other_end):
+    """Actual overlap wins over slack; then prefer aligned takeoff and landing."""
+    overlaps = min(end, other_end) >= max(start, other_start)
+    return (not overlaps, abs(start - other_start) + abs(end - other_end))
+
+
 def merge_sources(flights):
     """Merge the same flight recorded by an onboard SD log and a ground station (GCS) log into one entry.
 
@@ -3660,6 +3666,7 @@ def merge_sources(flights):
             ambiguous.append((f, start, end, ident))
             continue
         home = None
+        best_rank = None
         if start is not None:
             # Fractional timestamp spellings can sort out of chronological order.
             candidates = groups if previous_start is not None and start < previous_start else active
@@ -3676,8 +3683,9 @@ def merge_sources(flights):
                 if (f["drone_id"] is not None and linked_ids and f["drone_id"] not in linked_ids):
                     continue
                 if _same_aircraft(g, ident):
-                    home = g
-                    break
+                    rank = _interval_match_rank(start, end, g["start"], g["end"])
+                    if best_rank is None or rank < best_rank:
+                        home, best_rank = g, rank
         if home is None:
             group = {**ident, "start": start, "end": end, "logs": {f["log_id"]}, "flights": [f]}
             groups.append(group)
@@ -3697,6 +3705,7 @@ def merge_sources(flights):
                         or (end or start) < group["start"] - SAME_FLIGHT_SLACK_S
                         or f["log_id"] in group["logs"]):
                     continue
+                group_rank = None
                 for source in group["flights"]:
                     if source["log_type"] != "gcs" or source["drone_id"] is None:
                         continue
@@ -3712,10 +3721,16 @@ def merge_sources(flights):
                             and f["ac_id"] is not None and f["ac_id"] == source["ac_id"]
                             and valid_gps_location(source["takeoff_lat"], source["takeoff_lon"])
                             and _km(ident["lat"], ident["lon"], source["takeoff_lat"], source["takeoff_lon"]) <= 2):
-                        candidates.append(group)
-                        break
+                        rank = _interval_match_rank(start, end, other_start, other_end)
+                        if group_rank is None or rank < group_rank:
+                            group_rank = rank
+                if group_rank is not None:
+                    candidates.append((group, group_rank))
+        overlapping = [candidate for candidate in candidates if not candidate[1][0]]
+        if overlapping:
+            candidates = overlapping
         if len(candidates) == 1:
-            home = candidates[0]
+            home = candidates[0][0]
             home["flights"].append(f)
             home["logs"].add(f["log_id"])
         else:

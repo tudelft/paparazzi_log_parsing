@@ -115,6 +115,39 @@ class AmbiguousAircraftTests(AppTests):
         self.assertEqual(len(rows), 3)
         self.assertTrue(all(len(r["sources"]) == 1 for r in rows))
 
+    def test_september_actual_overlap_wins_over_neighbouring_slack_candidates(self):
+        self.mark()
+        self.con.execute(
+            "UPDATE flights SET duration_s=50.850,takeoff_utc='2026-09-02T09:59:29.781Z',"
+            "landing_utc='2026-09-02T10:00:20.631Z' WHERE id=1")
+        self.con.execute(
+            "UPDATE flights SET duration_s=51.605,takeoff_utc='2026-09-02T09:59:29.750Z',"
+            "landing_utc='2026-09-02T10:00:21.355Z' WHERE id=2")
+        self.con.execute(
+            "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,landing_utc,"
+            "takeoff_lat,takeoff_lon,landed,verdict,has_gps_position) VALUES"
+            "(3,2,2,147.688,'2026-09-02T10:01:11.404Z','2026-09-02T10:03:39.092Z',52,4,1,'flight',1)")
+        self.con.execute(
+            "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,landing_utc,"
+            "takeoff_lat,takeoff_lon,landed,verdict,has_gps_position) VALUES"
+            "(4,1,2,147.674,'2026-09-02T10:01:11.031Z','2026-09-02T10:03:38.705Z',52,4,1,'flight',1)")
+        self.con.commit()
+        rows = self.client.get("/api/logbook").json
+        self.assertEqual({frozenset(s["flight_id"] for s in r["sources"]) for r in rows},
+                         {frozenset({1, 2}), frozenset({3, 4})})
+        self.assertTrue(all(r["aircraft_identity_inferred"] for r in rows))
+
+    def test_multiple_actual_overlaps_remain_unresolved_despite_better_timing(self):
+        self.mark()
+        self.con.execute(
+            "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,landing_utc,"
+            "takeoff_lat,takeoff_lon,landed,verdict,has_gps_position) VALUES"
+            "(3,2,2,100,'2010-01-01T12:00:20.000Z','2010-01-01T12:02:00.000Z',52,4,1,'flight',1)")
+        self.con.commit()
+        rows = self.client.get("/api/logbook").json
+        self.assertEqual(len(rows), 3)
+        self.assertTrue(all(len(r["sources"]) == 1 for r in rows))
+
     def test_manual_assignment_survives_mark_relink_and_reparse(self):
         route = "/api/admin/logs/1/aircraft/7"
         self.assertEqual(self.client.put(route, json={"drone_id": 2}).status_code, 200)

@@ -28,7 +28,7 @@ class MergeIdentityTests(AppTests):
         with patch.dict(self.ns, _same_aircraft=lambda *args: self.fail("Expired group compared")):
             self.assertEqual(len(self.ns["merge_sources"](rows)), 1000)
 
-    def test_overlap_slack_boundary_chains_and_original_group_precedence(self):
+    def test_overlap_slack_boundary_chains_and_closest_group_preference(self):
         template = self.merge_fixture()
         merge = self.ns["merge_sources"]
         for gap, expected in ((160, 1), (160.001, 2)):
@@ -40,6 +40,25 @@ class MergeIdentityTests(AppTests):
                 self.merge_row(template, 2, 1, log_id=1),
                 self.merge_row(template, 3, 2)]
         groups = merge(rows)
+        self.assertEqual({tuple(s["flight_id"] for s in g["sources"]) for g in groups}, {(1,), (2, 3)})
+
+    def test_july_short_gcs_event_does_not_steal_overlapping_sd_flight(self):
+        template = self.merge_fixture()
+        rows = [
+            self.merge_row(template, 3796, 0, duration=1.641, log_id=2430, log_type="gcs"),
+            self.merge_row(template, 3797, 36.460, duration=66.134, log_id=2430, log_type="gcs"),
+            self.merge_row(template, 3802, 36.973, duration=66.3179, log_id=2431, log_type="onboard_sd"),
+        ]
+        groups = self.ns["merge_sources"](rows)
+        self.assertEqual({frozenset(s["flight_id"] for s in g["sources"]) for g in groups},
+                         {frozenset({3796}), frozenset({3797, 3802})})
+
+    def test_equal_timing_rank_preserves_stable_first_group(self):
+        template = self.merge_fixture()
+        rows = [self.merge_row(template, 1, 0, log_id=1),
+                self.merge_row(template, 2, 0, log_id=1),
+                self.merge_row(template, 3, 1)]
+        groups = self.ns["merge_sources"](rows)
         self.assertEqual({tuple(s["flight_id"] for s in g["sources"]) for g in groups}, {(1, 3), (2,)})
 
     def test_long_intervals_unknown_dates_and_backwards_fractional_order(self):
@@ -55,7 +74,7 @@ class MergeIdentityTests(AppTests):
                 self.merge_row(template, 3, 60, duration=0)]
         rows[2]["takeoff_utc"] = "2010-01-01T00:01:00.000Z"
         self.assertEqual({tuple(s["flight_id"] for s in g["sources"]) for g in merge(rows)},
-                         {(1, 3), (2,)})
+                         {(1,), (2, 3)})
 
     def sources(self, sd_drone, gcs_drone):
         for identity, kind, drone, name in (
