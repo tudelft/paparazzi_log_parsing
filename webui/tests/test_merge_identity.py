@@ -32,15 +32,60 @@ class MergeIdentityTests(AppTests):
         template = self.merge_fixture()
         merge = self.ns["merge_sources"]
         for gap, expected in ((160, 1), (160.001, 2)):
-            rows = [self.merge_row(template, 1, 0), self.merge_row(template, 2, gap)]
+            rows = [self.merge_row(template, 1, 0, log_type="onboard_sd"),
+                    self.merge_row(template, 2, gap, log_type="gcs")]
             self.assertEqual(len(merge(rows)), expected)
+        # Back-to-back logs of one type (restarts, battery swaps, consecutive PX4 files) are separate flights.
         rows = [self.merge_row(template, i + 1, i * 150) for i in range(5)]
-        self.assertEqual(len(merge(rows)), 1)
+        self.assertEqual(len(merge(rows)), 5)
         rows = [self.merge_row(template, 1, 0),
                 self.merge_row(template, 2, 1, log_id=1),
                 self.merge_row(template, 3, 2)]
         groups = merge(rows)
         self.assertEqual({tuple(s["flight_id"] for s in g["sources"]) for g in groups}, {(1,), (2, 3)})
+
+    def test_same_type_recordings_merge_only_when_they_cover_the_same_time(self):
+        template = self.merge_fixture()
+        merge = self.ns["merge_sources"]
+        # Two ground stations recording the same flight.
+        rows = [self.merge_row(template, 1, 0, duration=300, log_type="gcs"),
+                self.merge_row(template, 2, 2, duration=290, log_type="gcs")]
+        self.assertEqual(len(merge(rows)), 1)
+        # Three SD logs 30 and 20 minutes apart, each starting within the slack of the previous landing.
+        rows = [self.merge_row(template, 1, 0, duration=1790, log_type="onboard_sd"),
+                self.merge_row(template, 2, 1800, duration=1190, log_type="onboard_sd"),
+                self.merge_row(template, 3, 3000, duration=600, log_type="onboard_sd")]
+        self.assertEqual(len(merge(rows)), 3)
+        # A ground station covering both SD logs joins only one of them.
+        rows.append(self.merge_row(template, 4, 1, duration=3600, log_type="gcs"))
+        groups = merge(rows)
+        self.assertEqual(sorted(len(g["sources"]) for g in groups), [1, 1, 2])
+
+    def test_each_recording_joins_its_best_partner(self):
+        template = self.merge_fixture()
+        # The SD flight takes off first; an earlier short GCS flight from the same GCS log is within the slack,
+        # the GCS flight of the same takeoff comes 0.4 s later and must win.
+        rows = [self.merge_row(template, 1, 0, duration=5, log_id=10, log_type="gcs"),
+                self.merge_row(template, 2, 25.0, duration=18, log_id=20, log_type="onboard_sd"),
+                self.merge_row(template, 3, 25.4, duration=16.7, log_id=10, log_type="gcs")]
+        groups = self.ns["merge_sources"](rows)
+        self.assertEqual({frozenset(s["flight_id"] for s in g["sources"]) for g in groups},
+                         {frozenset({1}), frozenset({2, 3})})
+
+    def test_longest_onboard_recording_leads_the_merged_entry(self):
+        template = self.merge_fixture()
+        rows = [self.merge_row(template, 1, 0, duration=8, log_type="px4_ulog", verdict="ground"),
+                self.merge_row(template, 2, 30, duration=184, log_type="px4_ulog", verdict="flight"),
+                self.merge_row(template, 3, 29, duration=180, log_type="gcs", verdict="flight")]
+        # Consecutive PX4 files 22 s apart are separate; 2 and 3 are the same flight.
+        groups = sorted(self.ns["merge_sources"](rows), key=lambda g: g["flight_id"])
+        self.assertEqual([(g["flight_id"], g["duration_s"], g["verdict"]) for g in groups],
+                         [(1, 8, "ground"), (2, 184, "flight")])
+        merged = self.ns["merge_sources"]([self.merge_row(template, 1, 0, duration=10, log_type="gcs"),
+                                           self.merge_row(template, 2, 0, duration=40, log_type="onboard_sd"),
+                                           self.merge_row(template, 3, 0, duration=100, log_type="onboard_sd",
+                                                          verdict="flight")])
+        self.assertEqual([g["flight_id"] for g in merged if len(g["sources"]) > 1], [3])
 
     def test_july_short_gcs_event_does_not_steal_overlapping_sd_flight(self):
         template = self.merge_fixture()
