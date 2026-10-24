@@ -736,6 +736,14 @@ configuration names are specific. Ambiguity is explicit, case-insensitive and ap
 exact trimmed logged name; it is not guessed from spelling or automatically enabled for
 particular aircraft.
 
+Removing an aircraft alias recomputes only the logged names that used that alias
+(including embedded board-ID matches), without relearning aliases during the operation.
+The button shows progress and reports request failures. Removing an alias does not prohibit
+other identity evidence: fleet names/serials, remaining aliases, unique folder matches and
+explicit per-log assignments can still keep an aircraft linked. A later upload may learn its
+identity again through these rules. Use **Mark ambiguous** for a generic name that must not be
+automatically assigned by name or folder.
+
 Marking a name removes its global alias and recomputes the affected logs' automatic fleet
 links. Neither the name nor upload-folder hints may assign that shared name to a fleet aircraft.
 Other aliases, raw logs, existing flight project assignments and paper records are unchanged.

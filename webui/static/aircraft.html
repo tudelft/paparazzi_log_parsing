@@ -345,7 +345,7 @@ function renderAircraftPanel() {
     $('aircraftContent').innerHTML = `<p class="mute">Assign projects by date. Save the timeline after changing periods.</p>${projectCell(d, true)}`;
   } else if (selectedAircraftTab === 'aliases') {
     $('aircraftContent').innerHTML = `<p class="mute">Aliases link aircraft names in logs to this aircraft.</p>
-      ${d.aliases.map(a => `<span class="chip">${esc(a)}<button type="button" data-name="${esc(a)}" onclick="markAmbiguous(this.dataset.name)">Mark ambiguous</button><button type="button" aria-label="Remove alias ${esc(a)}" data-alias="${esc(a)}" onclick="removeAlias(this.dataset.alias)">×</button></span>`).join('') || '<p class="mute">No aliases.</p>'}
+      ${d.aliases.map(a => `<span class="chip">${esc(a)}<button type="button" data-name="${esc(a)}" onclick="markAmbiguous(this.dataset.name)">Mark ambiguous</button><button type="button" aria-label="Remove alias ${esc(a)}" data-alias="${esc(a)}" onclick="removeAlias(this)">×</button></span>`).join('') || '<p class="mute">No aliases.</p>'}
       <form class="row" onsubmit="event.preventDefault();addAlias(${d.id})">
       <label class="field">New alias<input id="new${d.id}" required maxlength="80"></label><button type="submit">Add alias</button></form>`;
   } else {
@@ -483,7 +483,26 @@ function addAlias(id) {
   const v = $('new' + id).value.trim();
   if (v) send('POST', '/api/admin/drone-aliases', {drone_id: id, alias: v});
 }
-const removeAlias = alias => send('DELETE', '/api/admin/drone-aliases', {alias});
+async function removeAlias(button) {
+  if (button.disabled) return;
+  button.disabled = true;
+  button.textContent = 'Removing...';
+  $('err').textContent = '';
+  try {
+    const r = await fetch('/api/admin/drone-aliases', {
+      method: 'DELETE', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({alias: button.dataset.alias}),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not remove alias.');
+    button.closest('.chip').remove();
+    await load();
+  } catch (error) {
+    $('err').textContent = error.message || 'Could not remove alias.';
+  } finally {
+    button.disabled = false;
+    button.textContent = '×';
+  }
+}
 function markAmbiguous(name) {
   name = name.trim();
   if (name && confirm(`Mark "${name}" as shared/ambiguous? Its global alias and automatic aircraft links will be removed. Explicit per-log assignments stay.`))

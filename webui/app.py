@@ -1548,7 +1548,7 @@ def parse_project_id(raw):
     return False
 
 
-def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None):
+def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None, remember_identity=True):
     drones, names = drone_name_map(con)
     log = con.execute("SELECT name FROM logs WHERE id=?", (log_id,)).fetchone()
     log_name = log["name"] if log else ""
@@ -1567,7 +1567,7 @@ def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None):
         d = drones.get(override["drone_id"]) if override else resolve_drone(names, drones, a["name"])
         if d is None and not ambiguous:
             d = guess_drone_from_log_path(con, log_name)
-        if d is not None and not ambiguous and not override:
+        if d is not None and not ambiguous and not override and remember_identity:
             remember_drone_log_identity(con, d["id"], a["name"])
             drones, names = drone_name_map(con)
         con.execute("UPDATE aircraft SET drone_id=? WHERE id=?", (d["id"] if d else None, a["id"]))
@@ -2743,9 +2743,16 @@ def admin_log_aircraft_link(log_id, ac_id):
 def admin_delete_drone_alias():
     admin_required()
     alias = ((request.get_json(silent=True) or {}).get("alias") or "").strip()
+    if not alias or len(alias) > 80:
+        return jsonify(error="alias must be 1-80 characters"), 400
     con = conn()
     con.execute("DELETE FROM drone_aliases WHERE alias=?", (alias,))
-    relink_all_aircraft(con)
+    key = alias.casefold()
+    affected = [(r["log_id"], r["name"]) for r in con.execute("SELECT DISTINCT log_id, name FROM aircraft")
+                if key == (r["name"] or "").strip().casefold()
+                or any(key == token.casefold() for token in identity_tokens(r["name"]))]
+    for log_id, name in affected:
+        link_log_aircraft(con, log_id, logged_name=name, remember_identity=False)
     con.commit()
     return jsonify(ok=True)
 

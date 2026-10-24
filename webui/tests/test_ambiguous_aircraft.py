@@ -23,6 +23,43 @@ class AmbiguousAircraftTests(AppTests):
         response = self.client.post("/api/admin/ambiguous-drone-names", json={"name": "Airframe"})
         self.assertEqual(response.status_code, 200, response.json)
 
+    def test_remove_alias_does_not_recreate_it_from_folder_or_scan_unrelated_logs(self):
+        self.con.execute("UPDATE logs SET name='Other/flight.data' WHERE id=1")
+        self.con.commit()
+        original = self.ns["link_log_aircraft"]
+        calls = []
+
+        def link(con, log_id, **kwargs):
+            calls.append(log_id)
+            return original(con, log_id, **kwargs)
+
+        with patch.dict(self.ns, link_log_aircraft=link):
+            response = self.client.delete("/api/admin/drone-aliases", json={"alias": "Airframe"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(self.con.execute("SELECT 1 FROM drone_aliases WHERE alias='Airframe'").fetchone())
+        self.assertEqual(calls, [1])
+        self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE id=1").fetchone()[0], 2)
+
+    def test_remove_alias_unlinks_matching_names_and_board_tokens_but_preserves_overrides(self):
+        self.con.execute("INSERT INTO drone_aliases(drone_id,alias) VALUES(2,'00500040')")
+        self.con.execute("UPDATE aircraft SET name='quad_x 00500040' WHERE id=1")
+        self.con.commit()
+        response = self.client.delete("/api/admin/drone-aliases", json={"alias": "00500040"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(self.con.execute("SELECT drone_id FROM aircraft WHERE id=1").fetchone()[0])
+        self.con.execute("INSERT INTO log_aircraft_links(log_id,ac_id,drone_id) VALUES(1,7,2)")
+        self.con.execute("UPDATE aircraft SET name='Airframe' WHERE id=1")
+        self.con.commit()
+        self.client.delete("/api/admin/drone-aliases", json={"alias": "Airframe"})
+        self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE id=1").fetchone()[0], 2)
+        self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE id=2").fetchone()[0], 1)
+
+    def test_remove_alias_validation_and_permissions(self):
+        self.assertEqual(self.client.delete("/api/admin/drone-aliases", json={"alias": ""}).status_code, 400)
+        self.sign_in(2)
+        self.assertEqual(self.client.delete("/api/admin/drone-aliases", json={"alias": "Airframe"}).status_code, 403)
+        self.assertIsNotNone(self.con.execute("SELECT 1 FROM drone_aliases WHERE alias='Airframe'").fetchone())
+
     def test_mark_clears_only_generic_links_and_merges_with_specific_identity(self):
         self.assertEqual(len(self.client.get("/api/logbook").json), 2)
         self.con.execute("INSERT INTO aircraft(id,log_id,name,drone_id,ac_id) VALUES(3,1,'Unrelated legacy name',1,8)")
