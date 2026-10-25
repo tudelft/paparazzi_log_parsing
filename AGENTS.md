@@ -38,3 +38,12 @@
 - App test fixtures use temporary storage/in-memory SQLite and load routes without starting ingestion workers.
 - For UI-only changes, prefer editor diagnostics and a small mock-data browser check if needed.
   Do not install new tooling just to validate a small change.
+
+## Commits and releases
+
+- When the user asks to commit/push, also create and push an annotated Web UI release tag
+  `webui-vMAJOR.MINOR.PATCH` on the resulting tested commit, unless they explicitly opt out.
+- Inspect existing remote tags and all changes since the previous release: bump PATCH for fixes,
+  MINOR for new backward-compatible features, and MAJOR for breaking changes.
+- Keep Web UI tags separate from parser versions. Never move or overwrite an existing release tag.
+  Push the branch and new tag atomically where supported, and verify both remote refs.
