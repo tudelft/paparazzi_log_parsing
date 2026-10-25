@@ -170,15 +170,25 @@ function resetImport() {
   $('importPreview').hidden = true;
 }
 $('csvFile').onchange = resetImport;
+// What the import will do with logs already on the server (#35): a clear match is linked and then counts once,
+// as the log; other nearby logs of the aircraft are left for a person to link or dismiss in the logbook.
+const logTime = f => esc((f.takeoff_utc || '').slice(11, 16)) + ' ' + esc({onboard_sd:'SD', gcs:'GCS', px4_ulog:'PX4',
+  ardupilot:'ArduPilot', mavlink_tlog:'tlog'}[f.log_type] || '');
+function logsCell(logs) {
+  if (!logs) return '';
+  if (logs.linked.length) return 'Linked to ' + logs.linked.map(f => `<a href="/flight/${f.flight_id}">${logTime(f)}</a>`).join(', ');
+  if (logs.possible.length) return 'Possible duplicate: ' + logs.possible.map(f => `<a href="/flight/${f.flight_id}">${logTime(f)}</a>`).join(', ');
+  return '<span class="mute">none</span>';
+}
 function showPreview(rows) {
   const count = action => rows.filter(r=>r.action === action).length;
   const what = {create:'New record', update:'Update record', unchanged:'Unchanged record'};
   $('importPreview').innerHTML = `<p>${count('create')} new, ${count('update')} updated, ${count('unchanged')} unchanged.</p>
-    <table><thead><tr><th>Line</th><th>Aircraft</th><th>Date</th><th>Takeoff</th><th>Reference</th><th>Action</th><th>Changed</th></tr></thead><tbody>` +
+    <table><thead><tr><th>Line</th><th>Aircraft</th><th>Date</th><th>Takeoff</th><th>Reference</th><th>Action</th><th>Changed</th><th>Logged flights</th></tr></thead><tbody>` +
     rows.map(r=>`<tr><td>${r.line}</td><td>${esc(r.label.aircraft)}</td><td>${esc(r.label.date)}</td>
       <td>${esc(r.label.takeoff_time)}</td><td>${esc(r.label.reference)}</td>
       <td>${what[r.action]}${r.record_id ? ` <a href="/historical/${r.record_id}">${r.record_id}</a>` : ''}${r.hidden ? ' (hidden)' : ''}</td>
-      <td>${esc(r.changes.join(', '))}</td></tr>`).join('') + '</tbody></table>';
+      <td>${esc(r.changes.join(', '))}</td><td>${logsCell(r.logs)}</td></tr>`).join('') + '</tbody></table>';
   $('importPreview').hidden = false;
 }
 $('importForm').onsubmit = async event => {
