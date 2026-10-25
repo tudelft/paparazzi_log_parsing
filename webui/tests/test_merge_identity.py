@@ -1,7 +1,7 @@
 import os
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import config
 from .test_historical import AppTests
@@ -27,6 +27,17 @@ class MergeIdentityTests(AppTests):
         rows = [self.merge_row(template, i + 1, i * 1000) for i in range(1000)]
         with patch.dict(self.ns, _same_aircraft=lambda *args: self.fail("Expired group compared")):
             self.assertEqual(len(self.ns["merge_sources"](rows)), 1000)
+
+    def test_nonoverlapping_ambiguous_sources_do_not_recheck_group_clocks(self):
+        template = self.merge_fixture()
+        rows = [self.merge_row(template, i + 1, i * 1000, drone_id=1,
+                               aircraft_ambiguous=False, log_type="gcs") for i in range(100)]
+        rows += [self.merge_row(template, 101 + i, i * 1000 + 400, drone_id=None,
+                                aircraft_ambiguous=True, log_type="onboard_sd") for i in range(25)]
+        with patch.dict(self.ns, clock_implausible=Mock(wraps=self.ns["clock_implausible"])):
+            result = self.ns["merge_sources"](rows)
+            self.assertEqual(len(result), len(rows))
+            self.assertEqual(self.ns["clock_implausible"].call_count, len(rows))
 
     def test_overlap_slack_boundary_chains_and_closest_group_preference(self):
         template = self.merge_fixture()

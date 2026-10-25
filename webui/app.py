@@ -4263,10 +4263,10 @@ def merge_sources(flights, decisions=None):
         if f["log_type"] == "onboard_sd" and start is not None and valid_gps_location(ident["lat"], ident["lon"]):
             for group in groups:
                 if (group["start"] is None or group["end"] is None
-                        or any(o.get("date_estimated") or undated_takeoff(o) for o in group["flights"])
                         or start > group["end"] + SAME_FLIGHT_SLACK_S
                         or (end or start) < group["start"] - SAME_FLIGHT_SLACK_S
                         or f["log_id"] in group["logs"]
+                        or any(o.get("date_estimated") or undated_takeoff(o) for o in group["flights"])
                         or any(decisions.get(frozenset((f["flight_id"], o["flight_id"]))) is False
                                for o in group["flights"])
                         or any(t == f["log_type"] and not _same_type_overlap(start, end, s, e)
