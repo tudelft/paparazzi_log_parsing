@@ -45,6 +45,7 @@ if __name__ == "__main__" and sys.argv[1:2] == ["check-config"]:
 import db
 import attachments
 import historical
+import links
 import storage
 import saml
 import config
@@ -223,6 +224,7 @@ def parse_log(log_id):
                 attachments.restore(con, log_id, kept_files)
                 con.execute("UPDATE logs SET status='done', error=NULL, parsed_at=?, parse_seconds=? WHERE id=?",
                             (now(), round(seconds, 3), log_id))
+                links.auto_link(con, now())
                 con.commit()
 
         db.retry_locked(save, con)
@@ -270,6 +272,7 @@ def start_workers():
     backfill_gps_positions(con)
     seed_drone_projects_from_defaults(con)
     assign_open_flights(con)
+    links.auto_link(con, now())
     con.execute("UPDATE logs SET status='queued' WHERE status IN ('queued', 'parsing')")
     con.execute("UPDATE ingest SET status='accepted' WHERE status='hashing'")
     con.commit()
@@ -3034,6 +3037,7 @@ def update_logbook_records():
                             raise historical.RecordError(msg, code)
                     if "hidden" in changes:
                         con.execute("UPDATE flights SET hidden=? WHERE id=?", (int(changes["hidden"]), identity))
+            links.auto_link(con, now())
         return jsonify(ok=True, updated=len(targets))
     except historical.RecordError as exc:
         return jsonify(error=str(exc)), exc.status
@@ -3052,6 +3056,34 @@ def set_flight_crew(flight_id):
         return jsonify(error=msg), code
     con.commit()
     return jsonify(ok=True)
+
+
+@app.post("/api/links")
+def decide_flight_link():
+    """Mark a paper record and the telemetry flights of one logbook entry as the same flight (same=true) or as
+    different flights (same=false, which also undoes a link and keeps automatic linking from making it again).
+    Needs edit rights on the paper record and on every flight."""
+    session_required()
+    body = request.get_json(silent=True) or {}
+    record_id, flight_ids, same = body.get("record_id"), body.get("flight_ids"), body.get("same")
+    if (type(record_id) is not int or type(same) is not bool or not isinstance(flight_ids, list)
+            or not flight_ids or len(flight_ids) > 50 or any(type(f) is not int for f in flight_ids)):
+        return jsonify(error="record_id, flight_ids (list) and same (true/false) are required"), 400
+    con = conn()
+    try:
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            row = historical.visible(con, g.user, record_id)
+            if not historical.can_edit(con, g.user, row["project_id"]):
+                raise historical.RecordError("Full project access is required to change this record.", 403)
+            for flight_id in flight_ids:
+                _, err = visible_editable_flight(con, flight_id)
+                if err:
+                    raise historical.RecordError("No such editable flight.", 404 if err == "missing" else 403)
+            links.decide(con, record_id, flight_ids, same, "manual", g.user["id"], now())
+        return jsonify(ok=True)
+    except historical.RecordError as exc:
+        return jsonify(error=str(exc)), exc.status
 
 
 COMMENT_MAX = 4000
@@ -3990,7 +4022,7 @@ LOGBOOK_OVERVIEW_KEYS = (
     "landing_place", "landing_place_id", "landing_lat", "landing_lon",
     "pic", "pac", "gcs", "goal", "comment", "verdict", "indoor", "optitrack",
     "date_ok", "date_override", "hidden", "can_edit_record", "can_edit_crew",
-    "can_edit_project", "can_edit_date",
+    "can_edit_project", "can_edit_date", "linked_records", "conflicts", "possible_duplicates",
 )
 
 
@@ -4045,6 +4077,7 @@ def create_historical():
             con.execute("BEGIN IMMEDIATE")
             values = historical.validate(con, g.user, request.get_json(silent=True))
             record_id = historical.store(con, values, g.user["id"], now())
+            links.auto_link(con, now())
         return jsonify(id=record_id), 201
     except historical.RecordError as exc:
         return jsonify(error=str(exc)), exc.status
@@ -4072,6 +4105,7 @@ def historical_record(record_id):
                     con.execute("DELETE FROM flight_records WHERE id=?", (record_id,))
                 else:
                     historical.store(con, values, g.user["id"], now(), record_id)
+                    links.auto_link(con, now())
             if request.method == "DELETE":
                 attachments.prune(con, STORAGE_DIR)
         return jsonify(ok=True)
@@ -4104,6 +4138,7 @@ def import_historical():
             con.execute("BEGIN IMMEDIATE")
             records = historical.parse_csv(con, g.user, raw.decode("utf-8-sig"))
             written = historical.save_import(con, records, g.user["id"], now())
+            links.auto_link(con, now())
             if written:  # the source CSV is linked to every record it created or changed
                 staged, compressed, size, stored, sha = storage.save_attachment(
                     io.BytesIO(raw), STORAGE_DIR / ".incoming-attachments", 1_000_000)
@@ -4282,10 +4317,11 @@ def logbook_rows(hidden=False, hide_unlinked=False):
         r["can_edit_date"] = r["can_edit_project"]
         r["date_ok"] = bool(r.get("date_override")) or not clock_implausible(r.get("log_start_utc"))
     out.extend(historical.rows(con, g.user, request.args.get("project"), hidden=hidden))
+    out = links.combine(con, add_people(out, person_resolver(con)))
     out.sort(key=lambda r: (r.get("takeoff_utc") or ((r.get("date_override") or "") + "T00:00:00Z"),
                             r.get("flight_id") or r["manual_id"], r["source_type"]),
              reverse=True)
-    return add_people(out, person_resolver(con))
+    return out
 
 
 @app.route("/api/flights/<int:flight_id>/weather", methods=["GET", "POST"])

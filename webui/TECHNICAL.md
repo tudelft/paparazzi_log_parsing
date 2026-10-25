@@ -930,9 +930,40 @@ and failed imports remove staged/source files. Normal attachment permissions and
 
 Paper records contribute their flight counts and total duration to the logbook, statistics and entity
 overviews, but have no telemetry, synthetic log files, paths, distance or software version. Unknown times
-remain date-only. They are never automatically merged with digital logs: check for overlap to avoid
-double counting. Referenced aircraft, people, projects and locations cannot be deleted until their paper records
+remain date-only. Referenced aircraft, people, projects and locations cannot be deleted until their paper records
 are reassigned or removed.
+
+### Paper records linked to logs
+
+A paper record and the logged flight(s) of the same flight can be **linked** (`links.py`, table
+`flight_links`). Nothing is merged or changed: a link row says "same flight" (`same=1`) or "not the same
+flight" (`same=0`), with `origin` `auto` or `manual`, who and when.
+
+- **Stable keys.** A logged flight is addressed by `log_id` + `ac_id` (-1 when none) + parser flight number
+  `idx`, which survive re-parsing (flight ids do not). The takeoff time at decision time is stored too;
+  if a re-parse moves that flight by more than 60 s the link is ignored as stale rather than attached to
+  another flight. Deleting the record or the log deletes its links.
+- **Automatic links** are made after a log is parsed, after paper records are created, edited, imported or
+  hidden/unhidden, and at startup. A record is linked when its aircraft has exactly one logged flight
+  within 5 min of the paper takeoff (several recordings of that one flight, such as SD and GCS, count as
+  one when they cover the same time), and no other paper record of that aircraft is within 5 min of it.
+  Only real flights take part: not ground runs, simulations, hidden flights, logs without a fleet
+  aircraft or with a corrected date. Records or flights with any stored decision are skipped, so a later
+  upload, re-parse or import never replaces a link or undoes an unlink. Editing a paper record removes
+  its automatic links and matches it again; manual decisions stay.
+- **Manual decisions:** `POST /api/links {record_id, flight_ids, same}` from the logbook (Same flight /
+  Not the same on a paper record's possible duplicates, Unlink on a linked entry in Edit mode). Needs
+  full access to the record's project and edit rights on every flight (admins always).
+- **Counting.** `logbook_rows` folds linked records into the logged entry (`links.combine`), for the
+  logbook, statistics, detail pages and places alike. The entry counts as its logs: flight count and
+  logged time, because logs are more complete and precise than paper written afterwards. A record linked to
+  several logged entries (one paper line for a flight with a battery swap) makes one entry counting all of
+  them. The record adds `reference` (searchable in the logbook) and its comment when the log has none,
+  and is listed in `linked_records`. Only rows the user can see are combined.
+- **Conflicts.** Where a linked record names another aircraft, project, place or PIC/PAC/GCS person than
+  the log, the log value is shown and `conflicts` lists both values for a person to resolve.
+- **Possible duplicates.** An unlinked record lists logged flights of its aircraft within 15 min
+  (`possible_duplicates`), except pairs marked not the same.
 
 Admins can select paper and telemetry records together in Logbook Edit mode and apply PIC, PAC,
 GCS and project changes in one transaction. Paper records still require a PIC and project:

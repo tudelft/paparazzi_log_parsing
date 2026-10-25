@@ -57,6 +57,9 @@ existing `/logbook` links still work.
 - A missing telemetry endpoint location uses the other endpoint's GPS position for display.
   Flights with both endpoint locations unknown are included in indoor/no-GPS filtering, even if a partial
   GPS path exists; the flight page labels this inference, which is not proof of indoor operation.
+- A paper record that clearly matches a logged flight (same aircraft, takeoff within 5 min) is linked to it
+  and counts once, as the log; unclear cases show as *possible duplicate* to link or dismiss, and an expanded
+  entry shows where the paper record differs from the log.
 - SD and GCS recordings of the same flight are merged. **Combine flights** additionally groups nearby
   flights into sessions; it does not change stored flights.
 - Hover over an aircraft name in the logbook for its TUD/serial number; it is also on the aircraft detail page.
