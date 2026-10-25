@@ -112,11 +112,13 @@
         <div class="filter-options">
           <label><input type="checkbox" name="indoor"> Show indoor / no-GPS flights</label>
           <label><input type="checkbox" name="nonflights"> Show non-flights</label>
-          <p>Non-flights include simulations, uncertain flights, ground records and zero-flight log files.</p>
           <label><input type="checkbox" name="unknownDates"> Show unknown dates</label>
-          <p>Include records without a known date alongside the selected period. Other visibility filters still apply.</p>
         </div>
-        <p>Shared across flight overviews in this browser. Changing pages keeps these settings.</p>
+        <details class="filter-help"><summary>Help</summary>
+          <p>Non-flights include simulations, uncertain flights, ground records and zero-flight log files.</p>
+          <p>Show unknown dates includes records without a known date alongside the selected period. Other visibility filters still apply.</p>
+          <p>Shared across flight overviews in this browser. Changing pages keeps these settings.</p>
+        </details>
         <p id="flightFiltersNotice" role="status"></p>
         <div class="filter-actions"><button type="button" id="flightFiltersCancel">Cancel</button><button type="submit">Apply filters</button></div>
       </form>`;
