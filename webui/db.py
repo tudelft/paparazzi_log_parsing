@@ -90,6 +90,12 @@ CREATE TABLE IF NOT EXISTS source_links (    -- manual join/split of two logged 
     created_at TEXT NOT NULL,
     UNIQUE (a_log_id, a_ac_id, a_idx, b_log_id, b_ac_id, b_idx)
 );
+CREATE TABLE IF NOT EXISTS log_uploaders (   -- people who uploaded the same file after logs.uploaded_by
+    log_id INTEGER NOT NULL REFERENCES logs(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    uploaded_at TEXT NOT NULL,
+    PRIMARY KEY (log_id, user_id)
+);
 CREATE TABLE IF NOT EXISTS weather_cache (
     cache_key TEXT PRIMARY KEY,
     payload TEXT NOT NULL

@@ -68,6 +68,8 @@ existing `/logbook` links still work.
 - A paper record that clearly matches a logged flight (same aircraft, takeoff within 5 min) is linked to it
   and counts once, as the log; unclear cases show as *possible duplicate* to link or dismiss, and an expanded
   entry shows where the paper record differs from the log.
+- Uploading a file that someone else already uploaded keeps one copy and makes you a **co-uploader**: you can then
+  see that log and its flights, and the Uploads page links to it.
 - In Edit mode, tick the entries of one flight and press **Same flight** to join them (also when the automatic
   SD/GCS merge missed it), or press **Not the same flight** next to a recording in an expanded entry to split it off.
 - SD and GCS recordings of the same flight are merged. **Combine flights** additionally groups nearby

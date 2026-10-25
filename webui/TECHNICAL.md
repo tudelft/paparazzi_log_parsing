@@ -886,6 +886,29 @@ results. Receipts have no project, so an explicit numeric `project` filter exclu
 last hour, while the failure filter includes all retained receipts. Failures rejected before
 a receipt is created remain upload-response errors, not persisted results.
 
+### Same file from another person: co-uploaders
+
+Logs are deduplicated by the SHA-256 of the `.data` file, so a file is stored once. When someone other than
+the first uploader uploads the same file (also under another name, also an admin), they are added to
+`log_uploaders` as **co-uploader** instead of being refused: having the file is evidence enough that they may
+see it. The ingest receipt is `duplicate` with `CO_UPLOADED` as message (plus ", missing .log added" when their
+upload supplies a `.log` the log lacked).
+
+- **Access.** Every uploader, first or co-, sees that log and its flights, also when the log or a flight is in a
+  project they are not a member of (`uploader_clause` in `own_clause` / `flight_own_clause`). Before, the first
+  uploader lost sight of a log once it was assigned to another project. Access covers that one log only, not the
+  project.
+- **Editing** follows the existing rules: project roles; for flights without a project, any uploader
+  (`is_uploader`). Deleting a log stays with the first uploader (when it has no project), full project members
+  and admins, so a co-uploader cannot remove the file for everyone.
+- **Shown** in the log details ("Uploaded … by A, also uploaded by B · date") and on B's person page.
+- **Uploads page.** `/api/status` lists the logs the user became co-uploader of in the last hour
+  (`co_uploaded`); the page shows them with a link that opens that one log (`/api/logs?log=<id>`, also used by
+  every `/uploads#log<id>` link, with *Show all logs* to return).
+- **Scripts.** `/api/logs/check` reports `mine` per known hash. `upload_logs.py` skips only files the user
+  already uploaded; others are uploaded once more, which proves possession (a hash alone does not) and adds the
+  co-uploader. The file is still stored once.
+
 **Logbook.** The parser tells onboard SD logs from ground station logs. The logbook (`/logbook`) has one row per
 flight and merges the SD and GCS recordings of the same flight: flight data from the SD log, PIC/PAC/GCS operator and
 goal from whichever log has them. Named takeoff areas are listed on the Locations page; everyone sees the ones their

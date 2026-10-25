@@ -200,7 +200,7 @@ def missing_pairs(client, pairs, max_files, max_bytes, progress=None, resume=Non
         for pair, digest in batch:
             if digest in seen:
                 duplicates += 1
-            elif digest in known and known[digest]["has_log"]:
+            elif digest in known and known[digest]["has_log"] and known[digest].get("mine", True):
                 existing += 1
             else:
                 todo.append(pair)

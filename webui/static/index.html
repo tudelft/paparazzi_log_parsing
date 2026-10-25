@@ -93,6 +93,7 @@
   </section>
 </main>
 <p id="status"></p>
+<div id="coUploaded" class="mute" hidden></div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -114,13 +115,17 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
+let onlyLog = /^#log\d+$/.test(location.hash) ? +location.hash.slice(4) : null;  // a deep link opens that one log
 function logsQuery() {
   const p = new URLSearchParams();
   p.set('limit', String(LOG_PAGE));
   p.set('offset', String(logOffset));
   p.set('status', $('logStatus').value);
+  if (onlyLog) p.set('log', String(onlyLog));
   return '?' + p.toString();
 }
+function showLog(id) { onlyLog = id; expanded.add(id); logOffset = 0; refresh(); }
+function showAllLogs() { onlyLog = null; history.replaceState(null, '', location.pathname); logOffset = 0; refresh(); }
 function fillProjects() {
   const open = me.is_admin || projects.some(p => p.can_add);
   $('drop').hidden = !open;
@@ -357,6 +362,11 @@ function paintStatus(st) {
   if (st.outdated) msg += ` · ${st.outdated} outdated`;
   if (st.date_unknown) msg += ` · ${st.date_unknown} date unknown`;
   $('status').textContent = msg;
+  // Files someone else had already uploaded: one copy is kept and this user is now a co-uploader of that log.
+  const co = st.co_uploaded || [];
+  $('coUploaded').hidden = !co.length;
+  $('coUploaded').innerHTML = co.length ? `Already on the server, uploaded by someone else; you are now a co-uploader and can open ${co.length === 1 ? 'it' : 'them'}: `
+    + co.map(c => `<a href="/uploads#log${c.log_id}" onclick="showLog(${c.log_id})">${esc(c.name)}</a>`).join(', ') : '';
   $('reparseAll').disabled = !st.outdated && !c.error;
 }
 
@@ -386,6 +396,7 @@ async function refresh() {
   const from = logTotal ? logOffset + 1 : 0;
   const to = Math.min(logOffset + logs.length, logTotal);
   $('pageInfo').textContent = logTotal ? `Showing ${from}–${to} of ${logTotal} (newest first)` : 'No matching results.';
+  if (onlyLog) $('pageInfo').innerHTML = `Showing log ${onlyLog} only · <a href="/uploads" onclick="event.preventDefault(); showAllLogs()">Show all logs</a>`;
   $('newerLogs').disabled = logOffset <= 0;
   $('olderLogs').disabled = logOffset + LOG_PAGE >= logTotal;
   const tb = $('logs');
@@ -461,7 +472,8 @@ async function loadDetail(id) {
       ${l.timing.correction_s != null ? ' · parser correction: ' + esc(l.timing.correction_s) + ' s' : ''}
       ${l.timing.warning ? '<br>' + esc(l.timing.warning) : ''}${timingEvidenceHTML(l.timing)}</span>` : ''}
     ${dateField(l)}
-    <span class="mute">Uploaded</span><span>${esc(l.uploaded_at)}</span>
+    <span class="mute">Uploaded</span><span>${esc(l.uploaded_at)}${l.uploaded_by_name ? ' by ' + esc(l.uploaded_by_name) : ''}${(l.co_uploaders || []).map(c =>
+      `<br>also uploaded by ${esc(c.name)} · ${esc(c.uploaded_at)}`).join('')}</span>
     <span class="mute">Parsed</span><span>${esc(l.parsed_at || '-')} with ${esc(l.parser_name || '')} ${esc(l.parser_version || '-')} (${l.parse_seconds ?? '-'} s)</span></div>`;
   for (const a of l.aircraft) {
     h += `<h4>${esc(a.drone_name || a.name)} ${a.simulation?.detected ? '<span class="badge">Simulation</span>' : ''}<span class="mute">${a.drone_uid ? esc(a.drone_uid) + ' · ' : ''}AC ${a.ac_id}${a.drone_name && a.drone_name !== a.name ? ' · logged as ' + esc(a.name) : ''}</span></h4>
