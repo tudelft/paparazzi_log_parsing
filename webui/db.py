@@ -96,6 +96,13 @@ CREATE TABLE IF NOT EXISTS log_uploaders (   -- people who uploaded the same fil
     uploaded_at TEXT NOT NULL,
     PRIMARY KEY (log_id, user_id)
 );
+CREATE TABLE IF NOT EXISTS conflict_reviews (  -- a person accepted the log value where a linked paper record differs
+    record_id INTEGER NOT NULL REFERENCES flight_records(id) ON DELETE CASCADE,
+    field TEXT NOT NULL, paper TEXT NOT NULL, log TEXT NOT NULL,  -- as shown; other values make it a new conflict
+    reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at TEXT NOT NULL,
+    PRIMARY KEY (record_id, field, paper, log)
+);
 CREATE TABLE IF NOT EXISTS weather_cache (
     cache_key TEXT PRIMARY KEY,
     payload TEXT NOT NULL

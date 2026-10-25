@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>To review</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --err:#cf222e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
+  header a { color:#9fb0c3; }
+  main { max-width:none; width:100%; margin:0; padding:16px 12px 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  h2 { margin:0 0 8px; font-size:15px; }
+  h3 { margin:0 0 8px; font-size:14px; }
+  .mute { color:var(--mute); }
+  button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button.sec { background:var(--sec); color:var(--txt); }
+  button:disabled { opacity:.5; cursor:default; }
+  input, select { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
+  .case-grid { display:grid; grid-template-columns:minmax(220px,320px) minmax(0,1fr); gap:16px; align-items:start; }
+  @media(max-width:860px) { .case-grid { grid-template-columns:1fr; } }
+  .paper dl { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; margin:0; }
+  .paper dt { color:var(--mute); }
+  .paper dd { margin:0; overflow-wrap:anywhere; }
+  .scroll { overflow-x:auto; }
+  table { border-collapse:collapse; width:max-content; min-width:100%; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
+  .tools { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0; }
+  .kind { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:var(--sec); }
+  .warn { color:var(--err); }
+  kbd { font:12px ui-monospace, monospace; border:1px solid var(--line); border-radius:4px; padding:0 4px; }
+  #err { color:var(--err); }
+</style>
+</head>
+<body>
+<header>
+  <h1>To review</h1>
+  <span class="meta" id="nav"></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <section class="card">
+    <div class="section-heading"><h2>Paper records and logs to check</h2>
+    <details><summary>Help</summary><p>Clear matches between a paper record and a log are linked automatically. The cases here
+      need a person: <b>possible duplicate</b> (logs of the same aircraft near the paper takeoff), <b>other aircraft</b>
+      (only another aircraft flew then: a mix-up on paper or in the log, or two aircraft flying) and <b>conflict</b>
+      (a linked paper record names another aircraft, project, place or crew than the log). Every decision is a normal
+      link that can be undone here or in the logbook. Keys: <kbd>j</kbd>/<kbd>k</kbd> next/previous,
+      <kbd>1</kbd>-<kbd>9</kbd> tick a log, <kbd>l</kbd> link ticked, <kbd>n</kbd> not the same, <kbd>s</kbd> skip.</p></details></div>
+    <div class="tools">
+      <label>Show <select id="kind"><option value="">all cases</option><option>possible duplicate</option>
+        <option>other aircraft</option><option>conflict</option></select></label>
+      <input id="filter" placeholder="Filter (aircraft, project, date, reference…)" size="32">
+      <span id="count" class="mute"></span>
+      <span style="margin-left:auto"><button type="button" class="sec" id="prev">Previous</button> <span id="pos" class="mute"></span>
+        <button type="button" class="sec" id="next">Next</button></span>
+    </div>
+    <p id="err" role="alert"></p>
+    <div id="case"></div>
+  </section>
+  <section class="card">
+    <h2>Recent decisions</h2>
+    <div class="scroll" id="recent"></div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const TYPE = {onboard_sd: 'SD', gcs: 'GCS', px4_ulog: 'PX4', ardupilot: 'ArduPilot', mavlink_tlog: 'tlog'};
+const ts = iso => iso && iso.length > 10 ? Date.parse(iso) / 1000 : null;
+const dur = s => s == null ? '' : `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, '0')}s`;
+const time = iso => iso && iso.length > 10 ? iso.slice(11, 19) : '';
+let cases = [], shown = [], index = 0, skipped = new Set();
+
+async function call(url, method, body) {
+  const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  return d;
+}
+const key = c => c.kind + ':' + (c.paper ? c.paper.record_id : c.entry.flight_ids.join(','));
+async function load() {
+  const r = await fetch('/api/review');
+  const d = await r.json();
+  if (!r.ok) { $('err').textContent = d.error || 'Could not load the cases.'; return; }
+  cases = d.cases;
+  $('recent').innerHTML = d.recent.length ? `<table><thead><tr><th>When</th><th>Who</th><th>Paper record</th><th>Decision</th><th></th></tr></thead><tbody>${
+    d.recent.map(x => `<tr><td>${esc(x.created_at.replace('T', ' ').slice(0, 16))}</td><td>${esc(x.by_name || '')}</td>
+      <td><a href="/historical/${x.record_id}">${esc(x.reference || 'record ' + x.record_id)}</a></td>
+      <td>${x.same ? 'same flight as' : 'not the same as'} <a href="/flight/${x.flight_id}">flight ${x.flight_id}</a></td>
+      <td><button type="button" class="sec" data-undo="${x.record_id}:${x.flight_id}">Undo</button></td></tr>`).join('')}</tbody></table>`
+    : '<p class="mute">No decisions yet.</p>';
+  paint();
+}
+function matches(c) {
+  if ($('kind').value && c.kind !== $('kind').value) return false;
+  const q = $('filter').value.trim().toLowerCase();
+  const e = c.paper || c.entry;
+  return !q || [e.aircraft, e.project_name, e.takeoff_utc, e.reference, e.takeoff_place, ...(c.linked_records || []).map(l => l.reference)]
+    .join(' ').toLowerCase().includes(q);
+}
+function paint() {
+  shown = cases.filter(c => matches(c) && !skipped.has(key(c)));
+  index = Math.min(index, Math.max(shown.length - 1, 0));
+  $('count').textContent = `${cases.length} to review` + (skipped.size ? ` · ${skipped.size} skipped` : '');
+  $('pos').textContent = shown.length ? `${index + 1} / ${shown.length}` : '';
+  $('prev').disabled = index <= 0; $('next').disabled = index >= shown.length - 1;
+  const c = shown[index];
+  $('case').innerHTML = !c ? '<p class="mute">Nothing to review with these filters.</p>' : c.kind === 'conflict' ? conflictCase(c) : matchCase(c);
+}
+function paperBox(p) {
+  const rows = [['Reference', p.reference], ['Date', (p.takeoff_utc || '').slice(0, 10)],
+    [p.record_kind === 'daily' ? 'First takeoff' : 'Takeoff', time(p.takeoff_utc) || 'not recorded'],
+    ['Duration', dur(p.duration_s) + (p.flight_count > 1 ? ` · ${p.flight_count} flights` : '')], ['Aircraft', p.aircraft],
+    ['PIC', p.pic], ['PAC', p.pac], ['GCS', p.gcs], ['Place', p.takeoff_place], ['Project', p.project_name], ['Comment', p.comment]];
+  return `<div class="paper"><h3>Paper record</h3><dl>${rows.filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+    <p><a href="/historical/${p.record_id}">Open the paper record</a></p></div>`;
+}
+function matchCase(c) {
+  const p = c.paper, start = ts(p.takeoff_utc);
+  const lines = c.candidates.map((f, i) => {
+    const offset = start != null && ts(f.takeoff_utc) != null ? Math.round(ts(f.takeoff_utc) - start) : null;
+    const ratio = f.duration_s && p.duration_s ? (p.duration_s / f.duration_s).toFixed(1) : '';
+    return `<tr><td><label><input type="checkbox" data-pick="${i}"> ${i + 1}</label></td>
+      <td>${esc(time(f.takeoff_utc))}</td><td>${esc(time(f.landing_utc))}</td>
+      <td>${offset == null ? '' : (offset < 0 ? '−' : '+') + dur(Math.abs(offset))}</td><td>${dur(f.duration_s)}</td>
+      <td title="Paper duration / logged duration">${ratio && '×' + ratio}</td><td>${esc(f.verdict || '')}</td>
+      <td class="${f.drone_id !== p.drone_id ? 'warn' : ''}">${esc(f.aircraft)}</td><td>${esc([f.pic, f.pac, f.gcs].filter(Boolean).join(' / '))}</td>
+      <td>${esc(f.takeoff_place || '')}</td><td>${esc(f.log_types.map(t => TYPE[t] || t).join(' + '))}</td>
+      <td><a href="/flight/${f.flight_ids[0]}" target="_blank" rel="noopener">open</a></td></tr>`;
+  }).join('');
+  const editable = p.can_edit && c.candidates.every(f => f.can_edit);
+  return `<p><span class="kind">${esc(c.kind)}</span> ${c.kind === 'other aircraft'
+      ? 'No log of this aircraft at this time, but another aircraft flew. Link only if the paper or the log names the wrong aircraft; the link is then shown as a conflict.'
+      : 'Logs of this aircraft near the paper takeoff. Tick the logs of this flight (several for one paper line, e.g. a battery swap).'}</p>
+    <div class="case-grid">${paperBox(p)}
+      <div><div class="scroll"><table><thead><tr><th></th><th>Takeoff</th><th>Landing</th><th>Offset</th><th>Logged</th><th>Ratio</th>
+        <th>Verdict</th><th>Aircraft</th><th>Crew</th><th>Place</th><th>Log</th><th></th></tr></thead><tbody>${lines}</tbody></table></div>
+      <div class="tools">${editable ? `<button type="button" id="linkPicked">Same flight: link ticked logs</button>
+        <button type="button" class="sec" id="notSame">Not the same flight</button>` : '<span class="mute">You need edit rights on the record and the logs to decide.</span>'}
+        <button type="button" class="sec" id="skip">Skip for now</button></div></div></div>`;
+}
+function conflictCase(c) {
+  const e = c.entry;
+  const rows = c.conflicts.map((x, i) => {
+    const copy = e.can_edit && x.paper_id && ['project', 'PIC', 'PAC', 'GCS'].includes(x.field);
+    return `<tr><td>${esc(x.field)}</td><td>${esc(x.log ?? '')}</td><td>${esc(x.paper ?? '')} <span class="mute">(${esc(x.record)})</span></td>
+      <td><button type="button" class="sec" data-keep="${i}">Keep log value</button>
+      ${copy ? `<button type="button" class="sec" data-copy="${i}">Use paper value</button>` : ''}
+      <a href="/historical/${x.record_id}">Edit paper record</a></td></tr>`;
+  }).join('');
+  return `<p><span class="kind">conflict</span> The linked paper record differs from the log. The log value is shown in the logbook until this is resolved.</p>
+    <div class="case-grid"><div class="paper"><h3>Logged flight</h3><dl>
+      ${[['Date', (e.takeoff_utc || '').slice(0, 10)], ['Takeoff', time(e.takeoff_utc)], ['Logged', dur(e.duration_s)], ['Aircraft', e.aircraft],
+         ['Project', e.project_name], ['Place', e.takeoff_place], ['Log', e.log_types.map(t => TYPE[t] || t).join(' + ')]]
+         .filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+      <p><a href="/flight/${e.flight_ids[0]}" target="_blank" rel="noopener">Open the flight</a></p></div>
+    <div><div class="scroll"><table><thead><tr><th>Field</th><th>Log</th><th>Paper</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="tools">${e.can_edit ? c.linked_records.map(l => `<button type="button" class="sec" data-unlink="${l.id}">Unlink ${esc(l.reference || 'record ' + l.id)}</button>`).join(' ') : ''}
+        <button type="button" class="sec" id="skip">Skip for now</button></div></div></div>`;
+}
+async function act(work) {
+  $('err').textContent = '';
+  try { await work(); await load(); } catch (error) { $('err').textContent = error.message; }
+}
+function picked(c) {
+  return [...document.querySelectorAll('[data-pick]')].filter(b => b.checked).flatMap(b => c.candidates[+b.dataset.pick].flight_ids);
+}
+document.addEventListener('click', e => {
+  const c = shown[index], t = e.target;
+  if (t.id === 'skip') { skipped.add(key(c)); paint(); }
+  else if (t.id === 'linkPicked') {
+    const ids = picked(c);
+    if (!ids.length) { $('err').textContent = 'Tick the logs of this flight first.'; return; }
+    act(() => call('/api/links', 'POST', {record_id: c.paper.record_id, flight_ids: ids, same: true}));
+  } else if (t.id === 'notSame')
+    act(() => call('/api/links', 'POST', {record_id: c.paper.record_id, flight_ids: c.candidates.flatMap(f => f.flight_ids), same: false}));
+  else if (t.dataset.keep) {
+    const x = c.conflicts[+t.dataset.keep];
+    act(() => call('/api/review/conflicts', 'POST', {record_id: x.record_id, field: x.field, paper: x.paper, log: x.log}));
+  } else if (t.dataset.copy) {
+    const x = c.conflicts[+t.dataset.copy], ids = c.entry.flight_ids;
+    act(async () => {
+      if (x.field === 'project') for (const id of ids) await call(`/api/flights/${id}/project`, 'PUT', {project_id: x.paper_id});
+      else await call('/api/flights/crew', 'PUT', {flight_ids: ids, [x.field.toLowerCase() + '_user_id']: x.paper_id});
+    });
+  } else if (t.dataset.unlink)
+    act(() => call('/api/links', 'POST', {record_id: +t.dataset.unlink, flight_ids: c.entry.flight_ids, same: false}));
+  else if (t.dataset.undo) {
+    const [record, flight] = t.dataset.undo.split(':').map(Number);
+    act(() => call('/api/links', 'DELETE', {record_id: record, flight_ids: [flight]}));
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input[type=text], input:not([type]), select, textarea') || e.ctrlKey || e.metaKey || e.altKey) return;
+  const click = id => $(id) && $(id).click();
+  if (e.key === 'j') click('next');
+  else if (e.key === 'k') click('prev');
+  else if (e.key === 'l') click('linkPicked');
+  else if (e.key === 'n') click('notSame');
+  else if (e.key === 's') click('skip');
+  else if (/^[1-9]$/.test(e.key)) { const b = document.querySelector(`[data-pick="${+e.key - 1}"]`); if (b) b.checked = !b.checked; }
+});
+$('prev').onclick = () => { index--; paint(); };
+$('next').onclick = () => { index++; paint(); };
+$('kind').onchange = $('filter').oninput = () => { index = 0; paint(); };
+fetch('/api/me').then(r => r.json()).then(d => { $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : ''); });
+load();
+</script>
+</body>
+</html>

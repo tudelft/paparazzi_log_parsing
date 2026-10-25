@@ -3205,6 +3205,122 @@ def decide_flight_link():
         return jsonify(error=str(exc)), exc.status
 
 
+@app.delete("/api/links")
+def forget_flight_link():
+    """Undo decisions between a paper record and flights: they return to automatic matching. Same rights as deciding."""
+    session_required()
+    body = request.get_json(silent=True) or {}
+    record_id, flight_ids = body.get("record_id"), body.get("flight_ids")
+    if (type(record_id) is not int or not isinstance(flight_ids, list) or not flight_ids or len(flight_ids) > 50
+            or any(type(f) is not int for f in flight_ids)):
+        return jsonify(error="record_id and flight_ids (list) are required"), 400
+    con = conn()
+    try:
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            row = historical.visible(con, g.user, record_id)
+            if not historical.can_edit(con, g.user, row["project_id"]):
+                raise historical.RecordError("Full project access is required to change this record.", 403)
+            for flight_id in flight_ids:
+                _, err = visible_editable_flight(con, flight_id)
+                if err:
+                    raise historical.RecordError("No such editable flight.", 404 if err == "missing" else 403)
+            links.forget(con, record_id, flight_ids)
+            links.auto_link(con, now())
+        return jsonify(ok=True)
+    except historical.RecordError as exc:
+        return jsonify(error=str(exc)), exc.status
+
+
+@app.get("/review")
+def review_page():
+    return send_from_directory(PAGES_DIR, "review.html")
+
+
+def review_entry(r):
+    """What the review page shows of a logbook row."""
+    crew = {role: (r.get(role + "_user") or {}).get("display_name") or r.get(role) for role in ROLES}
+    return dict({k: r.get(k) for k in ("takeoff_utc", "landing_utc", "duration_s", "verdict", "aircraft", "drone_id",
+                                        "project_name", "takeoff_place", "goal", "comment", "flight_count",
+                                        "record_kind", "reference")},
+                **crew, flight_ids=[s["flight_id"] for s in r.get("sources") or []],
+                log_types=sorted({s["log_type"] for s in r.get("sources") or []}),
+                record_id=r.get("manual_id"), can_edit=bool(r.get("can_edit_record") if r.get("manual_id")
+                                                            else r.get("can_edit_project")))
+
+
+@app.get("/api/review")
+def review_queue():
+    """Open paper <-> log cases a person has to decide (#49): possible duplicates, paper records where only another
+    aircraft flew at that time, and conflicts nobody accepted yet. Built from the rows the user can see, from the
+    same read model as the logbook; decisions go through /api/links and need edit rights."""
+    con = conn()
+    rows = logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT"))
+    telemetry = [r for r in rows if r["source_type"] == "telemetry"]
+    by_flight = {s["flight_id"]: r for r in telemetry for s in r["sources"]}
+    decided = {(d["record_id"], d["flight_id"]) for d in links.resolved(con)}
+    cases = []
+    for p in rows:
+        if p["source_type"] != "paper":
+            continue
+        paper = review_entry(p)
+        if p.get("possible_duplicates"):
+            candidates = [review_entry(by_flight[d["flight_ids"][0]]) for d in p["possible_duplicates"]
+                          if d["flight_ids"] and d["flight_ids"][0] in by_flight]
+            cases.append(dict(kind="possible duplicate", paper=paper, candidates=candidates))
+            continue
+        window = links.paper_window(dict(date=p["takeoff_utc"][:10], takeoff_time=p["takeoff_utc"][11:19] or None,
+                                         kind=p["record_kind"], duration_s=p["duration_s"]))
+        if window is None:
+            continue
+        others = [review_entry(r) for r in telemetry
+                  if r["drone_id"] != p["drone_id"] and r.get("takeoff_utc") and not r.get("linked_records")
+                  and links._ts(r["takeoff_utc"]) is not None and window[0] <= links._ts(r["takeoff_utc"]) <= window[1]
+                  and not any((p["manual_id"], s["flight_id"]) in decided for s in r["sources"])]
+        if others:
+            cases.append(dict(kind="other aircraft", paper=paper, candidates=others))
+    for r in telemetry:
+        open_conflicts = [c for c in r.get("conflicts") or [] if not c.get("reviewed_by")]
+        if open_conflicts:
+            cases.append(dict(kind="conflict", entry=review_entry(r), conflicts=open_conflicts,
+                              linked_records=r["linked_records"]))
+    cases.sort(key=lambda c: ((c.get("paper") or c.get("entry"))["aircraft"] or "",
+                              (c.get("paper") or c.get("entry"))["takeoff_utc"] or ""))
+    visible = {p["manual_id"] for p in rows if p["source_type"] == "paper"} | {
+        l["id"] for r in telemetry for l in r.get("linked_records") or []}
+    recent = [dict(r) for r in con.execute(
+        "SELECT k.record_id, k.same, k.created_at, COALESCE(u.display_name, u.username) AS by_name,"
+        " (SELECT reference FROM flight_records WHERE id=k.record_id) AS reference, f.id AS flight_id"
+        " FROM flight_links k LEFT JOIN users u ON u.id=k.created_by"
+        " JOIN aircraft a ON a.log_id=k.log_id AND COALESCE(a.ac_id, ?)=k.ac_id"
+        " JOIN flights f ON f.aircraft_id=a.id AND f.idx=k.idx"
+        " WHERE k.origin='manual' ORDER BY k.created_at DESC, k.id DESC LIMIT 200", (links.NO_AC_ID,))
+        if r["record_id"] in visible][:30]
+    return jsonify(cases=cases, recent=recent)
+
+
+@app.post("/api/review/conflicts")
+def accept_conflict():
+    """Accept the log value for one conflict (record, field, both values as shown); other values reopen it."""
+    body = request.get_json(silent=True) or {}
+    record_id, field = body.get("record_id"), body.get("field")
+    paper, log = body.get("paper"), body.get("log")
+    if type(record_id) is not int or field not in ("aircraft", "project", "place", "PIC", "PAC", "GCS"):
+        return jsonify(error="record_id and field are required"), 400
+    con = conn()
+    try:
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            row = historical.visible(con, g.user, record_id)
+            if not historical.can_edit(con, g.user, row["project_id"]):
+                raise historical.RecordError("Full project access is required to change this record.", 403)
+            con.execute("INSERT OR REPLACE INTO conflict_reviews(record_id, field, paper, log, reviewed_by, reviewed_at)"
+                        " VALUES (?,?,?,?,?,?)", (record_id, field, str(paper), str(log), g.user["id"], now()))
+        return jsonify(ok=True)
+    except historical.RecordError as exc:
+        return jsonify(error=str(exc)), exc.status
+
+
 @app.post("/api/sources/links")
 def decide_source_link():
     """Correct the automatic SD/GCS merging by hand. same=true: all flight_ids are one flight (join);

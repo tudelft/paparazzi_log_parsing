@@ -82,6 +82,8 @@ date for an explanation; the full timing evidence remains available in the fligh
   a **suggested date** in its details on Uploads; accept it there (admins can accept all at once).
 - Uploading a file that someone else already uploaded keeps one copy and makes you a **co-uploader**: you can then
   see that log and its flights, and the Uploads page links to it.
+- **To review** (link on the Logbook) walks through possible duplicates, paper records where only another aircraft
+  flew, and conflicts, with the paper record next to the candidate logs; every decision can be undone there.
 - In Edit mode, tick the entries of one flight and press **Same flight** to join them (also when the automatic
   SD/GCS merge missed it), or press **Not the same flight** next to a recording in an expanded entry to split it off.
 - SD and GCS recordings of the same flight are merged. **Combine flights** additionally groups nearby
