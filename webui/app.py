@@ -818,7 +818,7 @@ def user_public(u):
 
 @app.after_request
 def no_cache_pages(resp):
-    if request.path in ("/api/people-directory", "/api/admin/people") or request.path.startswith((
+    if request.path in ("/api/people-directory", "/api/admin/people", "/api/people-pic-flights") or request.path.startswith((
             "/api/detail/people/", "/api/users/", "/api/qualification-", "/api/admin/qualification-", "/api/admin/users/")):
         resp.headers["Cache-Control"] = "private, no-store"
     if resp.mimetype == "text/html" or request.path in ("/theme.css", "/theme.js", "/attachments.js", "/qualifications.js"):
@@ -1170,6 +1170,24 @@ def people_directory():
                       "aliases": [a["alias"] for a in con.execute(
                           "SELECT alias FROM user_aliases WHERE user_id=? ORDER BY alias", (r["id"],))]})
     return jsonify(users=users)
+
+
+@app.get("/api/people-pic-flights")
+def people_pic_flights():
+    """Small bulk read model for directory PIC totals under the shared browser flight filters."""
+    allowed = qualifications.directory_user_ids(conn(), g.user)
+    rows = []
+    for f in logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT")):
+        uid = (f.get("pic_user") or {}).get("id")
+        if uid not in allowed:
+            continue
+        rows.append(dict(
+            user_id=uid,
+            **{key: f.get(key) for key in (
+                "takeoff_utc", "date_override", "date_ok", "date_estimated", "duration_s",
+                "flight_count", "indoor", "verdict")},
+            simulation={"detected": bool((f.get("simulation") or {}).get("detected"))}))
+    return jsonify(flights=rows)
 
 
 # ---- command line user management:  python3 app.py create-user|set-password|list-users|deactivate-user ----

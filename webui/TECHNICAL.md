@@ -556,8 +556,10 @@ Both role changes (`PUT /api/admin/users/<id>/admin`) and key-detail access
 (`GET /api/admin/users/<id>/keys`) or revocation (`DELETE /api/admin/users/<id>/keys/<key_id>`)
 require an administrator browser session, not an API key.
 
-The Projects overview uses searchable responsive cards with log/member counts, linked member names
-and expandable member permissions. In Edit mode, select one project from the searchable list to
+The Projects overview uses searchable, equal-height responsive cards with contrasting backgrounds,
+accent borders, top-right log/member counts and a member list clipped to three lines with an ellipsis.
+Hover over the member list for all names, or open the project for details. Permissions are only shown in Edit.
+In Edit mode, select one project from the searchable list to
 rename it, change current members' permissions or delete it. The member list contains only existing
 members; search by name, username or alias to add an enabled, non-external person with See access,
 then adjust Upload/Delete as needed. Removing all permissions removes membership. Existing API
@@ -683,11 +685,17 @@ writing; the page shows that first. Replacing a drawn polygon by a circle is fla
 ### Private licences and qualifications
 
 Users upload and manage their own qualifications on **My account**, alongside password settings.
-The read-only People overview uses a compact responsive grid of names, aliases and qualifications,
-including for normal users within their existing directory access. Usernames and sign-in information
+The read-only People overview uses a compact responsive grid of equal-height, contrasting cards
+with names, a clipped row of qualifications and top-right PIC flight count, hours and last-flight date.
+Totals use the visible merged telemetry and paper-record read model, including daily paper counts,
+and follow the shared browser flight filters. A single bulk `/api/people-pic-flights` request supplies
+only the fields needed for those totals and filters; there are no per-person flight requests.
+Usernames, aliases and sign-in information
 are hidden; search still matches name, username, available email and alias.
 Approved, non-expired licence chips remain visible to the person and administrators; chips link to
 the evidence download when evidence exists. Other viewers do not receive private qualification data.
+Cards show up to two lines of licences, with a **More licences...** link to the pilot page
+when the list exceeds the available space.
 Enable Edit, then select someone to open their
 **Account**, **API keys**, **Aliases** or **Qualifications** tab. The editor shows **Active · TU Delft SSO**
 for enabled SSO accounts and **Active · Local** for enabled local accounts with a password; external,

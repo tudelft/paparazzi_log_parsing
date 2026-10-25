@@ -43,9 +43,11 @@
   .project-toolbar h2 { margin:0; }
   .project-toolbar details { margin-left:auto; }
   .project-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:10px; }
-  .project-card { border:1px solid var(--line); border-radius:6px; padding:12px; min-width:0; overflow-wrap:anywhere; }
-  .project-card h3 { margin:0 0 6px; font-size:15px; }
-  .project-card p { margin:6px 0 0; }
+  .project-card { border:1px solid var(--fieldline); border-left:4px solid var(--acc); border-radius:8px; padding:8px 10px; min-width:0; height:104px; background:var(--detail); box-shadow:0 2px 4px #0002; }
+  .project-card-header { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  .project-card h3 { margin:0; min-width:0; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .project-counts { flex-shrink:0; font-size:11px; white-space:nowrap; }
+  .project-card p { margin:6px 0 0; max-height:54px; overflow:hidden; overflow-wrap:anywhere; font-size:12px; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; line-clamp:3; }
   .project-layout { display:grid; grid-template-columns:minmax(220px,300px) minmax(0,1fr); gap:16px; align-items:start; }
   .project-list { max-height:65vh; overflow:auto; }
   .project-button { display:block; width:100%; padding:8px; margin:3px 0; text-align:left; background:var(--card); color:var(--txt); border:1px solid var(--line); overflow-wrap:anywhere; }
@@ -111,7 +113,6 @@ window.fetch = async (...args) => {
 let projects = [], users = [], me = null;
 let selectedProject = null;
 let memberQuery = '';
-const ROLE_LABEL = {view: 'See', add: 'See, upload', full: 'See, upload, delete'};
 const ticksOf = role => ({see: !!role, upload: role === 'add' || role === 'full', del: role === 'full'});
 function roleFromBoxes(see, upload, del) {
   if (del) return 'full';
@@ -220,11 +221,9 @@ function render() {
       || '<p class="mute">No matching projects.</p>';
     renderProjectPanel();
   } else {
-    $('projectOverview').innerHTML = shown.map(p => `<article class="project-card"><h3><a href="/projects/${p.id}">${esc(p.name)}</a></h3>
-      <span class="mute">${p.log_count ?? 0} logs · ${(p.members || []).length} members</span>
-      <p>${peoplePreview(p)}</p>
-      <details><summary>Member permissions</summary>${(p.members || []).map(m =>
-        `<div class="person"><a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a><span class="mute">${esc(ROLE_LABEL[m.role] || m.role)}</span></div>`).join('') || '<p class="mute">No members.</p>'}</details></article>`).join('')
+    $('projectOverview').innerHTML = shown.map(p => `<article class="project-card"><div class="project-card-header"><h3 title="${esc(p.name)}"><a href="/projects/${p.id}">${esc(p.name)}</a></h3>
+      <span class="project-counts mute">${p.log_count ?? 0} logs · ${(p.members || []).length} members</span></div>
+      <p aria-label="Project members" title="${esc((p.members || []).map(m => m.display_name || m.username).join(', '))}">${peoplePreview(p)}</p></article>`).join('')
       || '<p class="mute">No matching projects.</p>';
   }
 }

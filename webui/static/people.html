@@ -21,11 +21,22 @@
   h2 { margin:0 0 8px; font-size:15px; }
   table { width:max-content; min-width:100%; border-collapse:collapse; }
   .directory-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:8px; margin-top:10px; }
-  .directory-person { min-width:0; border:1px solid var(--line); border-radius:6px; padding:8px 10px; overflow-wrap:anywhere; }
-  .directory-person .person-name { font-weight:600; }
+  .directory-person { position:relative; min-width:0; height:86px; border:1px solid var(--fieldline); border-left:4px solid var(--acc); border-radius:8px; padding:8px 10px; background:var(--detail); box-shadow:0 2px 4px #0002; }
+  .directory-person-header { display:contents; }
+  .directory-person-header .person-name { display:block; max-width:calc(100% - 156px); }
+  .directory-person .person-name { display:inline-block; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
   .directory-person .chip { max-width:100%; white-space:normal; font-size:12px; }
-  .directory-aliases { color:var(--mute); font-size:12px; margin-top:3px; }
+  .directory-licences { height:48px; overflow:clip; margin-top:2px; }
+  .directory-licences .chip { white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+  .licences-more { position:absolute; right:10px; bottom:5px; background:var(--detail); padding-left:8px; font-size:11px; }
+  .licences-more[hidden] { display:none; }
+  .pic-totals { float:right; display:flex; justify-content:flex-end; flex-wrap:wrap; gap:0 8px; width:148px; margin-left:8px; font-size:11px; white-space:nowrap; text-align:right; }
+  .pic-totals .pic-last { flex-basis:100%; }
+  .pic-totals strong { color:var(--txt); font-weight:500; }
   #directorySearch { width:min(100%,360px); }
+  .directory-search { flex:0 1 280px; min-width:0; }
+  .directory-search input { width:100%; }
+  .directory-search[hidden] { display:none; }
   th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
   th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
   .mute { color:var(--mute); }
@@ -108,7 +119,8 @@
     <div class="people-title-row"><h2>People</h2>
     <button type="button" class="editOnly" hidden onclick="$('addUserDialog').showModal()">Add user</button>
     <label id="showExternalLabel" title="External people stay hidden until this is ticked" hidden><input type="checkbox" id="showExternal" onchange="render()"> Show external</label>
-    <label title="People without logs, paper records or approved qualifications stay hidden until this is ticked"><input type="checkbox" id="showWithoutLogs" onchange="render()"> Show people without logs or licences</label>
+    <label title="Include people without logs, paper records or approved qualifications"><input type="checkbox" id="showWithoutLogs" onchange="render()"> Include unused profiles</label>
+    <label class="directory-search" id="directorySearchLabel"><input type="search" id="directorySearch" aria-label="Search people" placeholder="Search people" oninput="renderDirectory()"></label>
     <details class="people-help"><summary>Help</summary>
     <p id="peopleHint">Accounts that can sign in. Names from the logs are matched to these accounts.</p>
     </details></div>
@@ -154,7 +166,6 @@
       </div>
     </div>
     <div id="directoryTable">
-      <label class="field">Search people<input type="search" id="directorySearch" placeholder="Name, username, email or alias" oninput="renderDirectory()"></label>
       <p class="mute" id="directoryCount" role="status"></p>
       <div class="directory-grid" id="directoryPeople"></div>
     </div>
@@ -202,6 +213,21 @@ let selectedPerson = null, selectedTab = 'account', qualificationManager = null;
 let qualificationTypes = [], pendingQualifications = [];
 let panelGeneration = 0;
 let qualImportToken = null;
+let picFlights = null, picError = '';
+
+async function loadPicFlights() {
+  try {
+    const r = await fetch('/api/people-pic-flights');
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    picFlights = d.flights;
+    picError = '';
+  } catch (error) {
+    picFlights = null;
+    picError = `Could not load PIC totals: ${error.message}`;
+  }
+  renderDirectory();
+}
 
 async function load() {
   if (me && me.is_admin) {
@@ -219,6 +245,7 @@ async function load() {
     people = {users: d.users || [], unlinked: [], projects: []};
   }
   render();
+  loadPicFlights();
 }
 
 const hasLicence = u => ((u.qualifications && u.qualifications.items) || []).some(item => item.status === 'approved');
@@ -249,6 +276,7 @@ function render() {
   const editing = admin && window.editMode();
   $('adminPeople').hidden = !editing;
   $('directoryTable').hidden = editing;
+  $('directorySearchLabel').hidden = editing;
   $('approvalSection').hidden = !admin || pendingQualifications.length === 0;
   $('typesSection').hidden = !editing;
   const open = admin ? people.unlinked.length : 0;
@@ -267,7 +295,7 @@ function render() {
   $('peopleHint').textContent = editing
     ? 'Search and select a person to manage their account, aliases and private qualifications. Users submit their own evidence on My account. Removing a user keeps their uploaded logs.'
     : admin ? 'People and their qualifications. Open a name to view the pilot page. Turn on Edit to manage accounts, aliases and qualifications.'
-    : 'People and their aliases. Unmatched crew names remain in the logs until an admin links them to a profile.';
+    : 'People and their visible qualifications. PIC totals follow the shared flight filters. Open a name for full details.';
   if (!editing) {
     if (admin) renderAdminPeople();
     renderDirectory();
@@ -291,15 +319,38 @@ function matchingPeople(query) {
     .some(v => v.toLocaleLowerCase().includes(query)));
 }
 
+const licenceOverflowObserver = new ResizeObserver(() => {
+  document.querySelectorAll('.directory-licences').forEach(el => {
+    el.nextElementSibling.hidden = el.scrollHeight <= el.clientHeight;
+  });
+});
+
 function renderDirectory() {
+  licenceOverflowObserver.disconnect();
   const rows = matchingPeople($('directorySearch').value);
+  const totals = new Map();
+  for (const f of picFlights || []) {
+    if (!window.flightFilters.includes(f)) continue;
+    const t = totals.get(f.user_id) || {count:0, seconds:0, last:''};
+    t.count += f.flight_count || 1;
+    t.seconds += f.duration_s || 0;
+    const day = window.flightFilters.day(f);
+    if (day > t.last) t.last = day;
+    totals.set(f.user_id, t);
+  }
   $('directoryCount').textContent = `${rows.length} of ${people.users.length} people`;
-  $('directoryPeople').innerHTML = rows.map(u => `<article class="directory-person">
-    <a class="person-name" href="/people/${u.id}">${esc(u.display_name || u.username)}</a>
-    ${u.is_external ? '<span class="chip">External</span>' : ''}
-    ${(u.aliases || []).length ? `<div class="directory-aliases">Aliases: ${(u.aliases || []).map(esc).join(', ')}</div>` : ''}
-    <div>${qualBits(u.qualifications)}</div></article>`).join('')
+  $('directoryPeople').innerHTML = (picError ? `<p role="alert">${esc(picError)}</p>` : '') + rows.map(u => {
+    const t = totals.get(u.id) || {count:0, seconds:0, last:''};
+    return `<article class="directory-person"><div class="directory-person-header">
+    ${picFlights === null ? `<div class="pic-totals mute">${picError ? 'PIC totals unavailable' : 'Loading PIC totals...'}</div>` : `<div class="pic-totals mute" aria-label="PIC flight statistics">
+      <span title="Flights as PIC"><strong>${t.count}</strong> flights</span><span title="Flight hours as PIC"><strong>${(t.seconds / 3600).toFixed(1)}</strong> h</span>
+      <span class="pic-last" title="Last flight as PIC">Last ${esc(t.last || '—')}</span></div>`}
+    <a class="person-name" title="${esc(u.display_name || u.username)}" href="/people/${u.id}">${esc(u.display_name || u.username)}</a></div>
+    <div class="directory-licences" aria-label="Current licences; open the pilot page for all licences">${qualBits(u.qualifications)}</div>
+    <a class="licences-more" href="/people/${u.id}" hidden>More licences...</a></article>`;
+  }).join('')
     || '<p class="mute">No matching people.</p>';
+  document.querySelectorAll('.directory-licences').forEach(el => licenceOverflowObserver.observe(el));
 }
 
 async function adminApi(url, options) {
@@ -715,6 +766,7 @@ fetch('/api/me').then(r => r.json()).then(d => {
   load();
 });
 window.addEventListener('editchange', render);
+window.addEventListener('flightfilterschange', renderDirectory);
 </script>
 </body>
 </html>

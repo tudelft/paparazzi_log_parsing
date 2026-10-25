@@ -7,6 +7,30 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import saml
 from .test_historical import AppTests
+from .test_links import LinkFixtures
+
+
+class PeoplePicFlightsTests(LinkFixtures):
+    def test_pic_rows_use_merged_visible_flights_and_paper_totals(self):
+        self.flight(1, "12:00:00")
+        self.flight(2, "12:00:01", kind="gcs")
+        self.flight(3, "15:00:00")
+        self.con.execute("UPDATE flights SET pic_user_id=2 WHERE id IN (1,2)")
+        self.con.execute("UPDATE flights SET pic_user_id=3,pac_user_id=2 WHERE id=3")
+        self.con.commit()
+        self.create(kind="daily", date="2010-01-02", flight_count=4, duration_minutes=60)
+        response = self.client.get("/api/people-pic-flights")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-store", response.headers["Cache-Control"])
+        rows = response.json["flights"]
+        self.assertEqual(len(rows), 3)
+        pilot = [r for r in rows if r["user_id"] == 2]
+        self.assertEqual(len(pilot), 2)
+        self.assertEqual(sum(r["flight_count"] for r in pilot), 5)
+        self.assertEqual(sum(r["duration_s"] for r in pilot), 3700)
+        self.assertTrue(all("date_ok" in r and "simulation" in r for r in rows))
+        self.sign_in(4)
+        self.assertEqual(self.client.get("/api/people-pic-flights").json["flights"], [])
 
 
 class SamlAttributeTests(unittest.TestCase):
