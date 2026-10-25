@@ -4173,6 +4173,28 @@ def undated_takeoff(f):
     return f.get("takeoff_utc") is not None and clock_implausible(f["takeoff_utc"])
 
 
+def better_gcs_track(onboard, candidate):
+    """Only override SD for a substantially denser, nearly complete GCS track."""
+    base, quality = onboard.get("track_quality"), candidate.get("track_quality")
+    duration = onboard.get("duration_s") or 0
+    if base is None or quality is None or quality.get("count", 0) < 3 or duration <= 0:
+        return False
+    start, other_start = _ts(onboard["takeoff_utc"]), _ts(candidate["takeoff_utc"])
+    if start is None or other_start is None:
+        return False
+    offset = other_start - start
+    coverage = min(duration, offset + quality["last_s"]) - max(0, offset + quality["first_s"])
+    if coverage < 0.9 * duration:
+        return False
+    if base["count"] < 2:
+        return quality["max_gap_s"] <= 0.1 * duration
+    base_span = base["last_s"] - base["first_s"]
+    span = quality["last_s"] - quality["first_s"]
+    return (quality["count"] / span >= 4 * base["count"] / base_span
+            and base["median_gap_s"] - quality["median_gap_s"] >= 1
+            and quality["max_gap_s"] <= base["max_gap_s"])
+
+
 def merge_sources(flights, decisions=None):
     """Merge the same flight recorded by an onboard SD log and a ground station (GCS) log into one entry.
 
@@ -4181,7 +4203,7 @@ def merge_sources(flights, decisions=None):
     (_same_type_overlap). Each recording joins its best-matching partner.
 
     `decisions` maps frozenset({flight_id, flight_id}) to True (a person joined them) or False (split): joins are
-    applied first, whatever the timing or names; a split pair never ends up in one group. The onboard log provides the flight data; the people and
+    applied first, whatever the timing or names; a split pair never ends up in one group. The onboard log normally provides the flight data; the people and
     goal are taken from the first source that has them (GCS first, as the pre-flight messages are sent over the link).
     """
     # Score every compatible pair of recordings first and join the best-matching pairs first, so a source is not
@@ -4308,10 +4330,21 @@ def merge_sources(flights, decisions=None):
 
     out = []
     for g in groups:
-        # The longest onboard recording leads: it holds the most of the flight (duration, verdict, track).
+        # Prefer the longest onboard recording unless GCS has a clearly better, complete track.
         fl = sorted(sorted(g["flights"], key=lambda r: r["takeoff_utc"] or ""),
                     key=lambda r: (TYPE_ORDER[r["log_type"]], -(r["duration_s"] or 0)))
+        original_order = fl
+        selected = None
+        if fl[0]["log_type"] == "onboard_sd":
+            candidates = [o for o in fl[1:] if o["log_type"] == "gcs" and better_gcs_track(fl[0], o)]
+            if candidates:
+                selected = max(candidates, key=lambda o: o["track_quality"]["count"] /
+                               (o["track_quality"]["last_s"] - o["track_quality"]["first_s"]))
+                fl = [selected] + [o for o in fl if o is not selected]
         main = dict(fl[0])
+        main["source_selection_reason"] = (
+            "GCS selected: substantially denser or previously missing GPS track, covering at least 90% of the SD flight."
+            if selected else None)
         main["date_estimated"] = any(o.get("date_estimated") for o in fl)
         assessed = [o["simulation"] for o in fl if o.get("simulation") is not None]
         if assessed:
@@ -4319,26 +4352,26 @@ def merge_sources(flights, decisions=None):
                 "detected": any(s["detected"] for s in assessed),
                 "evidence": sorted({reason for s in assessed for reason in s["evidence"]}),
             }
-        main["aircraft"] = next((o["aircraft"] for o in reversed(fl) if o["log_type"] == "gcs"), main["aircraft"])
-        identity = next((o for o in fl if o["drone_id"] is not None), None)
+        main["aircraft"] = next((o["aircraft"] for o in reversed(original_order) if o["log_type"] == "gcs"), main["aircraft"])
+        identity = next((o for o in original_order if o["drone_id"] is not None), None)
         if identity is not None:
             for key in ("aircraft", "drone_id", "aircraft_uid"):
                 main[key] = identity[key]
-        if not main["landed"]:
+        if not main["landed"] and selected is None:
             donor = next((o for o in fl[1:] if o["landed"]), None)
             if donor:
                 for k in ("landing_utc", "landing_lat", "landing_lon", "landing_voltage_v", "landing",
                           "duration_s", "distance_m", "from_takeoff_m", "max_from_takeoff_m", "landed"):
                     main[k] = donor[k]
         for role in ROLES + ("goal",):
-            main[role] = next((o[role] for o in sorted(fl, key=lambda r: -TYPE_ORDER[r["log_type"]]) if (o[role] or "").strip()), main[role])
+            main[role] = next((o[role] for o in sorted(original_order, key=lambda r: -TYPE_ORDER[r["log_type"]]) if (o[role] or "").strip()), main[role])
         for role in ROLES:
             key = role + "_user_id"
-            main[key] = next((o[key] for o in sorted(fl, key=lambda r: -TYPE_ORDER[r["log_type"]]) if o.get(key)), main.get(key))
-        main["comment"] = next((o["comment"] for o in sorted(fl, key=lambda r: -TYPE_ORDER[r["log_type"]]) if (o.get("comment") or "").strip()), main.get("comment"))
-        main["distance_m"] = next((o["distance_m"] for o in fl if o.get("distance_m") is not None), main.get("distance_m"))
-        main["from_takeoff_m"] = next((o["from_takeoff_m"] for o in fl if o.get("from_takeoff_m") is not None), main.get("from_takeoff_m"))
-        main["max_from_takeoff_m"] = next((o["max_from_takeoff_m"] for o in fl if o.get("max_from_takeoff_m") is not None), main.get("max_from_takeoff_m"))
+            main[key] = next((o[key] for o in sorted(original_order, key=lambda r: -TYPE_ORDER[r["log_type"]]) if o.get(key)), main.get(key))
+        main["comment"] = next((o["comment"] for o in sorted(original_order, key=lambda r: -TYPE_ORDER[r["log_type"]]) if (o.get("comment") or "").strip()), main.get("comment"))
+        if selected is None:
+            for key in ("distance_m", "from_takeoff_m", "max_from_takeoff_m"):
+                main[key] = next((o[key] for o in fl if o.get(key) is not None), main.get(key))
         main["sources"] = [{"log_id": o["log_id"], "log_type": o["log_type"], "log_name": o["log_name"], "flight_id": o["flight_id"],
                             "has_log": bool(o["has_log"]), "takeoff_utc": o["takeoff_utc"], "duration_s": o["duration_s"],
                             "uploaded_by_name": o["uploaded_by_name"], "size_bytes": o.get("size_bytes")} for o in fl]
@@ -4385,6 +4418,7 @@ LOGBOOK_OVERVIEW_KEYS = (
     "landing_place", "landing_place_id", "landing_lat", "landing_lon",
     "pic", "pac", "gcs", "goal", "comment", "verdict", "indoor", "optitrack",
     "date_ok", "date_override", "date_estimated", "hidden", "can_edit_record", "can_edit_crew",
+    "source_selection_reason",
     "can_edit_project", "can_edit_date", "linked_records", "conflicts", "possible_duplicates",
 )
 
@@ -4579,12 +4613,13 @@ def backfill_gps_positions(con):
     legacy = "path_gz" in {r[1] for r in con.execute("PRAGMA table_info(flights)")}
     rows = con.execute(
         "SELECT f.id, f.takeoff_lat, f.takeoff_lon, f.landing_lat, f.landing_lon, f.path_idx,"
+        " f.takeoff_time_s, f.duration_s, f.track_quality,"
         " a.log_id, l.paths_file" + (", f.path_gz" if legacy else "") +
         " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id"
-        " WHERE f.has_gps_position IS NULL ORDER BY a.log_id, f.id").fetchall()
+        " WHERE f.has_gps_position IS NULL OR f.track_quality IS NULL ORDER BY a.log_id, f.id").fetchall()
     if not rows:
         return
-    print(f"Backfilling GPS summaries for {len(rows)} flights (one-time path check) ...", flush=True)
+    print(f"Backfilling GPS/track summaries for {len(rows)} flights (one-time path check) ...", flush=True)
     last_log, paths = None, None
     try:
         for row in rows:
@@ -4593,8 +4628,8 @@ def backfill_gps_positions(con):
                 last_log, paths = row["log_id"], None
             known = (valid_gps_location(row["takeoff_lat"], row["takeoff_lon"])
                      or valid_gps_location(row["landing_lat"], row["landing_lon"]))
-            if not known:
-                path = []
+            path = []
+            if not known or row["track_quality"] is None:
                 if row["paths_file"]:
                     if paths is None:
                         paths = db.unpack((STORAGE_DIR / row["paths_file"]).read_bytes()) or []
@@ -4603,15 +4638,17 @@ def backfill_gps_positions(con):
                         path = paths[idx]
                 if not path and legacy and row["path_gz"]:
                     path = db.unpack(row["path_gz"]) or []
-                known = db.path_has_gps_position(path)
-            con.execute("UPDATE flights SET has_gps_position=? WHERE id=? AND has_gps_position IS NULL",
-                        (int(known), row["id"]))
+                known = known or db.path_has_gps_position(path)
+            quality = (json.dumps(db.track_quality(path, row["takeoff_time_s"], row["duration_s"]))
+                       if row["track_quality"] is None else row["track_quality"])
+            con.execute("UPDATE flights SET has_gps_position=COALESCE(has_gps_position,?), track_quality=? WHERE id=?",
+                        (int(known), quality, row["id"]))
         con.commit()
     except (OSError, EOFError, ValueError, sqlite3.Error):
         con.rollback()
-        app.logger.exception("GPS summary backfill failed at log %s; retry before serving overviews", last_log)
+        app.logger.exception("GPS/track summary backfill failed at log %s; retry before serving overviews", last_log)
         raise
-    print("GPS summary backfill complete.", flush=True)
+    print("GPS/track summary backfill complete.", flush=True)
 
 
 def endpoint_location_fallback(row):
@@ -4631,7 +4668,7 @@ def logbook_rows(hidden=False, hide_unlinked=False):
     con = conn()
     rows = con.execute(
         "SELECT f.id AS flight_id, f.idx, f.takeoff_utc, f.landing_utc, f.duration_s, f.distance_m,"
-        " f.from_takeoff_m, f.max_from_takeoff_m, f.landed, f.has_gps_position,"
+        " f.from_takeoff_m, f.max_from_takeoff_m, f.landed, f.has_gps_position, f.track_quality,"
         " f.takeoff_lat, f.takeoff_lon, f.landing_lat, f.landing_lon, f.project_id,"
         " f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment,"
         " a.id AS aircraft_pk, a.ac_id, a.simulation, COALESCE(d.name, a.name) AS aircraft, a.name AS aircraft_logged,"
@@ -4652,6 +4689,7 @@ def logbook_rows(hidden=False, hide_unlinked=False):
         d["takeoff"] = json.loads(d.pop("takeoff_json") or "null")
         d["landing"] = json.loads(d.pop("landing_json") or "null")
         d["simulation"] = json.loads(d["simulation"]) if d["simulation"] is not None else None
+        d["track_quality"] = json.loads(d["track_quality"]) if d["track_quality"] is not None else None
         apply_row_clock(d)
         prepared.append(d)
     out = merge_sources(prepared, links.source_decisions(con))
@@ -4788,6 +4826,7 @@ def flight_detail(flight_id):
     versions, from_gcs = with_gcs_autopilot_fallback(json.loads(row["autopilot_versions"] or "[]"), row["log_path"])
     return jsonify(
         entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
+        aircraft_pk=row["aircraft_pk"],
         timing=log_timing(row),
         takeoff_time_s=row["takeoff_time_s"], landing_time_s=row["landing_time_s"],
         path=path, flight_plan=config.get("flight_plan"),

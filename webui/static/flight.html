@@ -346,6 +346,9 @@ function renderSummary() {
       ${e.optitrack || e.indoor ? kv('Where', e.optitrack ? 'Indoor (OptiTrack)' : e.indoor_no_gps ? 'Indoor / no GPS (inferred: both endpoint locations unknown; a partial path may exist)' : 'Indoor') : ''}
     </div></div>
     <details style="margin-top:12px"><summary>Log sources and upload details</summary><div class="kv src">
+      ${e.source_selection_reason ? kv('Default source', esc(e.source_selection_reason)
+        + ` <a href="/flight/${e.flight_id}">Open selected GCS recording</a>`
+        + (e.flight_id !== flightId ? ' The summary describes that recording; the path and measurements below show the explicitly opened source.' : '')) : ''}
       ${D.timing ? kv('Timing (shown source)', esc(D.timing.source) + ' · original start: ' + esc(D.timing.original_start_utc || 'unknown')
         + ' · effective start: ' + esc(D.timing.effective_start_utc || 'unknown')
         + (D.timing.correction_s != null ? ' · parser correction: ' + esc(D.timing.correction_s) + ' s' : '')
@@ -355,7 +358,7 @@ function renderSummary() {
       ${kv('Uploaded', esc(fmtTime(e.uploaded_at)) + (e.uploaded_by_name ? ' by ' + esc(e.uploaded_by_name) : ''))}
     </div></details>
     <div class="actions"><a class="btn sec" href="/api/flights/${flightId}/path" target="_blank">Path JSON</a>
-      <a class="btn sec" href="/api/aircraft/${e.aircraft_pk}/config" target="_blank">Airframe / flight plan / settings</a></div>`;
+      <a class="btn sec" href="/api/aircraft/${D.aircraft_pk}/config" target="_blank">Airframe / flight plan / settings</a></div>`;
   const ev = (title, x, utc, name, extra) => x ? `<div><h4>${title}</h4><div class="kv">${kv('Time (UTC)', esc(fmtTime(utc)))}${kv('Location', coord(x.location, name))}
     ${extra || ''}${kv('Battery', x.voltage_v != null ? x.voltage_v.toFixed(2) + ' V' : '')}${kv('Wind', windTxt(x.wind))}
     ${kv('INS position (NED, m)', ned(x.ins?.position_ned_m))}${kv('INS speed (NED, m/s)', ned(x.ins?.velocity_ned_ms))}${kv('INS accel (NED, m/s²)', ned(x.ins?.acceleration_ned_ms2))}</div></div>` : '';

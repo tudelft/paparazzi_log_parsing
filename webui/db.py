@@ -3,6 +3,7 @@ import gzip
 import json
 import math
 import sqlite3
+import statistics
 import threading
 import time
 
@@ -216,6 +217,7 @@ CREATE TABLE IF NOT EXISTS flights (
     takeoff_json TEXT, landing_json TEXT,   -- full takeoff/landing objects (wind, ins, ...)
     num_points INTEGER,
     has_gps_position INTEGER CHECK(has_gps_position IN (0,1)),
+    track_quality TEXT,                -- JSON timing/density summary; SQL NULL = not backfilled
     verdict TEXT,                      -- parser estimate: flight | uncertain | ground
     assessment_json TEXT,              -- score, reasons and metrics behind the verdict
     project_id INTEGER,                -- projects.id; auto from aircraft / uploader / GCS / PIC, then editable
@@ -408,6 +410,8 @@ def init(path):
     fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
     if "has_gps_position" not in fcols:
         con.execute("ALTER TABLE flights ADD COLUMN has_gps_position INTEGER CHECK(has_gps_position IN (0,1))")
+    if "track_quality" not in fcols:
+        con.execute("ALTER TABLE flights ADD COLUMN track_quality TEXT")
     if "project_source" not in fcols:
         con.execute("ALTER TABLE flights ADD COLUMN project_source TEXT")
     for table in ("flights", "flight_records"):
@@ -509,6 +513,29 @@ def path_has_gps_position(path):
                                   (p.get("position") or {}).get("lon")) for p in path)
 
 
+def track_quality(path, takeoff_time_s, duration_s):
+    """Summarize valid, increasing position timestamps within the flight, without keeping the path."""
+    if not all(isinstance(v, (int, float)) and math.isfinite(v)
+               for v in (takeoff_time_s, duration_s)) or duration_s <= 0:
+        return None
+    times = []
+    for p in path:
+        pos = p.get("position") or {}
+        t = p.get("time_s")
+        if (not valid_gps_location(pos.get("lat"), pos.get("lon"))
+                or not isinstance(t, (int, float)) or not math.isfinite(t)):
+            continue
+        offset = t - takeoff_time_s
+        if 0 <= offset <= duration_s and (not times or offset > times[-1]):
+            times.append(offset)
+    quality = {"count": len(times)}
+    if len(times) >= 2:
+        gaps = [b - a for a, b in zip(times, times[1:])]
+        quality.update(first_s=times[0], last_s=times[-1],
+                       median_gap_s=statistics.median(gaps), max_gap_s=max(gaps))
+    return quality
+
+
 def store_parsed(con, log_id, doc, paths_file):
     """Replace the parsed content of a log by the output of the C++ parser (caller commits).
 
@@ -551,8 +578,8 @@ def store_parsed(con, log_id, doc, paths_file):
                 "INSERT INTO flights (aircraft_id, idx, duration_s, distance_m, from_takeoff_m, max_from_takeoff_m, landed,"
                 " takeoff_time_s, takeoff_utc, takeoff_lat, takeoff_lon, takeoff_alt_m, takeoff_voltage_v,"
                 " landing_time_s, landing_utc, landing_lat, landing_lon, landing_alt_m, landing_voltage_v,"
-                " takeoff_json, landing_json, num_points, verdict, assessment_json, path_idx, has_gps_position)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " takeoff_json, landing_json, num_points, verdict, assessment_json, path_idx, has_gps_position, track_quality)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (ac_pk, f.get("flight"), f.get("duration_s"), f.get("distance_m"), f.get("from_takeoff_m"),
                  f.get("max_from_takeoff_m"), int(bool(f.get("landed"))),
                  to.get("time_s"), to.get("utc"), tlat, tlon, talt, to.get("voltage_v"),
@@ -560,7 +587,8 @@ def store_parsed(con, log_id, doc, paths_file):
                  json.dumps(to), json.dumps(ld), len(path),
                  (f.get("assessment") or {}).get("verdict"), json.dumps(f.get("assessment")), path_idx,
                  int(valid_gps_location(tlat, tlon) or valid_gps_location(llat, llon)
-                     or path_has_gps_position(path))),
+                     or path_has_gps_position(path)),
+                 json.dumps(track_quality(path, to.get("time_s"), f.get("duration_s")))),
             )
             path_idx += 1
         changes = (ac.get("settings_changes") or {}).get("timeline") or []

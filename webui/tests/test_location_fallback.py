@@ -1,4 +1,7 @@
 import json
+import tempfile
+import threading
+from pathlib import Path
 from unittest.mock import patch
 
 import db
@@ -6,6 +9,55 @@ from .test_historical import AppTests
 
 
 class LocationFallbackTests(AppTests):
+    def test_track_summary_ignores_invalid_untimed_duplicate_and_backward_samples(self):
+        def point(t, lat=52, lon=4):
+            return {"time_s": t, "position": {"lat": lat, "lon": lon}}
+        path = [point(99), point(100), point(100), point(101), point(100.5),
+                point(110, 0, 0), point(110, float("nan")), point(110, 95),
+                point(float("inf")), point(None), point(120), point(140), point(141)]
+        self.assertEqual(db.track_quality(path, 100, 40),
+                         {"count": 4, "first_s": 0, "last_s": 40,
+                          "median_gap_s": 19, "max_gap_s": 20})
+        self.assertEqual(db.track_quality([], 100, 40), {"count": 0})
+        self.assertIsNone(db.track_quality(path, None, 40))
+        self.assertIsNone(db.track_quality(path, 100, float("nan")))
+
+    def test_track_summary_backfill_drives_all_default_links_without_overview_path_io(self):
+        for identity, step, kind in ((1, 20, "onboard_sd"), (2, 1, "gcs")):
+            path = [{"time_s": t, "position": {"lat": 52, "lon": 4}}
+                    for t in range(0, 61, step)]
+            self.insert_flight((52, 4), (52, 4), path, identity, kind)
+            self.con.execute(
+                "UPDATE flights SET takeoff_time_s=0,landing_time_s=60,landed=1,"
+                " landing_utc='2010-01-01T12:01:00.000Z',distance_m=? WHERE id=?",
+                (identity * 1000, identity))
+        self.con.commit()
+        # Endpoints already have GPS summaries: quality still needs a one-time backfill.
+        self.ns["backfill_gps_positions"](self.con)
+        self.assertEqual([json.loads(r[0])["count"] for r in self.con.execute(
+            "SELECT track_quality FROM flights ORDER BY id")], [4, 61])
+        with patch("pathlib.Path.read_bytes", side_effect=AssertionError("No overview path I/O")):
+            self.ns["backfill_gps_positions"](self.con)
+            for url in ("/api/logbook", "/api/logbook?compact=1", "/api/stats", "/api/detail/projects/1"):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200, url)
+                rows = response.json if isinstance(response.json, list) else response.json["flights"]
+                self.assertEqual(len(rows), 1, url)
+                self.assertEqual(rows[0]["distance_m"], 2000, url)
+                if url != "/api/stats":
+                    self.assertEqual(rows[0]["flight_id"], 2, url)
+        for identity, count in ((2, 61), (1, 4)):
+            detail = self.client.get(f"/api/flights/{identity}/detail").json
+            self.assertEqual(detail["flight_id"], identity)
+            self.assertEqual(detail["log_id"], identity)
+            self.assertEqual(detail["aircraft_pk"], identity)
+            self.assertEqual(len(detail["path"]), count)
+            self.assertEqual(detail["entry"]["flight_id"], 2)
+            self.assertIn("GCS selected", detail["entry"]["source_selection_reason"])
+        self.sign_in(4)
+        self.assertEqual(self.client.get("/api/logbook").json, [])
+        self.assertEqual(self.client.get("/api/flights/2/detail").status_code, 404)
+
     def insert_flight(self, takeoff=(None, None), landing=(None, None), path=None, identity=1,
                       kind="onboard_sd"):
         self.con.execute(
@@ -190,6 +242,29 @@ class LocationFallbackTests(AppTests):
         db.store_parsed(self.con, 1, {"aircraft": [{"flights": [
             {"takeoff": {"location": {"lat": 52, "lon": 4}}, "path": []}]}]}, None)
         self.assertEqual(self.con.execute("SELECT has_gps_position FROM flights").fetchone()[0], 1)
+        path = [{"time_s": t, "position": {"lat": 52, "lon": 4}} for t in (10, 20, 30)]
+        doc = {"aircraft": [{"flights": [{"takeoff": {"time_s": 10}, "duration_s": 20, "path": path}]}]}
+        db.store_parsed(self.con, 1, doc, None)
+        expected = db.track_quality(path, 10, 20)
+        self.assertEqual(json.loads(self.con.execute("SELECT track_quality FROM flights").fetchone()[0]), expected)
+        self.con.execute("UPDATE flights SET track_quality=NULL,path_gz=?", (db.pack(path),))
+        self.con.commit()
+        self.ns["backfill_gps_positions"](self.con)
+        self.assertEqual(json.loads(self.con.execute("SELECT track_quality FROM flights").fetchone()[0]), expected)
+
+    def test_track_summary_column_migrates_without_reparsing(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(db, "_local", threading.local()):
+            path = Path(folder) / "legacy.db"
+            con = db.connect(path)
+            try:
+                con.executescript(db.SCHEMA)
+                con.execute("ALTER TABLE flights DROP COLUMN track_quality")
+                con.commit()
+                db.init(path)
+                db.init(path)
+                self.assertIn("track_quality", {r[1] for r in con.execute("PRAGMA table_info(flights)")})
+            finally:
+                con.close()
 
     def test_backfill_reads_each_log_once_and_preserves_flight_data(self):
         self.insert_flight(path=[{"position": {"lat": 52, "lon": 4}}])
