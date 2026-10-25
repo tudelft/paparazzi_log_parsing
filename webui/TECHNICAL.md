@@ -1040,7 +1040,8 @@ not an API key. No raw-log reparse is needed to mark names or update assignments
 with **full** access to the selected project can create, edit and delete these records; other project
 members can read them. Select an existing aircraft, PIC and project, then enter the date, total flight
 time in minutes and flight count. An individual flight has count 1 and an optional UTC takeoff time.
-A daily summary has a count and a combined duration, with no fabricated individual takeoff times.
+A daily summary has a count and a combined duration, with no fabricated individual takeoff times; its
+optional takeoff time is the **first takeoff of the session** (used for sorting and for suggesting logs).
 Location, PAC, GCS operator, goal, notes and book/page reference are optional.
 
 For admins only, the same page imports UTF-8 comma-separated CSV (up to 1000 records / 1 MB) and offers a template.
@@ -1109,7 +1110,10 @@ flight" (`same=0`), with `origin` `auto` or `manual`, who and when.
 - **Conflicts.** Where a linked record names another aircraft, project, place or PIC/PAC/GCS person than
   the log, the log value is shown and `conflicts` lists both values for a person to resolve.
 - **Possible duplicates.** An unlinked record lists logged flights of its aircraft within 15 min
-  (`possible_duplicates`), except pairs marked not the same.
+  (`possible_duplicates`), except pairs marked not the same. For a daily summary with a first takeoff the
+  window runs from 15 min before it until 15 min after its total duration (`links.paper_window`), so the
+  logs of the whole session are suggested. Daily summaries are never linked automatically: one row stands
+  for several flights; link its logs by hand (the entry then counts as those logs).
 - **Import preview.** *Check CSV* (`preview=1`) runs the import and the automatic linking in one transaction,
   records per row what happened (`logs.linked`: the logged flights it will be linked to, else `logs.possible`:
   the possible duplicates, `links.record_matches`) and rolls everything back. The preview therefore shows exactly

@@ -36,7 +36,7 @@
   <details class="help-text"><summary>Help with paper records</summary>
   <p>Transcribe an individual flight or a daily total. These are paper records, not telemetry:
     unknown times, positions, distance and software remain unavailable. Daily totals count all flights but
-    do not invent individual takeoffs. Exact paper duplicates are rejected. A record
+    do not invent individual takeoffs; their takeoff time, if given, is the first takeoff of the session. Exact paper duplicates are rejected. A record
     that clearly matches a logged flight (same aircraft, takeoff within 5 minutes) is linked to it and counts once,
     as the log; other nearby logs are shown in the logbook as possible duplicates to link or dismiss.</p></details>
   <section class="card">
@@ -49,7 +49,7 @@
         <label>Record type<select id="kind"><option value="flight">Individual flight</option><option value="daily">Daily summary</option></select></label>
         <label>Flight count *<input id="flight_count" type="number" min="1" max="1000" value="1" required step="1"></label>
         <label>Total flight time (minutes) *<input id="duration_minutes" type="number" min="0.001" max="1440" step="any" required></label>
-        <label>Takeoff time (UTC, optional)<input id="takeoff_time" type="time" step="1"></label>
+        <label><span id="takeoffLabel">Takeoff time (UTC, optional)</span><input id="takeoff_time" type="time" step="1"></label>
         <label>Location<select id="place_id"></select></label>
         <label>PAC<select id="pac_user_id"></select></label>
         <label>GCS operator<select id="gcs_user_id"></select></label>
@@ -70,7 +70,7 @@
       duration_minutes (total), flight_count. Use existing aircraft/project/location names and crew
       <strong>unique display names or explicit crew aliases</strong>, matching the log crew rules.
       Usernames match only when added as aliases; unknown or ambiguous crew names reject the import.
-      Optional kind: flight or daily; takeoff_time: HH:MM[:SS] UTC.
+      Optional kind: flight or daily; takeoff_time: HH:MM[:SS] UTC (for daily: the first takeoff).
       Blank time means unknown. No users or aircraft are created automatically.</p>
     <p><a href="/api/historical/template" download>Download CSV template</a></p>
     <p>At most 1000 rows / 1 MB. Every row is validated before saving: if any row is invalid,
@@ -111,10 +111,9 @@ function options(id, rows, name) {
 }
 function syncKind() {
   const daily = $('kind').value === 'daily';
-  $('takeoff_time').disabled = daily;
   $('flight_count').readOnly = !daily;
-  if (daily) $('takeoff_time').value = '';
-  else $('flight_count').value = '1';
+  if (!daily) $('flight_count').value = '1';
+  $('takeoffLabel').textContent = daily ? 'First takeoff of the day (UTC, optional)' : 'Takeoff time (UTC, optional)';
 }
 $('kind').onchange = syncKind;
 async function start() {

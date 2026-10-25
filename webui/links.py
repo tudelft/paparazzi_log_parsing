@@ -27,6 +27,16 @@ def paper_ts(date, takeoff_time):
     return _ts(f"{date}T{takeoff_time}") if date and takeoff_time else None
 
 
+def paper_window(record):
+    """(start, end) of logged takeoffs that may belong to a paper record with a takeoff time: around the takeoff
+    for a single flight; for a daily summary from its first takeoff until its total duration has passed."""
+    start = paper_ts(record["date"], record["takeoff_time"])
+    if start is None:
+        return None
+    end = start + ((record["duration_s"] or 0) if record["kind"] == "daily" else 0)
+    return start - SUGGEST_WINDOW_S, end + SUGGEST_WINDOW_S
+
+
 def flight_key(con, flight_id):
     row = con.execute("SELECT a.log_id, COALESCE(a.ac_id, ?) AS ac_id, f.idx, f.takeoff_utc FROM flights f"
                       " JOIN aircraft a ON a.id=f.aircraft_id WHERE f.id=?", (NO_AC_ID, flight_id)).fetchone()
@@ -128,7 +138,7 @@ def auto_link(con, stamp):
 
 def record_matches(con, record_id):
     """Logged flights a paper record is linked to, or else the possible duplicates a person would be shown
-    (same aircraft, takeoff within SUGGEST_WINDOW_S, not marked not-the-same). Used by the import preview."""
+    (same aircraft, takeoff within `paper_window`, not marked not-the-same). Used by the import preview."""
     def flights(where, params):
         return [dict(r) for r in con.execute(
             "SELECT f.id AS flight_id, f.takeoff_utc, f.duration_s, l.log_type FROM flights f"
@@ -138,14 +148,15 @@ def record_matches(con, record_id):
     linked = [d["flight_id"] for d in decisions if d["same"]]
     if linked:
         return dict(linked=flights(f"f.id IN ({','.join('?' * len(linked))})", linked), possible=[])
-    r = con.execute("SELECT drone_id, date, takeoff_time FROM flight_records WHERE id=?", (record_id,)).fetchone()
-    start = paper_ts(r["date"], r["takeoff_time"]) if r else None
-    if start is None:
+    r = con.execute("SELECT drone_id, date, takeoff_time, kind, duration_s FROM flight_records WHERE id=?",
+                    (record_id,)).fetchone()
+    window = paper_window(r) if r else None
+    if window is None:
         return dict(linked=[], possible=[])
     vetoed = {d["flight_id"] for d in decisions}
     near = flights("a.drone_id=? AND f.hidden=0 AND l.status='done' AND f.takeoff_utc>=? AND f.takeoff_utc<=?",
-                   (r["drone_id"], *(datetime.fromtimestamp(start + sign * SUGGEST_WINDOW_S, timezone.utc)
-                                     .strftime("%Y-%m-%dT%H:%M:%S") for sign in (-1, 1))))
+                   (r["drone_id"], *(datetime.fromtimestamp(edge, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+                                     for edge in window)))
     return dict(linked=[], possible=[f for f in near if f["flight_id"] not in vetoed])
 
 
@@ -210,13 +221,14 @@ def combine(con, rows):
     for record_id, p in papers.items():
         if record_id in absorbed:
             continue
-        start = _ts(p["takeoff_utc"]) if len(p["takeoff_utc"] or "") > 10 else None
-        p["possible_duplicates"] = [] if start is None else [
+        window = paper_window(dict(date=p["takeoff_utc"][:10], takeoff_time=p["takeoff_utc"][11:19] or None,
+                                   kind=p["record_kind"], duration_s=p["duration_s"]))
+        p["possible_duplicates"] = [] if window is None else [
             dict(flight_ids=[s["flight_id"] for s in r["sources"]], takeoff_utc=r["takeoff_utc"],
                  duration_s=r["duration_s"], aircraft=r["aircraft"])
             for i, r in enumerate(telemetry)
             if r["drone_id"] == p["drone_id"] and (record_id, i) not in vetoed and _ts(r["takeoff_utc"]) is not None
-            and abs(_ts(r["takeoff_utc"]) - start) <= SUGGEST_WINDOW_S]
+            and window[0] <= _ts(r["takeoff_utc"]) <= window[1]]
         out.append(p)
     return out
 

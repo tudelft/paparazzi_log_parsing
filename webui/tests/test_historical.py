@@ -140,7 +140,7 @@ class HistoricalTests(AppTests):
         for changes in ({"duration_minutes": "NaN"}, {"duration_minutes": -1}, {"duration_minutes": 1441},
                         {"duration_minutes": "1e9999999999"}, {"flight_count": "1" * 5000},
                         {"date": "2010-02-30"}, {"date": "2999-01-01"}, {"flight_count": 0},
-                        {"kind": "flight"}, {"takeoff_time": "12:00"}, {"pic_user_id": 999},
+                        {"kind": "flight"}, {"takeoff_time": "12:00Z"}, {"pic_user_id": 999},
                         {"kind": []}, {"takeoff_time": False}, {"goal": 0}):
             with self.subTest(changes=changes):
                 self.assertEqual(self.create(**changes).status_code, 400)
