@@ -28,6 +28,10 @@ say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 warn() { printf '\033[33mWarning: %s\033[0m\n' "$*" >&2; }
 die() { printf '\033[31mError: %s\033[0m\n' "$*" >&2; exit 1; }
 
+# Capture the running copy before Git can replace it in place.
+SELF=$(readlink -f "$0")
+INSTALLER_SHA256=$(sha256sum "$SELF" | cut -d ' ' -f 1)
+
 # ask VAR "question" [default]
 ask() {
     local answer
@@ -216,9 +220,8 @@ fi
 git -C "$APP" log -1 --format='Version: %h %s (%cd)' --date=short
 
 # Continue with the installer from the updated code, so a newer script also writes newer service files
-SELF=$(readlink -f "$0" 2>/dev/null || true)
-if [ -z "${LOGDB_INSTALL_REEXEC:-}" ] && [ -f "$WEBUI/install.sh" ] && [ "$SELF" != "$WEBUI/install.sh" ] \
-   && ! cmp -s "$SELF" "$WEBUI/install.sh"; then
+if [ -z "${LOGDB_INSTALL_REEXEC:-}" ] && [ -f "$WEBUI/install.sh" ] \
+   && [ "$INSTALLER_SHA256" != "$(sha256sum "$WEBUI/install.sh" | cut -d ' ' -f 1)" ]; then
     if [ "$CONFIGURE" -eq 1 ]; then
         echo "Note: the downloaded installer differs from $WEBUI/install.sh; using the answers above with this copy."
     else
@@ -226,6 +229,10 @@ if [ -z "${LOGDB_INSTALL_REEXEC:-}" ] && [ -f "$WEBUI/install.sh" ] && [ "$SELF"
         LOGDB_INSTALL_REEXEC=1 exec bash "$WEBUI/install.sh" "$@"
     fi
 fi
+
+say "Installing Word document preview support"
+apt-get install -y -q --no-install-recommends libreoffice-writer-nogui
+command -v soffice >/dev/null || die "LibreOffice was installed but soffice is not available on PATH"
 
 say "Building the parser"
 cmake -S "$APP/cpp" -B "$APP/cpp/build" -DCMAKE_BUILD_TYPE=Release >/dev/null

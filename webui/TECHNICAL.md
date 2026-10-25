@@ -53,6 +53,11 @@ Day-to-day:
 
 After an update that changes the parser version, click **Re-parse outdated** on the Uploads page.
 
+An ordinary update automatically reloads the installer if Git changes it, even when running the
+installed copy directly. One invocation updates the code, dependencies and service files. First
+installs and `--reconfigure` runs keep the running installer and its interactive answers; it prints
+a note if the downloaded installer differs.
+
 The shared page footer shows the nearest reachable `webui-vMAJOR.MINOR.PATCH` release tag, the number
 of commits since it (when nonzero), and a link to the Web UI's exact Git commit. Web UI release tags
 are separate from parser versions; create an annotated tag on the tested release commit and push
@@ -295,7 +300,10 @@ and serves that inline. The conversion runs on a temporary copy with a throwaway
 accepted and the Word import filter is forced, so a renamed file of another type never reaches another
 LibreOffice import filter. The PDF is cached as `LOG_DIR/previews/<sha256>.pdf` (identical files share it)
 and removed with the last attachment of that content. A failed conversion returns 422 and caches
-nothing; the download is unchanged. Install on Debian/Ubuntu with
+nothing; the download is unchanged. The installer installs headless LibreOffice automatically on
+fresh installs and updates, without recommended packages. The default `LOGDB_OFFICE=auto` enables
+previews when it is installed; an existing explicit `off` or custom binary setting is preserved.
+For manual installations on Debian/Ubuntu, use
 `sudo apt install --no-install-recommends libreoffice-writer-nogui` (a few hundred MB).
 
 **Flight weather.** The Weather tab shows logged wind at takeoff and landing when available. The
