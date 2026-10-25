@@ -1037,7 +1037,9 @@ Existing global alias assignments were automatic; they were not per-log confirma
 An unresolved SD source with an ambiguous name is considered separately after normal source
 grouping. It may join exactly one candidate group containing a linked GCS source when their
 intervals overlap within the existing 60-second slack, autopilot IDs agree and both takeoff
-positions are valid and within 2 km. If any qualifying groups actually overlap, slack-only
+positions are valid and within 2 km. Candidate groups are rejected by interval and log ID before
+checking their clocks, avoiding repeated timestamp parsing for unrelated recordings.
+If any qualifying groups actually overlap, slack-only
 candidates are discarded. Exactly one remaining group is required: multiple genuine overlaps
 remain unresolved even when one has closer timestamps, as do multiple slack-only candidates.
 Missing evidence leaves it unresolved; matching generic names alone is insufficient. Specifically linked conflicting
