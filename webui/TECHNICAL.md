@@ -880,6 +880,10 @@ added later). Files are kept in `<LOG_DIR>/<sha[:2]>/<sha>/` with the flight pat
 are staged in `<WEB_DATA>/incoming`. Each log records its parser version; **Re-parse outdated** re-runs the current
 parser on older and failed logs.
 
+The Uploads **Filename** field adds `q`, a case-insensitive literal filename substring search across
+all accessible logs (and ingestion receipts in the failures view). It combines with status
+and project filters; changing the search returns to the first page and leaves single-log mode.
+
 The Uploads **Status** dropdown filters `/api/logs` before counting and pagination:
 `status=all` (default), `errors` (parser errors), `unfinished` (queued/parsing/error), or
 `failures` (parser errors plus error/rejected ingestion receipts). The combined failures view

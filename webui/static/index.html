@@ -75,6 +75,7 @@
   <section class="card">
     <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap">
       <strong>Logs</strong>
+      <label>Filename <input type="search" id="logSearch" placeholder="Find a log by filename"></label>
       <label>Status <select id="logStatus"><option value="all">All logs</option><option value="errors">Parser errors</option><option value="unfinished">Unfinished logs</option><option value="failures">All failures</option></select></label>
     <div id="pager" class="mute" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
       <label>Logs per page <select id="logPageSize"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>
@@ -122,6 +123,7 @@ function logsQuery() {
   p.set('limit', String(LOG_PAGE));
   p.set('offset', String(logOffset));
   p.set('status', $('logStatus').value);
+  if ($('logSearch').value.trim()) p.set('q', $('logSearch').value.trim());
   if (onlyLog) p.set('log', String(onlyLog));
   return '?' + p.toString();
 }
@@ -538,6 +540,14 @@ async function setProject(id, value) {
 }
 $('logPageSize').onchange = () => { LOG_PAGE = +$('logPageSize').value; logOffset = 0; refresh(); };
 $('logStatus').onchange = () => { logOffset = 0; refresh(); };
+let logSearchTimer;
+$('logSearch').oninput = () => {
+  clearTimeout(logSearchTimer);
+  onlyLog = null;
+  history.replaceState(null, '', location.pathname);
+  logOffset = 0;
+  logSearchTimer = setTimeout(refresh, 250);
+};
 $('newerLogs').onclick = () => { logOffset = Math.max(0, logOffset - LOG_PAGE); refresh(); };
 $('olderLogs').onclick = () => { if (logOffset + LOG_PAGE < logTotal) { logOffset += LOG_PAGE; refresh(); } };
 setInterval(() => {
