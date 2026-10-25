@@ -24,6 +24,16 @@ class SamlAttributeTests(unittest.TestCase):
 
 
 class PeopleDirectoryTests(AppTests):
+    def test_admin_people_exposes_enabled_state_for_login_badges(self):
+        self.sign_in(1)
+        self.con.execute("UPDATE users SET is_active=0 WHERE id=4")
+        self.con.commit()
+        users = {u["id"]: u for u in self.client.get("/api/admin/people").json["users"]}
+        self.assertTrue(users[2]["is_active"])
+        self.assertFalse(users[4]["is_active"])
+        self.assertFalse(users[2]["has_password"])
+        self.assertEqual(users[2]["provider"], "local")
+
     def test_admin_role_changes_and_self_demotion_guard(self):
         url = "/api/admin/users/2/admin"
         self.assertEqual(self.client.put(url, json={"is_admin": True}).status_code, 403)

@@ -548,13 +548,22 @@ for another person, with confirmation. Only active, non-external accounts can be
 Self-demotion is blocked: ask another administrator to remove your rights. The last active
 administrator cannot be demoted. These changes preserve ordinary project memberships and take
 effect on subsequent requests, including requests using existing API keys.
-The Account tab also lists the selected person's API-key names, prefixes, creation times and last-use
+The separate API keys tab lists the selected person's API-key names, prefixes, creation times and last-use
 times (or Never). In Edit mode, admins can revoke individual keys after confirmation; scripts using
 that key immediately lose access. The selected user's other keys remain unchanged.
 Secrets and hashes are never returned; full secrets cannot be recovered.
 Both role changes (`PUT /api/admin/users/<id>/admin`) and key-detail access
 (`GET /api/admin/users/<id>/keys`) or revocation (`DELETE /api/admin/users/<id>/keys/<key_id>`)
 require an administrator browser session, not an API key.
+
+The Projects overview uses searchable responsive cards with log/member counts, linked member names
+and expandable member permissions. In Edit mode, select one project from the searchable list to
+rename it, change current members' permissions or delete it. The member list contains only existing
+members; search by name, username or alias to add an enabled, non-external person with See access,
+then adjust Upload/Delete as needed. Removing all permissions removes membership. Existing API
+authorization and project visibility rules apply unchanged.
+The Aircraft title, search/status filters and visibility switches share a wrapping toolbar to keep
+the fleet list near the top of the page without sacrificing narrow-screen access.
 
 Everything requires a login. Admins create accounts on the People page or on the command line (on a server prefix
 `sudo -u logdb /opt/flight-logs/app/webui/venv/bin/`):
@@ -674,10 +683,18 @@ writing; the page shows that first. Replacing a drawn polygon by a circle is fla
 ### Private licences and qualifications
 
 Users upload and manage their own qualifications on **My account**, alongside password settings.
-The read-only People overview shows names, usernames, aliases and qualifications, including for normal
-users within their existing directory access. Admins also see sign-in information with Edit off.
-Enable Edit to search by name, username, email or alias, then select someone to open their
-**Account**, **Aliases** or **Qualifications** tab. Enable Edit to change account settings, manage aliases,
+The read-only People overview uses a compact responsive grid of names, aliases and qualifications,
+including for normal users within their existing directory access. Usernames and sign-in information
+are hidden; search still matches name, username, available email and alias.
+Approved, non-expired licence chips remain visible to the person and administrators; chips link to
+the evidence download when evidence exists. Other viewers do not receive private qualification data.
+Enable Edit, then select someone to open their
+**Account**, **API keys**, **Aliases** or **Qualifications** tab. The editor shows **Active · TU Delft SSO**
+for enabled SSO accounts and **Active · Local** for enabled local accounts with a password; external,
+disabled and passwordless local accounts have no Active badge. This is sign-in capability, not recent
+activity or qualification validity. The Account tab groups profile, sign-in, access and removal actions,
+with explanations under Help. API key details and revocation load only in the API keys tab.
+Enable Edit to change account settings, manage aliases,
 upload evidence for that person, or review/delete submissions. The people list is searchable, without
 an additional Show filter. The approval queue on People opens the relevant person's
 Qualifications tab, enabling Edit if needed. The queue is hidden when empty; type settings are

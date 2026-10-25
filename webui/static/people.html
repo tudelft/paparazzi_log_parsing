@@ -20,10 +20,12 @@
   .scroll { overflow-x:auto; }
   h2 { margin:0 0 8px; font-size:15px; }
   table { width:max-content; min-width:100%; border-collapse:collapse; }
-  #directoryTable table { width:100%; table-layout:fixed; }
-  #directoryTable th, #directoryTable td { overflow-wrap:anywhere; }
-  #directoryTable th:last-child { width:42%; }
-  #directoryTable .chip { max-width:100%; white-space:normal; }
+  .directory-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:8px; margin-top:10px; }
+  .directory-person { min-width:0; border:1px solid var(--line); border-radius:6px; padding:8px 10px; overflow-wrap:anywhere; }
+  .directory-person .person-name { font-weight:600; }
+  .directory-person .chip { max-width:100%; white-space:normal; font-size:12px; }
+  .directory-aliases { color:var(--mute); font-size:12px; margin-top:3px; }
+  #directorySearch { width:min(100%,360px); }
   th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
   th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
   .mute { color:var(--mute); }
@@ -62,7 +64,14 @@
   .person-status { display:flex; justify-content:flex-end; gap:4px; flex-wrap:wrap; flex-shrink:0; max-width:55%; }
   .person-status span { font-size:11px; border-radius:10px; padding:1px 6px; background:var(--sec); color:var(--mute); }
   .person-status .active { background:var(--okbg); color:var(--ok); }
-  .person-status .inactive { background:var(--warnbg); color:var(--warn); }
+  .account-sections { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:12px; margin-top:16px; }
+  .account-section { border:1px solid var(--line); border-radius:6px; padding:12px; min-width:0; }
+  .account-section h3 { margin:0 0 8px; font-size:14px; }
+  .account-actions { display:flex; flex-direction:column; align-items:start; gap:8px; margin-top:10px; }
+  .account-actions p { margin:0; }
+  .account-profile { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr)); gap:10px; align-items:end; }
+  .account-profile button { justify-self:start; }
+  .account-help { margin:10px 0; }
   .tabs { display:flex; gap:4px; flex-wrap:wrap; margin:16px 0 0; border-bottom:2px solid var(--line); }
   .tabs [role="tab"] { background:var(--sec); color:var(--txt); border:1px solid var(--line); border-bottom:3px solid transparent; border-radius:6px 6px 0 0; padding:10px 14px; margin-bottom:-2px; }
   .tabs [aria-selected="true"] { background:var(--card); border-bottom-color:var(--acc); font-weight:700; }
@@ -136,6 +145,7 @@
           <p id="personIdentity">Choose a person from the list to see their account, aliases and qualifications here.</p>
           <div class="tabs" role="tablist" aria-label="Person management" id="personTabs" hidden>
             <button type="button" role="tab" id="tab-account" aria-controls="personContent" onclick="selectPersonTab('account')">Account</button>
+            <button type="button" role="tab" id="tab-api" aria-controls="personContent" onclick="selectPersonTab('api')">API keys</button>
             <button type="button" role="tab" id="tab-aliases" aria-controls="personContent" onclick="selectPersonTab('aliases')">Aliases</button>
             <button type="button" role="tab" id="tab-qualifications" aria-controls="personContent" onclick="selectPersonTab('qualifications')">Qualifications</button>
           </div>
@@ -143,7 +153,11 @@
         </section>
       </div>
     </div>
-    <div class="scroll" id="directoryTable"><table><thead id="usersHead"></thead><tbody id="users"></tbody></table></div>
+    <div id="directoryTable">
+      <label class="field">Search people<input type="search" id="directorySearch" placeholder="Name, username, email or alias" oninput="renderDirectory()"></label>
+      <p class="mute" id="directoryCount" role="status"></p>
+      <div class="directory-grid" id="directoryPeople"></div>
+    </div>
   </section>
   <section class="card" id="approvalSection" hidden>
     <div class="section-heading"><h2>Qualification approval queue</h2>
@@ -207,21 +221,13 @@ async function load() {
   render();
 }
 
-function notActive(u) { return !!(u && (u.pending || u.provider === 'log')); }
 const hasLicence = u => ((u.qualifications && u.qualifications.items) || []).some(item => item.status === 'approved');
 const shownPeople = () => people.users.filter(u => (!u.is_external || $('showExternal').checked)
   && (u.has_logs || hasLicence(u) || $('showWithoutLogs').checked || (window.editMode() && u.id === selectedPerson)));
-function signInLabel(u) {
-  if (u.is_external) return 'External, no sign-in';
-  if (notActive(u)) return 'Not active yet';
-  return u.provider === 'saml' ? 'TU Delft SSO' : 'Local';
-}
-function nameCell(u, extra, showUser) {
-  const flag = u.is_external ? ' <span class="chip">External</span>'
-    : notActive(u) ? ' <span class="chip pending">Not active yet</span>' : '';
-  const admin = u.is_admin ? (showUser === false ? ' <span class="mute">admin</span>' : ' · admin') : '';
-  const user = showUser === false ? admin : ` <span class="mute">${esc(u.username)}${admin}</span>`;
-  return `<a href="/people/${u.id}">${esc(u.display_name || u.username)}</a>${user}${flag}${extra || ''}`;
+function activeAccountLabel(u) {
+  if (!u.is_active || u.is_external) return '';
+  return u.provider === 'saml' ? 'Active · TU Delft SSO'
+    : u.provider === 'local' && u.has_password ? 'Active · Local' : '';
 }
 function qualBits(q) {
   if (!q) return '';
@@ -264,15 +270,10 @@ function render() {
     : 'People and their aliases. Unmatched crew names remain in the logs until an admin links them to a profile.';
   if (!editing) {
     if (admin) renderAdminPeople();
-    $('usersHead').innerHTML = `<tr><th>Name</th><th>Username</th><th>Aliases</th>${admin ? '<th>Sign-in</th>' : ''}<th>Qualifications</th></tr>`;
-    $('users').innerHTML = shownPeople().map(u => `<tr><td>${nameCell(u, '', false)}</td>
-      <td class="mute">${esc(u.username)}</td>
-      <td>${(u.aliases || []).map(alias => `<span class="chip">${esc(alias)}</span>`).join('') || '<span class="mute">—</span>'}</td>
-      ${admin ? `<td>${signInLabel(u)}</td>` : ''}
-      <td>${qualBits(u.qualifications) || '<span class="mute">—</span>'}</td></tr>`).join('')
-      || `<tr><td colspan="${admin ? 5 : 4}" class="mute">${admin ? 'No people yet.' : 'No people on your projects yet.'}</td></tr>`;
+    renderDirectory();
     return;
   }
+
   const projOpts = '<option value="">No default</option>' + (people.projects || []).map(p =>
     `<option value="${p.id}">${esc(p.name)}</option>`).join('');
   $('newProject').innerHTML = projOpts;
@@ -282,6 +283,23 @@ function render() {
     <td><button type="button" class="sec" onclick="addExternal(${i})">Add as external</button></td></tr>`).join('')
     || '<tr><td colspan="4" class="mute">Everything is linked.</td></tr>';
   renderAdminPeople();
+}
+
+function matchingPeople(query) {
+  query = query.trim().toLocaleLowerCase();
+  return shownPeople().filter(u => [u.display_name,u.username,u.email,...(u.aliases || [])].filter(Boolean)
+    .some(v => v.toLocaleLowerCase().includes(query)));
+}
+
+function renderDirectory() {
+  const rows = matchingPeople($('directorySearch').value);
+  $('directoryCount').textContent = `${rows.length} of ${people.users.length} people`;
+  $('directoryPeople').innerHTML = rows.map(u => `<article class="directory-person">
+    <a class="person-name" href="/people/${u.id}">${esc(u.display_name || u.username)}</a>
+    ${u.is_external ? '<span class="chip">External</span>' : ''}
+    ${(u.aliases || []).length ? `<div class="directory-aliases">Aliases: ${(u.aliases || []).map(esc).join(', ')}</div>` : ''}
+    <div>${qualBits(u.qualifications)}</div></article>`).join('')
+    || '<p class="mute">No matching people.</p>';
 }
 
 async function adminApi(url, options) {
@@ -364,15 +382,13 @@ function bindTypeDrag() {
 }
 
 function renderPeopleList() {
-  const query = $('peopleSearch').value.trim().toLocaleLowerCase();
-  const rows = shownPeople().filter(u => [u.display_name,u.username,u.email,...(u.aliases || [])].filter(Boolean)
-    .some(v => v.toLocaleLowerCase().includes(query)));
+  const rows = matchingPeople($('peopleSearch').value);
   $('peopleCount').textContent = `${rows.length} of ${people.users.length} people`;
   $('peopleList').innerHTML = rows.map(u => `<button type="button" class="person-button" aria-pressed="${u.id === selectedPerson}"
     title="${esc(u.username)}${pendingQualifications.some(s => s.user_id === u.id) ? ' · Qualification review pending' : ''}"
     onclick="selectPerson(${u.id})"><span>${esc(u.display_name || u.username)}</span>
     <span class="person-status">${u.is_external ? '<span>External</span>'
-      : `<span class="${notActive(u) ? 'inactive' : 'active'}">${notActive(u) ? 'Not active yet' : 'Active'}</span>`}
+      : activeAccountLabel(u) ? `<span class="active">${esc(activeAccountLabel(u))}</span>` : ''}
     ${u.is_admin ? '<span>Admin</span>' : ''}</span></button>`).join('')
     || '<p class="mute">No matching people.</p>';
 }
@@ -395,10 +411,10 @@ function selectPersonTab(tab) {
 $('personTabs').addEventListener('keydown', event => {
   if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
   event.preventDefault();
-  const tabs = ['account','aliases','qualifications'];
+  const tabs = ['account','api','aliases','qualifications'];
   const index = tabs.indexOf(selectedTab);
-  const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2
-    : (index + (event.key === 'ArrowRight' ? 1 : 2)) % 3;
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+    : (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
   selectPersonTab(tabs[next]);
   $('tab-' + selectedTab).focus();
 });
@@ -414,7 +430,7 @@ function renderPersonPanel() {
   if (!user) { $('personContent').textContent = ''; return; }
   $('personLink').href = '/people/' + user.id;
   $('personLink').textContent = 'View pilot page';
-  for (const tab of ['account','aliases','qualifications']) {
+  for (const tab of ['account','api','aliases','qualifications']) {
     $('tab-' + tab).setAttribute('aria-selected', String(selectedTab === tab));
     $('tab-' + tab).tabIndex = selectedTab === tab ? 0 : -1;
   }
@@ -434,33 +450,45 @@ function renderPersonPanel() {
         ? `<button type="button" aria-label="Remove alias ${esc(alias)}" data-alias="${esc(alias)}" onclick="removeAlias(this.dataset.alias)">×</button>` : ''}</span>`).join('') || '<p>No aliases.</p>'}
       ${editing ? `<form class="panel-row" onsubmit="event.preventDefault();addAlias(null,${id})">
         <label class="field">New alias<input id="new${id}" required maxlength="80"></label><button type="submit">Add alias</button></form>` : ''}`;
+  } else if (selectedTab === 'api') {
+    $('personContent').innerHTML = `<div class="section-heading"><h3>API keys</h3>
+      <details><summary>Help</summary><p>Full key secrets are shown only when created and cannot be retrieved. Only key details are listed here. Revoking a key immediately stops scripts using it. Users create keys on My account.</p></details></div>
+      <div id="personApiKeys" role="status">Loading API keys...</div>`;
+    loadPersonKeys(id, generation);
   } else {
     const project = people.projects.find(p => p.id === user.default_project_id);
-    $('personContent').innerHTML = `${editing ? `<form class="panel-row" onsubmit="event.preventDefault();saveProfile(${id})">
+    $('personContent').innerHTML = `<details class="account-help"><summary>Help</summary>
+      <p>The username is only the local sign-in name, not an automatic log match. Unique display names and explicit aliases match logs. Previous unambiguous display names remain aliases; username changes do not add aliases. Existing records and SSO links stay attached.</p>
+      <p>Active means an enabled TU Delft SSO account or a local account with a password. It does not describe recent activity or qualifications. Local accounts without a password cannot sign in until a password is set.</p>
+      <p>Administrators have access to all projects, accounts and private qualification evidence. External people are crew of another operator: flights stay linked, but they cannot sign in or access projects.</p>
+      <p>Removing a person keeps uploaded logs. Existing safeguards still apply to historical records, qualifications and the last administrator.</p></details>
+      ${editing ? `<form class="account-profile" onsubmit="event.preventDefault();saveProfile(${id})">
       <label class="field">Username<input id="username${id}" required maxlength="40" autocomplete="off" value="${esc(user.username)}"></label>
       <label class="field">Display name<input id="displayName${id}" maxlength="80" value="${esc(user.display_name || '')}"></label>
       <label class="field">Email (optional)<input id="mail${id}" type="email" maxlength="120" value="${esc(user.email || '')}"></label>
       <label class="field">Default project<select id="userProject${id}">
       <option value="">No default</option>${people.projects.map(p => `<option value="${p.id}"${p.id === user.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
-      <button type="submit">Save account</button></form>
-      <p class="mute">The username is only the local sign-in name, not an automatic log match. Unique display names and explicit aliases match logs. Previous unambiguous display names remain aliases; username changes do not add aliases. Existing records and SSO links stay attached.</p>`
+      <button type="submit">Save account</button></form>`
       : `<p><strong>Username:</strong> ${esc(user.username)}</p>`}
-      <p><strong>Sign-in:</strong> ${signInLabel(user)}${user.is_admin ? ' · Administrator' : ''}</p>
+      ${editing ? '' : `<p><strong>Email:</strong> ${esc(user.email || 'Not set')}</p><p><strong>Default project:</strong> ${esc(project?.name || 'No default')}</p>`}
+      <div class="account-sections"><section class="account-section"><h3>Sign-in</h3>
+      <p>${activeAccountLabel(user) || (user.is_external ? 'External, no sign-in' : !user.is_active ? 'Account disabled' : user.provider === 'saml' ? 'TU Delft SSO' : 'No local password set')}</p>
+      ${user.is_external ? '' : `<p><strong>Password:</strong> ${user.provider === 'saml' ? 'Managed by identity provider' : user.has_password ? 'Chosen' : 'Not set'}</p>`}
+      ${editing && !user.is_external && ['local','log'].includes(user.provider) ? `<div class="account-actions">
+        <button type="button" onclick="newSetupLink(${id})">${user.has_password ? 'Reset password' : 'Set password'}</button>
+        ${user.provider === 'local' && user.has_password ? `<button type="button" class="danger" onclick="removePassword(${id})">Remove password</button>` : ''}</div>` : ''}
+      </section><section class="account-section"><h3>Access</h3>
+      <p>${user.is_admin ? 'Administrator' : user.is_external ? 'External crew' : 'Standard account'}</p>
+      <div class="account-actions">
       ${editing && !user.is_external ? `<p><button type="button" class="${user.is_admin ? 'danger' : 'sec'}"
         ${id === me.id ? 'disabled title="Ask another administrator to remove your admin rights."' : ''}
         onclick="setAdmin(${id}, ${!user.is_admin})">${user.is_admin ? 'Remove admin rights' : 'Make administrator'}</button>
-        <span class="mute">Administrators have access to all projects, accounts and private qualification evidence.</span></p>` : ''}
-      ${editing ? '' : `<p><strong>Email:</strong> ${esc(user.email || 'Not set')}</p><p><strong>Default project:</strong> ${esc(project?.name || 'No default')}</p>`}
+        </p>` : ''}
       ${editing && id !== me.id && !user.is_admin ? `<p><label><input type="checkbox" ${user.is_external ? 'checked' : ''} onchange="setExternal(${id}, this.checked)">
-        External</label> <span class="mute">Crew of another operator: flights stay linked, no sign-in, no project access.</span></p>` : ''}
-      ${user.is_external ? '' : `<p><strong>Password:</strong> ${user.provider === 'saml' ? 'Managed by identity provider' : user.has_password ? 'Chosen' : 'Not set'}</p>`}
-      ${editing && !user.is_external && ['local','log'].includes(user.provider) ? `<div class="panel-row">
-        <button type="button" onclick="newSetupLink(${id})">${user.has_password ? 'Reset password' : 'Set password'}</button>
-        ${user.provider === 'local' && user.has_password ? `<button type="button" class="danger" onclick="removePassword(${id})">Remove password</button>` : ''}</div>` : ''}
-      ${editing && id !== me.id ? `<p><button type="button" class="danger" onclick="removeUser(${id})">Remove user</button></p>` : ''}
-      <h3>API keys</h3><p class="mute">Full key secrets are shown only when created and cannot be retrieved. Only key details are listed here.</p>
-      <div id="personApiKeys" role="status">Loading API keys...</div>`;
-    loadPersonKeys(id, generation);
+        External</label></p>` : ''}
+      </div></section>
+      ${editing && id !== me.id ? `<section class="account-section"><h3>Remove person</h3>
+        <div class="account-actions"><button type="button" class="danger" onclick="removeUser(${id})">Remove user</button></div></section>` : ''}</div>`;
   }
 }
 
@@ -485,7 +513,7 @@ async function revokePersonKey(id, keyId) {
   try {
     await adminApi(`/api/admin/users/${id}/keys/${keyId}`, {method:'DELETE'});
     $('err').textContent = '';
-    if (selectedPerson === id && selectedTab === 'account') renderPersonPanel();
+    if (selectedPerson === id && selectedTab === 'api') renderPersonPanel();
   } catch (error) { $('err').textContent = error.message; }
 }
 

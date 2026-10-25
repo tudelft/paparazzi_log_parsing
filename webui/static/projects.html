@@ -38,6 +38,26 @@
   .ticks label { display:flex; align-items:center; gap:5px; font-weight:400; color:var(--txt); white-space:nowrap; }
   .person { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:6px 0; border-bottom:1px solid var(--line); }
   .person:last-child { border-bottom:0; }
+  #err:empty { display:none; }
+  .project-toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .project-toolbar h2 { margin:0; }
+  .project-toolbar details { margin-left:auto; }
+  .project-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:10px; }
+  .project-card { border:1px solid var(--line); border-radius:6px; padding:12px; min-width:0; overflow-wrap:anywhere; }
+  .project-card h3 { margin:0 0 6px; font-size:15px; }
+  .project-card p { margin:6px 0 0; }
+  .project-layout { display:grid; grid-template-columns:minmax(220px,300px) minmax(0,1fr); gap:16px; align-items:start; }
+  .project-list { max-height:65vh; overflow:auto; }
+  .project-button { display:block; width:100%; padding:8px; margin:3px 0; text-align:left; background:var(--card); color:var(--txt); border:1px solid var(--line); overflow-wrap:anywhere; }
+  .project-button[aria-pressed=true] { border-left:4px solid var(--acc); background:var(--hover); }
+  #projectPanel { border:1px solid var(--line); border-top:4px solid var(--acc); border-radius:6px; padding:16px; min-width:0; overflow-wrap:anywhere; }
+  #projectPanel h3 { margin-top:0; }
+  .member-add { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
+  .member-picker { max-height:220px; overflow:auto; }
+  input, select { min-width:0; max-width:100%; }
+  .person { flex-wrap:wrap; gap:8px; }
+  .project-button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+  @media(max-width:760px) { .project-layout { grid-template-columns:1fr; } .project-list { max-height:30vh; } }
 </style>
 </head>
 <body data-edit="admin">
@@ -49,8 +69,10 @@
 <main>
   <div id="err"></div>
   <section class="card">
-    <div class="section-heading"><h2>Projects</h2>
-    <details><summary>Help</summary><p id="hint">A project is a separate set of flight logs. Click a row to see who is on it.</p></details></div>
+    <div class="project-toolbar"><h2>Projects</h2>
+    <input type="search" id="projectSearch" aria-label="Search projects" placeholder="Search projects or members" oninput="render()">
+    <span class="mute" id="projectCount" role="status"></span>
+    <details><summary>Help</summary><p id="hint">A project is a separate set of flight logs. Open a project to see its flights.</p></details></div>
     <form class="row" id="add" hidden onsubmit="addProject(event)">
       <label class="field">Name<input id="name" required maxlength="80"></label>
       <button type="submit">Create project</button>
@@ -70,11 +92,10 @@
         <span class="mute" id="importMsg" role="status"></span>
       </div>
     </dialog>
-    <div class="scroll">
-      <table>
-        <thead><tr><th>Project</th><th>Logs</th><th>People</th></tr></thead>
-        <tbody id="list"></tbody>
-      </table>
+    <div id="projectOverview" class="project-grid"></div>
+    <div class="project-layout" id="projectEditor" hidden>
+      <div class="project-list" id="projectList"></div>
+      <section id="projectPanel" aria-label="Selected project"></section>
     </div>
   </section>
 </main>
@@ -88,7 +109,8 @@ window.fetch = async (...args) => {
   return r;
 };
 let projects = [], users = [], me = null;
-const open_ = new Set();
+let selectedProject = null;
+let memberQuery = '';
 const ROLE_LABEL = {view: 'See', add: 'See, upload', full: 'See, upload, delete'};
 const ticksOf = role => ({see: !!role, upload: role === 'add' || role === 'full', del: role === 'full'});
 function roleFromBoxes(see, upload, del) {
@@ -120,70 +142,103 @@ function syncEdit() {
   $('importSection').hidden = !editing();
   if (!editing()) $('importProjectsDialog').close();
   $('hint').textContent = editing()
-    ? 'A project is a separate set of flight logs. Click a row and tick who can see, upload or delete.'
+    ? 'Select a project to manage its current members. Search for another person to add them. See, Upload and Delete permissions are saved immediately; untick all permissions to remove a member.'
     : me && me.is_admin
-      ? 'A project is a separate set of flight logs. Click a row to see who is on it.'
-      : 'Projects you belong to. Click a row to see who is on them.';
+      ? 'A project is a separate set of flight logs. Search projects or members, then open a project to view its flights.'
+      : 'Projects you belong to. Search by project or member name, then open a project to view its flights.';
 }
 async function load() {
   const admin = !!(me && me.is_admin);
   syncEdit();
-  if (admin) {
-    const [p, people] = await Promise.all([
-      fetch('/api/admin/projects').then(r => r.json()),
-      fetch('/api/admin/people').then(r => r.ok ? r.json() : {users: []})
-    ]);
-    projects = p.projects || [];
-    users = people.users || [];
-  } else {
-    projects = await fetch('/api/projects').then(r => r.json());
-    users = [];
+  const read = async url => {
+    const r = await fetch(url);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `Could not load projects (${r.status}).`);
+    return data;
+  };
+  try {
+    if (admin) {
+      const [p, people] = await Promise.all([read('/api/admin/projects'), read('/api/admin/people')]);
+      projects = p.projects;
+      users = people.users;
+    } else {
+      projects = await read('/api/projects');
+      users = [];
+    }
+    render();
+  } catch (error) {
+    $('err').textContent = `Could not load projects: ${error.message}`;
   }
-  render();
 }
 function peoplePreview(p) {
   const members = p.members || [];
   if (!members.length) return '<span class="mute">Nobody yet</span>';
   return members.map(m => `<a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a>`).join(', ');
 }
-function projectRows(p) {
-  const isOpen = open_.has(p.id);
-  const members = p.members || [];
-  const byId = Object.fromEntries(members.map(m => [m.user_id, m.role]));
-  let detail;
-  if (editing()) {
-    const list = users.map(u => `<div class="person"><span>${esc(u.display_name || u.username)} <span class="mute">${esc(u.username)}</span></span>${tickBoxes('m' + p.id + '_' + u.id, byId[u.id] || '', `saveTicks(${p.id}, ${u.id})`)}</div>`).join('')
-      || '<p class="mute">Create a user on the People tab first.</p>';
-    detail = `${list}
-    <div class="row">
-      <label class="field">Rename<input id="ren${p.id}" value="${esc(p.name)}" maxlength="80" autocomplete="off"></label>
-      <button type="button" class="sec" onclick="renameProject(${p.id})">Rename</button>
-      <button type="button" class="danger" onclick="removeProject(${p.id})">Delete project</button>
-    </div>`;
-  } else {
-    detail = members.map(m => `<div class="person"><span><a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a> <span class="mute">${esc(m.username)}</span></span><span class="mute">${esc(ROLE_LABEL[m.role] || m.role)}</span></div>`).join('')
-      || '<p class="mute">Nobody listed on this project.</p>';
-  }
-  return `<tr class="project" data-id="${p.id}"><td>${isOpen ? '▾' : '▸'} <a href="/projects/${p.id}">${esc(p.name)}</a></td><td>${p.log_count}</td><td>${peoplePreview(p)}</td></tr>`
-    + (isOpen ? `<tr><td colspan="3" class="detail">${detail}</td></tr>` : '');
+function selectProject(id) {
+  selectedProject = id;
+  memberQuery = '';
+  render();
+}
+function renderProjectPanel() {
+  const p = projects.find(p => p.id === selectedProject);
+  if (!p) { $('projectPanel').innerHTML = '<p class="mute">Select a project to manage its members and settings.</p>'; return; }
+  $('projectPanel').innerHTML = `<h3>${esc(p.name)}</h3><a href="/projects/${p.id}">View project flights</a>
+    <form class="row" onsubmit="event.preventDefault();renameProject(${p.id})">
+      <label class="field">Project name<input id="ren${p.id}" value="${esc(p.name)}" required maxlength="80"></label>
+      <button type="submit">Save name</button></form>
+    <h4>Members (${(p.members || []).length})</h4>
+    ${(p.members || []).map(m => `<div class="person"><a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a>
+      ${tickBoxes('m' + p.id + '_' + m.user_id, m.role, `saveTicks(${p.id}, ${m.user_id})`)}</div>`).join('') || '<p class="mute">No members yet.</p>'}
+    <div class="member-add"><label class="field">Add a member<input type="search" id="memberSearch" placeholder="Search name, username or alias" value="${esc(memberQuery)}" oninput="memberQuery=this.value;renderMemberPicker()"></label>
+      <div class="member-picker" id="memberPicker"></div></div>
+    <div class="row"><button type="button" class="danger" onclick="removeProject(${p.id})">Delete project</button></div>`;
+  renderMemberPicker();
+}
+function renderMemberPicker() {
+  const p = projects.find(p => p.id === selectedProject);
+  if (!p) return;
+  const q = memberQuery.trim().toLocaleLowerCase();
+  if (!q) { $('memberPicker').innerHTML = '<p class="mute">Search to find someone to add.</p>'; return; }
+  const members = new Set((p.members || []).map(m => m.user_id));
+  const matches = users.filter(u => !u.is_external && u.is_active && !members.has(u.id)
+    && [u.display_name,u.username,...(u.aliases || [])].filter(Boolean).some(v => v.toLocaleLowerCase().includes(q)));
+  $('memberPicker').innerHTML = matches.map(u => `<div class="person"><span>${esc(u.display_name || u.username)}</span>
+    <button type="button" class="sec" onclick="setRole(${p.id},${u.id},'view')">Add with See access</button></div>`).join('')
+    || '<p class="mute">No eligible people match.</p>';
 }
 function render() {
-  $('list').innerHTML = projects.map(projectRows).join('')
-    || '<tr><td colspan="3" class="mute">No projects yet.</td></tr>';
+  const q = $('projectSearch').value.trim().toLocaleLowerCase();
+  const shown = projects.filter(p => [p.name,...(p.members || []).flatMap(m => [m.display_name,m.username])]
+    .filter(Boolean).some(v => v.toLocaleLowerCase().includes(q)));
+  $('projectCount').textContent = `${shown.length} of ${projects.length} projects`;
+  $('projectOverview').hidden = editing();
+  $('projectEditor').hidden = !editing();
+  if (editing()) {
+    $('projectList').innerHTML = shown.map(p => `<button type="button" class="project-button" aria-pressed="${p.id === selectedProject}"
+      onclick="selectProject(${p.id})">${esc(p.name)} <span class="mute">· ${(p.members || []).length} members</span></button>`).join('')
+      || '<p class="mute">No matching projects.</p>';
+    renderProjectPanel();
+  } else {
+    $('projectOverview').innerHTML = shown.map(p => `<article class="project-card"><h3><a href="/projects/${p.id}">${esc(p.name)}</a></h3>
+      <span class="mute">${p.log_count ?? 0} logs · ${(p.members || []).length} members</span>
+      <p>${peoplePreview(p)}</p>
+      <details><summary>Member permissions</summary>${(p.members || []).map(m =>
+        `<div class="person"><a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a><span class="mute">${esc(ROLE_LABEL[m.role] || m.role)}</span></div>`).join('') || '<p class="mute">No members.</p>'}</details></article>`).join('')
+      || '<p class="mute">No matching projects.</p>';
+  }
 }
 async function send(url, method, body) {
-  const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : '{}'});
-  $('err').textContent = r.ok ? '' : (((await r.json().catch(() => ({}))).error) || 'failed');
-  if (r.ok) await load();
+  try {
+    const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : '{}'});
+    if (!r.ok) {
+      const result = await r.json();
+      throw new Error(result.error || `Request failed (${r.status}).`);
+    }
+    $('err').textContent = '';
+    await load();
+  } catch (error) { $('err').textContent = `Could not save project: ${error.message}`; }
 }
-$('list').onclick = e => {
-  if (e.target.closest('a, button, select, input')) return;
-  const tr = e.target.closest('tr.project');
-  if (!tr) return;
-  const id = +tr.dataset.id;
-  open_.has(id) ? open_.delete(id) : open_.add(id);
-  render();
-};
 async function addProject(ev) {
   ev.preventDefault();
   const name = $('name').value.trim();
@@ -192,7 +247,7 @@ async function addProject(ev) {
   const before = new Set(projects.map(p => p.id));
   await send('/api/admin/projects', 'POST', {name});
   const created = projects.find(p => !before.has(p.id));
-  if (created) { open_.add(created.id); render(); }
+  if (created) selectProject(created.id);
 }
 async function importProjects() {
   const file = $('csv').files[0];

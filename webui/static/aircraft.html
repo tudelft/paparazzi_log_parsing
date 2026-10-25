@@ -55,6 +55,12 @@
   .pair { display:flex; align-items:center; gap:8px; white-space:nowrap; }
   .pair input { width:150px; }
   #q { width:280px; }
+  .fleet-toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .fleet-toolbar h2 { margin:0; }
+  .fleet-toolbar .field { flex-direction:row; align-items:center; gap:6px; }
+  .fleet-toolbar details { margin-left:auto; }
+  .fleet-toolbar input, .fleet-toolbar select { max-width:100%; min-width:0; }
+  #err:empty { display:none; }
   .aircraft-layout { display:grid; grid-template-columns:minmax(220px,300px) minmax(0,1fr); gap:16px; align-items:start; }
   .aircraft-list { max-height:65vh; overflow:auto; }
   .aircraft-button { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; text-align:left; margin:3px 0; padding:7px 8px; background:var(--card); color:var(--txt); border:1px solid var(--line); overflow-wrap:anywhere; }
@@ -105,16 +111,15 @@
     <div class="pick-list" id="pickList" role="listbox" aria-label="Aircraft"></div>
   </div>
   <section class="card">
-    <div class="section-heading"><h2 id="fleetTitle">Aircraft</h2>
-    <details><summary>Help</summary><p id="fleetHint">Each aircraft has a unique serial (TUDxxxxx) that stays with it if the name changes. Names in the logs that differ from the nice name are aliases.</p></details></div>
-    <div class="pending" id="pending" hidden></div>
-    <div class="row">
+    <div class="fleet-toolbar"><h2 id="fleetTitle">Aircraft</h2>
       <label class="field">Filter<input id="q" placeholder="Filter by name, serial, person, project…"></label>
       <label class="field">Status<select id="statusFilter"><option value="">All statuses</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select></label>
       <label title="Aircraft marked Discard stay hidden until this is ticked"><input type="checkbox" id="showDiscarded"> Show discarded</label>
       <label title="Aircraft without uploaded logs or paper records stay hidden until this is ticked"><input type="checkbox" id="showWithoutLogs"> Show aircraft without logs</label>
     <button id="addSection" type="button" hidden onclick="$('addAircraftDialog').showModal()">Add aircraft</button>
-    <button id="importSection" type="button" class="sec" hidden onclick="$('importAircraftDialog').showModal()">Import aircraft from CSV</button></div>
+    <button id="importSection" type="button" class="sec" hidden onclick="$('importAircraftDialog').showModal()">Import aircraft from CSV</button>
+    <details><summary>Help</summary><p id="fleetHint">Each aircraft has a unique serial (TUDxxxxx) that stays with it if the name changes. Names in the logs that differ from the nice name are aliases.</p></details></div>
+    <div class="pending" id="pending" hidden></div>
     <dialog class="entry-dialog" id="addAircraftDialog" aria-labelledby="addAircraftTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
     <div class="dialog-header"><h2 id="addAircraftTitle">Add aircraft</h2><button type="button" onclick="$('addAircraftDialog').close()" aria-label="Close Add aircraft">Close</button></div>
     <p class="dialog-error" id="addAircraftError" role="alert"></p>

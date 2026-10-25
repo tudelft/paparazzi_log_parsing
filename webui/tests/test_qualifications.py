@@ -65,6 +65,24 @@ class QualificationTests(AppTests):
         self.assertEqual(self.review(own).status_code, 200)
         self.assertEqual(self.row(own)["status"], "approved")
 
+    def test_people_directory_keeps_approved_licences_and_evidence_private(self):
+        sid = self.submit().json["id"]
+        self.assertEqual(self.review(sid).status_code, 200)
+        evidence = f"/api/qualification-submissions/{sid}/evidence"
+        for uid, allowed in ((1, True), (2, True), (3, False)):
+            self.sign_in(uid)
+            people = self.client.get("/api/people-directory").json["users"]
+            pilot = next(u for u in people if u["id"] == 2)
+            if allowed:
+                licence = pilot["qualifications"]["items"][0]
+                self.assertEqual((licence["id"], licence["category"], licence["status"]),
+                                 (sid, "A1/A3", "approved"))
+                self.assertTrue(licence["has_evidence"])
+                self.assertEqual(self.client.get(evidence).status_code, 200)
+            else:
+                self.assertIsNone(pilot["qualifications"])
+                self.assertEqual(self.client.get(evidence).status_code, 404)
+
     def test_self_service_and_all_surfaces_are_private(self):
         self.sign_in(2)
         r = self.submit()
