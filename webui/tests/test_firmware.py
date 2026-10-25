@@ -254,6 +254,56 @@ class FirmwareEvidenceTests(unittest.TestCase):
             self.assertEqual(doc["log"]["start_utc"], firmware.iso(utc.timestamp()))
 
 
+class UnknownDateReparseTests(AppTests):
+    def add_log(self, name, start=None, status="done", override=None, estimated=False, project=1):
+        log_id = self.con.execute(
+            "INSERT INTO logs(name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,"
+            "start_utc,date_override,date_estimated,parser_version) VALUES (?,?,?,?,'now',2,?,?,?,?,?)",
+            (name, name, name, status, project, start, override, estimated, "1.9.0")).lastrowid
+        self.con.commit()
+        return log_id
+
+    def test_retries_only_completed_unknown_dates_regardless_of_version(self):
+        expected = [self.add_log("missing"), self.add_log("epoch", "1980-01-01T00:00:00Z"),
+                    self.add_log("future", "2099-01-01T00:00:00Z"),
+                    self.add_log("invalid", "not-a-date")]
+        self.add_log("valid", "2023-09-08T00:00:00Z")
+        self.add_log("estimated", "2023-09-08T00:00:00Z", estimated=True)
+        self.add_log("confirmed", override="2023-09-08")
+        for status in ("error", "queued", "parsing"):
+            self.add_log(status, status=status)
+        self.sign_in(1)
+        with patch.object(self.ns["jobs"], "put") as put:
+            response = self.client.post("/api/reparse-unknown-dates")
+            self.assertEqual(response.status_code, 200)
+            self.assertCountEqual(response.json["queued"], expected)
+            self.assertCountEqual([call.args[0] for call in put.call_args_list], expected)
+            put.reset_mock()
+            self.assertEqual(self.client.post("/api/reparse-unknown-dates").json["queued"], [])
+            put.assert_not_called()
+        for row in self.con.execute("SELECT id,status FROM logs"):
+            if row["id"] in expected:
+                self.assertEqual(row["status"], "queued")
+        self.assertEqual(self.con.execute(
+            "SELECT status FROM logs WHERE name='confirmed'").fetchone()[0], "done")
+
+    def test_admin_only(self):
+        self.add_log("missing")
+        with patch.object(self.ns["jobs"], "put") as put:
+            self.assertEqual(self.client.post("/api/reparse-unknown-dates").status_code, 403)
+            put.assert_not_called()
+        self.assertEqual(self.con.execute("SELECT status FROM logs").fetchone()[0], "done")
+
+    def test_project_scope_is_preserved(self):
+        expected = self.add_log("research", project=1)
+        self.add_log("private", project=2)
+        self.sign_in(1)
+        with patch.object(self.ns["jobs"], "put"):
+            response = self.client.post("/api/reparse-unknown-dates?project=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["queued"], [expected])
+
+
 class StoredFirmwareTests(AppTests):
     insert_log = StoredClockTests.insert_log
 

@@ -22,6 +22,10 @@ existing `/logbook` links still work.
 
 ## Everyday use
 
+After changing firmware lookup repositories, administrators can use **Re-parse unknown dates**
+on **Uploads** to retry completed logs with unknown dates, even with the current parser version.
+Manual dates and plausible estimated dates are left unchanged.
+
 | Page | What to do |
 |---|---|
 | **Logbook** | Filter flights (also by a paper record's reference, e.g. F00090), review flight time, expand a row or open its flight page. Click aircraft, crew, project or location names for their detail pages. |
