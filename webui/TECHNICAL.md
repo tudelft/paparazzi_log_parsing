@@ -695,7 +695,8 @@ are hidden; search still matches name, username, available email and alias.
 Approved, non-expired licence chips remain visible to the person and administrators; chips link to
 the evidence download when evidence exists. Other viewers do not receive private qualification data.
 Cards show up to two lines of licences, with a **More licences...** link to the pilot page
-when the list exceeds the available space.
+when the list exceeds the available space. Names reserve space for the PIC totals and truncate
+with an ellipsis instead of pushing the name and licences below the statistics; hover for the full name.
 Enable Edit, then select someone to open their
 **Account**, **API keys**, **Aliases** or **Qualifications** tab. The editor shows **Active · TU Delft SSO**
 for enabled SSO accounts and **Active · Local** for enabled local accounts with a password; external,
