@@ -117,6 +117,36 @@ else
     [ "$CONFIGURE" -eq 1 ] || echo "Keeping the current settings (run with --reconfigure to change them)."
 fi
 
+# ---------------------------------------------------------------- pre-update backup
+if [ "$FIRST_RUN" -eq 0 ] && [ "${LOGDB_INSTALL_BACKUP_DONE:-0}" != 1 ]; then
+    say "Backing up the database and keys before updating"
+    UPDATE_BACKUP_ROOT=$(get_setting BACKUP_DIR)
+    if [ -z "$UPDATE_BACKUP_ROOT" ]; then
+        UPDATE_BACKUP_ROOT=$(get_setting WEB_DATA)
+        UPDATE_BACKUP_ROOT=${UPDATE_BACKUP_ROOT:-$WEB_DATA}
+        case "$UPDATE_BACKUP_ROOT" in
+            /*) ;;
+            *) UPDATE_BACKUP_ROOT="$WEBUI/$UPDATE_BACKUP_ROOT" ;;
+        esac
+        UPDATE_BACKUP_DIR="$UPDATE_BACKUP_ROOT/update-backups"
+        install -d -o "$SVC_USER" -g "$SVC_USER" -m 700 "$UPDATE_BACKUP_DIR"
+    else
+        case "$UPDATE_BACKUP_ROOT" in
+            /*) ;;
+            *) UPDATE_BACKUP_ROOT="$WEBUI/$UPDATE_BACKUP_ROOT" ;;
+        esac
+        UPDATE_BACKUP_DIR="$UPDATE_BACKUP_ROOT/update-backups"
+    fi
+    [ -x "$VENV/bin/python" ] && [ -f "$WEBUI/app.py" ] \
+        || die "Cannot run the installed backup command; update stopped before changing code."
+    (
+        cd "$WEBUI"
+        as_user env LOGDB_CONFIG="$ENV_FILE" LOGDB_BACKUP_DIR="$UPDATE_BACKUP_DIR" \
+            "$VENV/bin/python" app.py backup
+    ) || die "Pre-update backup failed; update stopped before changing code. Fix the backup problem and rerun."
+    export LOGDB_INSTALL_BACKUP_DONE=1
+fi
+
 # ---------------------------------------------------------------- questions
 if [ "$CONFIGURE" -eq 1 ]; then
     say "Code"

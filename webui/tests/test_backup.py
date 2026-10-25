@@ -11,12 +11,12 @@ from .test_historical import AppTests
 
 
 class BackupTests(AppTests):
-    def run_backup(self, folder, external=False, chmod_error=None, replace_error=None):
+    def run_backup(self, folder, external=False, chmod_error=None, replace_error=None, pool=""):
         root = Path(folder)
         data = root / "data"
-        dest = root / "backup"
+        dest = root / "backup" / pool
         data.mkdir(exist_ok=True)
-        dest.mkdir(exist_ok=True)
+        dest.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(data / "logs.db") as con:
             con.execute("CREATE TABLE IF NOT EXISTS fixture(value TEXT)")
             con.execute("INSERT INTO fixture VALUES ('test')")
@@ -122,6 +122,70 @@ class BackupTests(AppTests):
                 self.assertEqual(sorted(dest.iterdir()), before)
                 self.assertEqual((previous / "saml/key.pem").read_text(), "fixture-key")
                 self.assertFalse(list((Path(folder) / "tmp").iterdir()))
+
+    def test_update_backup_retention_is_separate_from_scheduled_backups(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for _ in range(15):
+                self.assertEqual(self.run_backup(folder)[0], 0)
+                self.assertEqual(self.run_backup(folder, pool="update-backups")[0], 0)
+            root = Path(folder) / "backup"
+            self.assertEqual(len(list(root.glob("backup-*"))), 14)
+            self.assertEqual(len(list((root / "update-backups").glob("backup-*"))), 14)
+
+    def test_installer_preupdate_backup_order_destination_failure_and_reload(self):
+        script = (Path(__file__).resolve().parents[1] / "install.sh").read_text()
+        marker = "# ---------------------------------------------------------------- pre-update backup\n"
+        block = script.split(marker, 1)[1].split("# ---------------------------------------------------------------- questions", 1)[0]
+        self.assertLess(script.index(marker), script.index('say "Installing packages"'))
+        self.assertLess(script.index(marker), script.index('say "Getting the code"'))
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            webui = root / "app/webui"
+            (webui / "venv/bin").mkdir(parents=True)
+            (webui / "venv/bin/python").write_text("#!/bin/sh\nexit 0\n")
+            (webui / "venv/bin/python").chmod(0o700)
+            (webui / "app.py").write_text("# fixture")
+            setup = """
+set -euo pipefail
+WEBUI=$1 VENV=$1/venv FIRST_RUN=$2
+WEB_DATA=$3 SVC_USER=fixture ENV_FILE=/fixture/logdb.env
+LOGDB_INSTALL_BACKUP_DONE=$4
+get_setting() {
+    case "$1" in BACKUP_DIR) printf '%s' "$FIXTURE_BACKUP";;
+        WEB_DATA) printf '%s' "$FIXTURE_DATA";; esac
+}
+say() { :; }
+die() { printf '%s\\n' "$*" >&2; exit 1; }
+install() { printf 'INSTALL %s\\n' "$*"; }
+as_user() {
+    printf 'BACKUP %s\\n' "$*"
+    return "$FIXTURE_STATUS"
+}
+"""
+            for first, done, destination, data, status, expected in (
+                    (0, 0, "/fixture/backups", "", 0, "/fixture/backups/update-backups"),
+                    (0, 0, "", "", 0, str(root / "data/update-backups")),
+                    (0, 0, "relative-backups", "", 0, str(webui / "relative-backups/update-backups")),
+                    (0, 0, "", "relative-data", 0, str(webui / "relative-data/update-backups")),
+                    (0, 0, "/fixture/backups", "", 1, None),
+                    (0, 1, "/fixture/backups", "", 0, None),
+                    (1, 0, "/fixture/backups", "", 0, None)):
+                with self.subTest(first=first, done=done, destination=destination, data=data, status=status):
+                    result = subprocess.run(
+                        ["bash", "-c", setup + block + '\necho CONTINUED',
+                         "fixture", str(webui), str(first), str(root / "data"), str(done)],
+                        env={**os.environ, "FIXTURE_BACKUP": destination, "FIXTURE_DATA": data,
+                             "FIXTURE_STATUS": str(status)}, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, int(bool(status)))
+                    if status:
+                        self.assertNotIn("CONTINUED", result.stdout)
+                        self.assertIn("Pre-update backup failed", result.stderr)
+                    elif expected:
+                        self.assertIn("LOGDB_BACKUP_DIR=" + expected, result.stdout)
+                        self.assertEqual(result.stdout.count("BACKUP "), 1)
+                        self.assertIn("app.py backup", result.stdout)
+                    else:
+                        self.assertNotIn("BACKUP ", result.stdout)
 
     def test_installer_selects_newest_complete_set_or_legacy_backup(self):
         script = (Path(__file__).resolve().parents[1] / "install.sh").read_text()
