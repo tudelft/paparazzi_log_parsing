@@ -288,6 +288,21 @@ scope as **Re-parse outdated**, not the displayed page or date filters. Reposito
 do not mark logs outdated. Cached misses/errors still respect their retry delays when configuration
 has not changed. No bulk reparse is started automatically.
 
+**Dates from a matching ground station log.** An onboard log whose clock was never set (date before 1990,
+no date entered, not estimated) usually keeps the right time of day. `date_suggest.py` looks for a dated GCS
+recording of the same flight: same aircraft (fleet link, else logged name), same duration (±1 s or 1 %), same
+time of day (±30 s), at least 60 s long (short flights match too many others), and no dated onboard partner yet.
+Every matched flight of the log must have exactly one such GCS flight, no other undated flight may claim it,
+and all must agree on the day; the result is a **suggestion** shown in the log details ("Date probably
+2020-07-22: matches GCS log 713 …") with **Accept**. Admins get **Accept date suggestions (N)** on the Uploads
+page (`GET/POST /api/admin/date-suggestions`). Accepting sets the normal date override and records who set it
+and why (`date_override_by`, `date_override_note`); a date typed by hand records the person only. Nothing is
+changed without a person accepting it.
+
+Until a date is set, a flight taking off on an unset clock (before 1990) is never merged with other
+recordings by time: those times are meaningless across logs, and back-to-back 1980 logs used to chain. A person
+can still join them by hand (*Same flight*).
+
 A calendar date more than a day before the latest resolved firmware commit is flagged, never
 replaced if otherwise plausible. For an unknown/implausible date only, consistent week-zero samples
 (at least three spanning 30 seconds, within five seconds, agreeing across aircraft) plus resolved

@@ -138,7 +138,9 @@ CREATE TABLE IF NOT EXISTS logs (
     start_utc TEXT, first_data_utc TEXT, end_utc TEXT, duration_s REAL,
     timing TEXT,                       -- JSON clock evidence; original clock is never overwritten
     date_estimated INTEGER NOT NULL DEFAULT 0 CHECK(date_estimated IN (0,1)),
-    date_override TEXT                 -- YYYY-MM-DD typed in when the file clock is missing or 1980; kept across re-parse
+    date_override TEXT,                -- YYYY-MM-DD typed in when the file clock is missing or 1980; kept across re-parse
+    date_override_by INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- who set it
+    date_override_note TEXT            -- why, e.g. the GCS log a suggested date was taken from
 );
 CREATE TABLE IF NOT EXISTS drones (
     id INTEGER PRIMARY KEY,
@@ -440,6 +442,9 @@ def init(path):
         con.execute("ALTER TABLE logs ADD COLUMN project_id INTEGER")
     if "date_override" not in cols:
         con.execute("ALTER TABLE logs ADD COLUMN date_override TEXT")
+    if "date_override_by" not in cols:
+        con.execute("ALTER TABLE logs ADD COLUMN date_override_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
+        con.execute("ALTER TABLE logs ADD COLUMN date_override_note TEXT")
     if "paths_file" not in cols:
         con.execute("ALTER TABLE logs ADD COLUMN paths_file TEXT")
     if "path_idx" not in {r[1] for r in con.execute("PRAGMA table_info(flights)")}:

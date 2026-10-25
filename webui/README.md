@@ -78,6 +78,8 @@ date for an explanation; the full timing evidence remains available in the fligh
 - A paper record that clearly matches a logged flight (same aircraft, takeoff within 5 min) is linked to it
   and counts once, as the log; unclear cases show as *possible duplicate* to link or dismiss, and an expanded
   entry shows where the paper record differs from the log.
+- An onboard log without a calendar date (1980 clock) that matches a dated ground station log of the same flight gets
+  a **suggested date** in its details on Uploads; accept it there (admins can accept all at once).
 - Uploading a file that someone else already uploaded keeps one copy and makes you a **co-uploader**: you can then
   see that log and its flights, and the Uploads page links to it.
 - In Edit mode, tick the entries of one flight and press **Same flight** to join them (also when the automatic
