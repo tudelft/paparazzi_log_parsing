@@ -9,8 +9,8 @@ class LocationFallbackTests(AppTests):
     def insert_flight(self, takeoff=(None, None), landing=(None, None), path=None, identity=1,
                       kind="onboard_sd"):
         self.con.execute(
-            "INSERT INTO logs(id,name,sha256,data_path,paths_file,status,uploaded_at,uploaded_by,project_id,log_type)"
-            " VALUES(?,?,?,'test.data',?,'done','now',2,1,?)",
+            "INSERT INTO logs(id,name,sha256,data_path,paths_file,status,uploaded_at,uploaded_by,project_id,log_type,"
+            "start_utc) VALUES(?,?,?,'test.data',?,'done','now',2,1,?,'2010-01-01T11:59:00.000Z')",
             (identity, str(identity), str(identity), f"location-{identity}.json.gz" if path is not None else None, kind))
         self.con.execute("INSERT INTO aircraft(id,log_id,name,ac_id) VALUES(?,?,'Drone',7)", (identity, identity))
         self.con.execute(

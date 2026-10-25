@@ -126,8 +126,8 @@ class MergeIdentityTests(AppTests):
                 (1, "onboard_sd", sd_drone, "Airframe"),
                 (2, "gcs", gcs_drone, "GCS configuration")):
             self.con.execute(
-                "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,log_type)"
-                " VALUES(?,?,?,'test.data','done','now',2,1,?)", (identity, kind, kind, kind))
+                "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,log_type,start_utc)"
+                " VALUES(?,?,?,'test.data','done','now',2,1,?,'2010-01-01T11:59:00.000Z')", (identity, kind, kind, kind))
             self.con.execute(
                 "INSERT INTO aircraft(id,log_id,drone_id,name,ac_id) VALUES(?,?,?,?,7)",
                 (identity, identity, drone, name))
