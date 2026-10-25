@@ -41,6 +41,8 @@ SETTINGS = {
                                 "(default: 2 GiB; additional space is needed for parser output)"),
         "PATH_RATE": ("5", "Flight path points stored per second (0 disables the map path)"),
         "ATTACHMENT_MAX_BYTES": ("10737418240", "Maximum original size per attachment in bytes (default: 10 GiB)"),
+        "OFFICE": ("auto", "LibreOffice binary that converts .docx attachments to PDF for viewing in the browser: "
+                           "'auto' uses soffice from PATH if installed, 'off' disables, or a full path"),
         "BULK_MAX_PENDING": ("8", "Global job budget for cooperating bulk upload scripts"),
         "BULK_MAX_BYTES": ("17179869184", "Estimated pending byte budget for bulk uploads (16 GiB)"),
     },

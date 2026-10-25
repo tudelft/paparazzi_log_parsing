@@ -1,6 +1,10 @@
 """Shared files linked to telemetry flights, uploaded logs, and paper records."""
 import json
 import os
+import shutil
+import subprocess
+import tempfile
+import threading
 import uuid
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -20,11 +24,58 @@ COLUMNS = {"flight": "flight_id", "log": "log_id", "paper": "record_id"}
 VIEWABLE = {".pdf": "application/pdf", ".txt": "text/plain", ".csv": "text/plain",
             ".md": "text/plain", ".log": "text/plain", ".png": "image/png",
             ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+# Word documents are shown as a PDF converted by LibreOffice (see `convert`), cached per file content.
+CONVERTIBLE = {".docx"}
+CONVERT_MAX_BYTES = 50 * 2**20
+CONVERT_TIMEOUT_S = 90
+PREVIEWS = "previews"
 Error = historical.RecordError
+_convert_lock = threading.Lock()  # one LibreOffice at a time: it is heavy and shares nothing between runs
 
 
 def view_type(filename):
     return VIEWABLE.get(Path(filename).suffix.lower())
+
+
+def office_binary(setting):
+    if setting in (None, "", "off", "0"):
+        return None
+    return shutil.which("soffice") if setting == "auto" else setting
+
+
+def convertible(row, office):
+    return bool(office) and Path(row["filename"]).suffix.lower() in CONVERTIBLE and row["size_bytes"] <= CONVERT_MAX_BYTES
+
+
+def convert(source, compressed, suffix, office, target):
+    """Convert one stored document to PDF at `target`. LibreOffice runs headless with a throwaway profile (so no
+    user macros or settings apply), on a temporary copy, under a timeout; any failure leaves no file behind."""
+    with tempfile.TemporaryDirectory(prefix="logdb-convert-") as tmp:
+        document = Path(tmp) / ("document" + suffix)
+        with open(document, "wb") as out:
+            for chunk in storage.chunks(source, compressed=compressed):
+                out.write(chunk)
+        # LibreOffice picks an import filter from the content, so a renamed file of any type would be opened:
+        # require the ZIP container of a .docx and force the Word import filter.
+        with open(document, "rb") as f:
+            if f.read(4) != b"PK\x03\x04":
+                return False
+        try:
+            subprocess.run([office, f"-env:UserInstallation={Path(tmp, 'profile').as_uri()}", "--headless",
+                            "--norestore", "--nolockcheck", "--infilter=MS Word 2007 XML",
+                            "--convert-to", "pdf", "--outdir", tmp, str(document)],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=CONVERT_TIMEOUT_S, check=True)
+        except (OSError, subprocess.SubprocessError):
+            return False
+        result = Path(tmp) / "document.pdf"
+        if not result.is_file() or result.stat().st_size == 0:
+            return False
+        target.parent.mkdir(parents=True, exist_ok=True)
+        staged = target.with_name(f".{uuid.uuid4().hex}.tmp")
+        shutil.copyfile(result, staged)
+        os.replace(staged, target)
+        return True
 
 
 def target(con, user, kind, identity, edit=False):
@@ -105,12 +156,14 @@ def add_links(con, attachment_id, targets):
 
 def prune(con, root):
     """Called under the write lock after commit; cleanup errors propagate for logging."""
-    rows = con.execute("SELECT id,path FROM attachments WHERE NOT EXISTS"
+    rows = con.execute("SELECT id,path,sha256 FROM attachments WHERE NOT EXISTS"
                        " (SELECT 1 FROM attachment_links WHERE attachment_id=attachments.id)").fetchall()
     for row in rows:
         with con:
             (root / row["path"]).unlink(missing_ok=True)
             con.execute("DELETE FROM attachments WHERE id=?", (row["id"],))
+            if not con.execute("SELECT 1 FROM attachments WHERE sha256=?", (row["sha256"],)).fetchone():
+                (root / PREVIEWS / f"{row['sha256']}.pdf").unlink(missing_ok=True)
 
 
 def snapshot(con, log_id):
@@ -129,8 +182,9 @@ def restore(con, log_id, saved):
             dict(kind="flight", id=match["id"]) if match else dict(kind="log", id=log_id)])
 
 
-def register(app, connection, root, require_session, timestamp, max_bytes):
+def register(app, connection, root, require_session, timestamp, max_bytes, office=None):
     root = Path(root)
+    app.config["ATTACHMENT_OFFICE"] = office_binary(office)
     if max_bytes <= 0:
         raise ValueError("LOGDB_ATTACHMENT_MAX_BYTES must be positive")
     app.config["ATTACHMENT_MAX_BYTES"] = max_bytes
@@ -209,7 +263,8 @@ def register(app, connection, root, require_session, timestamp, max_bytes):
             item = {k: row[k] for k in ("id", "filename", "description", "size_bytes", "stored_bytes",
                                         "compressed", "uploaded_at", "sha256")}
             item["links"] = links
-            item["viewable"] = view_type(row["filename"]) is not None
+            item["viewable"] = view_type(row["filename"]) is not None or convertible(
+                row, app.config["ATTACHMENT_OFFICE"])
             item["can_share"] = all(x["can_edit"] for x in links) and len(links) == con.execute(
                 "SELECT COUNT(*) FROM attachment_links WHERE attachment_id=?", (aid,)).fetchone()[0]
             result.append(item)
@@ -266,6 +321,8 @@ def register(app, connection, root, require_session, timestamp, max_bytes):
 
     def send(attachment_id, inline):
         row, _ = visible(connection(), g.user, attachment_id)
+        if inline and view_type(row["filename"]) is None and convertible(row, app.config["ATTACHMENT_OFFICE"]):
+            return send_converted(row)
         mimetype = view_type(row["filename"]) if inline else "application/octet-stream"
         if not mimetype:
             raise Error("This file type cannot be viewed in the browser; download it instead.", 415)
@@ -285,6 +342,24 @@ def register(app, connection, root, require_session, timestamp, max_bytes):
         if inline and mimetype != "application/pdf":
             # Defense in depth for text and images; browsers' built-in PDF viewers break under a sandbox.
             response.headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src 'self'"
+        return response
+
+    def send_converted(row):
+        path = root / row["path"]
+        if not path.is_file():
+            raise Error("Attachment is missing from storage; contact an administrator.", 410)
+        preview = root / PREVIEWS / f"{row['sha256']}.pdf"
+        with _convert_lock:
+            if not preview.is_file() and not convert(path, row["compressed"], Path(row["filename"]).suffix.lower(),
+                                                     app.config["ATTACHMENT_OFFICE"], preview):
+                raise Error("This document could not be converted for viewing; download it instead.", 422)
+        name = Path(row["filename"]).stem + ".pdf"
+        response = send_file(preview, mimetype="application/pdf", conditional=True)
+        response.headers["Content-Disposition"] = dump_options_header(
+            "inline", {"filename": name.encode("ascii", "ignore").decode() or "document.pdf"}) \
+            + "; filename*=UTF-8''" + quote(name, safe="")
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Cache-Control"] = "private, no-store"
         return response
 
     @app.get("/api/attachments/<int:attachment_id>/download")

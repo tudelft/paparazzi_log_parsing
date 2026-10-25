@@ -5046,7 +5046,8 @@ def delete_log(log_id):
     return jsonify(deleted=log_id)
 
 
-attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, env_int("ATTACHMENT_MAX_BYTES"))
+attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, env_int("ATTACHMENT_MAX_BYTES"),
+                     office=env("OFFICE"))
 qualifications.register(app, lambda: conn(), STORAGE_DIR, session_required)
 
 

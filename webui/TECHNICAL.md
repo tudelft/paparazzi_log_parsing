@@ -283,10 +283,20 @@ lossy conversion is done; downloads reproduce the original filename and exact by
 `GET /api/attachments/<id>/view` serves the same bytes with `Content-Disposition: inline`, with the same
 access checks as the download. The type comes only from an extension allowlist (`VIEWABLE` in
 `attachments.py`): PDF, `.txt`/`.csv`/`.md`/`.log` as `text/plain`, and PNG/JPEG/GIF/WebP. Any other
-file (HTML, SVG, XML, Office documents, no extension) gets 415 and stays a download, so stored files
+file (HTML, SVG, XML, other Office documents, no extension) gets 415 and stays a download, so stored files
 never run script in the site's origin. `nosniff` and `Cache-Control: private, no-store` apply to both
 routes; inline text and images also get `Content-Security-Policy: sandbox` (not PDF, whose built-in
 browser viewers break under a sandbox).
+
+**Word documents.** When LibreOffice is available (`LOGDB_OFFICE`, default `auto`: `soffice` on PATH;
+`off` disables), `.docx` attachments up to 50 MB are viewable too: `/view` converts the file to PDF
+and serves that inline. The conversion runs on a temporary copy with a throwaway LibreOffice profile
+(no user macros or settings), headless, under a 90 s timeout, one at a time. Only a ZIP container is
+accepted and the Word import filter is forced, so a renamed file of another type never reaches another
+LibreOffice import filter. The PDF is cached as `LOG_DIR/previews/<sha256>.pdf` (identical files share it)
+and removed with the last attachment of that content. A failed conversion returns 422 and caches
+nothing; the download is unchanged. Install on Debian/Ubuntu with
+`sudo apt install --no-install-recommends libreoffice-writer-nogui` (a few hundred MB).
 
 **Flight weather.** The Weather tab shows logged wind at takeoff and landing when available. The
 **Fetch historical weather** button requests an hourly Open-Meteo/ECMWF estimate (wind at 10 m,
