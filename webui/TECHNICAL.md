@@ -1040,19 +1040,20 @@ access to.
 
 **Shared flight filters.** The menu's **Flight filters** popover stores its applied selection in
 browser `localStorage` (`logdbFlightFilters`): period preset or inclusive custom UTC dates,
-indoor/no-GPS visibility and non-flight visibility. Defaults are last three years with both
+indoor/no-GPS visibility, non-flight visibility and unknown-date visibility. Defaults are last three years with all
 visibility options off. Apply commits changes; Cancel/Escape/outside-click discard the draft;
 Reset fills the defaults for the next Apply. Other tabs update on storage changes. Storage
 failures are reported in the popover instead of claiming the selection was saved.
 Logbook, Statistics and all four entity-detail kinds use the same predicate before building
 their flight totals, maps, chart buckets, breakdowns, pagination and exports. Unknown dates
-are excluded when either date boundary is set, but included for All time or unbounded custom
-dates. Corrected dates and paper records follow the same rule. Single-flight pages, entity
+are hidden unless **Show unknown dates** is enabled, in which case they are included alongside
+any selected period; other visibility filters still apply. Older saved selections default this new
+option to off. Corrected dates and dated paper records follow the selected period. Single-flight pages, entity
 metadata/qualifications/memberships, directory administration and Uploads remain unfiltered.
 Detail log inventories and log-data totals count each accessible contributing source once;
 parsed zero-flight logs are additionally included only with non-flights enabled and a matching
-recording/corrected date. Upload time is not substituted for a missing recording date.
-The Locations overview sends `from`, `to`, `indoor=0/1` and `nonflights=0/1` to `/api/places`.
+recording/corrected date (or unknown dates enabled). Upload time is not substituted for a missing recording date.
+The Locations overview sends `from`, `to`, `indoor=0/1`, `nonflights=0/1` and `unknown_dates=0/1` to `/api/places`.
 The endpoint validates ISO dates/order and applies the selection to both counters and endpoint
 dots (including unnamed-dot review), without changing place access or hiding accessible
 location boundaries. Omitting the date arguments retains all-time API behavior; omitting

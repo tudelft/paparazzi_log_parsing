@@ -1984,6 +1984,7 @@ def list_places():
         return jsonify(error="The end date must be on or after the start date."), 400
     stats, pts, visible_places = {}, {}, set()
     include_nonflights = request.args.get("nonflights") == "1"
+    include_unknown_dates = request.args.get("unknown_dates") == "1"
     include_indoor = request.args.get("indoor") != "0"
     for f in logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT")):
         place_ids = {f.get("takeoff_place_id"), f.get("landing_place_id")} - {None}
@@ -1993,11 +1994,13 @@ def list_places():
         real = f.get("verdict") not in ("ground", "uncertain")
         day = ((f.get("takeoff_utc") or f.get("date_override") or "") if f.get("date_ok")
                else (f.get("date_override") or ""))[:10]
-        if not include_nonflights and (not day or not real or (f.get("simulation") or {}).get("detected")):
+        if not include_nonflights and (not real or (f.get("simulation") or {}).get("detected")):
             continue
-        if dates["from"] or dates["to"]:
-            if not day or (dates["from"] and day < dates["from"]) or (dates["to"] and day > dates["to"]):
+        if not day:
+            if not include_unknown_dates:
                 continue
+        elif (dates["from"] and day < dates["from"]) or (dates["to"] and day > dates["to"]):
+            continue
         for pid in place_ids:
             s = stats.setdefault(pid, {"flights": 0, "seconds": 0.0, "last": None})
             s["flights"] += f.get("flight_count", 1)

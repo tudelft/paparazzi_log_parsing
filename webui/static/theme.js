@@ -2,7 +2,7 @@
   const KEY = 'logdbFlightFilters';
   const PERIODS = {'30d': 'Last 30 days', '3m': 'Last 3 months', '1y': 'Last year',
     '2y': 'Last 2 years', '3y': 'Last 3 years', '5y': 'Last 5 years', all: 'All time', custom: 'Custom dates'};
-  const defaults = () => ({period: '3y', from: '', to: '', indoor: false, nonflights: false});
+  const defaults = () => ({period: '3y', from: '', to: '', indoor: false, nonflights: false, unknownDates: false});
   let storageWarning = '';
   const validDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)
     && !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
@@ -15,11 +15,12 @@
       if (!value || !Object.hasOwn(PERIODS, value.period)
           || !['from', 'to'].every(k => value[k] === '' || validDay(value[k]))
           || typeof value.indoor !== 'boolean' || typeof value.nonflights !== 'boolean'
+          || (value.unknownDates !== undefined && typeof value.unknownDates !== 'boolean')
           || (value.from && value.to && value.from > value.to)) {
         throw new Error('Invalid saved flight filters');
       }
       return {period: value.period, from: value.from, to: value.to,
-        indoor: value.indoor, nonflights: value.nonflights};
+        indoor: value.indoor, nonflights: value.nonflights, unknownDates: value.unknownDates ?? false};
     } catch (error) {
       console.warn('Could not restore flight filters:', error);
       storageWarning = 'Saved filters could not be restored. Using the default selection.';
@@ -53,13 +54,12 @@
   },
   includesDate(f) {
     const {from, to} = this.bounds();
-    if (!from && !to) return true;
     const day = this.day(f);
-    return !!day && (!from || day >= from) && (!to || day <= to);
+    return day ? (!from || day >= from) && (!to || day <= to) : state.unknownDates;
   },
   includes(f) {
     return (state.indoor || !f.indoor)
-      && (state.nonflights || (!!this.day(f) && !f.simulation?.detected && !['ground', 'uncertain'].includes(f.verdict)))
+      && (state.nonflights || (!f.simulation?.detected && !['ground', 'uncertain'].includes(f.verdict)))
       && this.includesDate(f);
   },
   logs(logs, allFlights, shownFlights) {
@@ -72,14 +72,14 @@
   params() {
     const {from, to} = this.bounds();
     return new URLSearchParams({from, to, indoor: state.indoor ? '1' : '0',
-      nonflights: state.nonflights ? '1' : '0'});
+      nonflights: state.nonflights ? '1' : '0', unknown_dates: state.unknownDates ? '1' : '0'});
   },
   periodLabel() {
     return state.period === 'custom' ? `${state.from || 'Any date'} – ${state.to || 'Any date'}`
       : PERIODS[state.period];
   },
   summary() {
-    return `${this.periodLabel()} · Indoor/no-GPS ${state.indoor ? 'shown' : 'hidden'} · Non-flights ${state.nonflights ? 'shown' : 'hidden'}`;
+    return `${this.periodLabel()} · Indoor/no-GPS ${state.indoor ? 'shown' : 'hidden'} · Non-flights ${state.nonflights ? 'shown' : 'hidden'} · Unknown dates ${state.unknownDates ? 'shown' : 'hidden'}`;
   },
 };
 
@@ -90,7 +90,7 @@
   function paint() {
     const button = document.getElementById('flightFiltersButton');
     if (!button) return;
-    const extra = Number(state.indoor) + Number(state.nonflights);
+    const extra = Number(state.indoor) + Number(state.nonflights) + Number(state.unknownDates);
     button.textContent = `Flight filters · ${api.periodLabel()}${extra ? ' · +' + extra : ''} ▾`;
     button.title = api.summary();
     document.querySelectorAll('[data-flight-filter-summary]').forEach(el => { el.textContent = api.summary(); });
@@ -112,7 +112,9 @@
         <div class="filter-options">
           <label><input type="checkbox" name="indoor"> Show indoor / no-GPS flights</label>
           <label><input type="checkbox" name="nonflights"> Show non-flights</label>
-          <p>This also shows unknown-date flights, simulations, uncertain flights, ground records and zero-flight log files. Date filters still apply.</p>
+          <p>Non-flights include simulations, uncertain flights, ground records and zero-flight log files.</p>
+          <label><input type="checkbox" name="unknownDates"> Show unknown dates</label>
+          <p>Include records without a known date alongside the selected period. Other visibility filters still apply.</p>
         </div>
         <p>Shared across flight overviews in this browser. Changing pages keeps these settings.</p>
         <p id="flightFiltersNotice" role="status"></p>
@@ -130,7 +132,7 @@
     }
     function fill(value) {
       for (const key of ['period', 'from', 'to']) fields[key].value = value[key];
-      for (const key of ['indoor', 'nonflights']) fields[key].checked = value[key];
+      for (const key of ['indoor', 'nonflights', 'unknownDates']) fields[key].checked = value[key];
       syncDates();
     }
     function close(focus = false) {
@@ -169,7 +171,7 @@
         return;
       }
       state = {period: fields.period.value, from: custom ? fields.from.value : '', to: custom ? fields.to.value : '',
-        indoor: fields.indoor.checked, nonflights: fields.nonflights.checked};
+        indoor: fields.indoor.checked, nonflights: fields.nonflights.checked, unknownDates: fields.unknownDates.checked};
       try { localStorage.setItem(KEY, JSON.stringify(state)); storageWarning = ''; }
       catch (error) {
         console.warn('Could not save flight filters:', error);
