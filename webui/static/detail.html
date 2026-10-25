@@ -29,10 +29,23 @@
   .totals strong { font-size:20px; display:block; font-variant-numeric:tabular-nums; }
   .totals span { color:var(--mute); font-size:12px; }
   .cols { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
-  .grid3 { display:grid; grid-template-columns:repeat(auto-fit, minmax(380px, 1fr)); gap:20px; }
+  .cols > .card { min-width:0; }
+  .grid3 { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%,380px), 1fr)); gap:20px; }
   @media (max-width: 960px) { .cols { grid-template-columns:1fr; } }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:4px 16px; }
   .kv > span:nth-child(odd) { color:var(--mute); }
+  .person-info { margin-top:18px; }
+  .person-info .detail-label, .person-info > details > summary { font-size:13px; font-weight:600; color:var(--txt); line-height:1.45; margin:14px 0 7px; }
+  .person-info .detail-label:first-child { margin-top:0; }
+  .detail-count { color:var(--mute); font-weight:400; }
+  .detail-chips { display:flex; flex-wrap:wrap; gap:5px; }
+  .detail-chips .chip { max-width:100%; overflow-wrap:anywhere; }
+  .detail-chips a.chip { color:var(--acc); }
+  .detail-chips .expired { background:var(--errbg); color:var(--err); }
+  .project-chip { padding:2px 7px; border:1px solid var(--line); border-radius:5px; font-size:12px; }
+  .account-info { margin-top:12px; overflow-wrap:anywhere; }
+  .page-help { margin-left:auto; }
+  .page-help p { font-size:13px; color:var(--mute); }
   .scroll { overflow-x:auto; }
   table { width:100%; border-collapse:collapse; }
   th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
@@ -77,14 +90,15 @@
       <div class="hero"><h2 id="name"></h2><span id="chips"></span></div>
       <div class="bar">
         <span class="mute" data-flight-filter-summary></span>
-        <span class="mute" id="scope"></span>
+        <details class="page-help"><summary>Help</summary><p id="scope"></p>
+        <p>Statistics, map, charts and tables follow the shared flight filters. Qualification dates appear on hover; qualifications with evidence open the file when you have access. Past qualifications and account details can be expanded.</p></details>
       </div>
     </section>
 
     <div class="cols">
       <section class="card">
         <div class="totals" id="totals"></div>
-        <h2 style="margin-top:18px">Details</h2><div class="kv" id="info"></div>
+        <h2 style="margin-top:18px" id="infoHeading">Details</h2><div class="kv" id="info"></div>
       </section>
       <section class="card mapCard"><h2 id="mapTitle">Takeoff locations</h2><div id="map"></div></section>
     </div>
@@ -222,11 +236,6 @@ function renderHead() {
     if (!it.is_active) chips.push('Deactivated');
     if (it.pending || it.provider === 'log') chips.push({t: 'Not active yet', cls: 'pending'});
     else chips.push(it.provider === 'saml' ? 'TU Delft sign-in' : 'Local account');
-    const q = it.qualifications;
-    if (q) {
-      q.items.filter(item => item.status === 'approved').forEach(item =>
-        chips.push(item.category + (item.expired ? ' expired' : '')));
-    }
   } else if (KIND === 'aircraft') {
     if (it.unique_id) chips.push(it.unique_id);
     if (it.status) chips.push(it.status);
@@ -250,24 +259,34 @@ function renderInfo() {
   let html = '';
   if (KIND === 'people') {
     const q = it.qualifications;
-    const names = it.names || it.aliases || [];
-    html = kv('Username', esc(it.username)) + kv('Email', it.email ? `<a href="mailto:${esc(it.email)}">${esc(it.email)}</a>` : '')
-      + kv('Names', names.length ? esc(names.join(', ')) : '')
-      + kv('Default project', it.default_project ? link('projects', it.default_project.id, it.default_project.name) : '')
-      + kv('Projects', it.projects.map(p => `${link('projects', p.id, p.name)} <span class="mute">(${esc(ACCESS[p.role] || p.role)})</span>`).join('<br>'));
+    const names = (it.names || it.aliases || []).filter(name => name !== it.name);
+    const projects = it.projects || [];
+    html = `<h3 class="detail-label">Projects <span class="detail-count">· ${projects.length}</span></h3>
+      <div class="detail-chips">${projects.map(p => `<a class="project-chip" href="/projects/${p.id}">${esc(p.name)}</a>`).join('') || '<span class="mute">None</span>'}</div>`;
     if (q) {
-      html += kv('Current qualifications', q.items.filter(item => item.status === 'approved').map(item => {
-        const dates = [item.valid_from ? `Valid from ${item.valid_from}` : '', item.valid_until ? `Valid until ${item.valid_until}` : ''].filter(Boolean).join(' · ');
-        const name = `<strong>${esc(item.category)}</strong>`;
-        const bits = [item.has_evidence
-          ? `<a href="/api/qualification-submissions/${item.id}/evidence">${name}</a>` : name];
-        if (item.internal) bits.push('Internal');
-        if (item.expired) bits.push('<span class="mute">(expired)</span>');
-        return `<div title="${esc(dates)}">${bits.join(' · ')}</div>`;
-      }).join('') || '<span class="mute">None approved.</span>');
+      const approved = q.items.filter(item => item.status === 'approved');
+      const current = approved.filter(item => !item.expired);
+      const past = approved.filter(item => item.expired);
+      const qualificationChips = items => items.map(item => {
+        const dates = [item.valid_from ? `Valid from ${item.valid_from}` : '',
+          item.valid_until ? `${item.expired ? 'Expired on' : 'Valid until'} ${item.valid_until}` : '',
+          item.internal ? 'Internal' : ''].filter(Boolean).join(' · ');
+        const attrs = `class="chip${item.expired ? ' expired' : ''}" title="${esc(dates)}"`;
+        return item.has_evidence
+          ? `<a ${attrs} href="/api/qualification-submissions/${item.id}/evidence">${esc(item.category)}</a>`
+          : `<span ${attrs}>${esc(item.category)}</span>`;
+      }).join('');
+      html += `<h3 class="detail-label">Current qualifications <span class="detail-count">· ${current.length}</span></h3>
+        <div class="detail-chips">${qualificationChips(current) || '<span class="mute">None approved.</span>'}</div>
+        <details><summary>Past qualifications <span class="detail-count">· ${past.length}</span></summary>
+        <div class="detail-chips">${qualificationChips(past) || '<span class="mute">None</span>'}</div></details>`;
     }
-
-    html += kv('Account created', esc(fmtDate(it.created_at))) + kv('Last sign-in', esc(fmtTime(it.last_login)));
+    html += `<details><summary>Account details</summary><div class="kv account-info">${
+      kv('Username', esc(it.username)) + kv('Email', it.email ? `<a href="mailto:${esc(it.email)}">${esc(it.email)}</a>` : '')
+      + kv('Other names / aliases', esc(names.join(', ')))
+      + kv('Default project', it.default_project ? link('projects', it.default_project.id, it.default_project.name) : '')
+      + kv('Account created', esc(fmtDate(it.created_at))) + kv('Last sign-in', esc(fmtTime(it.last_login)))
+    }</div></details>`;
   } else if (KIND === 'aircraft') {
     html = kv('Fleet ID', esc(it.unique_id)) + kv('Status', esc(it.status))
       + kv('Projects', (it.projects || []).length
@@ -287,6 +306,8 @@ function renderInfo() {
     html = kv('Type', it.indoor ? 'Indoor (hidden in the logbook by default)' : 'Outdoor')
       + kv('Shape', sh.type === 'circle' ? `Circle, ${fmtDist(sh.radius_m)} radius` : `Area with ${sh.points.length} corners`);
   }
+  $('infoHeading').hidden = KIND === 'people';
+  $('info').className = KIND === 'people' ? 'person-info' : 'kv';
   $('info').innerHTML = html || '<span class="mute">No details.</span>';
 }
 
@@ -327,7 +348,7 @@ const byCrew = (list, except) => group(list,
 function table(title, hint, rows, nameCol) {
   const max = rows[0]?.seconds || 0;
   const meter = s => `<div class="meter" title="${fmtHours(s)}"><i style="width:${max > 0 ? Math.max(2, Math.round(100 * s / max)) : 0}%"></i></div>`;
-  return `<section class="card"><h2>${esc(title)}</h2>${hint ? `<div class="mute" style="margin-bottom:8px">${esc(hint)}</div>` : ''}
+  return `<section class="card"><h2>${esc(title)}</h2>${hint ? `<details class="help-text"><summary>Help</summary><p>${esc(hint)}</p></details>` : ''}
     <div class="scroll"><table><thead><tr><th>${esc(nameCol)}</th><th class="num">Flights</th><th class="num">Hours</th><th class="num">Flown</th><th>Last flight</th><th></th></tr></thead><tbody>
     ${rows.length ? rows.map(r => `<tr><td>${r.html}</td><td class="num">${r.flights}</td><td class="num">${fmtHours(r.seconds)}</td>
       <td class="num">${fmtDist(r.metres)}</td><td class="nowrap">${esc(fmtDate(r.last))}</td><td>${meter(r.seconds)}</td></tr>`).join('')
@@ -353,7 +374,6 @@ function renderTotals(list) {
   const days = new Set(list.map(f => fmtDate(f.takeoff_utc)).filter(Boolean)).size;
   const dates = list.map(f => f.takeoff_utc).filter(Boolean).sort();
   const logs = shownLogs(list);
-  const size = logs.reduce((s, l) => s + (l.size_bytes || 0), 0);
   const tiles = [
     [count, 'Flights'],
     [fmtHours(seconds), 'Flight time'],
@@ -367,7 +387,8 @@ function renderTotals(list) {
   if (KIND !== 'projects') tiles.push([new Set(list.map(f => f.project_id)).size, 'Projects']);
   if (KIND !== 'locations') tiles.push([new Set(list.map(f => f.takeoff_place_id ?? null).filter(x => x != null)).size, 'Named locations']);
   if (KIND === 'people') tiles.push([list.filter(f => f.pic_user?.id === ITEM_ID).reduce((s, f) => s + (f.flight_count || 1), 0), 'Flights as PIC']);
-  tiles.push([logs.length, 'Log files'], [fmtSize(size) || '0 kB', 'Log data']);
+  tiles.push([logs.length, 'Log files']);
+  if (KIND !== 'people') tiles.push([fmtSize(logs.reduce((s, l) => s + (l.size_bytes || 0), 0)) || '0 kB', 'Log data']);
   $('totals').innerHTML = tiles.map(([v, l]) => `<div><strong>${esc(v)}</strong><span>${esc(l)}</span></div>`).join('');
 }
 

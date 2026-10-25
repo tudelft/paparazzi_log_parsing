@@ -23,14 +23,17 @@
   .directory-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:8px; }
   .directory-person { position:relative; min-width:0; height:86px; border:1px solid var(--fieldline); border-left:4px solid var(--acc); border-radius:8px; padding:8px 10px; background:var(--detail); box-shadow:0 2px 4px #0002; }
   .directory-person-header { display:contents; }
-  .directory-person .person-name { display:block; max-width:calc(100% - 156px); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+  a.directory-person { display:block; color:var(--txt); text-decoration:none; }
+  a.directory-person:hover, a.directory-person:focus-visible { border-color:var(--acc); outline:2px solid var(--acc); outline-offset:1px; }
+  .directory-person .person-name { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
   .directory-person .chip { max-width:100%; white-space:normal; font-size:12px; }
   .directory-licences { height:48px; overflow:clip; margin-top:2px; }
+  .directory-licences.has-more { padding-right:100px; }
   .directory-licences .chip { white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
   .licences-more { position:absolute; right:10px; bottom:5px; background:var(--detail); padding-left:8px; font-size:11px; }
   .licences-more[hidden] { display:none; }
-  .pic-totals { float:right; display:flex; justify-content:flex-end; flex-wrap:wrap; gap:0 8px; width:148px; margin-left:8px; font-size:11px; white-space:nowrap; text-align:right; }
-  .pic-totals .pic-last { flex-basis:100%; }
+  .directory-person .pic-totals { float:right; display:grid; grid-template-columns:auto auto; justify-content:end; gap:0 6px; width:max-content; max-width:50%; margin-left:8px; font-size:11px; line-height:1.4; white-space:nowrap; text-align:right; }
+  .pic-totals .pic-last { grid-column:1/-1; }
   .pic-totals strong { color:var(--txt); font-weight:500; }
   #directorySearch { width:min(100%,360px); }
   .directory-search { flex:0 1 280px; min-width:0; }
@@ -263,8 +266,7 @@ function qualBits(q) {
     const when = [start ? `from ${start.slice(0, 10)}` : '', until ? `until ${until.slice(0, 10)}` : ''].filter(Boolean).join(' · ');
     const attrs = `class="chip${dead ? ' warn' : ''}"${when ? ` title="${esc(when)}"` : ''}`;
     const labelText = `${esc(label)}${dead ? ' expired' : ''}`;
-    return item.has_evidence ? `<a ${attrs} href="/api/qualification-submissions/${item.id}/evidence">${labelText}</a>`
-      : `<span ${attrs}>${labelText}</span>`;
+    return `<span ${attrs}>${labelText}</span>`;
   };
   return q.items.filter(item => item.status === 'approved' && !item.expired)
     .map(bit).join('');
@@ -321,7 +323,10 @@ function matchingPeople(query) {
 
 const licenceOverflowObserver = new ResizeObserver(() => {
   document.querySelectorAll('.directory-licences').forEach(el => {
-    el.nextElementSibling.hidden = el.scrollHeight <= el.clientHeight;
+    el.classList.remove('has-more');
+    const overflowing = el.scrollHeight > el.clientHeight;
+    el.classList.toggle('has-more', overflowing);
+    el.nextElementSibling.hidden = !overflowing;
   });
 });
 
@@ -341,16 +346,16 @@ function renderDirectory() {
   $('directoryCount').textContent = `${rows.length} of ${people.users.length} people`;
   $('directoryPeople').innerHTML = (picError ? `<p role="alert">${esc(picError)}</p>` : '') + rows.map(u => {
     const t = totals.get(u.id) || {count:0, seconds:0, last:''};
-    return `<article class="directory-person"><div class="directory-person-header">
+    return `<a class="directory-person" href="/people/${u.id}" aria-label="${esc(u.display_name || u.username)}"><div class="directory-person-header">
     ${picFlights === null ? `<div class="pic-totals mute">${picError ? 'PIC totals unavailable' : 'Loading PIC totals...'}</div>` : `<div class="pic-totals mute" aria-label="PIC flight statistics">
       <span title="Flights as PIC"><strong>${t.count}</strong> flights</span><span title="Flight hours as PIC"><strong>${(t.seconds / 3600).toFixed(1)}</strong> h</span>
       <span class="pic-last" title="Last flight as PIC">Last ${esc(t.last || '—')}</span></div>`}
-    <a class="person-name" title="${esc(u.display_name || u.username)}" href="/people/${u.id}">${esc(u.display_name || u.username)}</a></div>
+    <span class="person-name" title="${esc(u.display_name || u.username)}">${esc(u.display_name || u.username)}</span></div>
     <div class="directory-licences" aria-label="Current licences; open the pilot page for all licences">${qualBits(u.qualifications)}</div>
-    <a class="licences-more" href="/people/${u.id}" hidden>More licences...</a></article>`;
+    <span class="licences-more" hidden>More licences...</span></a>`;
   }).join('')
     || '<p class="mute">No matching people.</p>';
-  document.querySelectorAll('.directory-licences').forEach(el => licenceOverflowObserver.observe(el));
+  document.querySelectorAll('.directory-person').forEach(el => licenceOverflowObserver.observe(el));
 }
 
 async function adminApi(url, options) {

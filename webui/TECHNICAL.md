@@ -692,11 +692,20 @@ and follow the shared browser flight filters. A single bulk `/api/people-pic-fli
 only the fields needed for those totals and filters; there are no per-person flight requests.
 Usernames, aliases and sign-in information
 are hidden; search still matches name, username, available email and alias.
-Approved, non-expired licence chips remain visible to the person and administrators; chips link to
-the evidence download when evidence exists. Other viewers do not receive private qualification data.
-Cards show up to two lines of licences, with a **More licences...** link to the pilot page
+Approved, non-expired licence chips remain visible to the person and administrators.
+The whole directory card links to the pilot page; its licence chips are not evidence links and retain
+date tooltips. Other viewers do not receive private qualification data.
+Cards show up to two lines of licences, with a **More licences...** indication
 when the list exceeds the available space. Names reserve space for the PIC totals and truncate
 with an ellipsis instead of pushing the name and licences below the statistics; hover for the full name.
+PIC statistics use compact 11px text and their natural width. Overflowing licence lists reserve
+space for the More link so it never covers a chip.
+The pilot page shows all project memberships as compact links without permission labels, followed by
+current qualification chips. Approved expired records are under **Past qualifications**; username,
+other names, account dates and default project are under **Account details**, both collapsed initially.
+On this detail page, qualification chips link to evidence only when evidence is available to the viewer;
+validity dates remain available on hover. Explanations are under collapsed Help controls. Existing
+flight totals, map, charts, breakdowns and tables retain their filtering and access rules.
 Enable Edit, then select someone to open their
 **Account**, **API keys**, **Aliases** or **Qualifications** tab. The editor shows **Active · TU Delft SSO**
 for enabled SSO accounts and **Active · Local** for enabled local accounts with a password; external,
