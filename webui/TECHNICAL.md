@@ -1106,6 +1106,11 @@ flight" (`same=0`), with `origin` `auto` or `manual`, who and when.
   the log, the log value is shown and `conflicts` lists both values for a person to resolve.
 - **Possible duplicates.** An unlinked record lists logged flights of its aircraft within 15 min
   (`possible_duplicates`), except pairs marked not the same.
+- **Import preview.** *Check CSV* (`preview=1`) runs the import and the automatic linking in one transaction,
+  records per row what happened (`logs.linked`: the logged flights it will be linked to, else `logs.possible`:
+  the possible duplicates, `links.record_matches`) and rolls everything back. The preview therefore shows exactly
+  what the import does, from the same code. A corrected re-import keeps the record id: its automatic links are
+  re-matched, and manual links and "not the same" decisions stay.
 
 ### Manual join and split of logged recordings
 

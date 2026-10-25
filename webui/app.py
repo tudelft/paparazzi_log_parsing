@@ -4324,10 +4324,22 @@ def import_historical():
     staged = final = None
     committed = False
     try:
-        if request.form.get("preview") == "1":  # what an import would do, without writing anything
-            records = historical.parse_csv(con, g.user, raw.decode("utf-8-sig"))
-            return jsonify(preview=True, rows=[{k: r[k] for k in (
-                "line", "action", "record_id", "hidden", "changes", "label")} for r in records])
+        if request.form.get("preview") == "1":
+            # What an import would do: run it, including the automatic linking to logs, then roll it all back.
+            with db.write_lock:
+                con.execute("BEGIN IMMEDIATE")
+                try:
+                    records = historical.parse_csv(con, g.user, raw.decode("utf-8-sig"))
+                    existing = {r["line"]: r["record_id"] for r in records}
+                    historical.save_import(con, records, g.user["id"], now())
+                    links.auto_link(con, now())
+                    rows = [dict({k: r[k] for k in ("line", "action", "hidden", "changes", "label")},
+                                 record_id=existing[r["line"]],
+                                 logs=links.record_matches(con, r["record_id"]) if r["record_id"] else None)
+                            for r in records]
+                finally:
+                    con.rollback()
+            return jsonify(preview=True, rows=rows)
         attachment_id = None
         with db.write_lock, con:
             con.execute("BEGIN IMMEDIATE")

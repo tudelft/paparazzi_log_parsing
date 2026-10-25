@@ -126,6 +126,29 @@ def auto_link(con, stamp):
     return linked
 
 
+def record_matches(con, record_id):
+    """Logged flights a paper record is linked to, or else the possible duplicates a person would be shown
+    (same aircraft, takeoff within SUGGEST_WINDOW_S, not marked not-the-same). Used by the import preview."""
+    def flights(where, params):
+        return [dict(r) for r in con.execute(
+            "SELECT f.id AS flight_id, f.takeoff_utc, f.duration_s, l.log_type FROM flights f"
+            " JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id"
+            f" WHERE {where} ORDER BY f.takeoff_utc", params)]
+    decisions = [d for d in resolved(con) if d["record_id"] == record_id]
+    linked = [d["flight_id"] for d in decisions if d["same"]]
+    if linked:
+        return dict(linked=flights(f"f.id IN ({','.join('?' * len(linked))})", linked), possible=[])
+    r = con.execute("SELECT drone_id, date, takeoff_time FROM flight_records WHERE id=?", (record_id,)).fetchone()
+    start = paper_ts(r["date"], r["takeoff_time"]) if r else None
+    if start is None:
+        return dict(linked=[], possible=[])
+    vetoed = {d["flight_id"] for d in decisions}
+    near = flights("a.drone_id=? AND f.hidden=0 AND l.status='done' AND f.takeoff_utc>=? AND f.takeoff_utc<=?",
+                   (r["drone_id"], *(datetime.fromtimestamp(start + sign * SUGGEST_WINDOW_S, timezone.utc)
+                                     .strftime("%Y-%m-%dT%H:%M:%S") for sign in (-1, 1))))
+    return dict(linked=[], possible=[f for f in near if f["flight_id"] not in vetoed])
+
+
 def combine(con, rows):
     """Fold paper records into the telemetry entries they are linked to. Rows are logbook rows the current user can
     see; links to rows they cannot see are not applied. A linked entry counts as its telemetry (flight count and

@@ -1,3 +1,5 @@
+import io
+
 from .test_historical import AppTests
 
 
@@ -143,6 +145,40 @@ class FlightLinkTests(LinkFixtures):
         self.assertEqual(len(self.logbook()), 2)
         self.assertEqual(self.client.delete(f"/api/historical/{record}").status_code, 200)
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM flight_links").fetchone()[0], 0)
+
+    def import_csv(self, rows, preview=False):
+        header = "aircraft,pic,project,date,duration_minutes,flight_count,kind,takeoff_time,reference\n"
+        data = {"file": (io.BytesIO((header + rows).encode()), "paper.csv")}
+        if preview:
+            data["preview"] = "1"
+        response = self.client.post("/api/historical/import", data=data)
+        response.request.input_stream.close()
+        return response
+
+    def test_import_preview_shows_what_the_import_will_link(self):
+        self.sign_in(1)
+        self.flight(1, "12:00:00")
+        self.flight(2, "14:00:00")
+        self.flight(3, "14:03:00")
+        rows = ("Drone,Pilot,Research,2010-01-01,30,1,flight,12:02,F00001\n"
+                "Drone,Pilot,Research,2010-01-01,30,1,flight,14:01,F00002\n"
+                "Drone,Pilot,Research,2010-01-01,30,1,flight,16:00,F00003\n")
+        preview = self.import_csv(rows, preview=True)
+        self.assertEqual(preview.status_code, 200, preview.json)
+        logs = [r["logs"] for r in preview.json["rows"]]
+        self.assertEqual([[f["flight_id"] for f in l["linked"]] for l in logs], [[1], [], []])
+        self.assertEqual([[f["flight_id"] for f in l["possible"]] for l in logs], [[], [2, 3], []])
+        self.assertEqual([r["record_id"] for r in preview.json["rows"]], [None, None, None])
+        for table in ("flight_records", "flight_links"):  # the preview writes nothing
+            self.assertEqual(self.con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0], 0)
+        self.assertEqual(self.import_csv(rows).status_code, 201)
+        self.assertEqual(sorted(r.get("reference") or "" for r in self.logbook() if r["source_type"] == "telemetry"),
+                         ["", "", "F00001"])
+        # A corrected re-import keeps the record and shows it stays linked.
+        corrected = rows.replace("12:02,F00001", "12:01,F00001")
+        row = self.import_csv(corrected, preview=True).json["rows"][0]
+        self.assertEqual((row["action"], [f["flight_id"] for f in row["logs"]["linked"]]), ("update", [1]))
+        self.assertIsNotNone(row["record_id"])
 
 
 class SourceLinkTests(LinkFixtures):
