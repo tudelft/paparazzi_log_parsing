@@ -46,6 +46,7 @@ import db
 import attachments
 import historical
 import links
+import date_suggest
 import storage
 import saml
 import config
@@ -2900,11 +2901,57 @@ def set_log_date(log_id):
     value = parse_date_override((request.get_json(silent=True) or {}).get("date_override"))
     if value is False:
         return jsonify(error="enter a date as YYYY-MM-DD"), 400
-    con.execute("UPDATE logs SET date_override=? WHERE id=?", (value, log_id))
+    con.execute("UPDATE logs SET date_override=?, date_override_by=?, date_override_note=NULL WHERE id=?",
+                (value, g.user["id"] if value else None, log_id))
     con.commit()
     out = log_dict(con.execute("SELECT * FROM logs WHERE id=?", (log_id,)).fetchone())
     out["can_edit_date"] = True
     return jsonify(ok=True, date_override=value, date_ok=out["date_ok"], start_utc=out.get("start_utc"))
+
+
+def date_suggestions(con):
+    return date_suggest.suggestions(con, clock_implausible)
+
+
+def accept_date_suggestion(con, log_id, suggestion):
+    con.execute("UPDATE logs SET date_override=?, date_override_by=?, date_override_note=? WHERE id=?",
+                (suggestion["date"], g.user["id"], f"suggested from GCS log {suggestion['gcs_log_id']}: same aircraft,"
+                 f" duration and time of day ({suggestion['flights']} flight(s), offset {suggestion['offset_s']:+g} s)",
+                 log_id))
+
+
+@app.post("/api/logs/<int:log_id>/date/suggestion")
+def accept_log_date_suggestion(log_id):
+    """Accept the date suggested from a matching GCS log (see date_suggest); sets the date override."""
+    con = conn()
+    row = visible_log(con, log_id)
+    if not can_set_log_date(con, row):
+        return jsonify(error="you cannot set the date of this log"), 403
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        suggestion = date_suggestions(con).get(log_id)
+        if suggestion is None:
+            return jsonify(error="there is no date suggestion for this log"), 409
+        accept_date_suggestion(con, log_id, suggestion)
+    return jsonify(ok=True, date_override=suggestion["date"])
+
+
+@app.route("/api/admin/date-suggestions", methods=["GET", "POST"])
+def admin_date_suggestions():
+    """List (GET) or accept all (POST) date suggestions for logs with an unset clock."""
+    admin_required()
+    con = conn()
+    if request.method == "GET":
+        found = date_suggestions(con)
+        names = {r["id"]: r["name"] for r in con.execute(
+            f"SELECT id, name FROM logs WHERE id IN ({','.join('?' * len(found))})", list(found))} if found else {}
+        return jsonify(suggestions=[dict(s, log_id=i, log_name=names.get(i)) for i, s in sorted(found.items())])
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        found = date_suggestions(con)
+        for log_id, suggestion in found.items():
+            accept_date_suggestion(con, log_id, suggestion)
+    return jsonify(ok=True, accepted=len(found))
 
 
 @app.put("/api/flights/<int:flight_id>/project")
@@ -4006,6 +4053,10 @@ def _same_type_overlap(start, end, other_start, other_end):
     return overlap >= 0.5 * min(end - start, other_end - other_start) - 1
 
 
+def undated_takeoff(f):
+    return f.get("takeoff_utc") is not None and clock_implausible(f["takeoff_utc"])
+
+
 def merge_sources(flights, decisions=None):
     """Merge the same flight recorded by an onboard SD log and a ground station (GCS) log into one entry.
 
@@ -4028,7 +4079,8 @@ def merge_sources(flights, decisions=None):
         end = _ts(f["landing_utc"]) or (start + (f["duration_s"] or 0) if start is not None else None)
         name = (f["aircraft"] or "").casefold()
         ident = {"name": name, "ac_id": f["ac_id"], "lat": f["takeoff_lat"], "lon": f["takeoff_lon"]}
-        if f.get("date_estimated") and f["flight_id"] not in joined:
+        # An estimated date, or a takeoff on an unset clock (1980, no date entered), is meaningless for matching.
+        if (f.get("date_estimated") or undated_takeoff(f)) and f["flight_id"] not in joined:
             groups.append({**ident, "start": start, "end": end, "logs": {f["log_id"]}, "flights": [f], "spans": []})
         elif f.get("aircraft_ambiguous") and f["drone_id"] is None and f["flight_id"] not in joined:
             ambiguous.append((f, start, end, ident))
@@ -4095,7 +4147,7 @@ def merge_sources(flights, decisions=None):
         if f["log_type"] == "onboard_sd" and start is not None and valid_gps_location(ident["lat"], ident["lon"]):
             for group in groups:
                 if (group["start"] is None or group["end"] is None
-                        or any(o.get("date_estimated") for o in group["flights"])
+                        or any(o.get("date_estimated") or undated_takeoff(o) for o in group["flights"])
                         or start > group["end"] + SAME_FLIGHT_SLACK_S
                         or (end or start) < group["start"] - SAME_FLIGHT_SLACK_S
                         or f["log_id"] in group["logs"]
@@ -4932,6 +4984,10 @@ def get_log(log_id):
     out = log_dict(row)
     out["can_delete"] = can_delete_log(con, row)
     out["can_edit_date"] = can_set_log_date(con, row)
+    out["date_suggestion"] = (date_suggestions(con).get(log_id)
+                              if out["can_edit_date"] and not out["date_ok"] and not row["date_override"] else None)
+    out["date_override_by_name"] = (con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",
+                                                (row["date_override_by"],)).fetchone() or [None])[0]
     out["uploaded_by_name"] = (con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",
                                            (row["uploaded_by"],)).fetchone() or [None])[0]
     out["co_uploaders"] = [dict(r) for r in con.execute(

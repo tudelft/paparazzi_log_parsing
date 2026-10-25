@@ -85,6 +85,7 @@
     </div>
       <button class="sec" id="reparseAll" style="margin-left:auto" onclick="reparseOutdated()" hidden>Re-parse outdated</button>
       <button class="sec" id="reparseUnknownDates" onclick="reparseUnknownDates()" hidden>Re-parse unknown dates</button>
+      <button class="sec" id="acceptDateSuggestions" onclick="acceptDateSuggestions()" hidden title="Dates for logs with an unset clock, taken from a matching ground station log">Accept date suggestions</button>
     </div>
     <div class="scroll">
     <table>
@@ -138,6 +139,7 @@ fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
   $('reparseAll').hidden = !me.is_admin;
   $('reparseUnknownDates').hidden = !me.is_admin;
+  if (me.is_admin) countDateSuggestions();
   $('who').textContent = me.display_name + (me.is_admin ? ' (admin)' : '');
   projects = await fetch('/api/projects').then(r => r.json());
   fillProjects();
@@ -450,13 +452,19 @@ function dateField(l) {
     ? 'Calendar date was entered by hand; the time of day is from the log.'
     : l.date_estimated ? 'The calendar week is estimated from firmware and GPS. Enter the confirmed date; GPS time of day is kept.'
     : 'This log has no usable calendar date (often 1980 from GPS week 0). Enter the real date; the time of day from the log is kept.';
+  const suggestion = l.date_suggestion ? `<br>Date probably <strong>${esc(l.date_suggestion.date)}</strong>: matches
+    <a href="/uploads#log${l.date_suggestion.gcs_log_id}" onclick="event.stopPropagation(); showLog(${l.date_suggestion.gcs_log_id})">GCS log ${l.date_suggestion.gcs_log_id}</a>
+    (same aircraft, duration and time of day; ${l.date_suggestion.flights} flight(s), offset ${l.date_suggestion.offset_s} s)
+    <button type="button" class="sec" onclick="event.stopPropagation(); acceptLogDateSuggestion(${l.id})">Accept</button>` : '';
+  const setBy = l.date_override && l.date_override_by_name
+    ? `<br><span class="mute">Set by ${esc(l.date_override_by_name)}${l.date_override_note ? ': ' + esc(l.date_override_note) : ''}</span>` : '';
   if (!l.can_edit_date)
-    return `<span class="mute">Calendar date</span><span>${l.date_override ? esc(l.date_override) + ' · ' : ''}<span class="mute">${esc(hint)}</span></span>`;
+    return `<span class="mute">Calendar date</span><span>${l.date_override ? esc(l.date_override) + ' · ' : ''}<span class="mute">${esc(hint)}</span>${setBy}</span>`;
   return `<span class="mute">Calendar date</span><span onclick="event.stopPropagation()">
     <input type="date" id="date${l.id}" value="${esc(l.date_override || '')}">
     <button type="button" class="sec" onclick="event.stopPropagation(); saveLogDate(${l.id})">Save date</button>
     ${l.date_override ? `<button type="button" class="sec" onclick="event.stopPropagation(); saveLogDate(${l.id}, true)">Clear</button>` : ''}
-    <span class="mute"> ${esc(hint)}</span></span>`;
+    <span class="mute"> ${esc(hint)}</span>${suggestion}${setBy}</span>`;
 }
 async function saveLogDate(id, clear) {
   const value = clear ? null : (($('date' + id) && $('date' + id).value) || '').trim() || null;
@@ -532,6 +540,32 @@ async function reparseUnknownDates() {
   } finally {
     button.disabled = false;
   }
+}
+// Logs with an unset clock (1980) whose flights uniquely match a dated GCS log: same aircraft, duration, time of day.
+async function countDateSuggestions() {
+  const r = await fetch('/api/admin/date-suggestions');
+  if (!r.ok) return;
+  const n = (await r.json()).suggestions.length;
+  $('acceptDateSuggestions').hidden = !n;
+  $('acceptDateSuggestions').textContent = `Accept date suggestions (${n})`;
+}
+async function acceptDateSuggestions() {
+  const r = await fetch('/api/admin/date-suggestions');
+  const list = r.ok ? (await r.json()).suggestions : [];
+  if (!list.length || !confirm(`Set the date of ${list.length} log(s) from a matching ground station log?\n\n`
+      + list.slice(0, 20).map(s => `${s.log_name}: ${s.date} (GCS log ${s.gcs_log_id})`).join('\n')
+      + (list.length > 20 ? '\n…' : '') + '\n\nEach date can be changed or cleared later on the log.')) return;
+  const done = await fetch('/api/admin/date-suggestions', {method: 'POST'});
+  const result = await done.json().catch(() => ({}));
+  if (!done.ok) { alert(result.error || 'Could not accept the suggestions'); return; }
+  countDateSuggestions();
+  refresh();
+}
+async function acceptLogDateSuggestion(id) {
+  const r = await fetch(`/api/logs/${id}/date/suggestion`, {method: 'POST'});
+  if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not accept the suggestion'); return; }
+  expanded.add(id);
+  refresh();
 }
 async function setProject(id, value) {
   await fetch('/api/logs/' + id + '/project', {method: 'PUT', headers: {'Content-Type': 'application/json'},
