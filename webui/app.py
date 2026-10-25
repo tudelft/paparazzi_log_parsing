@@ -1991,11 +1991,11 @@ def list_places():
         if not include_indoor and f.get("indoor"):
             continue
         real = f.get("verdict") not in ("ground", "uncertain")
-        if not include_nonflights and (not real or (f.get("simulation") or {}).get("detected")):
+        day = ((f.get("takeoff_utc") or f.get("date_override") or "") if f.get("date_ok")
+               else (f.get("date_override") or ""))[:10]
+        if not include_nonflights and (not day or not real or (f.get("simulation") or {}).get("detected")):
             continue
         if dates["from"] or dates["to"]:
-            day = ((f.get("takeoff_utc") or f.get("date_override") or "") if f.get("date_ok")
-                   else (f.get("date_override") or ""))[:10]
             if not day or (dates["from"] and day < dates["from"]) or (dates["to"] and day > dates["to"]):
                 continue
         for pid in place_ids:

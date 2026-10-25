@@ -36,7 +36,9 @@ existing `/logbook` links still work.
   revision, linking to that exact commit on GitHub.
   **(modified)** indicates local code changes; this is separate from the telemetry parser version.
 - Use **Flight filters** in the top menu to select a period (default: last three years), custom
-  UTC dates, **Show indoor / no-GPS flights** and **Show non-flights**. Choose **Apply filters**;
+  UTC dates, **Show indoor / no-GPS flights** and **Show non-flights**. Unknown-date flights are
+  hidden unless **Show non-flights** is enabled; a corrected date makes them eligible normally.
+  Date filters still exclude unknown dates, so use **All time** to see them. Choose **Apply filters**;
   the selection stays the same when moving between pages in this browser. **Reset** restores
   the defaults after applying. The filters cover Logbook, Statistics, Locations and individual
   person, aircraft, project and location overviews, including their totals, maps, charts and

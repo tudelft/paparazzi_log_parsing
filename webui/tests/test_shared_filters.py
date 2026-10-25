@@ -56,7 +56,12 @@ class SharedFilterTests(AppTests):
         self.con.execute("UPDATE logs SET start_utc=NULL WHERE id=1")
         self.con.commit()
         self.assertEqual(self.client.get("/api/places?to=2010-12-31").json["places"][0]["flights"], 0)
-        self.assertEqual(self.client.get("/api/places").json["places"][0]["flights"], 2)
+        self.assertEqual(self.client.get("/api/places").json["places"][0]["flights"], 1)
+        included = self.client.get("/api/places?nonflights=1").json
+        self.assertEqual(included["places"][0]["flights"], 2)
+        self.assertEqual(sum(p["count"] for p in included["points"]), 4)
+        self.assertEqual(self.client.get(
+            "/api/places?nonflights=1&to=2010-12-31").json["places"][0]["flights"], 0)
         self.con.execute("UPDATE logs SET start_utc='2010-01-01T12:00:00Z', date_override='2012-01-01' WHERE id=1")
         self.con.commit()
         self.assertEqual(self.client.get("/api/places?from=2012-01-01&to=2012-01-01").json["places"][0]["flights"], 1)

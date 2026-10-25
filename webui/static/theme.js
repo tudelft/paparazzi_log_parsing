@@ -59,7 +59,7 @@
   },
   includes(f) {
     return (state.indoor || !f.indoor)
-      && (state.nonflights || (!f.simulation?.detected && !['ground', 'uncertain'].includes(f.verdict)))
+      && (state.nonflights || (!!this.day(f) && !f.simulation?.detected && !['ground', 'uncertain'].includes(f.verdict)))
       && this.includesDate(f);
   },
   logs(logs, allFlights, shownFlights) {
@@ -112,7 +112,7 @@
         <div class="filter-options">
           <label><input type="checkbox" name="indoor"> Show indoor / no-GPS flights</label>
           <label><input type="checkbox" name="nonflights"> Show non-flights</label>
-          <p>Non-flights include simulations, uncertain flights, ground records and zero-flight log files.</p>
+          <p>This also shows unknown-date flights, simulations, uncertain flights, ground records and zero-flight log files. Date filters still apply.</p>
         </div>
         <p>Shared across flight overviews in this browser. Changing pages keeps these settings.</p>
         <p id="flightFiltersNotice" role="status"></p>
