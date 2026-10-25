@@ -266,7 +266,7 @@ window.timingEvidenceHTML = function (timing) {
   }
   function currentTab() {
     const p = location.pathname;
-    if (p === '/logbook' || p === '/attachments' || p.startsWith('/flight/') || p.startsWith('/historical/')) return '/';
+    if (p === '/logbook' || p === '/attachments' || p === '/review' || p.startsWith('/flight/') || p.startsWith('/historical/')) return '/';
     if (p === '/uploads') return '/uploads';
     if (p === '/stats') return '/stats';
     for (const tab of ['/people', '/projects', '/aircraft', '/locations'])

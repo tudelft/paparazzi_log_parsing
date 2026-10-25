@@ -73,6 +73,15 @@ def decide(con, record_id, flight_ids, same, origin, user_id, stamp):
             (record_id, *key, int(same), origin, user_id, stamp))
 
 
+def forget(con, record_id, flight_ids):
+    """Remove the stored decisions between a record and these flights, so automatic matching applies again."""
+    for flight_id in flight_ids:
+        key = flight_key(con, flight_id)
+        if key is not None:
+            con.execute("DELETE FROM flight_links WHERE record_id=? AND log_id=? AND ac_id=? AND idx=?",
+                        (record_id, *key[:3]))
+
+
 def _telemetry(con):
     """Flights that can take part in automatic matching: real flights with a fleet aircraft and a trusted clock."""
     rows = con.execute(
@@ -166,6 +175,9 @@ def combine(con, rows):
     logged time); the paper record adds its reference and comment, and fields where it disagrees become conflicts.
     Unlinked paper records get possible duplicates for a person to decide."""
     decisions = resolved(con)
+    reviewed = {(r["record_id"], r["field"], r["paper"], r["log"]): r["reviewed_by_name"] for r in con.execute(
+        "SELECT c.*, COALESCE(u.display_name, u.username) AS reviewed_by_name FROM conflict_reviews c"
+        " LEFT JOIN users u ON u.id=c.reviewed_by")}
     telemetry = [r for r in rows if r["source_type"] == "telemetry"]
     papers = {r["manual_id"]: r for r in rows if r["source_type"] == "paper"}
     entry_of = {s["flight_id"]: i for i, r in enumerate(telemetry) for s in r["sources"]}
@@ -208,7 +220,7 @@ def combine(con, rows):
         main["reference"] = ", ".join(papers[p]["reference"] for p in records if papers[p]["reference"]) or None
         if not (main.get("comment") or "").strip():
             main["comment"] = "\n".join(papers[p]["comment"] for p in records if (papers[p]["comment"] or "").strip()) or None
-        main["conflicts"] = conflicts(main, [papers[p] for p in records])
+        main["conflicts"] = conflicts(main, [papers[p] for p in records], reviewed)
         for i in entries:
             replaced[i] = main if i == entries[0] else None
         absorbed.update(records)
@@ -233,23 +245,29 @@ def combine(con, rows):
     return out
 
 
-def conflicts(main, papers):
-    """Fields where a linked paper record disagrees with the telemetry; the telemetry value is shown."""
+def conflicts(main, papers, reviewed=None):
+    """Fields where a linked paper record disagrees with the telemetry; the telemetry value is shown.
+    `paper_id` is the paper's project/person id where it can be copied onto the flights; `reviewed_by` names who
+    accepted the log value (conflict_reviews), which keeps the conflict visible but out of the review queue."""
     out = []
     for p in papers:
         label = p["reference"] or f"paper record {p['manual_id']}"
+
+        def add(field, paper, log, paper_id=None):
+            out.append(dict(field=field, record=label, record_id=p["manual_id"], paper=paper, log=log,
+                            paper_id=paper_id, reviewed_by=(reviewed or {}).get(
+                                (p["manual_id"], field, str(paper), str(log)))))
         if p["drone_id"] != main["drone_id"]:
-            out.append(dict(field="aircraft", record=label, paper=p["aircraft"], log=main["aircraft"]))
+            add("aircraft", p["aircraft"], main["aircraft"])
         if p["project_id"] != main["project_id"]:
-            out.append(dict(field="project", record=label, paper=p["project_name"], log=main.get("project_name")))
+            add("project", p["project_name"], main.get("project_name"), p["project_id"])
         if p["takeoff_place_id"] is not None and main.get("takeoff_place_id") is not None \
                 and p["takeoff_place_id"] != main["takeoff_place_id"]:
-            out.append(dict(field="place", record=label, paper=p["takeoff_place"], log=main["takeoff_place"]))
+            add("place", p["takeoff_place"], main["takeoff_place"])
         for role in ("pic", "pac", "gcs"):
             mine, theirs = (p.get(role + "_user") or {}), (main.get(role + "_user") or {})
             if mine.get("id") and theirs.get("id") and mine["id"] != theirs["id"]:
-                out.append(dict(field=role.upper(), record=label, paper=mine.get("display_name"),
-                                log=theirs.get("display_name")))
+                add(role.upper(), mine.get("display_name"), theirs.get("display_name"), mine["id"])
     return out
 
 

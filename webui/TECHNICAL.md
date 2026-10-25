@@ -1135,6 +1135,27 @@ flight" (`same=0`), with `origin` `auto` or `manual`, who and when.
   what the import does, from the same code. A corrected re-import keeps the record id: its automatic links are
   re-matched, and manual links and "not the same" decisions stay.
 
+### Review page
+
+`/review` (Logbook → *To review*) walks through the paper ↔ log cases a person has to decide, one at a time,
+from `GET /api/review` (same read model and visibility as the logbook):
+
+- **possible duplicate**: an unlinked paper record with logs of its aircraft nearby (`possible_duplicates`);
+- **other aircraft**: no log of the record's aircraft nearby, but another aircraft's unlinked log in the same
+  window (`links.paper_window`), unless already decided;
+- **conflict**: a linked entry whose paper record differs and nobody accepted the log value yet.
+
+Each case shows the paper record next to the candidate logs (takeoff/landing, offset to the paper takeoff,
+logged duration, paper/logged duration ratio, verdict, aircraft, crew, place, log types). Actions use the
+normal decisions: tick logs and **Same flight** (several for one paper line), **Not the same flight**, or
+**Skip for now** (browser only). Conflicts: **Keep log value** stores the acknowledgement in
+`conflict_reviews` (record, field and both values as shown, who and when; other values reopen it and the
+logbook still lists it with who accepted it), **Use paper value** copies the paper's project or PIC/PAC/GCS
+onto the flights with the existing flight edit endpoints, or **Edit paper record** / **Unlink**.
+*Recent decisions* lists the last manual decisions with **Undo** (`DELETE /api/links`, which removes the
+decision so automatic matching applies again). Keys: `j`/`k`, `1`-`9`, `l`, `n`, `s`. Buttons only appear
+with edit rights on the record and the logs; the endpoints check them again.
+
 ### Manual join and split of logged recordings
 
 When the automatic SD/GCS merge is wrong, a person corrects it; the decision is stored in `source_links`

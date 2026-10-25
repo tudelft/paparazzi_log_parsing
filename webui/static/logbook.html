@@ -77,6 +77,7 @@
       <label title="Flights of the same aircraft and pilot on the same day within this distance of each other"><input type="checkbox" id="combine" checked> Combine flights (within <input type="number" id="radius" value="1" min="0.1" step="0.5" style="width:56px"> km)</label>
       <button onclick="exportCsv()">Export CSV</button>
       <a class="btn sec" href="/historical/new" id="addHistorical" hidden>Add paper records / import CSV</a>
+      <a class="btn sec" href="/review" title="Paper records and logs that need a person to decide">To review</a>
     </div>
     <div id="bulkBar" class="bar" hidden>
       <label><input type="checkbox" id="selAll"> Select all on this page</label>
@@ -338,7 +339,9 @@ function linkedInfo(f) {
       <span class="mute">${r.origin === 'auto' ? 'linked automatically' : 'linked by hand'}</span>
       ${editOn() ? `<button type="button" class="sec" data-link="${r.id}" data-flights="${r.flight_ids.join(',')}" data-same="0">Unlink</button>` : ''}</li>`).join('')}</ul>
     ${(f.conflicts || []).length ? `<p class="warn">The paper record differs from the log; the log value is shown:</p><ul>${f.conflicts.map(c =>
-      `<li>${esc(c.field)}: log ${esc(c.log || '-')}, ${esc(c.record)} ${esc(c.paper || '-')}</li>`).join('')}</ul>` : ''}`;
+      `<li>${esc(c.field)}: log ${esc(c.log || '-')}, ${esc(c.record)} ${esc(c.paper || '-')}${c.reviewed_by
+        ? ` <span class="mute">(log value accepted by ${esc(c.reviewed_by)})</span>` : ''}</li>`).join('')}</ul>
+    ${f.conflicts.some(c => !c.reviewed_by) ? '<p><a href="/review">Resolve on the review page</a></p>' : ''}` : ''}`;
 }
 // Recordings merged into this entry; in Edit mode one can be split off when the automatic merge is wrong.
 function sourcesInfo(f) {
@@ -468,7 +471,7 @@ const downloadLabel = t => ({px4_ulog:'PX4 .ulg', ardupilot:'ArduPilot log', mav
   gcs:'GCS .data + .log', onboard_sd:'SD .data + .log'}[t] || 'log');
 const srcLabel = fl => fl.some(f => f.manual_id) ? (fl[0].record_kind === 'daily' ? 'Paper daily total' : 'Paper') + (fl.some(f => f.possible_duplicates?.length) ? ' · possible duplicate' : '')
   : ['onboard_sd', 'px4_ulog', 'ardupilot', 'mavlink_tlog', 'gcs'].filter(t => fl.some(f => (f.sources || []).some(s => s.log_type === t))).map(t => TYPE_LABEL[t]).join(' + ')
-    + (fl.some(f => f.linked_records?.length) ? ' + Paper' : '') + (fl.some(f => f.conflicts?.length) ? ' · conflict' : '');
+    + (fl.some(f => f.linked_records?.length) ? ' + Paper' : '') + (fl.some(f => f.conflicts?.some(c => !c.reviewed_by)) ? ' · conflict' : '');
 const verdictMark = f => (f.simulation?.detected ? ' <span class="mute">(Simulation)</span>' : '') + (f.verdict === 'ground' ? ' <span class="mute" title="Probably not a real flight">(ground)</span>'
   : f.verdict === 'uncertain' ? ' <span class="mute" title="Unsure whether this was a real flight">(?)</span>' : '')
   + (f.optitrack ? ' <span class="mute" title="OptiTrack or motion-capture pose in this log">(OptiTrack)</span>' : '')
