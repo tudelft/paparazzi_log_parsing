@@ -20,8 +20,10 @@
   a { color:var(--acc); text-decoration:none; }
   a:hover { text-decoration:underline; }
   .bar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-  .crumb { color:var(--mute); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
-  .hero { display:flex; gap:12px 20px; align-items:baseline; flex-wrap:wrap; margin:2px 0 12px; }
+  .hero { display:flex; gap:8px 16px; align-items:center; flex-wrap:wrap; margin:0; }
+  .detail-header { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; }
+  .detail-header .page-help { margin-left:auto; }
+  .detail-header > .filter-context { font-size:12px; }
   .hero h2 { font-size:22px; margin:0; }
   .chip { display:inline-block; padding:1px 9px; border-radius:10px; font-size:12px; background:var(--chip); color:var(--txt); }
   .chip.pending { background:var(--warnbg, #fff8c5); color:var(--warn); }
@@ -34,7 +36,16 @@
   .role-summary[hidden] { display:none; }
   .cols { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
   .cols > .card { min-width:0; }
-  .grid3 { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%,380px), 1fr)); gap:20px; }
+  .grid3 { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%,300px), 1fr)); gap:20px; align-items:start; }
+  .breakdown { min-height:320px; }
+  .breakdown table { table-layout:fixed; }
+  .breakdown th:first-child { width:52%; }
+  .breakdown td:first-child { overflow-wrap:anywhere; }
+  .breakdown th, .breakdown td { padding:6px 4px; }
+  .breakdown th { font-size:11px; }
+  .breakdown td { font-size:12px; }
+  .show-all { margin-top:8px; padding:3px 7px; font-size:12px; }
+  [hidden] { display:none !important; }
   @media (max-width: 960px) { .cols { grid-template-columns:1fr; } }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:4px 16px; }
   .kv > span:nth-child(odd) { color:var(--mute); }
@@ -89,14 +100,11 @@
   <div id="err" role="alert"></div>
   <section class="card" id="missing"><h2>Not found</h2><p class="mute">This page does not exist, or you do not have access to it.</p></section>
   <div id="page" hidden>
-    <section class="card">
-      <div class="crumb"><a id="back" href="#"></a></div>
+    <section class="card detail-header">
       <div class="hero"><h2 id="name"></h2><span id="chips"></span></div>
-      <div class="bar">
-        <span class="mute" data-flight-filter-summary></span>
+        <span class="mute filter-context" data-flight-filter-summary></span>
         <details class="page-help"><summary>Help</summary><p id="scope"></p>
         <p>Statistics, map, charts and tables follow the shared flight filters. Qualification dates appear on hover; qualifications with evidence open the file when you have access. Past qualifications and account details can be expanded.</p></details>
-      </div>
     </section>
 
     <div class="cols">
@@ -232,8 +240,6 @@ function renderHead() {
   const k = KINDS[KIND], it = D.item;
   document.title = `${it.name} · ${k.label}`;
   $('title').textContent = k.label;
-  $('back').textContent = `← ${k.listLabel}`;
-  $('back').href = k.list;
   $('name').textContent = it.name;
   const chips = [];
   if (KIND === 'people') {
@@ -257,6 +263,12 @@ function renderHead() {
   $('scope').textContent = D.all ? '' : 'Only flights and log files you have access to are counted.';
   $('mapTitle').textContent = KIND === 'locations' ? 'Area and takeoff points' : 'Takeoff locations';
   renderInfo();
+}
+
+function chipSection(title, items) {
+  return `<h3 class="detail-label">${esc(title)} <span class="detail-count">· ${items.length}</span></h3>
+    <div class="detail-chips">${items.slice(0, 5).join('') || '<span class="mute">None</span>'}</div>
+    ${items.length > 5 ? `<details><summary>Show all ${items.length}</summary><div class="detail-chips">${items.slice(5).join('')}</div></details>` : ''}`;
 }
 
 function renderInfo() {
@@ -303,16 +315,17 @@ function renderInfo() {
       + kv('Bought on', esc(it.bought_on)) + kv('Inventory project', esc(it.inventory_project))
       + kv('Comments', esc(it.comments));
   } else if (KIND === 'projects') {
-    html = kv('Created', esc(fmtDate(it.created_at)))
-      + kv('Members', it.members.length ? it.members.map(m => `${link('people', m.id, m.name)} <span class="mute">(${esc(ACCESS[m.role] || m.role)})</span>`).join('<br>') : '<span class="mute">None</span>')
-      + kv('Default project of', it.drones.map(d => link('aircraft', d.id, d.name)).join(', '));
+    html = chipSection('Members', it.members.map(m => `<a class="project-chip" href="/people/${m.id}">${esc(m.name)}</a>`))
+      + chipSection('Default aircraft', it.drones.map(d => `<a class="project-chip" href="/aircraft/${d.id}">${esc(d.name)}</a>`))
+      + `<details><summary>Project details</summary><div class="kv account-info">${kv('Created', esc(fmtDate(it.created_at)))}</div></details>`;
   } else if (KIND === 'locations') {
     const sh = it.shape;
-    html = kv('Type', it.indoor ? 'Indoor (hidden in the logbook by default)' : 'Outdoor')
-      + kv('Shape', sh.type === 'circle' ? `Circle, ${fmtDist(sh.radius_m)} radius` : `Area with ${sh.points.length} corners`);
+    html = `<details><summary>Area details</summary><div class="kv account-info">${
+      kv('Shape', sh.type === 'circle' ? `Circle, ${fmtDist(sh.radius_m)} radius` : `Area with ${sh.points.length} corners`)
+    }</div></details>`;
   }
-  $('infoHeading').hidden = KIND === 'people';
-  $('info').className = KIND === 'people' ? 'person-info' : 'kv';
+  $('infoHeading').hidden = KIND !== 'aircraft';
+  $('info').className = KIND !== 'aircraft' ? 'person-info' : 'kv';
   $('info').innerHTML = html || '<span class="mute">No details.</span>';
 }
 
@@ -346,15 +359,23 @@ const byPerson = (list, role, except) => group(list,
   f => { const k = personKey(f, role); return k && k.key !== except ? k : null; },
   f => personLink(f, role));
 
+const expandedBreakdowns = new Set();
+function toggleBreakdown(button, title, count) {
+  const expanded = !expandedBreakdowns.has(title);
+  if (expanded) expandedBreakdowns.add(title);
+  else expandedBreakdowns.delete(title);
+  button.closest('.breakdown').querySelectorAll('tr.extra-row').forEach(row => { row.hidden = !expanded; });
+  button.setAttribute('aria-expanded', String(expanded));
+  button.textContent = expanded ? 'Show fewer' : `Show all ${count}`;
+}
+
 function table(title, hint, rows, nameCol) {
-  const max = rows[0]?.seconds || 0;
-  const meter = s => `<div class="meter" title="${fmtHours(s)}"><i style="width:${max > 0 ? Math.max(2, Math.round(100 * s / max)) : 0}%"></i></div>`;
-  return `<section class="card"><h2>${esc(title)}</h2>${hint ? `<details class="help-text"><summary>Help</summary><p>${esc(hint)}</p></details>` : ''}
-    <div class="scroll"><table><thead><tr><th>${esc(nameCol)}</th><th class="num">Flights</th><th class="num">Hours</th><th class="num">Flown</th><th>Last flight</th><th></th></tr></thead><tbody>
-    ${rows.length ? rows.map(r => `<tr><td>${r.html}</td><td class="num">${r.flights}</td><td class="num">${fmtHours(r.seconds)}</td>
-      <td class="num">${fmtDist(r.metres)}</td><td class="nowrap">${esc(fmtDate(r.last))}</td><td>${meter(r.seconds)}</td></tr>`).join('')
-      : '<tr><td colspan="6" class="mute">No flights.</td></tr>'}
-    </tbody></table></div></section>`;
+  const expanded = expandedBreakdowns.has(title);
+  return `<section class="card breakdown"><h2>${esc(title)} <span class="detail-count">· ${rows.length}</span></h2>${hint ? `<details class="help-text"><summary>Help</summary><p>${esc(hint)}</p></details>` : ''}
+    <table><thead><tr><th>${esc(nameCol)}</th><th class="num">Flights</th><th class="num">Hours</th></tr></thead><tbody>
+    ${rows.length ? rows.map((r, i) => `<tr${i >= 5 ? ` class="extra-row"${expanded ? '' : ' hidden'}` : ''}><td>${r.html}</td><td class="num">${r.flights}</td><td class="num">${fmtHours(r.seconds)}</td></tr>`).join('')
+      : '<tr><td colspan="3" class="mute">No flights.</td></tr>'}
+    </tbody></table>${rows.length > 5 ? `<button type="button" class="show-all" aria-expanded="${expanded}" onclick="toggleBreakdown(this, '${esc(title)}', ${rows.length})">${expanded ? 'Show fewer' : `Show all ${rows.length}`}</button>` : ''}</section>`;
 }
 
 function renderTotals(list) {

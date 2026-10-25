@@ -711,6 +711,13 @@ flight totals, map, charts, breakdowns and tables retain their filtering and acc
 Person pages show PIC, PAC and GCS flight counts and hours in an always-visible strip below the
 summary totals. Each flight counts once per matching role, including daily paper flight counts.
 The breakdown cards are Aircraft, Projects and Locations; there are no separate Roles or Flew with cards.
+Entity detail pages use a single wrapping title bar for the name, badges, filter summary
+and Help. Breakdown cards show name, flights and hours, with the top five entries by flight time
+visible initially and Show all / Show fewer controls. Cards share a 320px minimum height for
+short lists; expanded cards grow independently. Use the main navigation or browser Back to leave a detail page.
+Project details use compact member and default-aircraft links, with five shown initially and the rest
+expandable. Membership permission labels are omitted, and creation dates sit under Project details.
+Location type remains a title badge; circle/polygon information is under collapsed Area details.
 Enable Edit, then select someone to open their
 **Account**, **API keys**, **Aliases** or **Qualifications** tab. The editor shows **Active · TU Delft SSO**
 for enabled SSO accounts and **Active · Local** for enabled local accounts with a password; external,
