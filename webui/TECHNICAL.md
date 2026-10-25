@@ -1004,8 +1004,25 @@ Ties keep the earlier recording. A group never holds two flights of one log or t
 Two recordings of the **same type** (SD+SD, GCS+GCS, PX4+PX4) join only when they cover the same
 time, at least half of the shorter one: back-to-back logs (restarts, battery swaps, consecutive PX4
 files) stay separate flights instead of chaining through the slack. The longest onboard recording
-leads a merged entry (duration, verdict, track). Simulation separation and SD/GCS field selection
-are unchanged.
+normally leads a merged entry (duration, verdict, track). For SD+GCS groups only, GCS becomes the
+default when its valid timed GPS samples cover at least 90% of the SD flight interval, its sample
+density is at least four times higher, its median gap improves by at least one second, and its
+largest gap is no worse. If SD has fewer than two usable timed positions, a GCS track with at least
+three samples, 90% coverage and no gap exceeding 10% of the SD duration can win directly.
+Unknown quality, ties, modest improvements and short dense fragments leave SD preferred.
+This changes source selection, not grouping, simulation separation, identity or crew precedence.
+The selected source supplies the default flight ID/link, track, replay and distance; all originals
+remain available under **Log sources and upload details**, with an explanation when GCS wins.
+Explicitly opening another source still shows that recording's path and measurements; its summary
+remains the merged default-source summary.
+
+Track summaries are stored during parsing; valid finite GPS coordinates and strictly increasing,
+finite timestamps within the flight are used. Duplicate/backward times and untimed or invalid
+positions do not increase density. On upgrade, the existing startup GPS backfill also computes
+missing track summaries once (including legacy path blobs), committing per log so interruptions
+can resume. This can delay the first startup while existing path files are read; no reparse is
+needed. `python app.py backfill-gps-positions` can run it before starting the service.
+Subsequent startups and overview requests do not read paths to choose a source.
 
 Statistics sends only accessible contributing source-log IDs and stored original `size_bytes`,
 not filesystem sizes. The browser applies the same shared UTC date-range helper as Logbook and

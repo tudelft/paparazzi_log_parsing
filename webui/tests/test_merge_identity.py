@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 
 import config
+import db
 from .test_historical import AppTests
 
 
@@ -97,6 +98,63 @@ class MergeIdentityTests(AppTests):
                                            self.merge_row(template, 3, 0, duration=100, log_type="onboard_sd",
                                                           verdict="flight")])
         self.assertEqual([g["flight_id"] for g in merged if len(g["sources"]) > 1], [3])
+
+    def test_clearly_better_gcs_supplies_default_identity_track_and_metrics(self):
+        template = self.merge_fixture()
+        sd = self.merge_row(template, 1, 0, duration=2000, log_type="onboard_sd",
+                            track_quality={"count": 101, "first_s": 0, "last_s": 2000,
+                                           "median_gap_s": 20, "max_gap_s": 20},
+                            distance_m=27000, goal="SD goal")
+        gcs = self.merge_row(template, 2, 0.1, duration=2000, log_type="gcs",
+                             track_quality={"count": 7985, "first_s": 0, "last_s": 1999,
+                                            "median_gap_s": 0.25, "max_gap_s": 1.75},
+                             distance_m=41000, goal="GCS goal")
+        merged, = self.ns["merge_sources"]([sd, gcs])
+        self.assertEqual((merged["flight_id"], merged["log_id"], merged["duration_s"],
+                          merged["takeoff_utc"], merged["distance_m"], merged["goal"]),
+                         (2, 2, 2000, gcs["takeoff_utc"], 41000, "GCS goal"))
+        self.assertEqual([s["flight_id"] for s in merged["sources"]], [2, 1])
+        self.assertIn("GCS selected", merged["source_selection_reason"])
+        # Never fill missing selected-source distances with the inferior SD track.
+        gcs.update(distance_m=None, from_takeoff_m=None, max_from_takeoff_m=None, landed=False)
+        merged, = self.ns["merge_sources"]([sd, gcs])
+        self.assertIsNone(merged["distance_m"])
+        self.assertFalse(merged["landed"])
+
+    def test_gcs_track_thresholds_leave_sd_preferred_unless_all_pass(self):
+        template = self.merge_fixture()
+        sd_quality = {"count": 11, "first_s": 0, "last_s": 100, "median_gap_s": 10, "max_gap_s": 10}
+        gcs_quality = {"count": 101, "first_s": 0, "last_s": 100, "median_gap_s": 1, "max_gap_s": 1}
+        sd = self.merge_row(template, 1, 0, log_type="onboard_sd", track_quality=sd_quality)
+        gcs = self.merge_row(template, 2, 0, log_type="gcs", track_quality=gcs_quality)
+        for changes in ({"count": 11}, {"count": 43}, {"median_gap_s": 9.01},
+                        {"max_gap_s": 10.01}, {"first_s": 11}, {"last_s": 89},
+                        {"count": 2}):
+            with self.subTest(changes=changes):
+                gcs["track_quality"] = {**gcs_quality, **changes}
+                merged, = self.ns["merge_sources"]([deepcopy(sd), deepcopy(gcs)])
+                self.assertEqual(merged["flight_id"], 1)
+                self.assertIsNone(merged["source_selection_reason"])
+        gcs["track_quality"] = {**gcs_quality, "count": 44, "median_gap_s": 9, "max_gap_s": 10}
+        self.assertTrue(self.ns["better_gcs_track"](sd, gcs))
+        gcs["track_quality"] = {**gcs_quality, "first_s": 10}
+        self.assertTrue(self.ns["better_gcs_track"](sd, gcs))
+        shifted = self.merge_row(gcs, 2, 20)
+        self.assertFalse(self.ns["better_gcs_track"](sd, shifted))
+        for missing in (None, {"count": 0}, {"count": 1}):
+            sd["track_quality"] = missing
+            gcs["track_quality"] = gcs_quality
+            self.assertEqual(self.ns["better_gcs_track"](sd, gcs), missing is not None)
+        sd["track_quality"] = {"count": 0}
+        gcs["track_quality"] = {**gcs_quality, "max_gap_s": 10.01}
+        self.assertFalse(self.ns["better_gcs_track"](sd, gcs))
+        gcs["track_quality"] = None
+        self.assertFalse(self.ns["better_gcs_track"](sd, gcs))
+        # This exception applies only to Paparazzi SD/GCS, not other onboard formats.
+        sd["log_type"], sd["track_quality"] = "px4_ulog", sd_quality
+        gcs["track_quality"] = gcs_quality
+        merged, = self.ns["merge_sources"]([sd, gcs])
+        self.assertEqual(merged["flight_id"], 1)
 
     def test_july_short_gcs_event_does_not_steal_overlapping_sd_flight(self):
         template = self.merge_fixture()

@@ -32,6 +32,11 @@ Manual dates and plausible estimated dates are left unchanged.
 Estimated dates in the logbook have a dotted underline. Hover over or keyboard-focus the
 date for an explanation; the full timing evidence remains available in the flight details.
 
+Merged SD/GCS flights normally use SD. When GCS has a substantially better, nearly complete GPS
+track, the logbook uses GCS consistently for the track, distance and flight-page link.
+The flight page explains the choice under **Log sources and upload details**, where either
+original recording can still be opened or downloaded.
+
 | Page | What to do |
 |---|---|
 | **Logbook** | Filter flights (also by a paper record's reference, e.g. F00090), review flight time, expand a row or open its flight page. Click aircraft, crew, project or location names for their detail pages. |
