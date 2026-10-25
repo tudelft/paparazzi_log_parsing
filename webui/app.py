@@ -505,6 +505,9 @@ def explode_zip(con, row):
     set_ingest(con, row["id"], status="stored", error=None)
 
 
+CO_UPLOADED = "already on the server, uploaded by someone else: added you as co-uploader"
+
+
 def ingest_pair(con, row):
     """Hash a staged pair, skip duplicates, then queue parse."""
     stage = ingest_stage(row["stage_dir"])
@@ -534,10 +537,18 @@ def ingest_pair(con, row):
     if user_id:
         u = con.execute("SELECT is_admin FROM users WHERE id=?", (user_id,)).fetchone()
         is_admin = bool(u and u["is_admin"])
-    if existing is not None and not is_admin and existing["uploaded_by"] != user_id:
-        set_ingest(con, row["id"], status="duplicate", error="already uploaded by another user", log_id=existing["id"])
-        drop_stage(stage)
-        return
+    co_uploaded = False
+    if existing is not None and user_id and existing["uploaded_by"] != user_id:
+        # Having the file is evidence enough to see the log: keep one copy, add this person as co-uploader.
+        def add_uploader():
+            with db.write_lock:
+                con.execute("BEGIN IMMEDIATE")
+                con.execute("INSERT OR IGNORE INTO log_uploaders(log_id, user_id, uploaded_at) VALUES (?,?,?)",
+                            (existing["id"], user_id, now()))
+                con.commit()
+
+        db.retry_locked(add_uploader, con)
+        co_uploaded = True
     if existing is not None:
         if existing["log_path"] is None and log_src and log_src.is_file():
             stored = Path(existing["data_path"])
@@ -555,10 +566,11 @@ def ingest_pair(con, row):
 
             db.retry_locked(add_log_file, con)
             jobs.put(existing["id"])
-            set_ingest(con, row["id"], status="duplicate", error="already uploaded, missing .log added",
-                       log_id=existing["id"])
+            set_ingest(con, row["id"], status="duplicate", error=(CO_UPLOADED if co_uploaded else "already uploaded")
+                       + ", missing .log added", log_id=existing["id"])
         else:
-            set_ingest(con, row["id"], status="duplicate", error="already uploaded", log_id=existing["id"])
+            set_ingest(con, row["id"], status="duplicate", error=CO_UPLOADED if co_uploaded else "already uploaded",
+                       log_id=existing["id"])
         drop_stage(stage)
         return
     data_rel, log_rel = store_files(sha, name, str(data_src), str(log_src) if log_src and log_src.is_file() else None)
@@ -580,7 +592,20 @@ def ingest_pair(con, row):
     log_id = db.retry_locked(insert_log, con)
     drop_stage(stage)
     if log_id is None:
-        set_ingest(con, row["id"], status="duplicate", error="already uploaded")
+        other = con.execute("SELECT id, uploaded_by FROM logs WHERE sha256=?", (sha,)).fetchone()
+        if other is not None and user_id and other["uploaded_by"] != user_id:
+            def add_uploader():
+                with db.write_lock:
+                    con.execute("BEGIN IMMEDIATE")
+                    con.execute("INSERT OR IGNORE INTO log_uploaders(log_id, user_id, uploaded_at) VALUES (?,?,?)",
+                                (other["id"], user_id, now()))
+                    con.commit()
+
+            db.retry_locked(add_uploader, con)
+            set_ingest(con, row["id"], status="duplicate", error=CO_UPLOADED, log_id=other["id"])
+        else:
+            set_ingest(con, row["id"], status="duplicate", error="already uploaded",
+                       log_id=other["id"] if other else None)
         return
     jobs.put(log_id)
     set_ingest(con, row["id"], status="stored", log_id=log_id)
@@ -1087,7 +1112,7 @@ def delete_key(key_id):
 
 @app.post("/api/logs/check")
 def check_logs():
-    """Which of these .data hashes are already stored? Lets a client skip uploading them."""
+    """Which of these .data hashes are already stored, and uploaded by this user? Lets a client skip uploading them."""
     hashes = (request.get_json(silent=True) or {}).get("sha256")
     if not isinstance(hashes, list) or len(hashes) > 5000:
         return jsonify(error="send {\"sha256\": [up to 5000 hashes]}"), 400
@@ -1096,9 +1121,10 @@ def check_logs():
     known = {}
     for i in range(0, len(wanted), 500):
         chunk = wanted[i:i + 500]
-        for r in con.execute("SELECT sha256, log_path IS NOT NULL AS has_log FROM logs WHERE sha256 IN (%s)"
-                             % ",".join("?" * len(chunk)), chunk):
-            known[r["sha256"]] = {"has_log": bool(r["has_log"])}
+        for r in con.execute("SELECT id, sha256, uploaded_by, log_path IS NOT NULL AS has_log FROM logs"
+                             " WHERE sha256 IN (%s)" % ",".join("?" * len(chunk)), chunk):
+            # mine=False: a client uploads the file anyway, which proves it has it and adds a co-uploader.
+            known[r["sha256"]] = {"has_log": bool(r["has_log"]), "mine": is_uploader(con, r["id"], r["uploaded_by"])}
     return jsonify(known=known)
 
 
@@ -1331,7 +1357,8 @@ def person_resolver(con):
 
 def people_with_logs(con):
     """Ids of users who uploaded a log or are crew on a log flight or paper record."""
-    ids = {r[0] for r in con.execute("SELECT DISTINCT uploaded_by FROM logs WHERE uploaded_by IS NOT NULL")}
+    ids = {r[0] for r in con.execute("SELECT DISTINCT uploaded_by FROM logs WHERE uploaded_by IS NOT NULL"
+                                     " UNION SELECT user_id FROM log_uploaders")}
     resolve = person_resolver(con)
     for a in con.execute("SELECT DISTINCT pic, pac, gcs FROM aircraft"):
         for role in ROLES:
@@ -3775,13 +3802,25 @@ def log_dict(row):
     return d
 
 
+def uploader_clause(alias=""):
+    """SQL: the current user uploaded this log, first or as a co-uploader (log_uploaders)."""
+    return (f"({alias}uploaded_by=? OR EXISTS (SELECT 1 FROM log_uploaders x"
+            f" WHERE x.log_id={alias}id AND x.user_id=?))", (g.user["id"], g.user["id"]))
+
+
+def is_uploader(con, log_id, uploaded_by):
+    return uploaded_by == g.user["id"] or con.execute(
+        "SELECT 1 FROM log_uploaders WHERE log_id=? AND user_id=?", (log_id, g.user["id"])).fetchone() is not None
+
+
 def own_clause(alias=""):
-    """Logs this user may see. Admins see every log. Others see their projects, and their own logs that are not in a project yet."""
+    """Logs this user may see. Admins see every log. Others see their projects' logs and every log they uploaded,
+    first or as a co-uploader: having the file is evidence enough to see it."""
     if g.user["is_admin"]:
         return "1=1", ()
-    return (f"({alias}project_id IN (SELECT project_id FROM project_members WHERE user_id=?)"
-            f" OR ({alias}project_id IS NULL AND {alias}uploaded_by=?))",
-            (g.user["id"], g.user["id"]))
+    uploaded, uploaded_params = uploader_clause(alias)
+    return (f"({alias}project_id IN (SELECT project_id FROM project_members WHERE user_id=?) OR {uploaded})",
+            (g.user["id"], *uploaded_params))
 
 
 def project_arg_clause(alias=""):
@@ -3811,9 +3850,9 @@ def flight_own_clause():
     if g.user["is_admin"]:
         return "1=1", ()
     expr = flight_project_expr()
-    return (f"({expr} IN (SELECT project_id FROM project_members WHERE user_id=?)"
-            f" OR ({expr} IS NULL AND l.uploaded_by=?))",
-            (g.user["id"], g.user["id"]))
+    uploaded, uploaded_params = uploader_clause("l.")
+    return (f"({expr} IN (SELECT project_id FROM project_members WHERE user_id=?) OR {uploaded})",
+            (g.user["id"], *uploaded_params))
 
 
 def flight_list_clause():
@@ -3870,7 +3909,7 @@ def can_set_log_date(con, log_row):
     if can_edit_log_date(con, log_row):
         return True
     for f in con.execute(
-            "SELECT f.project_id, l.project_id AS log_project_id, l.uploaded_by"
+            "SELECT f.project_id, l.project_id AS log_project_id, l.uploaded_by, l.id AS log_id"
             " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id"
             " WHERE l.id=?", (log_row["id"],)):
         if can_edit_flight_project(con, f):
@@ -3889,7 +3928,8 @@ def can_edit_flight_project(con, row):
         return True
     pid = effective_flight_project(row)
     if pid is None:
-        return row["uploaded_by"] == g.user["id"]
+        return is_uploader(con, row["log_id"], row["uploaded_by"]) if "log_id" in row.keys() \
+            else row["uploaded_by"] == g.user["id"]
     return role_on(con, pid) == "full"
 
 
@@ -4680,23 +4720,26 @@ def detail_location(con, place_id):
 def detail_logs(con, kind, item_id, log_ids):
     """Visible log files behind the flights, plus the files directly tied to this item."""
     where, params = own_clause("l.")
-    extra = {"people": "l.uploaded_by = ?", "projects": "l.project_id = ?",
+    extra = {"people": "(l.uploaded_by = ? OR l.id IN (SELECT log_id FROM log_uploaders WHERE user_id = ?))",
+             "projects": "l.project_id = ?",
              "aircraft": "l.id IN (SELECT log_id FROM aircraft WHERE drone_id = ?)"}.get(kind)
     ids = sorted(log_ids)
     cond = f"l.id IN ({','.join('?' * len(ids))})" if ids else "0"
     args = list(ids)
     if extra:
         cond = f"({cond} OR {extra})"
-        args.append(item_id)
+        args.extend([item_id] * extra.count("?"))
     rows = con.execute(
         "SELECT l.*, p.name AS project_name,"
         " (SELECT COALESCE(display_name, username) FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name,"
+        " (SELECT group_concat(COALESCE(u.display_name, u.username), ', ') FROM log_uploaders x"
+        " JOIN users u ON u.id = x.user_id WHERE x.log_id = l.id) AS co_uploaders,"
         " (SELECT group_concat(DISTINCT COALESCE(d.name, a.name, '?')) FROM aircraft a"
         " LEFT JOIN drones d ON d.id = a.drone_id WHERE a.log_id = l.id) AS aircraft_names,"
         " (SELECT COUNT(*) FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id = l.id) AS num_flights"
         f" FROM logs l LEFT JOIN projects p ON p.id = l.project_id WHERE ({where}) AND {cond}"
         " ORDER BY COALESCE(l.start_utc, l.uploaded_at) DESC", (*params, *args)).fetchall()
-    keep = ("id", "name", "log_type", "status", "size_bytes", "uploaded_at", "uploaded_by_name", "project_id",
+    keep = ("id", "name", "log_type", "status", "size_bytes", "uploaded_at", "uploaded_by_name", "co_uploaders", "project_id",
             "project_name", "start_utc", "duration_s", "date_ok", "date_override", "date_estimated", "has_log", "aircraft_names", "num_flights")
     return [{k: d.get(k) for k in keep} for d in map(log_dict, rows)]
 
@@ -4771,9 +4814,13 @@ def status():
                          con.execute("SELECT status, COUNT(*) n FROM ingest WHERE uploaded_by=? AND uploaded_at>=?"
                                      " GROUP BY status", (g.user["id"], cutoff))}
     backlog = pending_upload_work(con)
+    co_uploaded = [dict(r) for r in con.execute(
+        "SELECT i.log_id, l.name FROM ingest i JOIN logs l ON l.id=i.log_id WHERE i.uploaded_by=? AND i.uploaded_at>=?"
+        " AND i.status='duplicate' AND i.error LIKE ? GROUP BY i.log_id ORDER BY MAX(i.id) DESC LIMIT 20",
+        (g.user["id"], cutoff, CO_UPLOADED + "%"))]
     return jsonify(parser_version=current_version(), path_rate_hz=PATH_RATE, queue=jobs.qsize(), counts=counts,
                    outdated=outdated, date_unknown=date_unknown, ingest=ingest_counts, ingest_waiting=ingest_waiting,
-                   ingest_queue=ingest_jobs.qsize(), backlog=dict(backlog))
+                   ingest_queue=ingest_jobs.qsize(), backlog=dict(backlog), co_uploaded=co_uploaded)
 
 
 @app.get("/api/ingest/<int:ingest_id>")
@@ -4799,6 +4846,9 @@ def list_logs():
         where += " AND l.status='error'"
     elif status_filter == "unfinished":
         where += " AND l.status IN ('queued','parsing','error')"
+    if request.args.get("log", "").isdigit():  # /uploads#log<id> opens that one log, wherever it is in the list
+        where += " AND l.id=?"
+        params = (*params, int(request.args["log"]))
     con = conn()
     try:
         limit = min(max(int(request.args.get("limit", 100)), 1), 200)
@@ -4839,6 +4889,8 @@ def list_logs():
     rows = con.execute(
         "SELECT l.*, p.name AS project_name,"
         " (SELECT username FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name,"
+        " (SELECT group_concat(COALESCE(u.display_name, u.username), ', ') FROM log_uploaders x"
+        " JOIN users u ON u.id = x.user_id WHERE x.log_id = l.id) AS co_uploaders,"
         " (SELECT group_concat(DISTINCT COALESCE(d.name, a.name, '?')) FROM aircraft a"
         " LEFT JOIN drones d ON d.id = a.drone_id WHERE a.log_id = l.id) AS aircraft_names,"
         " (SELECT SUM(a.num_flights) FROM aircraft a WHERE a.log_id = l.id) AS num_flights,"
@@ -4861,6 +4913,11 @@ def get_log(log_id):
     out = log_dict(row)
     out["can_delete"] = can_delete_log(con, row)
     out["can_edit_date"] = can_set_log_date(con, row)
+    out["uploaded_by_name"] = (con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",
+                                           (row["uploaded_by"],)).fetchone() or [None])[0]
+    out["co_uploaders"] = [dict(r) for r in con.execute(
+        "SELECT COALESCE(u.display_name, u.username) AS name, x.uploaded_at FROM log_uploaders x"
+        " JOIN users u ON u.id=x.user_id WHERE x.log_id=? ORDER BY x.uploaded_at", (log_id,))]
     days = clock_shift_days(row["start_utc"], row["date_override"])
     out["project_name"] = con.execute("SELECT name FROM projects WHERE id=?", (row["project_id"],)).fetchone()
     out["project_name"] = out["project_name"]["name"] if out["project_name"] else None
