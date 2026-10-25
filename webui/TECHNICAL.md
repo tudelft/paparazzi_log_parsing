@@ -56,7 +56,10 @@ After an update that changes the parser version, click **Re-parse outdated** on 
 The shared page footer shows the nearest reachable `webui-vMAJOR.MINOR.PATCH` release tag, the number
 of commits since it (when nonzero), and a link to the Web UI's exact Git commit. Web UI release tags
 are separate from parser versions; create an annotated tag on the tested release commit and push
-that tag with the code. Deployments must fetch tags to display release names.
+that tag with the code. Deployments must fetch tags to display release names; the installer does
+this explicitly on updates. Version detection trusts only the application checkout through a
+per-command Git `safe.directory` setting, allowing the `logdb` service to inspect root-owned code
+without changing ownership or global Git configuration.
 The revision, release description and tracked-change status are
 captured once when the server process starts and returned with authenticated `/api/me` responses;
 pulling code without restarting does not change that reported revision. Restart after updates.

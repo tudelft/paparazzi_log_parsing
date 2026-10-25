@@ -207,7 +207,7 @@ install -d -o "$SVC_USER" -g "$SVC_USER" -m 750 "$WEB_DATA"
 say "Getting the code"
 if [ -d "$APP/.git" ]; then
     git -C "$APP" remote set-url origin "$REPO"
-    git -C "$APP" fetch -q origin "$BRANCH"
+    git -C "$APP" fetch -q --tags origin "$BRANCH"
     git -C "$APP" checkout -q "$BRANCH"
     git -C "$APP" merge -q --ff-only "origin/$BRANCH" || die "local changes in $APP; resolve them or reset with: git -C $APP reset --hard origin/$BRANCH"
 else

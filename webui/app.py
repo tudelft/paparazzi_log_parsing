@@ -78,21 +78,23 @@ def detect_webui_version():
     if not (HERE.parent / ".git").exists():
         app.logger.warning("Web UI revision unavailable: deployment has no Git metadata")
         return unknown
+    # The installer owns the code as root while the server runs as logdb.
+    git = ["git", "-c", f"safe.directory={HERE.parent}"]
     try:
         revision = subprocess.run(
-            ["git", "rev-parse", "--verify", "HEAD"], cwd=HERE.parent,
+            [*git, "rev-parse", "--verify", "HEAD"], cwd=HERE.parent,
             capture_output=True, text=True, timeout=5, check=True).stdout.strip()
         if not re.fullmatch(r"[0-9a-f]{40,64}", revision):
             app.logger.warning("Web UI revision unavailable: invalid Git revision")
             return unknown
         changes = subprocess.run(
-            ["git", "diff", "--quiet", "HEAD", "--"], cwd=HERE.parent,
+            [*git, "diff", "--quiet", "HEAD", "--"], cwd=HERE.parent,
             capture_output=True, timeout=5)
         if changes.returncode not in (0, 1):
             app.logger.warning("Web UI revision unavailable: Git change check failed")
             return unknown
         description = subprocess.run(
-            ["git", "describe", "--tags", "--long", "--always", "--match", "webui-v[0-9]*", revision],
+            [*git, "describe", "--tags", "--long", "--always", "--match", "webui-v[0-9]*", revision],
             cwd=HERE.parent, capture_output=True, text=True, timeout=5, check=True).stdout.strip()
         release = re.fullmatch(r"(webui-v[0-9]+\.[0-9]+\.[0-9]+)-([0-9]+)-g[0-9a-f]+", description)
         if release is None and not re.fullmatch(r"[0-9a-f]+", description):

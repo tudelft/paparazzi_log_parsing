@@ -1,4 +1,7 @@
+import os
 import subprocess
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from .test_historical import AppTests
@@ -29,6 +32,9 @@ class WebuiVersionTests(AppTests):
                                  dict(commit="b" * 40, modified=modified, tag=None, commits_since_tag=None))
                 self.assertEqual(run.call_count, 3)
                 self.assertEqual(run.call_args.kwargs["cwd"], self.ns["HERE"].parent)
+                for call in run.call_args_list:
+                    self.assertEqual(call.args[0][:3],
+                                     ["git", "-c", f"safe.directory={self.ns['HERE'].parent}"])
 
     def test_detection_failures_are_explicitly_unknown_and_logged(self):
         for error in (FileNotFoundError("git"), subprocess.TimeoutExpired("git", 5),
@@ -67,3 +73,27 @@ class WebuiVersionTests(AppTests):
                     commit="d" * 40, modified=False, tag="webui-v0.1.0", commits_since_tag=ahead))
                 self.assertIn("webui-v[0-9]*", run.call_args.args[0])
                 self.assertEqual(run.call_args.args[0][-1], "d" * 40)
+
+    def test_root_owned_deployment_detection_with_real_git(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp).resolve()
+            webui = repo / "webui"
+            webui.mkdir()
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "-c", "user.name=Test",
+                            "-c", "user.email=test@example.invalid", "commit", "-q",
+                            "--allow-empty", "-m", "fixture"], check=True)
+            subprocess.run(["git", "-C", str(repo), "tag", "webui-v0.1.0"], check=True)
+            # Git's test switch exercises its real ownership check without changing file ownership.
+            with patch.dict(os.environ, GIT_TEST_ASSUME_DIFFERENT_OWNER="1",
+                            GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="safe.directory", GIT_CONFIG_VALUE_0=""):
+                rejected = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                                          capture_output=True, text=True)
+                self.assertNotEqual(rejected.returncode, 0)
+                self.assertIn("dubious ownership", rejected.stderr)
+                with patch.dict(self.ns, HERE=webui):
+                    version = self.ns["detect_webui_version"]()
+                self.assertIsNotNone(version["commit"])
+                self.assertEqual(version["tag"], "webui-v0.1.0")
+                self.assertEqual(version["commits_since_tag"], 0)
+                self.assertFalse(version["modified"])
