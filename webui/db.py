@@ -74,6 +74,17 @@ CREATE TABLE IF NOT EXISTS flight_links (     -- paper record <-> telemetry flig
     created_at TEXT NOT NULL,
     UNIQUE (record_id, log_id, ac_id, idx)
 );
+CREATE TABLE IF NOT EXISTS source_links (    -- manual join/split of two logged recordings (links.py)
+    id INTEGER PRIMARY KEY,
+    a_log_id INTEGER NOT NULL REFERENCES logs(id) ON DELETE CASCADE,
+    a_ac_id INTEGER NOT NULL, a_idx INTEGER NOT NULL, a_takeoff_utc TEXT,
+    b_log_id INTEGER NOT NULL REFERENCES logs(id) ON DELETE CASCADE,
+    b_ac_id INTEGER NOT NULL, b_idx INTEGER NOT NULL, b_takeoff_utc TEXT,   -- (a) < (b), keys as in flight_links
+    same INTEGER NOT NULL,              -- 1 = one flight (join), 0 = different flights (split)
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (a_log_id, a_ac_id, a_idx, b_log_id, b_ac_id, b_idx)
+);
 CREATE TABLE IF NOT EXISTS weather_cache (
     cache_key TEXT PRIMARY KEY,
     payload TEXT NOT NULL

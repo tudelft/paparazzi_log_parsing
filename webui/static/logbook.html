@@ -83,6 +83,7 @@
       <label id="hiddenFilter" hidden><input type="checkbox" id="hiddenRecords" onchange="selected.clear(); page=0; loadFlights()"> Hidden records only</label>
       <button type="button" id="hideSelected" hidden onclick="setHidden(true)">Hide selected</button>
       <button type="button" id="restoreSelected" hidden onclick="setHidden(false)">Restore selected</button>
+      <button type="button" class="sec" onclick="sameFlight()" title="The ticked entries are recordings of one flight: logged flights, optionally with one paper record">Same flight</button>
       <span id="bulkMsg" class="mute"></span>
     </div>
     <div class="scroll">
@@ -192,6 +193,26 @@ async function updateRecords(ids, changes) {
     return true;
   } catch (error) { $('bulkMsg').textContent = error.message; return false; }
 }
+// Ticked entries are one flight (#35): logged recordings are joined; one ticked paper record is linked to them.
+async function sameFlight() {
+  const ids = [...selected], papers = ids.filter(id => id.startsWith('paper:')).map(id => +id.slice(6));
+  const flightIds = ids.filter(id => id.startsWith('log:')).map(id => +id.slice(4));
+  const entries = new Set(flights.filter(f => crewIds(f).some(id => selected.has(id))).map(f => f.record_key));
+  if (papers.length > 1 || !flightIds.length || entries.size < 2) {
+    $('bulkMsg').textContent = 'Tick two or more entries of one flight: logged flights and at most one paper record.'; return;
+  }
+  if (!confirm('Mark the ticked entries as one flight? It then counts once. This can be undone from the expanded entry.')) return;
+  const [url, body] = papers.length ? ['/api/links', {record_id: papers[0], flight_ids: flightIds, same: true}]
+    : ['/api/sources/links', {flight_ids: flightIds, same: true}];
+  const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!r.ok) { $('bulkMsg').textContent = (await r.json().catch(() => ({}))).error || 'Could not save.'; return; }
+  if (papers.length && entries.size > 2)  // several logged entries plus a paper record: join the logs too
+    await fetch('/api/sources/links', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({flight_ids: flightIds, same: true})});
+  selected.clear();
+  $('bulkMsg').textContent = 'Marked as one flight.';
+  loadFlights();
+}
 async function setHidden(hidden) {
   const ids = [...selected];
   if (!ids.length) { $('bulkMsg').textContent = 'Tick the records you want to change.'; return; }
@@ -296,7 +317,7 @@ function detail(f) {
   return `<div class="flight-detail">
     <div class="minimap" data-fid="${f.flight_id}" role="status">Loading path...</div>
     <div class="detail-info"><h4>Comment</h4>${f.comment ? `<div class="note">${esc(f.comment)}</div>` : '<span class="mute">No comment</span>'}
-      ${linkedInfo(f)}
+      ${linkedInfo(f)}${sourcesInfo(f)}
       <div class="actions"><a class="btn" href="/flight/${f.flight_id}">Open flight page</a>
         ${f.sources.map(s => `<a class="btn sec" href="/api/logs/${s.log_id}/download">Download ${downloadLabel(s.log_type)}</a>`).join('')}</div>
     </div>
@@ -312,7 +333,22 @@ function linkedInfo(f) {
     ${(f.conflicts || []).length ? `<p class="warn">The paper record differs from the log; the log value is shown:</p><ul>${f.conflicts.map(c =>
       `<li>${esc(c.field)}: log ${esc(c.log || '-')}, ${esc(c.record)} ${esc(c.paper || '-')}</li>`).join('')}</ul>` : ''}`;
 }
+// Recordings merged into this entry; in Edit mode one can be split off when the automatic merge is wrong.
+function sourcesInfo(f) {
+  if (!editOn() || (f.sources || []).length < 2) return '';
+  return `<h4>Recordings</h4><ul>${f.sources.map(s => `<li>${esc(TYPE_LABEL[s.log_type] || s.log_type)} <a href="/flight/${s.flight_id}">flight ${s.flight_id}</a>
+    <button type="button" class="sec" data-split="${[s.flight_id, ...f.sources.filter(o => o.flight_id !== s.flight_id).map(o => o.flight_id)].join(',')}">Not the same flight</button></li>`).join('')}</ul>`;
+}
 document.addEventListener('click', async e => {
+  const split = e.target.closest('[data-split]');
+  if (split) {
+    split.disabled = true;
+    const r = await fetch('/api/sources/links', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({flight_ids: split.dataset.split.split(',').map(Number), same: false})});
+    if (!r.ok) { alert((await r.json().catch(() => ({}))).error || 'Could not save.'); split.disabled = false; return; }
+    loadFlights();
+    return;
+  }
   const b = e.target.closest('[data-link]');
   if (!b) return;
   b.disabled = true;
