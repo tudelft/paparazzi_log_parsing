@@ -446,6 +446,10 @@ function renderPersonPanel() {
       <p class="mute">The username is only the local sign-in name, not an automatic log match. Unique display names and explicit aliases match logs. Previous unambiguous display names remain aliases; username changes do not add aliases. Existing records and SSO links stay attached.</p>`
       : `<p><strong>Username:</strong> ${esc(user.username)}</p>`}
       <p><strong>Sign-in:</strong> ${signInLabel(user)}${user.is_admin ? ' · Administrator' : ''}</p>
+      ${editing && !user.is_external ? `<p><button type="button" class="${user.is_admin ? 'danger' : 'sec'}"
+        ${id === me.id ? 'disabled title="Ask another administrator to remove your admin rights."' : ''}
+        onclick="setAdmin(${id}, ${!user.is_admin})">${user.is_admin ? 'Remove admin rights' : 'Make administrator'}</button>
+        <span class="mute">Administrators have access to all projects, accounts and private qualification evidence.</span></p>` : ''}
       ${editing ? '' : `<p><strong>Email:</strong> ${esc(user.email || 'Not set')}</p><p><strong>Default project:</strong> ${esc(project?.name || 'No default')}</p>`}
       ${editing && id !== me.id && !user.is_admin ? `<p><label><input type="checkbox" ${user.is_external ? 'checked' : ''} onchange="setExternal(${id}, this.checked)">
         External</label> <span class="mute">Crew of another operator: flights stay linked, no sign-in, no project access.</span></p>` : ''}
@@ -453,8 +457,51 @@ function renderPersonPanel() {
       ${editing && !user.is_external && ['local','log'].includes(user.provider) ? `<div class="panel-row">
         <button type="button" onclick="newSetupLink(${id})">${user.has_password ? 'Reset password' : 'Set password'}</button>
         ${user.provider === 'local' && user.has_password ? `<button type="button" class="danger" onclick="removePassword(${id})">Remove password</button>` : ''}</div>` : ''}
-      ${editing && id !== me.id ? `<p><button type="button" class="danger" onclick="removeUser(${id})">Remove user</button></p>` : ''}`;
+      ${editing && id !== me.id ? `<p><button type="button" class="danger" onclick="removeUser(${id})">Remove user</button></p>` : ''}
+      <h3>API keys</h3><p class="mute">Full key secrets are shown only when created and cannot be retrieved. Only key details are listed here.</p>
+      <div id="personApiKeys" role="status">Loading API keys...</div>`;
+    loadPersonKeys(id, generation);
   }
+}
+
+async function loadPersonKeys(id, generation) {
+  try {
+    const keys = await adminApi(`/api/admin/users/${id}/keys`);
+    if (generation !== panelGeneration) return;
+    const stamp = value => value ? esc(value.replace('T', ' ').replace('Z', ' UTC')) : 'Never';
+    $('personApiKeys').innerHTML = keys.length ? `<div class="scroll"><table>
+      <thead><tr><th>Name</th><th>Prefix</th><th>Created</th><th>Last used</th>${window.editMode() ? '<th>Actions</th>' : ''}</tr></thead>
+      <tbody>${keys.map(key => `<tr><td>${esc(key.name)}</td><td><code>${esc(key.prefix)}…</code></td>
+        <td>${stamp(key.created_at)}</td><td>${stamp(key.last_used_at)}</td>
+        ${window.editMode() ? `<td><button type="button" class="danger" onclick="revokePersonKey(${id}, ${key.id})">Revoke</button></td>` : ''}</tr>`).join('')}</tbody></table></div>`
+      : '<p class="mute">No API keys.</p>';
+  } catch (error) {
+    if (generation === panelGeneration) $('personApiKeys').textContent = `Could not load API keys: ${error.message}`;
+  }
+}
+
+async function revokePersonKey(id, keyId) {
+  if (!confirm('Revoke this API key? Scripts using it will stop working immediately. This cannot be undone.')) return;
+  try {
+    await adminApi(`/api/admin/users/${id}/keys/${keyId}`, {method:'DELETE'});
+    $('err').textContent = '';
+    if (selectedPerson === id && selectedTab === 'account') renderPersonPanel();
+  } catch (error) { $('err').textContent = error.message; }
+}
+
+async function setAdmin(id, enabled) {
+  const user = people.users.find(u => u.id === id);
+  const name = user ? user.display_name || user.username : 'this person';
+  if (!confirm(enabled
+    ? `Make ${name} an administrator? This grants access to all projects, accounts and private qualification evidence.`
+    : `Remove administrator rights from ${name}? Their ordinary project memberships remain unchanged.`)) return;
+  try {
+    await adminApi(`/api/admin/users/${id}/admin`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({is_admin:enabled})
+    });
+    $('err').textContent = '';
+    await load();
+  } catch (error) { $('err').textContent = error.message; }
 }
 
 async function saveProfile(id) {

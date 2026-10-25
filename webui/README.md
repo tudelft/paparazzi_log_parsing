@@ -78,6 +78,9 @@ existing `/logbook` links still work.
 
 ## Add or correct information
 
+Administrators can use **People → Edit → Account** to grant or remove another person's admin rights
+and inspect or revoke their API keys (not retrieve secret values). You cannot remove your own admin rights.
+
 - The **Locations** map groups nearby places into numbered markers when zoomed out.
   Click a group to zoom in; hover for names or select a location to keep its label visible.
   Boundaries appear when zoomed in or editing. Use **Find location** to filter the table,

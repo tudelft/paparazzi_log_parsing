@@ -24,6 +24,76 @@ class SamlAttributeTests(unittest.TestCase):
 
 
 class PeopleDirectoryTests(AppTests):
+    def test_admin_role_changes_and_self_demotion_guard(self):
+        url = "/api/admin/users/2/admin"
+        self.assertEqual(self.client.put(url, json={"is_admin": True}).status_code, 403)
+        self.sign_in(1)
+        self.assertEqual(self.client.put(url, json={"is_admin": True}).status_code, 200)
+        self.sign_in(2)
+        self.assertTrue(self.client.get("/api/me").json["user"]["is_admin"])
+        self.assertEqual(self.client.put(url, json={"is_admin": False}).status_code, 400)
+        self.sign_in(1)
+        self.assertEqual(self.client.put(url, json={"is_admin": False}).status_code, 200)
+        self.sign_in(2)
+        self.assertFalse(self.client.get("/api/me").json["user"]["is_admin"])
+        self.assertEqual(self.client.get("/api/admin/people").status_code, 403)
+        self.assertEqual(self.con.execute("SELECT role FROM project_members WHERE user_id=2").fetchone()[0], "full")
+
+    def test_admin_role_validation_and_last_admin(self):
+        self.sign_in(1)
+        for body in (None, [], {}, {"is_admin": 1}, {"is_admin": "true"}):
+            self.assertEqual(self.client.put("/api/admin/users/2/admin", json=body).status_code, 400)
+        self.assertEqual(self.client.put("/api/admin/users/999/admin", json={"is_admin": True}).status_code, 404)
+        self.assertEqual(self.client.put("/api/admin/users/1/admin", json={"is_admin": False}).status_code, 400)
+        self.con.execute("UPDATE users SET is_external=1 WHERE id=3")
+        self.con.execute("UPDATE users SET is_active=0 WHERE id=4")
+        self.con.commit()
+        for uid in (3, 4):
+            self.assertEqual(self.client.put(
+                f"/api/admin/users/{uid}/admin", json={"is_admin": True}).status_code, 400)
+            self.assertFalse(self.con.execute("SELECT is_admin FROM users WHERE id=?", (uid,)).fetchone()[0])
+
+    def test_admin_key_details_and_scoped_revocation(self):
+        created = self.client.post("/api/keys", json={"name": "Uploader"})
+        self.assertEqual(created.status_code, 200)
+        key = created.json
+        self.sign_in(3)
+        other = self.client.post("/api/keys", json={"name": "Other"}).json
+        self.sign_in(1)
+        response = self.client.get("/api/admin/users/2/keys")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json), 1)
+        self.assertEqual(set(response.json[0]), {"id", "name", "prefix", "created_at", "last_used_at"})
+        self.assertEqual(response.json[0]["name"], "Uploader")
+        self.assertIsNone(response.json[0]["last_used_at"])
+        self.assertNotIn(key["key"], response.get_data(as_text=True))
+        self.assertEqual(self.client.get("/api/admin/users/999/keys").status_code, 404)
+        self.assertEqual(self.client.get("/api/admin/users/4/keys").json, [])
+        self.assertEqual(self.client.delete(f"/api/admin/users/3/keys/{key['id']}").status_code, 404)
+        self.assertEqual(self.client.get("/api/me", headers={
+            "Authorization": "Bearer " + key["key"]}).status_code, 200)
+        self.assertIsNotNone(self.client.get("/api/admin/users/2/keys").json[0]["last_used_at"])
+        self.assertEqual(self.client.delete(f"/api/admin/users/2/keys/{key['id']}").status_code, 200)
+        self.assertEqual(self.client.get("/api/me", headers={
+            "Authorization": "Bearer " + key["key"]}).status_code, 401)
+        self.assertEqual(self.client.delete(f"/api/admin/users/2/keys/{key['id']}").status_code, 404)
+        self.assertIsNotNone(self.con.execute("SELECT id FROM api_keys WHERE id=?", (other["id"],)).fetchone())
+
+    def test_admin_roles_and_keys_require_admin_browser_session(self):
+        self.sign_in(1)
+        key = self.client.post("/api/keys", json={"name": "Admin"}).json
+        headers = {"Authorization": "Bearer " + key["key"]}
+        routes = (("get", "/api/admin/users/2/keys", None),
+                  ("delete", f"/api/admin/users/1/keys/{key['id']}", None),
+                  ("put", "/api/admin/users/2/admin", {"is_admin": True}))
+        for uid, auth in ((1, headers), (2, {})):
+            self.sign_in(uid)
+            for method, url, body in routes:
+                with self.subTest(uid=uid, method=method):
+                    self.assertEqual(getattr(self.client, method)(url, json=body, headers=auth).status_code, 403)
+        self.assertIsNotNone(self.con.execute("SELECT id FROM api_keys WHERE id=?", (key["id"],)).fetchone())
+        self.assertFalse(self.con.execute("SELECT is_admin FROM users WHERE id=2").fetchone()[0])
+
     def test_optional_email_on_creation_and_update(self):
         self.sign_in(1)
         for index, fields in enumerate(({}, {"email": ""}, {"email": "  "}, {"email": None})):

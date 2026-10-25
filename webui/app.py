@@ -3473,6 +3473,57 @@ def admin_people():
                    projects=projects)
 
 
+@app.put("/api/admin/users/<int:user_id>/admin")
+def admin_set_admin(user_id):
+    admin_required()
+    session_required()
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or type(body.get("is_admin")) is not bool:
+        return jsonify(error="send is_admin as true or false"), 400
+    enabled = body["is_admin"]
+    if user_id == g.user["id"] and not enabled:
+        return jsonify(error="Ask another administrator to remove your admin rights."), 400
+    con = conn()
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        user = con.execute("SELECT is_admin,is_active,is_external FROM users WHERE id=?", (user_id,)).fetchone()
+        if user is None:
+            return jsonify(error="no such user"), 404
+        if enabled and (user["is_external"] or not user["is_active"]):
+            return jsonify(error="Only active, non-external accounts can be administrators."), 400
+        if not enabled and user["is_admin"] and not con.execute(
+                "SELECT 1 FROM users WHERE id!=? AND is_admin=1 AND is_active=1 AND is_external=0 LIMIT 1",
+                (user_id,)).fetchone():
+            return jsonify(error="the last active administrator cannot be removed"), 400
+        con.execute("UPDATE users SET is_admin=? WHERE id=?", (int(enabled), user_id))
+    return jsonify(ok=True)
+
+
+@app.get("/api/admin/users/<int:user_id>/keys")
+def admin_user_keys(user_id):
+    admin_required()
+    session_required()
+    con = conn()
+    if not con.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone():
+        return jsonify(error="no such user"), 404
+    rows = con.execute("SELECT id,name,prefix,created_at,last_used_at FROM api_keys WHERE user_id=?"
+                       " ORDER BY id DESC", (user_id,))
+    return jsonify([dict(row) for row in rows])
+
+
+@app.delete("/api/admin/users/<int:user_id>/keys/<int:key_id>")
+def admin_revoke_user_key(user_id, key_id):
+    admin_required()
+    session_required()
+    con = conn()
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        cur = con.execute("DELETE FROM api_keys WHERE id=? AND user_id=?", (key_id, user_id))
+        if cur.rowcount == 0:
+            return jsonify(error="no such key for this user"), 404
+    return jsonify(ok=True)
+
+
 @app.post("/api/admin/aliases")
 def admin_add_alias():
     admin_required()

@@ -437,6 +437,19 @@ flights or other linked information. This clears unused setup/reset links and pr
 sign-ins; existing sessions and API keys are not revoked. **Set password** can restore local sign-in
 later. The last administrator's login method cannot be removed.
 
+In **People → Edit → Account**, an administrator can **Make administrator** or **Remove admin rights**
+for another person, with confirmation. Only active, non-external accounts can be promoted.
+Self-demotion is blocked: ask another administrator to remove your rights. The last active
+administrator cannot be demoted. These changes preserve ordinary project memberships and take
+effect on subsequent requests, including requests using existing API keys.
+The Account tab also lists the selected person's API-key names, prefixes, creation times and last-use
+times (or Never). In Edit mode, admins can revoke individual keys after confirmation; scripts using
+that key immediately lose access. The selected user's other keys remain unchanged.
+Secrets and hashes are never returned; full secrets cannot be recovered.
+Both role changes (`PUT /api/admin/users/<id>/admin`) and key-detail access
+(`GET /api/admin/users/<id>/keys`) or revocation (`DELETE /api/admin/users/<id>/keys/<key_id>`)
+require an administrator browser session, not an API key.
+
 Everything requires a login. Admins create accounts on the People page or on the command line (on a server prefix
 `sudo -u logdb /opt/flight-logs/app/webui/venv/bin/`):
 
