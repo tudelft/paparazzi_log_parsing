@@ -5,6 +5,7 @@ database. Paparazzi .data files go through the C++ parser; PX4/ArduPilot/tlog fi
 the Python mav parser. A log with a known hash is never stored or parsed twice. The version of
 the parser that produced the stored result is recorded so outdated results can be re-parsed later.
 """
+import bisect
 import contextlib
 import copy
 import csv
@@ -3260,6 +3261,7 @@ def review_queue():
     by_flight = {s["flight_id"]: r for r in telemetry for s in r["sources"]}
     decided = {(d["record_id"], d["flight_id"]) for d in links.resolved(con)}
     cases = []
+    timed_telemetry = None
     for p in rows:
         if p["source_type"] != "paper":
             continue
@@ -3273,9 +3275,20 @@ def review_queue():
                                          kind=p["record_kind"], duration_s=p["duration_s"]))
         if window is None:
             continue
-        others = [review_entry(r) for r in telemetry
-                  if r["drone_id"] != p["drone_id"] and r.get("takeoff_utc") and not r.get("linked_records")
-                  and links._ts(r["takeoff_utc"]) is not None and window[0] <= links._ts(r["takeoff_utc"]) <= window[1]
+        if timed_telemetry is None:
+            timed_telemetry = []
+            for i, r in enumerate(telemetry):
+                if r.get("takeoff_utc") and not r.get("linked_records"):
+                    start = links._ts(r["takeoff_utc"])
+                    if start is not None:
+                        timed_telemetry.append((start, i))
+            timed_telemetry.sort()
+        left = bisect.bisect_left(timed_telemetry, (window[0], -1))
+        right = bisect.bisect_right(timed_telemetry, (window[1], len(telemetry)))
+        # Keep the original logbook order, not the index's chronological order.
+        nearby = (telemetry[i] for i in sorted(i for _, i in timed_telemetry[left:right]))
+        others = [review_entry(r) for r in nearby
+                  if r["drone_id"] != p["drone_id"]
                   and not any((p["manual_id"], s["flight_id"]) in decided for s in r["sources"])]
         if others:
             cases.append(dict(kind="other aircraft", paper=paper, candidates=others))

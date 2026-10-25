@@ -1170,6 +1170,11 @@ from `GET /api/review` (same read model and visibility as the logbook):
   window (`links.paper_window`), unless already decided;
 - **conflict**: a linked entry whose paper record differs and nobody accepted the log value yet.
 
+Other-aircraft matching builds a lazy, per-request time index of visible unlinked telemetry entries,
+parsing each takeoff once and using binary searches for each paper window. Window endpoints remain
+inclusive, candidates retain logbook order, and stored decisions still exclude every source of a
+merged entry. The index is not cached across requests; no matching or permission rules change.
+
 Each case shows the paper record next to the candidate logs (takeoff/landing, offset to the paper takeoff,
 logged duration, paper/logged duration ratio, verdict, aircraft, crew, place, log types). Actions use the
 normal decisions: tick logs and **Same flight** (several for one paper line), **Not the same flight**, or

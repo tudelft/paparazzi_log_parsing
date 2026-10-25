@@ -1,9 +1,49 @@
+from copy import deepcopy
+from unittest.mock import patch
+
+import links
+
 from .test_links import LinkFixtures
 
 
 class ReviewQueueTests(LinkFixtures):
     def queue(self):
         return self.client.get("/api/review").json
+
+    def test_other_aircraft_index_preserves_boundaries_order_and_exclusions(self):
+        self.flight(1, "12:00:00")
+        self.create()
+        template = next(r for r in self.logbook() if r["source_type"] == "telemetry")
+        paper = dict(deepcopy(template), source_type="paper", manual_id=100, record_kind="daily",
+                     takeoff_utc="2010-01-01T12:00:00", duration_s=600, possible_duplicates=[])
+        telemetry = []
+        for identity, clock in enumerate(("12:25:00", "11:45:00", "12:25:00.001",
+                                          "11:44:59.999", "invalid", "12:00:00",
+                                          "12:01:00", "12:02:00"), 1):
+            row = deepcopy(template)
+            row.update(drone_id=2, takeoff_utc=f"2010-01-01T{clock}",
+                       sources=[dict(flight_id=identity, log_type="gcs")], linked_records=[])
+            telemetry.append(row)
+        telemetry[5]["drone_id"] = paper["drone_id"]
+        telemetry[6]["linked_records"] = [{"id": 999}]
+        telemetry[7]["sources"].append(dict(flight_id=99, log_type="onboard_sd"))
+        with patch.dict(self.ns, logbook_rows=lambda **kwargs: telemetry + [paper]), patch.object(
+                links, "resolved", return_value=[dict(record_id=100, flight_id=99)]):
+            cases = self.queue()["cases"]
+        self.assertEqual(len(cases), 1)
+        self.assertEqual(cases[0]["kind"], "other aircraft")
+        self.assertEqual([r["flight_ids"] for r in cases[0]["candidates"]], [[1], [2]])
+
+    def test_other_aircraft_timestamps_are_parsed_once_per_request(self):
+        telemetry = [dict(source_type="telemetry", drone_id=2, takeoff_utc="2010-01-01T12:00:00.000Z",
+                          sources=[dict(flight_id=i + 1, log_type="gcs")]) for i in range(1000)]
+        papers = [dict(source_type="paper", drone_id=1, manual_id=i + 1,
+                       takeoff_utc="2010-01-02T12:00:00", record_kind="flight", duration_s=60)
+                  for i in range(100)]
+        with patch.dict(self.ns, logbook_rows=lambda **kwargs: telemetry + papers), patch.object(
+                links, "_ts", wraps=links._ts) as parse:
+            self.assertEqual(self.queue()["cases"], [])
+        self.assertEqual(parse.call_count, len(telemetry) + len(papers))
 
     def test_possible_duplicate_is_decided_and_can_be_undone(self):
         self.flight(1, "12:00:00")
