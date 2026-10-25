@@ -36,8 +36,9 @@
   <details class="help-text"><summary>Help with paper records</summary>
   <p>Transcribe an individual flight or a daily total. These are paper records, not telemetry:
     unknown times, positions, distance and software remain unavailable. Daily totals count all flights but
-    do not invent individual takeoffs. Check for overlapping digital logs before importing; exact paper
-    duplicates are rejected, but overlaps with telemetry are not automatically merged.</p></details>
+    do not invent individual takeoffs. Exact paper duplicates are rejected. A record
+    that clearly matches a logged flight (same aircraft, takeoff within 5 minutes) is linked to it and counts once,
+    as the log; other nearby logs are shown in the logbook as possible duplicates to link or dismiss.</p></details>
   <section class="card">
     <form id="recordForm">
       <fieldset id="fields" disabled class="fields">

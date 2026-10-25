@@ -61,6 +61,19 @@ CREATE TABLE IF NOT EXISTS flight_records (
     created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS flight_links (     -- paper record <-> telemetry flight decisions (links.py)
+    id INTEGER PRIMARY KEY,
+    record_id INTEGER NOT NULL REFERENCES flight_records(id) ON DELETE CASCADE,
+    log_id INTEGER NOT NULL REFERENCES logs(id) ON DELETE CASCADE,
+    ac_id INTEGER NOT NULL,             -- aircraft.ac_id, -1 when the log has none
+    idx INTEGER NOT NULL,               -- flights.idx: log_id + ac_id + idx survive re-parsing
+    takeoff_utc TEXT,                   -- takeoff when decided; a re-parse that moves it marks the link stale
+    same INTEGER NOT NULL,              -- 1 = same flight, 0 = not the same flight (blocks automatic linking)
+    origin TEXT NOT NULL CHECK (origin IN ('auto', 'manual')),
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (record_id, log_id, ac_id, idx)
+);
 CREATE TABLE IF NOT EXISTS weather_cache (
     cache_key TEXT PRIMARY KEY,
     payload TEXT NOT NULL

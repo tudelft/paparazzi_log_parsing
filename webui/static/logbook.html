@@ -54,6 +54,7 @@
   td.chk, th.chk { width:28px; padding-right:0; }
   .note { white-space:pre-wrap; max-width:640px; overflow-wrap:anywhere; }
   .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; }
+  .warn { color:var(--err); }
   .date-unknown { background:var(--warnbg); color:var(--warn); font-weight:400; }
 </style>
 </head>
@@ -286,16 +287,40 @@ function detail(f) {
     <p>${f.flight_count} flight(s) · ${fmtDur(f.duration_s)} total. ${f.takeoff_utc.length === 10 ? 'Takeoff time not recorded.' : ''}</p>
     ${f.reference ? `<p>Reference: ${esc(f.reference)}</p>` : ''}
     ${f.comment ? `<p class="note">${esc(f.comment)}</p>` : ''}
-    <p class="mute">No telemetry, flight path, distance or software version recorded. Not automatically merged with digital logs.</p>
+    <p class="mute">No telemetry, flight path, distance or software version recorded.</p>
+    ${(f.possible_duplicates || []).length ? `<h4>Possible duplicate</h4><p class="mute">Logged flights of this aircraft near this takeoff time. If one is the same flight, link it: it then counts once, as the log.</p><ul>
+      ${f.possible_duplicates.map(d => `<li>${esc(fmtTime(d.takeoff_utc))} · ${fmtDur(d.duration_s)} · ${esc(d.aircraft)} <a href="/flight/${d.flight_ids[0]}">open</a>
+        ${f.can_edit_record ? `<button type="button" data-link="${f.manual_id}" data-flights="${d.flight_ids.join(',')}" data-same="1">Same flight</button>
+        <button type="button" class="sec" data-link="${f.manual_id}" data-flights="${d.flight_ids.join(',')}" data-same="0">Not the same</button>` : ''}</li>`).join('')}</ul>` : ''}
     <a class="btn" href="/historical/${f.manual_id}">${f.can_edit_record ? 'View / edit paper record' : 'View paper record'}</a>`;
   return `<div class="flight-detail">
     <div class="minimap" data-fid="${f.flight_id}" role="status">Loading path...</div>
     <div class="detail-info"><h4>Comment</h4>${f.comment ? `<div class="note">${esc(f.comment)}</div>` : '<span class="mute">No comment</span>'}
+      ${linkedInfo(f)}
       <div class="actions"><a class="btn" href="/flight/${f.flight_id}">Open flight page</a>
         ${f.sources.map(s => `<a class="btn sec" href="/api/logs/${s.log_id}/download">Download ${downloadLabel(s.log_type)}</a>`).join('')}</div>
     </div>
   </div>`;
 }
+
+// Paper records linked to this logged flight (#35): they count once, as the log; differences are listed.
+function linkedInfo(f) {
+  if (!(f.linked_records || []).length) return '';
+  return `<h4>Paper record</h4><ul>${f.linked_records.map(r => `<li><a href="/historical/${r.id}">${esc(r.reference || 'Paper record ' + r.id)}</a>
+      <span class="mute">${r.origin === 'auto' ? 'linked automatically' : 'linked by hand'}</span>
+      ${editOn() ? `<button type="button" class="sec" data-link="${r.id}" data-flights="${r.flight_ids.join(',')}" data-same="0">Unlink</button>` : ''}</li>`).join('')}</ul>
+    ${(f.conflicts || []).length ? `<p class="warn">The paper record differs from the log; the log value is shown:</p><ul>${f.conflicts.map(c =>
+      `<li>${esc(c.field)}: log ${esc(c.log || '-')}, ${esc(c.record)} ${esc(c.paper || '-')}</li>`).join('')}</ul>` : ''}`;
+}
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-link]');
+  if (!b) return;
+  b.disabled = true;
+  const r = await fetch('/api/links', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({record_id: +b.dataset.link, flight_ids: b.dataset.flights.split(',').map(Number), same: b.dataset.same === '1'})});
+  if (!r.ok) { alert((await r.json().catch(() => ({}))).error || 'Could not save the link.'); b.disabled = false; return; }
+  loadFlights();
+});
 
 const pathCache = new Map(), miniMaps = [];
 function initMiniMaps() {
@@ -398,7 +423,9 @@ function combine(list, radiusKm) {
 const TYPE_LABEL = {onboard_sd: 'SD', gcs: 'GCS', px4_ulog: 'PX4', ardupilot: 'ArduPilot', mavlink_tlog: 'tlog'};
 const downloadLabel = t => ({px4_ulog:'PX4 .ulg', ardupilot:'ArduPilot log', mavlink_tlog:'MAVLink .tlog',
   gcs:'GCS .data + .log', onboard_sd:'SD .data + .log'}[t] || 'log');
-const srcLabel = fl => fl.some(f => f.manual_id) ? (fl[0].record_kind === 'daily' ? 'Paper daily total' : 'Paper') : ['onboard_sd', 'px4_ulog', 'ardupilot', 'mavlink_tlog', 'gcs'].filter(t => fl.some(f => (f.sources || []).some(s => s.log_type === t))).map(t => TYPE_LABEL[t]).join(' + ');
+const srcLabel = fl => fl.some(f => f.manual_id) ? (fl[0].record_kind === 'daily' ? 'Paper daily total' : 'Paper') + (fl.some(f => f.possible_duplicates?.length) ? ' · possible duplicate' : '')
+  : ['onboard_sd', 'px4_ulog', 'ardupilot', 'mavlink_tlog', 'gcs'].filter(t => fl.some(f => (f.sources || []).some(s => s.log_type === t))).map(t => TYPE_LABEL[t]).join(' + ')
+    + (fl.some(f => f.linked_records?.length) ? ' + Paper' : '') + (fl.some(f => f.conflicts?.length) ? ' · conflict' : '');
 const verdictMark = f => (f.simulation?.detected ? ' <span class="mute">(Simulation)</span>' : '') + (f.verdict === 'ground' ? ' <span class="mute" title="Probably not a real flight">(ground)</span>'
   : f.verdict === 'uncertain' ? ' <span class="mute" title="Unsure whether this was a real flight">(?)</span>' : '')
   + (f.optitrack ? ' <span class="mute" title="OptiTrack or motion-capture pose in this log">(OptiTrack)</span>' : '')

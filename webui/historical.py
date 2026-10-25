@@ -122,6 +122,8 @@ def store(con, values, user_id, stamp, record_id=None):
             (*[values[f] for f in FIELDS], digest, user_id, stamp, stamp)).lastrowid
     con.execute(f"UPDATE flight_records SET {','.join(f'{f}=?' for f in FIELDS)},fingerprint=?,updated_at=? WHERE id=?",
                 (*[values[f] for f in FIELDS], digest, stamp, record_id))
+    # A changed record is matched again; links and unlinks made by a person stay.
+    con.execute("DELETE FROM flight_links WHERE record_id=? AND origin='auto'", (record_id,))
     return record_id
 
 
