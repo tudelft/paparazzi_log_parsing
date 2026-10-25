@@ -22,6 +22,9 @@ existing `/logbook` links still work.
 
 ## Everyday use
 
+On **Uploads**, use **Filename** to find logs by part of their filename across all pages.
+It works together with the status filter.
+
 After changing firmware lookup repositories, administrators can use **Re-parse unknown dates**
 on **Uploads** to retry completed logs with unknown dates, even with the current parser version.
 Manual dates and plausible estimated dates are left unchanged.

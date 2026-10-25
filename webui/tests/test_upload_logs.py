@@ -469,6 +469,35 @@ class UploadFilterTests(AppTests):
         self.assertEqual(self.client.get("/api/logs").json["total"], 5)
         self.assertEqual(self.client.get("/api/logs?status=bad").status_code, 400)
 
+    def test_filename_search_across_pages_and_access_scope(self):
+        self.con.execute("UPDATE logs SET name='NedDrone_flight.data' WHERE id IN (1,2,5,6)")
+        self.con.commit()
+        for offset, expected in ((0, [6, 2]), (2, [1])):
+            body = self.client.get(
+                "/api/logs", query_string={"q": " nEdDrOnE ", "limit": 2, "offset": offset}).json
+            self.assertEqual(body["total"], 3)
+            self.assertEqual([r["id"] for r in body["logs"]], expected)
+        self.assertEqual(self.client.get("/api/logs?q=NedDrone&project=1").json["total"], 2)
+        self.assertEqual(self.client.get("/api/logs?q=NedDrone&status=errors").json["total"], 2)
+        self.assertEqual(self.client.get("/api/logs?q=missing").json["total"], 0)
+        self.assertEqual(self.client.get("/api/logs?q=%20").json["total"], 5)
+
+    def test_filename_search_uses_literal_substrings(self):
+        self.con.execute("UPDATE logs SET name='flight_100%.data' WHERE id=1")
+        self.con.commit()
+        for query in ("_", "%", "100%.data"):
+            body = self.client.get("/api/logs", query_string={"q": query}).json
+            self.assertEqual([r["id"] for r in body["logs"]], [1])
+        self.assertEqual(self.client.get("/api/logs", query_string={"q": "' OR 1=1 --"}).json["total"], 0)
+
+    def test_filename_search_includes_matching_failure_receipts(self):
+        body = self.client.get("/api/logs?status=failures&q=UPLOAD").json
+        self.assertEqual(body["total"], 4)
+        self.assertEqual([(r["row_type"], r["id"]) for r in body["logs"]],
+                         [("ingest", 7), ("ingest", 3), ("ingest", 2), ("ingest", 1)])
+        body = self.client.get("/api/logs?status=failures&q=log1").json
+        self.assertEqual([(r["row_type"], r["id"]) for r in body["logs"]], [("log", 1)])
+
     def test_combined_failures_are_paginated_and_deduplicated(self):
         expected = [("ingest", 7), ("ingest", 2), ("ingest", 1), ("log", 6), ("log", 1)]
         collected = []

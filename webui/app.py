@@ -4851,6 +4851,10 @@ def ingest_result(ingest_id):
 @app.get("/api/logs")
 def list_logs():
     where, params = list_clause("l.")
+    search = request.args.get("q", "").strip()
+    if search:
+        where += " AND instr(lower(l.name), lower(?))>0"
+        params = (*params, search)
     status_filter = request.args.get("status", "all")
     if status_filter not in ("all", "errors", "unfinished", "failures"):
         return jsonify(error="Invalid log status filter"), 400
@@ -4876,6 +4880,9 @@ def list_logs():
     if status_filter == "failures":
         receipt_where = "i.status IN ('error','rejected') AND (? OR i.uploaded_by=?)"
         receipt_params = (g.user["is_admin"], g.user["id"])
+        if search:
+            receipt_where += " AND instr(lower(i.name), lower(?))>0"
+            receipt_params = (*receipt_params, search)
         if request.args.get("project", "").isdigit():
             receipt_where += " AND 0=1"
         candidates = (
