@@ -1,4 +1,7 @@
 import io
+from unittest.mock import patch
+
+import links
 
 from .test_historical import AppTests
 
@@ -42,6 +45,38 @@ class LinkFixtures(AppTests):
 
 
 class FlightLinkTests(LinkFixtures):
+    def test_duplicate_candidates_parse_each_telemetry_time_once(self):
+        telemetry = [
+            dict(source_type="telemetry", drone_id=1, takeoff_utc=self.at("12:00:00"),
+                 sources=[dict(flight_id=i)], duration_s=100, aircraft="Drone")
+            for i in range(1, 11)]
+        papers = [
+            dict(source_type="paper", manual_id=i, drone_id=1, takeoff_utc=self.at("12:00:00"),
+                 record_kind="flight", duration_s=100)
+            for i in range(1, 6)]
+        with patch.object(links, "_ts", wraps=links._ts) as timestamps:
+            result = links.combine(self.con, telemetry + papers)
+        self.assertEqual(timestamps.call_count, len(telemetry) + len(papers))
+        for paper in result[len(telemetry):]:
+            self.assertEqual([d["flight_ids"] for d in paper["possible_duplicates"]],
+                             [[i] for i in range(1, 11)])
+
+    def test_duplicate_candidate_boundaries_order_aircraft_and_vetoes(self):
+        telemetry = [
+            dict(source_type="telemetry", drone_id=drone, takeoff_utc=start,
+                 sources=[dict(flight_id=ident)], duration_s=100, aircraft="Drone")
+            for ident, drone, start in [
+                (1, 1, self.at("12:15:00")), (2, 1, self.at("11:45:00")),
+                (3, 1, self.at("11:44:59")), (4, 1, self.at("12:15:01")),
+                (5, 2, self.at("12:00:00")), (6, 1, None), (7, 1, "invalid"),
+                (8, 1, self.at("12:00:00"))]]
+        paper = dict(source_type="paper", manual_id=1, drone_id=1,
+                     takeoff_utc=self.at("12:00:00"), record_kind="flight", duration_s=100)
+        with patch.object(links, "resolved", return_value=[
+                dict(record_id=1, flight_id=8, same=False)]):
+            result = links.combine(self.con, telemetry + [paper])
+        self.assertEqual([d["flight_ids"] for d in result[-1]["possible_duplicates"]], [[1], [2]])
+
     def test_clear_match_links_automatically_and_counts_as_the_logs(self):
         self.flight(1, "12:00:00", kind="onboard_sd")
         self.flight(2, "12:00:01", duration=99, kind="gcs")

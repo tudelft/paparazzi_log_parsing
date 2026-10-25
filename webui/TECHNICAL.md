@@ -1101,6 +1101,10 @@ are reassigned or removed.
 
 ### Paper records linked to logs
 
+Possible-duplicate matching prepares visible telemetry takeoff timestamps once per request,
+grouped by aircraft. Paper records reuse these candidates with the existing inclusive time
+windows and manual exclusions; no persistent cache or matching-rule change is involved.
+
 A paper record and the logged flight(s) of the same flight can be **linked** (`links.py`, table
 `flight_links`). Nothing is merged or changed: a link row says "same flight" (`same=1`) or "not the same
 flight" (`same=0`), with `origin` `auto` or `manual`, who and when.

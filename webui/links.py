@@ -230,17 +230,25 @@ def combine(con, rows):
                 out.append(replaced[i])
         else:
             out.append(r)
+    candidates_by_aircraft = None
     for record_id, p in papers.items():
         if record_id in absorbed:
             continue
         window = paper_window(dict(date=p["takeoff_utc"][:10], takeoff_time=p["takeoff_utc"][11:19] or None,
                                    kind=p["record_kind"], duration_s=p["duration_s"]))
+        if window is not None and candidates_by_aircraft is None:
+            candidates_by_aircraft = {}
+            aircraft = {paper["drone_id"] for key, paper in papers.items() if key not in absorbed}
+            for i, r in enumerate(telemetry):
+                if r["drone_id"] in aircraft:
+                    start = _ts(r["takeoff_utc"])
+                    if start is not None:
+                        candidates_by_aircraft.setdefault(r["drone_id"], []).append((i, r, start))
         p["possible_duplicates"] = [] if window is None else [
             dict(flight_ids=[s["flight_id"] for s in r["sources"]], takeoff_utc=r["takeoff_utc"],
                  duration_s=r["duration_s"], aircraft=r["aircraft"])
-            for i, r in enumerate(telemetry)
-            if r["drone_id"] == p["drone_id"] and (record_id, i) not in vetoed and _ts(r["takeoff_utc"]) is not None
-            and window[0] <= _ts(r["takeoff_utc"]) <= window[1]]
+            for i, r, start in candidates_by_aircraft.get(p["drone_id"], [])
+            if (record_id, i) not in vetoed and window[0] <= start <= window[1]]
         out.append(p)
     return out
 
