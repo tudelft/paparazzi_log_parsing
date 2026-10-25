@@ -50,6 +50,19 @@ class DateSuggestionTests(AppTests):
         self.assertEqual([sorted(s["flight_id"] for s in r["sources"]) for r in rows], [[713, 718]])
         self.assertEqual(self.client.post("/api/logs/718/date/suggestion").status_code, 409)
 
+    def test_estimated_date_is_confirmed_by_the_gcs_match(self):
+        # The firmware estimate put the SD log a week off; estimated dates do not merge, so the flight counted twice.
+        self.flight(718, "onboard_sd", "2020-07-15T10:00:12", 300)
+        self.con.execute("UPDATE logs SET date_estimated=1 WHERE id=718")
+        self.flight(713, "gcs", "2020-07-22T10:00:00", 300.4)
+        self.assertEqual(len(self.client.get("/api/logbook").json), 2)
+        suggestion = self.client.get("/api/logs/718").json["date_suggestion"]
+        self.assertEqual((suggestion["date"], suggestion["gcs_log_id"]), ("2020-07-22", 713))
+        self.assertEqual(self.client.post("/api/logs/718/date/suggestion").status_code, 200)
+        rows = self.client.get("/api/logbook").json
+        self.assertEqual([sorted(s["flight_id"] for s in r["sources"]) for r in rows], [[713, 718]])
+        self.assertEqual(rows[0]["takeoff_utc"][:10], "2020-07-22")
+
     def test_no_suggestion_when_short_ambiguous_taken_or_inconsistent(self):
         cases = {
             "short flight": [(1, "onboard_sd", "1980-01-06T10:00:12", 45), (2, "gcs", "2020-07-22T10:00:00", 45)],

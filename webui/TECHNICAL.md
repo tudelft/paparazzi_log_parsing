@@ -289,7 +289,9 @@ do not mark logs outdated. Cached misses/errors still respect their retry delays
 has not changed. No bulk reparse is started automatically.
 
 **Dates from a matching ground station log.** An onboard log whose clock was never set (date before 1990,
-no date entered, not estimated) usually keeps the right time of day. `date_suggest.py` looks for a dated GCS
+no date entered) usually keeps the right time of day. The same check runs for logs whose date is only
+estimated from firmware: estimated dates never merge with other recordings, so a matching GCS log confirms
+the day and accepting it ends the estimate (the recordings then merge and count once). `date_suggest.py` looks for a dated GCS
 recording of the same flight: same aircraft (fleet link, else logged name), same duration (±1 s or 1 %), same
 time of day (±30 s), at least 60 s long (short flights match too many others), and no dated onboard partner yet.
 Every matched flight of the log must have exactly one such GCS flight, no other undated flight may claim it,

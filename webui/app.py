@@ -5101,7 +5101,8 @@ def get_log(log_id):
     out["can_delete"] = can_delete_log(con, row)
     out["can_edit_date"] = can_set_log_date(con, row)
     out["date_suggestion"] = (date_suggestions(con).get(log_id)
-                              if out["can_edit_date"] and not out["date_ok"] and not row["date_override"] else None)
+                              if out["can_edit_date"] and (not out["date_ok"] or row["date_estimated"])
+                              and not row["date_override"] else None)
     out["date_override_by_name"] = (con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",
                                                 (row["date_override_by"],)).fetchone() or [None])[0]
     out["uploaded_by_name"] = (con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",
