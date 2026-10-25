@@ -558,7 +558,9 @@ require an administrator browser session, not an API key.
 
 The Projects overview uses searchable, equal-height responsive cards with contrasting backgrounds,
 accent borders, top-right log/member counts and a member list clipped to three lines with an ellipsis.
-Hover over the member list for all names, or open the project for details. Permissions are only shown in Edit.
+The whole card opens the project; member names in these cards are plain text, not person links.
+Hover over the member list for all names. People and Projects cards do not highlight on mouse hover;
+keyboard focus remains visible. Permissions are only shown in Edit.
 In Edit mode, select one project from the searchable list to
 rename it, change current members' permissions or delete it. The member list contains only existing
 members; search by name, username or alias to add an enabled, non-external person with See access,

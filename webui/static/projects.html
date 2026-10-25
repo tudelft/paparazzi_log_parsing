@@ -45,6 +45,8 @@
   .project-toolbar details { margin-left:auto; }
   .project-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:10px; }
   .project-card { border:1px solid var(--fieldline); border-left:4px solid var(--acc); border-radius:8px; padding:8px 10px; min-width:0; height:104px; background:var(--detail); box-shadow:0 2px 4px #0002; }
+  a.project-card { display:block; color:var(--txt); text-decoration:none; }
+  a.project-card:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
   .project-card-header { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
   .project-card h3 { margin:0; min-width:0; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .project-counts { flex-shrink:0; font-size:11px; white-space:nowrap; }
@@ -175,7 +177,7 @@ async function load() {
 function peoplePreview(p) {
   const members = p.members || [];
   if (!members.length) return '<span class="mute">Nobody yet</span>';
-  return members.map(m => `<a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a>`).join(', ');
+  return members.map(m => esc(m.display_name || m.username)).join(', ');
 }
 function selectProject(id) {
   selectedProject = id;
@@ -222,9 +224,9 @@ function render() {
       || '<p class="mute">No matching projects.</p>';
     renderProjectPanel();
   } else {
-    $('projectOverview').innerHTML = shown.map(p => `<article class="project-card"><div class="project-card-header"><h3 title="${esc(p.name)}"><a href="/projects/${p.id}">${esc(p.name)}</a></h3>
+    $('projectOverview').innerHTML = shown.map(p => `<a class="project-card" href="/projects/${p.id}" aria-label="${esc(p.name)}"><div class="project-card-header"><h3 title="${esc(p.name)}">${esc(p.name)}</h3>
       <span class="project-counts mute">${p.log_count ?? 0} logs · ${(p.members || []).length} members</span></div>
-      <p aria-label="Project members" title="${esc((p.members || []).map(m => m.display_name || m.username).join(', '))}">${peoplePreview(p)}</p></article>`).join('')
+      <p aria-label="Project members" title="${esc((p.members || []).map(m => m.display_name || m.username).join(', '))}">${peoplePreview(p)}</p></a>`).join('')
       || '<p class="mute">No matching projects.</p>';
   }
 }
