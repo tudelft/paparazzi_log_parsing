@@ -3,6 +3,8 @@ import hashlib
 import io
 import json
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -16,10 +18,35 @@ import storage
 from . import test_historical
 
 
+def docx_bytes(text="Flight request"):
+    """A minimal Word document: the ZIP parts LibreOffice needs to open it."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as z:
+        z.writestr("[Content_Types].xml", '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/'
+                   'package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-'
+                   'package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override '
+                   'PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.'
+                   'wordprocessingml.document.main+xml"/></Types>')
+        z.writestr("_rels/.rels", '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/'
+                   'package/2006/relationships"><Relationship Id="r1" Type="http://schemas.openxmlformats.org/'
+                   'officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
+        z.writestr("word/document.xml", '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/'
+                   f'wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:body></w:document>')
+    return buffer.getvalue()
+
+
 class AttachmentTests(test_historical.AppTests):
+    def setUp(self):
+        super().setUp()
+        # Word conversion is off unless a test turns it on, whatever is installed on this machine.
+        office = patch.dict(self.app.config, ATTACHMENT_OFFICE=None)
+        office.start()
+        self.addCleanup(office.stop)
+
     def tearDown(self):
         for row in self.con.execute("SELECT path FROM attachments"):
             (self.ns["STORAGE_DIR"] / row["path"]).unlink(missing_ok=True)
+        shutil.rmtree(self.ns["STORAGE_DIR"] / attachments.PREVIEWS, ignore_errors=True)
         super().tearDown()
 
     def upload_file(self, targets, content=b"wind speed,temperature\n1,20\n" * 1000, name="wind.csv", **extra):
@@ -109,6 +136,73 @@ class AttachmentTests(test_historical.AppTests):
             self.assertTrue(download.headers["Content-Disposition"].startswith("attachment;"))
         self.sign_in(4)
         self.assertEqual(self.client.get(f"/api/attachments/{pdf}/view").status_code, 404)
+
+    def fake_office(self, fail=False):
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append(cmd)
+            if fail:
+                raise subprocess.CalledProcessError(1, cmd)
+            outdir = Path(cmd[cmd.index("--outdir") + 1])
+            (outdir / "document.pdf").write_bytes(b"%PDF-1.4 converted")
+        self.app.config["ATTACHMENT_OFFICE"] = "/opt/office/soffice"
+        return calls, patch.object(attachments.subprocess, "run", side_effect=run)
+
+    def test_docx_is_converted_once_and_shown_as_pdf(self):
+        paper = self.paper()
+        data = docx_bytes()
+        aid = self.upload_file([paper], data, "Flight request.docx").json["id"]
+        listing = self.client.get(f'/api/attachments?kind=paper&id={paper["id"]}').json["files"]
+        self.assertFalse(listing[0]["viewable"])  # no converter configured
+        self.assertEqual(self.client.get(f"/api/attachments/{aid}/view").status_code, 415)
+        calls, fake = self.fake_office()
+        with fake:
+            self.assertTrue(self.client.get(f'/api/attachments?kind=paper&id={paper["id"]}').json["files"][0]["viewable"])
+            for _ in range(2):
+                response = self.client.get(f"/api/attachments/{aid}/view")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.headers["Content-Type"], "application/pdf")
+                self.assertTrue(response.headers["Content-Disposition"].startswith("inline;"))
+                self.assertIn("Flight%20request.pdf", response.headers["Content-Disposition"])
+                self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+                self.assertEqual(response.data, b"%PDF-1.4 converted")
+                response.close()
+        self.assertEqual(len(calls), 1)  # cached per file content
+        self.assertIn("--infilter=MS Word 2007 XML", calls[0])
+        download = self.client.get(f"/api/attachments/{aid}/download")
+        self.assertEqual((download.headers["Content-Type"], download.data), ("application/octet-stream", data))
+        download.close()
+        self.sign_in(4)
+        self.assertEqual(self.client.get(f"/api/attachments/{aid}/view").status_code, 404)
+        self.sign_in(2)
+        preview = self.ns["STORAGE_DIR"] / attachments.PREVIEWS / f"{hashlib.sha256(data).hexdigest()}.pdf"
+        self.assertTrue(preview.is_file())
+        link = self.client.get(f'/api/attachments?kind=paper&id={paper["id"]}').json["files"][0]["links"][0]
+        self.assertEqual(self.client.delete(f'/api/attachments/{aid}/links/{link["link_id"]}').status_code, 200)
+        self.assertFalse(preview.exists())  # removed with the last copy of the document
+
+    def test_docx_conversion_failures_cache_nothing(self):
+        paper = self.paper()
+        real = self.upload_file([paper], docx_bytes(), "a.docx").json["id"]
+        renamed = self.upload_file([paper], b"<html><script>alert(1)</script></html>" * 50, "b.docx").json["id"]
+        calls, fake = self.fake_office(fail=True)
+        with fake:
+            self.assertEqual(self.client.get(f"/api/attachments/{real}/view").status_code, 422)
+            self.assertEqual(self.client.get(f"/api/attachments/{renamed}/view").status_code, 422)
+        self.assertEqual(len(calls), 1)  # the renamed HTML file never reaches LibreOffice
+        self.assertFalse((self.ns["STORAGE_DIR"] / attachments.PREVIEWS).exists()
+                         and any((self.ns["STORAGE_DIR"] / attachments.PREVIEWS).iterdir()))
+
+    @unittest.skipUnless(shutil.which("soffice"), "LibreOffice is not installed")
+    def test_docx_conversion_with_libreoffice(self):
+        paper = self.paper()
+        aid = self.upload_file([paper], docx_bytes(), "real.docx").json["id"]
+        self.app.config["ATTACHMENT_OFFICE"] = shutil.which("soffice")
+        response = self.client.get(f"/api/attachments/{aid}/view")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data.startswith(b"%PDF-"))
+        response.close()
 
     def test_permissions_sharing_and_hidden_links(self):
         paper = self.paper()

@@ -154,6 +154,7 @@ without an approval-status label; management still shows pending, expired and pr
 **Additional files:** use a flight's Files tab, a paper record's Additional files section or an
 expanded upload to attach photos, video or other recordings (default limit **10 GiB** per file).
 Clicking a file name downloads it; the eye icon next to a PDF, text file or image opens it in a new tab.
+Word files (`.docx`) get the eye icon too when LibreOffice is installed on the server; they open as PDF.
 **Anyone able to read any linked flight/log can download the file. Linking across projects shares
 its contents. Never put private qualification evidence here.**
 
