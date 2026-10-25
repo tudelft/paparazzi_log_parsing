@@ -965,6 +965,23 @@ flight" (`same=0`), with `origin` `auto` or `manual`, who and when.
 - **Possible duplicates.** An unlinked record lists logged flights of its aircraft within 15 min
   (`possible_duplicates`), except pairs marked not the same.
 
+### Manual join and split of logged recordings
+
+When the automatic SD/GCS merge is wrong, a person corrects it; the decision is stored in `source_links`
+(two recordings by `log_id` + `ac_id` + `idx`, stored in sorted order, with their takeoff times for the
+same stale check as `flight_links`) and passed to `merge_sources(rows, decisions)` by `logbook_rows`.
+
+- **Join** (`same=1`): the recordings form one entry whatever their timing or names: joins are applied
+  before the scored pairs. Two flights of one log, or recordings of two different fleet aircraft, cannot
+  be joined (400).
+- **Split** (`same=0`): the two recordings never end up in one entry, also not through a third one.
+- `POST /api/sources/links {flight_ids, same}`: with `same=true` all listed flights are one flight; with
+  `same=false` the first is not the same flight as each of the others. The latest decision on a pair
+  wins. Needs edit rights on every flight.
+- In the logbook (Edit mode), **Same flight** in the selection bar joins the ticked logged entries; with one
+  ticked paper record it also links that record. An expanded merged entry lists its recordings with
+  **Not the same flight**.
+
 Admins can select paper and telemetry records together in Logbook Edit mode and apply PIC, PAC,
 GCS and project changes in one transaction. Paper records still require a PIC and project:
 leave these fields on **Keep** or select a person/project rather than clearing them. Duplicate

@@ -1,7 +1,7 @@
 from .test_historical import AppTests
 
 
-class FlightLinkTests(AppTests):
+class LinkFixtures(AppTests):
     def setUp(self):
         super().setUp()
         self.body.update(kind="flight", flight_count=1, takeoff_time="12:02", duration_minutes="30",
@@ -37,6 +37,9 @@ class FlightLinkTests(AppTests):
     def decide(self, record_id, flight_ids, same):
         return self.client.post("/api/links", json=dict(record_id=record_id, flight_ids=flight_ids, same=same))
 
+
+
+class FlightLinkTests(LinkFixtures):
     def test_clear_match_links_automatically_and_counts_as_the_logs(self):
         self.flight(1, "12:00:00", kind="onboard_sd")
         self.flight(2, "12:00:01", duration=99, kind="gcs")
@@ -140,3 +143,63 @@ class FlightLinkTests(AppTests):
         self.assertEqual(len(self.logbook()), 2)
         self.assertEqual(self.client.delete(f"/api/historical/{record}").status_code, 200)
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM flight_links").fetchone()[0], 0)
+
+
+class SourceLinkTests(LinkFixtures):
+    def join(self, flight_ids, same=True):
+        return self.client.post("/api/sources/links", json=dict(flight_ids=flight_ids, same=same))
+
+    def entries(self):
+        return sorted(sorted(s["flight_id"] for s in r["sources"]) for r in self.logbook())
+
+    def test_split_a_wrong_merge_and_join_it_again(self):
+        self.flight(1, "12:00:00", kind="onboard_sd")
+        self.flight(2, "12:00:01", duration=99, kind="gcs")
+        self.assertEqual(self.entries(), [[1, 2]])
+        self.assertEqual(self.join([2, 1], same=False).status_code, 200)
+        self.assertEqual(self.entries(), [[1], [2]])
+        # A re-parse gives new flight ids; the decision is kept by log, ac_id and flight number.
+        self.con.execute("DELETE FROM aircraft WHERE log_id=2")
+        self.con.execute("INSERT INTO aircraft(id,log_id,drone_id,name,ac_id) VALUES(9,2,1,'Drone',7)")
+        self.con.execute(
+            "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,landing_utc,takeoff_lat,takeoff_lon,"
+            "landed,verdict,has_gps_position) VALUES(29,9,1,99,?,?,52,4,1,'flight',1)",
+            (self.at("12:00:01"), self.at("12:00:01", 99)))
+        self.con.commit()
+        self.assertEqual(self.entries(), [[1], [29]])
+        self.assertEqual(self.join([1, 29]).status_code, 200)  # the latest decision wins
+        self.assertEqual(self.entries(), [[1, 29]])
+
+    def test_join_recordings_the_automatic_merge_missed(self):
+        self.flight(1, "12:00:00", kind="onboard_sd")
+        self.flight(2, "12:05:00", kind="gcs")  # e.g. a ground station clock five minutes off
+        self.assertEqual(self.entries(), [[1], [2]])
+        self.assertEqual(self.join([1, 2]).status_code, 200)
+        rows = self.logbook()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["flight_count"], 1)
+
+    def test_join_validation_and_permissions(self):
+        self.flight(1, "12:00:00")
+        self.flight(2, "12:30:00", log=1, idx=2)
+        self.flight(3, "13:00:00")
+        self.assertEqual(self.join([1, 2]).status_code, 400)  # same log
+        self.assertEqual(self.join([1]).status_code, 400)
+        self.assertEqual(self.join([1, 1]).status_code, 400)
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (2,'Other','UID2','now')")
+        self.con.execute("UPDATE aircraft SET drone_id=2 WHERE log_id=3")
+        self.con.commit()
+        self.assertEqual(self.join([1, 3]).status_code, 400)  # different fleet aircraft
+        self.sign_in(3)
+        self.assertEqual(self.join([1, 3], same=False).status_code, 403)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM source_links").fetchone()[0], 0)
+
+    def test_paper_record_and_joined_logs_count_once(self):
+        self.flight(1, "12:00:00", kind="onboard_sd")
+        self.flight(2, "12:04:00", kind="onboard_sd")
+        record = self.create().json["id"]
+        self.assertEqual(self.decide(record, [1, 2], True).status_code, 200)
+        self.assertEqual(self.logbook()[0]["flight_count"], 2)  # one paper line, two logged flights
+        self.assertEqual(self.join([1, 2]).status_code, 200)    # ...that turn out to be one flight
+        row = self.logbook()[0]
+        self.assertEqual((len(self.logbook()), row["flight_count"], row["reference"]), (1, 1, "F00001"))

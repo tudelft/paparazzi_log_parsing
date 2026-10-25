@@ -60,6 +60,8 @@ existing `/logbook` links still work.
 - A paper record that clearly matches a logged flight (same aircraft, takeoff within 5 min) is linked to it
   and counts once, as the log; unclear cases show as *possible duplicate* to link or dismiss, and an expanded
   entry shows where the paper record differs from the log.
+- In Edit mode, tick the entries of one flight and press **Same flight** to join them (also when the automatic
+  SD/GCS merge missed it), or press **Not the same flight** next to a recording in an expanded entry to split it off.
 - SD and GCS recordings of the same flight are merged. **Combine flights** additionally groups nearby
   flights into sessions; it does not change stored flights.
 - Hover over an aircraft name in the logbook for its TUD/serial number; it is also on the aircraft detail page.

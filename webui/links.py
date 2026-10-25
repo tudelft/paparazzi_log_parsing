@@ -1,4 +1,5 @@
-"""Links between paper records and telemetry flights that describe the same flight (issue #35).
+"""Links between records that describe the same flight (issue #35): paper records <-> telemetry flights
+(flight_links), and manual join/split decisions between two telemetry recordings (source_links).
 
 Records and logs are never merged or changed: a row in flight_links only says "same flight" (same=1) or
 "not the same flight" (same=0). A telemetry flight is addressed by its log, ac_id and parser flight number, which
@@ -213,3 +214,43 @@ def conflicts(main, papers):
                 out.append(dict(field=role.upper(), record=label, paper=mine.get("display_name"),
                                 log=theirs.get("display_name")))
     return out
+
+
+def _flights_by_key(con):
+    return {(r["log_id"], r["ac_id"], r["idx"]): (r["id"], r["takeoff_utc"]) for r in con.execute(
+        "SELECT f.id, f.idx, f.takeoff_utc, a.log_id, COALESCE(a.ac_id, ?) AS ac_id FROM flights f"
+        " JOIN aircraft a ON a.id=f.aircraft_id", (NO_AC_ID,))}
+
+
+def source_decisions(con):
+    """Manual join (True) / split (False) decisions between two recordings, keyed by frozenset of current flight ids.
+    Stale decisions (a re-parse moved either flight) are left out."""
+    flights, out = _flights_by_key(con), {}
+    for r in con.execute("SELECT * FROM source_links ORDER BY created_at, id"):
+        ids = []
+        for side in ("a", "b"):
+            current = flights.get((r[side + "_log_id"], r[side + "_ac_id"], r[side + "_idx"]))
+            then = _ts(r[side + "_takeoff_utc"])
+            if current is None or (then is not None and (_ts(current[1]) is None or abs(_ts(current[1]) - then) > STALE_S)):
+                break
+            ids.append(current[0])
+        else:
+            out[frozenset(ids)] = bool(r["same"])
+    return out
+
+
+def decide_sources(con, first, others, same, user_id, stamp):
+    """Store that flight `first` is (same=True) or is not (same=False) the same flight as each of `others`."""
+    a = flight_key(con, first)
+    for other in others:
+        b = flight_key(con, other)
+        if a is None or b is None or a[:3] == b[:3]:
+            continue
+        x, y = sorted((a, b), key=lambda k: k[:3])
+        con.execute(
+            "INSERT INTO source_links(a_log_id, a_ac_id, a_idx, a_takeoff_utc, b_log_id, b_ac_id, b_idx, b_takeoff_utc,"
+            " same, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(a_log_id, a_ac_id, a_idx, b_log_id, b_ac_id, b_idx) DO UPDATE SET"
+            " a_takeoff_utc=excluded.a_takeoff_utc, b_takeoff_utc=excluded.b_takeoff_utc, same=excluded.same,"
+            " created_by=excluded.created_by, created_at=excluded.created_at",
+            (*x, *y, int(same), user_id, stamp))

@@ -3086,6 +3086,41 @@ def decide_flight_link():
         return jsonify(error=str(exc)), exc.status
 
 
+@app.post("/api/sources/links")
+def decide_source_link():
+    """Correct the automatic SD/GCS merging by hand. same=true: all flight_ids are one flight (join);
+    same=false: the first flight is not the same flight as each of the others (split it off).
+    Needs edit rights on every flight."""
+    session_required()
+    body = request.get_json(silent=True) or {}
+    flight_ids, same = body.get("flight_ids"), body.get("same")
+    if (type(same) is not bool or not isinstance(flight_ids, list) or not 2 <= len(flight_ids) <= 20
+            or any(type(f) is not int for f in flight_ids) or len(set(flight_ids)) < len(flight_ids)):
+        return jsonify(error="flight_ids (2-20 different flights) and same (true/false) are required"), 400
+    con = conn()
+    try:
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            for flight_id in flight_ids:
+                _, err = visible_editable_flight(con, flight_id)
+                if err:
+                    raise historical.RecordError("No such editable flight.", 404 if err == "missing" else 403)
+            if same:
+                rows = con.execute(
+                    "SELECT a.log_id, a.drone_id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+                    f" WHERE f.id IN ({','.join('?' * len(flight_ids))})", flight_ids).fetchall()
+                if len({r["log_id"] for r in rows}) < len(rows):
+                    raise historical.RecordError("Two flights from one log cannot be one flight.", 400)
+                if len({r["drone_id"] for r in rows} - {None}) > 1:
+                    raise historical.RecordError("These recordings belong to different fleet aircraft.", 400)
+                for other in flight_ids[1:]:  # join every pair, so the group holds whatever else is decided
+                    links.decide_sources(con, other, [f for f in flight_ids if f != other], True, g.user["id"], now())
+            links.decide_sources(con, flight_ids[0], flight_ids[1:], same, g.user["id"], now())
+        return jsonify(ok=True)
+    except historical.RecordError as exc:
+        return jsonify(error=str(exc)), exc.status
+
+
 COMMENT_MAX = 4000
 
 
@@ -3830,16 +3865,21 @@ def _same_type_overlap(start, end, other_start, other_end):
     return overlap >= 0.5 * min(end - start, other_end - other_start) - 1
 
 
-def merge_sources(flights):
+def merge_sources(flights, decisions=None):
     """Merge the same flight recorded by an onboard SD log and a ground station (GCS) log into one entry.
 
     Two flights are the same when they belong to the same aircraft and their takeoff-landing intervals overlap
     (with a small slack) and they come from different logs; two recordings of the same type must really overlap
-    (_same_type_overlap). Each recording joins its best-matching partner. The onboard log provides the flight data; the people and
+    (_same_type_overlap). Each recording joins its best-matching partner.
+
+    `decisions` maps frozenset({flight_id, flight_id}) to True (a person joined them) or False (split): joins are
+    applied first, whatever the timing or names; a split pair never ends up in one group. The onboard log provides the flight data; the people and
     goal are taken from the first source that has them (GCS first, as the pre-flight messages are sent over the link).
     """
     # Score every compatible pair of recordings first and join the best-matching pairs first, so a source is not
     # taken by an earlier, worse partner just because that partner took off first.
+    decisions = decisions or {}
+    joined = {fid for pair, same in decisions.items() if same for fid in pair}
     items, ambiguous, groups = [], [], []
     for f in flights:
         f["log_type"] = _type_of(f)
@@ -3847,7 +3887,7 @@ def merge_sources(flights):
         end = _ts(f["landing_utc"]) or (start + (f["duration_s"] or 0) if start is not None else None)
         name = (f["aircraft"] or "").casefold()
         ident = {"name": name, "ac_id": f["ac_id"], "lat": f["takeoff_lat"], "lon": f["takeoff_lon"]}
-        if f.get("aircraft_ambiguous") and f["drone_id"] is None:
+        if f.get("aircraft_ambiguous") and f["drone_id"] is None and f["flight_id"] not in joined:
             ambiguous.append((f, start, end, ident))
         elif start is None:
             groups.append({**ident, "start": None, "end": None, "logs": {f["log_id"]}, "flights": [f], "spans": []})
@@ -3859,7 +3899,8 @@ def merge_sources(flights):
         active = [k for k in active if items[k][2] + SAME_FLIGHT_SLACK_S >= start]
         for k in active:
             other, other_start, other_end, other_ident = items[k]
-            if (other["log_id"] == f["log_id"]
+            if (decisions.get(frozenset((f["flight_id"], other["flight_id"]))) is not None
+                    or other["log_id"] == f["log_id"]
                     or bool((f.get("simulation") or {}).get("detected"))
                     != bool((other.get("simulation") or {}).get("detected"))
                     or None not in (f["drone_id"], other["drone_id"]) and f["drone_id"] != other["drone_id"]
@@ -3878,16 +3919,22 @@ def merge_sources(flights):
             i = root[i]
         return i
 
-    for _, k, i in sorted(edges):
+    index = {f["flight_id"]: i for i, (f, *_rest) in enumerate(items)}
+    forced = [(None, index[x], index[y]) for pair, same in decisions.items() if same
+              for x, y in [sorted(pair)] if x in index and y in index]
+    for rank, k, i in forced + sorted(edges):
         a, b = find(k), find(i)
         if a == b:
             continue
         both = members[a] + members[b]
         if (len({items[m][0]["log_id"] for m in both}) < len(both)
                 or len({items[m][0]["drone_id"] for m in both} - {None}) > 1
-                or any(items[x][0]["log_type"] == items[y][0]["log_type"]
-                       and not _same_type_overlap(items[x][1], items[x][2], items[y][1], items[y][2])
-                       for x in members[a] for y in members[b])):
+                or any(decisions.get(frozenset((items[x][0]["flight_id"], items[y][0]["flight_id"]))) is False
+                       for x in members[a] for y in members[b])
+                or rank is not None and any(
+                    items[x][0]["log_type"] == items[y][0]["log_type"]
+                    and not _same_type_overlap(items[x][1], items[x][2], items[y][1], items[y][2])
+                    for x in members[a] for y in members[b])):
             continue
         root[b] = a
         members[a] = both
@@ -3907,6 +3954,8 @@ def merge_sources(flights):
                         or start > group["end"] + SAME_FLIGHT_SLACK_S
                         or (end or start) < group["start"] - SAME_FLIGHT_SLACK_S
                         or f["log_id"] in group["logs"]
+                        or any(decisions.get(frozenset((f["flight_id"], o["flight_id"]))) is False
+                               for o in group["flights"])
                         or any(t == f["log_type"] and not _same_type_overlap(start, end, s, e)
                                for t, s, e in group.get("spans", []))):
                     continue
@@ -4279,7 +4328,7 @@ def logbook_rows(hidden=False, hide_unlinked=False):
         d["simulation"] = json.loads(d["simulation"]) if d["simulation"] is not None else None
         apply_row_clock(d)
         prepared.append(d)
-    out = merge_sources(prepared)
+    out = merge_sources(prepared, links.source_decisions(con))
     if hide_unlinked:
         out = [r for r in out if r["drone_id"] is not None]
     for r in out:
