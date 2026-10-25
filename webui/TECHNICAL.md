@@ -280,7 +280,13 @@ minutes (or GitHub's longer rate-limit delay). Cache scopes include repository/t
 fingerprints, never plaintext tokens. Rate-limit/network failures temporarily pause further requests
 across hashes. Parsing still completes with explicit warnings, retaining unknown dates when no
 estimate can be supported. After fixing configuration or waiting for cache expiry, use the individual
-log's **Re-parse** action to retry. No bulk reparse is started automatically.
+log's **Re-parse** action to retry, or as an administrator use **Re-parse unknown dates**
+on the Uploads page. This queues completed logs with missing or implausible dates even when
+their parser version is current. It skips manual date overrides, plausible dates (including
+estimated dates), failed logs and logs already queued or parsing. It uses the same project
+scope as **Re-parse outdated**, not the displayed page or date filters. Repository/token changes
+do not mark logs outdated. Cached misses/errors still respect their retry delays when configuration
+has not changed. No bulk reparse is started automatically.
 
 A calendar date more than a day before the latest resolved firmware commit is flagged, never
 replaced if otherwise plausible. For an unknown/implausible date only, consistent week-zero samples
@@ -1181,5 +1187,6 @@ Future telemetry formats can provide that read model without treating paper reco
 
 **API** (all JSON, login or API key): `POST /api/upload`, `POST /api/logs/check`, `GET /api/logs`,
 `GET|DELETE /api/logs/<id>`, `POST /api/logs/<id>/reparse`, `POST /api/reparse-outdated`,
+`POST /api/reparse-unknown-dates` (administrator),
 `GET /api/logs/<id>/download/{data,log}`, `GET /api/logbook`, `GET /api/flights/<id>/detail`,
 `GET /api/flights/<id>/path`, `GET /api/aircraft/<id>/config`, `GET /api/status`, `GET /api/me`.

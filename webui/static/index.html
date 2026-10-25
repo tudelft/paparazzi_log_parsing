@@ -83,6 +83,7 @@
       <button type="button" class="sec" id="olderLogs">Older</button>
     </div>
       <button class="sec" id="reparseAll" style="margin-left:auto" onclick="reparseOutdated()" hidden>Re-parse outdated</button>
+      <button class="sec" id="reparseUnknownDates" onclick="reparseUnknownDates()" hidden>Re-parse unknown dates</button>
     </div>
     <div class="scroll">
     <table>
@@ -134,6 +135,7 @@ function fillProjects() {
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
   $('reparseAll').hidden = !me.is_admin;
+  $('reparseUnknownDates').hidden = !me.is_admin;
   $('who').textContent = me.display_name + (me.is_admin ? ' (admin)' : '');
   projects = await fetch('/api/projects').then(r => r.json());
   fillProjects();
@@ -513,6 +515,22 @@ async function del(id) {
   refresh();
 }
 async function reparseOutdated() { await fetch('/api/reparse-outdated', {method: 'POST'}); refresh(); }
+async function reparseUnknownDates() {
+  if (!confirm('Re-parse completed logs with unknown dates, even with the current parser version? Confirmed and estimated dates are left unchanged.')) return;
+  const button = $('reparseUnknownDates');
+  button.disabled = true;
+  try {
+    const r = await fetch('/api/reparse-unknown-dates', {method: 'POST'});
+    const result = await r.json();
+    if (!r.ok) throw new Error(result.error || 'Could not queue logs');
+    alert(`Queued ${result.queued.length} logs with unknown dates.`);
+    refresh();
+  } catch (error) {
+    alert(`Could not re-parse unknown dates: ${error.message}`);
+  } finally {
+    button.disabled = false;
+  }
+}
 async function setProject(id, value) {
   await fetch('/api/logs/' + id + '/project', {method: 'PUT', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({project_id: value ? +value : null})});

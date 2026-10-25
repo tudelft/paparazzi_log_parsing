@@ -5068,6 +5068,32 @@ def reparse(log_id):
     return jsonify(queued=[])
 
 
+@app.post("/api/reparse-unknown-dates")
+def reparse_unknown_dates():
+    """Retry completed logs whose effective calendar date is still unknown."""
+    admin_required()
+    con = conn()
+    where, params = list_clause()
+
+    def queue_unknown():
+        ids = []
+        for row in con.execute(
+                f"SELECT id, start_utc FROM logs WHERE {where} AND status='done'"
+                " AND (date_override IS NULL OR date_override='')", params).fetchall():
+            if clock_implausible(row["start_utc"]):
+                changed = con.execute(
+                    "UPDATE logs SET status='queued' WHERE id=? AND status='done'", (row["id"],)).rowcount
+                if changed:
+                    ids.append(row["id"])
+        con.commit()
+        return ids
+
+    ids = db.retry_locked(queue_unknown, con)
+    for log_id in ids:
+        jobs.put(log_id)
+    return jsonify(queued=ids)
+
+
 @app.post("/api/reparse-outdated")
 def reparse_outdated():
     """Queue every log parsed by another parser version than the installed one, and failed ones."""
