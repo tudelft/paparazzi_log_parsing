@@ -252,6 +252,30 @@
       `<a href="${href}"${href === here ? ' class="cur" aria-current="page"' : ''}>${label}</a>`).join('');
   }
 
+  function paintVersion(version) {
+    let footer = document.getElementById('webuiVersion');
+    if (!footer) {
+      footer = document.createElement('footer');
+      footer.id = 'webuiVersion';
+      document.body.appendChild(footer);
+    }
+    const link = document.createElement('a');
+    const repo = 'https://github.com/tudelft/paparazzi_log_parsing';
+    link.href = version?.commit ? `${repo}/commit/${version.commit}` : repo;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    const release = version?.tag ? version.tag.replace(/^webui-/, '') : '';
+    const ahead = version?.commits_since_tag
+      ? ` + ${version.commits_since_tag} commit${version.commits_since_tag === 1 ? '' : 's'}` : '';
+    link.textContent = version?.commit
+      ? `Web UI · ${release ? release + ahead + ' · ' : ''}${version.commit.slice(0, 8)}${version.modified ? ' (modified)' : ''}`
+      : 'GitHub · Web UI version unavailable';
+    link.title = version?.commit
+      ? `Running revision: ${version.commit}${version.modified ? ' with local tracked changes' : ''}. Recorded at server startup. View on GitHub.`
+      : 'The running revision could not be determined. Open the project on GitHub.';
+    footer.replaceChildren(link);
+  }
+
   // Pages opt in with <body data-edit="all"> or <body data-edit="admin">.
   function paintEdit() {
     const night = document.getElementById('nightBtn');
@@ -285,6 +309,7 @@
   ready(() => {
     paintNav();
     paintEdit();
+    if (!/^\/(login|setup)/.test(location.pathname)) paintVersion(null);
     const who = document.getElementById('who');
     if (who && !/^\/(login|setup)/.test(location.pathname)) {
       who.style.cursor = 'pointer';
@@ -300,10 +325,12 @@
         try { localStorage.removeItem(ADMIN_KEY); } catch (e) {}
         return;
       }
-      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(`Could not load account and Web UI version (${r.status})`);
+      const d = await r.json();
+      ready(() => paintVersion(d.webui_version));
       admin = !!(d.user && d.user.is_admin);
       setCachedAdmin(admin);
       paintEdit();
-    }).catch(() => {});
+    }).catch(error => { console.warn('Could not load account and Web UI version:', error); });
   }
 })();

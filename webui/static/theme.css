@@ -22,6 +22,9 @@ html.night {
 
 html.night header { background:#0c1218; }
 main a { color:var(--acc); }
+#webuiVersion { padding:12px 20px 18px; text-align:center; font-size:12px; color:var(--mute); }
+#webuiVersion a { color:var(--mute); text-decoration:none; overflow-wrap:anywhere; }
+#webuiVersion a:hover, #webuiVersion a:focus-visible { color:var(--acc); text-decoration:underline; }
 main table a:not(.btn) { color:var(--acc); text-decoration:none; font-weight:500; }
 main table a:not(.btn):hover, main table a:not(.btn):focus-visible {
   color:var(--acc); text-decoration:underline; text-underline-offset:3px;

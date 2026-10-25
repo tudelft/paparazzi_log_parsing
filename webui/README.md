@@ -32,6 +32,9 @@ existing `/logbook` links still work.
 
 - Dates and times are **UTC**. Indoor and uncertain/non-flight records are hidden by default;
   enable their filters when needed.
+- The page footer shows the Web UI release (when tagged), commits since that release and running
+  revision, linking to that exact commit on GitHub.
+  **(modified)** indicates local code changes; this is separate from the telemetry parser version.
 - Use **Flight filters** in the top menu to select a period (default: last three years), custom
   UTC dates, **Show indoor / no-GPS flights** and **Show non-flights**. Choose **Apply filters**;
   the selection stays the same when moving between pages in this browser. **Reset** restores

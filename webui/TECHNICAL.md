@@ -53,6 +53,18 @@ Day-to-day:
 
 After an update that changes the parser version, click **Re-parse outdated** on the Uploads page.
 
+The shared page footer shows the nearest reachable `webui-vMAJOR.MINOR.PATCH` release tag, the number
+of commits since it (when nonzero), and a link to the Web UI's exact Git commit. Web UI release tags
+are separate from parser versions; create an annotated tag on the tested release commit and push
+that tag with the code. Deployments must fetch tags to display release names.
+The revision, release description and tracked-change status are
+captured once when the server process starts and returned with authenticated `/api/me` responses;
+pulling code without restarting does not change that reported revision. Restart after updates.
+Untracked files (including local data and environments) do not mark the revision modified.
+Deployments without Git metadata or a working Git executable show **version unavailable** and link
+to the repository instead; the server logs the detection problem. This identifies the Web UI checkout,
+not the installed parser binary or a separately cached browser asset.
+
 **Fixed-wing navigation fallback.** Parser 1.7.9 can fill gaps in direct GPS using recorded
 `NAVIGATION.pos_x/pos_y` (metres east/north) and the latest received `NAVIGATION_REF`
 UTM origin. GPS still takes precedence for two seconds. A reference must first agree

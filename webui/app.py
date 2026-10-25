@@ -70,6 +70,43 @@ INGEST_WORKERS = env_int("INGEST_WORKERS")
 PAGES_DIR = HERE / "static"
 # Pages are served by explicit routes so nothing is reachable without logging in (except the login page)
 app = Flask(__name__, static_folder=None)
+
+
+def detect_webui_version():
+    """Snapshot this checkout at process startup, not after a later git pull."""
+    unknown = dict(commit=None, modified=None, tag=None, commits_since_tag=None)
+    if not (HERE.parent / ".git").exists():
+        app.logger.warning("Web UI revision unavailable: deployment has no Git metadata")
+        return unknown
+    try:
+        revision = subprocess.run(
+            ["git", "rev-parse", "--verify", "HEAD"], cwd=HERE.parent,
+            capture_output=True, text=True, timeout=5, check=True).stdout.strip()
+        if not re.fullmatch(r"[0-9a-f]{40,64}", revision):
+            app.logger.warning("Web UI revision unavailable: invalid Git revision")
+            return unknown
+        changes = subprocess.run(
+            ["git", "diff", "--quiet", "HEAD", "--"], cwd=HERE.parent,
+            capture_output=True, timeout=5)
+        if changes.returncode not in (0, 1):
+            app.logger.warning("Web UI revision unavailable: Git change check failed")
+            return unknown
+        description = subprocess.run(
+            ["git", "describe", "--tags", "--long", "--always", "--match", "webui-v[0-9]*", revision],
+            cwd=HERE.parent, capture_output=True, text=True, timeout=5, check=True).stdout.strip()
+        release = re.fullmatch(r"(webui-v[0-9]+\.[0-9]+\.[0-9]+)-([0-9]+)-g[0-9a-f]+", description)
+        if release is None and not re.fullmatch(r"[0-9a-f]+", description):
+            app.logger.warning("Web UI release tag unavailable: unexpected Git description")
+        return dict(commit=revision, modified=changes.returncode == 1,
+                    tag=release[1] if release else None,
+                    commits_since_tag=int(release[2]) if release else None)
+    except (OSError, subprocess.SubprocessError) as exc:
+        app.logger.warning("Web UI revision unavailable: %s", exc)
+        return unknown
+
+
+WEBUI_VERSION = detect_webui_version()
+
 if env_int("PROXIES"):
     n = env_int("PROXIES")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=n, x_proto=n, x_host=n)
@@ -1062,7 +1099,7 @@ def check_logs():
 
 @app.get("/api/me")
 def me():
-    return jsonify(user=user_public(g.user))
+    return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION)
 
 
 @app.get("/api/people")
