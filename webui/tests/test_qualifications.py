@@ -421,6 +421,39 @@ class QualificationTests(AppTests):
             self.assertEqual(self.client.put(f"/api/qualification-types/{second}", json={
                 "name": "Rotorcraft", "requires_evidence": True, "internal": invalid}).status_code, 400)
 
+    def test_saved_type_order_reaches_people_overviews_and_account(self):
+        second = self.create_type("Rotorcraft", False)
+        third = self.create_type("Crew check", False)
+        for tid in (second, self.tid, third):
+            sid = self.submit(tid=tid).json["id"]
+            self.assertEqual(self.review(sid).status_code, 200)
+        types = self.client.get("/api/admin/qualification-types").json["types"]
+        by_id = {t["id"]: dict(id=t["id"], name=t["name"], requires_evidence=bool(t["requires_evidence"]),
+                              requires_start=bool(t["requires_start"]), requires_expiry=bool(t["requires_expiry"]),
+                              internal=bool(t["internal"]), active=bool(t["active"])) for t in types}
+        order = [self.tid, third, second]
+        response = self.client.put("/api/admin/qualification-types", json={
+            "types": [by_id[tid] for tid in order]})
+        self.assertEqual(response.status_code, 200, response.json)
+        expected = ["A1/A3", "Crew check", "Rotorcraft"]
+
+        def names(payload):
+            return [item["category"] for item in payload["items"] if item["status"] == "approved"]
+
+        for endpoint in ("/api/admin/people", "/api/people-directory"):
+            payload = self.client.get(endpoint).json
+            person = next(u for u in payload["users"] if u["id"] == 2)
+            self.assertEqual(names(person["qualifications"]), expected)
+        self.assertEqual(names(self.listing().json), expected)
+        self.assertEqual(names(self.client.get("/api/detail/people/2").json["item"]["qualifications"]), expected)
+        self.sign_in(2)
+        person = next(u for u in self.client.get("/api/people-directory").json["users"] if u["id"] == 2)
+        self.assertEqual(names(person["qualifications"]), expected)
+        self.assertEqual(names(self.listing().json), expected)
+        self.sign_in(3)
+        person = next(u for u in self.client.get("/api/people-directory").json["users"] if u["id"] == 2)
+        self.assertIsNone(person["qualifications"])
+
     def test_management_page_assets_and_read_only_pilot_page(self):
         with self.client.get("/qualifications.js") as response:
             self.assertEqual(response.status_code, 200)

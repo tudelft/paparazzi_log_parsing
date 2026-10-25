@@ -620,6 +620,8 @@ remain subject to the existing page access rules. Use private uploads, not fligh
 An admin first adds types under **Qualification types** on People, for example `A1/A3`, `A2`,
 `RT licence` or an internal qualification. Each type has evidence-required, start-date, expiry,
 internal and active switches. Internal is a label for in-house qualifications, not a licence rule.
+Qualification chips in the People overview and current account qualification lists follow the saved
+type order, not submission order; multiple submissions of one type are newest first.
 Types keep a `sort_order`; the People editor reorders them by drag-and-drop and writes every type
 with one Save (`PUT /api/admin/qualification-types`). Types can be disabled.
 Types have no hard-coded proof rules. Disabling a type stops submissions and approvals, without erasing

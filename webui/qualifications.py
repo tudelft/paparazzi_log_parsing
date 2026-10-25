@@ -66,7 +66,7 @@ def qualifications_payload(con, viewer, user_id):
             "SELECT q.*,t.name AS category,t.requires_evidence,t.requires_start,t.requires_expiry,t.internal,"
             " COALESCE(u.display_name,u.username) AS reviewer FROM qualification_submissions q"
             " JOIN qualification_types t ON t.id=q.type_id LEFT JOIN users u ON u.id=q.reviewed_by"
-            " WHERE q.user_id=? ORDER BY q.id DESC", (user_id,)):
+            " WHERE q.user_id=? ORDER BY t.sort_order, t.name, q.id DESC", (user_id,)):
         item = {key: row[key] for key in (
             "id", "type_id", "category", "status", "valid_from", "valid_until", "submitted_at",
             "reviewed_at", "reviewer", "evidence_deleted_at", "filename", "requires_evidence",
