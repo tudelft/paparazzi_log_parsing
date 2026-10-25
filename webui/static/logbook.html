@@ -311,7 +311,8 @@ const kv = (k, v) => v == null || v === '' ? '' : `<span class="mute">${k}</span
 
 function detail(f) {
   if (f.manual_id) return `<h4>Paper ${f.record_kind === 'daily' ? 'daily summary' : 'flight record'}</h4>
-    <p>${f.flight_count} flight(s) · ${fmtDur(f.duration_s)} total. ${f.takeoff_utc.length === 10 ? 'Takeoff time not recorded.' : ''}</p>
+    <p>${f.flight_count} flight(s) · ${fmtDur(f.duration_s)} total. ${f.takeoff_utc.length === 10 ? 'Takeoff time not recorded.'
+      : f.record_kind === 'daily' ? 'Takeoff is the first takeoff of the session.' : ''}</p>
     ${f.reference ? `<p>Reference: ${esc(f.reference)}</p>` : ''}
     ${f.comment ? `<p class="note">${esc(f.comment)}</p>` : ''}
     <p class="mute">No telemetry, flight path, distance or software version recorded.</p>

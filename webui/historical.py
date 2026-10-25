@@ -93,8 +93,6 @@ def validate(con, user, body):
     out["kind"] = ("daily" if out["flight_count"] > 1 else "flight") if kind in (None, "") else kind
     if out["kind"] not in ("flight", "daily") or (out["kind"] == "flight" and out["flight_count"] != 1):
         raise RecordError("An individual flight must have flight count 1; use daily for a summary.")
-    if out["kind"] == "daily" and out["takeoff_time"]:
-        raise RecordError("Leave takeoff time blank for a daily summary.")
     for key, limit in (("goal", 1000), ("comment", 4000), ("reference", 500)):
         value = body.get(key)
         if value is None:

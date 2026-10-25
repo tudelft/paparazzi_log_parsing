@@ -180,6 +180,36 @@ class FlightLinkTests(LinkFixtures):
         self.assertEqual((row["action"], [f["flight_id"] for f in row["logs"]["linked"]]), ("update", [1]))
         self.assertIsNotNone(row["record_id"])
 
+    def test_daily_record_with_first_takeoff_is_suggested_never_auto_linked(self):
+        # A session of three flights in one paper row: first takeoff 12:00, 30 min in total.
+        for ident, start in ((1, "12:00:00"), (2, "12:15:00"), (3, "12:35:00"), (4, "14:00:00")):
+            self.flight(ident, start)
+        record = self.create(kind="daily", flight_count=3, takeoff_time="12:00", duration_minutes="30").json["id"]
+        rows = self.logbook()
+        paper = next(r for r in rows if r["source_type"] == "paper")
+        self.assertEqual(paper["takeoff_utc"], "2010-01-01T12:00:00.000Z")
+        self.assertEqual(sorted(d["flight_ids"][0] for d in paper["possible_duplicates"]), [1, 2, 3])
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM flight_links").fetchone()[0], 0)
+        matches = self.ns["links"].record_matches(self.con, record)  # the import preview uses the same window
+        self.assertEqual(([f["flight_id"] for f in matches["possible"]], matches["linked"]), ([1, 2, 3], []))
+        self.assertEqual(self.decide(record, [1, 2, 3], True).status_code, 200)
+        linked = next(r for r in self.logbook() if r.get("linked_records"))
+        self.assertEqual((linked["flight_count"], linked["duration_s"]), (3, 300))
+
+    def test_reimport_by_reference_turns_a_flight_into_a_daily_record(self):
+        self.sign_in(1)
+        header = "aircraft,pic,project,date,duration_minutes,flight_count,takeoff_time,reference\n"
+        def post(text):
+            response = self.client.post("/api/historical/import", data={"file": (io.BytesIO(text.encode()), "p.csv")})
+            response.request.input_stream.close()
+            return response
+        self.assertEqual(post(header + "Drone,Pilot,Research,2010-01-01,30,1,12:00,F00007\n").status_code, 201)
+        record = self.con.execute("SELECT id FROM flight_records").fetchone()[0]
+        again = post(header + "Drone,Pilot,Research,2010-01-01,30,4,12:00,F00007\n")
+        self.assertEqual((again.status_code, again.json["updated"]), (200, 1), again.json)
+        row = self.con.execute("SELECT id, kind, flight_count, takeoff_time FROM flight_records").fetchone()
+        self.assertEqual(tuple(row), (record, "daily", 4, "12:00:00"))
+
 
 class SourceLinkTests(LinkFixtures):
     def join(self, flight_ids, same=True):
