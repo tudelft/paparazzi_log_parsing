@@ -20,7 +20,7 @@
   .scroll { overflow-x:auto; }
   h2 { margin:0 0 8px; font-size:15px; }
   table { width:max-content; min-width:100%; border-collapse:collapse; }
-  .directory-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:8px; margin-top:10px; }
+  .directory-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:8px; }
   .directory-person { position:relative; min-width:0; height:86px; border:1px solid var(--fieldline); border-left:4px solid var(--acc); border-radius:8px; padding:8px 10px; background:var(--detail); box-shadow:0 2px 4px #0002; }
   .directory-person-header { display:contents; }
   .directory-person .person-name { display:block; max-width:calc(100% - 156px); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
@@ -54,16 +54,16 @@
   #addUser:not([hidden]) { display:flex; }
   input, select { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
   #err { color:var(--err); margin-bottom:8px; }
+  #err:empty { display:none; }
   .pair { display:flex; align-items:center; gap:8px; white-space:nowrap; }
   .pair input { width:150px; }
   .people-layout { display:grid; grid-template-columns:minmax(240px,320px) minmax(0,1fr); gap:16px; margin-top:16px; align-items:start; }
   .people-picker, #personPanel { border:1px solid var(--line); border-radius:8px; padding:16px; background:var(--detail); }
   .people-picker { padding:10px; }
   .people-picker #peopleCount { margin:6px 0; }
-  .people-title-row { display:flex; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
+  .people-title-row { display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
   .people-title-row h2 { margin:0; }
   .people-help { margin-left:auto; }
-  .people-help summary { font-size:13px; font-weight:400; color:var(--mute); }
   #personPanel { border-top:4px solid var(--acc); background:var(--card); }
   .person-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
   #personHeading { font-size:20px; margin:0; }
@@ -116,10 +116,11 @@
   </section>
   <section class="card">
     <div class="people-title-row"><h2>People</h2>
-    <button type="button" class="editOnly" hidden onclick="$('addUserDialog').showModal()">Add user</button>
+    <label class="directory-search" id="directorySearchLabel"><input type="search" id="directorySearch" aria-label="Search people" placeholder="Search people" oninput="renderDirectory()"></label>
     <label id="showExternalLabel" title="External people stay hidden until this is ticked" hidden><input type="checkbox" id="showExternal" onchange="render()"> Show external</label>
     <label title="Include people without logs, paper records or approved qualifications"><input type="checkbox" id="showWithoutLogs" onchange="render()"> Include unused profiles</label>
-    <label class="directory-search" id="directorySearchLabel"><input type="search" id="directorySearch" aria-label="Search people" placeholder="Search people" oninput="renderDirectory()"></label>
+    <span class="mute" id="directoryCount" role="status"></span>
+    <button type="button" class="editOnly" hidden onclick="$('addUserDialog').showModal()">Add user</button>
     <details class="people-help"><summary>Help</summary>
     <p id="peopleHint">Accounts that can sign in. Names from the logs are matched to these accounts.</p>
     </details></div>
@@ -165,7 +166,6 @@
       </div>
     </div>
     <div id="directoryTable">
-      <p class="mute" id="directoryCount" role="status"></p>
       <div class="directory-grid" id="directoryPeople"></div>
     </div>
   </section>
@@ -276,6 +276,7 @@ function render() {
   $('adminPeople').hidden = !editing;
   $('directoryTable').hidden = editing;
   $('directorySearchLabel').hidden = editing;
+  $('directoryCount').hidden = editing;
   $('approvalSection').hidden = !admin || pendingQualifications.length === 0;
   $('typesSection').hidden = !editing;
   const open = admin ? people.unlinked.length : 0;
