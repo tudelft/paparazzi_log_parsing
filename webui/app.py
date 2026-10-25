@@ -52,6 +52,7 @@ import config
 import qualifications
 import weather
 import mav_parse
+import firmware
 from config import env, env_bool, env_float, env_int, env_path
 
 HERE = Path(__file__).resolve().parent
@@ -244,6 +245,8 @@ def parse_log(log_id):
                 doc = json.load(f)
             os.remove(out_path)
             out_path = None
+        firmware.enrich(doc, con, env("FIRMWARE_GITHUB_REPOS"), env("FIRMWARE_GITHUB_TOKEN"),
+                        env_bool("FIRMWARE_GITHUB_ENABLED"))
         seconds = time.time() - t0
         paths_rel = str(Path(row["data_path"]).parent / f"paths-{uuid.uuid4().hex[:12]}.json.gz")
         write_atomic(STORAGE_DIR / paths_rel, db.pack(db.flight_paths(doc)))
@@ -3657,9 +3660,9 @@ def parse_iso_utc(iso):
 
 
 def clock_implausible(start_utc):
-    """True when the file has no calendar date, or one before 1990 (GPS/Unix epoch)."""
+    """Reject missing/epoch calendar dates and clocks more than a day in the future."""
     dt = parse_iso_utc(start_utc)
-    return dt is None or dt.year < CLOCK_MIN_YEAR
+    return dt is None or dt.year < CLOCK_MIN_YEAR or dt > datetime.now(timezone.utc) + timedelta(days=1)
 
 
 def parse_date_override(raw):
@@ -3729,6 +3732,7 @@ def apply_row_clock(r):
     """Set date_ok and shift takeoff/landing times on a logbook/flight dict using that log's override."""
     raw_start = r.get("log_start_utc") if r.get("log_start_utc") is not None else r.get("start_utc")
     override = r.get("date_override")
+    r["date_estimated"] = bool(r.get("date_estimated")) and not bool(override)
     r["date_ok"] = bool(override) or not clock_implausible(raw_start)
     days = clock_shift_days(raw_start, override)
     if days:
@@ -3744,6 +3748,9 @@ def log_timing(row):
     if row["date_override"]:
         timing = dict(timing or {})
         timing["parsed_source"] = timing.get("source")
+        timing["parsed_status"] = timing.get("status")
+        timing["status"] = "manual"
+        timing["estimated"] = False
         timing["source"] = "manual"
         timing["effective_start_utc"] = shift_iso(
             row["start_utc"], clock_shift_days(row["start_utc"], row["date_override"]))
@@ -3755,6 +3762,7 @@ def log_dict(row):
     d["timing"] = log_timing(row)
     raw_start = d.get("start_utc")
     override = d.get("date_override")
+    d["date_estimated"] = bool(d.get("date_estimated")) and not bool(override)
     d["date_ok"] = bool(override) or not clock_implausible(raw_start)
     days = clock_shift_days(raw_start, override)
     if days:
@@ -3980,7 +3988,9 @@ def merge_sources(flights, decisions=None):
         end = _ts(f["landing_utc"]) or (start + (f["duration_s"] or 0) if start is not None else None)
         name = (f["aircraft"] or "").casefold()
         ident = {"name": name, "ac_id": f["ac_id"], "lat": f["takeoff_lat"], "lon": f["takeoff_lon"]}
-        if f.get("aircraft_ambiguous") and f["drone_id"] is None and f["flight_id"] not in joined:
+        if f.get("date_estimated") and f["flight_id"] not in joined:
+            groups.append({**ident, "start": start, "end": end, "logs": {f["log_id"]}, "flights": [f], "spans": []})
+        elif f.get("aircraft_ambiguous") and f["drone_id"] is None and f["flight_id"] not in joined:
             ambiguous.append((f, start, end, ident))
         elif start is None:
             groups.append({**ident, "start": None, "end": None, "logs": {f["log_id"]}, "flights": [f], "spans": []})
@@ -3993,6 +4003,7 @@ def merge_sources(flights, decisions=None):
         for k in active:
             other, other_start, other_end, other_ident = items[k]
             if (decisions.get(frozenset((f["flight_id"], other["flight_id"]))) is not None
+                    or f.get("date_estimated") or other.get("date_estimated")
                     or other["log_id"] == f["log_id"]
                     or bool((f.get("simulation") or {}).get("detected"))
                     != bool((other.get("simulation") or {}).get("detected"))
@@ -4044,6 +4055,7 @@ def merge_sources(flights, decisions=None):
         if f["log_type"] == "onboard_sd" and start is not None and valid_gps_location(ident["lat"], ident["lon"]):
             for group in groups:
                 if (group["start"] is None or group["end"] is None
+                        or any(o.get("date_estimated") for o in group["flights"])
                         or start > group["end"] + SAME_FLIGHT_SLACK_S
                         or (end or start) < group["start"] - SAME_FLIGHT_SLACK_S
                         or f["log_id"] in group["logs"]
@@ -4092,6 +4104,7 @@ def merge_sources(flights, decisions=None):
         fl = sorted(sorted(g["flights"], key=lambda r: r["takeoff_utc"] or ""),
                     key=lambda r: (TYPE_ORDER[r["log_type"]], -(r["duration_s"] or 0)))
         main = dict(fl[0])
+        main["date_estimated"] = any(o.get("date_estimated") for o in fl)
         assessed = [o["simulation"] for o in fl if o.get("simulation") is not None]
         if assessed:
             main["simulation"] = {
@@ -4163,7 +4176,7 @@ LOGBOOK_OVERVIEW_KEYS = (
     "project_id", "project_name", "takeoff_place", "takeoff_place_id", "takeoff_lat", "takeoff_lon",
     "landing_place", "landing_place_id", "landing_lat", "landing_lon",
     "pic", "pac", "gcs", "goal", "comment", "verdict", "indoor", "optitrack",
-    "date_ok", "date_override", "hidden", "can_edit_record", "can_edit_crew",
+    "date_ok", "date_override", "date_estimated", "hidden", "can_edit_record", "can_edit_crew",
     "can_edit_project", "can_edit_date", "linked_records", "conflicts", "possible_duplicates",
 )
 
@@ -4327,7 +4340,7 @@ def stats():
     """
     keys = ("aircraft", "aircraft_uid", "drone_id", "project_id", "project_name",
             "duration_s", "distance_m", "from_takeoff_m", "max_from_takeoff_m",
-            "takeoff_utc", "date_ok", "date_override", "verdict", "indoor", "simulation", "flight_count", "source_type",
+            "takeoff_utc", "date_ok", "date_override", "date_estimated", "verdict", "indoor", "simulation", "flight_count", "source_type",
             "pic", "pac", "pic_user", "pac_user")
     rows = logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT"))
     logs = {s["log_id"]: s.get("size_bytes") for r in rows for s in r["sources"]}
@@ -4406,7 +4419,7 @@ def logbook_rows(hidden=False, hide_unlinked=False):
         " EXISTS(SELECT 1 FROM ambiguous_drone_names n WHERE n.name=TRIM(a.name) COLLATE NOCASE) AS aircraft_ambiguous,"
         " f.verdict, f.assessment_json, f.takeoff_voltage_v, f.landing_voltage_v, f.num_points, f.takeoff_json, f.landing_json,"
         " l.id AS log_id, l.name AS log_name, l.size_bytes, l.log_type, l.uploaded_by, l.uploaded_at, l.sha256, l.log_path IS NOT NULL AS has_log,"
-        " l.project_id AS log_project_id, l.start_utc AS log_start_utc, l.date_override,"
+        " l.project_id AS log_project_id, l.start_utc AS log_start_utc, l.date_override, l.date_estimated,"
         " (SELECT username FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name"
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id"
         " LEFT JOIN drones d ON d.id = a.drone_id"
@@ -4571,7 +4584,7 @@ DETAIL_KINDS = ("people", "aircraft", "projects", "locations")
 DETAIL_FLIGHT_KEYS = (
     "flight_id", "takeoff_utc", "landing_utc", "duration_s", "distance_m", "max_from_takeoff_m", "landed",
     "aircraft", "aircraft_uid", "drone_id", "project_id", "project_name", "takeoff_lat", "takeoff_lon",
-    "takeoff_place", "takeoff_place_id", "landing_place", "landing_place_id", "indoor", "verdict", "date_ok", "date_override",
+    "takeoff_place", "takeoff_place_id", "landing_place", "landing_place_id", "indoor", "verdict", "date_ok", "date_override", "date_estimated",
     "pic", "pac", "gcs", "pic_user", "pac_user", "gcs_user", "goal", "comment", "simulation",
     "takeoff_voltage_v", "landing_voltage_v", "manual_id", "source_type", "flight_count", "record_kind")
 
@@ -4684,7 +4697,7 @@ def detail_logs(con, kind, item_id, log_ids):
         f" FROM logs l LEFT JOIN projects p ON p.id = l.project_id WHERE ({where}) AND {cond}"
         " ORDER BY COALESCE(l.start_utc, l.uploaded_at) DESC", (*params, *args)).fetchall()
     keep = ("id", "name", "log_type", "status", "size_bytes", "uploaded_at", "uploaded_by_name", "project_id",
-            "project_name", "start_utc", "duration_s", "date_ok", "date_override", "has_log", "aircraft_names", "num_flights")
+            "project_name", "start_utc", "duration_s", "date_ok", "date_override", "date_estimated", "has_log", "aircraft_names", "num_flights")
     return [{k: d.get(k) for k in keep} for d in map(log_dict, rows)]
 
 

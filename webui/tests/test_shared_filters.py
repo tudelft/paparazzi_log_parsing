@@ -84,6 +84,20 @@ class SharedFilterTests(AppTests):
                 self.assertEqual(response.status_code, 400)
                 self.assertIn("error", response.json)
 
+    def test_estimated_dates_are_not_unknown_and_still_obey_period(self):
+        self.con.execute("UPDATE logs SET date_estimated=1 WHERE id=1")
+        self.con.commit()
+        rows = self.client.get("/api/logbook?view=overview").json
+        estimate = next(row for row in rows if row["log_id"] == 1)
+        self.assertTrue(estimate["date_ok"])
+        self.assertTrue(estimate["date_estimated"])
+        for query, count in (("unknown_dates=0", 2),
+                             ("unknown_dates=0&from=2010-01-01&to=2010-01-01", 1),
+                             ("unknown_dates=0&from=2011-01-01", 1)):
+            with self.subTest(query=query):
+                data = self.client.get("/api/places?" + query).json
+                self.assertEqual(data["places"][0]["flights"], count)
+
     def test_zero_flight_detail_logs_include_corrected_date_for_client_filtering(self):
         self.con.execute(
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,"

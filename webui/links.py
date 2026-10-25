@@ -39,7 +39,9 @@ def resolved(con):
     for r in con.execute(
             "SELECT k.*, f.id AS flight_id, f.takeoff_utc AS current_takeoff FROM flight_links k"
             " JOIN aircraft a ON a.log_id=k.log_id AND COALESCE(a.ac_id, ?)=k.ac_id"
-            " JOIN flights f ON f.aircraft_id=a.id AND f.idx=k.idx", (NO_AC_ID,)):
+            " JOIN logs l ON l.id=a.log_id"
+            " JOIN flights f ON f.aircraft_id=a.id AND f.idx=k.idx"
+            " WHERE k.origin!='auto' OR l.date_estimated=0 OR l.date_override IS NOT NULL", (NO_AC_ID,)):
         then, current = _ts(r["takeoff_utc"]), _ts(r["current_takeoff"])
         if then is not None and (current is None or abs(current - then) > STALE_S):
             continue
@@ -67,7 +69,7 @@ def _telemetry(con):
         "SELECT f.id, f.takeoff_utc, f.landing_utc, f.duration_s, a.drone_id FROM flights f"
         " JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id"
         " WHERE l.status='done' AND f.hidden=0 AND a.drone_id IS NOT NULL AND f.verdict!='ground'"
-        " AND l.date_override IS NULL AND f.takeoff_utc>='2000'"
+        " AND l.date_override IS NULL AND l.date_estimated=0 AND f.takeoff_utc>='2000'"
         " AND (a.simulation IS NULL OR json_extract(a.simulation, '$.detected') IS NOT 1)")
     out = []
     for r in rows:

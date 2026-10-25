@@ -35,6 +35,12 @@ SETTINGS = {
         "BACKUP_EXTERNAL_PERMISSIONS": ("0", "Allow backups when the destination cannot enforce chmod 600. "
                                        "Enable only when share/host ACLs restrict access to trusted operators"),
         "FASTREADER": (str(HERE.parent / "cpp" / "build" / "paparazzi_log_parsing"), "Parser binary"),
+        "FIRMWARE_GITHUB_ENABLED": ("1", "Resolve firmware commit dates via GitHub automatically during parsing "
+                                       "(sends revision hashes, never log contents). 0 disables lookups and week estimates"),
+        "FIRMWARE_GITHUB_REPOS": ("", "Additional public/private GitHub owner/repository names, comma-separated; "
+                                    "direct hash lookups also cover non-default branches"),
+        "FIRMWARE_GITHUB_TOKEN": (None, "Server-side GitHub token with read access to configured private repositories; "
+                                      "optional for public lookups. Never put credentials in repository names"),
         "WORKERS": ("1", "Logs parsed in parallel; increase only with sufficient RAM and local temporary disk"),
         "INGEST_WORKERS": ("1", "Background threads that hash, deduplicate and unzip uploads"),
         "LOCAL_MIN_FREE_BYTES": ("2147483648", "Local disk headroom retained while staging/decompressing uploads "
@@ -184,11 +190,16 @@ def check():
         print(f"\n{group}")
         for name in items:
             value = str(env_path(name)) if name in PORTABLE_DEFAULTS else env(name)
-            shown = "(hidden)" if name == "SECRET_KEY" and value else (
+            shown = "(hidden)" if name in ("SECRET_KEY", "FIRMWARE_GITHUB_TOKEN") and value else (
                 value if value is not None else "(not set)")
             print(f"  LOGDB_{name:<18} {shown:<52} {source(name)}")
 
     errors, warnings = [], []
+    import firmware
+    try:
+        firmware.repositories(env("FIRMWARE_GITHUB_REPOS"))
+    except ValueError as exc:
+        errors.append(f"LOGDB_FIRMWARE_GITHUB_REPOS: {exc}")
     if env_int("ATTACHMENT_MAX_BYTES") <= 0:
         errors.append("LOGDB_ATTACHMENT_MAX_BYTES must be positive")
     for setting in ("BULK_MAX_PENDING", "BULK_MAX_BYTES", "LOCAL_MIN_FREE_BYTES"):

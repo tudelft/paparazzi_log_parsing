@@ -1,3 +1,29 @@
+window.estimatedDateBadge = function (record) {
+  return record.date_estimated ? ' <span class="badge date-unknown" title="GPS time-of-week plus firmware commit; the calendar week is uncertain">estimated date</span>' : '';
+};
+
+window.timingEvidenceHTML = function (timing) {
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  if (!timing.status) return '';
+  const gps = (timing.gps_evidence || []).map(e =>
+    `<div>AC ${escape(e.ac_id)}: ${escape(e.samples)} GPS samples, ${escape(e.accepted_samples)} absolute-clock samples;
+    weeks ${escape(e.weeks.map(w => w.value + ' (' + w.samples + ')').join(', ') || 'missing')};
+    fixes ${escape(e.fixes.map(f => f.value + ' (' + f.samples + ')').join(', ') || 'missing')};
+    accepted span ${escape(e.accepted_span_s ?? 'unknown')} s, offset spread ${escape(e.offset_spread_s ?? 'unknown')} s;
+    week-zero span ${escape(e.week_zero_span_s ?? 'unknown')} s, spread ${escape(e.week_zero_offset_spread_s ?? 'unknown')} s.</div>`).join('');
+  const versions = (timing.firmware || []).map(v =>
+    `<div>AC ${escape(v.ac_id)}: <code>${escape(v.raw)}</code>${v.dirty ? ' (local changes)' : ''}<br>
+    ${escape(v.resolution)}${v.commit ? ' · ' + escape(v.commit) : ''}
+    ${v.repository ? ' · ' + escape(v.repository) : ''}
+    ${v.committed_at ? ' · firmware committed ' + escape(v.committed_at) : ''}
+    ${v.lookup_warning ? '<div>' + escape(v.lookup_warning) + ' Re-parse this log to retry after resolving the issue/cache expiry.</div>' : ''}</div>`).join('');
+  return `<br><strong>Date status: ${escape(timing.status)}</strong>
+    ${timing.estimated && timing.estimate ? '<div>' + escape(timing.estimate.warning) + '</div>' : ''}
+    ${timing.firmware_warning ? '<div>' + escape(timing.firmware_warning) + '</div>' : ''}
+    <details><summary>Clock and firmware evidence</summary>
+    <div>${escape((timing.reasons || []).join(', '))}</div>${gps}${versions}</details>`;
+};
+
 (function () {
   const KEY = 'logdbFlightFilters';
   const PERIODS = {'30d': 'Last 30 days', '3m': 'Last 3 months', '1y': 'Last year',
