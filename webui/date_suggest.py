@@ -45,8 +45,9 @@ def _time_of_day_offset(a, b):
 
 
 def suggestions(con, undated):
-    """{log_id: suggestion} for logs whose clock is implausible (`undated(start_utc)`), without a date override or
-    an estimated date. A suggestion needs every matched flight of the log to have exactly one GCS partner (and that
+    """{log_id: suggestion} for logs whose clock is implausible (`undated(start_utc)`) or whose date is only
+    estimated from firmware (a GCS match confirms the day; accepting it ends the estimate, so the recordings
+    can merge), without a date override. A suggestion needs every matched flight of the log to have exactly one GCS partner (and that
     partner no other claimant), all agreeing on the same day shift."""
     flights = []
     for r in con.execute(
@@ -61,7 +62,7 @@ def suggestions(con, undated):
                             end=_ts(r["landing_utc"]) or start + r["duration_s"], drone_id=r["drone_id"],
                             name=(r["name"] or "").strip().casefold(), type=_log_type(r), log_start=r["start_utc"],
                             dated=not undated(r["start_utc"]) and not r["date_override"] and not r["date_estimated"],
-                            open=undated(r["start_utc"]) and not r["date_override"] and not r["date_estimated"]))
+                            open=(undated(r["start_utc"]) or bool(r["date_estimated"])) and not r["date_override"]))
     # A GCS flight that already has a dated onboard partner is taken.
     onboard_by_day = {}
     for f in flights:
