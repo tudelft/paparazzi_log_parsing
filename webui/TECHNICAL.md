@@ -58,6 +58,11 @@ installed copy directly. One invocation updates the code, dependencies and servi
 installs and `--reconfigure` runs keep the running installer and its interactive answers; it prints
 a note if the downloaded installer differs.
 
+Before an existing installation is updated (including `--reconfigure`), the installer runs the
+**currently installed** online database-and-keys backup command, before questions, package changes
+or Git updates. Backup failure stops the update. Installer self-reloads reuse the successful backup
+instead of creating a second one. Fresh installations skip this step.
+
 The shared page footer shows the nearest reachable `webui-vMAJOR.MINOR.PATCH` release tag, the number
 of commits since it (when nonzero), and a link to the Web UI's exact Git commit. Web UI release tags
 are separate from parser versions; create an annotated tag on the tested release commit and push
@@ -349,6 +354,15 @@ after a successful backup, older timestamped folders are removed. A hidden stagi
 only after all files have been written, so failed backups do not publish partial sets or prune history.
 Legacy files directly in `LOGDB_BACKUP_DIR` and unrelated folders are left untouched and do not count
 toward the 14 sets. The backup contains the SAML private key, so keep that directory private.
+
+**Pre-update backups** use a separate pool: `LOGDB_BACKUP_DIR/update-backups`, or
+`LOGDB_WEB_DATA/update-backups` when no backup destination is configured (normally
+`/var/lib/flight-logs/update-backups`). The latest **14 complete update sets** are retained independently
+of the 14 scheduled/manual sets. They use the same online SQLite backup, integrity check, atomic
+publication and permission rules. These snapshots contain the database and keys, not application code,
+uploaded logs or evidence; they are not a full deployment rollback. The installer does not stop the
+running application for this backup. Restore by choosing a snapshot inside `update-backups` and
+following the normal restore procedure below.
 
 By default, a backup fails if it cannot set private Unix file permissions (`chmod 600`).
 VMware shared folders or SMB mounts may reject this even when writes work. Prefer a private local
