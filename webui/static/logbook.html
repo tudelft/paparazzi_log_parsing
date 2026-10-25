@@ -56,6 +56,12 @@
   .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; }
   .warn { color:var(--err); }
   .date-unknown { background:var(--warnbg); color:var(--warn); font-weight:400; }
+  .date-estimated { text-decoration:underline dotted var(--warn); text-underline-offset:3px; cursor:help; }
+  .date-estimated .date-tip { display:none; position:fixed; left:16px; bottom:16px; z-index:1000;
+    max-width:min(420px,calc(100vw - 32px)); padding:8px 12px; border:1px solid var(--line);
+    border-radius:6px; background:var(--card); color:var(--txt); white-space:normal; font-weight:400;
+    box-shadow:0 2px 8px #0003; pointer-events:none; }
+  .date-estimated:hover .date-tip, .date-estimated:focus .date-tip { display:block; }
 </style>
 </head>
 <body data-edit="all">
@@ -468,7 +474,11 @@ const verdictMark = f => (f.simulation?.detected ? ' <span class="mute">(Simulat
   + (f.indoor && !f.optitrack ? ' <span class="mute" title="Takeoff is inside a named indoor place">(indoor)</span>' : '');
 function dateTd(f) {
   const warn = '<span class="badge date-unknown" title="This log has no usable calendar date (often GPS week 0, shown as 1980)">date unknown</span>';
-  const label = (f.date_ok ? esc(fmtDate(f.takeoff_utc) || f.date_override || '') : warn) + estimatedDateBadge(f);
+  const date = f.date_ok ? esc(fmtDate(f.takeoff_utc) || f.date_override || '') : warn;
+  const explanation = 'Estimated from GPS time-of-week and firmware commit; calendar week uncertain.';
+  const label = f.date_estimated && f.date_ok
+    ? `<span class="date-estimated" tabindex="0" aria-label="${esc(fmtDate(f.takeoff_utc) || f.date_override || '')}: ${explanation}">${date}<span class="date-tip" aria-hidden="true">${explanation}</span></span>`
+    : date;
   if (editOn() && f.can_edit_date && (!f.date_ok || f.date_override || f.date_estimated)) {
     return `<td onclick="event.stopPropagation()">${label}<div class="mute" style="font-weight:400;margin-top:4px">Set date <input type="date" value="${esc(f.date_override || '')}" onchange="setLogDate(${f.log_id}, this.value)"></div></td>`;
   }
