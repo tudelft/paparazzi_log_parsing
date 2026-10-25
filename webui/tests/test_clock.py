@@ -42,7 +42,7 @@ class ParserClockTests(unittest.TestCase):
     def setUp(self):
         self.assertTrue(PARSER.exists(), "Build the C++ parser first")
         version = subprocess.check_output([str(PARSER), "--version"], text=True).strip()
-        self.assertEqual(version, "1.7.9", "Rebuild the parser before running clock tests")
+        self.assertEqual(version, "1.8.0", "Rebuild the parser before running clock tests")
 
     def samples(self, start=START, ac=5, fix=3, message="GPS"):
         return [gps_line(t, start + timedelta(seconds=t), ac, fix, message) for t in (0, 20, 40, 60)]
@@ -157,6 +157,41 @@ class ParserClockTests(unittest.TestCase):
         doc = parse_fixture(lines, start + timedelta(days=7))
         self.assertEqual(doc["log"]["start_utc"], "2010-01-01T00:00:00.000Z")
 
+    def test_week_zero_diagnostics_preserve_time_of_week(self):
+        lines = [f"{t} 5 GPS 3 0 {292721750 + t * 1000}\n" for t in (0, 20, 40, 60)]
+        doc = parse_fixture(lines, datetime(1980, 1, 9, tzinfo=timezone.utc))
+        timing = doc["log"]["timing"]
+        self.assertEqual(timing["status"], "unknown")
+        self.assertIn("gps_week_zero", timing["reasons"])
+        evidence = timing["gps_evidence"][0]
+        self.assertEqual(evidence["samples"], 4)
+        self.assertEqual(evidence["accepted_samples"], 0)
+        self.assertEqual(evidence["weeks"], [{"value": 0, "samples": 4}])
+        self.assertEqual(evidence["week_zero_start_tow_s"], 292721.75)
+        self.assertEqual(evidence["week_zero_span_s"], 60)
+        self.assertEqual(evidence["week_zero_offset_spread_s"], 0)
+        self.assertEqual(doc["log"]["start_utc"], "1980-01-09T00:00:00.000Z")
+
+    def test_missing_week_is_visible_and_firmware_is_structured(self):
+        doc = parse_fixture(["0 5 GPS 3 1000\n", "40 5 GPS 3 41000\n",
+                             '41 5 AUTOPILOT_VERSION 51500 "v5.15_devel-167-g55bfedfbdf-dirty"\n'],
+                            fields=("mode", "itow"))
+        timing = doc["log"]["timing"]
+        self.assertEqual(timing["status"], "valid")
+        self.assertEqual(timing["gps_evidence"][0]["missing_fields"], 2)
+        self.assertEqual(timing["firmware"][0]["revision"], "55bfedfbdf")
+        self.assertTrue(timing["firmware"][0]["dirty"])
+
+    def test_week_zero_wrap_and_consistency_threshold_are_preserved(self):
+        for jitter in (0, 5, 5.001):
+            lines = [f"{t} 5 GPS 3 0 {((604790 + t + (jitter if t == 40 else 0)) % 604800) * 1000:.3f}\n"
+                     for t in (0, 20, 40)]
+            evidence = parse_fixture(lines, start=None)["log"]["timing"]["gps_evidence"][0]
+            self.assertEqual(evidence["week_zero_samples"], 3)
+            self.assertEqual(evidence["week_zero_span_s"], 40)
+            self.assertAlmostEqual(evidence["week_zero_offset_spread_s"], jitter)
+            self.assertAlmostEqual(evidence["week_zero_start_tow_s"], 604790 + jitter / 3, places=5)
+
 
 class StoredClockTests(test_historical.AppTests):
     def insert_log(self, name, doc, override=None):
@@ -230,7 +265,7 @@ class ClockMigrationTests(unittest.TestCase):
             path = Path(folder) / "test.db"
             with sqlite3.connect(path) as con:
                 schema = "\n".join(line for line in db.SCHEMA.splitlines()
-                                   if not line.strip().startswith(("timing TEXT", "has_gps_position INTEGER")))
+                                   if not line.strip().startswith(("timing TEXT", "date_estimated INTEGER", "has_gps_position INTEGER")))
                 con.executescript(schema)
                 con.execute("INSERT INTO logs(name,sha256,data_path,status,uploaded_at)"
                             " VALUES ('legacy','hash','legacy.data','done','now')")
@@ -243,6 +278,7 @@ class ClockMigrationTests(unittest.TestCase):
                 self.assertIn("has_gps_position", {r[1] for r in con.execute("PRAGMA table_info(flights)")})
                 self.assertEqual(con.execute("SELECT duration_s,has_gps_position FROM flights").fetchone(),
                                  (60, None))
+                self.assertEqual(con.execute("SELECT date_estimated FROM logs").fetchone(), (0,))
 
 
 if __name__ == "__main__":

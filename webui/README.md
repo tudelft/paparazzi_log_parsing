@@ -39,7 +39,9 @@ existing `/logbook` links still work.
   UTC dates, **Show indoor / no-GPS flights**, **Show non-flights** and **Show unknown dates**.
   Unknown-date records are hidden by default. **Show unknown dates** includes them alongside the
   selected period, independently of **Show non-flights**; other visibility filters still apply.
-  Corrected dates follow the selected period normally. Choose **Apply filters**;
+  Corrected and **estimated dates** follow the selected period normally, even with **Show unknown dates**
+  off. Estimated dates are labelled: the GPS time of day is known but the week is guessed from the
+  firmware commit. Confirm or correct the date in Edit mode. Choose **Apply filters**;
   the selection stays the same when moving between pages in this browser. **Reset** restores
   the defaults after applying. The filters cover Logbook, Statistics, Locations and individual
   person, aircraft, project and location overviews, including their totals, maps, charts and

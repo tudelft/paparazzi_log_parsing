@@ -245,6 +245,57 @@ timestamps in newly parsed results, including paths and messages, use the chosen
 and flight durations are unchanged. Normal source merging then uses the corrected absolute times;
 there is no track-similarity matching across dates.
 
+**Firmware evidence and estimated weeks (parser 1.8.0).** The parser adds date status/reason codes,
+per-aircraft GPS sample and fix counts, observed week values, accepted spans/offset spreads, and
+structured firmware revision/dirty flags alongside the unchanged raw version messages. `valid`
+means the retained calendar date is plausible, not independently verified. Invalid/missing GPS
+fields are counted rather than silently discarded. Week-zero evidence retains the GPS time-of-week
+relative to recording time zero, including continuity across Sunday rollover.
+
+During Web UI ingestion, GitHub resolves firmware hashes and stores full hashes, repository provenance,
+committer dates, author dates and explicit resolution failures in the log's timing JSON.
+`LOGDB_FIRMWARE_GITHUB_ENABLED=1` enables this by default: revision hashes from uploaded logs are sent
+to GitHub, **never telemetry, flight locations or log contents**. Set it to `0` to disable network lookups
+and automatic week estimates. No local Git mirrors or extra installer dependencies are needed.
+
+Resolution order is persistent SQLite cache, direct lookup in `paparazzi/paparazzi`, global public
+commit search by hash, then direct lookups in `LOGDB_FIRMWARE_GITHUB_REPOS` (comma-separated
+`owner/repository` names). Global search only accepts commits from the Paparazzi fork network and
+rejects ambiguous abbreviated hashes and incomplete search results. Search covers default branches;
+configured repositories can be **public or private**, and direct hash lookup covers their non-default
+branches too. The server stops at the first resolved commit; no enumeration of all forks is needed.
+
+For private repositories, configure `LOGDB_FIRMWARE_GITHUB_TOKEN` in the protected server config
+file (never in a URL or browser). A fine-grained token needs access to the selected repositories with
+**Contents: read**; organization policy may require approval. Public lookups work without a token but
+have lower rate limits. Tokens are hidden by `check-config`, excluded from API responses/logs/cache,
+and sent only to `api.github.com`; redirects are not followed. Restart the app after config changes.
+Successful resolutions persist indefinitely; misses expire after an hour, lookup errors after five
+minutes (or GitHub's longer rate-limit delay). Cache scopes include repository/token configuration
+fingerprints, never plaintext tokens. Rate-limit/network failures temporarily pause further requests
+across hashes. Parsing still completes with explicit warnings, retaining unknown dates when no
+estimate can be supported. After fixing configuration or waiting for cache expiry, use the individual
+log's **Re-parse** action to retry. No bulk reparse is started automatically.
+
+A calendar date more than a day before the latest resolved firmware commit is flagged, never
+replaced if otherwise plausible. For an unknown/implausible date only, consistent week-zero samples
+(at least three spanning 30 seconds, within five seconds, agreeing across aircraft) plus resolved
+firmware evidence for each contributing aircraft can produce an **estimated** date: the first
+GPS-compatible recording start on or after the latest firmware committer date, within the following
+seven days. Historical GPS/UTC leap offsets are applied. Estimates beyond tomorrow are rejected.
+Commit timestamps can be wrong, firmware can be old, and dirty builds have unrecorded changes:
+the week remains uncertain and later seven-day alternatives remain possible.
+
+The estimate shifts all absolute recording/aircraft/event/message/path timestamps, not durations
+or relative times. Original timing, evidence and estimate basis remain stored. The Web UI labels
+estimated dates in Uploads, Logbook, entity histories and flight details; they follow normal period
+filters and are not hidden by **Show unknown dates** being off. The API exposes `date_estimated`
+separately from `date_ok`. Estimated clocks are not used for automatic source merging or automatic
+paper associations until manually confirmed; explicit joins remain available. Manual date overrides
+remain authoritative across reparses and clear the displayed estimate flag while preserving evidence.
+The standalone C++ parser emits evidence only; GitHub enrichment and estimated-week assignment happen
+in Web UI ingestion. Reparse outdated logs after updating and configuring any additional repositories.
+
 **Flight pages.** The Overview opens first, with takeoff/landing details and log sources folded
 away. Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
 and warnings for local (dirty) changes. Multiple reported builds remain visible; raw version messages

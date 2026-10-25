@@ -331,7 +331,7 @@ function renderSummary() {
       <div><span class="label">Aircraft</span><div class="value">${e.drone_id != null ? `<a href="/aircraft/${e.drone_id}">${esc(e.aircraft)}</a>` : esc(e.aircraft)}</div>${e.aircraft_uid ? `<span class="mute">${esc(e.aircraft_uid)}</span>` : ''}${e.aircraft_identity_inferred ? '<div class="mute">Identity inferred from matching GCS recording; SD name is shared.</div>' : (e.aircraft_ambiguous && e.drone_id == null ? '<div class="mute">Shared aircraft name; fleet identity unresolved.</div>' : '')}</div>
       <div class="goal"><span class="label">Flight goal</span><div class="value">${e.goal ? esc(e.goal) : '<span class="mute">Not recorded</span>'}</div></div>
     </div><div class="cols"><div class="kv summary-kv">
-      ${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id)
+      ${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + estimatedDateBadge(e) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id)
         + (e.takeoff_location_inferred ? ' <span class="mute">(location inferred from landing)</span>' : ''))}
       ${kv('Landing (UTC)', (e.landing_utc ? esc(fmtTime(e.landing_utc)) + ' · ' : '') + place(e.landing_place, e.landing_lat, e.landing_lon, e.landing_place_id)
         + (e.landing_location_inferred ? ' <span class="mute">(location inferred from takeoff)</span>' : ''))}
@@ -349,7 +349,7 @@ function renderSummary() {
       ${D.timing ? kv('Timing (shown source)', esc(D.timing.source) + ' · original start: ' + esc(D.timing.original_start_utc || 'unknown')
         + ' · effective start: ' + esc(D.timing.effective_start_utc || 'unknown')
         + (D.timing.correction_s != null ? ' · parser correction: ' + esc(D.timing.correction_s) + ' s' : '')
-        + (D.timing.warning ? '<br>' + esc(D.timing.warning) : '')) : ''}
+        + (D.timing.warning ? '<br>' + esc(D.timing.warning) : '') + timingEvidenceHTML(D.timing)) : ''}
       ${e.sources.map(s => kv(TYPE[s.log_type] || s.log_type, `<a href="/flight/${s.flight_id}" class="${s.flight_id === flightId ? 'cur' : ''}">${esc(s.log_name)}</a>${s.flight_id === flightId ? ' <span class="mute">(shown)</span>' : ''}
         · <a href="/api/logs/${s.log_id}/download">download ${downloadLabel(s.log_type)}</a> · <a href="/uploads#log${s.log_id}">log details</a>`)).join('')}
       ${kv('Uploaded', esc(fmtTime(e.uploaded_at)) + (e.uploaded_by_name ? ' by ' + esc(e.uploaded_by_name) : ''))}

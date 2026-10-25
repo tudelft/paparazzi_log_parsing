@@ -1076,14 +1076,32 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.7.9";
+constexpr const char *PARSER_VERSION = "1.8.0";
 
 struct GpsClock {
   size_t count = 0;
+  size_t samples = 0, missing_fields = 0, invalid_time = 0, poor_fix = 0, implausible_date = 0;
+  std::map<int, size_t> weeks, fixes;
   double first = 0, last = 0, low = 0, high = 0, mean = 0;
+  size_t tow_count = 0;
+  double tow_first = 0, tow_last = 0, tow_low = 0, tow_high = 0, tow_mean = 0;
 
   void add(double t, int week, double itow, int fix) {
-    if (fix < 3 || week < 0 || !std::isfinite(itow) || itow < 0 || itow >= 604800000) { return; }
+    ++samples;
+    if (week >= 0) { ++weeks[week]; }
+    if (fix >= 0) { ++fixes[fix]; }
+    if (fix < 0 || week < 0 || !std::isfinite(itow)) { ++missing_fields; return; }
+    if (fix < 3) { ++poor_fix; return; }
+    if (itow < 0 || itow >= 604800000 || !std::isfinite(t)) { ++invalid_time; return; }
+    if (week == 0) {
+      double start = itow / 1000 - t;
+      if (tow_count) { start += std::round((tow_mean - start) / 604800) * 604800; }
+      if (!tow_count) { tow_first = tow_last = t; tow_low = tow_high = tow_mean = start; }
+      tow_last = std::max(tow_last, t);
+      tow_low = std::min(tow_low, start);
+      tow_high = std::max(tow_high, start);
+      tow_mean += (start - tow_mean) / ++tow_count;
+    }
     const double gps = 315964800.0 + week * 604800.0 + itow / 1000;
     // UTC instants at which GPS-UTC increased, from July 1981 through January 2017.
     static const double leaps[] = {362793600, 394329600, 425865600, 489024000, 567993600,
@@ -1094,7 +1112,7 @@ struct GpsClock {
       if (gps >= leap + offset + 1) { ++offset; }
     }
     const double utc = gps - offset;
-    if (utc < 946684800 || utc > std::time(nullptr) + 86400.0 || !std::isfinite(t)) { return; }
+    if (utc < 946684800 || utc > std::time(nullptr) + 86400.0) { ++implausible_date; return; }
     const double start = utc - t;
     if (!count) { first = last = t; low = high = mean = start; }
     low = std::min(low, start);
@@ -1143,6 +1161,80 @@ ClockDecision choose_clock(double companion, const std::map<int, GpsClock> &cloc
       + " seconds; not a clear whole-day error, so companion timing retained.";
   }
   return out;
+}
+
+std::string timing_evidence(const ClockDecision &clock, double companion,
+                            const std::map<int, GpsClock> &clocks)
+{
+  std::set<std::string> reasons;
+  if (companion < 0) { reasons.insert("header_missing"); }
+  else if (companion < 631152000 || companion > std::time(nullptr) + 86400.0) {
+    reasons.insert("header_implausible");
+  }
+  if (clocks.empty()) { reasons.insert("gps_timing_absent"); }
+  std::ostringstream o;
+  o << ", \"gps_evidence\": [";
+  bool first = true;
+  for (const auto &entry : clocks) {
+    const auto &c = entry.second;
+    if (c.weeks.count(0)) { reasons.insert("gps_week_zero"); }
+    if (c.missing_fields) { reasons.insert("gps_fields_missing_or_invalid"); }
+    if (c.poor_fix) { reasons.insert("gps_fix_insufficient"); }
+    if (c.invalid_time) { reasons.insert("gps_time_invalid"); }
+    if (c.implausible_date) { reasons.insert("gps_date_implausible"); }
+    if (c.count < 3 || c.last - c.first < 30) { reasons.insert("gps_evidence_insufficient"); }
+    if (c.count && c.high - c.low > 5) { reasons.insert("gps_offsets_inconsistent"); }
+    o << (first ? "" : ", ") << "{\"ac_id\": " << entry.first << ", \"samples\": " << c.samples
+      << ", \"accepted_samples\": " << c.count << ", \"missing_fields\": " << c.missing_fields
+      << ", \"poor_fix\": " << c.poor_fix << ", \"invalid_time\": " << c.invalid_time
+      << ", \"implausible_date\": " << c.implausible_date << ", \"weeks\": [";
+    bool first_value = true;
+    for (const auto &w : c.weeks) {
+      o << (first_value ? "" : ", ") << "{\"value\": " << w.first << ", \"samples\": " << w.second << "}";
+      first_value = false;
+    }
+    o << "], \"fixes\": [";
+    first_value = true;
+    for (const auto &f : c.fixes) {
+      o << (first_value ? "" : ", ") << "{\"value\": " << f.first << ", \"samples\": " << f.second << "}";
+      first_value = false;
+    }
+    o << "], \"accepted_span_s\": " << (c.count ? num(c.last - c.first) : "null")
+      << ", \"offset_spread_s\": " << (c.count ? num(c.high - c.low) : "null")
+      << ", \"week_zero_samples\": " << c.tow_count
+      << ", \"week_zero_span_s\": " << (c.tow_count ? std::to_string(c.tow_last - c.tow_first) : "null")
+      << ", \"week_zero_offset_spread_s\": " << (c.tow_count ? std::to_string(c.tow_high - c.tow_low) : "null")
+      << ", \"week_zero_start_tow_s\": " << (c.tow_count ? std::to_string(c.tow_mean) : "null") << "}";
+    first = false;
+  }
+  const bool corrected = std::string(clock.source) == "gps_corrected";
+  if (corrected) { reasons.insert("gps_clock_correction"); }
+  else if (!clock.warning.empty()) { reasons.insert("gps_clock_unresolved"); }
+  const bool plausible = clock.start >= 631152000 && clock.start <= std::time(nullptr) + 86400.0;
+  const char *status = !plausible ? "unknown" : corrected ? "corrected" :
+    !clock.warning.empty() ? "conflicting" : "valid";
+  o << "], \"status\": " << json_escape(status) << ", \"reasons\": [";
+  first = true;
+  for (const auto &reason : reasons) { o << (first ? "" : ", ") << json_escape(reason); first = false; }
+  o << "]";
+  return o.str();
+}
+
+std::string firmware_identity(const std::string &raw)
+{
+  std::string hash;
+  const auto pos = raw.rfind("-g");
+  if (pos != std::string::npos) {
+    size_t end = pos + 2;
+    while (end < raw.size() && std::isxdigit(static_cast<unsigned char>(raw[end]))) { ++end; }
+    if (end - pos - 2 >= 7 && end - pos - 2 <= 40 &&
+        (end == raw.size() || raw[end] == '-' || raw[end] == '"' || std::isspace(static_cast<unsigned char>(raw[end])))) {
+      hash = raw.substr(pos + 2, end - pos - 2);
+    }
+  }
+  return "\"raw\": " + json_escape(raw) + ", \"revision\": " + (hash.empty() ? "null" : json_escape(hash)) +
+    ", \"dirty\": " + (raw.find("-dirty") != std::string::npos ? "true" : "false") +
+    ", \"resolution\": " + json_escape(hash.empty() ? "revision_missing" : "not_resolved");
 }
 
 // Payload positions of the wanted fields of one telemetry message, looked up by name in the
@@ -1818,11 +1910,12 @@ int main(int argc, char *argv[])
       case 'G':
         if (name == "GPS" || name == "GPS_LLA") {
           const Picked clock = pick(name == "GPS" ? gps_clock_f : lla_clock_f, q, eol);
-          int fix, week;
-          double itow;
-          if (to_num(clock[0], fix) && to_num(clock[1], week) && to_num(clock[2], itow)) {
-            gps_clocks[ac].add(t, week, itow, fix);
-          }
+          int fix = -1, week = -1;
+          double itow = std::numeric_limits<double>::quiet_NaN();
+          if (!to_num(clock[0], fix)) { fix = -1; }
+          if (!to_num(clock[1], week)) { week = -1; }
+          if (!to_num(clock[2], itow)) { itow = std::numeric_limits<double>::quiet_NaN(); }
+          gps_clocks[ac].add(t, week, itow, fix);
         }
         if (name == "GPS_INT") {
           Fix fix{t, 0, 0, 0, false};
@@ -2104,7 +2197,18 @@ int main(int argc, char *argv[])
     << ", \"original_start_utc\": " << utc_iso(hdr.start_epoch)
     << ", \"effective_start_utc\": " << utc(0)
     << ", \"correction_s\": " << (hdr.start_epoch < 0 || clock.start < 0 ? "null" : num(clock.start - hdr.start_epoch))
-    << ", \"warning\": " << json_escape(clock.warning) << "}"
+    << ", \"warning\": " << json_escape(clock.warning)
+    << timing_evidence(clock, hdr.start_epoch, gps_clocks)
+    << ", \"firmware\": [";
+  bool first_firmware = true;
+  for (const auto &entry : acs) {
+    for (const auto &v : entry.second.versions) {
+      o << (first_firmware ? "" : ", ") << "{\"ac_id\": " << entry.first << ", " << firmware_identity(v) << "}";
+      first_firmware = false;
+    }
+  }
+  o << "]}"
+    << ",\n    \"first_data_time_s\": " << std::to_string(t0) << ",\n    \"end_time_s\": " << std::to_string(last_time)
     << ",\n    \"first_data_utc\": " << utc(t0) << ",\n    \"end_utc\": " << utc(last_time)
     << ",\n    \"duration_s\": " << num(last_time - t0)
     << ",\n    \"total_flight_distance_m\": " << num(log_flight_dist) << "\n  },\n  \"aircraft\": [";
@@ -2175,7 +2279,8 @@ int main(int argc, char *argv[])
     first_ac = false;
     bool fv = true;
     for (const auto &v : s.versions) { o << (fv ? "" : ", ") << json_escape(v); fv = false; }
-    o << "],\n      \"data_span\": {\"first_utc\": " << utc(s.first_time) << ", \"last_utc\": " << utc(s.last_time)
+    o << "],\n      \"data_span\": {\"first_time_s\": " << std::to_string(s.first_time) << ", \"last_time_s\": " << std::to_string(s.last_time)
+      << ", \"first_utc\": " << utc(s.first_time) << ", \"last_utc\": " << utc(s.last_time)
       << "},\n      \"mission\": {\"pic\": " << json_escape(pic) << ", \"pac\": " << json_escape(pac)
       << ", \"gcs\": " << json_escape(gcs) << ", \"goal\": " << json_escape(goal)
       << "},\n      \"summary\": {\"num_flights\": " << s.flights.size() << ", \"total_flight_time_s\": " << num(total)

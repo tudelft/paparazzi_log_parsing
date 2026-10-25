@@ -462,7 +462,7 @@ function renderFlights(list) {
     const roles = roleCol ? ROLES.filter(([r]) => f[r + '_user']?.id === ITEM_ID).map(([, l]) => l).join(', ') : '';
     const tag = (f.simulation?.detected ? ' <span class="tag">Simulation</span>' : '') +
       (f.verdict && f.verdict !== 'flight' ? ` <span class="tag ${esc(f.verdict)}">${esc(f.verdict)}</span>` : '');
-    return `<tr><td class="nowrap"><a href="${f.manual_id ? '/historical/' + f.manual_id : '/flight/' + f.flight_id}">${esc(fmtTime(f.takeoff_utc)) || 'Unknown date'}</a>${f.manual_id ? ' <span class="mute">(paper)</span>' : ''}${f.date_ok ? '' : ' <span class="mute" title="The log clock was not set">?</span>'}${tag}</td>
+    return `<tr><td class="nowrap"><a href="${f.manual_id ? '/historical/' + f.manual_id : '/flight/' + f.flight_id}">${esc(fmtTime(f.takeoff_utc)) || 'Unknown date'}</a>${estimatedDateBadge(f)}${f.manual_id ? ' <span class="mute">(paper)</span>' : ''}${f.date_ok ? '' : ' <span class="mute" title="The log clock was not set">?</span>'}${tag}</td>
       ${KIND !== 'aircraft' ? `<td>${aircraftLink(f)}</td>` : ''}${KIND !== 'projects' ? `<td>${projectLink(f)}</td>` : ''}
       <td>${placeLink(f.takeoff_place, f.takeoff_place_id, f.takeoff_lat, f.takeoff_lon)}</td>
       <td>${placeLink(f.landing_place, f.landing_place_id)}</td>
@@ -480,7 +480,7 @@ function renderLogs(logs = shownLogs()) {
     const status = l.status !== 'done' ? ` <span class="tag">${esc(l.status)}</span>` : '';
     return `<tr><td><a href="/uploads#log${l.id}" title="Log details on the Uploads page">${esc(l.name)}</a>${status}</td>
       <td class="nowrap">${esc(TYPE[l.log_type] || l.log_type || '')}</td>
-      <td class="nowrap">${esc(fmtTime(l.start_utc))}${l.date_ok || !l.start_utc ? '' : ' <span class="mute" title="The log clock was not set">?</span>'}</td>
+      <td class="nowrap">${esc(fmtTime(l.start_utc))}${estimatedDateBadge(l)}${l.date_ok || !l.start_utc ? '' : ' <span class="mute" title="The log clock was not set">?</span>'}</td>
       <td class="num">${fmtSize(l.size_bytes)}</td><td class="num">${l.num_flights ?? ''}</td>
       <td>${esc(l.aircraft_names)}</td>
       <td>${l.project_id != null ? link('projects', l.project_id, l.project_name) : '<span class="mute">No project</span>'}</td>

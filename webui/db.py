@@ -7,6 +7,11 @@ import threading
 import time
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS firmware_cache (
+    cache_key TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    expires_at REAL
+);
 CREATE TABLE IF NOT EXISTS bulk_reservations (
     token TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -126,6 +131,7 @@ CREATE TABLE IF NOT EXISTS logs (
     parse_seconds REAL,
     start_utc TEXT, first_data_utc TEXT, end_utc TEXT, duration_s REAL,
     timing TEXT,                       -- JSON clock evidence; original clock is never overwritten
+    date_estimated INTEGER NOT NULL DEFAULT 0 CHECK(date_estimated IN (0,1)),
     date_override TEXT                 -- YYYY-MM-DD typed in when the file clock is missing or 1980; kept across re-parse
 );
 CREATE TABLE IF NOT EXISTS drones (
@@ -378,6 +384,8 @@ def init(path):
     cols = {r["name"] for r in con.execute("PRAGMA table_info(logs)")}
     if "timing" not in cols:
         con.execute("ALTER TABLE logs ADD COLUMN timing TEXT")
+    if "date_estimated" not in cols:
+        con.execute("ALTER TABLE logs ADD COLUMN date_estimated INTEGER NOT NULL DEFAULT 0 CHECK(date_estimated IN (0,1))")
     if "simulation" not in {r["name"] for r in con.execute("PRAGMA table_info(aircraft)")}:
         con.execute("ALTER TABLE aircraft ADD COLUMN simulation TEXT")
     if "uploaded_by" not in cols:  # database created before accounts existed
@@ -492,10 +500,11 @@ def store_parsed(con, log_id, doc, paths_file):
     pr = doc.get("parser", {})
     con.execute(
         "UPDATE logs SET start_utc=?, first_data_utc=?, end_utc=?, duration_s=?, log_type=?,"
-        " parser_name=?, parser_version=?, parser_path_rate_hz=?, paths_file=?, timing=? WHERE id=?",
+        " parser_name=?, parser_version=?, parser_path_rate_hz=?, paths_file=?, timing=?, date_estimated=? WHERE id=?",
         (lg.get("start_utc"), lg.get("first_data_utc"), lg.get("end_utc"), lg.get("duration_s"), lg.get("type"),
          pr.get("name"), pr.get("version"), pr.get("path_rate_hz"), paths_file,
-         json.dumps(lg["timing"]) if lg.get("timing") else None, log_id),
+         json.dumps(lg["timing"]) if lg.get("timing") else None,
+         int(bool((lg.get("timing") or {}).get("estimated"))), log_id),
     )
     path_idx = 0
     for ac in doc.get("aircraft", []):

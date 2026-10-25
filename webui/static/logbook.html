@@ -271,7 +271,7 @@ function chk(ids, can) {
   const all = ids.length > 0 && ids.every(id => selected.has(id));
   return `<td class="chk"><input type="checkbox" ${all ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel(${esc(JSON.stringify(ids))}, this.checked)"></td>`;
 }
-const text = f => [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
+const text = f => [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_estimated ? 'estimated date' : '', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
 
 function projectOptions(selected) {
   const addable = projects.filter(p => me && (me.is_admin || p.can_add || p.id === selected));
@@ -436,7 +436,7 @@ const picKey = f => f.pic_user ? 'u' + f.pic_user.id : 'n' + (f.pic || '').toLow
 function combine(list, radiusKm) {
   const groups = [];
   for (const f of [...list].sort((a, b) => (a.takeoff_utc || '').localeCompare(b.takeoff_utc || ''))) {
-    const key = [f.aircraft, picKey(f), fmtDate(f.takeoff_utc), !!f.simulation?.detected].join('|');
+    const key = [f.aircraft, picKey(f), fmtDate(f.takeoff_utc), !!f.simulation?.detected, !!f.date_estimated].join('|');
     const g = !f.manual_id && f.takeoff_lat != null && groups.find(g => g.key === key && !g.flights[0].manual_id && g.flights[0].takeoff_lat != null && km(g.flights[0], f) <= radiusKm);
     if (g) g.flights.push(f); else groups.push({key, flights: [f]});
   }
@@ -468,8 +468,8 @@ const verdictMark = f => (f.simulation?.detected ? ' <span class="mute">(Simulat
   + (f.indoor && !f.optitrack ? ' <span class="mute" title="Takeoff is inside a named indoor place">(indoor)</span>' : '');
 function dateTd(f) {
   const warn = '<span class="badge date-unknown" title="This log has no usable calendar date (often GPS week 0, shown as 1980)">date unknown</span>';
-  const label = f.date_ok ? esc(fmtDate(f.takeoff_utc) || f.date_override || '') : warn;
-  if (editOn() && f.can_edit_date && (!f.date_ok || f.date_override)) {
+  const label = (f.date_ok ? esc(fmtDate(f.takeoff_utc) || f.date_override || '') : warn) + estimatedDateBadge(f);
+  if (editOn() && f.can_edit_date && (!f.date_ok || f.date_override || f.date_estimated)) {
     return `<td onclick="event.stopPropagation()">${label}<div class="mute" style="font-weight:400;margin-top:4px">Set date <input type="date" value="${esc(f.date_override || '')}" onchange="setLogDate(${f.log_id}, this.value)"></div></td>`;
   }
   return `<td>${label}</td>`;
@@ -535,7 +535,7 @@ $('rows').onclick = e => {
 };
 
 function exportCsv() {
-  const cols = ['source_type', 'simulation', 'flight_count', 'record_kind', 'reference', 'takeoff_utc', 'landing_utc', 'duration_s', 'distance_m', 'from_takeoff_m', 'max_from_takeoff_m', 'aircraft', 'aircraft_uid', 'project_name', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
+  const cols = ['source_type', 'simulation', 'flight_count', 'record_kind', 'reference', 'takeoff_utc', 'landing_utc', 'date_ok', 'date_estimated', 'date_override', 'duration_s', 'distance_m', 'from_takeoff_m', 'max_from_takeoff_m', 'aircraft', 'aircraft_uid', 'project_name', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
   const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const csv = [cols.join(',')].concat(render().map(f => cols.map(c => cell(c === 'simulation' ? f.simulation?.detected : c.endsWith('_user') ? f[c]?.display_name : f[c])).join(','))).join('\n');
   const a = document.createElement('a');
