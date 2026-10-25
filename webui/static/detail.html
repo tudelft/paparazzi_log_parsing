@@ -28,6 +28,10 @@
   .totals { display:grid; grid-template-columns:repeat(auto-fill, minmax(125px, 1fr)); gap:12px 18px; }
   .totals strong { font-size:20px; display:block; font-variant-numeric:tabular-nums; }
   .totals span { color:var(--mute); font-size:12px; }
+  .role-summary { display:flex; flex-wrap:wrap; gap:8px 20px; margin-top:14px; padding-top:10px; border-top:1px solid var(--line); font-size:12px; }
+  .role-summary span { color:var(--mute); }
+  .role-summary strong { color:var(--txt); font-weight:600; }
+  .role-summary[hidden] { display:none; }
   .cols { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
   .cols > .card { min-width:0; }
   .grid3 { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%,380px), 1fr)); gap:20px; }
@@ -98,6 +102,7 @@
     <div class="cols">
       <section class="card">
         <div class="totals" id="totals"></div>
+        <div class="role-summary" id="roleSummary" aria-label="Flights by crew role" hidden></div>
         <h2 style="margin-top:18px" id="infoHeading">Details</h2><div class="kv" id="info"></div>
       </section>
       <section class="card mapCard"><h2 id="mapTitle">Takeoff locations</h2><div id="map"></div></section>
@@ -340,10 +345,6 @@ const personKey = (f, role) => {
 const byPerson = (list, role, except) => group(list,
   f => { const k = personKey(f, role); return k && k.key !== except ? k : null; },
   f => personLink(f, role));
-const byCrew = (list, except) => group(list,
-  f => ROLES.map(([r]) => { const k = personKey(f, r); return k && k.key !== except ? {...k, role: r} : null; })
-    .filter((k, i, a) => k && a.findIndex(o => o && o.key === k.key) === i),
-  (f, k) => personLink(f, k.role));
 
 function table(title, hint, rows, nameCol) {
   const max = rows[0]?.seconds || 0;
@@ -354,17 +355,6 @@ function table(title, hint, rows, nameCol) {
       <td class="num">${fmtDist(r.metres)}</td><td class="nowrap">${esc(fmtDate(r.last))}</td><td>${meter(r.seconds)}</td></tr>`).join('')
       : '<tr><td colspan="6" class="mute">No flights.</td></tr>'}
     </tbody></table></div></section>`;
-}
-
-function rolesTable(list) {
-  const rows = ROLES.map(([r, label]) => {
-    const mine = list.filter(f => f[r + '_user']?.id === ITEM_ID);
-    return {html: esc(label), name: label, flights: mine.reduce((s, f) => s + (f.flight_count || 1), 0),
-            seconds: mine.reduce((s, f) => s + (f.duration_s || 0), 0),
-            metres: mine.some(f => f.distance_m != null) ? mine.reduce((s, f) => s + (f.distance_m || 0), 0) : null,
-            last: mine.reduce((s, f) => (f.takeoff_utc || '') > s ? f.takeoff_utc : s, '')};
-  }).filter(r => r.flights);
-  return table('Roles', 'A flight counts once per role.', rows, 'Role');
 }
 
 function renderTotals(list) {
@@ -386,10 +376,16 @@ function renderTotals(list) {
   if (KIND !== 'aircraft') tiles.push([new Set(list.map(f => f.drone_id ?? f.aircraft)).size, 'Aircraft']);
   if (KIND !== 'projects') tiles.push([new Set(list.map(f => f.project_id)).size, 'Projects']);
   if (KIND !== 'locations') tiles.push([new Set(list.map(f => f.takeoff_place_id ?? null).filter(x => x != null)).size, 'Named locations']);
-  if (KIND === 'people') tiles.push([list.filter(f => f.pic_user?.id === ITEM_ID).reduce((s, f) => s + (f.flight_count || 1), 0), 'Flights as PIC']);
   tiles.push([logs.length, 'Log files']);
-  if (KIND !== 'people') tiles.push([fmtSize(logs.reduce((s, l) => s + (l.size_bytes || 0), 0)) || '0 kB', 'Log data']);
+  tiles.push([fmtSize(logs.reduce((s, l) => s + (l.size_bytes || 0), 0)) || '0 kB', 'Log data']);
   $('totals').innerHTML = tiles.map(([v, l]) => `<div><strong>${esc(v)}</strong><span>${esc(l)}</span></div>`).join('');
+  $('roleSummary').hidden = KIND !== 'people';
+  $('roleSummary').innerHTML = KIND === 'people' ? ROLES.map(([role, label]) => {
+    const mine = list.filter(f => f[role + '_user']?.id === ITEM_ID);
+    const flights = mine.reduce((s, f) => s + (f.flight_count || 1), 0);
+    const seconds = mine.reduce((s, f) => s + (f.duration_s || 0), 0);
+    return `<span><strong>${esc(label)}</strong> · ${flights} flight${flights === 1 ? '' : 's'} · ${fmtHours(seconds)}</span>`;
+  }).join('') : '';
 }
 
 const pad2 = n => String(n).padStart(2, '0');
@@ -459,14 +455,11 @@ function renderChart(list) {
 }
 
 function renderBreakdowns(list) {
-  const self = KIND === 'people' ? 'u' + ITEM_ID : null;
   const parts = [];
-  if (KIND === 'people') parts.push(rolesTable(list));
   if (KIND !== 'aircraft') parts.push(table('Aircraft', '', byAircraft(list), 'Aircraft'));
   if (KIND !== 'projects') parts.push(table('Projects', '', byProject(list), 'Project'));
   if (KIND !== 'locations') parts.push(table('Locations', 'By takeoff location.', byPlace(list), 'Location'));
-  if (KIND === 'people') parts.push(table('Flew with', 'Other PICs, PACs and GCS operators on the same flights.', byCrew(list, self), 'Person'));
-  else {
+  if (KIND !== 'people') {
     parts.push(table('PIC', 'Pilot in command.', byPerson(list, 'pic'), 'PIC'));
     parts.push(table('PAC', 'Payload / co-pilot.', byPerson(list, 'pac'), 'PAC'));
   }

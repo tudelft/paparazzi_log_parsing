@@ -706,6 +706,9 @@ other names, account dates and default project are under **Account details**, bo
 On this detail page, qualification chips link to evidence only when evidence is available to the viewer;
 validity dates remain available on hover. Explanations are under collapsed Help controls. Existing
 flight totals, map, charts, breakdowns and tables retain their filtering and access rules.
+Person pages show PIC, PAC and GCS flight counts and hours in an always-visible strip below the
+summary totals. Each flight counts once per matching role, including daily paper flight counts.
+The breakdown cards are Aircraft, Projects and Locations; there are no separate Roles or Flew with cards.
 Enable Edit, then select someone to open their
 **Account**, **API keys**, **Aliases** or **Qualifications** tab. The editor shows **Active · TU Delft SSO**
 for enabled SSO accounts and **Active · Local** for enabled local accounts with a password; external,
