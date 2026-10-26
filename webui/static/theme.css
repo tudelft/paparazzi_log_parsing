@@ -220,17 +220,24 @@ dialog.entry-dialog label.field input, dialog.entry-dialog label.field select { 
 .info-tip .tip { display:none; position:absolute; left:0; top:calc(100% + 6px); z-index:20; padding:8px 10px; background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:6px; box-shadow:0 4px 16px rgba(0,0,0,.18); font-size:12px; font-weight:400; line-height:1.45; white-space:nowrap; }
 .info-tip:hover .tip, .info-tip:focus-within .tip { display:block; }
 .navigation-pages { display:flex; flex-wrap:wrap; align-items:center; gap:5px; font-size:13px; }
-.navigation-pages input { width:64px; padding:4px; font:inherit; }
+.navigation-pages input {
+  width:48px; height:30px; box-sizing:border-box; padding:3px; text-align:center;
+  font:inherit; font-weight:700; border:1px solid var(--btn); border-radius:5px;
+  background:var(--btn); color:#fff; appearance:textfield;
+}
+.navigation-pages input::-webkit-inner-spin-button,
+.navigation-pages input::-webkit-outer-spin-button { appearance:none; margin:0; }
 .navigation-pages button {
   padding:4px 8px; min-height:30px; background:transparent; color:var(--acc);
   border:1px solid transparent; border-radius:5px; font:inherit;
 }
-.navigation-pages .page-edge { color:var(--mute); font-size:12px; }
-.navigation-pages .page-step { color:var(--txt); border-color:var(--line); margin:0 4px; }
+.navigation-pages .page-step {
+  color:var(--txt); border-color:var(--line); margin:0 4px; width:32px; padding:5px;
+  display:inline-flex; align-items:center; justify-content:center;
+}
+.navigation-pages .page-step svg { width:18px; height:18px; }
 .navigation-pages .page-number { min-width:30px; }
 .navigation-pages button:hover:not(:disabled) { background:var(--hover); }
 .navigation-pages button:disabled { opacity:.4; cursor:default; }
-.navigation-pages [aria-current="page"]:disabled {
-  background:var(--btn); color:#fff; font-weight:700; opacity:1;
-}
-.navigation-pages button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+.navigation-pages button:focus-visible,
+.navigation-pages input:focus { outline:2px solid var(--acc); outline-offset:2px; }

@@ -306,23 +306,28 @@ window.timingEvidenceHTML = function (timing) {
     pager(el, page, size, total, change) {
       const last = Math.max(1, Math.ceil(total / size));
       const current = Math.min(last, page + 1);
+      const signature = `${current}:${size}:${total}`;
+      if (el.dataset.pageState === signature && el.contains(document.activeElement)) return;
+      el.dataset.pageState = signature;
       const numbers = [...new Set([1, last, ...Array.from({length:5}, (_, i) => current + i - 2)])]
         .filter(n => n >= 1 && n <= last).sort((a,b) => a-b);
-      el.innerHTML = `<button type="button" class="page-edge" data-page="1"${current === 1 ? ' disabled' : ''}>« First</button>
-        <button type="button" class="page-step" data-page="${current-1}"${current === 1 ? ' disabled' : ''}>‹ Previous</button>` +
-        numbers.map((n,i) => `${i && n > numbers[i-1]+1 ? '<span>…</span>' : ''}<button type="button" class="page-number" data-page="${n}"${n === current ? ' aria-current="page" disabled' : ''}>${n}</button>`).join('') +
-        `<button type="button" class="page-step" data-page="${current+1}"${current === last ? ' disabled' : ''}>Next ›</button>
-        <button type="button" class="page-edge" data-page="${last}"${current === last ? ' disabled' : ''}>Last »</button>
-        <label>Page <input type="number" aria-label="Go to page" min="1" max="${last}" value="${current}" required> of ${last}</label>
+      el.innerHTML = `<button type="button" class="page-step" aria-label="Previous page" title="Previous page" data-page="${current-1}"${current === 1 ? ' disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>` +
+        numbers.map((n,i) => `${i && n > numbers[i-1]+1 ? '<span>…</span>' : ''}` +
+          (n === current
+            ? `<input type="number" aria-label="Current page — type a page number" aria-current="page" title="Current page — type a page number (1–${last})" min="1" max="${last}" value="${current}" required>`
+            : `<button type="button" class="page-number" aria-label="Page ${n}" data-page="${n}">${n}</button>`)).join('') +
+        `<button type="button" class="page-step" aria-label="Next page" title="Next page" data-page="${current+1}"${current === last ? ' disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
         <span class="mute">${total ? (current-1)*size+1 : 0}–${Math.min(current*size,total)} of ${total}</span>`;
       el.querySelectorAll('button').forEach(b => { b.onclick = () => change(+b.dataset.page - 1); });
       const input = el.querySelector('input');
       const choosePage = () => {
-        if (input.reportValidity()) change(+input.value - 1);
+        if (input.reportValidity() && +input.value !== current) change(+input.value - 1);
       };
+      input.onfocus = () => input.select();
       input.onchange = choosePage;
       input.onkeydown = event => {
         if (event.key === 'Enter') { event.preventDefault(); choosePage(); }
+        if (event.key === 'Escape') { input.value = current; input.blur(); }
       };
     },
   };

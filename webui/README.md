@@ -27,7 +27,8 @@ It works together with the status filter.
 
 Logbook, Uploads and entity flight/log tables remember their page and view options in the
 URL. Open a flight and use browser **Back** to return to the same view and scroll position.
-Use **First**, **Last**, the numbered buttons or the page-number field to move through large lists.
+Use the arrows or page numbers to move through large lists. The first and last page numbers
+stay visible; type into the highlighted current-page number to jump directly to another page.
 
 After changing firmware lookup repositories, administrators can use **Re-parse unknown dates**
 on **Uploads** to retry completed logs with unknown dates, even with the current parser version.

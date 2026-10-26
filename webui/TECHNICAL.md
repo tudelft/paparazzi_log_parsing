@@ -729,10 +729,12 @@ of the flight filters. Page changes and applied view options create history entr
 typing a search replaces the current entry. Polling and page clamping never add entries.
 The shared helpers in `static/theme.js` restore controls on Back/Forward and keep scroll,
 expanded logbook/upload rows and detail breakdowns in `history.state`, not URLs.
-Bulk selection is cleared; unsaved edits are not stored by the helper. Numbered controls include First/Last,
-a bounded page field and row range; detail pagers remain hidden for ten or fewer rows.
-All these pages share the same paginator styling: quiet double-chevron First/Last,
-outlined Previous/Next, compact page numbers and a filled current-page indicator.
+Bulk selection is cleared; unsaved edits are not stored by the helper. Numbered controls retain
+the first and last page numbers and a row range; detail pagers remain hidden for ten or fewer rows.
+All these pages share outlined chevron-only Previous/Next buttons with accessible labels and
+tooltips, compact page numbers and a blue editable current-page field. Enter or leaving the
+field applies a valid page number; Escape cancels the edit. Separate First/Last buttons and
+the separate page-jump field are omitted.
 Upload pagination and its page-size selector sit below the log table.
 Directory searches and editor panels are outside this navigation-state scheme.
 
