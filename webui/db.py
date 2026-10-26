@@ -63,10 +63,21 @@ CREATE TABLE IF NOT EXISTS flight_records (
     duration_s REAL NOT NULL CHECK(duration_s > 0 AND duration_s <= 86400),
     place_id INTEGER REFERENCES places(id),
     goal TEXT, comment TEXT, reference TEXT,
+    operator_id INTEGER REFERENCES operators(id),  -- NULL = from project, place or own operator (operators.py)
     fingerprint TEXT NOT NULL UNIQUE,
     created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS operators (       -- UAS operators flights are flown under (operators.py)
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    registration TEXT,                  -- operator registration (operations) number
+    country TEXT,
+    own INTEGER NOT NULL DEFAULT 0 CHECK(own IN (0,1)),  -- our own registration: the default for every flight
+    note TEXT,                          -- e.g. the authorisation flown under
+    created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_operators_own ON operators(own) WHERE own=1;
 CREATE TABLE IF NOT EXISTS flight_links (     -- paper record <-> telemetry flight decisions (links.py)
     id INTEGER PRIMARY KEY,
     record_id INTEGER NOT NULL REFERENCES flight_records(id) ON DELETE CASCADE,
@@ -226,6 +237,7 @@ CREATE TABLE IF NOT EXISTS flights (
     pac_user_id INTEGER,
     gcs_user_id INTEGER,
     comment TEXT,                      -- notes added in the logbook / flight page
+    operator_id INTEGER,               -- operators.id set on this flight; NULL = from project, place or own operator
     path_idx INTEGER                   -- index of this flight's path in logs.paths_file
 );
 CREATE TABLE IF NOT EXISTS setting_changes (
@@ -245,7 +257,8 @@ CREATE TABLE IF NOT EXISTS password_setup_tokens (
 CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    operator_id INTEGER                 -- operators.id its flights are flown under, unless set on the flight
 );
 CREATE TABLE IF NOT EXISTS project_members (
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -271,6 +284,7 @@ CREATE TABLE IF NOT EXISTS places (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     indoor INTEGER NOT NULL DEFAULT 0,  -- 1 for indoor locations (hidden from the logbook by default)
+    operator_id INTEGER,                -- operators.id of a site that runs its own operation (e.g. a test centre)
     shape TEXT NOT NULL                 -- JSON: {"type":"polygon","points":[[lat,lon],...]} or {"type":"circle","center":[lat,lon],"radius_m":r}
 );
 CREATE TABLE IF NOT EXISTS ingest (
@@ -481,6 +495,10 @@ def init(path):
         " start_date TEXT NOT NULL,"
         " end_date TEXT)")
     con.execute("CREATE INDEX IF NOT EXISTS ix_drone_projects_drone ON drone_projects(drone_id, start_date)")
+    for table in ("flights", "flight_records", "projects", "places"):
+        if "operator_id" not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN operator_id INTEGER"
+                        + (" REFERENCES operators(id)" if table == "flight_records" else ""))
     con.commit()
 
 

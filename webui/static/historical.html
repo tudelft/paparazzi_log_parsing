@@ -53,6 +53,7 @@
         <label>Location<select id="place_id"></select></label>
         <label>PAC<select id="pac_user_id"></select></label>
         <label>GCS operator<select id="gcs_user_id"></select></label>
+        <label title="Leave empty for our own operator, or the operator of the project or location">Operator<select id="operator_id"></select></label>
         <label>Paper reference<input id="reference" maxlength="500" placeholder="Book / page / entry"></label>
         <label class="wide">Flight goal<input id="goal" maxlength="1000"></label>
         <label class="wide">Notes<textarea id="comment" maxlength="4000" rows="3"></textarea></label>
@@ -71,7 +72,9 @@
       <strong>unique display names or explicit crew aliases</strong>, matching the log crew rules.
       Usernames match only when added as aliases; unknown or ambiguous crew names reject the import.
       Optional kind: flight or daily; takeoff_time: HH:MM[:SS] UTC (for daily: the first takeoff).
-      Blank time means unknown. No users or aircraft are created automatically.</p>
+      Blank time means unknown. Optional operator: the name or registration number of an operator in the list
+      (Projects page); blank means our own operator, or the project / location default. Without an operator
+      column, records keep the operator they have. No users or aircraft are created automatically.</p>
     <p><a href="/api/historical/template" download>Download CSV template</a></p>
     <p>At most 1000 rows / 1 MB. Every row is validated before saving: if any row is invalid,
       nothing is imported. Dates and flight totals are kept exactly as supplied.</p>
@@ -98,7 +101,7 @@ if (recordId) {
   AttachmentFiles.mount($('additionalFiles'), 'paper', recordId);
 }
 const keys = ['drone_id','pic_user_id','project_id','date','kind','flight_count','duration_minutes',
-  'takeoff_time','place_id','pac_user_id','gcs_user_id','reference','goal','comment'];
+  'takeoff_time','place_id','pac_user_id','gcs_user_id','operator_id','reference','goal','comment'];
 async function api(url, options) {
   const r = await fetch(url, options);
   if (!(r.headers.get('Content-Type') || '').includes('application/json')) throw Error(`Server returned HTTP ${r.status}.`);
@@ -125,6 +128,8 @@ async function start() {
   for (const key of ['pic_user_id','pac_user_id','gcs_user_id'])
     options(key,catalogs.people,r=>`${r.name} (${r.username})`);
   options('place_id',catalogs.places,r=>r.name);
+  options('operator_id',catalogs.operators,r=>r.name + (r.registration ? ` (${r.registration})` : ''));
+  $('operator_id').options[0].text = 'Own operator, or the project / location default';
   const editable = detail ? detail.can_edit : catalogs.projects.length > 0;
   if (detail) {
     const r = detail.record;

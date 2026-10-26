@@ -337,6 +337,8 @@ function renderSummary() {
         + (e.landing_location_inferred ? ' <span class="mute">(location inferred from takeoff)</span>' : ''))}
       ${kv('Flight time', fmtDur(e.duration_s))}${kv('Distance flown', fmtDist(e.distance_m))}${kv('Max from takeoff', fmtDist(e.max_from_takeoff_m))}${kv('At landing', fmtDist(e.from_takeoff_m))}
       ${kv('Project', projectField(e))}
+      ${kv('Operator', e.operator_name ? esc(e.operator_name + (e.operator_registration ? ` (${e.operator_registration})` : ''))
+        + (e.operator_source === 'flight' ? '' : ` <span class="mute">${{project: 'from the project', place: 'from the location', default: 'own operator'}[e.operator_source]}</span>`) : '')}
       ${kv('PIC', crewField(e, 'pic'))}${kv('PAC', crewField(e, 'pac'))}${kv('GCS operator', crewField(e, 'gcs'))}
       ${kv('Comment', commentField(e))}
       ${kv('Simulation', e.simulation == null ? 'Not assessed; reparse with the current parser' : e.simulation.detected

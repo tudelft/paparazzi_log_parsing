@@ -28,7 +28,8 @@ window.timingEvidenceHTML = function (timing) {
   const KEY = 'logdbFlightFilters';
   const PERIODS = {'30d': 'Last 30 days', '3m': 'Last 3 months', '1y': 'Last year',
     '2y': 'Last 2 years', '3y': 'Last 3 years', '5y': 'Last 5 years', all: 'All time', custom: 'Custom dates'};
-  const defaults = () => ({period: '3y', from: '', to: '', indoor: false, nonflights: false, unknownDates: false});
+  const OPERATORS = {all: 'All operators', own: 'Own operations only', other: 'Other operators only'};
+  const defaults = () => ({period: '3y', from: '', to: '', indoor: false, nonflights: false, unknownDates: false, operator: 'all'});
   let storageWarning = '';
   const validDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)
     && !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
@@ -42,11 +43,13 @@ window.timingEvidenceHTML = function (timing) {
           || !['from', 'to'].every(k => value[k] === '' || validDay(value[k]))
           || typeof value.indoor !== 'boolean' || typeof value.nonflights !== 'boolean'
           || (value.unknownDates !== undefined && typeof value.unknownDates !== 'boolean')
+          || (value.operator !== undefined && !Object.hasOwn(OPERATORS, value.operator))
           || (value.from && value.to && value.from > value.to)) {
         throw new Error('Invalid saved flight filters');
       }
       return {period: value.period, from: value.from, to: value.to,
-        indoor: value.indoor, nonflights: value.nonflights, unknownDates: value.unknownDates ?? false};
+        indoor: value.indoor, nonflights: value.nonflights, unknownDates: value.unknownDates ?? false,
+        operator: value.operator ?? 'all'};
     } catch (error) {
       console.warn('Could not restore flight filters:', error);
       storageWarning = 'Saved filters could not be restored. Using the default selection.';
@@ -60,8 +63,9 @@ window.timingEvidenceHTML = function (timing) {
       if (!value || !Object.hasOwn(PERIODS, value.period)
           || !['from', 'to'].every(k => value[k] === '' || validDay(value[k]))
           || ['indoor','nonflights','unknownDates'].some(k => typeof value[k] !== 'boolean')
+          || !Object.hasOwn(OPERATORS, value.operator || 'all')
           || (value.from && value.to && value.from > value.to)) return false;
-      state = {...value};
+      state = {...value, operator: value.operator || 'all'};
       paint();
       return true;
     },
@@ -95,6 +99,7 @@ window.timingEvidenceHTML = function (timing) {
   includes(f) {
     return (state.indoor || !f.indoor)
       && (state.nonflights || (!f.simulation?.detected && !['ground', 'uncertain'].includes(f.verdict)))
+      && (state.operator === 'all' || (state.operator === 'own') === (f.operator_own !== false))
       && this.includesDate(f);
   },
   logs(logs, allFlights, shownFlights) {
@@ -107,14 +112,15 @@ window.timingEvidenceHTML = function (timing) {
   params() {
     const {from, to} = this.bounds();
     return new URLSearchParams({from, to, indoor: state.indoor ? '1' : '0',
-      nonflights: state.nonflights ? '1' : '0', unknown_dates: state.unknownDates ? '1' : '0'});
+      nonflights: state.nonflights ? '1' : '0', unknown_dates: state.unknownDates ? '1' : '0', operator: state.operator});
   },
   periodLabel() {
     return state.period === 'custom' ? `${state.from || 'Any date'} – ${state.to || 'Any date'}`
       : PERIODS[state.period];
   },
   summary() {
-    return `${this.periodLabel()} · Indoor/no-GPS ${state.indoor ? 'shown' : 'hidden'} · Non-flights ${state.nonflights ? 'shown' : 'hidden'} · Unknown dates ${state.unknownDates ? 'shown' : 'hidden'}`;
+    return `${this.periodLabel()} · Indoor/no-GPS ${state.indoor ? 'shown' : 'hidden'} · Non-flights ${state.nonflights ? 'shown' : 'hidden'} · Unknown dates ${state.unknownDates ? 'shown' : 'hidden'}`
+      + (state.operator === 'all' ? '' : ` · ${OPERATORS[state.operator]}`);
   },
 };
 
@@ -125,7 +131,7 @@ window.timingEvidenceHTML = function (timing) {
   function paint() {
     const button = document.getElementById('flightFiltersButton');
     if (!button) return;
-    const extra = Number(state.indoor) + Number(state.nonflights) + Number(state.unknownDates);
+    const extra = Number(state.indoor) + Number(state.nonflights) + Number(state.unknownDates) + Number(state.operator !== 'all');
     button.textContent = `Flight filters · ${api.periodLabel()}${extra ? ' · +' + extra : ''} ▾`;
     button.title = api.summary();
     document.querySelectorAll('[data-flight-filter-summary]').forEach(el => { el.textContent = api.summary(); });
@@ -144,6 +150,7 @@ window.timingEvidenceHTML = function (timing) {
           <label class="filter-field">From<input type="date" name="from"></label>
           <label class="filter-field">To<input type="date" name="to"></label>
         </div>
+        <label class="filter-field">Operator<select name="operator">${Object.entries(OPERATORS).map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select></label>
         <div class="filter-options">
           <label><input type="checkbox" name="indoor"> Show indoor / no-GPS flights</label>
           <label><input type="checkbox" name="nonflights"> Show non-flights</label>
@@ -152,6 +159,7 @@ window.timingEvidenceHTML = function (timing) {
         <details class="filter-help"><summary>Help</summary>
           <p>Non-flights include simulations, uncertain flights, ground records and zero-flight log files.</p>
           <p>Show unknown dates includes records without a known date alongside the selected period. Other visibility filters still apply.</p>
+          <p>Own operations are flights under our own operator registration: use them for operator reporting. Pilot experience counts all operators.</p>
           <p>Shared across flight overviews in this browser. Changing pages keeps these settings.</p>
         </details>
         <p id="flightFiltersNotice" role="status"></p>
@@ -168,7 +176,7 @@ window.timingEvidenceHTML = function (timing) {
       fields.to.setCustomValidity('');
     }
     function fill(value) {
-      for (const key of ['period', 'from', 'to']) fields[key].value = value[key];
+      for (const key of ['period', 'from', 'to', 'operator']) fields[key].value = value[key];
       for (const key of ['indoor', 'nonflights', 'unknownDates']) fields[key].checked = value[key];
       syncDates();
     }
@@ -208,7 +216,8 @@ window.timingEvidenceHTML = function (timing) {
         return;
       }
       state = {period: fields.period.value, from: custom ? fields.from.value : '', to: custom ? fields.to.value : '',
-        indoor: fields.indoor.checked, nonflights: fields.nonflights.checked, unknownDates: fields.unknownDates.checked};
+        indoor: fields.indoor.checked, nonflights: fields.nonflights.checked, unknownDates: fields.unknownDates.checked,
+        operator: fields.operator.value};
       try { localStorage.setItem(KEY, JSON.stringify(state)); storageWarning = ''; }
       catch (error) {
         console.warn('Could not save flight filters:', error);
@@ -232,7 +241,7 @@ window.timingEvidenceHTML = function (timing) {
 (function () {
   const filters = window.flightFilters;
   const filterKeys = {period:'period', from:'from', to:'to', indoor:'indoor',
-    nonflights:'nonflights', unknownDates:'unknown_dates'};
+    nonflights:'nonflights', unknownDates:'unknown_dates', operator:'operator'};
   const integer = (value, fallback, min = 1) => /^\d+$/.test(value || '')
     && Number.isSafeInteger(+value) && +value >= min ? +value : fallback;
   window.viewState = {
@@ -246,7 +255,7 @@ window.timingEvidenceHTML = function (timing) {
         if (params.has('period')) {
           const value = {};
           for (const [key, param] of Object.entries(filterKeys)) {
-            value[key] = ['period', 'from', 'to'].includes(key) ? params.get(param) || ''
+            value[key] = ['period', 'from', 'to', 'operator'].includes(key) ? params.get(param) || ''
               : params.get(param) === '1';
           }
           if (!filters.restore(value)) console.warn('Invalid URL flight filters; keeping current filters');
@@ -260,7 +269,7 @@ window.timingEvidenceHTML = function (timing) {
         const extra = write(params) || {};
         for (const [key, param] of Object.entries(filterKeys)) {
           const value = filters.state[key];
-          if (value === '' || value === false) params.delete(param);
+          if (value === '' || value === false || (key === 'operator' && value === 'all')) params.delete(param);
           else params.set(param, value === true ? '1' : value);
         }
         const url = location.pathname + (params.size ? '?' + params : '') + location.hash;

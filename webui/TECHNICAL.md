@@ -1287,6 +1287,31 @@ Source logs, CSV attachments and record data stay on disk; uploaded-log views re
 The hidden state is preserved across re-parsing using the same aircraft/flight-index matching as crew edits.
 Permanent deletion from existing record/upload detail pages remains a separate operation.
 
+### Operator per flight
+
+Not every flight is flown under our own UAS operator registration: some are part of a partner's, a test centre's
+or a foreign authority's operation. `operators.py` resolves the operator of every logbook entry, in this order:
+
+1. set on the flight (`flights.operator_id`, kept across a re-parse like crew edits) or on the paper record
+   (`flight_records.operator_id`); a paper record linked to logged flights also sets it for that entry;
+2. the project (`projects.operator_id`);
+3. the takeoff place (`places.operator_id`), for a site that runs its own operation;
+4. our own operator (`operators.own`, at most one); with no own operator set up, every flight counts as own.
+
+Logbook rows carry `operator_id`, `operator_name`, `operator_registration`, `operator_own` and
+`operator_source` (`flight`, `project`, `place` or `default`). `operator_check` marks an entry on the default
+whose PIC is external crew. The shared flight filters (`operator=all|own|other`) apply it to the Logbook,
+Statistics, Locations (`/api/places?operator=`) and overview pages.
+
+- `GET /api/operators`: the list (any signed-in user). Admins: `POST /api/admin/operators`,
+  `PUT`/`DELETE /api/admin/operators/<id>` (name, registration, country, own, note). An operator still used by
+  flights, paper records, projects or places cannot be deleted.
+- `PUT /api/logbook/records` with `operator_id` sets it on the selected entries; `null` returns them to the
+  default. `PUT /api/admin/projects/<id>` and `PUT /api/admin/places/<id>` take `operator_id` too.
+- Paper-record CSV: optional `operator` column, matched by name or registration number; blank means the
+  default. A CSV without that column leaves the operator of existing records as it is. The operator is not
+  part of a record's fingerprint, so changing it updates the record instead of creating another one.
+
 **Edit mode.** The Edit button in the menu bar shows the forms and menus to change things on the Logbook, People,
 Projects, Aircraft and Locations pages; it stays on until you turn it off. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many

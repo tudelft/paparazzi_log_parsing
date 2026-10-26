@@ -103,6 +103,20 @@
       <section id="projectPanel" aria-label="Selected project"></section>
     </div>
   </section>
+  <section class="card" id="operatorsCard">
+    <div class="project-toolbar"><h2>Operators</h2>
+    <details><summary>Help</summary><p>The UAS operator registrations flights are flown under. Every flight is under our own operator unless it is set on the flight (logbook Edit mode), on its project or on its takeoff location. Use the flight filters for own operations only.</p></details></div>
+    <div class="scroll"><table><thead><tr><th>Name</th><th>Registration number</th><th>Country</th><th>Own</th><th>Note</th><th></th></tr></thead>
+      <tbody id="operatorRows"></tbody></table></div>
+    <form class="row" id="addOperator" hidden onsubmit="event.preventDefault();saveOperator(null)">
+      <label class="field">Name<input id="opName" required maxlength="80"></label>
+      <label class="field">Registration number<input id="opRegistration" maxlength="40"></label>
+      <label class="field">Country<input id="opCountry" maxlength="40"></label>
+      <label class="field">Own<input type="checkbox" id="opOwn"></label>
+      <label class="field">Note<input id="opNote" maxlength="400" placeholder="e.g. authorisation flown under"></label>
+      <button type="submit">Add operator</button>
+    </form>
+  </section>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -113,7 +127,7 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
-let projects = [], users = [], me = null;
+let projects = [], users = [], me = null, operators = [];
 let selectedProject = null;
 let memberQuery = '';
 const ticksOf = role => ({see: !!role, upload: role === 'add' || role === 'full', del: role === 'full'});
@@ -143,6 +157,7 @@ function applyTicks(prefix) {
 const editing = () => !!(me && me.is_admin && window.editMode());
 function syncEdit() {
   $('add').hidden = !editing();
+  $('addOperator').hidden = !editing();
   $('importSection').hidden = !editing();
   if (!editing()) $('importProjectsDialog').close();
   $('hint').textContent = editing()
@@ -169,6 +184,7 @@ async function load() {
       projects = await read('/api/projects');
       users = [];
     }
+    operators = (await read('/api/operators')).operators;
     render();
   } catch (error) {
     $('err').textContent = `Could not load projects: ${error.message}`;
@@ -191,6 +207,10 @@ function renderProjectPanel() {
     <form class="row" onsubmit="event.preventDefault();renameProject(${p.id})">
       <label class="field">Project name<input id="ren${p.id}" value="${esc(p.name)}" required maxlength="80"></label>
       <button type="submit">Save name</button></form>
+    <form class="row" onsubmit="event.preventDefault()">
+      <label class="field">Operator of its flights<select onchange="send('/api/admin/projects/${p.id}', 'PUT', {operator_id: this.value ? +this.value : null})">
+        <option value="">Own operator, or the takeoff location's</option>
+        ${operators.map(o => `<option value="${o.id}"${o.id === p.operator_id ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('')}</select></label></form>
     <h4>Members (${(p.members || []).length})</h4>
     ${(p.members || []).map(m => `<div class="person"><a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a>
       ${tickBoxes('m' + p.id + '_' + m.user_id, m.role, `saveTicks(${p.id}, ${m.user_id})`)}</div>`).join('') || '<p class="mute">No members yet.</p>'}
@@ -211,7 +231,29 @@ function renderMemberPicker() {
     <button type="button" class="sec" onclick="setRole(${p.id},${u.id},'view')">Add with See access</button></div>`).join('')
     || '<p class="mute">No eligible people match.</p>';
 }
+const operatorLabel = o => o.name + (o.registration ? ` (${o.registration})` : '');
+function renderOperators() {
+  const field = (o, key, max) => editing() ? `<input id="op${key}${o.id}" value="${esc(o[key] || '')}" maxlength="${max}">` : esc(o[key] || '');
+  $('operatorRows').innerHTML = operators.map(o => `<tr><td>${field(o, 'name', 80)}</td><td>${field(o, 'registration', 40)}</td>
+    <td>${field(o, 'country', 40)}</td>
+    <td>${editing() ? `<input type="checkbox" id="opown${o.id}"${o.own ? ' checked' : ''}>` : o.own ? 'Own' : ''}</td>
+    <td>${field(o, 'note', 400)}</td>
+    <td>${editing() ? `<button type="button" onclick="saveOperator(${o.id})">Save</button> <button type="button" class="danger" onclick="deleteOperator(${o.id})">Delete</button>` : ''}</td></tr>`).join('')
+    || `<tr><td colspan="6" class="mute">No operators yet${editing() ? '. Add our own operator registration first.' : '.'}</td></tr>`;
+}
+function saveOperator(id) {
+  const value = key => (id === null ? $('op' + key[0].toUpperCase() + key.slice(1)) : $('op' + key + id));
+  const body = {name: value('name').value, registration: value('registration').value, country: value('country').value,
+    own: value('own').checked, note: value('note').value};
+  send(id === null ? '/api/admin/operators' : '/api/admin/operators/' + id, id === null ? 'POST' : 'PUT', body)
+    .then(() => { if (id === null && !$('err').textContent) $('addOperator').reset(); });
+}
+function deleteOperator(id) {
+  const o = operators.find(x => x.id === id);
+  if (confirm('Delete operator ' + (o ? o.name : '') + '?')) send('/api/admin/operators/' + id, 'DELETE');
+}
 function render() {
+  renderOperators();
   const q = $('projectSearch').value.trim().toLocaleLowerCase();
   const shown = projects.filter(p => [p.name,...(p.members || []).flatMap(m => [m.display_name,m.username])]
     .filter(Boolean).some(v => v.toLocaleLowerCase().includes(q)));
