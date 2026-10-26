@@ -63,6 +63,19 @@ class DateSuggestionTests(AppTests):
         self.assertEqual([sorted(s["flight_id"] for s in r["sources"]) for r in rows], [[713, 718]])
         self.assertEqual(rows[0]["takeoff_utc"][:10], "2020-07-22")
 
+    def test_an_estimated_log_detected_as_gcs_is_still_the_onboard_side(self):
+        # SD log 718 was renamed log64_<aircraft>.data and detected as GCS; its estimated date was already right.
+        self.flight(718, "gcs", "2020-07-22T09:34:15.810", 1296.0)
+        self.con.execute("UPDATE logs SET date_estimated=1 WHERE id=718")
+        self.flight(713, "gcs", "2020-07-22T09:33:47.275", 1295.891)
+        self.assertEqual(len(self.client.get("/api/logbook").json), 2)
+        suggestion = self.client.get("/api/logs/718").json["date_suggestion"]
+        self.assertEqual((suggestion["date"], suggestion["gcs_log_id"]), ("2020-07-22", 713))
+        self.assertIsNone(self.client.get("/api/logs/713").json["date_suggestion"])
+        self.assertEqual(self.client.post("/api/logs/718/date/suggestion").status_code, 200)
+        rows = self.client.get("/api/logbook").json
+        self.assertEqual([sorted(s["flight_id"] for s in r["sources"]) for r in rows], [[713, 718]])
+
     def test_no_suggestion_when_short_ambiguous_taken_or_inconsistent(self):
         cases = {
             "short flight": [(1, "onboard_sd", "1980-01-06T10:00:12", 45), (2, "gcs", "2020-07-22T10:00:00", 45)],
