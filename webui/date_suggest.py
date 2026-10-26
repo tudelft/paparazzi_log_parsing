@@ -62,7 +62,8 @@ def suggestions(con, undated):
                             end=_ts(r["landing_utc"]) or start + r["duration_s"], drone_id=r["drone_id"],
                             name=(r["name"] or "").strip().casefold(), type=_log_type(r), log_start=r["start_utc"],
                             dated=not undated(r["start_utc"]) and not r["date_override"] and not r["date_estimated"],
-                            open=(undated(r["start_utc"]) or bool(r["date_estimated"])) and not r["date_override"]))
+                            open=(undated(r["start_utc"]) or bool(r["date_estimated"])) and not r["date_override"],
+                            estimated=bool(r["date_estimated"])))
     # A GCS flight that already has a dated onboard partner is taken.
     onboard_by_day = {}
     for f in flights:
@@ -75,7 +76,9 @@ def suggestions(con, undated):
                           for o in onboard_by_day.get(day, []))]
     claims, per_flight = {}, {}
     for f in flights:
-        if not f["open"] or f["type"] not in ONBOARD or f["duration"] < MIN_DURATION_S:
+        # A ground station logs the PC clock, so a log whose date had to be estimated is onboard whatever its detected
+        # type (e.g. an SD log renamed logNN_<aircraft>.data with a ground station's .log header next to it).
+        if not f["open"] or (f["type"] not in ONBOARD and not f["estimated"]) or f["duration"] < MIN_DURATION_S:
             continue
         found = [g for g in ground if _same_aircraft(f, g) and _same_duration(f, g)
                  and abs(_time_of_day_offset(f, g)) <= TIME_OF_DAY_TOLERANCE_S]

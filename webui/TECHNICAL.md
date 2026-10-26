@@ -291,7 +291,9 @@ has not changed. No bulk reparse is started automatically.
 **Dates from a matching ground station log.** An onboard log whose clock was never set (date before 1990,
 no date entered) usually keeps the right time of day. The same check runs for logs whose date is only
 estimated from firmware: estimated dates never merge with other recordings, so a matching GCS log confirms
-the day and accepting it ends the estimate (the recordings then merge and count once). `date_suggest.py` looks for a dated GCS
+the day and accepting it ends the estimate (the recordings then merge and count once). A ground station logs the PC
+clock, so a log with an estimated date counts as the onboard side even when it was detected as GCS (an SD log
+renamed `logNN_<aircraft>.data` next to a ground station `.log` header). `date_suggest.py` looks for a dated GCS
 recording of the same flight: same aircraft (fleet link, else logged name), same duration (±1 s or 1 %), same
 time of day (±30 s), at least 60 s long (short flights match too many others), and no dated onboard partner yet.
 Every matched flight of the log must have exactly one such GCS flight, no other undated flight may claim it,
