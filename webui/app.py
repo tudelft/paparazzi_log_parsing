@@ -1186,7 +1186,7 @@ def people_pic_flights():
             user_id=uid,
             **{key: f.get(key) for key in (
                 "takeoff_utc", "date_override", "date_ok", "date_estimated", "duration_s",
-                "flight_count", "indoor", "verdict")},
+                "flight_count", "indoor", "verdict", "operator_own")},
             simulation={"detected": bool((f.get("simulation") or {}).get("detected"))}))
     return jsonify(flights=rows)
 
@@ -2040,6 +2040,8 @@ def list_places():
     include_unknown_dates = request.args.get("unknown_dates") == "1"
     include_indoor = request.args.get("indoor") != "0"
     operator = request.args.get("operator", "all")  # all | own | other, as the flight filters
+    if operator not in ("all", "own", "other"):
+        return jsonify(error="operator must be all, own or other."), 400
     for f in logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT")):
         place_ids = {f.get("takeoff_place_id"), f.get("landing_place_id")} - {None}
         visible_places.update(place_ids)
@@ -2419,21 +2421,20 @@ def admin_update_project(project_id):
     row = con.execute("SELECT name FROM projects WHERE id=?", (project_id,)).fetchone()
     if row is None:
         return jsonify(error="no such project"), 404
+    name = (body["name"] if "name" in body else row["name"]) or ""
+    name = name.strip() if isinstance(name, str) else ""
+    if not name or len(name) > 80:
+        return jsonify(error="a project name is required (max 80 characters)"), 400
+    operator_id = None
     if "operator_id" in body:
         operator_id = operators.parse_id(con, body["operator_id"])
         if operator_id is False:
             return jsonify(error="no such operator"), 400
-        con.execute("UPDATE projects SET operator_id=? WHERE id=?", (operator_id, project_id))
-        con.commit()
-        if "name" not in body:
-            return jsonify(ok=True)
-    name = (body.get("name") or "").strip()
-    if not name or len(name) > 80:
-        return jsonify(error="a project name is required (max 80 characters)"), 400
-    if name.casefold() == (row["name"] or "").casefold():
-        return jsonify(ok=True)
     try:
-        con.execute("UPDATE projects SET name=? WHERE id=?", (name, project_id))
+        if name != row["name"]:
+            con.execute("UPDATE projects SET name=? WHERE id=?", (name, project_id))
+        if "operator_id" in body:
+            con.execute("UPDATE projects SET operator_id=? WHERE id=?", (operator_id, project_id))
         con.commit()
     except sqlite3.IntegrityError:
         con.rollback()
@@ -3217,6 +3218,7 @@ def update_logbook_records():
                 changes["operator_id"] = operators.parse_id(con, changes["operator_id"])
                 if changes["operator_id"] is False:
                     raise historical.RecordError("Choose an existing operator.")
+            log_flights = set()
             for kind, identity in sorted(targets):
                 if kind == "paper":
                     row = historical.visible(con, g.user, identity)
@@ -3242,8 +3244,12 @@ def update_logbook_records():
                             raise historical.RecordError(msg, code)
                     if "operator_id" in changes:
                         con.execute("UPDATE flights SET operator_id=? WHERE id=?", (changes["operator_id"], identity))
+                        log_flights.add(identity)
                     if "hidden" in changes:
                         con.execute("UPDATE flights SET hidden=? WHERE id=?", (int(changes["hidden"]), identity))
+            if log_flights:  # the paper records linked to an entry carry its operator too (operators.apply)
+                for record_id in {k["record_id"] for k in links.resolved(con) if k["same"] and k["flight_id"] in log_flights}:
+                    con.execute("UPDATE flight_records SET operator_id=? WHERE id=?", (changes["operator_id"], record_id))
             links.auto_link(con, now())
         return jsonify(ok=True, updated=len(targets))
     except historical.RecordError as exc:

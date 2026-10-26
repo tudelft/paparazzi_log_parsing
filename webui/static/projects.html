@@ -231,7 +231,6 @@ function renderMemberPicker() {
     <button type="button" class="sec" onclick="setRole(${p.id},${u.id},'view')">Add with See access</button></div>`).join('')
     || '<p class="mute">No eligible people match.</p>';
 }
-const operatorLabel = o => o.name + (o.registration ? ` (${o.registration})` : '');
 function renderOperators() {
   const field = (o, key, max) => editing() ? `<input id="op${key}${o.id}" value="${esc(o[key] || '')}" maxlength="${max}">` : esc(o[key] || '');
   $('operatorRows').innerHTML = operators.map(o => `<tr><td>${field(o, 'name', 80)}</td><td>${field(o, 'registration', 40)}</td>

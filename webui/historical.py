@@ -181,6 +181,7 @@ def parse_csv(con, user, text):
         "aircraft": list(con.execute("SELECT id, name FROM drones")),
         "project": list(con.execute("SELECT id, name FROM projects")),
         "location": list(con.execute("SELECT id, name FROM places")),
+        "operator": operators.catalog(con),
     }
     keep_operator = "operator" not in reader.fieldnames
     crew = qualifications.crew_keys(con)
@@ -213,7 +214,7 @@ def parse_csv(con, user, text):
                     raise RecordError(f"Unknown or ambiguous {key}: {value!r}. Use an existing name.")
                 body[target] = matches[0]
             if body.get("operator"):
-                body["operator_id"] = operators.lookup(con, body["operator"])
+                body["operator_id"] = operators.lookup(catalogs["operator"], body["operator"])
                 if body["operator_id"] is None:
                     raise RecordError(f"Unknown or ambiguous operator: {body['operator']!r}. "
                                       "Use the name or registration number of an operator in the list.")

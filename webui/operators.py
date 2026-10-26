@@ -12,6 +12,8 @@ The operator of a logbook entry is, in this order:
 Only 1 is stored per flight; the others follow when a project or place changes. When the PIC is crew of
 another operator and nothing more specific applies, the entry is marked to be checked."""
 
+import sqlite3
+
 SOURCES = ("flight", "project", "place", "default")
 
 
@@ -27,9 +29,13 @@ def catalog(con):
 
 
 def validate(con, body, operator_id=None):
-    """Clean the fields of an operator; operator_id is the one being changed."""
+    """Clean the fields of an operator; operator_id is the one being changed (fields left out keep their value)."""
     if not isinstance(body, dict):
         raise OperatorError("Send a JSON object.")
+    if operator_id is not None:
+        current = con.execute("SELECT name, registration, country, own, note FROM operators WHERE id=?",
+                              (operator_id,)).fetchone()
+        body = {**dict(current), "own": bool(current["own"]), **body}
     out = {}
     for key, limit in (("name", 80), ("registration", 40), ("country", 40), ("note", 400)):
         value = body.get(key)
@@ -51,6 +57,14 @@ def validate(con, body, operator_id=None):
 
 
 def save(con, values, stamp, operator_id=None):
+    try:
+        return _save(con, values, stamp, operator_id)
+    except sqlite3.IntegrityError:  # a concurrent change took the name or the own mark
+        con.rollback()
+        raise OperatorError("An operator with that name already exists.", 409) from None
+
+
+def _save(con, values, stamp, operator_id):
     if values["own"]:  # only one operator is our own
         con.execute("UPDATE operators SET own=0 WHERE own=1 AND id!=?", (operator_id or 0,))
     if operator_id is None:
@@ -80,11 +94,10 @@ def parse_id(con, raw):
     return int(raw)
 
 
-def lookup(con, value):
-    """Operator id by name or registration number (CSV import), or None if unknown or ambiguous."""
+def lookup(rows, value):
+    """Operator id by name or registration number (CSV import; rows from catalog), or None if unknown or ambiguous."""
     key = value.strip().casefold()
-    found = {r["id"] for r in con.execute("SELECT id, name, registration FROM operators")
-             if key in (r["name"].casefold(), (r["registration"] or "").strip().casefold())}
+    found = {r["id"] for r in rows if key in (r["name"].casefold(), (r["registration"] or "").strip().casefold())}
     return found.pop() if len(found) == 1 else None
 
 

@@ -83,6 +83,12 @@ class OperatorTests(LinkFixtures):
         row = self.entry(flight_id=1)
         self.assertEqual(row["linked_records"][0]["id"], record)
         self.assertEqual((row["operator_name"], row["operator_source"]), ("Partner", "flight"))
+        # Changing the entry in the logbook changes its linked paper record too, so the entry can be reset.
+        self.assertEqual(self.edit(["log:1"], None).status_code, 200)
+        self.assertEqual(self.operator_of(flight_id=1), ("Our lab", "default", True))
+        self.assertIsNone(self.con.execute("SELECT operator_id FROM flight_records WHERE id=?", (record,)).fetchone()[0])
+        self.assertEqual(self.edit(["log:1"], 3).status_code, 200)
+        self.assertEqual(self.con.execute("SELECT operator_id FROM flight_records WHERE id=?", (record,)).fetchone()[0], 3)
         # A paper record on its own, and its edit from the logbook (admins only).
         other = self.create(date="2010-01-05", reference="F00002").json["id"]
         self.assertEqual(self.operator_of(manual_id=other), ("Our lab", "default", True))
@@ -140,6 +146,11 @@ class OperatorTests(LinkFixtures):
         self.assertEqual(self.client.post("/api/admin/operators", json=dict(name="")).status_code, 400)
         self.assertEqual(self.client.put("/api/admin/operators/2", json=dict(name="Partner", note="Their authorisation")).status_code, 200)
         self.assertEqual(self.con.execute("SELECT note FROM operators WHERE id=2").fetchone()[0], "Their authorisation")
+        self.assertEqual(self.client.put("/api/admin/operators/3", json=dict(note="Range")).status_code, 200)  # the rest is kept
+        self.assertEqual(tuple(self.con.execute("SELECT name, registration, note FROM operators WHERE id=3").fetchone()),
+                         ("Test centre", "TC-3", "Range"))
+        self.assertEqual(self.client.put("/api/admin/projects/1", json=dict(operator_id=2, name="")).status_code, 400)
+        self.assertIsNone(self.con.execute("SELECT operator_id FROM projects WHERE id=1").fetchone()[0])  # nothing half-saved
         self.assertEqual(self.client.put("/api/admin/projects/1", json=dict(operator_id=2)).status_code, 200)
         self.assertEqual(tuple(self.con.execute("SELECT name, operator_id FROM projects WHERE id=1").fetchone()), ("Research", 2))
         self.assertEqual(self.client.put("/api/admin/projects/1", json=dict(operator_id=99)).status_code, 400)
@@ -159,6 +170,14 @@ class OperatorTests(LinkFixtures):
         flights = {op: self.client.get(f"/api/places?unknown_dates=1&operator={op}").json["places"][0]["flights"]
                    for op in ("all", "own", "other")}
         self.assertEqual(flights, {"all": 2, "own": 1, "other": 1})
+        self.assertEqual(self.client.get("/api/places?operator=Own").status_code, 400)
+
+    def test_people_directory_rows_carry_the_operator_for_the_shared_filter(self):
+        self.flight(1, "12:00:00")
+        self.con.execute("UPDATE flights SET operator_id=2, pic_user_id=1 WHERE id=1")
+        self.sign_in(1)
+        rows = self.client.get("/api/people-pic-flights").json["flights"]
+        self.assertEqual([r["operator_own"] for r in rows], [False])
 
     def test_schema_migration_adds_operator_columns(self):
         for table in ("flights", "projects", "places"):

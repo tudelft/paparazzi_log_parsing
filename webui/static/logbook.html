@@ -191,8 +191,6 @@ function fillBulkMenus() {
   $('bulkOperator').innerHTML = '<option value="__keep__">Keep</option><option value="">From project / place / own</option>'
     + operators.map(o => `<option value="${o.id}">${esc(operatorLabel(o))}</option>`).join('');
 }
-const operatorLabel = o => o.name + (o.registration ? ` (${o.registration})` : '');
-const OPERATOR_SOURCE = {flight: 'set on this flight', project: 'from the project', place: 'from the takeoff place', default: 'own operator (default)'};
 // Operator registration (#63): a value set on the flight is shown plainly, an inferred one is muted.
 function operatorCell(f) {
   const check = f.operator_check ? ' <span class="warn" title="The PIC is crew of another operator: check the operator of this flight">(check)</span>' : '';

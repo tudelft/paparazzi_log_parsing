@@ -220,7 +220,7 @@ function askName(mode, label, value, indoor = false, operatorId = null) {
   naming = mode;
   $('placeIndoor').checked = indoor;
   $('placeOperator').innerHTML = '<option value="">Own operator, or the project\'s</option>' + operators.map(o =>
-    `<option value="${o.id}"${o.id === operatorId ? ' selected' : ''}>${esc(o.name + (o.registration ? ` (${o.registration})` : ''))}</option>`).join('');
+    `<option value="${o.id}"${o.id === operatorId ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('');
   $('nameLabel').textContent = label;
   $('placeName').value = value;
   $('nameForm').hidden = false;

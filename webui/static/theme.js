@@ -2,6 +2,10 @@ window.estimatedDateBadge = function (record) {
   return record.date_estimated ? ' <span class="badge date-unknown" title="GPS time-of-week plus firmware commit; the calendar week is uncertain">estimated date</span>' : '';
 };
 
+// How an operator is shown everywhere, and where a logbook entry's operator comes from (operators.py).
+window.operatorLabel = o => o.name + (o.registration ? ` (${o.registration})` : '');
+window.OPERATOR_SOURCE = {flight: 'set on this flight', project: 'from the project', place: 'from the takeoff place', default: 'own operator (default)'};
+
 window.timingEvidenceHTML = function (timing) {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   if (!timing.status) return '';
