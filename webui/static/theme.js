@@ -55,7 +55,16 @@ window.timingEvidenceHTML = function (timing) {
   }
   let state = read();
   const api = window.flightFilters = {
-  get state() { return {...state}; },
+    get state() { return {...state}; },
+    restore(value) {
+      if (!value || !Object.hasOwn(PERIODS, value.period)
+          || !['from', 'to'].every(k => value[k] === '' || validDay(value[k]))
+          || ['indoor','nonflights','unknownDates'].some(k => typeof value[k] !== 'boolean')
+          || (value.from && value.to && value.from > value.to)) return false;
+      state = {...value};
+      paint();
+      return true;
+    },
   periodStart(range) {
     if (!range || range === 'all') return null;
     const now = new Date();
@@ -218,6 +227,105 @@ window.timingEvidenceHTML = function (timing) {
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
   else mount();
+})();
+
+(function () {
+  const filters = window.flightFilters;
+  const filterKeys = {period:'period', from:'from', to:'to', indoor:'indoor',
+    nonflights:'nonflights', unknownDates:'unknown_dates'};
+  const integer = (value, fallback, min = 1) => /^\d+$/.test(value || '')
+    && Number.isSafeInteger(+value) && +value >= min ? +value : fallback;
+  window.viewState = {
+    integer,
+    restoring:false,
+    setup(read, write, redraw) {
+      const api = this;
+      let pendingScroll = history.state?.viewScroll;
+      const restore = () => {
+        const params = new URLSearchParams(location.search);
+        if (params.has('period')) {
+          const value = {};
+          for (const [key, param] of Object.entries(filterKeys)) {
+            value[key] = ['period', 'from', 'to'].includes(key) ? params.get(param) || ''
+              : params.get(param) === '1';
+          }
+          if (!filters.restore(value)) console.warn('Invalid URL flight filters; keeping current filters');
+        }
+        read(params, history.state?.viewExtra || {});
+      };
+      const saveScroll = () => history.replaceState({...history.state, viewScroll:[scrollX, scrollY]}, '');
+      api.save = (push = false) => {
+        if (api.restoring) return;
+        const params = new URLSearchParams(location.search);
+        const extra = write(params) || {};
+        for (const [key, param] of Object.entries(filterKeys)) {
+          const value = filters.state[key];
+          if (value === '' || value === false) params.delete(param);
+          else params.set(param, value === true ? '1' : value);
+        }
+        const url = location.pathname + (params.size ? '?' + params : '') + location.hash;
+        if (push && url !== location.pathname + location.search + location.hash) {
+          saveScroll();
+          history.pushState({viewExtra:extra}, '', url);
+        } else history.replaceState({...history.state, viewExtra:extra}, '', url);
+      };
+      api.ready = () => {
+        api.save();
+        if (pendingScroll) {
+          const target = pendingScroll;
+          pendingScroll = null;
+          setTimeout(() => scrollTo(...target), 0);
+        }
+      };
+      restore();
+      api.save();
+      document.addEventListener('click', event => {
+        if (event.target.closest('a[href]')) { api.save(); saveScroll(); }
+      }, true);
+      window.addEventListener('pagehide', saveScroll);
+      window.addEventListener('pageshow', event => {
+        if (event.persisted && history.state?.viewScroll) {
+          const target = history.state.viewScroll;
+          setTimeout(() => scrollTo(...target), 0);
+        }
+      });
+      window.addEventListener('popstate', () => {
+        api.restoring = true;
+        pendingScroll = history.state?.viewScroll || [0, 0];
+        restore();
+        redraw();
+        api.restoring = false;
+        api.save();
+      });
+      history.scrollRestoration = 'manual';
+    },
+    set(params, key, value, defaultValue = '') {
+      if (String(value) === String(defaultValue)) params.delete(key);
+      else params.set(key, String(value));
+    },
+    pager(el, page, size, total, change) {
+      const last = Math.max(1, Math.ceil(total / size));
+      const current = Math.min(last, page + 1);
+      const numbers = [...new Set([1, last, ...Array.from({length:5}, (_, i) => current + i - 2)])]
+        .filter(n => n >= 1 && n <= last).sort((a,b) => a-b);
+      el.innerHTML = `<button type="button" class="page-edge" data-page="1"${current === 1 ? ' disabled' : ''}>« First</button>
+        <button type="button" class="page-step" data-page="${current-1}"${current === 1 ? ' disabled' : ''}>‹ Previous</button>` +
+        numbers.map((n,i) => `${i && n > numbers[i-1]+1 ? '<span>…</span>' : ''}<button type="button" class="page-number" data-page="${n}"${n === current ? ' aria-current="page" disabled' : ''}>${n}</button>`).join('') +
+        `<button type="button" class="page-step" data-page="${current+1}"${current === last ? ' disabled' : ''}>Next ›</button>
+        <button type="button" class="page-edge" data-page="${last}"${current === last ? ' disabled' : ''}>Last »</button>
+        <label>Page <input type="number" aria-label="Go to page" min="1" max="${last}" value="${current}" required> of ${last}</label>
+        <span class="mute">${total ? (current-1)*size+1 : 0}–${Math.min(current*size,total)} of ${total}</span>`;
+      el.querySelectorAll('button').forEach(b => { b.onclick = () => change(+b.dataset.page - 1); });
+      const input = el.querySelector('input');
+      const choosePage = () => {
+        if (input.reportValidity()) change(+input.value - 1);
+      };
+      input.onchange = choosePage;
+      input.onkeydown = event => {
+        if (event.key === 'Enter') { event.preventDefault(); choosePage(); }
+      };
+    },
+  };
 })();
 
 (function () {

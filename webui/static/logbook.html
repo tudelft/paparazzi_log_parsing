@@ -87,7 +87,7 @@
       <label>PAC <select id="bulkPac"></select></label>
       <label>GCS <select id="bulkGcs"></select></label>
       <button type="button" onclick="applyBulk()">Apply</button>
-      <label id="hiddenFilter" hidden><input type="checkbox" id="hiddenRecords" onchange="selected.clear(); page=0; loadFlights()"> Hidden records only</label>
+      <label id="hiddenFilter" hidden><input type="checkbox" id="hiddenRecords" onchange="selected.clear(); page=0; window.viewState.save(true); loadFlights()"> Hidden records only</label>
       <button type="button" id="hideSelected" hidden onclick="setHidden(true)">Hide selected</button>
       <button type="button" id="restoreSelected" hidden onclick="setHidden(false)">Restore selected</button>
       <button type="button" class="sec" onclick="sameFlight()" title="The ticked entries are recordings of one flight: logged flights, optionally with one paper record">Same flight</button>
@@ -102,11 +102,11 @@
     </div>
     <div class="bar foot">
       <span id="summary"></span>
-      <span class="bar" style="margin:0">
+      <div class="bar" style="margin:0">
         <span class="mute">Rows per page</span>
         <select id="size"><option>10</option><option selected>15</option><option>25</option><option>50</option><option>100</option></select>
-        <button id="prev">‹ Previous</button><span id="pageInfo" class="mute"></span><button id="next">Next ›</button>
-      </span>
+        <div id="logbookPages" class="navigation-pages"></div>
+      </div>
     </div>
   </section>
 </main>
@@ -522,9 +522,7 @@ function render() {
   const pages = Math.max(1, Math.ceil(entries.length / pageSize));
   page = Math.min(page, pages - 1);
   const visible = entries.slice(page * pageSize, (page + 1) * pageSize);
-  $('pageInfo').textContent = `Page ${page + 1} of ${pages}`;
-  $('prev').disabled = page === 0;
-  $('next').disabled = page >= pages - 1;
+  window.viewState.pager($('logbookPages'), page, pageSize, entries.length, n => { page = n; window.viewState.save(true); render(); });
   $('rows').innerHTML = visible.map(groupRows).join('');
   document.querySelector('table.log').classList.toggle('editing', editOn());
   const pageIds = [...new Set(visible.flatMap(e => (e.flights || []).filter(f => f.can_edit_crew).flatMap(crewIds)))];
@@ -534,6 +532,7 @@ function render() {
   const dist = shown.some(f => f.distance_m != null) ? shown.reduce((s, f) => s + (f.distance_m || 0), 0) : null;
   $('summary').textContent = `${shown.reduce((s, f) => s + (f.flight_count || 1), 0)} flights` + ($('combine').checked ? ` · ${entries.length} records/sessions` : '') + ` · ${fmtDur(total)} · ${dist == null ? 'No recorded distance' : fmtDist(dist) + ' recorded distance'}`;
   initMiniMaps();
+  window.viewState.ready();
   return shown;
 }
 
@@ -558,13 +557,34 @@ function exportCsv() {
   a.click();
 }
 
-$('q').oninput = () => { page = 0; render(); };
-$('combine').onchange = $('radius').onchange = () => { page = 0; render(); };
-window.addEventListener('flightfilterschange', () => { selected.clear(); page = 0; render(); });
+$('q').oninput = () => { page = 0; window.viewState.save(); render(); };
+$('combine').onchange = $('radius').onchange = () => { page = 0; window.viewState.save(true); render(); };
+window.addEventListener('flightfilterschange', () => { selected.clear(); page = 0; window.viewState.save(true); render(); });
 window.addEventListener('editchange', toggleEdit);
-$('prev').onclick = () => { page--; render(); };
-$('next').onclick = () => { page++; render(); };
-$('size').onchange = () => { pageSize = +$('size').value; page = 0; render(); };
+window.addEventListener('pageshow', event => {
+  if (event.persisted) { selected.clear(); render(); }
+});
+$('size').onchange = () => { pageSize = +$('size').value; page = 0; window.viewState.save(true); render(); };
+window.viewState.setup((p, extra) => {
+  page = window.viewState.integer(p.get('page'), 1) - 1;
+  const value = p.get('size') || '15';
+  const size = [...$('size').options].some(o => o.value === value) ? value : '15';
+  $('size').value = size; pageSize = +size;
+  $('q').value = p.get('q') || '';
+  $('combine').checked = p.get('group') !== 'none';
+  const radius = Number(p.get('radius') || 1);
+  $('radius').value = Number.isFinite(radius) && radius >= .1 ? radius : 1;
+  $('hiddenRecords').checked = p.get('hidden') === '1';
+  selected.clear();
+  open_.clear(); (extra.open || []).forEach(id => open_.add(id));
+  openGroups.clear(); (extra.groups || []).forEach(id => openGroups.add(id));
+}, p => {
+  const set = window.viewState.set;
+  set(p,'page',page+1,1); set(p,'size',pageSize,15); set(p,'q',$('q').value);
+  set(p,'group',$('combine').checked ? 'day' : 'none','day');
+  set(p,'radius',$('radius').value,1); set(p,'hidden',$('hiddenRecords').checked ? '1' : '');
+  return {open:[...open_], groups:[...openGroups]};
+}, loadFlights);
 </script>
 </body>
 </html>

@@ -74,7 +74,6 @@
   #map { flex:1; min-height:340px; border-radius:6px; border:1px solid var(--line); }
   select { font:inherit; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--txt); }
   .pager { display:flex; gap:10px; align-items:center; justify-content:flex-end; flex-wrap:wrap; margin-top:8px; }
-  .pager button:disabled { opacity:.5; cursor:default; }
   .chartWrap { overflow-x:auto; }
   .months { display:flex; align-items:flex-end; gap:3px; height:150px; padding-top:6px; }
   .months .m { flex:1 0 14px; max-width:64px; min-width:0; display:flex; flex-direction:column; justify-content:flex-end; height:100%; }
@@ -195,13 +194,10 @@ function pager(id, key, total, redraw) {
   p.page = Math.min(p.page, last);
   const el = $(id);
   if (total <= PAGE_SIZES[0]) { el.innerHTML = ''; return [0, total]; }
-  el.innerHTML = `<span class="mute">Rows per page</span>
-    <select>${PAGE_SIZES.map(n => `<option${n === p.size ? ' selected' : ''}>${n}</option>`).join('')}</select>
-    <button type="button" data-go="-1"${p.page === 0 ? ' disabled' : ''}>‹ Previous</button>
-    <span>Page ${p.page + 1} of ${last + 1}</span>
-    <button type="button" data-go="1"${p.page === last ? ' disabled' : ''}>Next ›</button>`;
-  el.querySelector('select').onchange = e => { p.size = +e.target.value; p.page = 0; redraw(); };
-  el.querySelectorAll('button').forEach(b => b.onclick = () => { p.page += +b.dataset.go; redraw(); });
+  el.innerHTML = `<label>Rows per page <select>${PAGE_SIZES.map(n => `<option${n === p.size ? ' selected' : ''}>${n}</option>`).join('')}</select></label><div class="navigation-pages"></div>`;
+  el.querySelector('select').onchange = e => { p.size = +e.target.value; p.page = 0; window.viewState.save(true); redraw(); };
+  window.viewState.pager(el.querySelector('.navigation-pages'), p.page, p.size, total,
+    n => { p.page = n; window.viewState.save(true); redraw(); window.viewState.ready(); });
   return [p.page * p.size, Math.min(total, (p.page + 1) * p.size)];
 }
 
@@ -367,6 +363,7 @@ function toggleBreakdown(button, title, count) {
   button.closest('.breakdown').querySelectorAll('tr.extra-row').forEach(row => { row.hidden = !expanded; });
   button.setAttribute('aria-expanded', String(expanded));
   button.textContent = expanded ? 'Show fewer' : `Show all ${count}`;
+  window.viewState.save();
 }
 
 function table(title, hint, rows, nameCol) {
@@ -562,13 +559,31 @@ function render() {
   renderFlights(list);
   renderLogs();
   renderMap(list);
+  window.viewState.ready();
 }
 
 window.addEventListener('flightfilterschange', () => {
   pages.flights.page = pages.logs.page = 0;
+  window.viewState.save(true);
   render();
 });
-$('step').onchange = () => renderChart(shown());
+$('step').onchange = () => { window.viewState.save(true); renderChart(shown()); };
+window.viewState.setup((p, extra) => {
+  for (const key of ['flights','logs']) {
+    pages[key].page = window.viewState.integer(p.get(key+'_page'),1)-1;
+    const size = window.viewState.integer(p.get(key+'_size'),10);
+    pages[key].size = PAGE_SIZES.includes(size) ? size : 10;
+  }
+  $('step').value = ['day','week','month','year'].includes(p.get('step')) ? p.get('step') : 'month';
+  expandedBreakdowns.clear(); (extra.breakdowns || []).forEach(k => expandedBreakdowns.add(k));
+}, p => {
+  const set = window.viewState.set;
+  for (const key of ['flights','logs']) {
+    set(p,key+'_page',pages[key].page+1,1); set(p,key+'_size',pages[key].size,10);
+  }
+  set(p,'step',$('step').value,'month');
+  return {breakdowns:[...expandedBreakdowns]};
+}, render);
 </script>
 </body>
 </html>

@@ -77,12 +77,6 @@
       <strong>Logs</strong>
       <label>Filename <input type="search" id="logSearch" placeholder="Find a log by filename"></label>
       <label>Status <select id="logStatus"><option value="all">All logs</option><option value="errors">Parser errors</option><option value="unfinished">Unfinished logs</option><option value="failures">All failures</option></select></label>
-    <div id="pager" class="mute" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
-      <label>Logs per page <select id="logPageSize"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>
-      <button type="button" class="sec" id="newerLogs">Newer</button>
-      <span id="pageInfo"></span>
-      <button type="button" class="sec" id="olderLogs">Older</button>
-    </div>
       <button class="sec" id="reparseAll" style="margin-left:auto" onclick="reparseOutdated()" hidden>Re-parse outdated</button>
       <button class="sec" id="reparseUnknownDates" onclick="reparseUnknownDates()" hidden>Re-parse unknown dates</button>
       <button class="sec" id="acceptDateSuggestions" onclick="acceptDateSuggestions()" hidden title="Dates for logs with an unset clock, taken from a matching ground station log">Accept date suggestions</button>
@@ -92,6 +86,11 @@
       <thead><tr><th>#</th><th>Log</th><th>Project</th><th>Aircraft</th><th>Date (UTC)</th><th>Flights</th><th>Flight time</th><th>Status</th><th>Parser</th></tr></thead>
       <tbody id="logs"></tbody>
     </table>
+    </div>
+    <div id="pager" class="mute" style="display:flex; gap:12px; align-items:center; justify-content:flex-end; flex-wrap:wrap; margin-top:12px">
+      <label>Logs per page <select id="logPageSize"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>
+      <span id="pageInfo"></span>
+      <div id="uploadPages" class="navigation-pages"></div>
     </div>
   </section>
 </main>
@@ -128,8 +127,8 @@ function logsQuery() {
   if (onlyLog) p.set('log', String(onlyLog));
   return '?' + p.toString();
 }
-function showLog(id) { onlyLog = id; expanded.add(id); logOffset = 0; refresh(); }
-function showAllLogs() { onlyLog = null; history.replaceState(null, '', location.pathname); logOffset = 0; refresh(); }
+function showLog(id) { onlyLog = id; expanded.add(id); logOffset = 0; window.viewState.save(true); refresh(); }
+function showAllLogs() { onlyLog = null; history.replaceState(history.state, '', location.pathname + location.search); logOffset = 0; window.viewState.save(true); refresh(); }
 function fillProjects() {
   const open = me.is_admin || projects.some(p => p.can_add);
   $('drop').hidden = !open;
@@ -399,13 +398,12 @@ async function refresh() {
     refreshWanted = true;
     return;
   }
-  const from = logTotal ? logOffset + 1 : 0;
-  const to = Math.min(logOffset + logs.length, logTotal);
-  $('pageInfo').textContent = logTotal ? `Showing ${from}–${to} of ${logTotal} (newest first)` : 'No matching results.';
+  $('pageInfo').textContent = logTotal ? '' : 'No matching results.';
   if (onlyLog) $('pageInfo').innerHTML = `Showing log ${onlyLog} only · <a href="/uploads" onclick="event.preventDefault(); showAllLogs()">Show all logs</a>`;
-  $('newerLogs').disabled = logOffset <= 0;
-  $('olderLogs').disabled = logOffset + LOG_PAGE >= logTotal;
+  window.viewState.pager($('uploadPages'), Math.floor(logOffset / LOG_PAGE), LOG_PAGE, logTotal,
+    n => { logOffset = n * LOG_PAGE; window.viewState.save(true); refresh(); });
   const tb = $('logs');
+  const details = [];
   tb.innerHTML = '';
   for (const l of logs) {
     const tr = document.createElement('tr');
@@ -435,9 +433,12 @@ async function refresh() {
       const d = document.createElement('tr');
       d.innerHTML = `<td colspan="9" class="detail" id="d${l.id}">loading…</td>`;
       tb.appendChild(d);
-      loadDetail(l.id);
+      details.push(loadDetail(l.id));
     }
   }
+  await Promise.all(details);
+  if (query !== logsQuery()) { refreshWanted = true; return; }
+  window.viewState.ready();
   } finally {
     refreshBusy = false;
     if (refreshWanted) { refreshWanted = false; refresh(); }
@@ -572,22 +573,39 @@ async function setProject(id, value) {
     body: JSON.stringify({project_id: value ? +value : null})});
   refresh();
 }
-$('logPageSize').onchange = () => { LOG_PAGE = +$('logPageSize').value; logOffset = 0; refresh(); };
-$('logStatus').onchange = () => { logOffset = 0; refresh(); };
+$('logPageSize').onchange = () => { LOG_PAGE = +$('logPageSize').value; logOffset = 0; window.viewState.save(true); refresh(); };
+$('logStatus').onchange = () => { logOffset = 0; window.viewState.save(true); refresh(); };
 let logSearchTimer;
 $('logSearch').oninput = () => {
   clearTimeout(logSearchTimer);
   onlyLog = null;
-  history.replaceState(null, '', location.pathname);
+  history.replaceState(history.state, '', location.pathname + location.search);
   logOffset = 0;
+  window.viewState.save();
   logSearchTimer = setTimeout(refresh, 250);
 };
-$('newerLogs').onclick = () => { logOffset = Math.max(0, logOffset - LOG_PAGE); refresh(); };
-$('olderLogs').onclick = () => { if (logOffset + LOG_PAGE < logTotal) { logOffset += LOG_PAGE; refresh(); } };
+window.addEventListener('flightfilterschange', () => window.viewState.save(true));
 setInterval(() => {
   if (document.hidden || document.querySelector('.detail:hover')) return;
   refresh();
 }, 3000);
+window.viewState.setup((p, extra) => {
+  const size = p.get('size') || '10';
+  LOG_PAGE = [10,25,50,100].includes(+size) ? +size : 10;
+  $('logPageSize').value = String(LOG_PAGE);
+  logOffset = (window.viewState.integer(p.get('page'),1)-1) * LOG_PAGE;
+  $('logSearch').value = p.get('q') || '';
+  $('logStatus').value = ['all','errors','unfinished','failures'].includes(p.get('status')) ? p.get('status') : 'all';
+  onlyLog = window.viewState.integer(p.get('log'), /^#log\d+$/.test(location.hash) ? +location.hash.slice(4) : null);
+  expanded.clear(); (extra.expanded || []).forEach(id => expanded.add(id));
+  if (onlyLog) expanded.add(onlyLog);
+}, p => {
+  const set = window.viewState.set;
+  set(p,'page',Math.floor(logOffset/LOG_PAGE)+1,1); set(p,'size',LOG_PAGE,10);
+  set(p,'q',$('logSearch').value); set(p,'status',$('logStatus').value,'all');
+  set(p,'log',onlyLog || '');
+  return {expanded:[...expanded]};
+}, refresh);
 </script>
 </body>
 </html>

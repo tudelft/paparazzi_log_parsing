@@ -39,6 +39,32 @@
 - For UI-only changes, prefer editor diagnostics and a small mock-data browser check if needed.
   Do not install new tooling just to validate a small change.
 
+### Browser checks (Playwright / integrated browser)
+
+- Reuse a shared browser page when appropriate. Start an isolated mock server only when needed,
+  verify its URL responds before opening it, and use fixtures matching the fields the page actually
+  reads (including nested objects). A fixture-caused JavaScript error is not an application bug.
+- Read the current page snapshot before interacting. Prefer accessible roles/names or stable IDs;
+  check locator uniqueness before acting. Pagination numbers and Next/Last can share `data-page`
+  values, so that attribute alone is not necessarily a unique selector.
+- Keep each check short and focused: perform one transition, wait for its observable result, then
+  inspect it. Avoid long interaction chains that hide which step failed. Wait for rendered rows,
+  control values or URLs rather than fixed sleeps or network-idle on polling pages.
+- Use normal clicks and keyboard input first. If an action stalls, inspect visibility, enabled
+  state, overlays and locator matches before retrying. DOM-dispatched events are suitable for
+  isolating handler behavior, but do not prove a real click or keyboard interaction works.
+- If a browser call returns a deferred result ID, resume that call before starting another action
+  on the same page. Do not leave competing checks running or repeat a timed-out chain unchanged.
+- Check `document.visibilityState` when timing is surprising: integrated browser tabs can remain
+  hidden even after `bringToFront()`, and `requestAnimationFrame` can be suspended. Do not diagnose
+  broken restoration solely from a hidden-tab animation timeout; test the actual saved/restored
+  state and distinguish tool limitations from user-visible behavior.
+- For navigation checks, record page/filter/expansion state and scroll before leaving, then compare
+  after Back/Forward and after rendering completes. Check both same-document history and returning
+  from another page; browser back-forward caching can take a different path.
+- After editing mock-server code, restart that specific server and verify it responds. Stop only
+  the server started for the check when finished; leave loaded previews open when requested.
+
 ## Commits and releases
 
 - When the user asks to commit/push, also create and push an annotated Web UI release tag

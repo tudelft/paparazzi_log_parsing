@@ -715,6 +715,27 @@ Entity detail pages use a single wrapping title bar for the name, badges, filter
 and Help. Breakdown cards show name, flights and hours, with the top five entries by flight time
 visible initially and Show all / Show fewer controls. Cards share a 320px minimum height for
 short lists; expanded cards grow independently. Use the main navigation or browser Back to leave a detail page.
+
+**List navigation.** Logbook and Uploads use query parameters `page`, `size` and `q`;
+Logbook also stores `group=none` (the default is combined day sessions), `radius` and
+`hidden=1`, while Uploads stores `status` and `log`. Legacy Uploads `#log123` links
+still open that log. Entity detail pages use independent `flights_page` / `flights_size`
+and `logs_page` / `logs_size`, plus the chart's `step`. Defaults are omitted.
+The shared flight-filter snapshot uses `period` (always explicit), custom `from` / `to`
+and enabled `indoor`, `nonflights`, `unknown_dates` flags. This prevents later changes to
+browser-wide preferences from altering an older history entry; restoring an entry does
+not overwrite the saved browser-wide preference. Uploads still lists uploads independently
+of the flight filters. Page changes and applied view options create history entries;
+typing a search replaces the current entry. Polling and page clamping never add entries.
+The shared helpers in `static/theme.js` restore controls on Back/Forward and keep scroll,
+expanded logbook/upload rows and detail breakdowns in `history.state`, not URLs.
+Bulk selection is cleared; unsaved edits are not stored by the helper. Numbered controls include First/Last,
+a bounded page field and row range; detail pagers remain hidden for ten or fewer rows.
+All these pages share the same paginator styling: quiet double-chevron First/Last,
+outlined Previous/Next, compact page numbers and a filled current-page indicator.
+Upload pagination and its page-size selector sit below the log table.
+Directory searches and editor panels are outside this navigation-state scheme.
+
 Project details use compact member and default-aircraft links, with five shown initially and the rest
 expandable. Membership permission labels are omitted, and creation dates sit under Project details.
 Location type remains a title badge; circle/polygon information is under collapsed Area details.

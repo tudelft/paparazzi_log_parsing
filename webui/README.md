@@ -25,6 +25,10 @@ existing `/logbook` links still work.
 On **Uploads**, use **Filename** to find logs by part of their filename across all pages.
 It works together with the status filter.
 
+Logbook, Uploads and entity flight/log tables remember their page and view options in the
+URL. Open a flight and use browser **Back** to return to the same view and scroll position.
+Use **First**, **Last**, the numbered buttons or the page-number field to move through large lists.
+
 After changing firmware lookup repositories, administrators can use **Re-parse unknown dates**
 on **Uploads** to retry completed logs with unknown dates, even with the current parser version.
 Manual dates and plausible estimated dates are left unchanged.
