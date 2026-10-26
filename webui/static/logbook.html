@@ -86,7 +86,7 @@
       <label>PIC <select id="bulkPic"></select></label>
       <label>PAC <select id="bulkPac"></select></label>
       <label>GCS <select id="bulkGcs"></select></label>
-      <label title="The operator registration the flights were flown under">Operator <select id="bulkOperator"></select></label>
+      <label title="The operator registration the flights were flown under">Operator <select id="bulkOperator" onchange="pickNewOperator(this, operators, fillBulkMenus, '__keep__')"></select></label>
       <button type="button" onclick="applyBulk()">Apply</button>
       <label id="hiddenFilter" hidden><input type="checkbox" id="hiddenRecords" onchange="selected.clear(); page=0; window.viewState.save(true); loadFlights()"> Hidden records only</label>
       <button type="button" id="hideSelected" hidden onclick="setHidden(true)">Hide selected</button>
@@ -188,8 +188,8 @@ function fillBulkMenus() {
     $('bulkProject').innerHTML = '<option value="__keep__">Keep</option><option value="">No project</option>'
       + addable.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
   }
-  $('bulkOperator').innerHTML = '<option value="__keep__">Keep</option><option value="">From project / place / own</option>'
-    + operators.map(o => `<option value="${o.id}">${esc(operatorLabel(o))}</option>`).join('');
+  $('bulkOperator').innerHTML = '<option value="__keep__">Keep</option><option value="">From project / place / PIC / own</option>'
+    + operators.map(o => `<option value="${o.id}">${esc(operatorLabel(o))}</option>`).join('') + NEW_OPERATOR_OPTION;
 }
 // Operator registration (#63): a value set on the flight is shown plainly, an inferred one is muted.
 function operatorCell(f) {

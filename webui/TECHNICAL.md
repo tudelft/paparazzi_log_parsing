@@ -1296,16 +1296,25 @@ or a foreign authority's operation. `operators.py` resolves the operator of ever
    (`flight_records.operator_id`); a paper record linked to logged flights also sets it for that entry;
 2. the project (`projects.operator_id`);
 3. the takeoff place (`places.operator_id`), for a site that runs its own operation;
-4. our own operator (`operators.own`, at most one); with no own operator set up, every flight counts as own.
+4. the operator the PIC flies for (`users.operator_id`, set for external crew);
+5. our own operator (`operators.own`, at most one); with no own operator set up, every flight counts as own.
+
+Only step 1 is stored per flight; the rest is resolved when the logbook is read. Existing flights therefore need
+no migration: mark our own operator, then set the operator of each external person (Projects → Operators →
+External crew, or the person's page in Edit mode), and their flights follow.
 
 Logbook rows carry `operator_id`, `operator_name`, `operator_registration`, `operator_own` and
-`operator_source` (`flight`, `project`, `place` or `default`). `operator_check` marks an entry on the default
-whose PIC is external crew. The shared flight filters (`operator=all|own|other`) apply it to the Logbook,
+`operator_source` (`flight`, `project`, `place`, `pic` or `default`). `operator_check` marks an entry on the
+default whose PIC is external crew without an operator. The shared flight filters (`operator=all|own|other`) apply it to the Logbook,
 Statistics, Locations (`/api/places?operator=`) and overview pages.
 
-- `GET /api/operators`: the list (any signed-in user). Admins: `POST /api/admin/operators`,
-  `PUT`/`DELETE /api/admin/operators/<id>` (name, registration, country, own, note). An operator still used by
-  flights, paper records, projects or places cannot be deleted.
+- `GET /api/operators`: the list (any signed-in user). `POST /api/operators`: anyone signed in adds the operator
+  of a new partner (not our own); the Logbook bulk bar, the paper-record form and the People page offer
+  **New operator…** for it. Admins: `POST /api/admin/operators`, `PUT`/`DELETE /api/admin/operators/<id>` (name,
+  registration, country, own, note; a `PUT` keeps the fields it leaves out). An operator still used by flights,
+  paper records, projects, places or people cannot be deleted.
+- `PUT /api/admin/users/<id>/operator` sets the operator a person flies for; `POST /api/admin/people/external`
+  takes an optional `operator_id`.
 - `PUT /api/logbook/records` with `operator_id` sets it on the selected entries; `null` returns them to the
   default. `PUT /api/admin/projects/<id>` and `PUT /api/admin/places/<id>` take `operator_id` too.
 - Paper-record CSV: optional `operator` column, matched by name or registration number; blank means the

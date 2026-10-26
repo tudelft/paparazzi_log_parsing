@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS users (
     last_login TEXT,
     default_project_id INTEGER,        -- used when a flight has no aircraft default
     is_external INTEGER NOT NULL DEFAULT 0 CHECK(is_external IN (0,1)),  -- crew from another operator; cannot sign in
+    operator_id INTEGER,               -- operators.id this person flies for (external crew); NULL = our own
     UNIQUE (provider, subject)
 );
 CREATE TABLE IF NOT EXISTS logs (
@@ -495,7 +496,7 @@ def init(path):
         " start_date TEXT NOT NULL,"
         " end_date TEXT)")
     con.execute("CREATE INDEX IF NOT EXISTS ix_drone_projects_drone ON drone_projects(drone_id, start_date)")
-    for table in ("flights", "flight_records", "projects", "places"):
+    for table in ("flights", "flight_records", "projects", "places", "users"):
         if "operator_id" not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
             con.execute(f"ALTER TABLE {table} ADD COLUMN operator_id INTEGER"
                         + (" REFERENCES operators(id)" if table == "flight_records" else ""))

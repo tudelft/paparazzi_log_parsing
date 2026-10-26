@@ -4,7 +4,46 @@ window.estimatedDateBadge = function (record) {
 
 // How an operator is shown everywhere, and where a logbook entry's operator comes from (operators.py).
 window.operatorLabel = o => o.name + (o.registration ? ` (${o.registration})` : '');
-window.OPERATOR_SOURCE = {flight: 'set on this flight', project: 'from the project', place: 'from the takeoff place', default: 'own operator (default)'};
+window.OPERATOR_SOURCE = {flight: 'set on this flight', project: 'from the project', place: 'from the takeoff place', pic: 'the operator the PIC flies for', default: 'own operator (default)'};
+// Anyone who flies can add the operator of a new partner; resolves to the new operator, or null when cancelled.
+window.newOperatorDialog = function () {
+  return new Promise(resolve => {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'entry-dialog';
+    dialog.innerHTML = `<form><div class="dialog-header"><h2>New operator</h2></div>
+      <p class="mute">The organisation whose operator registration the flights were flown under, for example a partner.</p>
+      <label class="field">Name<input name="name" required maxlength="80"></label>
+      <label class="field">Registration number<input name="registration" maxlength="40" placeholder="as on their registration"></label>
+      <label class="field">Country<input name="country" maxlength="40"></label>
+      <label class="field">Note<input name="note" maxlength="400" placeholder="e.g. authorisation flown under"></label>
+      <p class="dialog-error" role="alert"></p>
+      <div class="row"><button type="submit">Add operator</button> <button type="button" class="sec">Cancel</button></div></form>`;
+    const form = dialog.querySelector('form');
+    dialog.querySelector('button.sec').onclick = () => dialog.close();
+    dialog.addEventListener('close', () => { dialog.remove(); resolve(null); });
+    form.onsubmit = async event => {
+      event.preventDefault();
+      const body = Object.fromEntries(new FormData(form));
+      const r = await fetch('/api/operators', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { form.querySelector('.dialog-error').textContent = data.error || `Could not add the operator (${r.status}).`; return; }
+      resolve({...body, id: data.id, own: 0});
+      dialog.close();
+    };
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+};
+// For an operator select whose last choice is "New operator…" (value __new__): add one and select it.
+window.NEW_OPERATOR_OPTION = '<option value="__new__">New operator…</option>';
+window.pickNewOperator = async function (select, operators, refill, fallback = '') {
+  if (select.value !== '__new__') return;
+  const added = await window.newOperatorDialog();
+  if (!added) { select.value = fallback; return; }
+  operators.push(added);
+  refill();
+  select.value = String(added.id);
+};
 
 window.timingEvidenceHTML = function (timing) {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));

@@ -179,12 +179,57 @@ class OperatorTests(LinkFixtures):
         rows = self.client.get("/api/people-pic-flights").json["flights"]
         self.assertEqual([r["operator_own"] for r in rows], [False])
 
+    def test_the_operator_a_pic_flies_for_comes_after_project_and_place(self):
+        self.flight(1, "12:00:00")
+        self.con.execute("UPDATE flights SET pic_user_id=2 WHERE id=1")
+        self.con.execute("UPDATE users SET operator_id=2 WHERE id=2")  # the PIC flies for the partner
+        self.assertEqual(self.operator_of(flight_id=1), ("Partner", "pic", False))
+        self.con.execute("UPDATE places SET operator_id=3 WHERE id=1")
+        self.assertEqual(self.operator_of(flight_id=1), ("Test centre", "place", False))
+        self.con.execute("UPDATE places SET operator_id=NULL WHERE id=1")
+        self.con.execute("UPDATE flights SET operator_id=1 WHERE id=1")  # flown under our operation after all
+        self.assertEqual(self.operator_of(flight_id=1), ("Our lab", "flight", True))
+        self.con.commit()
+        created = self.create(date="2010-01-05")
+        self.assertEqual(created.status_code, 201, created.json)
+        paper = created.json["id"]  # paper records follow their PIC too
+        self.assertEqual(self.operator_of(manual_id=paper), ("Partner", "pic", False))
+        # External crew with an operator are not marked to check; without one they are.
+        self.sign_in(1)  # external crew cannot sign in
+        self.con.execute("UPDATE users SET is_external=1 WHERE id=2")
+        self.assertFalse(self.entry(manual_id=paper)["operator_check"])
+        self.con.execute("UPDATE users SET operator_id=NULL WHERE id=2")
+        self.assertTrue(self.entry(manual_id=paper)["operator_check"])
+
+    def test_anyone_can_add_a_partner_operator_and_admins_set_who_flies_for_it(self):
+        self.sign_in(2)
+        added = self.client.post("/api/operators", json=dict(name="New partner", registration="NP-1", country="BE"))
+        self.assertEqual(added.status_code, 201, added.json)
+        self.assertEqual(self.client.post("/api/operators", json=dict(name="Ours", own=True)).status_code, 403)
+        self.assertEqual(self.client.post("/api/operators", json=dict(name="new PARTNER")).status_code, 409)
+        self.assertEqual(self.client.put(f"/api/admin/operators/{added.json['id']}", json=dict(note="x")).status_code, 403)
+        self.assertEqual(self.client.put("/api/admin/users/2/operator", json=dict(operator_id=2)).status_code, 403)
+        self.sign_in(1)
+        self.assertEqual(self.client.put("/api/admin/users/2/operator", json=dict(operator_id=added.json["id"])).status_code, 200)
+        self.assertEqual(self.client.put("/api/admin/users/2/operator", json=dict(operator_id=99)).status_code, 400)
+        people = self.client.get("/api/admin/people").json
+        self.assertEqual(next(u for u in people["users"] if u["id"] == 2)["operator_id"], added.json["id"])
+        self.assertIn("New partner", [o["name"] for o in people["operators"]])
+        used = self.client.delete(f"/api/admin/operators/{added.json['id']}")
+        self.assertEqual(used.status_code, 409)
+        self.assertIn("1 people", used.json["error"])
+        external = self.client.post("/api/admin/people/external", json=dict(name="Guest Pilot", operator_id=3))
+        self.assertEqual(external.status_code, 201, external.json)
+        self.assertEqual(tuple(self.con.execute("SELECT is_external, operator_id FROM users WHERE id=?",
+                                                (external.json["id"],)).fetchone()), (1, 3))
+        self.assertEqual(self.client.post("/api/admin/people/external", json=dict(name="Other", operator_id=99)).status_code, 400)
+
     def test_schema_migration_adds_operator_columns(self):
-        for table in ("flights", "projects", "places"):
+        for table in ("flights", "projects", "places", "users"):
             self.con.execute(f"ALTER TABLE {table} DROP COLUMN operator_id")
         self.con.commit()
         with patch.object(db, "connect", return_value=self.con):
             db.init("unused")
             db.init("unused")
-        for table in ("flights", "flight_records", "projects", "places"):
+        for table in ("flights", "flight_records", "projects", "places", "users"):
             self.assertIn("operator_id", {r[1] for r in self.con.execute(f"PRAGMA table_info({table})")})

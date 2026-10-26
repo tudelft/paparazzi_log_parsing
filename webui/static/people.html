@@ -114,7 +114,7 @@
   <div id="err"></div>
   <section class="card" id="unlinkedCard" hidden>
     <div class="section-heading"><h2>Unlinked crew names</h2>
-    <details><summary>Help</summary><p>PIC/PAC/GCS names from logs that do not match a person yet. Link each name to an existing person, or use Add user first if a new profile is needed. Add as external records crew of another operator (for example when flying under their operational authorisation): their flights are linked, but they cannot sign in or join projects. Logs do not create profiles automatically.</p></details></div>
+    <details><summary>Help</summary><p>PIC/PAC/GCS names from logs that do not match a person yet. Link each name to an existing person, or use Add user first if a new profile is needed. Add as external records crew of another operator (for example when flying under their operational authorisation): their flights are linked, but they cannot sign in or join projects. Choose the operator they fly for first: their flights are then counted under that operator. Logs do not create profiles automatically.</p></details></div>
     <div class="scroll"><table><thead><tr><th>Name in log</th><th>Seen</th><th>Link to user</th><th></th></tr></thead><tbody id="unlinked"></tbody></table></div>
   </section>
   <section class="card">
@@ -310,7 +310,8 @@ function render() {
   const opts = people.users.map(u => `<option value="${u.id}">${esc(u.display_name || u.username)} (${esc(u.username)})${u.is_external ? ' · External' : ''}</option>`).join('');
   $('unlinked').innerHTML = people.unlinked.map((e, i) => `<tr><td>${esc(e.name)}</td><td>${e.count}×</td>
     <td><select id="sel${i}">${opts}</select> <button onclick="addAlias(${i}, null)">Link</button></td>
-    <td><button type="button" class="sec" onclick="addExternal(${i})">Add as external</button></td></tr>`).join('')
+    <td><select id="extOperator${i}" title="The operator this person flies for" onchange="pickNewOperator(this, people.operators, () => { this.innerHTML = operatorOptions(null); })">${operatorOptions(null)}</select>
+      <button type="button" class="sec" onclick="addExternal(${i})">Add as external</button></td></tr>`).join('')
     || '<tr><td colspan="4" class="mute">Everything is linked.</td></tr>';
   renderAdminPeople();
 }
@@ -542,7 +543,10 @@ function renderPersonPanel() {
         </p>` : ''}
       ${editing && id !== me.id && !user.is_admin ? `<p><label><input type="checkbox" ${user.is_external ? 'checked' : ''} onchange="setExternal(${id}, this.checked)">
         External</label></p>` : ''}
-      </div></section>
+      </div>
+      <p title="Their flights are under this operator unless the flight, its project or its location says otherwise"><strong>Flies for:</strong>
+      ${editing ? `<select id="userOperator${id}" onchange="setUserOperator(${id}, this)">${operatorOptions(user.operator_id)}</select>`
+        : esc(operatorLabelById(user.operator_id))}</p></section>
       ${editing && id !== me.id ? `<section class="account-section"><h3>Remove person</h3>
         <div class="account-actions"><button type="button" class="danger" onclick="removeUser(${id})">Remove user</button></div></section>` : ''}</div>`;
   }
@@ -703,7 +707,20 @@ function addAlias(i, uid) {
   if (v) send('POST', '/api/admin/aliases', {user_id: uid, alias: v});
 }
 const removeAlias = alias => send('DELETE', '/api/admin/aliases', {alias});
-const addExternal = i => send('POST', '/api/admin/people/external', {name: people.unlinked[i].name});
+const addExternal = i => send('POST', '/api/admin/people/external',
+  {name: people.unlinked[i].name, operator_id: $('extOperator' + i).value ? +$('extOperator' + i).value : null});
+// The operator a person flies for (#63): their flights default to it.
+const operatorOptions = selected => '<option value="">Our own operator</option>' + (people.operators || []).map(o =>
+  `<option value="${o.id}"${o.id === selected ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('') + NEW_OPERATOR_OPTION;
+const operatorLabelById = id => { const o = (people.operators || []).find(x => x.id === id); return o ? operatorLabel(o) : 'Our own operator'; };
+async function setUserOperator(id, select) {
+  if (select.value === '__new__') {
+    const user = people.users.find(u => u.id === id);
+    await pickNewOperator(select, people.operators, () => { select.innerHTML = operatorOptions(user?.operator_id); }, String(user?.operator_id ?? ''));
+    if (select.value === String(user?.operator_id ?? '')) return;
+  }
+  send('PUT', `/api/admin/users/${id}/operator`, {operator_id: select.value ? +select.value : null});
+}
 function setExternal(id, external) {
   if (external && !confirm('Mark this person as external? They can no longer sign in and lose their project access. Their flights stay linked.')) return render();
   send('PUT', `/api/admin/users/${id}/external`, {is_external: external});

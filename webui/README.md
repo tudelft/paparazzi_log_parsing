@@ -97,9 +97,10 @@ original recording can still be opened or downloaded.
 - In Edit mode, tick the entries of one flight and press **Same flight** to join them (also when the automatic
   SD/GCS merge missed it), or press **Not the same flight** next to a recording in an expanded entry to split it off.
 - Each flight shows the **operator** (operator registration) it was flown under: our own unless set on the flight
-  (Edit mode, **Operator** in the selection bar), its project or its takeoff location; inferred values are grey.
-  Choose **Own operations only** in Flight filters for operator reporting; pilot experience counts all operators.
-  Admins keep the list of operators on the Projects page.
+  (Edit mode, **Operator** in the selection bar), its project, its takeoff location or the operator its PIC flies
+  for (external crew); inferred values are grey. Choose **Own operations only** in Flight filters for operator
+  reporting; pilot experience counts all operators. The list of operators is on the Projects page; anyone can add
+  a new partner there or with **New operator…** in the Logbook, and admins set which operator external crew fly for.
 - SD and GCS recordings of the same flight are merged. **Combine flights** additionally groups nearby
   flights into sessions; it does not change stored flights.
 - Hover over an aircraft name in the logbook for its TUD/serial number; it is also on the aircraft detail page.

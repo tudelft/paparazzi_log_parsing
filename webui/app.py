@@ -2136,6 +2136,23 @@ def list_operators():
     return jsonify(operators=operators.catalog(conn()), admin=bool(g.user["is_admin"]))
 
 
+@app.post("/api/operators")
+def add_operator():
+    """Anyone who flies can add the operator of a new partner; changing or removing operators, and marking our
+    own, stays with admins."""
+    session_required()
+    body = request.get_json(silent=True)
+    if isinstance(body, dict) and body.get("own") and not g.user["is_admin"]:
+        return jsonify(error="Only an administrator can mark our own operator."), 403
+    con = conn()
+    try:
+        operator_id = operators.save(con, operators.validate(con, body), now())
+    except operators.OperatorError as exc:
+        return jsonify(error=str(exc)), exc.status
+    con.commit()
+    return jsonify(id=operator_id), 201
+
+
 @app.post("/api/admin/operators")
 @app.put("/api/admin/operators/<int:operator_id>")
 def admin_save_operator(operator_id=None):
@@ -3759,7 +3776,7 @@ def admin_people():
             is_admin=bool(u["is_admin"]), is_external=bool(u["is_external"]), has_password=bool(u["password_hash"]),
             is_active=bool(u["is_active"]),
             provider=prov, pending=prov == "log", has_logs=u["id"] in with_logs,
-            default_project_id=u["default_project_id"],
+            default_project_id=u["default_project_id"], operator_id=u["operator_id"],
             aliases=[r["alias"] for r in con.execute(
                 "SELECT alias FROM user_aliases WHERE user_id=? ORDER BY alias", (u["id"],))],
             qualifications=qualifications.qualifications_payload(con, g.user, u["id"])))
@@ -3773,7 +3790,7 @@ def admin_people():
                 e["count"] += 1
     projects = [dict(id=p["id"], name=p["name"]) for p in con.execute("SELECT id, name FROM projects ORDER BY name")]
     return jsonify(users=users, unlinked=sorted(unlinked.values(), key=lambda e: -e["count"]),
-                   projects=projects)
+                   projects=projects, operators=operators.catalog(con))
 
 
 @app.put("/api/admin/users/<int:user_id>/admin")
@@ -3851,11 +3868,15 @@ def admin_add_external():
     """Explicitly add an unlinked crew name as an external person: crew of another operator, without sign-in."""
     admin_required()
     session_required()
-    name = (request.get_json(silent=True) or {}).get("name")
+    body = request.get_json(silent=True) or {}
+    name = body.get("name")
     name = name.strip() if isinstance(name, str) else ""
     if not name or len(name) > 80 or any(ord(c) < 32 or ord(c) == 127 for c in name):
         return jsonify(error="name must be 1-80 characters without control characters"), 400
     con = conn()
+    operator_id = operators.parse_id(con, body.get("operator_id"))  # optional: the operator they fly for
+    if operator_id is False:
+        return jsonify(error="no such operator"), 400
     with db.write_lock, con:
         con.execute("BEGIN IMMEDIATE")
         names = qualifications.crew_keys(con)
@@ -3863,10 +3884,27 @@ def admin_add_external():
             return jsonify(error="this name already matches a person" if names[name.casefold()]
                            else "this name matches more than one person; link it instead"), 409
         cur = con.execute(
-            "INSERT INTO users (username, display_name, password_hash, is_external, created_at) VALUES (?,?,NULL,1,?)",
-            (unique_username(con, "".join(name.split())[:40] or "external"), name, now()))
+            "INSERT INTO users (username, display_name, password_hash, is_external, operator_id, created_at)"
+            " VALUES (?,?,NULL,1,?,?)",
+            (unique_username(con, "".join(name.split())[:40] or "external"), name, operator_id, now()))
         assign_open_flights(con)
     return jsonify(id=cur.lastrowid), 201
+
+
+@app.put("/api/admin/users/<int:user_id>/operator")
+def admin_set_user_operator(user_id):
+    """The operator a person flies for (external crew): their flights default to it (operators.py)."""
+    admin_required()
+    session_required()
+    con = conn()
+    if not con.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone():
+        return jsonify(error="no such user"), 404
+    operator_id = operators.parse_id(con, (request.get_json(silent=True) or {}).get("operator_id"))
+    if operator_id is False:
+        return jsonify(error="no such operator"), 400
+    con.execute("UPDATE users SET operator_id=? WHERE id=?", (operator_id, user_id))
+    con.commit()
+    return jsonify(ok=True)
 
 
 @app.put("/api/admin/users/<int:user_id>/external")

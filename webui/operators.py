@@ -8,13 +8,15 @@ The operator of a logbook entry is, in this order:
 1. set on the flight or on the paper record ("flight");
 2. the operator of its project ("project");
 3. the operator of its takeoff place, e.g. a test centre that runs its own operation ("place");
-4. our own operator ("default").
-Only 1 is stored per flight; the others follow when a project or place changes. When the PIC is crew of
-another operator and nothing more specific applies, the entry is marked to be checked."""
+4. the operator its PIC flies for, e.g. crew of a partner ("pic");
+5. our own operator ("default").
+Only 1 is stored per flight; the others follow when a project, place or person changes, so existing flights need no
+migration: setting the operator of the external crew fills in their flights. When the PIC is external crew without
+an operator and nothing more specific applies, the entry is marked to be checked."""
 
 import sqlite3
 
-SOURCES = ("flight", "project", "place", "default")
+SOURCES = ("flight", "project", "place", "pic", "default")
 
 
 class OperatorError(ValueError):
@@ -77,10 +79,10 @@ def _save(con, values, stamp, operator_id):
 
 
 def usage(con, operator_id):
-    """How many flights, paper records, projects and places name this operator."""
+    """How many flights, paper records, projects, places and people name this operator."""
     return {label: con.execute(f"SELECT COUNT(*) FROM {table} WHERE operator_id=?", (operator_id,)).fetchone()[0]
             for label, table in (("flights", "flights"), ("paper records", "flight_records"),
-                                 ("projects", "projects"), ("places", "places"))}
+                                 ("projects", "projects"), ("places", "places"), ("people", "users"))}
 
 
 def parse_id(con, raw):
@@ -110,20 +112,23 @@ def apply(con, rows, flight_operators):
     projects = {r[0]: r[1] for r in con.execute("SELECT id, operator_id FROM projects WHERE operator_id IS NOT NULL")}
     places = {r[0]: r[1] for r in con.execute("SELECT id, operator_id FROM places WHERE operator_id IS NOT NULL")}
     papers = {r[0]: r[1] for r in con.execute("SELECT id, operator_id FROM flight_records WHERE operator_id IS NOT NULL")}
-    external = {r[0] for r in con.execute("SELECT id FROM users WHERE is_external=1")}
+    crew = {r[0]: r[1] for r in con.execute("SELECT id, operator_id FROM users WHERE operator_id IS NOT NULL")}
+    external = {r[0] for r in con.execute("SELECT id FROM users WHERE is_external=1 AND operator_id IS NULL")}
     for r in rows:
         if r["source_type"] == "paper":
             explicit = [papers.get(r["manual_id"])]
         else:
             explicit = ([flight_operators.get(s["flight_id"]) for s in r["sources"]]
                         + [papers.get(p["id"]) for p in r.get("linked_records") or []])
+        pic = (r.get("pic_user") or {}).get("id")
         candidates = ([("flight", i) for i in explicit] + [("project", projects.get(r.get("project_id"))),
-                                                           ("place", places.get(r.get("takeoff_place_id")))])
+                                                           ("place", places.get(r.get("takeoff_place_id"))),
+                                                           ("pic", crew.get(pic))])
         source, operator = next(((s, operators[i]) for s, i in candidates if i in operators), ("default", own))
         r["operator_id"] = operator["id"] if operator else None
         r["operator_name"] = operator["name"] if operator else None
         r["operator_registration"] = operator["registration"] if operator else None
         r["operator_own"] = bool(operator["own"]) if operator else True  # nothing set up yet: all flights are ours
         r["operator_source"] = source
-        r["operator_check"] = source == "default" and (r.get("pic_user") or {}).get("id") in external
+        r["operator_check"] = source == "default" and pic in external
     return rows

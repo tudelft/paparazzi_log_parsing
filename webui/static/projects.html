@@ -105,17 +105,20 @@
   </section>
   <section class="card" id="operatorsCard">
     <div class="project-toolbar"><h2>Operators</h2>
-    <details><summary>Help</summary><p>The UAS operator registrations flights are flown under. Every flight is under our own operator unless it is set on the flight (logbook Edit mode), on its project or on its takeoff location. Use the flight filters for own operations only.</p></details></div>
+    <details><summary>Help</summary><p>The UAS operator registrations flights are flown under. A flight is under, in this order: the operator set on the flight (logbook Edit mode), that of its project, that of its takeoff location, the operator its PIC flies for, or else our own operator. Nothing has to be filled in per flight: mark our own operator, then choose the operator of external crew below. Anyone can add the operator of a new partner in Edit mode (also from the logbook and the paper-record form); only admins change, remove or mark our own. Use the flight filters for own operations only.</p></details></div>
     <div class="scroll"><table><thead><tr><th>Name</th><th>Registration number</th><th>Country</th><th>Own</th><th>Note</th><th></th></tr></thead>
       <tbody id="operatorRows"></tbody></table></div>
     <form class="row" id="addOperator" hidden onsubmit="event.preventDefault();saveOperator(null)">
       <label class="field">Name<input id="opName" required maxlength="80"></label>
       <label class="field">Registration number<input id="opRegistration" maxlength="40"></label>
       <label class="field">Country<input id="opCountry" maxlength="40"></label>
-      <label class="field">Own<input type="checkbox" id="opOwn"></label>
+      <label class="field" id="opOwnField">Own<input type="checkbox" id="opOwn"></label>
       <label class="field">Note<input id="opNote" maxlength="400" placeholder="e.g. authorisation flown under"></label>
       <button type="submit">Add operator</button>
     </form>
+    <div id="crewOperators" hidden><h3>External crew</h3>
+      <p class="mute">The operator each external person flies for. Their flights count under it unless the flight, project or location says otherwise; <span class="warn">(check)</span> in the logbook marks external crew without one.</p>
+      <div class="scroll"><table><thead><tr><th>Person</th><th>Flies for</th></tr></thead><tbody id="crewOperatorRows"></tbody></table></div></div>
   </section>
 </main>
 <script>
@@ -157,7 +160,8 @@ function applyTicks(prefix) {
 const editing = () => !!(me && me.is_admin && window.editMode());
 function syncEdit() {
   $('add').hidden = !editing();
-  $('addOperator').hidden = !editing();
+  $('addOperator').hidden = !(me && window.editMode());  // anyone can add a partner; only admins mark our own
+  $('opOwnField').hidden = !editing();
   $('importSection').hidden = !editing();
   if (!editing()) $('importProjectsDialog').close();
   $('hint').textContent = editing()
@@ -239,12 +243,22 @@ function renderOperators() {
     <td>${field(o, 'note', 400)}</td>
     <td>${editing() ? `<button type="button" onclick="saveOperator(${o.id})">Save</button> <button type="button" class="danger" onclick="deleteOperator(${o.id})">Delete</button>` : ''}</td></tr>`).join('')
     || `<tr><td colspan="6" class="mute">No operators yet${editing() ? '. Add our own operator registration first.' : '.'}</td></tr>`;
+  const crew = users.filter(u => u.is_external && u.is_active);
+  $('crewOperators').hidden = !(me && me.is_admin) || !crew.length;
+  $('crewOperatorRows').innerHTML = crew.map(u => {
+    const o = operators.find(x => x.id === u.operator_id);
+    return `<tr><td><a href="/people/${u.id}">${esc(u.display_name || u.username)}</a></td><td>${editing()
+      ? `<select onchange="send('/api/admin/users/${u.id}/operator', 'PUT', {operator_id: this.value ? +this.value : null})">
+        <option value="">Not set (check)</option>${operators.map(x => `<option value="${x.id}"${x.id === u.operator_id ? ' selected' : ''}>${esc(operatorLabel(x))}</option>`).join('')}</select>`
+      : o ? esc(operatorLabel(o)) : '<span class="warn">Not set</span>'}</td></tr>`;
+  }).join('');
 }
 function saveOperator(id) {
   const value = key => (id === null ? $('op' + key[0].toUpperCase() + key.slice(1)) : $('op' + key + id));
   const body = {name: value('name').value, registration: value('registration').value, country: value('country').value,
     own: value('own').checked, note: value('note').value};
-  send(id === null ? '/api/admin/operators' : '/api/admin/operators/' + id, id === null ? 'POST' : 'PUT', body)
+  if (id === null && !editing()) delete body.own;
+  send(id === null ? '/api/operators' : '/api/admin/operators/' + id, id === null ? 'POST' : 'PUT', body)
     .then(() => { if (id === null && !$('err').textContent) $('addOperator').reset(); });
 }
 function deleteOperator(id) {
