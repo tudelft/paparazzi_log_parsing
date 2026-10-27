@@ -29,6 +29,33 @@
 - Do not touch real databases, logs, evidence, credentials or running services for development checks.
   Use isolated temporary fixtures; never add local data or environments to commits.
 
+## Working with the maintainer
+
+- When a request is a question, or says "explain first" or "don't change anything yet", answer briefly and wait.
+  For open-ended or ambiguous features, ask concise questions before implementing.
+- Keep answers and fixes short and in proportion. A small request needs a small fix, not a long analysis.
+- For UI proposals, show rendered mockups or screenshots rather than text descriptions,
+  and leave the result pages open at the end so they can be reviewed.
+- The service runs in production with a live database: schema changes need idempotent migrations.
+  Do not add silent legacy fallbacks unless asked.
+- The repository is public. Keep personal names, internal hostnames, server details and other private
+  information out of code, templates, docs, issues and PRs.
+- Do GitHub work (issues, PRs, merges) directly with the available tools rather than by browser.
+  "Commit, PR, merge and version" means doing all of those steps.
+- When analysing parser or merge problems, verify a fix against other affected logs so it does not regress them.
+
+## UI preferences
+
+- Keep pages compact: minimise vertical scrolling and avoid horizontal scrolling.
+  Truncate long text with an ellipsis and show the full value on hover.
+- Put secondary details (validity dates, help text, serial numbers) in tooltips or collapsed Help,
+  not inline. Hide empty sections and admin-only controls when they do not apply.
+- Put the title, item count, search (first) and then filters/actions on one row where possible.
+  Use small dialogs for add/import actions rather than inline unfolding forms.
+- Use consistent heading styles and controls across pages, and the same pagination everywhere (at the bottom).
+  Cards are equal-sized and fully clickable, with no hover highlight. Links show an underline only on hover.
+- Keep the state of page, filter and expansion in the URL so Back returns to the same view.
+
 ## Validation
 
 - Use only simple, minimal validation relevant to the change. **Do not run the full test suite unless requested.**
