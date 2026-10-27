@@ -641,6 +641,20 @@ creates a non-admin account, linked to an existing local account with the same e
 on the Projects page.
 SAML identity mapping accepts both `uid` / `UID` and `displayName` / `Displayname`, alongside
 the supported standard OID/URN names. NameID remains the preferred subject identifier; `mail` supplies email.
+A login is matched, in order, to the account holding that TU Delft ID, an active account with the same email, or a
+unique display name/username/alias; otherwise a new account is made. The first match stores the ID on the account.
+
+**Accounts: merge and move a TU Delft sign-in.** In Edit mode on the People Account tab, admins can fix a wrong
+match. **Merge into…** (`GET`/`POST /api/admin/users/<id>/merge`, `into`) moves everything of an account to another
+and removes it: every `users` reference (foreign keys and the flight crew overrides), keeping the higher project
+role, one approved/pending qualification per type (the one valid longest; the other becomes superseded/withdrawn) and
+no duplicate uploader rows. Its display name and username become aliases; the kept account takes a password and TU
+Delft ID it lacks (both then work), plus email, display name, default project and operator when empty, but keeps its
+own admin rights. Refused: your own account as the one removed, internal with external, two different TU Delft IDs,
+and removing the last administrator. **Move TU Delft sign-in…** (`POST /api/admin/users/<id>/sso-move`, `to` or a
+new `username`) puts the ID on another account without one, or on a new account, so the next login goes there; the
+old account stays a local account (its password, if any, still works) and can hand over its email/display name.
+Both are recorded in `qualification_audit` (`account_merged`, `sso_moved`).
 
 ### Tests
 

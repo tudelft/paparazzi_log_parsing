@@ -174,6 +174,8 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
   The original CSV is attached to all imported records: anyone who can read one can download the
   whole CSV, including rows from other projects. Failed imports retain no attachment.
 - Admins manage **People** by selecting a person and opening Account, Aliases or Qualifications.
+  In Edit mode the Account tab can **Merge into…** another account (one person with two accounts) or
+  **Move TU Delft sign-in…** when a TU Delft login was matched to the wrong person.
   Email is optional when adding a user and can be cleared later.
   Username, display name, email and default project share one **Save account** button.
   The normal overview shows aliases too. Logs match explicit aliases or unique display names, not usernames.

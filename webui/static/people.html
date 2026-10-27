@@ -85,6 +85,9 @@
   .account-profile { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr)); gap:10px; align-items:end; }
   .account-profile button { justify-self:start; }
   .account-help { margin:10px 0; }
+  table.merge-plan { width:100%; border-collapse:collapse; font-size:13px; }
+  table.merge-plan td { padding:3px 4px; border-bottom:1px solid var(--line); }
+  table.merge-plan td:last-child { text-align:right; }
   .tabs { display:flex; gap:4px; flex-wrap:wrap; margin:16px 0 0; border-bottom:2px solid var(--line); }
   .tabs [role="tab"] { background:var(--sec); color:var(--txt); border:1px solid var(--line); border-bottom:3px solid transparent; border-radius:6px 6px 0 0; padding:10px 14px; margin-bottom:-2px; }
   .tabs [aria-selected="true"] { background:var(--card); border-bottom-color:var(--acc); font-weight:700; }
@@ -138,6 +141,31 @@
       <label class="field">Default project<select id="newProject"></select></label>
       <label class="field" style="padding-bottom:6px">Admin<input type="checkbox" id="newAdmin"></label>
       <button type="submit">Add user</button>
+    </form>
+    </dialog>
+    <dialog class="entry-dialog" id="mergeDialog" aria-labelledby="mergeTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="mergeTitle">Merge into…</h2><button type="button" onclick="$('mergeDialog').close()" aria-label="Close Merge">Close</button></div>
+    <p class="mute" id="mergeIntro"></p>
+    <p id="mergeError" class="dialog-error" role="alert"></p>
+    <form onsubmit="event.preventDefault();mergeUser()">
+      <label class="field">Keep account<select id="mergeInto" required onchange="mergePreview()"></select></label>
+      <table class="merge-plan" id="mergePlan" hidden></table>
+      <button type="submit" class="danger" id="mergeButton" disabled>Merge</button>
+    </form>
+    </dialog>
+    <dialog class="entry-dialog" id="ssoDialog" aria-labelledby="ssoTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="ssoTitle">Move TU Delft sign-in</h2><button type="button" onclick="$('ssoDialog').close()" aria-label="Close Move TU Delft sign-in">Close</button></div>
+    <p class="mute" id="ssoIntro"></p>
+    <p id="ssoError" class="dialog-error" role="alert"></p>
+    <form onsubmit="event.preventDefault();moveSso()">
+      <label class="field">Move to<select id="ssoTo" onchange="$('ssoNew').hidden = this.value !== 'new'"></select></label>
+      <div class="dialog-fields" id="ssoNew" hidden>
+        <label class="field">Username of the new account<input id="ssoUsername" maxlength="40" autocomplete="off"></label>
+        <label class="field">Display name<input id="ssoDisplayName" maxlength="80" autocomplete="off"></label>
+      </div>
+      <label id="ssoEmailRow"><input type="checkbox" id="ssoEmail"> <span id="ssoEmailText"></span></label>
+      <label id="ssoNameRow"><input type="checkbox" id="ssoName"> <span id="ssoNameText"></span></label>
+      <button type="submit" class="danger">Move sign-in</button>
     </form>
     </dialog>
     <div id="setupBox" hidden>
@@ -518,7 +546,8 @@ function renderPersonPanel() {
       <p>The username is only the local sign-in name, not an automatic log match. Unique display names and explicit aliases match logs. Previous unambiguous display names remain aliases; username changes do not add aliases. Existing records and SSO links stay attached.</p>
       <p>Active means an enabled TU Delft SSO account or a local account with a password. It does not describe recent activity or qualifications. Local accounts without a password cannot sign in until a password is set.</p>
       <p>Administrators have access to all projects, accounts and private qualification evidence. External people are crew of another operator: flights stay linked, but they cannot sign in or access projects.</p>
-      <p>Removing a person keeps uploaded logs. Existing safeguards still apply to historical records, qualifications and the last administrator.</p></details>
+      <p>Removing a person keeps uploaded logs. Existing safeguards still apply to historical records, qualifications and the last administrator.</p>
+      <p>Merge into… is for one person with two accounts: flights, records, uploads, projects, qualifications and API keys move to the account you keep, and this account's names become aliases. Move TU Delft sign-in… fixes a TU Delft login that was matched to the wrong person. Both are recorded in the audit log.</p></details>
       ${editing ? `<form class="account-profile" onsubmit="event.preventDefault();saveProfile(${id})">
       <label class="field">Username<input id="username${id}" required maxlength="40" autocomplete="off" value="${esc(user.username)}"></label>
       <label class="field">Display name<input id="displayName${id}" maxlength="80" value="${esc(user.display_name || '')}"></label>
@@ -531,6 +560,9 @@ function renderPersonPanel() {
       <div class="account-sections"><section class="account-section"><h3>Sign-in</h3>
       <p>${activeAccountLabel(user) || (user.is_external ? 'External, no sign-in' : !user.is_active ? 'Account disabled' : user.provider === 'saml' ? 'TU Delft SSO' : 'No local password set')}</p>
       ${user.is_external ? '' : `<p><strong>Password:</strong> ${user.provider === 'saml' ? 'Managed by identity provider' : user.has_password ? 'Chosen' : 'Not set'}</p>`}
+      ${user.has_sso && user.provider !== 'saml' ? '<p><strong>TU Delft sign-in:</strong> Linked</p>' : ''}
+      ${editing && user.has_sso ? `<div class="account-actions"><button type="button" class="sec" onclick="openSsoMove(${id})"
+        title="When the TU Delft sign-in was matched to the wrong account">Move TU Delft sign-in…</button></div>` : ''}
       ${editing && !user.is_external && ['local','log'].includes(user.provider) ? `<div class="account-actions">
         <button type="button" onclick="newSetupLink(${id})">${user.has_password ? 'Reset password' : 'Set password'}</button>
         ${user.provider === 'local' && user.has_password ? `<button type="button" class="danger" onclick="removePassword(${id})">Remove password</button>` : ''}</div>` : ''}
@@ -547,8 +579,10 @@ function renderPersonPanel() {
       <p title="Their flights are under this operator unless the flight, its project or its location says otherwise"><strong>Flies for:</strong>
       ${editing ? `<select id="userOperator${id}" onchange="setUserOperator(${id}, this)">${operatorOptions(user.operator_id)}</select>`
         : esc(operatorLabelById(user.operator_id))}</p></section>
-      ${editing && id !== me.id ? `<section class="account-section"><h3>Remove person</h3>
-        <div class="account-actions"><button type="button" class="danger" onclick="removeUser(${id})">Remove user</button></div></section>` : ''}</div>`;
+      ${editing && id !== me.id ? `<section class="account-section"><h3>Merge or remove</h3>
+        <div class="account-actions"><button type="button" class="sec" onclick="openMerge(${id})"
+          title="When one person has two accounts: move everything of this account to the other one">Merge into…</button>
+        <button type="button" class="danger" onclick="removeUser(${id})">Remove user</button></div></section>` : ''}</div>`;
   }
 }
 
@@ -694,6 +728,72 @@ async function removeUser(id) {
   const label = u ? (u.display_name || u.username) : 'this user';
   if (confirm('Remove ' + label + '? They can no longer sign in. Logs they uploaded are kept.'))
     await send('DELETE', '/api/admin/users/' + id);
+}
+
+// Merging two accounts of one person and moving a wrongly matched TU Delft sign-in (TECHNICAL.md, "Accounts").
+const personLabel = u => `${u.display_name || u.username} · ${u.is_external ? 'external' : u.provider === 'saml' ? 'TU Delft' : u.has_sso ? 'local + TU Delft' : 'local'} · ${u.username}`;
+let mergeSource = null, ssoSource = null;
+function openMerge(id) {
+  mergeSource = people.users.find(u => u.id === id);
+  $('mergeTitle').textContent = `Merge ${mergeSource.display_name || mergeSource.username} into…`;
+  $('mergeIntro').textContent = `Everything of ${mergeSource.display_name || mergeSource.username} moves to the account you pick; this account is then removed and its names are kept as aliases. The merge is recorded in the audit log and cannot be undone.`;
+  const others = people.users.filter(u => u.id !== id).sort((a, b) => (a.display_name || a.username).localeCompare(b.display_name || b.username));
+  $('mergeInto').innerHTML = '<option value="">Choose the account to keep</option>' + others.map(u => `<option value="${u.id}">${esc(personLabel(u))}</option>`).join('');
+  $('mergePlan').hidden = true; $('mergeButton').disabled = true; $('mergeError').textContent = '';
+  $('mergeDialog').showModal();
+}
+async function mergePreview() {
+  $('mergePlan').hidden = true; $('mergeButton').disabled = true; $('mergeError').textContent = '';
+  if (!$('mergeInto').value) return;
+  const r = await fetch(`/api/admin/users/${mergeSource.id}/merge?into=${$('mergeInto').value}`);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { $('mergeError').textContent = d.error || 'Could not prepare the merge.'; return; }
+  const projects = d.projects.map(p => p.kept_role ? `${p.name} (already a member)` : p.name).join(', ');
+  const rows = [['Flights as PIC / PAC / GCS', `${d.crew.pic} / ${d.crew.pac} / ${d.crew.gcs}`], ['Paper records', d.paper_records],
+    ['Uploaded logs', d.uploads], ['Projects', projects || 'None'], ['Qualifications and evidence', d.qualifications],
+    ['API keys', d.api_keys], ['Names kept as aliases', d.aliases.join(', ') || 'None'], ['Sign-in after the merge', d.sign_in]];
+  if (d.source_admin && !d.target_admin) rows.push(['Admin rights', `${d.target.name} keeps its own (not admin)`]);
+  $('mergePlan').innerHTML = rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(String(v))}</td></tr>`).join('');
+  $('mergePlan').hidden = false;
+  $('mergeButton').textContent = `Merge and remove ${d.source.name}`;
+  $('mergeButton').disabled = false;
+}
+async function mergeUser() {
+  const into = +$('mergeInto').value;
+  const r = await fetch(`/api/admin/users/${mergeSource.id}/merge`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({into})});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { $('mergeError').textContent = d.error || 'Merge failed.'; return; }
+  $('mergeDialog').close();
+  selectedPerson = into;
+  load();
+}
+function openSsoMove(id) {
+  ssoSource = people.users.find(u => u.id === id);
+  const name = ssoSource.display_name || ssoSource.username;
+  $('ssoIntro').textContent = `The TU Delft sign-in now on ${name} moves to the account you pick, so the next TU Delft login goes there. ${name} keeps its records${ssoSource.has_password ? ' and its password' : ' but cannot sign in until it gets a password'}.`;
+  const others = people.users.filter(u => u.id !== id && !u.has_sso && !u.is_external && u.is_active)
+    .sort((a, b) => (a.display_name || a.username).localeCompare(b.display_name || b.username));
+  $('ssoTo').innerHTML = '<option value="new">A new account</option>' + others.map(u => `<option value="${u.id}">${esc(personLabel(u))}</option>`).join('');
+  $('ssoNew').hidden = false;
+  $('ssoUsername').value = ''; $('ssoDisplayName').value = '';
+  $('ssoEmailRow').hidden = !ssoSource.email; $('ssoEmail').checked = false;
+  $('ssoEmailText').textContent = `Also move the e-mail ${ssoSource.email || ''}`;
+  $('ssoNameRow').hidden = !ssoSource.display_name; $('ssoName').checked = false;
+  $('ssoNameText').textContent = `Also move the display name ${ssoSource.display_name || ''}`;
+  $('ssoError').textContent = '';
+  $('ssoDialog').showModal();
+}
+async function moveSso() {
+  const to = $('ssoTo').value;
+  const body = {to: to === 'new' ? null : +to, username: $('ssoUsername').value.trim(), display_name: $('ssoDisplayName').value.trim(),
+    clear_email: $('ssoEmail').checked, clear_display_name: $('ssoName').checked};
+  if (to === 'new' && !body.username) { $('ssoError').textContent = 'Enter a username for the new account.'; return; }
+  const r = await fetch(`/api/admin/users/${ssoSource.id}/sso-move`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { $('ssoError').textContent = d.error || 'Could not move the sign-in.'; return; }
+  $('ssoDialog').close();
+  selectedPerson = d.user_id;
+  load();
 }
 
 async function send(method, url, body) {
