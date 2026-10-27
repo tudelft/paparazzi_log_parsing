@@ -628,6 +628,13 @@ The menu puts Logbook (`/`) first, followed by Uploads (`/uploads`), Statistics,
 Linked aircraft, crew, projects and named locations in the logbook open their detail pages.
 Coordinates without a linked location still open the external map; Edit mode keeps its reassignment menus.
 Aircraft serial numbers in the logbook appear on hover over the aircraft name rather than inline.
+**Group by day** is display-only. A row holds flights of one fleet aircraft on one UTC day with the same PIC,
+where PAC and GCS are equal or empty on one side (two different names never group; the row shows the named
+person), with the same simulation and estimated-date state. Logged flights share a place at the same named
+location, otherwise within 1 km of the day's first takeoff; flights without GPS or a known date stay separate.
+Paper flight records group only with each other, at the same named location; paper daily totals never group.
+Only rows with several flights show the expand arrow (far-left column); their takeoff/landing times list each
+flight on hover. Import CSV and Review appear in Edit mode; the bulk-edit controls appear once a row is ticked.
 The Category column shows only the category; the authorisation name and the category source are in its tooltip.
 The Columns menu hides table columns (Date always stays). The choice is stored per browser in `localStorage`
 (`logbook.hiddenColumns`), so it survives navigation, Back and new sessions; Export CSV stays complete.
@@ -722,7 +729,7 @@ visible initially and Show all / Show fewer controls. Cards share a 320px minimu
 short lists; expanded cards grow independently. Use the main navigation or browser Back to leave a detail page.
 
 **List navigation.** Logbook and Uploads use query parameters `page`, `size` and `q`;
-Logbook also stores `group=none` (the default is combined day sessions), `radius` and
+Logbook also stores `group=none` (the default is Group by day) and
 `hidden=1`, while Uploads stores `status` and `log`. Legacy Uploads `#log123` links
 still open that log. Entity detail pages use independent `flights_page` / `flights_size`
 and `logs_page` / `logs_size`, plus the chart's `step`. Defaults are omitted.
@@ -1147,7 +1154,7 @@ Removing ambiguity resumes normal name/folder matching but does not restore a de
 really identifies one aircraft. These management actions require an admin browser session,
 not an API key. No raw-log reparse is needed to mark names or update assignments.
 
-**Paper flight records.** In the Logbook, choose **Add paper records / import CSV**. Admins and members
+**Paper flight records.** In the Logbook (Edit mode), choose **Import CSV** (admins) or **Add paper record**. Admins and members
 with **full** access to the selected project can create, edit and delete these records; other project
 members can read them. Select an existing aircraft, PIC and project, then enter the date, total flight
 time in minutes and flight count. An individual flight has count 1 and an optional UTC takeoff time.
@@ -1237,7 +1244,7 @@ flight" (`same=0`), with `origin` `auto` or `manual`, who and when.
 
 ### Review page
 
-`/review` (Logbook → *To review*) walks through the paper ↔ log cases a person has to decide, one at a time,
+`/review` (Logbook in Edit mode → *Review*) walks through the paper ↔ log cases a person has to decide, one at a time,
 from `GET /api/review` (same read model and visibility as the logbook):
 
 - **possible duplicate**: an unlinked paper record with logs of its aircraft nearby (`possible_duplicates`);

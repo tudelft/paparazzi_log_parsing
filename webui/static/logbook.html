@@ -36,9 +36,10 @@
   a { color:var(--acc); }
   a.btn { display:inline-block; background:var(--btn); color:#fff; padding:6px 12px; border-radius:6px; text-decoration:none; }
   a.btn.sec { background:var(--sec); color:var(--txt); }
+  a.btn[hidden] { display:none; }
   tr.flight, tr.group { cursor:pointer; } tr.flight:hover, tr.group:hover { background:var(--hover); }
   tr.group { font-weight:600; }
-  tr.sub td:nth-child(2) { padding-left:24px; }
+  tr.sub td:nth-child(3) { padding-left:24px; }
   .detail { background:var(--detail); padding:12px 16px; }
   .detail h4 { margin:12px 0 6px; }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
@@ -52,6 +53,8 @@
   @media (max-width:760px) { .flight-detail { grid-template-columns:minmax(0,1fr); } }
   table.log:not(.editing) .chk { display:none; }
   td.chk, th.chk { width:28px; padding-right:0; }
+  td.exp, th.exp { width:18px; padding-right:0; color:var(--mute); }
+  .times { text-decoration:underline dotted var(--mute); text-underline-offset:3px; cursor:help; }
   .note { white-space:pre-wrap; max-width:640px; overflow-wrap:anywhere; }
   .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; }
   .warn { color:var(--err); }
@@ -81,15 +84,17 @@
   <section class="card">
     <div class="bar">
       <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date, reference…)">
-      <label title="Flights of the same aircraft and pilot on the same day within this distance of each other"><input type="checkbox" id="combine" checked> Combine flights (within <input type="number" id="radius" value="1" min="0.1" step="0.5" style="width:56px"> km)</label>
+      <label title="One row per aircraft, crew, day and takeoff location, like a paper daily log. Expand a row for its flights."><input type="checkbox" id="combine" checked> Group by day</label>
       <span class="col-menu"><button type="button" id="colButton" aria-expanded="false" aria-controls="colForm">Columns</button>
         <form id="colForm" hidden aria-label="Shown columns"></form></span>
-      <button onclick="exportCsv()">Export CSV</button>
-      <a class="btn sec" href="/historical/new" id="addHistorical" hidden>Add paper records / import CSV</a>
-      <a class="btn sec" href="/review" title="Paper records and logs that need a person to decide">To review</a>
+      <a class="btn sec" href="/historical/new" id="addHistorical" hidden>Import CSV</a>
+      <a class="btn sec" href="/review" id="reviewLink" hidden title="Paper records and logs that need a person to decide">Review</a>
     </div>
     <div id="bulkBar" class="bar" hidden>
       <label><input type="checkbox" id="selAll"> Select all on this page</label>
+      <span id="selCount" class="mute"></span>
+      <label id="hiddenFilter" hidden><input type="checkbox" id="hiddenRecords" onchange="selected.clear(); page=0; window.viewState.save(true); loadFlights()"> Hidden records only</label>
+      <span id="bulkActions" class="bar" style="margin:0" hidden>
       <span class="mute">Apply to selected</span>
       <label>Project <select id="bulkProject"></select></label>
       <label>PIC <select id="bulkPic"></select></label>
@@ -98,15 +103,17 @@
       <label title="The operator registration the flights were flown under">Operator <select id="bulkOperator" onchange="pickNewOperator(this, operators, fillBulkMenus, '__keep__')"></select></label>
       <label title="The rules the flights were flown under: OPEN, SPECIFIC with its authorisation, national rules before 2021">Category <select id="bulkCategory"></select></label>
       <button type="button" onclick="applyBulk()">Apply</button>
-      <label id="hiddenFilter" hidden><input type="checkbox" id="hiddenRecords" onchange="selected.clear(); page=0; window.viewState.save(true); loadFlights()"> Hidden records only</label>
+      </span>
+      <span id="bulkMore" class="bar" style="margin:0" hidden>
       <button type="button" id="hideSelected" hidden onclick="setHidden(true)">Hide selected</button>
       <button type="button" id="restoreSelected" hidden onclick="setHidden(false)">Restore selected</button>
       <button type="button" class="sec" onclick="sameFlight()" title="The ticked entries are recordings of one flight: logged flights, optionally with one paper record">Same flight</button>
+      </span>
       <span id="bulkMsg" class="mute"></span>
     </div>
     <div class="scroll">
     <table class="log">
-      <thead><tr><th class="chk"></th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
+      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"></th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
         <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -114,6 +121,7 @@
     <div class="bar foot">
       <span id="summary"></span>
       <div class="bar" style="margin:0">
+        <button type="button" onclick="exportCsv()">Export CSV</button>
         <span class="mute">Rows per page</span>
         <select id="size"><option>10</option><option selected>15</option><option>25</option><option>50</option><option>100</option></select>
         <div id="logbookPages" class="navigation-pages"></div>
@@ -221,9 +229,9 @@ let hiddenColumns = new Set();
 try { hiddenColumns = new Set(JSON.parse(localStorage.getItem(COLUMNS_KEY) || '[]').filter(c => COLUMNS.includes(c))); } catch (e) {}
 const columnStyle = document.head.appendChild(document.createElement('style'));
 function applyColumns() {
-  // Column n+2 in each row: the first cell is the Edit-mode checkbox. Expanded detail rows span all columns.
+  // Column n+3 in each row: first the expand arrow, then the Edit-mode checkbox. Expanded detail rows span all columns.
   columnStyle.textContent = COLUMNS.map((c, i) => hiddenColumns.has(c)
-    ? `table.log tr > :nth-child(${i + 2}):not(.detail) { display:none; }` : '').join('\n');
+    ? `table.log tr > :nth-child(${i + 3}):not(.detail) { display:none; }` : '').join('\n');
   $('colButton').textContent = hiddenColumns.size ? `Columns (${hiddenColumns.size} hidden)` : 'Columns';
   try { localStorage.setItem(COLUMNS_KEY, JSON.stringify([...hiddenColumns])); } catch (e) {}
 }
@@ -327,8 +335,9 @@ function syncEditUi() {
   $('hiddenFilter').hidden = !me?.is_admin;
   $('hideSelected').hidden = !me?.is_admin || $('hiddenRecords').checked;
   $('restoreSelected').hidden = !me?.is_admin || !$('hiddenRecords').checked;
-  $('addHistorical').hidden = !(me && (me.is_admin || projects.some(p => p.role === 'full')));
-  $('addHistorical').textContent = me?.is_admin ? 'Add paper records / import CSV' : 'Add paper record';
+  $('addHistorical').hidden = !editOn() || !(me && (me.is_admin || projects.some(p => p.role === 'full')));
+  $('addHistorical').textContent = me?.is_admin ? 'Import CSV' : 'Add paper record';
+  $('reviewLink').hidden = !editOn();
 }
 function toggleEdit() {
   syncEditUi();
@@ -510,20 +519,33 @@ const km = (a, b) => {
   const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.takeoff_lat * r) * Math.cos(b.takeoff_lat * r) * Math.sin(dLon / 2) ** 2;
   return 12742 * Math.asin(Math.sqrt(x));
 };
-const picKey = f => f.pic_user ? 'u' + f.pic_user.id : 'n' + (f.pic || '').toLowerCase();
 
-function combine(list, radiusKm) {
+// Group by day: one row per aircraft, crew, UTC day and takeoff place, like a paper daily log. The PIC must be
+// the same; an empty PAC or GCS matches a name, two different names do not. Logged flights share a place at the
+// same named location or within 1 km of the day's first takeoff. Paper flight records group with each other at
+// the same named location, never with logs; paper daily totals already cover a day.
+const DAY_GROUP_KM = 1;
+const crewName = (f, r) => f[r + '_user'] ? 'u' + f[r + '_user'].id : f[r] ? 'n' + f[r].toLowerCase() : '';
+const groupable = f => f.date_ok && (f.manual_id ? f.record_kind !== 'daily' && f.takeoff_place_id != null : f.takeoff_lat != null);
+const samePlace = (a, b) => a.takeoff_place_id != null && b.takeoff_place_id != null
+  ? a.takeoff_place_id === b.takeoff_place_id : !a.manual_id && km(a, b) <= DAY_GROUP_KM;
+const crewFits = (g, f) => crewName(f, 'pic') === g.crew.pic
+  && ['pac', 'gcs'].every(r => !g.crew[r] || !crewName(f, r) || g.crew[r] === crewName(f, r));
+function combine(list) {
   const groups = [];
   for (const f of [...list].sort((a, b) => (a.takeoff_utc || '').localeCompare(b.takeoff_utc || ''))) {
-    const key = [f.aircraft, picKey(f), fmtDate(f.takeoff_utc), !!f.simulation?.detected, !!f.date_estimated].join('|');
-    const g = !f.manual_id && f.takeoff_lat != null && groups.find(g => g.key === key && !g.flights[0].manual_id && g.flights[0].takeoff_lat != null && km(g.flights[0], f) <= radiusKm);
-    if (g) g.flights.push(f); else groups.push({key, flights: [f]});
+    const key = [f.manual_id ? 'paper' : 'log', f.drone_id ?? f.aircraft, fmtDate(f.takeoff_utc), !!f.simulation?.detected, !!f.date_estimated].join('|');
+    const g = groupable(f) && groups.find(g => g.key === key && groupable(g.flights[0]) && samePlace(g.flights[0], f) && crewFits(g, f));
+    if (g) {
+      g.flights.push(f);
+      for (const r of ['pac', 'gcs']) g.crew[r] ||= crewName(f, r);
+    } else groups.push({key, flights: [f], crew: Object.fromEntries(['pic', 'pac', 'gcs'].map(r => [r, crewName(f, r)]))});
   }
   for (const g of groups) {
     const fl = g.flights, last = fl[fl.length - 1];
     g.id = fl[0].record_key;
     g.duration_s = fl.reduce((s, f) => s + (f.duration_s || 0), 0);
-    g.distance_m = fl.reduce((s, f) => s + (f.distance_m || 0), 0);
+    g.distance_m = fl.some(f => f.distance_m != null) ? fl.reduce((s, f) => s + (f.distance_m || 0), 0) : null;
     g.max_from_takeoff_m = fl.reduce((s, f) => Math.max(s, f.max_from_takeoff_m || 0), 0);
     g.landing_utc = last.landing_utc;
     g.landing_lat = last.landing_lat; g.landing_lon = last.landing_lon; g.landing_place = last.landing_place;
@@ -563,7 +585,8 @@ async function setLogDate(logId, value) {
   if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the date'); return; }
   loadFlights();
 }
-const cells = (f, o, landingPlaceId) => `${chk(o.ids, o.canEdit)}${dateTd(f)}<td>${esc(fmtHm(f.takeoff_utc))}</td><td>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</td>
+const timesTip = o => o.times ? ` class="times" title="${esc(o.times)}"` : '';
+const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '▾' : '▸') : ''}</td>${chk(o.ids, o.canEdit)}${dateTd(f)}<td><span${timesTip(o)}>${esc(fmtHm(f.takeoff_utc))}</span></td><td><span${timesTip(o)}>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</span></td>
     <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${o.sources}</td><td><span${f.aircraft_uid ? ` title="${esc(f.aircraft_uid)}"` : ''}>${entityLink('aircraft', f.drone_id, f.aircraft)}</span>${verdictMark(f)}</td>
     <td>${o.project}</td><td>${operatorCell(f)}</td><td>${categoryCell(f)}</td>
     <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place, f.takeoff_place_id)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place, landingPlaceId)}</td>
@@ -572,22 +595,27 @@ const cells = (f, o, landingPlaceId) => `${chk(o.ids, o.canEdit)}${dateTd(f)}<td
 function flightRows(f, cls = '') {
   const ids = crewIds(f);
   return `<tr class="flight ${cls}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: f.can_edit_crew}, f.landing_place_id)}</tr>`
-    + (open_.has(f.record_key) ? `<tr><td colspan="19" class="detail">${detail(f)}</td></tr>` : '');
+    + (open_.has(f.record_key) ? `<tr><td colspan="20" class="detail">${detail(f)}</td></tr>` : '');
 }
 
 function groupRows(g) {
   if (g.flights.length === 1) return flightRows(g.flights[0]);
-  const first = g.flights[0], isOpen = openGroups.has(g.id);
+  const isOpen = openGroups.has(g.id);
+  const first = {...g.flights[0]};
+  for (const r of ['pac', 'gcs']) if (!first[r] && !first[r + '_user']) {
+    const named = g.flights.find(f => f[r] || f[r + '_user']);
+    if (named) Object.assign(first, {[r]: named[r], [r + '_user']: named[r + '_user']});
+  }
   const times = g.flights.map(f => `${fmtHm(f.takeoff_utc)}–${fmtHm(f.landing_utc) || '?'}`).join(', ');
   const ids = [...new Set(g.flights.flatMap(crewIds))];
-  return `<tr class="group" data-gid="${g.id}" title="${esc(times)}">${cells(first, {landing_utc: g.landing_utc, count: (isOpen ? '▾ ' : '▸ ') + g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: projectCell(first), ids, canEdit: g.flights.every(f => f.can_edit_crew)}, g.landing_place_id)}</tr>`
+  return `<tr class="group" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: projectCell(first), ids, canEdit: g.flights.every(f => f.can_edit_crew)}, g.landing_place_id)}</tr>`
     + (isOpen ? g.flights.map(f => flightRows(f, 'sub')).join('') : '');
 }
 
 function render() {
   const q = $('q').value.trim().toLowerCase();
   const shown = flights.filter(f => window.flightFilters.includes(f) && (!q || q.split(/\s+/).every(w => text(f).includes(w))));
-  const entries = $('combine').checked ? combine(shown, Math.max(+$('radius').value || 1, 0.1)) : shown.map(f => ({flights: [f], id: f.record_key}));
+  const entries = $('combine').checked ? combine(shown) : shown.map(f => ({flights: [f], id: f.record_key}));
   const pages = Math.max(1, Math.ceil(entries.length / pageSize));
   page = Math.min(page, pages - 1);
   const visible = entries.slice(page * pageSize, (page + 1) * pageSize);
@@ -596,10 +624,12 @@ function render() {
   document.querySelector('table.log').classList.toggle('editing', editOn());
   const pageIds = [...new Set(visible.flatMap(e => (e.flights || []).filter(f => f.can_edit_crew).flatMap(crewIds)))];
   $('selAll').checked = pageIds.length > 0 && pageIds.every(id => selected.has(id));
+  $('bulkActions').hidden = $('bulkMore').hidden = !selected.size;
+  $('selCount').textContent = selected.size ? `${selected.size} selected` : 'Tick flights to change them';
   $('selAll').onchange = () => { toggleSel(pageIds, $('selAll').checked); };
   const total = shown.reduce((s, f) => s + (f.duration_s || 0), 0);
   const dist = shown.some(f => f.distance_m != null) ? shown.reduce((s, f) => s + (f.distance_m || 0), 0) : null;
-  $('summary').textContent = `${shown.reduce((s, f) => s + (f.flight_count || 1), 0)} flights` + ($('combine').checked ? ` · ${entries.length} records/sessions` : '') + ` · ${fmtDur(total)} · ${dist == null ? 'No recorded distance' : fmtDist(dist) + ' recorded distance'}`;
+  $('summary').textContent = `${shown.reduce((s, f) => s + (f.flight_count || 1), 0)} flights` + ($('combine').checked ? ` · ${entries.length} rows` : '') + ` · ${fmtDur(total)} · ${dist == null ? 'No recorded distance' : fmtDist(dist) + ' recorded distance'}`;
   initMiniMaps();
   window.viewState.ready();
   return shown;
@@ -627,7 +657,7 @@ function exportCsv() {
 }
 
 $('q').oninput = () => { page = 0; window.viewState.save(); render(); };
-$('combine').onchange = $('radius').onchange = () => { page = 0; window.viewState.save(true); render(); };
+$('combine').onchange = () => { page = 0; window.viewState.save(true); render(); };
 window.addEventListener('flightfilterschange', () => { selected.clear(); page = 0; window.viewState.save(true); render(); });
 window.addEventListener('editchange', toggleEdit);
 window.addEventListener('pageshow', event => {
@@ -641,8 +671,6 @@ window.viewState.setup((p, extra) => {
   $('size').value = size; pageSize = +size;
   $('q').value = p.get('q') || '';
   $('combine').checked = p.get('group') !== 'none';
-  const radius = Number(p.get('radius') || 1);
-  $('radius').value = Number.isFinite(radius) && radius >= .1 ? radius : 1;
   $('hiddenRecords').checked = p.get('hidden') === '1';
   selected.clear();
   open_.clear(); (extra.open || []).forEach(id => open_.add(id));
@@ -651,7 +679,7 @@ window.viewState.setup((p, extra) => {
   const set = window.viewState.set;
   set(p,'page',page+1,1); set(p,'size',pageSize,15); set(p,'q',$('q').value);
   set(p,'group',$('combine').checked ? 'day' : 'none','day');
-  set(p,'radius',$('radius').value,1); set(p,'hidden',$('hiddenRecords').checked ? '1' : '');
+  set(p,'hidden',$('hiddenRecords').checked ? '1' : '');
   return {open:[...open_], groups:[...openGroups]};
 }, loadFlights);
 </script>

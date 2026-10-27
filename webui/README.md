@@ -92,7 +92,7 @@ original recording can still be opened or downloaded.
   a **suggested date** in its details on Uploads; accept it there (admins can accept all at once).
 - Uploading a file that someone else already uploaded keeps one copy and makes you a **co-uploader**: you can then
   see that log and its flights, and the Uploads page links to it.
-- **To review** (link on the Logbook) walks through possible duplicates, paper records where only another aircraft
+- **Review** (Logbook, Edit mode) walks through possible duplicates, paper records where only another aircraft
   flew, and conflicts, with the paper record next to the candidate logs; every decision can be undone there.
 - In Edit mode, tick the entries of one flight and press **Same flight** to join them (also when the automatic
   SD/GCS merge missed it), or press **Not the same flight** next to a recording in an expanded entry to split it off.
@@ -111,8 +111,9 @@ original recording can still be opened or downloaded.
   The Logbook shows only the category; hover over it for the authorisation.
 - **Columns** in the Logbook hides or shows table columns. Your choice is kept in this browser;
   **Export CSV** always contains every column.
-- SD and GCS recordings of the same flight are merged. **Combine flights** additionally groups nearby
-  flights into sessions; it does not change stored flights.
+- SD and GCS recordings of the same flight are merged. **Group by day** (on by default) shows one row per
+  aircraft, crew and takeoff place per day, like a paper daily log; click a row with ▸ to see its flights.
+  It does not change stored flights. With something ticked in Edit mode, the selection bar offers the changes.
 - Hover over an aircraft name in the logbook for its TUD/serial number; it is also on the aircraft detail page.
 - Turn on **Edit** to show permitted editing controls. It stays enabled across pages until turned off.
   Turn it off for the simpler browsing view. Longer explanations are under **Help**.
@@ -146,7 +147,7 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
   Admins can bulk-edit paper and telemetry records together, or **Hide selected** to remove entries
   from the logbook and totals without deleting files. Use **Hidden records only** and **Restore selected**
   to undo this. Paper records must keep a PIC and project.
-  Use **Add paper record** to enter historical flights without logs. Admins can also import CSV;
+  Use **Add paper record** (Logbook, Edit mode) to enter historical flights without logs. Admins use **Import CSV**;
   importing a corrected CSV again updates records matched by reference (e.g. flight number F00001)
   or by aircraft, date and takeoff time, after a preview of what each row will do.
   Paper records add flight counts and time, not telemetry; check for overlap with digital logs.
