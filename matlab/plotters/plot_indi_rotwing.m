@@ -4,7 +4,7 @@ function plot_indi_rotwing(ac_data)
     end
     %plot(ac_data.STAB_ATTITUDE_INDI.timestamp, [ac_data.STAB_ATTITUDE_INDI.u(:,1), ac_data.STAB_ATTITUDE_INDI.u(:,2), ac_data.STAB_ATTITUDE_INDI.u(:,3), ac_data.STAB_ATTITUDE_INDI.u(:,4)]);
     ax1 = subplot(2,1,1);
-    act_values = double(string(ac_data.STAB_ATTITUDE.u)); 
+    act_values = double(ac_data.STAB_ATTITUDE.u);
     plot(ac_data.STAB_ATTITUDE.timestamp, act_values(:,1));
     hold on;
     plot(ac_data.STAB_ATTITUDE.timestamp, act_values(:,2));
@@ -13,7 +13,7 @@ function plot_indi_rotwing(ac_data)
     hold on;
     plot(ac_data.STAB_ATTITUDE.timestamp, act_values(:,4));
     hold on;
-    
+
     plot(ac_data.STAB_ATTITUDE.timestamp, act_values(:,5));
     hold on;
     plot(ac_data.STAB_ATTITUDE.timestamp, act_values(:,6));

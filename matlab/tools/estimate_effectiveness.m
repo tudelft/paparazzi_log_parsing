@@ -1,7 +1,7 @@
 %% Estimate Control effectiveness values
 % And some other analysis
-% 
-% Mean to run after the debug_flight.m script
+%
+% Script: first set ac_data = f.data with f = pprz_flight(pprz_load(file)); see matlab/README.md
 
 %% Plot RPM data
 
@@ -63,7 +63,7 @@ quat_dr = interp1(refquat_t, quat, t(datarange), 'nearest'); % Quaternion on the
 
 %% Filter signals
 
-cmd = double(string(ac_data.ACTUATORS.values));
+cmd = double(pprz.actuators(ac_data));
 cmd = cmd(datarange,:);
 
 % This only holds for the Nederdrone
@@ -94,21 +94,21 @@ cmd = cmd_bundle;
 
 % cmd = [ac_data.ROTORCRAFT_CMD.cmd_roll(datarange) ac_data.ROTORCRAFT_CMD.cmd_pitch(datarange) ac_data.ROTORCRAFT_CMD.cmd_yaw(datarange) ac_data.ROTORCRAFT_CMD.cmd_thrust(datarange)];
 % Pay attention to the order!! Depends on the IMU mounting
-% gyro = [ac_data.IMU_GYRO_SCALED.gr_alt(datarange) ac_data.IMU_GYRO_SCALED.gq_alt(datarange) -ac_data.IMU_GYRO_SCALED.gp_alt(datarange)]/180*pi;
-gyro = [ac_data.IMU_GYRO_SCALED.gp_alt(datarange) ac_data.IMU_GYRO_SCALED.gq_alt(datarange) ac_data.IMU_GYRO_SCALED.gr_alt(datarange)]/180*pi;
-accel = [ac_data.IMU_ACCEL_SCALED.az_alt(datarange) ac_data.IMU_ACCEL_SCALED.ay_alt(datarange) -ac_data.IMU_ACCEL_SCALED.ax_alt(datarange)];
+% gyro = [ac_data.IMU_GYRO_SCALED.gr(datarange) ac_data.IMU_GYRO_SCALED.gq(datarange) -ac_data.IMU_GYRO_SCALED.gp(datarange)]/180*pi;
+gyro = [ac_data.IMU_GYRO_SCALED.gp(datarange) ac_data.IMU_GYRO_SCALED.gq(datarange) ac_data.IMU_GYRO_SCALED.gr(datarange)]/180*pi;
+accel = [ac_data.IMU_ACCEL_SCALED.az(datarange) ac_data.IMU_ACCEL_SCALED.ay(datarange) -ac_data.IMU_ACCEL_SCALED.ax(datarange)];
 
 % gyro = [ac_data.BODY_RATES_ACCEL.p ac_data.BODY_RATES_ACCEL.q ac_data.BODY_RATES_ACCEL.r];
-% accel = [ac_data.BODY_RATES_ACCEL.ax_alt ac_data.BODY_RATES_ACCEL.ay_alt ac_data.BODY_RATES_ACCEL.az_alt];
+% accel = [ac_data.BODY_RATES_ACCEL.ax ac_data.BODY_RATES_ACCEL.ay ac_data.BODY_RATES_ACCEL.az];
 
 if length(accel) > length(t)
     accel = accel(1:end-1,:);
 end
 
 if (isfield(ac_data, 'INS'))
-    accelned = [ac_data.INS.ins_xdd_alt ac_data.INS.ins_ydd_alt ac_data.INS.ins_zdd_alt];
+    accelned = [ac_data.INS.ins_xdd ac_data.INS.ins_ydd ac_data.INS.ins_zdd];
     accelned = accelned(datarange,:);
-%     if (max(abs(ac_data.INS.timestamp(datarange) - tdr)) > 2e-4) 
+%     if (max(abs(ac_data.INS.timestamp(datarange) - tdr)) > 2e-4)
 %         disp('WARNING: INS and gyro timestamps may not be alligned!')
 %     end
 else
@@ -239,15 +239,15 @@ plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.speed_s
 
 % figure;
 % hold on
-plot(ac_data.ROTORCRAFT_FP.timestamp,ac_data.ROTORCRAFT_FP.vnorth_alt)
-plot(ac_data.ROTORCRAFT_FP.timestamp,ac_data.ROTORCRAFT_FP.veast_alt)
-% plot(ac_data.ROTORCRAFT_FP.timestamp,ac_data.ROTORCRAFT_FP.vup_alt)
+plot(ac_data.ROTORCRAFT_FP.timestamp,ac_data.ROTORCRAFT_FP.vnorth)
+plot(ac_data.ROTORCRAFT_FP.timestamp,ac_data.ROTORCRAFT_FP.veast)
+% plot(ac_data.ROTORCRAFT_FP.timestamp,ac_data.ROTORCRAFT_FP.vup)
 legend('speed sp x','speed sp y','speed x', 'speed y')
 
 %%
 
 % interpolate the heading on the air data time vector
-heading_ad = interp1(ac_data.ROTORCRAFT_FP.timestamp, ac_data.ROTORCRAFT_FP.psi_alt, ac_data.AIR_DATA.timestamp, 'nearest');
+heading_ad = interp1(ac_data.ROTORCRAFT_FP.timestamp, ac_data.ROTORCRAFT_FP.psi, ac_data.AIR_DATA.timestamp, 'nearest');
 
 % Tune the wind to match the airspeed and the ground speed
 wind = 3;
@@ -262,5 +262,5 @@ sensor_scale = 1.5;
 figure;
 hold on;
 plot(sensor_scale*ac_data.AIR_DATA.airspeed.*sind(heading_ad)+wx, sensor_scale*ac_data.AIR_DATA.airspeed.*cosd(heading_ad)+wy, '.')
-plot(ac_data.ROTORCRAFT_FP.veast_alt, ac_data.ROTORCRAFT_FP.vnorth_alt, '.')
+plot(ac_data.ROTORCRAFT_FP.veast, ac_data.ROTORCRAFT_FP.vnorth, '.')
 legend('airspeed+wind', 'ground speed')

@@ -1,3 +1,4 @@
+%% Altitude loop tuning script: first set ac_data = f.data with f = pprz_flight(pprz_load(file)); see matlab/README.md
 
 
 trange = [1121 1225];
@@ -52,9 +53,9 @@ legend('thrust','\theta_{ref}','\theta')
 
 subplot(3,1,3)
 hold off
-plot(ac_data.INS.timestamp(ins_range), ac_data.INS.ins_zdd_alt(ins_range))
+plot(ac_data.INS.timestamp(ins_range), ac_data.INS.ins_zdd(ins_range))
 hold on
-plot(ac_data.IMU_ACCEL_SCALED.timestamp(acc_range), ac_data.IMU_ACCEL_SCALED.az_alt(acc_range))
+plot(ac_data.IMU_ACCEL_SCALED.timestamp(acc_range), ac_data.IMU_ACCEL_SCALED.az(acc_range))
 grid on
 xlabel('Time [s]')
 ylabel('acc_z [m/s^2]')

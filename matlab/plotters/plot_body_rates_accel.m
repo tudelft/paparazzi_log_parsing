@@ -1,11 +1,11 @@
-function plot_body_rates_accel(ac_data)    
+function plot_body_rates_accel(ac_data)
     if ~isfield(ac_data, 'BODY_RATES_ACCEL')
         return
     end
-    
+
     % Plot the body rates
     ax1 = subplot(2,1,1);
-    plot(ac_data.BODY_RATES_ACCEL.timestamp, [ac_data.BODY_RATES_ACCEL.ax_alt, ac_data.BODY_RATES_ACCEL.ay_alt, ac_data.BODY_RATES_ACCEL.az_alt]);
+    plot(ac_data.BODY_RATES_ACCEL.timestamp, [ac_data.BODY_RATES_ACCEL.ax, ac_data.BODY_RATES_ACCEL.ay, ac_data.BODY_RATES_ACCEL.az]);
     title('Body acceleration');
     xlabel('Time [s]');
     legend('x [m/s^2]', 'y [m/s^2]', 'z [m/s^2]');

@@ -205,6 +205,36 @@ class MatlabExporterTests(unittest.TestCase):
             self.assertEqual(archive.namelist(), ["x/a.mat", "b.mat"])
             self.assertEqual(archive.read("x/a.mat"), b"first" * 1000)
 
+    def test_local_conversion_of_plain_and_gzip_logs(self):
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (folder / "a.data").write_text("\n".join(ROWS) + "\n")
+        (folder / "a.log").write_text(PROTOCOL)
+        (folder / "b.data.gz").write_bytes(gzip.compress(("\n".join(ROWS) + "\n").encode()))
+        (folder / "b.log.gz").write_bytes(gzip.compress(PROTOCOL.encode()))
+        with patch("builtins.print"):
+            code = matlab_export.main([str(folder / "a.data"), str(folder / "b.data.gz"), "-o", str(folder / "out"),
+                                       "--parser", str(PARSER)])
+        self.assertEqual(code, 0)
+        for name in ("a_whole_log.mat", "b_whole_log.mat"):
+            with h5py.File(folder / "out" / name, "r") as file:
+                self.assertEqual(text(file, file["s"]["info"]["exporter_version"].ref), "4")
+                self.assertEqual(file["s"]["aircraft"]["id"].shape, (2, 1))
+
+    def test_parsed_inputs_follow_the_web_export(self):
+        doc = dict(log=dict(start_utc="2026-10-21T09:00:00Z"), aircraft=[dict(
+            ac_id=5, mission=dict(pic="Pilot A"), preflight_checks=[dict(text="pic: Pilot A")],
+            settings_changes=dict(timeline=[dict(time_s=5.0, index=0, var="gain", **{"from": 1.0, "to": 2.0})]),
+            flights=[dict(flight=1, duration_s=60.0, landed=True, assessment=dict(verdict="flight"),
+                          takeoff=dict(time_s=100.0, utc="2026-10-21T09:01:40Z", location=dict(lat=52.0, lon=4.0)),
+                          landing=dict(time_s=160.0)),
+                     dict(flight=0, takeoff=dict(time_s=10.0), landing=dict(time_s=20.0))])])
+        flights, extras = matlab_export.parsed_inputs(doc)
+        self.assertEqual([(f["index"], f["takeoff_s"]) for f in flights], [(1, 10.0), (2, 100.0)])
+        self.assertEqual(flights[1]["summary"]["takeoff_lat"], 52.0)
+        self.assertEqual(flights[1]["takeoff_posix"], 1792573300.0)
+        self.assertEqual(extras["aircraft"][5]["pic"], "Pilot A")
+        self.assertEqual(extras["aircraft"][5]["setting_changes"][0]["to_value"], 2.0)
+
     def test_missing_protocol_is_refused(self):
         with self.assertRaises(matlab_export.ExportError):
             matlab_export.parse_protocol("<configuration></configuration>")

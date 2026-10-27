@@ -1,8 +1,7 @@
-function cycl_plot_actuators(ac_data, order)
+function plot_serial_act_t4(ac_data, order)
 
     rpm1 = ac_data.SERIAL_ACT_T4_IN.motor_1_rpm;
     rpm2 = ac_data.SERIAL_ACT_T4_IN.motor_2_rpm;
-    throttle_percent = ac_data.ROTORCRAFT_RADIO_CONTROL.throttle/96;
 
     pos1 = double(ac_data.SERIAL_ACT_T4_IN.rotor_1_az_angle)/100;
     pos2 = double(ac_data.SERIAL_ACT_T4_IN.rotor_2_az_angle)/100;
@@ -38,14 +37,10 @@ function cycl_plot_actuators(ac_data, order)
     title('DShot Command');
     grid on;
 
-    % flight modes
-    mode_values = ac_data.ROTORCRAFT_RADIO_CONTROL.mode;
-    mode_timestamps = ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp;
-    cycl_draw_mode_transitions(mode_values, mode_timestamps, {ax1, ax2});
     legend(ax1, [h1, h2], {'delta 1', 'delta 2'});
     legend(ax2, [h3, h4], {'RPM 1', 'RPM 2'});
     legend(ax3, [h5, h6], {'DShot Cmd 1', 'DShot Cmd 2'});
-    
+
     linkaxes([ax1,ax2,ax3],'x');
 
 end

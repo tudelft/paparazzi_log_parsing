@@ -12,7 +12,9 @@ in large blocks. Three scopes exist:
 
 Inside a flight element timestamps count from that flight's takeoff (``time.offset_s`` converts back to log
 time). Rows that cannot be decoded are kept as text in ``unparsed`` and counted in ``s.log.warnings``; nothing is
-dropped silently. See TECHNICAL.md ("MATLAB export") for the layout (format 4).
+dropped silently. The layout (format 4) is described in matlab/README.md.
+
+Run as a script to convert local files without the Web UI: ``python3 matlab_export.py LOG.data [--flights]``.
 """
 import collections
 import contextlib
@@ -40,7 +42,7 @@ import storage
 
 EXPORTER_VERSION = "4"
 MARGIN_S = 10.0
-MESSAGE_CLASSES = ("telemetry", "ground", "datalink", "alert")  # lookup order, as in parselog.m
+MESSAGE_CLASSES = ("telemetry", "ground", "datalink", "alert")  # lookup order of message names
 TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|\S+')
 KEYWORDS = {"break", "case", "catch", "classdef", "continue", "else", "elseif", "end", "for", "function",
             "global", "if", "otherwise", "parfor", "persistent", "return", "spmd", "switch", "try", "while"}
@@ -469,6 +471,11 @@ class Columns:
         del values
 
 
+def _open(path):
+    """A stored log file: gzip-compressed (Web UI storage) or plain (local conversion)."""
+    return gzip.open(path, "rb") if str(path).endswith(".gz") else open(path, "rb")
+
+
 def _read_lines(path):
     if not path.exists():
         return []
@@ -500,7 +507,7 @@ class DecodedLog:
         work = Path(work)
         self.cols, self.spans = work / "columns", spans
         self.cols.mkdir()
-        with gzip.open(log_gz, "rb") as src:
+        with _open(log_gz) as src:
             log_bytes = src.read()
         self.messages, self.names = parse_protocol(log_bytes.decode("utf-8", "replace"))
         (work / "export.log").write_bytes(log_bytes)  # small; the parser reads block/stage/actuator names from it
@@ -520,7 +527,7 @@ class DecodedLog:
                               text=False) as proc:
             def feed():
                 try:
-                    with gzip.open(data_gz, "rb") as src:  # zlib releases the GIL: this overlaps with decoding
+                    with _open(data_gz) as src:  # zlib releases the GIL: this overlaps with decoding
                         while chunk := src.read(storage.CHUNK * 4):
                             proc.stdin.write(chunk)
                 except (OSError, EOFError) as error:
@@ -1023,3 +1030,127 @@ class Jobs:
                 if failure is not None:  # reported once the partial files are gone
                     self._set(job_id, status="failed", error=failure)
                 self.queue.task_done()
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Local conversion: python3 matlab_export.py LOG.data [--flights] [-o OUT]
+# ---------------------------------------------------------------------------------------------------------------------
+SUMMARY_KEYS = ("duration_s", "distance_m", "max_from_takeoff_m", "from_takeoff_m", "landed")
+
+
+def _posix(utc):
+    try:
+        return datetime.datetime.fromisoformat(utc.replace("Z", "+00:00")).timestamp() if utc else None
+    except ValueError:
+        return None
+
+
+def parsed_inputs(doc):
+    """Flights (as export() windows) and extras from the C++ parser's JSON, as the Web UI stores them, but without
+    the logbook's later edits (crew corrections, date corrections)."""
+    flights, aircraft = [], {}
+    for ac in doc.get("aircraft", []):
+        mission = ac.get("mission") or {}
+        aircraft[ac.get("ac_id")] = dict(
+            pic=mission.get("pic"), pac=mission.get("pac"), gcs=mission.get("gcs"), goal=mission.get("goal"),
+            simulation=ac.get("simulation"), checklist=ac.get("preflight_checks") or [],
+            settings=ac.get("settings") or [],
+            config=dict(xml=ac.get("xml") or {}, flight_plan=ac.get("flight_plan") or {}),
+            setting_changes=[dict(time_s=c.get("time_s"), idx=c.get("index"), var=c.get("var"),
+                                  from_value=c.get("from"), to_value=c.get("to"), in_flight=c.get("in_flight"))
+                             for c in (ac.get("settings_changes") or {}).get("timeline") or []])
+        for f in ac.get("flights", []):
+            to, ld = f.get("takeoff") or {}, f.get("landing") or {}
+            if to.get("time_s") is None:
+                continue
+            summary = {k: f.get(k) for k in SUMMARY_KEYS}
+            for prefix, point in (("takeoff", to), ("landing", ld)):
+                loc = point.get("location") or {}
+                summary.update({f"{prefix}_lat": loc.get("lat"), f"{prefix}_lon": loc.get("lon"),
+                                f"{prefix}_alt_m": loc.get("alt_m"), f"{prefix}_voltage_v": point.get("voltage_v")})
+            summary["landed"] = 1 if summary["landed"] else 0
+            assessment = f.get("assessment") or {}
+            flights.append(dict(index=(f.get("flight") or 0) + 1, ac_id=ac.get("ac_id"), takeoff_s=to["time_s"],
+                                landing_s=ld.get("time_s"), takeoff_utc=to.get("utc"), landing_utc=ld.get("utc"),
+                                takeoff_posix=_posix(to.get("utc")), summary=summary,
+                                assessment=dict(verdict=assessment.get("verdict"),
+                                                reasons=assessment.get("reasons") or [])))
+    flights.sort(key=lambda x: x["takeoff_s"])
+    time0 = (doc.get("log") or {}).get("start_utc")
+    return flights, dict(aircraft=aircraft, time0_utc=time0, time0_posix=_posix(time0))
+
+
+def convert(fastreader, data_path, out_path, scope="log", progress=lambda fraction: None):
+    """Export a local .data (with its .log next to it, plain or .gz) to ``out_path``; returns the warnings."""
+    data_path = Path(data_path)
+    stem = data_path.name[:-3] if data_path.name.endswith(".gz") else data_path.name
+    stem = stem[:-5] if stem.endswith(".data") else stem
+    log_path = next((p for p in (data_path.with_name(stem + ".log"), data_path.with_name(stem + ".log.gz"))
+                     if p.exists()), None)
+    with tempfile.TemporaryDirectory(prefix="matlab-") as work:
+        work = Path(work)
+        plain = data_path
+        if data_path.name.endswith(".gz"):  # the parser reads plain files; the .log is found next to the .data
+            plain = work / f"{stem}.data"
+            with gzip.open(data_path, "rb") as src, open(plain, "wb") as dst:
+                shutil.copyfileobj(src, dst, 1 << 20)
+            if log_path and log_path.name.endswith(".gz"):
+                with gzip.open(log_path, "rb") as src, open(work / f"{stem}.log", "wb") as dst:
+                    shutil.copyfileobj(src, dst, 1 << 20)
+            elif log_path:
+                shutil.copyfile(log_path, work / f"{stem}.log")
+        proc = subprocess.run([fastreader, str(plain)], capture_output=True)
+        if proc.returncode != 0:
+            raise ExportError(proc.stderr.decode(errors="replace").strip() or f"parser exit code {proc.returncode}")
+        flights, extras = parsed_inputs(json.loads(proc.stdout))
+        windows = None
+        if scope == "flights":
+            windows = [f for f in flights if f["assessment"]["verdict"] != "ground"]
+            if not windows:
+                raise ExportError("No flights detected in this log.")
+        else:
+            extras["flights"] = flights
+        (work / "export").mkdir()
+        info = dict(name=data_path.name, sha256="", log_type="onboard_sd" if stem.endswith("_SD") else "gcs",
+                    size_bytes=plain.stat().st_size, scope=scope)
+        return export(fastreader, data_path, log_path, out_path, info, work / "export", windows, progress,
+                      extras=extras)
+
+
+def main(argv=None):
+    import argparse
+    here = Path(__file__).resolve().parent
+    parser = argparse.ArgumentParser(description="Convert Paparazzi .data/.log files to MATLAB (format 4), as the "
+                                     "Web UI export does. The .log must be next to its .data (plain or .gz).")
+    parser.add_argument("data", nargs="+", help=".data files (or .data.gz)")
+    parser.add_argument("--flights", action="store_true", help="only the detected flights, each from 10 s before "
+                        "takeoff to 10 s after landing (default: the whole log)")
+    parser.add_argument("-o", "--out", help="output .mat (one input) or folder (default: next to the .data)")
+    parser.add_argument("--parser", default=os.environ.get("LOGDB_FASTREADER", str(
+        here.parent / "cpp" / "build" / "paparazzi_log_parsing")), help="path of the built C++ parser")
+    args = parser.parse_args(argv)
+    if not Path(args.parser).is_file():
+        parser.error(f"parser not found at {args.parser}; build cpp/ first (see matlab/README.md)")
+    failed = 0
+    for name in args.data:
+        data = Path(name)
+        stem = re.sub(r"(\.data)?(\.gz)?$", "", data.name)
+        target = f"{stem}_{'flights' if args.flights else 'whole_log'}.mat"
+        out = Path(args.out) if args.out else data.parent
+        if args.out and (len(args.data) > 1 or out.is_dir()):
+            out.mkdir(parents=True, exist_ok=True)
+            out = out / target
+        elif not args.out:
+            out = out / target
+        try:
+            warnings = convert(args.parser, data, out, "flights" if args.flights else "log",
+                               lambda f: print(f"\r{data.name}: {f * 100:3.0f}%", end="", flush=True))
+            print(f"\r{data.name} -> {out}" + (f" ({len(warnings)} warnings)" if warnings else ""))
+        except (ExportError, OSError) as error:
+            failed += 1
+            print(f"\r{data.name}: {error}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

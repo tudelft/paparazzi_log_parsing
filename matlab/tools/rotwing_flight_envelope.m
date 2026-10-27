@@ -1,6 +1,6 @@
-function plot_rotwing_flight_envelope(params, plot_title)
-%PLOT_ROTWING_FLIGHT_ENVELOPE Summary of this function goes here
-%   Detailed explanation goes here
+function rotwing_flight_envelope(params, plot_title)
+%ROTWING_FLIGHT_ENVELOPE Airspeed envelope over wing skew of a rotating-wing drone from its guidance parameters.
+%   rotwing_flight_envelope(struct('FW_MIN_AIRSPEED', 17, 'FW_QUAD_MIN_AIRSPEED', 15, ...), "7kg"); see README.md
 
 skew = 0:0.25:90;
 

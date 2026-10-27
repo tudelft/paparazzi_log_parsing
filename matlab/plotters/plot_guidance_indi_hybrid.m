@@ -2,7 +2,7 @@ function plot_guidance_indi_hybrid(ac_data)
     if ~isfield(ac_data, 'GUIDANCE_INDI_HYBRID')
         return
     end
-    
+
     % Plot the acceleration tracking
     ax1 = subplot(3,1,1);
     hold on
@@ -26,12 +26,12 @@ function plot_guidance_indi_hybrid(ac_data)
     xlabel('Time [s]');
 
     % Plot speed in horizontal body frame
-    psi_gi = interp1(ac_data.ROTORCRAFT_FP.timestamp, deg2rad(ac_data.ROTORCRAFT_FP.psi_alt), ac_data.GUIDANCE_INDI_HYBRID.timestamp, 'nearest','extrap'); % Quaternion on the datarange
+    psi_gi = interp1(ac_data.ROTORCRAFT_FP.timestamp, deg2rad(ac_data.ROTORCRAFT_FP.psi), ac_data.GUIDANCE_INDI_HYBRID.timestamp, 'nearest','extrap'); % Quaternion on the datarange
     speedsp_x_c = cos(psi_gi) .* ac_data.GUIDANCE_INDI_HYBRID.speed_sp_x + sin(psi_gi) .* ac_data.GUIDANCE_INDI_HYBRID.speed_sp_y;
     speedsp_y_c =-sin(psi_gi) .* ac_data.GUIDANCE_INDI_HYBRID.speed_sp_x + cos(psi_gi) .* ac_data.GUIDANCE_INDI_HYBRID.speed_sp_y;
-    
-    speed_x_c = cos(deg2rad(ac_data.ROTORCRAFT_FP.psi_alt)) .* ac_data.ROTORCRAFT_FP.vnorth_alt + sin(deg2rad(ac_data.ROTORCRAFT_FP.psi_alt)) .* ac_data.ROTORCRAFT_FP.veast_alt;
-    speed_y_c =-sin(deg2rad(ac_data.ROTORCRAFT_FP.psi_alt)) .* ac_data.ROTORCRAFT_FP.vnorth_alt + cos(deg2rad(ac_data.ROTORCRAFT_FP.psi_alt)) .* ac_data.ROTORCRAFT_FP.veast_alt;
+
+    speed_x_c = cos(deg2rad(ac_data.ROTORCRAFT_FP.psi)) .* ac_data.ROTORCRAFT_FP.vnorth + sin(deg2rad(ac_data.ROTORCRAFT_FP.psi)) .* ac_data.ROTORCRAFT_FP.veast;
+    speed_y_c =-sin(deg2rad(ac_data.ROTORCRAFT_FP.psi)) .* ac_data.ROTORCRAFT_FP.vnorth + cos(deg2rad(ac_data.ROTORCRAFT_FP.psi)) .* ac_data.ROTORCRAFT_FP.veast;
 
     ax3 = subplot(3,1,3);
     hold on;
@@ -39,7 +39,7 @@ function plot_guidance_indi_hybrid(ac_data)
     plot(ac_data.ROTORCRAFT_FP.timestamp,speed_y_c)
     plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,speedsp_x_c)
     plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,speedsp_y_c)
-    plot(ac_data.ROTORCRAFT_FP.timestamp,-ac_data.ROTORCRAFT_FP.vup_alt)
+    plot(ac_data.ROTORCRAFT_FP.timestamp,-ac_data.ROTORCRAFT_FP.vup)
     plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.speed_sp_z)
     title('guidance INDI speed')
     legend('speed x', 'speed y', 'speed sp x', 'speed sp y', 'speed z','speed sp zlabel')

@@ -444,48 +444,9 @@ pool across columns and written in order. Times use the parser's clock-wrap corr
 the windows match the stored takeoff/landing times. Without MATLAB on the server, loading was verified with an
 independent v7.3 reader; check new layouts in MATLAB itself.
 
-Layout of `s` (format 4); times are log time unless noted:
-
-```
-s
-├─ info                exporter_version, created_utc, scope (flight/flights/log), margin_s
-├─ log                 name, sha256, type, time0_utc, time0_posix, warnings, unparsed (timestamp, lines)
-├─ messages.<MSG>      name, class, id, fields, types, units, raw_units, coef, enums.<field>
-└─ aircraft(i)         only aircraft with an exported flight in a flight export
-   ├─ id, name         AC_ID and the name in the log
-   ├─ version          number, desc
-   ├─ crew             pic, pac, gcs, goal (as written in the log, no account details)
-   ├─ simulation       assessed, detected, evidence
-   ├─ settings
-   │  ├─ list          table: index, var, shortname, unit, parent
-   │  ├─ values.<name> timestamp, value (every DL_VALUE report over the whole log)
-   │  └─ changes       table: timestamp, index, name, from, to, in_flight
-   ├─ checklist
-   │  ├─ items         table: timestamp, item, answer, message
-   │  └─ answers.<key> last answer per logged key
-   ├─ config
-   │  ├─ xml           airframe, flight_plan, settings, radio, telemetry
-   │  ├─ flight_plan   name, lat0, lon0, blocks (cur_block + 1), stages (table: block, stage, name),
-   │  │                waypoints.<NAME> (index, name, lat, lon, alt)
-   │  └─ actuators     servo names of the airframe
-   ├─ data, unparsed   whole-log export only
-   └─ flights(k)
-      ├─ index         the parser's flight number of that aircraft
-      ├─ time          takeoff_utc, landing_utc, takeoff_posix, offset_s (log time of takeoff), window_s
-      │                (from takeoff), start_s / end_s (log time, to slice a whole-log export)
-      ├─ summary       duration, distance, range, positions, battery, landed, verdict, reasons
-      └─ data, unparsed  flight exports only; timestamp 0 = takeoff
-```
-
-`data.<MSG>` holds `timestamp` and one column per field. A field with `alt_unit_coef` is stored converted
-(e.g. deg, double) under its own name; the logged value is `value / s.messages.<MSG>.coef(k)` in `raw_units`.
-Other types: `uint*` uint32, `int*` int32, float double, arrays N×k double padded with NaN, text cellstr. Enum
-fields stay numeric (`s.messages.<MSG>.enums.<field>{v + 1}` names value v). `ACTUATORS` stores each actuator as its
-own column (`ACTUATORS.FRONT_MOT`) when the airframe lists as many servos, else `values` (N×k). MATLAB keywords
-get a trailing `_`. Rows that do not match the protocol are in `unparsed` and counted in `s.log.warnings`.
-
-Example: `s = load('x.mat').s; a = s.aircraft(1); f = a.flights(3); act = f.data.ACTUATORS;`
-`plot(act.timestamp, act.FRONT_MOT); a.settings.values.guidance_h_gains_p.value; a.config.flight_plan.waypoints.HOME.lat`.
+The layout of the file (format 4) and the MATLAB tools that read it are described in
+[matlab/README.md](../matlab/README.md). `python3 matlab_export.py LOG.data [--flights] [-o OUT]` converts local
+files the same way (without the logbook's later corrections).
 
 ## Storage and backup
 

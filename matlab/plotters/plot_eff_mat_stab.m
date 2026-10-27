@@ -1,9 +1,9 @@
-function cycl_plot_eff_mat(ac_data, order)
+function plot_eff_mat_stab(ac_data, order)
 
-    Gpitch = double(string(ac_data.EFF_MAT_STAB.G1_pitch));
-    Groll = double(string(ac_data.EFF_MAT_STAB.G1_roll));
-    Gyaw = double(string(ac_data.EFF_MAT_STAB.G1_yaw));
-    Gthrust = double(string(ac_data.EFF_MAT_STAB.G1_thrust));
+    Gpitch = double(ac_data.EFF_MAT_STAB.G1_pitch);
+    Groll = double(ac_data.EFF_MAT_STAB.G1_roll);
+    Gyaw = double(ac_data.EFF_MAT_STAB.G1_yaw);
+    Gthrust = double(ac_data.EFF_MAT_STAB.G1_thrust);
 
     tiledlayout(2, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
 
@@ -51,15 +51,11 @@ function cycl_plot_eff_mat(ac_data, order)
     title('Gthrust');
     grid on;
 
-    % flight modes
-    mode_values = ac_data.ROTORCRAFT_RADIO_CONTROL.mode;
-    mode_timestamps = ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp;
-    cycl_draw_mode_transitions(mode_values, mode_timestamps, {ax1, ax2});
     legend(ax1, [h1,h2,h3,h4], {'Gpitch11', 'Gpitch12', 'Gpitch13', 'Gpitch14'});
     legend(ax2, [h5,h6,h7,h8], {'Gyaw11', 'Gyaw12', 'Gyaw13', 'Gyaw14'});
     legend(ax3, [h9,h10,h11,h12], {'Groll11', 'Groll12', 'Groll13', 'Groll14'});
     legend(ax4, [h13,h14,h15,h16], {'Gthrust11', 'Gthrust12', 'Gthrust13', 'Gthrust14'});
-    
+
     linkaxes([ax1,ax2,ax3,ax4],'x');
 
 end

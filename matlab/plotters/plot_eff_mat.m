@@ -1,12 +1,12 @@
 function plot_eff_mat(ac_data)
-    
-    
+
+
     if isfield(ac_data, 'EFF_MAT_G')
-        G1thrust = double(string(ac_data.EFF_MAT_G.G1_thrust));
-        G1pitch= double(string(ac_data.EFF_MAT_G.G1_pitch));
-        G1roll = double(string(ac_data.EFF_MAT_G.G1_roll));
-        G1yaw = double(string(ac_data.EFF_MAT_G.G1_yaw));
-        G2 = double(string(ac_data.EFF_MAT_G.G2));
+        G1thrust = double(ac_data.EFF_MAT_G.G1_thrust);
+        G1pitch= double(ac_data.EFF_MAT_G.G1_pitch);
+        G1roll = double(ac_data.EFF_MAT_G.G1_roll);
+        G1yaw = double(ac_data.EFF_MAT_G.G1_yaw);
+        G2 = double(ac_data.EFF_MAT_G.G2);
 
         ax1 = subplot(5,1,1);
         hold on

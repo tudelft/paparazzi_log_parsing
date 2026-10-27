@@ -2,7 +2,7 @@ function takeoff_distance(ac_data, motors_on, takeoff_threshold)
 
     disp("Evaluating each takeoff in the flight log")
 
-    % Calculate the takeoff distance for all rolling takeoffs 
+    % Calculate the takeoff distance for all rolling takeoffs
 
     % if takeoff_threshold parameter is not provided, use default
     if nargin < 3
@@ -23,18 +23,18 @@ function takeoff_distance(ac_data, motors_on, takeoff_threshold)
         lidar_start_id = find(ac_data.LIDAR.timestamp >= start_time, 1, "first");
         initial_dist = ac_data.LIDAR.distance(find(ac_data.LIDAR.timestamp>=start_time,1,"first"));
         copy_lidar_dist(1:lidar_start_id) = initial_dist;
-        
+
         end_time = ac_data.LIDAR.timestamp(find(copy_lidar_dist >= initial_dist+takeoff_threshold, 1, "first"));
         if(isempty(end_time))
             end_time = start_time;
         end
-        
+
         id_start = find(ac_data.ROTORCRAFT_FP.timestamp >= start_time, 1, "first");
         id_end = find(ac_data.ROTORCRAFT_FP.timestamp >= end_time, 1, "first");
-        
-        n = ac_data.ROTORCRAFT_FP.north_alt(id_start) - ac_data.ROTORCRAFT_FP.north_alt(id_end);
-        e = ac_data.ROTORCRAFT_FP.east_alt(id_start) - ac_data.ROTORCRAFT_FP.east_alt(id_end);
-        
+
+        n = ac_data.ROTORCRAFT_FP.north(id_start) - ac_data.ROTORCRAFT_FP.north(id_end);
+        e = ac_data.ROTORCRAFT_FP.east(id_start) - ac_data.ROTORCRAFT_FP.east(id_end);
+
         distance_traveled_takeoff = sqrt(n^2 + e^2);
 
         % Calculate mean power during takeoff
@@ -45,7 +45,7 @@ function takeoff_distance(ac_data, motors_on, takeoff_threshold)
         airspeed_takeoff = ac_data.AIR_DATA.airspeed(find(ac_data.AIR_DATA.timestamp >= end_time, 1, "first"));
 
         % Display takeoff distance with one decimal
-        disp("time: " + round(start_time,2) + " dist: " + round(distance_traveled_takeoff, 1) + " [m] end_time " + round(end_time,2) + " pitch angle: " + round(ac_data.ROTORCRAFT_FP.theta_alt(id_start),1) + " [deg] takeoff throttle " + round(ac_data.ROTORCRAFT_FP.thrust(id_end)*100/9600) + " % power at TO: " + round(power_takeoff) + " W measured airspeed TO: " + round(airspeed_takeoff,1))
+        disp("time: " + round(start_time,2) + " dist: " + round(distance_traveled_takeoff, 1) + " [m] end_time " + round(end_time,2) + " pitch angle: " + round(ac_data.ROTORCRAFT_FP.theta(id_start),1) + " [deg] takeoff throttle " + round(ac_data.ROTORCRAFT_FP.thrust(id_end)*100/9600) + " % power at TO: " + round(power_takeoff) + " W measured airspeed TO: " + round(airspeed_takeoff,1))
 
     end
 
