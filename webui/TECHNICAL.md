@@ -414,6 +414,34 @@ are shown and can be retried. Flights need valid coordinates and a correct date 
 at least six days old. No API key is required; the free service is
 [non-commercial only](https://open-meteo.com/en/terms), with attribution under CC BY 4.0.
 
+**MATLAB export.** A flight page offers, per Paparazzi source log (`onboard_sd`/`gcs` with its `.log`),
+**This flight**, **All flights** and **Whole log**. `POST /api/logs/<id>/matlab` (`scope` = `flight` with
+`flight_id`, `flights` or `log`) queues a job; `GET /api/matlab-exports/<job>` reports
+queued/running/ready/failed with progress and `/download` returns the file. All three need a browser session
+(API keys get 403) and re-check that the user may see the log. Jobs are identified by log hash, scope, flight
+windows, parser and exporter version, so the same request reuses a finished file. Finished files are published
+atomically to `WEB_DATA/exports` (local disk) with a JSON side file and kept two weeks; above
+`LOGDB_EXPORT_MAX_BYTES` (50 GiB) the oldest go first. `LOGDB_EXPORT_WORKERS` (1) bounds concurrent exports and
+at most 20 may wait. A restart drops queued/running jobs (the page asks again) and removes partial files.
+
+The protocol embedded in the `.log` is parsed in `matlab_export.py`; the stored `.data` is decompressed straight
+into `paparazzi_log_parsing --export-columns` (`cpp/export_columns.cpp`, a separate entry point that leaves normal
+parsing unchanged), which decodes every row into binary column files in a temporary folder under `WEB_DATA/tmp`
+(about the size of the uncompressed log as doubles). Python then writes a MATLAB v7.3 (HDF5) file with h5py,
+compressing chunks on several threads. Times use the parser's clock-wrap correction for old onboard logs, so the
+windows match the stored takeoff/landing times. Without MATLAB on the server, loading was verified with an
+independent v7.3 reader; check new layouts in MATLAB itself.
+
+Layout of `s`: `s.log` (name, sha256, log_type, scope, exporter version, creation time, margin), `s.messages.<MSG>`
+(class, id, `fields`, `types`, `units`, `alt_units`, `alt_unit_coef`) and `s.warnings` (cellstr). The whole log has
+`s.aircrafts(i)` with `AC_ID`, `name`, `version`, `version_desc`, `data.<MSG>.timestamp` and one column per field
+(`uint*` → uint32, `int*` → int32, float → double, arrays → N×k double padded with NaN, text → cellstr, plus
+`<field>_alt` when `alt_unit_coef` ≠ 1; MATLAB keywords get a trailing `_`) and `raw` (`timestamp`, `lines`:
+rows that did not decode, as text). Flight scopes have `s.flights(k)` with `index`, `AC_ID`, `aircraft`, UTC
+times, `time_offset_s` (log time of takeoff; timestamps count from takeoff), `window_s` and `aircrafts(i)` as above
+for every aircraft in that window. Rows without a valid time or aircraft id are in `s.raw`. Example:
+`s = load('x.mat').s; a = s.flights(1).aircrafts(1).data.ROTORCRAFT_FP; plot(a.timestamp, a.up_alt)`.
+
 ## Storage and backup
 
 SQLite must not run on a network share (locking over SMB is unreliable and can corrupt it), so storage is split:

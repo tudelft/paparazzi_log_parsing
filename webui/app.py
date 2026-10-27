@@ -5502,6 +5502,8 @@ def request_matlab_export(log_id):
         return jsonify(error="scope must be flight, flights or log"), 400
     if row["log_type"] not in ("gcs", "onboard_sd") or not row["log_path"]:
         return jsonify(error="MATLAB export is available for Paparazzi .data files with their .log."), 409
+    if not (row["data_path"].endswith(".gz") and row["log_path"].endswith(".gz")):
+        return jsonify(error="Uncompressed legacy storage is unsupported; delete and re-upload this test log."), 409
     flights = [dict(r) for r in con.execute(
         "SELECT f.id, f.idx, a.ac_id, f.takeoff_time_s, f.landing_time_s, f.takeoff_utc, f.landing_utc, f.verdict"
         " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE a.log_id=? AND f.takeoff_time_s IS NOT NULL"
