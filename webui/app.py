@@ -267,6 +267,7 @@ def parse_log(log_id):
                 db.store_parsed(con, log_id, doc, paths_rel)
                 link_log_aircraft(con, log_id)
                 assign_log_flights(con, log_id, kept)
+                assign_paired_logs(con, log_id)
                 attachments.restore(con, log_id, kept_files)
                 con.execute("UPDATE logs SET status='done', error=NULL, parsed_at=?, parse_seconds=? WHERE id=?",
                             (now(), round(seconds, 3), log_id))
@@ -1914,6 +1915,44 @@ def import_drone_project_period(con, drone_id, project_id, start):
                         (project_id, row["id"]))
 
 
+def paired_flight_project(con, f):
+    """Project of the linked recording of the same flight, for a recording under a shared (ambiguous) airframe name
+    that is not linked to an aircraft itself: the logbook takes its aircraft from that partner (merge_sources),
+    so its project, and the log's project for access, follow it too. A split decision keeps them apart."""
+    if f["drone_id"] or not con.execute("SELECT 1 FROM ambiguous_drone_names WHERE name=TRIM(?) COLLATE NOCASE",
+                                        (f["name"] or "",)).fetchone():
+        return None
+    days = clock_shift_days(f["log_start_utc"], f["date_override"]) or 0
+    start = _ts(shift_iso(f["takeoff_utc"], days))
+    if start is None:
+        return None
+    end = _ts(shift_iso(f["landing_utc"], days)) or start + (f["duration_s"] or 0)
+    best = None
+    for g in con.execute(
+            "SELECT f.id, f.idx, a.ac_id, a.log_id, f.project_id, f.takeoff_utc, f.landing_utc, f.duration_s,"
+            " l.start_utc, l.date_override"
+            " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id"
+            " WHERE a.drone_id IS NOT NULL AND f.project_id IS NOT NULL AND a.log_id!=? AND l.log_type!=?"
+            " AND f.takeoff_utc BETWEEN ? AND ?",
+            (f["log_id"], f["log_type"], shift_iso(f["takeoff_utc"], days - 1), shift_iso(f["takeoff_utc"], days + 1))):
+        g_days = clock_shift_days(g["start_utc"], g["date_override"])
+        g_start = _ts(shift_iso(g["takeoff_utc"], g_days))
+        if g_start is None:
+            continue
+        g_end = _ts(shift_iso(g["landing_utc"], g_days)) or g_start + (g["duration_s"] or 0)
+        if g_start > end + SAME_FLIGHT_SLACK_S or g_end < start - SAME_FLIGHT_SLACK_S:
+            continue
+        mine, theirs = (f["log_id"], f["ac_id"], f["idx"]), (g["log_id"], g["ac_id"], g["idx"])
+        if con.execute("SELECT 1 FROM source_links WHERE same=0 AND ((a_log_id=? AND a_ac_id=? AND a_idx=?"
+                       " AND b_log_id=? AND b_ac_id=? AND b_idx=?) OR (a_log_id=? AND a_ac_id=? AND a_idx=?"
+                       " AND b_log_id=? AND b_ac_id=? AND b_idx=?))", (*mine, *theirs, *theirs, *mine)).fetchone():
+            continue  # a person split these recordings
+        score = abs(g_start - start) + abs(g_end - end)
+        if best is None or score < best[0]:
+            best = (score, g["project_id"])
+    return live_project(con, best[1]) if best else None
+
+
 def assign_log_flights(con, log_id, kept=None):
     """Fill empty flight projects, restoring kept values from a re-parse first."""
     kept = kept or {}
@@ -1922,8 +1961,9 @@ def assign_log_flights(con, log_id, kept=None):
     if log is None:
         return
     for f in con.execute(
-            "SELECT f.id, f.idx, f.project_id, f.project_source, f.takeoff_utc, a.ac_id, a.drone_id, a.pic, a.gcs,"
-            " l.uploaded_by, l.start_utc AS log_start_utc, l.date_override"
+            "SELECT f.id, f.idx, f.project_id, f.project_source, f.takeoff_utc, f.landing_utc, f.duration_s, a.ac_id,"
+            " a.drone_id, a.pic, a.gcs, a.name, a.log_id, l.log_type, l.uploaded_by, l.start_utc AS log_start_utc,"
+            " l.date_override"
             " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id"
             " WHERE a.log_id=?", (log_id,)):
         restore = kept.get((f["ac_id"], f["idx"])) or {}
@@ -1944,7 +1984,7 @@ def assign_log_flights(con, log_id, kept=None):
             continue
         if f["project_id"]:
             continue
-        pid = pick_flight_project(con, f, resolve)
+        pid = pick_flight_project(con, f, resolve) or paired_flight_project(con, f)
         if pid:
             con.execute("UPDATE flights SET project_id=?, project_source='timeline' WHERE id=?", (pid, f["id"]))
     if log["project_id"] is None:
@@ -1966,6 +2006,21 @@ def assign_log_flights(con, log_id, kept=None):
         if len(ids) == 1:
             con.execute("UPDATE logs SET project_id=? WHERE id=? AND project_id IS NULL",
                         (next(iter(ids)), log_id))
+
+
+def assign_paired_logs(con, log_id):
+    """Fill the projects of unlinked recordings under a shared airframe name that overlap this log in time."""
+    span = con.execute("SELECT MIN(f.takeoff_utc), MAX(COALESCE(f.landing_utc, f.takeoff_utc)) FROM flights f"
+                       " JOIN aircraft a ON a.id=f.aircraft_id WHERE a.log_id=?", (log_id,)).fetchone()
+    if not span[0]:
+        return
+    for (other,) in con.execute(
+            "SELECT DISTINCT a.log_id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+            " JOIN ambiguous_drone_names n ON n.name=TRIM(a.name) COLLATE NOCASE"
+            " WHERE a.drone_id IS NULL AND f.project_id IS NULL AND COALESCE(f.project_source,'')!='manual'"
+            " AND a.log_id!=? AND f.takeoff_utc BETWEEN ? AND ?",
+            (log_id, shift_iso(span[0], -1), shift_iso(span[1], 1))).fetchall():
+        assign_log_flights(con, other)
 
 
 def assign_open_flights(con):
@@ -4795,6 +4850,11 @@ def merge_sources(flights, decisions=None):
         if identity is not None:
             for key in ("aircraft", "drone_id", "aircraft_uid"):
                 main[key] = identity[key]
+        if effective_flight_project(main) is None and main.get("project_source") != "manual":
+            # like the aircraft: the project of another recording of this flight (e.g. a linked GCS log)
+            donor = next((o for o in original_order if effective_flight_project(o) is not None), None)
+            if donor is not None:
+                main["project_id"] = effective_flight_project(donor)
         if not main["landed"] and selected is None:
             donor = next((o for o in fl[1:] if o["landed"]), None)
             if donor:
@@ -5112,7 +5172,7 @@ def logbook_rows(hidden=False, hide_unlinked=False):
     rows = con.execute(
         "SELECT f.id AS flight_id, f.idx, f.takeoff_utc, f.landing_utc, f.duration_s, f.distance_m,"
         " f.from_takeoff_m, f.max_from_takeoff_m, f.landed, f.has_gps_position, f.track_quality,"
-        " f.takeoff_lat, f.takeoff_lon, f.landing_lat, f.landing_lon, f.project_id,"
+        " f.takeoff_lat, f.takeoff_lon, f.landing_lat, f.landing_lon, f.project_id, f.project_source,"
         " f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment, f.operator_id, f.category, f.authorisation_id,"
         " a.id AS aircraft_pk, a.ac_id, a.simulation, COALESCE(d.name, a.name) AS aircraft, a.name AS aircraft_logged,"
         " d.unique_id AS aircraft_uid, a.drone_id, a.pic, a.pac, a.gcs, a.goal,"
