@@ -65,7 +65,7 @@
     <p class="mute" id="provenance"></p>
   </section>
   <details class="card" id="filesSection" hidden><summary>Additional files</summary>
-    <div id="additionalFiles"></div></details>
+    <p><a id="manageFiles" href="#">Open files</a></p><div id="additionalFiles"></div></details>
   <details class="card" id="importSection" hidden>
     <summary>Import paper records from CSV</summary>
     <p>Use UTF-8, comma-separated CSV. Required columns: aircraft, pic, project, date (YYYY-MM-DD),
@@ -102,7 +102,10 @@ const pathId = location.pathname.split('/').pop();
 const recordId = /^\d+$/.test(pathId) ? +pathId : null;
 if (recordId) {
   $('filesSection').hidden = false;
-  AttachmentFiles.mount($('additionalFiles'), 'paper', recordId);
+  $('manageFiles').href = `/attachments?kind=paper&id=${recordId}`;
+  AttachmentFiles.mount($('additionalFiles'), 'paper', recordId).then(d => {
+    if (d) $('manageFiles').textContent = d.target.can_edit ? 'Add / manage files' : 'Open files';
+  });
 }
 const keys = ['drone_id','pic_user_id','project_id','date','kind','flight_count','duration_minutes',
   'takeoff_time','place_id','pac_user_id','gcs_user_id','operator_id','reference','goal','comment'];

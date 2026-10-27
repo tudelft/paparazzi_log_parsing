@@ -20,6 +20,16 @@ window.categoryChoice = value => value.startsWith('auth:') ? {category: null, au
   : {category: value.startsWith('cat:') ? value.slice(4) : null, authorisation_id: null};
 window.categoryText = f => (f.category === 'national' ? 'National rules' : window.CATEGORY_LABELS[f.category] || 'Unknown') + (f.authorisation_name ? ' · ' + f.authorisation_name : '');
 
+// A stored file: its name opens it in the browser when it can be viewed there (else downloads it), with a
+// small download button beside a viewable one. `attrs` adds attributes such as a class or title to the name.
+window.fileLink = function ({name, view, download, viewable, attrs = ''}) {
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  if (!viewable) return `<a ${attrs} href="${esc(download)}" title="Download">${name}</a>`;
+  return `<a ${attrs} href="${esc(view)}" target="_blank" rel="noopener" title="View in a new tab">${name}</a>`
+    + `<a class="file-dl" href="${esc(download)}" title="Download" aria-label="Download">`
+    + '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 2v8m-3.5-3.5L8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a>';
+};
+
 // Anyone who flies can add the operator of a new partner; resolves to the new operator, or null when cancelled.
 window.newOperatorDialog = function () {
   return new Promise(resolve => {

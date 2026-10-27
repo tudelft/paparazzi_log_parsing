@@ -16,14 +16,9 @@ from werkzeug.http import dump_options_header
 import db
 import historical
 import storage
+from storage import view_type
 
 COLUMNS = {"flight": "flight_id", "log": "log_id", "paper": "record_id"}
-# Types the browser may show inline, chosen by extension only. HTML, SVG, XML and other active
-# content are deliberately absent: they stay downloads so a stored file can never run script here.
-# Flask adds "charset=utf-8" to text/plain.
-VIEWABLE = {".pdf": "application/pdf", ".txt": "text/plain", ".csv": "text/plain",
-            ".md": "text/plain", ".log": "text/plain", ".png": "image/png",
-            ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 # Word documents are shown as a PDF converted by LibreOffice (see `convert`), cached per file content.
 CONVERTIBLE = {".docx"}
 CONVERT_MAX_BYTES = 50 * 2**20
@@ -31,10 +26,6 @@ CONVERT_TIMEOUT_S = 90
 PREVIEWS = "previews"
 Error = historical.RecordError
 _convert_lock = threading.Lock()  # one LibreOffice at a time: it is heavy and shares nothing between runs
-
-
-def view_type(filename):
-    return VIEWABLE.get(Path(filename).suffix.lower())
 
 
 def office_binary(setting):

@@ -49,9 +49,9 @@ window.QualificationManager = class {
       const tip = [...dates, ...this.metaTip(item)].map(line => this.esc(line)).join('<br>');
       const name = `<strong>${esc(item.category)}</strong>`;
       return `<div style="margin:12px 0">
-      <span title="${esc(dates.join(' · '))}">${item.has_evidence ? `<a href="/api/qualification-submissions/${item.id}/evidence">${name}</a>` : name}</span> · ${esc(item.status === 'superseded' ? 'archived' : item.status)}${item.internal ? ' · Internal' : ''}${item.expired ? ' (expired)' : ''}
+      <span title="${esc(dates.join(' · '))}">${item.has_evidence ? fileLink({name, viewable: item.viewable, view: `/api/qualification-submissions/${item.id}/evidence/view`, download: `/api/qualification-submissions/${item.id}/evidence`}) : name}</span> · ${esc(item.status === 'superseded' ? 'archived' : item.status)}${item.internal ? ' · Internal' : ''}${item.expired ? ' (expired)' : ''}
       <span class="info-tip"><button type="button" aria-label="Submission details">i</button><span class="tip" role="tooltip">${tip}</span></span>
-      <div>${item.has_evidence ? `<a href="/api/qualification-submissions/${item.id}/evidence">Download</a>`
+      <div>${item.has_evidence ? `<span class="mute">${esc(item.filename || 'Evidence')}</span>`
         : `<span class="mute">${item.evidence_deleted_at ? 'Evidence deleted by admin' : 'No evidence attached'}</span>`}
       ${this.editing && item.status === 'pending' ? `${this.admin
         ? `<button type="button" data-review="approve" data-id="${item.id}">Approve</button>
