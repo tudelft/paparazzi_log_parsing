@@ -42,7 +42,7 @@ track, the logbook uses GCS consistently for the track, distance and flight-page
 The flight page explains the choice under **Log sources and upload details**, where either
 original recording can still be opened or downloaded.
 
-**Pre-flight checks** shows all recorded checklist messages, including crew and flight goal.
+The **Checklist** tab shows all recorded checklist answers (item, answer, time), including crew and flight goal.
 For Paparazzi logs with embedded checklist definitions, full descriptions replace abbreviations;
 hover over or focus a description to see the original message. Older logs need re-parsing
 to gain descriptions and previously omitted crew entries.
@@ -122,7 +122,7 @@ to gain descriptions and previously omitted crew entries.
 - Hover over an aircraft name in the logbook for its TUD/serial number; it is also on the aircraft detail page.
 - Turn on **Edit** to show permitted editing controls. It stays enabled across pages until turned off.
   Turn it off for the simpler browsing view. Longer explanations are under **Help**.
-- Flight pages include the path, charts, weather, settings, messages, pre-flight checks and software version.
+- Flight pages include the path, charts, weather, settings, messages, the pre-flight checklist and software version.
   Turn on **Edit** there to change the project, crew or comment; the Overview shows a small path map.
   In Path & charts, hover over a chart for exact values; use **+ Add** and **+ Add chart** to choose what is plotted.
   Expanded Logbook rows show comments and buttons beside the map (stacked on small screens).

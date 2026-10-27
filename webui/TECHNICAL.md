@@ -339,13 +339,13 @@ the top of the companion `.log` is shown instead and labelled as coming from the
 Merged SD/GCS entries retain the fleet name, aircraft link and TUD/serial number from a linked
 source even if the main telemetry source is unlinked. Sources linked to different fleet aircraft
 are kept separate rather than choosing an identity.
-Tabs separate the path/charts, weather, settings, messages and pre-flight checks.
+Tabs separate the path/charts, weather, settings, messages, the checklist (with a count) and files.
 Messages and settings show 25 rows per page, scoped to the flight by default; their checkboxes include
 the whole log. Tab counts reflect the flight scope (messages also include 30 seconds either side).
 Tabs support keyboard arrows and can be linked directly, for example `/flight/42#messages`.
 
 **Paparazzi pre-flight checklist (parser 1.8.1).** All recorded `[PFC]` events, including
-PIC, PAC, GCS operator and goal, appear in Pre-flight checks on the flight page and expanded
+PIC, PAC, GCS operator and goal, appear in the Checklist tab on the flight page and expanded
 Uploads log. Crew and goal extraction remains unchanged. Each aircraft's embedded airframe
 `<checklist><item name="key">Full text</item></checklist>` supplies descriptions for matching
 `key: answer` messages. The parser retains the original `text`, `time_s` and `utc`, adding
@@ -1420,7 +1420,7 @@ The parser scores each takeoff/landing on duration, climb, distance, speed, tilt
 is ticked.
 
 **Flight page** (`/flight/<id>`). Path on a map with the flight plan waypoints, a time slider, charts,
-takeoff/landing details, setting changes, messages, pre-flight checks and autopilot version; switch between the SD
+takeoff/landing details, setting changes, messages, checklist and autopilot version; switch between the SD
 and GCS log when both exist. Missing `AUTOPILOT_VERSION` falls back to the GCS `.log` header.
 Charts list their series as chips (× removes); **+ Add** offers only series with data in this log, grouped by kind,
 and **+ Add chart** adds a preset (height and speed, attitude, acceleration, wind) or an empty chart. Wind speed and
