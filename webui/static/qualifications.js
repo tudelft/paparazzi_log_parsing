@@ -100,6 +100,16 @@ window.QualificationManager = class {
         </form>
       </dialog>` : '<p class="mute">An admin must first add a qualification type on People.</p>')
         : '<p class="mute">Turn on Edit to upload, review or delete qualifications for this person.</p>'}
+      ${this.admin && this.editing ? `<dialog class="entry-dialog" data-dates-dialog aria-labelledby="datesTitle-${this.userId}">
+        <div class="dialog-header"><h2 id="datesTitle-${this.userId}">Edit dates</h2>
+          <button type="button" data-close-dates aria-label="Close">Close</button></div>
+        <p class="dialog-error" data-dialog-error hidden role="alert"></p>
+        <form data-dates-form>
+          <label class="field">Valid from <input type="date" name="valid_from"></label>
+          <label class="field">Valid until <input type="date" name="valid_until"></label>
+          <button type="submit">Save dates</button>
+        </form>
+      </dialog>` : ''}
       ${this.admin ? `<details class="help-text"><summary>Qualification history (admins only)</summary>
         <p class="mute">An audit of submission, review, date correction and deletion actions, separate from the records and files above.</p>
         <button type="button" data-history>Show latest 100 events</button>
@@ -113,6 +123,16 @@ window.QualificationManager = class {
     this.element.querySelectorAll('[data-dates]').forEach(button => {
       button.onclick = () => this.editDates(q.items.find(i => i.id === +button.dataset.dates));
     });
+    const datesDialog = this.element.querySelector('[data-dates-dialog]');
+    if (datesDialog) {
+      this.element.querySelector('[data-close-dates]').onclick = () => datesDialog.close();
+      this.element.querySelector('[data-dates-form]').onsubmit = event => {
+        event.preventDefault();
+        const f = event.target.elements;
+        this.mutate(`/api/qualification-submissions/${datesDialog.dataset.id}`, {method:'PUT',
+          headers:{'Content-Type':'application/json'}, body:JSON.stringify({valid_from: f.valid_from.value, valid_until: f.valid_until.value})});
+      };
+    }
     this.element.querySelectorAll('[data-delete]').forEach(button => {
       button.onclick = () => this.remove(+button.dataset.id, button.dataset.delete === 'evidence');
     });
@@ -172,11 +192,10 @@ window.QualificationManager = class {
   error(message) {
     const box = this.element.querySelector('[data-error]');
     if (box) box.textContent = message;
-    const dialogErr = this.element.querySelector('[data-dialog-error]');
-    if (dialogErr) {
+    this.element.querySelectorAll('[data-dialog-error]').forEach(dialogErr => {
       dialogErr.textContent = message;
       dialogErr.hidden = !message;
-    }
+    });
   }
   async mutate(url, options) {
     const buttons = this.element.querySelectorAll('button');
@@ -197,13 +216,17 @@ window.QualificationManager = class {
     return this.mutate(`/api/qualification-submissions/${id}/review`,
       {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action})});
   }
+  // Small dialog with date pickers; an empty field clears that date (the type may require it).
   editDates(item) {
-    const start = prompt('Valid from (YYYY-MM-DD, empty for none)', item.valid_from || '');
-    if (start === null) return;
-    const until = prompt('Valid until (YYYY-MM-DD, empty for none)', item.valid_until || '');
-    if (until === null) return;
-    return this.mutate(`/api/qualification-submissions/${item.id}`, {method:'PUT',
-      headers:{'Content-Type':'application/json'}, body:JSON.stringify({valid_from: start.trim(), valid_until: until.trim()})});
+    const dialog = this.element.querySelector('[data-dates-dialog]');
+    if (!dialog || !item) return;
+    dialog.dataset.id = item.id;
+    dialog.querySelector('h2').textContent = `Edit dates · ${item.category}`;
+    const f = dialog.querySelector('[data-dates-form]').elements;
+    f.valid_from.value = item.valid_from || '';
+    f.valid_until.value = item.valid_until || '';
+    this.error('');
+    dialog.showModal();
   }
   remove(id, evidenceOnly) {
     if (!confirm(evidenceOnly ? 'Permanently delete this evidence file? The record and any approval remain.'
