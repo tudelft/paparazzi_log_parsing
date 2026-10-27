@@ -737,8 +737,9 @@ Changing an existing aircraft's project requires `project_effective_date` (or `P
 strictly YYYY-MM-DD. This starts a new inclusive project period on that date, truncating any period
 crossing it and retaining earlier history and later scheduled periods. The new period ends the day
 before the next existing period, if any. Repeating the same import does not duplicate aircraft or periods.
-For new aircraft the effective date is optional: without one, the existing purchase-date/first-flight/
-today fallback seeds the initial period.
+For new aircraft the effective date is optional: without one, the initial period starts at the purchase date,
+else has no start, so logs uploaded before the aircraft was added to the fleet get its project too. In Project
+history only the first period may leave **From** empty (from the start); saving fills unassigned flights.
 
 Flights now record whether their project came from a timeline or a manual edit. A CSV period change
 reassigns known automatic flights in that date range, including hidden flights, but preserves manual

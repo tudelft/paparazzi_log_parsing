@@ -1741,7 +1741,7 @@ def drone_periods(con, drone_id):
     return [dict(r) for r in con.execute(
         "SELECT dp.id, dp.project_id, p.name AS project_name, dp.start_date, dp.end_date"
         " FROM drone_projects dp JOIN projects p ON p.id = dp.project_id"
-        " WHERE dp.drone_id=? ORDER BY dp.start_date, dp.id", (drone_id,))]
+        " WHERE dp.drone_id=? ORDER BY dp.start_date IS NOT NULL, dp.start_date, dp.id", (drone_id,))]
 
 
 def project_for_drone_on(con, drone_id, day):
@@ -1749,7 +1749,7 @@ def project_for_drone_on(con, drone_id, day):
     if not drone_id or not day:
         return None
     row = con.execute(
-        "SELECT project_id FROM drone_projects WHERE drone_id=? AND start_date<=?"
+        "SELECT project_id FROM drone_projects WHERE drone_id=? AND (start_date IS NULL OR start_date<=?)"
         " AND (end_date IS NULL OR end_date>=?) ORDER BY start_date DESC, id DESC LIMIT 1",
         (drone_id, day, day)).fetchone()
     return live_project(con, row["project_id"] if row else None)
@@ -1792,26 +1792,17 @@ def parse_loose_date(raw):
     return None
 
 
-def first_flight_day(con, drone_id):
-    row = con.execute(
-        "SELECT MIN(f.takeoff_utc) AS t FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
-        " WHERE a.drone_id=? AND f.takeoff_utc IS NOT NULL AND f.takeoff_utc>=?",
-        (drone_id, f"{CLOCK_MIN_YEAR:04d}-01-01")).fetchone()
-    dt = parse_iso_utc(row["t"] if row else None)
-    return dt.date().isoformat() if dt else None
-
-
 def seed_drone_period(con, drone_id, project_id, start_date=None):
-    """Add one open-ended period if this aircraft has no timeline yet."""
+    """Add one open-ended period if this aircraft has no timeline yet: from ``start_date`` (e.g. when it was bought),
+    else from the start, so flights logged before the aircraft was added to the fleet get the project too."""
     project_id = live_project(con, project_id)
     if not drone_id or not project_id:
         return False
     if con.execute("SELECT 1 FROM drone_projects WHERE drone_id=?", (drone_id,)).fetchone():
         return False
-    start = start_date or first_flight_day(con, drone_id) or datetime.now(timezone.utc).date().isoformat()
     con.execute(
         "INSERT INTO drone_projects (drone_id, project_id, start_date, end_date) VALUES (?,?,?,NULL)",
-        (drone_id, project_id, start))
+        (drone_id, project_id, start_date or None))
     con.execute(
         "UPDATE drones SET default_project_id=? WHERE id=? AND default_project_id IS NULL",
         (project_id, drone_id))
@@ -1828,7 +1819,7 @@ def current_drone_project_id(periods):
     if len(open_) == 1:
         return open_[0]["project_id"]
     if periods:
-        return max(periods, key=lambda p: (p.get("end_date") or p["start_date"], p["start_date"]))["project_id"]
+        return max(periods, key=lambda p: (p.get("end_date") or p["start_date"] or "", p["start_date"] or ""))["project_id"]
     return None
 
 
@@ -1841,20 +1832,20 @@ def validate_drone_periods(periods):
         pid = parse_project_id(p.get("project_id"))
         if not pid:
             return "each period needs a project"
-        start = parse_date_override(p.get("start_date"))
-        if not start:
-            return "each period needs a from date"
+        start = parse_date_override(p.get("start_date"))  # None: from the start (only the first period)
         end = parse_date_override(p.get("end_date")) if p.get("end_date") not in (None, "") else None
-        if end is False:
+        if start is False or end is False:
             return "enter dates as YYYY-MM-DD"
-        if end and end < start:
+        if end and start and end < start:
             return "until must be on or after from"
         cleaned.append({"project_id": pid, "start_date": start, "end_date": end})
-    cleaned.sort(key=lambda p: (p["start_date"], p["end_date"] or "9999-12-31"))
+    if sum(1 for p in cleaned if p["start_date"] is None) > 1:
+        return "only the first period can be without a from date"
+    cleaned.sort(key=lambda p: (p["start_date"] or "", p["end_date"] or "9999-12-31"))
     prev_end = None
     for p in cleaned:
         end = p["end_date"] or "9999-12-31"
-        if prev_end and p["start_date"] <= prev_end:
+        if prev_end and (p["start_date"] or "") <= prev_end:
             return "these dates overlap; one aircraft cannot be on two projects on the same day"
         prev_end = end
     return None
@@ -1891,8 +1882,8 @@ def pick_flight_project(con, row, resolve):
 
 def import_drone_project_period(con, drone_id, project_id, start):
     periods = drone_periods(con, drone_id)
-    before = [dict(p) for p in periods if p["start_date"] < start]
-    after = [dict(p) for p in periods if p["start_date"] > start]
+    before = [dict(p) for p in periods if (p["start_date"] or "") < start]
+    after = [dict(p) for p in periods if (p["start_date"] or "") > start]
     previous_day = (datetime.strptime(start, "%Y-%m-%d").date() - timedelta(days=1)).isoformat()
     for p in before:
         if not p["end_date"] or p["end_date"] >= start:
@@ -2830,7 +2821,7 @@ def admin_add_drone():
     except sqlite3.IntegrityError:
         return jsonify(error="that ID is already used by another aircraft"), 409
     relink_all_aircraft(con)
-    seed_drone_period(con, cur.lastrowid, project_id, datetime.now(timezone.utc).date().isoformat())
+    seed_drone_period(con, cur.lastrowid, project_id)  # from the start: earlier logs of this aircraft count too
     fill_drone_defaults(con, cur.lastrowid)
     con.commit()
     return jsonify(id=cur.lastrowid, unique_id=uid)
@@ -2893,7 +2884,7 @@ def admin_update_drone(drone_id):
         return jsonify(error="that name or ID is already used by another aircraft"), 409
     relink_all_aircraft(con)
     if "default_project_id" in body:
-        seed_drone_period(con, drone_id, project_id, parse_loose_date(bought_on) or first_flight_day(con, drone_id))
+        seed_drone_period(con, drone_id, project_id, parse_loose_date(bought_on))
     fill_drone_defaults(con, drone_id)
     con.commit()
     return jsonify(ok=True)
