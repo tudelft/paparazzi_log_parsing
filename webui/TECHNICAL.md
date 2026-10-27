@@ -628,6 +628,9 @@ The menu puts Logbook (`/`) first, followed by Uploads (`/uploads`), Statistics,
 Linked aircraft, crew, projects and named locations in the logbook open their detail pages.
 Coordinates without a linked location still open the external map; Edit mode keeps its reassignment menus.
 Aircraft serial numbers in the logbook appear on hover over the aircraft name rather than inline.
+The Category column shows only the category; the authorisation name and the category source are in its tooltip.
+The Columns menu hides table columns (Date always stays). The choice is stored per browser in `localStorage`
+(`logbook.hiddenColumns`), so it survives navigation, Back and new sessions; Export CSV stays complete.
 Overview table links use the theme's blue accent colour, with an underline on hover or keyboard focus.
 
 ### Project and aircraft CSV imports

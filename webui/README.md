@@ -108,6 +108,9 @@ original recording can still be opened or downloaded.
   was valid; while an EU authorisation was valid they stay unknown until a project, location or flight says which.
   Admins keep the authorisations (number, category, validity) on the Projects page. **(check)** marks SPECIFIC
   without an authorisation, or flown outside its validity; Flight filters can show one category or those to check.
+  The Logbook shows only the category; hover over it for the authorisation.
+- **Columns** in the Logbook hides or shows table columns. Your choice is kept in this browser;
+  **Export CSV** always contains every column.
 - SD and GCS recordings of the same flight are merged. **Combine flights** additionally groups nearby
   flights into sessions; it does not change stored flights.
 - Hover over an aircraft name in the logbook for its TUD/serial number; it is also on the aircraft detail page.
