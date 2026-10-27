@@ -54,6 +54,38 @@ class AmbiguousAircraftTests(AppTests):
         self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE id=1").fetchone()[0], 2)
         self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE id=2").fetchone()[0], 1)
 
+    def unassign(self):
+        """After marking: SD recording 1 (shared name) unlinked without a project, GCS recording 2 on project 2."""
+        self.mark()
+        self.con.execute("UPDATE flights SET project_id=NULL, project_source=NULL")
+        self.con.execute("UPDATE flights SET project_id=2, project_source='timeline' WHERE id=2")
+        self.con.execute("UPDATE logs SET project_id=NULL WHERE id=1")
+        self.con.commit()
+
+    def test_unlinked_shared_name_takes_the_project_of_its_linked_recording(self):
+        self.unassign()
+        entry = self.client.get("/api/logbook").json[0]
+        self.assertEqual((entry["flight_id"], entry["drone_id"], entry["project_id"]), (1, 1, 2))  # shown at once
+        self.ns["assign_open_flights"](self.con)
+        self.assertEqual(tuple(self.con.execute("SELECT project_id, project_source FROM flights WHERE id=1").fetchone()),
+                         (2, "timeline"))  # and stored, so the SD files follow the project
+        self.assertEqual(self.con.execute("SELECT project_id FROM logs WHERE id=1").fetchone()[0], 2)
+
+    def test_split_or_manual_choices_keep_their_project(self):
+        self.unassign()
+        self.con.execute("INSERT INTO source_links(a_log_id,a_ac_id,a_idx,b_log_id,b_ac_id,b_idx,same,created_at)"
+                         " VALUES (1,7,1,2,7,1,0,'now')")
+        self.con.commit()
+        self.ns["assign_open_flights"](self.con)
+        self.assertIsNone(self.con.execute("SELECT project_id FROM flights WHERE id=1").fetchone()[0])
+        self.con.execute("DELETE FROM source_links")
+        self.con.execute("UPDATE flights SET project_source='manual' WHERE id=1")  # "No project" chosen by hand
+        self.con.commit()
+        self.ns["assign_open_flights"](self.con)
+        self.assertIsNone(self.con.execute("SELECT project_id FROM flights WHERE id=1").fetchone()[0])
+        rows = self.client.get("/api/logbook").json
+        self.assertIsNone(rows[0]["project_id"])
+
     def test_remove_alias_validation_and_permissions(self):
         self.assertEqual(self.client.delete("/api/admin/drone-aliases", json={"alias": ""}).status_code, 400)
         self.sign_in(2)

@@ -377,6 +377,20 @@ function projectOptions(selected) {
   return '<option value="">No project</option>' + addable.map(p =>
     `<option value="${p.id}"${p.id === selected ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
 }
+// A day row shows its most common project; "+N" when its flights differ, with the split on hover.
+function groupProject(g, first) {
+  if (editOn()) return projectCell(first);
+  const counts = new Map();
+  for (const f of g.flights) {
+    const key = f.project_id ?? '';
+    counts.set(key, {f, n: (counts.get(key)?.n || 0) + 1});
+  }
+  const ranked = [...counts.values()].sort((a, b) => (b.f.project_id != null) - (a.f.project_id != null) || b.n - a.n);
+  const main = ranked[0].f;
+  if (ranked.length === 1) return projectCell(main);
+  const tip = ranked.map(r => `${r.f.project_name || 'No project'}: ${r.n} flight${r.n === 1 ? '' : 's'}`).join(' · ');
+  return `${projectCell(main)} <span class="mute" title="${esc(tip)}">+${ranked.length - 1}</span>`;
+}
 function projectCell(f) {
   if (!editOn() || !f.can_edit_project) return entityLink('projects', f.project_id, f.project_name || '');
   if (f.manual_id) return `<select onclick="event.stopPropagation()" onchange="setPaperProject(${f.manual_id}, this.value)">${projectOptions(f.project_id).replace('<option value="">No project</option>', '')}</select>`;
@@ -620,7 +634,7 @@ function groupRows(g) {
   }
   const times = g.flights.map(f => `${fmtHm(f.takeoff_utc)}–${fmtHm(f.landing_utc) || '?'}`).join(', ');
   const ids = [...new Set(g.flights.flatMap(crewIds))];
-  return `<tr class="group" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: projectCell(first), ids, canEdit: editOn() ? g.flights.every(f => f.can_edit_crew) : g.flights.some(exportable)}, g.landing_place_id)}</tr>`
+  return `<tr class="group" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: groupProject(g, first), ids, canEdit: editOn() ? g.flights.every(f => f.can_edit_crew) : g.flights.some(exportable)}, g.landing_place_id)}</tr>`
     + (isOpen ? g.flights.map(f => flightRows(f, 'sub')).join('') : '');
 }
 

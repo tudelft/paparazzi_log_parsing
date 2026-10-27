@@ -702,7 +702,8 @@ person), with the same simulation and estimated-date state. Logged flights share
 location, otherwise within 1 km of the day's first takeoff; flights without GPS or a known date stay separate.
 Paper flight records group only with each other, at the same named location; paper daily totals never group.
 Only rows with several flights show the expand arrow (far-left column); their takeoff/landing times list each
-flight on hover. Import CSV and Review appear in Edit mode; the bulk-edit controls appear once a row is ticked.
+flight on hover. A row with flights in different projects shows the most common project with "+N"; the split
+is on hover. Import CSV and Review appear in Edit mode; the bulk-edit controls appear once a row is ticked.
 The Category column shows only the category; the authorisation name and the category source are in its tooltip.
 The Columns menu hides table columns (Date always stays). The choice is stored per browser in `localStorage`
 (`logbook.hiddenColumns`), so it survives navigation, Back and new sessions; Export CSV stays complete.
@@ -1189,6 +1190,11 @@ such as `RotatingWing25Kg` can be shared by several physical aircraft even thoug
 configuration names are specific. Ambiguity is explicit, case-insensitive and applies to that
 exact trimmed logged name; it is not guessed from spelling or automatically enabled for
 particular aircraft.
+A recording under a shared name that is not linked to an aircraft takes the aircraft of the other recording of
+the same flight (e.g. its GCS log) in the logbook, and its project too: the combined entry shows the project of
+any recording that has one, and the stored project of the unlinked recording is filled from its best-overlapping
+linked recording of another log type (so its log, and its files, follow the project). A split decision or a
+project set by hand (including "No project") is kept. Existing recordings are filled at the next start.
 
 Removing an aircraft alias recomputes only the logged names that used that alias
 (including embedded board-ID matches), without relearning aliases during the operation.
