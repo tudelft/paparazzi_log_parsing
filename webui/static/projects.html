@@ -62,6 +62,16 @@
   input, select { min-width:0; max-width:100%; }
   .person { flex-wrap:wrap; gap:8px; }
   .project-button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+  .page-tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); margin:0 0 14px; }
+  .page-tabs button { background:var(--sec); color:var(--txt); border-bottom:3px solid transparent; border-radius:6px 6px 0 0; padding:8px 14px; }
+  .page-tabs [aria-selected="true"] { background:var(--card); border-bottom-color:var(--acc); font-weight:600; }
+  .page-tabs .n { color:var(--mute); font-weight:400; margin-left:4px; }
+  table.compact { width:100%; table-layout:fixed; }
+  table.compact td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tag { display:inline-block; font-size:11px; padding:1px 8px; border-radius:9px; background:var(--chip); margin-left:6px; }
+  .tag.exemption { background:var(--warnbg, #fff4d6); color:var(--warn, #8a6300); }
+  .cat { font-size:12px; padding:1px 8px; border-radius:9px; background:var(--chip); }
+  #crewOperators { margin-top:14px; }
   @media(max-width:760px) { .project-layout { grid-template-columns:1fr; } .project-list { max-height:30vh; } }
 </style>
 </head>
@@ -73,7 +83,12 @@
 </header>
 <main>
   <div id="err"></div>
-  <section class="card">
+  <div class="page-tabs" role="tablist" aria-label="Projects page">
+    <button type="button" role="tab" id="tab-projects" data-tab="projects">Projects<span class="n" id="countProjects"></span></button>
+    <button type="button" role="tab" id="tab-authorisations" data-tab="authorisations">Authorisations<span class="n" id="countAuthorisations"></span></button>
+    <button type="button" role="tab" id="tab-operators" data-tab="operators">Operators<span class="n" id="countOperators"></span></button>
+  </div>
+  <section class="card" id="projectsCard">
     <div class="project-toolbar"><h2>Projects</h2>
     <input type="search" id="projectSearch" aria-label="Search projects" placeholder="Search projects or members" oninput="render()">
     <span class="mute" id="projectCount" role="status"></span>
@@ -105,10 +120,14 @@
   </section>
   <section class="card" id="authorisationsCard">
     <div class="project-toolbar"><h2>Authorisations</h2>
+    <label><input type="checkbox" id="showExpired" onchange="renderAuthorisations()"> Show expired</label>
+    <button type="button" id="addAuthorisationButton" hidden onclick="$('addAuthorisationDialog').showModal()">Add authorisation</button>
     <details><summary>Help</summary><p>The rules each flight was flown under (its category): national rules (ROC / ROC-light) before EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. A flight's category is, in this order: set on the flight (logbook Edit mode), indoor, that of its project, that of its takeoff location, or the date. By date, flights before 31 Dec 2020 are under national rules; for our own operations, a national authorisation listed here that was valid that day gives national rules, a day without any valid authorisation of ours gives OPEN, and a day with an EU authorisation stays unknown (OPEN or SPECIFIC): set those on the project, the location or the flight. An exemption (such as a one-off BVLOS exemption) is left out of this date rule: it only applies where it is set. Leave the operator empty for our own authorisations. The logbook marks SPECIFIC flights without an authorisation, or outside its validity, with (check).</p></details></div>
-    <div class="scroll"><table><thead><tr><th>Name / number</th><th>Category</th><th>Holder</th><th>Valid from</th><th>Valid until</th><th title="Only where it is set on a flight, project or location; never by date">Exemption</th><th>Link</th><th>Note</th><th></th></tr></thead>
+    <div class="scroll"><table id="authorisationTable"><thead id="authorisationHead"></thead>
       <tbody id="authorisationRows"></tbody></table></div>
-    <form class="row" id="addAuthorisation" hidden onsubmit="event.preventDefault();saveAuthorisation(null)">
+    <dialog class="entry-dialog" id="addAuthorisationDialog" aria-labelledby="addAuthorisationTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="addAuthorisationTitle">Add authorisation</h2><button type="button" onclick="$('addAuthorisationDialog').close()" aria-label="Close Add authorisation">Close</button></div>
+    <form id="addAuthorisation" onsubmit="event.preventDefault();saveAuthorisation(null)">
       <label class="field">Name / number<input id="auNewname" required maxlength="80"></label>
       <label class="field">Category<select id="auNewcategory"></select></label>
       <label class="field">Holder<select id="auNewoperator_id"></select></label>
@@ -119,13 +138,17 @@
       <label class="field">Note<input id="auNewnote" maxlength="400"></label>
       <button type="submit">Add authorisation</button>
     </form>
+    </dialog>
   </section>
   <section class="card" id="operatorsCard">
     <div class="project-toolbar"><h2>Operators</h2>
+    <button type="button" id="addOperatorButton" hidden onclick="$('addOperatorDialog').showModal()">Add operator</button>
     <details><summary>Help</summary><p>The UAS operator registrations flights are flown under. A flight is under, in this order: the operator set on the flight (logbook Edit mode), that of its project, that of its takeoff location, the operator its PIC flies for, or else our own operator. Nothing has to be filled in per flight: mark our own operator, then choose the operator of external crew below. Anyone can add the operator of a new partner in Edit mode (also from the logbook and the paper-record form); only admins change, remove or mark our own. Use the flight filters for own operations only.</p></details></div>
-    <div class="scroll"><table><thead><tr><th>Name</th><th>Registration number</th><th>Country</th><th>Own</th><th>Note</th><th></th></tr></thead>
+    <div class="scroll"><table id="operatorTable"><thead id="operatorHead"></thead>
       <tbody id="operatorRows"></tbody></table></div>
-    <form class="row" id="addOperator" hidden onsubmit="event.preventDefault();saveOperator(null)">
+    <dialog class="entry-dialog" id="addOperatorDialog" aria-labelledby="addOperatorTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="addOperatorTitle">Add operator</h2><button type="button" onclick="$('addOperatorDialog').close()" aria-label="Close Add operator">Close</button></div>
+    <form id="addOperator" onsubmit="event.preventDefault();saveOperator(null)">
       <label class="field">Name<input id="opName" required maxlength="80"></label>
       <label class="field">Registration number<input id="opRegistration" maxlength="40"></label>
       <label class="field">Country<input id="opCountry" maxlength="40"></label>
@@ -133,9 +156,10 @@
       <label class="field">Note<input id="opNote" maxlength="400" placeholder="e.g. authorisation flown under"></label>
       <button type="submit">Add operator</button>
     </form>
-    <div id="crewOperators" hidden><h3>External crew</h3>
+    </dialog>
+    <details id="crewOperators" hidden><summary>External crew <span class="mute" id="crewCount"></span></summary>
       <p class="mute">The operator each external person flies for. Their flights count under it unless the flight, project or location says otherwise; <span class="warn">(check)</span> in the logbook marks external crew without one.</p>
-      <div class="scroll"><table><thead><tr><th>Person</th><th>Flies for</th></tr></thead><tbody id="crewOperatorRows"></tbody></table></div></div>
+      <div class="scroll"><table><thead><tr><th>Person</th><th>Flies for</th></tr></thead><tbody id="crewOperatorRows"></tbody></table></div></details>
   </section>
 </main>
 <script>
@@ -177,7 +201,9 @@ function applyTicks(prefix) {
 const editing = () => !!(me && me.is_admin && window.editMode());
 function syncEdit() {
   $('add').hidden = !editing();
-  $('addOperator').hidden = !(me && window.editMode());  // anyone can add a partner; only admins mark our own
+  $('addOperatorButton').hidden = !(me && window.editMode());  // anyone can add a partner; only admins mark our own
+  $('addAuthorisationButton').hidden = !editing();
+  if (!window.editMode()) { $('addOperatorDialog').close(); $('addAuthorisationDialog').close(); }
   $('opOwnField').hidden = !editing();
   $('importSection').hidden = !editing();
   if (!editing()) $('importProjectsDialog').close();
@@ -258,14 +284,26 @@ function renderMemberPicker() {
 }
 function renderOperators() {
   const field = (o, key, max) => editing() ? `<input id="op${key}${o.id}" value="${esc(o[key] || '')}" maxlength="${max}">` : esc(o[key] || '');
+  $('countOperators').textContent = operators.length;
+  $('operatorTable').className = editing() ? '' : 'compact';
+  if (!editing()) {  // one line per operator; the note on hover
+    $('operatorHead').innerHTML = '<tr><th style="width:40%">Name</th><th style="width:25%">Registration number</th><th style="width:20%">Country</th><th style="width:15%">Own</th></tr>';
+    $('operatorRows').innerHTML = operators.map(o => `<tr><td title="${esc([o.name, o.note].filter(Boolean).join(' · '))}">${esc(o.name)}</td>
+      <td class="mono" title="${esc(o.registration || '')}">${esc(o.registration || '')}</td><td>${esc(o.country || '')}</td>
+      <td>${o.own ? '<span class="cat">Own operator</span>' : ''}</td></tr>`).join('')
+      || '<tr><td colspan="4" class="mute">No operators yet.</td></tr>';
+  } else {
+  $('operatorHead').innerHTML = '<tr><th>Name</th><th>Registration number</th><th>Country</th><th>Own</th><th>Note</th><th></th></tr>';
   $('operatorRows').innerHTML = operators.map(o => `<tr><td>${field(o, 'name', 80)}</td><td>${field(o, 'registration', 40)}</td>
     <td>${field(o, 'country', 40)}</td>
     <td>${editing() ? `<input type="checkbox" id="opown${o.id}"${o.own ? ' checked' : ''}>` : o.own ? 'Own' : ''}</td>
     <td>${field(o, 'note', 400)}</td>
     <td>${editing() ? `<button type="button" onclick="saveOperator(${o.id})">Save</button> <button type="button" class="danger" onclick="deleteOperator(${o.id})">Delete</button>` : ''}</td></tr>`).join('')
     || `<tr><td colspan="6" class="mute">No operators yet${editing() ? '. Add our own operator registration first.' : '.'}</td></tr>`;
+  }
   const crew = users.filter(u => u.is_external && u.is_active);
   $('crewOperators').hidden = !(me && me.is_admin) || !crew.length;
+  $('crewCount').textContent = `· ${crew.length}${crew.some(u => !u.operator_id) ? ` (${crew.filter(u => !u.operator_id).length} not set)` : ''}`;
   $('crewOperatorRows').innerHTML = crew.map(u => {
     const o = operators.find(x => x.id === u.operator_id);
     return `<tr><td><a href="/people/${u.id}">${esc(u.display_name || u.username)}</a></td><td>${editing()
@@ -280,7 +318,7 @@ function saveOperator(id) {
     own: value('own').checked, note: value('note').value};
   if (id === null && !editing()) delete body.own;
   send(id === null ? '/api/operators' : '/api/admin/operators/' + id, id === null ? 'POST' : 'PUT', body)
-    .then(() => { if (id === null && !$('err').textContent) $('addOperator').reset(); });
+    .then(() => { if (id === null && !$('err').textContent) { $('addOperator').reset(); $('addOperatorDialog').close(); } });
 }
 function deleteOperator(id) {
   const o = operators.find(x => x.id === id);
@@ -294,7 +332,34 @@ function renderAuthorisations() {
     `<option value="${o.id}"${o.id === id ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('');
   const categoryOpts = c => AUTH_CATEGORIES.map(k => `<option value="${k}"${k === c ? ' selected' : ''}>${CATEGORY_LABELS[k]}</option>`).join('');
   const text = (a, key, max, type = 'text') => ed ? `<input type="${type}" id="au${a.id}${key}" value="${esc(a[key] || '')}"${max ? ` maxlength="${max}"` : ''}>` : esc(a[key] || '');
-  $('authorisationRows').innerHTML = authorisations.map(a => `<tr><td>${text(a, 'name', 80)}</td>
+  const today = new Date().toISOString().slice(0, 10);
+  const expired = authorisations.filter(a => a.valid_until && a.valid_until < today);
+  const shown = $('showExpired').checked ? authorisations : authorisations.filter(a => !expired.includes(a));
+  $('showExpired').parentElement.hidden = !expired.length;
+  $('countAuthorisations').textContent = authorisations.length;
+  $('authorisationTable').className = ed ? '' : 'compact';
+  const empty = authorisations.length ? 'Only expired authorisations; tick Show expired.' : 'No authorisations yet.';
+  if (!ed) {  // one line each; link, note and validity details on hover
+    const used = a => {
+      const u = a.used || {}, parts = [[u.flights, 'flight'], [u.paper_records, 'paper record'], [u.projects, 'project'], [u.locations, 'location']]
+        .filter(([n]) => n).map(([n, w]) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`);
+      return parts.join(' · ') || '—';
+    };
+    $('authorisationHead').innerHTML = '<tr><th style="width:30%">Name / number</th><th style="width:12%">Category</th><th style="width:18%">Holder</th><th style="width:18%">Valid</th>'
+      + '<th style="width:22%" title="Where it is set by hand on flights, paper records, projects or locations; flights that get it by date are not counted">Used by</th></tr>';
+    $('authorisationRows').innerHTML = shown.map(a => {
+      const name = a.link && /^https?:\/\//.test(a.link) ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.name)}</a>` : esc(a.name);
+      const tip = [a.name, a.note, a.link].filter(Boolean).join(' · ');
+      const valid = a.valid_from || a.valid_until ? `${esc(a.valid_from || '…')} – ${a.valid_until ? esc(a.valid_until) : 'now'}` : '<span class="mute">Always</span>';
+      return `<tr${expired.includes(a) ? ' class="mute"' : ''}><td title="${esc(tip)}">${name}${a.exemption ? '<span class="tag exemption" title="Only applies where it is set; never by date">exemption</span>' : ''}</td>
+        <td><span class="cat">${esc(CATEGORY_LABELS[a.category] || a.category)}</span></td>
+        <td>${esc(operators.find(o => o.id === a.operator_id)?.name || 'Our own operator')}</td><td>${valid}</td>
+        <td class="mute" title="Set by hand on these; flights that get it by date are not counted">${used(a)}</td></tr>`;
+    }).join('') || `<tr><td colspan="5" class="mute">${empty}</td></tr>`;
+    return;
+  }
+  $('authorisationHead').innerHTML = '<tr><th>Name / number</th><th>Category</th><th>Holder</th><th>Valid from</th><th>Valid until</th><th title="Only where it is set on a flight, project or location; never by date">Exemption</th><th>Link</th><th>Note</th><th></th></tr>';
+  $('authorisationRows').innerHTML = shown.map(a => `<tr><td>${text(a, 'name', 80)}</td>
     <td>${ed ? `<select id="au${a.id}category">${categoryOpts(a.category)}</select>` : CATEGORY_LABELS[a.category]}</td>
     <td>${ed ? `<select id="au${a.id}operator_id">${holderOptions(a.operator_id)}</select>` : esc(operators.find(o => o.id === a.operator_id)?.name || 'Our own operator')}</td>
     <td>${text(a, 'valid_from', 0, 'date')}</td><td>${text(a, 'valid_until', 0, 'date')}</td>
@@ -302,9 +367,8 @@ function renderAuthorisations() {
     <td>${ed ? text(a, 'link', 500) : a.link && /^https?:\/\//.test(a.link) ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">Open</a>` : esc(a.link || '')}</td>
     <td>${text(a, 'note', 400)}</td>
     <td>${ed ? `<button type="button" onclick="saveAuthorisation(${a.id})">Save</button> <button type="button" class="danger" onclick="deleteAuthorisation(${a.id})">Delete</button>` : ''}</td></tr>`).join('')
-    || `<tr><td colspan="9" class="mute">No authorisations yet${ed ? '. Add our ROC(s) and operational authorisations with their validity.' : '.'}</td></tr>`;
-  $('addAuthorisation').hidden = !ed;
-  if (ed) {
+    || `<tr><td colspan="9" class="mute">${authorisations.length ? empty : 'No authorisations yet. Add our ROC(s) and operational authorisations with their validity.'}</td></tr>`;
+  {
     $('auNewcategory').innerHTML = categoryOpts($('auNewcategory').value || 'specific');
     $('auNewoperator_id').innerHTML = holderOptions(+$('auNewoperator_id').value || null);
   }
@@ -315,7 +379,7 @@ function saveAuthorisation(id) {
   body.operator_id = body.operator_id ? +body.operator_id : null;
   body.exemption = $('au' + key + 'exemption').checked;
   send(id === null ? '/api/admin/authorisations' : '/api/admin/authorisations/' + id, id === null ? 'POST' : 'PUT', body)
-    .then(() => { if (id === null && !$('err').textContent) $('addAuthorisation').reset(); });
+    .then(() => { if (id === null && !$('err').textContent) { $('addAuthorisation').reset(); $('addAuthorisationDialog').close(); } });
 }
 function deleteAuthorisation(id) {
   const a = authorisations.find(x => x.id === id);
@@ -328,6 +392,7 @@ function render() {
   const shown = projects.filter(p => [p.name,...(p.members || []).flatMap(m => [m.display_name,m.username])]
     .filter(Boolean).some(v => v.toLocaleLowerCase().includes(q)));
   $('projectCount').textContent = `${shown.length} of ${projects.length} projects`;
+  $('countProjects').textContent = projects.length;
   $('projectOverview').hidden = editing();
   $('projectEditor').hidden = !editing();
   if (editing()) {
@@ -396,6 +461,34 @@ function removeProject(id) {
   if (confirm('Delete ' + (p ? p.name : 'this project') + '? The logs stay, but they will no longer belong to a project.'))
     send('/api/admin/projects/' + id, 'DELETE');
 }
+// Tabs: one section at a time, kept in the URL (?tab=authorisations) so Back and links open the same one.
+const TABS = ['projects', 'authorisations', 'operators'];
+let tab = 'projects';
+function showTab() {
+  for (const t of TABS) {
+    $(t + 'Card').hidden = t !== tab;
+    $('tab-' + t).setAttribute('aria-selected', String(t === tab));
+    $('tab-' + t).tabIndex = t === tab ? 0 : -1;
+  }
+}
+document.querySelector('.page-tabs').addEventListener('click', e => {
+  const b = e.target.closest('[data-tab]');
+  if (!b || b.dataset.tab === tab) return;
+  tab = b.dataset.tab;
+  showTab();
+  window.viewState.save(true);
+});
+document.querySelector('.page-tabs').addEventListener('keydown', e => {
+  if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+  e.preventDefault();
+  tab = TABS[(TABS.indexOf(tab) + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length];
+  showTab();
+  $('tab-' + tab).focus();
+  window.viewState.save(true);
+});
+window.viewState.setup(p => { tab = TABS.includes(p.get('tab')) ? p.get('tab') : 'projects'; },
+  p => { window.viewState.set(p, 'tab', tab, 'projects'); }, showTab);
+showTab();
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
