@@ -1401,8 +1401,13 @@ std::string sha256_hex(const unsigned char *p, size_t n)
 
 }  // namespace
 
+int export_columns(int argc, char *argv[]);  // export_columns.cpp: column export for the Web UI's MATLAB download
+
 int main(int argc, char *argv[])
 {
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--export-columns") == 0) { return export_columns(argc, argv); }
+  }
   // Number of flight path points per second (0 disables the path)
   double path_rate = 5.0;
   std::string data_file, known_sha256;  // known_sha256: precomputed by the caller, skips hashing here

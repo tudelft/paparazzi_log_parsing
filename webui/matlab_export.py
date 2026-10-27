@@ -1,7 +1,8 @@
 """On-demand MATLAB v7.3 (HDF5) export of a Paparazzi .data/.log pair, written without MATLAB.
 
-The exporter reads the original stored files, decodes each row with the protocol embedded in the companion
-.log and streams the columns into a MATLAB v7.3 file with h5py. Three scopes exist:
+The protocol embedded in the companion .log is read here; the C++ fastreader (``--export-columns``) then decodes
+every .data row into plain binary column files, and this module writes those into a MATLAB v7.3 file with h5py
+in large blocks. Three scopes exist:
 
 * ``log``: the whole log, every aircraft and message, with the original log timestamps
   (``s.aircrafts(i).data.MSG.field``, close to ``matlab/tools/parselog.m``).
@@ -14,9 +15,16 @@ time). Rows that cannot be decoded are kept as text in ``raw`` and counted in ``
 silently. See TECHNICAL.md ("MATLAB export") for the layout.
 """
 import datetime
+import concurrent.futures
+import os
+import gzip
 import math
 import re
+import subprocess
+import threading
 import xml.etree.ElementTree as ET
+import zlib
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -25,7 +33,6 @@ import storage
 
 EXPORTER_VERSION = "1"
 MARGIN_S = 10.0
-FLUSH_ROWS = 8192
 MESSAGE_CLASSES = ("telemetry", "ground", "datalink", "alert")  # lookup order, as in parselog.m
 TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|\S+')
 KEYWORDS = {"break", "case", "catch", "classdef", "continue", "else", "elseif", "end", "for", "function",
@@ -222,210 +229,7 @@ def finish_struct(group):
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Streaming column stores
-# ---------------------------------------------------------------------------------------------------------------------
-NUMERIC = {"uint": "uint32", "int": "int32", "float": "float64"}
-
-
-class Column:
-    """A growing MATLAB N×1 (or N×k for arrays) dataset, appended in chunks with bounded memory."""
-
-    def __init__(self, writer, parent, name, dtype, width=None):
-        self.writer, self.parent, self.name, self.dtype, self.width = writer, parent, name, dtype, width
-        self.buffer, self.rows, self.ds = [], 0, None
-
-    def add(self, value):
-        self.buffer.append(value)
-        if len(self.buffer) >= FLUSH_ROWS:
-            self.flush()
-
-    def extend(self, values):
-        """Append a numpy vector of scalar values at once."""
-        self.flush()
-        self._append(np.asarray(values, dtype=self.dtype).reshape(1, -1))
-
-    def flush(self):
-        if not self.buffer:
-            return
-        if self.width is None:
-            block = np.asarray(self.buffer, dtype=self.dtype).reshape(1, -1)
-        else:
-            width = max(max((len(v) for v in self.buffer), default=0), 1)
-            block = np.full((width, len(self.buffer)), np.nan)
-            for i, v in enumerate(self.buffer):
-                block[:len(v), i] = v
-        self.buffer = []
-        self._append(block)
-
-    def _append(self, block):
-        if not block.shape[1]:
-            return
-        if self.ds is None:
-            self.ds = self.parent.create_dataset(
-                self.name, shape=(block.shape[0], 0), maxshape=(None, None), dtype=self.dtype,
-                chunks=(block.shape[0], 4096) if self.width is None else (min(block.shape[0], 64), 512),
-                compression="gzip", compression_opts=1, fillvalue=np.nan if self.dtype == "float64" else 0)
-            _class(self.ds, MATLAB_CLASS[np.dtype(self.dtype)])
-        rows = self.ds.shape[0]
-        if block.shape[0] > rows:
-            self.ds.resize(block.shape[0], axis=0)  # longer array rows: earlier rows are padded with NaN
-        self.ds.resize(self.rows + block.shape[1], axis=1)
-        self.ds[:block.shape[0], self.rows:] = block
-        self.rows += block.shape[1]
-
-    def finish(self):
-        self.flush()
-        if self.ds is None:
-            self.writer.empty(self.parent, self.name, MATLAB_CLASS[np.dtype(self.dtype)])
-
-
-class TextColumn:
-    """Strings, written as one cellstr at the end (text fields are low-rate in practice)."""
-
-    def __init__(self, writer, parent, name):
-        self.writer, self.parent, self.name, self.values = writer, parent, name, []
-
-    def add(self, value):
-        self.values.append(value)
-
-    def finish(self):
-        self.writer.cellstr(self.parent, self.name, self.values)
-
-
-class MessageStore:
-    """One message of one aircraft: timestamp plus a column (and _alt column) per field.
-
-    Rows are buffered undecoded. A message with only scalar numeric fields is decoded a block at a time with
-    numpy (much faster than per row); a block with any row that does not fit falls back to per-row decoding,
-    which sends just the bad rows to ``raw``."""
-
-    def __init__(self, writer, data_group, definition, raw, rejected):
-        self.definition, self.raw, self.rejected, self.pending = definition, raw, rejected, []
-        self.fast = all(f["kind"] in NUMERIC for f in definition["fields"])
-        self.group = writer.struct(data_group, definition["key"])
-        self.time = Column(writer, self.group, "timestamp", "float64")
-        self.columns = []
-        for f in definition["fields"]:
-            if f["kind"] == "text":
-                col = TextColumn(writer, self.group, f["key"])
-            elif f["kind"] == "array":
-                col = Column(writer, self.group, f["key"], "float64", width=True)
-            else:
-                col = Column(writer, self.group, f["key"], NUMERIC[f["kind"]])
-            alt = None
-            if f["alt_unit_coef"] != 1 and f["kind"] != "text":
-                alt = Column(writer, self.group, f["key"] + "_alt", "float64", width=True if f["kind"] == "array" else None)
-            self.columns.append((f, col, alt))
-
-    def pend(self, t, content, line):
-        self.pending.append((t, content, line))
-        if len(self.pending) >= FLUSH_ROWS:
-            self.decode_pending()
-
-    def decode_pending(self):
-        rows, self.pending = self.pending, []
-        if not rows:
-            return
-        if self.fast and self.columns:
-            block = self._fast_block(rows)
-            if block is not None:
-                self.time.extend([t for t, _, _ in rows])
-                for j, (f, col, alt) in enumerate(self.columns):
-                    col.extend(block[:, j])
-                    if alt is not None:
-                        alt.extend(block[:, j] * f["alt_unit_coef"])
-                return
-        for t, content, line in rows:
-            values = decode(self.definition, TOKEN.findall(content))
-            if values is None:
-                name = self.definition["name"]
-                self.rejected[name] = self.rejected.get(name, 0) + 1
-                self.raw.add(t, line)
-            else:
-                self.add(t, values)
-
-    def _fast_block(self, rows):
-        """rows × fields float array, or None when any row has the wrong field count or a bad value."""
-        tokens = " ".join(content for _, content, _ in rows).split()
-        if len(tokens) != len(rows) * len(self.columns):
-            return None
-        try:
-            block = np.array(tokens, dtype=np.float64).reshape(len(rows), len(self.columns))
-        except ValueError:
-            return None
-        for j, (f, _, _) in enumerate(self.columns):
-            if f["kind"] != "float":
-                col = block[:, j]
-                low, high = (0, 2 ** 32) if f["kind"] == "uint" else (-2 ** 31, 2 ** 31)
-                if not (np.all(col == np.round(col)) and col.min() >= low and col.max() < high):
-                    return None
-        return block
-
-    def add(self, t, values):
-        self.time.add(t)
-        for (f, col, alt), v in zip(self.columns, values):
-            col.add(v)
-            if alt is not None:
-                alt.add([x * f["alt_unit_coef"] for x in v] if f["kind"] == "array" else float(v) * f["alt_unit_coef"])
-
-    def finish(self):
-        self.decode_pending()
-        self.time.finish()
-        for _, col, alt in self.columns:
-            col.finish()
-            if alt is not None:
-                alt.finish()
-        finish_struct(self.group)
-
-
-class RawStore:
-    """Undecodable rows of one aircraft, kept losslessly as timestamps plus newline-separated text."""
-
-    def __init__(self, writer, group):
-        self.writer, self.group, self.count = writer, group, 0
-        self.time = Column(writer, group, "timestamp", "float64")
-        self.text = []
-
-    def add(self, t, line):
-        self.count += 1
-        self.time.add(t)
-        self.text.append(line)
-
-    def finish(self):
-        self.time.finish()
-        self.writer.char(self.group, "lines", "\n".join(self.text))
-        finish_struct(self.group)
-
-
-class AircraftStore:
-    def __init__(self, writer, group, ac_id, name, rejected):
-        self.writer, self.group, self.ac_id, self.name, self.rejected = writer, group, ac_id, name, rejected
-        self.data = writer.struct(group, "data")
-        self.raw = RawStore(writer, writer.struct(group, "raw"))
-        self.messages = {}
-
-    def add(self, t, definition, content, line):
-        store = self.messages.get(definition["name"])
-        if store is None:
-            store = self.messages[definition["name"]] = MessageStore(self.writer, self.data, definition,
-                                                                     self.raw, self.rejected)
-        store.pend(t, content, line)
-
-    def finish(self, version):
-        w = self.writer
-        w.number(self.group, "AC_ID", self.ac_id)
-        w.char(self.group, "name", self.name or "")
-        w.number(self.group, "version", version[0] if version else None)
-        w.char(self.group, "version_desc", version[1] if version else "")
-        for store in self.messages.values():
-            store.finish()  # may still add rejected rows to raw, so raw is finished after the messages
-        finish_struct(self.data)
-        self.raw.finish()
-        finish_struct(self.group)
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# Decoding
+# Decoding (the bulk is done by the C++ fastreader; Python only decodes single payloads such as the version)
 # ---------------------------------------------------------------------------------------------------------------------
 def decode(definition, tokens):
     """Field values of one row, or None when the row does not match the definition."""
@@ -452,91 +256,249 @@ def decode(definition, tokens):
     return out
 
 
-def lines(path):
-    """Decoded text lines of a stored gzip file, with the number of decompressed bytes read so far."""
-    rest, done = b"", 0
-    for chunk in storage.chunks(path, compressed=True):
-        done += len(chunk)
-        parts = (rest + chunk).split(b"\n")
-        rest = parts.pop()
-        for part in parts:
-            yield part.decode("utf-8", "replace").rstrip("\r"), done
-    if rest:
-        yield rest.decode("utf-8", "replace").rstrip("\r"), done
+KIND_CHAR = {"uint": "u", "int": "i", "float": "f", "array": "a", "text": "t"}
+CHUNK_ROWS = 1 << 20
+NUMERIC_DTYPE = {"uint": "uint32", "int": "int32", "float": "float64"}
 
 
-def export(data_path, log_path, out_path, info, windows=None, progress=lambda fraction: None):
-    """Write the MATLAB file. ``windows`` is None for the whole log, else a list of flight dicts with
-    ``takeoff_s``, ``landing_s`` (may be None), ``ac_id``, ``index``, ``takeoff_utc``, ``landing_utc``."""
-    if not log_path:
+def write_schema(path, messages):
+    with open(path, "w", encoding="utf-8") as f:
+        for m in messages.values():
+            f.write(f"{m['name']}\t{''.join(KIND_CHAR[x['kind']] for x in m['fields'])}\n")
+
+
+def read_manifest(path):
+    streams, arrays, raws, out = {}, {}, {}, dict(top=0, unknown={}, rejected={}, versions={})
+    complete = False
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            part = line.rstrip("\n").split("\t")
+            if part[0] == "stream":
+                streams[int(part[1])] = dict(id=int(part[1]), window=int(part[2]), ac=int(part[3]), msg=part[4],
+                                             rows=int(part[5]))
+            elif part[0] == "array":
+                arrays[(int(part[1]), int(part[2]))] = int(part[3])
+            elif part[0] == "raw":
+                raws[(int(part[1]), int(part[2]))] = int(part[3])
+            elif part[0] == "top":
+                out["top"] = int(part[1])
+            elif part[0] in ("unknown", "rejected"):
+                out[part[0]][part[1]] = int(part[2])
+            elif part[0] == "version":
+                out["versions"][int(part[1])] = part[2] if len(part) > 2 else ""
+            elif part[0] == "done":
+                complete = True
+    if not complete:
+        raise ExportError("The column export did not finish; try again.")
+    return streams, arrays, raws, out
+
+
+class Columns:
+    """Writes MATLAB N×1 / N×k columns (stored transposed, k×N) as deflate-compressed chunks.
+
+    HDF5 compresses on one core, which dominated large exports. The chunks are therefore compressed with zlib
+    on a thread pool (zlib releases the GIL) and stored with write_direct_chunk; the file is the same as with
+    h5py's own gzip filter."""
+
+    def __init__(self, writer):
+        self.w = writer
+        self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(8, os.cpu_count() or 1)))
+
+    def close(self):
+        self.pool.shutdown()
+
+    def create(self, parent, name, dtype, width, rows):
+        ds = parent.create_dataset(name, shape=(width, rows), dtype=dtype, compression="gzip", compression_opts=1,
+                                   chunks=(width, min(rows, 65536)) if width <= 16 else (min(width, 64), min(rows, 4096)),
+                                   fillvalue=np.nan if dtype == "float64" else 0)
+        _class(ds, MATLAB_CLASS[np.dtype(dtype)])
+        return ds
+
+    def put(self, ds, block, col0):
+        """Write ``block`` (all dataset rows × some columns, starting at a chunk boundary ``col0``)."""
+        ch_r, ch_c = ds.chunks
+        fill = np.nan if ds.dtype == np.float64 else 0
+
+        def tile(r0, c0):
+            part = np.ascontiguousarray(block[r0:r0 + ch_r, c0:c0 + ch_c], dtype=ds.dtype)
+            if part.shape != (ch_r, ch_c):  # edge chunks are stored full size
+                full = np.full((ch_r, ch_c), fill, dtype=ds.dtype)
+                full[:part.shape[0], :part.shape[1]] = part
+                part = full
+            return zlib.compress(part.tobytes(), 1)
+
+        jobs = [((r0, col0 + c0), self.pool.submit(tile, r0, c0))
+                for r0 in range(0, block.shape[0], ch_r) for c0 in range(0, block.shape[1], ch_c)]
+        for offset, job in jobs:
+            ds.id.write_direct_chunk(offset, job.result())
+
+    def scalars(self, group, stream_path, rows, fields, shift):
+        """Timestamp plus the scalar numeric fields from rows of [time, field...] doubles."""
+        scalar = [f for f in fields if f["kind"] in NUMERIC_DTYPE]
+        data = np.memmap(stream_path, dtype=np.float64, mode="r", shape=(rows, 1 + len(scalar)))
+        targets = [(self.create(group, "timestamp", "float64", 1, rows), 0, None, 1.0)]
+        for j, f in enumerate(scalar, start=1):
+            targets.append((self.create(group, f["key"], NUMERIC_DTYPE[f["kind"]], 1, rows), j, f["kind"], 1.0))
+            if f["alt_unit_coef"] != 1:
+                targets.append((self.create(group, f["key"] + "_alt", "float64", 1, rows), j, "float", f["alt_unit_coef"]))
+        for i0 in range(0, rows, CHUNK_ROWS):
+            block = np.asarray(data[i0:i0 + CHUNK_ROWS])
+            for ds, j, kind, coef in targets:
+                col = block[:, j] - shift if j == 0 else block[:, j] * coef if coef != 1 else block[:, j]
+                self.put(ds, col.reshape(1, -1), i0)
+        del data
+
+    def array(self, group, f, len_path, val_path, rows, width):
+        """A numeric array field as an N×width matrix, shorter rows padded with NaN."""
+        if width == 0:
+            self.w.empty(group, f["key"])
+            if f["alt_unit_coef"] != 1:
+                self.w.empty(group, f["key"] + "_alt")
+            return
+        lens = np.fromfile(len_path, dtype=np.uint32)
+        values = np.memmap(val_path, dtype=np.float64, mode="r") if lens.sum() else np.zeros(0)
+        starts = np.concatenate(([0], np.cumsum(lens, dtype=np.int64)))
+        out = [(self.create(group, f["key"], "float64", width, rows), 1.0)]
+        if f["alt_unit_coef"] != 1:
+            out.append((self.create(group, f["key"] + "_alt", "float64", width, rows), f["alt_unit_coef"]))
+        for i0 in range(0, rows, CHUNK_ROWS):
+            n = min(CHUNK_ROWS, rows - i0)
+            seg_lens = lens[i0:i0 + n].astype(np.int64)
+            vals = np.asarray(values[starts[i0]:starts[i0 + n]])
+            block = np.full((width, n), np.nan)
+            if np.all(seg_lens == width):
+                block[:] = vals.reshape(n, width).T
+            elif vals.size:
+                row = np.repeat(np.arange(n), seg_lens)
+                col = np.arange(vals.size) - np.repeat(starts[i0:i0 + n] - starts[i0], seg_lens)
+                block[col, row] = vals
+            for ds, coef in out:
+                self.put(ds, block * coef if coef != 1 else block, i0)
+        del values
+
+
+def _read_lines(path):
+    if not path.exists():
+        return []
+    with open(path, encoding="utf-8", errors="replace", newline="\n") as f:
+        return f.read().split("\n")[:-1]
+
+
+def _times(path, rows, shift=0.0):
+    return (np.fromfile(path, dtype=np.float64)[:rows] - shift) if rows else np.zeros(0)
+
+
+def export(fastreader, data_gz, log_gz, out_path, info, work_dir, windows=None, progress=lambda fraction: None,
+           minimum_free=0):
+    """Write the MATLAB file ``out_path``.
+
+    ``windows`` is None for the whole log, else a list of flight dicts with ``index``, ``ac_id``, ``takeoff_s``,
+    ``landing_s`` (None: until the end of the log), ``takeoff_utc`` and ``landing_utc`` in log time as stored by
+    the parser. ``work_dir`` is a private temporary directory on local disk; the caller removes it."""
+    if not log_gz:
         raise ExportError("This log has no companion .log file with the message protocol, so it cannot be "
                           "exported. Upload the .data together with its .log.")
-    log_text = b"".join(storage.chunks(log_path, compressed=True)).decode("utf-8", "replace")
-    messages, names = parse_protocol(log_text)
-    total = max(int(info.get("size_bytes") or 0), 1)
+    work = Path(work_dir)
+    cols = work / "columns"
+    cols.mkdir()
+    with gzip.open(log_gz, "rb") as src:
+        messages, names = parse_protocol(src.read().decode("utf-8", "replace"))
+    write_schema(work / "schema.tsv", messages)
+    storage.ensure_space(work, 0, minimum_free)
+    spans = None
+    cmd = [fastreader, "--export-columns", str(cols), "--schema", str(work / "schema.tsv"),
+           "--size", str(int(info.get("size_bytes") or 0))]
+    if windows is not None:
+        spans = [dict(win, start=win["takeoff_s"] - MARGIN_S,
+                      end=(win["landing_s"] if win["landing_s"] is not None else math.inf) + MARGIN_S)
+                 for win in windows]
+        for span in spans:
+            cmd += ["--window", repr(span["start"]), "inf" if math.isinf(span["end"]) else repr(span["end"])]
+    cmd.append("-")  # the .data is piped straight out of gzip storage: no uncompressed copy on disk
+    errors, feed_error = [], []
+    with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                          text=False) as proc:
+        def feed():
+            try:
+                with gzip.open(data_gz, "rb") as src:  # zlib releases the GIL: this overlaps with decoding
+                    while chunk := src.read(storage.CHUNK * 4):
+                        proc.stdin.write(chunk)
+            except (OSError, EOFError) as error:
+                feed_error.append(error)
+            finally:
+                try:
+                    proc.stdin.close()
+                except OSError:
+                    pass
+        feeder = threading.Thread(target=feed, daemon=True)
+        feeder.start()
+        for raw in proc.stderr:
+            line = raw.decode("utf-8", "replace")
+            if line.startswith("progress "):
+                progress(0.65 * float(line.split()[1]))
+            elif line.strip():
+                errors.append(line.strip())
+        feeder.join()
+    if feed_error and not isinstance(feed_error[0], BrokenPipeError):
+        raise ExportError(f"Could not read the stored .data file ({feed_error[0]}).")
+    if proc.returncode != 0:
+        raise ExportError("; ".join(errors)[-500:] or f"Column export failed (exit code {proc.returncode}).")
+    streams, arrays, raws, extra = read_manifest(cols / "manifest.tsv")
+    progress(0.7)
+
     w = Writer(out_path)
-    warnings, unknown, rejected, versions, other = [], {}, {}, {}, None
+    c = Columns(w)
+    warnings = []
     try:
         s = w.struct(w.file, "s")
-        if windows is None:
-            aircraft_group = {}
-            targets = None
-        else:
-            spans = []
-            for win in windows:
-                start = win["takeoff_s"] - MARGIN_S
-                end = (win["landing_s"] if win["landing_s"] is not None else math.inf) + MARGIN_S
-                spans.append(dict(win, start=start, end=end, group=w.element(), aircraft={}))
-        rows = 0
-        for line, done in lines(data_path):
-            rows += 1
-            if rows % 20000 == 0:
-                progress(min(done / total, 0.99))
-            if not line.strip():
-                continue
-            head = line.split(None, 3)
-            try:
-                t = float(head[0])
-            except (ValueError, IndexError):
-                if other is None:
-                    other = RawStore(w, w.struct(s, "raw"))
-                other.add(math.nan, line)
-                continue
-            if len(head) < 3 or not head[1].isdigit():
-                if other is None:
-                    other = RawStore(w, w.struct(s, "raw"))
-                other.add(t, line)
-                continue
-            ac_id, name = int(head[1]), head[2]
-            content = head[3] if len(head) > 3 else ""
-            definition = messages.get(name)
-            if definition is None:
-                unknown[name] = unknown.get(name, 0) + 1
-            elif name == "AUTOPILOT_VERSION" and ac_id not in versions:
-                values = decode(definition, TOKEN.findall(content))
-                if values is not None:
-                    fv = dict(zip((f["name"] for f in definition["fields"]), values))
-                    versions[ac_id] = (fv.get("version"), str(fv.get("desc", "")))
-            if windows is None:
-                store = aircraft_group.get(ac_id)
-                if store is None:
-                    store = aircraft_group[ac_id] = AircraftStore(w, w.element(), ac_id, names.get(ac_id), rejected)
-                store.add(t, definition, content, line) if definition else store.raw.add(t, line)
-            else:
-                for span in spans:
-                    if span["start"] <= t <= span["end"]:
-                        store = span["aircraft"].get(ac_id)
-                        if store is None:
-                            store = span["aircraft"][ac_id] = AircraftStore(w, w.element(), ac_id, names.get(ac_id),
-                                                                            rejected)
-                        rel = t - span["takeoff_s"]
-                        store.add(rel, definition, content, line) if definition else store.raw.add(rel, line)
-        progress(0.99)
+        versions = {}
+        definition = messages.get("AUTOPILOT_VERSION")
+        for ac, content in extra["versions"].items():
+            values = decode(definition, TOKEN.findall(content)) if definition else None
+            if values is not None:
+                fv = dict(zip((f["name"] for f in definition["fields"]), values))
+                versions[ac] = (fv.get("version"), str(fv.get("desc", "")))
 
-        def finish_aircraft(stores):
-            for store in stores.values():
-                store.finish(versions.get(store.ac_id))
-            return [stores[k].group for k in sorted(stores)]
+        by_window = {}
+        for st in streams.values():
+            by_window.setdefault(st["window"], {}).setdefault(st["ac"], []).append(st)
+        for (window, ac) in raws:
+            by_window.setdefault(window, {}).setdefault(ac, [])
+        done, total = 0, max(len(streams), 1)
+
+        def aircraft_elements(window, shift):
+            nonlocal done
+            out = []
+            for ac in sorted(by_window.get(window, {})):
+                g = w.element()
+                w.number(g, "AC_ID", ac)
+                w.char(g, "name", names.get(ac, ""))
+                version = versions.get(ac)
+                w.number(g, "version", version[0] if version else None)
+                w.char(g, "version_desc", version[1] if version else "")
+                data = w.struct(g, "data")
+                for st in sorted(by_window[window][ac], key=lambda x: x["msg"]):
+                    m = messages[st["msg"]]
+                    mg = w.struct(data, m["key"])
+                    stem = cols / f"s{st['id']}"
+                    c.scalars(mg, f"{stem}.f64", st["rows"], m["fields"], shift)
+                    for j, f in enumerate(m["fields"]):
+                        if f["kind"] == "array":
+                            c.array(mg, f, f"{stem}_a{j}.len", f"{stem}_a{j}.f64", st["rows"], arrays.get((st["id"], j), 0))
+                        elif f["kind"] == "text":
+                            w.cellstr(mg, f["key"], _read_lines(Path(f"{stem}_t{j}.txt"))[:st["rows"]])
+                    finish_struct(mg)
+                    done += 1
+                    progress(0.7 + 0.29 * done / total)
+                finish_struct(data)
+                raw = w.struct(g, "raw")
+                rows = raws.get((window, ac), 0)
+                w.vector(raw, "timestamp", _times(cols / f"r{window}_{ac}.f64", rows, shift))
+                w.char(raw, "lines", "\n".join(_read_lines(cols / f"r{window}_{ac}.txt")))
+                finish_struct(raw)
+                finish_struct(g)
+                out.append(g)
+            return out
 
         meta = w.struct(s, "log")
         w.char(meta, "name", info.get("name"))
@@ -562,34 +524,40 @@ def export(data_path, log_path, out_path, info, windows=None, progress=lambda fr
             finish_struct(g)
         finish_struct(defs)
 
-        if windows is None:
-            w.struct_array(s, "aircrafts", finish_aircraft(aircraft_group))
+        if spans is None:
+            w.struct_array(s, "aircrafts", aircraft_elements(0, 0.0))
         else:
             elements = []
-            for span in spans:
-                g = span["group"]
+            for k, span in enumerate(spans):
+                g = w.element()
                 w.number(g, "index", span["index"])
                 w.number(g, "AC_ID", span["ac_id"])
                 w.char(g, "aircraft", names.get(span["ac_id"], ""))
                 w.char(g, "takeoff_utc", span.get("takeoff_utc"))
                 w.char(g, "landing_utc", span.get("landing_utc"))
                 w.number(g, "time_offset_s", span["takeoff_s"])
-                w.vector(g, "window_s", [-MARGIN_S, (span["end"] - span["takeoff_s"]) if math.isfinite(span["end"]) else math.inf])
-                w.struct_array(g, "aircrafts", finish_aircraft(span["aircraft"]))
+                w.vector(g, "window_s", [-MARGIN_S, span["end"] - span["takeoff_s"]])
+                w.struct_array(g, "aircrafts", aircraft_elements(k, span["takeoff_s"]))
                 finish_struct(g)
                 elements.append(g)
-            w.struct_array(s, "flights", [dict((k, e[k]) for k in e.keys()) for e in elements])
-        if other is not None:
-            other.finish()
-            warnings.append(f"{other.count} rows without a valid timestamp or aircraft id are kept as text in s.raw.")
-        for name, n in sorted(unknown.items()):
+            w.struct_array(s, "flights", elements)
+        if extra["top"]:
+            raw = w.struct(s, "raw")
+            w.vector(raw, "timestamp", _times(cols / "top.f64", extra["top"]))
+            w.char(raw, "lines", "\n".join(_read_lines(cols / "top.txt")))
+            finish_struct(raw)
+            warnings.append(f"{extra['top']} rows without a valid timestamp or aircraft id are kept as text in s.raw.")
+        for name, n in sorted(extra["unknown"].items()):
             warnings.append(f"{n} rows of {name}: message not in the embedded protocol; kept as text in raw.")
-        for name, n in sorted(rejected.items()):
+        for name, n in sorted(extra["rejected"].items()):
             warnings.append(f"{n} rows of {name}: fields did not match the protocol; kept as text in raw.")
         w.cellstr(s, "warnings", warnings)
         finish_struct(s)
     except BaseException:
+        c.close()
         w.file.close()
         raise
+    c.close()
     w.close()
+    progress(1.0)
     return warnings
