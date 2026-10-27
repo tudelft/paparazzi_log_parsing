@@ -96,6 +96,12 @@ class HistoricalTests(AppTests):
             self.assertEqual(response.mimetype, "image/svg+xml")
             self.assertIn(b'viewBox="0 0 64 64"', response.data)
 
+    def test_footer_logos_are_served(self):
+        for name in ("tudelft", "tudelft-white", "mavlab", "mavlab-white"):
+            with self.client.get(f"/logos/{name}.svg") as response:
+                self.assertEqual((response.status_code, response.mimetype), (200, "image/svg+xml"), name)
+        self.assertEqual(self.client.get("/logos/missing.svg").status_code, 404)
+
     def test_home_is_logbook_and_uploads_has_own_route(self):
         for path in ("/", "/logbook"):
             with self.client.get(path) as response:

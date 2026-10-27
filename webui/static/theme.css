@@ -25,6 +25,11 @@ main a { color:var(--acc); }
 #webuiVersion { padding:12px 20px 18px; text-align:center; font-size:12px; color:var(--mute); }
 #webuiVersion a { color:var(--mute); text-decoration:none; overflow-wrap:anywhere; }
 #webuiVersion a:hover, #webuiVersion a:focus-visible { color:var(--acc); text-decoration:underline; }
+#webuiVersion .brand { display:flex; justify-content:center; align-items:center; gap:28px; margin-bottom:8px; }
+#webuiVersion .brand img { display:block; height:30px; width:auto; }
+#webuiVersion .brand a:first-child img { height:58px; margin:-14px 0; }  /* the TU Delft file has its clear space built in */
+#webuiVersion .brand .night, html.night #webuiVersion .brand .day { display:none; }
+html.night #webuiVersion .brand .night { display:block; }
 main table a:not(.btn) { color:var(--acc); text-decoration:none; font-weight:500; }
 main table a:not(.btn):hover, main table a:not(.btn):focus-visible {
   color:var(--acc); text-decoration:underline; text-underline-offset:3px;

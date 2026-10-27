@@ -515,7 +515,16 @@ window.timingEvidenceHTML = function (timing) {
     link.title = version?.commit
       ? `Running revision: ${version.commit}${version.modified ? ' with local tracked changes' : ''}. Recorded at server startup. View on GitHub.`
       : 'The running revision could not be determined. Open the project on GitHub.';
-    footer.replaceChildren(link);
+    // Logos (day and night versions; theme.css shows one) and who runs the logbook, above the version.
+    const logo = (href, name, label) => `<a href="${href}" target="_blank" rel="noopener noreferrer" title="${label}">`
+      + `<img class="day" src="/logos/${name}.svg" alt="${label}"><img class="night" src="/logos/${name}-white.svg" alt="${label}"></a>`;
+    const brand = document.createElement('div');
+    brand.className = 'brand';
+    brand.innerHTML = logo('https://www.tudelft.nl', 'tudelft', 'TU Delft') + logo('https://mavlab.tudelft.nl', 'mavlab', 'MAVLab');
+    const credit = document.createElement('div');
+    credit.textContent = 'Flight logbook of the MAVLab, Faculty of Aerospace Engineering, TU Delft · ';
+    credit.append(link);
+    footer.replaceChildren(brand, credit);
   }
 
   // Pages opt in with <body data-edit="all"> or <body data-edit="admin">.
