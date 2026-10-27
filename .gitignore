@@ -99,3 +99,6 @@ ENV/
 
 # server settings (may contain secrets)
 webui/logdb.env
+
+# upload_logs.py resume state
+webui/.upload_logs-resume-*.json

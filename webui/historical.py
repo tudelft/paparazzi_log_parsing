@@ -6,12 +6,14 @@ import json
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
 
+import operators
 import qualifications
 
 COLUMNS = ("aircraft", "pic", "project", "date", "duration_minutes", "flight_count",
-           "kind", "takeoff_time", "location", "pac", "gcs", "goal", "comment", "reference")
+           "kind", "takeoff_time", "location", "pac", "gcs", "goal", "comment", "reference", "operator")
 FIELDS = ("drone_id", "pic_user_id", "project_id", "date", "duration_s", "flight_count",
-          "kind", "takeoff_time", "place_id", "pac_user_id", "gcs_user_id", "goal", "comment", "reference")
+          "kind", "takeoff_time", "place_id", "pac_user_id", "gcs_user_id", "goal", "comment", "reference",
+          "operator_id")
 COLUMN_OF = dict(zip(FIELDS, COLUMNS))  # stored field -> CSV column
 
 
@@ -50,7 +52,7 @@ def validate(con, user, body):
     for field, table, required in (
             ("project_id", "projects", True), ("drone_id", "drones", True),
             ("pic_user_id", "users", True), ("pac_user_id", "users", False),
-            ("gcs_user_id", "users", False), ("place_id", "places", False)):
+            ("gcs_user_id", "users", False), ("place_id", "places", False), ("operator_id", "operators", False)):
         value = body.get(field)
         if not required and value in (None, ""):
             out[field] = None
@@ -104,7 +106,10 @@ def validate(con, user, body):
 
 
 def fingerprint(values):
-    return hashlib.sha256(json.dumps(values, sort_keys=True, allow_nan=False).encode()).hexdigest()
+    """Identity of a record. The operator is not part of it: the same flight under another operator is the same
+    record with a corrected operator, and records keep the fingerprint they had before operators were added."""
+    identity = {key: value for key, value in values.items() if key != "operator_id"}
+    return hashlib.sha256(json.dumps(identity, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
 def store(con, values, user_id, stamp, record_id=None):
@@ -125,7 +130,7 @@ def store(con, values, user_id, stamp, record_id=None):
     return record_id
 
 
-def match(con, values):
+def match(con, values, keep_operator=False):
     """Return (action, existing row, values) for a CSV row: unchanged, update or create.
 
     A row describes an existing record when it is identical, has the same reference (such as a flight number
@@ -133,10 +138,12 @@ def match(con, values):
     and no different reference. A reference shared by several records (such as a book page) only matches those
     with the same date and takeoff time. Daily summaries and flights without takeoff time are only recognised by
     reference or when identical, because several of them can share an aircraft and day. A row without reference
-    keeps the reference of the record it updates."""
+    keeps the reference of the record it updates, and a CSV without an operator column keeps its operator."""
     row = con.execute("SELECT * FROM flight_records WHERE fingerprint=?", (fingerprint(values),)).fetchone()
     if row is not None:
-        return "unchanged", row, values
+        if keep_operator:
+            values = {**values, "operator_id": row["operator_id"]}
+        return "unchanged" if values["operator_id"] == row["operator_id"] else "update", row, values
     found = []
     if values["reference"]:
         found = con.execute("SELECT * FROM flight_records WHERE reference=? ORDER BY id", (values["reference"],)).fetchall()
@@ -153,9 +160,11 @@ def match(con, values):
     if not found:
         return "create", None, values
     row = found[0]
+    if keep_operator:
+        values = {**values, "operator_id": row["operator_id"]}
     if not values["reference"] and row["reference"]:
         values = {**values, "reference": row["reference"]}
-        if fingerprint(values) == row["fingerprint"]:
+        if fingerprint(values) == row["fingerprint"] and values["operator_id"] == row["operator_id"]:
             return "unchanged", row, values
     return "update", row, values
 
@@ -172,7 +181,9 @@ def parse_csv(con, user, text):
         "aircraft": list(con.execute("SELECT id, name FROM drones")),
         "project": list(con.execute("SELECT id, name FROM projects")),
         "location": list(con.execute("SELECT id, name FROM places")),
+        "operator": operators.catalog(con),
     }
+    keep_operator = "operator" not in reader.fieldnames
     crew = qualifications.crew_keys(con)
     records = []
     seen = set()
@@ -202,7 +213,12 @@ def parse_csv(con, user, text):
                 if len(matches) != 1:
                     raise RecordError(f"Unknown or ambiguous {key}: {value!r}. Use an existing name.")
                 body[target] = matches[0]
-            action, existing, values = match(con, validate(con, user, body))
+            if body.get("operator"):
+                body["operator_id"] = operators.lookup(catalogs["operator"], body["operator"])
+                if body["operator_id"] is None:
+                    raise RecordError(f"Unknown or ambiguous operator: {body['operator']!r}. "
+                                      "Use the name or registration number of an operator in the list.")
+            action, existing, values = match(con, validate(con, user, body), keep_operator)
             digest = fingerprint(values)
             if digest in seen:
                 raise RecordError("Same record as an earlier line.", 409)
