@@ -160,6 +160,13 @@ class FlightLinkTests(LinkFixtures):
         self.assertEqual([(c["field"], c["paper"], c["log"]) for c in row["conflicts"]],
                          [("PIC", "Pilot", "Uploader")])
 
+    def test_paper_crew_replaces_the_uploader_fallback(self):
+        self.flight(1, "12:00:00")  # no crew names in the log: the PIC falls back to the uploader
+        self.create(pic_user_id=4, pac_user_id=3)
+        row = self.logbook()[0]
+        self.assertEqual((row["pic_user"]["id"], row["pac_user"]["id"]), (4, 3))
+        self.assertEqual(row["conflicts"], [])
+
     def test_link_permissions(self):
         self.flight(1, "12:00:00")
         self.flight(2, "15:00:00", log=2)

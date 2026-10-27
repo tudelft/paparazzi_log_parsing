@@ -220,6 +220,12 @@ def combine(con, rows):
         main["reference"] = ", ".join(papers[p]["reference"] for p in records if papers[p]["reference"]) or None
         if not (main.get("comment") or "").strip():
             main["comment"] = "\n".join(papers[p]["comment"] for p in records if (papers[p]["comment"] or "").strip()) or None
+        for role in ("pic", "pac", "gcs"):
+            # The uploader is only a guess for a log without a PIC name: a person on the paper record wins.
+            if not main.get(role) and (main.get(role + "_user") or {}).get("source") in (None, "uploader"):
+                crew = next((papers[p][role + "_user"] for p in records if papers[p].get(role + "_user")), None)
+                if crew:
+                    main[role + "_user"] = crew
         main["conflicts"] = conflicts(main, [papers[p] for p in records], reviewed)
         for i in entries:
             replaced[i] = main if i == entries[0] else None
