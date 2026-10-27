@@ -1378,6 +1378,9 @@ flight filters (`category=all|national|open|specific|luc|indoor|unknown|check`) 
   everything that names it along; one still in use cannot be deleted.
 - `PUT /api/logbook/records`, `PUT /api/admin/projects/<id>`, `POST`/`PUT /api/admin/places` and the paper-record
   API take `category` and/or `authorisation_id`; both empty return to the default.
+- An administrator's API key may call `PUT /api/logbook/records` when the body only sets `operator_id`,
+  `category` and/or `authorisation_id`, for scripted bulk annotation. Crew, project and hide/restore still need a
+  browser session.
 - Paper-record CSV: optional `category` (key or label) and `authorisation` (name) columns. Like the operator, they
   are not part of a record's fingerprint, and a CSV without them leaves existing records as they are.
 
