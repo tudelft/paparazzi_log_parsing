@@ -65,6 +65,9 @@
   tr.out td { color:var(--mute); }
   textarea.comment { width:100%; max-width:520px; min-height:72px; font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; resize:vertical; }
   .note { white-space:pre-wrap; }
+  table.checklist { min-width:0; }
+  table.checklist td:nth-child(2) { white-space:normal; max-width:520px; padding-right:24px; }
+  .done { color:var(--ok); font-weight:600; }
   [hidden] { display:none !important; }
   .flight-tabs { display:flex; gap:6px; overflow-x:auto; padding:4px 0 12px; margin-bottom:8px; }
   .flight-tabs button { white-space:nowrap; border:1px solid var(--line); }
@@ -117,7 +120,7 @@
     <button type="button" id="tab-weather" role="tab" aria-selected="false" aria-controls="panel-weather" tabindex="-1" data-tab="weather">Weather</button>
     <button type="button" id="tab-settings" role="tab" aria-selected="false" aria-controls="panel-settings" tabindex="-1" data-tab="settings">Settings <span id="settingsBadge"></span></button>
     <button type="button" id="tab-messages" role="tab" aria-selected="false" aria-controls="panel-messages" tabindex="-1" data-tab="messages">Messages <span id="messagesBadge"></span></button>
-    <button type="button" id="tab-checks" role="tab" aria-selected="false" aria-controls="panel-checks" tabindex="-1" data-tab="checks">Pre-flight checks</button>
+    <button type="button" id="tab-checks" role="tab" aria-selected="false" aria-controls="panel-checks" tabindex="-1" data-tab="checks">Checklist <span id="checksBadge"></span></button>
     <button type="button" id="tab-files" role="tab" aria-selected="false" aria-controls="panel-files" tabindex="-1" data-tab="files">Files</button>
   </div>
   <div id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
@@ -175,7 +178,10 @@
     <div class="pager" id="msgsPager"></div>
   </section>
 
-  <section class="card" id="panel-checks" role="tabpanel" aria-labelledby="tab-checks" hidden><h2>Pre-flight checks</h2><div class="scroll list-scroll"><table><tbody id="pfc"></tbody></table></div></section>
+  <section class="card" id="panel-checks" role="tabpanel" aria-labelledby="tab-checks" hidden>
+    <div class="card-head"><h2>Checklist <span class="mute" id="checksCount"></span></h2>
+      <span class="info-tip"><button type="button" aria-label="About the checklist">i</button><span class="tip" role="tooltip" style="white-space:normal;width:340px">Pre-flight checklist answers recorded in the log ([PFC] messages), in the order they were given. Descriptions come from the airframe's checklist; hover an item for the message as logged.</span></span></div>
+    <div class="scroll list-scroll"><table class="checklist"><thead><tr><th>Time</th><th>Item</th><th>Answer</th></tr></thead><tbody id="pfc"></tbody></table></div></section>
   <section class="card" id="panel-files" role="tabpanel" aria-labelledby="tab-files" hidden>
     <div class="card-head"><h2>Additional files <span class="mute" id="filesCount"></span></h2>
       <span class="info-tip"><button type="button" aria-label="About additional files">i</button><span class="tip" role="tooltip">Photos, videos and offboard recordings, including files linked to this flight's log.<br>Click a name to view it; use the arrow to download.</span></span>
@@ -943,8 +949,17 @@ function softwareVersion(raw) {
 }
 
 function renderMisc() {
-  $('pfc').innerHTML = D.preflight_checks.map(m => `<tr><td class="mono" style="white-space:nowrap">${rel(m.time_s)}</td><td>${window.preflightCheckHTML(m)}</td></tr>`).join('')
-    || '<tr><td class="mute">No pre-flight check messages in the log.</td></tr>';
+  // Item and answer: the airframe description when known, else the logged "key: answer" split at the first colon.
+  const checks = D.preflight_checks.map(m => {
+    const [key, ...rest] = m.checklist_label ? [m.checklist_label] : m.text.split(': ');
+    return {m, item: key, answer: m.checklist_label ? m.checklist_value : rest.join(': ')};
+  });
+  $('checksBadge').textContent = checks.length ? `(${checks.length})` : '';
+  $('checksCount').textContent = checks.length ? `· ${checks.length}` : '';
+  $('pfc').innerHTML = checks.map(({m, item, answer}) => `<tr><td class="mono" style="white-space:nowrap" title="${esc(m.utc ? fmtTime(m.utc) : '')}">${rel(m.time_s)}</td>
+      <td title="Logged: ${esc(m.text)}">${esc(item)}</td>
+      <td>${answer ? esc(answer) : '<span class="done" title="Confirmed without an answer">✓</span>'}</td></tr>`).join('')
+    || '<tr><td colspan="3" class="mute">No checklist items recorded in this log.</td></tr>';
   const note = D.autopilot_versions_from_gcs
     ? '<div class="mute">The aircraft did not send AUTOPILOT_VERSION; this is the Paparazzi version from the GCS log header.</div>'
     : '';
