@@ -183,7 +183,9 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
   Add a username as an alias only if it reliably identifies that person in logs. Duplicate display names
   stay unresolved unless an explicit alias identifies the person. Renaming a username does not add an alias.
 - Admins manage **Aircraft** using Details, Project history and Aliases. Add/import buttons open dialogs;
-  Close or Escape dismisses them. Link unrecognised log names to an existing aircraft/person in Edit mode.
+  Close or Escape dismisses them. **Manager** and **Current user** suggest registered users as you type (free text
+  is allowed for people without an account); a new aircraft starts with you as manager.
+  Link unrecognised log names to an existing aircraft/person in Edit mode.
   Servers can hide unlinked aircraft flights from Logbook, Statistics, person details and Locations until linked;
   admins can still find the names in Aircraft Edit mode (see the [settings](TECHNICAL.md#settings)).
   Mark generic airframe names as **ambiguous** in Edit mode instead of linking every recording
