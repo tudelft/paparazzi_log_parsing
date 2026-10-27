@@ -796,7 +796,7 @@ not transferred. Move aliases and review references before removing duplicates.
 
 Pilot pages are read-only and show only each type's current approved qualification, including expired
 approvals clearly marked as expired. Validity dates appear on hover; qualification names link to
-available evidence using the existing private download endpoint. These summaries and links remain
+available evidence using the private view (or download) endpoints. These summaries and links remain
 visible only to the person and admins. The People overview wraps names, aliases and qualification
 chips to avoid horizontal scrolling; it continues to show only non-expired approvals.
 Pending claims and previous submissions remain in My account and the admin per-person management
