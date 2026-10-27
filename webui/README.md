@@ -119,6 +119,7 @@ original recording can still be opened or downloaded.
   Turn it off for the simpler browsing view. Longer explanations are under **Help**.
 - Flight pages include the path, charts, weather, settings, messages, pre-flight checks and software version.
   Turn on **Edit** there to change the project, crew or comment; the Overview shows a small path map.
+  In Path & charts, hover over a chart for exact values; use **+ Add** and **+ Add chart** to choose what is plotted.
   Expanded Logbook rows show comments and buttons beside the map (stacked on small screens).
   Comments are read-only there; edit them on the flight page.
   Distance from takeoff and maximum range are shown only on the flight page, not in overview tables or statistics.

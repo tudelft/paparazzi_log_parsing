@@ -328,7 +328,8 @@ in Web UI ingestion. Reparse outdated logs after updating and configuring any ad
 
 **Flight pages.** The Overview opens first: aircraft, goal and flight time, then When and where, Crew
 and Operation groups, the comment and a small non-interactive path map (it opens Path & charts). Takeoff
-and landing battery, wind and INS values are in the info tip beside each time; log sources, upload details
+and landing times follow one Date row; battery and logged wind are takeoff → landing rows, coordinates are on
+hover over the place name, and INS values are under Log sources; log sources, upload details
 and raw-data links are folded away. Project, crew and comment controls appear only in Edit mode (and only
 with permission); the Files tab lists files compactly and shows **Add / manage files** in Edit mode. Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
 and warnings for local (dirty) changes. Multiple reported builds remain visible; raw version messages
@@ -1405,9 +1406,13 @@ The parser scores each takeoff/landing on duration, climb, distance, speed, tilt
 `flight`, `uncertain` or `ground` with the reasons. The logbook hides the last two unless **Show non-flights**
 is ticked.
 
-**Flight page** (`/flight/<id>`). Path on a map with the flight plan waypoints, a time slider, altitude/speed chart,
+**Flight page** (`/flight/<id>`). Path on a map with the flight plan waypoints, a time slider, charts,
 takeoff/landing details, setting changes, messages, pre-flight checks and autopilot version; switch between the SD
 and GCS log when both exist. Missing `AUTOPILOT_VERSION` falls back to the GCS `.log` header.
+Charts list their series as chips (× removes); **+ Add** offers only series with data in this log, grouped by kind,
+and **+ Add chart** adds a preset (height and speed, attitude, acceleration, wind) or an empty chart. Wind speed and
+direction come from the per-point `wind` estimate. Hovering shows the exact values at that time; axes use four
+rounded steps (wind direction 0–360°). Click moves the map marker; drag or scroll zooms.
 
 **Database.** `logs` (hash, files, status, parser version) → `aircraft` (crew, goal, versions, messages, config) →
 `flights` (takeoff/landing, index into the paths file) and `setting_changes`.
