@@ -39,6 +39,11 @@
   #readout b { display:block; font-size:11px; color:var(--mute); text-transform:uppercase; font-weight:600; }
   #scrub { width:100%; }
   .chartCanvas { position: relative; }
+  .chartHover { position:absolute; top:14px; height:126px; width:0; border-left:1px dashed var(--mute); pointer-events:none; display:none; }
+  .chartTip { position:absolute; top:10px; z-index:5; pointer-events:none; display:none; padding:6px 8px; font-size:12px; line-height:1.5;
+    background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:6px; box-shadow:0 2px 8px #0003; white-space:nowrap; }
+  .chartTip .sw { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:6px; }
+  .chartTip b { font-weight:600; font-variant-numeric:tabular-nums; }
   .chartBlock canvas { width:100%; height:150px; display:block; cursor:crosshair; margin-top:6px; }
   .chartSel { position: absolute; top: 6px; height: 150px; background: rgba(31, 111, 235, .22); pointer-events: none; display: none; }
   .chartOpts { display:flex; flex-wrap:wrap; gap:6px; margin:14px 0 0; font-size:13px; align-items:center; }
@@ -506,13 +511,18 @@ function addChart(keys, removable) {
   const canvas = document.createElement('canvas');
   const sel = document.createElement('div');
   sel.className = 'chartSel';
-  bindChartPointer(canvas, sel);
+  const hover = document.createElement('div');
+  hover.className = 'chartHover';
+  const tip = document.createElement('div');
+  tip.className = 'chartTip';
   const plot = document.createElement('div');
   plot.className = 'chartCanvas';
-  plot.append(canvas, sel);
+  plot.append(canvas, sel, hover, tip);
   block.append(head, plot);
   $('charts').appendChild(block);
   const ch = {canvas, head, block, keys: [...keys], removable};
+  bindChartPointer(canvas, sel);
+  bindChartHover(ch, hover, tip);
   head.onclick = e => {
     const drop = e.target.closest('[data-drop]');
     if (drop) { ch.keys = ch.keys.filter(k => k !== drop.dataset.drop); renderChartHead(ch); redraw(); }
@@ -554,7 +564,7 @@ addChart(CHART_DEFAULTS[0], false);
 addChart(CHART_DEFAULTS[1], false);
 function fmtAxis(v) {
   const a = Math.abs(v);
-  return a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : v.toFixed(2);
+  return String(parseFloat(v.toFixed(a >= 100 ? 0 : a >= 10 ? 1 : 2)));  // 2.5, not 2.50
 }
 
 function geographicPosition(p) {
@@ -704,6 +714,32 @@ function resetZoom() {
   $('resetZoom').disabled = true;
   if (D) drawChart(+$('scrub').value);
 }
+// Index of the path point nearest to time t (the path is sorted by time).
+function nearestIndex(t) {
+  let lo = 0, hi = D.path.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; D.path[mid].time_s < t ? lo = mid : hi = mid; }
+  return Math.abs(D.path[hi].time_s - t) < Math.abs(D.path[lo].time_s - t) ? hi : lo;
+}
+const fmtValue = v => Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2);
+// Hovering a chart shows a guide line and the exact values of that chart's series at that moment.
+function bindChartHover(ch, hover, tip) {
+  const hide = () => { hover.style.display = tip.style.display = 'none'; };
+  ch.canvas.addEventListener('pointermove', e => {
+    if (drag || !D || D.path.length < 2 || !chartGeom) return hide();
+    const r = ch.canvas.getBoundingClientRect(), g = chartGeom, x = e.clientX - r.left;
+    if (x < g.L || x > g.W - g.R) return hide();
+    const p = D.path[nearestIndex(timeAt(ch.canvas, e.clientX))];
+    const rows = ch.keys.filter(k => available.has(k)).map(k => [SERIES[k], SERIES[k].val(p)])
+      .map(([s, v]) => `<div><span class="sw" style="background:${s.color}"></span>${esc(s.label)} <b>${v == null ? '–' : fmtValue(v) + ' ' + esc(s.unit)}</b></div>`);
+    if (!rows.length) return hide();
+    tip.innerHTML = `<div class="mute">${rel(p.time_s)}${p.utc ? ' · ' + esc(fmtTime(p.utc).slice(11)) : ''}</div>` + rows.join('');
+    hover.style.left = x + 'px';
+    hover.style.display = tip.style.display = 'block';
+    const w = tip.offsetWidth;
+    tip.style.left = (x + 12 + w > r.width ? x - 12 - w : x + 12) + 'px';
+  });
+  ch.canvas.addEventListener('pointerleave', hide);
+}
 function bindChartPointer(canvas, sel) {
   canvas.addEventListener('pointerdown', e => {
     if (e.button !== 0 || !chartGeom) return;
@@ -754,7 +790,7 @@ function drawSeriesChart(c, keys, cursor) {
   const W = r.width, H = r.height, n = D.path.length;
   x.clearRect(0, 0, W, H);
   if (n < 2) return;
-  const [t0, t1] = spanT(), L = 44, R = 44, T = 8, B = 16, zoomed = viewT0 != null;
+  const [t0, t1] = spanT(), L = 58, R = 58, T = 8, B = 16, zoomed = viewT0 != null;
   chartGeom = {t0, t1, L, R, W};
   const groups = [], seen = new Map();
   for (const k of keys) {
@@ -787,7 +823,25 @@ function drawSeriesChart(c, keys, cursor) {
       g.lo -= pad; g.hi += pad;
     }
   }
+  // Round each axis to four equal steps of 1, 2, 2.5 or 5 × 10^n so the gridline labels are easy to read.
+  for (const g of groups) {
+    if (g.unit === '° from' && !zoomed) { g.lo = 0; g.hi = 360; continue; }  // compass directions: 0, 90, 180, 270, 360
+    const raw = (g.hi - g.lo) / 4, mag = 10 ** Math.floor(Math.log10(raw));
+    let step = [1, 2, 2.5, 5, 10].map(f => f * mag).find(st => st >= raw);
+    let lo = Math.floor(g.lo / step + 1e-9) * step;
+    while (lo + 4 * step < g.hi - 1e-9) {
+      step = [1, 2, 2.5, 5, 10].map(f => f * mag).find(st => st > step) || step * 2;
+      lo = Math.floor(g.lo / step + 1e-9) * step;
+    }
+    g.lo = lo; g.hi = lo + 4 * step;
+  }
   x.font = '11px system-ui'; x.textBaseline = 'middle';
+  const ink0 = getComputedStyle(document.documentElement);
+  x.strokeStyle = ink0.getPropertyValue('--line').trim() || '#dfe3e8'; x.lineWidth = 1;
+  for (let k = 0; k <= 4; k++) {
+    const py = Math.round(T + k / 4 * (H - T - B)) + .5;
+    x.beginPath(); x.moveTo(L, py); x.lineTo(W - R, py); x.stroke();
+  }
   groups.forEach((g, gi) => {
     const left = gi % 2 === 0;
     for (const {vals, color} of g.items) {
@@ -804,8 +858,10 @@ function drawSeriesChart(c, keys, cursor) {
     }
     x.fillStyle = g.items[0].color; x.textAlign = left ? 'left' : 'right';
     const ax = left ? 2 : W - 2;
-    x.fillText(fmtAxis(g.hi), ax, T + 4); x.fillText(fmtAxis(g.lo), ax, H - B - 2);
-    x.fillText(g.unit, ax, H / 2);
+    for (let k = 0; k <= 4; k++) {
+      const py = T + k / 4 * (H - T - B), v = g.hi - (g.hi - g.lo) * k / 4;
+      x.fillText(fmtAxis(v) + (k === 0 ? ' ' + g.unit : ''), ax, Math.min(Math.max(py, T + 4), H - B - 2));
+    }
   });
   const ink = getComputedStyle(document.documentElement);
   x.fillStyle = ink.getPropertyValue('--mute').trim() || '#6b7785'; x.textAlign = 'center';
