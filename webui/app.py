@@ -34,8 +34,8 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from flask import (Flask, Response, abort, g, jsonify, redirect, request, send_file, send_from_directory, session,
-                   stream_with_context)
+from flask import (Flask, Response, abort, g, jsonify, make_response, redirect, request, send_file, send_from_directory,
+                   session, stream_with_context)
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -5487,59 +5487,55 @@ def matlab_job_json(job):
     return out
 
 
-@app.post("/api/logs/<int:log_id>/matlab")
-def request_matlab_export(log_id):
-    session_required()
-    try:
-        import matlab_export
-    except ImportError:
-        return jsonify(error="MATLAB export needs the h5py package on the server (see requirements.txt)."), 503
-    con = conn()
-    row = visible_log(con, log_id, "id, name, sha256, size_bytes, log_type, data_path, log_path, parser_version,"
-                                   " start_utc, date_override")
-    body = request.get_json(silent=True) or {}
-    scope = body.get("scope")
-    if scope not in MATLAB_SCOPES:
-        return jsonify(error="scope must be flight, flights or log"), 400
+MATLAB_LOG_COLUMNS = ("id, name, sha256, size_bytes, log_type, data_path, log_path, parser_version, start_utc,"
+                      " date_override")
+MATLAB_SUMMARY_KEYS = ("duration_s", "distance_m", "max_from_takeoff_m", "from_takeoff_m", "landed", "takeoff_lat",
+                       "takeoff_lon", "takeoff_alt_m", "landing_lat", "landing_lon", "landing_alt_m",
+                       "takeoff_voltage_v", "landing_voltage_v")
+MATLAB_BULK_MAX_LOGS = 200
+
+
+def matlab_unsupported(row):
+    """Why this log cannot be exported for MATLAB, or None."""
     if row["log_type"] not in ("gcs", "onboard_sd") or not row["log_path"]:
-        return jsonify(error="MATLAB export is available for Paparazzi .data files with their .log."), 409
+        return "MATLAB export is available for Paparazzi .data files with their .log."
     if not (row["data_path"].endswith(".gz") and row["log_path"].endswith(".gz")):
-        return jsonify(error="Uncompressed legacy storage is unsupported; delete and re-upload this test log."), 409
-    flights = [dict(r) for r in con.execute(
+        return "Uncompressed legacy storage is unsupported; delete and re-upload this test log."
+    return None
+
+
+def matlab_flights(con, log_id):
+    """The flights of a log with a takeoff, in log order, with what the export needs."""
+    return [dict(r) for r in con.execute(
         "SELECT f.id, f.idx, a.ac_id, f.takeoff_time_s, f.landing_time_s, f.takeoff_utc, f.landing_utc, f.verdict,"
         " f.assessment_json, f.duration_s, f.distance_m, f.max_from_takeoff_m, f.from_takeoff_m, f.landed,"
         " f.takeoff_lat, f.takeoff_lon, f.takeoff_alt_m, f.landing_lat, f.landing_lon, f.landing_alt_m,"
-        " f.takeoff_voltage_v, f.landing_voltage_v"
-        " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE a.log_id=? AND f.takeoff_time_s IS NOT NULL"
-        " ORDER BY f.takeoff_time_s, f.id", (log_id,))]
-    all_flights = flights
-    if scope == "flight":
-        flights = [f for f in flights if f["id"] == body.get("flight_id")]
-        if not flights:
-            return jsonify(error="That flight is not part of this log."), 404
-    elif scope == "flights":
-        flights = [f for f in flights if f["verdict"] != "ground"]
-        if not flights:
-            return jsonify(error="This log has no detected flights to export."), 409
-    days = clock_shift_days(row["start_utc"], row["date_override"])  # same date correction as the pages
+        " f.takeoff_voltage_v, f.landing_voltage_v, a.drone_id, COALESCE(d.name, a.name) AS aircraft_name"
+        " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id LEFT JOIN drones d ON d.id=a.drone_id"
+        " WHERE a.log_id=? AND f.takeoff_time_s IS NOT NULL ORDER BY f.takeoff_time_s, f.id", (log_id,))]
 
-    def posix(utc):
-        dt = parse_iso_utc(utc) if utc else None
-        return dt.timestamp() if dt else None
-    summary_keys = ("duration_s", "distance_m", "max_from_takeoff_m", "from_takeoff_m", "landed", "takeoff_lat",
-                    "takeoff_lon", "takeoff_alt_m", "landing_lat", "landing_lon", "landing_alt_m",
-                    "takeoff_voltage_v", "landing_voltage_v")
-    def window(f):  # index: the parser's flight number of that aircraft in this log, from 1
-        return dict(index=(f["idx"] or 0) + 1, ac_id=f["ac_id"], takeoff_s=f["takeoff_time_s"],
-                    landing_s=f["landing_time_s"], takeoff_utc=shift_iso(f["takeoff_utc"], days),
-                    landing_utc=shift_iso(f["landing_utc"], days), takeoff_posix=posix(shift_iso(f["takeoff_utc"], days)),
-                    summary={k: f[k] for k in summary_keys}, assessment=dict(
-                        verdict=f["verdict"],
-                        reasons=(json.loads(f["assessment_json"] or "null") or {}).get("reasons") or []))
-    windows = None if scope == "log" else [window(f) for f in flights]
+
+def matlab_posix(utc):
+    dt = parse_iso_utc(utc) if utc else None
+    return dt.timestamp() if dt else None
+
+
+def matlab_window(f, days):
+    """Export window of a flight; index is the parser's flight number of that aircraft in its log, from 1."""
+    return dict(index=(f["idx"] or 0) + 1, ac_id=f["ac_id"], takeoff_s=f["takeoff_time_s"],
+                landing_s=f["landing_time_s"], takeoff_utc=shift_iso(f["takeoff_utc"], days),
+                landing_utc=shift_iso(f["landing_utc"], days),
+                takeoff_posix=matlab_posix(shift_iso(f["takeoff_utc"], days)),
+                summary={k: f[k] for k in MATLAB_SUMMARY_KEYS}, assessment=dict(
+                    verdict=f["verdict"],
+                    reasons=(json.loads(f["assessment_json"] or "null") or {}).get("reasons") or []))
+
+
+def matlab_extras(con, row, days):
+    """Crew, simulation, settings, checklist and configuration per aircraft of a log, and the UTC of log time 0."""
     aircraft = {}
     for a in con.execute("SELECT id, ac_id, pic, pac, gcs, goal, simulation, preflight_checks, config_gz"
-                         " FROM aircraft WHERE log_id=?", (log_id,)):
+                         " FROM aircraft WHERE log_id=?", (row["id"],)):
         config = db.unpack(a["config_gz"]) or {}
         aircraft[a["ac_id"]] = dict(
             pic=a["pic"], pac=a["pac"], gcs=a["gcs"], goal=a["goal"],
@@ -5550,8 +5546,43 @@ def request_matlab_export(log_id):
                 "SELECT time_s, idx, var, from_value, to_value, in_flight FROM setting_changes"
                 " WHERE aircraft_id=? ORDER BY time_s, id", (a["id"],))])
     time0_utc = shift_iso(row["start_utc"], days)
-    extras = dict(aircraft=aircraft, time0_utc=time0_utc, time0_posix=posix(time0_utc),
-                  flights=[window(f) for f in all_flights] if scope == "log" else [])
+    return dict(aircraft=aircraft, time0_utc=time0_utc, time0_posix=matlab_posix(time0_utc))
+
+
+def matlab_module():
+    try:
+        import matlab_export
+    except ImportError:
+        abort(make_response(jsonify(
+            error="MATLAB export needs the h5py package on the server (see requirements.txt)."), 503))
+    return matlab_export
+
+
+@app.post("/api/logs/<int:log_id>/matlab")
+def request_matlab_export(log_id):
+    session_required()
+    matlab_export = matlab_module()
+    con = conn()
+    row = visible_log(con, log_id, MATLAB_LOG_COLUMNS)
+    body = request.get_json(silent=True) or {}
+    scope = body.get("scope")
+    if scope not in MATLAB_SCOPES:
+        return jsonify(error="scope must be flight, flights or log"), 400
+    if problem := matlab_unsupported(row):
+        return jsonify(error=problem), 409
+    flights = all_flights = matlab_flights(con, log_id)
+    if scope == "flight":
+        flights = [f for f in flights if f["id"] == body.get("flight_id")]
+        if not flights:
+            return jsonify(error="That flight is not part of this log."), 404
+    elif scope == "flights":
+        flights = [f for f in flights if f["verdict"] != "ground"]
+        if not flights:
+            return jsonify(error="This log has no detected flights to export."), 409
+    days = clock_shift_days(row["start_utc"], row["date_override"])  # same date correction as the pages
+    windows = None if scope == "log" else [matlab_window(f, days) for f in flights]
+    extras = dict(matlab_extras(con, row, days),
+                  flights=[matlab_window(f, days) for f in all_flights] if scope == "log" else [])
     identity = json.dumps([row["sha256"], scope, matlab_export.EXPORTER_VERSION, matlab_export.MARGIN_S,
                            row["parser_version"], windows, extras], sort_keys=True, default=str)
     job_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
@@ -5572,6 +5603,77 @@ def request_matlab_export(log_id):
     return jsonify(matlab_job_json(job)), 202
 
 
+@app.post("/api/matlab-bulk")
+def request_matlab_bulk():
+    """One .mat with logbook entries selected in the browser. ``entries`` lists, per logbook entry, the flight ids
+    of its recordings; the SD recording is exported when there is one, else the GCS recording."""
+    session_required()
+    matlab_export = matlab_module()
+    entries = (request.get_json(silent=True) or {}).get("entries")
+    if not isinstance(entries, list) or not entries or not all(
+            isinstance(e, list) and all(isinstance(i, int) for i in e) for e in entries):
+        return jsonify(error="entries must be a non-empty list of flight id lists"), 400
+    ids = sorted({i for e in entries for i in e})
+    if len(ids) > 20 * MATLAB_BULK_MAX_LOGS:
+        return jsonify(error="Too many flights selected."), 400
+    con = conn()
+    where, params = own_clause("l.")
+    found = {}
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        for r in con.execute(
+                "SELECT f.id, l.id AS log_id, l.log_type FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+                f" JOIN logs l ON l.id=a.log_id WHERE f.id IN ({','.join('?' * len(chunk))}) AND l.status='done'"
+                f" AND f.takeoff_time_s IS NOT NULL AND {where}", (*chunk, *params)):
+            found[r["id"]] = dict(r)
+    picks, skipped, logs = [], 0, {}
+    for entry in entries:
+        options = [found[i] for i in entry if i in found]
+        best = next((o for kind in ("onboard_sd", "gcs") for o in options if o["log_type"] == kind), None)
+        if best is None:
+            skipped += 1
+            continue
+        if best["log_id"] not in logs:
+            row = con.execute(f"SELECT {MATLAB_LOG_COLUMNS} FROM logs WHERE id=?", (best["log_id"],)).fetchone()
+            logs[best["log_id"]] = row if not matlab_unsupported(row) else None
+        if logs[best["log_id"]] is None:
+            skipped += 1
+            continue
+        picks.append(best)
+    logs = {k: v for k, v in logs.items() if v is not None}
+    if not picks:
+        return jsonify(error="None of the selected flights has an SD or GCS log that can be exported."), 409
+    if len(logs) > MATLAB_BULK_MAX_LOGS:
+        return jsonify(error=f"The selection spans {len(logs)} logs; export at most {MATLAB_BULK_MAX_LOGS} at once."), 400
+    chosen = {p["id"] for p in picks}
+    items = []
+    for log_id in sorted(logs, key=lambda i: (logs[i]["start_utc"] or "", i)):
+        row = logs[log_id]
+        days = clock_shift_days(row["start_utc"], row["date_override"])
+        windows = [dict(matlab_window(f, days), aircraft_key=f"drone:{f['drone_id']}" if f["drone_id"] is not None
+                        else f"name:{(f['aircraft_name'] or '').strip().casefold()}",
+                        aircraft_name=f["aircraft_name"] or "", drone_id=f["drone_id"])
+                   for f in matlab_flights(con, log_id) if f["id"] in chosen]
+        items.append(dict(info=dict(name=row["name"], sha256=row["sha256"], log_type=row["log_type"],
+                                    size_bytes=row["size_bytes"], parser_version=row["parser_version"]),
+                          windows=windows, extras=matlab_extras(con, row, days),
+                          data_gz=STORAGE_DIR / row["data_path"], log_gz=STORAGE_DIR / row["log_path"]))
+    identity = json.dumps(["bulk", matlab_export.EXPORTER_VERSION, matlab_export.MARGIN_S,
+                           [{k: v for k, v in x.items() if k not in ("data_gz", "log_gz")} for x in items]],
+                          sort_keys=True, default=str)
+    job_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
+    filename = safe_filename(f"logbook_{len(picks)}_flights.mat")
+
+    def task(out_path, work_dir, progress):
+        return matlab_export.export_bulk(FASTREADER, items, out_path, work_dir, progress,
+                                         env_int("LOCAL_MIN_FREE_BYTES"))
+    try:
+        job = export_jobs().submit(job_id, sorted(logs), filename, task)
+    except matlab_export.ExportError as error:
+        return jsonify(error=str(error)), 503
+    return jsonify(dict(matlab_job_json(job), flights=len(picks), logs=len(logs), skipped=skipped)), 202
+
+
 def visible_export(job_id):
     """The export job, after re-checking that the user may still see its log (404 otherwise)."""
     session_required()
@@ -5580,7 +5682,10 @@ def visible_export(job_id):
     job = export_jobs().status(job_id)
     if job is None:
         abort(404)
-    visible_log(conn(), job["log_id"], "id")
+    log_ids = job["log_id"] if isinstance(job["log_id"], list) else [job["log_id"]]  # a list for bulk exports
+    con = conn()
+    for log_id in log_ids:
+        visible_log(con, log_id, "id")
     return job
 
 

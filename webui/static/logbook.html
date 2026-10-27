@@ -52,7 +52,11 @@
   .detail-info { min-width:0; }
   .detail-info h4 { margin-top:0; }
   @media (max-width:760px) { .flight-detail { grid-template-columns:minmax(0,1fr); } }
-  table.log:not(.editing) .chk { display:none; }
+  table.log:not(.picking) .chk { display:none; }
+  .sel-pill { display:inline-flex; align-items:center; gap:6px; padding:1px 4px 1px 10px; border:1px solid var(--line);
+    border-radius:999px; white-space:nowrap; }
+  .sel-pill[hidden] { display:none; }
+  .sel-pill .x { border:0; background:none; padding:2px 6px; color:var(--mute); }
   td.chk, th.chk { width:28px; padding-right:0; }
   td.exp, th.exp { width:18px; padding-right:0; color:var(--mute); }
   .times { text-decoration:underline dotted var(--mute); text-underline-offset:3px; cursor:help; }
@@ -88,11 +92,13 @@
       <label title="One row per aircraft, crew, day and takeoff location, like a paper daily log. Expand a row for its flights."><input type="checkbox" id="combine" checked> Group by day</label>
       <span class="col-menu"><button type="button" id="colButton" aria-expanded="false" aria-controls="colForm">Columns</button>
         <form id="colForm" hidden aria-label="Shown columns"></form></span>
+      <button type="button" class="sec" id="selectBtn" title="Tick flights to export them together for MATLAB">Select</button>
+      <span id="selPill" class="sel-pill" hidden><span id="selPillCount"></span><span class="mute">·</span><span id="selPillMatlab"></span>
+        <button type="button" class="x" id="selClear" aria-label="Clear the selection" title="Clear the selection">✕</button></span>
       <a class="btn sec" href="/historical/new" id="addHistorical" hidden>Import CSV</a>
       <a class="btn sec" href="/review" id="reviewLink" hidden title="Paper records and logs that need a person to decide">Review</a>
     </div>
     <div id="bulkBar" class="bar" hidden>
-      <label><input type="checkbox" id="selAll"> Select all on this page</label>
       <span id="selCount" class="mute"></span>
       <label id="hiddenFilter" hidden><input type="checkbox" id="hiddenRecords" onchange="selected.clear(); page=0; window.viewState.save(true); loadFlights()"> Hidden records only</label>
       <span id="bulkActions" class="bar" style="margin:0" hidden>
@@ -114,7 +120,7 @@
     </div>
     <div class="scroll">
     <table class="log">
-      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"></th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
+      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"><input type="checkbox" id="selAll" title="Select all on this page" aria-label="Select all on this page"></th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
         <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -142,6 +148,12 @@ const fmtTime = t => (t || '').replace('T', ' ').slice(0, 19);
 let flights = [], page = 0, pageSize = 15, me = null, projects = [], people = [], operators = [], authorisations = [];
 const selected = new Set();
 const openGroups = new Set();
+let selecting = false;  // Select outside Edit mode: checkboxes for the MATLAB export only
+const picking = () => editOn() || selecting;
+const exportable = f => MatlabExport.available(f.sources);
+const pickedFlights = () => flights.filter(f => crewIds(f).some(id => selected.has(id)));
+// per ticked logbook entry the flight ids of its recordings; the server exports the SD one, else the GCS one
+const matlabEntries = () => pickedFlights().filter(exportable).map(f => f.sources.map(s => s.flight_id)).sort((a, b) => a[0] - b[0]);
 
 const realFetch = window.fetch;
 window.fetch = async (...args) => {
@@ -333,6 +345,7 @@ async function applyBulk() {
 }
 function syncEditUi() {
   $('bulkBar').hidden = !editOn();
+  $('selectBtn').hidden = editOn() || selecting;
   $('hiddenFilter').hidden = !me?.is_admin;
   $('hideSelected').hidden = !me?.is_admin || $('hiddenRecords').checked;
   $('restoreSelected').hidden = !me?.is_admin || !$('hiddenRecords').checked;
@@ -343,7 +356,7 @@ function syncEditUi() {
 function toggleEdit() {
   syncEditUi();
   if (!editOn()) {
-    selected.clear(); $('bulkMsg').textContent = '';
+    selecting = false; selected.clear(); $('bulkMsg').textContent = '';
     if ($('hiddenRecords').checked) { $('hiddenRecords').checked = false; loadFlights(); }
   }
   render();
@@ -353,7 +366,7 @@ function toggleSel(ids, on) {
   render();
 }
 function chk(ids, can) {
-  if (!editOn() || !can) return '<td class="chk"></td>';
+  if (!picking() || !can) return '<td class="chk"></td>';
   const all = ids.length > 0 && ids.every(id => selected.has(id));
   return `<td class="chk"><input type="checkbox" ${all ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel(${esc(JSON.stringify(ids))}, this.checked)"></td>`;
 }
@@ -593,7 +606,7 @@ const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '
 
 function flightRows(f, cls = '') {
   const ids = crewIds(f);
-  return `<tr class="flight ${cls}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: f.can_edit_crew}, f.landing_place_id)}</tr>`
+  return `<tr class="flight ${cls}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: editOn() ? f.can_edit_crew : exportable(f)}, f.landing_place_id)}</tr>`
     + (open_.has(f.record_key) ? `<tr><td colspan="20" class="detail">${detail(f)}</td></tr>` : '');
 }
 
@@ -607,7 +620,7 @@ function groupRows(g) {
   }
   const times = g.flights.map(f => `${fmtHm(f.takeoff_utc)}–${fmtHm(f.landing_utc) || '?'}`).join(', ');
   const ids = [...new Set(g.flights.flatMap(crewIds))];
-  return `<tr class="group" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: projectCell(first), ids, canEdit: g.flights.every(f => f.can_edit_crew)}, g.landing_place_id)}</tr>`
+  return `<tr class="group" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: projectCell(first), ids, canEdit: editOn() ? g.flights.every(f => f.can_edit_crew) : g.flights.some(exportable)}, g.landing_place_id)}</tr>`
     + (isOpen ? g.flights.map(f => flightRows(f, 'sub')).join('') : '');
 }
 
@@ -621,10 +634,17 @@ function render() {
   window.viewState.pager($('logbookPages'), page, pageSize, entries.length, n => { page = n; window.viewState.save(true); render(); });
   $('rows').innerHTML = visible.map(groupRows).join('');
   document.querySelector('table.log').classList.toggle('editing', editOn());
-  const pageIds = [...new Set(visible.flatMap(e => (e.flights || []).filter(f => f.can_edit_crew).flatMap(crewIds)))];
+  document.querySelector('table.log').classList.toggle('picking', picking());
+  const can = f => editOn() ? f.can_edit_crew : exportable(f);
+  const pageIds = [...new Set(visible.flatMap(e => (e.flights || []).filter(can).flatMap(crewIds)))];
   $('selAll').checked = pageIds.length > 0 && pageIds.every(id => selected.has(id));
   $('bulkActions').hidden = $('bulkMore').hidden = !selected.size;
-  $('selCount').textContent = selected.size ? `${selected.size} selected` : 'Tick flights to change them';
+  $('selCount').textContent = selected.size ? '' : 'Tick flights to change them';
+  const count = pickedFlights().length, matlab = matlabEntries().length;
+  $('selPill').hidden = !picking() || !(count || selecting);
+  $('selPillCount').textContent = `${count} selected`;
+  $('selPillMatlab').innerHTML = matlab ? MatlabExport.bulkButton(matlabEntries) : '<span class="mute" title="None of the ticked flights has an SD or GCS log">MATLAB</span>';
+  $('selectBtn').hidden = editOn() || selecting;
   $('selAll').onchange = () => { toggleSel(pageIds, $('selAll').checked); };
   const total = shown.reduce((s, f) => s + (f.duration_s || 0), 0);
   const dist = shown.some(f => f.distance_m != null) ? shown.reduce((s, f) => s + (f.distance_m || 0), 0) : null;
@@ -655,6 +675,8 @@ function exportCsv() {
   a.click();
 }
 
+$('selectBtn').onclick = () => { selecting = true; render(); };
+$('selClear').onclick = () => { selected.clear(); selecting = false; render(); };
 $('q').oninput = () => { page = 0; window.viewState.save(); render(); };
 $('combine').onchange = () => { page = 0; window.viewState.save(true); render(); };
 window.addEventListener('flightfilterschange', () => { selected.clear(); page = 0; window.viewState.save(true); render(); });
