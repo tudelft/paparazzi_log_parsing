@@ -187,8 +187,9 @@ function projectOptions(selected) {
 }
 function periodText(p) {
   const name = p.project_name || '?';
-  if (!p.end_date) return `${name} from ${p.start_date || '?'} (current)`;
-  return `${name} ${p.start_date || '?'}–${p.end_date}`;
+  if (!p.start_date) return p.end_date ? `${name} until ${p.end_date}` : `${name} (current)`;  // no From: from the start
+  if (!p.end_date) return `${name} from ${p.start_date} (current)`;
+  return `${name} ${p.start_date}–${p.end_date}`;
 }
 function projectCell(d, editing) {
   const ps = d.projects || [];
@@ -205,7 +206,7 @@ function projectCell(d, editing) {
 function periodRow(p) {
   return `<div class="period">
     <select class="p-proj">${projectOptions(p.project_id)}</select>
-    <input type="date" class="p-from" value="${esc(p.start_date || '')}" title="From">
+    <input type="date" class="p-from" value="${esc(p.start_date || '')}" title="From — leave empty on the first period for all earlier flights">
     <input type="date" class="p-until" value="${esc(p.end_date || '')}" title="Until — leave empty if this is the current project">
     <button type="button" class="danger" title="Remove" onclick="this.closest('.period').remove()">×</button>
   </div>`;

@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS drone_projects (
     id INTEGER PRIMARY KEY,
     drone_id INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    start_date TEXT NOT NULL,          -- YYYY-MM-DD this airframe joined the project
+    start_date TEXT,                   -- YYYY-MM-DD this airframe joined the project; NULL = from the start (first period)
     end_date TEXT                      -- YYYY-MM-DD last day, NULL = still on this project
 );
 CREATE INDEX IF NOT EXISTS ix_drone_projects_drone ON drone_projects(drone_id, start_date);
@@ -511,8 +511,24 @@ def init(path):
         " id INTEGER PRIMARY KEY,"
         " drone_id INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,"
         " project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,"
-        " start_date TEXT NOT NULL,"
+        " start_date TEXT,"
         " end_date TEXT)")
+    if any(r[1] == "start_date" and r[3] for r in con.execute("PRAGMA table_info(drone_projects)")):
+        # the first period may start "from the beginning" (NULL): rebuild without NOT NULL, keeping the rows
+        con.execute("DROP INDEX IF EXISTS ix_drone_projects_drone")
+        con.execute("ALTER TABLE drone_projects RENAME TO drone_projects_old")
+        con.execute(
+            "CREATE TABLE drone_projects ("
+            " id INTEGER PRIMARY KEY,"
+            " drone_id INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,"
+            " project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,"
+            " start_date TEXT,"
+            " end_date TEXT)")
+        con.execute("INSERT INTO drone_projects (id, drone_id, project_id, start_date, end_date)"
+                    " SELECT id, drone_id, project_id, start_date, end_date FROM drone_projects_old o"
+                    " WHERE EXISTS (SELECT 1 FROM drones d WHERE d.id=o.drone_id)"
+                    " AND EXISTS (SELECT 1 FROM projects p WHERE p.id=o.project_id)")
+        con.execute("DROP TABLE drone_projects_old")
     con.execute("CREATE INDEX IF NOT EXISTS ix_drone_projects_drone ON drone_projects(drone_id, start_date)")
     for table in ("flights", "flight_records", "projects", "places", "users"):
         if "operator_id" not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
