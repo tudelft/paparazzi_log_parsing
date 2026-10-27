@@ -15,7 +15,7 @@ function visualize_3d(model_name, ac_data, trange)
     % Read AHRS_REF_QUAT
     quat = double([ac_data.AHRS_REF_QUAT.body_qi ac_data.AHRS_REF_QUAT.body_qx ac_data.AHRS_REF_QUAT.body_qy ac_data.AHRS_REF_QUAT.body_qz]);
     quat_ref = double([ac_data.AHRS_REF_QUAT.ref_qi ac_data.AHRS_REF_QUAT.ref_qx ac_data.AHRS_REF_QUAT.ref_qy ac_data.AHRS_REF_QUAT.ref_qz]);
-    [quat_t,iquat_t,~] = unique(ac_data.AHRS_REF_QUAT.timestamp);
+    [quat_t,iquat_t,~] = unique(ac_data.AHRS_REF_QUAT.t);
     quat = quat(iquat_t,:);
     quat_ref = quat_ref(iquat_t,:);
 
@@ -42,7 +42,7 @@ function visualize_3d(model_name, ac_data, trange)
     actuators = [];
     if isfield(ac_data, 'ACTUATORS')
         actuators = double(pprz.actuators(ac_data));
-        [act_t,iact_t,~] = unique(ac_data.ACTUATORS.timestamp);
+        [act_t,iact_t,~] = unique(ac_data.ACTUATORS.t);
         actuators = actuators(iact_t,:);
         actuators = interp1(act_t, actuators, t_new', 'linear');
         actuators = actuators(dr, :);
@@ -51,7 +51,7 @@ function visualize_3d(model_name, ac_data, trange)
     % Resample and parse AIR_DATA
     airspeed = [];
     if isfield(ac_data, 'AIR_DATA')
-        [aird_t,iaird_t,~] = unique(ac_data.AIR_DATA.timestamp);
+        [aird_t,iaird_t,~] = unique(ac_data.AIR_DATA.t);
         airspeed = ac_data.AIR_DATA.airspeed(iaird_t,:);
         airspeed = interp1(aird_t, airspeed, t_new', 'linear');
         airspeed = airspeed(dr, :);
@@ -60,7 +60,7 @@ function visualize_3d(model_name, ac_data, trange)
     % Resample and parse ROTORCRAFT_FP
     altitude_m = [];
     if isfield(ac_data, 'ROTORCRAFT_FP')
-        [rotfp_t,irotfp_t,~] = unique(ac_data.ROTORCRAFT_FP.timestamp);
+        [rotfp_t,irotfp_t,~] = unique(ac_data.ROTORCRAFT_FP.t);
         altitude_m = ac_data.ROTORCRAFT_FP.up(irotfp_t,:);
         altitude_m = interp1(rotfp_t, altitude_m, t_new', 'linear');
         altitude_m = altitude_m(dr, :);

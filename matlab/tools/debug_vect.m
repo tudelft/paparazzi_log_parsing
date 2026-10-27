@@ -11,7 +11,7 @@ function [ac_data] = debug_vect(ac_data)
 
     for i = 1:N
         name = string(names{i});
-        timestamp = ac_data.DEBUG_VECT.timestamp(ac_data.DEBUG_VECT.name == name);
+        timestamp = ac_data.DEBUG_VECT.t(ac_data.DEBUG_VECT.name == name);
         data = ac_data.DEBUG_VECT.vector(ac_data.DEBUG_VECT.name == name);
 
         
@@ -23,7 +23,7 @@ function [ac_data] = debug_vect(ac_data)
     
         data_mat = cell2mat(M);
 
-        ac_data.DEBUG_VECT_PARSED.(name).timestamp = timestamp;
+        ac_data.DEBUG_VECT_PARSED.(name).t = timestamp;
         ac_data.DEBUG_VECT_PARSED.(name).values = data_mat;
     end
 
@@ -32,7 +32,7 @@ function [ac_data] = debug_vect(ac_data)
 figure
     for i = 1:N
         ax = subplot(N,1,i);
-        plot(ac_data.DEBUG_VECT_PARSED.(string(names{i})).timestamp, ac_data.DEBUG_VECT_PARSED.(string(names{i})).values)
+        plot(ac_data.DEBUG_VECT_PARSED.(string(names{i})).t, ac_data.DEBUG_VECT_PARSED.(string(names{i})).values)
         if exist('vert','var')
             hold on;
             plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');

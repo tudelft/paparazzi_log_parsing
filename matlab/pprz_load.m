@@ -1,5 +1,5 @@
 function logs = pprz_load(varargin)
-%PPRZ_LOAD Load MATLAB exports of the flight logbook (format 4).
+%PPRZ_LOAD Load MATLAB exports of the flight logbook (format 5).
 %   s = pprz_load('x.mat')               one export
 %   logs = pprz_load('folder')           every .mat in a folder and its subfolders
 %   logs = pprz_load('selection.zip')    every .mat in a bulk download
@@ -36,8 +36,8 @@ function logs = pprz_load(varargin)
     loaded = cell(1, numel(files));
     for k = 1:numel(files)
         x = load(files{k}, 's');
-        if ~isfield(x, 's') || ~isfield(x.s, 'info') || ~strcmp(x.s.info.exporter_version, '4')
-            error('pprz_load:format', ['%s is not a format 4 export. Export it again from the logbook ' ...
+        if ~isfield(x, 's') || ~isfield(x.s, 'info') || ~strcmp(x.s.info.exporter_version, '5')
+            error('pprz_load:format', ['%s is not a format 5 export. Export it again from the logbook ' ...
                   '(or with webui/matlab_export.py).'], files{k});
         end
         s = x.s;

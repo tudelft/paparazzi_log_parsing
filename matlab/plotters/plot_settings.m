@@ -10,7 +10,7 @@ function plot_settings(ac_data, f)
     changed = {};
     for i = 1:numel(names)
         v = values.(names{i});
-        in = v.timestamp >= t0 & v.timestamp <= t1;
+        in = v.t >= t0 & v.t <= t1;
         if numel(unique(v.value(in))) > 1
             changed{end + 1} = names{i}; %#ok<AGROW>
         end
@@ -25,7 +25,7 @@ function plot_settings(ac_data, f)
     for i = 1:numel(changed)
         v = values.(changed{i});
         axs(i) = nexttile;
-        stairs(v.timestamp - f.time.offset_s, v.value, 'LineWidth', 1.2);
+        stairs(v.t - f.time.offset_s, v.value, 'LineWidth', 1.2);
         grid on;
         ylabel(strrep(changed{i}, '_', '\_'), 'Rotation', 0, 'HorizontalAlignment', 'right');
     end

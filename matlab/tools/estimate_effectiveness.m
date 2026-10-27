@@ -11,7 +11,7 @@ if(isfield(ac_data,'ESC'))
     ax1 = subplot(2,1,1);
     for i=0:5
         m = find(ac_data.ESC.motor_id == i);
-        plot(ac_data.ESC.timestamp(m), ac_data.ESC.rpm(m));
+        plot(ac_data.ESC.t(m), ac_data.ESC.rpm(m));
         hold on;
     end
     legend('RPM1', 'RPM2', 'RPM3', 'RPM10', 'RPM11', 'RPM12');
@@ -19,7 +19,7 @@ if(isfield(ac_data,'ESC'))
     ax2 = subplot(2,1,2);
     for i=10:15
         m = find(ac_data.ESC.motor_id == i);
-        plot(ac_data.ESC.timestamp(m), ac_data.ESC.rpm(m));
+        plot(ac_data.ESC.t(m), ac_data.ESC.rpm(m));
         hold on;
     end
     legend('RPM4', 'RPM5', 'RPM6', 'RPM7', 'RPM8', 'RPM9');
@@ -36,10 +36,10 @@ trange = [586 592]; % seconds
 % trange = [400 600]; % seconds
 trange = [666 674];
 
-datarange1 = find(ac_data.IMU_GYRO_SCALED.timestamp>trange(1),1,'first')-1;
-datarange2 = find(ac_data.IMU_GYRO_SCALED.timestamp>trange(2),1,'first')-1;
+datarange1 = find(ac_data.IMU_GYRO_SCALED.t>trange(1),1,'first')-1;
+datarange2 = find(ac_data.IMU_GYRO_SCALED.t>trange(2),1,'first')-1;
 datarange = datarange1:datarange2; % valid for all signals of the same frequency
-t = ac_data.IMU_GYRO_SCALED.timestamp;
+t = ac_data.IMU_GYRO_SCALED.t;
 
 sf = 500; %Hz
 
@@ -48,7 +48,7 @@ sf = 500; %Hz
 
 quat = double([ac_data.AHRS_REF_QUAT.body_qi ac_data.AHRS_REF_QUAT.body_qx ac_data.AHRS_REF_QUAT.body_qy ac_data.AHRS_REF_QUAT.body_qz]);
 refquat = double([ac_data.AHRS_REF_QUAT.ref_qi ac_data.AHRS_REF_QUAT.ref_qx ac_data.AHRS_REF_QUAT.ref_qy ac_data.AHRS_REF_QUAT.ref_qz]);
-[refquat_t,irefquat_t,~] = unique(ac_data.AHRS_REF_QUAT.timestamp);
+[refquat_t,irefquat_t,~] = unique(ac_data.AHRS_REF_QUAT.t);
 quat = quat(irefquat_t,:);
 refquat = refquat(irefquat_t,:);
 [psi, phi, theta] = quat2angle(quat,'ZXY');
@@ -108,7 +108,7 @@ end
 if (isfield(ac_data, 'INS'))
     accelned = [ac_data.INS.ins_xdd ac_data.INS.ins_ydd ac_data.INS.ins_zdd];
     accelned = accelned(datarange,:);
-%     if (max(abs(ac_data.INS.timestamp(datarange) - tdr)) > 2e-4)
+%     if (max(abs(ac_data.INS.t(datarange) - tdr)) > 2e-4)
 %         disp('WARNING: INS and gyro timestamps may not be alligned!')
 %     end
 else
@@ -211,43 +211,43 @@ title('thrust fit')
 
 figure;
 hold on;
-plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.sp_accel_z)
-plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.speed_sp_z)
-plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.accelned_filt_z)
-plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.euler_cmd_z)
-plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.euler_cmd_y)
-% plot(ac_data.STAB_ATTITUDE_FULL_INDI.timestamp(datarange),filtfilt(b,a,accelned(:,3)))
+plot(ac_data.GUIDANCE_INDI_HYBRID.t,ac_data.GUIDANCE_INDI_HYBRID.sp_accel_z)
+plot(ac_data.GUIDANCE_INDI_HYBRID.t,ac_data.GUIDANCE_INDI_HYBRID.speed_sp_z)
+plot(ac_data.GUIDANCE_INDI_HYBRID.t,ac_data.GUIDANCE_INDI_HYBRID.accelned_filt_z)
+plot(ac_data.GUIDANCE_INDI_HYBRID.t,ac_data.GUIDANCE_INDI_HYBRID.euler_cmd_z)
+plot(ac_data.GUIDANCE_INDI_HYBRID.t,ac_data.GUIDANCE_INDI_HYBRID.euler_cmd_y)
+% plot(ac_data.STAB_ATTITUDE_FULL_INDI.t(datarange),filtfilt(b,a,accelned(:,3)))
 title('z control')
 legend('sp acc z','sp speed z','accned filt z','eulercmd z','eulercmdy')
 
 %%
 figure;
 hold on;
-plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.sp_accel_x)
-plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.sp_accel_y)
-plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.sp_accel_z)
+plot(ac_data.GUIDANCE_INDI_HYBRID.t,ac_data.GUIDANCE_INDI_HYBRID.sp_accel_x)
+plot(ac_data.GUIDANCE_INDI_HYBRID.t,ac_data.GUIDANCE_INDI_HYBRID.sp_accel_y)
+plot(ac_data.GUIDANCE_INDI_HYBRID.t,ac_data.GUIDANCE_INDI_HYBRID.sp_accel_z)
 legend('x','y','z')
 title('desired acceleration hybrid indi')
 
 %%
 figure;
 hold on;
-plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.speed_sp_x)
-plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.speed_sp_y)
-% plot(ac_data.GUIDANCE_INDI_HYBRID.timestamp,ac_data.GUIDANCE_INDI_HYBRID.speed_sp_z)
+plot(ac_data.GUIDANCE_INDI_HYBRID.t,ac_data.GUIDANCE_INDI_HYBRID.speed_sp_x)
+plot(ac_data.GUIDANCE_INDI_HYBRID.t,ac_data.GUIDANCE_INDI_HYBRID.speed_sp_y)
+% plot(ac_data.GUIDANCE_INDI_HYBRID.t,ac_data.GUIDANCE_INDI_HYBRID.speed_sp_z)
 
 
 % figure;
 % hold on
-plot(ac_data.ROTORCRAFT_FP.timestamp,ac_data.ROTORCRAFT_FP.vnorth)
-plot(ac_data.ROTORCRAFT_FP.timestamp,ac_data.ROTORCRAFT_FP.veast)
-% plot(ac_data.ROTORCRAFT_FP.timestamp,ac_data.ROTORCRAFT_FP.vup)
+plot(ac_data.ROTORCRAFT_FP.t,ac_data.ROTORCRAFT_FP.vnorth)
+plot(ac_data.ROTORCRAFT_FP.t,ac_data.ROTORCRAFT_FP.veast)
+% plot(ac_data.ROTORCRAFT_FP.t,ac_data.ROTORCRAFT_FP.vup)
 legend('speed sp x','speed sp y','speed x', 'speed y')
 
 %%
 
 % interpolate the heading on the air data time vector
-heading_ad = interp1(ac_data.ROTORCRAFT_FP.timestamp, ac_data.ROTORCRAFT_FP.psi, ac_data.AIR_DATA.timestamp, 'nearest');
+heading_ad = interp1(ac_data.ROTORCRAFT_FP.t, ac_data.ROTORCRAFT_FP.psi, ac_data.AIR_DATA.t, 'nearest');
 
 % Tune the wind to match the airspeed and the ground speed
 wind = 3;

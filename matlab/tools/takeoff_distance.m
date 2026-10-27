@@ -20,17 +20,17 @@ function takeoff_distance(ac_data, motors_on, takeoff_threshold)
     % Look at all the odd values of motors_on, the other ones are
     % motors_off
     for start_time=(arm_times.')
-        lidar_start_id = find(ac_data.LIDAR.timestamp >= start_time, 1, "first");
-        initial_dist = ac_data.LIDAR.distance(find(ac_data.LIDAR.timestamp>=start_time,1,"first"));
+        lidar_start_id = find(ac_data.LIDAR.t >= start_time, 1, "first");
+        initial_dist = ac_data.LIDAR.distance(find(ac_data.LIDAR.t>=start_time,1,"first"));
         copy_lidar_dist(1:lidar_start_id) = initial_dist;
 
-        end_time = ac_data.LIDAR.timestamp(find(copy_lidar_dist >= initial_dist+takeoff_threshold, 1, "first"));
+        end_time = ac_data.LIDAR.t(find(copy_lidar_dist >= initial_dist+takeoff_threshold, 1, "first"));
         if(isempty(end_time))
             end_time = start_time;
         end
 
-        id_start = find(ac_data.ROTORCRAFT_FP.timestamp >= start_time, 1, "first");
-        id_end = find(ac_data.ROTORCRAFT_FP.timestamp >= end_time, 1, "first");
+        id_start = find(ac_data.ROTORCRAFT_FP.t >= start_time, 1, "first");
+        id_end = find(ac_data.ROTORCRAFT_FP.t >= end_time, 1, "first");
 
         n = ac_data.ROTORCRAFT_FP.north(id_start) - ac_data.ROTORCRAFT_FP.north(id_end);
         e = ac_data.ROTORCRAFT_FP.east(id_start) - ac_data.ROTORCRAFT_FP.east(id_end);
@@ -38,11 +38,11 @@ function takeoff_distance(ac_data, motors_on, takeoff_threshold)
         distance_traveled_takeoff = sqrt(n^2 + e^2);
 
         % Calculate mean power during takeoff
-        id_start_energy = find(ac_data.ENERGY.timestamp >= start_time, 1, "first");
-        id_end_energy = find(ac_data.ENERGY.timestamp >= end_time, 1, "first");
+        id_start_energy = find(ac_data.ENERGY.t >= start_time, 1, "first");
+        id_end_energy = find(ac_data.ENERGY.t >= end_time, 1, "first");
         power_takeoff = ac_data.ENERGY.power(id_end_energy);
 
-        airspeed_takeoff = ac_data.AIR_DATA.airspeed(find(ac_data.AIR_DATA.timestamp >= end_time, 1, "first"));
+        airspeed_takeoff = ac_data.AIR_DATA.airspeed(find(ac_data.AIR_DATA.t >= end_time, 1, "first"));
 
         % Display takeoff distance with one decimal
         disp("time: " + round(start_time,2) + " dist: " + round(distance_traveled_takeoff, 1) + " [m] end_time " + round(end_time,2) + " pitch angle: " + round(ac_data.ROTORCRAFT_FP.theta(id_start),1) + " [deg] takeoff throttle " + round(ac_data.ROTORCRAFT_FP.thrust(id_end)*100/9600) + " % power at TO: " + round(power_takeoff) + " W measured airspeed TO: " + round(airspeed_takeoff,1))

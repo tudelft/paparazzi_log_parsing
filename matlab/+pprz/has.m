@@ -3,7 +3,7 @@ function ok = has(d, varargin)
     ok = true;
     for k = 1:numel(varargin)
         name = varargin{k};
-        if ~isfield(d, name) || ~isfield(d.(name), 'timestamp') || isempty(d.(name).timestamp)
+        if ~isfield(d, name) || ~isfield(d.(name), 't') || isempty(d.(name).t)
             ok = false;
             return
         end

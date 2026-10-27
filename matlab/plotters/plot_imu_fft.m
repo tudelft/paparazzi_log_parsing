@@ -12,11 +12,11 @@ function plot_imu_fft(ac_data, idx, bg, nd)
 
             for i = 1:length(accel_ids)
                 if exist('bg','var') && exist('nd','var')
-                    accel_idx = find(ac_data.IMU_ACCEL.id == accel_ids(i) & ac_data.IMU_ACCEL.timestamp > bg & ac_data.IMU_ACCEL.timestamp < nd);
+                    accel_idx = find(ac_data.IMU_ACCEL.id == accel_ids(i) & ac_data.IMU_ACCEL.t > bg & ac_data.IMU_ACCEL.t < nd);
                 else
                     accel_idx = find(ac_data.IMU_ACCEL.id == accel_ids(i));
                 end
-                t = ac_data.IMU_ACCEL.timestamp(accel_idx);
+                t = ac_data.IMU_ACCEL.t(accel_idx);
                 x = ac_data.IMU_ACCEL.ax(accel_idx);
                 y = ac_data.IMU_ACCEL.ay(accel_idx);
                 z = ac_data.IMU_ACCEL.az(accel_idx);
@@ -67,11 +67,11 @@ function plot_imu_fft(ac_data, idx, bg, nd)
 
             for i = 1:length(accel_ids)
                 if exist('bg','var') && exist('nd','var')
-                    gyro_idx = find(ac_data.IMU_GYRO.id == gyro_ids(i) & ac_data.IMU_GYRO.timestamp > bg & ac_data.IMU_GYRO.timestamp < nd);
+                    gyro_idx = find(ac_data.IMU_GYRO.id == gyro_ids(i) & ac_data.IMU_GYRO.t > bg & ac_data.IMU_GYRO.t < nd);
                 else
                     gyro_idx = find(ac_data.IMU_GYRO.id == gyro_ids(i));
                 end
-                t = ac_data.IMU_GYRO.timestamp(gyro_idx);
+                t = ac_data.IMU_GYRO.t(gyro_idx);
                 x = ac_data.IMU_GYRO.gp(gyro_idx);
                 y = ac_data.IMU_GYRO.gq(gyro_idx);
                 z = ac_data.IMU_GYRO.gr(gyro_idx);

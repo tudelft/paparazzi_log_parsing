@@ -11,8 +11,8 @@ function plot_rc_controls(ac_data, order)
 
     ax1 = nexttile;
     hold on; grid on; zoom on;
-    h1 = plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, throttle_percent, LineWidth=1.5);
-    h2 = plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, kill_percent, 'Color', 'r', LineWidth=1.5);
+    h1 = plot(ac_data.ROTORCRAFT_RADIO_CONTROL.t, throttle_percent, LineWidth=1.5);
+    h2 = plot(ac_data.ROTORCRAFT_RADIO_CONTROL.t, kill_percent, 'Color', 'r', LineWidth=1.5);
     xlabel('time [s]');
     ylabel('throttle [%] and kill');
     title('throttle and kill');
@@ -20,9 +20,9 @@ function plot_rc_controls(ac_data, order)
 
     ax2 = nexttile;
     hold on; grid on; zoom on;
-    h3 = plot(ac_data.PPM.timestamp, blue_sw, 'Color', 'b', LineWidth=1.5);
-    h4 = plot(ac_data.PPM.timestamp, green_sw, 'Color', 'g', LineWidth=1.5);
-    h5 = plot(ac_data.PPM.timestamp, yellow_sw, 'Color', [0.8, 0.8, 0], LineWidth=1.5);
+    h3 = plot(ac_data.PPM.t, blue_sw, 'Color', 'b', LineWidth=1.5);
+    h4 = plot(ac_data.PPM.t, green_sw, 'Color', 'g', LineWidth=1.5);
+    h5 = plot(ac_data.PPM.t, yellow_sw, 'Color', [0.8, 0.8, 0], LineWidth=1.5);
     xlabel('time [s]');
     ylabel('RC switches [ppm]');
     title('RC switches');
@@ -30,8 +30,8 @@ function plot_rc_controls(ac_data, order)
 
     ax3 = nexttile;
     hold on; grid on; zoom on;
-    h6 = plot(ac_data.PPM.timestamp, ac_data.PPM.ppm_rate, 'Color', 'r', LineWidth=1.5);
-    h7 = plot(ac_data.ROTORCRAFT_RADIO_CONTROL.timestamp, ac_data.ROTORCRAFT_RADIO_CONTROL.status*100, 'Color', 'b', LineWidth=1.5);
+    h6 = plot(ac_data.PPM.t, ac_data.PPM.ppm_rate, 'Color', 'r', LineWidth=1.5);
+    h7 = plot(ac_data.ROTORCRAFT_RADIO_CONTROL.t, ac_data.ROTORCRAFT_RADIO_CONTROL.status*100, 'Color', 'b', LineWidth=1.5);
     xlabel('time [s]');
     ylabel('PPM rate and RC status');
     title('PPM rate and RC status');

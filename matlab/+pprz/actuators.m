@@ -3,13 +3,13 @@ function [values, names, t] = actuators(d)
 %   [values, names, t] = pprz.actuators(f.data)
 %   Works whether the export stored named columns (ACTUATORS.FRONT_MOT) or a values matrix.
     m = d.ACTUATORS;
-    t = m.timestamp;
+    t = m.t;
     if isfield(m, 'values')
         values = double(m.values);
         names = compose('ACT%d', 0:size(values, 2) - 1);
         return
     end
-    names = setdiff(fieldnames(m), {'timestamp'}, 'stable')';
+    names = setdiff(fieldnames(m), {'t'}, 'stable')';
     values = zeros(numel(t), numel(names));
     for k = 1:numel(names)
         values(:, k) = m.(names{k});

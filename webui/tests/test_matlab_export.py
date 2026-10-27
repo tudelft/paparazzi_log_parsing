@@ -111,7 +111,7 @@ class MatlabExporterTests(unittest.TestCase):
         self.assertEqual(header[124:128], b"\x00\x02IM")
         s = file["s"]
         self.assertEqual(s.attrs["MATLAB_class"], b"struct")
-        self.assertEqual(text(file, s["info"]["exporter_version"].ref), "4")
+        self.assertEqual(text(file, s["info"]["exporter_version"].ref), "5")
         aircraft = s["aircraft"]
         self.assertEqual(aircraft["id"].shape, (2, 1))
         self.assertEqual([self.element(file, aircraft, "id", i)[0, 0] for i in range(2)], [5, 7])
@@ -121,10 +121,10 @@ class MatlabExporterTests(unittest.TestCase):
         self.assertEqual(text(file, version["desc"].ref), "v5.15_devel-167-g55bfedf")
         data = self.element(file, aircraft, "data", 0)
         att = data["ATTITUDE"]
-        np.testing.assert_allclose(column(att["timestamp"]), [1, 30, 4290, 4294.967296 + 5])
+        np.testing.assert_allclose(column(att["t"]), [1, 30, 4290, 4294.967296 + 5])
         # converted unit under the field name; no raw copy (raw = value / coef)
         np.testing.assert_allclose(column(att["phi"]), np.array([0.1, 0.4, 0.7, 1.0]) * 57.2958)
-        self.assertEqual(sorted(att), ["phi", "psi", "theta", "timestamp"])
+        self.assertEqual(sorted(att), ["phi", "psi", "t", "theta"])
         msg = s["messages"]["ATTITUDE"]
         self.assertEqual((text(file, msg["units"][0, 0]), text(file, msg["raw_units"][0, 0])), ("deg", "rad"))
         self.assertEqual(column(msg["coef"])[0], 57.2958)
@@ -134,9 +134,9 @@ class MatlabExporterTests(unittest.TestCase):
         self.assertNotIn("values", acts)
         status = data["ROTORCRAFT_STATUS"]
         self.assertEqual((status["ap_mode"].dtype, status["end_"][0, 0]), (np.uint32, -1))
-        self.assertEqual(sorted(status), ["ap_mode", "end_", "timestamp"])  # enum names only in s.messages
+        self.assertEqual(sorted(status), ["ap_mode", "end_", "t"])  # enum names only in s.messages
         self.assertEqual(text(file, s["messages"]["ROTORCRAFT_STATUS"]["enums"]["ap_mode"][0, 1]), "FAILSAFE")
-        self.assertEqual(sorted(data["ROTORCRAFT_NAV_STATUS"]), ["cur_block", "cur_stage", "timestamp"])
+        self.assertEqual(sorted(data["ROTORCRAFT_NAV_STATUS"]), ["cur_block", "cur_stage", "t"])
         config = file[aircraft["config"][0, 0]]
         plan = config["flight_plan"]
         self.assertEqual([text(file, r) for r in plan["blocks"][0, :]], ["Wait", "Takeoff"])
@@ -150,10 +150,10 @@ class MatlabExporterTests(unittest.TestCase):
         self.assertEqual((text(file, g["pic"].ref), text(file, g["pac"].ref)), ("Pilot A", ""))
         settings = file[aircraft["settings"][0, 0]]
         np.testing.assert_allclose(column(settings["values"]["gain"]["value"]), [1.0, 2.0])  # every report
-        np.testing.assert_allclose(column(settings["values"]["gain"]["timestamp"]), [4.5, 40.0])
+        np.testing.assert_allclose(column(settings["values"]["gain"]["t"]), [4.5, 40.0])
         self.assertEqual(text(file, settings["list"]["parent"][0, 0]), "Control")
         changes = settings["changes"]
-        self.assertEqual((text(file, changes["name"][0, 0]), column(changes["timestamp"])[0]), ("gain", 5.0))
+        self.assertEqual((text(file, changes["name"][0, 0]), column(changes["t"])[0]), ("gain", 5.0))
         self.assertEqual(column(changes["to"])[0], 2.0)
         checklist = file[aircraft["checklist"][0, 0]]
         self.assertEqual([text(file, r) for r in checklist["items"]["item"][0, :]], ["Enter the PIC", "props"])
@@ -181,18 +181,18 @@ class MatlabExporterTests(unittest.TestCase):
         flights = self.element(file, aircraft, "flights", 0)
         self.assertEqual(flights["index"].shape, (2, 1))
         data = file[flights["data"][0, 0]]
-        np.testing.assert_allclose(column(data["ATTITUDE"]["timestamp"]), [-1.0])  # aircraft 7's row is not here
-        np.testing.assert_allclose(column(data["AUTOPILOT_VERSION"]["timestamp"]), [-1.5])  # inside the 10 s margin
+        np.testing.assert_allclose(column(data["ATTITUDE"]["t"]), [-1.0])  # aircraft 7's row is not here
+        np.testing.assert_allclose(column(data["AUTOPILOT_VERSION"]["t"]), [-1.5])  # inside the 10 s margin
         time_ = self.element(file, flights, "time", 0)
         np.testing.assert_allclose(column(time_["window_s"]), [-10, 14])
         self.assertEqual(text(file, time_["takeoff_utc"].ref), "2026-10-21T09:05:12Z")
         summary = self.element(file, flights, "summary", 0)
         self.assertEqual((text(file, summary["verdict"].ref), text(file, summary["reasons"][0, 0])), ("flight", "climb"))
         second = file[flights["data"][1, 0]]
-        np.testing.assert_allclose(column(second["ATTITUDE"]["timestamp"]), [0.0, 4294.967296 + 5 - 4290.0])
+        np.testing.assert_allclose(column(second["ATTITUDE"]["t"]), [0.0, 4294.967296 + 5 - 4290.0])
         self.assertEqual(self.element(file, flights, "time", 1)["offset_s"][0, 0], 4290.0)
         settings = file[aircraft["settings"][0, 0]]
-        np.testing.assert_allclose(column(settings["values"]["gain"]["timestamp"]), [4.5, 40.0])  # whole log
+        np.testing.assert_allclose(column(settings["values"]["gain"]["t"]), [4.5, 40.0])  # whole log
 
     def test_zip_stream_holds_the_files(self):
         import io
@@ -217,7 +217,7 @@ class MatlabExporterTests(unittest.TestCase):
         self.assertEqual(code, 0)
         for name in ("a_whole_log.mat", "b_whole_log.mat"):
             with h5py.File(folder / "out" / name, "r") as file:
-                self.assertEqual(text(file, file["s"]["info"]["exporter_version"].ref), "4")
+                self.assertEqual(text(file, file["s"]["info"]["exporter_version"].ref), "5")
                 self.assertEqual(file["s"]["aircraft"]["id"].shape, (2, 1))
 
     def test_parsed_inputs_follow_the_web_export(self):
@@ -234,6 +234,12 @@ class MatlabExporterTests(unittest.TestCase):
         self.assertEqual(flights[1]["takeoff_posix"], 1792573300.0)
         self.assertEqual(extras["aircraft"][5]["pic"], "Pilot A")
         self.assertEqual(extras["aircraft"][5]["setting_changes"][0]["to_value"], 2.0)
+
+    def test_a_field_named_t_does_not_hide_the_time(self):
+        messages, _ = matlab_export.parse_protocol(
+            '<protocol>\n<msg_class name="telemetry"><message name="M" id="1"><field name="t" type="float"/>'
+            '<field name="end" type="float"/></message></msg_class>\n</protocol>')
+        self.assertEqual([f["key"] for f in messages["M"]["fields"]], ["t_2", "end_"])
 
     def test_missing_protocol_is_refused(self):
         with self.assertRaises(matlab_export.ExportError):

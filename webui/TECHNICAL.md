@@ -444,7 +444,7 @@ pool across columns and written in order. Times use the parser's clock-wrap corr
 the windows match the stored takeoff/landing times. Without MATLAB on the server, loading was verified with an
 independent v7.3 reader; check new layouts in MATLAB itself.
 
-The layout of the file (format 4) and the MATLAB tools that read it are described in
+The layout of the file (format 5) and the MATLAB tools that read it are described in
 [matlab/README.md](../matlab/README.md). `python3 matlab_export.py LOG.data [--flights] [-o OUT]` converts local
 files the same way (without the logbook's later corrections).
 

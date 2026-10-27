@@ -4,7 +4,7 @@ function plot_lidar(ac_data, vert)
     end
     
     % Plot the Energy message
-    plot(ac_data.LIDAR.timestamp, [ac_data.LIDAR.distance]);
+    plot(ac_data.LIDAR.t, [ac_data.LIDAR.distance]);
     ylabel('Distance [m]');
     ylim([0 10])
     

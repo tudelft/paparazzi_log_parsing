@@ -2,33 +2,33 @@ function plot_optitrack(ac_data)
 
     tiledlayout(4, 1, 'Padding', 'compact', 'TileSpacing', 'compact');
 
-    diff_timestamps = diff(ac_data.EXTERNAL_POSE_DOWN.timestamp);
+    diff_timestamps = diff(ac_data.EXTERNAL_POSE_DOWN.t);
     diff_timestamps(end+1) = diff_timestamps(end);
 
     ax1 = nexttile;
     hold on; grid on; zoom on;
-    h1 = plot(ac_data.EXTERNAL_POSE_DOWN.timestamp,ac_data.EXTERNAL_POSE_DOWN.ned_x, LineWidth=1.5);
+    h1 = plot(ac_data.EXTERNAL_POSE_DOWN.t,ac_data.EXTERNAL_POSE_DOWN.ned_x, LineWidth=1.5);
     xlabel('time [s]');
     ylabel('ned x [m]');
     title('ned x');
 
     ax2 = nexttile;
     hold on; grid on; zoom on;
-    h2 = plot(ac_data.EXTERNAL_POSE_DOWN.timestamp,ac_data.EXTERNAL_POSE_DOWN.ned_y, LineWidth=1.5);
+    h2 = plot(ac_data.EXTERNAL_POSE_DOWN.t,ac_data.EXTERNAL_POSE_DOWN.ned_y, LineWidth=1.5);
     xlabel('time [s]');
     ylabel('ned y [m]');
     title('ned y');
 
     ax3 = nexttile;
     hold on; grid on; zoom on;
-    h3 = plot(ac_data.EXTERNAL_POSE_DOWN.timestamp,ac_data.EXTERNAL_POSE_DOWN.ned_z, LineWidth=1.5);
+    h3 = plot(ac_data.EXTERNAL_POSE_DOWN.t,ac_data.EXTERNAL_POSE_DOWN.ned_z, LineWidth=1.5);
     xlabel('time [s]');
     ylabel('ned z [m]');
     title('ned z');
 
     ax4 = nexttile;
     hold on; grid on; zoom on;
-    h4 = plot(ac_data.EXTERNAL_POSE_DOWN.timestamp,diff_timestamps, LineWidth=1.5);
+    h4 = plot(ac_data.EXTERNAL_POSE_DOWN.t,diff_timestamps, LineWidth=1.5);
     xlabel('time [s]');
     ylabel('diff timestamp [usec]');
     title('diff timestamp');

@@ -19,7 +19,7 @@ function plot_esc(ac_data, idx)
     ax1 = subplot(6,1,1);
     for i=1:length(idx)
         m = find(ac_data.ESC.motor_id == idx(i));
-        plot(ac_data.ESC.timestamp(m), ac_data.ESC.rpm(m));
+        plot(ac_data.ESC.t(m), ac_data.ESC.rpm(m));
         hold on;
     end
     title('RPM');
@@ -29,7 +29,7 @@ function plot_esc(ac_data, idx)
     ax2 = subplot(6,1,2);
     for i=1:length(idx)
         m = find(ac_data.ESC.motor_id == idx(i));
-        plot(ac_data.ESC.timestamp(m), ac_data.ESC.motor_volts(m));
+        plot(ac_data.ESC.t(m), ac_data.ESC.motor_volts(m));
         hold on;
     end
     title('Voltage');
@@ -39,7 +39,7 @@ function plot_esc(ac_data, idx)
     ax3 = subplot(6,1,3);
     for i=1:length(idx)
         m = find(ac_data.ESC.motor_id == idx(i));
-        plot(ac_data.ESC.timestamp(m), ac_data.ESC.amps(m));
+        plot(ac_data.ESC.t(m), ac_data.ESC.amps(m));
         hold on;
     end
     title('Current');
@@ -49,7 +49,7 @@ function plot_esc(ac_data, idx)
     ax4 = subplot(6,1,4);
     for i=1:length(idx)
         m = find(ac_data.ESC.motor_id == idx(i));
-        plot(ac_data.ESC.timestamp(m), ac_data.ESC.power(m));
+        plot(ac_data.ESC.t(m), ac_data.ESC.power(m));
         hold on;
     end
     title('Power');
@@ -59,7 +59,7 @@ function plot_esc(ac_data, idx)
     ax5 = subplot(6,1,5);
     for i=1:length(idx)
         m = find(ac_data.ESC.motor_id == idx(i));
-        plot(ac_data.ESC.timestamp(m), ac_data.ESC.temperature(m));
+        plot(ac_data.ESC.t(m), ac_data.ESC.temperature(m));
         hold on;
     end
     title('Temperature');
@@ -69,7 +69,7 @@ function plot_esc(ac_data, idx)
     ax6 = subplot(6,1,6);
     for i=1:length(idx)
         m = find(ac_data.ESC.motor_id == idx(i));
-        plot(ac_data.ESC.timestamp(m), ac_data.ESC.temperature_dev(m));
+        plot(ac_data.ESC.t(m), ac_data.ESC.temperature_dev(m));
         hold on;
     end
     title('Temperature device');

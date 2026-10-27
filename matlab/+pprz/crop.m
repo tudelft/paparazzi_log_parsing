@@ -8,11 +8,11 @@ function d = crop(d, t0, t1, shift)
     names = fieldnames(d);
     for i = 1:numel(names)
         m = d.(names{i});
-        if ~isstruct(m) || ~isfield(m, 'timestamp')
+        if ~isstruct(m) || ~isfield(m, 't')
             continue
         end
-        n = numel(m.timestamp);
-        keep = m.timestamp >= t0 & m.timestamp <= t1;
+        n = numel(m.t);
+        keep = m.t >= t0 & m.t <= t1;
         fields = fieldnames(m);
         for j = 1:numel(fields)
             v = m.(fields{j});
@@ -20,7 +20,7 @@ function d = crop(d, t0, t1, shift)
                 m.(fields{j}) = v(keep, :);
             end
         end
-        m.timestamp = m.timestamp - shift;
+        m.t = m.t - shift;
         d.(names{i}) = m;
     end
 end

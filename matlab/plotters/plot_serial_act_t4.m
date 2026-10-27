@@ -12,8 +12,8 @@ function plot_serial_act_t4(ac_data, order)
 
     ax1 = nexttile;
     hold on; zoom on;
-    h1 = plot(ac_data.SERIAL_ACT_T4_IN.timestamp, pos1, 'LineWidth', 1.5);
-    h2 = plot(ac_data.SERIAL_ACT_T4_IN.timestamp, pos2, 'LineWidth', 1.5);
+    h1 = plot(ac_data.SERIAL_ACT_T4_IN.t, pos1, 'LineWidth', 1.5);
+    h2 = plot(ac_data.SERIAL_ACT_T4_IN.t, pos2, 'LineWidth', 1.5);
     xlabel('Time [s]');
     ylabel('Flap deflection [deg]');
     title('Flap deflection');
@@ -21,8 +21,8 @@ function plot_serial_act_t4(ac_data, order)
 
     ax2 = nexttile;
     hold on; zoom on;
-    h3 = plot(ac_data.SERIAL_ACT_T4_IN.timestamp, rpm1, 'LineWidth', 1.5);
-    h4 = plot(ac_data.SERIAL_ACT_T4_IN.timestamp, rpm2, 'LineWidth', 1.5);
+    h3 = plot(ac_data.SERIAL_ACT_T4_IN.t, rpm1, 'LineWidth', 1.5);
+    h4 = plot(ac_data.SERIAL_ACT_T4_IN.t, rpm2, 'LineWidth', 1.5);
     xlabel('Time [s]');
     ylabel('Prop speed [rpm]');
     title('RPM');
@@ -30,8 +30,8 @@ function plot_serial_act_t4(ac_data, order)
 
     ax3 = nexttile;
     hold on; zoom on;
-    h5 = plot(ac_data.SERIAL_ACT_T4_OUT.timestamp, ac_data.SERIAL_ACT_T4_OUT.motor_1_dshot_cmd, 'LineWidth', 1.5);
-    h6 = plot(ac_data.SERIAL_ACT_T4_OUT.timestamp, ac_data.SERIAL_ACT_T4_OUT.motor_2_dshot_cmd, 'LineWidth', 1.5);
+    h5 = plot(ac_data.SERIAL_ACT_T4_OUT.t, ac_data.SERIAL_ACT_T4_OUT.motor_1_dshot_cmd, 'LineWidth', 1.5);
+    h6 = plot(ac_data.SERIAL_ACT_T4_OUT.t, ac_data.SERIAL_ACT_T4_OUT.motor_2_dshot_cmd, 'LineWidth', 1.5);
     xlabel('Time [s]');
     ylabel('DShot Command');
     title('DShot Command');

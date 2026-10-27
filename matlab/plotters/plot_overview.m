@@ -15,28 +15,28 @@ function plot_overview(ac_data, f)
         switch rows{i}
             case 'height'
                 fp = ac_data.ROTORCRAFT_FP;
-                plot(fp.timestamp, fp.up, fp.timestamp, fp.carrot_up, '--');
+                plot(fp.t, fp.up, fp.t, fp.carrot_up, '--');
                 ylabel('Up [m]'); legend('Up', 'Target');
             case 'speed'
                 fp = ac_data.ROTORCRAFT_FP;
-                plot(fp.timestamp, hypot(fp.veast, fp.vnorth), fp.timestamp, fp.vup);
+                plot(fp.t, hypot(fp.veast, fp.vnorth), fp.t, fp.vup);
                 names = {'Ground speed', 'Vertical speed'};
                 if pprz.has(ac_data, 'AIR_DATA')
-                    plot(ac_data.AIR_DATA.timestamp, ac_data.AIR_DATA.airspeed);
+                    plot(ac_data.AIR_DATA.t, ac_data.AIR_DATA.airspeed);
                     names{end + 1} = 'Airspeed'; %#ok<AGROW>
                 end
                 ylabel('[m/s]'); legend(names);
             case 'attitude'
                 fp = ac_data.ROTORCRAFT_FP;
-                plot(fp.timestamp, [fp.phi, fp.theta]);
+                plot(fp.t, [fp.phi, fp.theta]);
                 ylabel('[deg]'); legend('Phi', 'Theta');
             case 'battery'
                 e = ac_data.ENERGY;
-                yyaxis left; plot(e.timestamp, e.voltage); ylabel('Voltage [V]');
-                yyaxis right; plot(e.timestamp, e.current); ylabel('Current [A]');
+                yyaxis left; plot(e.t, e.voltage); ylabel('Voltage [V]');
+                yyaxis right; plot(e.t, e.current); ylabel('Current [A]');
             case 'mode'
                 m = ac_data.ROTORCRAFT_STATUS;
-                stairs(m.timestamp, double(m.ap_mode), 'LineWidth', 1.2);
+                stairs(m.t, double(m.ap_mode), 'LineWidth', 1.2);
                 modes = unique(double(m.ap_mode));
                 if nargin > 1 && ~isempty(modes)
                     yticks(modes); yticklabels(pprz.enum(f, 'ROTORCRAFT_STATUS', 'ap_mode', modes));

@@ -13,7 +13,7 @@ function modes(f, fig, source)
     if ~pprz.has(f.data, msg)
         return
     end
-    t = f.data.(msg).timestamp;
+    t = f.data.(msg).t;
     v = double(f.data.(msg).(field));
     change = [1; find(diff(v) ~= 0) + 1];
     stops = [t(change(2:end)); t(end)];

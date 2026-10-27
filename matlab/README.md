@@ -1,6 +1,6 @@
 # MATLAB tools
 
-Tools to load, plot and analyse Paparazzi flights exported by the flight logbook (MATLAB format 4).
+Tools to load, plot and analyse Paparazzi flights exported by the flight logbook (MATLAB format 5).
 
 ## Get a .mat file
 
@@ -29,7 +29,7 @@ pprz_flights(logs)                              % table of the flights
 f = pprz_flight(logs, 3);                       % row 3 of that table
 pprz_plot(f, 'overview', 'euler', 'actuators', 'modes', 'ap')
 pprz_plot()                                     % list every plot
-plot(f.data.ROTORCRAFT_FP.timestamp, f.data.ROTORCRAFT_FP.up)
+plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 ```
 
 | Function | Use |
@@ -54,14 +54,14 @@ Analysis tools in `tools/` (effectiveness estimation, altitude tuning, airspeed 
 servo model, rotating-wing flight envelope, 3D visualisation) and `3d_animation/` work on `ac_data = f.data`.
 The C2C and Dronetag tools read their own file formats. `math/` holds quaternion helpers.
 
-## File format (format 4)
+## File format (format 5)
 
 Load a file directly with `s = load('x.mat').s`. Times are log time unless noted:
 
 ```
 s
 ├─ info                exporter_version, created_utc, scope (flight/flights/log), margin_s
-├─ log                 name, sha256, type, time0_utc, time0_posix, warnings, unparsed (timestamp, lines)
+├─ log                 name, sha256, type, time0_utc, time0_posix, warnings, unparsed (t, lines)
 ├─ messages.<MSG>      name, class, id, fields, types, units, raw_units, coef, enums.<field>
 └─ aircraft(i)         only aircraft with an exported flight in a flight export
    ├─ id, name         AC_ID and the name in the log
@@ -70,10 +70,10 @@ s
    ├─ simulation       assessed, detected, evidence
    ├─ settings
    │  ├─ list          table: index, var, shortname, unit, parent
-   │  ├─ values.<name> timestamp, value (every DL_VALUE report over the whole log)
-   │  └─ changes       table: timestamp, index, name, from, to, in_flight
+   │  ├─ values.<name> t, value       (every DL_VALUE report over the whole log)
+   │  └─ changes       table: t, index, name, from, to, in_flight
    ├─ checklist
-   │  ├─ items         table: timestamp, item, answer, message
+   │  ├─ items         table: t, item, answer, message
    │  └─ answers.<key> last answer per logged key
    ├─ config
    │  ├─ xml           airframe, flight_plan, settings, radio, telemetry
@@ -86,10 +86,10 @@ s
       ├─ time          takeoff_utc, landing_utc, takeoff_posix, offset_s (log time of takeoff), window_s
       │                (from takeoff), start_s / end_s (log time, to slice a whole-log export)
       ├─ summary       duration, distance, range, positions, battery, landed, verdict, reasons
-      └─ data, unparsed  flight exports only; timestamp 0 = takeoff
+      └─ data, unparsed  flight exports only; t = 0 at takeoff
 ```
 
-`data.<MSG>` holds `timestamp` and one column per field. A field with `alt_unit_coef` is stored converted
+`data.<MSG>` holds the time `t` [s] and one column per field. A field with `alt_unit_coef` is stored converted
 (e.g. deg, double) under its own name; the logged value is `value / s.messages.<MSG>.coef(k)` in `raw_units`.
 Other types: `uint*` uint32, `int*` int32, float double, arrays N×k double padded with NaN, text cellstr. Enum
 fields stay numeric (`s.messages.<MSG>.enums.<field>{v + 1}` names value v). `ACTUATORS` stores each actuator as its
@@ -97,4 +97,4 @@ own column (`ACTUATORS.FRONT_MOT`) when the airframe lists as many servos, else 
 get a trailing `_`. Rows that do not match the protocol are in `unparsed` and counted in `s.log.warnings`.
 
 Example: `s = load('x.mat').s; a = s.aircraft(1); f = a.flights(3); act = f.data.ACTUATORS;`
-`plot(act.timestamp, act.FRONT_MOT); a.settings.values.guidance_h_gains_p.value; a.config.flight_plan.waypoints.HOME.lat`.
+`plot(act.t, act.FRONT_MOT); a.settings.values.guidance_h_gains_p.value; a.config.flight_plan.waypoints.HOME.lat`.

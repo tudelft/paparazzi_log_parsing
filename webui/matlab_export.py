@@ -12,7 +12,7 @@ in large blocks. Three scopes exist:
 
 Inside a flight element timestamps count from that flight's takeoff (``time.offset_s`` converts back to log
 time). Rows that cannot be decoded are kept as text in ``unparsed`` and counted in ``s.log.warnings``; nothing is
-dropped silently. The layout (format 4) is described in matlab/README.md.
+dropped silently. The layout (format 5) is described in matlab/README.md.
 
 Run as a script to convert local files without the Web UI: ``python3 matlab_export.py LOG.data [--flights]``.
 """
@@ -40,7 +40,7 @@ import numpy as np
 
 import storage
 
-EXPORTER_VERSION = "4"
+EXPORTER_VERSION = "5"
 MARGIN_S = 10.0
 MESSAGE_CLASSES = ("telemetry", "ground", "datalink", "alert")  # lookup order of message names
 TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|\S+')
@@ -107,7 +107,7 @@ def parse_protocol(log_text):
             name = _attr(message, "name")
             if not name or name in messages:
                 continue
-            fields, taken = [], {"timestamp"}
+            fields, taken = [], {"t"}
             for field in message.iter("field"):
                 fname = _attr(field, "name")
                 coef = _attr(field, "alt_unit_coef")
@@ -423,7 +423,7 @@ class Columns:
         alternate unit is stored converted (e.g. deg) as double; enum fields stay numeric (names in s.messages)."""
         scalar = [f for f in fields if f["kind"] in NUMERIC_DTYPE]
         data = np.memmap(stream_path, dtype=np.float64, mode="r", shape=(rows, 1 + len(scalar)))
-        targets = [(self.create(group, "timestamp", "float64", 1, rows), 0, 1.0)]
+        targets = [(self.create(group, "t", "float64", 1, rows), 0, 1.0)]
         for j, f in enumerate(scalar, start=1):
             coef = f["alt_unit_coef"]
             targets.append((self.create(group, f["key"], "float64" if coef != 1 else NUMERIC_DTYPE[f["kind"]], 1,
@@ -446,7 +446,7 @@ class Columns:
         starts = np.concatenate(([0], np.cumsum(lens, dtype=np.int64)))
         coef = f["alt_unit_coef"]
         if names and len(names) == width:
-            taken, out = set(group.keys()) | {"timestamp"}, []
+            taken, out = set(group.keys()) | {"t"}, []
             for k, name in enumerate(names):
                 key = matlab_name(name, taken)
                 taken.add(key)
@@ -684,20 +684,20 @@ class LogWriter:
             taken.add(key)
             sg = w.struct(values, key)
             times, vals = reports.get(item.get("index"), (np.zeros(0), np.zeros(0)))
-            w.vector(sg, "timestamp", times)
+            w.vector(sg, "t", times)
             w.vector(sg, "value", vals)
             finish_struct(sg)
         finish_struct(values)
         changes = x.get("setting_changes") or []
         w.table(settings, "changes", {
-            "timestamp": [r.get("time_s") for r in changes], "index": [r.get("idx") for r in changes],
+            "t": [r.get("time_s") for r in changes], "index": [r.get("idx") for r in changes],
             "name": [r.get("var") or "" for r in changes], "from": [r.get("from_value") for r in changes],
             "to": [r.get("to_value") for r in changes], "in_flight": [1 if r.get("in_flight") else 0 for r in changes]})
         finish_struct(settings)
 
         checklist, checks = w.struct(g, "checklist"), x.get("checklist") or []
         w.table(checklist, "items", dict(
-            timestamp=[r.get("time_s") for r in checks],
+            t=[r.get("time_s") for r in checks],
             item=[r.get("checklist_label") or r.get("text", "").split(": ", 1)[0] for r in checks],
             answer=[r.get("checklist_value") if r.get("checklist_label") else
                     (r.get("text", "").split(": ", 1) + [""])[1] for r in checks],
@@ -744,9 +744,9 @@ class LogWriter:
 
 
 def unparsed(w, parent, timestamps, lines):
-    """Rows kept as text: unparsed.timestamp and unparsed.lines (one cell per row)."""
+    """Rows kept as text: unparsed.t and unparsed.lines (one cell per row)."""
     ug = w.struct(parent, "unparsed")
-    w.vector(ug, "timestamp", timestamps)
+    w.vector(ug, "t", timestamps)
     w.cellstr(ug, "lines", lines)
     finish_struct(ug)
 
@@ -776,7 +776,7 @@ def write_messages(w, s, messages):
 
 def export(fastreader, data_gz, log_gz, out_path, info, work_dir, windows=None, progress=lambda fraction: None,
            minimum_free=0, extras=None):
-    """Write the MATLAB file ``out_path`` for one log (format 4, see TECHNICAL.md).
+    """Write the MATLAB file ``out_path`` for one log (format 5, see matlab/README.md).
 
     ``windows`` is None for the whole log, else a list of flight dicts with ``index``, ``ac_id``, ``takeoff_s``,
     ``landing_s`` (None: until the end of the log), ``takeoff_utc`` and ``landing_utc`` in log time as stored by
@@ -1120,7 +1120,7 @@ def convert(fastreader, data_path, out_path, scope="log", progress=lambda fracti
 def main(argv=None):
     import argparse
     here = Path(__file__).resolve().parent
-    parser = argparse.ArgumentParser(description="Convert Paparazzi .data/.log files to MATLAB (format 4), as the "
+    parser = argparse.ArgumentParser(description="Convert Paparazzi .data/.log files to MATLAB (format 5), as the "
                                      "Web UI export does. The .log must be next to its .data (plain or .gz).")
     parser.add_argument("data", nargs="+", help=".data files (or .data.gz)")
     parser.add_argument("--flights", action="store_true", help="only the detected flights, each from 10 s before "
