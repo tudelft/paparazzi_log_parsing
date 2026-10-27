@@ -183,6 +183,35 @@ class MatlabExporterTests(unittest.TestCase):
         settings = file[aircraft["settings"][0, 0]]
         np.testing.assert_allclose(column(settings["gain"]["timestamp"]), [4.5, 40.0])  # whole log, log time
 
+    def test_bulk_groups_flights_of_several_logs_by_aircraft(self):
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (folder / "x.data.gz").write_bytes(gzip.compress(("\n".join(ROWS) + "\n").encode()))
+        (folder / "x.log.gz").write_bytes(gzip.compress(PROTOCOL.encode()))
+        (folder / "work").mkdir()
+        flight = dict(index=1, ac_id=5, takeoff_s=2.0, landing_s=6.0, takeoff_utc=None, landing_utc=None,
+                      aircraft_key="drone:1", aircraft_name="Fleet One", drone_id=1)
+        logs = [dict(data_gz=folder / "x.data.gz", log_gz=folder / "x.log.gz", extras=EXTRAS,
+                     info=dict(name=name, sha256=name, log_type="onboard_sd", size_bytes=1000),
+                     windows=[dict(flight, takeoff_posix=posix)])
+                for name, posix in (("later.data", 200.0), ("first.data", 100.0))]
+        logs.append(dict(logs[0], log_gz=None, info=dict(name="broken.data")))  # skipped with a warning
+        warnings = matlab_export.export_bulk(str(PARSER), logs, folder / "out.mat", folder / "work")
+        file = self.enterContext(h5py.File(folder / "out.mat", "r"))
+        aircraft = file["s"]["aircrafts"]
+        self.assertEqual(aircraft["name"].shape, (1, 1))  # both logs' flights under one fleet aircraft
+        self.assertEqual(text(file, aircraft["name"][0, 0]), "Fleet One")
+        flights = file[aircraft["flights"][0, 0]]
+        self.assertEqual([text(file, file[r]["name"].ref) for r in flights["log"][:, 0]], ["first.data", "later.data"])
+        data = file[flights["data"][0, 0]]
+        np.testing.assert_allclose(column(data["ATTITUDE"]["timestamp"]), [-1.0])
+        self.assertEqual(text(file, file[flights["crew"][0, 0]]["pic"].ref), "Pilot A")  # everything per flight
+        settings = file[flights["settings"][1, 0]]
+        np.testing.assert_allclose(column(settings["gain"]["value"]), [1.0, 2.0])
+        self.assertEqual(file[flights["AC_ID"][0, 0]][0, 0], 5)
+        self.assertIn("ATTITUDE", file["s"]["messages"])
+        self.assertTrue(any(w.startswith("broken.data: not exported") for w in warnings))
+        self.assertFalse(list((folder / "work").iterdir()))  # each log's columns are removed once written
+
     def test_missing_protocol_is_refused(self):
         with self.assertRaises(matlab_export.ExportError):
             matlab_export.parse_protocol("<configuration></configuration>")
@@ -204,8 +233,7 @@ class FakeJobs:
         return Path(__file__)
 
 
-@unittest.skipUnless(h5py is not None, "needs h5py")
-class MatlabExportRouteTests(AppTests):
+class MatlabRouteFixture(AppTests):
     def setUp(self):
         super().setUp()
         self.jobs = FakeJobs()
@@ -225,6 +253,9 @@ class MatlabExportRouteTests(AppTests):
     def ask(self, log_id=1, **body):
         return self.client.post(f"/api/logs/{log_id}/matlab", json=body)
 
+
+@unittest.skipUnless(h5py is not None, "needs h5py")
+class MatlabExportRouteTests(MatlabRouteFixture):
     def test_scopes_windows_and_reuse(self):
         whole, flights, one = self.ask(scope="log"), self.ask(scope="flights"), self.ask(scope="flight", flight_id=10)
         self.assertEqual({whole.status_code, flights.status_code, one.status_code}, {202})
@@ -257,6 +288,51 @@ class MatlabExportRouteTests(AppTests):
         response = self.client.post("/api/logs/1/matlab", json=dict(scope="log"),
                                     headers={"Authorization": "Bearer test-only"})
         self.assertEqual(response.status_code, 403)  # API keys cannot export
+
+
+@unittest.skipUnless(h5py is not None, "needs h5py")
+class MatlabBulkRouteTests(MatlabRouteFixture):
+    def setUp(self):
+        super().setUp()
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,log_path,status,uploaded_at,uploaded_by,project_id,log_type,"
+            "size_bytes) VALUES (3,'26_10_21__09_04_50.data','sha3','c.data.gz','c.log.gz','done','now',2,1,'gcs',100)")
+        self.con.execute("INSERT INTO aircraft(id,log_id,name,ac_id) VALUES (3,3,'Drone',5)")
+        self.con.executemany(
+            "INSERT INTO flights(id,aircraft_id,idx,takeoff_time_s,landing_time_s,verdict) VALUES (?,3,?,?,?,?)",
+            [(30, 0, 50.0, 150.0, "flight"), (31, 1, 500.0, 600.0, "flight")])
+        self.con.commit()
+
+    def bulk(self, entries):
+        return self.client.post("/api/matlab-bulk", json=dict(entries=entries))
+
+    def test_sd_is_preferred_and_logs_are_grouped(self):
+        response = self.bulk([[30, 10], [31], [12, 99]])  # entry 1 has SD and GCS; 99 does not exist
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual((response.json["flights"], response.json["logs"], response.json["skipped"]), (3, 2, 0))
+        self.assertEqual(response.json["filename"], "logbook_3_flights.mat")
+        job = self.jobs.jobs[response.json["id"]]
+        self.assertEqual(job["log_id"], [1, 3])
+        self.assertEqual(self.bulk([[31], [30, 10], [12]]).json["id"], response.json["id"])  # same selection
+        with patch.object(matlab_export, "export_bulk", return_value=[]) as export:
+            job["task"]("out.mat", "work", lambda f: None)
+        items = export.call_args.args[1]
+        by_log = {x["info"]["name"]: [w["takeoff_s"] for w in x["windows"]] for x in items}
+        self.assertEqual(by_log, {"26_10_21__09_04_50_SD.data": [100.0, 400.0], "26_10_21__09_04_50.data": [500.0]})
+        self.assertEqual({w["aircraft_name"] for x in items for w in x["windows"]}, {"Drone"})
+        self.assertEqual(self.client.get(f"/api/matlab-exports/{response.json['id']}").json["status"], "queued")
+
+    def test_bulk_refusals(self):
+        self.assertEqual(self.bulk([]).status_code, 400)
+        self.assertEqual(self.bulk([["10"]]).status_code, 400)
+        self.assertEqual(self.bulk([[99]]).status_code, 409)
+        job = self.bulk([[10], [30]]).json["id"]
+        self.ns["MATLAB_BULK_MAX_LOGS"] = 1
+        self.addCleanup(self.ns.__setitem__, "MATLAB_BULK_MAX_LOGS", 200)
+        self.assertEqual(self.bulk([[10], [30]]).status_code, 400)
+        self.sign_in(4)  # sees neither log
+        self.assertEqual(self.bulk([[10], [30]]).status_code, 409)
+        self.assertEqual(self.client.get(f"/api/matlab-exports/{job}").status_code, 404)
 
 
 @unittest.skipUnless(h5py is not None, "needs h5py")

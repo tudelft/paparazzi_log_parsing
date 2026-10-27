@@ -425,6 +425,18 @@ atomically to `WEB_DATA/exports` (local disk) with a JSON side file and kept two
 `LOGDB_EXPORT_MAX_BYTES` (50 GiB) the oldest go first. `LOGDB_EXPORT_WORKERS` (1) bounds concurrent exports and
 at most 20 may wait. A restart drops queued/running jobs (the page asks again) and removes partial files.
 
+**Bulk MATLAB export.** In the Logbook, **Select** (or Edit mode) shows checkboxes; ticks survive paging and a
+"N selected · MATLAB ▾ · ✕" control in the toolbar exports them. `POST /api/matlab-bulk` takes `entries`, per
+logbook entry the flight ids of its recordings; the server keeps the ones in visible, finished logs, exports the SD
+recording when there is one and else the GCS one (entries without either are counted as `skipped`) and refuses
+more than 200 distinct logs. The job is identified by the chosen flights, their logs and the exporter version, and
+its download re-checks every log. `matlab_export.export_bulk` decodes one log at a time (temporary disk holds one
+log's columns) into one file: `s.aircrafts(i)` has `name` and `drone_id` (fleet aircraft, else the logged name)
+and `flights(k)` in takeoff order. Each flight holds the `flights(k)` fields below, its `data` and `raw` (time 0
+at takeoff), `log` (name, sha256, log type, `time0_utc` / `time0_posix`) and that log's aircraft fields (`AC_ID`,
+logged `name`, `version`, crew, settings, checklist, config…). `s.messages` keeps the first definition of each
+message; a log that cannot be exported is listed in `s.warnings`.
+
 The protocol embedded in the `.log` is parsed in `matlab_export.py`; the stored `.data` is decompressed straight
 into `paparazzi_log_parsing --export-columns` (`cpp/export_columns.cpp`, a separate entry point that leaves normal
 parsing unchanged), which decodes every row into binary column files in a temporary folder under `WEB_DATA/tmp`

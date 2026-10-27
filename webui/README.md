@@ -135,6 +135,9 @@ to gain descriptions and previously omitted crew entries.
   crew, configuration and waypoints; actuators are also named (`ACTUATORS.FRONT_MOT`) and values are in their
   alternate unit (e.g. degrees), the logged value as `<field>_raw`. The file is prepared in the background and
   kept for two weeks; load it with `s = load('file.mat').s`.
+- To export several flights at once, press **Select** in the Logbook (or tick them in Edit mode), tick flights on
+  any page and use **MATLAB ▾** next to "N selected": one `.mat` with each flight's SD log (else GCS), grouped by
+  aircraft (at most 200 logs).
 
 ## Add or correct information
 
