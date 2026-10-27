@@ -103,6 +103,22 @@
       <section id="projectPanel" aria-label="Selected project"></section>
     </div>
   </section>
+  <section class="card" id="authorisationsCard">
+    <div class="project-toolbar"><h2>Authorisations</h2>
+    <details><summary>Help</summary><p>The rules each flight was flown under (its category): national rules (ROC / ROC-light) before EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. A flight's category is, in this order: set on the flight (logbook Edit mode), indoor, that of its project, that of its takeoff location, or the date. By date, flights before 31 Dec 2020 are under national rules; for our own operations, a national authorisation listed here that was valid that day gives national rules, a day without any valid authorisation of ours gives OPEN, and a day with an EU authorisation stays unknown (OPEN or SPECIFIC): set those on the project, the location or the flight. Leave the operator empty for our own authorisations. The logbook marks SPECIFIC flights without an authorisation, or outside its validity, with (check).</p></details></div>
+    <div class="scroll"><table><thead><tr><th>Name / number</th><th>Category</th><th>Holder</th><th>Valid from</th><th>Valid until</th><th>Link</th><th>Note</th><th></th></tr></thead>
+      <tbody id="authorisationRows"></tbody></table></div>
+    <form class="row" id="addAuthorisation" hidden onsubmit="event.preventDefault();saveAuthorisation(null)">
+      <label class="field">Name / number<input id="auNewname" required maxlength="80"></label>
+      <label class="field">Category<select id="auNewcategory"></select></label>
+      <label class="field">Holder<select id="auNewoperator_id"></select></label>
+      <label class="field">Valid from<input type="date" id="auNewvalid_from"></label>
+      <label class="field">Valid until<input type="date" id="auNewvalid_until"></label>
+      <label class="field">Link<input id="auNewlink" maxlength="500"></label>
+      <label class="field">Note<input id="auNewnote" maxlength="400"></label>
+      <button type="submit">Add authorisation</button>
+    </form>
+  </section>
   <section class="card" id="operatorsCard">
     <div class="project-toolbar"><h2>Operators</h2>
     <details><summary>Help</summary><p>The UAS operator registrations flights are flown under. A flight is under, in this order: the operator set on the flight (logbook Edit mode), that of its project, that of its takeoff location, the operator its PIC flies for, or else our own operator. Nothing has to be filled in per flight: mark our own operator, then choose the operator of external crew below. Anyone can add the operator of a new partner in Edit mode (also from the logbook and the paper-record form); only admins change, remove or mark our own. Use the flight filters for own operations only.</p></details></div>
@@ -130,7 +146,7 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
-let projects = [], users = [], me = null, operators = [];
+let projects = [], users = [], me = null, operators = [], authorisations = [];
 let selectedProject = null;
 let memberQuery = '';
 const ticksOf = role => ({see: !!role, upload: role === 'add' || role === 'full', del: role === 'full'});
@@ -189,6 +205,7 @@ async function load() {
       users = [];
     }
     operators = (await read('/api/operators')).operators;
+    authorisations = (await read('/api/authorisations')).authorisations;
     render();
   } catch (error) {
     $('err').textContent = `Could not load projects: ${error.message}`;
@@ -215,6 +232,9 @@ function renderProjectPanel() {
       <label class="field">Operator of its flights<select onchange="send('/api/admin/projects/${p.id}', 'PUT', {operator_id: this.value ? +this.value : null})">
         <option value="">Own operator, or the takeoff location's</option>
         ${operators.map(o => `<option value="${o.id}"${o.id === p.operator_id ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('')}</select></label></form>
+    <form class="row" onsubmit="event.preventDefault()">
+      <label class="field">Category of its flights<select onchange="send('/api/admin/projects/${p.id}', 'PUT', categoryChoice(this.value))">
+        <option value="">From the takeoff location or date</option>${categoryOptions(authorisations, categoryValue(p))}</select></label></form>
     <h4>Members (${(p.members || []).length})</h4>
     ${(p.members || []).map(m => `<div class="person"><a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a>
       ${tickBoxes('m' + p.id + '_' + m.user_id, m.role, `saveTicks(${p.id}, ${m.user_id})`)}</div>`).join('') || '<p class="mute">No members yet.</p>'}
@@ -265,8 +285,42 @@ function deleteOperator(id) {
   const o = operators.find(x => x.id === id);
   if (confirm('Delete operator ' + (o ? o.name : '') + '?')) send('/api/admin/operators/' + id, 'DELETE');
 }
+// Authorisations (#62): admins keep the catalog; everyone can read it.
+const AUTH_CATEGORIES = ['national', 'specific', 'luc'];
+function renderAuthorisations() {
+  const ed = editing();
+  const holderOptions = id => '<option value="">Our own operator</option>' + operators.map(o =>
+    `<option value="${o.id}"${o.id === id ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('');
+  const categoryOpts = c => AUTH_CATEGORIES.map(k => `<option value="${k}"${k === c ? ' selected' : ''}>${CATEGORY_LABELS[k]}</option>`).join('');
+  const text = (a, key, max, type = 'text') => ed ? `<input type="${type}" id="au${a.id}${key}" value="${esc(a[key] || '')}"${max ? ` maxlength="${max}"` : ''}>` : esc(a[key] || '');
+  $('authorisationRows').innerHTML = authorisations.map(a => `<tr><td>${text(a, 'name', 80)}</td>
+    <td>${ed ? `<select id="au${a.id}category">${categoryOpts(a.category)}</select>` : CATEGORY_LABELS[a.category]}</td>
+    <td>${ed ? `<select id="au${a.id}operator_id">${holderOptions(a.operator_id)}</select>` : esc(operators.find(o => o.id === a.operator_id)?.name || 'Our own operator')}</td>
+    <td>${text(a, 'valid_from', 0, 'date')}</td><td>${text(a, 'valid_until', 0, 'date')}</td>
+    <td>${ed ? text(a, 'link', 500) : a.link && /^https?:\/\//.test(a.link) ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">Open</a>` : esc(a.link || '')}</td>
+    <td>${text(a, 'note', 400)}</td>
+    <td>${ed ? `<button type="button" onclick="saveAuthorisation(${a.id})">Save</button> <button type="button" class="danger" onclick="deleteAuthorisation(${a.id})">Delete</button>` : ''}</td></tr>`).join('')
+    || `<tr><td colspan="8" class="mute">No authorisations yet${ed ? '. Add our ROC(s) and operational authorisations with their validity.' : '.'}</td></tr>`;
+  $('addAuthorisation').hidden = !ed;
+  if (ed) {
+    $('auNewcategory').innerHTML = categoryOpts($('auNewcategory').value || 'specific');
+    $('auNewoperator_id').innerHTML = holderOptions(+$('auNewoperator_id').value || null);
+  }
+}
+function saveAuthorisation(id) {
+  const key = id === null ? 'New' : id;
+  const body = Object.fromEntries(['name', 'category', 'operator_id', 'valid_from', 'valid_until', 'link', 'note'].map(k => [k, $('au' + key + k).value]));
+  body.operator_id = body.operator_id ? +body.operator_id : null;
+  send(id === null ? '/api/admin/authorisations' : '/api/admin/authorisations/' + id, id === null ? 'POST' : 'PUT', body)
+    .then(() => { if (id === null && !$('err').textContent) $('addAuthorisation').reset(); });
+}
+function deleteAuthorisation(id) {
+  const a = authorisations.find(x => x.id === id);
+  if (confirm('Delete authorisation ' + (a ? a.name : '') + '?')) send('/api/admin/authorisations/' + id, 'DELETE');
+}
 function render() {
   renderOperators();
+  renderAuthorisations();
   const q = $('projectSearch').value.trim().toLocaleLowerCase();
   const shown = projects.filter(p => [p.name,...(p.members || []).flatMap(m => [m.display_name,m.username])]
     .filter(Boolean).some(v => v.toLocaleLowerCase().includes(q)));

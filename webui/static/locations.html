@@ -72,7 +72,7 @@
       <span id="shapeError" role="alert"></span>
     </div>
     <div id="nameForm" style="margin-top:8px" hidden>
-      <span id="nameLabel"></span> <input id="placeName" size="30" maxlength="80" placeholder="Name"> <label><input type="checkbox" id="placeIndoor"> Indoors</label> <label title="A site that runs its own operation, such as a test centre: flights here are under that operator unless set otherwise">Operator <select id="placeOperator"></select></label> <button id="nameSave">Save</button> <button id="nameCancel" class="sec">Cancel</button>
+      <span id="nameLabel"></span> <input id="placeName" size="30" maxlength="80" placeholder="Name"> <label><input type="checkbox" id="placeIndoor"> Indoors</label> <label title="A site that runs its own operation, such as a test centre: flights here are under that operator unless set otherwise">Operator <select id="placeOperator"></select></label> <label title="The rules flights here are flown under, e.g. SPECIFIC with the authorisation a site needs, unless the flight or its project says otherwise">Category <select id="placeCategory"></select></label> <button id="nameSave">Save</button> <button id="nameCancel" class="sec">Cancel</button>
     </div>
     <p id="importSection" hidden><button type="button" class="sec" onclick="$('importPlacesDialog').showModal()">Import places from CSV</button></p>
     <dialog class="entry-dialog" id="importPlacesDialog" aria-labelledby="importPlacesTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
@@ -212,15 +212,17 @@ async function saveShape() {
     else if (filtersPending) $('err').textContent = 'Filter refresh is waiting. Retry saving the boundary or cancel the edit.';
   }
 }
-let operators = [];
+let operators = [], authorisations = [];
 fetch('/api/operators').then(r => r.json()).then(d => { operators = d.operators || []; if (placeData) renderTable(); });
+fetch('/api/authorisations').then(r => r.json()).then(d => { authorisations = d.authorisations || []; });
 const operatorName = id => operators.find(o => o.id === id)?.name;
-function askName(mode, label, value, indoor = false, operatorId = null) {
+function askName(mode, label, value, indoor = false, operatorId = null, category = '') {
   cancelShape();
   naming = mode;
   $('placeIndoor').checked = indoor;
   $('placeOperator').innerHTML = '<option value="">Own operator, or the project\'s</option>' + operators.map(o =>
     `<option value="${o.id}"${o.id === operatorId ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('');
+  $('placeCategory').innerHTML = '<option value="">From the project or date</option>' + categoryOptions(authorisations, category);
   $('nameLabel').textContent = label;
   $('placeName').value = value;
   $('nameForm').hidden = false;
@@ -234,10 +236,11 @@ function closeName() {
 async function saveName() {
   const name = $('placeName').value.trim();
   if (!name || !naming) return;
-  const n = naming, indoor = $('placeIndoor').checked, operator_id = $('placeOperator').value ? +$('placeOperator').value : null;
+  const n = naming, indoor = $('placeIndoor').checked, operator_id = $('placeOperator').value ? +$('placeOperator').value : null,
+    category = categoryChoice($('placeCategory').value);
   closeName();
-  if (n.kind === 'new') await send('POST', '/api/admin/places', {name, shape: n.shape, indoor, operator_id});
-  else await send('PUT', '/api/admin/places/' + n.id, {name, indoor, operator_id});
+  if (n.kind === 'new') await send('POST', '/api/admin/places', {name, shape: n.shape, indoor, operator_id, ...category});
+  else await send('PUT', '/api/admin/places/' + n.id, {name, indoor, operator_id, ...category});
 }
 
 function initMap() {
@@ -464,7 +467,7 @@ function zoomPlace(id) {
 }
 function renamePlace(id) {
   const cur = placeData.places.find(p => p.id === id);
-  askName({kind: 'rename', id}, 'Name and type:', cur.name, cur.indoor, cur.operator_id);
+  askName({kind: 'rename', id}, 'Name and type:', cur.name, cur.indoor, cur.operator_id, categoryValue(cur));
 }
 // Check first (preview=1 writes nothing), then import the same file.
 async function importPlaces(preview) {

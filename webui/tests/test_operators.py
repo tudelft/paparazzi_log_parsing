@@ -100,7 +100,7 @@ class OperatorTests(LinkFixtures):
     def test_operator_is_not_part_of_the_record_fingerprint(self):
         record = self.create(date="2010-01-05").json["id"]
         row = dict(self.con.execute("SELECT * FROM flight_records WHERE id=?", (record,)).fetchone())
-        before = {k: row[k] for k in historical.FIELDS if k != "operator_id"}
+        before = {k: row[k] for k in historical.FIELDS if k not in ("operator_id", "category", "authorisation_id")}
         legacy = hashlib.sha256(json.dumps(before, sort_keys=True, allow_nan=False).encode()).hexdigest()
         self.assertEqual(row["fingerprint"], legacy)  # records stored before operators keep their identity
         self.assertEqual(self.create(date="2010-01-05", operator_id=2).status_code, 409)  # same record

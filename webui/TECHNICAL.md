@@ -1321,6 +1321,37 @@ Statistics, Locations (`/api/places?operator=`) and overview pages.
   default. A CSV without that column leaves the operator of existing records as it is. The operator is not
   part of a record's fingerprint, so changing it updates the record instead of creating another one.
 
+### Operation category per flight
+
+`categories.py` records the rules each flight was flown under: `national` (ROC / ROC-light, before Regulation
+(EU) 2019/947), `open`, `specific`, `luc` or `indoor`. The `authorisations` table lists the ROCs, operational
+authorisations and LUCs (name, category, holder operator or NULL for our own, `valid_from`/`valid_until`
+inclusive, link, note); choosing an authorisation sets its category. The category of a logbook entry is, in this
+order:
+
+1. set on the flight (`flights.category`/`authorisation_id`, kept across a re-parse) or on the paper record; a
+   paper record linked to logged flights also sets it for that entry;
+2. `indoor` for an indoor flight;
+3. the project (`projects.category`/`authorisation_id`);
+4. the takeoff place (`places.category`/`authorisation_id`), e.g. a site that needs an authorisation;
+5. the date: before 31 Dec 2020 every flight was under national rules. For our own operations (the resolved
+   operator is ours) with authorisations in the catalog, a national authorisation valid that day (the newest if
+   several) gives `national` with it, and a day without any valid authorisation of ours gives `open`; on a day with
+   a valid EU authorisation the flight could be OPEN or SPECIFIC, so it stays unknown.
+
+Only step 1 is stored per flight. Logbook rows carry `category`, `category_label`, `category_source` (`flight`,
+`indoor`, `project`, `place`, `date` or null), `authorisation_id`, `authorisation_name` and `category_check`
+(own entries: SPECIFIC without an authorisation, or a date outside the authorisation's validity). The shared
+flight filters (`category=all|national|open|specific|luc|indoor|unknown|check`) apply it like the operator filter.
+
+- `GET /api/authorisations`: the catalog and category labels. Admins: `POST /api/admin/authorisations`,
+  `PUT`/`DELETE /api/admin/authorisations/<id>`; a `PUT` keeps the fields it leaves out and moves the category of
+  everything that names it along; one still in use cannot be deleted.
+- `PUT /api/logbook/records`, `PUT /api/admin/projects/<id>`, `POST`/`PUT /api/admin/places` and the paper-record
+  API take `category` and/or `authorisation_id`; both empty return to the default.
+- Paper-record CSV: optional `category` (key or label) and `authorisation` (name) columns. Like the operator, they
+  are not part of a record's fingerprint, and a CSV without them leaves existing records as they are.
+
 **Edit mode.** The Edit button in the menu bar shows the forms and menus to change things on the Logbook, People,
 Projects, Aircraft and Locations pages; it stays on until you turn it off. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
