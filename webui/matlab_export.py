@@ -5,15 +5,17 @@ every .data row into plain binary column files, and this module writes those int
 in large blocks. Three scopes exist:
 
 * ``log``: the whole log, every aircraft and message, with the original log timestamps
-  (``s.aircrafts(i).data.MSG.field``, close to ``matlab/tools/parselog.m``).
-* ``flights``: one element of ``s.flights`` per detected flight of the log (ground records excluded),
-  each holding every aircraft's rows from 10 s before takeoff until 10 s after landing.
+  (``s.aircraft(i).data.MSG.field``).
+* ``flights``: one element of ``s.aircraft(i).flights`` per detected flight of the log (ground records excluded),
+  each holding that aircraft's rows from 10 s before takeoff until 10 s after landing.
 * ``flight``: the same for a single flight.
 
-Inside a flight element timestamps count from that flight's takeoff (``time_offset_s`` converts back to log
-time). Rows that cannot be decoded are kept as text in ``raw`` and counted in ``s.warnings``; nothing is dropped
-silently. See TECHNICAL.md ("MATLAB export") for the layout.
+Inside a flight element timestamps count from that flight's takeoff (``time.offset_s`` converts back to log
+time). Rows that cannot be decoded are kept as text in ``unparsed`` and counted in ``s.log.warnings``; nothing is
+dropped silently. See TECHNICAL.md ("MATLAB export") for the layout (format 4).
 """
+import collections
+import contextlib
 import concurrent.futures
 import datetime
 import gzip
@@ -27,6 +29,7 @@ import subprocess
 import tempfile
 import threading
 import xml.etree.ElementTree as ET
+import zipfile
 import zlib
 from pathlib import Path
 
@@ -35,7 +38,7 @@ import numpy as np
 
 import storage
 
-EXPORTER_VERSION = "3"
+EXPORTER_VERSION = "4"
 MARGIN_S = 10.0
 MESSAGE_CLASSES = ("telemetry", "ground", "datalink", "alert")  # lookup order, as in parselog.m
 TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|\S+')
@@ -107,7 +110,7 @@ def parse_protocol(log_text):
                 fname = _attr(field, "name")
                 coef = _attr(field, "alt_unit_coef")
                 key = matlab_name(fname, taken)
-                taken.update((key, key + "_raw", key + "_name"))
+                taken.add(key)
                 values = [v.strip() for v in _attr(field, "values").split("|")] if _attr(field, "values") else []
                 fields.append(dict(name=fname, key=key, type=_attr(field, "type"), kind=field_kind(_attr(field, "type")),
                                    unit=_attr(field, "unit"), alt_unit=_attr(field, "alt_unit"),
@@ -126,8 +129,36 @@ def parse_protocol(log_text):
 # ---------------------------------------------------------------------------------------------------------------------
 # MATLAB v7.3 writer helpers
 # ---------------------------------------------------------------------------------------------------------------------
+_SCALAR = h5py.h5s.create(h5py.h5s.SCALAR)
+_TYPES = {}
+
+
+def _attr_fast(obj_id, name, value):
+    """Write a scalar attribute with the low-level API; h5py's attrs.create dominated exports with many fields."""
+    value = np.asarray(value)
+    key = value.dtype.str if value.dtype.kind != "S" else ("S", value.dtype.itemsize)
+    tid = _TYPES.get(key)
+    if tid is None:
+        if value.dtype.kind == "S":
+            tid = h5py.h5t.C_S1.copy()
+            tid.set_size(value.dtype.itemsize)
+            tid.set_strpad(h5py.h5t.STR_NULLPAD)  # as h5py writes numpy bytes
+        else:
+            tid = h5py.h5t.py_create(value.dtype)
+        _TYPES[key] = tid
+    h5py.h5a.create(obj_id, name, tid, _SCALAR).write(np.ascontiguousarray(value))
+
+
 def _class(obj, cls):
-    obj.attrs.create("MATLAB_class", np.bytes_(cls))
+    _attr_fast(obj.id, b"MATLAB_class", np.bytes_(cls))
+
+
+class Column:
+    """What Columns.put needs of a dataset created with the low-level API."""
+    __slots__ = ("id", "chunks", "dtype")
+
+    def __init__(self, dsid, chunks, dtype):
+        self.id, self.chunks, self.dtype = dsid, chunks, dtype
 
 
 def _fields_attr(group, names):
@@ -323,36 +354,49 @@ class Columns:
 
     HDF5 compresses on one core, which dominated large exports. The chunks are therefore compressed with zlib
     on a thread pool (zlib releases the GIL) and stored with write_direct_chunk; the file is the same as with
-    h5py's own gzip filter."""
+    h5py's own gzip filter. Chunks are queued across columns and written in order once compressed, so the
+    threads stay busy also for the many small columns of a flight export."""
+
+    PENDING = 256  # compressed chunks waiting to be written (bounded memory)
 
     def __init__(self, writer):
         self.w = writer
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(8, os.cpu_count() or 1)))
+        self.pending = collections.deque()
+        self.plists = {}
 
-    def close(self):
-        self.pool.shutdown()
+    def flush(self, keep=0):
+        while len(self.pending) > keep:
+            ds, offset, job = self.pending.popleft()
+            ds.id.write_direct_chunk(offset, job.result())
+
+    def close(self, flush=True):
+        try:
+            if flush:
+                self.flush()
+        finally:
+            self.pending.clear()
+            self.pool.shutdown(cancel_futures=True)
 
     def create(self, parent, name, dtype, width, rows):
-        ds = parent.create_dataset(name, shape=(width, rows), dtype=dtype, compression="gzip", compression_opts=1,
-                                   chunks=(width, min(rows, 65536)) if width <= 16 else (min(width, 64), min(rows, 4096)),
-                                   fillvalue=np.nan if dtype == "float64" else 32 if dtype == "uint16" else 0)
-        _class(ds, MATLAB_CLASS[np.dtype(dtype)])
-        if dtype == "uint16":
-            ds.attrs.create("MATLAB_int_decode", np.int32(2))
-        return ds
-
-    def names(self, group, name, codes, table, rows, i0, created):
-        """Per-row names as an N×L MATLAB char matrix (space padded): ``table[code]``, blank when out of range."""
-        width = max((len(t) for t in table), default=0)
-        if not width:
-            return
-        if name not in created:
-            created[name] = self.create(group, name, "uint16", width, rows)
-        lookup = np.full((len(table) + 1, width), 32, dtype=np.uint16)  # last row: blank
-        for k, t in enumerate(table):
-            lookup[k, :len(t)] = [ord(ch) if ord(ch) < 0x10000 else 0xFFFD for ch in t]
-        idx = np.where((codes >= 0) & (codes < len(table)) & np.isfinite(codes), codes, len(table)).astype(np.int64)
-        self.put(created[name], lookup[idx].T, i0)
+        """A deflate-chunked width×rows dataset (MATLAB rows×width), created with cached property lists."""
+        dtype = np.dtype(dtype)
+        chunks = (width, min(rows, 65536)) if width <= 16 else (min(width, 64), min(rows, 4096))
+        dcpl = self.plists.get((dtype, chunks))
+        if dcpl is None:
+            dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
+            dcpl.set_chunk(chunks)
+            dcpl.set_deflate(1)
+            fill = np.nan if dtype == np.float64 else 32 if dtype == np.uint16 else 0
+            dcpl.set_fill_value(np.array(fill, dtype=dtype))
+            dcpl.set_fill_time(h5py.h5d.FILL_TIME_IFSET)
+            self.plists[(dtype, chunks)] = dcpl
+        space = h5py.h5s.create_simple((width, rows))
+        dsid = h5py.h5d.create(parent.id, name.encode(), h5py.h5t.py_create(dtype), space, dcpl=dcpl)
+        _attr_fast(dsid, b"MATLAB_class", np.bytes_(MATLAB_CLASS[dtype]))
+        if dtype == np.uint16:
+            _attr_fast(dsid, b"MATLAB_int_decode", np.int32(2))
+        return Column(dsid, chunks, dtype)
 
     def put(self, ds, block, col0):
         """Write ``block`` (all dataset rows × some columns, starting at a chunk boundary ``col0``)."""
@@ -367,73 +411,46 @@ class Columns:
                 part = full
             return zlib.compress(part.tobytes(), 1)
 
-        jobs = [((r0, col0 + c0), self.pool.submit(tile, r0, c0))
-                for r0 in range(0, block.shape[0], ch_r) for c0 in range(0, block.shape[1], ch_c)]
-        for offset, job in jobs:
-            ds.id.write_direct_chunk(offset, job.result())
+        for r0 in range(0, block.shape[0], ch_r):
+            for c0 in range(0, block.shape[1], ch_c):
+                self.pending.append((ds, (r0, col0 + c0), self.pool.submit(tile, r0, c0)))
+        self.flush(self.PENDING)
 
-    def scalars(self, group, stream_path, rows, fields, shift, nav=None):
-        """Timestamp plus the scalar numeric fields from rows of [time, field...] doubles.
-
-        A field with an alternate unit is stored converted (e.g. deg) under its own name, with the logged value as
-        ``<field>_raw``. Enum fields (``values`` in the protocol) get ``<field>_name``; ``nav`` (block names and
-        per-block stage names) adds ``cur_block_name`` / ``cur_stage_name``."""
+    def scalars(self, group, stream_path, rows, fields, shift):
+        """Timestamp plus the scalar numeric fields from rows of [time, field...] doubles. A field with an
+        alternate unit is stored converted (e.g. deg) as double; enum fields stay numeric (names in s.messages)."""
         scalar = [f for f in fields if f["kind"] in NUMERIC_DTYPE]
         data = np.memmap(stream_path, dtype=np.float64, mode="r", shape=(rows, 1 + len(scalar)))
         targets = [(self.create(group, "timestamp", "float64", 1, rows), 0, 1.0)]
-        position = {}
         for j, f in enumerate(scalar, start=1):
-            position[f["name"]] = j
-            if f["alt_unit_coef"] != 1:
-                targets.append((self.create(group, f["key"], "float64", 1, rows), j, f["alt_unit_coef"]))
-                targets.append((self.create(group, f["key"] + "_raw", NUMERIC_DTYPE[f["kind"]], 1, rows), j, 1.0))
-            else:
-                targets.append((self.create(group, f["key"], NUMERIC_DTYPE[f["kind"]], 1, rows), j, 1.0))
-        blocks, stages = nav or ([], [])
-        flat = [name for per_block in stages for name in per_block]
-        offsets = np.cumsum([0] + [len(per_block) for per_block in stages])
-        created = {}
+            coef = f["alt_unit_coef"]
+            targets.append((self.create(group, f["key"], "float64" if coef != 1 else NUMERIC_DTYPE[f["kind"]], 1,
+                                        rows), j, coef))
         for i0 in range(0, rows, CHUNK_ROWS):
             block = np.asarray(data[i0:i0 + CHUNK_ROWS])
             for ds, j, coef in targets:
                 col = block[:, j] - shift if j == 0 else block[:, j] * coef if coef != 1 else block[:, j]
                 self.put(ds, col.reshape(1, -1), i0)
-            for j, f in enumerate(scalar, start=1):
-                if f["values"]:
-                    self.names(group, f["key"] + "_name", block[:, j], f["values"], rows, i0, created)
-            if blocks and "cur_block" in position:
-                cur = block[:, position["cur_block"]]
-                self.names(group, "cur_block_name", cur, blocks, rows, i0, created)
-                if "cur_stage" in position and flat:
-                    stage = block[:, position["cur_stage"]]
-                    valid = (cur >= 0) & (cur < len(stages)) & np.isfinite(cur)
-                    b = np.where(valid, cur, 0).astype(np.int64)
-                    per = np.array([len(x) for x in stages] + [0])[np.where(valid, b, len(stages))]
-                    code = np.where(valid & (stage >= 0) & (stage < per), offsets[b] + stage, -1)
-                    self.names(group, "cur_stage_name", code, flat, rows, i0, created)
         del data
 
     def array(self, group, f, len_path, val_path, rows, width, names=None):
-        """A numeric array field as an N×width matrix, shorter rows padded with NaN. With ``names`` (one per
-        column, e.g. actuator names) every column is also stored as its own N×1 field."""
+        """A numeric array field as an N×width matrix in its converted unit, shorter rows padded with NaN. With
+        ``names`` (one per column, e.g. actuator names) each column is stored as its own N×1 field instead."""
         if width == 0:
             self.w.empty(group, f["key"])
-            if f["alt_unit_coef"] != 1:
-                self.w.empty(group, f["key"] + "_raw")
             return
         lens = np.fromfile(len_path, dtype=np.uint32)
         values = np.memmap(val_path, dtype=np.float64, mode="r") if lens.sum() else np.zeros(0)
         starts = np.concatenate(([0], np.cumsum(lens, dtype=np.int64)))
-        out = [(self.create(group, f["key"], "float64", width, rows), f["alt_unit_coef"])]  # converted unit
-        if f["alt_unit_coef"] != 1:
-            out.append((self.create(group, f["key"] + "_raw", "float64", width, rows), 1.0))
-        named = []
+        coef = f["alt_unit_coef"]
         if names and len(names) == width:
-            taken = set(group.keys()) | {"timestamp", "names", f["key"], f["key"] + "_raw"}
+            taken, out = set(group.keys()) | {"timestamp"}, []
             for k, name in enumerate(names):
                 key = matlab_name(name, taken)
                 taken.add(key)
-                named.append((self.create(group, key, "float64", 1, rows), k))
+                out.append((self.create(group, key, "float64", 1, rows), slice(k, k + 1)))
+        else:
+            out = [(self.create(group, f["key"], "float64", width, rows), slice(None))]
         for i0 in range(0, rows, CHUNK_ROWS):
             n = min(CHUNK_ROWS, rows - i0)
             seg_lens = lens[i0:i0 + n].astype(np.int64)
@@ -445,10 +462,10 @@ class Columns:
                 row = np.repeat(np.arange(n), seg_lens)
                 col = np.arange(vals.size) - np.repeat(starts[i0:i0 + n] - starts[i0], seg_lens)
                 block[col, row] = vals
-            for ds, coef in out:
-                self.put(ds, block * coef if coef != 1 else block, i0)
-            for ds, k in named:
-                self.put(ds, block[k:k + 1] * f["alt_unit_coef"] if f["alt_unit_coef"] != 1 else block[k:k + 1], i0)
+            if coef != 1:
+                block *= coef
+            for ds, part in out:
+                self.put(ds, block[part], i0)
         del values
 
 
@@ -544,16 +561,17 @@ class DecodedLog:
     def warnings(self):
         extra, out = self.extra, []
         if extra["top"]:
-            out.append(f"{extra['top']} rows without a valid timestamp or aircraft id are kept as text in s.raw.")
+            out.append(f"{extra['top']} rows without a valid timestamp or aircraft id are kept as text in "
+                       "s.log.unparsed.")
         for name, n in sorted(extra["unknown"].items()):
-            out.append(f"{n} rows of {name}: message not in the embedded protocol; kept as text in raw.")
+            out.append(f"{n} rows of {name}: message not in the embedded protocol; kept as text in unparsed.")
         for name, n in sorted(extra["rejected"].items()):
-            out.append(f"{n} rows of {name}: fields did not match the protocol; kept as text in raw.")
+            out.append(f"{n} rows of {name}: fields did not match the protocol; kept as text in unparsed.")
         return out
 
 
 class LogWriter:
-    """Writes the parts of one DecodedLog into a MATLAB file (data, settings, checklist, config, flights)."""
+    """Writes the parts of one DecodedLog into a MATLAB file: aircraft, settings, checklist, config, flights."""
 
     def __init__(self, w, c, log, extras, progress=lambda f: None):
         self.w, self.c, self.log, self.extras, self.progress = w, c, log, extras or {}, progress
@@ -562,42 +580,32 @@ class LogWriter:
     def config_names(self, ac):
         extra = self.log.extra
         conf = ac if ac in extra["blocks"] or ac in extra["servos"] else -1  # airframe without ac_id
-        return (extra["blocks"].get(conf, []), extra["stages"].get(conf, [])), extra["servos"].get(conf, [])
-
-    def aircraft_identity(self, g, ac):
-        w, version = self.w, self.log.versions.get(ac)
-        w.number(g, "AC_ID", ac)
-        w.char(g, "name", self.log.names.get(ac, ""))
-        w.number(g, "version", version[0] if version else None)
-        w.char(g, "version_desc", version[1] if version else "")
+        return extra["blocks"].get(conf, []), extra["stages"].get(conf, []), extra["servos"].get(conf, [])
 
     def write_data(self, g, window, ac, shift):
+        """data.<MSG> and the rows kept as text (unparsed) of one aircraft in one window, time minus ``shift``."""
         w, c, log = self.w, self.c, self.log
-        nav, servos = self.config_names(ac)
+        servos = self.config_names(ac)[2]
         data = w.struct(g, "data")
         for st in sorted(log.by_window.get(window, {}).get(ac, []), key=lambda x: x["msg"]):
             m = log.messages[st["msg"]]
             mg = w.struct(data, m["key"])
             stem = log.cols / f"s{st['id']}"
-            c.scalars(mg, f"{stem}.f64", st["rows"], m["fields"], shift, nav)
+            c.scalars(mg, f"{stem}.f64", st["rows"], m["fields"], shift)
             for j, f in enumerate(m["fields"]):
                 if f["kind"] == "array":
-                    width = log.arrays.get((st["id"], j), 0)
-                    actuators = servos if m["name"] == "ACTUATORS" else None
-                    c.array(mg, f, f"{stem}_a{j}.len", f"{stem}_a{j}.f64", st["rows"], width, actuators)
-                    if actuators and len(actuators) == width and "names" not in mg:
-                        w.cellstr(mg, "names", actuators)  # values(:, k) is names{k}, also stored by name
+                    names = servos if m["name"] == "ACTUATORS" else None  # ACTUATORS.FRONT_MOT
+                    c.array(mg, f, f"{stem}_a{j}.len", f"{stem}_a{j}.f64", st["rows"],
+                            log.arrays.get((st["id"], j), 0), names)
                 elif f["kind"] == "text":
                     w.cellstr(mg, f["key"], _read_lines(Path(f"{stem}_t{j}.txt"))[:st["rows"]])
             finish_struct(mg)
             self.done += 1
             self.progress(self.done / self.total)
         finish_struct(data)
-        raw = w.struct(g, "raw")
         rows = log.raws.get((window, ac), 0)
-        w.vector(raw, "timestamp", _times(log.cols / f"r{window}_{ac}.f64", rows, shift))
-        w.char(raw, "lines", "\n".join(_read_lines(log.cols / f"r{window}_{ac}.txt")))
-        finish_struct(raw)
+        unparsed(w, g, _times(log.cols / f"r{window}_{ac}.f64", rows, shift),
+                 _read_lines(log.cols / f"r{window}_{ac}.txt"))
 
     def setting_values(self, ac):
         """Every DL_VALUE report of this aircraft (log time), split by setting index."""
@@ -613,34 +621,40 @@ class LogWriter:
         index, value = data[:, 1 + scalar.index("index")], data[:, 1 + scalar.index("value")]
         return {int(i): (data[index == i, 0], value[index == i]) for i in np.unique(index)}
 
-    def flight_fields(self, g, span, window):
-        """Times, summary and assessment of a flight; with ``window`` also its data (time 0 at takeoff)."""
+    def flight(self, g, span, window):
+        """One flights(k) element: index, time, summary; with ``window`` also its data (time 0 at takeoff)."""
         w = self.w
         w.number(g, "index", span["index"])
-        w.char(g, "takeoff_utc", span.get("takeoff_utc"))
-        w.char(g, "landing_utc", span.get("landing_utc"))
-        w.number(g, "takeoff_posix", span.get("takeoff_posix"))
-        w.number(g, "time_offset_s", span["takeoff_s"])  # log time of takeoff
-        w.number(g, "start_s", span["start"])  # log time of the window, e.g. to slice a whole-log export
-        w.number(g, "end_s", span["end"])
-        w.vector(g, "window_s", [span["start"] - span["takeoff_s"], span["end"] - span["takeoff_s"]])
+        tg = w.struct(g, "time")
+        w.char(tg, "takeoff_utc", span.get("takeoff_utc"))
+        w.char(tg, "landing_utc", span.get("landing_utc"))
+        w.number(tg, "takeoff_posix", span.get("takeoff_posix"))
+        w.number(tg, "offset_s", span["takeoff_s"])  # log time of takeoff
+        w.vector(tg, "window_s", [span["start"] - span["takeoff_s"], span["end"] - span["takeoff_s"]])
+        w.number(tg, "start_s", span["start"])  # log time of the window, e.g. to slice a whole-log export
+        w.number(tg, "end_s", span["end"])
+        finish_struct(tg)
         sg = w.struct(g, "summary")
         for key, value in (span.get("summary") or {}).items():
             w.char(sg, key, value) if isinstance(value, str) else w.number(sg, key, value)
-        finish_struct(sg)
-        ag = w.struct(g, "assessment")
         assessment = span.get("assessment") or {}
-        w.char(ag, "verdict", assessment.get("verdict") or "")
-        w.cellstr(ag, "reasons", assessment.get("reasons") or [])
-        finish_struct(ag)
+        w.char(sg, "verdict", assessment.get("verdict") or "")
+        w.cellstr(sg, "reasons", assessment.get("reasons") or [])
+        finish_struct(sg)
         if window is not None:
             self.write_data(g, window, span["ac_id"], span["takeoff_s"])
 
-    def aircraft_extras(self, g, ac):
-        """Crew, simulation, settings, checklist and configuration of one aircraft in this log (log time)."""
-        w, x = self.w, self.extras.get("aircraft", {}).get(ac, {})
-        blocks = self.config_names(ac)[0][0]
-        values = self.setting_values(ac)
+    def aircraft(self, g, ac):
+        """id, name, version, crew, simulation, settings, checklist and config of one aircraft (log time)."""
+        w, x, log = self.w, self.extras.get("aircraft", {}).get(ac, {}), self.log
+        blocks, stages, servos = self.config_names(ac)
+        w.number(g, "id", ac)
+        w.char(g, "name", log.names.get(ac, ""))
+        version = log.versions.get(ac)
+        vg = w.struct(g, "version")
+        w.number(vg, "number", version[0] if version else None)
+        w.char(vg, "desc", version[1] if version else "")
+        finish_struct(vg)
         crew = w.struct(g, "crew")  # as written in the log, not account names
         for key in ("pic", "pac", "gcs", "goal"):
             w.char(crew, key, x.get(key) or "")
@@ -651,77 +665,83 @@ class LogWriter:
         w.number(sim, "detected", 1 if simulation and simulation.get("detected") else 0)
         w.cellstr(sim, "evidence", (simulation or {}).get("evidence") or [])
         finish_struct(sim)
-        items = x.get("settings") or []
-        w.table(g, "settings_list", dict(
+
+        settings, items, reports = w.struct(g, "settings"), x.get("settings") or [], self.setting_values(ac)
+        w.table(settings, "list", dict(
             index=[i.get("index") for i in items], var=[i.get("var") for i in items],
             shortname=[i.get("shortname") for i in items], unit=[i.get("unit") for i in items],
             parent=[i.get("parent") for i in items]))
-        settings, taken = w.struct(g, "settings"), set()
-        for item in items:  # settings.<name>: every reported value of that setting
+        values, taken = w.struct(settings, "values"), set()
+        for item in items:  # settings.values.<name>: every reported value of that setting
             key = matlab_name(item.get("var") or f"setting_{item.get('index')}", taken)
             taken.add(key)
-            sg = w.struct(settings, key)
-            w.number(sg, "index", item.get("index"))
-            w.char(sg, "var", item.get("var") or "")
-            w.char(sg, "shortname", item.get("shortname") or "")
-            w.char(sg, "unit", item.get("unit") or "")
-            w.char(sg, "parent", item.get("parent") or "")
-            times, vals = values.get(item.get("index"), (np.zeros(0), np.zeros(0)))
+            sg = w.struct(values, key)
+            times, vals = reports.get(item.get("index"), (np.zeros(0), np.zeros(0)))
             w.vector(sg, "timestamp", times)
             w.vector(sg, "value", vals)
             finish_struct(sg)
-        finish_struct(settings)
+        finish_struct(values)
         changes = x.get("setting_changes") or []
-        w.table(g, "setting_changes", dict(
-            timestamp=[r.get("time_s") for r in changes], index=[r.get("idx") for r in changes],
-            name=[r.get("var") or "" for r in changes], from_value=[r.get("from_value") for r in changes],
-            to_value=[r.get("to_value") for r in changes], in_flight=[1 if r.get("in_flight") else 0 for r in changes]))
-        checks = x.get("checklist") or []
-        w.table(g, "checklist", dict(
+        w.table(settings, "changes", {
+            "timestamp": [r.get("time_s") for r in changes], "index": [r.get("idx") for r in changes],
+            "name": [r.get("var") or "" for r in changes], "from": [r.get("from_value") for r in changes],
+            "to": [r.get("to_value") for r in changes], "in_flight": [1 if r.get("in_flight") else 0 for r in changes]})
+        finish_struct(settings)
+
+        checklist, checks = w.struct(g, "checklist"), x.get("checklist") or []
+        w.table(checklist, "items", dict(
             timestamp=[r.get("time_s") for r in checks],
             item=[r.get("checklist_label") or r.get("text", "").split(": ", 1)[0] for r in checks],
             answer=[r.get("checklist_value") if r.get("checklist_label") else
                     (r.get("text", "").split(": ", 1) + [""])[1] for r in checks],
             message=[r.get("text") or "" for r in checks]))
-        answers, keys = w.struct(g, "checklist_answers"), {}
-        for r in checks:  # the last answer per logged key, e.g. checklist_answers.pic
+        answers, keys = w.struct(checklist, "answers"), {}
+        for r in checks:  # the last answer per logged key, e.g. checklist.answers.pic
             key, _, answer = (r.get("text") or "").partition(": ")
             keys[matlab_name(key.strip() or "item")] = answer
         for key, answer in keys.items():
             w.char(answers, key, answer)
         finish_struct(answers)
+        finish_struct(checklist)
+
         config = x.get("config") or {}
         cg = w.struct(g, "config")
+        xg = w.struct(cg, "xml")
         for key in ("airframe", "flight_plan", "settings", "radio", "telemetry"):
-            w.char(cg, key + "_xml", (config.get("xml") or {}).get(key) or "")
+            w.char(xg, key, (config.get("xml") or {}).get(key) or "")
+        finish_struct(xg)
         plan = config.get("flight_plan") or {}
         pg = w.struct(cg, "flight_plan")
         w.char(pg, "name", plan.get("name") or "")
         w.number(pg, "lat0", plan.get("lat0"))
         w.number(pg, "lon0", plan.get("lon0"))
-        wps, taken = plan.get("waypoints") or [], set()
-        wg = w.struct(pg, "waypoints")  # waypoints.<NAME>.lat / lon / alt_m
-        for p in wps:
+        w.cellstr(pg, "blocks", blocks or [b.get("name") or "" for b in plan.get("blocks") or []])  # cur_block + 1
+        flat = [(b, k, name) for b, per_block in enumerate(stages) for k, name in enumerate(per_block)]
+        w.table(pg, "stages", dict(block=[b for b, _, _ in flat], stage=[k for _, k, _ in flat],
+                                   name=[name for _, _, name in flat]))
+        wg, taken = w.struct(pg, "waypoints"), set()  # waypoints.<NAME>.lat / lon / alt
+        for p in plan.get("waypoints") or []:
             key = matlab_name(p.get("name") or f"wp_{p.get('index')}", taken)
             taken.add(key)
             pt = w.struct(wg, key)
             w.number(pt, "index", p.get("index"))
             w.char(pt, "name", p.get("name") or "")
-            for field in ("lat", "lon", "alt_m"):
-                w.number(pt, field, p.get(field))
+            w.number(pt, "lat", p.get("lat"))
+            w.number(pt, "lon", p.get("lon"))
+            w.number(pt, "alt", p.get("alt_m"))
             finish_struct(pt)
         finish_struct(wg)
-        w.cellstr(pg, "waypoint_names", [p.get("name") or "" for p in wps])
-        w.cellstr(pg, "blocks", blocks or [b.get("name") or "" for b in plan.get("blocks") or []])
         finish_struct(pg)
+        w.cellstr(cg, "actuators", servos)
         finish_struct(cg)
 
-    def top_raw(self, s):
-        if self.log.extra["top"]:
-            raw = self.w.struct(s, "raw")
-            self.w.vector(raw, "timestamp", _times(self.log.cols / "top.f64", self.log.extra["top"]))
-            self.w.char(raw, "lines", "\n".join(_read_lines(self.log.cols / "top.txt")))
-            finish_struct(raw)
+
+def unparsed(w, parent, timestamps, lines):
+    """Rows kept as text: unparsed.timestamp and unparsed.lines (one cell per row)."""
+    ug = w.struct(parent, "unparsed")
+    w.vector(ug, "timestamp", timestamps)
+    w.cellstr(ug, "lines", lines)
+    finish_struct(ug)
 
 
 def write_messages(w, s, messages):
@@ -729,46 +749,32 @@ def write_messages(w, s, messages):
     for m in messages.values():
         g = w.struct(defs, m["key"])
         w.char(g, "name", m["name"])
-        w.char(g, "msg_class", m["msg_class"])
+        w.char(g, "class", m["msg_class"])
         w.char(g, "id", m["id"])
         w.cellstr(g, "fields", [f["key"] for f in m["fields"]])
         w.cellstr(g, "types", [f["type"] for f in m["fields"]])
-        # units of the stored columns: the alternate unit where one is converted; *_raw keeps raw_units
+        # units of the stored columns (the alternate unit where converted); raw value = value / coef
         w.cellstr(g, "units", [f["alt_unit"] if f["alt_unit_coef"] != 1 else f["unit"] for f in m["fields"]])
         w.cellstr(g, "raw_units", [f["unit"] for f in m["fields"]])
-        w.vector(g, "alt_unit_coef", [f["alt_unit_coef"] for f in m["fields"]])
+        w.vector(g, "coef", [f["alt_unit_coef"] for f in m["fields"]])
         enums = [f for f in m["fields"] if f["values"]]
         if enums:
-            vg = w.struct(g, "values")
+            vg = w.struct(g, "enums")
             for f in enums:
-                w.cellstr(vg, f["key"], f["values"])  # value v is named values{v + 1}
+                w.cellstr(vg, f["key"], f["values"])  # value v is named enums.<field>{v + 1}
             finish_struct(vg)
         finish_struct(g)
     finish_struct(defs)
 
 
-def write_meta(w, s, info, margin, time0_utc=None, time0_posix=None):
-    meta = w.struct(s, "log")
-    w.char(meta, "name", info.get("name"))
-    w.char(meta, "sha256", info.get("sha256"))
-    w.char(meta, "log_type", info.get("log_type"))
-    w.char(meta, "scope", info.get("scope"))
-    w.char(meta, "exporter_version", EXPORTER_VERSION)
-    w.char(meta, "created_utc", datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
-    w.number(meta, "margin_s", margin)
-    w.char(meta, "time0_utc", time0_utc or "")  # UTC of log time 0 (whole-log timestamps)
-    w.number(meta, "time0_posix", time0_posix)
-    finish_struct(meta)
-
-
 def export(fastreader, data_gz, log_gz, out_path, info, work_dir, windows=None, progress=lambda fraction: None,
            minimum_free=0, extras=None):
-    """Write the MATLAB file ``out_path`` for one log.
+    """Write the MATLAB file ``out_path`` for one log (format 4, see TECHNICAL.md).
 
     ``windows`` is None for the whole log, else a list of flight dicts with ``index``, ``ac_id``, ``takeoff_s``,
     ``landing_s`` (None: until the end of the log), ``takeoff_utc`` and ``landing_utc`` in log time as stored by
     the parser, optionally with ``summary``, ``assessment`` and ``takeoff_posix``. The layout is
-    ``s.aircrafts(i).flights(k)``: a flight export puts each flight's own data in its element. ``extras`` holds
+    ``s.aircraft(i).flights(k)``: a flight export puts each flight's own data in its element. ``extras`` holds
     what the Web UI stored per aircraft (``aircraft``: ac_id -> crew, simulation, settings, setting_changes,
     checklist, config), ``flights`` (the same dicts as ``windows``, listed without data in a whole-log export)
     and ``time0_utc`` / ``time0_posix`` (UTC of log time 0). ``work_dir`` is a private temporary directory on local
@@ -783,34 +789,45 @@ def export(fastreader, data_gz, log_gz, out_path, info, work_dir, windows=None, 
     try:
         lw = LogWriter(w, c, log, extras, lambda f: progress(0.7 + 0.29 * f))
         s = w.struct(w.file, "s")
-        write_meta(w, s, info, MARGIN_S if windows is not None else 0, extras.get("time0_utc"), extras.get("time0_posix"))
+        meta = w.struct(s, "info")
+        w.char(meta, "exporter_version", EXPORTER_VERSION)
+        w.char(meta, "created_utc", datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        w.char(meta, "scope", info.get("scope"))
+        w.number(meta, "margin_s", MARGIN_S if windows is not None else 0)
+        finish_struct(meta)
+        warnings = log.warnings()
+        lg = w.struct(s, "log")
+        w.char(lg, "name", info.get("name"))
+        w.char(lg, "sha256", info.get("sha256"))
+        w.char(lg, "type", info.get("log_type"))
+        w.char(lg, "time0_utc", extras.get("time0_utc") or "")  # UTC of log time 0 (whole-log timestamps)
+        w.number(lg, "time0_posix", extras.get("time0_posix"))
+        w.cellstr(lg, "warnings", warnings)
+        unparsed(w, lg, _times(log.cols / "top.f64", log.extra["top"]), _read_lines(log.cols / "top.txt"))
+        finish_struct(lg)
         write_messages(w, s, log.messages)
         listed = [with_window(f) for f in (windows if windows is not None else extras.get("flights") or [])]
         ids = sorted(log.by_window.get(0, {})) if spans is None else sorted({sp["ac_id"] for sp in spans})
         elements = []
         for ac in ids:  # in a flight export only aircraft with an exported flight
             g = w.element()
-            lw.aircraft_identity(g, ac)
-            lw.aircraft_extras(g, ac)
+            lw.aircraft(g, ac)
             if spans is None:
                 lw.write_data(g, 0, ac, 0.0)
             flights = []
             for k, span in enumerate(listed):
                 if span["ac_id"] == ac:
                     fg = w.element()
-                    lw.flight_fields(fg, span, k if spans is not None else None)
+                    lw.flight(fg, span, k if spans is not None else None)
                     finish_struct(fg)
                     flights.append(fg)
             w.struct_array(g, "flights", flights)
             finish_struct(g)
             elements.append(g)
-        w.struct_array(s, "aircrafts", elements)
-        lw.top_raw(s)
-        warnings = log.warnings()
-        w.cellstr(s, "warnings", warnings)
+        w.struct_array(s, "aircraft", elements)
         finish_struct(s)
     except BaseException:
-        c.close()
+        c.close(flush=False)
         w.file.close()
         raise
     c.close()
@@ -819,82 +836,35 @@ def export(fastreader, data_gz, log_gz, out_path, info, work_dir, windows=None, 
     return warnings
 
 
-def export_bulk(fastreader, logs, out_path, work_dir, progress=lambda fraction: None, minimum_free=0):
-    """One MATLAB file with selected flights of several logs: ``s.aircrafts(i).flights(k)``.
+class _Sink:
+    """A write-only stream collecting what zipfile writes, to send it on in pieces."""
 
-    ``logs`` is a list of dicts with ``data_gz``, ``log_gz``, ``info`` (name, sha256, log_type, size_bytes),
-    ``windows`` (flight dicts as for export(), plus ``aircraft_key`` / ``aircraft_name`` grouping flights by fleet
-    aircraft across logs) and ``extras`` (as for export()). Each flight carries its own log, crew, settings,
-    checklist and configuration; logs are decoded one at a time so temporary disk holds one log's columns."""
-    work = Path(work_dir)
-    w = Writer(out_path)
-    c = Columns(w)
-    groups, messages, warnings = {}, {}, []
-    try:
-        s = w.struct(w.file, "s")
-        for j, item in enumerate(logs):
-            sub = work / f"log{j}"
-            sub.mkdir()
-            spans = [with_window(x) for x in item["windows"]]
-            step = lambda f, j=j: progress((j + f) / len(logs))  # noqa: E731
-            try:
-                log = DecodedLog(fastreader, item["data_gz"], item["log_gz"], sub, item["info"].get("size_bytes"),
-                                 spans, lambda f: step(0.6 * f), minimum_free)
-            except ExportError as error:
-                warnings.append(f"{item['info'].get('name')}: not exported ({error})")
-                shutil.rmtree(sub, ignore_errors=True)
-                continue
-            lw = LogWriter(w, c, log, item.get("extras"), lambda f: step(0.6 + 0.4 * f))
-            for name, m in log.messages.items():
-                first = messages.setdefault(name, m)
-                if first is not m and [f["type"] for f in first["fields"]] != [f["type"] for f in m["fields"]]:
-                    warnings.append(f"{item['info'].get('name')}: {name} has other fields than in s.messages.")
-            for k, span in enumerate(spans):
-                g = w.element()
-                lw.flight_fields(g, span, k)
-                lg = w.struct(g, "log")
-                for key in ("name", "sha256", "log_type"):
-                    w.char(lg, key, item["info"].get(key))
-                w.char(lg, "time0_utc", (item.get("extras") or {}).get("time0_utc") or "")
-                w.number(lg, "time0_posix", (item.get("extras") or {}).get("time0_posix"))
-                finish_struct(lg)
-                lw.aircraft_identity(g, span["ac_id"])  # AC_ID, logged name and version in that log
-                lw.aircraft_extras(g, span["ac_id"])
-                finish_struct(g)
-                group = groups.setdefault(span.get("aircraft_key") or log.names.get(span["ac_id"], ""),
-                                          dict(name=span.get("aircraft_name") or log.names.get(span["ac_id"], ""),
-                                               drone_id=span.get("drone_id"), flights=[]))
-                group["flights"].append((span.get("takeoff_posix") or 0, span["takeoff_s"], g))
-            warnings += [f"{item['info'].get('name')}: {text}" for text in log.warnings()]
-            shutil.rmtree(sub, ignore_errors=True)  # keep only one log's columns on disk
-        meta = w.struct(s, "log")
-        w.char(meta, "scope", "selection")
-        w.char(meta, "exporter_version", EXPORTER_VERSION)
-        w.char(meta, "created_utc", datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
-        w.number(meta, "margin_s", MARGIN_S)
-        w.number(meta, "logs", len(logs))
-        finish_struct(meta)
-        write_messages(w, s, messages)  # first definition of each message (logs may differ in protocol)
-        elements = []
-        for key in sorted(groups, key=lambda k: groups[k]["name"].lower()):
-            group = groups[key]
-            g = w.element()
-            w.char(g, "name", group["name"])
-            w.number(g, "drone_id", group["drone_id"])
-            w.struct_array(g, "flights", [x[2] for x in sorted(group["flights"], key=lambda x: (x[0], x[1]))])
-            finish_struct(g)
-            elements.append(g)
-        w.struct_array(s, "aircrafts", elements)
-        w.cellstr(s, "warnings", warnings)
-        finish_struct(s)
-    except BaseException:
-        c.close()
-        w.file.close()
-        raise
-    c.close()
-    w.close()
-    progress(1.0)
-    return warnings
+    def __init__(self):
+        self.parts = []
+
+    def write(self, data):
+        self.parts.append(bytes(data))
+        return len(data)
+
+    def flush(self):
+        pass
+
+    def take(self):
+        out = b"".join(self.parts)
+        self.parts.clear()
+        return out
+
+
+def zip_stream(files):
+    """Yield an uncompressed .zip of ``files`` (path, name) piece by piece; .mat files are compressed already."""
+    sink = _Sink()
+    with zipfile.ZipFile(sink, "w", zipfile.ZIP_STORED, allowZip64=True) as archive:
+        for path, name in files:
+            with open(path, "rb") as src, archive.open(name, "w", force_zip64=True) as dst:
+                while chunk := src.read(1 << 20):
+                    dst.write(chunk)
+                    yield sink.take()
+    yield sink.take()
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -941,6 +911,10 @@ class Jobs:
         for meta in self.folder.glob("*.json"):
             if not (self.folder / f"{meta.stem}.mat").exists() and self.status_of(meta.stem) is None:
                 meta.unlink(missing_ok=True)
+        for bundle in self.folder.glob("*.bundle"):
+            with contextlib.suppress(OSError):
+                if bundle.stat().st_mtime < limit:
+                    bundle.unlink()
 
     def _remove(self, job_id):
         for suffix in (".mat", ".json"):
@@ -966,7 +940,7 @@ class Jobs:
                        size_bytes=(self.folder / f"{job_id}.mat").stat().st_size)
         return job
 
-    def submit(self, job_id, log_id, filename, task):
+    def submit(self, job_id, log_id, filename, task, limit=MAX_PENDING):
         """Start (or join) the export ``job_id``; ``task(out_path, progress)`` writes the file."""
         self.cleanup()
         current = self.status(job_id)
@@ -974,7 +948,7 @@ class Jobs:
             return current
         with self.lock:
             pending = sum(1 for j in self.state.values() if j["status"] in ("queued", "running"))
-            if pending >= MAX_PENDING:
+            if pending >= limit:
                 raise ExportError("Too many MATLAB exports are waiting; try again in a few minutes.")
             self.state[job_id] = dict(id=job_id, log_id=log_id, filename=filename, status="queued", progress=0.0,
                                       error=None)
@@ -983,6 +957,39 @@ class Jobs:
 
     def path(self, job_id):
         return self.folder / f"{job_id}.mat"
+
+    def bundle(self, bundle_id, log_ids, filename, parts):
+        """A .zip of several exports (``parts``: job id and name in the zip), kept like the exports themselves."""
+        path = self.folder / f"{bundle_id}.bundle"
+        tmp = self.folder / f".{bundle_id}.bundle.tmp"
+        tmp.write_text(json.dumps(dict(log_id=log_ids, filename=filename, parts=parts)))
+        os.replace(tmp, path)  # also refreshes its age
+        return self.bundle_status(bundle_id)
+
+    def bundle_status(self, bundle_id):
+        """Combined status of a bundle, or None when unknown or expired."""
+        try:
+            info = json.loads((self.folder / f"{bundle_id}.bundle").read_text())
+        except (OSError, ValueError):
+            return None
+        jobs = [self.status(job_id) for job_id, _ in info["parts"]]
+        ready = sum(1 for j in jobs if j and j["status"] == "ready")
+        out = dict(id=bundle_id, log_id=info["log_id"], filename=info["filename"], parts=len(jobs), ready=ready,
+                   progress=round(sum(j["progress"] if j else 0 for j in jobs) / max(1, len(jobs)), 3),
+                   error=None, size_bytes=None, bundle=True)
+        failed = next((j for j in jobs if j is None or j["status"] == "failed"), False)
+        if failed is not False:
+            out.update(status="failed", error=failed["error"] if failed else
+                       "Part of this export expired; start it again.")
+        elif ready == len(jobs):
+            out.update(status="ready", progress=1.0, size_bytes=sum(j["size_bytes"] for j in jobs))
+        else:
+            out["status"] = "running" if any(j["status"] == "running" for j in jobs) else "queued"
+        return out
+
+    def bundle_files(self, bundle_id):
+        info = json.loads((self.folder / f"{bundle_id}.bundle").read_text())
+        return [(self.path(job_id), name) for job_id, name in info["parts"]]
 
     def _set(self, job_id, **values):
         with self.lock:

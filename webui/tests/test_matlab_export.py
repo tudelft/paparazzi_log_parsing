@@ -1,8 +1,10 @@
 import gzip
+import io
 import os
 import tempfile
 import time
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -103,114 +105,105 @@ class MatlabExporterTests(unittest.TestCase):
         """Field ``field`` of element ``i`` of a struct array group (a column of references)."""
         return file[group[field][i, 0]]
 
-    def test_whole_log_layout_values_and_raw_rows(self):
+    def test_whole_log_layout_values_and_unparsed_rows(self):
         file, warnings, header = self.export(flights=[dict(index=3, ac_id=5, takeoff_s=2.0, landing_s=6.0)])
         self.assertTrue(header.startswith(b"MATLAB 7.3 MAT-file"))
         self.assertEqual(header[124:128], b"\x00\x02IM")
         s = file["s"]
         self.assertEqual(s.attrs["MATLAB_class"], b"struct")
-        aircraft = s["aircrafts"]
-        self.assertEqual(aircraft["AC_ID"].shape, (2, 1))
-        self.assertEqual([self.element(file, aircraft, "AC_ID", i)[0, 0] for i in range(2)], [5, 7])
+        self.assertEqual(text(file, s["info"]["exporter_version"].ref), "4")
+        aircraft = s["aircraft"]
+        self.assertEqual(aircraft["id"].shape, (2, 1))
+        self.assertEqual([self.element(file, aircraft, "id", i)[0, 0] for i in range(2)], [5, 7])
         self.assertEqual(text(file, aircraft["name"][1, 0]), "Quad2")
-        self.assertEqual(self.element(file, aircraft, "version", 0)[0, 0], 51500)
-        self.assertEqual(text(file, aircraft["version_desc"][0, 0]), "v5.15_devel-167-g55bfedf")
+        version = self.element(file, aircraft, "version", 0)
+        self.assertEqual(version["number"][0, 0], 51500)
+        self.assertEqual(text(file, version["desc"].ref), "v5.15_devel-167-g55bfedf")
         data = self.element(file, aircraft, "data", 0)
         att = data["ATTITUDE"]
         np.testing.assert_allclose(column(att["timestamp"]), [1, 30, 4290, 4294.967296 + 5])
-        # converted unit under the field name, the logged value as *_raw
+        # converted unit under the field name; no raw copy (raw = value / coef)
         np.testing.assert_allclose(column(att["phi"]), np.array([0.1, 0.4, 0.7, 1.0]) * 57.2958)
-        np.testing.assert_allclose(column(att["phi_raw"]), [0.1, 0.4, 0.7, 1.0])
-        self.assertNotIn("phi_alt", att)
-        self.assertEqual(text(file, s["messages"]["ATTITUDE"]["units"][0, 0]), "deg")
-        self.assertEqual(text(file, s["messages"]["ATTITUDE"]["raw_units"][0, 0]), "rad")
-        acts = data["ACTUATORS"]["values"][()]  # MATLAB 2×4, stored transposed
-        np.testing.assert_array_equal(acts[:, 0], [1, 2, 3, np.nan])
-        np.testing.assert_array_equal(acts[:, 1], [4, 5, 6, 7])
+        self.assertEqual(sorted(att), ["phi", "psi", "theta", "timestamp"])
+        msg = s["messages"]["ATTITUDE"]
+        self.assertEqual((text(file, msg["units"][0, 0]), text(file, msg["raw_units"][0, 0])), ("deg", "rad"))
+        self.assertEqual(column(msg["coef"])[0], 57.2958)
+        acts = data["ACTUATORS"]  # named columns when the airframe lists as many servos, else values (N×k)
+        np.testing.assert_array_equal(column(acts["M4"]), [np.nan, 7])
+        np.testing.assert_array_equal(column(acts["M1"]), [1, 4])
+        self.assertNotIn("values", acts)
         status = data["ROTORCRAFT_STATUS"]
         self.assertEqual((status["ap_mode"].dtype, status["end_"][0, 0]), (np.uint32, -1))
-        self.assertEqual(chars(status["ap_mode_name"]), ["RATE"])
-        self.assertEqual(text(file, s["messages"]["ROTORCRAFT_STATUS"]["values"]["ap_mode"][0, 1]), "FAILSAFE")
-        nav = data["ROTORCRAFT_NAV_STATUS"]
-        self.assertEqual(chars(nav["cur_block_name"]), ["Takeoff", "Wait", ""])  # block 7 does not exist
-        self.assertEqual(chars(nav["cur_stage_name"]), ["stay B", "call", ""])
-        self.assertEqual([text(file, r) for r in data["ACTUATORS"]["names"][0, :]], ["M1", "M2", "M3", "M4"])
-        names = data["ACTUATORS"]
-        np.testing.assert_array_equal(column(names["M4"]), [np.nan, 7])  # actuators by name, next to values
+        self.assertEqual(sorted(status), ["ap_mode", "end_", "timestamp"])  # enum names only in s.messages
+        self.assertEqual(text(file, s["messages"]["ROTORCRAFT_STATUS"]["enums"]["ap_mode"][0, 1]), "FAILSAFE")
+        self.assertEqual(sorted(data["ROTORCRAFT_NAV_STATUS"]), ["cur_block", "cur_stage", "timestamp"])
+        config = file[aircraft["config"][0, 0]]
+        plan = config["flight_plan"]
+        self.assertEqual([text(file, r) for r in plan["blocks"][0, :]], ["Wait", "Takeoff"])
+        stages = plan["stages"]
+        self.assertEqual([text(file, r) for r in stages["name"][0, :]], ["call", "go A", "stay B"])
+        np.testing.assert_array_equal(column(stages["block"]), [0, 1, 1])
+        self.assertEqual([text(file, r) for r in config["actuators"][0, :]], ["M1", "M2", "M3", "M4"])
+        self.assertEqual(text(file, config["xml"]["airframe"].ref), "<airframe/>")
+        self.assertEqual(plan["waypoints"]["HOME"]["alt"][0, 0], 10.0)
         g = file[aircraft["crew"][0, 0]]
         self.assertEqual((text(file, g["pic"].ref), text(file, g["pac"].ref)), ("Pilot A", ""))
         settings = file[aircraft["settings"][0, 0]]
-        np.testing.assert_allclose(column(settings["gain"]["value"]), [1.0, 2.0])  # every report, by name
-        np.testing.assert_allclose(column(settings["gain"]["timestamp"]), [4.5, 40.0])
-        self.assertEqual(text(file, settings["gain"]["parent"].ref), "Control")
-        changes = file[aircraft["setting_changes"][0, 0]]
+        np.testing.assert_allclose(column(settings["values"]["gain"]["value"]), [1.0, 2.0])  # every report
+        np.testing.assert_allclose(column(settings["values"]["gain"]["timestamp"]), [4.5, 40.0])
+        self.assertEqual(text(file, settings["list"]["parent"][0, 0]), "Control")
+        changes = settings["changes"]
         self.assertEqual((text(file, changes["name"][0, 0]), column(changes["timestamp"])[0]), ("gain", 5.0))
+        self.assertEqual(column(changes["to"])[0], 2.0)
         checklist = file[aircraft["checklist"][0, 0]]
-        self.assertEqual([text(file, r) for r in checklist["item"][0, :]], ["Enter the PIC", "props"])
-        self.assertEqual([text(file, r) for r in checklist["answer"][0, :]], ["Pilot A", ""])
-        answers = file[aircraft["checklist_answers"][0, 0]]
-        self.assertEqual(text(file, answers["pic"].ref), "Pilot A")
-        config = file[aircraft["config"][0, 0]]
-        self.assertEqual(text(file, config["airframe_xml"].ref), "<airframe/>")
-        self.assertEqual([text(file, r) for r in config["flight_plan"]["blocks"][0, :]], ["Wait", "Takeoff"])
-        self.assertEqual(config["flight_plan"]["waypoints"]["HOME"]["alt_m"][0, 0], 10.0)
+        self.assertEqual([text(file, r) for r in checklist["items"]["item"][0, :]], ["Enter the PIC", "props"])
+        self.assertEqual([text(file, r) for r in checklist["items"]["answer"][0, :]], ["Pilot A", ""])
+        self.assertEqual(text(file, checklist["answers"]["pic"].ref), "Pilot A")
         self.assertEqual(text(file, s["log"]["time0_utc"].ref), "2026-10-21T09:00:00.000Z")
         listed = self.element(file, aircraft, "flights", 0)  # flight summaries without data in a whole-log export
-        self.assertEqual((file[listed["index"][0, 0]][0, 0], file[listed["start_s"][0, 0]][0, 0]), (3.0, -8.0))
+        self.assertEqual(file[listed["index"][0, 0]][0, 0], 3.0)
+        self.assertEqual(file[listed["time"][0, 0]]["start_s"][0, 0], -8.0)
         self.assertNotIn("data", listed)
         self.assertEqual(text(file, data["INFO_MSG"]["msg"][0, 0]), "[PFC] pic: Pilot One")
-        raw = self.element(file, aircraft, "raw", 0)
-        self.assertEqual(text(file, raw["lines"].ref), "5.0 5 ATTITUDE 0.1 bad 0.3\n6.0 5 UNKNOWN_MSG 1 2")
-        self.assertEqual(text(file, s["raw"]["lines"].ref), "garbage line")
+        lines = self.element(file, aircraft, "unparsed", 0)["lines"]
+        self.assertEqual([text(file, r) for r in lines[0, :]], ["5.0 5 ATTITUDE 0.1 bad 0.3", "6.0 5 UNKNOWN_MSG 1 2"])
+        self.assertEqual(text(file, s["log"]["unparsed"]["lines"][0, 0]), "garbage line")
         self.assertEqual(len(warnings), 3)
+        self.assertEqual(s["log"]["warnings"].shape, (1, 3))
 
     def test_flights_belong_to_their_aircraft_and_count_from_takeoff(self):
         windows = [dict(index=1, ac_id=5, takeoff_s=2.0, landing_s=6.0, takeoff_utc="2026-10-21T09:05:12Z",
-                        landing_utc=None),
+                        landing_utc=None, assessment=dict(verdict="flight", reasons=["climb"])),
                    dict(index=2, ac_id=5, takeoff_s=4290.0, landing_s=None, takeoff_utc=None, landing_utc=None)]
         file, _, _ = self.export(windows)
-        aircraft = file["s"]["aircrafts"]
-        self.assertEqual(aircraft["AC_ID"].shape, (1, 1))  # only aircraft with an exported flight
+        aircraft = file["s"]["aircraft"]
+        self.assertEqual(aircraft["id"].shape, (1, 1))  # only aircraft with an exported flight
         flights = self.element(file, aircraft, "flights", 0)
         self.assertEqual(flights["index"].shape, (2, 1))
         data = file[flights["data"][0, 0]]
         np.testing.assert_allclose(column(data["ATTITUDE"]["timestamp"]), [-1.0])  # aircraft 7's row is not here
         np.testing.assert_allclose(column(data["AUTOPILOT_VERSION"]["timestamp"]), [-1.5])  # inside the 10 s margin
-        np.testing.assert_allclose(column(self.element(file, flights, "window_s", 0)), [-10, 14])
+        time_ = self.element(file, flights, "time", 0)
+        np.testing.assert_allclose(column(time_["window_s"]), [-10, 14])
+        self.assertEqual(text(file, time_["takeoff_utc"].ref), "2026-10-21T09:05:12Z")
+        summary = self.element(file, flights, "summary", 0)
+        self.assertEqual((text(file, summary["verdict"].ref), text(file, summary["reasons"][0, 0])), ("flight", "climb"))
         second = file[flights["data"][1, 0]]
         np.testing.assert_allclose(column(second["ATTITUDE"]["timestamp"]), [0.0, 4294.967296 + 5 - 4290.0])
-        self.assertEqual(self.element(file, flights, "time_offset_s", 1)[0, 0], 4290.0)
+        self.assertEqual(self.element(file, flights, "time", 1)["offset_s"][0, 0], 4290.0)
         settings = file[aircraft["settings"][0, 0]]
-        np.testing.assert_allclose(column(settings["gain"]["timestamp"]), [4.5, 40.0])  # whole log, log time
+        np.testing.assert_allclose(column(settings["values"]["gain"]["timestamp"]), [4.5, 40.0])  # whole log
 
-    def test_bulk_groups_flights_of_several_logs_by_aircraft(self):
+    def test_zip_stream_holds_the_files(self):
+        import io
+        import zipfile
         folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        (folder / "x.data.gz").write_bytes(gzip.compress(("\n".join(ROWS) + "\n").encode()))
-        (folder / "x.log.gz").write_bytes(gzip.compress(PROTOCOL.encode()))
-        (folder / "work").mkdir()
-        flight = dict(index=1, ac_id=5, takeoff_s=2.0, landing_s=6.0, takeoff_utc=None, landing_utc=None,
-                      aircraft_key="drone:1", aircraft_name="Fleet One", drone_id=1)
-        logs = [dict(data_gz=folder / "x.data.gz", log_gz=folder / "x.log.gz", extras=EXTRAS,
-                     info=dict(name=name, sha256=name, log_type="onboard_sd", size_bytes=1000),
-                     windows=[dict(flight, takeoff_posix=posix)])
-                for name, posix in (("later.data", 200.0), ("first.data", 100.0))]
-        logs.append(dict(logs[0], log_gz=None, info=dict(name="broken.data")))  # skipped with a warning
-        warnings = matlab_export.export_bulk(str(PARSER), logs, folder / "out.mat", folder / "work")
-        file = self.enterContext(h5py.File(folder / "out.mat", "r"))
-        aircraft = file["s"]["aircrafts"]
-        self.assertEqual(aircraft["name"].shape, (1, 1))  # both logs' flights under one fleet aircraft
-        self.assertEqual(text(file, aircraft["name"][0, 0]), "Fleet One")
-        flights = file[aircraft["flights"][0, 0]]
-        self.assertEqual([text(file, file[r]["name"].ref) for r in flights["log"][:, 0]], ["first.data", "later.data"])
-        data = file[flights["data"][0, 0]]
-        np.testing.assert_allclose(column(data["ATTITUDE"]["timestamp"]), [-1.0])
-        self.assertEqual(text(file, file[flights["crew"][0, 0]]["pic"].ref), "Pilot A")  # everything per flight
-        settings = file[flights["settings"][1, 0]]
-        np.testing.assert_allclose(column(settings["gain"]["value"]), [1.0, 2.0])
-        self.assertEqual(file[flights["AC_ID"][0, 0]][0, 0], 5)
-        self.assertIn("ATTITUDE", file["s"]["messages"])
-        self.assertTrue(any(w.startswith("broken.data: not exported") for w in warnings))
-        self.assertFalse(list((folder / "work").iterdir()))  # each log's columns are removed once written
+        (folder / "a.mat").write_bytes(b"first" * 1000)
+        (folder / "b.mat").write_bytes(b"second")
+        data = b"".join(matlab_export.zip_stream([(folder / "a.mat", "x/a.mat"), (folder / "b.mat", "b.mat")]))
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            self.assertEqual(archive.namelist(), ["x/a.mat", "b.mat"])
+            self.assertEqual(archive.read("x/a.mat"), b"first" * 1000)
 
     def test_missing_protocol_is_refused(self):
         with self.assertRaises(matlab_export.ExportError):
@@ -218,25 +211,41 @@ class MatlabExporterTests(unittest.TestCase):
 
 
 class FakeJobs:
-    def __init__(self):
-        self.jobs = {}
+    """Jobs without workers: submitted tasks wait in ``jobs`` until a test runs them."""
 
-    def submit(self, job_id, log_id, filename, task):
-        self.jobs[job_id] = dict(id=job_id, log_id=log_id, filename=filename, status="queued", progress=0.0,
-                                 error=None, task=task)
-        return self.jobs[job_id]
+    def __init__(self, folder):
+        self.folder, self.jobs = Path(folder), {}
+        self.folder.mkdir()
+
+    def submit(self, job_id, log_id, filename, task, limit=None):
+        self.jobs.setdefault(job_id, dict(id=job_id, log_id=log_id, filename=filename, status="queued",
+                                          progress=0.0, error=None, task=task))
+        return dict(self.jobs[job_id])
 
     def status(self, job_id):
         return self.jobs.get(job_id)
 
     def path(self, job_id):
-        return Path(__file__)
+        return self.folder / f"{job_id}.mat"
+
+    def finish(self, job_id, content):
+        self.path(job_id).write_bytes(content)
+        self.jobs[job_id].update(status="ready", progress=1.0, size_bytes=len(content))
+
+    def bundle(self, *args):
+        return matlab_export.Jobs.bundle(self, *args)
+
+    def bundle_status(self, bundle_id):
+        return matlab_export.Jobs.bundle_status(self, bundle_id)
+
+    def bundle_files(self, bundle_id):
+        return matlab_export.Jobs.bundle_files(self, bundle_id)
 
 
 class MatlabRouteFixture(AppTests):
     def setUp(self):
         super().setUp()
-        self.jobs = FakeJobs()
+        self.jobs = FakeJobs(Path(self.enterContext(tempfile.TemporaryDirectory())) / "exports")
         original = self.ns["export_jobs"]
         self.ns["export_jobs"] = lambda: self.jobs
         self.addCleanup(self.ns.__setitem__, "export_jobs", original)
@@ -316,21 +325,32 @@ class MatlabBulkRouteTests(MatlabRouteFixture):
     def bulk(self, entries):
         return self.client.post("/api/matlab-bulk", json=dict(entries=entries))
 
-    def test_sd_is_preferred_and_logs_are_grouped(self):
+    def test_sd_is_preferred_and_each_log_is_its_own_export(self):
         response = self.bulk([[30, 10], [31], [12, 99]])  # entry 1 has SD and GCS; 99 does not exist
         self.assertEqual(response.status_code, 202)
         self.assertEqual((response.json["flights"], response.json["logs"], response.json["skipped"]), (3, 2, 0))
-        self.assertEqual(response.json["filename"], "logbook_3_flights.mat")
-        job = self.jobs.jobs[response.json["id"]]
-        self.assertEqual(job["log_id"], [1, 3])
+        self.assertEqual(response.json["filename"], "logbook_3_flights.zip")
+        self.assertEqual((response.json["status"], response.json["parts"], response.json["ready"]), ("queued", 2, 0))
         self.assertEqual(self.bulk([[31], [30, 10], [12]]).json["id"], response.json["id"])  # same selection
-        with patch.object(matlab_export, "export_bulk", return_value=[]) as export:
-            job["task"]("out.mat", "work", lambda f: None)
-        items = export.call_args.args[1]
-        by_log = {x["info"]["name"]: [w["takeoff_s"] for w in x["windows"]] for x in items}
-        self.assertEqual(by_log, {"26_10_21__09_04_50_SD.data": [100.0, 400.0], "26_10_21__09_04_50.data": [500.0]})
-        self.assertEqual({w["aircraft_name"] for x in items for w in x["windows"]}, {"Drone"})
-        self.assertEqual(self.client.get(f"/api/matlab-exports/{response.json['id']}").json["status"], "queued")
+        windows = {}
+        for job in list(self.jobs.jobs.values()):
+            with patch.object(matlab_export, "export", return_value=[]) as export:
+                job["task"]("out.mat", "work", lambda f: None)
+            windows[job["log_id"]] = [w["takeoff_s"] for w in export.call_args.args[6]]
+            self.jobs.finish(job["id"], f"mat of log {job['log_id']}".encode())
+        self.assertEqual(windows, {1: [100.0, 400.0], 3: [500.0]})
+        ready = self.client.get(f"/api/matlab-exports/{response.json['id']}").json
+        self.assertEqual((ready["status"], ready["ready"]), ("ready", 2))
+        with self.client.get(ready["download"]) as download:
+            self.assertEqual(download.mimetype, "application/zip")
+            with zipfile.ZipFile(io.BytesIO(download.data)) as archive:
+                self.assertEqual(archive.namelist(), ["26_10_21__09_04_50_SD_flights.mat", "26_10_21__09_04_50_flights.mat"])
+                self.assertEqual(archive.read("26_10_21__09_04_50_flights.mat"), b"mat of log 3")
+
+    def test_a_whole_log_selection_reuses_its_all_flights_export(self):
+        single = self.ask(log_id=3, scope="flights").json["id"]
+        bulk = self.bulk([[30], [31]]).json
+        self.assertEqual(self.jobs.bundle_files(bulk["id"])[0][0].stem, single)
 
     def test_bulk_refusals(self):
         self.assertEqual(self.bulk([]).status_code, 400)

@@ -5488,6 +5488,8 @@ def export_jobs():
 
 def matlab_job_json(job):
     out = {k: job.get(k) for k in ("id", "status", "progress", "error", "size_bytes", "filename")}
+    if job.get("bundle"):  # a .zip of several exports: how many of its logs are ready
+        out.update(parts=job["parts"], ready=job["ready"])
     if job["status"] == "ready":
         out["download"] = f"/api/matlab-exports/{job['id']}/download"
     return out
@@ -5564,6 +5566,29 @@ def matlab_module():
     return matlab_export
 
 
+def submit_log_export(matlab_export, con, row, scope, flights, all_flights, limit=None):
+    """Queue (or reuse) the export of one log; ``flights`` are the exported flights (unused for scope log)."""
+    days = clock_shift_days(row["start_utc"], row["date_override"])  # same date correction as the pages
+    windows = None if scope == "log" else [matlab_window(f, days) for f in flights]
+    extras = dict(matlab_extras(con, row, days),
+                  flights=[matlab_window(f, days) for f in all_flights] if scope == "log" else [])
+    identity = json.dumps([row["sha256"], scope, matlab_export.EXPORTER_VERSION, matlab_export.MARGIN_S,
+                           row["parser_version"], windows, extras], sort_keys=True, default=str)
+    job_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
+    stem = posixpath.splitext(posixpath.basename(row["name"]))[0]
+    suffix = {"log": "whole_log", "flights": "flights", "flight": f"flight_{flights[0]['id']}" if flights else ""}[scope]
+    filename = safe_filename(f"{stem}_{suffix}.mat")
+    info = dict(name=row["name"], sha256=row["sha256"], log_type=row["log_type"], size_bytes=row["size_bytes"],
+                scope=scope)
+    data_gz, log_gz = STORAGE_DIR / row["data_path"], STORAGE_DIR / row["log_path"]
+
+    def task(out_path, work_dir, progress):
+        return matlab_export.export(FASTREADER, data_gz, log_gz, out_path, info, work_dir, windows, progress,
+                                    env_int("LOCAL_MIN_FREE_BYTES"), extras)
+    kw = {} if limit is None else dict(limit=limit)
+    return export_jobs().submit(job_id, row["id"], filename, task, **kw)
+
+
 @app.post("/api/logs/<int:log_id>/matlab")
 def request_matlab_export(log_id):
     session_required()
@@ -5585,25 +5610,8 @@ def request_matlab_export(log_id):
         flights = [f for f in flights if f["verdict"] != "ground"]
         if not flights:
             return jsonify(error="This log has no detected flights to export."), 409
-    days = clock_shift_days(row["start_utc"], row["date_override"])  # same date correction as the pages
-    windows = None if scope == "log" else [matlab_window(f, days) for f in flights]
-    extras = dict(matlab_extras(con, row, days),
-                  flights=[matlab_window(f, days) for f in all_flights] if scope == "log" else [])
-    identity = json.dumps([row["sha256"], scope, matlab_export.EXPORTER_VERSION, matlab_export.MARGIN_S,
-                           row["parser_version"], windows, extras], sort_keys=True, default=str)
-    job_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
-    stem = posixpath.splitext(posixpath.basename(row["name"]))[0]
-    suffix = {"log": "whole_log", "flights": "flights", "flight": f"flight_{flights[0]['id']}" if flights else ""}[scope]
-    filename = safe_filename(f"{stem}_{suffix}.mat")
-    info = dict(name=row["name"], sha256=row["sha256"], log_type=row["log_type"], size_bytes=row["size_bytes"],
-                scope=scope)
-    data_gz, log_gz = STORAGE_DIR / row["data_path"], STORAGE_DIR / row["log_path"]
-
-    def task(out_path, work_dir, progress):
-        return matlab_export.export(FASTREADER, data_gz, log_gz, out_path, info, work_dir, windows, progress,
-                                    env_int("LOCAL_MIN_FREE_BYTES"), extras)
     try:
-        job = export_jobs().submit(job_id, log_id, filename, task)
+        job = submit_log_export(matlab_export, con, row, scope, flights, all_flights)
     except matlab_export.ExportError as error:
         return jsonify(error=str(error)), 503
     return jsonify(matlab_job_json(job)), 202
@@ -5611,8 +5619,9 @@ def request_matlab_export(log_id):
 
 @app.post("/api/matlab-bulk")
 def request_matlab_bulk():
-    """One .mat with logbook entries selected in the browser. ``entries`` lists, per logbook entry, the flight ids
-    of its recordings; the SD recording is exported when there is one, else the GCS recording."""
+    """A .zip with one .mat per log for logbook entries selected in the browser. ``entries`` lists, per logbook
+    entry, the flight ids of its recordings; the SD recording is exported when there is one, else the GCS one.
+    Each log is an ordinary export (reused when the same flights were exported before)."""
     session_required()
     matlab_export = matlab_module()
     entries = (request.get_json(silent=True) or {}).get("entries")
@@ -5652,31 +5661,22 @@ def request_matlab_bulk():
     if len(logs) > MATLAB_BULK_MAX_LOGS:
         return jsonify(error=f"The selection spans {len(logs)} logs; export at most {MATLAB_BULK_MAX_LOGS} at once."), 400
     chosen = {p["id"] for p in picks}
-    items = []
-    for log_id in sorted(logs, key=lambda i: (logs[i]["start_utc"] or "", i)):
-        row = logs[log_id]
-        days = clock_shift_days(row["start_utc"], row["date_override"])
-        windows = [dict(matlab_window(f, days), aircraft_key=f"drone:{f['drone_id']}" if f["drone_id"] is not None
-                        else f"name:{(f['aircraft_name'] or '').strip().casefold()}",
-                        aircraft_name=f["aircraft_name"] or "", drone_id=f["drone_id"])
-                   for f in matlab_flights(con, log_id) if f["id"] in chosen]
-        items.append(dict(info=dict(name=row["name"], sha256=row["sha256"], log_type=row["log_type"],
-                                    size_bytes=row["size_bytes"], parser_version=row["parser_version"]),
-                          windows=windows, extras=matlab_extras(con, row, days),
-                          data_gz=STORAGE_DIR / row["data_path"], log_gz=STORAGE_DIR / row["log_path"]))
-    identity = json.dumps(["bulk", matlab_export.EXPORTER_VERSION, matlab_export.MARGIN_S,
-                           [{k: v for k, v in x.items() if k not in ("data_gz", "log_gz")} for x in items]],
-                          sort_keys=True, default=str)
-    job_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
-    filename = safe_filename(f"logbook_{len(picks)}_flights.mat")
-
-    def task(out_path, work_dir, progress):
-        return matlab_export.export_bulk(FASTREADER, items, out_path, work_dir, progress,
-                                         env_int("LOCAL_MIN_FREE_BYTES"))
+    parts, names = [], set()
     try:
-        job = export_jobs().submit(job_id, sorted(logs), filename, task)
+        for log_id in sorted(logs, key=lambda i: (logs[i]["start_utc"] or "", i)):
+            all_flights = matlab_flights(con, log_id)
+            job = submit_log_export(matlab_export, con, logs[log_id], "flights",
+                                    [f for f in all_flights if f["id"] in chosen], all_flights,
+                                    limit=matlab_export.MAX_PENDING + MATLAB_BULK_MAX_LOGS)
+            name = job["filename"]
+            if name in names:  # two logs with the same file name
+                name = f"{posixpath.splitext(name)[0]}_{log_id}.mat"
+            names.add(name)
+            parts.append([job["id"], name])
     except matlab_export.ExportError as error:
         return jsonify(error=str(error)), 503
+    bundle_id = hashlib.sha256(json.dumps(["bundle", parts]).encode()).hexdigest()[:32]
+    job = export_jobs().bundle(bundle_id, sorted(logs), safe_filename(f"logbook_{len(picks)}_flights.zip"), parts)
     return jsonify(dict(matlab_job_json(job), flights=len(picks), logs=len(logs), skipped=skipped)), 202
 
 
@@ -5685,10 +5685,10 @@ def visible_export(job_id):
     session_required()
     if not re.fullmatch(r"[0-9a-f]{32}", job_id):
         abort(404)
-    job = export_jobs().status(job_id)
+    job = export_jobs().status(job_id) or export_jobs().bundle_status(job_id)  # an export or a .zip of several
     if job is None:
         abort(404)
-    log_ids = job["log_id"] if isinstance(job["log_id"], list) else [job["log_id"]]  # a list for bulk exports
+    log_ids = job["log_id"] if isinstance(job["log_id"], list) else [job["log_id"]]
     con = conn()
     for log_id in log_ids:
         visible_log(con, log_id, "id")
@@ -5705,6 +5705,13 @@ def matlab_export_download(job_id):
     job = visible_export(job_id)
     if job["status"] != "ready":
         return jsonify(error="The export is not ready yet."), 409
+    if job.get("bundle"):
+        import matlab_export
+        files = export_jobs().bundle_files(job_id)
+        headers = {"Content-Disposition": f'attachment; filename="{job["filename"]}"', "Cache-Control": "no-store",
+                   "X-Content-Type-Options": "nosniff"}
+        return Response(stream_with_context(matlab_export.zip_stream(files)), mimetype="application/zip",
+                        headers=headers)
     return send_file(export_jobs().path(job_id), mimetype="application/octet-stream", as_attachment=True,
                      download_name=job["filename"], conditional=True, max_age=0)
 
