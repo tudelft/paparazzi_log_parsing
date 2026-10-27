@@ -241,3 +241,12 @@ dialog.entry-dialog label.field input, dialog.entry-dialog label.field select { 
 .navigation-pages button:disabled { opacity:.4; cursor:default; }
 .navigation-pages button:focus-visible,
 .navigation-pages input:focus { outline:2px solid var(--acc); outline-offset:2px; }
+
+/* Small download button beside a viewable file name (theme.js fileLink). */
+.file-dl { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; margin-left:4px; vertical-align:middle;
+  border:1px solid var(--line); border-radius:4px; color:var(--mute); text-decoration:none; }
+.file-dl:hover, .file-dl:focus-visible { color:var(--acc); border-color:var(--acc); }
+.file-list { width:100%; border-collapse:collapse; }
+.file-list td { padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; white-space:nowrap; }
+.file-list td.file-name { white-space:normal; width:100%; overflow-wrap:anywhere; }
+.file-list .file-desc { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60ch; }

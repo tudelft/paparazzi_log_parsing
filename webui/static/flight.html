@@ -25,7 +25,8 @@
   .mono { font-family:ui-monospace, monospace; font-size:12px; }
   .mute { color:var(--mute); }
   .bar { display:flex; gap:14px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
-  a { color:var(--acc); }
+  a { color:var(--acc); text-decoration:none; }
+  a:hover, a:focus-visible { text-decoration:underline; }
   a.btn { display:inline-block; background:var(--btn); color:#fff; padding:6px 12px; border-radius:6px; text-decoration:none; }
   a.btn.sec { background:var(--sec); color:var(--txt); }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
@@ -71,6 +72,19 @@
   .flight-focus .goal { flex:1 1 280px; }
   .flight-focus .label { display:block; font-size:12px; color:var(--mute); margin-bottom:3px; }
   .flight-focus .value { font-size:18px; font-weight:600; overflow-wrap:anywhere; white-space:pre-wrap; }
+  .summary-groups { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:14px 28px; }
+  .summary-groups h3, .comment-block h3 { margin:0 0 6px; font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; font-weight:600; }
+  .summary-groups .kv { grid-template-columns:max-content minmax(0, 1fr); }
+  .summary-body { display:grid; grid-template-columns:minmax(0, 1fr) 340px; gap:20px; }
+  .summary-map a, #overviewMap { display:block; height:100%; min-height:200px; border-radius:6px; }
+  #overviewMap { border:1px solid var(--line); cursor:pointer; }
+  .summary-groups .info-tip .tip { left:auto; right:-120px; }
+  @media (max-width:1100px) { .summary-body { grid-template-columns:minmax(0, 1fr); } .summary-map a, #overviewMap { height:220px; } }
+  .comment-block { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
+  .status-line { margin-top:10px; font-size:13px; color:var(--mute); }
+  .card-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+  .card-head h2 { margin:0 !important; }
+  .card-head .push { margin-left:auto; }
   @media (max-width:900px) {
     .cols > .summary-kv { grid-template-columns:max-content minmax(0, 1fr); }
   }
@@ -83,7 +97,7 @@
   }
 </style>
 </head>
-<body>
+<body data-edit="all">
 <header>
   <h1 id="title">Flight</h1>
   <span class="meta" id="nav"></span>
@@ -101,11 +115,9 @@
   </div>
   <div id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
   <section class="card" id="summary"></section>
-  <section class="card"><h2>Autopilot software</h2><div id="versions"></div>
-    <small class="mute">Versions sent by the aircraft when present. If that message is missing, the Paparazzi
-      version from the GCS <span class="mono">.log</span> header is shown instead. Commit links point to
-      paparazzi/paparazzi; commits from private forks may not be available there.</small></section>
-  <details class="card"><summary>Takeoff and landing details</summary><div class="cols" id="events"></div></details>
+  <section class="card"><div class="card-head"><h2>Autopilot software</h2><span class="info-tip"><button type="button" aria-label="About the software version">i</button><span class="tip" role="tooltip" style="white-space:normal;width:340px">Versions sent by the aircraft when present. If that message is missing, the Paparazzi
+      version from the GCS .log header is shown instead. Commit links point to
+      paparazzi/paparazzi; commits from private forks may not be available there.</span></span></div><div id="versions"></div></section>
   </div>
   <section class="card" id="panel-weather" role="tabpanel" aria-labelledby="tab-weather" hidden>
     <h2>Wind and weather</h2>
@@ -158,7 +170,9 @@
 
   <section class="card" id="panel-checks" role="tabpanel" aria-labelledby="tab-checks" hidden><h2>Pre-flight checks</h2><div class="scroll list-scroll"><table><tbody id="pfc"></tbody></table></div></section>
   <section class="card" id="panel-files" role="tabpanel" aria-labelledby="tab-files" hidden>
-    <h2>Additional files</h2><p class="mute">Photos, videos and offboard recordings, including files linked to this flight's log.</p>
+    <div class="card-head"><h2>Additional files <span class="mute" id="filesCount"></span></h2>
+      <span class="info-tip"><button type="button" aria-label="About additional files">i</button><span class="tip" role="tooltip">Photos, videos and offboard recordings, including files linked to this flight's log.<br>Click a name to view it; use the arrow to download.</span></span>
+      <a class="btn sec push" id="manageFiles" hidden>Add / manage files</a></div>
     <div id="additionalFiles">Loading...</div>
   </section>
 </main>
@@ -187,7 +201,20 @@ fetch('/api/me').then(r => r.json()).then(async d => {
 
 let D, map, planLayer, marker, trail, chartGeom;
 const flightId = +location.pathname.split('/').pop();
-AttachmentFiles.mount($('additionalFiles'), 'flight', flightId);
+let filesTarget = null;
+const editing = can => !!can && window.editMode();
+function syncFilesHead() {
+  $('manageFiles').href = `/attachments?kind=flight&id=${flightId}`;
+  $('manageFiles').hidden = !editing(filesTarget?.can_edit);
+}
+AttachmentFiles.mount($('additionalFiles'), 'flight', flightId).then(d => {
+  if (!d) return;
+  filesTarget = d.target;
+  $('filesCount').textContent = d.files.length ? `· ${d.files.length}` : '';
+  $('tab-files').textContent = d.files.length ? `Files (${d.files.length})` : 'Files';
+  syncFilesHead();
+});
+addEventListener('editchange', () => { syncFilesHead(); if (D) renderSummary(); });
 let activeTab = 'overview';
 function selectTab(name) {
   const tabs = [...document.querySelectorAll('[data-tab]')];
@@ -222,7 +249,7 @@ addEventListener('hashchange', () => selectTab(location.hash.slice(1)));
 selectTab(location.hash.slice(1));
 
 function projectField(e) {
-  if (!e.can_edit_project) return e.project_id != null ? `<a href="/projects/${e.project_id}">${esc(e.project_name || '')}</a>` : '';
+  if (!editing(e.can_edit_project)) return e.project_id != null ? `<a href="/projects/${e.project_id}">${esc(e.project_name || '')}</a>` : '';
   const ids = (e.sources || []).map(s => s.flight_id).join(',');
   const opts = '<option value="">No project</option>' + projects.filter(p => me && (me.is_admin || p.can_add || p.id === e.project_id)).map(p =>
     `<option value="${p.id}"${p.id === e.project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
@@ -239,7 +266,7 @@ async function setFlightProject(value, ids) {
 }
 
 function commentField(e) {
-  if (!e.can_edit_comment) return e.comment ? `<span class="note">${esc(e.comment)}</span>` : '';
+  if (!editing(e.can_edit_comment)) return e.comment ? `<span class="note">${esc(e.comment)}</span>` : '<span class="mute">No comment</span>';
   const ids = [...new Set((e.sources || []).map(s => s.flight_id))];
   return `<textarea class="comment" id="cmt" maxlength="4000" placeholder="Notes about this flight">${esc(e.comment || '')}</textarea>
     <div class="actions" style="margin-top:6px"><button type="button" onclick="saveComment([${ids.join(',')}])">Save comment</button> <span id="cmtMsg" class="mute"></span></div>`;
@@ -262,7 +289,7 @@ const person = (f, role) => {
 };
 const goTo = (kind, id) => id != null ? ` <a href="/${kind}/${id}" title="Overview">↗</a>` : '';
 function crewField(e, role) {
-  if (!e.can_edit_crew) return person(e, role);
+  if (!editing(e.can_edit_crew)) return person(e, role) || '<span class="mute">—</span>';
   const ids = [...new Set((e.sources || []).map(s => s.flight_id))];
   const u = e[role + '_user'];
   const selectedId = u && (u.source === 'edit' || u.source === 'alias') ? u.id : '';
@@ -320,35 +347,82 @@ async function loadWeather(fetchRemote = false) {
 $('fetchWeather').onclick = () => loadWeather(true);
 const ned = v => v ? `N ${v.north}, E ${v.east}, D ${v.down}` : '';
 
+// Geographic path pieces; a gap of more than 5 s starts a new piece.
+function pathSegments() {
+  const segments = [];
+  let segment = null, previous = null;
+  for (const p of D.path || []) {
+    if (!geographicPosition(p.position)) { segment = null; previous = null; continue; }
+    if (!segment || p.time_s - previous.time_s > 5) {
+      segment = [];
+      segments.push(segment);
+    }
+    segment.push([p.position.lat, p.position.lon]);
+    previous = p;
+  }
+  return segments;
+}
+// Small read-only path on the Overview; clicking it opens Path & charts.
+let overviewMap = null;
+function drawOverviewMap() {
+  if (overviewMap) { overviewMap.remove(); overviewMap = null; }
+  const el = $('overviewMap'), segments = pathSegments();
+  if (!el || !window.L || !segments.length) { if (el) el.parentElement.hidden = true; return; }
+  overviewMap = L.map(el, {zoomControl: false, attributionControl: false, dragging: false, scrollWheelZoom: false,
+    doubleClickZoom: false, boxZoom: false, keyboard: false, touchZoom: false});
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(overviewMap);
+  const group = L.featureGroup().addTo(overviewMap);
+  for (const points of segments) {
+    if (points.length > 1) L.polyline(points, {color: '#1f6feb', weight: 3}).addTo(group);
+    else L.circleMarker(points[0], {radius: 3, color: '#1f6feb', fillOpacity: 1}).addTo(group);
+  }
+  overviewMap.fitBounds(group.getBounds().pad(0.15), {maxZoom: 18});
+}
+// Battery, wind and INS state at takeoff or landing, shown on hover beside its time.
+function eventTip(x, name) {
+  if (!x) return '';
+  const rows = [kv('Location', coord(x.location, name)), kv('Battery', x.voltage_v != null ? x.voltage_v.toFixed(2) + ' V' : ''),
+    kv('Wind', windTxt(x.wind)), kv('INS position (NED, m)', ned(x.ins?.position_ned_m)),
+    kv('INS speed (NED, m/s)', ned(x.ins?.velocity_ned_ms)), kv('INS accel (NED, m/s²)', ned(x.ins?.acceleration_ned_ms2))].join('');
+  return rows ? `<span class="info-tip"><button type="button" aria-label="Details">i</button><span class="tip" role="tooltip"><span class="kv">${rows}</span></span></span>` : '';
+}
 function renderSummary() {
   const e = D.entry, a = e.assessment;
   $('loggedWind').innerHTML = kv('Logged wind at takeoff', windTxt(e.takeoff?.wind) || 'Not available')
     + kv('Logged wind at landing', windTxt(e.landing?.wind) || 'Not available');
   document.title = `${e.aircraft} ${fmtTime(e.takeoff_utc)}`;
-  $('title').textContent = `${e.aircraft} · ${fmtTime(e.takeoff_utc)}`;
   const place = (p, lat, lon, id) => p ? (id != null ? `<a href="/locations/${id}">${esc(p)}</a>` : esc(p)) : (lat != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '');
+  const status = [
+    a ? `<span class="tag ${esc(a.verdict)}">${esc(a.verdict)}</span> ${esc(a.reasons.join(', '))}` : '',
+    e.simulation == null ? 'Simulation not assessed; reparse with the current parser'
+      : e.simulation.detected ? '<span class="tag">Simulation</span> ' + esc(e.simulation.evidence.join(', ')) : '',
+    e.optitrack || e.indoor ? (e.optitrack ? 'Indoor (OptiTrack)' : e.indoor_no_gps ? 'Indoor / no GPS (inferred: both endpoint locations unknown; a partial path may exist)' : 'Indoor') : '',
+  ].filter(Boolean).join(' · ');
   $('summary').innerHTML = `<div class="flight-focus">
       <div><span class="label">Aircraft</span><div class="value">${e.drone_id != null ? `<a href="/aircraft/${e.drone_id}">${esc(e.aircraft)}</a>` : esc(e.aircraft)}</div>${e.aircraft_uid ? `<span class="mute">${esc(e.aircraft_uid)}</span>` : ''}${e.aircraft_identity_inferred ? '<div class="mute">Identity inferred from matching GCS recording; SD name is shared.</div>' : (e.aircraft_ambiguous && e.drone_id == null ? '<div class="mute">Shared aircraft name; fleet identity unresolved.</div>' : '')}</div>
       <div class="goal"><span class="label">Flight goal</span><div class="value">${e.goal ? esc(e.goal) : '<span class="mute">Not recorded</span>'}</div></div>
-    </div><div class="cols"><div class="kv summary-kv">
-      ${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + estimatedDateBadge(e) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id)
-        + (e.takeoff_location_inferred ? ' <span class="mute">(location inferred from landing)</span>' : ''))}
-      ${kv('Landing (UTC)', (e.landing_utc ? esc(fmtTime(e.landing_utc)) + ' · ' : '') + place(e.landing_place, e.landing_lat, e.landing_lon, e.landing_place_id)
-        + (e.landing_location_inferred ? ' <span class="mute">(location inferred from takeoff)</span>' : ''))}
-      ${kv('Flight time', fmtDur(e.duration_s))}${kv('Distance flown', fmtDist(e.distance_m))}${kv('Max from takeoff', fmtDist(e.max_from_takeoff_m))}${kv('At landing', fmtDist(e.from_takeoff_m))}
-      ${kv('Project', projectField(e))}
-      ${kv('Operator', e.operator_name ? esc(operatorLabel({name: e.operator_name, registration: e.operator_registration}))
-        + (e.operator_source === 'flight' ? '' : ` <span class="mute">${OPERATOR_SOURCE[e.operator_source]}</span>`) : '')}
-      ${kv('Category', esc(categoryText(e)) + (e.category_source === 'flight' ? '' : ` <span class="mute">${CATEGORY_SOURCE[e.category_source] || 'no rule applies'}</span>`)
-        + (e.category_check ? ` <span class="warn">${esc(e.category_check)}</span>` : ''))}
-      ${kv('PIC', crewField(e, 'pic'))}${kv('PAC', crewField(e, 'pac'))}${kv('GCS operator', crewField(e, 'gcs'))}
-      ${kv('Comment', commentField(e))}
-      ${kv('Simulation', e.simulation == null ? 'Not assessed; reparse with the current parser' : e.simulation.detected
-        ? '<span class="tag">Simulation</span> ' + esc(e.simulation.evidence.join(', '))
-        : 'No simulation evidence detected')}
-      ${a ? kv('Real flight?', `<span class="tag ${esc(a.verdict)}">${esc(a.verdict)}</span> <span class="mute">${esc(a.reasons.join(', '))}</span>`) : ''}
-      ${e.optitrack || e.indoor ? kv('Where', e.optitrack ? 'Indoor (OptiTrack)' : e.indoor_no_gps ? 'Indoor / no GPS (inferred: both endpoint locations unknown; a partial path may exist)' : 'Indoor') : ''}
-    </div></div>
+      <div><span class="label">Flight time</span><div class="value">${fmtDur(e.duration_s) || '–'}</div></div>
+    </div>
+    <div class="summary-body"><div class="summary-main"><div class="summary-groups">
+      <div><h3>When and where</h3><div class="kv">
+        ${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + estimatedDateBadge(e) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id)
+          + (e.takeoff_location_inferred ? ' <span class="mute">(location inferred from landing)</span>' : '') + eventTip(e.takeoff, e.takeoff_place))}
+        ${kv('Landing (UTC)', (e.landing_utc ? esc(fmtTime(e.landing_utc)) + ' · ' : '') + place(e.landing_place, e.landing_lat, e.landing_lon, e.landing_place_id)
+          + (e.landing_location_inferred ? ' <span class="mute">(location inferred from takeoff)</span>' : '') + eventTip(e.landing, e.landing_place))}
+        ${kv('Distance flown', fmtDist(e.distance_m))}${kv('Max from takeoff', fmtDist(e.max_from_takeoff_m))}${kv('At landing', fmtDist(e.from_takeoff_m))}
+      </div></div>
+      <div><h3>Crew</h3><div class="kv">${kv('PIC', crewField(e, 'pic'))}${kv('PAC', crewField(e, 'pac'))}${kv('GCS operator', crewField(e, 'gcs'))}</div></div>
+      <div><h3>Operation</h3><div class="kv">
+        ${kv('Project', projectField(e) || '<span class="mute">—</span>')}
+        ${kv('Operator', e.operator_name ? esc(operatorLabel({name: e.operator_name, registration: e.operator_registration}))
+          + (e.operator_source === 'flight' ? '' : ` <span class="mute">${OPERATOR_SOURCE[e.operator_source]}</span>`) : '')}
+        ${kv('Category', esc(categoryText(e)) + (e.category_source === 'flight' ? '' : ` <span class="mute">${CATEGORY_SOURCE[e.category_source] || 'no rule applies'}</span>`)
+          + (e.category_check ? ` <span class="warn">${esc(e.category_check)}</span>` : ''))}
+      </div></div>
+    </div>
+    <div class="comment-block"><h3>Comment</h3>${commentField(e)}</div></div>
+    <div class="summary-map"><a href="#path" title="Open Path &amp; charts"><div id="overviewMap" role="img" aria-label="Flight path"></div></a></div></div>
+    ${status ? `<div class="status-line">${status}</div>` : ''}
     <details style="margin-top:12px"><summary>Log sources and upload details</summary><div class="kv src">
       ${e.source_selection_reason ? kv('Default source', esc(e.source_selection_reason)
         + ` <a href="/flight/${e.flight_id}">Open selected GCS recording</a>`
@@ -360,15 +434,9 @@ function renderSummary() {
       ${e.sources.map(s => kv(TYPE[s.log_type] || s.log_type, `<a href="/flight/${s.flight_id}" class="${s.flight_id === flightId ? 'cur' : ''}">${esc(s.log_name)}</a>${s.flight_id === flightId ? ' <span class="mute">(shown)</span>' : ''}
         · <a href="/api/logs/${s.log_id}/download">download ${downloadLabel(s.log_type)}</a> · <a href="/uploads#log${s.log_id}">log details</a>`)).join('')}
       ${kv('Uploaded', esc(fmtTime(e.uploaded_at)) + (e.uploaded_by_name ? ' by ' + esc(e.uploaded_by_name) : ''))}
-    </div></details>
-    <div class="actions"><a class="btn sec" href="/api/flights/${flightId}/path" target="_blank">Path JSON</a>
-      <a class="btn sec" href="/api/aircraft/${D.aircraft_pk}/config" target="_blank">Airframe / flight plan / settings</a></div>`;
-  const ev = (title, x, utc, name, extra) => x ? `<div><h4>${title}</h4><div class="kv">${kv('Time (UTC)', esc(fmtTime(utc)))}${kv('Location', coord(x.location, name))}
-    ${extra || ''}${kv('Battery', x.voltage_v != null ? x.voltage_v.toFixed(2) + ' V' : '')}${kv('Wind', windTxt(x.wind))}
-    ${kv('INS position (NED, m)', ned(x.ins?.position_ned_m))}${kv('INS speed (NED, m/s)', ned(x.ins?.velocity_ned_ms))}${kv('INS accel (NED, m/s²)', ned(x.ins?.acceleration_ned_ms2))}</div></div>` : '';
-  $('events').innerHTML = ev('Takeoff', e.takeoff, e.takeoff_utc, e.takeoff_place)
-    + ev('Landing', e.landing, e.landing_utc, e.landing_place,
-         kv('Distance flown', fmtDist(e.distance_m)) + kv('From takeoff', fmtDist(e.from_takeoff_m)));
+      ${kv('Raw data', `<a href="/api/flights/${flightId}/path" target="_blank">Path JSON</a> · <a href="/api/aircraft/${D.aircraft_pk}/config" target="_blank">Airframe / flight plan / settings</a>`)}
+    </div></details>`;
+  drawOverviewMap();
 }
 
 const pt = i => D.path[i];
@@ -456,17 +524,7 @@ function initMap() {
   const path = D.path.filter(p => geographicPosition(p.position));
   const ll = path.map(p => [p.position.lat, p.position.lon]);
   const group = L.featureGroup();
-  const segments = [];
-  let segment = null, previous = null;
-  for (const p of D.path) {
-    if (!geographicPosition(p.position)) { segment = null; previous = null; continue; }
-    if (!segment || p.time_s - previous.time_s > 5) {
-      segment = [];
-      segments.push(segment);
-    }
-    segment.push([p.position.lat, p.position.lon]);
-    previous = p;
-  }
+  const segments = pathSegments();
   for (const points of segments) {
     if (points.length > 1) L.polyline(points, {color: '#1f6feb', weight: 4}).addTo(group);
     else L.circleMarker(points[0], {radius: 3, color: '#1f6feb', fillOpacity: 1}).addTo(group);

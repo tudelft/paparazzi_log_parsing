@@ -73,6 +73,7 @@ def qualifications_payload(con, viewer, user_id):
             "requires_start", "requires_expiry")}
         item["internal"] = bool(row["internal"])
         item["has_evidence"] = bool(row["evidence_path"])
+        item["viewable"] = item["has_evidence"] and storage.view_type(row["filename"] or "") is not None
         item["expired"] = bool(row["valid_until"] and row["valid_until"] < datetime.date.today().isoformat())
         items.append(item)
     return dict(items=items, types=[dict(r) for r in con.execute(
@@ -85,11 +86,12 @@ def current_payload(con, viewer, user_id):
         return None
     return dict(items=[
         dict(id=r["id"], has_evidence=bool(r["evidence_path"]),
+             viewable=bool(r["evidence_path"]) and storage.view_type(r["filename"] or "") is not None,
              category=r["category"], valid_from=r["valid_from"], valid_until=r["valid_until"], status="approved",
              expired=bool(r["valid_until"] and r["valid_until"] < datetime.date.today().isoformat()),
              internal=bool(r["internal"]))
         for r in con.execute(
-            "SELECT q.id,q.evidence_path,t.name AS category,q.valid_from,q.valid_until,t.internal FROM qualification_submissions q"
+            "SELECT q.id,q.evidence_path,q.filename,t.name AS category,q.valid_from,q.valid_until,t.internal FROM qualification_submissions q"
             " JOIN qualification_types t ON t.id=q.type_id WHERE q.user_id=? AND q.status='approved'"
             " ORDER BY t.sort_order, t.name", (user_id,))])
 
@@ -454,6 +456,13 @@ def register(app, connection, root, require_session):
 
     @app.get("/api/qualification-submissions/<int:sid>/evidence")
     def download_qualification_evidence(sid):
+        return send_evidence(sid, inline=False)
+
+    @app.get("/api/qualification-submissions/<int:sid>/evidence/view")
+    def view_qualification_evidence(sid):
+        return send_evidence(sid, inline=True)
+
+    def send_evidence(sid, inline):
         row = visible_submission(connection(), g.user, sid)
         if not row["evidence_path"]:
             raise QualificationError("No evidence file is available.", 404)
@@ -461,11 +470,16 @@ def register(app, connection, root, require_session):
         if not path.is_file():
             app.logger.error("Missing private evidence for qualification submission %s", sid)
             raise QualificationError("Evidence is unavailable. Contact an administrator.", 503)
-        return Response(storage.chunks(path, bool(row["compressed"])),
-                        mimetype=row["mime"], headers={
-                            "Content-Disposition": f'attachment; filename="{row["filename"]}"',
-                            "Content-Length": str(row["size_bytes"]), "Cache-Control": "private, no-store",
-                            "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox; default-src 'none'"})
+        # Inline only for the same safe types as flight attachments; PDF viewers break under a sandbox.
+        mimetype = storage.view_type(row["filename"] or "") if inline else row["mime"]
+        if not mimetype:
+            raise QualificationError("This file type cannot be viewed in the browser; download it instead.", 415)
+        headers = {"Content-Disposition": f'{"inline" if inline else "attachment"}; filename="{row["filename"]}"',
+                   "Content-Length": str(row["size_bytes"]), "Cache-Control": "private, no-store",
+                   "X-Content-Type-Options": "nosniff"}
+        if not (inline and mimetype == "application/pdf"):
+            headers["Content-Security-Policy"] = "sandbox; default-src 'none'" + ("; img-src 'self'" if inline else "")
+        return Response(storage.chunks(path, bool(row["compressed"])), mimetype=mimetype, headers=headers)
 
     @app.delete("/api/qualification-submissions/<int:sid>/evidence")
     @app.delete("/api/qualification-submissions/<int:sid>")

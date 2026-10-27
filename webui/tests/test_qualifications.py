@@ -78,10 +78,13 @@ class QualificationTests(AppTests):
                 self.assertEqual((licence["id"], licence["category"], licence["status"]),
                                  (sid, "A1/A3", "approved"))
                 self.assertTrue(licence["has_evidence"])
+                self.assertTrue(licence["viewable"])
                 self.assertEqual(self.client.get(evidence).status_code, 200)
+                self.assertEqual(self.client.get(evidence + "/view").status_code, 200)
             else:
                 self.assertIsNone(pilot["qualifications"])
                 self.assertEqual(self.client.get(evidence).status_code, 404)
+                self.assertEqual(self.client.get(evidence + "/view").status_code, 404)
 
     def test_self_service_and_all_surfaces_are_private(self):
         self.sign_in(2)
@@ -98,6 +101,11 @@ class QualificationTests(AppTests):
         self.assertIn("attachment;", downloaded.headers["Content-Disposition"])
         self.assertIn("no-store", downloaded.headers["Cache-Control"])
         self.assertEqual(downloaded.headers["X-Content-Type-Options"], "nosniff")
+        viewed = self.client.get(file_url + "/view")
+        self.assertEqual((viewed.data, viewed.mimetype), (PDF, "application/pdf"))
+        self.assertIn("inline;", viewed.headers["Content-Disposition"])
+        self.assertEqual(viewed.headers["X-Content-Type-Options"], "nosniff")
+        self.assertNotIn("Content-Security-Policy", viewed.headers)  # browsers' PDF viewers break under a sandbox
         self.assertIn("sandbox", downloaded.headers["Content-Security-Policy"])
         self.assertEqual(self.client.delete(file_url).status_code, 403)
         for uid in (3, 4, 5):
@@ -269,8 +277,8 @@ class QualificationTests(AppTests):
         self.review(expired)
         self.submit(until="2031-01-01")
         expected = [
-            dict(id=new, has_evidence=True, category="A1/A3", valid_from=None, valid_until="2030-01-01", status="approved", expired=False, internal=False),
-            dict(id=expired, has_evidence=False, category="Expired licence", valid_from=None, valid_until="2020-01-01", status="approved", expired=True, internal=False)]
+            dict(id=new, has_evidence=True, viewable=True, category="A1/A3", valid_from=None, valid_until="2030-01-01", status="approved", expired=False, internal=False),
+            dict(id=expired, has_evidence=False, viewable=False, category="Expired licence", valid_from=None, valid_until="2020-01-01", status="approved", expired=True, internal=False)]
         for uid in (1, 2):
             self.sign_in(uid)
             data = self.client.get("/api/detail/people/2").json["item"]["qualifications"]

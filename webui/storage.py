@@ -102,3 +102,15 @@ def save_attachment(stream, folder, limit):
             raw_path.unlink(missing_ok=True)
         if selected != gz_path:
             gz_path.unlink(missing_ok=True)
+
+
+# Types the browser may show inline, chosen by extension only. HTML, SVG, XML and other active
+# content are deliberately absent: they stay downloads so a stored file can never run script here.
+# Flask adds "charset=utf-8" to text/plain.
+VIEWABLE = {".pdf": "application/pdf", ".txt": "text/plain", ".csv": "text/plain",
+            ".md": "text/plain", ".log": "text/plain", ".png": "image/png",
+            ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+
+
+def view_type(filename):
+    return VIEWABLE.get(Path(filename).suffix.lower())

@@ -118,6 +118,7 @@ original recording can still be opened or downloaded.
 - Turn on **Edit** to show permitted editing controls. It stays enabled across pages until turned off.
   Turn it off for the simpler browsing view. Longer explanations are under **Help**.
 - Flight pages include the path, charts, weather, settings, messages, pre-flight checks and software version.
+  Turn on **Edit** there to change the project, crew or comment; the Overview shows a small path map.
   Expanded Logbook rows show comments and buttons beside the map (stacked on small screens).
   Comments are read-only there; edit them on the flight page.
   Distance from takeoff and maximum range are shown only on the flight page, not in overview tables or statistics.
@@ -200,8 +201,9 @@ without an approval-status label; management still shows pending, expired and pr
 
 **Additional files:** use a flight's Files tab, a paper record's Additional files section or an
 expanded upload to attach photos, video or other recordings (default limit **10 GiB** per file).
-Clicking a file name downloads it; the eye icon next to a PDF, text file or image opens it in a new tab.
-Word files (`.docx`) get the eye icon too when LibreOffice is installed on the server; they open as PDF.
+Clicking the name of a PDF, text file or image opens it in a new tab; the small arrow beside it downloads it.
+Other files download from the name. Word files (`.docx`) open as PDF when LibreOffice is installed on the server.
+Qualification evidence works the same way.
 **Anyone able to read any linked flight/log can download the file. Linking across projects shares
 its contents. Never put private qualification evidence here.**
 

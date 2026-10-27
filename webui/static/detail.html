@@ -286,7 +286,8 @@ function renderInfo() {
           item.internal ? 'Internal' : ''].filter(Boolean).join(' · ');
         const attrs = `class="chip${item.expired ? ' expired' : ''}" title="${esc(dates)}"`;
         return item.has_evidence
-          ? `<a ${attrs} href="/api/qualification-submissions/${item.id}/evidence">${esc(item.category)}</a>`
+          ? fileLink({name: esc(item.category), attrs, viewable: item.viewable,
+              view: `/api/qualification-submissions/${item.id}/evidence/view`, download: `/api/qualification-submissions/${item.id}/evidence`})
           : `<span ${attrs}>${esc(item.category)}</span>`;
       }).join('');
       html += `<h3 class="detail-label">Current qualifications <span class="detail-count">· ${current.length}</span></h3>
