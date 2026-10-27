@@ -82,11 +82,12 @@
   [hidden] { display:none !important; }
   /* read-only overview: one line per aircraft, details on hover */
   table.fleet { width:100%; table-layout:fixed; }
-  table.fleet td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  table.fleet td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:4px 8px; }
   table.fleet th { white-space:nowrap; }
   table.fleet th [data-sort] { cursor:pointer; user-select:none; }
   table.fleet th [data-sort]:hover { color:var(--txt); }
-  table.fleet .serial { display:block; font-family:ui-monospace, monospace; font-size:11px; color:var(--mute); line-height:1.2; }
+  table.fleet .serial { font-family:ui-monospace, monospace; font-size:12px; color:var(--mute); }
+  .fleet-foot { display:flex; justify-content:flex-end; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px; }
   table.fleet .num { text-align:right; padding-right:16px; }
   table.fleet .chip { padding:1px 8px; margin:0; font-size:12px; }
   .fleet-count { color:var(--mute); }
@@ -176,7 +177,10 @@
         <div id="aircraftContent" role="tabpanel"></div>
       </section>
     </div>
-    <div class="scroll" id="aircraftOverview"><table class="fleet"><colgroup id="droneCols"></colgroup><thead id="droneHead"></thead><tbody id="drones"></tbody></table></div>
+    <div id="aircraftOverview"><div class="scroll"><table class="fleet"><colgroup id="droneCols"></colgroup><thead id="droneHead"></thead><tbody id="drones"></tbody></table></div>
+      <div class="fleet-foot"><span class="mute">Rows per page</span>
+        <select id="size" aria-label="Rows per page"><option>25</option><option selected>50</option><option>100</option><option>200</option></select>
+        <div id="fleetPages" class="navigation-pages"></div></div></div>
   </section>
 </main>
 <script>
@@ -324,14 +328,15 @@ function render() {
   $('fleetCount').textContent = shown.length === data.drones.length ? String(shown.length) : `${shown.length} of ${data.drones.length}`;
   $('colMenu').hidden = false;
   $('droneCols').innerHTML = FLEET_COLUMNS.map(c => `<col style="width:${c.width}">`).join('');
-  const sortLabel = (key, label) => `<span data-sort="${key}" title="Sort by ${esc(label.toLowerCase())}">${esc(label)}${sortKey === key ? (sortDesc ? ' ▼' : ' ▲') : ''}</span>`;
-  $('droneHead').innerHTML = '<tr>' + FLEET_COLUMNS.map((c, i) => {
-    const sorted = sortKey === c.sort || (i === 0 && sortKey === 'serial');
-    const aria = sorted ? `aria-sort="${sortDesc ? 'descending' : 'ascending'}"` : '';
-    if (i === 0) return `<th ${aria}>${sortLabel('name', 'Aircraft')} <span class="mute">/</span> ${sortLabel('serial', 'Serial')}</th>`;
-    return c.sort ? `<th class="${c.num ? 'num' : ''}" ${aria}>${sortLabel(c.sort, c.label)}</th>` : `<th>${esc(c.label)}</th>`;
+  $('droneHead').innerHTML = '<tr>' + FLEET_COLUMNS.map(c => {
+    if (!c.sort) return `<th>${esc(c.label)}</th>`;
+    const sorted = sortKey === c.sort;
+    return `<th class="${c.num ? 'num' : ''}"${sorted ? ` aria-sort="${sortDesc ? 'descending' : 'ascending'}"` : ''}><span data-sort="${c.sort}" title="Sort by ${esc(c.label.toLowerCase())}">${esc(c.label)}${sorted ? (sortDesc ? ' ▼' : ' ▲') : ''}</span></th>`;
   }).join('') + '</tr>';
-  $('drones').innerHTML = sortDrones(shown).map(d => {
+  const sorted = sortDrones(shown);
+  page = Math.min(page, Math.max(0, Math.ceil(sorted.length / pageSize) - 1));
+  window.viewState.pager($('fleetPages'), page, pageSize, sorted.length, n => { page = n; window.viewState.save(true); render(); });
+  $('drones').innerHTML = sorted.slice(page * pageSize, (page + 1) * pageSize).map(d => {
     const st = d.status || '';
     const ps = d.projects || [];
     const current = ps.find(p => !p.end_date) || ps[ps.length - 1];
@@ -340,7 +345,8 @@ function render() {
     const total = (d.log_count || 0) + (d.record_count || 0);
     const aliases = d.aliases || [];
     return `<tr>
-      <td><a href="/aircraft/${d.id}" title="${esc(d.name)}">${esc(d.name)}</a><span class="serial">${esc(d.unique_id || '')}</span></td>
+      <td class="serial" title="${esc(d.unique_id || '')}">${esc(d.unique_id || '')}</td>
+      <td><a href="/aircraft/${d.id}" title="${esc(d.name)}">${esc(d.name)}</a></td>
       <td>${st ? `<span class="badge st-${esc(st)}">${esc(st)}</span>` : ''}</td>
       <td title="${esc(d.manager || '')}">${esc(d.manager || '')}</td>
       <td title="${esc(history)}">${project ? esc(project) : '<span class="mute">—</span>'}${ps.length > 1 ? ` <span class="mute">+${ps.length - 1}</span>` : ''}</td>
@@ -354,10 +360,11 @@ function render() {
 
 // Overview columns and sorting. Default: serial, newest TUD number first; other serials after, by name.
 const FLEET_COLUMNS = [
-  {label: 'Aircraft', sort: 'name', width: '22%'}, {label: 'Status', sort: 'status', width: '9%'},
-  {label: 'Manager', sort: 'manager', width: '14%'}, {label: 'Project', sort: 'project', width: '17%'},
-  {label: 'Comments', width: '18%'}, {label: 'Flights', sort: 'flights', num: true, width: '7%'}, {label: 'Aliases', width: '13%'}];
-let sortKey = 'serial', sortDesc = true;
+  {label: 'Serial', sort: 'serial', width: '9%'}, {label: 'Aircraft', sort: 'name', width: '19%'},
+  {label: 'Status', sort: 'status', width: '8%'},
+  {label: 'Manager', sort: 'manager', width: '13%'}, {label: 'Project', sort: 'project', width: '16%'},
+  {label: 'Comments', width: '16%'}, {label: 'Flights', sort: 'flights', num: true, width: '7%'}, {label: 'Aliases', width: '12%'}];
+let sortKey = 'serial', sortDesc = true, page = 0, pageSize = 50;
 const tudNumber = d => { const m = /^TUD(\d{5})$/i.exec((d.unique_id || '').trim()); return m ? +m[1] : null; };
 const currentProject = d => { const ps = d.projects || []; const c = ps.find(p => !p.end_date) || ps[ps.length - 1];
   return (c ? c.project_name : d.default_project_name || d.inventory_project) || ''; };
@@ -383,6 +390,7 @@ $('droneHead').onclick = e => {
   if (!th) return;
   if (sortKey === th.dataset.sort) sortDesc = !sortDesc;
   else { sortKey = th.dataset.sort; sortDesc = ['flights', 'serial'].includes(sortKey); }
+  page = 0;
   window.viewState.save(true);
   render();
 };
@@ -398,7 +406,7 @@ function applyColumns() {
   try { localStorage.setItem(COLUMNS_KEY, JSON.stringify([...hiddenColumns])); } catch (e) {}
 }
 function fillColumns() {
-  $('colForm').innerHTML = FLEET_COLUMNS.map((c, i) => `<label><input type="checkbox" value="${esc(c.label)}"${hiddenColumns.has(c.label) ? '' : ' checked'}${i === 0 ? ' disabled' : ''}> ${esc(c.label)}</label>`).join('')
+  $('colForm').innerHTML = FLEET_COLUMNS.map((c, i) => `<label><input type="checkbox" value="${esc(c.label)}"${hiddenColumns.has(c.label) ? '' : ' checked'}${c.label === 'Aircraft' ? ' disabled' : ''}> ${esc(c.label)}</label>`).join('')
     + '<div class="col-actions"><button type="button" class="sec" id="colAll">Show all</button><button type="button" class="sec" id="colClose">Close</button></div>';
 }
 $('colButton').onclick = () => {
@@ -632,8 +640,9 @@ function removeDrone(id) {
   if (confirm('Remove ' + (d ? d.name : 'this aircraft') + '? The logs stay. They will no longer be linked to this aircraft.'))
     send('DELETE', '/api/admin/drones/' + id);
 }
-$('q').oninput = () => { window.viewState.save(); render(); };
-$('statusFilter').onchange = $('showDiscarded').onchange = $('showWithoutLogs').onchange = () => { window.viewState.save(true); render(); };
+$('q').oninput = () => { page = 0; window.viewState.save(); render(); };
+$('statusFilter').onchange = $('showDiscarded').onchange = $('showWithoutLogs').onchange = () => { page = 0; window.viewState.save(true); render(); };
+$('size').onchange = () => { pageSize = +$('size').value; page = 0; window.viewState.save(true); render(); };
 // Search, filters and sort live in the URL, so Back returns to the same view.
 window.viewState.setup(p => {
   $('q').value = p.get('q') || '';
@@ -643,11 +652,15 @@ window.viewState.setup(p => {
   const [key, dir] = (p.get('sort') || 'serial-desc').split('-');
   sortKey = ['serial', ...FLEET_COLUMNS.map(c => c.sort).filter(Boolean)].includes(key) ? key : 'serial';
   sortDesc = key === sortKey ? dir === 'desc' : true;
+  page = window.viewState.integer(p.get('page'), 1) - 1;
+  const size = [...$('size').options].some(o => o.value === p.get('size')) ? p.get('size') : '50';
+  $('size').value = size; pageSize = +size;
 }, p => {
   const set = window.viewState.set;
   set(p, 'q', $('q').value); set(p, 'status', $('statusFilter').value);
   set(p, 'discarded', $('showDiscarded').checked ? '1' : ''); set(p, 'without_logs', $('showWithoutLogs').checked ? '1' : '');
   set(p, 'sort', `${sortKey}-${sortDesc ? 'desc' : 'asc'}`, 'serial-desc');
+  set(p, 'page', page + 1, 1); set(p, 'size', pageSize, 50);
 }, () => render());
 window.addEventListener('editchange', toggleEdit);
 fetch('/api/me').then(r => r.json()).then(d => {

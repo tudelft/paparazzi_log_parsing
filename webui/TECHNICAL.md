@@ -687,11 +687,12 @@ aircraft, including Discard (Show discarded only filters the list); its search b
 menu filters the list below, names starting with the typed text first (Enter picks the first match). Add user also opens a dialog.
 Dialogs can be closed with Close or Escape. Details are saved together; project
 periods keep their separate Save timeline action.
-Outside Edit mode the Aircraft overview has one line per aircraft: the serial under the name, the current project
+Outside Edit mode the Aircraft overview has one line per aircraft: a Serial column first, the current project
 (full history and "+N" earlier periods on hover), total flights (uploaded logs and paper records on hover), the first
 alias with "+N", and long text cut off with the full value on hover. It is sorted by serial, newest TUD number first
 and other serials after by name; the headers sort too. Search, status, filters and sort are kept in the URL; hidden
-columns (Columns menu) are a per-browser preference. Unlinked log names show as a badge in the toolbar.
+columns (Columns menu) are a per-browser preference. Unlinked log names show as a badge in the toolbar. It is
+paginated at the bottom like the logbook (50 rows by default; page and rows per page in the URL).
 Aircraft without uploaded logs or paper records, and people without any log, paper record or approved
 qualification, stay hidden until **Show aircraft without logs** / **Show people without logs or licences**
 is ticked. A person counts as having logs as uploader or as linked PIC/PAC/GCS; the aircraft or person
