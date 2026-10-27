@@ -1412,6 +1412,9 @@ flight filters (`category=all|national|open|specific|luc|indoor|unknown|check`) 
 - `GET /api/authorisations`: the catalog and category labels. Admins: `POST /api/admin/authorisations`,
   `PUT`/`DELETE /api/admin/authorisations/<id>`; a `PUT` keeps the fields it leaves out and moves the category of
   everything that names it along; one still in use cannot be deleted.
+- An authorisation with `exemption: true` (such as a one-off BVLOS or Remote-ID exemption) only applies where it is
+  set on a flight, paper record, project or location. The date rule ignores it, both for the national default and
+  for deciding that a day had no valid authorisation of ours.
 - `PUT /api/logbook/records`, `PUT /api/admin/projects/<id>`, `POST`/`PUT /api/admin/places` and the paper-record
   API take `category` and/or `authorisation_id`; both empty return to the default.
 - An administrator's API key may call `PUT /api/logbook/records` when the body only sets `operator_id`,

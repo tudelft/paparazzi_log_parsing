@@ -105,8 +105,8 @@
   </section>
   <section class="card" id="authorisationsCard">
     <div class="project-toolbar"><h2>Authorisations</h2>
-    <details><summary>Help</summary><p>The rules each flight was flown under (its category): national rules (ROC / ROC-light) before EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. A flight's category is, in this order: set on the flight (logbook Edit mode), indoor, that of its project, that of its takeoff location, or the date. By date, flights before 31 Dec 2020 are under national rules; for our own operations, a national authorisation listed here that was valid that day gives national rules, a day without any valid authorisation of ours gives OPEN, and a day with an EU authorisation stays unknown (OPEN or SPECIFIC): set those on the project, the location or the flight. Leave the operator empty for our own authorisations. The logbook marks SPECIFIC flights without an authorisation, or outside its validity, with (check).</p></details></div>
-    <div class="scroll"><table><thead><tr><th>Name / number</th><th>Category</th><th>Holder</th><th>Valid from</th><th>Valid until</th><th>Link</th><th>Note</th><th></th></tr></thead>
+    <details><summary>Help</summary><p>The rules each flight was flown under (its category): national rules (ROC / ROC-light) before EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. A flight's category is, in this order: set on the flight (logbook Edit mode), indoor, that of its project, that of its takeoff location, or the date. By date, flights before 31 Dec 2020 are under national rules; for our own operations, a national authorisation listed here that was valid that day gives national rules, a day without any valid authorisation of ours gives OPEN, and a day with an EU authorisation stays unknown (OPEN or SPECIFIC): set those on the project, the location or the flight. An exemption (such as a one-off BVLOS exemption) is left out of this date rule: it only applies where it is set. Leave the operator empty for our own authorisations. The logbook marks SPECIFIC flights without an authorisation, or outside its validity, with (check).</p></details></div>
+    <div class="scroll"><table><thead><tr><th>Name / number</th><th>Category</th><th>Holder</th><th>Valid from</th><th>Valid until</th><th title="Only where it is set on a flight, project or location; never by date">Exemption</th><th>Link</th><th>Note</th><th></th></tr></thead>
       <tbody id="authorisationRows"></tbody></table></div>
     <form class="row" id="addAuthorisation" hidden onsubmit="event.preventDefault();saveAuthorisation(null)">
       <label class="field">Name / number<input id="auNewname" required maxlength="80"></label>
@@ -114,6 +114,7 @@
       <label class="field">Holder<select id="auNewoperator_id"></select></label>
       <label class="field">Valid from<input type="date" id="auNewvalid_from"></label>
       <label class="field">Valid until<input type="date" id="auNewvalid_until"></label>
+      <label title="Only where it is set on a flight, project or location; never by date"><input type="checkbox" id="auNewexemption"> Exemption</label>
       <label class="field">Link<input id="auNewlink" maxlength="500"></label>
       <label class="field">Note<input id="auNewnote" maxlength="400"></label>
       <button type="submit">Add authorisation</button>
@@ -297,10 +298,11 @@ function renderAuthorisations() {
     <td>${ed ? `<select id="au${a.id}category">${categoryOpts(a.category)}</select>` : CATEGORY_LABELS[a.category]}</td>
     <td>${ed ? `<select id="au${a.id}operator_id">${holderOptions(a.operator_id)}</select>` : esc(operators.find(o => o.id === a.operator_id)?.name || 'Our own operator')}</td>
     <td>${text(a, 'valid_from', 0, 'date')}</td><td>${text(a, 'valid_until', 0, 'date')}</td>
+    <td>${ed ? `<input type="checkbox" id="au${a.id}exemption"${a.exemption ? ' checked' : ''}>` : a.exemption ? 'Yes' : ''}</td>
     <td>${ed ? text(a, 'link', 500) : a.link && /^https?:\/\//.test(a.link) ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">Open</a>` : esc(a.link || '')}</td>
     <td>${text(a, 'note', 400)}</td>
     <td>${ed ? `<button type="button" onclick="saveAuthorisation(${a.id})">Save</button> <button type="button" class="danger" onclick="deleteAuthorisation(${a.id})">Delete</button>` : ''}</td></tr>`).join('')
-    || `<tr><td colspan="8" class="mute">No authorisations yet${ed ? '. Add our ROC(s) and operational authorisations with their validity.' : '.'}</td></tr>`;
+    || `<tr><td colspan="9" class="mute">No authorisations yet${ed ? '. Add our ROC(s) and operational authorisations with their validity.' : '.'}</td></tr>`;
   $('addAuthorisation').hidden = !ed;
   if (ed) {
     $('auNewcategory').innerHTML = categoryOpts($('auNewcategory').value || 'specific');
@@ -311,6 +313,7 @@ function saveAuthorisation(id) {
   const key = id === null ? 'New' : id;
   const body = Object.fromEntries(['name', 'category', 'operator_id', 'valid_from', 'valid_until', 'link', 'note'].map(k => [k, $('au' + key + k).value]));
   body.operator_id = body.operator_id ? +body.operator_id : null;
+  body.exemption = $('au' + key + 'exemption').checked;
   send(id === null ? '/api/admin/authorisations' : '/api/admin/authorisations/' + id, id === null ? 'POST' : 'PUT', body)
     .then(() => { if (id === null && !$('err').textContent) $('addAuthorisation').reset(); });
 }
