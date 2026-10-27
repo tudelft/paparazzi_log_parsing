@@ -207,6 +207,18 @@ class CategoryTests(LinkFixtures):
         self.assertEqual(self.client.delete("/api/admin/authorisations/3").status_code, 409)
         self.assertEqual(self.client.delete(f"/api/admin/authorisations/{new.json['id']}").status_code, 200)
 
+    def test_the_catalog_counts_where_each_authorisation_is_set(self):
+        self.sign_in(1)
+        self.flight(1, "12:00:00")
+        self.con.execute("UPDATE flights SET authorisation_id=3 WHERE id=1")
+        self.con.execute("UPDATE projects SET authorisation_id=3 WHERE id=1")
+        self.con.execute("UPDATE places SET authorisation_id=4 WHERE id=1")
+        self.con.commit()
+        used = {a["name"]: a["used"] for a in self.client.get("/api/authorisations").json["authorisations"]}
+        self.assertEqual(used["OA-1"], dict(flights=1, projects=1))
+        self.assertEqual(used["Partner OA"], dict(locations=1))
+        self.assertEqual(used["ROC"], {})
+
     def test_project_and_place_defaults_through_the_api(self):
         self.sign_in(1)
         self.assertEqual(self.client.put("/api/admin/projects/1", json=dict(authorisation_id=3)).status_code, 200)

@@ -2271,8 +2271,15 @@ def admin_delete_operator(operator_id):
 @app.get("/api/authorisations")
 def list_authorisations():
     """Operation categories and the authorisations (ROCs, operational authorisations) flights are flown under."""
-    return jsonify(authorisations=categories.catalog(conn()), categories=categories.CATEGORIES,
-                   admin=bool(g.user["is_admin"]))
+    con = conn()
+    used = {}  # where each authorisation is set by hand (flights by the date rule are not counted)
+    for table, key in (("flights", "flights"), ("flight_records", "paper_records"), ("projects", "projects"),
+                       ("places", "locations")):
+        for row in con.execute(f"SELECT authorisation_id, COUNT(*) FROM {table} WHERE authorisation_id IS NOT NULL"
+                               " GROUP BY authorisation_id"):
+            used.setdefault(row[0], {})[key] = row[1]
+    catalog = [dict(a, used=used.get(a["id"], {})) for a in categories.catalog(con)]
+    return jsonify(authorisations=catalog, categories=categories.CATEGORIES, admin=bool(g.user["is_admin"]))
 
 
 @app.post("/api/admin/authorisations")
