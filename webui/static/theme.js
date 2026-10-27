@@ -436,7 +436,7 @@ window.timingEvidenceHTML = function (timing) {
   const icon = document.createElement('link');
   icon.rel = 'icon';
   icon.type = 'image/svg+xml';
-  icon.href = '/favicon.svg';
+  icon.href = '/favicon.svg?v=2';  // bump when the icon changes; browsers cache it hard
   document.head.appendChild(icon);
 
   try {
