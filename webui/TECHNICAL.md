@@ -416,62 +416,76 @@ at least six days old. No API key is required; the free service is
 
 **MATLAB export.** The **MATLAB ▾** menu (`static/matlab.js`) at the top right of a flight page and in an
 expanded Logbook row offers, per Paparazzi source log (`onboard_sd`/`gcs` with its `.log`), **This flight**,
-**All flights** and **Whole log**, with progress and the download inside the menu. `POST /api/logs/<id>/matlab` (`scope` = `flight` with
-`flight_id`, `flights` or `log`) queues a job; `GET /api/matlab-exports/<job>` reports
-queued/running/ready/failed with progress and `/download` returns the file. All three need a browser session
-(API keys get 403) and re-check that the user may see the log. Jobs are identified by log hash, scope, flight
-windows, parser and exporter version, so the same request reuses a finished file. Finished files are published
-atomically to `WEB_DATA/exports` (local disk) with a JSON side file and kept two weeks; above
-`LOGDB_EXPORT_MAX_BYTES` (50 GiB) the oldest go first. `LOGDB_EXPORT_WORKERS` (1) bounds concurrent exports and
-at most 20 may wait. A restart drops queued/running jobs (the page asks again) and removes partial files.
+**All flights** and **Whole log**, with progress and the download inside the menu. `POST /api/logs/<id>/matlab`
+(`scope` = `flight` with `flight_id`, `flights` or `log`) queues a job; `GET /api/matlab-exports/<job>` reports
+queued/running/ready/failed with progress and `/download` returns the file. All need a browser session (API keys
+get 403) and re-check that the user may see the log. Jobs are identified by log hash, scope, flight windows,
+parser and exporter version, so the same request reuses a finished file. Finished files are published atomically
+to `WEB_DATA/exports` (local disk) with a JSON side file and kept two weeks; above `LOGDB_EXPORT_MAX_BYTES`
+(50 GiB) the oldest go first. `LOGDB_EXPORT_WORKERS` (1) bounds concurrent exports (each also uses up to 8
+compression threads) and at most 20 may wait. A restart drops queued/running jobs (the page asks again) and
+removes partial files.
 
 **Bulk MATLAB export.** In the Logbook, **Select** (or Edit mode) shows checkboxes; ticks survive paging and a
 "N selected · MATLAB ▾ · ✕" control in the toolbar exports them. `POST /api/matlab-bulk` takes `entries`, per
-logbook entry the flight ids of its recordings; the server keeps the ones in visible, finished logs, exports the SD
+logbook entry the flight ids of its recordings; the server keeps the ones in visible, finished logs, picks the SD
 recording when there is one and else the GCS one (entries without either are counted as `skipped`) and refuses
-more than 200 distinct logs. The job is identified by the chosen flights, their logs and the exporter version, and
-its download re-checks every log. `matlab_export.export_bulk` decodes one log at a time (temporary disk holds one
-log's columns) into one file: `s.aircrafts(i)` has `name` and `drone_id` (fleet aircraft, else the logged name)
-and `flights(k)` in takeoff order. Each flight holds the `flights(k)` fields below, its `data` and `raw` (time 0
-at takeoff), `log` (name, sha256, log type, `time0_utc` / `time0_posix`) and that log's aircraft fields (`AC_ID`,
-logged `name`, `version`, crew, settings, checklist, config…). `s.messages` keeps the first definition of each
-message; a log that cannot be exported is listed in `s.warnings`.
+more than 200 distinct logs. Each log becomes an ordinary `flights` export of its selected flights (so a log
+whose flights were all selected reuses its **All flights** file), queued without the 20-job limit. A bundle file
+`<id>.bundle` lists them; its status combines theirs (`parts`, `ready`) and its download streams an uncompressed
+`.zip` of the `.mat` files (no copy on disk), re-checking every log.
 
 The protocol embedded in the `.log` is parsed in `matlab_export.py`; the stored `.data` is decompressed straight
 into `paparazzi_log_parsing --export-columns` (`cpp/export_columns.cpp`, a separate entry point that leaves normal
 parsing unchanged), which decodes every row into binary column files in a temporary folder under `WEB_DATA/tmp`
-(about the size of the uncompressed log as doubles). Python then writes a MATLAB v7.3 (HDF5) file with h5py,
-compressing chunks on several threads. Times use the parser's clock-wrap correction for old onboard logs, so the
-windows match the stored takeoff/landing times. Without MATLAB on the server, loading was verified with an
+(about the size of the uncompressed log as doubles). Python then writes a MATLAB v7.3 (HDF5) file with h5py:
+datasets are created through the low-level API with shared property lists, and chunks are compressed on a thread
+pool across columns and written in order. Times use the parser's clock-wrap correction for old onboard logs, so
+the windows match the stored takeoff/landing times. Without MATLAB on the server, loading was verified with an
 independent v7.3 reader; check new layouts in MATLAB itself.
 
-Layout of `s` (exporter version 3): `s.aircrafts(i).flights(k)`.
-- `s.log`: name, sha256, log type, scope, exporter version, creation time, margin, and `time0_utc` / `time0_posix`
-  (UTC of log time 0, with the page's date correction: `datetime(s.log.time0_posix + t, 'ConvertFrom', 'posixtime')`).
-- `s.messages.<MSG>`: class, id, `fields`, `types`, `units` (of the stored columns), `raw_units`, `alt_unit_coef`
-  and, for enum fields, `values.<field>` (value v is named `values.<field>{v + 1}`). `s.warnings` lists what was
-  kept as raw text; rows without a valid time or aircraft id are in `s.raw`.
-- `s.aircrafts(i)` (in a flight export only aircraft with an exported flight): `AC_ID`, `name`, `version`,
-  `version_desc`, `crew` (PIC, PAC, GCS and goal as written in the log, no account details), `simulation`,
-  `settings.<name>` (index, var, shortname, unit, parent and every reported `timestamp` / `value` from DL_VALUE
-  over the whole log), `settings_list`, `setting_changes`, `checklist` (timestamp, item description, answer,
-  logged message), `checklist_answers.<key>` (last answer per logged key), `config` (`airframe_xml`,
-  `flight_plan_xml`, `settings_xml`, `radio_xml`, `telemetry_xml`, `flight_plan.waypoints.<NAME>` with lat/lon/alt_m,
-  `waypoint_names`, `blocks`) and `flights`. These aircraft-level times are log time. A whole-log export adds
-  `data` and `raw` here, with log timestamps.
-- `flights(k)`: `index` (the parser's flight number of that aircraft), `takeoff_utc`, `landing_utc`, `takeoff_posix`,
-  `time_offset_s` (log time of takeoff), `start_s` / `end_s` (log time of the window, to slice a whole-log export),
-  `window_s`, `summary` (duration, distance, range, positions, battery, landed) and `assessment` (verdict, reasons).
-  In a flight export each also holds that aircraft's `data` and `raw`, timestamps counting from takeoff.
-- `data.<MSG>`: `timestamp` and one column per field. A field with `alt_unit_coef` is stored converted to its
-  alternate unit (e.g. deg) under its own name, with the logged value as `<field>_raw`. Types: `uint*` uint32,
-  `int*` int32, float double, arrays N×k double padded with NaN, text cellstr. Enum fields add `<field>_name`;
-  navigation messages add `cur_block_name` / `cur_stage_name`; these are N×L char matrices padded with spaces
-  (`strtrim(cellstr(x))`). `ACTUATORS` has `values`, `names` and, when the airframe lists as many servos, each
-  actuator as its own column (`ACTUATORS.FRONT_MOT`). MATLAB keywords get a trailing `_`.
+Layout of `s` (format 4); times are log time unless noted:
 
-Example: `s = load('x.mat').s; a = s.aircrafts(1); f = a.flights(3); act = f.data.ACTUATORS;`
-`plot(act.timestamp, act.FRONT_MOT); a.settings.guidance_h_gains_p.value; a.config.flight_plan.waypoints.HOME.lat`.
+```
+s
+├─ info                exporter_version, created_utc, scope (flight/flights/log), margin_s
+├─ log                 name, sha256, type, time0_utc, time0_posix, warnings, unparsed (timestamp, lines)
+├─ messages.<MSG>      name, class, id, fields, types, units, raw_units, coef, enums.<field>
+└─ aircraft(i)         only aircraft with an exported flight in a flight export
+   ├─ id, name         AC_ID and the name in the log
+   ├─ version          number, desc
+   ├─ crew             pic, pac, gcs, goal (as written in the log, no account details)
+   ├─ simulation       assessed, detected, evidence
+   ├─ settings
+   │  ├─ list          table: index, var, shortname, unit, parent
+   │  ├─ values.<name> timestamp, value (every DL_VALUE report over the whole log)
+   │  └─ changes       table: timestamp, index, name, from, to, in_flight
+   ├─ checklist
+   │  ├─ items         table: timestamp, item, answer, message
+   │  └─ answers.<key> last answer per logged key
+   ├─ config
+   │  ├─ xml           airframe, flight_plan, settings, radio, telemetry
+   │  ├─ flight_plan   name, lat0, lon0, blocks (cur_block + 1), stages (table: block, stage, name),
+   │  │                waypoints.<NAME> (index, name, lat, lon, alt)
+   │  └─ actuators     servo names of the airframe
+   ├─ data, unparsed   whole-log export only
+   └─ flights(k)
+      ├─ index         the parser's flight number of that aircraft
+      ├─ time          takeoff_utc, landing_utc, takeoff_posix, offset_s (log time of takeoff), window_s
+      │                (from takeoff), start_s / end_s (log time, to slice a whole-log export)
+      ├─ summary       duration, distance, range, positions, battery, landed, verdict, reasons
+      └─ data, unparsed  flight exports only; timestamp 0 = takeoff
+```
+
+`data.<MSG>` holds `timestamp` and one column per field. A field with `alt_unit_coef` is stored converted
+(e.g. deg, double) under its own name; the logged value is `value / s.messages.<MSG>.coef(k)` in `raw_units`.
+Other types: `uint*` uint32, `int*` int32, float double, arrays N×k double padded with NaN, text cellstr. Enum
+fields stay numeric (`s.messages.<MSG>.enums.<field>{v + 1}` names value v). `ACTUATORS` stores each actuator as its
+own column (`ACTUATORS.FRONT_MOT`) when the airframe lists as many servos, else `values` (N×k). MATLAB keywords
+get a trailing `_`. Rows that do not match the protocol are in `unparsed` and counted in `s.log.warnings`.
+
+Example: `s = load('x.mat').s; a = s.aircraft(1); f = a.flights(3); act = f.data.ACTUATORS;`
+`plot(act.timestamp, act.FRONT_MOT); a.settings.values.guidance_h_gains_p.value; a.config.flight_plan.waypoints.HOME.lat`.
 
 ## Storage and backup
 

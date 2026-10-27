@@ -131,13 +131,13 @@ to gain descriptions and previously omitted crew entries.
   If the aircraft did not send a version, the Paparazzi version from the GCS `.log` header is shown instead.
 - **MATLAB ▾** (top right of a flight page, and in an expanded Logbook row) exports a Paparazzi SD or GCS log:
   **This flight** or **All flights** (10 s before takeoff to 10 s after landing, that aircraft, time 0 at takeoff)
-  or the **Whole log**, as `s.aircrafts(i).flights(k).data.<MSG>`. It includes settings by name, the checklist,
-  crew, configuration and waypoints; actuators are also named (`ACTUATORS.FRONT_MOT`) and values are in their
-  alternate unit (e.g. degrees), the logged value as `<field>_raw`. The file is prepared in the background and
-  kept for two weeks; load it with `s = load('file.mat').s`.
+  or the **Whole log**, as `s.aircraft(i).flights(k).data.<MSG>` with values in their converted unit (e.g.
+  degrees). It includes settings by name, the checklist, crew, configuration, waypoints and named actuators
+  (`ACTUATORS.FRONT_MOT`). The file is prepared in the background and kept for two weeks; load it with
+  `s = load('file.mat').s`.
 - To export several flights at once, press **Select** in the Logbook (or tick them in Edit mode), tick flights on
-  any page and use **MATLAB ▾** next to "N selected": one `.mat` with each flight's SD log (else GCS), grouped by
-  aircraft (at most 200 logs).
+  any page and use **MATLAB ▾** next to "N selected": a `.zip` with one `.mat` per log (each flight's SD log,
+  else GCS; at most 200 logs).
 
 ## Add or correct information
 

@@ -1,8 +1,8 @@
 // MATLAB export menu (flight page and logbook). MatlabExport.button(sources) returns a "MATLAB ▾" button for the
 // SD/GCS recordings of a flight; the menu starts an export per recording (this flight, all flights of that log or
 // the whole log), polls its progress and offers the download when ready. MatlabExport.bulkButton(entries) exports
-// selected logbook entries into one file; entries() returns, per entry, its recordings' flight ids. See TECHNICAL.md,
-// "MATLAB export".
+// selected logbook entries as a .zip with one .mat per log; entries() returns, per entry, its recordings' flight ids.
+// See TECHNICAL.md, "MATLAB export".
 (() => {
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c =>
     ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -33,16 +33,17 @@
 
   const helpTip = extra => `<span class="info-tip matlab-help"><button type="button" aria-label="About the MATLAB export">i</button>
     <span class="tip" role="tooltip">${extra}Prepared on the server and kept for two weeks; the same export is reused.<br>
-    Load with <code>s = load(file).s</code>, then <code>s.aircrafts(i).flights(k).data</code>.</span></span>`;
+    Load with <code>s = load(file).s</code>, then <code>s.aircraft(i).flights(k).data</code>.</span></span>`;
 
   function bulkItem() {
     const entries = bulkEntries(), job = jobs[`bulk:${JSON.stringify(entries)}`];
-    const label = `${entries.length} flight${entries.length === 1 ? '' : 's'}, one .mat`;
-    const tip = 'Each flight from 10 s before takeoff until 10 s after landing, grouped by aircraft';
+    const label = `${entries.length} flight${entries.length === 1 ? '' : 's'}, .zip`;
+    const tip = 'One .mat per log with its selected flights, each from 10 s before takeoff until 10 s after landing';
     if (job?.status === 'ready') {
       return `<a class="matlab-item" href="${esc(job.download)}" title="${esc(tip)}">${label}<span class="matlab-state">⬇ ${size(job.size_bytes)}</span></a>`;
     }
-    const state = job?.status === 'queued' ? 'waiting' : job?.status === 'running' ? `preparing ${Math.round(job.progress * 100)}%`
+    const logs = job?.parts > 1 ? ` · ${job.ready}/${job.parts} logs` : '';
+    const state = job?.status === 'queued' ? `waiting${logs}` : job?.status === 'running' ? `preparing ${Math.round(job.progress * 100)}%${logs}`
       : job?.status === 'failed' ? `<span class="warn">${esc(job.error)}</span>` : '';
     const busy = job?.status === 'queued' || job?.status === 'running';
     return `<button type="button" class="matlab-item" data-matlab-bulk-start title="${esc(tip)}"${busy || !entries.length ? ' disabled' : ''}>${label}<span class="matlab-state">${state}</span></button>`;
@@ -52,7 +53,7 @@
     if (!menu) return;
     if (anchor.hasAttribute('data-matlab-bulk')) {
       menu.innerHTML = `<div class="matlab-group"><div class="matlab-head">Selected flights${helpTip(
-        'The SD log of each flight when there is one, else its GCS log; paper records are left out. At most 200 logs.<br>')}</div>${bulkItem()}</div>`;
+        'A .zip with one .mat per log: the SD log of each flight when there is one, else its GCS log; paper records are left out. At most 200 logs.<br>')}</div>${bulkItem()}</div>`;
       return;
     }
     const sources = JSON.parse(anchor.dataset.matlabSources);
@@ -144,7 +145,7 @@
     bulkButton(entries) {
       bulkEntries = entries;
       return `<button type="button" class="matlab-button" aria-haspopup="menu" aria-expanded="false"
-        title="Export the selected flights for MATLAB, in one .mat file" data-matlab-bulk>MATLAB ▾</button>`;
+        title="Export the selected flights for MATLAB: a .zip with one .mat per log" data-matlab-bulk>MATLAB ▾</button>`;
     },
     refresh: () => render(),
   };
