@@ -38,13 +38,16 @@
   #readout { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:4px 16px; margin-top:8px; font-size:13px; }
   #readout b { display:block; font-size:11px; color:var(--mute); text-transform:uppercase; font-weight:600; }
   #scrub { width:100%; }
-  .chartBlock { position: relative; }
+  .chartCanvas { position: relative; }
   .chartBlock canvas { width:100%; height:150px; display:block; cursor:crosshair; margin-top:6px; }
   .chartSel { position: absolute; top: 6px; height: 150px; background: rgba(31, 111, 235, .22); pointer-events: none; display: none; }
-  .chartOpts { display:flex; flex-wrap:wrap; gap:4px 14px; margin:4px 0 10px; font-size:13px; align-items:center; }
-  .chartOpts label { display:inline-flex; align-items:center; gap:5px; cursor:pointer; user-select:none; }
-  .chartOpts .sw { width:10px; height:10px; border-radius:2px; flex:0 0 auto; }
-  .chartOpts .rm { margin-left:auto; }
+  .chartOpts { display:flex; flex-wrap:wrap; gap:6px; margin:14px 0 0; font-size:13px; align-items:center; }
+  .chip-series { display:inline-flex; align-items:center; gap:6px; padding:1px 2px 1px 8px; border:1px solid var(--line); border-radius:12px; }
+  .chip-series .sw { width:10px; height:10px; border-radius:2px; background:var(--c); }
+  .chip-series button { background:none; padding:0 6px; color:var(--mute); line-height:1.2; }
+  .chip-series button:hover { color:var(--err); }
+  .chartOpts select, #addChart { font:inherit; font-size:13px; padding:2px 6px; border:1px solid var(--line); border-radius:12px; background:var(--card); color:var(--txt); }
+  .chartOpts .rm { margin-left:auto; font-size:12px; padding:2px 8px; }
   .tag { display:inline-block; padding:0 8px; border-radius:10px; font-size:12px; background:var(--chip); }
   .tag.flight { background:var(--flightbg); color:var(--ok); } .tag.uncertain { background:var(--uncertainbg); color:var(--warn); } .tag.ground { background:var(--groundbg); color:var(--err); }
   .leaflet-tooltip.wp {
@@ -146,7 +149,7 @@
     <input type="range" id="scrub" min="0" max="0" value="0">
     <div id="charts"></div>
     <div class="bar">
-      <button type="button" id="addChart">Add chart</button>
+      <select id="addChart" aria-label="Add a chart"></select>
       <button type="button" id="resetZoom" disabled>Show all</button>
       <span class="mute">Drag or scroll on a graph to zoom</span>
     </div>
@@ -461,6 +464,8 @@ const SERIES = {
   height: {label: 'Height', unit: 'm', color: '#1f6feb', val: alt},
   gs: {label: 'Ground speed', unit: 'm/s', color: '#e36209', val: gs},
   as: {label: 'Airspeed', unit: 'm/s', color: '#0a7d6f', val: p => p.airspeed?.eas_ms ?? null},
+  wind: {label: 'Wind speed', unit: 'm/s', color: '#9a6700', val: p => p.wind?.speed_ms ?? null},
+  windDir: {label: 'Wind from', unit: '° from', color: '#6639ba', val: p => p.wind?.from_deg ?? null},
   roll: {label: 'Roll', unit: '°', color: '#cf222e', val: p => euler(p, 'roll')},
   pitch: {label: 'Pitch', unit: '°', color: '#1a7f37', val: p => euler(p, 'pitch')},
   yaw: {label: 'Yaw', unit: '°', color: '#8250df', val: p => euler(p, 'yaw')},
@@ -469,53 +474,81 @@ const SERIES = {
   accD: {label: 'Accel down', unit: 'm/s²', color: '#57606a', val: p => acc(p, 'down')},
 };
 const SERIES_ORDER = Object.keys(SERIES);
-const CHART_DEFAULTS = [['height', 'gs', 'as'], ['roll', 'pitch', 'yaw']];
+const SERIES_GROUPS = [['Height', ['height']], ['Speed', ['gs', 'as']], ['Wind', ['wind', 'windDir']],
+  ['Attitude', ['roll', 'pitch', 'yaw']], ['Acceleration', ['accN', 'accE', 'accD']]];
+const CHART_PRESETS = [['Height and speed', ['height', 'gs', 'as', 'wind']], ['Attitude', ['roll', 'pitch', 'yaw']],
+  ['Acceleration', ['accN', 'accE', 'accD']], ['Wind', ['wind', 'windDir']], ['Empty chart', []]];
+const CHART_DEFAULTS = [CHART_PRESETS[0][1], CHART_PRESETS[1][1]];
 const MAX_CHARTS = 8;
 const charts = [];
 let viewT0 = null, viewT1 = null, drag = null;
+// Series with at least one value in this flight; before the data arrives every series counts.
+let available = new Set(SERIES_ORDER);
+const redraw = () => D && drawChart(+$('scrub').value);
 
-function selectedKeys(opts) {
-  return [...opts.querySelectorAll('input:checked')].map(el => el.dataset.k);
+// Each chart: chips for its series (× removes), a grouped "+ Add" menu of the remaining available series.
+function renderChartHead(ch) {
+  const keys = ch.keys.filter(k => available.has(k));
+  const left = SERIES_GROUPS.map(([group, ks]) => [group, ks.filter(k => available.has(k) && !keys.includes(k))]).filter(([, ks]) => ks.length);
+  ch.head.innerHTML = keys.map(k => `<span class="chip-series" style="--c:${SERIES[k].color}"><span class="sw"></span>${esc(SERIES[k].label)}`
+      + `<button type="button" data-drop="${k}" aria-label="Remove ${esc(SERIES[k].label)}">×</button></span>`).join('')
+    + (left.length ? `<select class="add-series" aria-label="Add a series to this chart"><option value="">+ Add</option>${left.map(([group, ks]) =>
+      `<optgroup label="${group}">${ks.map(k => `<option value="${k}">${esc(SERIES[k].label)}</option>`).join('')}</optgroup>`).join('')}</select>` : '')
+    + (!keys.length ? '<span class="mute">Add a series to show it here</span>' : '')
+    + (ch.removable ? '<button type="button" class="rm" data-remove-chart aria-label="Remove this chart" title="Remove this chart">Remove chart</button>' : '');
 }
-function addChart(checked, removable) {
+function addChart(keys, removable) {
   if (charts.length >= MAX_CHARTS) return;
   const block = document.createElement('div');
   block.className = 'chartBlock';
+  const head = document.createElement('div');
+  head.className = 'chartOpts';
   const canvas = document.createElement('canvas');
-  const opts = document.createElement('div');
-  opts.className = 'chartOpts';
-  opts.innerHTML = SERIES_ORDER.map(k => {
-    const s = SERIES[k];
-    return `<label><input type="checkbox" data-k="${k}"${checked.includes(k) ? ' checked' : ''}>`
-      + `<span class="sw" style="background:${s.color}"></span> ${esc(s.label)}</label>`;
-  }).join('');
-  if (removable) {
-    const rm = document.createElement('button');
-    rm.type = 'button';
-    rm.className = 'rm';
-    rm.textContent = 'Remove';
-    rm.onclick = () => {
-      const i = charts.findIndex(c => c.block === block);
-      if (i < 0) return;
-      charts.splice(i, 1);
-      block.remove();
-      $('addChart').disabled = false;
-      if (D) drawChart(+$('scrub').value);
-    };
-    opts.appendChild(rm);
-  }
-  opts.onchange = () => D && drawChart(+$('scrub').value);
   const sel = document.createElement('div');
   sel.className = 'chartSel';
   bindChartPointer(canvas, sel);
-  block.append(canvas, sel, opts);
+  const plot = document.createElement('div');
+  plot.className = 'chartCanvas';
+  plot.append(canvas, sel);
+  block.append(head, plot);
   $('charts').appendChild(block);
-  charts.push({canvas, opts, block});
+  const ch = {canvas, head, block, keys: [...keys], removable};
+  head.onclick = e => {
+    const drop = e.target.closest('[data-drop]');
+    if (drop) { ch.keys = ch.keys.filter(k => k !== drop.dataset.drop); renderChartHead(ch); redraw(); }
+    if (e.target.closest('[data-remove-chart]')) {
+      charts.splice(charts.indexOf(ch), 1);
+      block.remove();
+      renderAddChart();
+      redraw();
+    }
+  };
+  head.onchange = e => {
+    if (!e.target.matches('.add-series') || !e.target.value) return;
+    ch.keys.push(e.target.value);
+    renderChartHead(ch); redraw();
+  };
+  charts.push(ch);
+  renderChartHead(ch);
+  renderAddChart();
+}
+function renderAddChart() {
+  $('addChart').innerHTML = '<option value="">+ Add chart</option>' + CHART_PRESETS
+    .map(([label, ks], i) => !ks.length || ks.some(k => available.has(k)) ? `<option value="${i}">${esc(label)}</option>` : '').join('');
   $('addChart').disabled = charts.length >= MAX_CHARTS;
 }
-$('addChart').onclick = () => {
-  addChart([], true);
-  if (D) drawChart(+$('scrub').value);
+// Called once the flight data is loaded: hide series this log does not have.
+function setAvailableSeries() {
+  available = new Set(SERIES_ORDER.filter(k => (D.path || []).some(p => SERIES[k].val(p) != null)));
+  charts.forEach(renderChartHead);
+  renderAddChart();
+}
+$('addChart').onchange = () => {
+  const preset = CHART_PRESETS[+$('addChart').value];
+  $('addChart').value = '';
+  if (!preset) return;
+  addChart(preset[1].filter(k => available.has(k)), true);
+  redraw();
 };
 addChart(CHART_DEFAULTS[0], false);
 addChart(CHART_DEFAULTS[1], false);
@@ -634,6 +667,7 @@ function show(i) {
     + cell('Height', a != null ? a.toFixed(1) + ' m' : null) + cell('GPS alt', p.position?.gps_alt_m != null ? p.position.gps_alt_m + ' m' : null)
     + cell('Baro alt', p.position?.baro_alt_m != null ? p.position.baro_alt_m + ' m' : null)
     + cell('Ground speed', g != null ? g.toFixed(1) + ' m/s' : null) + cell('Airspeed', p.airspeed?.eas_ms != null ? p.airspeed.eas_ms + ' m/s' : null)
+    + cell('Wind', p.wind ? esc(windTxt(p.wind)) : null)
     + cell('Battery', p.battery_voltage_v != null ? p.battery_voltage_v + ' V' : null)
     + cell('Mode', m ? esc([m.ap_mode, m.h_mode, m.v_mode].join(' / ')) : null) + cell('Block', n?.block ? esc(n.block) + (n.stage ? ' · ' + esc(n.stage) : '') : null)
     + cell('Roll / pitch / yaw', at ? `${at.roll}° / ${at.pitch}° / ${at.yaw}°` : null)
@@ -785,7 +819,7 @@ function drawSeriesChart(c, keys, cursor) {
   }
 }
 function drawChart(cursor) {
-  for (const ch of charts) drawSeriesChart(ch.canvas, selectedKeys(ch.opts), cursor);
+  for (const ch of charts) drawSeriesChart(ch.canvas, ch.keys.filter(k => available.has(k)), cursor);
 }
 function pickTime(e, el) {
   if (!chartGeom || D.path.length < 2) return;
@@ -872,7 +906,7 @@ fetch(`/api/flights/${flightId}/detail`).then(r => r.ok ? r.json() : Promise.rej
       if (dt > 0.05) b.groundspeed_ms = Math.max(0, (b.distance_m - a.distance_m) / dt);
     }
   }
-  renderSummary(); renderLists(); renderMisc(); loadWeather(); selectTab(activeTab);
+  setAvailableSeries(); renderSummary(); renderLists(); renderMisc(); loadWeather(); selectTab(activeTab);
   $('allChanges').onchange = () => { listPages.changes = 0; renderLists(); };
   $('allMsgs').onchange = () => { listPages.msgs = 0; renderLists(); };
 }).catch(err => { console.error(err); $('summary').textContent = typeof err === 'number' ? 'Flight not found (or not yours).' : 'Error: ' + err; });
