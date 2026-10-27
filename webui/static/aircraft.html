@@ -80,6 +80,22 @@
   #aircraftContent input, #aircraftContent select, #aircraftContent textarea { max-width:100%; min-width:0; }
   .management-section { margin:12px 0; }
   [hidden] { display:none !important; }
+  /* read-only overview: one line per aircraft, details on hover */
+  table.fleet { width:100%; table-layout:fixed; }
+  table.fleet td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  table.fleet th { white-space:nowrap; }
+  table.fleet th [data-sort] { cursor:pointer; user-select:none; }
+  table.fleet th [data-sort]:hover { color:var(--txt); }
+  table.fleet .serial { display:block; font-family:ui-monospace, monospace; font-size:11px; color:var(--mute); line-height:1.2; }
+  table.fleet .num { text-align:right; padding-right:16px; }
+  table.fleet .chip { padding:1px 8px; margin:0; font-size:12px; }
+  .fleet-count { color:var(--mute); }
+  .unlinked-badge { font-size:12px; background:var(--chip); color:var(--warn, #9a6700); border-radius:10px; padding:2px 8px; }
+  .col-menu { position:relative; }
+  .col-menu form { position:absolute; top:calc(100% + 6px); left:0; z-index:1000; min-width:180px; padding:10px 12px;
+    border:1px solid var(--line); border-radius:6px; background:var(--card); box-shadow:0 2px 8px #0003; display:grid; gap:2px; }
+  .col-menu label { white-space:nowrap; }
+  .col-menu .col-actions { display:flex; justify-content:space-between; gap:12px; margin-top:6px; }
   @media(max-width:760px) { .aircraft-layout { grid-template-columns:1fr; } .aircraft-list { max-height:32vh; } .detail-fields { grid-template-columns:1fr; } }
 </style>
 </head>
@@ -111,15 +127,17 @@
     <div class="pick-list" id="pickList" role="listbox" aria-label="Aircraft"></div>
   </div>
   <section class="card">
-    <div class="fleet-toolbar"><h2 id="fleetTitle">Aircraft</h2>
-      <label class="field">Filter<input id="q" placeholder="Filter by name, serial, person, project…"></label>
-      <label class="field">Status<select id="statusFilter"><option value="">All statuses</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select></label>
-      <label title="Aircraft marked Discard stay hidden until this is ticked"><input type="checkbox" id="showDiscarded"> Show discarded</label>
-      <label title="Aircraft without uploaded logs or paper records stay hidden until this is ticked"><input type="checkbox" id="showWithoutLogs"> Show aircraft without logs</label>
+    <div class="fleet-toolbar"><h2 id="fleetTitle">Aircraft</h2><span class="fleet-count" id="fleetCount"></span>
+      <input id="q" type="search" placeholder="Search name, serial, alias, person, project…" aria-label="Search aircraft">
+      <select id="statusFilter" aria-label="Status"><option value="">All statuses</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select>
+      <label title="Aircraft marked Discard stay hidden until this is ticked"><input type="checkbox" id="showDiscarded"> Discarded</label>
+      <label title="Aircraft without uploaded logs or paper records stay hidden until this is ticked"><input type="checkbox" id="showWithoutLogs"> Without logs</label>
+      <span class="col-menu" id="colMenu"><button type="button" class="sec" id="colButton" aria-expanded="false" aria-controls="colForm">Columns</button>
+        <form id="colForm" hidden aria-label="Shown columns"></form></span>
+      <span class="unlinked-badge" id="pending" hidden></span>
     <button id="addSection" type="button" hidden onclick="openAddAircraft()">Add aircraft</button>
     <button id="importSection" type="button" class="sec" hidden onclick="$('importAircraftDialog').showModal()">Import aircraft from CSV</button>
     <details><summary>Help</summary><p id="fleetHint">Each aircraft has a unique serial (TUDxxxxx) that stays with it if the name changes. Names in the logs that differ from the nice name are aliases.</p></details></div>
-    <div class="pending" id="pending" hidden></div>
     <dialog class="entry-dialog" id="addAircraftDialog" aria-labelledby="addAircraftTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
     <div class="dialog-header"><h2 id="addAircraftTitle">Add aircraft</h2><button type="button" onclick="$('addAircraftDialog').close()" aria-label="Close Add aircraft">Close</button></div>
     <p class="dialog-error" id="addAircraftError" role="alert"></p>
@@ -158,7 +176,7 @@
         <div id="aircraftContent" role="tabpanel"></div>
       </section>
     </div>
-    <div class="scroll" id="aircraftOverview"><table><thead id="droneHead"></thead><tbody id="drones"></tbody></table></div>
+    <div class="scroll" id="aircraftOverview"><table class="fleet"><colgroup id="droneCols"></colgroup><thead id="droneHead"></thead><tbody id="drones"></tbody></table></div>
   </section>
 </main>
 <script>
@@ -273,7 +291,8 @@ function render() {
   const open = me && me.is_admin ? data.unlinked.length : 0;
   $('unlinkedCard').hidden = !(editing && open);
   $('pending').hidden = !!data.hide_unlinked_aircraft || !(open && !editing);
-  $('pending').textContent = `${open} name${open === 1 ? ' in the logs is' : 's in the logs are'} not linked to an aircraft yet. Turn on Edit in the menu to link ${open === 1 ? 'it' : 'them'}.`;
+  $('pending').textContent = `${open} unlinked log name${open === 1 ? '' : 's'}`;
+  $('pending').title = `Names in the logs that are not linked to an aircraft yet. Turn on Edit in the menu to link ${open === 1 ? 'it' : 'them'}.`;
   const shownUnlinked = data.unlinked.filter(e => !q || e.name.toLowerCase().includes(q));
   $('unlinkedHead').innerHTML = '<tr><th>Name in log</th><th>Board id</th><th>Seen</th><th>Upload folder</th><th>Link to aircraft</th></tr>';
   $('unlinked').innerHTML = shownUnlinked.map(e => {
@@ -294,6 +313,7 @@ function render() {
   }).join('') || '<tr><td colspan="5" class="mute">Nothing matches the filter.</td></tr>';
   const shown = data.drones.filter(d => matches(d, q, status));
   if (editing) {
+    $('colMenu').hidden = true;
     $('drones').innerHTML = '';
     $('aircraftCount').textContent = `${shown.length} of ${data.drones.length} aircraft`;
     $('aircraftList').innerHTML = shown.map(d => `<button type="button" class="aircraft-button" aria-pressed="${d.id === selectedAircraft}" title="${esc(d.unique_id || 'No serial')}" onclick="selectAircraft(${d.id})">
@@ -301,19 +321,100 @@ function render() {
     renderAircraftPanel();
     return;
   }
-  $('droneHead').innerHTML = '<tr><th>Aircraft</th><th>Serial</th><th>Status</th><th>Manager</th><th>Project</th><th>Comments</th><th>Logs</th><th>Aliases</th></tr>';
-  const cols = 8;
-  $('drones').innerHTML = shown.map(d => {
+  $('fleetCount').textContent = shown.length === data.drones.length ? String(shown.length) : `${shown.length} of ${data.drones.length}`;
+  $('colMenu').hidden = false;
+  $('droneCols').innerHTML = FLEET_COLUMNS.map(c => `<col style="width:${c.width}">`).join('');
+  const sortLabel = (key, label) => `<span data-sort="${key}" title="Sort by ${esc(label.toLowerCase())}">${esc(label)}${sortKey === key ? (sortDesc ? ' ▼' : ' ▲') : ''}</span>`;
+  $('droneHead').innerHTML = '<tr>' + FLEET_COLUMNS.map((c, i) => {
+    const sorted = sortKey === c.sort || (i === 0 && sortKey === 'serial');
+    const aria = sorted ? `aria-sort="${sortDesc ? 'descending' : 'ascending'}"` : '';
+    if (i === 0) return `<th ${aria}>${sortLabel('name', 'Aircraft')} <span class="mute">/</span> ${sortLabel('serial', 'Serial')}</th>`;
+    return c.sort ? `<th class="${c.num ? 'num' : ''}" ${aria}>${sortLabel(c.sort, c.label)}</th>` : `<th>${esc(c.label)}</th>`;
+  }).join('') + '</tr>';
+  $('drones').innerHTML = sortDrones(shown).map(d => {
     const st = d.status || '';
-    const aliases = d.aliases.map(a => `<span class="chip">${esc(a)}</span>`).join('');
-      return `<tr>
-      <td><a href="/aircraft/${d.id}">${esc(d.name)}</a></td><td>${esc(d.unique_id || '')}</td>
+    const ps = d.projects || [];
+    const current = ps.find(p => !p.end_date) || ps[ps.length - 1];
+    const project = current ? current.project_name || '?' : d.default_project_name || d.inventory_project || '';
+    const history = ps.map(periodText).join('\n') || project || 'No project';
+    const total = (d.log_count || 0) + (d.record_count || 0);
+    const aliases = d.aliases || [];
+    return `<tr>
+      <td><a href="/aircraft/${d.id}" title="${esc(d.name)}">${esc(d.name)}</a><span class="serial">${esc(d.unique_id || '')}</span></td>
       <td>${st ? `<span class="badge st-${esc(st)}">${esc(st)}</span>` : ''}</td>
-      <td>${esc(d.manager || '')}</td><td>${projectCell(d, false)}</td>
-      <td>${esc(d.comments || '')}</td><td>${d.log_count}${d.record_count ? ` <span class="mute">+ ${d.record_count} paper</span>` : ''}</td><td>${aliases}</td></tr>`;
+      <td title="${esc(d.manager || '')}">${esc(d.manager || '')}</td>
+      <td title="${esc(history)}">${project ? esc(project) : '<span class="mute">—</span>'}${ps.length > 1 ? ` <span class="mute">+${ps.length - 1}</span>` : ''}</td>
+      <td class="mute" title="${esc(d.comments || '')}">${esc(d.comments || '')}</td>
+      <td class="num" title="${d.log_count} uploaded log${d.log_count === 1 ? '' : 's'} · ${d.record_count || 0} paper record${d.record_count === 1 ? '' : 's'}">${total || '<span class="mute">0</span>'}</td>
+      <td title="${esc(aliases.join(', '))}">${aliases.length ? `<span class="chip">${esc(aliases[0])}</span>${aliases.length > 1 ? ` <span class="mute">+${aliases.length - 1}</span>` : ''}` : ''}</td></tr>`;
   }).join('')
-    || `<tr><td colspan="${cols}" class="mute">${data.drones.length ? 'Nothing matches the filter.' : (me && me.is_admin ? 'No aircraft yet.' : 'No aircraft on your projects yet.')}</td></tr>`;
+    || `<tr><td colspan="${FLEET_COLUMNS.length}" class="mute">${data.drones.length ? 'Nothing matches the filter.' : (me && me.is_admin ? 'No aircraft yet.' : 'No aircraft on your projects yet.')}</td></tr>`;
+  window.viewState.ready();
 }
+
+// Overview columns and sorting. Default: serial, newest TUD number first; other serials after, by name.
+const FLEET_COLUMNS = [
+  {label: 'Aircraft', sort: 'name', width: '22%'}, {label: 'Status', sort: 'status', width: '9%'},
+  {label: 'Manager', sort: 'manager', width: '14%'}, {label: 'Project', sort: 'project', width: '17%'},
+  {label: 'Comments', width: '18%'}, {label: 'Flights', sort: 'flights', num: true, width: '7%'}, {label: 'Aliases', width: '13%'}];
+let sortKey = 'serial', sortDesc = true;
+const tudNumber = d => { const m = /^TUD(\d{5})$/i.exec((d.unique_id || '').trim()); return m ? +m[1] : null; };
+const currentProject = d => { const ps = d.projects || []; const c = ps.find(p => !p.end_date) || ps[ps.length - 1];
+  return (c ? c.project_name : d.default_project_name || d.inventory_project) || ''; };
+function sortDrones(list) {
+  const byName = (a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'});
+  const text = f => (a, b) => (f(a) || '').localeCompare(f(b) || '', undefined, {sensitivity: 'base'}) || byName(a, b);
+  const compare = {
+    name: byName, status: text(d => d.status), manager: text(d => d.manager), project: text(currentProject),
+    flights: (a, b) => ((a.log_count || 0) + (a.record_count || 0)) - ((b.log_count || 0) + (b.record_count || 0)) || byName(a, b),
+  }[sortKey];
+  if (!compare) {  // serial: TUD numbers first (newest first by default), then other serials by name
+    return [...list].sort((a, b) => {
+      const x = tudNumber(a), y = tudNumber(b);
+      if (x !== null && y !== null) return sortDesc ? y - x : x - y;
+      if (x !== null || y !== null) return x !== null ? -1 : 1;
+      return byName(a, b);
+    });
+  }
+  return [...list].sort((a, b) => sortDesc ? compare(b, a) : compare(a, b));
+}
+$('droneHead').onclick = e => {
+  const th = e.target.closest('[data-sort]');
+  if (!th) return;
+  if (sortKey === th.dataset.sort) sortDesc = !sortDesc;
+  else { sortKey = th.dataset.sort; sortDesc = ['flights', 'serial'].includes(sortKey); }
+  window.viewState.save(true);
+  render();
+};
+// Hidden overview columns are a per-browser preference, like the logbook's.
+const COLUMNS_KEY = 'aircraft.hiddenColumns';
+let hiddenColumns = new Set();
+try { hiddenColumns = new Set(JSON.parse(localStorage.getItem(COLUMNS_KEY) || '[]').filter(c => FLEET_COLUMNS.some(x => x.label === c))); } catch (e) {}
+const columnStyle = document.head.appendChild(document.createElement('style'));
+function applyColumns() {
+  columnStyle.textContent = FLEET_COLUMNS.map((c, i) => hiddenColumns.has(c.label)
+    ? `table.fleet tr > :nth-child(${i + 1}), table.fleet col:nth-child(${i + 1}) { display:none; }` : '').join('\n');
+  $('colButton').textContent = hiddenColumns.size ? `Columns (${hiddenColumns.size} hidden)` : 'Columns';
+  try { localStorage.setItem(COLUMNS_KEY, JSON.stringify([...hiddenColumns])); } catch (e) {}
+}
+function fillColumns() {
+  $('colForm').innerHTML = FLEET_COLUMNS.map((c, i) => `<label><input type="checkbox" value="${esc(c.label)}"${hiddenColumns.has(c.label) ? '' : ' checked'}${i === 0 ? ' disabled' : ''}> ${esc(c.label)}</label>`).join('')
+    + '<div class="col-actions"><button type="button" class="sec" id="colAll">Show all</button><button type="button" class="sec" id="colClose">Close</button></div>';
+}
+$('colButton').onclick = () => {
+  const open = $('colForm').hidden;
+  if (open) fillColumns();
+  $('colForm').hidden = !open;
+  $('colButton').setAttribute('aria-expanded', String(open));
+};
+$('colForm').onchange = e => { e.target.checked ? hiddenColumns.delete(e.target.value) : hiddenColumns.add(e.target.value); applyColumns(); };
+$('colForm').onclick = e => {
+  if (e.target.id === 'colAll') { hiddenColumns.clear(); applyColumns(); fillColumns(); }
+  if (e.target.id === 'colClose') $('colButton').click();
+};
+document.addEventListener('click', e => { if (!$('colForm').hidden && !e.target.closest('.col-menu')) $('colButton').click(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('colForm').hidden) { $('colButton').click(); $('colButton').focus(); } });
+applyColumns();
 
 function selectAircraft(id) {
   selectedAircraft = id;
@@ -531,7 +632,23 @@ function removeDrone(id) {
   if (confirm('Remove ' + (d ? d.name : 'this aircraft') + '? The logs stay. They will no longer be linked to this aircraft.'))
     send('DELETE', '/api/admin/drones/' + id);
 }
-$('q').oninput = $('statusFilter').onchange = $('showDiscarded').onchange = $('showWithoutLogs').onchange = render;
+$('q').oninput = () => { window.viewState.save(); render(); };
+$('statusFilter').onchange = $('showDiscarded').onchange = $('showWithoutLogs').onchange = () => { window.viewState.save(true); render(); };
+// Search, filters and sort live in the URL, so Back returns to the same view.
+window.viewState.setup(p => {
+  $('q').value = p.get('q') || '';
+  $('statusFilter').value = p.get('status') || '';
+  $('showDiscarded').checked = p.get('discarded') === '1';
+  $('showWithoutLogs').checked = p.get('without_logs') === '1';
+  const [key, dir] = (p.get('sort') || 'serial-desc').split('-');
+  sortKey = ['serial', ...FLEET_COLUMNS.map(c => c.sort).filter(Boolean)].includes(key) ? key : 'serial';
+  sortDesc = key === sortKey ? dir === 'desc' : true;
+}, p => {
+  const set = window.viewState.set;
+  set(p, 'q', $('q').value); set(p, 'status', $('statusFilter').value);
+  set(p, 'discarded', $('showDiscarded').checked ? '1' : ''); set(p, 'without_logs', $('showWithoutLogs').checked ? '1' : '');
+  set(p, 'sort', `${sortKey}-${sortDesc ? 'desc' : 'asc'}`, 'serial-desc');
+}, () => render());
 window.addEventListener('editchange', toggleEdit);
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
