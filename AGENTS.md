@@ -37,6 +37,8 @@
 - Keep answers and fixes short and in proportion. A small request needs a small fix, not a long analysis.
 - For UI proposals, show rendered mockups or screenshots rather than text descriptions,
   and leave the result pages open at the end so they can be reviewed.
+- For UI changes, open the pull request with screenshots but do not merge or tag it until the maintainer
+  has reviewed the result and agrees; ask first, even when the change was requested.
 - The service runs in production with a live database: schema changes need idempotent migrations.
   Do not add silent legacy fallbacks unless asked.
 - The repository is public. Keep personal names, internal hostnames, server details and other private
