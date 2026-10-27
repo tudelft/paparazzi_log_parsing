@@ -266,7 +266,7 @@ function crewField(e, role) {
   const ids = [...new Set((e.sources || []).map(s => s.flight_id))];
   const u = e[role + '_user'];
   const selectedId = u && (u.source === 'edit' || u.source === 'alias') ? u.id : '';
-  const logged = e[role] ? esc(e[role]) : '—';
+  const logged = e[role] ? esc(e[role]) : u && !selectedId ? `${esc(u.display_name)} (uploader)` : '—';
   return `<select onchange="setCrew('${role}', this.value, [${ids.join(',')}])">
     <option value="">${logged}</option>
     ${people.map(p => `<option value="${p.id}"${p.id === selectedId ? ' selected' : ''}>${esc(p.display_name)}</option>`).join('')}

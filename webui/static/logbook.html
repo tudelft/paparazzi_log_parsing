@@ -175,7 +175,7 @@ function crewSelect(f, role, ids) {
   if (!editOn() || !f.can_edit_crew) return person(f, role);
   const u = f[role + '_user'];
   const selectedId = u && (f.manual_id || u.source === 'edit' || u.source === 'alias') ? u.id : '';
-  const logged = f[role] ? esc(f[role]) : '—';
+  const logged = f[role] ? esc(f[role]) : u && !selectedId ? `${esc(u.display_name)} (uploader)` : '—';
   return `<select onclick="event.stopPropagation()" onchange="setCrew(${esc(JSON.stringify(ids))}, '${role}', this.value)">
     ${f.manual_id && role === 'pic' ? '' : `<option value="">${logged}</option>`}
     ${people.map(p => `<option value="${p.id}"${p.id === selectedId ? ' selected' : ''}>${esc(p.display_name)}</option>`).join('')}
