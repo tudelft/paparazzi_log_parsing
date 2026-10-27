@@ -842,7 +842,7 @@ function softwareVersion(raw) {
 }
 
 function renderMisc() {
-  $('pfc').innerHTML = D.preflight_checks.map(m => `<tr><td class="mono" style="white-space:nowrap">${rel(m.time_s)}</td><td>${esc(m.text)}</td></tr>`).join('')
+  $('pfc').innerHTML = D.preflight_checks.map(m => `<tr><td class="mono" style="white-space:nowrap">${rel(m.time_s)}</td><td>${window.preflightCheckHTML(m)}</td></tr>`).join('')
     || '<tr><td class="mute">No pre-flight check messages in the log.</td></tr>';
   const note = D.autopilot_versions_from_gcs
     ? '<div class="mute">The aircraft did not send AUTOPILOT_VERSION; this is the Paparazzi version from the GCS log header.</div>'
