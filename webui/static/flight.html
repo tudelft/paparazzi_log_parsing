@@ -78,7 +78,6 @@
   .summary-body { display:grid; grid-template-columns:minmax(0, 1fr) 340px; gap:20px; }
   .summary-map a, #overviewMap { display:block; height:100%; min-height:200px; border-radius:6px; }
   #overviewMap { border:1px solid var(--line); cursor:pointer; }
-  .summary-groups .info-tip .tip { left:auto; right:-120px; }
   @media (max-width:1100px) { .summary-body { grid-template-columns:minmax(0, 1fr); } .summary-map a, #overviewMap { height:220px; } }
   .comment-block { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
   .status-line { margin-top:10px; font-size:13px; color:var(--mute); }
@@ -378,20 +377,29 @@ function drawOverviewMap() {
   }
   overviewMap.fitBounds(group.getBounds().pad(0.15), {maxZoom: 18});
 }
-// Battery, wind and INS state at takeoff or landing, shown on hover beside its time.
-function eventTip(x, name) {
-  if (!x) return '';
-  const rows = [kv('Location', coord(x.location, name)), kv('Battery', x.voltage_v != null ? x.voltage_v.toFixed(2) + ' V' : ''),
-    kv('Wind', windTxt(x.wind)), kv('INS position (NED, m)', ned(x.ins?.position_ned_m)),
-    kv('INS speed (NED, m/s)', ned(x.ins?.velocity_ned_ms)), kv('INS accel (NED, m/s²)', ned(x.ins?.acceleration_ned_ms2))].join('');
-  return rows ? `<span class="info-tip"><button type="button" aria-label="Details">i</button><span class="tip" role="tooltip"><span class="kv">${rows}</span></span></span>` : '';
-}
+// Takeoff → landing value for one measurement, e.g. battery "16.70 V → 14.90 V".
+const pair = (e, value) => {
+  const [t, l] = [value(e.takeoff), value(e.landing)];
+  return t && l ? `${t} → ${l}` : t ? `${t} at takeoff` : l ? `${l} at landing` : '';
+};
+const volts = x => x?.voltage_v != null ? x.voltage_v.toFixed(2) + ' V' : '';
+const wind = x => windTxt(x?.wind);
+// INS state is engineering detail: listed under Log sources, not in the summary.
+const insRows = (label, x) => x ? kv(label + ' INS position (NED, m)', ned(x.ins?.position_ned_m))
+  + kv(label + ' INS speed (NED, m/s)', ned(x.ins?.velocity_ned_ms)) + kv(label + ' INS accel (NED, m/s²)', ned(x.ins?.acceleration_ned_ms2)) : '';
 function renderSummary() {
   const e = D.entry, a = e.assessment;
   $('loggedWind').innerHTML = kv('Logged wind at takeoff', windTxt(e.takeoff?.wind) || 'Not available')
     + kv('Logged wind at landing', windTxt(e.landing?.wind) || 'Not available');
   document.title = `${e.aircraft} ${fmtTime(e.takeoff_utc)}`;
-  const place = (p, lat, lon, id) => p ? (id != null ? `<a href="/locations/${id}">${esc(p)}</a>` : esc(p)) : (lat != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '');
+  // Coordinates and altitude appear on hover over the place name.
+  const place = (p, lat, lon, id, x) => {
+    const tip = x?.location ? ` title="${esc(coord(x.location))}"` : lat != null ? ` title="${lat.toFixed(6)}, ${lon.toFixed(6)}"` : '';
+    return p ? (id != null ? `<a href="/locations/${id}"${tip}>${esc(p)}</a>` : `<span${tip}>${esc(p)}</span>`)
+      : (lat != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '');
+  };
+  const day = t => (t || '').slice(0, 10), clock = t => fmtTime(t).slice(11);
+  const landingTime = e.landing_utc ? (day(e.landing_utc) === day(e.takeoff_utc) ? clock(e.landing_utc) : fmtTime(e.landing_utc)) : '';
   const status = [
     a ? `<span class="tag ${esc(a.verdict)}">${esc(a.verdict)}</span> ${esc(a.reasons.join(', '))}` : '',
     e.simulation == null ? 'Simulation not assessed; reparse with the current parser'
@@ -405,11 +413,13 @@ function renderSummary() {
     </div>
     <div class="summary-body"><div class="summary-main"><div class="summary-groups">
       <div><h3>When and where</h3><div class="kv">
-        ${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + estimatedDateBadge(e) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id)
-          + (e.takeoff_location_inferred ? ' <span class="mute">(location inferred from landing)</span>' : '') + eventTip(e.takeoff, e.takeoff_place))}
-        ${kv('Landing (UTC)', (e.landing_utc ? esc(fmtTime(e.landing_utc)) + ' · ' : '') + place(e.landing_place, e.landing_lat, e.landing_lon, e.landing_place_id)
-          + (e.landing_location_inferred ? ' <span class="mute">(location inferred from takeoff)</span>' : '') + eventTip(e.landing, e.landing_place))}
+        ${kv('Date (UTC)', esc(day(e.takeoff_utc)) + estimatedDateBadge(e))}
+        ${kv('Takeoff', esc(clock(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id, e.takeoff)
+          + (e.takeoff_location_inferred ? ' <span class="mute">(location inferred from landing)</span>' : ''))}
+        ${kv('Landing', (landingTime ? esc(landingTime) + ' · ' : '') + place(e.landing_place, e.landing_lat, e.landing_lon, e.landing_place_id, e.landing)
+          + (e.landing_location_inferred ? ' <span class="mute">(location inferred from takeoff)</span>' : ''))}
         ${kv('Distance flown', fmtDist(e.distance_m))}${kv('Max from takeoff', fmtDist(e.max_from_takeoff_m))}${kv('At landing', fmtDist(e.from_takeoff_m))}
+        ${kv('Battery', pair(e, volts))}${kv('Wind (logged)', pair(e, wind))}
       </div></div>
       <div><h3>Crew</h3><div class="kv">${kv('PIC', crewField(e, 'pic'))}${kv('PAC', crewField(e, 'pac'))}${kv('GCS operator', crewField(e, 'gcs'))}</div></div>
       <div><h3>Operation</h3><div class="kv">
@@ -433,6 +443,7 @@ function renderSummary() {
         + (D.timing.warning ? '<br>' + esc(D.timing.warning) : '') + timingEvidenceHTML(D.timing)) : ''}
       ${e.sources.map(s => kv(TYPE[s.log_type] || s.log_type, `<a href="/flight/${s.flight_id}" class="${s.flight_id === flightId ? 'cur' : ''}">${esc(s.log_name)}</a>${s.flight_id === flightId ? ' <span class="mute">(shown)</span>' : ''}
         · <a href="/api/logs/${s.log_id}/download">download ${downloadLabel(s.log_type)}</a> · <a href="/uploads#log${s.log_id}">log details</a>`)).join('')}
+      ${insRows('Takeoff', e.takeoff)}${insRows('Landing', e.landing)}
       ${kv('Uploaded', esc(fmtTime(e.uploaded_at)) + (e.uploaded_by_name ? ' by ' + esc(e.uploaded_by_name) : ''))}
       ${kv('Raw data', `<a href="/api/flights/${flightId}/path" target="_blank">Path JSON</a> · <a href="/api/aircraft/${D.aircraft_pk}/config" target="_blank">Airframe / flight plan / settings</a>`)}
     </div></details>`;
