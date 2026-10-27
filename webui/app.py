@@ -3253,9 +3253,12 @@ def set_flights_crew():
 
 @app.put("/api/logbook/records")
 def update_logbook_records():
-    """Atomically edit mixed logbook sources, or hide/restore them without deleting data."""
-    session_required()
+    """Atomically edit mixed logbook sources, or hide/restore them without deleting data. An admin's API key may
+    only set the operator, category and authorisation, for scripted bulk annotation."""
     body = request.get_json(silent=True)
+    if not (g.via_key and g.user["is_admin"] and isinstance(body, dict)
+            and set(body) <= {"record_keys", "operator_id", "category", "authorisation_id"}):
+        session_required()
     if not isinstance(body, dict):
         return jsonify(error="Send a JSON object."), 400
     keys = body.get("record_keys")

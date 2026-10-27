@@ -38,6 +38,26 @@ class CategoryTests(LinkFixtures):
         self.sign_in(uid)
         return self.client.put("/api/logbook/records", json=dict(record_keys=keys, **body))
 
+    def test_an_admin_key_sets_only_the_annotations(self):
+        self.flight(1, "12:00:00")
+        original = self.ns["user_for_key"]
+        self.addCleanup(self.ns.__setitem__, "user_for_key", original)
+        key = {"Authorization": "Bearer test-only"}
+
+        def put(uid, **body):
+            self.ns["user_for_key"] = lambda token: self.con.execute("SELECT * FROM users WHERE id=?",
+                                                                     (uid,)).fetchone()
+            return self.client.put("/api/logbook/records", headers=key, json=dict(record_keys=["log:1"], **body))
+
+        self.assertEqual(put(2, category="open").status_code, 403)  # not an admin
+        self.assertEqual(put(1, category="open", pic_user_id=2).status_code, 403)  # crew needs a browser session
+        self.assertEqual(put(1, hidden=True).status_code, 403)
+        self.assertEqual(put(1, category="open", operator_id=2).status_code, 200)
+        self.assertEqual(tuple(self.con.execute("SELECT category, operator_id FROM flights WHERE id=1").fetchone()),
+                         ("open", 2))
+        self.assertEqual(put(1, authorisation_id=3).status_code, 200)
+        self.assertEqual(self.category_of(flight_id=1)[:2], ("specific", "OA-1"))
+
     def test_the_date_gives_national_rules_open_or_unknown(self):
         self.flight(1, "12:00:00")
         self.on(1, "2016-06-01")
