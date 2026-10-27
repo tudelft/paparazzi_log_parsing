@@ -166,6 +166,27 @@ class CategoryTests(LinkFixtures):
         self.assertEqual(csv(f"{header},category,authorisation\n{line},open,ROC\n").status_code, 400)  # mismatch
         self.assertEqual(csv(f"{header},authorisation\n{line},Nothing\n").status_code, 400)
 
+    def test_an_exemption_only_applies_where_it_is_set(self):
+        self.flight(1, "12:00:00")
+        self.flight(2, "13:00:00", log=2)
+        self.on(1, "2018-04-01")
+        self.on(2, "2018-04-01")
+        self.sign_in(1)
+        for name, category in (("BVLOS exemption", "national"), ("Remote-ID exemption", "specific")):
+            response = self.client.post("/api/admin/authorisations", json=dict(
+                name=name, category=category, valid_from="2018-03-15", valid_until="2018-05-01", exemption=True))
+            self.assertEqual(response.status_code, 200, response.json)
+        exemption = next(
+            a["id"] for a in self.client.get("/api/authorisations").json["authorisations"] if a["name"] == "BVLOS exemption")
+        # the date default keeps the newest regular authorisation; a specific exemption does not make it unknown
+        self.assertEqual(self.category_of(flight_id=1), ("national", "ROC-light", "date"))
+        self.assertEqual(self.edit(["log:2"], authorisation_id=exemption).status_code, 200)
+        self.assertEqual(self.category_of(flight_id=2), ("national", "BVLOS exemption", "flight"))
+        self.assertEqual(self.category_of(flight_id=1), ("national", "ROC-light", "date"))
+        self.assertEqual(self.client.put(f"/api/admin/authorisations/{exemption}", json=dict(exemption=False)).status_code, 200)
+        self.assertEqual(self.category_of(flight_id=1), ("national", "BVLOS exemption", "date"))
+        self.assertEqual(self.client.put(f"/api/admin/authorisations/{exemption}", json=dict(exemption="yes")).status_code, 400)
+
     def test_admin_manages_the_authorisation_catalog(self):
         self.assertEqual(self.client.get("/api/authorisations").json["authorisations"][0]["name"], "ROC-light")
         self.assertEqual(self.client.post("/api/admin/authorisations", json=dict(name="X", category="luc")).status_code, 403)

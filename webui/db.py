@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS authorisations (  -- ROCs, operational authorisations
     operator_id INTEGER REFERENCES operators(id),  -- holder; NULL = our own operator
     valid_from TEXT, valid_until TEXT,   -- YYYY-MM-DD, inclusive; NULL = open-ended
     link TEXT, note TEXT,
+    exemption INTEGER NOT NULL DEFAULT 0,  -- 1 = only applies where set, never as the date default
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS flight_links (     -- paper record <-> telemetry flight decisions (links.py)
@@ -524,6 +525,8 @@ def init(path):
         if "authorisation_id" not in columns:
             con.execute(f"ALTER TABLE {table} ADD COLUMN authorisation_id INTEGER"
                         + (" REFERENCES authorisations(id)" if table == "flight_records" else ""))
+    if "exemption" not in {r[1] for r in con.execute("PRAGMA table_info(authorisations)")}:
+        con.execute("ALTER TABLE authorisations ADD COLUMN exemption INTEGER NOT NULL DEFAULT 0")
     con.commit()
 
 

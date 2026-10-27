@@ -12,7 +12,8 @@ The category of a logbook entry is, in this order:
 5. the date ("date"): every flight before EU_RULES_FROM was under national rules. For our own operations, the
    catalog decides: a national authorisation valid that day (the newest if several) gives national rules; on a day
    no authorisation of ours was valid, the flight can only have been OPEN; while an EU authorisation was valid it
-   can be OPEN or SPECIFIC, so it stays unknown;
+   can be OPEN or SPECIFIC, so it stays unknown. Exemptions (such as a one-off BVLOS exemption) only apply where
+   they are set (1-4) and are left out of the date rule;
 6. otherwise unknown.
 Only 1 is stored per flight, so defaults follow when a project, place or the catalog changes. Our own entries that
 need a look are marked with a check: SPECIFIC without an authorisation, or a date outside the authorisation's
@@ -39,7 +40,7 @@ class CategoryError(ValueError):
 
 def catalog(con):
     return [dict(r) for r in con.execute(
-        "SELECT id, name, category, operator_id, valid_from, valid_until, link, note FROM authorisations"
+        "SELECT id, name, category, operator_id, valid_from, valid_until, link, note, exemption FROM authorisations"
         " ORDER BY COALESCE(valid_from, ''), name COLLATE NOCASE")]
 
 
@@ -59,7 +60,7 @@ def validate(con, body, authorisation_id=None):
     if not isinstance(body, dict):
         raise CategoryError("Send a JSON object.")
     if authorisation_id is not None:
-        current = con.execute("SELECT name, category, operator_id, valid_from, valid_until, link, note"
+        current = con.execute("SELECT name, category, operator_id, valid_from, valid_until, link, note, exemption"
                               " FROM authorisations WHERE id=?", (authorisation_id,)).fetchone()
         body = {**dict(current), **body}
     out = {}
@@ -75,6 +76,10 @@ def validate(con, body, authorisation_id=None):
     if body.get("category") not in AUTHORISED:
         raise CategoryError("category must be one of " + ", ".join(AUTHORISED) + ".")
     out["category"] = body["category"]
+    exemption = body.get("exemption") or False
+    if exemption not in (True, False, 0, 1) or type(exemption) not in (bool, int):
+        raise CategoryError("exemption must be true or false.")
+    out["exemption"] = int(exemption)
     out["valid_from"] = _day(body.get("valid_from"), "valid_from")
     out["valid_until"] = _day(body.get("valid_until"), "valid_until")
     if out["valid_from"] and out["valid_until"] and out["valid_from"] > out["valid_until"]:
@@ -90,7 +95,7 @@ def validate(con, body, authorisation_id=None):
 
 
 def save(con, values, stamp, authorisation_id=None):
-    keys = ("name", "category", "operator_id", "valid_from", "valid_until", "link", "note")
+    keys = ("name", "category", "operator_id", "valid_from", "valid_until", "link", "note", "exemption")
     try:
         if authorisation_id is None:
             return con.execute(f"INSERT INTO authorisations ({', '.join(keys)}, created_at) VALUES ({'?,' * len(keys)}?)",
@@ -156,7 +161,7 @@ def apply(con, rows, flight_categories):
     that flight; paper rows and the paper records folded into an entry carry their own."""
     auths = {a["id"]: a for a in catalog(con)}
     own = {r[0] for r in con.execute("SELECT id FROM operators WHERE own=1")}
-    ours = [a for a in auths.values() if a["operator_id"] is None or a["operator_id"] in own]
+    ours = [a for a in auths.values() if (a["operator_id"] is None or a["operator_id"] in own) and not a["exemption"]]
     valid = lambda a, day: (a["valid_from"] or "") <= day <= (a["valid_until"] or "9999")  # noqa: E731
     pair = "SELECT id, category, authorisation_id FROM {} WHERE category IS NOT NULL"
     projects, places, papers = ({r[0]: (r[1], r[2]) for r in con.execute(pair.format(t))}
