@@ -506,7 +506,8 @@ async function loadDetail(id) {
         ${a.setting_changes.map(c => `<tr><td>${esc((c.utc || '').replace('T', ' ').slice(0, 19))}</td><td>${esc(c.var || 'setting')} <span class="mute">#${c.idx}</span></td><td>${c.from_value}</td><td>${c.to_value}</td><td>${c.in_flight ? 'yes' : ''}</td></tr>`).join('')}</tbody></table>`;
     }
     const pfc = a.preflight_checks || [];
-    if (pfc.length) h += `<h4>Pre-flight checks</h4><pre>${esc(pfc.map(m => m.text).join('\n'))}</pre>`;
+    if (pfc.length) h += `<h4>Pre-flight checks</h4><table><tbody>${pfc.map(m =>
+      `<tr><td class="mono" style="white-space:nowrap">${esc(m.utc || (m.time_s == null ? '' : m.time_s + ' s'))}</td><td>${window.preflightCheckHTML(m)}</td></tr>`).join('')}</tbody></table>`;
     h += `<div class="actions"><a href="/api/aircraft/${a.id}/config" target="_blank" onclick="event.stopPropagation()">Flight plan / settings / airframe JSON</a></div>`;
   }
   h += `<div class="actions">

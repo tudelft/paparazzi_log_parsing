@@ -14,6 +14,7 @@
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -712,14 +713,31 @@ bool has_attr_ci(const XmlAttrs &at, const char *key)
   return false;
 }
 
-// Calls cb(tag, attributes, closing, selfclosing) for every element tag in the XML (comments and declarations skipped)
+// Calls cb for element tags; optional text receives raw text and a CDATA flag.
 template <typename F>
-void for_each_tag(const std::string &x, F cb)
+void for_each_tag(const std::string &x, F cb,
+                 const std::function<void(std::string_view, bool)> &text = {})
 {
   size_t p = 0;
-  while ((p = x.find('<', p)) != std::string::npos) {
+  for (;;) {
+    const size_t start = p;
+    p = x.find('<', p);
+    if (text) { text(std::string_view(x).substr(start, p == std::string::npos ? p : p - start), false); }
+    if (p == std::string::npos) { break; }
     if (x.compare(p, 4, "<!--") == 0) { p = x.find("-->", p); if (p == std::string::npos) { break; } p += 3; continue; }
-    if (x.compare(p, 2, "<?") == 0 || x.compare(p, 2, "<!") == 0) { p = x.find('>', p); if (p == std::string::npos) { break; } continue; }
+    if (x.compare(p, 9, "<![CDATA[") == 0) {
+      const size_t end = x.find("]]>", p + 9);
+      if (end == std::string::npos) { break; }
+      if (text) { text(std::string_view(x).substr(p + 9, end - p - 9), true); }
+      p = end + 3;
+      continue;
+    }
+    if (x.compare(p, 2, "<?") == 0 || x.compare(p, 2, "<!") == 0) {
+      p = x.find('>', p);
+      if (p == std::string::npos) { break; }
+      ++p;
+      continue;
+    }
     size_t e = p + 1;
     if (e < x.size() && x[e] == '/') {
       const size_t ns = ++e;
@@ -727,6 +745,7 @@ void for_each_tag(const std::string &x, F cb)
       cb(x.substr(ns, e - ns), XmlAttrs(), true, false);
       p = x.find('>', p);
       if (p == std::string::npos) { break; }
+      ++p;
       continue;
     }
     size_t ns = e;
@@ -752,6 +771,44 @@ void for_each_tag(const std::string &x, F cb)
     p = e;
     cb(tag, at, false, selfclose);
   }
+}
+
+std::map<std::string, std::string> checklist_entries(const std::string &xml)
+{
+  std::map<std::string, std::string> entries;
+  size_t depth = 0, checklist_depth = 0, item_depth = 0;
+  std::string name, label;
+  for_each_tag(xml, [&](const std::string &tag, const XmlAttrs &at, bool closing, bool selfclose) {
+    if (closing) {
+      if (item_depth && depth == item_depth) {
+        std::string normalized;
+        bool space = false;
+        for (unsigned char c : label) {
+          if (std::isspace(c)) { space = !normalized.empty(); }
+          else {
+            if (space) { normalized += ' '; }
+            normalized += static_cast<char>(c);
+            space = false;
+          }
+        }
+        if (!name.empty() && !normalized.empty()) { entries[name] = normalized; }
+        item_depth = 0;
+      }
+      if (depth == checklist_depth) { checklist_depth = 0; }
+      if (depth) { --depth; }
+    } else if (!selfclose) {
+      ++depth;
+      if (tag == "checklist") { checklist_depth = depth; }
+      if (tag == "item" && checklist_depth && !item_depth) {
+        item_depth = depth;
+        name = attr_ci(at, "name");
+        label.clear();
+      }
+    }
+  }, [&](std::string_view text, bool cdata) {
+    if (item_depth) { label += cdata ? std::string(text) : xml_decode(text); }
+  });
+  return entries;
 }
 
 std::string attr_json(const XmlAttrs &at, const char *k)
@@ -1076,7 +1133,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.8.0";
+constexpr const char *PARSER_VERSION = "1.8.1";
 
 struct GpsClock {
   size_t count = 0;
@@ -2251,7 +2308,10 @@ int main(int argc, char *argv[])
           if (body.compare(0, n, k) == 0) { dst = trim(body.substr(n)); return true; }
           return false;
         };
-        if (starts("pic:", pic) || starts("pac:", pac) || starts("gcs:", gcs) || starts("goal:", goal)) { continue; }
+        starts("pic:", pic);
+        starts("pac:", pac);
+        starts("gcs:", gcs);
+        starts("goal:", goal);
         pfc.push_back(&m);
       } else {
         other.push_back(&m);
@@ -2382,11 +2442,28 @@ int main(int argc, char *argv[])
     o << "\n      ]";
 
     // Messages
+    const auto checklist = cf ? checklist_entries(cf->airframe_xml) : std::map<std::string, std::string>();
     auto emit = [&](const std::vector<const InfoMsg *> &v, size_t skip) {
       bool f1 = true;
       for (const auto *m : v) {
         o << (f1 ? "" : ",") << "\n        {\"time_s\": " << num(m->time) << ", \"utc\": " << utc(m->time)
-          << ", \"text\": " << json_escape(trim(m->text.substr(skip))) << "}";
+          << ", \"text\": " << json_escape(trim(m->text.substr(skip)));
+        if (skip) {
+          const std::string body = trim(m->text.substr(skip));
+          const std::pair<const std::string, std::string> *match = nullptr;
+          for (const auto &entry : checklist) {
+            const auto &key = entry.first;
+            if (body.compare(0, key.size(), key) == 0 &&
+                (body.size() == key.size() || body[key.size()] == ':') &&
+                (!match || key.size() > match->first.size())) { match = &entry; }
+          }
+          if (match) {
+            o << ", \"checklist_label\": " << json_escape(match->second)
+              << ", \"checklist_value\": " << json_escape(body.size() == match->first.size() ? "" :
+                                                          trim(body.substr(match->first.size() + 1)));
+          }
+        }
+        o << "}";
         f1 = false;
       }
       o << (v.empty() ? "" : "\n      ") << "]";

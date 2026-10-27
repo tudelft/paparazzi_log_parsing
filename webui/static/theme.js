@@ -2,6 +2,14 @@ window.estimatedDateBadge = function (record) {
   return record.date_estimated ? ' <span class="badge date-unknown" title="GPS time-of-week plus firmware commit; the calendar week is uncertain">estimated date</span>' : '';
 };
 
+window.preflightCheckHTML = function (message) {
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
+  if (!message.checklist_label) return escape(message.text);
+  const value = message.checklist_value;
+  return `<span tabindex="0" title="Logged: ${escape(message.text)}">${escape(message.checklist_label)}${value ? ': ' + escape(value) : ''}</span>`;
+};
+
 // How an operator is shown everywhere, and where a logbook entry's operator comes from (operators.py).
 window.operatorLabel = o => o.name + (o.registration ? ` (${o.registration})` : '');
 window.OPERATOR_SOURCE = {flight: 'set on this flight', project: 'from the project', place: 'from the takeoff place', pic: 'the operator the PIC flies for', default: 'own operator (default)'};

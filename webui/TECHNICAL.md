@@ -344,6 +344,19 @@ Messages and settings show 25 rows per page, scoped to the flight by default; th
 the whole log. Tab counts reflect the flight scope (messages also include 30 seconds either side).
 Tabs support keyboard arrows and can be linked directly, for example `/flight/42#messages`.
 
+**Paparazzi pre-flight checklist (parser 1.8.1).** All recorded `[PFC]` events, including
+PIC, PAC, GCS operator and goal, appear in Pre-flight checks on the flight page and expanded
+Uploads log. Crew and goal extraction remains unchanged. Each aircraft's embedded airframe
+`<checklist><item name="key">Full text</item></checklist>` supplies descriptions for matching
+`key: answer` messages. The parser retains the original `text`, `time_s` and `utc`, adding
+`checklist_label` and `checklist_value` when a definition matches. XML entities and CDATA are
+decoded; comments are ignored and multiline descriptions have normalized whitespace.
+The Web UI shows the description and recorded answer, with the original message in a
+focusable tooltip. Unknown keys and logs without definitions retain their original text.
+Repeated events remain separate; unlogged definitions are not presented as completed checks.
+No database migration is needed. Existing logs need **Re-parse outdated** to recover crew/goal
+events omitted by older parsers and attach full descriptions; older stored messages remain displayable.
+
 **Additional files.** Use the **Files** tab on a flight, **Additional files** on a paper record,
 or **Additional files** in an expanded upload. Photos, videos, wind-tunnel measurements, offboard
 computer logs and other files can be uploaded there. Search by aircraft, date, filename or numeric

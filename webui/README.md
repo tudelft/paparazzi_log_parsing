@@ -42,6 +42,11 @@ track, the logbook uses GCS consistently for the track, distance and flight-page
 The flight page explains the choice under **Log sources and upload details**, where either
 original recording can still be opened or downloaded.
 
+**Pre-flight checks** shows all recorded checklist messages, including crew and flight goal.
+For Paparazzi logs with embedded checklist definitions, full descriptions replace abbreviations;
+hover over or focus a description to see the original message. Older logs need re-parsing
+to gain descriptions and previously omitted crew entries.
+
 | Page | What to do |
 |---|---|
 | **Logbook** | Filter flights (also by a paper record's reference, e.g. F00090), review flight time, expand a row or open its flight page. Click aircraft, crew, project or location names for their detail pages. |
