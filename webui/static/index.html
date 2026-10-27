@@ -16,7 +16,12 @@
   main { max-width:none; width:100%; margin:0; padding:16px 12px 20px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
   .scroll { overflow-x:auto; }
-  #drop { border:2px dashed var(--drop); border-radius:8px; padding:28px; text-align:center; color:var(--mute); transition:.15s; }
+  #drop { border:2px dashed var(--drop); border-radius:8px; padding:10px 14px; color:var(--mute); transition:.15s;
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  #drop > strong { color:var(--txt); font-weight:600; }
+  #drop > details { margin-left:auto; }
+  #drop > details[open] { flex-basis:100%; order:9; }
+  #drop > details > summary { text-align:right; font-size:13px; color:var(--mute); }
   #drop.over { border-color:var(--acc); background:var(--dropover); color:var(--acc); }
   button, .btn { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
   button.sec { background:var(--sec); color:var(--txt); }
@@ -27,6 +32,11 @@
   th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
   th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
   tr.log { cursor:pointer; }
+  table.logs { width:100%; table-layout:fixed; }
+  table.logs > tbody > tr.log > td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:5px 8px; vertical-align:middle; }
+  table.logs .num { text-align:right; padding-right:16px; }
+  table.logs .size { font-size:12px; color:var(--mute); margin-left:4px; }
+  .badge-filter { font-size:12px; padding:2px 9px; border-radius:10px; border:0; cursor:pointer; }
   tr.log:hover { background:var(--hover); }
   .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:var(--chip); }
   .done { background:var(--okbg); color:var(--ok); } .error { background:var(--errbg); color:var(--err); }
@@ -46,7 +56,7 @@
   #status { text-align:right; font-size:12px; color:var(--mute); padding:0 20px 20px; margin:0; }
 </style>
 </head>
-<body>
+<body data-edit="all">
 <header>
   <h1>Flight log database</h1>
   <span class="meta" id="nav"></span>
@@ -55,15 +65,13 @@
 <main>
   <section class="card">
     <div id="drop">
-      <div class="section-heading"><h2>Drop log files, zip archives or folders here</h2>
+      <strong>Drop log files, zips or folders here</strong><span>or</span>
+      <button type="button" id="pickFilesBtn">Select files</button>
+      <button type="button" class="sec" id="pickDirBtn">Select folder</button>
       <details><summary>Help</summary>
-      <p>Paparazzi .data and .log files must come as a pair with the same name. PX4 .ulg, ArduPilot .bin / .log and MAVLink .tlog files are uploaded on their own. Zips and folders may mix all of those. Files are accepted quickly; fingerprinting, duplicates and parsing run in the background. The list below shows 10 logs per page by default, newest first. For hundreds of logs, drop a zip or a folder — picking thousands of files one by one can freeze the browser.</p>
-      <div class="mute" style="margin-top:8px">Project is set automatically from the aircraft (then the uploader, GCS operator or PIC). Admins can change it on a log after it is parsed.</div>
-      </details></div>
-      <div class="row">
-        <button type="button" id="pickFilesBtn">Select files</button>
-        <button type="button" class="sec" id="pickDirBtn">Select folder</button>
-      </div>
+      <p>Paparazzi .data and .log files must come as a pair with the same name. PX4 .ulg, ArduPilot .bin / .log and MAVLink .tlog files are uploaded on their own. Zips and folders may mix all of those. Files are accepted quickly; fingerprinting, duplicates and parsing run in the background. The list below shows 25 logs per page by default, newest first; open a log for its details and flights. For hundreds of logs, drop a zip or a folder — picking thousands of files one by one can freeze the browser.</p>
+      <div class="mute" style="margin-top:8px">Project is set automatically from the aircraft (then the uploader, GCS operator or PIC). Admins can change it in Edit mode after it is parsed. Edit mode also shows Re-parse and Delete on an opened log, and the Re-parse outdated / unknown dates tools.</div>
+      </details>
       <input id="pickFiles" type="file" multiple hidden accept=".data,.log,.zip,.ulg,.bin,.tlog">
       <input id="pickDir" type="file" webkitdirectory hidden>
     </div>
@@ -73,22 +81,25 @@
   <p id="noUpload" class="mute" hidden>You can look at logs here. Adding logs needs access from an admin.</p>
 
   <section class="card">
-    <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap">
-      <strong>Logs</strong>
-      <label>Filename <input type="search" id="logSearch" placeholder="Find a log by filename"></label>
-      <label>Status <select id="logStatus"><option value="all">All logs</option><option value="errors">Parser errors</option><option value="unfinished">Unfinished logs</option><option value="failures">All failures</option></select></label>
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap">
+      <h2 style="margin:0; font-size:17px">Logs</h2><span class="mute" id="logCount"></span>
+      <input type="search" id="logSearch" placeholder="Search by filename" aria-label="Search logs by filename">
+      <select id="logStatus" aria-label="Status"><option value="all">All logs</option><option value="errors">Parser errors</option><option value="unfinished">Unfinished logs</option><option value="failures">All failures</option><option value="outdated">Outdated</option><option value="date_unknown">Date unknown</option></select>
+      <button type="button" class="badge-filter outdated" id="outdatedBadge" hidden title="Parsed with an older parser version; show them" onclick="filterStatus('outdated')"></button>
+      <button type="button" class="badge-filter date-unknown" id="unknownBadge" hidden title="Logs without a usable calendar date; show them" onclick="filterStatus('date_unknown')"></button>
       <button class="sec" id="reparseAll" style="margin-left:auto" onclick="reparseOutdated()" hidden>Re-parse outdated</button>
       <button class="sec" id="reparseUnknownDates" onclick="reparseUnknownDates()" hidden>Re-parse unknown dates</button>
       <button class="sec" id="acceptDateSuggestions" onclick="acceptDateSuggestions()" hidden title="Dates for logs with an unset clock, taken from a matching ground station log">Accept date suggestions</button>
     </div>
     <div class="scroll">
-    <table>
-      <thead><tr><th>#</th><th>Log</th><th>Project</th><th>Aircraft</th><th>Date (UTC)</th><th>Flights</th><th>Flight time</th><th>Status</th><th>Parser</th></tr></thead>
+    <table class="logs">
+      <colgroup id="logCols"></colgroup>
+      <thead id="logHead"></thead>
       <tbody id="logs"></tbody>
     </table>
     </div>
     <div id="pager" class="mute" style="display:flex; gap:12px; align-items:center; justify-content:flex-end; flex-wrap:wrap; margin-top:12px">
-      <label>Logs per page <select id="logPageSize"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>
+      <label>Logs per page <select id="logPageSize"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option></select></label>
       <span id="pageInfo"></span>
       <div id="uploadPages" class="navigation-pages"></div>
     </div>
@@ -101,11 +112,12 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const downloadLabel = window.logLabel;  // theme.js
-const fmtDur = s => s == null ? '' : `${Math.floor(s/60)}m ${String(Math.round(s%60)).padStart(2,'0')}s`;
+const fmtDur = s => s == null ? '' : s >= 3600 ? `${Math.floor(s/3600)}h ${String(Math.floor(s%3600/60)).padStart(2,'0')}m`
+  : `${Math.floor(s/60)}m ${String(Math.round(s%60)).padStart(2,'0')}s`;
 const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km` : `${Math.round(m)} m`;
 const fmtSize = b => b > 1e9 ? (b/1e9).toFixed(2)+' GB' : (b/1e6).toFixed(1)+' MB';
 let expanded = new Set(), me = null, projects = [];
-let LOG_PAGE = 10;
+let LOG_PAGE = 25;
 let logOffset = 0, logTotal = 0, sendTotal = 0, sendDone = 0, sendActive = 0;
 if (/^#log\d+$/.test(location.hash)) expanded.add(+location.hash.slice(4));
 
@@ -133,11 +145,20 @@ function fillProjects() {
   $('drop').hidden = !open;
   $('noUpload').hidden = open;
 }
+const editing = () => window.editMode();
+// Columns of the log list; admins also see who uploaded each log and when.
+const logColumns = () => [['Date (UTC)', '12%'], ['Log', '22%'], ['Aircraft', '14%'], ['Project', '13%'],
+  ['Flights', '6%', 'num'], ['Flight time', '8%', 'num'], ...(me?.is_admin ? [['Uploaded', '17%']] : []), ['Status', '8%']];
+function syncEditUi() {
+  const admin = !!me?.is_admin;
+  $('reparseAll').hidden = $('reparseUnknownDates').hidden = !(admin && editing());
+  if (admin && editing()) countDateSuggestions(); else $('acceptDateSuggestions').hidden = true;
+}
+function filterStatus(value) { $('logStatus').value = value; logOffset = 0; window.viewState.save(true); refresh(); }
+window.addEventListener('editchange', () => { syncEditUi(); refresh(); });
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
-  $('reparseAll').hidden = !me.is_admin;
-  $('reparseUnknownDates').hidden = !me.is_admin;
-  if (me.is_admin) countDateSuggestions();
+  syncEditUi();
   $('who').textContent = me.display_name + (me.is_admin ? ' (admin)' : '');
   projects = await fetch('/api/projects').then(r => r.json());
   fillProjects();
@@ -372,6 +393,10 @@ function paintStatus(st) {
   $('coUploaded').innerHTML = co.length ? `Already on the server, uploaded by someone else; you are now a co-uploader and can open ${co.length === 1 ? 'it' : 'them'}: `
     + co.map(c => `<a href="/uploads#log${c.log_id}" onclick="showLog(${c.log_id})">${esc(c.name)}</a>`).join(', ') : '';
   $('reparseAll').disabled = !st.outdated && !c.error;
+  $('outdatedBadge').hidden = !st.outdated || $('logStatus').value === 'outdated';
+  $('outdatedBadge').textContent = `${st.outdated} outdated`;
+  $('unknownBadge').hidden = !st.date_unknown || $('logStatus').value === 'date_unknown';
+  $('unknownBadge').textContent = `${st.date_unknown} date unknown`;
 }
 
 let refreshBusy = false, refreshWanted = false;
@@ -398,6 +423,10 @@ async function refresh() {
     return;
   }
   $('pageInfo').textContent = logTotal ? '' : 'No matching results.';
+  $('logCount').textContent = logTotal.toLocaleString();
+  const cols = logColumns();
+  $('logCols').innerHTML = cols.map(c => `<col style="width:${c[1]}">`).join('');
+  $('logHead').innerHTML = '<tr>' + cols.map(c => `<th${c[2] ? ` class="${c[2]}"` : ''}>${c[0]}</th>`).join('') + '</tr>';
   if (onlyLog) $('pageInfo').innerHTML = `Showing log ${onlyLog} only · <a href="/uploads" onclick="event.preventDefault(); showAllLogs()">Show all logs</a>`;
   window.viewState.pager($('uploadPages'), Math.floor(logOffset / LOG_PAGE), LOG_PAGE, logTotal,
     n => { logOffset = n * LOG_PAGE; window.viewState.save(true); refresh(); });
@@ -407,30 +436,37 @@ async function refresh() {
   for (const l of logs) {
     const tr = document.createElement('tr');
     if (l.row_type === 'ingest') {
-      tr.innerHTML = `<td>Upload ${l.id}</td><td>${esc(l.name)}<div class="mute">Upload receipt · ${fmtSize(l.size_bytes)} · ${esc(l.uploaded_at)}</div></td>
-        <td colspan="5" class="mute">Upload failure; receipt only, no stored-log controls.</td>
-        <td><span class="badge error">${esc(l.status)}</span><div class="mute">${esc(l.error || '')}</div></td><td></td>`;
+      tr.innerHTML = `<td colspan="${cols.length - 1}">${esc(l.name)} <span class="mute">· upload receipt ${l.id} · ${fmtSize(l.size_bytes)} · ${esc(l.uploaded_at)} · no stored log</span></td>
+        <td><span class="badge error">${esc(l.status)}</span><div class="mute">${esc(l.error || '')}</div></td>`;
       tb.appendChild(tr);
       continue;
     }
     tr.className = 'log';
-    const projectCell = me && me.is_admin
+    const projectCell = me && me.is_admin && editing()
       ? `<select onclick="event.stopPropagation()" onchange="setProject(${l.id}, this.value)">${'<option value="">No project</option>' + projects.map(p => `<option value="${p.id}"${p.id === l.project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`
-      : esc(l.project_name || '');
+      : l.project_id ? `<a href="/projects/${l.project_id}" onclick="event.stopPropagation()" title="${esc(l.project_name || '')}">${esc(l.project_name || '')}</a>` : '<span class="mute">No project</span>';
     const dateLabel = l.date_ok
-      ? esc((l.start_utc || l.date_override || '').replace('T', ' ').slice(0, 19))
+      ? esc((l.start_utc || l.date_override || '').replace('T', ' ').slice(0, 16))
       : '<span class="badge date-unknown" title="This log has no usable calendar date (often GPS week 0, shown as 1980)">date unknown</span>';
-    tr.innerHTML = `<td>${l.id}</td><td>${esc(l.name)}<div class="mono mute">${l.sha256.slice(0, 12)}… · ${fmtSize(l.size_bytes)}${!l.has_log && (!l.log_type || l.log_type === 'onboard_sd' || l.log_type === 'gcs') ? ' · no .log' : ''}</div></td>
+    // one flight opens its flight page; several open the log with a link per flight
+    const flights = !l.num_flights ? '<span class="mute">—</span>'
+      : l.flight_rows === 1 && l.first_flight_id ? `<a href="/flight/${l.first_flight_id}" onclick="event.stopPropagation()" title="Open the flight">1</a>`
+      : `<a href="/uploads#log${l.id}" onclick="event.preventDefault(); event.stopPropagation(); expanded.add(${l.id}); refresh()" title="Show the flights of this log">${l.num_flights}</a>`;
+    const status = l.status === 'done' ? '' : `<span class="badge ${l.status}" title="${esc(l.error || '')}">${l.status}</span>`;
+    const outdated = l.outdated ? `<span class="badge outdated" title="Parsed with ${esc(l.parser_name || 'parser')} ${esc(l.parser_version || '?')}; re-parse to update">outdated</span>` : '';
+    const noLog = !l.has_log && (!l.log_type || l.log_type === 'onboard_sd' || l.log_type === 'gcs') ? ' · no .log' : '';
+    const uploaded = me?.is_admin ? `<td title="${esc([`Uploaded ${l.uploaded_at || ''}`, l.uploaded_by_name ? `by ${l.uploaded_by_name}` : '', l.co_uploaders ? `also by ${l.co_uploaders}` : ''].filter(Boolean).join(' '))}"><span class="mute">${esc((l.uploaded_at || '').slice(0, 10))}</span> ${esc(l.uploaded_by_name || '—')}</td>` : '';
+    tr.innerHTML = `<td>${dateLabel}${estimatedDateBadge(l)}</td>
+      <td title="${esc(l.name)} · log ${l.id} · ${esc(l.sha256.slice(0, 12))}…${noLog}">${esc(l.name)}<span class="size">${fmtSize(l.size_bytes)}${noLog}</span></td>
+      <td title="${esc(l.aircraft_names || '')}">${esc((l.aircraft_names || '').replace(/,/g, ', ')) || '<span class="mute">—</span>'}</td>
       <td onclick="event.stopPropagation()">${projectCell}</td>
-      <td>${esc(l.aircraft_names)}</td><td>${dateLabel}${estimatedDateBadge(l)}</td>
-      <td>${l.num_flights ?? ''}</td><td>${fmtDur(l.flight_time_s)}</td>
-      <td><span class="badge ${l.status}">${l.status}</span>${l.outdated ? ' <span class="badge outdated">outdated</span>' : ''}${!l.date_ok ? ' <span class="badge date-unknown">date unknown</span>' : ''}${l.error ? `<div class="mute">${esc(l.error).slice(0, 120)}</div>` : ''}</td>
-      <td class="mono">${esc(l.parser_version || '')}</td>`;
+      <td class="num">${flights}</td><td class="num">${l.flight_time_s ? fmtDur(l.flight_time_s) : '<span class="mute">—</span>'}</td>
+      ${uploaded}<td>${status}${outdated}</td>`;
     tr.onclick = () => toggle(l.id);
     tb.appendChild(tr);
     if (expanded.has(l.id)) {
       const d = document.createElement('tr');
-      d.innerHTML = `<td colspan="9" class="detail" id="d${l.id}">loading…</td>`;
+      d.innerHTML = `<td colspan="${cols.length}" class="detail" id="d${l.id}">loading…</td>`;
       tb.appendChild(d);
       details.push(loadDetail(l.id));
     }
@@ -458,7 +494,7 @@ function dateField(l) {
     <button type="button" class="sec" onclick="event.stopPropagation(); acceptLogDateSuggestion(${l.id})">Accept</button>` : '';
   const setBy = l.date_override && l.date_override_by_name
     ? `<br><span class="mute">Set by ${esc(l.date_override_by_name)}${l.date_override_note ? ': ' + esc(l.date_override_note) : ''}</span>` : '';
-  if (!l.can_edit_date)
+  if (!l.can_edit_date || !editing())
     return `<span class="mute">Calendar date</span><span>${l.date_override ? esc(l.date_override) + ' · ' : ''}<span class="mute">${esc(hint)}</span>${setBy}</span>`;
   return `<span class="mute">Calendar date</span><span onclick="event.stopPropagation()">
     <input type="date" id="date${l.id}" value="${esc(l.date_override || '')}">
@@ -493,7 +529,7 @@ async function loadDetail(id) {
       <span class="mute">Goal</span><span>${esc(a.goal)}</span>
       <span class="mute">Autopilot</span><span class="mono">${esc((a.autopilot_versions || []).join(', '))}${a.autopilot_versions_from_gcs ? '</span> <span class="mute">from GCS log' : ''}</span></div>
       <table><thead><tr><th>Flight</th><th>Takeoff (UTC)</th><th>Duration</th><th>Flown</th><th>Project</th><th>Takeoff location</th><th>Landing location</th><th>Battery</th><th>Path</th></tr></thead><tbody>
-      ${a.flights.map(f => `<tr><td>${f.idx}</td><td>${esc(f.takeoff_utc)}</td><td>${fmtDur(f.duration_s)}</td><td>${fmtDist(f.distance_m)}</td>
+      ${a.flights.map(f => `<tr><td><a href="/flight/${f.id}" onclick="event.stopPropagation()" title="Open the flight page">Flight ${f.idx}</a></td><td>${esc(f.takeoff_utc)}</td><td>${fmtDur(f.duration_s)}</td><td>${fmtDist(f.distance_m)}</td>
         <td>${esc(f.project_name || '')}</td>
         <td class="mono">${f.takeoff_lat != null ? f.takeoff_lat.toFixed(5) + ', ' + f.takeoff_lon.toFixed(5) : ''}</td>
         <td class="mono">${f.landing_lat != null ? f.landing_lat.toFixed(5) + ', ' + f.landing_lon.toFixed(5) : ''}</td>
@@ -512,8 +548,8 @@ async function loadDetail(id) {
   h += `<div class="actions">
     <a class="btn sec" href="/attachments?kind=log&id=${id}" onclick="event.stopPropagation()">Additional files</a>
     <a class="btn sec" href="/api/logs/${id}/download" onclick="event.stopPropagation()">Download ${downloadLabel(l.log_type)}</a>
-    <button class="sec" onclick="event.stopPropagation(); reparse(${id})">Re-parse</button>
-    ${l.can_delete ? `<button class="danger" onclick="event.stopPropagation(); del(${id})">Delete</button>` : ''}</div>`;
+    ${editing() ? `<button class="sec" onclick="event.stopPropagation(); reparse(${id})">Re-parse</button>
+    ${l.can_delete ? `<button class="danger" onclick="event.stopPropagation(); del(${id})">Delete</button>` : ''}` : ''}</div>`;
   const el = $('d' + id);
   if (el) el.innerHTML = h;
 }
@@ -590,18 +626,18 @@ setInterval(() => {
   refresh();
 }, 3000);
 window.viewState.setup((p, extra) => {
-  const size = p.get('size') || '10';
-  LOG_PAGE = [10,25,50,100].includes(+size) ? +size : 10;
+  const size = p.get('size') || '25';
+  LOG_PAGE = [10,25,50,100].includes(+size) ? +size : 25;
   $('logPageSize').value = String(LOG_PAGE);
   logOffset = (window.viewState.integer(p.get('page'),1)-1) * LOG_PAGE;
   $('logSearch').value = p.get('q') || '';
-  $('logStatus').value = ['all','errors','unfinished','failures'].includes(p.get('status')) ? p.get('status') : 'all';
+  $('logStatus').value = ['all','errors','unfinished','failures','outdated','date_unknown'].includes(p.get('status')) ? p.get('status') : 'all';
   onlyLog = window.viewState.integer(p.get('log'), /^#log\d+$/.test(location.hash) ? +location.hash.slice(4) : null);
   expanded.clear(); (extra.expanded || []).forEach(id => expanded.add(id));
   if (onlyLog) expanded.add(onlyLog);
 }, p => {
   const set = window.viewState.set;
-  set(p,'page',Math.floor(logOffset/LOG_PAGE)+1,1); set(p,'size',LOG_PAGE,10);
+  set(p,'page',Math.floor(logOffset/LOG_PAGE)+1,1); set(p,'size',LOG_PAGE,25);
   set(p,'q',$('logSearch').value); set(p,'status',$('logStatus').value,'all');
   set(p,'log',onlyLog || '');
   return {expanded:[...expanded]};

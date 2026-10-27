@@ -469,6 +469,21 @@ class UploadFilterTests(AppTests):
         self.assertEqual(self.client.get("/api/logs").json["total"], 5)
         self.assertEqual(self.client.get("/api/logs?status=bad").status_code, 400)
 
+    def test_outdated_and_date_unknown_filters_and_flight_link_fields(self):
+        self.con.execute("UPDATE logs SET parser_name='paparazzi', parser_version='0.1', start_utc='1980-01-06T00:00:00Z'"
+                         " WHERE id=2")
+        self.con.execute("INSERT INTO aircraft(id,log_id,name,ac_id) VALUES (1,2,'A',5)")
+        self.con.executemany("INSERT INTO flights(id,aircraft_id,idx,takeoff_time_s) VALUES (?,1,?,?)",
+                             [(20, 0, 50.0), (21, 1, 10.0)])
+        self.con.commit()
+        for status in ("outdated", "date_unknown"):
+            with self.subTest(status=status):
+                body = self.client.get(f"/api/logs?status={status}").json
+                self.assertEqual([r["id"] for r in body["logs"]], [2])
+        row = next(r for r in self.client.get("/api/logs").json["logs"] if r["id"] == 2)
+        self.assertEqual((row["first_flight_id"], row["flight_rows"]), (21, 2))  # earliest takeoff first
+        self.assertEqual(row["uploaded_by_name"], "Pilot")  # display name
+
     def test_filename_search_across_pages_and_access_scope(self):
         self.con.execute("UPDATE logs SET name='NedDrone_flight.data' WHERE id IN (1,2,5,6)")
         self.con.commit()
