@@ -197,6 +197,7 @@ Evidence and submission history are private to you and admins; audit history is 
 Pilot pages show approved summaries, not evidence.
 Use **Valid from** and **Valid until** to record the licence period, including past qualifications.
 Admins can make either date optional per type; both date switches start checked for new types.
+In Edit mode, admins can correct the dates of any submission with **Edit dates**, for example to end a licence that has expired.
 An Internal switch marks in-house qualifications. Drag types to set their order, then use one Save.
 In Edit mode, **Import ZIP** on People loads a `manifest.csv` plus evidence PDFs: preview, then import
 and approve in one step. Older licence periods go to the **Archive** tab of each person's qualifications.

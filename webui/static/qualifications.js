@@ -57,7 +57,8 @@ window.QualificationManager = class {
         ? `<button type="button" data-review="approve" data-id="${item.id}">Approve</button>
            <button type="button" data-review="reject" data-id="${item.id}">Reject</button>` : ''}
         <button type="button" data-review="withdraw" data-id="${item.id}">Withdraw</button>` : ''}
-      ${this.admin && this.editing ? `${item.has_evidence ? `<button type="button" data-delete="evidence" data-id="${item.id}">Delete evidence</button>` : ''}
+      ${this.admin && this.editing ? `<button type="button" data-dates="${item.id}">Edit dates</button>
+        ${item.has_evidence ? `<button type="button" data-delete="evidence" data-id="${item.id}">Delete evidence</button>` : ''}
         <button type="button" data-delete="record" data-id="${item.id}">Delete record</button>` : ''}</div></div>`;
     };
     const archived = i => i.status === 'superseded' || (i.status === 'approved' && i.expired);
@@ -99,8 +100,18 @@ window.QualificationManager = class {
         </form>
       </dialog>` : '<p class="mute">An admin must first add a qualification type on People.</p>')
         : '<p class="mute">Turn on Edit to upload, review or delete qualifications for this person.</p>'}
+      ${this.admin && this.editing ? `<dialog class="entry-dialog" data-dates-dialog aria-labelledby="datesTitle-${this.userId}">
+        <div class="dialog-header"><h2 id="datesTitle-${this.userId}">Edit dates</h2>
+          <button type="button" data-close-dates aria-label="Close">Close</button></div>
+        <p class="dialog-error" data-dialog-error hidden role="alert"></p>
+        <form data-dates-form>
+          <label class="field">Valid from <input type="date" name="valid_from"></label>
+          <label class="field">Valid until <input type="date" name="valid_until"></label>
+          <button type="submit">Save dates</button>
+        </form>
+      </dialog>` : ''}
       ${this.admin ? `<details class="help-text"><summary>Qualification history (admins only)</summary>
-        <p class="mute">An audit of submission, review and deletion actions, separate from the records and files above.</p>
+        <p class="mute">An audit of submission, review, date correction and deletion actions, separate from the records and files above.</p>
         <button type="button" data-history>Show latest 100 events</button>
         <pre data-events style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>` : ''}`;
     this.element.querySelectorAll('[data-view]').forEach(button => {
@@ -109,6 +120,19 @@ window.QualificationManager = class {
     this.element.querySelectorAll('[data-review]').forEach(button => {
       button.onclick = () => this.review(+button.dataset.id, button.dataset.review);
     });
+    this.element.querySelectorAll('[data-dates]').forEach(button => {
+      button.onclick = () => this.editDates(q.items.find(i => i.id === +button.dataset.dates));
+    });
+    const datesDialog = this.element.querySelector('[data-dates-dialog]');
+    if (datesDialog) {
+      this.element.querySelector('[data-close-dates]').onclick = () => datesDialog.close();
+      this.element.querySelector('[data-dates-form]').onsubmit = event => {
+        event.preventDefault();
+        const f = event.target.elements;
+        this.mutate(`/api/qualification-submissions/${datesDialog.dataset.id}`, {method:'PUT',
+          headers:{'Content-Type':'application/json'}, body:JSON.stringify({valid_from: f.valid_from.value, valid_until: f.valid_until.value})});
+      };
+    }
     this.element.querySelectorAll('[data-delete]').forEach(button => {
       button.onclick = () => this.remove(+button.dataset.id, button.dataset.delete === 'evidence');
     });
@@ -159,7 +183,8 @@ window.QualificationManager = class {
           return `${e.created_at} · ${e.actor || 'former user'} · ${e.action.replaceAll('-', ' ')}`
             + `\n${detail.category || 'Qualification'}${dates.length ? ' · ' + dates.join(' · ') : ''}`
             + (typeof detail.has_evidence === 'boolean' ? ` · ${detail.has_evidence ? 'evidence attached' : 'no evidence attached'}` : '')
-            + (detail.status ? ` · previously ${detail.status}` : '');
+            + (detail.status ? ` · previously ${detail.status}` : '')
+            + ('old_valid_until' in detail ? ` · was ${detail.old_valid_from || '…'} to ${detail.old_valid_until || '…'}` : '');
         }).join('\n\n') || 'No events.';
       } catch (error) { this.error(error.message); }
     };
@@ -167,11 +192,10 @@ window.QualificationManager = class {
   error(message) {
     const box = this.element.querySelector('[data-error]');
     if (box) box.textContent = message;
-    const dialogErr = this.element.querySelector('[data-dialog-error]');
-    if (dialogErr) {
+    this.element.querySelectorAll('[data-dialog-error]').forEach(dialogErr => {
       dialogErr.textContent = message;
       dialogErr.hidden = !message;
-    }
+    });
   }
   async mutate(url, options) {
     const buttons = this.element.querySelectorAll('button');
@@ -191,6 +215,18 @@ window.QualificationManager = class {
       : action === 'reject' ? 'Reject this submission? Evidence is retained.' : 'Withdraw this pending submission?')) return;
     return this.mutate(`/api/qualification-submissions/${id}/review`,
       {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action})});
+  }
+  // Small dialog with date pickers; an empty field clears that date (the type may require it).
+  editDates(item) {
+    const dialog = this.element.querySelector('[data-dates-dialog]');
+    if (!dialog || !item) return;
+    dialog.dataset.id = item.id;
+    dialog.querySelector('h2').textContent = `Edit dates · ${item.category}`;
+    const f = dialog.querySelector('[data-dates-form]').elements;
+    f.valid_from.value = item.valid_from || '';
+    f.valid_until.value = item.valid_until || '';
+    this.error('');
+    dialog.showModal();
   }
   remove(id, evidenceOnly) {
     if (!confirm(evidenceOnly ? 'Permanently delete this evidence file? The record and any approval remain.'
