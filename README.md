@@ -20,4 +20,5 @@ Flight-log parsing tools and a web-based flight logbook.
 - **[Coding assistant guidance](AGENTS.md)** - repository structure and change/test conventions.
 
 The [C++ parser](cpp/) powers the [web app](webui/).
-The repository also contains [Python](python/) and [MATLAB](matlab/) tools.
+The [MATLAB tools](matlab/README.md) load, plot and analyse flights exported by the logbook (or converted
+locally with `webui/matlab_export.py`); the repository also contains [Python](python/) tools.

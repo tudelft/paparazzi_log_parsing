@@ -5,7 +5,7 @@ function plot_gps(ac_data, vert)
     
     % Plot the GPS/position status
     ax1 = subplot(3,1,1);
-    plot(ac_data.GPS_INT.timestamp, [ac_data.GPS_INT.fix, ac_data.GPS_INT.numsv]);
+    plot(ac_data.GPS_INT.t, [ac_data.GPS_INT.fix, ac_data.GPS_INT.numsv]);
     if exist('vert','var')
         hold on;
         plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
@@ -15,7 +15,7 @@ function plot_gps(ac_data, vert)
     legend('Fix', 'Number of SV');
 
     ax2 = subplot(3,1,2);
-    plot(ac_data.GPS_INT.timestamp, [ac_data.GPS_INT.pacc, ac_data.GPS_INT.pdop, ac_data.GPS_INT.sacc]);
+    plot(ac_data.GPS_INT.t, [ac_data.GPS_INT.pacc, ac_data.GPS_INT.pdop, ac_data.GPS_INT.sacc]);
     if exist('vert','var')
         hold on;
         plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');

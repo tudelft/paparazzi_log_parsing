@@ -14,7 +14,7 @@ function plot_rotwing_state(ac_data, vert)
     pusher_motor_running = bitget(ac_data.ROTATING_WING_STATE.status, 5);
     skew_forced = bitget(ac_data.ROTATING_WING_STATE.status, 6);
 
-    plot(ac_data.ROTATING_WING_STATE.timestamp, [ac_data.ROTATING_WING_STATE.state, ac_data.ROTATING_WING_STATE.nav_state], '-')
+    plot(ac_data.ROTATING_WING_STATE.t, [ac_data.ROTATING_WING_STATE.state, ac_data.ROTATING_WING_STATE.nav_state], '-')
     hold on
     if exist('vert','var')
         hold on;
@@ -41,31 +41,31 @@ function plot_rotwing_state(ac_data, vert)
                 if j == 1
                     height = double(bit_mask_arr(1, i));
                     height(height < 0) = 0;
-                    rectangle('Position', [ac_data.ROTATING_WING_STATE.timestamp(1), i-1, ac_data.ROTATING_WING_STATE.timestamp(bit_flip_idx(j)+1) - ac_data.ROTATING_WING_STATE.timestamp(1), height], ...
+                    rectangle('Position', [ac_data.ROTATING_WING_STATE.t(1), i-1, ac_data.ROTATING_WING_STATE.t(bit_flip_idx(j)+1) - ac_data.ROTATING_WING_STATE.t(1), height], ...
                         'FaceColor', color, 'EdgeColor', [0 0 0], 'FaceAlpha', 0.3);
                 elseif j <= numel(bit_flip_idx)
                     height = double(bit_mask_arr(bit_flip_idx(j), i));
                     height(height < 0) = 0;
-                    width = ac_data.ROTATING_WING_STATE.timestamp(bit_flip_idx(j)+1) - ac_data.ROTATING_WING_STATE.timestamp(bit_flip_idx(j-1)+1);
-                    rectangle('Position', [ac_data.ROTATING_WING_STATE.timestamp(bit_flip_idx(j-1)+1), i-1, width, height], ...
+                    width = ac_data.ROTATING_WING_STATE.t(bit_flip_idx(j)+1) - ac_data.ROTATING_WING_STATE.t(bit_flip_idx(j-1)+1);
+                    rectangle('Position', [ac_data.ROTATING_WING_STATE.t(bit_flip_idx(j-1)+1), i-1, width, height], ...
                         'FaceColor', color, 'EdgeColor', [0 0 0], 'FaceAlpha', 0.3);
                 else
                     height = double(bit_mask_arr(end, i));
                     height(height < 0) = 0;
-                    rectangle('Position', [ac_data.ROTATING_WING_STATE.timestamp(bit_flip_idx(end)+1), i-1, ac_data.ROTATING_WING_STATE.timestamp(end) - ac_data.ROTATING_WING_STATE.timestamp(bit_flip_idx(end)+1), height], ...
+                    rectangle('Position', [ac_data.ROTATING_WING_STATE.t(bit_flip_idx(end)+1), i-1, ac_data.ROTATING_WING_STATE.t(end) - ac_data.ROTATING_WING_STATE.t(bit_flip_idx(end)+1), height], ...
                         'FaceColor', color, 'EdgeColor', [0 0 0], 'FaceAlpha', 0.3);
                 end
             end
         else
             height = double(bit_mask_arr(1, i));
             height(height < 0) = 0;
-            rectangle('Position', [ac_data.ROTATING_WING_STATE.timestamp(1), i-1, ac_data.ROTATING_WING_STATE.timestamp(end) - ac_data.ROTATING_WING_STATE.timestamp(1), height], ...
+            rectangle('Position', [ac_data.ROTATING_WING_STATE.t(1), i-1, ac_data.ROTATING_WING_STATE.t(end) - ac_data.ROTATING_WING_STATE.t(1), height], ...
                 'FaceColor', color, 'EdgeColor', [0 0 0], 'FaceAlpha', 0.3);
         end
     end
     
     % To have datapoints to click for reference
-    plot(ac_data.ROTATING_WING_STATE.timestamp, ones(size(bit_mask_arr)).*repmat(1:size(bit_mask_arr, 2), numel(ac_data.ROTATING_WING_STATE.timestamp), 1), "Color", "black");
+    plot(ac_data.ROTATING_WING_STATE.t, ones(size(bit_mask_arr)).*repmat(1:size(bit_mask_arr, 2), numel(ac_data.ROTATING_WING_STATE.t), 1), "Color", "black");
     if exist('vert','var')
         hold on;
         plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
@@ -74,7 +74,7 @@ function plot_rotwing_state(ac_data, vert)
     
     % Plot skew angle
     ax3 = subplot(4,1,3);
-    plot(ac_data.ROTATING_WING_STATE.timestamp, [ac_data.ROTATING_WING_STATE.meas_skew_angle, ac_data.ROTATING_WING_STATE.sp_skew_angle]);
+    plot(ac_data.ROTATING_WING_STATE.t, [ac_data.ROTATING_WING_STATE.meas_skew_angle, ac_data.ROTATING_WING_STATE.sp_skew_angle]);
     if exist('vert','var')
         hold on;
         plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
@@ -85,8 +85,8 @@ function plot_rotwing_state(ac_data, vert)
     
     % Plot airspeed
     ax4 = subplot(4,1,4);
-    resamp_airspeed = resample(timeseries(ac_data.AIR_DATA.airspeed, ac_data.AIR_DATA.timestamp), ac_data.ROTATING_WING_STATE.timestamp);
-    plot(ac_data.ROTATING_WING_STATE.timestamp, [resamp_airspeed.Data, ac_data.ROTATING_WING_STATE.nav_airspeed, ac_data.ROTATING_WING_STATE.min_airspeed,  ac_data.ROTATING_WING_STATE.max_airspeed]);
+    resamp_airspeed = resample(timeseries(ac_data.AIR_DATA.airspeed, ac_data.AIR_DATA.t), ac_data.ROTATING_WING_STATE.t);
+    plot(ac_data.ROTATING_WING_STATE.t, [resamp_airspeed.Data, ac_data.ROTATING_WING_STATE.nav_airspeed, ac_data.ROTATING_WING_STATE.min_airspeed,  ac_data.ROTATING_WING_STATE.max_airspeed]);
     if exist('vert','var')
         hold on;
         plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');

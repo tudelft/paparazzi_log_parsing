@@ -2,10 +2,10 @@ function plot_hybrid_guidance(ac_data, vert)
     if ~isfield(ac_data, 'HYBRID_GUIDANCE')
         return
     end
-    
+
     % Plot the hybrid guidance
     ax1 = subplot(3,1,1);
-    plot(ac_data.HYBRID_GUIDANCE.timestamp, [ac_data.HYBRID_GUIDANCE.norm_ref_speed_alt, ac_data.HYBRID_GUIDANCE.speed_sp_x_alt, ac_data.HYBRID_GUIDANCE.speed_sp_y_alt]);
+    plot(ac_data.HYBRID_GUIDANCE.t, [ac_data.HYBRID_GUIDANCE.norm_ref_speed, ac_data.HYBRID_GUIDANCE.speed_sp_x, ac_data.HYBRID_GUIDANCE.speed_sp_y]);
     if exist('vert','var')
         hold on;
         plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
@@ -15,7 +15,7 @@ function plot_hybrid_guidance(ac_data, vert)
     legend('Norm ref speed [m/s]', 'Speed x sp [m/s]', 'Speed y sp [m/s]');
 
     ax2 = subplot(3,1,2);
-    plot(ac_data.HYBRID_GUIDANCE.timestamp, [ac_data.HYBRID_GUIDANCE.heading_diff, ac_data.HYBRID_GUIDANCE.pos_err_x_alt, ac_data.HYBRID_GUIDANCE.pos_err_y_alt]);
+    plot(ac_data.HYBRID_GUIDANCE.t, [ac_data.HYBRID_GUIDANCE.heading_diff, ac_data.HYBRID_GUIDANCE.pos_err_x, ac_data.HYBRID_GUIDANCE.pos_err_y]);
     if exist('vert','var')
         hold on;
         plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
@@ -25,7 +25,7 @@ function plot_hybrid_guidance(ac_data, vert)
     legend('Heading err [deg]', 'X-pos err [m]', 'Y-pos err [m]');
 
     ax3 = subplot(3,1,3);
-    plot(ac_data.HYBRID_GUIDANCE.timestamp, [ac_data.HYBRID_GUIDANCE.wind_x_alt, ac_data.HYBRID_GUIDANCE.wind_y_alt]);
+    plot(ac_data.HYBRID_GUIDANCE.t, [ac_data.HYBRID_GUIDANCE.wind_x, ac_data.HYBRID_GUIDANCE.wind_y]);
     if exist('vert','var')
         hold on;
         plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');

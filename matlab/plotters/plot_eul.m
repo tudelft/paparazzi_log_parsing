@@ -12,7 +12,7 @@ function plot_eul(ac_data, order)
 
     quat = double([msg.body_qi msg.body_qx msg.body_qy msg.body_qz]);
     refquat = double([msg.ref_qi msg.ref_qx msg.ref_qy msg.ref_qz]);
-    [refquat_t,irefquat_t,~] = unique(msg.timestamp);
+    [refquat_t,irefquat_t,~] = unique(msg.t);
     quat = quat(irefquat_t,:);
     refquat = refquat(irefquat_t,:);
 

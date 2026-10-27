@@ -1,17 +1,17 @@
 function [airspeed_ratio] = airspeed_sensor_scale(ac_data, t_start, t_end, old_ratio)
-%AIRSPEED_SENSOR_RATIO 
+%AIRSPEED_SENSOR_RATIO
 % Calculate a (new) airspeed ratio for MS45XX based on flight test data and
 % the original airspeed ratio
 
 % Calculate the speed in body aligned axes
-speed_x_c = cos(deg2rad(ac_data.ROTORCRAFT_FP.psi_alt)) .* ac_data.ROTORCRAFT_FP.vnorth_alt + sin(deg2rad(ac_data.ROTORCRAFT_FP.psi_alt)) .* ac_data.ROTORCRAFT_FP.veast_alt;
-speed_y_c =-sin(deg2rad(ac_data.ROTORCRAFT_FP.psi_alt)) .* ac_data.ROTORCRAFT_FP.vnorth_alt + cos(deg2rad(ac_data.ROTORCRAFT_FP.psi_alt)) .* ac_data.ROTORCRAFT_FP.veast_alt;
+speed_x_c = cos(deg2rad(ac_data.ROTORCRAFT_FP.psi)) .* ac_data.ROTORCRAFT_FP.vnorth + sin(deg2rad(ac_data.ROTORCRAFT_FP.psi)) .* ac_data.ROTORCRAFT_FP.veast;
+speed_y_c =-sin(deg2rad(ac_data.ROTORCRAFT_FP.psi)) .* ac_data.ROTORCRAFT_FP.vnorth + cos(deg2rad(ac_data.ROTORCRAFT_FP.psi)) .* ac_data.ROTORCRAFT_FP.veast;
 
 speed_x_c = speed_x_c(ac_data.ROTORCRAFT_FP.ts < t_end & ac_data.ROTORCRAFT_FP.ts > t_start);
 speed_y_c = speed_y_c(ac_data.ROTORCRAFT_FP.ts < t_end & ac_data.ROTORCRAFT_FP.ts > t_start);
 
 r = sqrt(speed_x_c.^2 + speed_y_c.^2);
-theta = deg2rad(ac_data.ROTORCRAFT_FP.psi_alt(ac_data.ROTORCRAFT_FP.ts < t_end & ac_data.ROTORCRAFT_FP.ts > t_start));
+theta = deg2rad(ac_data.ROTORCRAFT_FP.psi(ac_data.ROTORCRAFT_FP.ts < t_end & ac_data.ROTORCRAFT_FP.ts > t_start));
 
 FP_time = ac_data.ROTORCRAFT_FP.ts(ac_data.ROTORCRAFT_FP.ts < t_end & ac_data.ROTORCRAFT_FP.ts > t_start);
 airspeed_time = ac_data.AIR_DATA.ts(ac_data.AIR_DATA.ts < t_end & ac_data.AIR_DATA.ts > t_start);

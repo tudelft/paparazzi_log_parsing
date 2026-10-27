@@ -8,9 +8,9 @@ function plot_guidance(ac_data)
 
     ax1 = subplot(3,1,1);
     hold on;
-    plot(msg.timestamp,msg.pos_N,msg.timestamp,msg.pos_N_ref);
-    plot(msg.timestamp,msg.pos_E,msg.timestamp,msg.pos_E_ref);
-    plot(msg.timestamp,msg.pos_D,msg.timestamp,msg.pos_D_ref);
+    plot(msg.t,msg.pos_N,msg.t,msg.pos_N_ref);
+    plot(msg.t,msg.pos_E,msg.t,msg.pos_E_ref);
+    plot(msg.t,msg.pos_D,msg.t,msg.pos_D_ref);
     if exist('vert','var')
         hold on;
         plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
@@ -19,9 +19,9 @@ function plot_guidance(ac_data)
 
     ax2 = subplot(3,1,2);
     hold on;
-    plot(msg.timestamp,msg.vel_N,msg.timestamp,msg.vel_N_ref);
-    plot(msg.timestamp,msg.vel_E,msg.timestamp,msg.vel_E_ref);
-    plot(msg.timestamp,msg.vel_D,msg.timestamp,msg.vel_D_ref);
+    plot(msg.t,msg.vel_N,msg.t,msg.vel_N_ref);
+    plot(msg.t,msg.vel_E,msg.t,msg.vel_E_ref);
+    plot(msg.t,msg.vel_D,msg.t,msg.vel_D_ref);
     if exist('vert','var')
         hold on;
         plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
@@ -32,12 +32,12 @@ function plot_guidance(ac_data)
 
     ax3 = subplot(3,1,3);
     hold on;
-    plot(msg.timestamp,msg.acc_N, 'Color', colors(1,:))
-    plot(msg.timestamp,msg.acc_E, 'Color', colors(3,:))
-    plot(msg.timestamp,msg.acc_D, 'Color', colors(5,:))
-    plot(msg.timestamp,msg.acc_N_ref, 'Color', colors(2,:))
-    plot(msg.timestamp,msg.acc_E_ref, 'Color', colors(4,:))
-    plot(msg.timestamp,msg.acc_D_ref, 'Color', colors(6,:))
+    plot(msg.t,msg.acc_N, 'Color', colors(1,:))
+    plot(msg.t,msg.acc_E, 'Color', colors(3,:))
+    plot(msg.t,msg.acc_D, 'Color', colors(5,:))
+    plot(msg.t,msg.acc_N_ref, 'Color', colors(2,:))
+    plot(msg.t,msg.acc_E_ref, 'Color', colors(4,:))
+    plot(msg.t,msg.acc_D_ref, 'Color', colors(6,:))
     title('Acceleration'); xlabel('time(s)'); ylabel('Acceleration [m/s^2]'); legend('acc N', 'acc E', 'acc D', 'ref N', 'ref E', 'ref D')
 
     sgtitle(['Guidance'])

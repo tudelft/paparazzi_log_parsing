@@ -4,7 +4,7 @@ function plot_rotorcraft_cmd(ac_data, vert)
     end
     
     % Plot the Rotorcraft CMD
-    plot(ac_data.ROTORCRAFT_CMD.timestamp, [ac_data.ROTORCRAFT_CMD.cmd_roll, ac_data.ROTORCRAFT_CMD.cmd_pitch, ac_data.ROTORCRAFT_CMD.cmd_yaw, ac_data.ROTORCRAFT_CMD.cmd_thrust]);
+    plot(ac_data.ROTORCRAFT_CMD.t, [ac_data.ROTORCRAFT_CMD.cmd_roll, ac_data.ROTORCRAFT_CMD.cmd_pitch, ac_data.ROTORCRAFT_CMD.cmd_yaw, ac_data.ROTORCRAFT_CMD.cmd_thrust]);
     if exist('vert','var')
         hold on;
         plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');

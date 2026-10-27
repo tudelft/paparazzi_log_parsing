@@ -3,7 +3,7 @@ function plot_airspeed(ac_data)
     ax1 = subplot(2,1,1);
     if isfield(ac_data, 'AIR_DATA')
         % Plot the Calibrated airspeed data
-        plot(ac_data.AIR_DATA.timestamp, [ac_data.AIR_DATA.airspeed]);
+        plot(ac_data.AIR_DATA.t, [ac_data.AIR_DATA.airspeed]);
     end
     
     grid on;
@@ -19,11 +19,11 @@ function plot_airspeed(ac_data)
         for s = 1:size(sensors,1)
             sid = sensors(s);
             i = find(ac_data.AIRSPEED_RAW.sensor_id == sid);
-%            plot(ac_data.AIRSPEED_RAW.timestamp(i), ac_data.AIRSPEED_RAW.airspeed(i));
-            plot(ac_data.AIRSPEED_RAW.timestamp(i), ac_data.AIRSPEED_RAW.raw(i));
-%            plot(ac_data.AIRSPEED_RAW.timestamp(i), ac_data.AIRSPEED_RAW.diffPress(i));
+%            plot(ac_data.AIRSPEED_RAW.t(i), ac_data.AIRSPEED_RAW.airspeed(i));
+            plot(ac_data.AIRSPEED_RAW.t(i), ac_data.AIRSPEED_RAW.raw(i));
+%            plot(ac_data.AIRSPEED_RAW.t(i), ac_data.AIRSPEED_RAW.diffPress(i));
             hold on
-            plot(ac_data.AIRSPEED_RAW.timestamp(i), ac_data.AIRSPEED_RAW.offset(i));
+            plot(ac_data.AIRSPEED_RAW.t(i), ac_data.AIRSPEED_RAW.offset(i));
             legend_array = [legend_array; "ID=" + num2str(sid); 'offset' ];
         end
     end
