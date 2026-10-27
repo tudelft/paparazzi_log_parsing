@@ -62,6 +62,13 @@
     border-radius:6px; background:var(--card); color:var(--txt); white-space:normal; font-weight:400;
     box-shadow:0 2px 8px #0003; pointer-events:none; }
   .date-estimated:hover .date-tip, .date-estimated:focus .date-tip { display:block; }
+  .col-menu { position:relative; }
+  .col-menu form { position:absolute; top:calc(100% + 6px); left:0; z-index:1000; min-width:200px; padding:10px 12px;
+    border:1px solid var(--line); border-radius:6px; background:var(--card); box-shadow:0 2px 8px #0003;
+    display:grid; grid-template-columns:1fr 1fr; gap:2px 16px; }
+  .col-menu form[hidden] { display:none; }
+  .col-menu label { white-space:nowrap; }
+  .col-menu .col-actions { grid-column:1 / -1; display:flex; justify-content:space-between; margin-top:6px; }
 </style>
 </head>
 <body data-edit="all">
@@ -75,6 +82,8 @@
     <div class="bar">
       <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date, reference…)">
       <label title="Flights of the same aircraft and pilot on the same day within this distance of each other"><input type="checkbox" id="combine" checked> Combine flights (within <input type="number" id="radius" value="1" min="0.1" step="0.5" style="width:56px"> km)</label>
+      <span class="col-menu"><button type="button" id="colButton" aria-expanded="false" aria-controls="colForm">Columns</button>
+        <form id="colForm" hidden aria-label="Shown columns"></form></span>
       <button onclick="exportCsv()">Export CSV</button>
       <a class="btn sec" href="/historical/new" id="addHistorical" hidden>Add paper records / import CSV</a>
       <a class="btn sec" href="/review" title="Paper records and logs that need a person to decide">To review</a>
@@ -196,11 +205,49 @@ function fillBulkMenus() {
     + categoryOptions(authorisations, '__keep__');
 }
 // Operation category (#62): set on the flight is shown plainly, inferred is muted, (check) when it needs a look.
+// Only the category is shown; the authorisation and where the category came from are in the tooltip.
 function categoryCell(f) {
   const check = f.category_check ? ` <span class="warn" title="${esc(f.category_check)}">(check)</span>` : '';
   const title = [f.authorisation_name, CATEGORY_SOURCE[f.category_source] || 'no rule applies'].filter(Boolean).join(' · ');
-  return `<span${f.category_source === 'flight' ? '' : ' class="mute"'} title="${esc(title)}">${esc(categoryText(f))}</span>${check}`;
+  const label = f.category === 'national' ? 'National rules' : CATEGORY_LABELS[f.category] || 'Unknown';
+  return `<span${f.category_source === 'flight' ? '' : ' class="mute"'} title="${esc(title)}">${esc(label)}</span>${check}`;
 }
+
+// Column visibility is a per-browser preference, so it survives page changes, Back and new sessions.
+const COLUMNS = ['Date (UTC)', 'Takeoff', 'Landing', 'Flights', 'Duration', 'Flown', 'Source', 'Aircraft', 'Project',
+  'Operator', 'Category', 'Takeoff location', 'Landing location', 'PIC', 'PAC', 'GCS', 'Goal', 'Comment'];
+const COLUMNS_KEY = 'logbook.hiddenColumns';
+let hiddenColumns = new Set();
+try { hiddenColumns = new Set(JSON.parse(localStorage.getItem(COLUMNS_KEY) || '[]').filter(c => COLUMNS.includes(c))); } catch (e) {}
+const columnStyle = document.head.appendChild(document.createElement('style'));
+function applyColumns() {
+  // Column n+2 in each row: the first cell is the Edit-mode checkbox. Expanded detail rows span all columns.
+  columnStyle.textContent = COLUMNS.map((c, i) => hiddenColumns.has(c)
+    ? `table.log tr > :nth-child(${i + 2}):not(.detail) { display:none; }` : '').join('\n');
+  $('colButton').textContent = hiddenColumns.size ? `Columns (${hiddenColumns.size} hidden)` : 'Columns';
+  try { localStorage.setItem(COLUMNS_KEY, JSON.stringify([...hiddenColumns])); } catch (e) {}
+}
+function fillColumns() {
+  $('colForm').innerHTML = COLUMNS.map(c => `<label><input type="checkbox" value="${esc(c)}"${hiddenColumns.has(c) ? '' : ' checked'}${c === COLUMNS[0] ? ' disabled' : ''}> ${esc(c)}</label>`).join('')
+    + '<div class="col-actions"><button type="button" id="colAll">Show all</button><button type="button" id="colClose">Close</button></div>';
+}
+$('colButton').onclick = () => {
+  const open = $('colForm').hidden;
+  if (open) fillColumns();
+  $('colForm').hidden = !open;
+  $('colButton').setAttribute('aria-expanded', String(open));
+};
+$('colForm').onchange = e => {
+  e.target.checked ? hiddenColumns.delete(e.target.value) : hiddenColumns.add(e.target.value);
+  applyColumns();
+};
+$('colForm').onclick = e => {
+  if (e.target.id === 'colAll') { hiddenColumns.clear(); applyColumns(); fillColumns(); }
+  if (e.target.id === 'colClose') $('colButton').click();
+};
+document.addEventListener('click', e => { if (!$('colForm').hidden && !e.target.closest('.col-menu')) $('colButton').click(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('colForm').hidden) { $('colButton').click(); $('colButton').focus(); } });
+applyColumns();
 // Operator registration (#63): a value set on the flight is shown plainly, an inferred one is muted.
 function operatorCell(f) {
   const check = f.operator_check ? ' <span class="warn" title="The PIC is crew of another operator: check the operator of this flight">(check)</span>' : '';
