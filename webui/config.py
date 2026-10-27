@@ -43,6 +43,10 @@ SETTINGS = {
                                       "optional for public lookups. Never put credentials in repository names"),
         "WORKERS": ("1", "Logs parsed in parallel; increase only with sufficient RAM and local temporary disk"),
         "INGEST_WORKERS": ("1", "Background threads that hash, deduplicate and unzip uploads"),
+        "EXPORT_WORKERS": ("1", "MATLAB exports converted at the same time (each uses a few CPU cores and local "
+                               "temporary disk about the size of the uncompressed log)"),
+        "EXPORT_MAX_BYTES": ("53687091200", "Local disk kept for finished MATLAB exports (kept two weeks; the oldest "
+                                         "are removed first above this size; default: 50 GiB)"),
         "LOCAL_MIN_FREE_BYTES": ("2147483648", "Local disk headroom retained while staging/decompressing uploads "
                                 "(default: 2 GiB; additional space is needed for parser output)"),
         "PATH_RATE": ("5", "Flight path points stored per second (0 disables the map path)"),
@@ -212,7 +216,7 @@ def check():
     for key in os.environ:
         if key.startswith("LOGDB_") and key[6:] not in known:
             warnings.append(f"unknown environment variable {key}")
-    for name in ("THREADS", "PROXIES", "INGEST_WORKERS", "SESSION_HOURS") + (("WORKERS",) if env("WORKERS") else ()):
+    for name in ("THREADS", "PROXIES", "INGEST_WORKERS", "EXPORT_WORKERS", "SESSION_HOURS") + (("WORKERS",) if env("WORKERS") else ()):
         v = env(name)
         if not v.isdigit():
             errors.append(f"LOGDB_{name} must be a whole number, not {v!r}")

@@ -14,13 +14,17 @@ Inside a flight element timestamps count from that flight's takeoff (``time_offs
 time). Rows that cannot be decoded are kept as text in ``raw`` and counted in ``s.warnings``; nothing is dropped
 silently. See TECHNICAL.md ("MATLAB export") for the layout.
 """
-import datetime
 import concurrent.futures
-import os
+import datetime
 import gzip
+import json
 import math
+import os
+import queue
 import re
+import shutil
 import subprocess
+import tempfile
 import threading
 import xml.etree.ElementTree as ET
 import zlib
@@ -561,3 +565,122 @@ def export(fastreader, data_gz, log_gz, out_path, info, work_dir, windows=None, 
     w.close()
     progress(1.0)
     return warnings
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Jobs: one export per (log content, scope, windows, exporter version), reused for two weeks
+# ---------------------------------------------------------------------------------------------------------------------
+KEEP_S = 14 * 24 * 3600
+MAX_PENDING = 20
+
+
+class Jobs:
+    """Background export queue with a local file cache.
+
+    Finished files are published atomically as ``<id>.mat`` with a ``<id>.json`` side file (log id, download
+    name), so a ready export survives a restart. Queued and running jobs live in memory only; after a restart
+    the browser asks again and the export is redone. Files older than two weeks are removed, and the oldest go
+    first when the folder exceeds ``max_bytes``."""
+
+    def __init__(self, folder, work_root, workers=1, max_bytes=50 << 30):
+        self.folder, self.work_root, self.max_bytes = Path(folder), Path(work_root), max_bytes
+        self.lock = threading.Lock()
+        self.state = {}
+        self.queue = queue.Queue()
+        self.folder.mkdir(parents=True, exist_ok=True)
+        for stale in list(self.folder.glob(".*.tmp")):  # a restart interrupted these
+            stale.unlink(missing_ok=True)
+        self.cleanup()
+        for _ in range(max(1, workers)):
+            threading.Thread(target=self._worker, daemon=True).start()
+
+    def cleanup(self):
+        limit = datetime.datetime.now().timestamp() - KEEP_S
+        files = []
+        for path in self.folder.glob("*.mat"):
+            try:
+                files.append((path.stat().st_mtime, path.stat().st_size, path))
+            except OSError:
+                pass
+        total = sum(size for _, size, _ in files)
+        for mtime, size, path in sorted(files):  # oldest first
+            if mtime >= limit and total <= self.max_bytes:
+                break
+            self._remove(path.stem)
+            total -= size
+        for meta in self.folder.glob("*.json"):
+            if not (self.folder / f"{meta.stem}.mat").exists() and self.status_of(meta.stem) is None:
+                meta.unlink(missing_ok=True)
+
+    def _remove(self, job_id):
+        for suffix in (".mat", ".json"):
+            (self.folder / f"{job_id}{suffix}").unlink(missing_ok=True)
+        with self.lock:
+            if self.state.get(job_id, {}).get("status") == "ready":
+                self.state.pop(job_id, None)
+
+    def status_of(self, job_id):
+        with self.lock:
+            return self.state.get(job_id)
+
+    def status(self, job_id):
+        """Job dict (status queued/running/ready/failed) or None when unknown or expired."""
+        with self.lock:
+            job = dict(self.state[job_id]) if job_id in self.state else None
+        if job is None or job["status"] == "ready":
+            meta = self.folder / f"{job_id}.json"
+            if not (self.folder / f"{job_id}.mat").is_file() or not meta.is_file():
+                return None if job is None or job["status"] == "ready" else job
+            info = json.loads(meta.read_text())
+            job = dict(info, id=job_id, status="ready", progress=1.0,
+                       size_bytes=(self.folder / f"{job_id}.mat").stat().st_size)
+        return job
+
+    def submit(self, job_id, log_id, filename, task):
+        """Start (or join) the export ``job_id``; ``task(out_path, progress)`` writes the file."""
+        self.cleanup()
+        current = self.status(job_id)
+        if current and current["status"] in ("queued", "running", "ready"):
+            return current
+        with self.lock:
+            pending = sum(1 for j in self.state.values() if j["status"] in ("queued", "running"))
+            if pending >= MAX_PENDING:
+                raise ExportError("Too many MATLAB exports are waiting; try again in a few minutes.")
+            self.state[job_id] = dict(id=job_id, log_id=log_id, filename=filename, status="queued", progress=0.0,
+                                      error=None)
+        self.queue.put((job_id, task))
+        return self.status(job_id)
+
+    def path(self, job_id):
+        return self.folder / f"{job_id}.mat"
+
+    def _set(self, job_id, **values):
+        with self.lock:
+            if job_id in self.state:
+                self.state[job_id].update(values)
+
+    def _worker(self):
+        while True:
+            job_id, task = self.queue.get()
+            tmp = self.folder / f".{job_id}.tmp"
+            work = None
+            try:
+                self._set(job_id, status="running")
+                self.work_root.mkdir(parents=True, exist_ok=True)
+                work = tempfile.mkdtemp(dir=self.work_root, prefix="matlab-")
+                warnings = task(tmp, work, lambda f: self._set(job_id, progress=round(f, 3)))
+                with self.lock:
+                    job = dict(self.state[job_id])
+                (self.folder / f"{job_id}.json").write_text(json.dumps(dict(
+                    log_id=job["log_id"], filename=job["filename"], warnings=len(warnings or []))))
+                os.replace(tmp, self.path(job_id))  # published only when complete
+                self._set(job_id, status="ready", progress=1.0)
+            except ExportError as error:
+                self._set(job_id, status="failed", error=str(error))
+            except Exception as error:  # keep the worker alive; the message is shown to the user
+                self._set(job_id, status="failed", error=f"Export failed: {error}")
+            finally:
+                if work:
+                    shutil.rmtree(work, ignore_errors=True)
+                tmp.unlink(missing_ok=True)
+                self.queue.task_done()
