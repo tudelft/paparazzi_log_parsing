@@ -454,6 +454,33 @@ def register(app, connection, root, require_session):
                   dict(id=sid, category=row["category"], valid_from=row["valid_from"], valid_until=row["valid_until"]))
         return jsonify(ok=True)
 
+    @app.put("/api/qualification-submissions/<int:sid>")
+    def edit_qualification_dates(sid):
+        """Admins correct the validity dates of a submission in any status, e.g. a licence that has expired."""
+        admin()
+        body = json_body(("valid_from", "valid_until"))
+        if not body:
+            raise QualificationError("Send valid_from and/or valid_until.")
+        con = connection()
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            row = visible_submission(con, g.user, sid)
+            start = expiry(body["valid_from"], "Valid from") if "valid_from" in body else row["valid_from"]
+            until = expiry(body["valid_until"]) if "valid_until" in body else row["valid_until"]
+            if start and until and start > until:
+                raise QualificationError("Valid from must be on or before Valid until.")
+            if row["requires_expiry"] and until is None:
+                raise QualificationError("This qualification requires an expiry date.")
+            if row["requires_start"] and start is None:
+                raise QualificationError("This qualification requires a Valid from date.")
+            if (start, until) != (row["valid_from"], row["valid_until"]):
+                con.execute("UPDATE qualification_submissions SET valid_from=?,valid_until=? WHERE id=?",
+                            (start, until, sid))
+                audit(con, row["user_id"], g.user["id"], "dates-changed",
+                      dict(id=sid, category=row["category"], valid_from=start, valid_until=until,
+                           old_valid_from=row["valid_from"], old_valid_until=row["valid_until"]))
+        return jsonify(ok=True)
+
     @app.get("/api/qualification-submissions/<int:sid>/evidence")
     def download_qualification_evidence(sid):
         return send_evidence(sid, inline=False)

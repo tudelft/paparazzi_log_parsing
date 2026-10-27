@@ -225,6 +225,31 @@ class QualificationTests(AppTests):
         self.assertEqual(self.client.delete("/api/admin/users/2").status_code, 200)
         self.assertEqual(list(self.root.iterdir()), [])
 
+    def test_admin_corrects_dates_of_any_submission_with_an_audit_entry(self):
+        sid = self.submit(start="2024-01-01").json["id"]
+        self.assertEqual(self.review(sid).status_code, 200)
+        url = f"/api/qualification-submissions/{sid}"
+        self.sign_in(2)
+        self.assertEqual(self.client.put(url, json={"valid_until": "2025-01-01"}).status_code, 403)
+        self.sign_in(1)
+        for body in ({}, {"status": "pending"}, {"valid_until": "2025-13-01"}, {"valid_until": "2023-12-31"}):
+            self.assertEqual(self.client.put(url, json=body).status_code, 400, body)
+        self.assertEqual(self.client.put(url, json={"valid_until": "2025-01-01"}).status_code, 200)
+        row = self.row(sid)
+        self.assertEqual((row["valid_from"], row["valid_until"], row["status"]), ("2024-01-01", "2025-01-01", "approved"))
+        self.assertTrue(next(i for i in self.listing().json["items"] if i["id"] == sid)["expired"])
+        event = self.client.get("/api/users/2/qualification-audit").json["events"][0]
+        self.assertEqual(event["action"], "dates-changed")
+        self.assertEqual({k: v for k, v in json.loads(event["details_json"]).items() if "valid" in k},
+                         dict(valid_from="2024-01-01", valid_until="2025-01-01",
+                              old_valid_from="2024-01-01", old_valid_until="2028-06-30"))
+        tid = self.create_type("Expiry-controlled", False)
+        self.client.put(f"/api/qualification-types/{tid}",
+                        json=dict(name="Expiry-controlled", requires_evidence=False, requires_expiry=True))
+        other = self.submit(tid=tid, content=None).json["id"]
+        self.assertEqual(self.client.put(f"/api/qualification-submissions/{other}",
+                                         json={"valid_until": ""}).status_code, 400)
+
     def test_api_keys_can_read_but_cannot_modify_qualifications(self):
         self.con.execute("INSERT INTO api_keys(user_id,name,key_hash,prefix,created_at) VALUES (1,'test',?,'test','now')",
                          (hashlib.sha256(b"logdb_test-key").hexdigest(),))
@@ -239,6 +264,8 @@ class QualificationTests(AppTests):
         self.assertEqual(self.client.post("/api/users/2/qualifications", headers=headers,
                                          data={"type_id": self.tid}).status_code, 403)
         self.assertEqual(self.client.delete(f"/api/qualification-submissions/{sid}", headers=headers).status_code, 403)
+        self.assertEqual(self.client.put(f"/api/qualification-submissions/{sid}", headers=headers,
+                                         json={"valid_until": "2030-01-01"}).status_code, 403)
 
     def test_validation_type_duplicates_and_no_unintended_mutations(self):
         for body in ([], {}, {"name": 1, "requires_evidence": True},

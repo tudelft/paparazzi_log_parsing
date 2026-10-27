@@ -878,7 +878,9 @@ Admins can delete evidence alone (keeping the record) or delete the entire submi
 does not revoke an existing approval; removing that approval requires deleting its record. Files are removed
 from application storage, while minimal submission/review/deletion events are retained in the audit table
 (latest 100 shown per person to admins only). Remove private records before deleting a user to avoid orphaned evidence.
-API keys can read permitted records, but uploads, reviews, deletions and type changes require a browser session.
+Admins correct the validity dates of a submission in any status with `PUT /api/qualification-submissions/<id>`
+(`valid_from` and/or `valid_until`, validated like a submission); the audit keeps the old and new dates.
+API keys can read permitted records, but uploads, reviews, date corrections, deletions and type changes require a browser session.
 
 Evidence is stored separately from shared attachments under `<LOG_DIR>/qualification-evidence/`, with opaque
 filenames and lossless compression when worthwhile. It is served only through permission-checked endpoints,

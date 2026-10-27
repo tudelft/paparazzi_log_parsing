@@ -57,7 +57,8 @@ window.QualificationManager = class {
         ? `<button type="button" data-review="approve" data-id="${item.id}">Approve</button>
            <button type="button" data-review="reject" data-id="${item.id}">Reject</button>` : ''}
         <button type="button" data-review="withdraw" data-id="${item.id}">Withdraw</button>` : ''}
-      ${this.admin && this.editing ? `${item.has_evidence ? `<button type="button" data-delete="evidence" data-id="${item.id}">Delete evidence</button>` : ''}
+      ${this.admin && this.editing ? `<button type="button" data-dates="${item.id}">Edit dates</button>
+        ${item.has_evidence ? `<button type="button" data-delete="evidence" data-id="${item.id}">Delete evidence</button>` : ''}
         <button type="button" data-delete="record" data-id="${item.id}">Delete record</button>` : ''}</div></div>`;
     };
     const archived = i => i.status === 'superseded' || (i.status === 'approved' && i.expired);
@@ -100,7 +101,7 @@ window.QualificationManager = class {
       </dialog>` : '<p class="mute">An admin must first add a qualification type on People.</p>')
         : '<p class="mute">Turn on Edit to upload, review or delete qualifications for this person.</p>'}
       ${this.admin ? `<details class="help-text"><summary>Qualification history (admins only)</summary>
-        <p class="mute">An audit of submission, review and deletion actions, separate from the records and files above.</p>
+        <p class="mute">An audit of submission, review, date correction and deletion actions, separate from the records and files above.</p>
         <button type="button" data-history>Show latest 100 events</button>
         <pre data-events style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>` : ''}`;
     this.element.querySelectorAll('[data-view]').forEach(button => {
@@ -108,6 +109,9 @@ window.QualificationManager = class {
     });
     this.element.querySelectorAll('[data-review]').forEach(button => {
       button.onclick = () => this.review(+button.dataset.id, button.dataset.review);
+    });
+    this.element.querySelectorAll('[data-dates]').forEach(button => {
+      button.onclick = () => this.editDates(q.items.find(i => i.id === +button.dataset.dates));
     });
     this.element.querySelectorAll('[data-delete]').forEach(button => {
       button.onclick = () => this.remove(+button.dataset.id, button.dataset.delete === 'evidence');
@@ -159,7 +163,8 @@ window.QualificationManager = class {
           return `${e.created_at} · ${e.actor || 'former user'} · ${e.action.replaceAll('-', ' ')}`
             + `\n${detail.category || 'Qualification'}${dates.length ? ' · ' + dates.join(' · ') : ''}`
             + (typeof detail.has_evidence === 'boolean' ? ` · ${detail.has_evidence ? 'evidence attached' : 'no evidence attached'}` : '')
-            + (detail.status ? ` · previously ${detail.status}` : '');
+            + (detail.status ? ` · previously ${detail.status}` : '')
+            + ('old_valid_until' in detail ? ` · was ${detail.old_valid_from || '…'} to ${detail.old_valid_until || '…'}` : '');
         }).join('\n\n') || 'No events.';
       } catch (error) { this.error(error.message); }
     };
@@ -191,6 +196,14 @@ window.QualificationManager = class {
       : action === 'reject' ? 'Reject this submission? Evidence is retained.' : 'Withdraw this pending submission?')) return;
     return this.mutate(`/api/qualification-submissions/${id}/review`,
       {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action})});
+  }
+  editDates(item) {
+    const start = prompt('Valid from (YYYY-MM-DD, empty for none)', item.valid_from || '');
+    if (start === null) return;
+    const until = prompt('Valid until (YYYY-MM-DD, empty for none)', item.valid_until || '');
+    if (until === null) return;
+    return this.mutate(`/api/qualification-submissions/${item.id}`, {method:'PUT',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({valid_from: start.trim(), valid_until: until.trim()})});
   }
   remove(id, evidenceOnly) {
     if (!confirm(evidenceOnly ? 'Permanently delete this evidence file? The record and any approval remain.'
