@@ -72,15 +72,19 @@
   .flight-focus .goal { flex:1 1 280px; }
   .flight-focus .label { display:block; font-size:12px; color:var(--mute); margin-bottom:3px; }
   .flight-focus .value { font-size:18px; font-weight:600; overflow-wrap:anywhere; white-space:pre-wrap; }
-  .summary-groups { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:14px 28px; }
+  .summary-groups { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:14px 28px; }
   .summary-groups h3, .comment-block h3 { margin:0 0 6px; font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; font-weight:600; }
   .summary-groups .kv { grid-template-columns:max-content minmax(0, 1fr); }
+  .summary-body { display:grid; grid-template-columns:minmax(0, 1fr) 340px; gap:20px; }
+  .summary-map a, #overviewMap { display:block; height:100%; min-height:200px; border-radius:6px; }
+  #overviewMap { border:1px solid var(--line); cursor:pointer; }
+  .summary-groups .info-tip .tip { left:auto; right:-120px; }
+  @media (max-width:1100px) { .summary-body { grid-template-columns:minmax(0, 1fr); } .summary-map a, #overviewMap { height:220px; } }
   .comment-block { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
   .status-line { margin-top:10px; font-size:13px; color:var(--mute); }
   .card-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
   .card-head h2 { margin:0 !important; }
   .card-head .push { margin-left:auto; }
-  @media (max-width:900px) { .summary-groups { grid-template-columns:minmax(0, 1fr); } }
   @media (max-width:900px) {
     .cols > .summary-kv { grid-template-columns:max-content minmax(0, 1fr); }
   }
@@ -114,7 +118,6 @@
   <section class="card"><div class="card-head"><h2>Autopilot software</h2><span class="info-tip"><button type="button" aria-label="About the software version">i</button><span class="tip" role="tooltip" style="white-space:normal;width:340px">Versions sent by the aircraft when present. If that message is missing, the Paparazzi
       version from the GCS .log header is shown instead. Commit links point to
       paparazzi/paparazzi; commits from private forks may not be available there.</span></span></div><div id="versions"></div></section>
-  <details class="card"><summary>Takeoff and landing details</summary><div class="cols" id="events"></div></details>
   </div>
   <section class="card" id="panel-weather" role="tabpanel" aria-labelledby="tab-weather" hidden>
     <h2>Wind and weather</h2>
@@ -344,6 +347,45 @@ async function loadWeather(fetchRemote = false) {
 $('fetchWeather').onclick = () => loadWeather(true);
 const ned = v => v ? `N ${v.north}, E ${v.east}, D ${v.down}` : '';
 
+// Geographic path pieces; a gap of more than 5 s starts a new piece.
+function pathSegments() {
+  const segments = [];
+  let segment = null, previous = null;
+  for (const p of D.path || []) {
+    if (!geographicPosition(p.position)) { segment = null; previous = null; continue; }
+    if (!segment || p.time_s - previous.time_s > 5) {
+      segment = [];
+      segments.push(segment);
+    }
+    segment.push([p.position.lat, p.position.lon]);
+    previous = p;
+  }
+  return segments;
+}
+// Small read-only path on the Overview; clicking it opens Path & charts.
+let overviewMap = null;
+function drawOverviewMap() {
+  if (overviewMap) { overviewMap.remove(); overviewMap = null; }
+  const el = $('overviewMap'), segments = pathSegments();
+  if (!el || !window.L || !segments.length) { if (el) el.parentElement.hidden = true; return; }
+  overviewMap = L.map(el, {zoomControl: false, attributionControl: false, dragging: false, scrollWheelZoom: false,
+    doubleClickZoom: false, boxZoom: false, keyboard: false, touchZoom: false});
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(overviewMap);
+  const group = L.featureGroup().addTo(overviewMap);
+  for (const points of segments) {
+    if (points.length > 1) L.polyline(points, {color: '#1f6feb', weight: 3}).addTo(group);
+    else L.circleMarker(points[0], {radius: 3, color: '#1f6feb', fillOpacity: 1}).addTo(group);
+  }
+  overviewMap.fitBounds(group.getBounds().pad(0.15), {maxZoom: 18});
+}
+// Battery, wind and INS state at takeoff or landing, shown on hover beside its time.
+function eventTip(x, name) {
+  if (!x) return '';
+  const rows = [kv('Location', coord(x.location, name)), kv('Battery', x.voltage_v != null ? x.voltage_v.toFixed(2) + ' V' : ''),
+    kv('Wind', windTxt(x.wind)), kv('INS position (NED, m)', ned(x.ins?.position_ned_m)),
+    kv('INS speed (NED, m/s)', ned(x.ins?.velocity_ned_ms)), kv('INS accel (NED, m/s²)', ned(x.ins?.acceleration_ned_ms2))].join('');
+  return rows ? `<span class="info-tip"><button type="button" aria-label="Details">i</button><span class="tip" role="tooltip"><span class="kv">${rows}</span></span></span>` : '';
+}
 function renderSummary() {
   const e = D.entry, a = e.assessment;
   $('loggedWind').innerHTML = kv('Logged wind at takeoff', windTxt(e.takeoff?.wind) || 'Not available')
@@ -361,12 +403,12 @@ function renderSummary() {
       <div class="goal"><span class="label">Flight goal</span><div class="value">${e.goal ? esc(e.goal) : '<span class="mute">Not recorded</span>'}</div></div>
       <div><span class="label">Flight time</span><div class="value">${fmtDur(e.duration_s) || '–'}</div></div>
     </div>
-    <div class="summary-groups">
+    <div class="summary-body"><div class="summary-main"><div class="summary-groups">
       <div><h3>When and where</h3><div class="kv">
         ${kv('Takeoff (UTC)', esc(fmtTime(e.takeoff_utc)) + estimatedDateBadge(e) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id)
-          + (e.takeoff_location_inferred ? ' <span class="mute">(location inferred from landing)</span>' : ''))}
+          + (e.takeoff_location_inferred ? ' <span class="mute">(location inferred from landing)</span>' : '') + eventTip(e.takeoff, e.takeoff_place))}
         ${kv('Landing (UTC)', (e.landing_utc ? esc(fmtTime(e.landing_utc)) + ' · ' : '') + place(e.landing_place, e.landing_lat, e.landing_lon, e.landing_place_id)
-          + (e.landing_location_inferred ? ' <span class="mute">(location inferred from takeoff)</span>' : ''))}
+          + (e.landing_location_inferred ? ' <span class="mute">(location inferred from takeoff)</span>' : '') + eventTip(e.landing, e.landing_place))}
         ${kv('Distance flown', fmtDist(e.distance_m))}${kv('Max from takeoff', fmtDist(e.max_from_takeoff_m))}${kv('At landing', fmtDist(e.from_takeoff_m))}
       </div></div>
       <div><h3>Crew</h3><div class="kv">${kv('PIC', crewField(e, 'pic'))}${kv('PAC', crewField(e, 'pac'))}${kv('GCS operator', crewField(e, 'gcs'))}</div></div>
@@ -378,7 +420,8 @@ function renderSummary() {
           + (e.category_check ? ` <span class="warn">${esc(e.category_check)}</span>` : ''))}
       </div></div>
     </div>
-    <div class="comment-block"><h3>Comment</h3>${commentField(e)}</div>
+    <div class="comment-block"><h3>Comment</h3>${commentField(e)}</div></div>
+    <div class="summary-map"><a href="#path" title="Open Path &amp; charts"><div id="overviewMap" role="img" aria-label="Flight path"></div></a></div></div>
     ${status ? `<div class="status-line">${status}</div>` : ''}
     <details style="margin-top:12px"><summary>Log sources and upload details</summary><div class="kv src">
       ${e.source_selection_reason ? kv('Default source', esc(e.source_selection_reason)
@@ -393,12 +436,7 @@ function renderSummary() {
       ${kv('Uploaded', esc(fmtTime(e.uploaded_at)) + (e.uploaded_by_name ? ' by ' + esc(e.uploaded_by_name) : ''))}
       ${kv('Raw data', `<a href="/api/flights/${flightId}/path" target="_blank">Path JSON</a> · <a href="/api/aircraft/${D.aircraft_pk}/config" target="_blank">Airframe / flight plan / settings</a>`)}
     </div></details>`;
-  const ev = (title, x, utc, name, extra) => x ? `<div><h4>${title}</h4><div class="kv">${kv('Time (UTC)', esc(fmtTime(utc)))}${kv('Location', coord(x.location, name))}
-    ${extra || ''}${kv('Battery', x.voltage_v != null ? x.voltage_v.toFixed(2) + ' V' : '')}${kv('Wind', windTxt(x.wind))}
-    ${kv('INS position (NED, m)', ned(x.ins?.position_ned_m))}${kv('INS speed (NED, m/s)', ned(x.ins?.velocity_ned_ms))}${kv('INS accel (NED, m/s²)', ned(x.ins?.acceleration_ned_ms2))}</div></div>` : '';
-  $('events').innerHTML = ev('Takeoff', e.takeoff, e.takeoff_utc, e.takeoff_place)
-    + ev('Landing', e.landing, e.landing_utc, e.landing_place,
-         kv('Distance flown', fmtDist(e.distance_m)) + kv('From takeoff', fmtDist(e.from_takeoff_m)));
+  drawOverviewMap();
 }
 
 const pt = i => D.path[i];
@@ -486,17 +524,7 @@ function initMap() {
   const path = D.path.filter(p => geographicPosition(p.position));
   const ll = path.map(p => [p.position.lat, p.position.lon]);
   const group = L.featureGroup();
-  const segments = [];
-  let segment = null, previous = null;
-  for (const p of D.path) {
-    if (!geographicPosition(p.position)) { segment = null; previous = null; continue; }
-    if (!segment || p.time_s - previous.time_s > 5) {
-      segment = [];
-      segments.push(segment);
-    }
-    segment.push([p.position.lat, p.position.lon]);
-    previous = p;
-  }
+  const segments = pathSegments();
   for (const points of segments) {
     if (points.length > 1) L.polyline(points, {color: '#1f6feb', weight: 4}).addTo(group);
     else L.circleMarker(points[0], {radius: 3, color: '#1f6feb', fillOpacity: 1}).addTo(group);

@@ -326,8 +326,11 @@ remain authoritative across reparses and clear the displayed estimate flag while
 The standalone C++ parser emits evidence only; GitHub enrichment and estimated-week assignment happen
 in Web UI ingestion. Reparse outdated logs after updating and configuring any additional repositories.
 
-**Flight pages.** The Overview opens first, with takeoff/landing details and log sources folded
-away. Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
+**Flight pages.** The Overview opens first: aircraft, goal and flight time, then When and where, Crew
+and Operation groups, the comment and a small non-interactive path map (it opens Path & charts). Takeoff
+and landing battery, wind and INS values are in the info tip beside each time; log sources, upload details
+and raw-data links are folded away. Project, crew and comment controls appear only in Edit mode (and only
+with permission); the Files tab lists files compactly and shows **Add / manage files** in Edit mode. Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
 and warnings for local (dirty) changes. Multiple reported builds remain visible; raw version messages
 can be expanded. Commit links use `paparazzi/paparazzi` and may not resolve for private forks.
 When the aircraft did not send `AUTOPILOT_VERSION`, the GCS `runtime paparazzi_version` comment at
@@ -368,7 +371,7 @@ lossy conversion is done; downloads reproduce the original filename and exact by
 
 `GET /api/attachments/<id>/view` serves the same bytes with `Content-Disposition: inline`, with the same
 access checks as the download. The type comes only from an extension allowlist (`VIEWABLE` in
-`attachments.py`): PDF, `.txt`/`.csv`/`.md`/`.log` as `text/plain`, and PNG/JPEG/GIF/WebP. Any other
+`storage.py`, shared with qualification evidence at `/api/qualification-submissions/<id>/evidence/view`): PDF, `.txt`/`.csv`/`.md`/`.log` as `text/plain`, and PNG/JPEG/GIF/WebP. Any other
 file (HTML, SVG, XML, other Office documents, no extension) gets 415 and stays a download, so stored files
 never run script in the site's origin. `nosniff` and `Cache-Control: private, no-store` apply to both
 routes; inline text and images also get `Content-Security-Policy: sandbox` (not PDF, whose built-in
