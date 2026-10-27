@@ -1636,7 +1636,7 @@ def apply_drone_fields(con, drone_id, fields, old_name=None):
 
 
 SERIAL_PREFIX, SERIAL_DIGITS = "TUD", 5
-SERIAL_FIRST = 301  # numbers up to TUD00300 may belong to old aircraft that are no longer listed: never reuse them
+SERIAL_FIRST = 401  # numbers up to TUD00400 may belong to old aircraft that are no longer listed: never reuse them
 
 
 def next_serial(con):
