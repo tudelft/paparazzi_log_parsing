@@ -1401,8 +1401,30 @@ std::string sha256_hex(const unsigned char *p, size_t n)
 
 }  // namespace
 
+// Flight plan block/stage and actuator names from the .log, in the parser's own numbering, for the column
+// export (export_columns.cpp). Lines: block<TAB>ac<TAB>block<TAB>name, stage<TAB>ac<TAB>block<TAB>stage<TAB>name,
+// servo<TAB>ac<TAB>index<TAB>name; ac -1 is an airframe without ac_id. Not used by normal parsing.
+void write_config_names(const std::string &log_file, std::ostream &out)
+{
+  const LogHeader h = read_log_header(log_file);
+  for (const auto &[ac, c] : h.confs) {
+    for (size_t b = 0; b < c.blocks.size(); ++b) {
+      out << "block\t" << ac << "\t" << b << "\t" << c.blocks[b] << "\n";
+      for (size_t st = 0; b < c.stages.size() && st < c.stages[b].size(); ++st) {
+        out << "stage\t" << ac << "\t" << b << "\t" << st << "\t" << c.stages[b][st] << "\n";
+      }
+    }
+    for (size_t k = 0; k < c.servos.size(); ++k) { out << "servo\t" << ac << "\t" << k << "\t" << c.servos[k] << "\n"; }
+  }
+}
+
+int export_columns(int argc, char *argv[]);  // export_columns.cpp: column export for the Web UI's MATLAB download
+
 int main(int argc, char *argv[])
 {
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--export-columns") == 0) { return export_columns(argc, argv); }
+  }
   // Number of flight path points per second (0 disables the path)
   double path_rate = 5.0;
   std::string data_file, known_sha256;  // known_sha256: precomputed by the caller, skips hashing here

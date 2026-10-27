@@ -34,7 +34,7 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from flask import (Flask, Response, abort, g, jsonify, redirect, request, send_from_directory, session,
+from flask import (Flask, Response, abort, g, jsonify, redirect, request, send_file, send_from_directory, session,
                    stream_with_context)
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -5461,6 +5461,138 @@ def get_path(flight_id):
         abort(404)
     return jsonify(flight_path(row["paths_file"], row["path_idx"], clock_shift_days(row["start_utc"], row["date_override"]),
                                row["path_gz"] if HAVE_PATH_GZ else None))
+
+
+# MATLAB export (matlab_export.py): browser users who may download the log request a .mat file, which is built in
+# the background and reused for two weeks. API keys are refused: the export is meant for interactive downloads.
+_export_jobs = None
+_export_lock = threading.Lock()
+MATLAB_SCOPES = ("flight", "flights", "log")
+
+
+def export_jobs():
+    global _export_jobs
+    import matlab_export  # h5py is only needed here
+    with _export_lock:
+        if _export_jobs is None:
+            _export_jobs = matlab_export.Jobs(DATA_DIR / "exports", TMP_DIR, env_int("EXPORT_WORKERS"),
+                                              env_int("EXPORT_MAX_BYTES"))
+    return _export_jobs
+
+
+def matlab_job_json(job):
+    out = {k: job.get(k) for k in ("id", "status", "progress", "error", "size_bytes", "filename")}
+    if job["status"] == "ready":
+        out["download"] = f"/api/matlab-exports/{job['id']}/download"
+    return out
+
+
+@app.post("/api/logs/<int:log_id>/matlab")
+def request_matlab_export(log_id):
+    session_required()
+    try:
+        import matlab_export
+    except ImportError:
+        return jsonify(error="MATLAB export needs the h5py package on the server (see requirements.txt)."), 503
+    con = conn()
+    row = visible_log(con, log_id, "id, name, sha256, size_bytes, log_type, data_path, log_path, parser_version,"
+                                   " start_utc, date_override")
+    body = request.get_json(silent=True) or {}
+    scope = body.get("scope")
+    if scope not in MATLAB_SCOPES:
+        return jsonify(error="scope must be flight, flights or log"), 400
+    if row["log_type"] not in ("gcs", "onboard_sd") or not row["log_path"]:
+        return jsonify(error="MATLAB export is available for Paparazzi .data files with their .log."), 409
+    if not (row["data_path"].endswith(".gz") and row["log_path"].endswith(".gz")):
+        return jsonify(error="Uncompressed legacy storage is unsupported; delete and re-upload this test log."), 409
+    flights = [dict(r) for r in con.execute(
+        "SELECT f.id, f.idx, a.ac_id, f.takeoff_time_s, f.landing_time_s, f.takeoff_utc, f.landing_utc, f.verdict,"
+        " f.assessment_json, f.duration_s, f.distance_m, f.max_from_takeoff_m, f.from_takeoff_m, f.landed,"
+        " f.takeoff_lat, f.takeoff_lon, f.takeoff_alt_m, f.landing_lat, f.landing_lon, f.landing_alt_m,"
+        " f.takeoff_voltage_v, f.landing_voltage_v"
+        " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE a.log_id=? AND f.takeoff_time_s IS NOT NULL"
+        " ORDER BY f.takeoff_time_s, f.id", (log_id,))]
+    if scope == "flight":
+        flights = [f for f in flights if f["id"] == body.get("flight_id")]
+        if not flights:
+            return jsonify(error="That flight is not part of this log."), 404
+    elif scope == "flights":
+        flights = [f for f in flights if f["verdict"] != "ground"]
+        if not flights:
+            return jsonify(error="This log has no detected flights to export."), 409
+    days = clock_shift_days(row["start_utc"], row["date_override"])  # same date correction as the pages
+
+    def posix(utc):
+        dt = parse_iso_utc(utc) if utc else None
+        return dt.timestamp() if dt else None
+    summary_keys = ("duration_s", "distance_m", "max_from_takeoff_m", "from_takeoff_m", "landed", "takeoff_lat",
+                    "takeoff_lon", "takeoff_alt_m", "landing_lat", "landing_lon", "landing_alt_m",
+                    "takeoff_voltage_v", "landing_voltage_v")
+    windows = None if scope == "log" else [
+        dict(index=i + 1, ac_id=f["ac_id"], takeoff_s=f["takeoff_time_s"], landing_s=f["landing_time_s"],
+             takeoff_utc=shift_iso(f["takeoff_utc"], days), landing_utc=shift_iso(f["landing_utc"], days),
+             takeoff_posix=posix(shift_iso(f["takeoff_utc"], days)),
+             summary={k: f[k] for k in summary_keys}, assessment=dict(
+                 verdict=f["verdict"], reasons=(json.loads(f["assessment_json"] or "null") or {}).get("reasons") or []))
+        for i, f in enumerate(flights)]
+    aircraft = {}
+    for a in con.execute("SELECT id, ac_id, pic, pac, gcs, goal, simulation, preflight_checks, config_gz"
+                         " FROM aircraft WHERE log_id=?", (log_id,)):
+        config = db.unpack(a["config_gz"]) or {}
+        aircraft[a["ac_id"]] = dict(
+            pic=a["pic"], pac=a["pac"], gcs=a["gcs"], goal=a["goal"],
+            simulation=json.loads(a["simulation"]) if a["simulation"] else None,
+            checklist=json.loads(a["preflight_checks"] or "[]"), settings=config.get("settings") or [],
+            config=dict(xml=config.get("xml") or {}, flight_plan=config.get("flight_plan") or {}),
+            setting_changes=[dict(r) for r in con.execute(
+                "SELECT time_s, idx, var, from_value, to_value, in_flight FROM setting_changes"
+                " WHERE aircraft_id=? ORDER BY time_s, id", (a["id"],))])
+    time0_utc = shift_iso(row["start_utc"], days)
+    extras = dict(aircraft=aircraft, time0_utc=time0_utc, time0_posix=posix(time0_utc))
+    identity = json.dumps([row["sha256"], scope, matlab_export.EXPORTER_VERSION, matlab_export.MARGIN_S,
+                           row["parser_version"], windows, extras], sort_keys=True, default=str)
+    job_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
+    stem = posixpath.splitext(posixpath.basename(row["name"]))[0]
+    suffix = {"log": "whole_log", "flights": "flights", "flight": f"flight_{flights[0]['id']}" if flights else ""}[scope]
+    filename = safe_filename(f"{stem}_{suffix}.mat")
+    info = dict(name=row["name"], sha256=row["sha256"], log_type=row["log_type"], size_bytes=row["size_bytes"],
+                scope=scope)
+    data_gz, log_gz = STORAGE_DIR / row["data_path"], STORAGE_DIR / row["log_path"]
+
+    def task(out_path, work_dir, progress):
+        return matlab_export.export(FASTREADER, data_gz, log_gz, out_path, info, work_dir, windows, progress,
+                                    env_int("LOCAL_MIN_FREE_BYTES"), extras)
+    try:
+        job = export_jobs().submit(job_id, log_id, filename, task)
+    except matlab_export.ExportError as error:
+        return jsonify(error=str(error)), 503
+    return jsonify(matlab_job_json(job)), 202
+
+
+def visible_export(job_id):
+    """The export job, after re-checking that the user may still see its log (404 otherwise)."""
+    session_required()
+    if not re.fullmatch(r"[0-9a-f]{32}", job_id):
+        abort(404)
+    job = export_jobs().status(job_id)
+    if job is None:
+        abort(404)
+    visible_log(conn(), job["log_id"], "id")
+    return job
+
+
+@app.get("/api/matlab-exports/<job_id>")
+def matlab_export_status(job_id):
+    return jsonify(matlab_job_json(visible_export(job_id)))
+
+
+@app.get("/api/matlab-exports/<job_id>/download")
+def matlab_export_download(job_id):
+    job = visible_export(job_id)
+    if job["status"] != "ready":
+        return jsonify(error="The export is not ready yet."), 409
+    return send_file(export_jobs().path(job_id), mimetype="application/octet-stream", as_attachment=True,
+                     download_name=job["filename"], conditional=True, max_age=0)
 
 
 @app.get("/api/logs/<int:log_id>/download/<kind>")

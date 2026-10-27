@@ -7,6 +7,6 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-add_executable(paparazzi_log_parsing fastreader.cpp)
+add_executable(paparazzi_log_parsing fastreader.cpp export_columns.cpp)
 find_package(Threads REQUIRED)
 target_link_libraries(paparazzi_log_parsing Threads::Threads)
