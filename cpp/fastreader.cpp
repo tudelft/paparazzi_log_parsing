@@ -447,6 +447,35 @@ std::string xml_attr(const std::string &line, size_t from, const char *key)
   return "";
 }
 
+// The configuration XML without its prose: comments and <description> elements are dropped, so a note such as
+// "can be used with Optitrack" in an airframe description does not count as configuration.
+std::string xml_without_prose(const std::string &xml)
+{
+  auto find_ci = [&](const char *needle, size_t from) {
+    const size_t n = std::strlen(needle);
+    for (size_t i = from; i + n <= xml.size(); i++) {
+      size_t j = 0;
+      while (j < n && std::tolower(static_cast<unsigned char>(xml[i + j])) == needle[j]) { j++; }
+      if (j == n) { return i; }
+    }
+    return std::string::npos;
+  };
+  std::string out;
+  out.reserve(xml.size());
+  size_t i = 0;
+  while (i < xml.size()) {
+    const size_t comment = xml.find("<!--", i), description = find_ci("<description", i);
+    const size_t next = std::min(comment, description);
+    if (next == std::string::npos) { break; }
+    out.append(xml, i, next - i);
+    const size_t end = next == comment ? xml.find("-->", next + 4) : find_ci("</description>", next);
+    if (end == std::string::npos) { return out; }  // unterminated: drop the rest
+    i = end + (next == comment ? 3 : std::strlen("</description>"));
+  }
+  out.append(xml, i, std::string::npos);
+  return out;
+}
+
 bool xml_contains_ci(const std::string &xml, const char *needle)
 {
   if (!needle || !*needle || xml.empty()) { return false; }
@@ -1133,7 +1162,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.8.1";
+constexpr const char *PARSER_VERSION = "1.8.2";
 
 struct GpsClock {
   size_t count = 0;
@@ -2211,7 +2240,8 @@ int main(int argc, char *argv[])
   for (int id : report_ids) {
     AircraftState &s = acs[id];
     const AcConf *cf = conf_of(id);
-    if (cf && (xml_contains_ci(cf->airframe_xml, "optitrack") || xml_contains_ci(cf->flight_plan_xml, "optitrack"))) {
+    if (cf && (xml_contains_ci(xml_without_prose(cf->airframe_xml), "optitrack") ||
+               xml_contains_ci(xml_without_prose(cf->flight_plan_xml), "optitrack"))) {
       s.has_optitrack = true;
     }
     if (s.has_optitrack) {

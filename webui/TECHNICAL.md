@@ -78,6 +78,11 @@ Deployments without Git metadata or a working Git executable show **version unav
 to the repository instead; the server logs the detection problem. This identifies the Web UI checkout,
 not the installed parser binary or a separately cached browser asset.
 
+**OptiTrack detection (parser 1.8.2).** A flight counts as OptiTrack (and so indoor) when the aircraft logs
+`EXTERNAL_POSE*`, reports GPS fixes with 0 satellites, or mentions "optitrack" in its airframe or flight-plan
+configuration. XML comments and `<description>` text no longer count, so a note such as "can be used with
+Optitrack" does not mark outdoor flights. Re-parse outdated logs to update existing flights.
+
 **Fixed-wing navigation fallback.** Parser 1.7.9 can fill gaps in direct GPS using recorded
 `NAVIGATION.pos_x/pos_y` (metres east/north) and the latest received `NAVIGATION_REF`
 UTM origin. GPS still takes precedence for two seconds. A reference must first agree
