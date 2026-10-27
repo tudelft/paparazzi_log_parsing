@@ -94,9 +94,14 @@
 
 ## Commits and releases
 
-- When the user asks to commit/push, also create and push an annotated Web UI release tag
-  `webui-vMAJOR.MINOR.PATCH` on the resulting tested commit, unless they explicitly opt out.
+- Develop each change on its own descriptively named branch, following the existing style
+  (for example `webui-review-page`; no tool or assistant names), and merge it through a pull request.
+  Delete the branch once the pull request is merged.
+- When the user asks to commit/push, also create an annotated Web UI release tag
+  `webui-vMAJOR.MINOR.PATCH` on the resulting tested master commit, unless they explicitly opt out.
 - Inspect existing remote tags and all changes since the previous release: bump PATCH for fixes,
   MINOR for new backward-compatible features, and MAJOR for breaking changes.
 - Keep Web UI tags separate from parser versions. Never move or overwrite an existing release tag.
-  Push the branch and new tag atomically where supported, and verify both remote refs.
+- Where tags or branch deletions cannot be pushed directly (cloud sessions), run the manual
+  `Release` workflow (`.github/workflows/release.yml`) with `tag`, `message` and/or `delete_branches`.
+  Verify the resulting remote refs afterwards.
