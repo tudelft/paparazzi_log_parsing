@@ -411,6 +411,12 @@ else
 fi
 
 NGINX_SITE=/etc/nginx/sites-available/flight-logs
+nginx_has_http2_directive() {  # true for nginx 1.25.1 and newer
+    local v
+    v=$(nginx -v 2>&1 | sed -n 's|.*nginx/\([0-9][0-9.]*\).*|\1|p')
+    [ -n "$v" ] && [ "$(printf '%s\n' 1.25.1 "$v" | sort -V | head -n1)" = 1.25.1 ]
+}
+
 nginx_proxy() {
     cat <<EOF
         client_max_body_size 0;
@@ -450,8 +456,14 @@ EOF
             echo "    return 301 https://\$host\$request_uri;"
             echo "}"
             echo "server {"
-            echo "    listen 443 ssl http2;"
-            echo "    listen [::]:443 ssl http2;"
+            if nginx_has_http2_directive; then  # nginx 1.25.1+ deprecates "listen ... http2"
+                echo "    listen 443 ssl;"
+                echo "    listen [::]:443 ssl;"
+                echo "    http2 on;"
+            else
+                echo "    listen 443 ssl http2;"
+                echo "    listen [::]:443 ssl http2;"
+            fi
             echo "    server_name $HOSTNAME_PUBLIC;"
             echo "    ssl_certificate $CERT;"
             echo "    ssl_certificate_key $KEY;"
