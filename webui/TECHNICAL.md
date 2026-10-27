@@ -51,7 +51,7 @@ Day-to-day:
     sudo systemctl start flight-logs-backup          # back up now
     sudo -u logdb /opt/flight-logs/app/webui/venv/bin/python /opt/flight-logs/app/webui/app.py check-config
 
-After an update that changes the parser version, click **Re-parse outdated** on the Uploads page.
+After an update that changes the parser version, click **Re-parse outdated** on the Uploads page (in Edit mode).
 
 An ordinary update automatically reloads the installer if Git changes it, even when running the
 installed copy directly. One invocation updates the code, dependencies and service files. First
@@ -700,6 +700,12 @@ Logbook has no top-level project filter and no longer applies a previously saved
 Project reassignment controls in Edit mode remain available.
 The menu puts Logbook (`/`) first, followed by Uploads (`/uploads`), Statistics, Aircraft, People, Projects and Locations.
 `/logbook` remains a working alias. Upload log-detail anchors use `/uploads#log<id>`.
+The Uploads list has one line per log (date, log with its size, aircraft, project, flights, flight time, status;
+admins also see who uploaded it and when). A log with one flight links straight to its flight page; several open
+the log, where each flight links to its page. Status shows only what needs attention (queued, parsing, error,
+outdated); the **outdated** / **date unknown** badges filter the list (`/api/logs?status=outdated|date_unknown`).
+Edit mode shows the project menus (admins), Re-parse and Delete on an opened log, date editing, and the Re-parse
+outdated / unknown dates and Accept date suggestions tools.
 Linked aircraft, crew, projects and named locations in the logbook open their detail pages.
 Coordinates without a linked location still open the external map; Edit mode keeps its reassignment menus.
 Aircraft serial numbers in the logbook appear on hover over the aircraft name rather than inline.

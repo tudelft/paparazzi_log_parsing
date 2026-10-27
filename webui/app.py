@@ -5562,12 +5562,19 @@ def list_logs():
         where += " AND instr(lower(l.name), lower(?))>0"
         params = (*params, search)
     status_filter = request.args.get("status", "all")
-    if status_filter not in ("all", "errors", "unfinished", "failures"):
+    if status_filter not in ("all", "errors", "unfinished", "failures", "outdated", "date_unknown"):
         return jsonify(error="Invalid log status filter"), 400
     if status_filter in ("errors", "failures"):
         where += " AND l.status='error'"
     elif status_filter == "unfinished":
         where += " AND l.status IN ('queued','parsing','error')"
+    elif status_filter == "outdated":  # the same logs /api/status counts as outdated
+        od_sql, od_params = outdated_sql()
+        where += " AND l.status='done' AND " + od_sql.replace("parser_", "l.parser_")
+        params = (*params, *od_params)
+    elif status_filter == "date_unknown":
+        where += " AND l.status='done' AND l.date_override IS NULL AND (l.start_utc IS NULL OR l.start_utc < ?)"
+        params = (*params, f"{CLOCK_MIN_YEAR:04d}-01-01")
     if request.args.get("log", "").isdigit():  # /uploads#log<id> opens that one log, wherever it is in the list
         where += " AND l.id=?"
         params = (*params, int(request.args["log"]))
@@ -5613,7 +5620,10 @@ def list_logs():
         total = con.execute("SELECT COUNT(*) FROM logs l WHERE " + where, params).fetchone()[0]
     rows = con.execute(
         "SELECT l.*, p.name AS project_name,"
-        " (SELECT username FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name,"
+        " (SELECT COALESCE(u.display_name, u.username) FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name,"
+        " (SELECT f.id FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id = l.id"
+        "  ORDER BY f.takeoff_time_s, f.id LIMIT 1) AS first_flight_id,"
+        " (SELECT COUNT(*) FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id = l.id) AS flight_rows,"
         " (SELECT group_concat(COALESCE(u.display_name, u.username), ', ') FROM log_uploaders x"
         " JOIN users u ON u.id = x.user_id WHERE x.log_id = l.id) AS co_uploaders,"
         " (SELECT group_concat(DISTINCT COALESCE(d.name, a.name, '?')) FROM aircraft a"
