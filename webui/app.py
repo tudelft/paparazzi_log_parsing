@@ -850,6 +850,11 @@ def favicon():
     return send_from_directory(PAGES_DIR, "favicon.svg", mimetype="image/svg+xml")
 
 
+@app.get("/logos/<name>.svg")
+def logo(name):
+    return send_from_directory(os.path.join(PAGES_DIR, "logos"), name + ".svg", mimetype="image/svg+xml")
+
+
 API_KEY_PREFIX = "logdb_"
 
 
