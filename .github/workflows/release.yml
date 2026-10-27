@@ -1,0 +1,74 @@
+# Manually started release housekeeping: create an annotated Web UI release tag and/or
+# delete remote branches that are already fully merged into master.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Annotated tag to create, e.g. webui-v1.2.3 (empty: no tag)"
+        required: false
+      message:
+        description: "Tag message (default: the tag name)"
+        required: false
+      commit:
+        description: "Commit on master to tag (default: current master)"
+        required: false
+      delete_branches:
+        description: "Space-separated branches to delete; only deleted when fully merged into master"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Create tag
+        if: inputs.tag != ''
+        env:
+          TAG: ${{ inputs.tag }}
+          MESSAGE: ${{ inputs.message }}
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          set -eu
+          if ! printf '%s' "$TAG" | grep -Eq '^webui-v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Tag must look like webui-vMAJOR.MINOR.PATCH"; exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "::error::$TAG already exists; release tags are never moved"; exit 1
+          fi
+          target=$(git rev-parse --verify "${COMMIT:-origin/master}^{commit}")
+          if ! git merge-base --is-ancestor "$target" origin/master; then
+            echo "::error::$target is not on master"; exit 1
+          fi
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          git tag -a "$TAG" -m "${MESSAGE:-$TAG}" "$target"
+          git push origin "refs/tags/$TAG"
+          echo "Tagged $target as $TAG"
+
+      - name: Delete merged branches
+        if: inputs.delete_branches != ''
+        env:
+          BRANCHES: ${{ inputs.delete_branches }}
+        run: |
+          set -eu
+          for b in $BRANCHES; do
+            if [ "$b" = master ]; then echo "::warning::Skipping master"; continue; fi
+            if ! git rev-parse --verify -q "origin/$b" >/dev/null; then
+              echo "::warning::$b does not exist"; continue
+            fi
+            if git merge-base --is-ancestor "origin/$b" origin/master; then
+              git push origin --delete "$b"
+              echo "Deleted $b"
+            else
+              echo "::warning::$b is not fully merged into master; kept"
+            fi
+          done
