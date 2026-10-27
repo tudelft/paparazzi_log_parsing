@@ -5,6 +5,7 @@
 <title>Flight logbook</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/theme.js"></script>
+<script src="/matlab.js"></script>
 <link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -405,7 +406,7 @@ function detail(f) {
     <div class="detail-info"><h4>Comment</h4>${f.comment ? `<div class="note">${esc(f.comment)}</div>` : '<span class="mute">No comment</span>'}
       ${linkedInfo(f)}${sourcesInfo(f)}
       <div class="actions"><a class="btn" href="/flight/${f.flight_id}">Open flight page</a>
-        ${f.sources.map(s => `<a class="btn sec" href="/api/logs/${s.log_id}/download">Download ${downloadLabel(s.log_type)}</a>`).join('')}</div>
+        ${MatlabExport.button(f.sources)}</div>
     </div>
   </div>`;
 }
@@ -558,8 +559,6 @@ function combine(list) {
 }
 
 const TYPE_LABEL = {onboard_sd: 'SD', gcs: 'GCS', px4_ulog: 'PX4', ardupilot: 'ArduPilot', mavlink_tlog: 'tlog'};
-const downloadLabel = t => ({px4_ulog:'PX4 .ulg', ardupilot:'ArduPilot log', mavlink_tlog:'MAVLink .tlog',
-  gcs:'GCS .data + .log', onboard_sd:'SD .data + .log'}[t] || 'log');
 const srcLabel = fl => fl.some(f => f.manual_id) ? (fl[0].record_kind === 'daily' ? 'Paper daily total' : 'Paper') + (fl.some(f => f.possible_duplicates?.length) ? ' · possible duplicate' : '')
   : ['onboard_sd', 'px4_ulog', 'ardupilot', 'mavlink_tlog', 'gcs'].filter(t => fl.some(f => (f.sources || []).some(s => s.log_type === t))).map(t => TYPE_LABEL[t]).join(' + ')
     + (fl.some(f => f.linked_records?.length) ? ' + Paper' : '') + (fl.some(f => f.conflicts?.some(c => !c.reviewed_by)) ? ' · conflict' : '');

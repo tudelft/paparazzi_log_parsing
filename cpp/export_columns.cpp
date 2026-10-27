@@ -10,7 +10,9 @@
 //
 // Schema lines: "<MESSAGE>\t<kinds>", one kind character per field: u (unsigned), i (signed), f (float),
 // a (numeric array), t (text). Times are unwrapped like the normal parser (onboard uint32 microsecond clock).
-// Without --window the whole log is one window; with windows a row goes to every window that contains it.
+// Without --window the whole log is one window; with windows a row goes to every window that contains it
+// (--window-ac only takes rows of that aircraft). --always messages are also exported over the whole log, in an
+// extra last window, e.g. DL_VALUE so setting values are complete for flight exports.
 //
 // Files per (window, aircraft, message) stream <id>: s<id>.f64 rows of [time, scalar numeric fields...];
 // s<id>_a<j>.len (uint32 per row) + s<id>_a<j>.f64 for array field j; s<id>_t<j>.txt one value per line for
@@ -19,6 +21,7 @@
 // a time or aircraft id: top.f64 + top.txt. Progress goes to stderr as "progress <fraction>".
 // The clock-wrap correction only applies when the time jumps back by more than 2000 s (old onboard logs);
 // other logs keep their timestamps unchanged.
+#include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
@@ -69,6 +72,13 @@ struct Stream {
   Out scalar;
   std::vector<std::unique_ptr<Out>> lens, arrays, texts;  // per field index (null when not that kind)
   std::vector<uint32_t> max_len;
+};
+
+// A time window of rows to export: one aircraft (ac >= 0) or all, and optionally only the --always messages.
+struct Window {
+  double start, end;
+  int ac;
+  bool always_only;
 };
 
 struct Raw {
@@ -138,7 +148,8 @@ int export_columns(int argc, char *argv[])
 {
   std::string out_dir, schema_file, data_file, log_file;
   double expected_size = 0;
-  std::vector<std::pair<double, double>> windows;
+  std::vector<Window> windows;
+  std::vector<std::string> always;
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
     if (a == "--export-columns" && i + 1 < argc) { out_dir = argv[++i]; }
@@ -146,16 +157,25 @@ int export_columns(int argc, char *argv[])
     else if (a == "--size" && i + 1 < argc) { expected_size = strtod(argv[++i], nullptr); }
     else if (a == "--log" && i + 1 < argc) { log_file = argv[++i]; }
     else if (a == "--window" && i + 2 < argc) {
-      windows.emplace_back(strtod(argv[i + 1], nullptr), strtod(argv[i + 2], nullptr));
+      windows.push_back({strtod(argv[i + 1], nullptr), strtod(argv[i + 2], nullptr), -1, false});
       i += 2;
+    } else if (a == "--window-ac" && i + 3 < argc) {
+      windows.push_back({strtod(argv[i + 2], nullptr), strtod(argv[i + 3], nullptr), atoi(argv[i + 1]), false});
+      i += 3;
+    } else if (a == "--always" && i + 1 < argc) {
+      always.push_back(argv[++i]);
     } else { data_file = a; }
   }
   if (out_dir.empty() || schema_file.empty() || data_file.empty()) {
-    std::cerr << "Usage: " << argv[0] << " --export-columns <out_dir> --schema <file> [--window <start> <end>]... <file.data>\n";
+    std::cerr << "Usage: " << argv[0] << " --export-columns <out_dir> --schema <file> [--log <file.log>]"
+                 " [--window <start> <end> | --window-ac <ac> <start> <end>]... [--always <MSG>]... <file.data | ->\n";
     return 1;
   }
-  const bool whole = windows.empty();
-  if (whole) { windows.emplace_back(-INFINITY, INFINITY); }
+  if (windows.empty()) {
+    windows.push_back({-INFINITY, INFINITY, -1, false});  // the whole log
+  } else if (!always.empty()) {
+    windows.push_back({-INFINITY, INFINITY, -1, true});   // the --always messages over the whole log, last window
+  }
 
   std::vector<std::string> msg_names, msg_kinds;
   std::unordered_map<std::string, int> schema;  // message name -> index
@@ -237,9 +257,13 @@ int export_columns(int argc, char *argv[])
     std::string_view name = token(q, line_end);
 
     // Which windows take this row (usually none or one)
+    const bool is_always = !always.empty() && std::find(always.begin(), always.end(), name) != always.end();
+    auto takes = [&](const Window &w) {
+      return t >= w.start && t <= w.end && (w.ac < 0 || w.ac == ac) && (!w.always_only || is_always);
+    };
     bool any = false;
     for (const auto &w : windows) {
-      if (t >= w.first && t <= w.second) { any = true; break; }
+      if (takes(w)) { any = true; break; }
     }
     if (name == "AUTOPILOT_VERSION" && !versions.count(ac)) {
       const char *c = q;
@@ -279,7 +303,7 @@ int export_columns(int argc, char *argv[])
     }
 
     for (size_t w = 0; w < windows.size(); ++w) {
-      if (t < windows[w].first || t > windows[w].second) { continue; }
+      if (!takes(windows[w])) { continue; }
       if (!ok) {
         keep_raw(raw_for(static_cast<int>(w), ac), t, line, line_end);
         continue;

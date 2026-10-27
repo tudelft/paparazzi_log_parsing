@@ -414,8 +414,9 @@ are shown and can be retried. Flights need valid coordinates and a correct date 
 at least six days old. No API key is required; the free service is
 [non-commercial only](https://open-meteo.com/en/terms), with attribution under CC BY 4.0.
 
-**MATLAB export.** A flight page offers, per Paparazzi source log (`onboard_sd`/`gcs` with its `.log`),
-**This flight**, **All flights** and **Whole log**. `POST /api/logs/<id>/matlab` (`scope` = `flight` with
+**MATLAB export.** The **MATLAB ▾** menu (`static/matlab.js`) at the top right of a flight page and in an
+expanded Logbook row offers, per Paparazzi source log (`onboard_sd`/`gcs` with its `.log`), **This flight**,
+**All flights** and **Whole log**, with progress and the download inside the menu. `POST /api/logs/<id>/matlab` (`scope` = `flight` with
 `flight_id`, `flights` or `log`) queues a job; `GET /api/matlab-exports/<job>` reports
 queued/running/ready/failed with progress and `/download` returns the file. All three need a browser session
 (API keys get 403) and re-check that the user may see the log. Jobs are identified by log hash, scope, flight
@@ -432,32 +433,33 @@ compressing chunks on several threads. Times use the parser's clock-wrap correct
 windows match the stored takeoff/landing times. Without MATLAB on the server, loading was verified with an
 independent v7.3 reader; check new layouts in MATLAB itself.
 
-Layout of `s` (exporter version 2):
+Layout of `s` (exporter version 3): `s.aircrafts(i).flights(k)`.
 - `s.log`: name, sha256, log type, scope, exporter version, creation time, margin, and `time0_utc` / `time0_posix`
   (UTC of log time 0, with the page's date correction: `datetime(s.log.time0_posix + t, 'ConvertFrom', 'posixtime')`).
 - `s.messages.<MSG>`: class, id, `fields`, `types`, `units` (of the stored columns), `raw_units`, `alt_unit_coef`
   and, for enum fields, `values.<field>` (value v is named `values.<field>{v + 1}`). `s.warnings` lists what was
-  kept as raw text.
-- Per aircraft (`s.aircrafts(i)` for the whole log, `s.flights(k).aircrafts(i)` per flight): `AC_ID`, `name`,
-  `version`, `version_desc`, `crew` (PIC, PAC, GCS and goal as written in the log, no account details),
-  `simulation` (assessed, detected, evidence), `settings.list` (index, var, shortname, unit, parent) and
-  `settings.changes` (timestamp, index, name, from/to value, in flight), `checklist` (timestamp, item description,
-  answer, logged message), `config` (`airframe_xml`, `flight_plan_xml`, `settings_xml`, `radio_xml`, `telemetry_xml`
-  and `flight_plan` with waypoints and block names), `raw` (`timestamp`, `lines`) and `data.<MSG>`.
+  kept as raw text; rows without a valid time or aircraft id are in `s.raw`.
+- `s.aircrafts(i)` (in a flight export only aircraft with an exported flight): `AC_ID`, `name`, `version`,
+  `version_desc`, `crew` (PIC, PAC, GCS and goal as written in the log, no account details), `simulation`,
+  `settings.<name>` (index, var, shortname, unit, parent and every reported `timestamp` / `value` from DL_VALUE
+  over the whole log), `settings_list`, `setting_changes`, `checklist` (timestamp, item description, answer,
+  logged message), `checklist_answers.<key>` (last answer per logged key), `config` (`airframe_xml`,
+  `flight_plan_xml`, `settings_xml`, `radio_xml`, `telemetry_xml`, `flight_plan.waypoints.<NAME>` with lat/lon/alt_m,
+  `waypoint_names`, `blocks`) and `flights`. These aircraft-level times are log time. A whole-log export adds
+  `data` and `raw` here, with log timestamps.
+- `flights(k)`: `index` (the parser's flight number of that aircraft), `takeoff_utc`, `landing_utc`, `takeoff_posix`,
+  `time_offset_s` (log time of takeoff), `start_s` / `end_s` (log time of the window, to slice a whole-log export),
+  `window_s`, `summary` (duration, distance, range, positions, battery, landed) and `assessment` (verdict, reasons).
+  In a flight export each also holds that aircraft's `data` and `raw`, timestamps counting from takeoff.
 - `data.<MSG>`: `timestamp` and one column per field. A field with `alt_unit_coef` is stored converted to its
-  alternate unit (e.g. deg) under its own name, with the logged value as `<field>_raw` (this replaces parselog's
-  `_alt`). Types: `uint*` uint32, `int*` int32, float double, arrays N×k double padded with NaN, text cellstr.
-  Enum fields add `<field>_name`; navigation messages with `cur_block` / `cur_stage` add `cur_block_name` /
-  `cur_stage_name` (flight plan names in the parser's numbering); these are N×L char matrices padded with spaces
-  (`strtrim(cellstr(x))`). `ACTUATORS.names` names the columns of `values` when the airframe lists as many servos.
-  MATLAB keywords get a trailing `_`.
-- Flight scopes: `s.flights(k)` with `index`, `AC_ID`, `aircraft`, `takeoff_utc`, `landing_utc`, `takeoff_posix`,
-  `time_offset_s` (log time of takeoff; timestamps, settings changes and checklist count from takeoff), `window_s`,
-  `summary` (duration, distance, range, takeoff/landing position and battery, landed) and `assessment` (verdict,
-  reasons), with every aircraft in the window. Rows without a valid time or aircraft id are in `s.raw`.
+  alternate unit (e.g. deg) under its own name, with the logged value as `<field>_raw`. Types: `uint*` uint32,
+  `int*` int32, float double, arrays N×k double padded with NaN, text cellstr. Enum fields add `<field>_name`;
+  navigation messages add `cur_block_name` / `cur_stage_name`; these are N×L char matrices padded with spaces
+  (`strtrim(cellstr(x))`). `ACTUATORS` has `values`, `names` and, when the airframe lists as many servos, each
+  actuator as its own column (`ACTUATORS.FRONT_MOT`). MATLAB keywords get a trailing `_`.
 
-Example: `s = load('x.mat').s; a = s.flights(1).aircrafts(1).data.ATTITUDE; plot(a.timestamp, a.phi)` (phi in
-degrees; `a.phi_raw` is the logged radians).
+Example: `s = load('x.mat').s; a = s.aircrafts(1); f = a.flights(3); act = f.data.ACTUATORS;`
+`plot(act.timestamp, act.FRONT_MOT); a.settings.guidance_h_gains_p.value; a.config.flight_plan.waypoints.HOME.lat`.
 
 ## Storage and backup
 

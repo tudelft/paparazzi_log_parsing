@@ -26,6 +26,7 @@ PROTOCOL = """<configuration time_of_day="1">
  <message name="AUTOPILOT_VERSION" id="2"><field name="version" type="uint32"/><field name="desc" type="char[]"/></message>
  <message name="ROTORCRAFT_STATUS" id="3"><field name="ap_mode" type="uint8" values="KILL|FAILSAFE|HOME|RATE"/>
   <field name="end" type="int8"/></message>
+ <message name="DL_VALUE" id="31"><field name="index" type="uint8"/><field name="value" type="float"/></message>
  <message name="ROTORCRAFT_NAV_STATUS" id="4"><field name="cur_block" type="uint8"/><field name="cur_stage" type="uint8"/></message>
 </msg_class>
 </protocol>
@@ -57,7 +58,7 @@ ROWS = ['0.5 5 AUTOPILOT_VERSION 51500 "v5.15_devel-167-g55bfedf"', "1.0 5 ATTIT
         "1.0 7 ATTITUDE 1 2 3", "2.0 5 ACTUATORS 1,2,3", "3.0 5 ACTUATORS 4,5,6,7",
         '4.0 5 INFO_MSG "[PFC] pic: Pilot One"', "5.0 5 ATTITUDE 0.1 bad 0.3", "6.0 5 UNKNOWN_MSG 1 2",
         "7.0 5 ROTORCRAFT_STATUS 3 -1", "garbage line", "30.0 5 ATTITUDE 0.4 0.5 0.6",
-        "8.0 5 ROTORCRAFT_NAV_STATUS 1 1", "9.0 5 ROTORCRAFT_NAV_STATUS 0 0", "9.5 5 ROTORCRAFT_NAV_STATUS 7 0",
+        "4.5 5 DL_VALUE 0 1.0", "40.0 5 DL_VALUE 0 2.0", "8.0 5 ROTORCRAFT_NAV_STATUS 1 1", "9.0 5 ROTORCRAFT_NAV_STATUS 0 0", "9.5 5 ROTORCRAFT_NAV_STATUS 7 0",
         "4290.0 5 ATTITUDE 0.7 0.8 0.9", "5.0 5 ATTITUDE 1.0 1.1 1.2"]  # the last row wraps the onboard clock
 EXTRAS = dict(time0_utc="2026-10-21T09:00:00.000Z", time0_posix=1792573200.0, aircraft={5: dict(
     pic="Pilot A", pac=None, gcs="Operator C", goal="Hover test", simulation=dict(detected=False, evidence=[]),
@@ -86,7 +87,7 @@ def chars(ds):
 
 @unittest.skipUnless(h5py is not None and PARSER.exists(), "needs h5py and a built cpp parser")
 class MatlabExporterTests(unittest.TestCase):
-    def export(self, windows=None):
+    def export(self, windows=None, flights=()):
         folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
         (folder / "x.data.gz").write_bytes(gzip.compress(("\n".join(ROWS) + "\n").encode()))
         (folder / "x.log.gz").write_bytes(gzip.compress(PROTOCOL.encode()))
@@ -94,7 +95,7 @@ class MatlabExporterTests(unittest.TestCase):
         warnings = matlab_export.export(str(PARSER), folder / "x.data.gz", folder / "x.log.gz", folder / "out.mat",
                                         dict(name="x.data", sha256="abc", log_type="gcs", size_bytes=1000,
                                              scope="log" if windows is None else "flights"),
-                                        folder / "work", windows, extras=EXTRAS)
+                                        folder / "work", windows, extras=dict(EXTRAS, flights=list(flights)))
         file = self.enterContext(h5py.File(folder / "out.mat", "r"))
         return file, warnings, (folder / "out.mat").read_bytes()[:128]
 
@@ -103,7 +104,7 @@ class MatlabExporterTests(unittest.TestCase):
         return file[group[field][i, 0]]
 
     def test_whole_log_layout_values_and_raw_rows(self):
-        file, warnings, header = self.export()
+        file, warnings, header = self.export(flights=[dict(index=3, ac_id=5, takeoff_s=2.0, landing_s=6.0)])
         self.assertTrue(header.startswith(b"MATLAB 7.3 MAT-file"))
         self.assertEqual(header[124:128], b"\x00\x02IM")
         s = file["s"]
@@ -134,42 +135,53 @@ class MatlabExporterTests(unittest.TestCase):
         self.assertEqual(chars(nav["cur_block_name"]), ["Takeoff", "Wait", ""])  # block 7 does not exist
         self.assertEqual(chars(nav["cur_stage_name"]), ["stay B", "call", ""])
         self.assertEqual([text(file, r) for r in data["ACTUATORS"]["names"][0, :]], ["M1", "M2", "M3", "M4"])
+        names = data["ACTUATORS"]
+        np.testing.assert_array_equal(column(names["M4"]), [np.nan, 7])  # actuators by name, next to values
         g = file[aircraft["crew"][0, 0]]
         self.assertEqual((text(file, g["pic"].ref), text(file, g["pac"].ref)), ("Pilot A", ""))
         settings = file[aircraft["settings"][0, 0]]
-        self.assertEqual(text(file, settings["changes"]["name"][0, 0]), "gain")
-        self.assertEqual(column(settings["changes"]["timestamp"])[0], 5.0)
+        np.testing.assert_allclose(column(settings["gain"]["value"]), [1.0, 2.0])  # every report, by name
+        np.testing.assert_allclose(column(settings["gain"]["timestamp"]), [4.5, 40.0])
+        self.assertEqual(text(file, settings["gain"]["parent"].ref), "Control")
+        changes = file[aircraft["setting_changes"][0, 0]]
+        self.assertEqual((text(file, changes["name"][0, 0]), column(changes["timestamp"])[0]), ("gain", 5.0))
         checklist = file[aircraft["checklist"][0, 0]]
         self.assertEqual([text(file, r) for r in checklist["item"][0, :]], ["Enter the PIC", "props"])
         self.assertEqual([text(file, r) for r in checklist["answer"][0, :]], ["Pilot A", ""])
+        answers = file[aircraft["checklist_answers"][0, 0]]
+        self.assertEqual(text(file, answers["pic"].ref), "Pilot A")
         config = file[aircraft["config"][0, 0]]
         self.assertEqual(text(file, config["airframe_xml"].ref), "<airframe/>")
         self.assertEqual([text(file, r) for r in config["flight_plan"]["blocks"][0, :]], ["Wait", "Takeoff"])
+        self.assertEqual(config["flight_plan"]["waypoints"]["HOME"]["alt_m"][0, 0], 10.0)
         self.assertEqual(text(file, s["log"]["time0_utc"].ref), "2026-10-21T09:00:00.000Z")
+        listed = self.element(file, aircraft, "flights", 0)  # flight summaries without data in a whole-log export
+        self.assertEqual((file[listed["index"][0, 0]][0, 0], file[listed["start_s"][0, 0]][0, 0]), (3.0, -8.0))
+        self.assertNotIn("data", listed)
         self.assertEqual(text(file, data["INFO_MSG"]["msg"][0, 0]), "[PFC] pic: Pilot One")
         raw = self.element(file, aircraft, "raw", 0)
         self.assertEqual(text(file, raw["lines"].ref), "5.0 5 ATTITUDE 0.1 bad 0.3\n6.0 5 UNKNOWN_MSG 1 2")
         self.assertEqual(text(file, s["raw"]["lines"].ref), "garbage line")
         self.assertEqual(len(warnings), 3)
 
-    def test_flight_windows_are_relative_to_takeoff_and_keep_every_aircraft(self):
+    def test_flights_belong_to_their_aircraft_and_count_from_takeoff(self):
         windows = [dict(index=1, ac_id=5, takeoff_s=2.0, landing_s=6.0, takeoff_utc="2026-10-21T09:05:12Z",
                         landing_utc=None),
                    dict(index=2, ac_id=5, takeoff_s=4290.0, landing_s=None, takeoff_utc=None, landing_utc=None)]
         file, _, _ = self.export(windows)
-        flights = file["s"]["flights"]
+        aircraft = file["s"]["aircrafts"]
+        self.assertEqual(aircraft["AC_ID"].shape, (1, 1))  # only aircraft with an exported flight
+        flights = self.element(file, aircraft, "flights", 0)
         self.assertEqual(flights["index"].shape, (2, 1))
-        first = self.element(file, flights, "aircrafts", 0)
-        self.assertEqual([file[r][0, 0] for r in first["AC_ID"][:, 0]], [5, 7])
-        data = file[first["data"][0, 0]]
-        np.testing.assert_allclose(column(data["ATTITUDE"]["timestamp"]), [-1.0])
+        data = file[flights["data"][0, 0]]
+        np.testing.assert_allclose(column(data["ATTITUDE"]["timestamp"]), [-1.0])  # aircraft 7's row is not here
         np.testing.assert_allclose(column(data["AUTOPILOT_VERSION"]["timestamp"]), [-1.5])  # inside the 10 s margin
-        checklist = file[file[first["checklist"][0, 0]]["timestamp"].ref]
-        np.testing.assert_allclose(column(checklist), [-1.2, -1.1])  # relative to this flight's takeoff
         np.testing.assert_allclose(column(self.element(file, flights, "window_s", 0)), [-10, 14])
-        second = file[self.element(file, flights, "aircrafts", 1)["data"][0, 0]]
+        second = file[flights["data"][1, 0]]
         np.testing.assert_allclose(column(second["ATTITUDE"]["timestamp"]), [0.0, 4294.967296 + 5 - 4290.0])
         self.assertEqual(self.element(file, flights, "time_offset_s", 1)[0, 0], 4290.0)
+        settings = file[aircraft["settings"][0, 0]]
+        np.testing.assert_allclose(column(settings["gain"]["timestamp"]), [4.5, 40.0])  # whole log, log time
 
     def test_missing_protocol_is_refused(self):
         with self.assertRaises(matlab_export.ExportError):
@@ -226,7 +238,7 @@ class MatlabExportRouteTests(AppTests):
         self.assertEqual(sorted(extras["aircraft"][5]), ["checklist", "config", "gcs", "goal", "pac", "pic",
                                                          "setting_changes", "settings", "simulation"])
         self.assertEqual([[w["index"], w["takeoff_s"], w["landing_s"]] for w in windows],
-                         [[1, 100.0, 200.0], [2, 400.0, None]])  # the ground record is left out
+                         [[1, 100.0, 200.0], [3, 400.0, None]])  # the ground record (flight 2) is left out
         self.assertEqual(self.client.get(f"/api/matlab-exports/{one.json['id']}").json["status"], "queued")
 
     def test_refusals_and_permissions(self):

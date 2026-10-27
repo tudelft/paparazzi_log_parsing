@@ -5,6 +5,7 @@
 <title>Flight</title>
 <script src="/theme.js"></script>
 <script src="/attachments.js"></script>
+<script src="/matlab.js"></script>
 <link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -75,6 +76,8 @@
   .flight-tabs { display:flex; gap:6px; overflow-x:auto; padding:4px 0 12px; margin-bottom:8px; }
   .flight-tabs button { white-space:nowrap; border:1px solid var(--line); }
   .flight-tabs button[aria-selected="true"] { background:var(--acc); color:#fff; }
+  .flight-tabs .tabs-end { margin-left:auto; }
+  .flight-tabs .matlab-button { background:var(--btn); color:#fff; border-color:var(--btn); }
   summary { cursor:pointer; font-weight:600; }
   details[open] > summary { margin-bottom:12px; }
   .pager { display:flex; align-items:center; gap:12px; margin-top:12px; flex-wrap:wrap; }
@@ -125,6 +128,7 @@
     <button type="button" id="tab-messages" role="tab" aria-selected="false" aria-controls="panel-messages" tabindex="-1" data-tab="messages">Messages <span id="messagesBadge"></span></button>
     <button type="button" id="tab-checks" role="tab" aria-selected="false" aria-controls="panel-checks" tabindex="-1" data-tab="checks">Checklist <span id="checksBadge"></span></button>
     <button type="button" id="tab-files" role="tab" aria-selected="false" aria-controls="panel-files" tabindex="-1" data-tab="files">Files</button>
+    <span id="matlabMenu" class="tabs-end"></span>
   </div>
   <div id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
   <section class="card" id="summary"></section>
@@ -202,8 +206,7 @@ const fmtDur = s => s == null ? '' : `${Math.floor(s / 60)}m ${String(Math.round
 const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km` : `${Math.round(m)} m`;
 const rel = t => { const d = t - D.takeoff_time_s, a = Math.abs(d); return (d < 0 ? '−' : '+') + Math.floor(a / 60) + ':' + String(Math.floor(a % 60)).padStart(2, '0') + '.' + String(Math.floor(a % 1 * 10)); };
 const TYPE = {onboard_sd: 'Onboard SD log', gcs: 'GCS log', px4_ulog: 'PX4 ULog', ardupilot: 'ArduPilot log', mavlink_tlog: 'MAVLink tlog'};
-const downloadLabel = t => ({px4_ulog:'PX4 .ulg', ardupilot:'ArduPilot log', mavlink_tlog:'MAVLink .tlog',
-  gcs:'.data + .log', onboard_sd:'.data + .log'}[t] || 'log');
+const downloadLabel = window.logLabel;  // theme.js
 let me = null, projects = [], people = [];
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
@@ -232,49 +235,6 @@ AttachmentFiles.mount($('additionalFiles'), 'flight', flightId).then(d => {
 });
 addEventListener('editchange', () => { syncFilesHead(); if (D) renderSummary(); });
 
-// MATLAB export of one source log: this flight, all its flights (10 s margin) or the whole log. The server builds
-// the file in the background and keeps it two weeks; the status is polled until it can be downloaded.
-const MATLAB_TYPES = new Set(['onboard_sd', 'gcs']);
-const MATLAB_SCOPES = [['flight', 'This flight', 'Only this flight, from 10 s before takeoff until 10 s after landing; every aircraft in the log'],
-  ['flights', 'All flights', 'Each detected flight of this log (ground records left out) as its own struct, with 10 s margins'],
-  ['log', 'Whole log', 'The complete log: every aircraft and message, with the original log timestamps']];
-const matlabState = {};  // "<log>:<scope>" -> last job status
-function matlabControls(s) {
-  const one = ([scope, label, tip]) => {
-    const job = matlabState[`${s.log_id}:${scope}`];
-    if (job?.status === 'ready') return `<a href="${job.download}" title="${esc(tip)}">${label} ⬇ <span class="mute">${(job.size_bytes / 1048576).toFixed(job.size_bytes < 10485760 ? 1 : 0)} MB</span></a>`;
-    if (job?.status === 'queued' || job?.status === 'running')
-      return `<span class="mute" title="${esc(tip)}">${label}: ${job.status === 'queued' ? 'waiting' : `preparing ${Math.round(job.progress * 100)}%`}</span>`;
-    return `<button type="button" class="link-button" data-matlab="${scope}" data-log="${s.log_id}" data-flight="${s.flight_id}" title="${esc(tip)}">${label}</button>`
-      + (job?.status === 'failed' ? ` <span class="warn">${esc(job.error)}</span>` : '');
-  };
-  return `<span data-matlab-row="${s.log_id}">${MATLAB_SCOPES.map(one).join(' · ')}</span>`;
-}
-function renderMatlabRow(logId) {
-  const row = document.querySelector(`[data-matlab-row="${logId}"]`);
-  const source = D?.entry.sources.find(x => x.log_id === logId);
-  if (row && source) row.outerHTML = matlabControls(source);
-}
-async function pollMatlab(key, logId) {
-  while (['queued', 'running'].includes(matlabState[key]?.status)) {
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    const r = await fetch(`/api/matlab-exports/${matlabState[key].id}`);
-    matlabState[key] = r.ok ? await r.json() : {status: 'failed', error: 'The export was lost (server restart?); try again.'};
-    renderMatlabRow(logId);
-  }
-}
-document.addEventListener('click', async event => {
-  const button = event.target.closest('[data-matlab]');
-  if (!button) return;
-  const logId = +button.dataset.log, scope = button.dataset.matlab, key = `${logId}:${scope}`;
-  button.disabled = true;
-  const r = await fetch(`/api/logs/${logId}/matlab`, {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({scope, flight_id: +button.dataset.flight})});
-  const d = await r.json().catch(() => ({}));
-  matlabState[key] = r.ok ? d : {status: 'failed', error: d.error || `Export failed (HTTP ${r.status}).`};
-  renderMatlabRow(logId);
-  pollMatlab(key, logId);
-});
 let activeTab = 'overview';
 function selectTab(name) {
   const tabs = [...document.querySelectorAll('[data-tab]')];
@@ -503,8 +463,8 @@ function renderSummary() {
         + (D.timing.correction_s != null ? ' · parser correction: ' + esc(D.timing.correction_s) + ' s' : '')
         + (D.timing.warning ? '<br>' + esc(D.timing.warning) : '') + timingEvidenceHTML(D.timing)) : ''}
       ${e.sources.map(s => kv(TYPE[s.log_type] || s.log_type, `<a href="/flight/${s.flight_id}" class="${s.flight_id === flightId ? 'cur' : ''}">${esc(s.log_name)}</a>${s.flight_id === flightId ? ' <span class="mute">(shown)</span>' : ''}
-        · <a href="/api/logs/${s.log_id}/download">download ${downloadLabel(s.log_type)}</a> · <a href="/uploads#log${s.log_id}">log details</a>`)
-        + (MATLAB_TYPES.has(s.log_type) ? kv('MATLAB (.mat)', matlabControls(s)) : '')).join('')}
+        · <a href="/api/logs/${s.log_id}/download" title="Download ${downloadLabel(s.log_type)} (all its files)">download</a> · <a href="/uploads#log${s.log_id}">log details</a>`)
+).join('')}
       ${insRows('Takeoff', e.takeoff)}${insRows('Landing', e.landing)}
       ${kv('Uploaded', esc(fmtTime(e.uploaded_at)) + (e.uploaded_by_name ? ' by ' + esc(e.uploaded_by_name) : ''))}
       ${kv('Raw data', `<a href="/api/flights/${flightId}/path" target="_blank">Path JSON</a> · <a href="/api/aircraft/${D.aircraft_pk}/config" target="_blank">Airframe / flight plan / settings</a>`)}
@@ -1025,6 +985,7 @@ fetch(`/api/flights/${flightId}/detail`).then(r => r.ok ? r.json() : Promise.rej
       if (dt > 0.05) b.groundspeed_ms = Math.max(0, (b.distance_m - a.distance_m) / dt);
     }
   }
+  $('matlabMenu').innerHTML = MatlabExport.button(D.entry.sources);
   setAvailableSeries(); renderSummary(); renderLists(); renderMisc(); loadWeather(); selectTab(activeTab);
   $('allChanges').onchange = () => { listPages.changes = 0; renderLists(); };
   $('allMsgs').onchange = () => { listPages.msgs = 0; renderLists(); };

@@ -250,3 +250,18 @@ dialog.entry-dialog label.field input, dialog.entry-dialog label.field select { 
 .file-list td { padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; white-space:nowrap; }
 .file-list td.file-name { white-space:normal; width:100%; overflow-wrap:anywhere; }
 .file-list .file-desc { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60ch; }
+
+/* MATLAB export menu (matlab.js) */
+.matlab-pop { position:absolute; z-index:1000; min-width:280px; max-width:min(420px, calc(100vw - 16px)); padding:8px;
+  background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,.18); }
+.matlab-group + .matlab-group { margin-top:6px; padding-top:6px; border-top:1px solid var(--line); }
+.matlab-head { font-size:12px; font-weight:600; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; padding:2px 6px; }
+.matlab-head .mute { text-transform:none; letter-spacing:0; font-weight:400; margin-left:4px; }
+.matlab-item { display:flex; justify-content:space-between; gap:12px; width:100%; padding:5px 6px; border:0; border-radius:4px;
+  background:none; color:var(--acc); font:inherit; text-align:left; cursor:pointer; text-decoration:none; }
+.matlab-item:hover, .matlab-item:focus-visible { background:var(--hover, rgba(31,111,235,.08)); }
+.matlab-item:disabled { color:var(--txt); cursor:default; }
+.matlab-state { color:var(--mute); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.matlab-head { display:flex; align-items:center; gap:4px; }
+.matlab-help { margin-left:auto; text-transform:none; letter-spacing:0; }
+.matlab-help .tip { left:auto; right:0; white-space:normal; width:280px; }

@@ -5512,6 +5512,7 @@ def request_matlab_export(log_id):
         " f.takeoff_voltage_v, f.landing_voltage_v"
         " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE a.log_id=? AND f.takeoff_time_s IS NOT NULL"
         " ORDER BY f.takeoff_time_s, f.id", (log_id,))]
+    all_flights = flights
     if scope == "flight":
         flights = [f for f in flights if f["id"] == body.get("flight_id")]
         if not flights:
@@ -5528,13 +5529,14 @@ def request_matlab_export(log_id):
     summary_keys = ("duration_s", "distance_m", "max_from_takeoff_m", "from_takeoff_m", "landed", "takeoff_lat",
                     "takeoff_lon", "takeoff_alt_m", "landing_lat", "landing_lon", "landing_alt_m",
                     "takeoff_voltage_v", "landing_voltage_v")
-    windows = None if scope == "log" else [
-        dict(index=i + 1, ac_id=f["ac_id"], takeoff_s=f["takeoff_time_s"], landing_s=f["landing_time_s"],
-             takeoff_utc=shift_iso(f["takeoff_utc"], days), landing_utc=shift_iso(f["landing_utc"], days),
-             takeoff_posix=posix(shift_iso(f["takeoff_utc"], days)),
-             summary={k: f[k] for k in summary_keys}, assessment=dict(
-                 verdict=f["verdict"], reasons=(json.loads(f["assessment_json"] or "null") or {}).get("reasons") or []))
-        for i, f in enumerate(flights)]
+    def window(f):  # index: the parser's flight number of that aircraft in this log, from 1
+        return dict(index=(f["idx"] or 0) + 1, ac_id=f["ac_id"], takeoff_s=f["takeoff_time_s"],
+                    landing_s=f["landing_time_s"], takeoff_utc=shift_iso(f["takeoff_utc"], days),
+                    landing_utc=shift_iso(f["landing_utc"], days), takeoff_posix=posix(shift_iso(f["takeoff_utc"], days)),
+                    summary={k: f[k] for k in summary_keys}, assessment=dict(
+                        verdict=f["verdict"],
+                        reasons=(json.loads(f["assessment_json"] or "null") or {}).get("reasons") or []))
+    windows = None if scope == "log" else [window(f) for f in flights]
     aircraft = {}
     for a in con.execute("SELECT id, ac_id, pic, pac, gcs, goal, simulation, preflight_checks, config_gz"
                          " FROM aircraft WHERE log_id=?", (log_id,)):
@@ -5548,7 +5550,8 @@ def request_matlab_export(log_id):
                 "SELECT time_s, idx, var, from_value, to_value, in_flight FROM setting_changes"
                 " WHERE aircraft_id=? ORDER BY time_s, id", (a["id"],))])
     time0_utc = shift_iso(row["start_utc"], days)
-    extras = dict(aircraft=aircraft, time0_utc=time0_utc, time0_posix=posix(time0_utc))
+    extras = dict(aircraft=aircraft, time0_utc=time0_utc, time0_posix=posix(time0_utc),
+                  flights=[window(f) for f in all_flights] if scope == "log" else [])
     identity = json.dumps([row["sha256"], scope, matlab_export.EXPORTER_VERSION, matlab_export.MARGIN_S,
                            row["parser_version"], windows, extras], sort_keys=True, default=str)
     job_id = hashlib.sha256(identity.encode()).hexdigest()[:32]

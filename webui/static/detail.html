@@ -182,8 +182,7 @@ const KINDS = {
 };
 const ROLES = [['pic', 'PIC'], ['pac', 'PAC'], ['gcs', 'GCS operator']];
 const TYPE = {onboard_sd: 'Onboard SD', gcs: 'GCS', px4_ulog: 'PX4', ardupilot: 'ArduPilot', mavlink_tlog: 'tlog'};
-const downloadLabel = t => ({px4_ulog:'PX4 .ulg', ardupilot:'ArduPilot log', mavlink_tlog:'MAVLink .tlog',
-  gcs:'.data + .log', onboard_sd:'.data + .log'}[t] || 'log');
+const downloadLabel = window.logLabel;  // theme.js
 const ACCESS = {view: 'See logs', add: 'Add logs', full: 'See, add and delete'};
 const PAGE_SIZES = [10, 25, 50, 100];
 let D = null, me = null, map = null, mapLayer = null;

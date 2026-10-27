@@ -35,7 +35,7 @@ import numpy as np
 
 import storage
 
-EXPORTER_VERSION = "2"
+EXPORTER_VERSION = "3"
 MARGIN_S = 10.0
 MESSAGE_CLASSES = ("telemetry", "ground", "datalink", "alert")  # lookup order, as in parselog.m
 TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|\S+')
@@ -413,8 +413,9 @@ class Columns:
                     self.names(group, "cur_stage_name", code, flat, rows, i0, created)
         del data
 
-    def array(self, group, f, len_path, val_path, rows, width):
-        """A numeric array field as an N×width matrix, shorter rows padded with NaN."""
+    def array(self, group, f, len_path, val_path, rows, width, names=None):
+        """A numeric array field as an N×width matrix, shorter rows padded with NaN. With ``names`` (one per
+        column, e.g. actuator names) every column is also stored as its own N×1 field."""
         if width == 0:
             self.w.empty(group, f["key"])
             if f["alt_unit_coef"] != 1:
@@ -426,6 +427,13 @@ class Columns:
         out = [(self.create(group, f["key"], "float64", width, rows), f["alt_unit_coef"])]  # converted unit
         if f["alt_unit_coef"] != 1:
             out.append((self.create(group, f["key"] + "_raw", "float64", width, rows), 1.0))
+        named = []
+        if names and len(names) == width:
+            taken = set(group.keys()) | {"timestamp", "names", f["key"], f["key"] + "_raw"}
+            for k, name in enumerate(names):
+                key = matlab_name(name, taken)
+                taken.add(key)
+                named.append((self.create(group, key, "float64", 1, rows), k))
         for i0 in range(0, rows, CHUNK_ROWS):
             n = min(CHUNK_ROWS, rows - i0)
             seg_lens = lens[i0:i0 + n].astype(np.int64)
@@ -439,6 +447,8 @@ class Columns:
                 block[col, row] = vals
             for ds, coef in out:
                 self.put(ds, block * coef if coef != 1 else block, i0)
+            for ds, k in named:
+                self.put(ds, block[k:k + 1] * f["alt_unit_coef"] if f["alt_unit_coef"] != 1 else block[k:k + 1], i0)
         del values
 
 
@@ -459,9 +469,11 @@ def export(fastreader, data_gz, log_gz, out_path, info, work_dir, windows=None, 
 
     ``windows`` is None for the whole log, else a list of flight dicts with ``index``, ``ac_id``, ``takeoff_s``,
     ``landing_s`` (None: until the end of the log), ``takeoff_utc`` and ``landing_utc`` in log time as stored by
-    the parser, optionally with ``summary`` and ``assessment`` dicts. ``extras`` holds what the Web UI stored per
-    aircraft (``aircraft``: ac_id -> crew, simulation, settings, setting_changes, checklist, config) and
-    ``time0_utc`` / ``time0_posix`` (UTC of log time 0). ``work_dir`` is a private temporary directory on local
+    the parser, optionally with ``summary``, ``assessment`` and ``takeoff_posix``. The layout is
+    ``s.aircrafts(i).flights(k)``: a flight export puts each flight's own data in its element. ``extras`` holds
+    what the Web UI stored per aircraft (``aircraft``: ac_id -> crew, simulation, settings, setting_changes,
+    checklist, config), ``flights`` (the same dicts as ``windows``, listed without data in a whole-log export)
+    and ``time0_utc`` / ``time0_posix`` (UTC of log time 0). ``work_dir`` is a private temporary directory on local
     disk; the caller removes it."""
     extras = extras or {}
     if not log_gz:
@@ -484,8 +496,10 @@ def export(fastreader, data_gz, log_gz, out_path, info, work_dir, windows=None, 
         spans = [dict(win, start=win["takeoff_s"] - MARGIN_S,
                       end=(win["landing_s"] if win["landing_s"] is not None else math.inf) + MARGIN_S)
                  for win in windows]
-        for span in spans:
-            cmd += ["--window", repr(span["start"]), "inf" if math.isinf(span["end"]) else repr(span["end"])]
+        for span in spans:  # a flight holds only its own aircraft's rows
+            cmd += ["--window-ac", str(span["ac_id"]), repr(span["start"]),
+                    "inf" if math.isinf(span["end"]) else repr(span["end"])]
+        cmd += ["--always", "DL_VALUE"]  # setting values by name cover the whole log
     cmd.append("-")  # the .data is piped straight out of gzip storage: no uncompressed copy on disk
     errors, feed_error = [], []
     with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
@@ -537,49 +551,82 @@ def export(fastreader, data_gz, log_gz, out_path, info, work_dir, windows=None, 
         for (window, ac) in raws:
             by_window.setdefault(window, {}).setdefault(ac, [])
         done, total = 0, max(len(streams), 1)
+        settings_window = 0 if spans is None else len(spans)  # where the whole-log DL_VALUE rows are
 
-        def aircraft_elements(window, shift):
+        def config_names(ac):
+            conf = ac if ac in extra["blocks"] or ac in extra["servos"] else -1  # airframe without ac_id
+            return (extra["blocks"].get(conf, []), extra["stages"].get(conf, [])), extra["servos"].get(conf, [])
+
+        def write_data(g, window, ac, shift):
             nonlocal done
-            out = []
-            for ac in sorted(by_window.get(window, {})):
-                g = w.element()
-                w.number(g, "AC_ID", ac)
-                w.char(g, "name", names.get(ac, ""))
-                version = versions.get(ac)
-                w.number(g, "version", version[0] if version else None)
-                w.char(g, "version_desc", version[1] if version else "")
-                conf = ac if ac in extra["blocks"] or ac in extra["servos"] else -1  # airframe without ac_id
-                nav = (extra["blocks"].get(conf, []), extra["stages"].get(conf, []))
-                servos = extra["servos"].get(conf, [])
-                data = w.struct(g, "data")
-                for st in sorted(by_window[window][ac], key=lambda x: x["msg"]):
-                    m = messages[st["msg"]]
-                    mg = w.struct(data, m["key"])
-                    stem = cols / f"s{st['id']}"
-                    c.scalars(mg, f"{stem}.f64", st["rows"], m["fields"], shift, nav)
-                    for j, f in enumerate(m["fields"]):
-                        if f["kind"] == "array":
-                            width = arrays.get((st["id"], j), 0)
-                            c.array(mg, f, f"{stem}_a{j}.len", f"{stem}_a{j}.f64", st["rows"], width)
-                            if m["name"] == "ACTUATORS" and servos and len(servos) == width and "names" not in mg:
-                                w.cellstr(mg, "names", servos)  # column k of values is actuator names{k}
-                        elif f["kind"] == "text":
-                            w.cellstr(mg, f["key"], _read_lines(Path(f"{stem}_t{j}.txt"))[:st["rows"]])
-                    finish_struct(mg)
-                    done += 1
-                    progress(0.7 + 0.29 * done / total)
-                finish_struct(data)
-                aircraft_extras(g, extras.get("aircraft", {}).get(ac, {}), shift, nav[0])
-                raw = w.struct(g, "raw")
-                rows = raws.get((window, ac), 0)
-                w.vector(raw, "timestamp", _times(cols / f"r{window}_{ac}.f64", rows, shift))
-                w.char(raw, "lines", "\n".join(_read_lines(cols / f"r{window}_{ac}.txt")))
-                finish_struct(raw)
-                finish_struct(g)
-                out.append(g)
-            return out
+            nav, servos = config_names(ac)
+            data = w.struct(g, "data")
+            for st in sorted(by_window.get(window, {}).get(ac, []), key=lambda x: x["msg"]):
+                m = messages[st["msg"]]
+                mg = w.struct(data, m["key"])
+                stem = cols / f"s{st['id']}"
+                c.scalars(mg, f"{stem}.f64", st["rows"], m["fields"], shift, nav)
+                for j, f in enumerate(m["fields"]):
+                    if f["kind"] == "array":
+                        width = arrays.get((st["id"], j), 0)
+                        actuators = servos if m["name"] == "ACTUATORS" else None
+                        c.array(mg, f, f"{stem}_a{j}.len", f"{stem}_a{j}.f64", st["rows"], width, actuators)
+                        if actuators and len(actuators) == width and "names" not in mg:
+                            w.cellstr(mg, "names", actuators)  # values(:, k) is names{k}, also stored by name
+                    elif f["kind"] == "text":
+                        w.cellstr(mg, f["key"], _read_lines(Path(f"{stem}_t{j}.txt"))[:st["rows"]])
+                finish_struct(mg)
+                done += 1
+                progress(0.7 + 0.29 * done / total)
+            finish_struct(data)
+            raw = w.struct(g, "raw")
+            rows = raws.get((window, ac), 0)
+            w.vector(raw, "timestamp", _times(cols / f"r{window}_{ac}.f64", rows, shift))
+            w.char(raw, "lines", "\n".join(_read_lines(cols / f"r{window}_{ac}.txt")))
+            finish_struct(raw)
 
-        def aircraft_extras(g, x, shift, blocks):
+        def setting_values(ac):
+            """Every DL_VALUE report of this aircraft (log time), split by setting index."""
+            m = messages.get("DL_VALUE")
+            st = next((x for x in by_window.get(settings_window, {}).get(ac, []) if x["msg"] == "DL_VALUE"), None)
+            if not m or st is None:
+                return {}
+            scalar = [f["name"] for f in m["fields"] if f["kind"] in NUMERIC_DTYPE]
+            if "index" not in scalar or "value" not in scalar:
+                return {}
+            data = np.fromfile(cols / f"s{st['id']}.f64", dtype=np.float64).reshape(st["rows"], 1 + len(scalar))
+            index, value = data[:, 1 + scalar.index("index")], data[:, 1 + scalar.index("value")]
+            return {int(i): (data[index == i, 0], value[index == i]) for i in np.unique(index)}
+
+        def flight_element(span, k):
+            g = w.element()
+            w.number(g, "index", span["index"])
+            w.char(g, "takeoff_utc", span.get("takeoff_utc"))
+            w.char(g, "landing_utc", span.get("landing_utc"))
+            w.number(g, "takeoff_posix", span.get("takeoff_posix"))
+            w.number(g, "time_offset_s", span["takeoff_s"])  # log time of takeoff
+            w.number(g, "start_s", span["start"])  # log time of the window, e.g. to slice a whole-log export
+            w.number(g, "end_s", span["end"])
+            w.vector(g, "window_s", [span["start"] - span["takeoff_s"], span["end"] - span["takeoff_s"]])
+            sg = w.struct(g, "summary")
+            for key, value in (span.get("summary") or {}).items():
+                w.char(sg, key, value) if isinstance(value, str) else w.number(sg, key, value)
+            finish_struct(sg)
+            ag = w.struct(g, "assessment")
+            assessment = span.get("assessment") or {}
+            w.char(ag, "verdict", assessment.get("verdict") or "")
+            w.cellstr(ag, "reasons", assessment.get("reasons") or [])
+            finish_struct(ag)
+            if k is not None:  # flight exports carry the data; time 0 is this flight's takeoff
+                write_data(g, k, span["ac_id"], span["takeoff_s"])
+            finish_struct(g)
+            return g
+
+        def with_window(win):
+            return dict(win, start=win["takeoff_s"] - MARGIN_S,
+                        end=(win["landing_s"] if win["landing_s"] is not None else math.inf) + MARGIN_S)
+
+        def aircraft_extras(g, x, blocks, values):
             crew = w.struct(g, "crew")  # as written in the log, not account names
             for key in ("pic", "pac", "gcs", "goal"):
                 w.char(crew, key, x.get(key) or "")
@@ -590,25 +637,45 @@ def export(fastreader, data_gz, log_gz, out_path, info, work_dir, windows=None, 
             w.number(sim, "detected", 1 if simulation and simulation.get("detected") else 0)
             w.cellstr(sim, "evidence", (simulation or {}).get("evidence") or [])
             finish_struct(sim)
-            settings = w.struct(g, "settings")
             items = x.get("settings") or []
-            w.table(settings, "list", dict(index=[i.get("index") for i in items], var=[i.get("var") for i in items],
-                                           shortname=[i.get("shortname") for i in items],
-                                           unit=[i.get("unit") for i in items], parent=[i.get("parent") for i in items]))
-            changes = x.get("setting_changes") or []
-            w.table(settings, "changes", dict(
-                timestamp=[None if r.get("time_s") is None else r["time_s"] - shift for r in changes],
-                index=[r.get("idx") for r in changes], name=[r.get("var") or "" for r in changes],
-                from_value=[r.get("from_value") for r in changes], to_value=[r.get("to_value") for r in changes],
-                in_flight=[1 if r.get("in_flight") else 0 for r in changes]))
+            w.table(g, "settings_list", dict(
+                index=[i.get("index") for i in items], var=[i.get("var") for i in items],
+                shortname=[i.get("shortname") for i in items], unit=[i.get("unit") for i in items],
+                parent=[i.get("parent") for i in items]))
+            settings, taken = w.struct(g, "settings"), set()
+            for item in items:  # a.settings.<name>: every reported value of that setting
+                key = matlab_name(item.get("var") or f"setting_{item.get('index')}", taken)
+                taken.add(key)
+                sg = w.struct(settings, key)
+                w.number(sg, "index", item.get("index"))
+                w.char(sg, "var", item.get("var") or "")
+                w.char(sg, "shortname", item.get("shortname") or "")
+                w.char(sg, "unit", item.get("unit") or "")
+                w.char(sg, "parent", item.get("parent") or "")
+                times, vals = values.get(item.get("index"), (np.zeros(0), np.zeros(0)))
+                w.vector(sg, "timestamp", times)
+                w.vector(sg, "value", vals)
+                finish_struct(sg)
             finish_struct(settings)
+            changes = x.get("setting_changes") or []
+            w.table(g, "setting_changes", dict(
+                timestamp=[r.get("time_s") for r in changes], index=[r.get("idx") for r in changes],
+                name=[r.get("var") or "" for r in changes], from_value=[r.get("from_value") for r in changes],
+                to_value=[r.get("to_value") for r in changes], in_flight=[1 if r.get("in_flight") else 0 for r in changes]))
             checks = x.get("checklist") or []
             w.table(g, "checklist", dict(
-                timestamp=[None if r.get("time_s") is None else r["time_s"] - shift for r in checks],
+                timestamp=[r.get("time_s") for r in checks],
                 item=[r.get("checklist_label") or r.get("text", "").split(": ", 1)[0] for r in checks],
                 answer=[r.get("checklist_value") if r.get("checklist_label") else
                         (r.get("text", "").split(": ", 1) + [""])[1] for r in checks],
                 message=[r.get("text") or "" for r in checks]))
+            answers, keys = w.struct(g, "checklist_answers"), {}
+            for r in checks:  # the last answer per logged key, e.g. checklist_answers.pic
+                key, _, answer = (r.get("text") or "").partition(": ")
+                keys[matlab_name(key.strip() or "item")] = answer
+            for key, answer in keys.items():
+                w.char(answers, key, answer)
+            finish_struct(answers)
             config = x.get("config") or {}
             cg = w.struct(g, "config")
             for key in ("airframe", "flight_plan", "settings", "radio", "telemetry"):
@@ -618,13 +685,46 @@ def export(fastreader, data_gz, log_gz, out_path, info, work_dir, windows=None, 
             w.char(pg, "name", plan.get("name") or "")
             w.number(pg, "lat0", plan.get("lat0"))
             w.number(pg, "lon0", plan.get("lon0"))
-            wps = plan.get("waypoints") or []
-            w.table(pg, "waypoints", dict(index=[p.get("index") for p in wps], name=[p.get("name") or "" for p in wps],
-                                          lat=[p.get("lat") for p in wps], lon=[p.get("lon") for p in wps],
-                                          alt_m=[p.get("alt_m") for p in wps]))
+            wps, wg, taken = plan.get("waypoints") or [], None, set()
+            wg = w.struct(pg, "waypoints")  # waypoints.<NAME>.lat / lon / alt_m
+            for p in wps:
+                key = matlab_name(p.get("name") or f"wp_{p.get('index')}", taken)
+                taken.add(key)
+                pt = w.struct(wg, key)
+                w.number(pt, "index", p.get("index"))
+                w.char(pt, "name", p.get("name") or "")
+                for field in ("lat", "lon", "alt_m"):
+                    w.number(pt, field, p.get(field))
+                finish_struct(pt)
+            finish_struct(wg)
+            w.cellstr(pg, "waypoint_names", [p.get("name") or "" for p in wps])
             w.cellstr(pg, "blocks", blocks or [b.get("name") or "" for b in plan.get("blocks") or []])
             finish_struct(pg)
             finish_struct(cg)
+
+        def aircraft_elements():
+            flights = [with_window(f) for f in (spans if spans is not None else extras.get("flights") or [])]
+            if spans is None:
+                ids = sorted(by_window.get(0, {}))
+            else:  # only aircraft with an exported flight
+                ids = sorted({sp["ac_id"] for sp in spans})
+            out = []
+            for ac in ids:
+                g = w.element()
+                w.number(g, "AC_ID", ac)
+                w.char(g, "name", names.get(ac, ""))
+                version = versions.get(ac)
+                w.number(g, "version", version[0] if version else None)
+                w.char(g, "version_desc", version[1] if version else "")
+                nav, _ = config_names(ac)
+                aircraft_extras(g, extras.get("aircraft", {}).get(ac, {}), nav[0], setting_values(ac))
+                if spans is None:
+                    write_data(g, 0, ac, 0.0)
+                mine = [(k, f) for k, f in enumerate(flights) if f["ac_id"] == ac]
+                w.struct_array(g, "flights", [flight_element(f, k if spans is not None else None) for k, f in mine])
+                finish_struct(g)
+                out.append(g)
+            return out
 
         meta = w.struct(s, "log")
         w.char(meta, "name", info.get("name"))
@@ -659,33 +759,7 @@ def export(fastreader, data_gz, log_gz, out_path, info, work_dir, windows=None, 
             finish_struct(g)
         finish_struct(defs)
 
-        if spans is None:
-            w.struct_array(s, "aircrafts", aircraft_elements(0, 0.0))
-        else:
-            elements = []
-            for k, span in enumerate(spans):
-                g = w.element()
-                w.number(g, "index", span["index"])
-                w.number(g, "AC_ID", span["ac_id"])
-                w.char(g, "aircraft", names.get(span["ac_id"], ""))
-                w.char(g, "takeoff_utc", span.get("takeoff_utc"))
-                w.char(g, "landing_utc", span.get("landing_utc"))
-                w.number(g, "time_offset_s", span["takeoff_s"])
-                w.number(g, "takeoff_posix", span.get("takeoff_posix"))
-                w.vector(g, "window_s", [-MARGIN_S, span["end"] - span["takeoff_s"]])
-                sg = w.struct(g, "summary")
-                for key, value in (span.get("summary") or {}).items():
-                    w.char(sg, key, value) if isinstance(value, str) else w.number(sg, key, value)
-                finish_struct(sg)
-                ag = w.struct(g, "assessment")
-                assessment = span.get("assessment") or {}
-                w.char(ag, "verdict", assessment.get("verdict") or "")
-                w.cellstr(ag, "reasons", assessment.get("reasons") or [])
-                finish_struct(ag)
-                w.struct_array(g, "aircrafts", aircraft_elements(k, span["takeoff_s"]))
-                finish_struct(g)
-                elements.append(g)
-            w.struct_array(s, "flights", elements)
+        w.struct_array(s, "aircrafts", aircraft_elements())
         if extra["top"]:
             raw = w.struct(s, "raw")
             w.vector(raw, "timestamp", _times(cols / "top.f64", extra["top"]))
