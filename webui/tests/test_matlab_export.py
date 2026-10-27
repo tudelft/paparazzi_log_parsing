@@ -272,6 +272,16 @@ class MatlabExportRouteTests(MatlabRouteFixture):
                          [[1, 100.0, 200.0], [3, 400.0, None]])  # the ground record (flight 2) is left out
         self.assertEqual(self.client.get(f"/api/matlab-exports/{one.json['id']}").json["status"], "queued")
 
+    def test_every_local_page_script_is_served(self):
+        import re
+        static = Path(__file__).parent.parent / "static"
+        scripts = {src for page in static.glob("*.html")
+                   for src in re.findall(r'<script src="(/[^"]+)"', page.read_text())}
+        self.assertIn("/matlab.js", scripts)
+        for src in sorted(scripts):
+            with self.client.get(src) as response:
+                self.assertEqual(response.status_code, 200, src)
+
     def test_refusals_and_permissions(self):
         self.assertEqual(self.ask(scope="everything").status_code, 400)
         self.assertEqual(self.ask(scope="flight", flight_id=99).status_code, 404)
