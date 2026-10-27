@@ -32,9 +32,11 @@
   function render() {
     if (!menu) return;
     const sources = JSON.parse(anchor.dataset.matlabSources);
-    menu.innerHTML = sources.map(source => `<div class="matlab-group"><div class="matlab-head">${TYPES[source.log_type]}
-        <span class="mute">${esc(source.log_name || '')}</span></div>${SCOPES.map(s => item(source, s)).join('')}</div>`).join('')
-      + '<p class="mute matlab-note">Prepared on the server and kept two weeks. Load with <code>s = load(file).s</code>.</p>';
+    const help = `<span class="info-tip matlab-help"><button type="button" aria-label="About the MATLAB export">i</button>
+      <span class="tip" role="tooltip">Prepared on the server and kept for two weeks; the same export is reused.<br>
+      Load with <code>s = load(file).s</code>, then <code>s.aircrafts(i).flights(k).data</code>.</span></span>`;
+    menu.innerHTML = sources.map((source, i) => `<div class="matlab-group"><div class="matlab-head">${TYPES[source.log_type]}
+        <span class="mute">${esc(source.log_name || '')}</span>${i === 0 ? help : ''}</div>${SCOPES.map(s => item(source, s)).join('')}</div>`).join('');
   }
 
   function close() {

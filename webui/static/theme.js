@@ -28,6 +28,10 @@ window.categoryChoice = value => value.startsWith('auth:') ? {category: null, au
   : {category: value.startsWith('cat:') ? value.slice(4) : null, authorisation_id: null};
 window.categoryText = f => (f.category === 'national' ? 'National rules' : window.CATEGORY_LABELS[f.category] || 'Unknown') + (f.authorisation_name ? ' · ' + f.authorisation_name : '');
 
+// Short name of an uploaded log by type; its download always contains every file of that log (.data + .log).
+window.logLabel = t => ({onboard_sd: 'SD log', gcs: 'GCS log', px4_ulog: 'PX4 log', ardupilot: 'ArduPilot log',
+  mavlink_tlog: 'MAVLink log'}[t] || 'log');
+
 // A stored file: its name opens it in the browser when it can be viewed there (else downloads it), with a
 // small download button beside a viewable one. `attrs` adds attributes such as a class or title to the name.
 window.fileLink = function ({name, view, download, viewable, attrs = ''}) {

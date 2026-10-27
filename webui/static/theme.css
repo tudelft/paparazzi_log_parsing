@@ -262,4 +262,6 @@ dialog.entry-dialog label.field input, dialog.entry-dialog label.field select { 
 .matlab-item:hover, .matlab-item:focus-visible { background:var(--hover, rgba(31,111,235,.08)); }
 .matlab-item:disabled { color:var(--txt); cursor:default; }
 .matlab-state { color:var(--mute); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.matlab-note { margin:6px 6px 0; font-size:12px; }
+.matlab-head { display:flex; align-items:center; gap:4px; }
+.matlab-help { margin-left:auto; text-transform:none; letter-spacing:0; }
+.matlab-help .tip { left:auto; right:0; white-space:normal; width:280px; }

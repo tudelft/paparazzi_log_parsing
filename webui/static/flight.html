@@ -206,8 +206,7 @@ const fmtDur = s => s == null ? '' : `${Math.floor(s / 60)}m ${String(Math.round
 const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km` : `${Math.round(m)} m`;
 const rel = t => { const d = t - D.takeoff_time_s, a = Math.abs(d); return (d < 0 ? '−' : '+') + Math.floor(a / 60) + ':' + String(Math.floor(a % 60)).padStart(2, '0') + '.' + String(Math.floor(a % 1 * 10)); };
 const TYPE = {onboard_sd: 'Onboard SD log', gcs: 'GCS log', px4_ulog: 'PX4 ULog', ardupilot: 'ArduPilot log', mavlink_tlog: 'MAVLink tlog'};
-const downloadLabel = t => ({px4_ulog:'PX4 .ulg', ardupilot:'ArduPilot log', mavlink_tlog:'MAVLink .tlog',
-  gcs:'.data + .log', onboard_sd:'.data + .log'}[t] || 'log');
+const downloadLabel = window.logLabel;  // theme.js
 let me = null, projects = [], people = [];
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
@@ -464,7 +463,7 @@ function renderSummary() {
         + (D.timing.correction_s != null ? ' · parser correction: ' + esc(D.timing.correction_s) + ' s' : '')
         + (D.timing.warning ? '<br>' + esc(D.timing.warning) : '') + timingEvidenceHTML(D.timing)) : ''}
       ${e.sources.map(s => kv(TYPE[s.log_type] || s.log_type, `<a href="/flight/${s.flight_id}" class="${s.flight_id === flightId ? 'cur' : ''}">${esc(s.log_name)}</a>${s.flight_id === flightId ? ' <span class="mute">(shown)</span>' : ''}
-        · <a href="/api/logs/${s.log_id}/download">download ${downloadLabel(s.log_type)}</a> · <a href="/uploads#log${s.log_id}">log details</a>`)
+        · <a href="/api/logs/${s.log_id}/download" title="Download ${downloadLabel(s.log_type)} (all its files)">download</a> · <a href="/uploads#log${s.log_id}">log details</a>`)
 ).join('')}
       ${insRows('Takeoff', e.takeoff)}${insRows('Landing', e.landing)}
       ${kv('Uploaded', esc(fmtTime(e.uploaded_at)) + (e.uploaded_by_name ? ' by ' + esc(e.uploaded_by_name) : ''))}
