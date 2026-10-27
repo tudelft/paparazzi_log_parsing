@@ -3855,6 +3855,191 @@ def admin_delete_user(user_id):
     return jsonify(ok=True)
 
 
+# Merging accounts and moving a TU Delft sign-in (admins, People page Account tab). A merge moves everything of
+# one account to another and removes the first; its names become aliases. Both are recorded in the audit log.
+PROJECT_ROLE_RANK = {"view": 0, "add": 1, "full": 2}
+
+
+def user_reference_columns(con):
+    """Every (table, column) holding a users.id: the declared foreign keys plus the flight crew overrides."""
+    out = [("flights", f"{role}_user_id") for role in ROLES]
+    for (table,) in con.execute("SELECT name FROM sqlite_master WHERE type='table'"):
+        out += [(table, r[3]) for r in con.execute(f"PRAGMA foreign_key_list({table})") if r[2] == "users"]
+    return out
+
+
+def account_merge_plan(con, source_id, target_id):
+    """What merging source into target does, or an error message (nothing is changed)."""
+    if source_id == target_id:
+        return None, "Pick another account."
+    src = con.execute("SELECT * FROM users WHERE id=?", (source_id,)).fetchone()
+    dst = con.execute("SELECT * FROM users WHERE id=?", (target_id,)).fetchone()
+    if src is None or dst is None:
+        return None, "no such user"
+    if source_id == g.user["id"]:
+        return None, "Your own account cannot be merged away; merge the other account into yours."
+    if bool(src["is_external"]) != bool(dst["is_external"]):
+        return None, "An external person can only be merged with another external person."
+    if src["subject"] and dst["subject"] and src["subject"] != dst["subject"]:
+        return None, "Both accounts have a different TU Delft sign-in; move one of them first."
+    if src["is_admin"] and not dst["is_admin"] and con.execute(
+            "SELECT COUNT(*) FROM users WHERE is_admin=1 AND is_active=1 AND id!=?", (source_id,)).fetchone()[0] < 1:
+        return None, "This is the last administrator; make the kept account an administrator first."
+    count = lambda sql, *args: con.execute(sql, args).fetchone()[0]  # noqa: E731
+    crew = {role: count(f"SELECT COUNT(*) FROM flights WHERE {role}_user_id=?", source_id) for role in ROLES}
+    papers = count("SELECT COUNT(*) FROM flight_records WHERE ? IN (pic_user_id, pac_user_id, gcs_user_id)", source_id)
+    uploads = count("SELECT COUNT(*) FROM logs WHERE uploaded_by=?", source_id) + count(
+        "SELECT COUNT(*) FROM log_uploaders WHERE user_id=?", source_id)
+    projects = [dict(r) for r in con.execute(
+        "SELECT p.name, m.role, t.role AS kept_role FROM project_members m JOIN projects p ON p.id=m.project_id"
+        " LEFT JOIN project_members t ON t.project_id=m.project_id AND t.user_id=? WHERE m.user_id=?"
+        " ORDER BY p.name", (target_id, source_id))]
+    known = {(dst["username"] or "").casefold(), (dst["display_name"] or "").casefold()}
+    aliases = [r[0] for r in con.execute("SELECT alias FROM user_aliases WHERE user_id=? ORDER BY alias", (source_id,))]
+    for name in (src["display_name"], src["username"]):
+        if name and name.casefold() not in known | {a.casefold() for a in aliases} and not con.execute(
+                "SELECT 1 FROM user_aliases WHERE alias=? COLLATE NOCASE", (name,)).fetchone():
+            aliases.append(name)
+    password = bool(dst["password_hash"] or src["password_hash"])
+    subject = dst["subject"] or src["subject"]
+    sign_in = " and ".join(x for x, on in (("password", password), ("TU Delft", subject)) if on) or "none yet"
+    return dict(
+        source=dict(id=src["id"], name=src["display_name"] or src["username"]),
+        target=dict(id=dst["id"], name=dst["display_name"] or dst["username"]),
+        crew=crew, paper_records=papers, uploads=uploads, projects=projects,
+        qualifications=count("SELECT COUNT(*) FROM qualification_submissions WHERE user_id=?", source_id),
+        api_keys=count("SELECT COUNT(*) FROM api_keys WHERE user_id=?", source_id),
+        aliases=aliases, sign_in=sign_in, source_admin=bool(src["is_admin"]), target_admin=bool(dst["is_admin"]),
+        _src=src, _dst=dst), None
+
+
+def merge_accounts(con, plan):
+    """Move every reference from the source account to the target, then remove the source (caller commits)."""
+    src, dst = plan["_src"], plan["_dst"]
+    source_id, target_id = src["id"], dst["id"]
+    for project_id, role in con.execute("SELECT project_id, role FROM project_members WHERE user_id=?",
+                                        (source_id,)).fetchall():
+        kept = con.execute("SELECT role FROM project_members WHERE project_id=? AND user_id=?",
+                           (project_id, target_id)).fetchone()
+        if kept is None:
+            con.execute("UPDATE project_members SET user_id=? WHERE project_id=? AND user_id=?",
+                        (target_id, project_id, source_id))
+        else:
+            best = max(role, kept[0], key=lambda r: PROJECT_ROLE_RANK.get(r, -1))
+            con.execute("UPDATE project_members SET role=? WHERE project_id=? AND user_id=?", (best, project_id, target_id))
+    for status, loser in (("approved", "superseded"), ("pending", "withdrawn")):  # one per type and status
+        for type_id, mine, theirs in con.execute(
+                "SELECT s.type_id, s.id, t.id FROM qualification_submissions s JOIN qualification_submissions t"
+                " ON t.type_id=s.type_id AND t.user_id=? AND t.status=s.status WHERE s.user_id=? AND s.status=?",
+                (target_id, source_id, status)).fetchall():
+            rows = {r["id"]: r for r in con.execute(
+                "SELECT id, valid_until FROM qualification_submissions WHERE id IN (?,?)", (mine, theirs))}
+            longest = lambda i: rows[i]["valid_until"] or "9999-12-31"  # noqa: E731
+            drop = mine if status == "pending" or longest(mine) <= longest(theirs) else theirs
+            con.execute("UPDATE qualification_submissions SET status=? WHERE id=?", (loser, drop))
+    con.execute("UPDATE OR IGNORE log_uploaders SET user_id=? WHERE user_id=?", (target_id, source_id))
+    for table in ("log_uploaders", "password_setup_tokens", "bulk_reservations", "project_members"):
+        con.execute(f"DELETE FROM {table} WHERE user_id=?", (source_id,))
+    for table, column in user_reference_columns(con):
+        con.execute(f"UPDATE {table} SET {column}=? WHERE {column}=?", (target_id, source_id))
+    con.execute("DELETE FROM log_uploaders WHERE user_id=? AND log_id IN (SELECT id FROM logs WHERE uploaded_by=?)",
+                (target_id, target_id))
+    for alias in plan["aliases"]:
+        con.execute("INSERT OR IGNORE INTO user_aliases (user_id, alias) VALUES (?,?)", (target_id, alias))
+    password = dst["password_hash"] or src["password_hash"]
+    subject = dst["subject"] or src["subject"]
+    con.execute("UPDATE users SET subject=NULL WHERE id=?", (source_id,))  # (provider, subject) is unique
+    con.execute(
+        "UPDATE users SET password_hash=?, subject=?, provider=?, email=COALESCE(email, ?),"
+        " display_name=COALESCE(display_name, ?), default_project_id=COALESCE(default_project_id, ?),"
+        " operator_id=COALESCE(operator_id, ?) WHERE id=?",
+        (password, subject, "local" if password or not subject else "saml", src["email"], src["display_name"],
+         src["default_project_id"], src["operator_id"], target_id))
+    con.execute("DELETE FROM users WHERE id=?", (source_id,))
+    assign_open_flights(con)
+    qualifications.audit(con, target_id, g.user["id"], "account_merged", {
+        "merged_user": plan["source"], "crew": plan["crew"], "paper_records": plan["paper_records"],
+        "uploads": plan["uploads"], "qualifications": plan["qualifications"], "aliases": plan["aliases"]})
+
+
+def public_plan(plan):
+    return {k: v for k, v in plan.items() if not k.startswith("_")}
+
+
+@app.get("/api/admin/users/<int:user_id>/merge")
+def admin_merge_preview(user_id):
+    admin_required()
+    session_required()
+    plan, error = account_merge_plan(conn(), user_id, request.args.get("into", type=int))
+    return (jsonify(error=error), 400) if error else jsonify(public_plan(plan))
+
+
+@app.post("/api/admin/users/<int:user_id>/merge")
+def admin_merge_users(user_id):
+    """Merge this account into ``into``; the request repeats what the preview showed."""
+    admin_required()
+    session_required()
+    target_id = (request.get_json(silent=True) or {}).get("into")
+    con = conn()
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        plan, error = account_merge_plan(con, user_id, target_id)
+        if error:
+            return jsonify(error=error), 400
+        merge_accounts(con, plan)
+    return jsonify(ok=True, user_id=target_id)
+
+
+@app.post("/api/admin/users/<int:user_id>/sso-move")
+def admin_move_sso(user_id):
+    """Move a wrongly matched TU Delft sign-in to another account (``to``) or to a new one (``to``: null with
+    ``username`` and optional ``display_name``); ``clear_email`` / ``clear_display_name`` move those details too."""
+    admin_required()
+    session_required()
+    body = request.get_json(silent=True) or {}
+    con = conn()
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        src = con.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+        if src is None:
+            return jsonify(error="no such user"), 404
+        if not src["subject"]:
+            return jsonify(error="This account has no TU Delft sign-in."), 400
+        email = src["email"] if body.get("clear_email") else None
+        name = src["display_name"] if body.get("clear_display_name") else None
+        if body.get("to") is None:
+            username = (body.get("username") or "").strip()
+            if not re.fullmatch(r"[A-Za-z0-9._-]{1,40}", username):
+                return jsonify(error="username must be 1-40 letters, digits, . _ or -"), 400
+            if con.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
+                return jsonify(error="that username is taken"), 409
+            con.execute("UPDATE users SET subject=NULL WHERE id=?", (user_id,))
+            target_id = con.execute(
+                "INSERT INTO users (username, display_name, email, password_hash, is_admin, provider, subject,"
+                " created_at) VALUES (?,?,?,NULL,0,'saml',?,?)",
+                (username, (body.get("display_name") or "").strip()[:80] or name, email, src["subject"], now())).lastrowid
+        else:
+            dst = con.execute("SELECT * FROM users WHERE id=?", (body.get("to"),)).fetchone()
+            if dst is None or dst["id"] == user_id:
+                return jsonify(error="Pick another account."), 400
+            if dst["subject"]:
+                return jsonify(error="That account already has a TU Delft sign-in."), 409
+            if dst["is_external"] or not dst["is_active"]:
+                return jsonify(error="External or disabled accounts cannot sign in."), 400
+            target_id = dst["id"]
+            con.execute("UPDATE users SET subject=NULL WHERE id=?", (user_id,))
+            con.execute("UPDATE users SET subject=?, provider=?, email=COALESCE(email, ?),"
+                        " display_name=COALESCE(display_name, ?) WHERE id=?",
+                        (src["subject"], "local" if dst["password_hash"] else "saml", email, name, target_id))
+        con.execute("UPDATE users SET provider='local', email=CASE WHEN ? THEN NULL ELSE email END,"
+                    " display_name=CASE WHEN ? THEN NULL ELSE display_name END WHERE id=?",
+                    (bool(body.get("clear_email")), bool(body.get("clear_display_name")), user_id))
+        qualifications.audit(con, target_id, g.user["id"], "sso_moved", {
+            "from_user": dict(id=user_id, name=src["display_name"] or src["username"]),
+            "moved_email": bool(email), "moved_display_name": bool(name)})
+    return jsonify(ok=True, user_id=target_id)
+
+
 @app.get("/api/admin/people")
 def admin_people():
     """Users with their aliases, plus the names seen in logs that are not linked to any user yet."""
@@ -3867,6 +4052,7 @@ def admin_people():
         users.append(dict(
             id=u["id"], username=u["username"], display_name=u["display_name"], email=u["email"],
             is_admin=bool(u["is_admin"]), is_external=bool(u["is_external"]), has_password=bool(u["password_hash"]),
+            has_sso=bool(u["subject"]),
             is_active=bool(u["is_active"]),
             provider=prov, pending=prov == "log", has_logs=u["id"] in with_logs,
             default_project_id=u["default_project_id"], operator_id=u["operator_id"],
