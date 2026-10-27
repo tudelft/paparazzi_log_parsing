@@ -5495,7 +5495,8 @@ def request_matlab_export(log_id):
     except ImportError:
         return jsonify(error="MATLAB export needs the h5py package on the server (see requirements.txt)."), 503
     con = conn()
-    row = visible_log(con, log_id, "id, name, sha256, size_bytes, log_type, data_path, log_path, parser_version")
+    row = visible_log(con, log_id, "id, name, sha256, size_bytes, log_type, data_path, log_path, parser_version,"
+                                   " start_utc, date_override")
     body = request.get_json(silent=True) or {}
     scope = body.get("scope")
     if scope not in MATLAB_SCOPES:
@@ -5505,7 +5506,10 @@ def request_matlab_export(log_id):
     if not (row["data_path"].endswith(".gz") and row["log_path"].endswith(".gz")):
         return jsonify(error="Uncompressed legacy storage is unsupported; delete and re-upload this test log."), 409
     flights = [dict(r) for r in con.execute(
-        "SELECT f.id, f.idx, a.ac_id, f.takeoff_time_s, f.landing_time_s, f.takeoff_utc, f.landing_utc, f.verdict"
+        "SELECT f.id, f.idx, a.ac_id, f.takeoff_time_s, f.landing_time_s, f.takeoff_utc, f.landing_utc, f.verdict,"
+        " f.assessment_json, f.duration_s, f.distance_m, f.max_from_takeoff_m, f.from_takeoff_m, f.landed,"
+        " f.takeoff_lat, f.takeoff_lon, f.takeoff_alt_m, f.landing_lat, f.landing_lon, f.landing_alt_m,"
+        " f.takeoff_voltage_v, f.landing_voltage_v"
         " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE a.log_id=? AND f.takeoff_time_s IS NOT NULL"
         " ORDER BY f.takeoff_time_s, f.id", (log_id,))]
     if scope == "flight":
@@ -5516,11 +5520,37 @@ def request_matlab_export(log_id):
         flights = [f for f in flights if f["verdict"] != "ground"]
         if not flights:
             return jsonify(error="This log has no detected flights to export."), 409
+    days = clock_shift_days(row["start_utc"], row["date_override"])  # same date correction as the pages
+
+    def posix(utc):
+        dt = parse_iso_utc(utc) if utc else None
+        return dt.timestamp() if dt else None
+    summary_keys = ("duration_s", "distance_m", "max_from_takeoff_m", "from_takeoff_m", "landed", "takeoff_lat",
+                    "takeoff_lon", "takeoff_alt_m", "landing_lat", "landing_lon", "landing_alt_m",
+                    "takeoff_voltage_v", "landing_voltage_v")
     windows = None if scope == "log" else [
         dict(index=i + 1, ac_id=f["ac_id"], takeoff_s=f["takeoff_time_s"], landing_s=f["landing_time_s"],
-             takeoff_utc=f["takeoff_utc"], landing_utc=f["landing_utc"]) for i, f in enumerate(flights)]
+             takeoff_utc=shift_iso(f["takeoff_utc"], days), landing_utc=shift_iso(f["landing_utc"], days),
+             takeoff_posix=posix(shift_iso(f["takeoff_utc"], days)),
+             summary={k: f[k] for k in summary_keys}, assessment=dict(
+                 verdict=f["verdict"], reasons=(json.loads(f["assessment_json"] or "null") or {}).get("reasons") or []))
+        for i, f in enumerate(flights)]
+    aircraft = {}
+    for a in con.execute("SELECT id, ac_id, pic, pac, gcs, goal, simulation, preflight_checks, config_gz"
+                         " FROM aircraft WHERE log_id=?", (log_id,)):
+        config = db.unpack(a["config_gz"]) or {}
+        aircraft[a["ac_id"]] = dict(
+            pic=a["pic"], pac=a["pac"], gcs=a["gcs"], goal=a["goal"],
+            simulation=json.loads(a["simulation"]) if a["simulation"] else None,
+            checklist=json.loads(a["preflight_checks"] or "[]"), settings=config.get("settings") or [],
+            config=dict(xml=config.get("xml") or {}, flight_plan=config.get("flight_plan") or {}),
+            setting_changes=[dict(r) for r in con.execute(
+                "SELECT time_s, idx, var, from_value, to_value, in_flight FROM setting_changes"
+                " WHERE aircraft_id=? ORDER BY time_s, id", (a["id"],))])
+    time0_utc = shift_iso(row["start_utc"], days)
+    extras = dict(aircraft=aircraft, time0_utc=time0_utc, time0_posix=posix(time0_utc))
     identity = json.dumps([row["sha256"], scope, matlab_export.EXPORTER_VERSION, matlab_export.MARGIN_S,
-                           row["parser_version"], windows], sort_keys=True)
+                           row["parser_version"], windows, extras], sort_keys=True, default=str)
     job_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
     stem = posixpath.splitext(posixpath.basename(row["name"]))[0]
     suffix = {"log": "whole_log", "flights": "flights", "flight": f"flight_{flights[0]['id']}" if flights else ""}[scope]
@@ -5531,7 +5561,7 @@ def request_matlab_export(log_id):
 
     def task(out_path, work_dir, progress):
         return matlab_export.export(FASTREADER, data_gz, log_gz, out_path, info, work_dir, windows, progress,
-                                    env_int("LOCAL_MIN_FREE_BYTES"))
+                                    env_int("LOCAL_MIN_FREE_BYTES"), extras)
     try:
         job = export_jobs().submit(job_id, log_id, filename, task)
     except matlab_export.ExportError as error:

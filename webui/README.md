@@ -131,8 +131,9 @@ to gain descriptions and previously omitted crew entries.
   If the aircraft did not send a version, the Paparazzi version from the GCS `.log` header is shown instead.
 - **MATLAB (.mat)** under *Log sources and upload details* exports a Paparazzi SD or GCS log for MATLAB:
   **This flight** or **All flights** (10 s before takeoff to 10 s after landing, every aircraft, time 0 at takeoff)
-  or the **Whole log**. The file is prepared in the background and kept for two weeks; load it with
-  `s = load('file.mat').s`.
+  or the **Whole log**. It includes setting names and changes, the checklist, crew, configuration and the
+  flight plan; values are in their alternate unit (e.g. degrees), the logged value as `<field>_raw`. The file is
+  prepared in the background and kept for two weeks; load it with `s = load('file.mat').s`.
 
 ## Add or correct information
 

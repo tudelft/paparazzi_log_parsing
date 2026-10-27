@@ -1,11 +1,11 @@
 // Column export for the Web UI's MATLAB download (webui/matlab_export.py).
 //
-//   paparazzi_log_parsing --export-columns <out_dir> --schema <file> [--size <bytes>] [--window <start_s> <end_s>]...
-//                         <file.data | ->
+//   paparazzi_log_parsing --export-columns <out_dir> --schema <file> [--log <file.log>] [--size <bytes>]
+//                         [--window <start_s> <end_s>]... <file.data | ->
 //
 // "-" reads the .data from stdin (the Web UI pipes it straight out of gzip storage; --size gives the expected
-// length for progress). Decodes every row of a Paparazzi .data file with a schema written by the Web UI from the protocol in the
-// companion .log, and writes plain binary column files plus manifest.tsv into out_dir. The MATLAB file itself
+// length for progress). Decodes every row of a Paparazzi .data file with a schema written by the Web UI from the
+// protocol in the companion .log, and writes plain binary column files plus manifest.tsv into out_dir. The MATLAB file itself
 // is written by Python (h5py). This is a separate entry point: the normal parser output is not affected.
 //
 // Schema lines: "<MESSAGE>\t<kinds>", one kind character per field: u (unsigned), i (signed), f (float),
@@ -14,7 +14,8 @@
 //
 // Files per (window, aircraft, message) stream <id>: s<id>.f64 rows of [time, scalar numeric fields...];
 // s<id>_a<j>.len (uint32 per row) + s<id>_a<j>.f64 for array field j; s<id>_t<j>.txt one value per line for
-// text field j. Rows that do not decode: r<w>_<ac>.f64 (times) + r<w>_<ac>.txt (original lines); rows without
+// text field j. With --log, the manifest also lists flight plan block/stage and actuator names.
+// Rows that do not decode: r<w>_<ac>.f64 (times) + r<w>_<ac>.txt (original lines); rows without
 // a time or aircraft id: top.f64 + top.txt. Progress goes to stderr as "progress <fraction>".
 // The clock-wrap correction only applies when the time jumps back by more than 2000 s (old onboard logs);
 // other logs keep their timestamps unchanged.
@@ -35,6 +36,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
+
+void write_config_names(const std::string &log_file, std::ostream &out);  // fastreader.cpp
 
 namespace {
 
@@ -133,7 +136,7 @@ std::string text(std::string_view v) {
 
 int export_columns(int argc, char *argv[])
 {
-  std::string out_dir, schema_file, data_file;
+  std::string out_dir, schema_file, data_file, log_file;
   double expected_size = 0;
   std::vector<std::pair<double, double>> windows;
   for (int i = 1; i < argc; i++) {
@@ -141,6 +144,7 @@ int export_columns(int argc, char *argv[])
     if (a == "--export-columns" && i + 1 < argc) { out_dir = argv[++i]; }
     else if (a == "--schema" && i + 1 < argc) { schema_file = argv[++i]; }
     else if (a == "--size" && i + 1 < argc) { expected_size = strtod(argv[++i], nullptr); }
+    else if (a == "--log" && i + 1 < argc) { log_file = argv[++i]; }
     else if (a == "--window" && i + 2 < argc) {
       windows.emplace_back(strtod(argv[i + 1], nullptr), strtod(argv[i + 2], nullptr));
       i += 2;
@@ -385,6 +389,7 @@ int export_columns(int argc, char *argv[])
   for (auto &[n, c] : unknown) { man << "unknown\t" << n << "\t" << c << "\n"; }
   for (auto &[n, c] : rejected) { man << "rejected\t" << n << "\t" << c << "\n"; }
   for (auto &[ac, v] : versions) { man << "version\t" << ac << "\t" << v << "\n"; }
+  if (!log_file.empty()) { write_config_names(log_file, man); }
   man << "done\n";
   man.close();
   if (failed || !man) {
