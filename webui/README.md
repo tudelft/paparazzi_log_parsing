@@ -101,6 +101,13 @@ original recording can still be opened or downloaded.
   for (external crew); inferred values are grey. Choose **Own operations only** in Flight filters for operator
   reporting; pilot experience counts all operators. The list of operators is on the Projects page; anyone can add
   a new partner there or with **New operator…** in the Logbook, and admins set which operator external crew fly for.
+- Each flight also shows its **category**, the rules it was flown under: national rules (ROC / ROC-light) before
+  EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. It comes from the flight (Edit mode,
+  **Category** in the selection bar), indoor, its project, its takeoff location or the date; inferred values are
+  grey. By date, our own flights get national rules while a ROC was valid and OPEN when no authorisation of ours
+  was valid; while an EU authorisation was valid they stay unknown until a project, location or flight says which.
+  Admins keep the authorisations (number, category, validity) on the Projects page. **(check)** marks SPECIFIC
+  without an authorisation, or flown outside its validity; Flight filters can show one category or those to check.
 - SD and GCS recordings of the same flight are merged. **Combine flights** additionally groups nearby
   flights into sessions; it does not change stored flights.
 - Hover over an aircraft name in the logbook for its TUD/serial number; it is also on the aircraft detail page.

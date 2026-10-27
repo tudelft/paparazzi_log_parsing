@@ -6,15 +6,20 @@ import json
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
 
+import categories
 import operators
 import qualifications
 
 COLUMNS = ("aircraft", "pic", "project", "date", "duration_minutes", "flight_count",
-           "kind", "takeoff_time", "location", "pac", "gcs", "goal", "comment", "reference", "operator")
+           "kind", "takeoff_time", "location", "pac", "gcs", "goal", "comment", "reference", "operator",
+           "category", "authorisation")
 FIELDS = ("drone_id", "pic_user_id", "project_id", "date", "duration_s", "flight_count",
           "kind", "takeoff_time", "place_id", "pac_user_id", "gcs_user_id", "goal", "comment", "reference",
-          "operator_id")
+          "operator_id", "category", "authorisation_id")
 COLUMN_OF = dict(zip(FIELDS, COLUMNS))  # stored field -> CSV column
+# Under which operator and rules a record was flown: not part of its identity (fingerprint), and a CSV without
+# their columns keeps them.
+ANNOTATIONS = {"operator": ("operator_id",), "category": ("category", "authorisation_id")}
 
 
 class RecordError(ValueError):
@@ -102,13 +107,19 @@ def validate(con, user, body):
         if not isinstance(value, str) or len(value) > limit:
             raise RecordError(f"{key} must be text of at most {limit} characters.")
         out[key] = value.strip() or None
+    try:
+        out["category"], out["authorisation_id"] = categories.parse(con, body)
+    except categories.CategoryError as exc:
+        raise RecordError(str(exc)) from None
     return out
 
 
 def fingerprint(values):
-    """Identity of a record. The operator is not part of it: the same flight under another operator is the same
-    record with a corrected operator, and records keep the fingerprint they had before operators were added."""
-    identity = {key: value for key, value in values.items() if key != "operator_id"}
+    """Identity of a record. The operator and category are not part of it: the same flight under another operator
+    is the same record with a corrected operator, and records keep the fingerprint they had before these were
+    added."""
+    annotations = {field for fields in ANNOTATIONS.values() for field in fields}
+    identity = {key: value for key, value in values.items() if key not in annotations}
     return hashlib.sha256(json.dumps(identity, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
@@ -130,7 +141,7 @@ def store(con, values, user_id, stamp, record_id=None):
     return record_id
 
 
-def match(con, values, keep_operator=False):
+def match(con, values, keep=()):
     """Return (action, existing row, values) for a CSV row: unchanged, update or create.
 
     A row describes an existing record when it is identical, has the same reference (such as a flight number
@@ -138,12 +149,14 @@ def match(con, values, keep_operator=False):
     and no different reference. A reference shared by several records (such as a book page) only matches those
     with the same date and takeoff time. Daily summaries and flights without takeoff time are only recognised by
     reference or when identical, because several of them can share an aircraft and day. A row without reference
-    keeps the reference of the record it updates, and a CSV without an operator column keeps its operator."""
+    keeps the reference of the record it updates, and the fields in keep (ANNOTATIONS whose columns the CSV lacks)
+    keep their stored value."""
+    annotations = [field for fields in ANNOTATIONS.values() for field in fields]
+    same = lambda values, row: all(values[f] == row[f] for f in annotations)  # noqa: E731
     row = con.execute("SELECT * FROM flight_records WHERE fingerprint=?", (fingerprint(values),)).fetchone()
     if row is not None:
-        if keep_operator:
-            values = {**values, "operator_id": row["operator_id"]}
-        return "unchanged" if values["operator_id"] == row["operator_id"] else "update", row, values
+        values = {**values, **{f: row[f] for f in keep}}
+        return "unchanged" if same(values, row) else "update", row, values
     found = []
     if values["reference"]:
         found = con.execute("SELECT * FROM flight_records WHERE reference=? ORDER BY id", (values["reference"],)).fetchall()
@@ -160,11 +173,10 @@ def match(con, values, keep_operator=False):
     if not found:
         return "create", None, values
     row = found[0]
-    if keep_operator:
-        values = {**values, "operator_id": row["operator_id"]}
+    values = {**values, **{f: row[f] for f in keep}}
     if not values["reference"] and row["reference"]:
         values = {**values, "reference": row["reference"]}
-        if fingerprint(values) == row["fingerprint"] and values["operator_id"] == row["operator_id"]:
+        if fingerprint(values) == row["fingerprint"] and same(values, row):
             return "unchanged", row, values
     return "update", row, values
 
@@ -182,8 +194,11 @@ def parse_csv(con, user, text):
         "project": list(con.execute("SELECT id, name FROM projects")),
         "location": list(con.execute("SELECT id, name FROM places")),
         "operator": operators.catalog(con),
+        "authorisation": categories.catalog(con),
     }
-    keep_operator = "operator" not in reader.fieldnames
+    keep = [f for column, fields in ANNOTATIONS.items()
+            if column not in reader.fieldnames and (column != "category" or "authorisation" not in reader.fieldnames)
+            for f in fields]
     crew = qualifications.crew_keys(con)
     records = []
     seen = set()
@@ -218,7 +233,18 @@ def parse_csv(con, user, text):
                 if body["operator_id"] is None:
                     raise RecordError(f"Unknown or ambiguous operator: {body['operator']!r}. "
                                       "Use the name or registration number of an operator in the list.")
-            action, existing, values = match(con, validate(con, user, body), keep_operator)
+            if body.get("authorisation"):
+                body["authorisation_id"] = categories.lookup(catalogs["authorisation"], body["authorisation"])
+                if body["authorisation_id"] is None:
+                    raise RecordError(f"Unknown authorisation: {body['authorisation']!r}. "
+                                      "Use the name of an authorisation in the list (Projects page).")
+            if body.get("category"):
+                category = categories.category_of(body["category"])
+                if category is None:
+                    raise RecordError(f"Unknown category: {body['category']!r}. Use one of "
+                                      + ", ".join(categories.CATEGORIES) + ".")
+                body["category"] = category
+            action, existing, values = match(con, validate(con, user, body), keep)
             digest = fingerprint(values)
             if digest in seen:
                 raise RecordError("Same record as an earlier line.", 409)

@@ -5,6 +5,21 @@ window.estimatedDateBadge = function (record) {
 // How an operator is shown everywhere, and where a logbook entry's operator comes from (operators.py).
 window.operatorLabel = o => o.name + (o.registration ? ` (${o.registration})` : '');
 window.OPERATOR_SOURCE = {flight: 'set on this flight', project: 'from the project', place: 'from the takeoff place', pic: 'the operator the PIC flies for', default: 'own operator (default)'};
+// Operation category and authorisation (categories.py): one select whose values are "cat:<key>" or "auth:<id>".
+window.CATEGORY_SOURCE = {flight: 'set on this flight', indoor: 'indoor flight', project: 'from the project', place: 'from the takeoff place', date: 'from the date and our authorisations'};
+window.CATEGORY_LABELS = {national: 'National rules (ROC / ROC-light)', open: 'OPEN', specific: 'SPECIFIC', luc: 'LUC', indoor: 'Indoor'};
+window.authorisationLabel = a => a.name + (a.valid_from || a.valid_until ? ` (${a.valid_from || '…'} – ${a.valid_until || '…'})` : '');
+window.categoryOptions = function (authorisations, selected) {
+  const opt = (value, label) => `<option value="${value}"${value === selected ? ' selected' : ''}>${label}</option>`;
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  return Object.entries(window.CATEGORY_LABELS).map(([key, label]) => opt('cat:' + key, label)
+    + authorisations.filter(a => a.category === key).map(a => opt('auth:' + a.id, '&nbsp;&nbsp;' + esc(label + ' · ' + window.authorisationLabel(a)))).join('')).join('');
+};
+window.categoryValue = o => o.authorisation_id ? 'auth:' + o.authorisation_id : o.category ? 'cat:' + o.category : '';
+window.categoryChoice = value => value.startsWith('auth:') ? {category: null, authorisation_id: +value.slice(5)}
+  : {category: value.startsWith('cat:') ? value.slice(4) : null, authorisation_id: null};
+window.categoryText = f => (f.category === 'national' ? 'National rules' : window.CATEGORY_LABELS[f.category] || 'Unknown') + (f.authorisation_name ? ' · ' + f.authorisation_name : '');
+
 // Anyone who flies can add the operator of a new partner; resolves to the new operator, or null when cancelled.
 window.newOperatorDialog = function () {
   return new Promise(resolve => {
@@ -72,7 +87,9 @@ window.timingEvidenceHTML = function (timing) {
   const PERIODS = {'30d': 'Last 30 days', '3m': 'Last 3 months', '1y': 'Last year',
     '2y': 'Last 2 years', '3y': 'Last 3 years', '5y': 'Last 5 years', all: 'All time', custom: 'Custom dates'};
   const OPERATORS = {all: 'All operators', own: 'Own operations only', other: 'Other operators only'};
-  const defaults = () => ({period: '3y', from: '', to: '', indoor: false, nonflights: false, unknownDates: false, operator: 'all'});
+  const CATEGORIES = {all: 'All categories', national: 'National rules (ROC / ROC-light)', open: 'OPEN', specific: 'SPECIFIC',
+    luc: 'LUC', indoor: 'Indoor', unknown: 'Unknown category', check: 'Category to check'};
+  const defaults = () => ({period: '3y', from: '', to: '', indoor: false, nonflights: false, unknownDates: false, operator: 'all', category: 'all'});
   let storageWarning = '';
   const validDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)
     && !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
@@ -87,12 +104,13 @@ window.timingEvidenceHTML = function (timing) {
           || typeof value.indoor !== 'boolean' || typeof value.nonflights !== 'boolean'
           || (value.unknownDates !== undefined && typeof value.unknownDates !== 'boolean')
           || (value.operator !== undefined && !Object.hasOwn(OPERATORS, value.operator))
+          || (value.category !== undefined && !Object.hasOwn(CATEGORIES, value.category))
           || (value.from && value.to && value.from > value.to)) {
         throw new Error('Invalid saved flight filters');
       }
       return {period: value.period, from: value.from, to: value.to,
         indoor: value.indoor, nonflights: value.nonflights, unknownDates: value.unknownDates ?? false,
-        operator: value.operator ?? 'all'};
+        operator: value.operator ?? 'all', category: value.category ?? 'all'};
     } catch (error) {
       console.warn('Could not restore flight filters:', error);
       storageWarning = 'Saved filters could not be restored. Using the default selection.';
@@ -107,8 +125,9 @@ window.timingEvidenceHTML = function (timing) {
           || !['from', 'to'].every(k => value[k] === '' || validDay(value[k]))
           || ['indoor','nonflights','unknownDates'].some(k => typeof value[k] !== 'boolean')
           || !Object.hasOwn(OPERATORS, value.operator || 'all')
+          || !Object.hasOwn(CATEGORIES, value.category || 'all')
           || (value.from && value.to && value.from > value.to)) return false;
-      state = {...value, operator: value.operator || 'all'};
+      state = {...value, operator: value.operator || 'all', category: value.category || 'all'};
       paint();
       return true;
     },
@@ -143,6 +162,8 @@ window.timingEvidenceHTML = function (timing) {
     return (state.indoor || !f.indoor)
       && (state.nonflights || (!f.simulation?.detected && !['ground', 'uncertain'].includes(f.verdict)))
       && (state.operator === 'all' || (state.operator === 'own') === (f.operator_own !== false))
+      && (state.category === 'all' || (state.category === 'check' ? !!f.category_check
+        : state.category === 'unknown' ? !f.category : f.category === state.category))
       && this.includesDate(f);
   },
   logs(logs, allFlights, shownFlights) {
@@ -155,7 +176,8 @@ window.timingEvidenceHTML = function (timing) {
   params() {
     const {from, to} = this.bounds();
     return new URLSearchParams({from, to, indoor: state.indoor ? '1' : '0',
-      nonflights: state.nonflights ? '1' : '0', unknown_dates: state.unknownDates ? '1' : '0', operator: state.operator});
+      nonflights: state.nonflights ? '1' : '0', unknown_dates: state.unknownDates ? '1' : '0', operator: state.operator,
+      category: state.category});
   },
   periodLabel() {
     return state.period === 'custom' ? `${state.from || 'Any date'} – ${state.to || 'Any date'}`
@@ -163,7 +185,8 @@ window.timingEvidenceHTML = function (timing) {
   },
   summary() {
     return `${this.periodLabel()} · Indoor/no-GPS ${state.indoor ? 'shown' : 'hidden'} · Non-flights ${state.nonflights ? 'shown' : 'hidden'} · Unknown dates ${state.unknownDates ? 'shown' : 'hidden'}`
-      + (state.operator === 'all' ? '' : ` · ${OPERATORS[state.operator]}`);
+      + (state.operator === 'all' ? '' : ` · ${OPERATORS[state.operator]}`)
+      + (state.category === 'all' ? '' : ` · ${CATEGORIES[state.category]}`);
   },
 };
 
@@ -174,7 +197,7 @@ window.timingEvidenceHTML = function (timing) {
   function paint() {
     const button = document.getElementById('flightFiltersButton');
     if (!button) return;
-    const extra = Number(state.indoor) + Number(state.nonflights) + Number(state.unknownDates) + Number(state.operator !== 'all');
+    const extra = Number(state.indoor) + Number(state.nonflights) + Number(state.unknownDates) + Number(state.operator !== 'all') + Number(state.category !== 'all');
     button.textContent = `Flight filters · ${api.periodLabel()}${extra ? ' · +' + extra : ''} ▾`;
     button.title = api.summary();
     document.querySelectorAll('[data-flight-filter-summary]').forEach(el => { el.textContent = api.summary(); });
@@ -194,6 +217,7 @@ window.timingEvidenceHTML = function (timing) {
           <label class="filter-field">To<input type="date" name="to"></label>
         </div>
         <label class="filter-field">Operator<select name="operator">${Object.entries(OPERATORS).map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select></label>
+        <label class="filter-field">Category<select name="category">${Object.entries(CATEGORIES).map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select></label>
         <div class="filter-options">
           <label><input type="checkbox" name="indoor"> Show indoor / no-GPS flights</label>
           <label><input type="checkbox" name="nonflights"> Show non-flights</label>
@@ -203,6 +227,7 @@ window.timingEvidenceHTML = function (timing) {
           <p>Non-flights include simulations, uncertain flights, ground records and zero-flight log files.</p>
           <p>Show unknown dates includes records without a known date alongside the selected period. Other visibility filters still apply.</p>
           <p>Own operations are flights under our own operator registration: use them for operator reporting. Pilot experience counts all operators.</p>
+          <p>Category: the rules a flight was flown under. Before 2021 that was national rules (ROC / ROC-light); since then OPEN or SPECIFIC under an operational authorisation. To check: SPECIFIC without an authorisation, or flown outside its validity.</p>
           <p>Shared across flight overviews in this browser. Changing pages keeps these settings.</p>
         </details>
         <p id="flightFiltersNotice" role="status"></p>
@@ -219,7 +244,7 @@ window.timingEvidenceHTML = function (timing) {
       fields.to.setCustomValidity('');
     }
     function fill(value) {
-      for (const key of ['period', 'from', 'to', 'operator']) fields[key].value = value[key];
+      for (const key of ['period', 'from', 'to', 'operator', 'category']) fields[key].value = value[key];
       for (const key of ['indoor', 'nonflights', 'unknownDates']) fields[key].checked = value[key];
       syncDates();
     }
@@ -260,7 +285,7 @@ window.timingEvidenceHTML = function (timing) {
       }
       state = {period: fields.period.value, from: custom ? fields.from.value : '', to: custom ? fields.to.value : '',
         indoor: fields.indoor.checked, nonflights: fields.nonflights.checked, unknownDates: fields.unknownDates.checked,
-        operator: fields.operator.value};
+        operator: fields.operator.value, category: fields.category.value};
       try { localStorage.setItem(KEY, JSON.stringify(state)); storageWarning = ''; }
       catch (error) {
         console.warn('Could not save flight filters:', error);
@@ -284,7 +309,7 @@ window.timingEvidenceHTML = function (timing) {
 (function () {
   const filters = window.flightFilters;
   const filterKeys = {period:'period', from:'from', to:'to', indoor:'indoor',
-    nonflights:'nonflights', unknownDates:'unknown_dates', operator:'operator'};
+    nonflights:'nonflights', unknownDates:'unknown_dates', operator:'operator', category:'category'};
   const integer = (value, fallback, min = 1) => /^\d+$/.test(value || '')
     && Number.isSafeInteger(+value) && +value >= min ? +value : fallback;
   window.viewState = {
@@ -298,7 +323,7 @@ window.timingEvidenceHTML = function (timing) {
         if (params.has('period')) {
           const value = {};
           for (const [key, param] of Object.entries(filterKeys)) {
-            value[key] = ['period', 'from', 'to', 'operator'].includes(key) ? params.get(param) || ''
+            value[key] = ['period', 'from', 'to', 'operator', 'category'].includes(key) ? params.get(param) || ''
               : params.get(param) === '1';
           }
           if (!filters.restore(value)) console.warn('Invalid URL flight filters; keeping current filters');
@@ -312,7 +337,7 @@ window.timingEvidenceHTML = function (timing) {
         const extra = write(params) || {};
         for (const [key, param] of Object.entries(filterKeys)) {
           const value = filters.state[key];
-          if (value === '' || value === false || (key === 'operator' && value === 'all')) params.delete(param);
+          if (value === '' || value === false || (['operator', 'category'].includes(key) && value === 'all')) params.delete(param);
           else params.set(param, value === true ? '1' : value);
         }
         const url = location.pathname + (params.size ? '?' + params : '') + location.hash;

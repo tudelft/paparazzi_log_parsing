@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS flight_records (
     place_id INTEGER REFERENCES places(id),
     goal TEXT, comment TEXT, reference TEXT,
     operator_id INTEGER REFERENCES operators(id),  -- NULL = from project, place or own operator (operators.py)
+    category TEXT,                      -- operation category; NULL = from project, place or date (categories.py)
+    authorisation_id INTEGER REFERENCES authorisations(id),
     fingerprint TEXT NOT NULL UNIQUE,
     created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -78,6 +80,15 @@ CREATE TABLE IF NOT EXISTS operators (       -- UAS operators flights are flown 
     created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ix_operators_own ON operators(own) WHERE own=1;
+CREATE TABLE IF NOT EXISTS authorisations (  -- ROCs, operational authorisations, LUCs flights are flown under (categories.py)
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,  -- e.g. its number
+    category TEXT NOT NULL CHECK(category IN ('national','specific','luc')),
+    operator_id INTEGER REFERENCES operators(id),  -- holder; NULL = our own operator
+    valid_from TEXT, valid_until TEXT,   -- YYYY-MM-DD, inclusive; NULL = open-ended
+    link TEXT, note TEXT,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS flight_links (     -- paper record <-> telemetry flight decisions (links.py)
     id INTEGER PRIMARY KEY,
     record_id INTEGER NOT NULL REFERENCES flight_records(id) ON DELETE CASCADE,
@@ -239,6 +250,8 @@ CREATE TABLE IF NOT EXISTS flights (
     gcs_user_id INTEGER,
     comment TEXT,                      -- notes added in the logbook / flight page
     operator_id INTEGER,               -- operators.id set on this flight; NULL = from project, place or own operator
+    category TEXT,                     -- operation category set on this flight; NULL = from project, place or date
+    authorisation_id INTEGER,          -- authorisations.id set on this flight (categories.py)
     path_idx INTEGER                   -- index of this flight's path in logs.paths_file
 );
 CREATE TABLE IF NOT EXISTS setting_changes (
@@ -259,7 +272,9 @@ CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
     created_at TEXT NOT NULL,
-    operator_id INTEGER                 -- operators.id its flights are flown under, unless set on the flight
+    operator_id INTEGER,                -- operators.id its flights are flown under, unless set on the flight
+    category TEXT,                      -- default operation category of its flights (categories.py)
+    authorisation_id INTEGER
 );
 CREATE TABLE IF NOT EXISTS project_members (
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -286,6 +301,8 @@ CREATE TABLE IF NOT EXISTS places (
     name TEXT NOT NULL,
     indoor INTEGER NOT NULL DEFAULT 0,  -- 1 for indoor locations (hidden from the logbook by default)
     operator_id INTEGER,                -- operators.id of a site that runs its own operation (e.g. a test centre)
+    category TEXT,                      -- default operation category here, e.g. SPECIFIC (categories.py)
+    authorisation_id INTEGER,
     shape TEXT NOT NULL                 -- JSON: {"type":"polygon","points":[[lat,lon],...]} or {"type":"circle","center":[lat,lon],"radius_m":r}
 );
 CREATE TABLE IF NOT EXISTS ingest (
@@ -500,6 +517,13 @@ def init(path):
         if "operator_id" not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
             con.execute(f"ALTER TABLE {table} ADD COLUMN operator_id INTEGER"
                         + (" REFERENCES operators(id)" if table == "flight_records" else ""))
+    for table in ("flights", "flight_records", "projects", "places"):
+        columns = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+        if "category" not in columns:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN category TEXT")
+        if "authorisation_id" not in columns:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN authorisation_id INTEGER"
+                        + (" REFERENCES authorisations(id)" if table == "flight_records" else ""))
     con.commit()
 
 

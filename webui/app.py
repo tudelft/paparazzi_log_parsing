@@ -49,6 +49,7 @@ import historical
 import links
 import date_suggest
 import operators
+import categories
 import storage
 import saml
 import config
@@ -1708,10 +1709,11 @@ def pick_project_for_user(con, user_id, aircraft_project_id):
 
 
 def snapshot_flight_edits(con, log_id):
-    """Keep edited flight project, crew and operator across a re-parse (flights are deleted with the aircraft rows)."""
+    """Keep edited flight project, crew, operator and category across a re-parse (flights are deleted with the aircraft
+    rows)."""
     return {(r["ac_id"], r["idx"]): dict(r) for r in con.execute(
         "SELECT a.ac_id, f.idx, f.project_id, f.project_source, f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment, f.hidden,"
-        " f.operator_id"
+        " f.operator_id, f.category, f.authorisation_id"
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id=?", (log_id,))}
 
 
@@ -1908,10 +1910,11 @@ def assign_log_flights(con, log_id, kept=None):
             " WHERE a.log_id=?", (log_id,)):
         restore = kept.get((f["ac_id"], f["idx"])) or {}
         if restore:
-            con.execute("UPDATE flights SET pic_user_id=?, pac_user_id=?, gcs_user_id=?, comment=?, hidden=?, operator_id=?"
-                        " WHERE id=?",
+            con.execute("UPDATE flights SET pic_user_id=?, pac_user_id=?, gcs_user_id=?, comment=?, hidden=?, operator_id=?,"
+                        " category=?, authorisation_id=? WHERE id=?",
                         (restore.get("pic_user_id"), restore.get("pac_user_id"), restore.get("gcs_user_id"),
-                         restore.get("comment"), restore.get("hidden", 0), restore.get("operator_id"), f["id"]))
+                         restore.get("comment"), restore.get("hidden", 0), restore.get("operator_id"),
+                         restore.get("category"), restore.get("authorisation_id"), f["id"]))
         saved = restore.get("project_id")
         source = restore.get("project_source") if restore else f["project_source"]
         if source == "manual":
@@ -2042,12 +2045,18 @@ def list_places():
     operator = request.args.get("operator", "all")  # all | own | other, as the flight filters
     if operator not in ("all", "own", "other"):
         return jsonify(error="operator must be all, own or other."), 400
+    category = request.args.get("category", "all")  # all | a category | unknown | check, as the flight filters
+    if category not in ("all", "unknown", "check", *categories.CATEGORIES):
+        return jsonify(error="unknown category filter."), 400
     for f in logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT")):
         place_ids = {f.get("takeoff_place_id"), f.get("landing_place_id")} - {None}
         visible_places.update(place_ids)
         if not include_indoor and f.get("indoor"):
             continue
         if (operator == "own" and not f["operator_own"]) or (operator == "other" and f["operator_own"]):
+            continue
+        if category != "all" and not (f["category_check"] if category == "check"
+                                      else not f["category"] if category == "unknown" else f["category"] == category):
             continue
         real = f.get("verdict") not in ("ground", "uncertain")
         day = ((f.get("takeoff_utc") or f.get("date_override") or "") if f.get("date_ok")
@@ -2073,7 +2082,7 @@ def list_places():
                 if f.get(end + "_place_id") is None:
                     point["unnamed_count"] += 1
     places = [dict(id=r["id"], name=r["name"], indoor=bool(r["indoor"]), shape=json.loads(r["shape"]),
-                   operator_id=r["operator_id"],
+                   operator_id=r["operator_id"], category=r["category"], authorisation_id=r["authorisation_id"],
                    **stats.get(r["id"], {"flights": 0, "seconds": 0.0, "last": None}))
               for r in con.execute("SELECT * FROM places ORDER BY name") if admin or r["id"] in visible_places]
     return jsonify(places=places, points=[{"lat": k[0], "lon": k[1], **n} for k, n in pts.items()],
@@ -2091,8 +2100,12 @@ def admin_add_place():
     operator_id = operators.parse_id(con, body.get("operator_id"))
     if operator_id is False:
         return jsonify(error="no such operator"), 400
-    cur = con.execute("INSERT INTO places (name, indoor, shape, operator_id) VALUES (?,?,?,?)",
-                      (name, int(bool(body.get("indoor"))), json.dumps(shape), operator_id))
+    try:
+        category, authorisation_id = categories.parse(con, body)
+    except categories.CategoryError as exc:
+        return jsonify(error=str(exc)), exc.status
+    cur = con.execute("INSERT INTO places (name, indoor, shape, operator_id, category, authorisation_id) VALUES (?,?,?,?,?,?)",
+                      (name, int(bool(body.get("indoor"))), json.dumps(shape), operator_id, category, authorisation_id))
     con.commit()
     return jsonify(id=cur.lastrowid)
 
@@ -2113,8 +2126,14 @@ def admin_update_place(place_id):
     operator_id = operators.parse_id(con, body["operator_id"]) if "operator_id" in body else row["operator_id"]
     if operator_id is False:
         return jsonify(error="no such operator"), 400
-    con.execute("UPDATE places SET name=?, indoor=?, shape=?, operator_id=? WHERE id=?",
-                (name, indoor, json.dumps(shape), operator_id, place_id))
+    category, authorisation_id = row["category"], row["authorisation_id"]
+    if "category" in body or "authorisation_id" in body:
+        try:
+            category, authorisation_id = categories.parse(con, body)
+        except categories.CategoryError as exc:
+            return jsonify(error=str(exc)), exc.status
+    con.execute("UPDATE places SET name=?, indoor=?, shape=?, operator_id=?, category=?, authorisation_id=? WHERE id=?",
+                (name, indoor, json.dumps(shape), operator_id, category, authorisation_id, place_id))
     con.commit()
     return jsonify(ok=True)
 
@@ -2180,6 +2199,45 @@ def admin_delete_operator(operator_id):
         return jsonify(error="This operator is used by " + ", ".join(f"{n} {label}" for label, n in used.items())
                        + ". Choose another operator there first."), 409
     con.execute("DELETE FROM operators WHERE id=?", (operator_id,))
+    con.commit()
+    return jsonify(ok=True)
+
+
+@app.get("/api/authorisations")
+def list_authorisations():
+    """Operation categories and the authorisations (ROCs, operational authorisations) flights are flown under."""
+    return jsonify(authorisations=categories.catalog(conn()), categories=categories.CATEGORIES,
+                   admin=bool(g.user["is_admin"]))
+
+
+@app.post("/api/admin/authorisations")
+@app.put("/api/admin/authorisations/<int:authorisation_id>")
+def admin_save_authorisation(authorisation_id=None):
+    admin_required()
+    con = conn()
+    if authorisation_id is not None and not con.execute(
+            "SELECT 1 FROM authorisations WHERE id=?", (authorisation_id,)).fetchone():
+        return jsonify(error="no such authorisation"), 404
+    try:
+        values = categories.validate(con, request.get_json(silent=True), authorisation_id)
+        authorisation_id = categories.save(con, values, now(), authorisation_id)
+    except categories.CategoryError as exc:
+        return jsonify(error=str(exc)), exc.status
+    con.commit()
+    return jsonify(id=authorisation_id)
+
+
+@app.delete("/api/admin/authorisations/<int:authorisation_id>")
+def admin_delete_authorisation(authorisation_id):
+    admin_required()
+    con = conn()
+    if not con.execute("SELECT 1 FROM authorisations WHERE id=?", (authorisation_id,)).fetchone():
+        return jsonify(error="no such authorisation"), 404
+    used = {label: n for label, n in categories.usage(con, authorisation_id).items() if n}
+    if used:
+        return jsonify(error="This authorisation is used by " + ", ".join(f"{n} {label}" for label, n in used.items())
+                       + ". Choose another one there first."), 409
+    con.execute("DELETE FROM authorisations WHERE id=?", (authorisation_id,))
     con.commit()
     return jsonify(ok=True)
 
@@ -2431,7 +2489,8 @@ def admin_import_projects():
 
 @app.put("/api/admin/projects/<int:project_id>")
 def admin_update_project(project_id):
-    """Rename a project, or set the operator its flights are flown under (operator_id; null = none)."""
+    """Rename a project, or set the operator its flights are flown under (operator_id; null = none) or their
+    default category (category and/or authorisation_id; both empty = none)."""
     admin_required()
     body = request.get_json(silent=True) or {}
     con = conn()
@@ -2447,11 +2506,18 @@ def admin_update_project(project_id):
         operator_id = operators.parse_id(con, body["operator_id"])
         if operator_id is False:
             return jsonify(error="no such operator"), 400
+    if "category" in body or "authorisation_id" in body:
+        try:
+            category = categories.parse(con, body)
+        except categories.CategoryError as exc:
+            return jsonify(error=str(exc)), exc.status
     try:
         if name != row["name"]:
             con.execute("UPDATE projects SET name=? WHERE id=?", (name, project_id))
         if "operator_id" in body:
             con.execute("UPDATE projects SET operator_id=? WHERE id=?", (operator_id, project_id))
+        if "category" in body or "authorisation_id" in body:
+            con.execute("UPDATE projects SET category=?, authorisation_id=? WHERE id=?", (*category, project_id))
         con.commit()
     except sqlite3.IntegrityError:
         con.rollback()
@@ -2490,7 +2556,8 @@ def admin_project_detail():
             " JOIN users u ON u.id = m.user_id WHERE m.project_id=? ORDER BY u.username", (p["id"],))]
         n = con.execute("SELECT COUNT(*) AS n FROM logs WHERE project_id=?", (p["id"],)).fetchone()["n"]
         projects.append({"id": p["id"], "name": p["name"], "log_count": n, "members": members,
-                         "operator_id": p["operator_id"]})
+                         "operator_id": p["operator_id"], "category": p["category"],
+                         "authorisation_id": p["authorisation_id"]})
     return jsonify(projects=projects, roles=ACCESS_ROLES)
 
 
@@ -3204,6 +3271,8 @@ def update_logbook_records():
         targets.add((kind, int(identity)))
     changes = {k: body[k] for k in ("project_id", "pic_user_id", "pac_user_id", "gcs_user_id", "operator_id", "hidden")
                if k in body}
+    if "category" in body or "authorisation_id" in body:
+        changes["category"] = {k: body.get(k) for k in ("category", "authorisation_id")}
     if not changes:
         return jsonify(error="Choose fields to change."), 400
     if ("hidden" in changes or any(kind == "paper" for kind, _ in targets)) and not g.user["is_admin"]:
@@ -3235,12 +3304,19 @@ def update_logbook_records():
                 changes["operator_id"] = operators.parse_id(con, changes["operator_id"])
                 if changes["operator_id"] is False:
                     raise historical.RecordError("Choose an existing operator.")
+            if "category" in changes:  # both empty: back to the category of the project, place or date
+                try:
+                    changes["category"] = categories.parse(con, changes["category"])
+                except categories.CategoryError as exc:
+                    raise historical.RecordError(str(exc)) from None
             log_flights = set()
             for kind, identity in sorted(targets):
                 if kind == "paper":
                     row = historical.visible(con, g.user, identity)
                     values = {key: row[key] for key in historical.FIELDS}
-                    values.update({key: value for key, value in changes.items() if key != "hidden"})
+                    values.update({key: value for key, value in changes.items() if key not in ("hidden", "category")})
+                    if "category" in changes:
+                        values["category"], values["authorisation_id"] = changes["category"]
                     if values["pic_user_id"] is None or values["project_id"] is None:
                         raise historical.RecordError("Paper records require a PIC and project; choose Keep or a person/project.")
                     if any(key != "hidden" for key in changes):
@@ -3262,11 +3338,19 @@ def update_logbook_records():
                     if "operator_id" in changes:
                         con.execute("UPDATE flights SET operator_id=? WHERE id=?", (changes["operator_id"], identity))
                         log_flights.add(identity)
+                    if "category" in changes:
+                        con.execute("UPDATE flights SET category=?, authorisation_id=? WHERE id=?",
+                                    (*changes["category"], identity))
+                        log_flights.add(identity)
                     if "hidden" in changes:
                         con.execute("UPDATE flights SET hidden=? WHERE id=?", (int(changes["hidden"]), identity))
-            if log_flights:  # the paper records linked to an entry carry its operator too (operators.apply)
+            if log_flights:  # the paper records linked to an entry carry its operator and category too
                 for record_id in {k["record_id"] for k in links.resolved(con) if k["same"] and k["flight_id"] in log_flights}:
-                    con.execute("UPDATE flight_records SET operator_id=? WHERE id=?", (changes["operator_id"], record_id))
+                    if "operator_id" in changes:
+                        con.execute("UPDATE flight_records SET operator_id=? WHERE id=?", (changes["operator_id"], record_id))
+                    if "category" in changes:
+                        con.execute("UPDATE flight_records SET category=?, authorisation_id=? WHERE id=?",
+                                    (*changes["category"], record_id))
             links.auto_link(con, now())
         return jsonify(ok=True, updated=len(targets))
     except historical.RecordError as exc:
@@ -4566,6 +4650,7 @@ LOGBOOK_OVERVIEW_KEYS = (
     "source_selection_reason",
     "can_edit_project", "can_edit_date", "linked_records", "conflicts", "possible_duplicates",
     "operator_id", "operator_name", "operator_registration", "operator_own", "operator_source", "operator_check",
+    "category", "category_label", "category_source", "category_check", "authorisation_id", "authorisation_name",
 )
 
 
@@ -4601,7 +4686,8 @@ def historical_options():
                    people=[dict(r) for r in con.execute(
                        "SELECT id,username,COALESCE(display_name,username) AS name FROM users ORDER BY username")],
                    places=[dict(r) for r in con.execute("SELECT id,name FROM places ORDER BY name")],
-                   operators=operators.catalog(con))
+                   operators=operators.catalog(con), authorisations=categories.catalog(con),
+                   categories=categories.CATEGORIES)
 
 
 @app.get("/api/historical/template")
@@ -4742,7 +4828,8 @@ def stats():
     keys = ("aircraft", "aircraft_uid", "drone_id", "project_id", "project_name",
             "duration_s", "distance_m", "from_takeoff_m", "max_from_takeoff_m",
             "takeoff_utc", "date_ok", "date_override", "date_estimated", "verdict", "indoor", "simulation", "flight_count", "source_type",
-            "pic", "pac", "pic_user", "pac_user", "operator_id", "operator_name", "operator_own")
+            "pic", "pac", "pic_user", "pac_user", "operator_id", "operator_name", "operator_own",
+            "category", "category_label", "authorisation_name")
     rows = logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT"))
     logs = {s["log_id"]: s.get("size_bytes") for r in rows for s in r["sources"]}
     return jsonify(all=bool(g.user["is_admin"]),
@@ -4817,7 +4904,7 @@ def logbook_rows(hidden=False, hide_unlinked=False):
         "SELECT f.id AS flight_id, f.idx, f.takeoff_utc, f.landing_utc, f.duration_s, f.distance_m,"
         " f.from_takeoff_m, f.max_from_takeoff_m, f.landed, f.has_gps_position, f.track_quality,"
         " f.takeoff_lat, f.takeoff_lon, f.landing_lat, f.landing_lon, f.project_id,"
-        " f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment, f.operator_id,"
+        " f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment, f.operator_id, f.category, f.authorisation_id,"
         " a.id AS aircraft_pk, a.ac_id, a.simulation, COALESCE(d.name, a.name) AS aircraft, a.name AS aircraft_logged,"
         " d.unique_id AS aircraft_uid, a.drone_id, a.pic, a.pac, a.gcs, a.goal,"
         " EXISTS(SELECT 1 FROM ambiguous_drone_names n WHERE n.name=TRIM(a.name) COLLATE NOCASE) AS aircraft_ambiguous,"
@@ -4879,6 +4966,7 @@ def logbook_rows(hidden=False, hide_unlinked=False):
     out.extend(historical.rows(con, g.user, request.args.get("project"), hidden=hidden))
     out = links.combine(con, add_people(out, person_resolver(con)))
     operators.apply(con, out, {r["flight_id"]: r["operator_id"] for r in prepared if r["operator_id"]})
+    categories.apply(con, out, {r["flight_id"]: (r["category"], r["authorisation_id"]) for r in prepared if r["category"]})
     out.sort(key=lambda r: (r.get("takeoff_utc") or ((r.get("date_override") or "") + "T00:00:00Z"),
                             r.get("flight_id") or r["manual_id"], r["source_type"]),
              reverse=True)
@@ -4994,7 +5082,8 @@ DETAIL_FLIGHT_KEYS = (
     "takeoff_place", "takeoff_place_id", "landing_place", "landing_place_id", "indoor", "verdict", "date_ok", "date_override", "date_estimated",
     "pic", "pac", "gcs", "pic_user", "pac_user", "gcs_user", "goal", "comment", "simulation",
     "takeoff_voltage_v", "landing_voltage_v", "manual_id", "source_type", "flight_count", "record_kind",
-    "operator_id", "operator_name", "operator_registration", "operator_own", "operator_source")
+    "operator_id", "operator_name", "operator_registration", "operator_own", "operator_source",
+    "category", "category_label", "category_source", "category_check", "authorisation_id", "authorisation_name")
 
 
 @app.get("/people/<int:item_id>")

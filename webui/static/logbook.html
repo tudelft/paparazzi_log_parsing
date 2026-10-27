@@ -87,6 +87,7 @@
       <label>PAC <select id="bulkPac"></select></label>
       <label>GCS <select id="bulkGcs"></select></label>
       <label title="The operator registration the flights were flown under">Operator <select id="bulkOperator" onchange="pickNewOperator(this, operators, fillBulkMenus, '__keep__')"></select></label>
+      <label title="The rules the flights were flown under: OPEN, SPECIFIC with its authorisation, national rules before 2021">Category <select id="bulkCategory"></select></label>
       <button type="button" onclick="applyBulk()">Apply</button>
       <label id="hiddenFilter" hidden><input type="checkbox" id="hiddenRecords" onchange="selected.clear(); page=0; window.viewState.save(true); loadFlights()"> Hidden records only</label>
       <button type="button" id="hideSelected" hidden onclick="setHidden(true)">Hide selected</button>
@@ -96,7 +97,7 @@
     </div>
     <div class="scroll">
     <table class="log">
-      <thead><tr><th class="chk"></th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th>Takeoff location</th><th>Landing location</th>
+      <thead><tr><th class="chk"></th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
         <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -120,7 +121,7 @@ const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 100
 const fmtDate = t => (t || '').slice(0, 10);
 const fmtHm = t => (t || '').slice(11, 16);
 const fmtTime = t => (t || '').replace('T', ' ').slice(0, 19);
-let flights = [], page = 0, pageSize = 15, me = null, projects = [], people = [], operators = [];
+let flights = [], page = 0, pageSize = 15, me = null, projects = [], people = [], operators = [], authorisations = [];
 const selected = new Set();
 const openGroups = new Set();
 
@@ -133,10 +134,11 @@ window.fetch = async (...args) => {
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
-  [projects, people, operators] = await Promise.all([
+  [projects, people, operators, authorisations] = await Promise.all([
     fetch('/api/projects').then(r => r.json()),
     fetch('/api/people').then(r => r.json()),
     fetch('/api/operators').then(r => r.json()).then(d => d.operators),
+    fetch('/api/authorisations').then(r => r.json()).then(d => d.authorisations),
   ]);
   fillBulkMenus();
   syncEditUi();
@@ -190,6 +192,14 @@ function fillBulkMenus() {
   }
   $('bulkOperator').innerHTML = '<option value="__keep__">Keep</option><option value="">From project / place / PIC / own</option>'
     + operators.map(o => `<option value="${o.id}">${esc(operatorLabel(o))}</option>`).join('') + NEW_OPERATOR_OPTION;
+  $('bulkCategory').innerHTML = '<option value="__keep__">Keep</option><option value="">From project / place / date</option>'
+    + categoryOptions(authorisations, '__keep__');
+}
+// Operation category (#62): set on the flight is shown plainly, inferred is muted, (check) when it needs a look.
+function categoryCell(f) {
+  const check = f.category_check ? ` <span class="warn" title="${esc(f.category_check)}">(check)</span>` : '';
+  const title = [f.authorisation_name, CATEGORY_SOURCE[f.category_source] || 'no rule applies'].filter(Boolean).join(' · ');
+  return `<span${f.category_source === 'flight' ? '' : ' class="mute"'} title="${esc(title)}">${esc(categoryText(f))}</span>${check}`;
 }
 // Operator registration (#63): a value set on the flight is shown plainly, an inferred one is muted.
 function operatorCell(f) {
@@ -250,10 +260,11 @@ async function applyBulk() {
     const v = $(id).value;
     if (v !== '__keep__') body[key] = v ? +v : null;
   });
+  if ($('bulkCategory').value !== '__keep__') Object.assign(body, categoryChoice($('bulkCategory').value));
   const projectV = $('bulkProject').value;
   const changeProject = projectV !== '__keep__';
   if (!Object.keys(body).length && !changeProject) {
-    $('bulkMsg').textContent = 'Choose a project, PIC, PAC, GCS or operator.';
+    $('bulkMsg').textContent = 'Choose a project, PIC, PAC, GCS, operator or category.';
     return;
   }
   if (changeProject) {
@@ -261,7 +272,7 @@ async function applyBulk() {
   }
   if (!await updateRecords(ids, body)) return;
   $('bulkMsg').textContent = 'Saved.';
-  ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator'].forEach(id => { $(id).value = '__keep__'; });
+  ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory'].forEach(id => { $(id).value = '__keep__'; });
   loadFlights();
 }
 function syncEditUi() {
@@ -289,7 +300,7 @@ function chk(ids, can) {
   const all = ids.length > 0 && ids.every(id => selected.has(id));
   return `<td class="chk"><input type="checkbox" ${all ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel(${esc(JSON.stringify(ids))}, this.checked)"></td>`;
 }
-const text = f => [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_estimated ? 'estimated date' : '', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, f.operator_name, f.operator_registration, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
+const text = f => [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_estimated ? 'estimated date' : '', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, f.operator_name, f.operator_registration, categoryText(f), f.authorisation_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
 
 function projectOptions(selected) {
   const addable = projects.filter(p => me && (me.is_admin || p.can_add || p.id === selected));
@@ -507,14 +518,14 @@ async function setLogDate(logId, value) {
 }
 const cells = (f, o, landingPlaceId) => `${chk(o.ids, o.canEdit)}${dateTd(f)}<td>${esc(fmtHm(f.takeoff_utc))}</td><td>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</td>
     <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${o.sources}</td><td><span${f.aircraft_uid ? ` title="${esc(f.aircraft_uid)}"` : ''}>${entityLink('aircraft', f.drone_id, f.aircraft)}</span>${verdictMark(f)}</td>
-    <td>${o.project}</td><td>${operatorCell(f)}</td>
+    <td>${o.project}</td><td>${operatorCell(f)}</td><td>${categoryCell(f)}</td>
     <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place, f.takeoff_place_id)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place, landingPlaceId)}</td>
     <td>${crewSelect(f, 'pic', o.ids)}</td><td>${crewSelect(f, 'pac', o.ids)}</td><td>${crewSelect(f, 'gcs', o.ids)}</td><td>${esc(o.goal)}</td><td>${esc(o.comment)}</td>`;
 
 function flightRows(f, cls = '') {
   const ids = crewIds(f);
   return `<tr class="flight ${cls}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: f.can_edit_crew}, f.landing_place_id)}</tr>`
-    + (open_.has(f.record_key) ? `<tr><td colspan="18" class="detail">${detail(f)}</td></tr>` : '');
+    + (open_.has(f.record_key) ? `<tr><td colspan="19" class="detail">${detail(f)}</td></tr>` : '');
 }
 
 function groupRows(g) {
@@ -559,7 +570,7 @@ $('rows').onclick = e => {
 };
 
 function exportCsv() {
-  const cols = ['source_type', 'simulation', 'flight_count', 'record_kind', 'reference', 'takeoff_utc', 'landing_utc', 'date_ok', 'date_estimated', 'date_override', 'duration_s', 'distance_m', 'from_takeoff_m', 'max_from_takeoff_m', 'aircraft', 'aircraft_uid', 'project_name', 'operator_name', 'operator_registration', 'operator_source', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
+  const cols = ['source_type', 'simulation', 'flight_count', 'record_kind', 'reference', 'takeoff_utc', 'landing_utc', 'date_ok', 'date_estimated', 'date_override', 'duration_s', 'distance_m', 'from_takeoff_m', 'max_from_takeoff_m', 'aircraft', 'aircraft_uid', 'project_name', 'operator_name', 'operator_registration', 'operator_source', 'category_label', 'authorisation_name', 'category_source', 'category_check', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
   const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const csv = [cols.join(',')].concat(render().map(f => cols.map(c => cell(c === 'simulation' ? f.simulation?.detected : c.endsWith('_user') ? f[c]?.display_name : f[c])).join(','))).join('\n');
   const a = document.createElement('a');

@@ -339,6 +339,8 @@ function renderSummary() {
       ${kv('Project', projectField(e))}
       ${kv('Operator', e.operator_name ? esc(operatorLabel({name: e.operator_name, registration: e.operator_registration}))
         + (e.operator_source === 'flight' ? '' : ` <span class="mute">${OPERATOR_SOURCE[e.operator_source]}</span>`) : '')}
+      ${kv('Category', esc(categoryText(e)) + (e.category_source === 'flight' ? '' : ` <span class="mute">${CATEGORY_SOURCE[e.category_source] || 'no rule applies'}</span>`)
+        + (e.category_check ? ` <span class="warn">${esc(e.category_check)}</span>` : ''))}
       ${kv('PIC', crewField(e, 'pic'))}${kv('PAC', crewField(e, 'pac'))}${kv('GCS operator', crewField(e, 'gcs'))}
       ${kv('Comment', commentField(e))}
       ${kv('Simulation', e.simulation == null ? 'Not assessed; reparse with the current parser' : e.simulation.detected
