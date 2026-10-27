@@ -1635,6 +1635,18 @@ def apply_drone_fields(con, drone_id, fields, old_name=None):
             pass
 
 
+SERIAL_PREFIX, SERIAL_DIGITS = "TUD", 5
+
+
+def next_serial(con):
+    """The lowest TUDxxxxx serial no aircraft uses yet, so gaps left by removed aircraft are filled first."""
+    used = {int(r[0][len(SERIAL_PREFIX):]) for r in con.execute(
+        "SELECT unique_id FROM drones WHERE unique_id LIKE ?", (SERIAL_PREFIX + "%",))
+        if re.fullmatch(SERIAL_PREFIX + r"\d{%d}" % SERIAL_DIGITS, r[0], re.IGNORECASE)}
+    n = next(i for i in range(1, len(used) + 2) if i not in used)
+    return f"{SERIAL_PREFIX}{n:0{SERIAL_DIGITS}d}"
+
+
 def unique_id_taken(con, uid, drone_id=None):
     row = con.execute("SELECT id FROM drones WHERE unique_id=?", (uid,)).fetchone()
     return bool(row and row["id"] != drone_id)
@@ -2717,14 +2729,15 @@ def list_drones():
         pids = [r["project_id"] for r in con.execute(
             "SELECT project_id FROM project_members WHERE user_id=?", (g.user["id"],))]
     return jsonify(**fleet_payload(con, include_unlinked=admin, project_ids=pids),
-                   hide_unlinked_aircraft=env_bool("HIDE_UNLINKED_AIRCRAFT"))
+                   hide_unlinked_aircraft=env_bool("HIDE_UNLINKED_AIRCRAFT"), next_serial=next_serial(con) if admin else None)
 
 
 @app.get("/api/admin/drones")
 def admin_drones():
     """Fleet aircraft, aliases, unlinked names from logs, and projects for the default-project menu."""
     admin_required()
-    return jsonify(fleet_payload(conn(), include_unlinked=True))
+    con = conn()
+    return jsonify(**fleet_payload(con, include_unlinked=True), next_serial=next_serial(con))
 
 
 @app.post("/api/admin/drones")
@@ -2734,13 +2747,14 @@ def admin_add_drone():
     name = (body.get("name") or "").strip()
     if not name or len(name) > 80:
         return jsonify(error="an aircraft name is required (max 80 characters)"), 400
-    uid = parse_unique_id(body.get("unique_id"))
+    con = conn()
+    # without a serial the aircraft gets the next free one
+    uid = parse_unique_id(body.get("unique_id")) if (body.get("unique_id") or "").strip() else next_serial(con)
     if uid is False:
-        return jsonify(error="a unique ID is required (max 40 characters)"), 400
+        return jsonify(error="the unique ID can have at most 40 characters"), 400
     project_id = parse_project_id(body.get("default_project_id"))
     if project_id is False:
         return jsonify(error="no such project"), 400
-    con = conn()
     if name_taken(con, name):
         return jsonify(error="that name is already used by an aircraft or alias"), 409
     if unique_id_taken(con, uid):
@@ -2763,7 +2777,7 @@ def admin_add_drone():
     seed_drone_period(con, cur.lastrowid, project_id, datetime.now(timezone.utc).date().isoformat())
     fill_drone_defaults(con, cur.lastrowid)
     con.commit()
-    return jsonify(id=cur.lastrowid)
+    return jsonify(id=cur.lastrowid, unique_id=uid)
 
 
 @app.put("/api/admin/drones/<int:drone_id>")

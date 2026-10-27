@@ -116,7 +116,7 @@
       <label class="field">Status<select id="statusFilter"><option value="">All statuses</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select></label>
       <label title="Aircraft marked Discard stay hidden until this is ticked"><input type="checkbox" id="showDiscarded"> Show discarded</label>
       <label title="Aircraft without uploaded logs or paper records stay hidden until this is ticked"><input type="checkbox" id="showWithoutLogs"> Show aircraft without logs</label>
-    <button id="addSection" type="button" hidden onclick="$('addAircraftDialog').showModal()">Add aircraft</button>
+    <button id="addSection" type="button" hidden onclick="openAddAircraft()">Add aircraft</button>
     <button id="importSection" type="button" class="sec" hidden onclick="$('importAircraftDialog').showModal()">Import aircraft from CSV</button>
     <details><summary>Help</summary><p id="fleetHint">Each aircraft has a unique serial (TUDxxxxx) that stays with it if the name changes. Names in the logs that differ from the nice name are aliases.</p></details></div>
     <div class="pending" id="pending" hidden></div>
@@ -125,7 +125,7 @@
     <p class="dialog-error" id="addAircraftError" role="alert"></p>
     <form class="row" id="add" hidden onsubmit="addDrone(event)">
       <label class="field">Name<input id="name" required maxlength="80" autocomplete="off"></label>
-      <label class="field">Serial<input id="uid" required maxlength="40" autocomplete="off" placeholder="TUD00000"></label>
+      <label class="field">Serial<input id="uid" maxlength="40" autocomplete="off" placeholder="Next free TUD number" title="Filled with the lowest free TUD number; empty also gives the next free one"></label>
       <label class="field">Status<select id="newStatus"><option value="">—</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select></label>
       <label class="field">Manager<input id="newManager" maxlength="80" autocomplete="off"></label>
       <label class="field">Project<select id="newProject"></select></label>
@@ -387,11 +387,15 @@ async function send(method, url, body) {
   if (r.ok) await load();
 }
 
+function openAddAircraft() {
+  if (!$('uid').value && data?.next_serial) $('uid').value = data.next_serial;
+  $('addAircraftDialog').showModal();
+}
 async function addDrone(ev) {
   ev.preventDefault();
   const name = $('name').value.trim();
   const unique_id = $('uid').value.trim();
-  if (!name || !unique_id) return;
+  if (!name) return;
   const project = $('newProject').value;
   const body = {name, unique_id, default_project_id: project ? +project : null,
     status: $('newStatus').value, manager: $('newManager').value, comments: $('newComments').value};
