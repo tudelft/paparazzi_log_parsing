@@ -129,8 +129,8 @@ to gain descriptions and previously omitted crew entries.
   Comments are read-only there; edit them on the flight page.
   Distance from takeoff and maximum range are shown only on the flight page, not in overview tables or statistics.
   If the aircraft did not send a version, the Paparazzi version from the GCS `.log` header is shown instead.
-- **MATLAB (.mat)** under *Log sources and upload details* exports a Paparazzi SD or GCS log for MATLAB:
-  **This flight** or **All flights** (10 s before takeoff to 10 s after landing, every aircraft, time 0 at takeoff)
+- **MATLAB ▾** (top right of a flight page, and in an expanded Logbook row) exports a Paparazzi SD or GCS log:
+  **This flight** or **All flights** (10 s before takeoff to 10 s after landing, that aircraft, time 0 at takeoff)
   or the **Whole log**, as `s.aircrafts(i).flights(k).data.<MSG>`. It includes settings by name, the checklist,
   crew, configuration and waypoints; actuators are also named (`ACTUATORS.FRONT_MOT`) and values are in their
   alternate unit (e.g. degrees), the logged value as `<field>_raw`. The file is prepared in the background and

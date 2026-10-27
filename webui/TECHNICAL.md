@@ -414,8 +414,9 @@ are shown and can be retried. Flights need valid coordinates and a correct date 
 at least six days old. No API key is required; the free service is
 [non-commercial only](https://open-meteo.com/en/terms), with attribution under CC BY 4.0.
 
-**MATLAB export.** A flight page offers, per Paparazzi source log (`onboard_sd`/`gcs` with its `.log`),
-**This flight**, **All flights** and **Whole log**. `POST /api/logs/<id>/matlab` (`scope` = `flight` with
+**MATLAB export.** The **MATLAB ▾** menu (`static/matlab.js`) at the top right of a flight page and in an
+expanded Logbook row offers, per Paparazzi source log (`onboard_sd`/`gcs` with its `.log`), **This flight**,
+**All flights** and **Whole log**, with progress and the download inside the menu. `POST /api/logs/<id>/matlab` (`scope` = `flight` with
 `flight_id`, `flights` or `log`) queues a job; `GET /api/matlab-exports/<job>` reports
 queued/running/ready/failed with progress and `/download` returns the file. All three need a browser session
 (API keys get 403) and re-check that the user may see the log. Jobs are identified by log hash, scope, flight
