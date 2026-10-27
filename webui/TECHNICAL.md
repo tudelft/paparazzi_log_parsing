@@ -693,7 +693,8 @@ The menu puts Logbook (`/`) first, followed by Uploads (`/uploads`), Statistics,
 Linked aircraft, crew, projects and named locations in the logbook open their detail pages.
 Coordinates without a linked location still open the external map; Edit mode keeps its reassignment menus.
 Aircraft serial numbers in the logbook appear on hover over the aircraft name rather than inline.
-Add aircraft fills the serial with the lowest free `TUDxxxxx` number (gaps left by removed aircraft first);
+Add aircraft fills the serial with the lowest free `TUDxxxxx` number from TUD00301 on (gaps there first; numbers
+up to TUD00300 may belong to old aircraft that are no longer listed, so they are never handed out again);
 it can be overwritten, and `POST /api/admin/drones` without `unique_id` assigns it too. Admins get it as
 `next_serial` from `GET /api/drones` and `GET /api/admin/drones`.
 **Group by day** is display-only. A row holds flights of one fleet aircraft on one UTC day with the same PIC,

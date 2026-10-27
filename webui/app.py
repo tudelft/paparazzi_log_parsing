@@ -1636,14 +1636,15 @@ def apply_drone_fields(con, drone_id, fields, old_name=None):
 
 
 SERIAL_PREFIX, SERIAL_DIGITS = "TUD", 5
+SERIAL_FIRST = 301  # numbers up to TUD00300 may belong to old aircraft that are no longer listed: never reuse them
 
 
 def next_serial(con):
-    """The lowest TUDxxxxx serial no aircraft uses yet, so gaps left by removed aircraft are filled first."""
+    """The lowest free TUDxxxxx serial from SERIAL_FIRST on, so gaps left by removed aircraft there are filled first."""
     used = {int(r[0][len(SERIAL_PREFIX):]) for r in con.execute(
         "SELECT unique_id FROM drones WHERE unique_id LIKE ?", (SERIAL_PREFIX + "%",))
         if re.fullmatch(SERIAL_PREFIX + r"\d{%d}" % SERIAL_DIGITS, r[0], re.IGNORECASE)}
-    n = next(i for i in range(1, len(used) + 2) if i not in used)
+    n = next(i for i in range(SERIAL_FIRST, SERIAL_FIRST + len(used) + 1) if i not in used)
     return f"{SERIAL_PREFIX}{n:0{SERIAL_DIGITS}d}"
 
 

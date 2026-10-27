@@ -125,7 +125,7 @@
     <p class="dialog-error" id="addAircraftError" role="alert"></p>
     <form class="row" id="add" hidden onsubmit="addDrone(event)">
       <label class="field">Name<input id="name" required maxlength="80" autocomplete="off"></label>
-      <label class="field">Serial<input id="uid" maxlength="40" autocomplete="off" placeholder="Next free TUD number" title="Filled with the lowest free TUD number; empty also gives the next free one"></label>
+      <label class="field">Serial<input id="uid" maxlength="40" autocomplete="off" placeholder="Next free TUD number" title="Filled with the lowest free TUD number from TUD00301 on; empty also gives the next free one"></label>
       <label class="field">Status<select id="newStatus"><option value="">—</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select></label>
       <label class="field">Manager<input id="newManager" maxlength="80" autocomplete="off"></label>
       <label class="field">Project<select id="newProject"></select></label>
