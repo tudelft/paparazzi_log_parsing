@@ -1667,8 +1667,15 @@ def parse_project_id(raw):
     return False
 
 
-def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None, remember_identity=True):
-    drones, names = drone_name_map(con)
+def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None, remember_identity=True, cache=None):
+    """Link the recordings of a log to fleet aircraft. A caller relinking many logs passes a cache dict so the
+    name map is built once instead of once per log."""
+    if cache is not None and "names" in cache:
+        drones, names = cache["names"]
+    else:
+        drones, names = drone_name_map(con)
+        if cache is not None:
+            cache["names"] = drones, names
     log = con.execute("SELECT name FROM logs WHERE id=?", (log_id,)).fetchone()
     log_name = log["name"] if log else ""
     where, params = "log_id=?", [log_id]
@@ -1678,7 +1685,7 @@ def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None, remember_ide
     if ac_id is not None:
         where += " AND ac_id=?"
         params.append(ac_id)
-    for a in con.execute(f"SELECT id, name, ac_id FROM aircraft WHERE {where}", params):
+    for a in con.execute(f"SELECT id, name, ac_id, drone_id FROM aircraft WHERE {where}", params).fetchall():
         override = con.execute("SELECT drone_id FROM log_aircraft_links WHERE log_id=? AND ac_id=?",
                                (log_id, a["ac_id"])).fetchone()
         key = (a["name"] or "").strip().casefold()
@@ -1689,12 +1696,17 @@ def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None, remember_ide
         if d is not None and not ambiguous and not override and remember_identity:
             remember_drone_log_identity(con, d["id"], a["name"])
             drones, names = drone_name_map(con)
-        con.execute("UPDATE aircraft SET drone_id=? WHERE id=?", (d["id"] if d else None, a["id"]))
+            if cache is not None:
+                cache["names"] = drones, names
+        new_id = d["id"] if d else None
+        if new_id != a["drone_id"]:
+            con.execute("UPDATE aircraft SET drone_id=? WHERE id=?", (new_id, a["id"]))
 
 
 def relink_all_aircraft(con):
-    for r in con.execute("SELECT id FROM logs"):
-        link_log_aircraft(con, r["id"])
+    cache = {}
+    for r in con.execute("SELECT id FROM logs").fetchall():
+        link_log_aircraft(con, r["id"], cache=cache)
 
 
 def live_project(con, project_id):
@@ -2894,10 +2906,15 @@ def admin_update_drone(drone_id):
     except sqlite3.IntegrityError:
         con.rollback()
         return jsonify(error="that name or ID is already used by another aircraft"), 409
-    relink_all_aircraft(con)
+    # Logs only need relinking when a name they are matched by changed (the name, its alias or the serial);
+    # a manager, status or comment change touches no flight.
+    renamed = name.casefold() != (old_name or "").casefold() or (uid or "") != (row["unique_id"] or "")
+    if renamed:
+        relink_all_aircraft(con)
     if "default_project_id" in body:
         seed_drone_period(con, drone_id, project_id, parse_loose_date(bought_on))
-    fill_drone_defaults(con, drone_id)
+    if renamed or "default_project_id" in body:
+        fill_drone_defaults(con, drone_id)
     con.commit()
     return jsonify(ok=True)
 
@@ -3806,7 +3823,8 @@ def admin_rename_user(user_id):
     con = conn()
     with db.write_lock, con:
         con.execute("BEGIN IMMEDIATE")
-        user = con.execute("SELECT username,display_name FROM users WHERE id=?", (user_id,)).fetchone()
+        user = con.execute("SELECT username,display_name,default_project_id FROM users WHERE id=?",
+                           (user_id,)).fetchone()
         if user is None:
             return jsonify(error="no such user"), 404
         if profile:
@@ -3841,7 +3859,10 @@ def admin_rename_user(user_id):
             con.execute("UPDATE users SET display_name=? WHERE id=?", (display_name, user_id))
             con.execute("UPDATE users SET email=?, default_project_id=? WHERE id=?",
                         (email or None, project_id, user_id))
-            assign_open_flights(con)
+            # Open flights get a project from their crew's names and default project: only redo that when one changed.
+            if (display_name != user["display_name"] or username != user["username"]
+                    or project_id != user["default_project_id"]):
+                assign_open_flights(con)
     return jsonify(ok=True)
 
 
@@ -3865,8 +3886,10 @@ def admin_update_user(user_id):
             return jsonify(error="no such project"), 400
         if project_id is not None and not live_project(con, project_id):
             return jsonify(error="no such project"), 404
+        before = con.execute("SELECT default_project_id FROM users WHERE id=?", (user_id,)).fetchone()[0]
         con.execute("UPDATE users SET default_project_id=? WHERE id=?", (project_id, user_id))
-        assign_open_flights(con)
+        if project_id != before:
+            assign_open_flights(con)
     if "email" not in body and "default_project_id" not in body:
         return jsonify(error="nothing to update"), 400
     con.commit()

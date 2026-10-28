@@ -1,6 +1,7 @@
 import hashlib
 import io
 import unittest
+import unittest.mock
 from types import SimpleNamespace
 
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -290,6 +291,16 @@ class UsernameTests(AppTests):
         resolve = self.ns["person_resolver"](self.con)
         for name in ("Pilot", "New Pilot"):
             self.assertEqual(resolve("pic", name, None)["id"], 2)
+        # Saving only a new email address does not redo the project of every open flight.
+        calls = []
+        original = self.ns["assign_open_flights"]
+        with unittest.mock.patch.dict(self.ns, assign_open_flights=lambda con: calls.append(1) or original(con)):
+            self.assertEqual(self.client.put("/api/admin/users/2/profile",
+                                             json={**body, "email": "other@example.test"}).status_code, 200)
+            self.assertEqual(calls, [])
+            self.assertEqual(self.client.put("/api/admin/users/2/profile",
+                                             json={**body, "default_project_id": None}).status_code, 200)
+            self.assertEqual(calls, [1])
         for name in ("pic", "newpilot"):
             self.assertIsNone(resolve("pic", name, None))
         self.assertEqual(self.client.put("/api/admin/users/2/profile", json={
