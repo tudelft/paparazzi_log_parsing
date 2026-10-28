@@ -40,6 +40,33 @@ class AmbiguousAircraftTests(AppTests):
         self.assertEqual(calls, [1])
         self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE id=1").fetchone()[0], 2)
 
+    def test_detail_save_relinks_only_after_a_rename_and_builds_the_name_map_once(self):
+        def counting(name):
+            original, calls = self.ns[name], []
+
+            def wrapper(*args, **kwargs):
+                calls.append(1)
+                return original(*args, **kwargs)
+            return calls, patch.dict(self.ns, {name: wrapper})
+
+        relinks, relink_patch = counting("relink_all_aircraft")
+        with relink_patch:
+            response = self.client.put("/api/admin/drones/2", json=dict(manager="Pilot", status="Ready", comments="x"))
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(relinks, [])
+        for i in range(100, 120):  # unrelated logs must not each rebuild the name map
+            self.con.execute("INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by)"
+                             " VALUES (?,?,?,?,'done','now',1)", (i, f"log{i}.data", f"{i:064x}", f"x/{i}.data.gz"))
+        self.con.commit()
+        maps, map_patch = counting("drone_name_map")
+        with map_patch:
+            response = self.client.put("/api/admin/drones/2", json=dict(name="Renamed"))
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertLess(len(maps), 5)  # built once for all logs (plus after a remembered alias), not once per log
+        self.assertIsNotNone(self.con.execute(
+            "SELECT 1 FROM drone_aliases WHERE drone_id=2 AND alias='Other'").fetchone())
+        self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE id=1").fetchone()[0], 2)
+
     def test_remove_alias_unlinks_matching_names_and_board_tokens_but_preserves_overrides(self):
         self.con.execute("INSERT INTO drone_aliases(drone_id,alias) VALUES(2,'00500040')")
         self.con.execute("UPDATE aircraft SET name='quad_x 00500040' WHERE id=1")
