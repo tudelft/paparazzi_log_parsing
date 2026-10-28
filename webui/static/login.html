@@ -11,13 +11,17 @@
   form { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:28px; width:320px; }
   h1 { font-size:18px; margin:0 0 18px; }
   label { display:block; margin-bottom:12px; font-size:12px; color:var(--mute); }
-  input { width:100%; margin-top:4px; padding:8px; font:inherit; border:1px solid var(--fieldline); border-radius:6px; background:var(--field); color:var(--txt); }
+  input { box-sizing:border-box; width:100%; margin-top:4px; padding:8px; font:inherit; border:1px solid var(--fieldline); border-radius:6px; background:var(--field); color:var(--txt); }
   button { width:100%; padding:9px; font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; cursor:pointer; }
   a.sso { display:block; width:100%; padding:9px; font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; cursor:pointer; text-align:center; text-decoration:none; box-sizing:border-box; }
   a.sso[hidden] { display:none; }
   .or { text-align:center; color:var(--mute); font-size:12px; margin:14px 0; }
-  #err { color:var(--err); min-height:1.4em; margin-bottom:8px; }
-  #note { color:var(--ok); min-height:1.4em; margin-bottom:8px; }
+  .local-toggle { display:block; width:auto; margin:16px auto 0; padding:4px 8px; background:none; color:var(--mute); font-size:12px; }
+  .local-toggle:hover, .local-toggle:focus-visible { color:var(--acc); text-decoration:underline; }
+  [hidden] { display:none !important; }
+  #err { color:var(--err); margin-top:12px; }
+  #note { color:var(--ok); margin-bottom:8px; }
+  #err:empty, #note:empty { display:none; }
 </style>
 </head>
 <body>
@@ -25,12 +29,15 @@
 <form id="f">
   <h1>Flight log database</h1>
   <a class="sso" id="sso" href="/login/tudelft" hidden>Sign in with TU Delft</a>
-  <div class="or" id="or" hidden>or use a local account</div>
-  <label>Username<input name="username" autocomplete="username" autofocus required></label>
-  <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+  <button type="button" class="local-toggle" id="showLocal" hidden aria-controls="local" aria-expanded="false">Sign in with a local account</button>
+  <div id="local">
+    <div class="or" id="or" hidden>or use a local account</div>
+    <label>Username<input name="username" autocomplete="username" required></label>
+    <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+    <div id="note"></div>
+    <button>Sign in</button>
+  </div>
   <div id="err"></div>
-  <div id="note"></div>
-  <button>Sign in</button>
 </form>
 <script>
 const q = new URLSearchParams(location.search);
@@ -38,9 +45,30 @@ if (q.get('ready')) document.getElementById('note').textContent = 'Password save
 if (q.get('error')) document.getElementById('err').textContent = q.get('error') === 'sso'
   ? 'TU Delft sign-in failed. Ask an admin if this site is registered as a service provider.'
   : q.get('error');
+// With TU Delft sign-in, that is the default and the local form opens on request (?local=1 keeps it open, so
+// Back and bookmarks return to it). Without it, or after setting a password, the local form shows directly.
+const $ = id => document.getElementById(id);
+function showLocal(open, push) {
+  $('local').hidden = !open;
+  $('showLocal').hidden = open;
+  $('showLocal').setAttribute('aria-expanded', String(open));
+  if (open) $('f').username.focus();
+  if (push) {
+    const u = new URL(location);
+    open ? u.searchParams.set('local', '1') : u.searchParams.delete('local');
+    history.pushState(null, '', u);
+  }
+}
+$('showLocal').onclick = () => showLocal(true, true);
+window.addEventListener('popstate', () => showLocal(new URLSearchParams(location.search).has('local')));
+$('local').hidden = true;  // until we know whether TU Delft sign-in is available
 fetch('/api/login-options').then(r => r.json()).then(d => {
-  if (d.saml) { document.getElementById('sso').hidden = false; document.getElementById('or').hidden = false; }
-}).catch(() => {});
+  if (!d.saml) { showLocal(true); return; }
+  $('sso').hidden = false;
+  $('or').hidden = false;
+  showLocal(q.has('local') || q.has('ready') || (q.has('error') && q.get('error') !== 'sso'));
+  if ($('local').hidden) $('sso').focus();
+}).catch(() => showLocal(true));
 document.getElementById('f').onsubmit = async e => {
   e.preventDefault();
   const fd = new FormData(e.target);
