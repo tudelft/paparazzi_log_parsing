@@ -161,7 +161,7 @@ function fig = compare_plot(p, flights, shift, colors, labels, range)
                     j = j + 1;
                     name = strrep(char(get(lns(i), 'DisplayName')), '\_', '_');
                     if isempty(name) || strncmp(name, 'data', 4)
-                        name = sprintf('line %d', j);
+                        name = axis_label(source(a), j, numel(lns));  % the label of this y side
                     end
                     set(lns(i), 'XData', get(lns(i), 'XData') - shift(k), 'Color', colors(k, :), ...
                         'LineStyle', styles{mod(j - 1, numel(styles)) + 1}, 'Marker', 'none', ...
@@ -208,6 +208,16 @@ function limit(ax, range)
         xl = get(ax, 'XLim');
         range(~isfinite(range)) = xl(~isfinite(range));
         set(ax, 'XLim', range);
+    end
+end
+
+function name = axis_label(ax, j, n)
+    name = strtrim(strjoin(cellstr(get(get(ax, 'YLabel'), 'String')), ' '));
+    name = strrep(name, '\_', '_');
+    if isempty(name)
+        name = sprintf('line %d', j);
+    elseif n > 1
+        name = sprintf('%s %d', name, j);
     end
 end
 
