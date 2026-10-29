@@ -7,7 +7,7 @@ function axs = time_axes(fig)
     for k = 1:numel(axs)
         label = lower(strtrim(strjoin(cellstr(get(get(axs(k), 'XLabel'), 'String')), ' ')));
         v = get(axs(k), 'View');
-        keep(k) = strcmp(get(axs(k), 'XScale'), 'linear') && v(1) == 0 && v(2) == 90 && ...
+        keep(k) = ~strcmp(get(axs(k), 'Tag'), 'legend') && strcmp(get(axs(k), 'XScale'), 'linear') && v(1) == 0 && v(2) == 90 && ...
             isnumeric(get(axs(k), 'XLim')) && (isempty(label) || ~isempty(strfind(label, 'time')));
     end
     axs = axs(keep);
