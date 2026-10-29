@@ -37,7 +37,7 @@ function fig = pprz_replay(f, model)
         R = max([R; sqrt(sum(part{1}.vertices .^ 2, 2))]);
     end
     draw_frame(ax, R);
-    axis(ax, 1.25 * R * [-1 1 -1 1 -1 1]);
+    axis(ax, 1.05 * R * [-1 1 -1 1 -1 1]);
     view(ax, [-140 25]);
     light('Parent', ax, 'Position', [-1 -1 -2], 'Style', 'infinite');
 
@@ -80,7 +80,8 @@ function fig = pprz_replay(f, model)
         end
         now_t = min(max(time, t(1)), t(end));
         i = sample(t, now_t);
-        B = [rotation(quat_mul(quat(i, :), M.AircraftRot)), [0; 0; 0]; 0 0 0 1];
+        q = quat_mul(quat(i, :), M.AircraftRot);
+        B = [rotation(q / norm(q)), [0; 0; 0]; 0 0 0 1];  % a unit quaternion: a pure rotation
         set(body, 'Matrix', B);
         if ~isempty(parts)
             values = [];
@@ -98,7 +99,9 @@ function fig = pprz_replay(f, model)
             sprintf('pitch   %8.1f deg', e(2)), sprintf('heading %8.1f deg', mod(e(3), 360))};
         for h = hud
             v = value_at(h.t, h.x, now_t);
-            if h.mode
+            if h.mode && isnan(v)
+                v = '-';  % before the first status message
+            elseif h.mode
                 v = char(pprz.enum(f, 'ROTORCRAFT_STATUS', 'ap_mode', v));
             end
             lines{end + 1} = sprintf(h.format, v); %#ok<AGROW>
@@ -155,6 +158,12 @@ function [M, name] = load_model(f, model)
         name = '';
         if isfield(f, 'aircraft') && isfield(f.aircraft, 'name')
             name = lower(char(f.aircraft.name));
+        end
+        % The logged name is often empty or generic; the airframe file usually names the aircraft too.
+        if isfield(f, 'aircraft') && isfield(f.aircraft, 'config') && isfield(f.aircraft.config, 'xml') && ...
+                isfield(f.aircraft.config.xml, 'airframe') && ischar(f.aircraft.config.xml.airframe)
+            xml = f.aircraft.config.xml.airframe;
+            name = [name ' ' lower(xml(1:min(end, 4000)))];
         end
         for k = 1:size(known, 1)
             if ~isempty(strfind(name, known{k, 1}))
