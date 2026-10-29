@@ -45,11 +45,13 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | `pprz.enum(f, msg, field, v)` | Names of enum values, e.g. autopilot modes. |
 | `pprz.modes(f, fig, 'ap')` | Shade autopilot (`ap`) or RC (`rc`) mode regions in a figure. |
 | `pprz.has(d, msg, ...)` | True when the messages were logged. |
+| `pprz.track(f, by)` | The flown path (lat/lon and local east/north) with a value per point to colour by, and the flight plan waypoints. |
 
 Plots live in `plotters/` as `plot_xxx(f.data)` and are listed in `pprz_plots.m` (name, group, title and the
 messages they need); add a plot by writing the function and one line there. `pprz_plot()` prints the list:
-overview, track/map, status, setting changes, attitude, guidance, navigation sensors, IMU, actuators and power,
-effectiveness, rotating wing, RC and errors.
+overview, track/map, maps coloured by height, ground speed, autopilot mode or battery (satellite background with the
+flight plan waypoints; `plot_map(f, by, basemap)` for other backgrounds), status, setting changes, attitude, guidance,
+navigation sensors, IMU, actuators and power, effectiveness, rotating wing, RC and errors.
 
 Analysis tools in `tools/` (effectiveness estimation, altitude tuning, airspeed sensor scale, takeoff distance,
 servo model, rotating-wing flight envelope, 3D visualisation) and `3d_animation/` work on `ac_data = f.data`.
