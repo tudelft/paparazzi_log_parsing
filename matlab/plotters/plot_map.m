@@ -29,7 +29,7 @@ function plot_map(f, by, basemap)
         up = 1;
     end
     % Frame the flown track (far waypoints stay outside), and label only waypoints in view and not
-    % within 10% of the view of an already labelled one.
+    % on top of an already labelled one (within 4% of the view).
     span = max([max(tr.east) - min(tr.east), max(tr.north) - min(tr.north), 50]);
     margin = 0.1 * span;
     box = [min(tr.east) - margin, max(tr.east) + margin, min(tr.north) - margin, max(tr.north) + margin];
@@ -38,7 +38,7 @@ function plot_map(f, by, basemap)
     for k = 1:numel(tr.waypoints)
         w = tr.waypoints(k);
         in = w.east >= box(1) && w.east <= box(2) && w.north >= box(3) && w.north <= box(4);
-        near = ~isempty(labelled) && any(hypot(labelled(:, 1) - w.east, labelled(:, 2) - w.north) < 0.1 * span);
+        near = ~isempty(labelled) && any(hypot(labelled(:, 1) - w.east, labelled(:, 2) - w.north) < 0.04 * span);
         shown(k) = in && ~near;
         if shown(k)
             labelled(end + 1, :) = [w.east, w.north]; %#ok<AGROW>
