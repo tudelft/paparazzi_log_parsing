@@ -37,6 +37,8 @@
   .mono { font-family:ui-monospace, monospace; font-size:12px; }
   .chip { display:inline-flex; align-items:center; gap:4px; background:var(--chip); border-radius:12px; padding:1px 4px 1px 10px; margin:2px 4px 2px 0; }
   .chip button { background:none; color:var(--err); padding:0 6px; font-size:15px; }
+  .chip .elsewhere { font-size:11px; padding:0 6px; border-radius:8px; background:var(--warnbg); color:var(--warn); }
+  .chip button.allow { color:var(--acc); font-size:13px; }
   button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
   button.sec { background:var(--sec); color:var(--txt); }
   .pick-button { min-width:240px; max-width:320px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -122,6 +124,7 @@
       <button type="submit">Mark ambiguous</button>
     </form>
     <div id="ambiguousNames"></div>
+    <div id="excludedBoards"></div>
   </details>
   <div class="pick-menu" id="pickMenu" hidden>
     <input type="search" id="pickSearch" placeholder="Search aircraft" aria-label="Search aircraft" autocomplete="off">
@@ -289,6 +292,8 @@ function render() {
       <option value="">Automatic / unresolved</option>${data.drones.map(d => `<option value="${d.id}"${r.manual && r.drone_id === d.id ? ' selected' : ''}>${esc(droneLabel(d))}</option>`).join('')}</select>
       <button type="button" onclick="saveManualAircraft(${r.log_id},${r.ac_id},'manual-${i}-${j}')">Save</button>`}</td></tr>`).join('')}
     </tbody></table></div></details>`).join('') || '<p class="mute">No shared names marked ambiguous.</p>';
+  $('excludedBoards').innerHTML = (data.excluded_boards || []).length ? `<h3>Boards not used for matching</h3>
+    ${data.excluded_boards.map(b => `<span class="chip"><span class="mono">${esc(b.mcu_uid)}</span> · ${b.log_count} log${b.log_count === 1 ? '' : 's'}<button type="button" data-board="${esc(b.mcu_uid)}" class="allow" onclick="boardMatching(this, 'POST')">Allow again</button></span>`).join('')}` : '';
   $('addSection').hidden = $('importSection').hidden = !editing;
   $('aircraftManagement').hidden = !editing;
   $('aircraftOverview').hidden = editing;
@@ -464,7 +469,10 @@ function renderAircraftPanel() {
     $('aircraftContent').innerHTML = `<p class="mute">Aliases link aircraft names in logs to this aircraft.</p>
       ${d.aliases.map(a => `<span class="chip">${esc(a)}<button type="button" data-name="${esc(a)}" onclick="markAmbiguous(this.dataset.name)">Mark ambiguous</button><button type="button" aria-label="Remove alias ${esc(a)}" data-alias="${esc(a)}" onclick="removeAlias(this)">×</button></span>`).join('') || '<p class="mute">No aliases.</p>'}
       <form class="row" onsubmit="event.preventDefault();addAlias(${d.id})">
-      <label class="field">New alias<input id="new${d.id}" required maxlength="80"></label><button type="submit">Add alias</button></form>`;
+      <label class="field">New alias<input id="new${d.id}" required maxlength="80"></label><button type="submit">Add alias</button></form>
+      ${(d.boards || []).length ? `<h3>Autopilot boards</h3>
+      <p class="mute">Learned from logs whose name clearly matched this aircraft; a log with a shared or unknown name on the same board is linked here too.</p>
+      ${d.boards.map(b => `<span class="chip" title="${b.source === 'manual' ? 'From a hand assignment' : 'Learned automatically'} · ${b.log_count} log${b.log_count === 1 ? '' : 's'}${b.other_count ? ` · ${b.other_count} linked to another aircraft by name` : ''}"><span class="mono">${esc(b.mcu_uid)}</span>${b.other_count ? ' <span class="elsewhere">also on another aircraft</span>' : ''}<button type="button" aria-label="Stop matching board ${esc(b.mcu_uid)}" data-board="${esc(b.mcu_uid)}" onclick="boardMatching(this, 'DELETE')">×</button></span>`).join('')}` : ''}`;
   } else {
     $('aircraftContent').innerHTML = `<form id="aircraftDetails" onsubmit="saveAircraftDetails(event,${d.id})">
       <div class="detail-fields">
@@ -620,6 +628,16 @@ async function linkUnlinked(i) {
 function addAlias(id) {
   const v = $('new' + id).value.trim();
   if (v) send('POST', '/api/admin/drone-aliases', {drone_id: id, alias: v});
+}
+// Stop matching logs by an autopilot board ID (e.g. a board moved to another airframe or a shared test board),
+// or let it be learned again.
+async function boardMatching(button, method) {
+  if (method === 'DELETE' && !confirm(`Stop linking logs by board ${button.dataset.board}? Logs linked only by this board become unlinked.`)) return;
+  button.disabled = true;
+  const r = await fetch(method === 'DELETE' ? '/api/admin/drone-boards' : '/api/admin/drone-boards/allow', {
+    method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mcu_uid: button.dataset.board})});
+  $('err').textContent = r.ok ? '' : ((await r.json().catch(() => ({}))).error || 'Could not change the board.');
+  await load();
 }
 async function removeAlias(button) {
   if (button.disabled) return;

@@ -192,6 +192,12 @@ CREATE TABLE IF NOT EXISTS drone_aliases (
     drone_id INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
     alias TEXT NOT NULL UNIQUE COLLATE NOCASE   -- name as it appears in the log aircraft field
 );
+CREATE TABLE IF NOT EXISTS drone_boards (
+    mcu_uid TEXT PRIMARY KEY,          -- autopilot board unique ID (hex)
+    drone_id INTEGER REFERENCES drones(id) ON DELETE CASCADE,  -- NULL = never use this board for matching
+    source TEXT NOT NULL CHECK(source IN ('auto', 'manual')),
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS ambiguous_drone_names (
     name TEXT PRIMARY KEY COLLATE NOCASE
 );
@@ -224,7 +230,8 @@ CREATE TABLE IF NOT EXISTS aircraft (
     preflight_checks TEXT,             -- JSON
     info_messages TEXT,                -- JSON
     simulation TEXT,                   -- JSON detection/evidence; NULL = not assessed
-    config_gz BLOB                     -- gzip JSON: flight_plan, settings, xml
+    config_gz BLOB,                    -- gzip JSON: flight_plan, settings, xml
+    mcu_uid TEXT                       -- autopilot board unique ID (hex) from AUTOPILOT_VERSION, parser 1.9.0+
 );
 CREATE TABLE IF NOT EXISTS flights (
     id INTEGER PRIMARY KEY,
@@ -436,8 +443,17 @@ def init(path):
         con.execute("ALTER TABLE logs ADD COLUMN timing TEXT")
     if "date_estimated" not in cols:
         con.execute("ALTER TABLE logs ADD COLUMN date_estimated INTEGER NOT NULL DEFAULT 0 CHECK(date_estimated IN (0,1))")
-    if "simulation" not in {r["name"] for r in con.execute("PRAGMA table_info(aircraft)")}:
+    acols = {r["name"] for r in con.execute("PRAGMA table_info(aircraft)")}
+    if "simulation" not in acols:
         con.execute("ALTER TABLE aircraft ADD COLUMN simulation TEXT")
+    if "mcu_uid" not in acols:  # board IDs of logs already parsed with parser 1.9.0
+        con.execute("ALTER TABLE aircraft ADD COLUMN mcu_uid TEXT")
+        for row in con.execute("SELECT a.id, a.ac_id, l.timing FROM aircraft a JOIN logs l ON l.id=a.log_id"
+                               " WHERE l.timing LIKE '%\"mcu_uid\": \"%'").fetchall():
+            uid = board_id(json.loads(row["timing"]), row["ac_id"])
+            if uid:
+                con.execute("UPDATE aircraft SET mcu_uid=? WHERE id=?", (uid, row["id"]))
+    con.execute("CREATE INDEX IF NOT EXISTS ix_aircraft_board ON aircraft(mcu_uid) WHERE mcu_uid IS NOT NULL")
     if "uploaded_by" not in cols:  # database created before accounts existed
         con.execute("ALTER TABLE logs ADD COLUMN uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
     fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
@@ -598,6 +614,13 @@ def track_quality(path, takeoff_time_s, duration_s):
     return quality
 
 
+def board_id(timing, ac_id):
+    """The autopilot board ID an aircraft reported in AUTOPILOT_VERSION, None when absent or not unique."""
+    uids = {f.get("mcu_uid") for f in (timing or {}).get("firmware") or [] if f.get("ac_id") == ac_id}
+    uids.discard(None)
+    return uids.pop() if len(uids) == 1 else None
+
+
 def store_parsed(con, log_id, doc, paths_file):
     """Replace the parsed content of a log by the output of the C++ parser (caller commits).
 
@@ -622,13 +645,14 @@ def store_parsed(con, log_id, doc, paths_file):
                   "invalid_setting_reports": (ac.get("settings_changes") or {}).get("invalid_reports", [])}
         cur = con.execute(
             "INSERT INTO aircraft (log_id, ac_id, name, pic, pac, gcs, goal, autopilot_versions, first_utc, last_utc,"
-            " num_flights, total_flight_time_s, total_flight_distance_m, preflight_checks, info_messages, config_gz, simulation)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " num_flights, total_flight_time_s, total_flight_distance_m, preflight_checks, info_messages, config_gz, simulation,"
+            " mcu_uid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (log_id, ac.get("ac_id"), ac.get("name"), m.get("pic"), m.get("pac"), m.get("gcs"), m.get("goal"),
              json.dumps(ac.get("autopilot_versions", [])), span.get("first_utc"), span.get("last_utc"),
              summ.get("num_flights"), summ.get("total_flight_time_s"), summ.get("total_flight_distance_m"),
              json.dumps(ac.get("preflight_checks", [])), json.dumps(ac.get("info_messages", [])), pack(config),
-             json.dumps(ac["simulation"]) if ac.get("simulation") is not None else None),
+             json.dumps(ac["simulation"]) if ac.get("simulation") is not None else None,
+             board_id(lg.get("timing"), ac.get("ac_id"))),
         )
         ac_pk = cur.lastrowid
         for f in ac.get("flights", []):
