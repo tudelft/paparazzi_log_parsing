@@ -39,6 +39,7 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | `pprz_flight` | One flight ready to plot: `f.data`, `f.time`, `f.summary`, `f.aircraft`, `f.messages`, `f.title`. A flight in a whole-log export is cut from the log. |
 | `pprz_plot` | Make plots by name, or every plot whose messages were logged; options `modes` (`ap`/`rc`), `range` [t0 t1], `docked`. |
 | `pprz_view` | Window to pick a flight, tick plots (unlogged ones are marked), shade modes, choose a time range and save the figures. |
+| `pprz_replay(f, model)` | Replay a flight in 3-D with the airframe model (`3d_animation/3d_models`: Nederdrone5, RotatingWingV3, Cyclone2, picked from the aircraft name, else a generic quadrotor): attitude, control surfaces and motor throttle from `ACTUATORS`, the track from above and height, airspeed, battery and mode. Play/pause, slider and arrow keys; also the *3-D replay* button in `pprz_view`. No toolboxes needed. |
 | `pprz.crop(d, t0, t1)` | Rows of every message between t0 and t1. |
 | `pprz.actuators(d)` | `ACTUATORS` as an N×k matrix with names, whether exported by name or as `values`. |
 | `pprz.enum(f, msg, field, v)` | Names of enum values, e.g. autopilot modes. |

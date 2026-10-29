@@ -43,8 +43,10 @@ function fig = pprz_view(logs)
 
     uilabel(g, 'Text', 'Plots', 'FontWeight', 'bold');
     tree = uitree(g, 'checkbox');
-    bg = uigridlayout(g, [1 3], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', '1x', '1x'});
+    bg = uigridlayout(g, [1 4], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', '1x', '1x', '1x'});
     uibutton(bg, 'Text', 'Plot', 'ButtonPushedFcn', @(~, ~) draw());
+    uibutton(bg, 'Text', '3-D replay', 'ButtonPushedFcn', @(~, ~) replay(), ...
+        'Tooltip', 'Replay the flight with the airframe model (pprz_replay)');
     uibutton(bg, 'Text', 'Save figures…', 'ButtonPushedFcn', @(~, ~) save_figures());
     uibutton(bg, 'Text', 'Close figures', 'ButtonPushedFcn', @(~, ~) close_figures());
     status = uilabel(g, 'Text', '', 'WordWrap', 'on');
@@ -106,6 +108,15 @@ function fig = pprz_view(logs)
         made = pprz_plot(f, names{:}, 'modes', shade.Value, 'range', range, 'docked', true);
         figs = [figs(isgraphics(figs)), made];
         status.Text = sprintf('%d figure(s) made.', numel(made));
+    end
+
+    function replay()
+        try
+            figs = [figs(isgraphics(figs)), pprz_replay(f)];
+            status.Text = '3-D replay opened.';
+        catch err
+            status.Text = err.message;
+        end
     end
 
     function save_figures()
