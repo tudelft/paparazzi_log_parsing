@@ -34,7 +34,7 @@ function figs = pprz_compare(flights, varargin)
     end
     shift = align_times(flights, opts.align);
     colors = lines(max(numel(flights), 1));
-    labels = cellfun(@short_title, flights, 'UniformOutput', false);
+    labels = flight_labels(flights);
     figs = gobjects(0);
     dotted = ~cellfun(@isempty, strfind(names, '.'));
     signals = names(dotted);
@@ -74,7 +74,8 @@ function shift = align_times(flights, how)
         shift(k) = NaN;
         if strcmp(kind, 'setting') && isfield(f.aircraft, 'settings') && isfield(f.aircraft.settings, 'changes')
             ch = f.aircraft.settings.changes;
-            hit = find(strcmp(cellstr(ch.name), name), 1);
+            inside = ch.t(:) >= f.time.start_s & ch.t(:) <= f.time.end_s;  % changes of this flight (log time)
+            hit = find(strcmp(cellstr(ch.name(:)), name) & inside, 1);
             if ~isempty(hit)
                 shift(k) = ch.t(hit) - f.time.offset_s;
             end
@@ -93,7 +94,7 @@ function shift = align_times(flights, how)
         error('pprz_compare:align', 'No flight has %s %s.', kind, name);
     elseif any(missing)
         warning('pprz_compare:align', 'Aligned at takeoff (no %s %s): %s', kind, name, ...
-            strjoin(cellfun(@short_title, flights(missing), 'UniformOutput', false), ', '));
+            strjoin(cellfun(@(f) char(f.title), flights(missing), 'UniformOutput', false), ', '));
         shift(missing) = 0;
     end
 end
@@ -114,7 +115,7 @@ function fig = compare_signals(flights, signals, shift, colors, labels, range)
                     'DisplayName', labels{k});
             end
         end
-        ylabel(axs(s), strrep(signals{s}, '_', '\_'));
+        ylabel(axs(s), signals{s}, 'Interpreter', 'none');
         limit(axs(s), range);
     end
     legend(axs(1), 'Location', 'best', 'Interpreter', 'none');
@@ -145,18 +146,26 @@ function fig = compare_plot(p, flights, shift, colors, labels, range)
             source = pprz.time_axes(scratch);
         end
         for a = 1:min(numel(source), numel(target))
-            lns = flipud(findobj(source(a), 'Type', 'line'));  % creation order
-            if source(a) ~= target(a)
-                lns = copyobj(lns, target(a));
-            end
-            for j = 1:numel(lns)
-                name = strrep(char(get(lns(j), 'DisplayName')), '\_', '_');
-                if isempty(name) || strncmp(name, 'data', 4)
-                    name = sprintf('line %d', j);
+            j = 0;
+            for side = y_sides(source(a))
+                if ~isempty(side{1})
+                    yyaxis(source(a), side{1});
+                    yyaxis(target(a), side{1});
                 end
-                set(lns(j), 'XData', get(lns(j), 'XData') - shift(k), 'Color', colors(k, :), ...
-                    'LineStyle', styles{mod(j - 1, numel(styles)) + 1}, 'Marker', 'none', ...
-                    'DisplayName', sprintf('%s · %s', name, labels{k}));
+                lns = [flipud(findobj(source(a), 'Type', 'line')); findobj(source(a), 'Type', 'stair')];
+                if source(a) ~= target(a)
+                    lns = copyobj(lns, target(a));
+                end
+                for i = 1:numel(lns)
+                    j = j + 1;
+                    name = strrep(char(get(lns(i), 'DisplayName')), '\_', '_');
+                    if isempty(name) || strncmp(name, 'data', 4)
+                        name = sprintf('line %d', j);
+                    end
+                    set(lns(i), 'XData', get(lns(i), 'XData') - shift(k), 'Color', colors(k, :), ...
+                        'LineStyle', styles{mod(j - 1, numel(styles)) + 1}, 'Marker', 'none', ...
+                        'DisplayName', sprintf('%s · %s', name, labels{k}));
+                end
             end
         end
         if source(1) ~= target(1)
@@ -171,7 +180,8 @@ function fig = compare_plot(p, flights, shift, colors, labels, range)
     if isempty(old)
         old = findobj(fig, 'Tag', 'legend');  % Octave
     end
-    delete(old);
+    delete([old; findobj(fig, 'Type', 'datatip')]);
+    set(findobj(fig, 'Type', 'subplottext'), 'String', get(fig, 'Name'));  % sgtitle named the first flight
     for a = 1:numel(target)
         limit(target(a), range);
     end
@@ -197,12 +207,30 @@ function limit(ax, range)
     end
 end
 
-function label = short_title(f)
-    % 'file · aircraft · flight N' without the long file name when it is a flight.
-    label = char(f.title);
-    parts = strsplit(label, ' · ');
-    if numel(parts) >= 3
-        label = strjoin(parts(2:end), ' · ');
-        label = sprintf('%s (%s)', label, parts{1});
+function sides = y_sides(ax)
+    % Both sides of a yyaxis plot, else the one (yyaxis is MATLAB only).
+    sides = {''};
+    try
+        if numel(get(ax, 'YAxis')) > 1
+            sides = {'left', 'right'};
+        end
+    catch
+    end
+end
+
+function labels = flight_labels(flights)
+    % 'aircraft · flight N', with the file only when the flights come from different files.
+    parts = cellfun(@(f) strtrim(strsplit(char(f.title), '·')), flights, 'UniformOutput', false);
+    files = cellfun(@(p) p{1}, parts, 'UniformOutput', false);
+    labels = cell(size(flights));
+    for k = 1:numel(flights)
+        rest = parts{k}(2:end);
+        rest = rest(~cellfun(@isempty, rest));
+        labels{k} = strjoin(rest, ' · ');
+        if isempty(rest)
+            labels{k} = files{k};
+        elseif numel(unique(files)) > 1
+            labels{k} = sprintf('%s (%s)', labels{k}, files{k});
+        end
     end
 end
