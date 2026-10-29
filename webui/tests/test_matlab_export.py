@@ -1,6 +1,7 @@
 import gzip
 import io
 import os
+import sys
 import tempfile
 import time
 import unittest
@@ -170,6 +171,24 @@ class MatlabExporterTests(unittest.TestCase):
         self.assertEqual(text(file, s["log"]["unparsed"]["lines"][0, 0]), "garbage line")
         self.assertEqual(len(warnings), 3)
         self.assertEqual(s["log"]["warnings"].shape, (1, 3))
+
+    def test_firmware_build_identity_and_a_missing_trailing_array(self):
+        protocol = PROTOCOL.replace('<field name="desc" type="char[]"/></message>', '<field name="desc" type="char[]"/>'
+                                    '<field name="sha1" type="uint8[20]"/><field name="build_time" type="uint32"/>'
+                                    '<field name="mcu_uid" type="uint8[]"/></message>')
+        sha1 = ",".join(str(b) for b in range(171, 191))
+        rows = [f'0.5 5 AUTOPILOT_VERSION 51500 "v5.15_devel-167-g55bfedf" {sha1} 1793000000'] + ROWS[1:]
+        with patch.object(sys.modules[__name__], "PROTOCOL", protocol), \
+                patch.object(sys.modules[__name__], "ROWS", rows):
+            file, warnings, _ = self.export()
+        self.assertFalse([w for w in warnings if "AUTOPILOT_VERSION" in w])  # no board ID: empty, not rejected
+        version = self.element(file, file["s"]["aircraft"], "version", 0)
+        self.assertEqual(text(file, version["sha1"].ref), "".join(f"{b:02x}" for b in range(171, 191)))
+        self.assertEqual(text(file, version["build_time_utc"].ref), "2026-10-26T07:33:20Z")
+        self.assertEqual(text(file, version["mcu_uid"].ref), "")
+        self.assertEqual(text(file, version["desc"].ref), "v5.15_devel-167-g55bfedf")
+        data = self.element(file, file["s"]["aircraft"], "data", 0)
+        np.testing.assert_array_equal(column(data["AUTOPILOT_VERSION"]["sha1"]), list(range(171, 191)))
 
     def test_flights_belong_to_their_aircraft_and_count_from_takeoff(self):
         windows = [dict(index=1, ac_id=5, takeoff_s=2.0, landing_s=6.0, takeoff_utc="2026-10-21T09:05:12Z",

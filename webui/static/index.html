@@ -129,6 +129,14 @@ window.fetch = async (...args) => {
   return r;
 };
 let onlyLog = /^#log\d+$/.test(location.hash) ? +location.hash.slice(4) : null;  // a deep link opens that one log
+// Full hash, build time and board ID from AUTOPILOT_VERSION (parser 1.9.0+, when the firmware sends them).
+function firmwareBuildHTML(timing, acId) {
+  const builds = ((timing || {}).firmware || []).filter(f => f.ac_id === acId && (f.sha1 || f.build_time_utc || f.mcu_uid));
+  return builds.length ? `<span class="mute">Firmware build</span><span>${builds.map(f => [
+    f.sha1 && `<span class="mono" title="${esc(f.sha1)}">${esc(f.sha1.slice(0, 10))}</span>`,
+    f.build_time_utc && 'built ' + esc(f.build_time_utc.replace('T', ' ').replace(/\.\d+Z$/, 'Z')),
+    f.mcu_uid && `board <span class="mono">${esc(f.mcu_uid)}</span>`].filter(Boolean).join(' · ')).join('<br>')}</span>` : '';
+}
 function logsQuery() {
   const p = new URLSearchParams();
   p.set('limit', String(LOG_PAGE));
@@ -527,7 +535,7 @@ async function loadDetail(id) {
     h += `<h4>${esc(a.drone_name || a.name)} ${a.simulation?.detected ? '<span class="badge">Simulation</span>' : ''}<span class="mute">${a.drone_uid ? esc(a.drone_uid) + ' · ' : ''}AC ${a.ac_id}${a.drone_name && a.drone_name !== a.name ? ' · logged as ' + esc(a.name) : ''}</span></h4>
       <div class="kv"><span class="mute">PIC / PAC / GCS</span><span>${esc(a.pic)} / ${esc(a.pac)} / ${esc(a.gcs)}</span>
       <span class="mute">Goal</span><span>${esc(a.goal)}</span>
-      <span class="mute">Autopilot</span><span class="mono">${esc((a.autopilot_versions || []).join(', '))}${a.autopilot_versions_from_gcs ? '</span> <span class="mute">from GCS log' : ''}</span></div>
+      <span class="mute">Autopilot</span><span class="mono">${esc((a.autopilot_versions || []).join(', '))}${a.autopilot_versions_from_gcs ? '</span> <span class="mute">from GCS log' : ''}</span>${firmwareBuildHTML(l.timing, a.ac_id)}</div>
       <table><thead><tr><th>Flight</th><th>Takeoff (UTC)</th><th>Duration</th><th>Flown</th><th>Project</th><th>Takeoff location</th><th>Landing location</th><th>Battery</th><th>Path</th></tr></thead><tbody>
       ${a.flights.map(f => `<tr><td><a href="/flight/${f.id}" onclick="event.stopPropagation()" title="Open the flight page">Flight ${f.idx}</a></td><td>${esc(f.takeoff_utc)}</td><td>${fmtDur(f.duration_s)}</td><td>${fmtDist(f.distance_m)}</td>
         <td>${esc(f.project_name || '')}</td>

@@ -945,12 +945,22 @@ function softwareVersion(raw) {
   const description = match[2].replace(/^"(.*)"$/, '$1');
   const git = description.match(/^(.*)-(\d+|none)-g([0-9a-f]{7,40})(-dirty)?$/i);
   const dirty = description.endsWith('-dirty');
-  const link = (path, text) => `<a href="https://github.com/paparazzi/paparazzi/${path}" target="_blank" rel="noopener">${esc(text)}</a>`;
+  // Parser 1.9.0+: the full hash, build time and board ID when the firmware sends them; the resolved
+  // commit and repository when the GitHub lookup found it.
+  const fw = ((D.timing || {}).firmware || []).find(f => f.raw === raw) || {};
+  const repo = /^[\w.-]+\/[\w.-]+$/.test(fw.repository || '') ? fw.repository : 'paparazzi/paparazzi';
+  const link = (path, text) => `<a href="https://github.com/${repo}/${path}" target="_blank" rel="noopener">${esc(text)}</a>`;
+  const commit = fw.commit || fw.sha1 || (git && git[3]);
+  const commitLink = commit && `<span title="${esc(commit)}">${link('commit/' + commit, commit.slice(0, 10))}</span>`;
+  const build = [fw.build_time_utc && `Built ${esc(fmtTime(fw.build_time_utc))}`,
+    fw.mcu_uid && `Board ID <span class="mono" title="Unique ID of the autopilot board">${esc(fw.mcu_uid)}</span>`].filter(Boolean);
   return `<div style="margin-bottom:12px">
     <div><strong>Paparazzi ${esc(version)}</strong>${dirty ? ' <span class="tag uncertain">Local changes (dirty)</span>' : ''}</div>
     <div class="mono">${esc(description)}</div>
-    ${git ? `<div>${link('commit/' + git[3], git[3])} · based on ${link('tree/' + encodeURIComponent(git[1]), git[1])}
-      ${git[2] !== 'none' ? ` · ${esc(git[2])} commits after tag` : ' · commit distance not recorded'}</div>` : ''}
+    ${git ? `<div>${commitLink} · based on ${link('tree/' + encodeURIComponent(git[1]), git[1])}
+      ${git[2] !== 'none' ? ` · ${esc(git[2])} commits after tag` : ' · commit distance not recorded'}</div>`
+      : commitLink ? `<div>${commitLink}</div>` : ''}
+    ${build.length ? `<div class="mute">${build.join(' · ')}</div>` : ''}
     ${dirty ? '<div class="mute">The working tree had local changes; the linked commit does not include those changes.</div>' : ''}
     <details><summary>Raw version message</summary><code>${esc(raw)}</code></details>
   </div>`;

@@ -65,7 +65,7 @@ s
 ├─ messages.<MSG>      name, class, id, fields, types, units, raw_units, coef, enums.<field>
 └─ aircraft(i)         only aircraft with an exported flight in a flight export
    ├─ id, name         AC_ID and the name in the log
-   ├─ version          number, desc
+   ├─ version          number, desc, sha1, build_time_utc, mcu_uid ('' when not sent)
    ├─ crew             pic, pac, gcs, goal (as written in the log, no account details)
    ├─ simulation       assessed, detected, evidence
    ├─ settings

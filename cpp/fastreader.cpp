@@ -333,12 +333,23 @@ struct SettingSample {
   bool in_flight;
 };
 
+// One AUTOPILOT_VERSION seen in the log. raw is "version desc" as before; newer protocols add the full git
+// hash, the build time and the MCU unique ID (empty / -1 when the log's protocol or the board has none).
+struct FirmwareInfo {
+  std::string raw, sha1, mcu_uid;
+  long long build_time = -1;
+  bool operator<(const FirmwareInfo &o) const
+  {
+    return std::tie(raw, sha1, mcu_uid, build_time) < std::tie(o.raw, o.sha1, o.mcu_uid, o.build_time);
+  }
+};
+
 struct AircraftState {
   bool in_flight = false;
   bool seen_status = false;
   double first_time = -1, last_time = 0;
   long last_path_bucket = -1;
-  std::set<std::string> versions;
+  std::set<FirmwareInfo> versions;
   std::set<std::string, std::less<>> simulation_messages;
   std::vector<InfoMsg> infos;
   bool has_gps = false;
@@ -1162,7 +1173,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.8.2";
+constexpr const char *PARSER_VERSION = "1.9.0";
 
 struct GpsClock {
   size_t count = 0;
@@ -1306,10 +1317,67 @@ std::string timing_evidence(const ClockDecision &clock, double companion,
   return o.str();
 }
 
-std::string firmware_identity(const std::string &raw)
+// Lowercase hex of a comma-separated uint8 array ("18,52,255" -> "1234ff"); empty if it is not one.
+std::string uint8_list_hex(std::string_view v)
 {
-  std::string hash;
-  const auto pos = raw.rfind("-g");
+  static const char *digits = "0123456789abcdef";
+  std::string out;
+  const char *c = v.data(), *ce = c + v.size();
+  while (c < ce) {
+    unsigned val = 0;
+    auto r = std::from_chars(c, ce, val);
+    if (r.ec != std::errc() || val > 255) { return ""; }
+    out += digits[val >> 4];
+    out += digits[val & 15];
+    c = r.ptr;
+    if (c < ce && *c != ',') { return ""; }
+    if (c < ce) { ++c; }
+  }
+  return out;
+}
+
+// Read an AUTOPILOT_VERSION payload by the field names of the log's own protocol. desc is a char[] and can be
+// quoted (with spaces), so the payload is split here instead of with next_token.
+FirmwareInfo parse_autopilot_version(const std::vector<std::string> *fields, const char *q, const char *eol)
+{
+  FirmwareInfo info;
+  info.raw = trim(std::string(q, eol));
+  if (!fields || std::find(fields->begin(), fields->end(), "sha1") == fields->end()) { return info; }
+  std::vector<std::pair<const char *, const char *>> tok;
+  for (const char *c = q; c < eol && tok.size() < fields->size();) {
+    while (c < eol && *c == ' ') { ++c; }
+    if (c >= eol) { break; }
+    const char *s = c;
+    if (*c == '"') {
+      ++c;
+      while (c < eol && *c != '"') { ++c; }
+      if (c < eol) { ++c; }
+    }
+    while (c < eol && *c != ' ') { ++c; }
+    tok.emplace_back(s, c);
+  }
+  auto field = [&](const char *name) -> std::string_view {
+    auto f = std::find(fields->begin(), fields->end(), name);
+    size_t i = f - fields->begin();
+    return f == fields->end() || i >= tok.size() ? std::string_view() :
+      std::string_view(tok[i].first, tok[i].second - tok[i].first);
+  };
+  auto desc = std::find(fields->begin(), fields->end(), "desc");
+  size_t last = desc == fields->end() ? 0 : static_cast<size_t>(desc - fields->begin());
+  if (last < tok.size()) { info.raw = trim(std::string(q, tok[last].second)); }
+  info.sha1 = uint8_list_hex(field("sha1"));
+  if (info.sha1.size() != 40 || info.sha1.find_first_not_of('0') == std::string::npos) { info.sha1.clear(); }
+  long long built = 0;
+  if (to_num(field("build_time"), built) && built > 0) { info.build_time = built; }
+  info.mcu_uid = uint8_list_hex(field("mcu_uid"));
+  return info;
+}
+
+std::string firmware_identity(const FirmwareInfo &info)
+{
+  const std::string &raw = info.raw;
+  std::string hash = info.sha1;
+  const auto pos = hash.empty() ? raw.rfind("-g") : std::string::npos;
   if (pos != std::string::npos) {
     size_t end = pos + 2;
     while (end < raw.size() && std::isxdigit(static_cast<unsigned char>(raw[end]))) { ++end; }
@@ -1320,7 +1388,10 @@ std::string firmware_identity(const std::string &raw)
   }
   return "\"raw\": " + json_escape(raw) + ", \"revision\": " + (hash.empty() ? "null" : json_escape(hash)) +
     ", \"dirty\": " + (raw.find("-dirty") != std::string::npos ? "true" : "false") +
-    ", \"resolution\": " + json_escape(hash.empty() ? "revision_missing" : "not_resolved");
+    ", \"resolution\": " + json_escape(hash.empty() ? "revision_missing" : "not_resolved") +
+    ", \"sha1\": " + (info.sha1.empty() ? "null" : json_escape(info.sha1)) +
+    ", \"build_time_utc\": " + utc_iso(static_cast<double>(info.build_time)) +
+    ", \"mcu_uid\": " + (info.mcu_uid.empty() ? "null" : json_escape(info.mcu_uid));
 }
 
 // Payload positions of the wanted fields of one telemetry message, looked up by name in the
@@ -1518,6 +1589,8 @@ int main(int argc, char *argv[])
   const MsgFields fw_pos_f = resolve_fields(hdr, "NAVIGATION", {"pos_x", "pos_y"});
   const MsgFields fw_ref_f = resolve_fields(hdr, "NAVIGATION_REF", {"utm_east", "utm_north", "utm_zone"});
   const MsgFields bat_f = resolve_fields(hdr, "BAT", {"flight_time", "voltage?"});
+  const auto av_def = hdr.telemetry.find("AUTOPILOT_VERSION");
+  const std::vector<std::string> *av_fields = av_def == hdr.telemetry.end() ? nullptr : &av_def->second;
   const auto bat_units = hdr.units.find("BAT");
   const std::string bat_voltage_unit = bat_units != hdr.units.end() && bat_units->second.count("voltage")
       ? bat_units->second.at("voltage") : "";
@@ -2181,7 +2254,7 @@ int main(int argc, char *argv[])
           s.baro_alt = baro_alt;
           if (s.in_flight && !s.flights.empty()) { s.flights.back().stats.baro.add(baro_alt); }
         } else if (name == "AUTOPILOT_VERSION") {
-          touch(ac, t).versions.insert(trim(std::string(q, eol)));
+          touch(ac, t).versions.insert(parse_autopilot_version(av_fields, q, eol));
         }
         break;
       default:
@@ -2390,7 +2463,9 @@ int main(int argc, char *argv[])
     o << "]},\n      \"autopilot_versions\": [";
     first_ac = false;
     bool fv = true;
-    for (const auto &v : s.versions) { o << (fv ? "" : ", ") << json_escape(v); fv = false; }
+    std::set<std::string> raws;
+    for (const auto &v : s.versions) { raws.insert(v.raw); }
+    for (const auto &v : raws) { o << (fv ? "" : ", ") << json_escape(v); fv = false; }
     o << "],\n      \"data_span\": {\"first_time_s\": " << std::to_string(s.first_time) << ", \"last_time_s\": " << std::to_string(s.last_time)
       << ", \"first_utc\": " << utc(s.first_time) << ", \"last_utc\": " << utc(s.last_time)
       << "},\n      \"mission\": {\"pic\": " << json_escape(pic) << ", \"pac\": " << json_escape(pac)

@@ -279,9 +279,22 @@ def finish_struct(group):
 # ---------------------------------------------------------------------------------------------------------------------
 # Decoding (the bulk is done by the C++ fastreader; Python only decodes single payloads such as the version)
 # ---------------------------------------------------------------------------------------------------------------------
+def build_identity(fv):
+    """(sha1, build_time_utc, mcu_uid) of an AUTOPILOT_VERSION row as text, '' when absent (as the parser does)."""
+    def hexes(values):
+        return "".join(f"{int(v):02x}" for v in values or ()) if all(0 <= v <= 255 for v in values or ()) else ""
+    sha1 = hexes(fv.get("sha1"))
+    built = fv.get("build_time")
+    when = (datetime.datetime.fromtimestamp(built, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if isinstance(built, int) and built > 0 else "")
+    return (sha1 if len(sha1) == 40 and sha1.strip("0") else "", when, hexes(fv.get("mcu_uid")))
+
+
 def decode(definition, tokens):
     """Field values of one row, or None when the row does not match the definition."""
     fields = definition["fields"]
+    if len(tokens) < len(fields) and all(f["kind"] == "array" for f in fields[len(tokens):]):
+        tokens = list(tokens) + [""] * (len(fields) - len(tokens))  # trailing empty arrays print as nothing
     if len(tokens) != len(fields):
         return None
     out = []
@@ -557,7 +570,7 @@ class DecodedLog:
             values = decode(definition, TOKEN.findall(content)) if definition else None
             if values is not None:
                 fv = dict(zip((f["name"] for f in definition["fields"]), values))
-                self.versions[ac] = (fv.get("version"), str(fv.get("desc", "")))
+                self.versions[ac] = (fv.get("version"), str(fv.get("desc", ""))) + build_identity(fv)
         self.by_window = {}
         for st in self.streams.values():
             self.by_window.setdefault(st["window"], {}).setdefault(st["ac"], []).append(st)
@@ -661,6 +674,8 @@ class LogWriter:
         vg = w.struct(g, "version")
         w.number(vg, "number", version[0] if version else None)
         w.char(vg, "desc", version[1] if version else "")
+        for i, key in enumerate(("sha1", "build_time_utc", "mcu_uid"), 2):  # '' when the firmware does not send it
+            w.char(vg, key, version[i] if version else "")
         finish_struct(vg)
         crew = w.struct(g, "crew")  # as written in the log, not account names
         for key in ("pic", "pac", "gcs", "goal"):
