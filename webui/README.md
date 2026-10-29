@@ -187,6 +187,7 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
   Close or Escape dismisses them. **Manager** and **Current user** suggest registered users as you type (free text
   is allowed for people without an account); a new aircraft starts with you as manager.
   Link unrecognised log names to an existing aircraft/person in Edit mode.
+  Logs with an autopilot board ID (newer firmware) also match the aircraft that board was seen on.
   Servers can hide unlinked aircraft flights from Logbook, Statistics, person details and Locations until linked;
   admins can still find the names in Aircraft Edit mode (see the [settings](TECHNICAL.md#settings)).
   Mark generic airframe names as **ambiguous** in Edit mode instead of linking every recording

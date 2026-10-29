@@ -11,6 +11,10 @@ class AmbiguousAircraftTests(AppTests):
 
     def setUp(self):
         super().setUp()
+        self.shared_names()
+
+    def shared_names(self):
+        """Drone 1 has alias "GCS configuration" (log 2), drone 2 "Other" has alias "Airframe" (log 1)."""
         self.sign_in(1)
         self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES(2,'Other','OTHER','now')")
         self.con.execute("INSERT INTO drone_aliases(drone_id,alias) VALUES(2,'Airframe')")
@@ -316,3 +320,62 @@ class AmbiguousAircraftTests(AppTests):
                                             headers={"Authorization": "Bearer test"}).status_code, 403)
         self.assertEqual(self.client.delete("/api/admin/ambiguous-drone-names", json={"name": "Airframe"}).status_code, 200)
         self.assertIsNone(self.con.execute("SELECT 1 FROM drone_aliases WHERE alias='Airframe'").fetchone())
+
+
+class BoardMatchingTests(AppTests):
+    """The autopilot board ID (AUTOPILOT_VERSION.mcu_uid, parser 1.9.0) identifies the hardware."""
+    sources = AmbiguousAircraftTests.sources
+    shared_names = AmbiguousAircraftTests.shared_names
+    mark = AmbiguousAircraftTests.mark
+
+    def setUp(self):
+        super().setUp()
+        self.shared_names()
+
+    def drone_of(self, aircraft_id):
+        return self.con.execute("SELECT drone_id FROM aircraft WHERE id=?", (aircraft_id,)).fetchone()[0]
+
+    def relink(self, *log_ids):
+        for log_id in log_ids:
+            self.ns["link_log_aircraft"](self.con, log_id)
+        self.con.commit()
+
+    def test_a_board_learned_from_a_clear_name_places_an_ambiguous_recording(self):
+        self.mark()  # "Airframe" (log 1) no longer identifies an aircraft
+        self.assertIsNone(self.drone_of(1))
+        self.con.execute("UPDATE aircraft SET mcu_uid='00aa11' WHERE id IN (1, 2)")
+        self.relink(2)  # "GCS configuration" clearly is drone 1: its board is learned, and log 1 follows it
+        self.assertEqual(tuple(self.con.execute("SELECT drone_id, source FROM drone_boards").fetchone()), (1, "auto"))
+        self.assertEqual(self.drone_of(1), 1)
+        boards = next(d for d in self.client.get("/api/drones").json["drones"] if d["id"] == 1)["boards"]
+        self.assertEqual(boards, [dict(mcu_uid="00aa11", source="auto", log_count=2, other_count=0)])
+
+        # An admin can stop matching by a board (e.g. moved to another airframe) and allow it again.
+        self.assertEqual(self.client.delete("/api/admin/drone-boards", json={"mcu_uid": "00AA11"}).status_code, 200)
+        self.assertIsNone(self.drone_of(1))
+        self.assertEqual(self.drone_of(2), 1)  # its name still links it
+        self.assertEqual([b["mcu_uid"] for b in self.client.get("/api/drones").json["excluded_boards"]], ["00aa11"])
+        self.relink(2)
+        self.assertIsNone(self.con.execute("SELECT drone_id FROM drone_boards").fetchone()[0])  # not relearned
+        self.assertEqual(self.client.post("/api/admin/drone-boards/allow", json={"mcu_uid": "00aa11"}).status_code, 200)
+        self.assertEqual((self.drone_of(1), self.drone_of(2)), (1, 1))
+        self.assertEqual(self.client.delete("/api/admin/drone-boards", json={"mcu_uid": "zz"}).status_code, 400)
+
+    def test_a_clear_name_wins_over_the_board_and_simulation_never_matches(self):
+        self.con.execute("INSERT INTO drone_boards(mcu_uid,drone_id,source,created_at) VALUES('00bb22',1,'auto','now')")
+        self.con.execute("UPDATE aircraft SET mcu_uid='00bb22' WHERE id=1")  # "Airframe" is drone 2 by alias
+        self.relink(1)
+        self.assertEqual(self.drone_of(1), 2)
+        other = next(d for d in self.client.get("/api/drones").json["drones"] if d["id"] == 1)["boards"]
+        self.assertEqual(other[0]["other_count"], 1)  # shown as "also elsewhere"
+        self.mark()
+        self.con.execute("UPDATE aircraft SET simulation='{\"detected\": true}' WHERE id=1")
+        self.relink(1)
+        self.assertIsNone(self.drone_of(1))  # a PC machine ID in simulation is not a board
+
+    def test_board_id_is_stored_from_the_parser_firmware_entries(self):
+        timing = {"firmware": [{"ac_id": 7, "mcu_uid": "0102"}, {"ac_id": 7, "mcu_uid": None},
+                               {"ac_id": 8, "mcu_uid": "0304"}]}
+        self.assertEqual(db.board_id(timing, 7), "0102")
+        self.assertIsNone(db.board_id({"firmware": [{"ac_id": 7, "mcu_uid": "01"}, {"ac_id": 7, "mcu_uid": "02"}]}, 7))
+        self.assertIsNone(db.board_id(None, 7))

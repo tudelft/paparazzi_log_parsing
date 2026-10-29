@@ -1676,6 +1676,12 @@ def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None, remember_ide
         drones, names = drone_name_map(con)
         if cache is not None:
             cache["names"] = drones, names
+    if cache is not None and "boards" in cache:
+        boards = cache["boards"]
+    else:
+        boards = board_map(con)
+        if cache is not None:
+            cache["boards"] = boards
     log = con.execute("SELECT name FROM logs WHERE id=?", (log_id,)).fetchone()
     log_name = log["name"] if log else ""
     where, params = "log_id=?", [log_id]
@@ -1685,12 +1691,23 @@ def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None, remember_ide
     if ac_id is not None:
         where += " AND ac_id=?"
         params.append(ac_id)
-    for a in con.execute(f"SELECT id, name, ac_id, drone_id FROM aircraft WHERE {where}", params).fetchall():
+    learned = []
+    for a in con.execute(f"SELECT id, name, ac_id, drone_id, mcu_uid, simulation FROM aircraft WHERE {where}",
+                         params).fetchall():
         override = con.execute("SELECT drone_id FROM log_aircraft_links WHERE log_id=? AND ac_id=?",
                                (log_id, a["ac_id"])).fetchone()
         key = (a["name"] or "").strip().casefold()
         ambiguous = key in names and names[key] is None
+        # The autopilot board ID (parser 1.9.0+) identifies the hardware; not in simulation (a PC machine ID).
+        board = a["mcu_uid"] if a["mcu_uid"] and not (json.loads(a["simulation"] or "{}") or {}).get("detected") else None
         d = drones.get(override["drone_id"]) if override else resolve_drone(names, drones, a["name"])
+        if board and d is not None and boards.get(board, 0) == 0:  # learn it from a hand link or a clear name
+            boards[board] = d["id"]
+            con.execute("INSERT OR IGNORE INTO drone_boards (mcu_uid, drone_id, source, created_at) VALUES (?,?,?,?)",
+                        (board, d["id"], "manual" if override else "auto", now()))
+            learned.append(board)
+        if d is None and board and boards.get(board):
+            d = drones.get(boards[board])  # an ambiguous or unknown name on a known board
         if d is None and not ambiguous:
             d = guess_drone_from_log_path(con, log_name)
         if d is not None and not ambiguous and not override and remember_identity:
@@ -1701,6 +1718,15 @@ def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None, remember_ide
         new_id = d["id"] if d else None
         if new_id != a["drone_id"]:
             con.execute("UPDATE aircraft SET drone_id=? WHERE id=?", (new_id, a["id"]))
+    for board in learned:  # earlier recordings of this board that no name could place
+        for r in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE mcu_uid=? AND drone_id IS NULL AND log_id!=?",
+                             (board, log_id)).fetchall():
+            link_log_aircraft(con, r["log_id"], cache=cache)
+
+
+def board_map(con):
+    """Autopilot board ID -> drone id; None for a board an admin excluded from matching."""
+    return {r["mcu_uid"]: r["drone_id"] for r in con.execute("SELECT mcu_uid, drone_id FROM drone_boards")}
 
 
 def relink_all_aircraft(con):
@@ -2728,7 +2754,19 @@ def drone_payload(con, d):
             "projects": periods,
             "manager": d["manager"], "current_user": d["current_user"], "status": d["status"],
             "bought_on": d["bought_on"], "inventory_project": d["inventory_project"],
-            "comments": d["comments"], "aliases": aliases, "log_count": n, "record_count": records}
+            "comments": d["comments"], "aliases": aliases, "log_count": n, "record_count": records,
+            "boards": board_payload(con, d["id"])}
+
+
+def board_payload(con, drone_id):
+    """Autopilot board IDs known for an aircraft, with how many logs carry them and how many of those are linked
+    to another aircraft (a board moved, or a name that says otherwise)."""
+    return [dict(r) for r in con.execute(
+        "SELECT b.mcu_uid, b.source,"
+        " (SELECT COUNT(DISTINCT log_id) FROM aircraft WHERE mcu_uid=b.mcu_uid) AS log_count,"
+        " (SELECT COUNT(DISTINCT log_id) FROM aircraft WHERE mcu_uid=b.mcu_uid AND drone_id IS NOT NULL"
+        "  AND drone_id!=b.drone_id) AS other_count"
+        " FROM drone_boards b WHERE b.drone_id IS ? ORDER BY b.created_at", (drone_id,))]
 
 
 def fleet_payload(con, include_unlinked=False, project_ids=None):
@@ -2787,7 +2825,8 @@ def fleet_payload(con, include_unlinked=False, project_ids=None):
                 " FROM aircraft a JOIN logs l ON l.id=a.log_id WHERE TRIM(a.name)=? COLLATE NOCASE"
                 " ORDER BY l.name,a.ac_id", (row["name"],))]
             ambiguous.append(dict(name=row["name"], recordings=recordings))
-    return dict(drones=fleet, unlinked=unlinked, projects=projects, ambiguous=ambiguous)
+    excluded = board_payload(con, None) if include_unlinked else []
+    return dict(drones=fleet, unlinked=unlinked, projects=projects, ambiguous=ambiguous, excluded_boards=excluded)
 
 
 @app.get("/api/drones")
@@ -3133,6 +3172,27 @@ def admin_delete_drone_alias():
                 or any(key == token.casefold() for token in identity_tokens(r["name"]))]
     for log_id, name in affected:
         link_log_aircraft(con, log_id, logged_name=name, remember_identity=False)
+    con.commit()
+    return jsonify(ok=True)
+
+
+@app.delete("/api/admin/drone-boards")
+@app.post("/api/admin/drone-boards/allow")
+def admin_drone_board():
+    """Exclude an autopilot board ID from aircraft matching (DELETE), or let it be learned again (allow)."""
+    admin_required()
+    uid = ((request.get_json(silent=True) or {}).get("mcu_uid") or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{2,128}", uid):
+        return jsonify(error="send the board ID as hex"), 400
+    con = conn()
+    if request.method == "DELETE":
+        con.execute("INSERT INTO drone_boards (mcu_uid, drone_id, source, created_at) VALUES (?,NULL,'manual',?)"
+                    " ON CONFLICT(mcu_uid) DO UPDATE SET drone_id=NULL, source='manual'", (uid, now()))
+    else:
+        con.execute("DELETE FROM drone_boards WHERE mcu_uid=? AND drone_id IS NULL", (uid,))
+    cache = {}
+    for r in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE mcu_uid=?", (uid,)).fetchall():
+        link_log_aircraft(con, r["log_id"], remember_identity=False, cache=cache)
     con.commit()
     return jsonify(ok=True)
 

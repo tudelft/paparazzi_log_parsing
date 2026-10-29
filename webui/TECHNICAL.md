@@ -271,6 +271,15 @@ Zero/empty values are `null`. Logs without these fields parse as before; `raw` s
 them to `s.aircraft(i).version`. An empty array prints as no token, so the column exporter accepts missing
 trailing array fields as empty (a board without a unique ID). PX4 and ArduPilot logs are unaffected.
 
+**Matching by autopilot board.** Each recording stores its board ID (`aircraft.mcu_uid`). When a recording is
+linked to a fleet aircraft by a clear name or by hand, an unknown board ID is remembered for that aircraft
+(`drone_boards`); a recording whose name is ambiguous or unknown is then linked by its board, and earlier
+unplaced recordings of that board follow. A clear name or a hand assignment always wins over the board; a
+board that also appears under another aircraft is marked on the Aircraft page (Aliases tab). Admins can stop
+matching by a board (a board moved to another airframe, a shared test board) and allow it again in Edit mode
+under shared names. Simulated recordings never match by board (their ID is the PC's machine ID). The
+migration fills board IDs of logs already parsed with parser 1.9.0.
+
 During Web UI ingestion, GitHub resolves firmware hashes and stores full hashes, repository provenance,
 committer dates, author dates and explicit resolution failures in the log's timing JSON.
 `LOGDB_FIRMWARE_GITHUB_ENABLED=1` enables this by default: revision hashes from uploaded logs are sent
