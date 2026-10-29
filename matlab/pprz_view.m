@@ -5,6 +5,8 @@ function fig = pprz_view(logs)
 %   pprz_view(logs)         exports loaded with pprz_load
 %   Pick a flight, tick the plots (plots whose messages were not logged are marked) and press Plot; the
 %   figures open docked as tabs. Uses pprz_plot, so every plot can also be made from a script.
+%   Click or drag in any time plot to move a cursor on all of them (arrow keys step it); the table below
+%   the buttons shows every plotted value at the cursor (see pprz.Cursor).
     if nargin < 1
         logs = pprz_load();
     elseif ischar(logs) || isstring(logs)
@@ -23,15 +25,16 @@ function fig = pprz_view(logs)
     figs = gobjects(0);
     f = [];
 
-    fig = uifigure('Name', 'pprz_view', 'Position', [80 80 380 680]);
-    g = uigridlayout(fig, [8 1]);
-    g.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', 'fit', 'fit'};
+    cursor = pprz.Cursor();
+    fig = uifigure('Name', 'pprz_view', 'Position', [80 80 380 860]);
+    g = uigridlayout(fig, [10 1]);
+    g.RowHeight = {'fit', 'fit', 'fit', 'fit', 'fit', '1x', 'fit', 'fit', 'fit', 180};
     uilabel(g, 'Text', 'Flight', 'FontWeight', 'bold');
     rows = arrayfun(@(r) row_label(T(r, :)), 1:height(T), 'UniformOutput', false);
     pick = uidropdown(g, 'Items', rows, 'ItemsData', 1:height(T), 'ValueChangedFcn', @(~, ~) select());
     info = uilabel(g, 'Text', '', 'WordWrap', 'on', 'FontColor', [0.35 0.35 0.35]);
 
-    og = uigridlayout(g, [2 4], 'Padding', [0 0 0 0], 'RowHeight', {'fit', 'fit'}, ...
+    og = uigridlayout(g, [3 4], 'Padding', [0 0 0 0], 'RowHeight', {'fit', 'fit', 'fit'}, ...
         'ColumnWidth', {'fit', '1x', 'fit', '1x'});
     uilabel(og, 'Text', 'From [s]');
     from = uieditfield(og, 'text', 'Placeholder', 'start', 'Tooltip', 'Time from takeoff; empty: from the start');
@@ -40,6 +43,9 @@ function fig = pprz_view(logs)
     uilabel(og, 'Text', 'Shading');
     shade = uidropdown(og, 'Items', {'None', 'Autopilot mode', 'RC mode'}, 'ItemsData', {'none', 'ap', 'rc'});
     shade.Layout.Column = [2 4];
+    events = uicheckbox(og, 'Text', 'Event markers (modes, settings, checklist, messages)', 'Value', true, ...
+        'Tooltip', 'Click a marker in a plot to read its full text');
+    events.Layout.Column = [1 4];
 
     uilabel(g, 'Text', 'Plots', 'FontWeight', 'bold');
     tree = uitree(g, 'checkbox');
@@ -50,6 +56,10 @@ function fig = pprz_view(logs)
     uibutton(bg, 'Text', 'Save figures…', 'ButtonPushedFcn', @(~, ~) save_figures());
     uibutton(bg, 'Text', 'Close figures', 'ButtonPushedFcn', @(~, ~) close_figures());
     status = uilabel(g, 'Text', '', 'WordWrap', 'on');
+    at = uilabel(g, 'Text', 'Cursor: click or drag in a time plot', 'FontWeight', 'bold');
+    values = uitable(g, 'ColumnName', {'Plot', 'Signal', 'Value'}, 'RowName', {}, ...
+        'ColumnWidth', {'1x', '1x', 70}, 'Data', cell(0, 3));
+    cursor.listen(@show_values);
     select();
 
     function select()
@@ -105,15 +115,18 @@ function fig = pprz_view(logs)
         end
         status.Text = 'Plotting…';
         drawnow;
-        made = pprz_plot(f, names{:}, 'modes', shade.Value, 'range', range, 'docked', true);
+        made = pprz_plot(f, names{:}, 'modes', shade.Value, 'range', range, 'docked', true, 'events', events.Value);
         figs = [figs(isgraphics(figs)), made];
+        cursor.attach(made);
         status.Text = sprintf('%d figure(s) made.', numel(made));
     end
 
     function replay()
         try
-            figs = [figs(isgraphics(figs)), pprz_replay(f)];
-            status.Text = '3-D replay opened.';
+            rf = pprz_replay(f);
+            figs = [figs(isgraphics(figs)), rf];
+            cursor.listen(getappdata(rf, 'pprz_show'));  % the replay follows the linked cursor
+            status.Text = '3-D replay opened; click a plot to jump there.';
         catch err
             status.Text = err.message;
         end
@@ -135,6 +148,15 @@ function fig = pprz_view(logs)
             exportgraphics(figs(i), fullfile(folder, [name '.png']), 'Resolution', 150);
         end
         status.Text = sprintf('Saved %d figure(s) to %s.', numel(figs), folder);
+    end
+
+    function show_values(t)
+        if ~isvalid(fig)
+            return
+        end
+        at.Text = sprintf('Cursor at %.2f s', t);
+        v = cursor.values();
+        values.Data = [{v.plot}', {v.signal}', num2cell([v.value]')];
     end
 
     function close_figures()
