@@ -152,7 +152,8 @@ function fig = compare_plot(p, flights, shift, colors, labels, range)
                     yyaxis(source(a), side{1});
                     yyaxis(target(a), side{1});
                 end
-                lns = [flipud(findobj(source(a), 'Type', 'line')); findobj(source(a), 'Type', 'stair')];
+                kids = flipud(get(source(a), 'Children'));  % this y side only, in creation order
+                lns = kids(ismember(get(kids, {'Type'}), {'line', 'stair'}));
                 if source(a) ~= target(a)
                     lns = copyobj(lns, target(a));
                 end
@@ -182,6 +183,9 @@ function fig = compare_plot(p, flights, shift, colors, labels, range)
     end
     delete([old; findobj(fig, 'Type', 'datatip')]);
     set(findobj(fig, 'Type', 'subplottext'), 'String', get(fig, 'Name'));  % sgtitle named the first flight
+    for tl = reshape(findobj(fig, 'Type', 'tiledlayout'), 1, [])
+        set(get(tl, 'Title'), 'String', get(fig, 'Name'));
+    end
     for a = 1:numel(target)
         limit(target(a), range);
     end
