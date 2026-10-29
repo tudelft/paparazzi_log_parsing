@@ -40,6 +40,8 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | `pprz_plot` | Make plots by name, or every plot whose messages were logged; options `modes` (`ap`/`rc`), `range` [t0 t1], `docked`, `events` (markers). |
 | `pprz_view` | Window to pick a flight, tick plots (unlogged ones are marked), shade modes, choose a time range and save the figures. Click or drag in any time plot to move a linked cursor on all of them; the window lists every plotted value at that time. Tick *Event markers* to draw events on the plots. |
 | `pprz_replay(f, model)` | Replay a flight in 3-D with the airframe model (`3d_animation/3d_models`: Nederdrone5, RotatingWingV3, Cyclone2, picked from the aircraft name or airframe file, else a generic quadrotor): attitude, control surfaces and motor throttle from `ACTUATORS`, the track from above and height, airspeed, battery and mode. Play/pause, slider and arrow keys; also the *3-D replay* button in `pprz_view`. No toolboxes needed. |
+| `pprz_sysid(f)` | Find identification experiments and measure them: `DOUBLET`/`CHIRP` runs of the sys_id module (input delay and effectiveness on the body rate; chirps also gain, phase and coherence), setting changes in flight (step metrics of `'signal', 'MSG.field'`) and RC stick steps (delay, rise time, overshoot and settling of the roll/pitch angle or yaw rate). Prints a table and plots each experiment. No toolboxes needed. |
+| `pprz_effectiveness(f)` | Control effectiveness of every actuator: least squares Δω̇ = G·Δu on low-passed body rates and ESC rpm (or `ACTUATORS`); options `range`, `cutoff`, `delay`, `input`. Plots the fit per axis and G. |
 | `pprz.Cursor(figs)` | The linked cursor for your own figures: `c.move(t)`, `c.values()`, `c.listen(@(t) ...)`; arrow keys step it. |
 | `pprz.crop(d, t0, t1)` | Rows of every message between t0 and t1. |
 | `pprz.actuators(d)` | `ACTUATORS` as an N×k matrix with names, whether exported by name or as `values`. |
@@ -47,6 +49,8 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | `pprz.modes(f, fig, 'ap')` | Shade autopilot (`ap`) or RC (`rc`) mode regions in a figure. |
 | `pprz.events(f)` | What happened in a flight: mode changes, setting changes, checklist items and `INFO_MSG`, with times from takeoff. |
 | `pprz.markers(f, figs)` | Draw those events as labelled lines on every time plot; click a line for its full text. `pprz_view` has an *Event markers* box. |
+| `pprz.rates(d)` | Body rates p, q, r in rad/s from `IMU_GYRO` or `BODY_RATES_ACCEL`. |
+| `pprz.lowpass(x, fc, fs)`, `pprz.step_info(t, y, t0, t1)`, `pprz.freq_response(u, y, fs, n)` | Zero-phase Butterworth low-pass, step response metrics and Welch frequency response, as used by `pprz_sysid`. |
 | `pprz.has(d, msg, ...)` | True when the messages were logged. |
 | `pprz.track(f, by)` | The flown path (lat/lon and local east/north) with a value per point to colour by, and the flight plan waypoints. |
 
