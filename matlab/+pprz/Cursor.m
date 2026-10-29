@@ -69,21 +69,23 @@ classdef Cursor < handle
             end
             for fig = c.figures(isgraphics(c.figures))
                 for ax = pprz.time_axes(fig)
-                    plot_name = get(fig, 'Name');
+                    % pprz_plot names figures 'Plot - flight title': keep the plot part.
+                    plot_name = regexprep(get(fig, 'Name'), ' - .*$', '');
                     if ~isempty(axes_name(ax))
                         plot_name = [plot_name ' · ' axes_name(ax)];
                     end
-                    lines = findobj(ax, 'Type', 'line', '-not', 'Tag', 'pprz_cursor');
-                    for k = numel(lines):-1:1  % findobj lists the newest first
+                    lines = flipud(findobj(ax, 'Type', 'line', '-not', 'Tag', 'pprz_cursor'));  % creation order
+                    keep = arrayfun(@(ln) numel(get(ln, 'XData')) >= 2 && strcmp(get(ln, 'Visible'), 'on'), lines);
+                    lines = lines(keep);
+                    names = arrayfun(@(ln) strrep(char(get(ln, 'DisplayName')), '\_', '_'), lines, ...
+                        'UniformOutput', false);
+                    unnamed = find(cellfun(@isempty, names) | strncmp(names, 'data', 4));
+                    labels = unnamed_labels(ax, numel(unnamed));
+                    names(unnamed) = labels;
+                    for k = 1:numel(lines)
                         ln = lines(k);
                         x = get(ln, 'XData');
-                        if numel(x) < 2 || strcmp(get(ln, 'Visible'), 'off')
-                            continue
-                        end
-                        name = char(get(ln, 'DisplayName'));
-                        if isempty(name) || startsWith(name, 'data')
-                            name = sprintf('line %d', numel(lines) - k + 1);
-                        end
+                        name = names{k};
                         i = find(x <= c.time, 1, 'last');
                         value = NaN;
                         if ~isempty(i) && c.time <= x(end)
@@ -110,7 +112,8 @@ classdef Cursor < handle
                 if isempty(ln)
                     set(ax, 'YLimMode', 'manual');  % keep the shown limits; zoom and pan still move them
                     line([c.time c.time], y, 'Parent', ax, 'Tag', 'pprz_cursor', 'Color', [0.85 0.15 0.1], ...
-                        'LineWidth', 1, 'HitTest', 'off', 'HandleVisibility', 'off');
+                        'LineWidth', 1, 'LineStyle', '-', 'Marker', 'none', 'HitTest', 'off', ...
+                        'HandleVisibility', 'off');  % explicit style: yyaxis axes cycle styles and markers
                 else
                     set(ln(1), 'XData', [c.time c.time], 'YData', y);
                 end
@@ -154,6 +157,34 @@ classdef Cursor < handle
             elseif strcmp(evt.Key, 'leftarrow')
                 c.move(c.time - step);
             end
+        end
+    end
+end
+
+function labels = unnamed_labels(ax, n)
+    % Names for n lines without a legend name: the y labels of a yyaxis plot (left, then right) when there
+    % is one line per side, else the y label numbered.
+    labels = {};
+    try
+        rulers = get(ax, 'YAxis');
+        if numel(rulers) == n && n == 2
+            labels = arrayfun(@(r) strtrim(strjoin(cellstr(get(get(r, 'Label'), 'String')), ' ')), rulers(:)', ...
+                'UniformOutput', false);
+        end
+    catch  % Octave has no YAxis rulers
+    end
+    if numel(labels) == n && all(~cellfun(@isempty, labels))
+        return
+    end
+    base = strtrim(strjoin(cellstr(get(get(ax, 'YLabel'), 'String')), ' '));
+    if isempty(base)
+        base = 'line';
+    end
+    labels = cell(1, n);
+    for k = 1:n
+        labels{k} = base;
+        if n > 1
+            labels{k} = sprintf('%s %d', base, k);
         end
     end
 end
