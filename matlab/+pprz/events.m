@@ -65,6 +65,11 @@ function ev = events(f, kinds)
     if ~isempty(ev)
         [~, order] = sort([ev.t]);
         ev = ev(order);
+        % Settings and checklist cover the whole log: keep what falls in this flight's window.
+        if isfield(f, 'time') && all(isfield(f.time, {'start_s', 'end_s'})) && isfinite(f.time.start_s)
+            in = [ev.t] >= f.time.start_s - offset & [ev.t] <= f.time.end_s - offset;
+            ev = ev(in);
+        end
     end
 end
 
