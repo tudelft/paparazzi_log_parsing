@@ -266,7 +266,10 @@ relative to recording time zero, including continuity across Sunday rollover.
 (UTC seconds) and `mcu_uid` (board unique ID) to `AUTOPILOT_VERSION`. The parser reads them by name from
 the log's own protocol and adds `sha1`, `build_time_utc` and `mcu_uid` (hex) to each firmware entry; a
 full `sha1` replaces the short `-g<hash>` from `desc` as the revision, so GitHub resolves it exactly.
-Zero/empty values are `null`. Logs without these fields parse as before; `raw` stays `version desc`.
+Zero/empty values are `null`. Logs without these fields parse as before; `raw` stays `version desc`. The flight page
+(Software) and the Uploads log details show the full commit, build time and board ID; MATLAB exports add
+them to `s.aircraft(i).version`. An empty array prints as no token, so the column exporter accepts missing
+trailing array fields as empty (a board without a unique ID). PX4 and ArduPilot logs are unaffected.
 
 During Web UI ingestion, GitHub resolves firmware hashes and stores full hashes, repository provenance,
 committer dates, author dates and explicit resolution failures in the log's timing JSON.

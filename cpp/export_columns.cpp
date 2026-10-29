@@ -286,6 +286,11 @@ int export_columns(int argc, char *argv[])
         if (v.empty()) { break; }
         tok.push_back(v);
       }
+      // An empty array prints as nothing, so trailing empty arrays leave no token (e.g. AUTOPILOT_VERSION.mcu_uid
+      // on a board without a unique ID): accept those as empty arrays.
+      while (tok.size() < kinds->size() && kinds->find_first_not_of('a', tok.size()) == std::string::npos) {
+        tok.push_back(std::string_view());
+      }
       ok = tok.size() == kinds->size();
       scalars.clear();
       if (arrs.size() < tok.size()) { arrs.resize(tok.size()); }
