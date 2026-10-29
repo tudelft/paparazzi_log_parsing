@@ -71,7 +71,12 @@ classdef Cursor < handle
                 for ax = pprz.time_axes(fig)
                     % pprz_plot names figures 'Plot - flight title': keep the plot part.
                     plot_name = regexprep(get(fig, 'Name'), ' - .*$', '');
-                    if ~isempty(axes_name(ax))
+                    two_sided = false;  % yyaxis: the y label belongs to one side, the signal names say which
+                    try
+                        two_sided = numel(get(ax, 'YAxis')) == 2;
+                    catch
+                    end
+                    if ~isempty(axes_name(ax)) && ~two_sided
                         plot_name = [plot_name ' · ' axes_name(ax)];
                     end
                     lines = flipud(findobj(ax, 'Type', 'line', '-not', 'Tag', 'pprz_cursor'));  % creation order
