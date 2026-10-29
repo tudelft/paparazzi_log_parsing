@@ -1,10 +1,16 @@
 function plot_vibration(f)
 %PLOT_VIBRATION Accelerometer and gyro spectrograms over time with the rotor frequencies, and frequency
 %   against rotor speed (Campbell). Rotor speed is the mean ESC rpm when logged (1× and 2× rotor
-%   frequency are drawn), else the mean actuator command.
+%   frequency are drawn; rotors that are stopped do not count), else the mean actuator command. Uses
+%   IMU_ACCEL/IMU_GYRO, or the _SCALED messages when only those were logged.
     d = f.data;
     [ts, speed, label, rpm] = rotor_speed(d);
     sensors = {'IMU_ACCEL', {'ax', 'ay', 'az'}, 'Accelerometer'; 'IMU_GYRO', {'gp', 'gq', 'gr'}, 'Gyro'};
+    for s = 1:2
+        if ~pprz.has(d, sensors{s, 1}) && pprz.has(d, [sensors{s, 1} '_SCALED'])
+            sensors{s, 1} = [sensors{s, 1} '_SCALED'];
+        end
+    end
     sensors = sensors(cellfun(@(m) pprz.has(d, m), sensors(:, 1)), :);
     rows = size(sensors, 1) + ~isempty(ts);
     time_axes = gobjects(0);
@@ -66,8 +72,16 @@ function [t, speed, label, rpm] = rotor_speed(d)
             v = double(d.ESC.rpm(rows));
             all_(:, k) = interp1(tk, v(kk), t, 'linear', 'extrap');
         end
-        speed = mean(all_, 2);
-        label = 'Mean rotor speed [rpm]';
+        all_ = all_(:, any(all_ > 100, 1));  % ESCs that never spin
+        all_(all_ < 100) = NaN;             % stopped rotors do not count
+        speed = zeros(size(t));
+        for i = 1:numel(t)
+            v = all_(i, ~isnan(all_(i, :)));
+            if ~isempty(v)
+                speed(i) = mean(v);
+            end
+        end
+        label = 'Mean speed of running rotors [rpm]';
         rpm = true;
     elseif pprz.has(d, 'ACTUATORS')
         [u, ~, t] = pprz.actuators(d);
