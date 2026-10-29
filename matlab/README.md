@@ -63,9 +63,9 @@ overview, track/map, maps coloured by height, ground speed, autopilot mode or ba
 flight plan waypoints; `plot_map(f, by, basemap)` for other backgrounds), status, setting changes, attitude, guidance,
 navigation sensors, IMU, actuators and power, effectiveness, rotating wing, RC and errors.
 
-Analysis tools in `tools/` (effectiveness estimation, altitude tuning, airspeed sensor scale, takeoff distance,
-servo model, rotating-wing flight envelope, 3D visualisation) and `3d_animation/` work on `ac_data = f.data`.
-The C2C and Dronetag tools read their own file formats. `math/` holds quaternion helpers.
+Analysis scripts in `tools/` (altitude tuning, airspeed sensor scale, takeoff distance, servo model,
+rotating-wing flight envelope) work on `ac_data = f.data`. The C2C and Dronetag tools read their own file
+formats. `3d_animation/` holds the airframe models of `pprz_replay`; `math/` holds quaternion helpers.
 
 ## File format (format 5)
 
