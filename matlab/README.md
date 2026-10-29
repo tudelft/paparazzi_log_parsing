@@ -38,7 +38,8 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | `pprz_flights` | Table of all flights (row numbers for `pprz_flight`); flight 0 is a whole-log export. |
 | `pprz_flight` | One flight ready to plot: `f.data`, `f.time`, `f.summary`, `f.aircraft`, `f.messages`, `f.title`. A flight in a whole-log export is cut from the log. |
 | `pprz_plot` | Make plots by name, or every plot whose messages were logged; options `modes` (`ap`/`rc`), `range` [t0 t1], `docked`, `events` (markers). |
-| `pprz_view` | Window to pick a flight, tick plots (unlogged ones are marked), shade modes, choose a time range and save the figures. |
+| `pprz_view` | Window to pick a flight, tick plots (unlogged ones are marked), shade modes, choose a time range and save the figures. Click or drag in any time plot to move a linked cursor on all of them; the window lists every plotted value at that time. Tick *Event markers* to draw events on the plots. |
+| `pprz.Cursor(figs)` | The linked cursor for your own figures: `c.move(t)`, `c.values()`, `c.listen(@(t) ...)`; arrow keys step it. |
 | `pprz.crop(d, t0, t1)` | Rows of every message between t0 and t1. |
 | `pprz.actuators(d)` | `ACTUATORS` as an N×k matrix with names, whether exported by name or as `values`. |
 | `pprz.enum(f, msg, field, v)` | Names of enum values, e.g. autopilot modes. |
@@ -46,11 +47,13 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | `pprz.events(f)` | What happened in a flight: mode changes, setting changes, checklist items and `INFO_MSG`, with times from takeoff. |
 | `pprz.markers(f, figs)` | Draw those events as labelled lines on every time plot; click a line for its full text. `pprz_view` has an *Event markers* box. |
 | `pprz.has(d, msg, ...)` | True when the messages were logged. |
+| `pprz.track(f, by)` | The flown path (lat/lon and local east/north) with a value per point to colour by, and the flight plan waypoints. |
 
 Plots live in `plotters/` as `plot_xxx(f.data)` and are listed in `pprz_plots.m` (name, group, title and the
 messages they need); add a plot by writing the function and one line there. `pprz_plot()` prints the list:
-overview, track/map, status, setting changes, attitude, guidance, navigation sensors, IMU, actuators and power,
-effectiveness, rotating wing, RC and errors.
+overview, track/map, maps coloured by height, ground speed, autopilot mode or battery (satellite background with the
+flight plan waypoints; `plot_map(f, by, basemap)` for other backgrounds), status, setting changes, attitude, guidance,
+navigation sensors, IMU, actuators and power, effectiveness, rotating wing, RC and errors.
 
 Analysis tools in `tools/` (effectiveness estimation, altitude tuning, airspeed sensor scale, takeoff distance,
 servo model, rotating-wing flight envelope, 3D visualisation) and `3d_animation/` work on `ac_data = f.data`.
