@@ -100,6 +100,8 @@
 - Develop each change on its own descriptively named branch, following the existing style
   (for example `webui-review-page`; no tool or assistant names), and merge it through a pull request.
   Delete the branch once the pull request is merged.
+- Do not add assistant attribution anywhere: no Claude session links, "Generated with" lines or
+  `Co-Authored-By`/`Claude-Session` trailers in commits, pull request descriptions, comments or files.
 - When the user asks to commit/push, also create an annotated Web UI release tag
   `webui-vMAJOR.MINOR.PATCH` on the resulting tested master commit, unless they explicitly opt out.
 - Inspect existing remote tags and all changes since the previous release: bump PATCH for fixes,
