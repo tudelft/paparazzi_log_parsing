@@ -30,6 +30,31 @@ def fixture(revision="abcdef1234", start=datetime(1980, 1, 9, tzinfo=timezone.ut
     return parse_fixture(lines, start)
 
 
+class ParserAutopilotVersionTests(unittest.TestCase):
+    """Newer pprzlink adds the full git hash, build time and MCU unique ID after desc in AUTOPILOT_VERSION."""
+    FIELDS = (("AUTOPILOT_VERSION", ("version", "desc", "sha1", "build_time", "mcu_uid")),)
+
+    def test_new_fields_are_read_by_name_and_older_protocols_keep_their_output(self):
+        sha1 = ",".join(str(b) for b in range(171, 191))
+        lines = [f'60 5 AUTOPILOT_VERSION 70100 "v7.1-1-gabcdef1234-dirty" {sha1} 1793000000 1,2,3,4,5,6,7,8,9,10,11,255\n',
+                 '61 5 AUTOPILOT_VERSION 70100 "v7.1 local build" ' + ",".join(["0"] * 20) + " 0\n",
+                 "62 5 ROTORCRAFT_STATUS 0 1\n", "122 5 ROTORCRAFT_STATUS 0 0\n"]
+        doc = parse_fixture(lines, extra_messages=self.FIELDS)
+        versions = {v["raw"]: v for v in doc["log"]["timing"]["firmware"]}
+        built = versions['70100 "v7.1-1-gabcdef1234-dirty"']
+        full = "".join(f"{b:02x}" for b in range(171, 191))
+        self.assertEqual((built["sha1"], built["revision"], built["dirty"]), (full, full, True))
+        self.assertEqual(built["build_time_utc"], "2026-10-26T07:33:20.000Z")
+        self.assertEqual(built["mcu_uid"], "0102030405060708090a0bff")
+        local = versions['70100 "v7.1 local build"']  # quoted desc with spaces; zero hash and time mean unknown
+        self.assertEqual((local["sha1"], local["revision"], local["build_time_utc"], local["mcu_uid"]),
+                         (None, None, None, None))
+        self.assertEqual(sorted(doc["aircraft"][0]["autopilot_versions"]), sorted(versions))
+        old = fixture()["log"]["timing"]["firmware"][0]  # protocol without the new fields: as before
+        self.assertEqual((old["raw"], old["revision"], old["sha1"], old["mcu_uid"]),
+                         ('70100 "v7.1-1-gabcdef1234-dirty"', "abcdef1234", None, None))
+
+
 METADATA = {"resolution": "resolved", "commit": "a" * 40,
             "committed_at": "2023-09-05T12:00:00.000Z", "authored_at": "2023-09-04T12:00:00.000Z"}
 
