@@ -37,13 +37,15 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | `pprz_load` | Load `.mat` files, folders or bulk `.zip` files into a struct array of exports. |
 | `pprz_flights` | Table of all flights (row numbers for `pprz_flight`); flight 0 is a whole-log export. |
 | `pprz_flight` | One flight ready to plot: `f.data`, `f.time`, `f.summary`, `f.aircraft`, `f.messages`, `f.title`. A flight in a whole-log export is cut from the log. |
-| `pprz_plot` | Make plots by name, or every plot whose messages were logged; options `modes` (`ap`/`rc`), `range` [t0 t1], `docked`. |
-| `pprz_view` | Window to pick a flight, tick plots (unlogged ones are marked), shade modes, choose a time range and save the figures. Click or drag in any time plot to move a linked cursor on all of them; the window lists every plotted value at that time. |
+| `pprz_plot` | Make plots by name, or every plot whose messages were logged; options `modes` (`ap`/`rc`), `range` [t0 t1], `docked`, `events` (markers). |
+| `pprz_view` | Window to pick a flight, tick plots (unlogged ones are marked), shade modes, choose a time range and save the figures. Click or drag in any time plot to move a linked cursor on all of them; the window lists every plotted value at that time. Tick *Event markers* to draw events on the plots. |
 | `pprz.Cursor(figs)` | The linked cursor for your own figures: `c.move(t)`, `c.values()`, `c.listen(@(t) ...)`; arrow keys step it. |
 | `pprz.crop(d, t0, t1)` | Rows of every message between t0 and t1. |
 | `pprz.actuators(d)` | `ACTUATORS` as an N×k matrix with names, whether exported by name or as `values`. |
 | `pprz.enum(f, msg, field, v)` | Names of enum values, e.g. autopilot modes. |
 | `pprz.modes(f, fig, 'ap')` | Shade autopilot (`ap`) or RC (`rc`) mode regions in a figure. |
+| `pprz.events(f)` | What happened in a flight: mode changes, setting changes, checklist items and `INFO_MSG`, with times from takeoff. |
+| `pprz.markers(f, figs)` | Draw those events as labelled lines on every time plot; click a line for its full text. `pprz_view` has an *Event markers* box. |
 | `pprz.has(d, msg, ...)` | True when the messages were logged. |
 | `pprz.track(f, by)` | The flown path (lat/lon and local east/north) with a value per point to colour by, and the flight plan waypoints. |
 
