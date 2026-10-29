@@ -31,7 +31,7 @@ function fig = pprz_view(logs)
     pick = uidropdown(g, 'Items', rows, 'ItemsData', 1:height(T), 'ValueChangedFcn', @(~, ~) select());
     info = uilabel(g, 'Text', '', 'WordWrap', 'on', 'FontColor', [0.35 0.35 0.35]);
 
-    og = uigridlayout(g, [2 4], 'Padding', [0 0 0 0], 'RowHeight', {'fit', 'fit'}, ...
+    og = uigridlayout(g, [3 4], 'Padding', [0 0 0 0], 'RowHeight', {'fit', 'fit', 'fit'}, ...
         'ColumnWidth', {'fit', '1x', 'fit', '1x'});
     uilabel(og, 'Text', 'From [s]');
     from = uieditfield(og, 'text', 'Placeholder', 'start', 'Tooltip', 'Time from takeoff; empty: from the start');
@@ -40,6 +40,9 @@ function fig = pprz_view(logs)
     uilabel(og, 'Text', 'Shading');
     shade = uidropdown(og, 'Items', {'None', 'Autopilot mode', 'RC mode'}, 'ItemsData', {'none', 'ap', 'rc'});
     shade.Layout.Column = [2 4];
+    events = uicheckbox(og, 'Text', 'Event markers (modes, settings, checklist, messages)', 'Value', true, ...
+        'Tooltip', 'Click a marker in a plot to read its full text');
+    events.Layout.Column = [1 4];
 
     uilabel(g, 'Text', 'Plots', 'FontWeight', 'bold');
     tree = uitree(g, 'checkbox');
@@ -103,7 +106,7 @@ function fig = pprz_view(logs)
         end
         status.Text = 'Plotting…';
         drawnow;
-        made = pprz_plot(f, names{:}, 'modes', shade.Value, 'range', range, 'docked', true);
+        made = pprz_plot(f, names{:}, 'modes', shade.Value, 'range', range, 'docked', true, 'events', events.Value);
         figs = [figs(isgraphics(figs)), made];
         status.Text = sprintf('%d figure(s) made.', numel(made));
     end
