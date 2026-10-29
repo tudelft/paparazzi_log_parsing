@@ -49,14 +49,14 @@ function [r, fig] = pprz_effectiveness(f, varargin)
     du = diff(uf(2:end, :));
     used = max(abs(du), [], 1) > 1e-6 * max(abs(du(:)));  % inputs that never move cannot be estimated
     G = zeros(3, numel(names));
-    G(:, used) = (du(:, used) \ dwdot)';
+    G(:, used) = (pinv(du(:, used)) * dwdot)';  % minimum norm when inputs move together
     predicted = du * G';
     fit = 1 - sum((dwdot - predicted) .^ 2) ./ sum((dwdot - mean(dwdot)) .^ 2);
     r = struct('G', G, 'names', {names}, 'fit', fit, 't', t(3:end), 'measured', dwdot, ...
         'predicted', predicted, 'input', ifelse(use_rpm, 'rpm', 'actuators'), 'rates', source);
     if any(fit < 0.5)
         warning('pprz_effectiveness:fit', ['The fit explains little of the angular acceleration (R² %.2f %.2f %.2f). ' ...
-            'Choose a hover range or one with excitation (doublets, chirps).'], fit);
+            'Choose a hover range or one with excitation (doublets, chirps).'], fit(1), fit(2), fit(3));
     end
     fig = gobjects(0);
     if opts.plot
