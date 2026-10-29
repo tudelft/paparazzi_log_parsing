@@ -97,6 +97,8 @@
 
 ## Commits and releases
 
+- Do not add Claude/AI attribution to commits or pull requests: no `Co-Authored-By` or `Claude-Session`
+  trailers, no "Generated with Claude Code" footers or session links. Keep PR descriptions compact.
 - Develop each change on its own descriptively named branch, following the existing style
   (for example `webui-review-page`; no tool or assistant names), and merge it through a pull request.
   Delete the branch once the pull request is merged.
