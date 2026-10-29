@@ -6,7 +6,8 @@ function fig = pprz_view(logs)
 %   Pick a flight, tick the plots (plots whose messages were not logged are marked) and press Plot; the
 %   figures open docked as tabs. Uses pprz_plot, so every plot can also be made from a script.
 %   Click or drag in any time plot to move a cursor on all of them (arrow keys step it); the table below
-%   the buttons shows every plotted value at the cursor (see pprz.Cursor).
+%   the buttons shows every plotted value at the cursor (see pprz.Cursor). Compare… overlays the ticked
+%   plots of several flights (pprz_compare).
     if nargin < 1
         logs = pprz_load();
     elseif ischar(logs) || isstring(logs)
@@ -49,8 +50,10 @@ function fig = pprz_view(logs)
 
     uilabel(g, 'Text', 'Plots', 'FontWeight', 'bold');
     tree = uitree(g, 'checkbox');
-    bg = uigridlayout(g, [1 4], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', '1x', '1x', '1x'});
+    bg = uigridlayout(g, [2 3], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', '1x', '1x'});
     uibutton(bg, 'Text', 'Plot', 'ButtonPushedFcn', @(~, ~) draw());
+    uibutton(bg, 'Text', 'Compare…', 'ButtonPushedFcn', @(~, ~) compare(), ...
+        'Tooltip', 'Overlay the ticked plots of several flights (pprz_compare)');
     uibutton(bg, 'Text', '3-D replay', 'ButtonPushedFcn', @(~, ~) replay(), ...
         'Tooltip', 'Replay the flight with the airframe model (pprz_replay)');
     uibutton(bg, 'Text', 'Save figures…', 'ButtonPushedFcn', @(~, ~) save_figures());
@@ -94,7 +97,7 @@ function fig = pprz_view(logs)
         end
     end
 
-    function draw()
+    function names = checked_plots()
         nodes = tree.CheckedNodes;
         names = {};
         for i = 1:numel(nodes)
@@ -102,13 +105,21 @@ function fig = pprz_view(logs)
                 names{end + 1} = nodes(i).NodeData; %#ok<AGROW>
             end
         end
+    end
+
+    function range = time_range()
+        range = [-Inf Inf];
+        if ~isempty(strtrim(from.Value)), range(1) = str2double(from.Value); end
+        if ~isempty(strtrim(to.Value)), range(2) = str2double(to.Value); end
+    end
+
+    function draw()
+        names = checked_plots();
         if isempty(names)
             status.Text = 'Tick one or more plots.';
             return
         end
-        range = [-Inf Inf];
-        if ~isempty(strtrim(from.Value)), range(1) = str2double(from.Value); end
-        if ~isempty(strtrim(to.Value)), range(2) = str2double(to.Value); end
+        range = time_range();
         if any(isnan(range))
             status.Text = 'From and To must be numbers (seconds from takeoff).';
             return
@@ -119,6 +130,55 @@ function fig = pprz_view(logs)
         figs = [figs(isgraphics(figs)), made];
         cursor.attach(made);
         status.Text = sprintf('%d figure(s) made.', numel(made));
+    end
+
+    function compare()
+        names = checked_plots();
+        if isempty(names)
+            status.Text = 'Tick the plots to compare.';
+            return
+        end
+        d = uifigure('Name', 'Compare flights', 'Position', [fig.Position(1) + 40, fig.Position(2) + 200, 520 380], ...
+            'WindowStyle', 'modal');
+        dg = uigridlayout(d, [5 2], 'RowHeight', {'fit', '1x', 'fit', 'fit', 'fit'}, 'ColumnWidth', {'fit', '1x'});
+        l = uilabel(dg, 'Text', 'Flights (Ctrl/Cmd-click several)', 'FontWeight', 'bold');
+        l.Layout.Column = [1 2];
+        flights = uilistbox(dg, 'Items', rows, 'ItemsData', 1:height(T), 'Multiselect', 'on', 'Value', pick.Value);
+        flights.Layout.Column = [1 2];
+        uilabel(dg, 'Text', 'Align at');
+        how = uidropdown(dg, 'Items', {'Takeoff', 'First change of setting', 'First switch to mode'}, ...
+            'ItemsData', {'takeoff', 'setting', 'mode'});
+        uilabel(dg, 'Text', 'Setting / mode');
+        what = uieditfield(dg, 'text', 'Placeholder', 'e.g. guidance_h.gain_p or NAV', ...
+            'Tooltip', 'Name of the setting (as in the settings list) or autopilot mode');
+        ok = uibutton(dg, 'Text', 'Compare', 'ButtonPushedFcn', @(~, ~) run());
+        ok.Layout.Column = [1 2];
+
+        function run()
+            align = how.Value;
+            if ~strcmp(align, 'takeoff')
+                if isempty(strtrim(what.Value))
+                    uialert(d, 'Give the setting or mode name to align at.', 'Compare flights');
+                    return
+                end
+                align = {align, strtrim(what.Value)};
+            end
+            sel = T(flights.Value, :);
+            chosen = arrayfun(@(k) pprz_flight(logs, sel.log(k), sel.aircraft(k), sel.flight(k)), ...
+                1:height(sel), 'UniformOutput', false);
+            delete(d);
+            status.Text = 'Comparing…';
+            drawnow;
+            try
+                made = pprz_compare(chosen, names{:}, 'align', align, 'range', time_range());
+                set(made, 'WindowStyle', 'docked');
+                figs = [figs(isgraphics(figs)), made];
+                cursor.attach(made);
+                status.Text = sprintf('Compared %d flight(s) in %d figure(s).', numel(chosen), numel(made));
+            catch err
+                status.Text = err.message;
+            end
+        end
     end
 
     function replay()
