@@ -20,6 +20,8 @@ function markers(f, figs, kinds)
             y = get(ax, 'YLim');
             x = get(ax, 'XLim');
             last = -Inf;
+            px = getpixelposition(ax);
+            fit = max(6, floor(0.85 * px(4) / (8 * 0.7)));  % characters of 8 pt text that fit the axes height
             for k = 1:numel(ev)
                 e = ev(k);
                 if e.t < x(1) || e.t > x(2)
@@ -36,7 +38,11 @@ function markers(f, figs, kinds)
                     if e.t < x(1) + 0.5 * diff(x)
                         side = 'top';
                     end
-                    text(e.t, y(1) + 0.98 * diff(y), [e.label ' '], 'Parent', ax, 'Rotation', 90, 'Color', c * 0.8, ...
+                    label = e.label;
+                    if numel(label) > fit
+                        label = [label(1:fit - 1) '…'];
+                    end
+                    text(e.t, y(1) + 0.98 * diff(y), [label ' '], 'Parent', ax, 'Rotation', 90, 'Color', c * 0.8, ...
                         'FontSize', 8, 'HorizontalAlignment', 'right', 'VerticalAlignment', side, ...
                         'Clipping', 'on', 'Interpreter', 'none', 'Tag', 'pprz_event', 'HandleVisibility', 'off', ...
                         'HitTest', 'off');
