@@ -49,7 +49,7 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | `pprz.modes(f, fig, 'ap')` | Shade autopilot (`ap`) or RC (`rc`) mode regions in a figure. |
 | `pprz.events(f)` | What happened in a flight: mode changes, setting changes, checklist items and `INFO_MSG`, with times from takeoff. |
 | `pprz.markers(f, figs)` | Draw those events as labelled lines on every time plot; click a line for its full text. `pprz_view` has an *Event markers* box. |
-| `pprz.rates(d)` | Body rates p, q, r in rad/s from `IMU_GYRO` or `BODY_RATES_ACCEL`. |
+| `pprz.rates(d)` | Body rates p, q, r in rad/s from `IMU_GYRO`, `IMU_GYRO_SCALED` or `BODY_RATES_ACCEL`. |
 | `pprz.lowpass(x, fc, fs)`, `pprz.step_info(t, y, t0, t1)`, `pprz.freq_response(u, y, fs, n)` | Zero-phase Butterworth low-pass, step response metrics and Welch frequency response, as used by `pprz_sysid`. |
 | `pprz.has(d, msg, ...)` | True when the messages were logged. |
 | `pprz.track(f, by)` | The flown path (lat/lon and local east/north) with a value per point to colour by, and the flight plan waypoints. |

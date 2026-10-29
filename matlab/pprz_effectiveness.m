@@ -47,13 +47,17 @@ function [r, fig] = pprz_effectiveness(f, varargin)
     wdot = diff(w) * fs;
     dwdot = diff(wdot);
     du = diff(uf(2:end, :));
-    used = any(du ~= 0, 1);  % actuators that never move cannot be estimated
+    used = max(abs(du), [], 1) > 1e-6 * max(abs(du(:)));  % inputs that never move cannot be estimated
     G = zeros(3, numel(names));
     G(:, used) = (du(:, used) \ dwdot)';
     predicted = du * G';
     fit = 1 - sum((dwdot - predicted) .^ 2) ./ sum((dwdot - mean(dwdot)) .^ 2);
     r = struct('G', G, 'names', {names}, 'fit', fit, 't', t(3:end), 'measured', dwdot, ...
         'predicted', predicted, 'input', ifelse(use_rpm, 'rpm', 'actuators'), 'rates', source);
+    if any(fit < 0.5)
+        warning('pprz_effectiveness:fit', ['The fit explains little of the angular acceleration (R² %.2f %.2f %.2f). ' ...
+            'Choose a hover range or one with excitation (doublets, chirps).'], fit);
+    end
     fig = gobjects(0);
     if opts.plot
         fig = draw(r, f, opts);
@@ -68,7 +72,7 @@ function [t, u, names] = esc_rpm(m)
     u = zeros(numel(t), numel(ids));
     names = cell(1, numel(ids));
     for k = 1:numel(ids)
-        rows = m.motor_id == ids(k);
+        rows = m.motor_id == ids(k);  % motors that never spin are dropped by the fit
         [tk, keep] = unique(m.t(rows));
         v = double(m.rpm(rows));
         u(:, k) = interp1(tk, v(keep), t, 'linear', 'extrap');

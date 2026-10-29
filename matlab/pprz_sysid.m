@@ -5,7 +5,7 @@ function [ex, figs] = pprz_sysid(f, varargin)
 %   Kinds:
 %     'doublet'  DOUBLET active (sys_id module): delay and effectiveness of the input on the body rate
 %     'chirp'    CHIRP active: the same, plus the frequency response (gain, phase, coherence)
-%     'setting'  setting changes in flight; step metrics of 'signal' when given (e.g. 'ROTORCRAFT_FP.phi')
+%     'setting'  setting changes in this flight; step metrics of 'signal' when given (e.g. 'ROTORCRAFT_FP.phi')
 %     'rc'       RC stick steps (roll, pitch, yaw): step metrics of the roll/pitch angle or yaw rate
 %   Options:
 %     'axes'    body axis (1 p, 2 q, 3 r, 0 none) of each sys_id axis 0, 1, ...; default [1 2 3 0]
@@ -14,8 +14,8 @@ function [ex, figs] = pprz_sysid(f, varargin)
 %     'window'  seconds after a step to judge it (default 4)
 %   ex is a struct array with kind, label, t0, t1, axis and metrics: delay [s], rise [s], overshoot [%],
 %   settling [s] for steps; delay [s], effectiveness [rad/s² per unit] and fit (R²) for doublets and
-%   chirps; a chirp also has fr (pprz.freq_response). Body rates come from pprz.rates. Control
-%   effectiveness of all actuators at once: pprz_effectiveness.
+%   chirps; a chirp also has fr (pprz.freq_response). Body rates come from pprz.rates; setting changes
+%   count from takeoff to the end of the flight. Control effectiveness of all actuators: pprz_effectiveness.
     opts = struct('kinds', {{'doublet', 'chirp', 'setting', 'rc'}}, 'axes', [1 2 3 0], 'signal', '', ...
         'window', 4, 'plot', true);
     for k = 1:2:numel(varargin)
@@ -140,11 +140,12 @@ function ex = setting_steps(f, opts)
             warning('pprz_sysid:signal', '%s was not logged.', opts.signal);
         end
     end
-    inflight = true(size(ch.t));
+    % in_flight means during any flight of the log; keep this flight's, from takeoff on
+    inflight = ch.t(:) >= offset & ch.t(:) <= f.time.end_s;
     if isfield(ch, 'in_flight')
-        inflight = logical(ch.in_flight);
+        inflight = inflight & logical(ch.in_flight(:));
     end
-    for k = find(inflight(:))'
+    for k = find(inflight)'
         t0 = ch.t(k) - offset;
         t1 = t0 + opts.window;
         later = find(strcmp(names, names{k}) & ch.t(:) - offset > t0, 1);
@@ -157,8 +158,10 @@ function ex = setting_steps(f, opts)
             e.metrics = pprz.step_info(y.t, y.v, t0, t1);
             in = y.t >= t0 - 1 & y.t <= t1;
             u = ch.from(k) + (ch.to(k) - ch.from(k)) * (y.t(in) >= t0);
-            e.plot = struct('t', y.t(in), 'u', u, 'y', y.v(in), 'ylabel', strrep(opts.signal, '_', '\_'), ...
-                'step', t0);
+            if nnz(in) > 1
+                e.plot = struct('t', y.t(in), 'u', u, 'y', y.v(in), 'ylabel', strrep(opts.signal, '_', '\_'), ...
+                    'step', t0);
+            end
         end
         ex(end + 1) = e; %#ok<AGROW>
     end
@@ -262,7 +265,7 @@ function draw_one(ax, e)
     grid(ax, 'on');
     plot(ax, p.t, p.y, 'DisplayName', strrep(p.ylabel, '\_', '_'));
     span = [min(p.y), max(p.y)];
-    if diff(span) > 0 && max(p.u) > min(p.u)
+    if ~isempty(p.y) && diff(span) > 0 && max(p.u) > min(p.u)
         scaled = span(1) + (p.u - min(p.u)) / (max(p.u) - min(p.u)) * diff(span);
         plot(ax, p.t, scaled, '--', 'Color', [0.5 0.5 0.5], 'DisplayName', 'input (scaled)');
     end
