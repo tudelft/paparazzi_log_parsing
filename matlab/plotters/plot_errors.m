@@ -1,17 +1,29 @@
 function plot_errors(ac_data)
-    % Plot the I2C errors
-    ax1 = subplot(2,1,1);
-    if isfield(ac_data, 'I2C_ERRORS')
-        busses = unique(ac_data.I2C_ERRORS.bus_number);
-        
-        for i = 1:length(busses)
-            idx = find(ac_data.I2C_ERRORS.bus_number == busses(i));
-            plot(ac_data.I2C_ERRORS.t(idx), [ac_data.I2C_ERRORS.wd_reset_cnt(idx), ac_data.I2C_ERRORS.queue_full_cnt(idx), ac_data.I2C_ERRORS.acknowledge_failure_cnt(idx), ac_data.I2C_ERRORS.misplaced_start_or_stop_cnt(idx), ac_data.I2C_ERRORS.arbitration_lost_cnt(idx), ac_data.I2C_ERRORS.overrun_or_underrun_cnt(idx), ac_data.I2C_ERRORS.pec_error_in_reception_cnt(idx), ac_data.I2C_ERRORS.timeout_or_tlow_error_cnt(idx), ac_data.I2C_ERRORS.smbus_alert_cnt(idx), ac_data.I2C_ERRORS.unexpected_event_cnt(idx), ac_data.I2C_ERRORS.last_unexpected_event(idx)]);
-            legend('wd\_reset\_cnt', 'queue\_full\_cnt', 'acknowledge\_failure\_cnt', 'misplaced\_start\_or\_stop\_cnt', 'arbitration\_lost\_cnt', 'overrun\_or\_underrun\_cnt', 'pec\_error\_in\_reception\_cnt', 'timeout\_or\_tlow\_error\_cnt', 'smbus\_alert\_cnt', 'unexpected\_event\_cnt', 'last\_unexpected\_event');
-            hold on
+%PLOT_ERRORS Error counters per bus: I2C_ERRORS and UART_ERRORS. Counters that stay 0 are left out.
+    kinds = {'I2C_ERRORS', 'I2C'; 'UART_ERRORS', 'UART'};
+    kinds = kinds(cellfun(@(m) pprz.has(ac_data, m), kinds(:, 1)), :);
+    if isempty(kinds)
+        return
+    end
+    axs = pprz.tiles(size(kinds, 1), 'Bus errors');
+    for k = 1:size(kinds, 1)
+        m = ac_data.(kinds{k, 1});
+        fields = setdiff(fieldnames(m), {'t', 'bus_number', 'last_unexpected_event'}, 'stable');
+        buses = unique(m.bus_number);
+        for b = reshape(buses, 1, [])
+            rows = m.bus_number == b;
+            for i = 1:numel(fields)
+                v = double(m.(fields{i})(rows));
+                if any(v ~= 0)
+                    plot(axs(k), m.t(rows), v, 'DisplayName', sprintf('bus %d %s', b, strrep(fields{i}, '_cnt', '')));
+                end
+            end
         end
-        
-        title('I2C errors');
-        xlabel('Time [s]');
+        ylabel(axs(k), sprintf('%s errors', kinds{k, 2}));
+        if isempty(findobj(axs(k), 'Type', 'line'))
+            text(axs(k), 0.5, 0.5, 'No errors', 'Units', 'normalized', 'HorizontalAlignment', 'center');
+        else
+            legend(axs(k), 'Location', 'eastoutside', 'Interpreter', 'none');
+        end
     end
 end

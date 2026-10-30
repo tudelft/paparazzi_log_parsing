@@ -1,46 +1,16 @@
-function plot_serial_act_t4(ac_data, order)
-
-    rpm1 = ac_data.SERIAL_ACT_T4_IN.motor_1_rpm;
-    rpm2 = ac_data.SERIAL_ACT_T4_IN.motor_2_rpm;
-
-    pos1 = double(ac_data.SERIAL_ACT_T4_IN.rotor_1_az_angle)/100;
-    pos2 = double(ac_data.SERIAL_ACT_T4_IN.rotor_2_az_angle)/100;
-    % cmd_servo1 = double(ac_data.SERIAL_ACT_T4_OUT.rotor_1_az_angle_cmd)/100;
-    % cmd_servo2 = double(ac_data.SERIAL_ACT_T4_OUT.rotor_2_az_angle_cmd)/100;
-
-    tiledlayout(3, 1, 'Padding', 'compact', 'TileSpacing', 'compact');
-
-    ax1 = nexttile;
-    hold on; zoom on;
-    h1 = plot(ac_data.SERIAL_ACT_T4_IN.t, pos1, 'LineWidth', 1.5);
-    h2 = plot(ac_data.SERIAL_ACT_T4_IN.t, pos2, 'LineWidth', 1.5);
-    xlabel('Time [s]');
-    ylabel('Flap deflection [deg]');
-    title('Flap deflection');
-    grid on;
-
-    ax2 = nexttile;
-    hold on; zoom on;
-    h3 = plot(ac_data.SERIAL_ACT_T4_IN.t, rpm1, 'LineWidth', 1.5);
-    h4 = plot(ac_data.SERIAL_ACT_T4_IN.t, rpm2, 'LineWidth', 1.5);
-    xlabel('Time [s]');
-    ylabel('Prop speed [rpm]');
-    title('RPM');
-    grid on;
-
-    ax3 = nexttile;
-    hold on; zoom on;
-    h5 = plot(ac_data.SERIAL_ACT_T4_OUT.t, ac_data.SERIAL_ACT_T4_OUT.motor_1_dshot_cmd, 'LineWidth', 1.5);
-    h6 = plot(ac_data.SERIAL_ACT_T4_OUT.t, ac_data.SERIAL_ACT_T4_OUT.motor_2_dshot_cmd, 'LineWidth', 1.5);
-    xlabel('Time [s]');
-    ylabel('DShot Command');
-    title('DShot Command');
-    grid on;
-
-    legend(ax1, [h1, h2], {'delta 1', 'delta 2'});
-    legend(ax2, [h3, h4], {'RPM 1', 'RPM 2'});
-    legend(ax3, [h5, h6], {'DShot Cmd 1', 'DShot Cmd 2'});
-
-    linkaxes([ax1,ax2,ax3],'x');
-
+function plot_serial_act_t4(ac_data)
+%PLOT_SERIAL_ACT_T4 Serial actuators (T4): rotor tilt angle and rpm (SERIAL_ACT_T4_IN), and the DShot
+%   commands (SERIAL_ACT_T4_OUT) when logged.
+    in = ac_data.SERIAL_ACT_T4_IN;
+    out = pprz.has(ac_data, 'SERIAL_ACT_T4_OUT');
+    axs = pprz.tiles(2 + out, 'Serial actuators (T4)');
+    pprz.series(axs(1), in.t, double([in.rotor_1_az_angle, in.rotor_2_az_angle]) / 100, {'Rotor 1', 'Rotor 2'});
+    ylabel(axs(1), 'Tilt angle [deg]');
+    pprz.series(axs(2), in.t, [in.motor_1_rpm, in.motor_2_rpm], {'Motor 1', 'Motor 2'});
+    ylabel(axs(2), 'Speed [rpm]');
+    if out
+        o = ac_data.SERIAL_ACT_T4_OUT;
+        pprz.series(axs(3), o.t, [o.motor_1_dshot_cmd, o.motor_2_dshot_cmd], {'Motor 1', 'Motor 2'});
+        ylabel(axs(3), 'DShot command');
+    end
 end

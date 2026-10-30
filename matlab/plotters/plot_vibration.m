@@ -118,7 +118,8 @@ function campbell(ax, t, freq, P, ts, speed, label, rpm)
     colormap(ax, parula(256));
     clim_(ax, img);
     if rpm
-        plot(ax, centres, centres / 60, 'w-', centres, 2 * centres / 60, 'w--');
+        plot(ax, centres, centres / 60, 'w-', 'DisplayName', '1× rotor');
+        plot(ax, centres, 2 * centres / 60, 'w--', 'DisplayName', '2× rotor');
     end
     set(ax, 'YLim', [freq(1) freq(end)]);
     xlabel(ax, label);

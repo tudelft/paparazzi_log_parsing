@@ -15,7 +15,7 @@ function plot_overview(ac_data, f)
         switch rows{i}
             case 'height'
                 fp = ac_data.ROTORCRAFT_FP;
-                plot(fp.t, fp.up, fp.t, fp.carrot_up, '--');
+                plot(fp.t, fp.up, 'DisplayName', 'Up'); plot(fp.t, fp.carrot_up, '--', 'DisplayName', 'Target');
                 ylabel('Up [m]'); legend('Up', 'Target');
             case 'speed'
                 fp = ac_data.ROTORCRAFT_FP;
@@ -32,11 +32,11 @@ function plot_overview(ac_data, f)
                 ylabel('[deg]'); legend('Phi', 'Theta');
             case 'battery'
                 e = ac_data.ENERGY;
-                yyaxis left; plot(e.t, e.voltage); ylabel('Voltage [V]');
-                yyaxis right; plot(e.t, e.current); ylabel('Current [A]');
+                yyaxis left; plot(e.t, e.voltage, 'DisplayName', 'Voltage'); ylabel('Voltage [V]');
+                yyaxis right; plot(e.t, e.current, 'DisplayName', 'Current'); ylabel('Current [A]');
             case 'mode'
                 m = ac_data.ROTORCRAFT_STATUS;
-                stairs(m.t, double(m.ap_mode), 'LineWidth', 1.2);
+                stairs(m.t, double(m.ap_mode), 'LineWidth', 1.2, 'DisplayName', 'Autopilot mode');
                 modes = unique(double(m.ap_mode));
                 if nargin > 1 && ~isempty(modes)
                     yticks(modes); yticklabels(pprz.enum(f, 'ROTORCRAFT_STATUS', 'ap_mode', modes));

@@ -1,25 +1,32 @@
 function plot_rotorcraft_status(ac_data, f)
-%PLOT_ROTORCRAFT_STATUS In flight / motors on, autopilot mode (named when f is given) and arming status.
-    if ~pprz.has(ac_data, 'ROTORCRAFT_STATUS')
-        return
-    end
+%PLOT_ROTORCRAFT_STATUS Autopilot mode and arming state (named when the export has the enums), in-flight and
+%   motors-on flags, and the board voltage and CPU frame rate.
     m = ac_data.ROTORCRAFT_STATUS;
-    ax1 = subplot(3, 1, 1);
-    area(m.t, double([m.ap_in_flight, m.ap_motors_on]), 'FaceAlpha', 0.4);
-    title('In flight / motors on');
-    legend('In flight', 'Motors on');
-    ax2 = subplot(3, 1, 2);
-    stairs(m.t, double(m.ap_mode), 'LineWidth', 1.2);
-    title('Autopilot mode');
-    modes = unique(double(m.ap_mode));
-    if nargin > 1 && ~isempty(modes)
-        yticks(modes);
-        yticklabels(pprz.enum(f, 'ROTORCRAFT_STATUS', 'ap_mode', modes));
+    axs = pprz.tiles(4, 'Status');
+    named_stairs(axs(1), m.t, m.ap_mode, f, 'ap_mode');
+    ylabel(axs(1), 'Autopilot mode');
+    named_stairs(axs(2), m.t, m.arming_status, f, 'arming_status');
+    ylabel(axs(2), 'Arming');
+    stairs(axs(3), m.t, double(m.ap_motors_on) + 0.04, 'LineWidth', 1.2, 'DisplayName', 'Motors on');
+    stairs(axs(3), m.t, double(m.ap_in_flight), 'LineWidth', 1.2, 'DisplayName', 'In flight');
+    set(axs(3), 'YLim', [-0.2 1.2], 'YTick', [0 1], 'YTickLabel', {'no', 'yes'});
+    legend(axs(3), 'Location', 'best');
+    if isfield(m, 'vsupply')
+        plot(axs(4), m.t, m.vsupply, 'DisplayName', 'Supply voltage [V]');
     end
-    ax3 = subplot(3, 1, 3);
-    stairs(m.t, double(m.arming_status), 'LineWidth', 1.2);
-    title('Arming status');
-    xlabel('Time [s]');
-    sgtitle('Status');
-    linkaxes([ax1, ax2, ax3], 'x');
+    if isfield(m, 'frame_rate')
+        plot(axs(4), m.t, double(m.frame_rate) / 100, 'DisplayName', 'Frame rate [100 Hz]');
+    end
+    legend(axs(4), 'Location', 'best');
+    ylabel(axs(4), 'Board');
+end
+
+function named_stairs(ax, t, v, f, field)
+    v = double(v);
+    stairs(ax, t, v, 'LineWidth', 1.2, 'DisplayName', field);
+    values = unique(v);
+    if nargin > 3 && ~isempty(values)
+        set(ax, 'YTick', values, 'YTickLabel', cellstr(pprz.enum(f, 'ROTORCRAFT_STATUS', field, values)), ...
+            'YLim', [min(values) - 0.5, max(values) + 0.5]);
+    end
 end

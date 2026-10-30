@@ -1,33 +1,12 @@
-function plot_hover_loop(ac_data, vert)
-    if ~isfield(ac_data, 'HOVER_LOOP')
-        return
+function plot_hover_loop(ac_data)
+%PLOT_HOVER_LOOP Hover loop position errors (HOVER_LOOP) and the thrust command (ROTORCRAFT_FP).
+    m = ac_data.HOVER_LOOP;
+    fp = pprz.has(ac_data, 'ROTORCRAFT_FP');
+    axs = pprz.tiles(1 + fp, 'Hover loop');
+    pprz.series(axs(1), m.t, [m.est_x - m.sp_x, m.est_y - m.sp_y], {'x error', 'y error'});
+    ylabel(axs(1), 'Position error');
+    if fp
+        plot(axs(2), ac_data.ROTORCRAFT_FP.t, ac_data.ROTORCRAFT_FP.thrust, 'DisplayName', 'Thrust');
+        ylabel(axs(2), 'Thrust [pprz]');
     end
-
-    % Plot the hover loop
-    ax1 = subplot(2,1,1);
-    x_err = ac_data.HOVER_LOOP.est_x-ac_data.HOVER_LOOP.sp_x;
-    y_err = ac_data.HOVER_LOOP.est_y-ac_data.HOVER_LOOP.sp_y;
-    plot(ac_data.HOVER_LOOP.t, [x_err, y_err]);
-    if exist('vert','var')
-        hold on;
-        plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
-    end
-    title('Errors');
-    xlabel('Time [s]');
-    legend('X-err', 'Y-err');
-
-    ax2 = subplot(2,1,2);
-    if isfield(ac_data, 'ROTORCRAFT_FP')
-        plot(ac_data.ROTORCRAFT_FP.t, [ac_data.ROTORCRAFT_FP.thrust]);
-        if exist('vert','var')
-            hold on;
-            plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
-        end
-        title('Thurst');
-        xlabel('Time [s]');
-        legend('Thrust');
-    end
-
-    sgtitle('Hover loop')
-    linkaxes([ax1,ax2],'x')
 end

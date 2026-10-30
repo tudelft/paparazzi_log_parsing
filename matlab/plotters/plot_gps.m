@@ -1,33 +1,13 @@
-function plot_gps(ac_data, vert)
-    if ~isfield(ac_data, 'GPS_INT')
-        return
-    end
-    
-    % Plot the GPS/position status
-    ax1 = subplot(3,1,1);
-    plot(ac_data.GPS_INT.t, [ac_data.GPS_INT.fix, ac_data.GPS_INT.numsv]);
-    if exist('vert','var')
-        hold on;
-        plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
-    end
-    title('GPS status');
-    xlabel('Time [s]');
-    legend('Fix', 'Number of SV');
-
-    ax2 = subplot(3,1,2);
-    plot(ac_data.GPS_INT.t, [ac_data.GPS_INT.pacc, ac_data.GPS_INT.pdop, ac_data.GPS_INT.sacc]);
-    if exist('vert','var')
-        hold on;
-        plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
-    end
-    title('Errors');
-    xlabel('Time [s]');
-    legend('Position accuracy', 'PDOP', 'Speed accuracy');
-
-    subplot(3,1,3);
-    plot3(ac_data.GPS_INT.ecef_x, ac_data.GPS_INT.ecef_y, ac_data.GPS_INT.ecef_z);
-    title('Position (ECEF)');
-
-    sgtitle('GPS')
-    linkaxes([ax1,ax2],'x')
+function plot_gps(ac_data)
+%PLOT_GPS GPS fix and satellites, accuracies and PDOP (GPS_INT).
+    g = ac_data.GPS_INT;
+    axs = pprz.tiles(3, 'GPS');
+    stairs(axs(1), g.t, double(g.numsv), 'DisplayName', 'Satellites');
+    stairs(axs(1), g.t, double(g.fix), 'DisplayName', 'Fix (3 = 3-D)');
+    ylabel(axs(1), 'Satellites, fix');
+    legend(axs(1), 'Location', 'best');
+    pprz.series(axs(2), g.t, [double(g.pacc) / 100, double(g.sacc) / 100], {'Position [m]', 'Speed [m/s]'});
+    ylabel(axs(2), 'Accuracy');
+    plot(axs(3), g.t, double(g.pdop) / 100, 'DisplayName', 'PDOP');
+    ylabel(axs(3), 'PDOP');
 end

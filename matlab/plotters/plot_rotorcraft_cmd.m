@@ -1,17 +1,9 @@
-function plot_rotorcraft_cmd(ac_data, vert)
-    if ~isfield(ac_data, 'ROTORCRAFT_CMD')
-        return
-    end
-    
-    % Plot the Rotorcraft CMD
-    plot(ac_data.ROTORCRAFT_CMD.t, [ac_data.ROTORCRAFT_CMD.cmd_roll, ac_data.ROTORCRAFT_CMD.cmd_pitch, ac_data.ROTORCRAFT_CMD.cmd_yaw, ac_data.ROTORCRAFT_CMD.cmd_thrust]);
-    if exist('vert','var')
-        hold on;
-        plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
-    end
-    title('Commands');
-    xlabel('Time [s]');
-    legend('Roll [deg]', 'Pitch [deg]', 'Yaw [deg]', 'Thrust [deg]');
-    
-    sgtitle('Rotorcraft CMD measurements')
+function plot_rotorcraft_cmd(ac_data)
+%PLOT_ROTORCRAFT_CMD Roll, pitch, yaw and thrust commands (ROTORCRAFT_CMD, pprz units).
+    m = ac_data.ROTORCRAFT_CMD;
+    axs = pprz.tiles(2, 'Rotorcraft commands');
+    pprz.series(axs(1), m.t, [m.cmd_roll, m.cmd_pitch, m.cmd_yaw], {'Roll', 'Pitch', 'Yaw'});
+    ylabel(axs(1), 'Command [pprz]');
+    plot(axs(2), m.t, double(m.cmd_thrust), 'DisplayName', 'Thrust');
+    ylabel(axs(2), 'Thrust [pprz]');
 end

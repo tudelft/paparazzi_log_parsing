@@ -1,35 +1,17 @@
-function plot_energy(ac_data, vert)
-    if ~isfield(ac_data, 'ENERGY')
-        return
+function plot_energy(ac_data)
+%PLOT_ENERGY Battery voltage and current, power, and energy used (ENERGY).
+    e = ac_data.ENERGY;
+    axs = pprz.tiles(3, 'Energy');
+    plot(axs(1), e.t, e.voltage, 'DisplayName', 'Voltage');
+    ylabel(axs(1), 'Voltage [V]');
+    plot(axs(2), e.t, e.current, 'DisplayName', 'Current');
+    ylabel(axs(2), 'Current [A]');
+    yyaxis(axs(2), 'right');
+    plot(axs(2), e.t, e.power, 'DisplayName', 'Power');
+    ylabel(axs(2), 'Power [W]');
+    yyaxis(axs(2), 'left');
+    if isfield(e, 'energy')
+        plot(axs(3), e.t, e.energy, 'DisplayName', 'Energy');
+        ylabel(axs(3), 'Energy used [Wh]');
     end
-    
-    % Plot the Energy message
-    ax1 = subplot(2,1,1);
-    yyaxis left
-    plot(ac_data.ENERGY.t, [ac_data.ENERGY.voltage]);
-    ylabel('Voltage [V]');
-    yyaxis right
-    plot(ac_data.ENERGY.t, [ac_data.ENERGY.current]);
-    ylabel('Current [A]');
-
-    if exist('vert','var')
-        hold on;
-        plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
-    end
-    title('Energy Voltage');
-    xlabel('Time [s]');
-    legend('Voltage [V]', 'Current [A]');
-
-    ax2 = subplot(2,1,2);
-    plot(ac_data.ENERGY.t, [ac_data.ENERGY.power]);
-    if exist('vert','var')
-        hold on;
-        plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
-    end
-    title('Energy Power');
-    xlabel('Time [s]');
-    legend('Power [W]');
-
-    sgtitle('Energy')
-    linkaxes([ax1, ax2],'x')
 end

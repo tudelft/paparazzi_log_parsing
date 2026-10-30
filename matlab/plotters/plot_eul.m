@@ -1,54 +1,39 @@
 function plot_eul(ac_data, order)
-    if ~isfield(ac_data, 'AHRS_REF_QUAT')
-        return
-    end
-
-    if ~exist('order','var')
+%PLOT_EUL Euler angles of the attitude and its reference (AHRS_REF_QUAT), order 'ZYX' (default) or 'ZXY'
+%   (the order hybrid aircraft use). No toolbox needed.
+    if nargin < 2
         order = 'ZYX';
     end
-    
-    % Plot the Euler angles
-    msg = ac_data.AHRS_REF_QUAT;
+    m = ac_data.AHRS_REF_QUAT;
+    [t, keep] = unique(m.t);
+    body = euler(double([m.body_qi(keep), m.body_qx(keep), m.body_qy(keep), m.body_qz(keep)]), order);
+    ref = euler(double([m.ref_qi(keep), m.ref_qx(keep), m.ref_qy(keep), m.ref_qz(keep)]), order);
+    axs = pprz.tiles(3, sprintf('Euler angles (%s)', order));
+    names = {'Phi', 'Theta', 'Psi'};
+    for k = 1:3
+        plot(axs(k), t, body(:, k), 'DisplayName', names{k});
+        plot(axs(k), t, ref(:, k), '--', 'DisplayName', [names{k} ' reference']);
+        ylabel(axs(k), sprintf('%s [deg]', names{k}));
+        legend(axs(k), 'Location', 'best');
+    end
+end
 
-    quat = double([msg.body_qi msg.body_qx msg.body_qy msg.body_qz]);
-    refquat = double([msg.ref_qi msg.ref_qx msg.ref_qy msg.ref_qz]);
-    [refquat_t,irefquat_t,~] = unique(msg.t);
-    quat = quat(irefquat_t,:);
-    refquat = refquat(irefquat_t,:);
-
-    if strcmp(order,'ZXY')
-        [psi, phi, theta] = quat2angle(quat,order);
-        [refpsi, refphi, reftheta] = quat2angle(refquat,order);
-    elseif strcmp(order,'ZYX')
-        [psi, theta, phi] = quat2angle(quat,order);
-        [refpsi, reftheta, refphi] = quat2angle(refquat,order);
-    elseif strcmp(order,'XYZ')
-        [phi, theta, psi] = quat2angle(quat,order);
-        [refphi, reftheta, refpsi] = quat2angle(refquat,order);
+function e = euler(q, order)
+    % [phi theta psi] in degrees of the NED-to-body quaternions [qi qx qy qz]; psi unwrapped.
+    q = q ./ sqrt(sum(q .^ 2, 2));
+    [qi, qx, qy, qz] = deal(q(:, 1), q(:, 2), q(:, 3), q(:, 4));
+    r11 = 1 - 2 * (qy .^ 2 + qz .^ 2);
+    r12 = 2 * (qx .* qy + qi .* qz);
+    r13 = 2 * (qx .* qz - qi .* qy);
+    r21 = 2 * (qx .* qy - qi .* qz);
+    r22 = 1 - 2 * (qx .^ 2 + qz .^ 2);
+    r23 = 2 * (qy .* qz + qi .* qx);
+    r33 = 1 - 2 * (qx .^ 2 + qy .^ 2);
+    if strcmpi(order, 'ZXY')
+        e = [asin(max(-1, min(1, r23))), atan2(-r13, r33), atan2(-r21, r22)];
     else
-        disp('Rotation order not available')
+        e = [atan2(r23, r33), -asin(max(-1, min(1, r13))), atan2(r12, r11)];
     end
-
-    ax1 = subplot(3,1,1);
-    plot(refquat_t,rad2deg(theta),refquat_t,rad2deg(reftheta));
-    if exist('vert','var')
-        hold on;
-        plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
-    end
-    title('theta'); xlabel('time(s)'); ylabel('theta (deg)'); legend('theta','ref')
-
-    ax2 = subplot(3,1,2);
-    plot(refquat_t,rad2deg(phi),refquat_t,rad2deg(refphi));
-    if exist('vert','var')
-        hold on;
-        plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
-    end
-    title("phi");xlabel('time(s)');ylabel('phi (deg)'); legend('phi','ref')
-
-    ax3 = subplot(3,1,3);
-    plot(refquat_t,rad2deg(psi),refquat_t,rad2deg(refpsi));
-    title('psi');xlabel('time(s)');ylabel('psi (deg)'); legend('psi','ref')
-
-    sgtitle(['Euler ', order, ' order'])
-    linkaxes([ax1,ax2,ax3],'x')
+    e(:, 3) = unwrap(e(:, 3));
+    e = rad2deg(e);
 end
