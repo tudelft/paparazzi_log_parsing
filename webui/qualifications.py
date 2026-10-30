@@ -4,7 +4,11 @@ import gzip
 import json
 import os
 import re
+import shutil
 import sqlite3
+import subprocess
+import tempfile
+import time
 import uuid
 import zlib
 from pathlib import Path
@@ -17,8 +21,11 @@ import qualification_import
 import storage
 
 MAX_EVIDENCE_BYTES = 20 * 1024 * 1024
-# EASA remote pilot certificate number, e.g. NLD-RP-0123456789ab
-CERTIFICATE_NUMBER = re.compile(rb"[A-Z]{3}-RP-[A-Za-z0-9]{12}")
+# EASA remote pilot certificate (NLD-RP-0123456789ab) or EASA licence (NL.66.12345, BE.FCL.123456.A)
+CERTIFICATE_NUMBER = re.compile(
+    rb"[A-Z]{3}-RP-[A-Za-z0-9]{12}|\b[A-Z]{2}\.(?:66|FCL|ATCO|147)\.[A-Z0-9]+(?:\.[A-Z0-9]+)*")
+OCR_PAGES = 4  # certificates have the number on the first pages
+OCR_SECONDS = 60  # per call of pdftoppm or tesseract
 
 
 def _utc_now():
@@ -137,8 +144,9 @@ def licence_number(raw):
 
 
 def pdf_number(path, compressed):
-    """The certificate number in a PDF's text (plain or Flate-compressed streams), or None. Best effort: the
-    reviewer confirms it."""
+    """The certificate number in a PDF's text, or None. Best effort: the reviewer confirms it.
+    Reads plain and Flate-compressed streams; text in embedded subset fonts (glyph codes such as
+    <0038004300...>Tj, as in the RDW certificates) is decoded with the fonts' ToUnicode maps."""
     try:
         with (gzip.open(path, "rb") if compressed else open(path, "rb")) as source:
             raw = source.read(MAX_EVIDENCE_BYTES + 1)
@@ -155,14 +163,107 @@ def pdf_number(path, compressed):
             chunks.append(zlib.decompressobj().decompress(raw[match.end():end], 4 * MAX_EVIDENCE_BYTES))
         except zlib.error:
             continue
+    texts = []
     for chunk in chunks:
         # Text is often split into several strings, e.g. [(NLD-RP-)-12(0123456789ab)]TJ: join the literals.
-        joined = b"".join(s[1:-1] for s in re.findall(rb"\((?:\\.|[^\\)])*\)", chunk))
-        for text in (chunk, joined):
-            hit = CERTIFICATE_NUMBER.search(text)
+        texts += [chunk, b"".join(s[1:-1] for s in re.findall(rb"\((?:\\.|[^\\)])*\)", chunk))]
+    content = [c for c in chunks if b"BT" in c and b"ET" in c]
+    for cmap in filter(None, (to_unicode(c) for c in chunks if b"beginbf" in c)):
+        # Decode every glyph string with each font's map: the one the number is set in yields it.
+        texts += ["".join(decode_glyphs(s, cmap) for s in re.findall(rb"<([0-9A-Fa-f\s]+)>", block)).encode()
+                  for chunk in content for block in re.findall(rb"BT(.*?)ET", chunk, re.S)]
+    for text in texts:
+        hit = CERTIFICATE_NUMBER.search(text)
+        if hit:
+            return hit.group().decode()
+    return None
+
+
+def ocr_available():
+    return bool(shutil.which("pdftoppm") and shutil.which("tesseract"))
+
+
+def ocr_number(path, compressed):
+    """The number read by OCR from a scanned PDF (pages turned upright first), or None. Needs the pdftoppm
+    (poppler-utils) and tesseract (tesseract-ocr) commands; takes a few seconds per page."""
+    if not ocr_available():
+        return None
+    import numpy  # installed with h5py
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = Path(tmp) / "evidence.pdf"
+        with (gzip.open(path, "rb") if compressed else open(path, "rb")) as source, open(pdf, "wb") as out:
+            shutil.copyfileobj(source, out)
+        try:
+            subprocess.run(["pdftoppm", "-r", "200", "-gray", "-l", str(OCR_PAGES), str(pdf), str(Path(tmp) / "p")],
+                           check=True, capture_output=True, timeout=OCR_SECONDS)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        for page in sorted(Path(tmp).glob("p-*.pgm")):
+            try:
+                osd = subprocess.run(["tesseract", str(page), "-", "--psm", "0"], capture_output=True,
+                                     timeout=OCR_SECONDS, text=True).stdout
+                turn = re.search(r"Rotate: (\d+)", osd)
+                turned = int(turn.group(1)) % 360 if turn else 0
+                if turned:
+                    rotate_pgm(page, turned, numpy)
+                hit = CERTIFICATE_NUMBER.search(ocr_text(page))
+                if hit is None and turned != 180:
+                    # orientation detection needs much text; a short or upside-down page gets one more try
+                    rotate_pgm(page, 180, numpy)
+                    hit = CERTIFICATE_NUMBER.search(ocr_text(page))
+            except (OSError, subprocess.SubprocessError, ValueError):
+                continue
             if hit:
                 return hit.group().decode()
     return None
+
+
+def ocr_text(page):
+    return subprocess.run(["tesseract", str(page), "-", "--psm", "3"], capture_output=True,
+                          timeout=OCR_SECONDS).stdout
+
+
+def rotate_pgm(page, degrees, numpy):
+    """Turn a binary 8-bit PGM (as pdftoppm -gray writes it) clockwise by 90, 180 or 270 degrees."""
+    raw = page.read_bytes()
+    head = re.match(rb"P5\s+(\d+)\s+(\d+)\s+255\s", raw)
+    if not head:
+        raise ValueError("not an 8-bit PGM")
+    width, height = int(head.group(1)), int(head.group(2))
+    image = numpy.frombuffer(raw, numpy.uint8, width * height, head.end()).reshape(height, width)
+    image = numpy.rot90(image, -(degrees // 90))
+    page.write_bytes(b"P5\n%d %d\n255\n" % (image.shape[1], image.shape[0]) + image.tobytes())
+
+
+def to_unicode(cmap):
+    """Glyph code (bytes) to text from a ToUnicode CMap stream (bfchar and bfrange entries)."""
+    out = {}
+    hexes = lambda h: bytes.fromhex(h.decode())
+    for block in re.findall(rb"beginbfchar(.*?)endbfchar", cmap, re.S):
+        for src, dst in re.findall(rb"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]*)>", block):
+            out[hexes(src)] = hexes(dst).decode("utf-16-be", "replace")
+    for block in re.findall(rb"beginbfrange(.*?)endbfrange", cmap, re.S):
+        for lo, hi, dst in re.findall(rb"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*(<[0-9A-Fa-f]*>|\[[^\]]*\])", block):
+            start, stop, width = int(lo, 16), int(hi, 16), len(lo) // 2
+            if stop - start > 65535:
+                continue
+            if dst.startswith(b"["):
+                targets = [hexes(d).decode("utf-16-be", "replace") for d in re.findall(rb"<([0-9A-Fa-f]*)>", dst)]
+            else:
+                first = hexes(dst[1:-1])
+                base = int.from_bytes(first, "big") if first else 0
+                targets = [(base + k).to_bytes(max(len(first), 2), "big").decode("utf-16-be", "replace")
+                           for k in range(stop - start + 1)]
+            for k, text in enumerate(targets[:stop - start + 1]):
+                out[(start + k).to_bytes(width, "big")] = text
+    return out
+
+
+def decode_glyphs(hexstring, cmap):
+    digits = re.sub(rb"\s", b"", hexstring).decode()
+    data = bytes.fromhex(digits + "0" * (len(digits) % 2))  # an odd final digit is padded with 0
+    width = len(next(iter(cmap)))
+    return "".join(cmap.get(data[i:i + width], "?") for i in range(0, len(data) - width + 1, width))
 
 
 def integer(raw):
@@ -601,26 +702,40 @@ def register(app, connection, root, require_session):
         """Fill the empty number of approved qualifications of types that require one, from their PDF evidence."""
         admin()
         con = connection()
-        filled, unread = [], []
+        rows = con.execute(
+            "SELECT q.id,q.user_id,q.evidence_path,q.compressed,q.mime,t.name AS category,"
+            " COALESCE(u.display_name,u.username) AS person FROM qualification_submissions q"
+            " JOIN qualification_types t ON t.id=q.type_id JOIN users u ON u.id=q.user_id"
+            " WHERE q.status='approved' AND t.requires_number=1 AND COALESCE(q.number,'')=''"
+            " ORDER BY person, t.sort_order").fetchall()
+        found, unread, later = [], [], []
+        deadline = time.monotonic() + 90  # OCR takes seconds per scan: stop in time and let the admin run it again
+        for row in rows:  # read the PDFs before taking the write lock
+            path = evidence_root() / row["evidence_path"] if row["evidence_path"] else None
+            pdf = path is not None and row["mime"] == "application/pdf"
+            number = pdf_number(path, bool(row["compressed"])) if pdf else None
+            if number is None and pdf and ocr_available():
+                if time.monotonic() > deadline:
+                    later.append(dict(id=row["id"], user_id=row["user_id"], person=row["person"],
+                                      category=row["category"]))
+                    continue
+                number = ocr_number(path, bool(row["compressed"]))
+            item = dict(id=row["id"], user_id=row["user_id"], person=row["person"], category=row["category"])
+            if number:
+                found.append(dict(item, number=number))
+            else:
+                unread.append(item)
+        filled = []
         with db.write_lock, con:
             con.execute("BEGIN IMMEDIATE")
-            for row in con.execute(
-                    "SELECT q.id,q.user_id,q.evidence_path,q.compressed,q.mime,t.name AS category,"
-                    " COALESCE(u.display_name,u.username) AS person FROM qualification_submissions q"
-                    " JOIN qualification_types t ON t.id=q.type_id JOIN users u ON u.id=q.user_id"
-                    " WHERE q.status='approved' AND t.requires_number=1 AND COALESCE(q.number,'')=''"
-                    " ORDER BY person, t.sort_order").fetchall():
-                path = evidence_root() / row["evidence_path"] if row["evidence_path"] else None
-                number = pdf_number(path, bool(row["compressed"])) if path and row["mime"] == "application/pdf" else None
-                item = dict(id=row["id"], user_id=row["user_id"], person=row["person"], category=row["category"])
-                if number is None:
-                    unread.append(item)
-                    continue
-                con.execute("UPDATE qualification_submissions SET number=? WHERE id=?", (number, row["id"]))
-                audit(con, row["user_id"], g.user["id"], "number-changed",
-                      dict(id=row["id"], category=row["category"], number=number, old_number=None, source="evidence"))
-                filled.append(dict(item, number=number))
-        return jsonify(filled=filled, unread=unread)
+            for item in found:
+                if con.execute("UPDATE qualification_submissions SET number=? WHERE id=? AND COALESCE(number,'')=''",
+                               (item["number"], item["id"])).rowcount:
+                    audit(con, item["user_id"], g.user["id"], "number-changed",
+                          dict(id=item["id"], category=item["category"], number=item["number"], old_number=None,
+                               source="evidence"))
+                    filled.append(item)
+        return jsonify(filled=filled, unread=unread, later=later, ocr=ocr_available())
 
     @app.get("/api/pilots")
     def list_pilots():

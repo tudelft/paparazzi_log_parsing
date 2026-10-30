@@ -26,6 +26,41 @@ def certificate_pdf(number="NLD-RP-0123456789ab", compressed=True):
             + stream + b"\nendstream\nendobj\n%%EOF\n")
 
 
+def subset_font_pdf(number="NLD-RP-0123456789ab"):
+    """A PDF that sets the number in an embedded subset font: glyph codes in hex, decoded by a ToUnicode CMap
+    (one bfrange for letters and digits, as certificate generators write them)."""
+    import zlib
+    code = lambda ch: f"{ord(ch) - 29:04x}"  # glyph ids shifted from the character codes
+    glyphs = "".join(code(ch) for ch in "Licence " + number)
+    content = f"BT /F1 20 Tf 72 700 Td <{glyphs}>Tj ET".encode()
+    cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap 1 begincodespacerange <0000> <ffff>"
+            b" endcodespacerange 1 beginbfrange <" + code(" ").encode() + b"> <" + code("z").encode()
+            + b"> <0020> endbfrange endcmap end end")
+    out = b"%PDF-1.7\n"
+    for body in (content, cmap):
+        stream = zlib.compress(body)
+        out += b"1 0 obj << /Filter /FlateDecode /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream\nendobj\n"
+    return out + b"%%EOF\n"
+
+
+def scan_pdf(number="NL.66.12345", upside_down=False):
+    """A PDF page with the number in large Helvetica, optionally upside down: rasterised and read by OCR."""
+    turn = b"-1 0 0 -1 612 792 cm " if upside_down else b""
+    content = turn + b"BT /F1 36 Tf 72 600 Td (Licence No.: " + number.encode() + b") Tj ET"
+    objects = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+               b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R"
+               b" /Resources << /Font << /F1 5 0 R >> >> >>",
+               b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+               b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    out, offsets = b"%PDF-1.4\n", []
+    for i, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % i + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1) + b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    return out + b"trailer << /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
+
+
 class QualificationTests(AppTests):
     def setUp(self):
         super().setUp()
@@ -566,6 +601,9 @@ class QualificationTests(AppTests):
             path = self.root / f"c{int(compressed)}.pdf"
             path.write_bytes(certificate_pdf(compressed=compressed))
             self.assertEqual(qualifications.pdf_number(path, False), "NLD-RP-0123456789ab")
+        path = self.root / "subset.pdf"
+        path.write_bytes(subset_font_pdf())
+        self.assertEqual(qualifications.pdf_number(path, False), "NLD-RP-0123456789ab")
         r = self.submit(tid=self.number_type(), content=certificate_pdf())
         self.assertEqual(r.status_code, 201, r.json)
         self.assertEqual(r.json["number"], "NLD-RP-0123456789ab")
@@ -819,3 +857,14 @@ class QualificationImportTests(AppTests):
         self.assertEqual(numbers, {("A2", "NLD-RP-0123456789ab"), ("FI", None), ("A2", "NLD-RP-00000000000x")})
         fi = self.con.execute("SELECT * FROM qualification_types WHERE name='FI'").fetchone()
         self.assertEqual(fi["requires_evidence"], 0)
+
+
+class OcrTests(AppTests):
+    def test_scanned_licence_is_read_upright_and_upside_down(self):
+        if not qualifications.ocr_available():
+            self.skipTest("pdftoppm/tesseract not installed")
+        with tempfile.TemporaryDirectory() as folder:
+            for upside_down in (False, True):
+                path = Path(folder) / f"scan{int(upside_down)}.pdf"
+                path.write_bytes(scan_pdf(upside_down=upside_down))
+                self.assertEqual(qualifications.ocr_number(path, False), "NL.66.12345")
