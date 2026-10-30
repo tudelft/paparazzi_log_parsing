@@ -57,6 +57,17 @@
   .detail-chips .chip { max-width:100%; overflow-wrap:anywhere; }
   .detail-chips a.chip { color:var(--acc); }
   .detail-chips .expired { background:var(--errbg); color:var(--err); }
+  /* Qualification chip: name, the licence number in small monospace and the download button inside the chip. */
+  .detail-chips .qual-chip { display:inline-flex; align-items:center; gap:6px; padding:1px 4px 1px 10px; font-size:13px; line-height:22px; }
+  .detail-chips .qual-chip.plain { padding-right:10px; }
+  .qual-chip > a { color:var(--acc); text-decoration:none; }
+  .qual-chip > a:hover, .qual-chip > a:focus-visible { text-decoration:underline; }
+  .qual-chip.expired > a { color:var(--err); }
+  .qual-number { font:11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--mute); opacity:.9;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:190px; }
+  .qual-chip .qual-dl { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px;
+    border-radius:50%; color:var(--mute); }
+  .qual-chip .qual-dl:hover, .qual-chip .qual-dl:focus-visible { background:var(--line); color:var(--acc); text-decoration:none; }
   .project-chip { padding:2px 7px; border:1px solid var(--line); border-radius:5px; font-size:12px; }
   .account-info { margin-top:12px; overflow-wrap:anywhere; }
   .page-help { margin-left:auto; }
@@ -283,11 +294,14 @@ function renderInfo() {
         const dates = [item.number ? `Number ${item.number}` : '', item.valid_from ? `Valid from ${item.valid_from}` : '',
           item.valid_until ? `${item.expired ? 'Expired on' : 'Valid until'} ${item.valid_until}` : '',
           item.internal ? 'Internal' : ''].filter(Boolean).join(' · ');
-        const attrs = `class="chip${item.expired ? ' expired' : ''}" title="${esc(dates)}"`;
-        return item.has_evidence
-          ? fileLink({name: esc(item.category), attrs, viewable: item.viewable,
-              view: `/api/qualification-submissions/${item.id}/evidence/view`, download: `/api/qualification-submissions/${item.id}/evidence`})
-          : `<span ${attrs}>${esc(item.category)}</span>`;
+        const file = `/api/qualification-submissions/${item.id}/evidence`;
+        const name = !item.has_evidence ? `<span>${esc(item.category)}</span>`
+          : item.viewable ? `<a href="${file}/view" target="_blank" rel="noopener" title="View in a new tab">${esc(item.category)}</a>`
+          : `<a href="${file}" title="Download">${esc(item.category)}</a>`;
+        const number = item.number ? `<span class="qual-number">${esc(item.number)}</span>` : '';
+        const download = item.has_evidence && item.viewable ? `<a class="qual-dl" href="${file}" title="Download" aria-label="Download ${esc(item.category)}">`
+          + '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 2v8m-3.5-3.5L8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a>' : '';
+        return `<span class="chip qual-chip${item.expired ? ' expired' : ''}${download ? '' : ' plain'}" title="${esc(dates)}">${name}${number}${download}</span>`;
       }).join('');
       html += `<h3 class="detail-label">Current qualifications <span class="detail-count">· ${current.length}</span></h3>
         <div class="detail-chips">${qualificationChips(current) || '<span class="mute">None approved.</span>'}</div>
