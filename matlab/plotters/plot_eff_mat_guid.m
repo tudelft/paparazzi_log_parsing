@@ -7,6 +7,8 @@ function plot_eff_mat_guid(ac_data)
     for k = 1:3
         G = double(m.(rows{k, 1}));
         names = arrayfun(@(j) sprintf('Input %d', j), 1:size(G, 2), 'UniformOutput', false);
+        inputs = {'Roll', 'Pitch', 'Thrust', 'Pusher'};  % guidance INDI hybrid inputs
+        names(1:min(end, 4)) = inputs(1:min(size(G, 2), 4));
         pprz.series(axs(k), m.t, G, names);
         ylabel(axs(k), rows{k, 2});
     end

@@ -20,7 +20,7 @@ function plot_allocation(ac_data)
         if has_v
             v = ac_data.WLS_V;
             vr = strcmp(loop_of(v), loops{l});
-            names = arrayfun(@(j) sprintf('v%d', j), 1:size(v.v, 2), 'UniformOutput', false);
+            names = virtual_names(loops{l}, size(v.v, 2));
             k = k + 1;
             pprz.series(axs(k), v.t(vr), double(v.v(vr, :)), names);
             ylabel(axs(k), sprintf('%s: virtual control', loops{l}), 'Interpreter', 'none');
@@ -34,6 +34,17 @@ function plot_allocation(ac_data)
         end
         ylabel(axs(end), 'Iterations');
         legend(axs(end), 'Location', 'best', 'Interpreter', 'none');
+    end
+end
+
+function names = virtual_names(loop, n)
+    % stab: angular accelerations and thrust; guid: NED accelerations (and pusher); else numbered.
+    known = struct('stab', {{'Roll accel', 'Pitch accel', 'Yaw accel', 'Thrust'}}, ...
+        'guid', {{'North accel', 'East accel', 'Down accel', 'Forward'}});
+    names = arrayfun(@(j) sprintf('v%d', j), 1:n, 'UniformOutput', false);
+    if isfield(known, loop)
+        k = min(n, numel(known.(loop)));
+        names(1:k) = known.(loop)(1:k);
     end
 end
 

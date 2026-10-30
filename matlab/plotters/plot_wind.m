@@ -13,7 +13,9 @@ function plot_wind(ac_data)
     yyaxis(axs(1), 'left');
     pprz.series(axs(2), w.t, [w.north, w.east, w.up], {'North', 'East', 'Up'});
     ylabel(axs(2), 'Wind components [m/s]');
-    plot(axs(3), w.t, w.airspeed, 'DisplayName', 'Airspeed (wind estimator)');
+    if any(w.airspeed ~= 0)  % not every wind estimator sets it
+        plot(axs(3), w.t, w.airspeed, 'DisplayName', 'Airspeed (wind estimator)');
+    end
     if pprz.has(ac_data, 'AIR_DATA')
         plot(axs(3), ac_data.AIR_DATA.t, ac_data.AIR_DATA.airspeed, 'DisplayName', 'Airspeed (AIR_DATA)');
     end

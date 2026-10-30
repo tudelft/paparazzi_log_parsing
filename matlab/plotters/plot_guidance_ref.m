@@ -25,7 +25,9 @@ function plot_guidance_ref(ac_data)
         z = ac_data.INS_Z;
         k = k + 1;
         plot(axs(k), z.t, -z.ins_z, 'DisplayName', 'Estimate');
-        plot(axs(k), z.t, -z.baro_z, 'DisplayName', 'Barometer');
+        if any(z.baro_z ~= 0)  % 0 when no barometer feeds the vertical filter
+            plot(axs(k), z.t, -z.baro_z, 'DisplayName', 'Barometer');
+        end
         ylabel(axs(k), 'Height [m]');
         legend(axs(k), 'Location', 'best');
     end
