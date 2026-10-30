@@ -400,6 +400,14 @@ request other than GET and HEAD.
 API keys can upload files (`POST /api/attachments`) and link an existing file to more targets
 (`POST /api/attachments/<id>/links`) with the same permission checks; the upload returns the file `id`.
 Removing links (and so deleting files) requires a browser session.
+An upload whose name (ignoring case) and content (SHA-256 and size) match a file the user can already see is not
+stored again: the existing file is linked and the response is HTTP 200 with `duplicate: true` (a new file is 201).
+A file whose name matches a current file on a target but whose content differs supersedes it there:
+the old link stays with `superseded_by`/`superseded_at` set, the list returns it with `superseded`, and the pages
+fold it under "Show earlier versions". Removing the newer file's link on that target makes the earlier version
+current again; other targets are unaffected. At startup, attachments stored more than once with the same name and
+content (for example an upload retried after a restart) are merged into the oldest copy and the extra stored files
+removed.
 
 Each file is limited to **10 GiB** by default (`LOGDB_ATTACHMENT_MAX_BYTES`).
 Uploads and downloads stream in bounded chunks; files upload sequentially with progress and errors.

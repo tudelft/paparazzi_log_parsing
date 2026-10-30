@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS attachment_links (
     flight_id INTEGER REFERENCES flights(id) ON DELETE CASCADE,
     log_id INTEGER REFERENCES logs(id) ON DELETE CASCADE,
     record_id INTEGER REFERENCES flight_records(id) ON DELETE CASCADE,
+    -- a newer file with the same name uploaded to this target; the old one stays as an earlier version
+    superseded_by INTEGER REFERENCES attachments(id) ON DELETE SET NULL,
+    superseded_at TEXT,
     CHECK((flight_id IS NOT NULL) + (log_id IS NOT NULL) + (record_id IS NOT NULL) = 1),
     UNIQUE(attachment_id, flight_id),
     UNIQUE(attachment_id, log_id),
@@ -435,6 +438,12 @@ def init(path):
     if "internal" not in type_cols:
         con.execute("ALTER TABLE qualification_types ADD COLUMN internal"
                     " INTEGER NOT NULL DEFAULT 0 CHECK(internal IN (0,1))")
+    link_cols = {r["name"] for r in con.execute("PRAGMA table_info(attachment_links)")}
+    if "superseded_by" not in link_cols:
+        con.execute("ALTER TABLE attachment_links ADD COLUMN superseded_by INTEGER"
+                    " REFERENCES attachments(id) ON DELETE SET NULL")
+    if "superseded_at" not in link_cols:
+        con.execute("ALTER TABLE attachment_links ADD COLUMN superseded_at TEXT")
     if "requires_number" not in type_cols:
         con.execute("ALTER TABLE qualification_types ADD COLUMN requires_number"
                     " INTEGER NOT NULL DEFAULT 0 CHECK(requires_number IN (0,1))")

@@ -94,6 +94,49 @@ class AttachmentTests(test_historical.AppTests):
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachments").fetchone()[0], 0)
         self.assertEqual(self.client.get(f"/api/attachments/{aid}/download").status_code, 404)
 
+    def test_duplicates_link_and_same_name_supersedes(self):
+        log, flight = self.log()
+        _, other = self.log(name="other.data")
+        first = self.upload_file([flight], name="prep.pdf")
+        again = self.upload_file([flight, other], name="prep.pdf")
+        self.assertEqual((again.status_code, again.json["id"], again.json["duplicate"]), (200, first.json["id"], True))
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachments").fetchone()[0], 1)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachment_links").fetchone()[0], 2)
+        newer = self.upload_file([flight], b"revised", "PREP.pdf")
+        self.assertEqual(newer.status_code, 201)
+        self.assertEqual([x["id"] for x in newer.json["replaces"]], [first.json["id"]])
+        files = {f["id"]: f for f in self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json["files"]}
+        self.assertEqual(files[first.json["id"]]["superseded"]["by"], newer.json["id"])
+        self.assertIsNone(files[newer.json["id"]]["superseded"])
+        # The other flight keeps its current copy; removing the newer file restores the earlier version.
+        self.assertTrue(all(f["superseded"] is None for f in
+                            self.client.get(f'/api/attachments?kind=flight&id={other["id"]}').json["files"]))
+        link = files[newer.json["id"]]["links"][0]["link_id"]
+        self.assertEqual(self.client.delete(f'/api/attachments/{newer.json["id"]}/links/{link}').status_code, 200)
+        files = self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json["files"]
+        self.assertEqual([(f["id"], f["superseded"]) for f in files], [(first.json["id"], None)])
+
+    def test_startup_merges_existing_duplicates(self):
+        _, flight = self.log()
+        paper = self.paper()
+        ids = [self.upload_file([flight, paper]).json["id"]]
+        # Simulate copies stored before duplicate detection existed.
+        row = self.con.execute("SELECT * FROM attachments WHERE id=?", (ids[0],)).fetchone()
+        copy = self.ns["STORAGE_DIR"] / "attachments" / "copy.gz"
+        shutil.copy(self.ns["STORAGE_DIR"] / row["path"], copy)
+        dup = self.con.execute(
+            "INSERT INTO attachments(filename,description,path,compressed,size_bytes,stored_bytes,sha256,uploaded_by,"
+            " uploaded_at) SELECT filename,description,'attachments/copy.gz',compressed,size_bytes,stored_bytes,sha256,"
+            " uploaded_by,uploaded_at FROM attachments WHERE id=?", (ids[0],)).lastrowid
+        self.con.execute("UPDATE attachment_links SET attachment_id=? WHERE record_id=?", (dup, paper["id"]))
+        self.con.commit()
+        self.assertEqual(attachments.merge_duplicates(self.con, self.ns["STORAGE_DIR"]), 1)
+        self.assertEqual(attachments.merge_duplicates(self.con, self.ns["STORAGE_DIR"]), 0)
+        self.assertFalse(copy.exists())
+        self.assertEqual([r[0] for r in self.con.execute("SELECT DISTINCT attachment_id FROM attachment_links")],
+                         [ids[0]])
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachment_links").fetchone()[0], 2)
+
     def test_incompressible_and_range_download(self):
         paper = self.paper()
         data = os.urandom(1 << 16)

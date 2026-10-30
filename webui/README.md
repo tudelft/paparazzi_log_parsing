@@ -228,6 +228,8 @@ expanded upload to attach photos, video or other recordings (default limit **10 
 Clicking the name of a PDF, text file or image opens it in a new tab; the small arrow beside it downloads it.
 Other files download from the name. Word files (`.docx`) open as PDF when LibreOffice is installed on the server.
 Qualification evidence works the same way.
+Uploading a file that is already stored only links it; a file with the name of an existing one replaces it
+on that flight/log, and the old file stays under **Show earlier versions**.
 **Anyone able to read any linked flight/log can download the file. Linking across projects shares
 its contents. Never put private qualification evidence here.**
 

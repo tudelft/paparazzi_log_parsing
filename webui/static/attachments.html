@@ -77,7 +77,7 @@ const {api,size,render} = AttachmentFiles;
 const params = new URLSearchParams(location.search);
 const kind = params.get('kind'), id = params.get('id');
 const targets = new Map();
-let maxBytes = 0, busy = false;
+let maxBytes = 0, busy = false, current = [];
 const key = target => `${target.kind}:${target.id}`;
 function chosen() {
   return [...$('selected').querySelectorAll('input:checked')].map(input => targets.get(input.value));
@@ -98,6 +98,7 @@ function addTarget(target) {
 }
 async function reload() {
   const data = await api(`/api/attachments?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`);
+  current = data.files.filter(file => !file.superseded);
   render($('fileList'), data.files, reload, async attachmentId => {
     const selected = chosen();
     if (!selected.length) { $('status').textContent = 'Select at least one flight/log first.'; return; }
@@ -160,15 +161,21 @@ $('uploadForm').onsubmit = async event => {
   if (files.some(file => !file.size || file.size > maxBytes)) {
     $('status').textContent = `Files must be nonempty and at most ${size(maxBytes)} each.`; return;
   }
+  // A file with the name of a current one replaces it on that flight/log; the old file stays as an earlier version.
+  const replaces = files.flatMap(file => current.filter(old => old.filename.toLowerCase() === file.name.toLowerCase()))
+    .map(old => `${old.filename} uploaded on ${old.uploaded_at.slice(0, 10)}`);
+  if (replaces.length && !confirm(`This replaces:\n${replaces.join('\n')}\n\nThe old file stays available under` +
+    ' "Show earlier versions". Identical files are linked, not stored again.')) return;
   busy = true; syncUpload(); $('selection').disabled = true; $('progress').hidden = false;
-  let completed = 0;
+  let completed = 0, linked = 0;
   try {
     for (const file of files) {
       $('progress').value = 0; $('status').textContent = `Uploading ${file.name}...`;
-      await upload(file, selected); completed++;
+      if ((await upload(file, selected)).duplicate) linked++; else completed++;
     }
     $('files').value = '';
-    $('status').textContent = `${completed} file(s) saved and linked.`;
+    $('status').textContent = `${completed} file(s) saved and linked.` +
+      (linked ? ` ${linked} identical file(s) were already stored and are now linked.` : '');
   } catch (error) { $('status').textContent = `${completed} file(s) saved. ${error.message}`; }
   finally {
     busy = false; syncUpload(); $('selection').disabled = false; $('progress').hidden = true;

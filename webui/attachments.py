@@ -145,6 +145,56 @@ def add_links(con, attachment_id, targets):
                     (attachment_id, t["id"]))
 
 
+def supersede(con, attachment_id, filename, targets, stamp):
+    """A new upload replaces, per target, the current file with the same name (other content): the old link stays,
+    marked as an earlier version. Returns the superseded files as {id, filename, uploaded_at}."""
+    replaced = {}
+    for t in targets:
+        column = COLUMNS[t["kind"]]
+        for row in con.execute(
+                f"SELECT x.id AS link_id,a.id,a.filename,a.uploaded_at FROM attachment_links x"
+                f" JOIN attachments a ON a.id=x.attachment_id WHERE x.{column}=? AND x.superseded_by IS NULL"
+                f" AND a.id<>? AND a.filename=? COLLATE NOCASE", (t["id"], attachment_id, filename)).fetchall():
+            con.execute("UPDATE attachment_links SET superseded_by=?,superseded_at=? WHERE id=?",
+                        (attachment_id, stamp, row["link_id"]))
+            replaced[row["id"]] = dict(id=row["id"], filename=row["filename"], uploaded_at=row["uploaded_at"])
+    return list(replaced.values())
+
+
+def merge_duplicates(con, root):
+    """Merge attachments stored more than once with the same name and content (e.g. an upload retried after a
+    restart) into the oldest: its links are kept for every target, the extra rows and stored copies removed.
+    Idempotent; run at startup. Returns the number of removed copies."""
+    removed = 0
+    groups = con.execute(
+        "SELECT sha256,size_bytes,filename,MIN(id) AS keep FROM attachments"
+        " GROUP BY sha256,size_bytes,filename HAVING COUNT(*)>1").fetchall()
+    for group in groups:
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            keep = group["keep"]
+            copies = con.execute("SELECT id,path,description FROM attachments WHERE sha256=? AND size_bytes=?"
+                                 " AND filename=? AND id<>?",
+                                 (group["sha256"], group["size_bytes"], group["filename"], keep)).fetchall()
+            for copy in copies:
+                for column in COLUMNS.values():
+                    con.execute(
+                        f"INSERT OR IGNORE INTO attachment_links(attachment_id,{column},superseded_by,superseded_at)"
+                        f" SELECT ?,{column},superseded_by,superseded_at FROM attachment_links"
+                        f" WHERE attachment_id=? AND {column} IS NOT NULL", (keep, copy["id"]))
+                con.execute("UPDATE attachment_links SET superseded_by=? WHERE superseded_by=?", (keep, copy["id"]))
+                con.execute("UPDATE attachments SET description=? WHERE id=? AND description=''",
+                            (copy["description"], keep))
+                con.execute("DELETE FROM attachments WHERE id=?", (copy["id"],))
+                removed += 1
+            con.execute("UPDATE attachment_links SET superseded_by=NULL,superseded_at=NULL"
+                        " WHERE superseded_by=attachment_id")
+        for copy in copies:
+            if not con.execute("SELECT 1 FROM attachments WHERE path=?", (copy["path"],)).fetchone():
+                (root / copy["path"]).unlink(missing_ok=True)
+    return removed
+
+
 def prune(con, root):
     """Called under the write lock after commit; cleanup errors propagate for logging."""
     rows = con.execute("SELECT id,path,sha256 FROM attachments WHERE NOT EXISTS"
@@ -236,6 +286,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
         t = target(con, g.user, kind, request.args.get("id"))
         column = COLUMNS[kind]
         ids = {r[0] for r in con.execute(f"SELECT attachment_id FROM attachment_links WHERE {column}=?", (t["id"],))}
+        inherited = None
         if kind == "flight":
             log = con.execute("SELECT a.log_id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE f.id=?",
                               (t["id"],)).fetchone()
@@ -248,12 +299,20 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
             else:
                 ids.update(r[0] for r in con.execute(
                     "SELECT attachment_id FROM attachment_links WHERE log_id=?", (log["log_id"],)))
+                inherited = log["log_id"]
+        # earlier versions on this target, or on the parent log for inherited files
+        superseded = {}
+        for col, value in ((column, t["id"]), ("log_id", inherited)):
+            superseded.update((r["attachment_id"], dict(by=r["superseded_by"], at=r["superseded_at"])) for r in con.execute(
+                f"SELECT attachment_id,superseded_by,superseded_at FROM attachment_links"
+                f" WHERE {col}=? AND superseded_by IS NOT NULL", (value,)))
         result = []
         for aid in sorted(ids, reverse=True):
             row, links = visible(con, g.user, aid)
             item = {k: row[k] for k in ("id", "filename", "description", "size_bytes", "stored_bytes",
                                         "compressed", "uploaded_at", "sha256")}
             item["links"] = links
+            item["superseded"] = superseded.get(aid)  # an earlier version on this target
             item["viewable"] = view_type(row["filename"]) is not None or convertible(
                 row, app.config["ATTACHMENT_OFFICE"])
             item["can_share"] = all(x["can_edit"] for x in links) and len(links) == con.execute(
@@ -294,14 +353,30 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
             with db.write_lock, con:
                 con.execute("BEGIN IMMEDIATE")
                 targets = checked_targets(con, g.user, metadata.get("targets"))
+                stamp = timestamp()
+                # The same file (name and content) that this user can already see: link it, store nothing new.
+                for same in con.execute("SELECT id FROM attachments WHERE sha256=? AND size_bytes=? AND filename=? COLLATE NOCASE"
+                                        " ORDER BY id", (sha, size, filename)).fetchall():
+                    try:
+                        visible(con, g.user, same["id"])
+                    except Error:
+                        continue
+                    add_links(con, same["id"], targets)
+                    for t in targets:  # an earlier version uploaded again becomes current again
+                        con.execute(f"UPDATE attachment_links SET superseded_by=NULL,superseded_at=NULL"
+                                    f" WHERE attachment_id=? AND {COLUMNS[t['kind']]}=?", (same["id"], t["id"]))
+                    replaced = supersede(con, same["id"], filename, targets, stamp)
+                    final = None
+                    return jsonify(id=same["id"], duplicate=True, replaces=replaced), 200
                 os.replace(staged, final)
                 cur = con.execute(
                     "INSERT INTO attachments(filename,description,path,compressed,size_bytes,stored_bytes,sha256,"
                     " uploaded_by,uploaded_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                    (filename, description.strip(), relative, int(compressed), size, stored, sha, g.user["id"], timestamp()))
+                    (filename, description.strip(), relative, int(compressed), size, stored, sha, g.user["id"], stamp))
                 add_links(con, cur.lastrowid, targets)
+                replaced = supersede(con, cur.lastrowid, filename, targets, stamp)
             final = None
-            return jsonify(id=cur.lastrowid), 201
+            return jsonify(id=cur.lastrowid, duplicate=False, replaces=replaced), 201
         except RequestEntityTooLarge:
             return jsonify(error=f"File exceeds the {limit / (1 << 30):g} GiB limit."), 413
         finally:
@@ -391,5 +466,8 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
                 kind = next(k for k, column in COLUMNS.items() if row[column] is not None)
                 target(con, g.user, kind, row[COLUMNS[kind]], edit=True)
                 con.execute("DELETE FROM attachment_links WHERE id=?", (link_id,))
+                # removing the newest version on a target makes the version it replaced current again
+                con.execute(f"UPDATE attachment_links SET superseded_by=NULL,superseded_at=NULL"
+                            f" WHERE superseded_by=? AND {COLUMNS[kind]}=?", (attachment_id, row[COLUMNS[kind]]))
             prune(con, root)
         return jsonify(ok=True)

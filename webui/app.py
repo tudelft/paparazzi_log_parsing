@@ -320,6 +320,8 @@ def start_workers():
     seed_drone_projects_from_defaults(con)
     assign_open_flights(con)
     links.auto_link(con, now())
+    if merged := attachments.merge_duplicates(con, STORAGE_DIR):
+        app.logger.warning("merged %d duplicate attachment(s)", merged)
     con.execute("UPDATE logs SET status='queued' WHERE status IN ('queued', 'parsing')")
     con.execute("UPDATE ingest SET status='accepted' WHERE status='hashing'")
     con.commit()
