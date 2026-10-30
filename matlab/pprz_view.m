@@ -34,11 +34,11 @@ function fig = pprz_view(logs)
 
     cursor = pprz.Cursor();
     fig = uifigure('Name', 'pprz_view', 'Position', [60 60 1320 840]);
-    main = uigridlayout(fig, [1 2], 'ColumnWidth', {310, '1x'}, 'Padding', [0 0 0 0], 'ColumnSpacing', 0);
+    main = uigridlayout(fig, [1 2], 'ColumnWidth', {350, '1x'}, 'Padding', [0 0 0 0], 'ColumnSpacing', 0);
 
     % ---- left: controls
-    side = uigridlayout(main, [16 1], 'RowSpacing', 4, 'Scrollable', 'on', 'RowHeight', ...
-        {'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', '1x', 'fit', 'fit', 'fit', 'fit'});
+    side = uigridlayout(main, [14 1], 'RowSpacing', 4, 'Scrollable', 'on', 'RowHeight', ...
+        {'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', '1x', 'fit', 'fit', 'fit', 'fit'});  % the tree grows
     heading(side, 'Flight');
     rows = arrayfun(@(r) row_label(T(r, :)), 1:height(T), 'UniformOutput', false);
     pick = uidropdown(side, 'Items', rows, 'ItemsData', 1:height(T), 'ValueChangedFcn', @(~, ~) select());
@@ -111,8 +111,8 @@ function fig = pprz_view(logs)
     signal_filter = uieditfield(cg, 'text', 'Placeholder', 'Filter signals…', ...
         'ValueChangingFcn', @(~, evt) show_values(cursor.time, evt.Value));
     uibutton(cg, 'Text', '◀', 'Tooltip', 'Step back 0.1 s (arrow keys in a plot; shift: 1 s)', ...
-        'ButtonPushedFcn', @(~, ~) cursor.move(cursor.time - 0.1));
-    uibutton(cg, 'Text', '▶', 'Tooltip', 'Step forward 0.1 s', 'ButtonPushedFcn', @(~, ~) cursor.move(cursor.time + 0.1));
+        'ButtonPushedFcn', @(~, ~) step(-0.1));
+    uibutton(cg, 'Text', '▶', 'Tooltip', 'Step forward 0.1 s', 'ButtonPushedFcn', @(~, ~) step(0.1));
     values = uitable(cg, 'ColumnName', {'Plot', 'Signal', 'Value'}, 'RowName', {}, ...
         'ColumnWidth', {'1x', '1x', 80}, 'Data', cell(0, 3));
     values.Layout.Column = [1 4];
@@ -142,6 +142,7 @@ function fig = pprz_view(logs)
             text = sprintf('%s · %s', text, f.summary.verdict);
         end
         info.Text = sprintf('%s\n%d flights in %d export(s)', text, height(T), numel(logs));
+        pick.Tooltip = rows{pick.Value};  % the full name when the list cuts it off
         span = data_span(f);
         if ~isempty(window)
             window.Limits = span;
@@ -273,13 +274,23 @@ function fig = pprz_view(logs)
     end
 
     function tab = adopt(src, flight)
-        % Move a figure's contents into a new tab (named after the figure, without the flight title).
+        % Move a figure's plots into a new tab, named after the figure and the flight (tabs of several flights
+        % can be open). Only axes and layouts move: legends and colour bars follow their axes, and the
+        % figure's annotation layer cannot move.
         name = regexprep(get(src, 'Name'), ' - .*$', '');
+        if ~isempty(flight) && isfield(flight, 'index')
+            name = sprintf('%s · %s', name, ifelse(flight.index > 0, sprintf('flight %d', flight.index), 'log'));
+        end
         tab = uitab(tabs, 'Title', name, 'BackgroundColor', [1 1 1], 'Tooltip', get(src, 'Name'));
         setappdata(tab, 'pprz_view_flight', flight);
         delete(findall(src, 'Type', 'subplottext'));  % sgtitle stays with its figure; the tab names the plot
         kids = allchild(src);
-        keep = ~ismember(get(kids, {'Type'}), {'uimenu', 'uitoolbar', 'uicontextmenu'});
+        keep = ismember(get(kids, {'Type'}), {'axes', 'geoaxes', 'polaraxes', 'tiledlayout', 'uipanel'});
+        for layout = reshape(kids(strcmp(get(kids, {'Type'}), 'tiledlayout')), 1, [])
+            if ~isempty(flight) && contains(strrep(strjoin(cellstr(layout.Title.String), ' '), '\_', '_'), flight.title)
+                layout.Title.String = '';  % the flight title is in the tab
+            end
+        end
         set(kids(keep), 'Parent', tab);
         delete(src);
         tabs.SelectedTab = tab;
@@ -301,7 +312,8 @@ function fig = pprz_view(logs)
             return
         end
         out = figure('Name', char(tab.Tooltip), 'NumberTitle', 'off');
-        set(allchild(tab), 'Parent', out);
+        kids = allchild(tab);  % axes and layouts; their legends and colour bars follow
+        set(kids(ismember(get(kids, {'Type'}), {'axes', 'geoaxes', 'polaraxes', 'tiledlayout', 'uipanel'})), 'Parent', out);
         flight = getappdata(tab, 'pprz_view_flight');
         delete(tab);
         if ~isempty(flight)
@@ -389,6 +401,14 @@ function fig = pprz_view(logs)
             near.Value = {};
         catch
         end
+    end
+
+    function step(dt)
+        t = cursor.time;
+        if isnan(t)
+            t = max(span(1), 0) - dt;  % start at takeoff
+        end
+        cursor.move(t + dt);
     end
 
     function jump_to_event()
