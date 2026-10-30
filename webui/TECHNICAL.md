@@ -933,11 +933,14 @@ audit events and approved summaries; no historical flight-eligibility checking i
 Types can also require a **number** (`requires_number`): the licence or certificate number, e.g.
 `NLD-RP-xxxxxxxxxxxx` for EASA remote pilot certificates. Submissions store it in `number` (up to 40
 letters, digits, spaces and `. / - _`). When it is left empty and the evidence is a PDF, it is read from
-the PDF text (`[A-Z]{3}-RP-[A-Za-z0-9]{12}`, plain or Flate-compressed text); the reviewer checks it and
+the PDF text (`[A-Z]{3}-RP-[A-Za-z0-9]{12}`; plain or Flate-compressed text, and text in embedded subset
+fonts decoded with their ToUnicode maps, as in RDW certificates). Scanned PDFs hold only images, so their
+number must be typed. The reviewer checks it and
 approval is refused while a required number is missing. Admins correct it with **Edit** (with the dates,
-audited as `number-changed`). **Fill numbers from PDFs** under Qualification types
+audited as `number-changed`). **Fill numbers from PDFs…** under Qualification types opens a dialog that
 (`POST /api/admin/qualifications/fill-numbers`) fills the empty numbers of approved submissions of such
-types from their evidence and lists the ones it could not read. The number is private like the evidence:
+types from their evidence (the PDFs are read before the database is locked) and lists what it filled and what it
+could not read, each with a link to the person. The number is private like the evidence:
 the person, admins and `/api/pilots`.
 
 Internal ratings such as FI (flight instructor) and CTR are qualification types with Internal on and

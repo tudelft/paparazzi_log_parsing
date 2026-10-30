@@ -207,11 +207,21 @@
   </section>
   <section class="card" id="typesSection" hidden>
     <div class="section-heading"><h2>Qualification types</h2>
-    <details><summary>Help</summary><p>Admins define qualification types here. Checked Evidence, Valid from and Valid until switches make those fields mandatory; unchecked fields are optional. Number asks for the licence or certificate number (read from a PDF certificate when left empty; <em>Fill numbers from PDFs</em> does this for approved ones). Internal marks an in-house qualification such as FI or CTR rather than an external licence. Drag the handle to change the order. One Save writes every type. Both dates start checked for new types. Import a ZIP with <span class="mono">manifest.csv</span> and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
+    <details><summary>Help</summary><p>Admins define qualification types here. Checked Evidence, Valid from and Valid until switches make those fields mandatory; unchecked fields are optional. Number asks for the licence or certificate number (read from a PDF certificate when left empty; <em>Fill numbers from PDFs…</em> does this for approved ones). Internal marks an in-house qualification such as FI or CTR rather than an external licence. Drag the handle to change the order. One Save writes every type. Both dates start checked for new types. Import a ZIP with <span class="mono">manifest.csv</span> and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
     <div id="typeSettings"></div>
     <p><button type="button" class="sec" onclick="$('qualImportDialog').showModal()">Import ZIP</button>
       <a class="mute" href="/api/admin/qualifications/import/template">CSV template</a></p>
   </section>
+  <dialog class="entry-dialog" id="fillNumbersDialog" aria-labelledby="fillNumbersTitle">
+    <div class="dialog-header"><h2 id="fillNumbersTitle">Fill numbers from PDFs</h2>
+      <button type="button" onclick="$('fillNumbersDialog').close()" aria-label="Close">Close</button></div>
+    <p class="mute">Reads the licence number of approved qualifications whose type requires one and that have none
+      yet, from their PDF certificates. Existing numbers are never changed.</p>
+    <p class="dialog-error" id="fillNumbersError" role="alert" hidden></p>
+    <div class="panel-row"><button type="button" id="fillNumbersRun" onclick="fillNumbers()">Read PDFs</button>
+      <span class="mute" id="fillNumbersStatus" role="status"></span></div>
+    <div class="scroll" id="fillNumbersResult"></div>
+  </dialog>
   <dialog class="entry-dialog" id="qualImportDialog" aria-labelledby="qualImportTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
     <div class="dialog-header"><h2 id="qualImportTitle">Import qualifications</h2>
       <button type="button" onclick="$('qualImportDialog').close()" aria-label="Close import">Close</button></div>
@@ -417,7 +427,7 @@ function renderAdminPeople() {
     <div id="typeNew">${typeRowHtml(null)}</div>
     <div id="typeActions"><button type="button" class="sec" onclick="addTypeRow()">Add type</button>
       <button type="submit">Save</button>
-      <button type="button" class="sec" onclick="fillNumbers()" title="Read the missing numbers of approved qualifications whose type requires one from their PDF evidence">Fill numbers from PDFs</button>
+      <button type="button" class="sec" onclick="openFillNumbers()">Fill numbers from PDFs…</button>
       <span class="mute" id="typeStatus" role="status"></span></div>
   </form>`;
   bindTypeDrag();
@@ -641,14 +651,34 @@ async function saveProfile(id) {
   } catch (error) { $('err').textContent = error.message; }
 }
 
+function openFillNumbers() {
+  $('fillNumbersError').hidden = true;
+  $('fillNumbersStatus').textContent = '';
+  $('fillNumbersResult').innerHTML = '';
+  $('fillNumbersRun').disabled = false;
+  $('fillNumbersDialog').showModal();
+}
+
 async function fillNumbers() {
-  if (!confirm('Read the missing numbers of approved qualifications from their PDF evidence?')) return;
+  const run = $('fillNumbersRun');
+  run.disabled = true;
+  $('fillNumbersError').hidden = true;
+  $('fillNumbersResult').innerHTML = '';
+  $('fillNumbersStatus').textContent = 'Reading the PDFs… this can take a minute.';
   try {
     const d = await adminApi('/api/admin/qualifications/fill-numbers', {method:'POST'});
-    $('err').textContent = '';
-    $('typeStatus').textContent = `Filled ${d.filled.length}.` + (d.unread.length
-      ? ` Not readable (${d.unread.length}): ${d.unread.map(r => `${r.person} ${r.category}`).join(', ')}. Add these with Edit.` : '');
-  } catch (error) { $('err').textContent = error.message; }
+    const row = r => `<tr><td>${esc(r.person)}</td><td>${esc(r.category)}</td><td class="mono">${esc(r.number || '')}</td>
+      <td><button type="button" class="sec" onclick="$('fillNumbersDialog').close();selectPerson(${r.user_id},'qualifications')">Open</button></td></tr>`;
+    $('fillNumbersStatus').textContent = d.filled.length || d.unread.length
+      ? `Filled ${d.filled.length}; ${d.unread.length} could not be read.` : 'Nothing to fill: every approved certificate that needs a number has one.';
+    $('fillNumbersResult').innerHTML = (d.filled.length ? `<h3>Filled</h3><table><tbody>${d.filled.map(row).join('')}</tbody></table>` : '')
+      + (d.unread.length ? `<h3>Could not be read</h3><p class="mute">No PDF, or no number found in it. Add these with Edit on the person's Qualifications tab.</p>
+        <table><tbody>${d.unread.map(row).join('')}</tbody></table>` : '');
+  } catch (error) {
+    $('fillNumbersStatus').textContent = '';
+    $('fillNumbersError').textContent = error.message;
+    $('fillNumbersError').hidden = false;
+  } finally { run.disabled = false; }
 }
 
 async function saveQualificationTypes(event) {

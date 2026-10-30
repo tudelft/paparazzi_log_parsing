@@ -26,6 +26,23 @@ def certificate_pdf(number="NLD-RP-0123456789ab", compressed=True):
             + stream + b"\nendstream\nendobj\n%%EOF\n")
 
 
+def subset_font_pdf(number="NLD-RP-0123456789ab"):
+    """A PDF that sets the number in an embedded subset font: glyph codes in hex, decoded by a ToUnicode CMap
+    (one bfrange for letters and digits, as certificate generators write them)."""
+    import zlib
+    code = lambda ch: f"{ord(ch) - 29:04x}"  # glyph ids shifted from the character codes
+    glyphs = "".join(code(ch) for ch in "Licence " + number)
+    content = f"BT /F1 20 Tf 72 700 Td <{glyphs}>Tj ET".encode()
+    cmap = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap 1 begincodespacerange <0000> <ffff>"
+            b" endcodespacerange 1 beginbfrange <" + code(" ").encode() + b"> <" + code("z").encode()
+            + b"> <0020> endbfrange endcmap end end")
+    out = b"%PDF-1.7\n"
+    for body in (content, cmap):
+        stream = zlib.compress(body)
+        out += b"1 0 obj << /Filter /FlateDecode /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream\nendobj\n"
+    return out + b"%%EOF\n"
+
+
 class QualificationTests(AppTests):
     def setUp(self):
         super().setUp()
@@ -566,6 +583,9 @@ class QualificationTests(AppTests):
             path = self.root / f"c{int(compressed)}.pdf"
             path.write_bytes(certificate_pdf(compressed=compressed))
             self.assertEqual(qualifications.pdf_number(path, False), "NLD-RP-0123456789ab")
+        path = self.root / "subset.pdf"
+        path.write_bytes(subset_font_pdf())
+        self.assertEqual(qualifications.pdf_number(path, False), "NLD-RP-0123456789ab")
         r = self.submit(tid=self.number_type(), content=certificate_pdf())
         self.assertEqual(r.status_code, 201, r.json)
         self.assertEqual(r.json["number"], "NLD-RP-0123456789ab")

@@ -137,8 +137,9 @@ def licence_number(raw):
 
 
 def pdf_number(path, compressed):
-    """The certificate number in a PDF's text (plain or Flate-compressed streams), or None. Best effort: the
-    reviewer confirms it."""
+    """The certificate number in a PDF's text, or None. Best effort: the reviewer confirms it.
+    Reads plain and Flate-compressed streams; text in embedded subset fonts (glyph codes such as
+    <0038004300...>Tj, as in the RDW certificates) is decoded with the fonts' ToUnicode maps."""
     try:
         with (gzip.open(path, "rb") if compressed else open(path, "rb")) as source:
             raw = source.read(MAX_EVIDENCE_BYTES + 1)
@@ -155,14 +156,51 @@ def pdf_number(path, compressed):
             chunks.append(zlib.decompressobj().decompress(raw[match.end():end], 4 * MAX_EVIDENCE_BYTES))
         except zlib.error:
             continue
+    texts = []
     for chunk in chunks:
         # Text is often split into several strings, e.g. [(NLD-RP-)-12(0123456789ab)]TJ: join the literals.
-        joined = b"".join(s[1:-1] for s in re.findall(rb"\((?:\\.|[^\\)])*\)", chunk))
-        for text in (chunk, joined):
-            hit = CERTIFICATE_NUMBER.search(text)
-            if hit:
-                return hit.group().decode()
+        texts += [chunk, b"".join(s[1:-1] for s in re.findall(rb"\((?:\\.|[^\\)])*\)", chunk))]
+    content = [c for c in chunks if b"BT" in c and b"ET" in c]
+    for cmap in filter(None, (to_unicode(c) for c in chunks if b"beginbf" in c)):
+        # Decode every glyph string with each font's map: the one the number is set in yields it.
+        texts += ["".join(decode_glyphs(s, cmap) for s in re.findall(rb"<([0-9A-Fa-f\s]+)>", block)).encode()
+                  for chunk in content for block in re.findall(rb"BT(.*?)ET", chunk, re.S)]
+    for text in texts:
+        hit = CERTIFICATE_NUMBER.search(text)
+        if hit:
+            return hit.group().decode()
     return None
+
+
+def to_unicode(cmap):
+    """Glyph code (bytes) to text from a ToUnicode CMap stream (bfchar and bfrange entries)."""
+    out = {}
+    hexes = lambda h: bytes.fromhex(h.decode())
+    for block in re.findall(rb"beginbfchar(.*?)endbfchar", cmap, re.S):
+        for src, dst in re.findall(rb"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]*)>", block):
+            out[hexes(src)] = hexes(dst).decode("utf-16-be", "replace")
+    for block in re.findall(rb"beginbfrange(.*?)endbfrange", cmap, re.S):
+        for lo, hi, dst in re.findall(rb"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*(<[0-9A-Fa-f]*>|\[[^\]]*\])", block):
+            start, stop, width = int(lo, 16), int(hi, 16), len(lo) // 2
+            if stop - start > 65535:
+                continue
+            if dst.startswith(b"["):
+                targets = [hexes(d).decode("utf-16-be", "replace") for d in re.findall(rb"<([0-9A-Fa-f]*)>", dst)]
+            else:
+                first = hexes(dst[1:-1])
+                base = int.from_bytes(first, "big") if first else 0
+                targets = [(base + k).to_bytes(max(len(first), 2), "big").decode("utf-16-be", "replace")
+                           for k in range(stop - start + 1)]
+            for k, text in enumerate(targets[:stop - start + 1]):
+                out[(start + k).to_bytes(width, "big")] = text
+    return out
+
+
+def decode_glyphs(hexstring, cmap):
+    digits = re.sub(rb"\s", b"", hexstring).decode()
+    data = bytes.fromhex(digits + "0" * (len(digits) % 2))  # an odd final digit is padded with 0
+    width = len(next(iter(cmap)))
+    return "".join(cmap.get(data[i:i + width], "?") for i in range(0, len(data) - width + 1, width))
 
 
 def integer(raw):
@@ -601,25 +639,31 @@ def register(app, connection, root, require_session):
         """Fill the empty number of approved qualifications of types that require one, from their PDF evidence."""
         admin()
         con = connection()
-        filled, unread = [], []
+        rows = con.execute(
+            "SELECT q.id,q.user_id,q.evidence_path,q.compressed,q.mime,t.name AS category,"
+            " COALESCE(u.display_name,u.username) AS person FROM qualification_submissions q"
+            " JOIN qualification_types t ON t.id=q.type_id JOIN users u ON u.id=q.user_id"
+            " WHERE q.status='approved' AND t.requires_number=1 AND COALESCE(q.number,'')=''"
+            " ORDER BY person, t.sort_order").fetchall()
+        found, unread = [], []
+        for row in rows:  # read the PDFs before taking the write lock
+            path = evidence_root() / row["evidence_path"] if row["evidence_path"] else None
+            number = pdf_number(path, bool(row["compressed"])) if path and row["mime"] == "application/pdf" else None
+            item = dict(id=row["id"], user_id=row["user_id"], person=row["person"], category=row["category"])
+            if number:
+                found.append(dict(item, number=number))
+            else:
+                unread.append(item)
+        filled = []
         with db.write_lock, con:
             con.execute("BEGIN IMMEDIATE")
-            for row in con.execute(
-                    "SELECT q.id,q.user_id,q.evidence_path,q.compressed,q.mime,t.name AS category,"
-                    " COALESCE(u.display_name,u.username) AS person FROM qualification_submissions q"
-                    " JOIN qualification_types t ON t.id=q.type_id JOIN users u ON u.id=q.user_id"
-                    " WHERE q.status='approved' AND t.requires_number=1 AND COALESCE(q.number,'')=''"
-                    " ORDER BY person, t.sort_order").fetchall():
-                path = evidence_root() / row["evidence_path"] if row["evidence_path"] else None
-                number = pdf_number(path, bool(row["compressed"])) if path and row["mime"] == "application/pdf" else None
-                item = dict(id=row["id"], user_id=row["user_id"], person=row["person"], category=row["category"])
-                if number is None:
-                    unread.append(item)
-                    continue
-                con.execute("UPDATE qualification_submissions SET number=? WHERE id=?", (number, row["id"]))
-                audit(con, row["user_id"], g.user["id"], "number-changed",
-                      dict(id=row["id"], category=row["category"], number=number, old_number=None, source="evidence"))
-                filled.append(dict(item, number=number))
+            for item in found:
+                if con.execute("UPDATE qualification_submissions SET number=? WHERE id=? AND COALESCE(number,'')=''",
+                               (item["number"], item["id"])).rowcount:
+                    audit(con, item["user_id"], g.user["id"], "number-changed",
+                          dict(id=item["id"], category=item["category"], number=item["number"], old_number=None,
+                               source="evidence"))
+                    filled.append(item)
         return jsonify(filled=filled, unread=unread)
 
     @app.get("/api/pilots")
