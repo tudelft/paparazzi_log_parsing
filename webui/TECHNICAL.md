@@ -933,9 +933,14 @@ audit events and approved summaries; no historical flight-eligibility checking i
 Types can also require a **number** (`requires_number`): the licence or certificate number, e.g.
 `NLD-RP-xxxxxxxxxxxx` for EASA remote pilot certificates. Submissions store it in `number` (up to 40
 letters, digits, spaces and `. / - _`). When it is left empty and the evidence is a PDF, it is read from
-the PDF text (`[A-Z]{3}-RP-[A-Za-z0-9]{12}`; plain or Flate-compressed text, and text in embedded subset
-fonts decoded with their ToUnicode maps, as in RDW certificates). Scanned PDFs hold only images, so their
-number must be typed. The reviewer checks it and
+the PDF text: a remote pilot certificate number (`[A-Z]{3}-RP-[A-Za-z0-9]{12}`) or an EASA licence number
+(`NL.66.12345`, `BE.FCL.123456.A`: state, then 66, FCL, ATCO or 147). Plain and Flate-compressed text is
+searched, and text in embedded subset fonts is decoded with their ToUnicode maps (as in RDW certificates).
+Scanned PDFs hold only images: **Fill numbers from PDFs…** reads those with OCR when `pdftoppm`
+(poppler-utils) and `tesseract` (tesseract-ocr) are installed (`install.sh` installs them). It renders the
+first four pages at 200 dpi, turns each page upright (tesseract's orientation detection, and upside down as a
+second try) and takes a few seconds per scan; one run stops reading new scans after 90 s and reports the rest
+as not read yet. Uploads do not run OCR. The reviewer checks the number and
 approval is refused while a required number is missing. Admins correct it with **Edit** (with the dates,
 audited as `number-changed`). **Fill numbers from PDFs…** under Qualification types opens a dialog that
 (`POST /api/admin/qualifications/fill-numbers`) fills the empty numbers of approved submissions of such

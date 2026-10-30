@@ -43,6 +43,24 @@ def subset_font_pdf(number="NLD-RP-0123456789ab"):
     return out + b"%%EOF\n"
 
 
+def scan_pdf(number="NL.66.12345", upside_down=False):
+    """A PDF page with the number in large Helvetica, optionally upside down: rasterised and read by OCR."""
+    turn = b"-1 0 0 -1 612 792 cm " if upside_down else b""
+    content = turn + b"BT /F1 36 Tf 72 600 Td (Licence No.: " + number.encode() + b") Tj ET"
+    objects = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+               b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R"
+               b" /Resources << /Font << /F1 5 0 R >> >> >>",
+               b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+               b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    out, offsets = b"%PDF-1.4\n", []
+    for i, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % i + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1) + b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    return out + b"trailer << /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
+
+
 class QualificationTests(AppTests):
     def setUp(self):
         super().setUp()
@@ -839,3 +857,14 @@ class QualificationImportTests(AppTests):
         self.assertEqual(numbers, {("A2", "NLD-RP-0123456789ab"), ("FI", None), ("A2", "NLD-RP-00000000000x")})
         fi = self.con.execute("SELECT * FROM qualification_types WHERE name='FI'").fetchone()
         self.assertEqual(fi["requires_evidence"], 0)
+
+
+class OcrTests(AppTests):
+    def test_scanned_licence_is_read_upright_and_upside_down(self):
+        if not qualifications.ocr_available():
+            self.skipTest("pdftoppm/tesseract not installed")
+        with tempfile.TemporaryDirectory() as folder:
+            for upside_down in (False, True):
+                path = Path(folder) / f"scan{int(upside_down)}.pdf"
+                path.write_bytes(scan_pdf(upside_down=upside_down))
+                self.assertEqual(qualifications.ocr_number(path, False), "NL.66.12345")

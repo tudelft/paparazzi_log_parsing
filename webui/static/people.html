@@ -216,7 +216,7 @@
     <div class="dialog-header"><h2 id="fillNumbersTitle">Fill numbers from PDFs</h2>
       <button type="button" onclick="$('fillNumbersDialog').close()" aria-label="Close">Close</button></div>
     <p class="mute">Reads the licence number of approved qualifications whose type requires one and that have none
-      yet, from their PDF certificates. Existing numbers are never changed.</p>
+      yet, from their PDF certificates; scans are read with OCR (a few seconds each). Existing numbers are never changed.</p>
     <p class="dialog-error" id="fillNumbersError" role="alert" hidden></p>
     <div class="panel-row"><button type="button" id="fillNumbersRun" onclick="fillNumbers()">Read PDFs</button>
       <span class="mute" id="fillNumbersStatus" role="status"></span></div>
@@ -669,10 +669,12 @@ async function fillNumbers() {
     const d = await adminApi('/api/admin/qualifications/fill-numbers', {method:'POST'});
     const row = r => `<tr><td>${esc(r.person)}</td><td>${esc(r.category)}</td><td class="mono">${esc(r.number || '')}</td>
       <td><button type="button" class="sec" onclick="$('fillNumbersDialog').close();selectPerson(${r.user_id},'qualifications')">Open</button></td></tr>`;
-    $('fillNumbersStatus').textContent = d.filled.length || d.unread.length
-      ? `Filled ${d.filled.length}; ${d.unread.length} could not be read.` : 'Nothing to fill: every approved certificate that needs a number has one.';
+    $('fillNumbersStatus').textContent = d.filled.length || d.unread.length || d.later.length
+      ? `Filled ${d.filled.length}; ${d.unread.length} could not be read.` + (d.later.length ? ` ${d.later.length} not read yet: press Read PDFs again.` : '')
+      : 'Nothing to fill: every approved certificate that needs a number has one.';
     $('fillNumbersResult').innerHTML = (d.filled.length ? `<h3>Filled</h3><table><tbody>${d.filled.map(row).join('')}</tbody></table>` : '')
-      + (d.unread.length ? `<h3>Could not be read</h3><p class="mute">No PDF, or no number found in it. Add these with Edit on the person's Qualifications tab.</p>
+      + (d.unread.length ? `<h3>Could not be read</h3><p class="mute">No PDF, or no number found in it${d.ocr ? ' (also not with OCR)' : ' (scans need OCR, which is not installed on the server)'}.
+        Add these with Edit on the person's Qualifications tab.</p>
         <table><tbody>${d.unread.map(row).join('')}</tbody></table>` : '');
   } catch (error) {
     $('fillNumbersStatus').textContent = '';
