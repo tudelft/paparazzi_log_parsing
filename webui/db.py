@@ -297,7 +297,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
     key_hash TEXT NOT NULL UNIQUE,     -- sha256 of the key; the key itself is shown once and never stored
     prefix TEXT NOT NULL,              -- first characters, to recognise the key in the list
     created_at TEXT NOT NULL,
-    last_used_at TEXT
+    last_used_at TEXT,
+    read_only INTEGER NOT NULL DEFAULT 0 CHECK(read_only IN (0,1))  -- GET/HEAD requests only
 );
 CREATE TABLE IF NOT EXISTS user_aliases (
     id INTEGER PRIMARY KEY,
@@ -339,6 +340,7 @@ CREATE TABLE IF NOT EXISTS qualification_types (
     requires_expiry INTEGER NOT NULL DEFAULT 0 CHECK(requires_expiry IN (0,1)),
     requires_start INTEGER NOT NULL DEFAULT 0 CHECK(requires_start IN (0,1)),
     internal INTEGER NOT NULL DEFAULT 0 CHECK(internal IN (0,1)),
+    requires_number INTEGER NOT NULL DEFAULT 0 CHECK(requires_number IN (0,1)),
     sort_order INTEGER NOT NULL DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
 );
@@ -348,6 +350,7 @@ CREATE TABLE IF NOT EXISTS qualification_submissions (
     type_id INTEGER NOT NULL REFERENCES qualification_types(id),
     valid_until TEXT,
     valid_from TEXT,
+    number TEXT,                       -- licence or certificate number, e.g. NLD-RP-xxxxxxxxxxxx
     status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','superseded','withdrawn')),
     submitted_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     submitted_at TEXT NOT NULL,
@@ -432,6 +435,13 @@ def init(path):
     if "internal" not in type_cols:
         con.execute("ALTER TABLE qualification_types ADD COLUMN internal"
                     " INTEGER NOT NULL DEFAULT 0 CHECK(internal IN (0,1))")
+    if "requires_number" not in type_cols:
+        con.execute("ALTER TABLE qualification_types ADD COLUMN requires_number"
+                    " INTEGER NOT NULL DEFAULT 0 CHECK(requires_number IN (0,1))")
+    if "number" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}:
+        con.execute("ALTER TABLE qualification_submissions ADD COLUMN number TEXT")
+    if "read_only" not in {r["name"] for r in con.execute("PRAGMA table_info(api_keys)")}:
+        con.execute("ALTER TABLE api_keys ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0 CHECK(read_only IN (0,1))")
     if "sort_order" not in type_cols:
         con.execute("ALTER TABLE qualification_types ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
         for i, row in enumerate(con.execute("SELECT id FROM qualification_types ORDER BY name"), 1):

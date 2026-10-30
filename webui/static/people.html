@@ -207,11 +207,21 @@
   </section>
   <section class="card" id="typesSection" hidden>
     <div class="section-heading"><h2>Qualification types</h2>
-    <details><summary>Help</summary><p>Admins define qualification types here. Checked Evidence, Valid from and Valid until switches make those fields mandatory; unchecked fields are optional. Internal marks an in-house qualification rather than an external licence. Drag the handle to change the order. One Save writes every type. Both dates start checked for new types. Import a ZIP with <span class="mono">manifest.csv</span> and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
+    <details><summary>Help</summary><p>Admins define qualification types here. Checked Evidence, Valid from and Valid until switches make those fields mandatory; unchecked fields are optional. Number asks for the licence or certificate number (read from a PDF certificate when left empty; <em>Fill numbers from PDFs…</em> does this for approved ones). Internal marks an in-house qualification such as FI or CTR rather than an external licence. Drag the handle to change the order. One Save writes every type. Both dates start checked for new types. Import a ZIP with <span class="mono">manifest.csv</span> and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
     <div id="typeSettings"></div>
     <p><button type="button" class="sec" onclick="$('qualImportDialog').showModal()">Import ZIP</button>
       <a class="mute" href="/api/admin/qualifications/import/template">CSV template</a></p>
   </section>
+  <dialog class="entry-dialog" id="fillNumbersDialog" aria-labelledby="fillNumbersTitle">
+    <div class="dialog-header"><h2 id="fillNumbersTitle">Fill numbers from PDFs</h2>
+      <button type="button" onclick="$('fillNumbersDialog').close()" aria-label="Close">Close</button></div>
+    <p class="mute">Reads the licence number of approved qualifications whose type requires one and that have none
+      yet, from their PDF certificates; scans are read with OCR (a few seconds each). Existing numbers are never changed.</p>
+    <p class="dialog-error" id="fillNumbersError" role="alert" hidden></p>
+    <div class="panel-row"><button type="button" id="fillNumbersRun" onclick="fillNumbers()">Read PDFs</button>
+      <span class="mute" id="fillNumbersStatus" role="status"></span></div>
+    <div class="scroll" id="fillNumbersResult"></div>
+  </dialog>
   <dialog class="entry-dialog" id="qualImportDialog" aria-labelledby="qualImportTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
     <div class="dialog-header"><h2 id="qualImportTitle">Import qualifications</h2>
       <button type="button" onclick="$('qualImportDialog').close()" aria-label="Close import">Close</button></div>
@@ -291,7 +301,8 @@ function qualBits(q) {
   const bit = (item) => {
     const {category: label, valid_from: start, valid_until: until, expired: dead} = item;
     if (!label) return '';
-    const when = [start ? `from ${start.slice(0, 10)}` : '', until ? `until ${until.slice(0, 10)}` : ''].filter(Boolean).join(' · ');
+    const when = [item.number ? `Number ${item.number}` : '', start ? `from ${start.slice(0, 10)}` : '',
+      until ? `until ${until.slice(0, 10)}` : ''].filter(Boolean).join(' · ');
     const attrs = `class="chip${dead ? ' warn' : ''}"${when ? ` title="${esc(when)}"` : ''}`;
     const labelText = `${esc(label)}${dead ? ' expired' : ''}`;
     return `<span ${attrs}>${labelText}</span>`;
@@ -409,7 +420,7 @@ function renderAdminPeople() {
   const editing = window.editMode();
   if (!editing) {
     $('typeSettings').innerHTML = qualificationTypes.map(t =>
-      `<p><strong>${esc(t.name)}</strong> · ${t.requires_evidence ? 'Evidence required' : 'Evidence optional'} · ${t.requires_start ? 'Valid from required' : 'Valid from optional'} · ${t.requires_expiry ? 'Valid until required' : 'Valid until optional'} · ${t.internal ? 'Internal' : 'External'} · ${t.active ? 'Active' : 'Disabled'}</p>`).join('');
+      `<p><strong>${esc(t.name)}</strong> · ${t.requires_evidence ? 'Evidence required' : 'Evidence optional'} · ${t.requires_start ? 'Valid from required' : 'Valid from optional'} · ${t.requires_expiry ? 'Valid until required' : 'Valid until optional'}${t.requires_number ? ' · Number required' : ''} · ${t.internal ? 'Internal' : 'External'} · ${t.active ? 'Active' : 'Disabled'}</p>`).join('');
     return;
   }
   $('typeSettings').innerHTML = `<form id="typeForm" onsubmit="saveQualificationTypes(event)">
@@ -417,6 +428,7 @@ function renderAdminPeople() {
     <div id="typeNew">${typeRowHtml(null)}</div>
     <div id="typeActions"><button type="button" class="sec" onclick="addTypeRow()">Add type</button>
       <button type="submit">Save</button>
+      <button type="button" class="sec" onclick="openFillNumbers()">Fill numbers from PDFs…</button>
       <span class="mute" id="typeStatus" role="status"></span></div>
   </form>`;
   bindTypeDrag();
@@ -430,6 +442,7 @@ function typeRowHtml(t) {
     <label><input type="checkbox" name="requires_evidence" ${!t || t.requires_evidence ? 'checked' : ''}> Evidence</label>
     <label><input type="checkbox" name="requires_start" ${!t || t.requires_start ? 'checked' : ''}> Valid from</label>
     <label><input type="checkbox" name="requires_expiry" ${!t || t.requires_expiry ? 'checked' : ''}> Valid until</label>
+    <label title="Licence or certificate number, e.g. NLD-RP-…; read from the PDF when possible"><input type="checkbox" name="requires_number" ${t && t.requires_number ? 'checked' : ''}> Number</label>
     <label><input type="checkbox" name="internal" ${t && t.internal ? 'checked' : ''}> Internal</label>
     ${existing ? `<label><input type="checkbox" name="active" ${t.active ? 'checked' : ''}> Active</label>` : ''}
   </div>`;
@@ -639,6 +652,38 @@ async function saveProfile(id) {
   } catch (error) { $('err').textContent = error.message; }
 }
 
+function openFillNumbers() {
+  $('fillNumbersError').hidden = true;
+  $('fillNumbersStatus').textContent = '';
+  $('fillNumbersResult').innerHTML = '';
+  $('fillNumbersRun').disabled = false;
+  $('fillNumbersDialog').showModal();
+}
+
+async function fillNumbers() {
+  const run = $('fillNumbersRun');
+  run.disabled = true;
+  $('fillNumbersError').hidden = true;
+  $('fillNumbersResult').innerHTML = '';
+  $('fillNumbersStatus').textContent = 'Reading the PDFs… this can take a minute.';
+  try {
+    const d = await adminApi('/api/admin/qualifications/fill-numbers', {method:'POST'});
+    const row = r => `<tr><td>${esc(r.person)}</td><td>${esc(r.category)}</td><td class="mono">${esc(r.number || '')}</td>
+      <td><button type="button" class="sec" onclick="$('fillNumbersDialog').close();selectPerson(${r.user_id},'qualifications')">Open</button></td></tr>`;
+    $('fillNumbersStatus').textContent = d.filled.length || d.unread.length || d.later.length
+      ? `Filled ${d.filled.length}; ${d.unread.length} could not be read.` + (d.later.length ? ` ${d.later.length} not read yet: press Read PDFs again.` : '')
+      : 'Nothing to fill: every approved certificate that needs a number has one.';
+    $('fillNumbersResult').innerHTML = (d.filled.length ? `<h3>Filled</h3><table><tbody>${d.filled.map(row).join('')}</tbody></table>` : '')
+      + (d.unread.length ? `<h3>Could not be read</h3><p class="mute">No PDF, or no number found in it${d.ocr ? ' (also not with OCR)' : ' (scans need OCR, which is not installed on the server)'}.
+        Add these with Edit on the person's Qualifications tab.</p>
+        <table><tbody>${d.unread.map(row).join('')}</tbody></table>` : '');
+  } catch (error) {
+    $('fillNumbersStatus').textContent = '';
+    $('fillNumbersError').textContent = error.message;
+    $('fillNumbersError').hidden = false;
+  } finally { run.disabled = false; }
+}
+
 async function saveQualificationTypes(event) {
   event.preventDefault();
   const rows = [...document.querySelectorAll('#typeList [data-type-row], #typeNew [data-type-row]')];
@@ -651,6 +696,7 @@ async function saveQualificationTypes(event) {
       requires_evidence: row.querySelector('[name=requires_evidence]').checked,
       requires_start: row.querySelector('[name=requires_start]').checked,
       requires_expiry: row.querySelector('[name=requires_expiry]').checked,
+      requires_number: row.querySelector('[name=requires_number]').checked,
       internal: row.querySelector('[name=internal]').checked,
       active: row.querySelector('[name=active]') ? row.querySelector('[name=active]').checked : true,
     };

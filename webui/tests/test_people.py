@@ -98,7 +98,7 @@ class PeopleDirectoryTests(AppTests):
         response = self.client.get("/api/admin/users/2/keys")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json), 1)
-        self.assertEqual(set(response.json[0]), {"id", "name", "prefix", "created_at", "last_used_at"})
+        self.assertEqual(set(response.json[0]), {"id", "name", "prefix", "created_at", "last_used_at", "read_only"})
         self.assertEqual(response.json[0]["name"], "Uploader")
         self.assertIsNone(response.json[0]["last_used_at"])
         self.assertNotIn(key["key"], response.get_data(as_text=True))

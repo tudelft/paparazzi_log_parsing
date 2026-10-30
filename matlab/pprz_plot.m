@@ -5,7 +5,7 @@ function figs = pprz_plot(f, varargin)
 %   pprz_plot()                                      list the plots
 %   Options after the names: 'modes' ('ap' autopilot mode, 'rc' RC mode, 'none'), 'range' [t0 t1] in s,
 %   'docked' (true: figures as tabs in one window), 'events' (true: mode/setting/checklist/message markers,
-%   see pprz.markers). Returns the figures.
+%   or a list of those kinds such as {'mode', 'message'}; see pprz.markers). Returns the figures.
     list = pprz_plots();
     if nargin == 0
         disp(struct2table(rmfield(list, 'fn')));
@@ -55,7 +55,11 @@ function figs = pprz_plot(f, varargin)
             if ~strcmp(opts.modes, 'none')
                 pprz.modes(f, fig, opts.modes);
             end
-            if opts.events
+            if iscell(opts.events) || isstring(opts.events)
+                if ~isempty(opts.events)
+                    pprz.markers(f, fig, cellstr(opts.events));
+                end
+            elseif opts.events
                 pprz.markers(f, fig);
             end
             figs(end + 1) = fig; %#ok<AGROW>

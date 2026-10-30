@@ -217,7 +217,8 @@ fi
 say "Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-PKGS=(git build-essential cmake python3 python3-venv python3-pip sqlite3 openssl ca-certificates sudo curl)
+PKGS=(git build-essential cmake python3 python3-venv python3-pip sqlite3 openssl ca-certificates sudo curl
+      tesseract-ocr poppler-utils)  # OCR of scanned licences (Fill numbers from PDFs)
 case $PROXY in
     2|3) PKGS+=(nginx) ;;
 esac

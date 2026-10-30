@@ -206,7 +206,8 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
 ## Qualifications and additional files
 
 **Qualifications:** submit your own evidence under **My account**; admins review it on **People**.
-Each type determines whether evidence and expiry are required. Evidence is one PDF, JPEG or PNG,
+Each type determines whether evidence, expiry and a licence number are required (the number is read from a
+PDF certificate when you leave it empty). Evidence is one PDF, JPEG or PNG,
 up to **20 MiB**. Submissions need admin approval, and the previous approval stays active during renewal.
 Expired approvals are marked; approval alone does not establish operational eligibility.
 Evidence and submission history are private to you and admins; audit history is admin-only.

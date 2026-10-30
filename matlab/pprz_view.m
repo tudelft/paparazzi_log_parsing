@@ -6,7 +6,8 @@ function fig = pprz_view(logs)
 %   Pick a flight, tick the plots (plots whose messages were not logged are marked) and press Plot; the
 %   figures open docked as tabs. Uses pprz_plot, so every plot can also be made from a script.
 %   Click or drag in any time plot to move a cursor on all of them (arrow keys step it); the table below
-%   the buttons shows every plotted value at the cursor (see pprz.Cursor). Compare… overlays the ticked
+%   the buttons shows every plotted value at the cursor (see pprz.Cursor). The Events boxes switch the
+%   markers of each kind on or off on the open plots. Compare… overlays the ticked
 %   plots of several flights (pprz_compare).
     if nargin < 1
         logs = pprz_load();
@@ -44,9 +45,17 @@ function fig = pprz_view(logs)
     uilabel(og, 'Text', 'Shading');
     shade = uidropdown(og, 'Items', {'None', 'Autopilot mode', 'RC mode'}, 'ItemsData', {'none', 'ap', 'rc'});
     shade.Layout.Column = [2 4];
-    events = uicheckbox(og, 'Text', 'Event markers (modes, settings, checklist, messages)', 'Value', true, ...
-        'Tooltip', 'Click a marker in a plot to read its full text');
-    events.Layout.Column = [1 4];
+    eg = uigridlayout(og, [1 5], 'Padding', [0 0 0 0], 'ColumnWidth', {'fit', 'fit', 'fit', 'fit', 'fit'});
+    eg.Layout.Column = [1 4];
+    uilabel(eg, 'Text', 'Events', 'Tooltip', ...
+        'Event markers on the plots; ticking applies to the open figures. Click a marker to read its full text');
+    kinds = {'mode', 'Modes', true; 'setting', 'Settings', false; 'checklist', 'Checklist', false; ...
+        'message', 'Messages', true};
+    events = gobjects(1, size(kinds, 1));
+    for i = 1:size(kinds, 1)
+        events(i) = uicheckbox(eg, 'Text', kinds{i, 2}, 'Value', kinds{i, 3}, ...
+            'ValueChangedFcn', @(~, ~) update_markers());
+    end
 
     uilabel(g, 'Text', 'Plots', 'FontWeight', 'bold');
     tree = uitree(g, 'checkbox');
@@ -126,7 +135,11 @@ function fig = pprz_view(logs)
         end
         status.Text = 'Plotting…';
         drawnow;
-        made = pprz_plot(f, names{:}, 'modes', shade.Value, 'range', range, 'docked', true, 'events', events.Value);
+        made = pprz_plot(f, names{:}, 'modes', shade.Value, 'range', range, 'docked', true, ...
+            'events', event_kinds());
+        for i = 1:numel(made)
+            setappdata(made(i), 'pprz_view_flight', f);  % the flight its markers belong to
+        end
         figs = [figs(isgraphics(figs)), made];
         cursor.attach(made);
         status.Text = sprintf('%d figure(s) made.', numel(made));
@@ -177,6 +190,19 @@ function fig = pprz_view(logs)
                 status.Text = sprintf('Compared %d flight(s) in %d figure(s).', numel(chosen), numel(made));
             catch err
                 status.Text = err.message;
+            end
+        end
+    end
+
+    function k = event_kinds()
+        k = kinds([events.Value], 1)';
+    end
+
+    function update_markers()
+        % Redraw the markers of the plotted figures (not comparisons or replays) for the ticked kinds.
+        for fg = figs(isgraphics(figs))
+            if isappdata(fg, 'pprz_view_flight')
+                pprz.markers(getappdata(fg, 'pprz_view_flight'), fg, event_kinds());
             end
         end
     end
