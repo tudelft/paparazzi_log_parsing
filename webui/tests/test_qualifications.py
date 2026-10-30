@@ -16,6 +16,16 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"test"
 JPEG = b"\xff\xd8\xff\xe0" + b"test"
 
 
+def certificate_pdf(number="NLD-RP-0123456789ab", compressed=True):
+    """A minimal PDF whose page text holds the number split over two strings, as PDF writers do."""
+    import zlib
+    text = f"BT /F1 12 Tf 72 712 Td [(Certificate {number[:7]})-20({number[7:]})] TJ ET".encode()
+    stream = zlib.compress(text) if compressed else text
+    head = b"/Filter /FlateDecode " if compressed else b""
+    return (b"%PDF-1.4\n1 0 obj << " + head + b"/Length " + str(len(stream)).encode() + b" >>\nstream\n"
+            + stream + b"\nendstream\nendobj\n%%EOF\n")
+
+
 class QualificationTests(AppTests):
     def setUp(self):
         super().setUp()
@@ -304,8 +314,8 @@ class QualificationTests(AppTests):
         self.review(expired)
         self.submit(until="2031-01-01")
         expected = [
-            dict(id=new, has_evidence=True, viewable=True, category="A1/A3", valid_from=None, valid_until="2030-01-01", status="approved", expired=False, internal=False),
-            dict(id=expired, has_evidence=False, viewable=False, category="Expired licence", valid_from=None, valid_until="2020-01-01", status="approved", expired=True, internal=False)]
+            dict(id=new, has_evidence=True, viewable=True, category="A1/A3", valid_from=None, valid_until="2030-01-01", status="approved", expired=False, internal=False, number=None),
+            dict(id=expired, has_evidence=False, viewable=False, category="Expired licence", valid_from=None, valid_until="2020-01-01", status="approved", expired=True, internal=False, number=None)]
         for uid in (1, 2):
             self.sign_in(uid)
             data = self.client.get("/api/detail/people/2").json["item"]["qualifications"]
@@ -544,6 +554,78 @@ class QualificationTests(AppTests):
         self.assertIn("Archive (", script)
         self.assertIn("/api/admin/qualifications/import", people)
 
+    def number_type(self):
+        if not hasattr(self, "_a2"):
+            self._a2 = self.client.post("/api/qualification-types", json={
+                "name": "A2", "requires_evidence": True, "requires_start": False, "requires_expiry": False,
+                "requires_number": True}).json["id"]
+        return self._a2
+
+    def test_number_is_read_from_the_pdf_and_required_for_approval(self):
+        for compressed in (True, False):
+            path = self.root / f"c{int(compressed)}.pdf"
+            path.write_bytes(certificate_pdf(compressed=compressed))
+            self.assertEqual(qualifications.pdf_number(path, False), "NLD-RP-0123456789ab")
+        r = self.submit(tid=self.number_type(), content=certificate_pdf())
+        self.assertEqual(r.status_code, 201, r.json)
+        self.assertEqual(r.json["number"], "NLD-RP-0123456789ab")
+        self.assertEqual(self.review(r.json["id"]).status_code, 200)
+        # without a readable number the approval waits until an admin adds it
+        sid = self.submit(uid=3, tid=self.number_type()).json["id"]
+        self.assertIsNone(self.row(sid)["number"])
+        self.assertEqual(self.review(sid).status_code, 400)
+        self.assertEqual(self.client.put(f"/api/qualification-submissions/{sid}",
+                                         json={"number": "bad<number>"}).status_code, 400)
+        self.assertEqual(self.client.put(f"/api/qualification-submissions/{sid}",
+                                         json={"number": "NLD-RP-000000000001"}).status_code, 200)
+        self.assertEqual(self.review(sid).status_code, 200)
+        item = next(i for i in self.listing(3).json["items"] if i["id"] == sid)
+        self.assertEqual((item["number"], item["requires_number"]), ("NLD-RP-000000000001", 1))
+
+    def test_fill_numbers_from_existing_pdfs(self):
+        sid = self.submit(tid=self.number_type(), content=certificate_pdf()).json["id"]
+        self.con.execute("UPDATE qualification_submissions SET number=NULL, status='approved' WHERE id=?", (sid,))
+        self.con.commit()
+        r = self.client.post("/api/admin/qualifications/fill-numbers")
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertEqual([f["number"] for f in r.json["filled"]], ["NLD-RP-0123456789ab"])
+        self.assertEqual(self.row(sid)["number"], "NLD-RP-0123456789ab")
+        self.sign_in(2)
+        self.assertEqual(self.client.post("/api/admin/qualifications/fill-numbers").status_code, 403)
+
+    def test_pilots_lists_current_qualifications_without_contact_details(self):
+        fi = self.client.post("/api/qualification-types", json={
+            "name": "FI", "requires_evidence": False, "requires_start": False, "requires_expiry": False,
+            "internal": True}).json["id"]
+        a2 = self.submit(tid=self.number_type(), content=certificate_pdf()).json["id"]
+        self.review(a2)
+        instructor = self.submit(tid=fi, content=None, until="").json["id"]
+        self.review(instructor)
+        old = self.submit(uid=3, tid=self.number_type(), content=certificate_pdf(), until="2020-01-01").json["id"]
+        self.review(old)
+        pilots = self.client.get("/api/pilots?active=1").json["pilots"]
+        self.assertEqual([p["id"] for p in pilots], [2])  # the expired licence is left out
+        self.assertEqual({q["type"]: q["number"] for q in pilots[0]["qualifications"]},
+                         {"A2": "NLD-RP-0123456789ab", "FI": None})
+        self.assertNotIn("email", json.dumps(pilots))
+        self.assertEqual(len(self.client.get("/api/pilots?qualification=FI").json["pilots"]), 1)
+        self.assertEqual(self.client.get("/api/pilots?qualification=CTR").json["pilots"], [])
+        self.sign_in(2)
+        self.assertEqual(self.client.get("/api/pilots").status_code, 403)
+
+    def test_read_only_key_reads_but_never_writes(self):
+        self.con.execute("INSERT INTO api_keys(user_id,name,key_hash,prefix,created_at,read_only)"
+                         " VALUES (1,'om',?,'om','now',1)", (hashlib.sha256(b"logdb_om-key").hexdigest(),))
+        self.con.commit()
+        headers = {"Authorization": "Bearer logdb_om-key"}
+        self.assertEqual(self.client.get("/api/pilots", headers=headers).status_code, 200)
+        r = self.client.post("/api/attachments", headers=headers, data={})
+        self.assertEqual((r.status_code, r.json["error"]), (403, "this API key is read-only"))
+        created = self.client.post("/api/keys", json={"name": "om", "read_only": True})
+        self.assertEqual(created.status_code, 200, created.json)
+        self.assertTrue(next(k for k in self.client.get("/api/keys").json if k["id"] == created.json["id"])["read_only"])
+        self.assertEqual(self.client.post("/api/keys", json={"name": "x", "read_only": "yes"}).status_code, 400)
+
 
 class QualificationImportTests(AppTests):
     def setUp(self):
@@ -714,3 +796,26 @@ class QualificationImportTests(AppTests):
                                           data={"file": (zipped, "qualifications.zip")},
                                           headers=headers).status_code, 403)
         zipped.close()
+
+    def test_number_column_and_rows_without_evidence(self):
+        csv_text = ("person,type,valid_from,valid_until,file,number\n"
+                    "Pilot,A2,,2026-12-01,Pilot/A2.pdf,\n"
+                    "Pilot,FI,2025-03-01,,,\n"
+                    "Other,A2,,2027-01-01,Other/A2.pdf,NLD-RP-00000000000x\n")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("manifest.csv", csv_text)
+            archive.writestr("Pilot/A2.pdf", certificate_pdf())
+            archive.writestr("Other/A2.pdf", PDF)
+        buf.seek(0)
+        preview = self.preview(buf)
+        self.assertEqual(preview.status_code, 200, preview.json)
+        self.assertTrue(preview.json["can_commit"], preview.json)
+        commit = self.client.post("/api/admin/qualifications/import/commit", json={"token": preview.json["token"]})
+        self.assertEqual(commit.status_code, 201, commit.json)
+        numbers = {(r["category"], r["number"]) for r in self.con.execute(
+            "SELECT t.name AS category, q.number FROM qualification_submissions q"
+            " JOIN qualification_types t ON t.id=q.type_id")}
+        self.assertEqual(numbers, {("A2", "NLD-RP-0123456789ab"), ("FI", None), ("A2", "NLD-RP-00000000000x")})
+        fi = self.con.execute("SELECT * FROM qualification_types WHERE name='FI'").fetchone()
+        self.assertEqual(fi["requires_evidence"], 0)
