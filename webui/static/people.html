@@ -301,7 +301,8 @@ function qualBits(q) {
   const bit = (item) => {
     const {category: label, valid_from: start, valid_until: until, expired: dead} = item;
     if (!label) return '';
-    const when = [start ? `from ${start.slice(0, 10)}` : '', until ? `until ${until.slice(0, 10)}` : ''].filter(Boolean).join(' · ');
+    const when = [item.number ? `Number ${item.number}` : '', start ? `from ${start.slice(0, 10)}` : '',
+      until ? `until ${until.slice(0, 10)}` : ''].filter(Boolean).join(' · ');
     const attrs = `class="chip${dead ? ' warn' : ''}"${when ? ` title="${esc(when)}"` : ''}`;
     const labelText = `${esc(label)}${dead ? ' expired' : ''}`;
     return `<span ${attrs}>${labelText}</span>`;

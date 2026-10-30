@@ -280,7 +280,7 @@ function renderInfo() {
       const current = approved.filter(item => !item.expired);
       const past = approved.filter(item => item.expired);
       const qualificationChips = items => items.map(item => {
-        const dates = [item.valid_from ? `Valid from ${item.valid_from}` : '',
+        const dates = [item.number ? `Number ${item.number}` : '', item.valid_from ? `Valid from ${item.valid_from}` : '',
           item.valid_until ? `${item.expired ? 'Expired on' : 'Valid until'} ${item.valid_until}` : '',
           item.internal ? 'Internal' : ''].filter(Boolean).join(' · ');
         const attrs = `class="chip${item.expired ? ' expired' : ''}" title="${esc(dates)}"`;
