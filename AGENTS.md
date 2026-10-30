@@ -32,6 +32,9 @@
 
 ## Working with the maintainer
 
+- Open questions for the maintainer are GitHub issues with the label `question` (`gh issue list -l question`).
+  Check them at the start of a session, and do not implement those items before the maintainer has answered
+  in the issue.
 - When a request is a question, or says "explain first" or "don't change anything yet", answer briefly and wait.
   For open-ended or ambiguous features, ask concise questions before implementing.
 - Keep answers and fixes short and in proportion. A small request needs a small fix, not a long analysis.
