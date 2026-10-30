@@ -7,7 +7,11 @@ function plot_ekf2(ac_data)
         'innov_hgt', 'Height'; 'innov_tas', 'Airspeed'; 'innov_hagl', 'Height AGL'; 'innov_beta', 'Sideslip'; ...
         'innov_flow', 'Optical flow'};
     for k = 1:size(fields, 1)
-        if isfield(e, fields{k, 1}) && any(e.(fields{k, 1}) ~= 0)
+        if ~isfield(e, fields{k, 1})
+            continue
+        end
+        v = double(e.(fields{k, 1}));
+        if any(v ~= 0) && max(abs(v)) < 1e6  % unused ones can hold garbage
             plot(axs(1), e.t, double(e.(fields{k, 1})), 'DisplayName', fields{k, 2});
         end
     end

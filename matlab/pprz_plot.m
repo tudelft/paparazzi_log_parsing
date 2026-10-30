@@ -48,6 +48,10 @@ function figs = pprz_plot(f, varargin)
         end
         try
             list(i).fn(f.data, f);
+            link = pprz.time_axes(fig);
+            if numel(link) > 1
+                linkaxes(link, 'x');
+            end
             if ~strcmp(opts.modes, 'none')
                 pprz.modes(f, fig, opts.modes);
             end

@@ -1,12 +1,24 @@
 function plot_eul(ac_data, order)
-%PLOT_EUL Euler angles of the attitude and its reference (AHRS_REF_QUAT), order 'ZYX' (default) or 'ZXY'
-%   (the order hybrid aircraft use). No toolbox needed.
-    if nargin < 2
-        order = 'ZYX';
-    end
+%PLOT_EUL Euler angles of the attitude and its reference (AHRS_REF_QUAT), order 'ZYX' or 'ZXY' (hybrid
+%   aircraft). By default the order whose roll matches ROTORCRAFT_FP.phi, else ZYX. No toolbox needed.
     m = ac_data.AHRS_REF_QUAT;
     [t, keep] = unique(m.t);
-    body = euler(double([m.body_qi(keep), m.body_qx(keep), m.body_qy(keep), m.body_qz(keep)]), order);
+    q = double([m.body_qi(keep), m.body_qx(keep), m.body_qy(keep), m.body_qz(keep)]);
+    if nargin < 2
+        order = 'ZYX';
+        if pprz.has(ac_data, 'ROTORCRAFT_FP') && numel(t) > 1
+            fp = ac_data.ROTORCRAFT_FP;
+            [ft, fk] = unique(fp.t);
+            phi = interp1(ft, double(fp.phi(fk)), t, 'linear', NaN);
+            zyx = euler(q, 'ZYX');
+            zxy = euler(q, 'ZXY');
+            ok = isfinite(phi);
+            if mean(abs(zxy(ok, 1) - phi(ok))) < mean(abs(zyx(ok, 1) - phi(ok)))
+                order = 'ZXY';
+            end
+        end
+    end
+    body = euler(q, order);
     ref = euler(double([m.ref_qi(keep), m.ref_qx(keep), m.ref_qy(keep), m.ref_qz(keep)]), order);
     axs = pprz.tiles(3, sprintf('Euler angles (%s)', order));
     names = {'Phi', 'Theta', 'Psi'};

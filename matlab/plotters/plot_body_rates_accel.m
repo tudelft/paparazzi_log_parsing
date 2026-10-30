@@ -19,7 +19,7 @@ function plot_body_rates_accel(ac_data)
             end
         end
     end
-    axs = pprz.tiles(1 + ~isempty(acc), sprintf('Body rates (%s)', source));
+    axs = pprz.tiles(1 + ~isempty(acc), ['Body rates (' strrep(source, '_', ' ') ')']);
     pprz.series(axs(1), t, rad2deg(pqr), {'p', 'q', 'r'});
     ylabel(axs(1), 'Rate [deg/s]');
     if ~isempty(acc)
