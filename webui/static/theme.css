@@ -254,6 +254,7 @@ dialog.entry-dialog label.field input, dialog.entry-dialog label.field select { 
 .file-list { width:100%; border-collapse:collapse; }
 .file-list td { padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; white-space:nowrap; }
 .file-list td.file-name { white-space:normal; width:100%; overflow-wrap:anywhere; }
+.earlier-versions { margin-top:6px; } .earlier-versions summary { cursor:pointer; font-size:.9em; }
 .file-list .file-desc { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60ch; }
 
 /* MATLAB export menu (matlab.js) */
