@@ -31,20 +31,11 @@ function plot_imu(ac_data, f)
                 plot(axs(s), m.t(rows), double(m.(sensors{s, 2}{c})(rows)), 'DisplayName', name);
             end
         end
-        ylabel(axs(s), sprintf('%s [%s]', sensors{s, 3}, unit(f, sensors{s, 1}, sensors{s, 2}{1})), ...
-            'Interpreter', 'none');
+        u = pprz.unit(f, sensors{s, 1}, sensors{s, 2}{1});
+        if isempty(u) || strcmp(u, '1')
+            u = '-';  % the magnetometer is normalised
+        end
+        ylabel(axs(s), sprintf('%s [%s]', sensors{s, 3}, u), 'Interpreter', 'none');
         legend(axs(s), 'Location', 'eastoutside', 'Interpreter', 'none');
-    end
-end
-
-function u = unit(f, msg, field)
-    % The unit as exported (gyro in deg/s); '-' when unknown.
-    u = '-';
-    try
-        u = char(f.messages.(msg).units.(field));
-    catch
-    end
-    if isempty(u)
-        u = '-';
     end
 end

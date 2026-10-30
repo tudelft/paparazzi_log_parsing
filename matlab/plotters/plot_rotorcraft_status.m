@@ -10,6 +10,7 @@ function plot_rotorcraft_status(ac_data, f)
     stairs(axs(3), m.t, double(m.ap_motors_on) + 0.04, 'LineWidth', 1.2, 'DisplayName', 'Motors on');
     stairs(axs(3), m.t, double(m.ap_in_flight), 'LineWidth', 1.2, 'DisplayName', 'In flight');
     set(axs(3), 'YLim', [-0.2 1.2], 'YTick', [0 1], 'YTickLabel', {'no', 'yes'});
+    ylabel(axs(3), 'Flags');
     legend(axs(3), 'Location', 'best');
     if isfield(m, 'vsupply')
         plot(axs(4), m.t, m.vsupply, 'DisplayName', 'Supply voltage [V]');
