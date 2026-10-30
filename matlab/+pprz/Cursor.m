@@ -24,19 +24,26 @@ classdef Cursor < handle
         end
 
         function attach(c, figs)
+            % Attaching a figure again picks up the time plots added to it since (e.g. new tabs in pprz_view).
             for fig = reshape(figs, 1, [])
-                if ~isgraphics(fig) || any(c.figures == fig)
+                if ~isgraphics(fig)
                     continue
                 end
-                c.figures(end + 1) = fig;
-                set(fig, 'WindowButtonDownFcn', @(src, ~) c.down(src), ...
-                    'WindowButtonMotionFcn', @(src, ~) c.drag(src), ...
-                    'WindowButtonUpFcn', @(~, ~) c.release(), ...
-                    'WindowKeyPressFcn', @(~, evt) c.key(evt));
+                if ~any(c.figures == fig)
+                    c.figures(end + 1) = fig;
+                    set(fig, 'WindowButtonDownFcn', @(src, ~) c.down(src), ...
+                        'WindowButtonMotionFcn', @(src, ~) c.drag(src), ...
+                        'WindowButtonUpFcn', @(~, ~) c.release(), ...
+                        'WindowKeyPressFcn', @(~, evt) c.key(evt));
+                end
                 for ax = pprz.time_axes(fig)
+                    if isappdata(ax, 'pprz_cursor_listener')
+                        continue
+                    end
                     try  % keep the line full height after zoom or pan
-                        addlistener(ax, 'YLim', 'PostSet', @(~, ~) c.draw(fig));
+                        setappdata(ax, 'pprz_cursor_listener', addlistener(ax, 'YLim', 'PostSet', @(~, ~) c.draw(fig)));
                     catch
+                        setappdata(ax, 'pprz_cursor_listener', []);
                     end
                 end
                 c.draw(fig);
@@ -69,8 +76,13 @@ classdef Cursor < handle
             end
             for fig = c.figures(isgraphics(c.figures))
                 for ax = pprz.time_axes(fig)
-                    % pprz_plot names figures 'Plot - flight title': keep the plot part.
+                    % pprz_plot names figures 'Plot - flight title': keep the plot part; in pprz_view the tab
+                    % holding the plot names it.
                     plot_name = regexprep(get(fig, 'Name'), ' - .*$', '');
+                    tab = ancestor(ax, 'uitab');
+                    if ~isempty(tab)
+                        plot_name = get(tab, 'Title');
+                    end
                     two_sided = false;  % yyaxis: the y label belongs to one side, the signal names say which
                     try
                         two_sided = numel(get(ax, 'YAxis')) == 2;

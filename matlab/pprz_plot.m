@@ -5,14 +5,15 @@ function figs = pprz_plot(f, varargin)
 %   pprz_plot()                                      list the plots
 %   Options after the names: 'modes' ('ap' autopilot mode, 'rc' RC mode, 'none'), 'range' [t0 t1] in s,
 %   'docked' (true: figures as tabs in one window), 'events' (true: mode/setting/checklist/message markers,
-%   or a list of those kinds such as {'mode', 'message'}; see pprz.markers). Returns the figures.
+%   or a list of those kinds such as {'mode', 'message'}; see pprz.markers), 'visible' (false: draw the figures
+%   hidden, e.g. to move their contents elsewhere). Returns the figures.
     list = pprz_plots();
     if nargin == 0
         disp(struct2table(rmfield(list, 'fn')));
         return
     end
     names = {};
-    opts = struct('modes', 'none', 'range', [], 'docked', false, 'events', false);
+    opts = struct('modes', 'none', 'range', [], 'docked', false, 'events', false, 'visible', true);
     k = 1;
     while k <= numel(varargin)
         key = lower(char(varargin{k}));
@@ -42,7 +43,11 @@ function figs = pprz_plot(f, varargin)
             warning('pprz_plot:missing', '%s: %s not logged.', list(i).title, strjoin(list(i).needs, '/'));
             continue
         end
-        fig = figure('Name', sprintf('%s - %s', list(i).title, f.title), 'NumberTitle', 'off');
+        visible = 'on';
+        if ~opts.visible
+            visible = 'off';
+        end
+        fig = figure('Name', sprintf('%s - %s', list(i).title, f.title), 'NumberTitle', 'off', 'Visible', visible);
         if opts.docked
             fig.WindowStyle = 'docked';
         end
