@@ -58,14 +58,15 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | `pprz.track(f, by)` | The flown path (lat/lon and local east/north) with a value per point to colour by, and the flight plan waypoints. |
 
 Plots live in `plotters/` as `plot_xxx(f.data)` and are listed in `pprz_plots.m` (name, group, title and the
-messages they need); add a plot by writing the function and one line there. `pprz_plot()` prints the list:
-overview, track/map, maps coloured by height, ground speed, autopilot mode or battery (satellite background with the
+messages they need); add a plot by writing the function and one line there. `pprz.tiles(n, title)` makes the
+stacked, linked time axes and `pprz.series(ax, t, Y, names)` plots named columns, so every line has a name in
+the cursor table. `pprz_plot()` prints the list: overview, maps coloured by height, ground speed, autopilot mode or battery (satellite background with the
 flight plan waypoints; `plot_map(f, by, basemap)` for other backgrounds), status, setting changes, attitude, guidance,
 navigation sensors, IMU, actuators and power, effectiveness, rotating wing, RC and errors.
 
 Analysis scripts in `tools/` (altitude tuning, airspeed sensor scale, takeoff distance, servo model,
 rotating-wing flight envelope) work on `ac_data = f.data`. The C2C and Dronetag tools read their own file
-formats. `3d_animation/` holds the airframe models of `pprz_replay`; `math/` holds quaternion helpers.
+formats. `3d_animation/` holds the airframe models of `pprz_replay`.
 
 ## File format (format 5)
 

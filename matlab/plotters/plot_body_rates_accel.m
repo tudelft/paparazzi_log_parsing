@@ -1,21 +1,29 @@
 function plot_body_rates_accel(ac_data)
-    if ~isfield(ac_data, 'BODY_RATES_ACCEL')
-        return
+%PLOT_BODY_RATES_ACCEL Body rates (pprz.rates: BODY_RATES_ACCEL or the gyro) and body acceleration.
+    [t, pqr, source] = pprz.rates(ac_data);
+    acc = [];
+    if pprz.has(ac_data, 'BODY_RATES_ACCEL')
+        a = ac_data.BODY_RATES_ACCEL;
+        acc = {a.t, [a.ax, a.ay, a.az]};
+    else
+        for m = {'IMU_ACCEL', 'IMU_ACCEL_SCALED'}
+            if pprz.has(ac_data, m{1})
+                a = ac_data.(m{1});
+                rows = true(size(a.t));
+                if isfield(a, 'id')
+                    ids = unique(a.id);
+                    rows = a.id == ids(1);
+                end
+                acc = {a.t(rows), [a.ax(rows), a.ay(rows), a.az(rows)]};
+                break
+            end
+        end
     end
-
-    % Plot the body rates
-    ax1 = subplot(2,1,1);
-    plot(ac_data.BODY_RATES_ACCEL.t, [ac_data.BODY_RATES_ACCEL.ax, ac_data.BODY_RATES_ACCEL.ay, ac_data.BODY_RATES_ACCEL.az]);
-    title('Body acceleration');
-    xlabel('Time [s]');
-    legend('x [m/s^2]', 'y [m/s^2]', 'z [m/s^2]');
-
-    ax2 = subplot(2,1,2);
-    plot(ac_data.BODY_RATES_ACCEL.t, [ac_data.BODY_RATES_ACCEL.p, ac_data.BODY_RATES_ACCEL.q, ac_data.BODY_RATES_ACCEL.r]/pi*180);
-    title('Body rates');
-    xlabel('Time [s]');
-    legend('p [deg/s]', 'q [deg/s]', 'r [deg/s]');
-
-    sgtitle('Body rates accel')
-    linkaxes([ax1,ax2],'x')
+    axs = pprz.tiles(1 + ~isempty(acc), ['Body rates (' strrep(source, '_', ' ') ')']);
+    pprz.series(axs(1), t, rad2deg(pqr), {'p', 'q', 'r'});
+    ylabel(axs(1), 'Rate [deg/s]');
+    if ~isempty(acc)
+        pprz.series(axs(2), acc{1}, acc{2}, {'x', 'y', 'z'});
+        ylabel(axs(2), 'Acceleration [m/s²]');
+    end
 end

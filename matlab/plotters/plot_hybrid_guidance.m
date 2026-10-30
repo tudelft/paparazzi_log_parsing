@@ -1,39 +1,15 @@
-function plot_hybrid_guidance(ac_data, vert)
-    if ~isfield(ac_data, 'HYBRID_GUIDANCE')
-        return
-    end
-
-    % Plot the hybrid guidance
-    ax1 = subplot(3,1,1);
-    plot(ac_data.HYBRID_GUIDANCE.t, [ac_data.HYBRID_GUIDANCE.norm_ref_speed, ac_data.HYBRID_GUIDANCE.speed_sp_x, ac_data.HYBRID_GUIDANCE.speed_sp_y]);
-    if exist('vert','var')
-        hold on;
-        plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
-    end
-    title('Target speeds');
-    xlabel('Time [s]');
-    legend('Norm ref speed [m/s]', 'Speed x sp [m/s]', 'Speed y sp [m/s]');
-
-    ax2 = subplot(3,1,2);
-    plot(ac_data.HYBRID_GUIDANCE.t, [ac_data.HYBRID_GUIDANCE.heading_diff, ac_data.HYBRID_GUIDANCE.pos_err_x, ac_data.HYBRID_GUIDANCE.pos_err_y]);
-    if exist('vert','var')
-        hold on;
-        plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
-    end
-    title('Errors');
-    xlabel('Time [s]');
-    legend('Heading err [deg]', 'X-pos err [m]', 'Y-pos err [m]');
-
-    ax3 = subplot(3,1,3);
-    plot(ac_data.HYBRID_GUIDANCE.t, [ac_data.HYBRID_GUIDANCE.wind_x, ac_data.HYBRID_GUIDANCE.wind_y]);
-    if exist('vert','var')
-        hold on;
-        plot([vert'; vert'], repmat(ylim',1,size(vert,1)), '--r');
-    end
-    title('Wind');
-    xlabel('Time [s]');
-    legend('x [m/s]', 'y [m/s]');
-
-    sgtitle('Hyrbid guidance')
-    linkaxes([ax1,ax2,ax3],'x')
+function plot_hybrid_guidance(ac_data)
+%PLOT_HYBRID_GUIDANCE Hybrid guidance (HYBRID_GUIDANCE): speed setpoints, errors and wind estimate.
+    m = ac_data.HYBRID_GUIDANCE;
+    axs = pprz.tiles(3, 'Hybrid guidance');
+    pprz.series(axs(1), m.t, [m.norm_ref_speed, m.speed_sp_x, m.speed_sp_y], {'Reference speed', 'x setpoint', 'y setpoint'});
+    ylabel(axs(1), 'Speed [m/s]');
+    pprz.series(axs(2), m.t, [m.pos_err_x, m.pos_err_y], {'x error', 'y error'});
+    ylabel(axs(2), 'Position error [m]');
+    yyaxis(axs(2), 'right');
+    plot(axs(2), m.t, m.heading_diff, 'DisplayName', 'Heading error');
+    ylabel(axs(2), 'Heading error [deg]');
+    yyaxis(axs(2), 'left');
+    pprz.series(axs(3), m.t, [m.wind_x, m.wind_y], {'x', 'y'});
+    ylabel(axs(3), 'Wind [m/s]');
 end

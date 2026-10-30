@@ -1,34 +1,13 @@
-function plot_powers(ac_data, filter)
-    if ~isfield(ac_data, 'POWER_DEVICE')
-        return
+function plot_powers(ac_data)
+%PLOT_POWERS Power per POWER_DEVICE circuit (node.circuit), voltage × current.
+    m = ac_data.POWER_DEVICE;
+    id = double(m.node_id) + double(m.circuit) / 100;
+    ax = pprz.tiles(1, 'Power devices');
+    for p = reshape(unique(id), 1, [])
+        rows = id == p;
+        plot(ax, m.t(rows), double(m.current(rows)) .* double(m.voltage(rows)), ...
+            'DisplayName', sprintf('Node %d circuit %d', floor(p), round(100 * (p - floor(p)))));
     end
-    
-    % Default is no filtering
-    if nargin < 2
-        filter =  0
-    end
-
-    [b, a] = butter(2,0.1);
-    
-    ac_data.POWER_DEVICE.id = double(ac_data.POWER_DEVICE.node_id) + double(ac_data.POWER_DEVICE.circuit) ./ 100;
-    pwr = unique(ac_data.POWER_DEVICE.id)
-
-    hold off
-    leg = []
-    for i=1:size(pwr,1)
-        p=pwr(i);
-        id = find(ac_data.POWER_DEVICE.id == p);
-        x = ac_data.POWER_DEVICE.current(id) .* ac_data.POWER_DEVICE.voltage(id);
-        filter_leg = '';
-        if filter
-            plot(filtfilt(b,a,x),'linewidth',2)
-            filter_leg = ' filtered';
-        else
-            plot(x)
-        end
-        leg =  [leg, num2str(p)+filter];
-        hold on
-    end
-        
-    grid on
-    legend(strcat('Node ',string(pwr)));
+    ylabel(ax, 'Power [W]');
+    legend(ax, 'Location', 'eastoutside');
+end

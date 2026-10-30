@@ -1,74 +1,41 @@
-function plot_imu(ac_data, idx)    
-    % Plot the accelerometer
-    ax1 = subplot(3,1,1);
-    if isfield(ac_data, 'IMU_ACCEL')
-        if isfield(ac_data.IMU_ACCEL, 'id')
-            accel_ids = unique(ac_data.IMU_ACCEL.id);
-            
-            if exist('idx','var')
-                accel_ids = idx;
-            end
-
-            for i = 1:length(accel_ids)
-                accel_idx = find(ac_data.IMU_ACCEL.id == accel_ids(i));
-                plot(ac_data.IMU_ACCEL.t(accel_idx), [ac_data.IMU_ACCEL.ax(accel_idx), ac_data.IMU_ACCEL.ay(accel_idx), ac_data.IMU_ACCEL.az(accel_idx)]);
-                hold on
-            end
-
-        else
-            plot(ac_data.IMU_ACCEL.t, [ac_data.IMU_ACCEL.ax, ac_data.IMU_ACCEL.ay, ac_data.IMU_ACCEL.az]);
+function plot_imu(ac_data, f)
+%PLOT_IMU Accelerometer, gyro and magnetometer per sensor id, from the raw IMU messages or the _SCALED ones.
+    sensors = {'IMU_ACCEL', {'ax', 'ay', 'az'}, 'Accelerometer'; 'IMU_GYRO', {'gp', 'gq', 'gr'}, 'Gyro'; ...
+        'IMU_MAG', {'mx', 'my', 'mz'}, 'Magnetometer'};
+    for s = 1:size(sensors, 1)
+        if ~pprz.has(ac_data, sensors{s, 1}) && pprz.has(ac_data, [sensors{s, 1} '_SCALED'])
+            sensors{s, 1} = [sensors{s, 1} '_SCALED'];
         end
-        title('Accelerometer Scaled');
-        xlabel('Time [s]');
-        legend('x [m/s^2]', 'y [m/s^2]', 'z [m/s^2]');
     end
-    
-    % Plot the gyro
-    ax2 = subplot(3,1,2);
-    if isfield(ac_data, 'IMU_GYRO')
-        if isfield(ac_data.IMU_GYRO, 'id')
-            gyro_ids = unique(ac_data.IMU_GYRO.id);
-
-            if exist('idx','var')
-                gyro_ids = idx;
-            end
-
-            for i = 1:length(gyro_ids)
-                gyro_idx = find(ac_data.IMU_GYRO.id == gyro_ids(i));
-                plot(ac_data.IMU_GYRO.t(gyro_idx), [ac_data.IMU_GYRO.gp(gyro_idx), ac_data.IMU_GYRO.gq(gyro_idx), ac_data.IMU_GYRO.gr(gyro_idx)]);
-                hold on
-            end
-
-        else
-            plot(ac_data.IMU_GYRO.t, [ac_data.IMU_GYRO.gp, ac_data.IMU_GYRO.gq, ac_data.IMU_GYRO.gr]);
+    sensors = sensors(cellfun(@(m) pprz.has(ac_data, m), sensors(:, 1)), :);
+    if isempty(sensors)
+        return
+    end
+    axs = pprz.tiles(size(sensors, 1), 'IMU');
+    for s = 1:size(sensors, 1)
+        m = ac_data.(sensors{s, 1});
+        ids = 0;
+        if isfield(m, 'id')
+            ids = unique(m.id);
         end
-        title('Gyrometer Scaled');
-        xlabel('Time [s]');
-        legend('p [deg/s]', 'q [deg/s]', 'r [deg/s]');
-    end
-    
-    % Plot the mag
-    ax3 = subplot(3,1,3);
-    if isfield(ac_data, 'IMU_MAG')
-        if isfield(ac_data.IMU_MAG, 'id')
-            mag_ids = unique(ac_data.IMU_MAG.id);
-
-            for i = 1:length(mag_ids)
-                mag_idx = find(ac_data.IMU_MAG.id == mag_ids(i));
-                mag_tot = sqrt(ac_data.IMU_MAG.mx(mag_idx).^2 + ac_data.IMU_MAG.my(mag_idx).^2 + ac_data.IMU_MAG.mz(mag_idx).^2);
-                plot(ac_data.IMU_MAG.t(mag_idx), [ac_data.IMU_MAG.mx(mag_idx), ac_data.IMU_MAG.my(mag_idx), ac_data.IMU_MAG.mz(mag_idx), mag_tot]);
-                hold on
+        for id = reshape(ids, 1, [])
+            rows = true(size(m.t));
+            if isfield(m, 'id')
+                rows = m.id == id;
             end
-
-        else
-            mag_tot = sqrt(ac_data.IMU_MAG.mx.^2 + ac_data.IMU_MAG.my.^2 + ac_data.IMU_MAG.mz.^2);
-            plot(ac_data.IMU_MAG.t, [ac_data.IMU_MAG.mx, ac_data.IMU_MAG.my, ac_data.IMU_MAG.mz, mag_tot]);
+            for c = 1:3
+                name = sensors{s, 2}{c};
+                if numel(ids) > 1
+                    name = sprintf('%s (id %d)', name, id);
+                end
+                plot(axs(s), m.t(rows), double(m.(sensors{s, 2}{c})(rows)), 'DisplayName', name);
+            end
         end
-        title('Magnetometer Scaled');
-        xlabel('Time [s]');
-        legend('x [Gauss]', 'y [Gauss]', 'z [Gauss]', 'Mag tot [Gauss]');
+        u = pprz.unit(f, sensors{s, 1}, sensors{s, 2}{1});
+        if isempty(u) || strcmp(u, '1')
+            u = '-';  % the magnetometer is normalised
+        end
+        ylabel(axs(s), sprintf('%s [%s]', sensors{s, 3}, u), 'Interpreter', 'none');
+        legend(axs(s), 'Location', 'eastoutside', 'Interpreter', 'none');
     end
-
-    sgtitle('Scaled sensors')
-    linkaxes([ax1,ax2,ax3],'x')
 end

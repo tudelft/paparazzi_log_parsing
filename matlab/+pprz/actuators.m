@@ -10,8 +10,16 @@ function [values, names, t] = actuators(d)
         return
     end
     names = setdiff(fieldnames(m), {'t'}, 'stable')';
+    names = natural_sort(names);
     values = zeros(numel(t), numel(names));
     for k = 1:numel(names)
         values(:, k) = m.(names{k});
     end
+end
+
+function names = natural_sort(names)
+    % MOTOR_2 before MOTOR_10: sort on the text with every number padded to the same width.
+    keys = regexprep(regexprep(names, '(\d+)', '000000000$1'), '0*(\d{10})', '$1');
+    [~, order] = sort(keys);
+    names = names(order);
 end

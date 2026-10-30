@@ -1,39 +1,27 @@
 function plot_airspeed(ac_data)
-    
-    ax1 = subplot(2,1,1);
-    if isfield(ac_data, 'AIR_DATA')
-        % Plot the Calibrated airspeed data
-        plot(ac_data.AIR_DATA.t, [ac_data.AIR_DATA.airspeed]);
+%PLOT_AIRSPEED Airspeed (AIR_DATA, and per sensor from AIRSPEED_RAW), differential pressure and angle of attack.
+    raw = pprz.has(ac_data, 'AIRSPEED_RAW');
+    aoa = pprz.has(ac_data, 'AOA');
+    axs = pprz.tiles(1 + raw + aoa, 'Airspeed');
+    if pprz.has(ac_data, 'AIR_DATA')
+        plot(axs(1), ac_data.AIR_DATA.t, ac_data.AIR_DATA.airspeed, 'DisplayName', 'Airspeed (AIR_DATA)');
     end
-    
-    grid on;
-    ylabel('Airspeed [m/s]');
-    title('Air-Data');
-    xlabel('Time [s]');
-   
-    ax2 = subplot(2,1,2);
-    hold off
-    legend_array = [];
-    if isfield(ac_data, 'AIRSPEED_RAW')
-        sensors = unique(ac_data.AIRSPEED_RAW.sensor_id);
-        for s = 1:size(sensors,1)
-            sid = sensors(s);
-            i = find(ac_data.AIRSPEED_RAW.sensor_id == sid);
-%            plot(ac_data.AIRSPEED_RAW.t(i), ac_data.AIRSPEED_RAW.airspeed(i));
-            plot(ac_data.AIRSPEED_RAW.t(i), ac_data.AIRSPEED_RAW.raw(i));
-%            plot(ac_data.AIRSPEED_RAW.t(i), ac_data.AIRSPEED_RAW.diffPress(i));
-            hold on
-            plot(ac_data.AIRSPEED_RAW.t(i), ac_data.AIRSPEED_RAW.offset(i));
-            legend_array = [legend_array; "ID=" + num2str(sid); 'offset' ];
+    k = 1;
+    if raw
+        r = ac_data.AIRSPEED_RAW;
+        k = k + 1;
+        for s = reshape(unique(r.sensor_id), 1, [])
+            rows = r.sensor_id == s;
+            plot(axs(1), r.t(rows), r.airspeed(rows), 'DisplayName', sprintf('Sensor %d', s));
+            plot(axs(k), r.t(rows), r.diffPress(rows), 'DisplayName', sprintf('Sensor %d', s));
         end
+        ylabel(axs(k), 'Differential pressure [Pa]');
+        legend(axs(k), 'Location', 'best');
     end
-    
-    legend(legend_array)
-    
-    title('RAW Airspeeds');
-    xlabel('Time [s]');
-%    legend('Power [W]');
-
-    sgtitle('Energy')
-    linkaxes([ax1, ax2],'x')
+    ylabel(axs(1), 'Airspeed [m/s]');
+    legend(axs(1), 'Location', 'best', 'Interpreter', 'none');
+    if aoa
+        plot(axs(end), ac_data.AOA.t, rad2deg(double(ac_data.AOA.angle)), 'DisplayName', 'Angle of attack');
+        ylabel(axs(end), 'Angle of attack [deg]');
+    end
 end

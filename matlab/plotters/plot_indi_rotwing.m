@@ -1,42 +1,15 @@
 function plot_indi_rotwing(ac_data)
-    if ~isfield(ac_data, 'STAB_ATTITUDE')
-        return
+%PLOT_INDI_ROTWING INDI commands of the rotating wing (STAB_ATTITUDE.u: front, right, back, left, rudder,
+%   elevator, aileron, flaps, pusher) and the specific thrust of the four hover motors.
+    m = ac_data.STAB_ATTITUDE;
+    u = double(m.u);
+    if size(u, 2) < 9
+        error('plot_indi_rotwing:u', 'STAB_ATTITUDE.u has %d values; the rotating wing sends 9.', size(u, 2));
     end
-    %plot(ac_data.STAB_ATTITUDE_INDI.t, [ac_data.STAB_ATTITUDE_INDI.u(:,1), ac_data.STAB_ATTITUDE_INDI.u(:,2), ac_data.STAB_ATTITUDE_INDI.u(:,3), ac_data.STAB_ATTITUDE_INDI.u(:,4)]);
-    ax1 = subplot(2,1,1);
-    act_values = double(ac_data.STAB_ATTITUDE.u);
-    plot(ac_data.STAB_ATTITUDE.t, act_values(:,1));
-    hold on;
-    plot(ac_data.STAB_ATTITUDE.t, act_values(:,2));
-    hold on;
-    plot(ac_data.STAB_ATTITUDE.t, act_values(:,3));
-    hold on;
-    plot(ac_data.STAB_ATTITUDE.t, act_values(:,4));
-    hold on;
-
-    plot(ac_data.STAB_ATTITUDE.t, act_values(:,5));
-    hold on;
-    plot(ac_data.STAB_ATTITUDE.t, act_values(:,6));
-    hold on;
-    plot(ac_data.STAB_ATTITUDE.t, act_values(:,7));
-    hold on;
-    plot(ac_data.STAB_ATTITUDE.t, act_values(:,8));
-    hold on;
-    plot(ac_data.STAB_ATTITUDE.t, act_values(:,9));
-    hold on;
-
-    title('Indi_u');
-    xlabel('Time [s]');
-    legend('front', 'right', 'back', 'left', 'rudder', 'elevator', 'aileron', 'flaps', 'pusher');
-
-    ax2 = subplot(2,1,2);
-    plot(ac_data.STAB_ATTITUDE.t, (act_values(:,1) + act_values(:,2) + act_values(:,3) + act_values(:,4)) .* -0.000575);
-
-    title('Specific thrust');
-    xlabel('Time [s]');
-    legend('specific_thrust');
-
-    sgtitle('indi u')
-    linkaxes([ax1,ax2],'x')
-
+    axs = pprz.tiles(2, 'INDI rotating wing');
+    pprz.series(axs(1), m.t, u(:, 1:9), {'Front', 'Right', 'Back', 'Left', 'Rudder', 'Elevator', 'Aileron', ...
+        'Flaps', 'Pusher'});
+    ylabel(axs(1), 'INDI u');
+    plot(axs(2), m.t, sum(u(:, 1:4), 2) * -0.000575, 'DisplayName', 'Specific thrust');
+    ylabel(axs(2), 'Specific thrust [m/s²]');
 end
