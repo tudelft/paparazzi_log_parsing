@@ -395,6 +395,8 @@ an individual link without affecting other links; the stored file is removed onl
 is removed. Deleting a flight's parent log or a paper record removes the corresponding links.
 Re-parsing retains links to flights with the same aircraft ID, flight index and takeoff time; if that
 flight no longer exists, its file links move to the parent log instead of losing the file.
+A key created as **read-only** (on My account, `read_only` in `POST /api/keys`) is refused (403) for every
+request other than GET and HEAD.
 API keys can upload files (`POST /api/attachments`) and link an existing file to more targets
 (`POST /api/attachments/<id>/links`) with the same permission checks; the upload returns the file `id`.
 Removing links (and so deleting files) requires a browser session.
@@ -928,6 +930,26 @@ Both dates accept past periods, and when both are supplied the start cannot foll
 Enabling the start requirement also applies to pending approvals, requiring withdrawal/resubmission
 if a start date is missing. Existing approvals are not changed. Dates are retained in private history,
 audit events and approved summaries; no historical flight-eligibility checking is performed.
+Types can also require a **number** (`requires_number`): the licence or certificate number, e.g.
+`NLD-RP-xxxxxxxxxxxx` for EASA remote pilot certificates. Submissions store it in `number` (up to 40
+letters, digits, spaces and `. / - _`). When it is left empty and the evidence is a PDF, it is read from
+the PDF text (`[A-Z]{3}-RP-[A-Za-z0-9]{12}`, plain or Flate-compressed text); the reviewer checks it and
+approval is refused while a required number is missing. Admins correct it with **Edit** (with the dates,
+audited as `number-changed`). **Fill numbers from PDFs** under Qualification types
+(`POST /api/admin/qualifications/fill-numbers`) fills the empty numbers of approved submissions of such
+types from their evidence and lists the ones it could not read. The number is private like the evidence:
+the person, admins and `/api/pilots`.
+
+Internal ratings such as FI (flight instructor) and CTR are qualification types with Internal on and
+Evidence off; admins grant them by submitting and approving for the person, or by import rows without a
+file.
+
+`GET /api/pilots` lists people with their approved qualifications valid today, for documents such as the
+Operations Manual: per person `id`, `name` and `qualifications` (`type`, `number`, `valid_from`,
+`valid_until`, `internal`), no contact details. `active=1` (default) leaves out deactivated accounts;
+`qualification=FI` (comma-separated types) keeps only people with one of those. Admins only, by session or
+API key; give a document build an admin account's **read-only** key.
+
 Read-only People chips show only approved, non-expired submissions and omit the approval label;
 management views retain all submission states.
 An existing submission without a newly required expiry must be withdrawn and resubmitted; approved records
@@ -935,7 +957,8 @@ are not changed retroactively. Existing types keep expiry optional after upgradi
 
 Users submit claims for themselves; **admins can also upload evidence and submit claims for any user**.
 Admins can bulk-import from People in Edit mode: a ZIP with `manifest.csv` and evidence files
-(`person,type,valid_from,valid_until,file`). Preview matches unique display names or aliases and
+(`person,type,valid_from,valid_until,file`, optionally `number`; an empty number is read from a PDF
+certificate). Rows without a file are allowed for types that do not require evidence. Preview matches unique display names or aliases and
 active types; Import and approve stores private evidence and sets the dates. Rows may repeat a person
 and type for different periods: per person/type the newest period (latest `valid_until`, blank counting
 as newest) becomes the approval if it is newer than the current one, which is then superseded. Other

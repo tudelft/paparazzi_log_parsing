@@ -74,10 +74,11 @@
 
   <section class="card">
     <div class="section-heading"><h2>API keys</h2>
-    <details><summary>Help</summary><p>A key lets a script use the API as you (upload and read logs you can access). It cannot manage keys.
+    <details><summary>Help</summary><p>A key lets a script use the API as you (upload and read logs you can access). It cannot manage keys. A <em>read-only</em> key can only read (GET), e.g. for a script that builds a document.
       Send it as <code>Authorization: Bearer &lt;key&gt;</code>. Revoke a key if it leaks.</p></details></div>
     <form class="row" onsubmit="addKey(event)">
       <input id="name" placeholder="Name, e.g. laptop uploader" required maxlength="60" style="min-width:240px">
+      <label title="The key can only read (GET), e.g. for a script that builds a document"><input type="checkbox" id="readOnly"> Read-only</label>
       <button type="submit">Create key</button>
     </form>
     <div class="table-scroll"><table style="margin-top:12px">
@@ -107,7 +108,7 @@ async function api(url, opt) {
 async function load() {
   try {
     const keys = await api('/api/keys');
-    $('keys').innerHTML = keys.map(k => `<tr><td>${esc(k.name)}</td><td><code>${esc(k.prefix)}…</code></td><td>${fmt(k.created_at)}</td><td>${fmt(k.last_used_at)}</td>
+    $('keys').innerHTML = keys.map(k => `<tr><td>${esc(k.name)}${k.read_only ? ' <span class="mute">· read-only</span>' : ''}</td><td><code>${esc(k.prefix)}…</code></td><td>${fmt(k.created_at)}</td><td>${fmt(k.last_used_at)}</td>
       <td><button class="danger" onclick="revoke(${k.id}, '${esc(k.name).replace(/'/g, '')}')">Revoke</button></td></tr>`).join('')
       || '<tr><td colspan="5" class="mute">No keys yet.</td></tr>';
   } catch (e) { $('err').textContent = e.message; }
@@ -116,11 +117,12 @@ async function addKey(ev) {
   ev.preventDefault();
   $('err').textContent = '';
   try {
-    const d = await api('/api/keys', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: $('name').value})});
+    const d = await api('/api/keys', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: $('name').value, read_only: $('readOnly').checked})});
     $('keyText').textContent = d.key;
     $('newKey').style.display = 'block';
     $('copyBtn').textContent = 'Copy';
     $('name').value = '';
+    $('readOnly').checked = false;
     $('usage').textContent = `python3 upload_logs.py ~/paparazzi/var/logs --server ${location.origin} --key ${d.key}\n\n# or set it once:\nexport LOGDB_API_KEY=${d.key}\nexport LOGDB_SERVER=${location.origin}\npython3 upload_logs.py ~/paparazzi/var/logs`;
     load();
   } catch (e) { $('err').textContent = e.message; }

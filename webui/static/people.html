@@ -207,7 +207,7 @@
   </section>
   <section class="card" id="typesSection" hidden>
     <div class="section-heading"><h2>Qualification types</h2>
-    <details><summary>Help</summary><p>Admins define qualification types here. Checked Evidence, Valid from and Valid until switches make those fields mandatory; unchecked fields are optional. Internal marks an in-house qualification rather than an external licence. Drag the handle to change the order. One Save writes every type. Both dates start checked for new types. Import a ZIP with <span class="mono">manifest.csv</span> and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
+    <details><summary>Help</summary><p>Admins define qualification types here. Checked Evidence, Valid from and Valid until switches make those fields mandatory; unchecked fields are optional. Number asks for the licence or certificate number (read from a PDF certificate when left empty; <em>Fill numbers from PDFs</em> does this for approved ones). Internal marks an in-house qualification such as FI or CTR rather than an external licence. Drag the handle to change the order. One Save writes every type. Both dates start checked for new types. Import a ZIP with <span class="mono">manifest.csv</span> and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
     <div id="typeSettings"></div>
     <p><button type="button" class="sec" onclick="$('qualImportDialog').showModal()">Import ZIP</button>
       <a class="mute" href="/api/admin/qualifications/import/template">CSV template</a></p>
@@ -409,7 +409,7 @@ function renderAdminPeople() {
   const editing = window.editMode();
   if (!editing) {
     $('typeSettings').innerHTML = qualificationTypes.map(t =>
-      `<p><strong>${esc(t.name)}</strong> · ${t.requires_evidence ? 'Evidence required' : 'Evidence optional'} · ${t.requires_start ? 'Valid from required' : 'Valid from optional'} · ${t.requires_expiry ? 'Valid until required' : 'Valid until optional'} · ${t.internal ? 'Internal' : 'External'} · ${t.active ? 'Active' : 'Disabled'}</p>`).join('');
+      `<p><strong>${esc(t.name)}</strong> · ${t.requires_evidence ? 'Evidence required' : 'Evidence optional'} · ${t.requires_start ? 'Valid from required' : 'Valid from optional'} · ${t.requires_expiry ? 'Valid until required' : 'Valid until optional'}${t.requires_number ? ' · Number required' : ''} · ${t.internal ? 'Internal' : 'External'} · ${t.active ? 'Active' : 'Disabled'}</p>`).join('');
     return;
   }
   $('typeSettings').innerHTML = `<form id="typeForm" onsubmit="saveQualificationTypes(event)">
@@ -417,6 +417,7 @@ function renderAdminPeople() {
     <div id="typeNew">${typeRowHtml(null)}</div>
     <div id="typeActions"><button type="button" class="sec" onclick="addTypeRow()">Add type</button>
       <button type="submit">Save</button>
+      <button type="button" class="sec" onclick="fillNumbers()" title="Read the missing numbers of approved qualifications whose type requires one from their PDF evidence">Fill numbers from PDFs</button>
       <span class="mute" id="typeStatus" role="status"></span></div>
   </form>`;
   bindTypeDrag();
@@ -430,6 +431,7 @@ function typeRowHtml(t) {
     <label><input type="checkbox" name="requires_evidence" ${!t || t.requires_evidence ? 'checked' : ''}> Evidence</label>
     <label><input type="checkbox" name="requires_start" ${!t || t.requires_start ? 'checked' : ''}> Valid from</label>
     <label><input type="checkbox" name="requires_expiry" ${!t || t.requires_expiry ? 'checked' : ''}> Valid until</label>
+    <label title="Licence or certificate number, e.g. NLD-RP-…; read from the PDF when possible"><input type="checkbox" name="requires_number" ${t && t.requires_number ? 'checked' : ''}> Number</label>
     <label><input type="checkbox" name="internal" ${t && t.internal ? 'checked' : ''}> Internal</label>
     ${existing ? `<label><input type="checkbox" name="active" ${t.active ? 'checked' : ''}> Active</label>` : ''}
   </div>`;
@@ -639,6 +641,16 @@ async function saveProfile(id) {
   } catch (error) { $('err').textContent = error.message; }
 }
 
+async function fillNumbers() {
+  if (!confirm('Read the missing numbers of approved qualifications from their PDF evidence?')) return;
+  try {
+    const d = await adminApi('/api/admin/qualifications/fill-numbers', {method:'POST'});
+    $('err').textContent = '';
+    $('typeStatus').textContent = `Filled ${d.filled.length}.` + (d.unread.length
+      ? ` Not readable (${d.unread.length}): ${d.unread.map(r => `${r.person} ${r.category}`).join(', ')}. Add these with Edit.` : '');
+  } catch (error) { $('err').textContent = error.message; }
+}
+
 async function saveQualificationTypes(event) {
   event.preventDefault();
   const rows = [...document.querySelectorAll('#typeList [data-type-row], #typeNew [data-type-row]')];
@@ -651,6 +663,7 @@ async function saveQualificationTypes(event) {
       requires_evidence: row.querySelector('[name=requires_evidence]').checked,
       requires_start: row.querySelector('[name=requires_start]').checked,
       requires_expiry: row.querySelector('[name=requires_expiry]').checked,
+      requires_number: row.querySelector('[name=requires_number]').checked,
       internal: row.querySelector('[name=internal]').checked,
       active: row.querySelector('[name=active]') ? row.querySelector('[name=active]').checked : true,
     };

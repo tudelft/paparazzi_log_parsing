@@ -18,8 +18,10 @@ import qualifications
 import storage
 
 COLUMNS = ("person", "type", "valid_from", "valid_until", "file")
-TEMPLATE = """person,type,valid_from,valid_until,file
-Example Pilot,A2,2024-01-15,2026-01-14,Example Pilot/A2.pdf
+OPTIONAL = ("number",)  # licence or certificate number; read from a PDF when empty
+TEMPLATE = """person,type,valid_from,valid_until,file,number
+Example Pilot,A2,2024-01-15,2026-01-14,Example Pilot/A2.pdf,
+Example Pilot,FI,2025-03-01,,,
 """
 MAX_ROWS = 500
 MAX_CSV_BYTES = 1_000_000
@@ -43,18 +45,19 @@ def _strip(value):
 
 def parse_csv(text):
     reader = csv.DictReader(io.StringIO(text.lstrip("\ufeff")), strict=True)
-    if (not reader.fieldnames or list(reader.fieldnames) != list(COLUMNS)
-            or len(set(reader.fieldnames)) != len(reader.fieldnames)):
+    names = list(reader.fieldnames or [])
+    if (names[:len(COLUMNS)] != list(COLUMNS) or set(names[len(COLUMNS):]) - set(OPTIONAL)
+            or len(set(names)) != len(names)):
         raise qualifications.QualificationError(
-            "CSV headers must be exactly: " + ",".join(COLUMNS) + ".")
+            "CSV headers must be: " + ",".join(COLUMNS) + " and optionally number.")
     rows = []
     for raw in reader:
         if len(rows) >= MAX_ROWS:
             raise qualifications.QualificationError(f"Import at most {MAX_ROWS} rows at once.")
         if None in raw or any(value is None for value in raw.values()):
             raise qualifications.QualificationError(f"CSV line {reader.line_num}: incorrect number of columns.")
-        body = {key: _strip(raw[key]) for key in COLUMNS}
-        if not any(body.values()):
+        body = {key: _strip(raw.get(key)) for key in COLUMNS + OPTIONAL}
+        if not any(body[key] for key in COLUMNS):
             continue
         body["line"] = reader.line_num
         rows.append(body)
@@ -207,6 +210,10 @@ def resolve_rows(con, rows, files, folder=""):
         if start and until and start > until:
             item["error"] = item["error"] or "Valid from must be on or before Valid until."
         item["valid_from"], item["valid_until"] = start, until
+        try:
+            item["number"] = qualifications.licence_number(raw.get("number"))
+        except qualifications.QualificationError as exc:
+            item["error"] = item["error"] or str(exc)
         if kind and kind["requires_start"] and not start:
             item["error"] = item["error"] or "This qualification requires a Valid from date."
         if kind and kind["requires_expiry"] and not until:
@@ -327,7 +334,7 @@ def plan(con, rows):
 
 def public_rows(rows):
     keys = ("line", "person", "person_name", "new_person", "type", "new_type", "category", "valid_from", "valid_until",
-            "file", "outcome", "error", "warning")
+            "number", "file", "outcome", "error", "warning")
     return [{key: row.get(key) for key in keys} for row in rows]
 
 
@@ -360,7 +367,7 @@ def store_preview(app, con, filename, raw):
     for index, row in enumerate(rows):
         item = {key: row.get(key) for key in (
             "line", "person", "user_id", "new_person", "person_only", "type_id", "new_type", "category",
-            "valid_from", "valid_until",
+            "valid_from", "valid_until", "number",
             "file", "filename", "error", "warning")}
         key = row.get("evidence_key")
         if key and not row.get("error") and row["outcome"] != "skip":
@@ -433,6 +440,8 @@ def commit(app, con, token):
                         staged, compressed, size, _, _ = storage.save_attachment(
                             handle, evidence_root, qualifications.MAX_EVIDENCE_BYTES)
                     mime = qualifications.evidence_format(staged, compressed, filename)
+                    if not row.get("number") and mime == "application/pdf":
+                        row["number"] = qualifications.pdf_number(staged, compressed)
                     destination = evidence_root / (uuid.uuid4().hex + (".gz" if compressed else ".bin"))
                     os.replace(staged, destination)
                     staged = None
@@ -446,10 +455,10 @@ def commit(app, con, token):
                                 (row["user_id"], row["type_id"]))
                 stamp = qualifications._utc_now()
                 sid = con.execute(
-                    "INSERT INTO qualification_submissions(user_id,type_id,valid_from,valid_until,status,submitted_by,"
+                    "INSERT INTO qualification_submissions(user_id,type_id,valid_from,valid_until,number,status,submitted_by,"
                     "submitted_at,reviewed_by,reviewed_at,evidence_path,filename,mime,compressed,size_bytes)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (row["user_id"], row["type_id"], row["valid_from"], row["valid_until"],
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (row["user_id"], row["type_id"], row["valid_from"], row["valid_until"], row.get("number"),
                      "approved" if current else "superseded", g.user["id"], stamp,
                      g.user["id"], stamp, destination.name if destination else None, filename, mime,
                      int(compressed), size)).lastrowid

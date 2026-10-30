@@ -26,6 +26,7 @@ window.QualificationManager = class {
   }
   dateBits(item) {
     const bits = [];
+    if (item.number) bits.push(`Number ${item.number}`);
     if (item.valid_from) bits.push(`Valid from ${item.valid_from}`);
     if (item.valid_until) bits.push(`Valid until ${item.valid_until}`);
     return bits;
@@ -48,8 +49,10 @@ window.QualificationManager = class {
       const dates = this.dateBits(item);
       const tip = [...dates, ...this.metaTip(item)].map(line => this.esc(line)).join('<br>');
       const name = `<strong>${esc(item.category)}</strong>`;
+      const number = item.number ? ` · <span class="mute">${esc(item.number)}</span>`
+        : (item.requires_number && ['pending','approved'].includes(item.status) ? ' · <span class="mute">number missing</span>' : '');
       return `<div style="margin:12px 0">
-      <span title="${esc(dates.join(' · '))}">${item.has_evidence ? fileLink({name, viewable: item.viewable, view: `/api/qualification-submissions/${item.id}/evidence/view`, download: `/api/qualification-submissions/${item.id}/evidence`}) : name}</span> · ${esc(item.status === 'superseded' ? 'archived' : item.status)}${item.internal ? ' · Internal' : ''}${item.expired ? ' (expired)' : ''}
+      <span title="${esc(dates.join(' · '))}">${item.has_evidence ? fileLink({name, viewable: item.viewable, view: `/api/qualification-submissions/${item.id}/evidence/view`, download: `/api/qualification-submissions/${item.id}/evidence`}) : name}</span>${number} · ${esc(item.status === 'superseded' ? 'archived' : item.status)}${item.internal ? ' · Internal' : ''}${item.expired ? ' (expired)' : ''}
       <span class="info-tip"><button type="button" aria-label="Submission details">i</button><span class="tip" role="tooltip">${tip}</span></span>
       <div>${item.has_evidence ? `<span class="mute">${esc(item.filename || 'Evidence')}</span>`
         : `<span class="mute">${item.evidence_deleted_at ? 'Evidence deleted by admin' : 'No evidence attached'}</span>`}
@@ -57,7 +60,7 @@ window.QualificationManager = class {
         ? `<button type="button" data-review="approve" data-id="${item.id}">Approve</button>
            <button type="button" data-review="reject" data-id="${item.id}">Reject</button>` : ''}
         <button type="button" data-review="withdraw" data-id="${item.id}">Withdraw</button>` : ''}
-      ${this.admin && this.editing ? `<button type="button" data-dates="${item.id}">Edit dates</button>
+      ${this.admin && this.editing ? `<button type="button" data-dates="${item.id}">Edit</button>
         ${item.has_evidence ? `<button type="button" data-delete="evidence" data-id="${item.id}">Delete evidence</button>` : ''}
         <button type="button" data-delete="record" data-id="${item.id}">Delete record</button>` : ''}</div></div>`;
     };
@@ -94,6 +97,7 @@ window.QualificationManager = class {
             `<option value="${t.id}">${esc(t.name)}${t.internal ? ' (internal)' : ''}</option>`).join('')}</select></label>
           <label class="field" data-field="valid_from">Valid from <input type="date" name="valid_from"></label>
           <label class="field" data-field="valid_until">Valid until <input type="date" name="valid_until"></label>
+          <label class="field" data-field="number">Number <input name="number" maxlength="40" placeholder="e.g. NLD-RP-… (read from a PDF when empty)"></label>
           <label class="field" data-field="evidence">Evidence <input name="evidence" type="file" accept=".pdf,.jpg,.jpeg,.png"></label>
           <p class="mute" data-proof-hint></p>
           <button type="submit">Submit for approval</button>
@@ -101,13 +105,14 @@ window.QualificationManager = class {
       </dialog>` : '<p class="mute">An admin must first add a qualification type on People.</p>')
         : '<p class="mute">Turn on Edit to upload, review or delete qualifications for this person.</p>'}
       ${this.admin && this.editing ? `<dialog class="entry-dialog" data-dates-dialog aria-labelledby="datesTitle-${this.userId}">
-        <div class="dialog-header"><h2 id="datesTitle-${this.userId}">Edit dates</h2>
+        <div class="dialog-header"><h2 id="datesTitle-${this.userId}">Edit</h2>
           <button type="button" data-close-dates aria-label="Close">Close</button></div>
         <p class="dialog-error" data-dialog-error hidden role="alert"></p>
         <form data-dates-form>
           <label class="field">Valid from <input type="date" name="valid_from"></label>
           <label class="field">Valid until <input type="date" name="valid_until"></label>
-          <button type="submit">Save dates</button>
+          <label class="field">Number <input name="number" maxlength="40"></label>
+          <button type="submit">Save</button>
         </form>
       </dialog>` : ''}
       ${this.admin ? `<details class="help-text"><summary>Qualification history (admins only)</summary>
@@ -130,7 +135,7 @@ window.QualificationManager = class {
         event.preventDefault();
         const f = event.target.elements;
         this.mutate(`/api/qualification-submissions/${datesDialog.dataset.id}`, {method:'PUT',
-          headers:{'Content-Type':'application/json'}, body:JSON.stringify({valid_from: f.valid_from.value, valid_until: f.valid_until.value})});
+          headers:{'Content-Type':'application/json'}, body:JSON.stringify({valid_from: f.valid_from.value, valid_until: f.valid_until.value, number: f.number.value})});
       };
     }
     this.element.querySelectorAll('[data-delete]').forEach(button => {
@@ -153,6 +158,8 @@ window.QualificationManager = class {
         };
         show('valid_from', type.requires_start);
         show('valid_until', type.requires_expiry);
+        form.querySelector('[data-field="number"]').hidden = !type.requires_number;
+        if (!type.requires_number) form.elements.number.value = '';
         show('evidence', true);
         form.elements.evidence.required = !!type.requires_evidence;
         this.element.querySelector('[data-proof-hint]').textContent =
@@ -180,6 +187,7 @@ window.QualificationManager = class {
           const dates = [];
           if (detail.valid_from) dates.push(`Valid from ${detail.valid_from}`);
           if (detail.valid_until) dates.push(`Valid until ${detail.valid_until}`);
+          if (detail.number) dates.push(`Number ${detail.number}`);
           return `${e.created_at} · ${e.actor || 'former user'} · ${e.action.replaceAll('-', ' ')}`
             + `\n${detail.category || 'Qualification'}${dates.length ? ' · ' + dates.join(' · ') : ''}`
             + (typeof detail.has_evidence === 'boolean' ? ` · ${detail.has_evidence ? 'evidence attached' : 'no evidence attached'}` : '')
@@ -216,15 +224,16 @@ window.QualificationManager = class {
     return this.mutate(`/api/qualification-submissions/${id}/review`,
       {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action})});
   }
-  // Small dialog with date pickers; an empty field clears that date (the type may require it).
+  // Small dialog with the dates and the number; an empty field clears it (the type may require it).
   editDates(item) {
     const dialog = this.element.querySelector('[data-dates-dialog]');
     if (!dialog || !item) return;
     dialog.dataset.id = item.id;
-    dialog.querySelector('h2').textContent = `Edit dates · ${item.category}`;
+    dialog.querySelector('h2').textContent = `Edit · ${item.category}`;
     const f = dialog.querySelector('[data-dates-form]').elements;
     f.valid_from.value = item.valid_from || '';
     f.valid_until.value = item.valid_until || '';
+    f.number.value = item.number || '';
     this.error('');
     dialog.showModal();
   }

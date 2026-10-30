@@ -821,7 +821,7 @@ def user_public(u):
 
 @app.after_request
 def no_cache_pages(resp):
-    if request.path in ("/api/people-directory", "/api/admin/people", "/api/people-pic-flights") or request.path.startswith((
+    if request.path in ("/api/people-directory", "/api/admin/people", "/api/people-pic-flights", "/api/pilots") or request.path.startswith((
             "/api/detail/people/", "/api/users/", "/api/qualification-", "/api/admin/qualification-", "/api/admin/users/")):
         resp.headers["Cache-Control"] = "private, no-store"
     if resp.mimetype == "text/html" or request.path in ("/theme.css", "/theme.js", "/attachments.js",
@@ -863,7 +863,8 @@ def user_for_key(key):
         return None
     con = conn()
     h = hashlib.sha256(key.encode()).hexdigest()
-    row = con.execute("SELECT k.id AS key_id, k.last_used_at AS key_used, u.* FROM api_keys k JOIN users u ON u.id = k.user_id"
+    row = con.execute("SELECT k.id AS key_id, k.last_used_at AS key_used, k.read_only AS key_read_only, u.*"
+                      " FROM api_keys k JOIN users u ON u.id = k.user_id"
                       " WHERE k.key_hash=? AND u.is_active=1 AND u.is_external=0", (h,)).fetchone()
     if row is None:
         return None
@@ -894,6 +895,8 @@ def require_login():
         user = user_for_key(auth[7:].strip()) if request.path.startswith("/api/") else None
         if user is None:
             return jsonify(error="invalid API key"), 401
+        if user["key_read_only"] and request.method not in ("GET", "HEAD"):
+            return jsonify(error="this API key is read-only"), 403
         g.user, g.via_key = user, True
         return None
     uid = session.get("uid")
@@ -1094,25 +1097,29 @@ def change_password():
 @app.get("/api/keys")
 def list_keys():
     session_required()
-    rows = conn().execute("SELECT id, name, prefix, created_at, last_used_at FROM api_keys WHERE user_id=?"
+    rows = conn().execute("SELECT id, name, prefix, created_at, last_used_at, read_only FROM api_keys WHERE user_id=?"
                           " ORDER BY id DESC", (g.user["id"],))
-    return jsonify([dict(r) for r in rows])
+    return jsonify([dict(r, read_only=bool(r["read_only"])) for r in rows])
 
 
 @app.post("/api/keys")
 def create_key():
     session_required()
-    name = ((request.get_json(silent=True) or {}).get("name") or "").strip()
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
     if not name or len(name) > 60:
         return jsonify(error="give the key a name (max 60 characters)"), 400
+    read_only = body.get("read_only", False)
+    if type(read_only) is not bool:
+        return jsonify(error="read_only must be true or false"), 400
     con = conn()
     if con.execute("SELECT COUNT(*) FROM api_keys WHERE user_id=?", (g.user["id"],)).fetchone()[0] >= 20:
         return jsonify(error="at most 20 keys per user"), 400
     key = API_KEY_PREFIX + secrets.token_urlsafe(32)
-    cur = con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at) VALUES (?,?,?,?,?)",
-                      (g.user["id"], name, hashlib.sha256(key.encode()).hexdigest(), key[:10], now()))
+    cur = con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at, read_only) VALUES (?,?,?,?,?,?)",
+                      (g.user["id"], name, hashlib.sha256(key.encode()).hexdigest(), key[:10], now(), int(read_only)))
     con.commit()
-    return jsonify(id=cur.lastrowid, name=name, key=key)
+    return jsonify(id=cur.lastrowid, name=name, key=key, read_only=read_only)
 
 
 @app.delete("/api/keys/<int:key_id>")
@@ -4261,9 +4268,9 @@ def admin_user_keys(user_id):
     con = conn()
     if not con.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone():
         return jsonify(error="no such user"), 404
-    rows = con.execute("SELECT id,name,prefix,created_at,last_used_at FROM api_keys WHERE user_id=?"
+    rows = con.execute("SELECT id,name,prefix,created_at,last_used_at,read_only FROM api_keys WHERE user_id=?"
                        " ORDER BY id DESC", (user_id,))
-    return jsonify([dict(row) for row in rows])
+    return jsonify([dict(row, read_only=bool(row["read_only"])) for row in rows])
 
 
 @app.delete("/api/admin/users/<int:user_id>/keys/<int:key_id>")
