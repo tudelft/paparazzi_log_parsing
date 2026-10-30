@@ -1,6 +1,7 @@
 function plot_map(f, by, basemap)
 %PLOT_MAP The flown track on a map, coloured by altitude, speed, autopilot mode or battery voltage, with the
-%   flight plan waypoints, the takeoff (green circle) and the landing (square); framed on the flown track.
+%   flight plan waypoints (moved ones as open triangles), the navigation circles and segments (dashed), the
+%   takeoff (green circle) and the landing (square); framed on the flown track.
 %   plot_map(f)                         coloured by height
 %   plot_map(f, 'speed')                'altitude', 'speed', 'mode' or 'battery'
 %   plot_map(f, 'mode', 'streets')      any geobasemap name; default 'satellite' (needs internet)
@@ -55,6 +56,13 @@ function plot_map(f, by, basemap)
         if any(strcmpi(basemap, {'satellite', 'darkwater', 'colorterrain'}))
             label_color = [1 0.95 0.6];
         end
+        for sh = reshape(tr.shapes, 1, [])
+            if strcmp(sh.kind, 'moved')
+                geoplot(ax, sh.lat, sh.lon, '^', 'MarkerSize', 7, 'MarkerEdgeColor', [1 0.85 0], 'LineWidth', 1.2);
+            else
+                geoplot(ax, sh.lat, sh.lon, '--', 'Color', [1 1 1 0.7], 'LineWidth', 1);
+            end
+        end
         for k = 1:numel(tr.waypoints)
             w = tr.waypoints(k);
             geoplot(ax, w.lat, w.lon, '^', 'MarkerSize', 7, 'MarkerFaceColor', [1 0.85 0], 'MarkerEdgeColor', 'k');
@@ -72,6 +80,13 @@ function plot_map(f, by, basemap)
         plot(ax, tr.east, tr.north, '-', 'Color', [0.7 0.7 0.7]);
         hold(ax, 'on');
         scatter(ax, tr.east, tr.north, 12, value, 'filled');
+        for sh = reshape(tr.shapes, 1, [])
+            if strcmp(sh.kind, 'moved')
+                plot(ax, sh.east, sh.north, '^', 'MarkerSize', 7, 'MarkerEdgeColor', [0.8 0.6 0], 'LineWidth', 1.2);
+            else
+                plot(ax, sh.east, sh.north, '--', 'Color', [0.5 0.5 0.5]);
+            end
+        end
         for k = 1:numel(tr.waypoints)
             w = tr.waypoints(k);
             plot(ax, w.east, w.north, 'k^', 'MarkerSize', 7, 'MarkerFaceColor', [1 0.85 0]);

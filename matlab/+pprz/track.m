@@ -7,6 +7,8 @@ function tr = track(f, by)
 %   tr.value, tr.label          the colouring value per point and its label; NaN where it is not logged
 %   tr.names                    for 'mode': the mode name of value k is tr.names{k}
 %   tr.waypoints                struct array name, lat, lon, east, north of the flight plan waypoints
+%   tr.shapes                   navigation circles and segments flown (CIRCLE, SEGMENT) and moved waypoints
+%                               (WP_MOVED_ENU): struct array kind, lat, lon, east, north
     if nargin < 2
         by = 'altitude';
     end
@@ -17,7 +19,8 @@ function tr = track(f, by)
     end
     tr = struct('t', zeros(0, 1), 'lat', [], 'lon', [], 'east', zeros(0, 1), 'north', zeros(0, 1), ...
         'origin', [NaN NaN], 'value', zeros(0, 1), 'label', '', 'names', {{}}, 'source', '', ...
-        'waypoints', struct('name', {}, 'lat', {}, 'lon', {}, 'east', {}, 'north', {}));
+        'waypoints', struct('name', {}, 'lat', {}, 'lon', {}, 'east', {}, 'north', {}), ...
+        'shapes', struct('kind', {}, 'lat', {}, 'lon', {}, 'east', {}, 'north', {}));
     if isfield(fp, 'lat0') && isfield(fp, 'lon0') && isfinite(fp.lat0) && isfinite(fp.lon0)
         tr.origin = [fp.lat0, fp.lon0];
     end
@@ -111,6 +114,45 @@ function tr = track(f, by)
             end
             tr.waypoints(end + 1) = struct('name', label, 'lat', w.lat, 'lon', w.lon, 'east', e, 'north', n);
         end
+    end
+    if ~any(isnan(tr.origin))
+        tr.shapes = shapes(d, tr.origin);
+    end
+end
+
+function out = shapes(d, origin)
+    % Navigation circles, segments and moved waypoints; they are local to the navigation origin (INS_REF).
+    out = struct('kind', {}, 'lat', {}, 'lon', {}, 'east', {}, 'north', {});
+    nav = origin;
+    if pprz.has(d, 'INS_REF') && double(d.INS_REF.lat0(end)) ~= 0
+        nav = double([d.INS_REF.lat0(end), d.INS_REF.lon0(end)]);
+    end
+    pieces = {};
+    if pprz.has(d, 'CIRCLE')
+        c = unique(round(double([d.CIRCLE.center_east, d.CIRCLE.center_north, d.CIRCLE.radius]), 1), 'rows');
+        a = linspace(0, 2 * pi, 73)';
+        for k = 1:min(size(c, 1), 30)
+            pieces(end + 1, :) = {'circle', c(k, 1) + c(k, 3) * cos(a), c(k, 2) + c(k, 3) * sin(a)}; %#ok<AGROW>
+        end
+    end
+    if pprz.has(d, 'SEGMENT')
+        g = d.SEGMENT;
+        sg = unique(round(double([g.segment_east_1, g.segment_north_1, g.segment_east_2, g.segment_north_2]), 1), 'rows');
+        for k = 1:min(size(sg, 1), 30)
+            pieces(end + 1, :) = {'segment', sg(k, [1 3])', sg(k, [2 4])'}; %#ok<AGROW>
+        end
+    end
+    if pprz.has(d, 'WP_MOVED_ENU')
+        m = d.WP_MOVED_ENU;
+        for id = reshape(unique(m.wp_id), 1, [])
+            last = find(m.wp_id == id, 1, 'last');
+            pieces(end + 1, :) = {'moved', double(m.east(last)), double(m.north(last))}; %#ok<AGROW>
+        end
+    end
+    for k = 1:size(pieces, 1)
+        [lat, lon] = global_of(pieces{k, 2}, pieces{k, 3}, nav);
+        [e, n] = local(lat, lon, origin);
+        out(end + 1) = struct('kind', pieces{k, 1}, 'lat', lat, 'lon', lon, 'east', e, 'north', n); %#ok<AGROW>
     end
 end
 
