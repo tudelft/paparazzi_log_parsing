@@ -19,7 +19,8 @@ window.preflightCheckHTML = function (message) {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c =>
     ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
   if (!message.checklist_label) return escape(message.text);
-  return `<span tabindex="0" title="Logged: ${escape(message.text)}">${escape(message.checklist_label)}: ${
+  const help = message.checklist_help ? message.checklist_help + '\n\n' : '';
+  return `<span tabindex="0" title="${escape(help)}Logged: ${escape(message.text)}">${escape(message.checklist_label)}: ${
     window.checklistAnswerHTML(message.checklist_value, message.text)}</span>`;
 };
 

@@ -813,11 +813,16 @@ void for_each_tag(const std::string &x, F cb,
   }
 }
 
-std::map<std::string, std::string> checklist_entries(const std::string &xml)
+// Checklist items of the airframe by name: the item text (whitespace normalized) and its optional help text
+struct ChecklistItem {
+  std::string label, help;
+};
+
+std::map<std::string, ChecklistItem> checklist_entries(const std::string &xml)
 {
-  std::map<std::string, std::string> entries;
+  std::map<std::string, ChecklistItem> entries;
   size_t depth = 0, checklist_depth = 0, item_depth = 0;
-  std::string name, label;
+  std::string name, label, help;
   for_each_tag(xml, [&](const std::string &tag, const XmlAttrs &at, bool closing, bool selfclose) {
     if (closing) {
       if (item_depth && depth == item_depth) {
@@ -831,7 +836,7 @@ std::map<std::string, std::string> checklist_entries(const std::string &xml)
             space = false;
           }
         }
-        if (!name.empty() && !normalized.empty()) { entries[name] = normalized; }
+        if (!name.empty() && !normalized.empty()) { entries[name] = ChecklistItem{normalized, help}; }
         item_depth = 0;
       }
       if (depth == checklist_depth) { checklist_depth = 0; }
@@ -842,6 +847,7 @@ std::map<std::string, std::string> checklist_entries(const std::string &xml)
       if (tag == "item" && checklist_depth && !item_depth) {
         item_depth = depth;
         name = attr_ci(at, "name");
+        help = attr_ci(at, "help");
         label.clear();
       }
     }
@@ -1173,7 +1179,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.9.0";
+constexpr const char *PARSER_VERSION = "1.10.0";
 
 struct GpsClock {
   size_t count = 0;
@@ -2569,7 +2575,7 @@ int main(int argc, char *argv[])
     o << "\n      ]";
 
     // Messages
-    const auto checklist = cf ? checklist_entries(cf->airframe_xml) : std::map<std::string, std::string>();
+    const auto checklist = cf ? checklist_entries(cf->airframe_xml) : std::map<std::string, ChecklistItem>();
     auto emit = [&](const std::vector<const InfoMsg *> &v, size_t skip) {
       bool f1 = true;
       for (const auto *m : v) {
@@ -2577,7 +2583,7 @@ int main(int argc, char *argv[])
           << ", \"text\": " << json_escape(trim(m->text.substr(skip)));
         if (skip) {
           const std::string body = trim(m->text.substr(skip));
-          const std::pair<const std::string, std::string> *match = nullptr;
+          const std::pair<const std::string, ChecklistItem> *match = nullptr;
           for (const auto &entry : checklist) {
             const auto &key = entry.first;
             if (body.compare(0, key.size(), key) == 0 &&
@@ -2585,9 +2591,10 @@ int main(int argc, char *argv[])
                 (!match || key.size() > match->first.size())) { match = &entry; }
           }
           if (match) {
-            o << ", \"checklist_label\": " << json_escape(match->second)
+            o << ", \"checklist_label\": " << json_escape(match->second.label)
               << ", \"checklist_value\": " << json_escape(body.size() == match->first.size() ? "" :
                                                           trim(body.substr(match->first.size() + 1)));
+            if (!match->second.help.empty()) { o << ", \"checklist_help\": " << json_escape(match->second.help); }
           }
         }
         o << "}";

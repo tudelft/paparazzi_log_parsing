@@ -13,7 +13,7 @@ class ParserPreflightTests(unittest.TestCase):
   <item name="pac" type="text">Enter the PAC</item>
   <item name="gcs" type="text">Enter the GCS operator</item>
   <item name="goal" type="text">Goal of the flight</item>
-  <item name="basic law">Location, airspace &amp; weather</item>
+  <item name="basic law" help="NOTAM &amp; wind limits">Location, airspace &amp; weather</item>
   <item name="heading">Check heading</item>
 </checklist>
 </airframe>"""
@@ -37,6 +37,8 @@ class ParserPreflightTests(unittest.TestCase):
         self.assertEqual(checks[0]["checklist_label"], "Enter the PIC")
         self.assertEqual(checks[0]["checklist_value"], "Pilot A")
         self.assertEqual(checks[4]["checklist_label"], "Location, airspace & weather")
+        self.assertEqual(checks[4]["checklist_help"], "NOTAM & wind limits")
+        self.assertNotIn("checklist_help", checks[0])
         self.assertEqual(checks[6]["checklist_value"], "rechecked")
         self.assertNotIn("checklist_label", checks[7])
         self.assertEqual([m["text"] for m in ac["info_messages"]], ["Ordinary message"])
