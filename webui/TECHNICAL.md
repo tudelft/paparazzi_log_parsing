@@ -377,6 +377,11 @@ decoded; comments are ignored and multiline descriptions have normalized whitesp
 The Web UI shows the description and recorded answer, with the original message in a
 focusable tooltip. Unknown keys and logs without definitions retain their original text.
 Repeated events remain separate; unlogged definitions are not presented as completed checks.
+Since parser 1.10.0 an item's `help` attribute is added as `checklist_help` and shown in the item's tooltip
+(a dotted underline marks items with help), and `optional="true"` as `checklist_optional` (an *optional* label).
+Checkbox answers logged as `true`/`false` show as ✓/✗. An item left empty (`key:`) shows as –
+when optional, as a warning `!` when the airframe requires it and as – without a definition; older logs that
+confirmed an item without a value keep ✓.
 No database migration is needed. Existing logs need **Re-parse outdated** to recover crew/goal
 events omitted by older parsers and attach full descriptions; older stored messages remain displayable.
 
