@@ -3,7 +3,7 @@ window.estimatedDateBadge = function (record) {
 };
 
 // A checklist answer as logged by the GCS ("[PFC] key: value"): checkboxes as a check mark or cross, an optional item
-// left empty as skipped and a required one as a warning (optional is undefined when the airframe does not define the
+// left empty as a dash and a required one as a warning (optional is undefined when the airframe does not define the
 // item); older GCS versions logged a confirmed item without any value.
 window.checklistAnswerHTML = function (answer, logged, optional) {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c =>
@@ -15,7 +15,7 @@ window.checklistAnswerHTML = function (answer, logged, optional) {
   if (!/:\s*$/.test(logged || ''))
     return '<span style="color:var(--ok);font-weight:600" title="Confirmed without an answer">✓</span>';
   if (optional === undefined) return '<span class="mute" title="Left empty">–</span>';  // no airframe definition
-  return optional ? '<span class="mute" title="Optional item, left empty">skipped (optional)</span>'
+  return optional ? '<span class="mute" title="Optional item, left empty">–</span>'
     : '<span style="color:var(--warn);font-weight:600" title="Required, but logged without an answer">!</span>';
 };
 

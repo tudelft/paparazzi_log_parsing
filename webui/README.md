@@ -46,7 +46,7 @@ original recording can still be opened or downloaded.
 The **Checklist** tab shows all recorded checklist answers (item, answer, time), including crew and flight goal.
 For Paparazzi logs with embedded checklist definitions, full descriptions replace abbreviations;
 hover over or focus a description to see its help text (dotted underline) and the original message.
-Ticked checkboxes show as ✓, unticked as ✗; optional items left empty as *skipped (optional)*. Older logs need re-parsing
+Ticked checkboxes show as ✓, unticked as ✗; optional items left empty as –. Older logs need re-parsing
 to gain descriptions and previously omitted crew entries.
 
 | Page | What to do |
