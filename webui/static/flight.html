@@ -976,8 +976,9 @@ function renderMisc() {
   $('checksCount').textContent = checks.length ? `· ${checks.length}` : '';
   $('pfc').innerHTML = checks.map(({m, item, answer}) => `<tr><td class="mono" style="white-space:nowrap" title="${esc(m.utc ? fmtTime(m.utc) : '')}">${rel(m.time_s)}</td>
       <td title="${esc((m.checklist_help ? m.checklist_help + '\n\n' : '') + 'Logged: ' + m.text)}">${m.checklist_help
-        ? `<span class="has-help">${esc(item)}</span>` : esc(item)}</td>
-      <td>${window.checklistAnswerHTML(answer, m.text)}</td></tr>`).join('')
+        ? `<span class="has-help">${esc(item)}</span>` : esc(item)}${m.checklist_optional
+        ? ' <span class="mute" style="font-size:12px">optional</span>' : ''}</td>
+      <td>${window.checklistAnswerHTML(answer, m.text, m.checklist_label ? !!m.checklist_optional : undefined)}</td></tr>`).join('')
     || '<tr><td colspan="3" class="mute">No checklist items recorded in this log.</td></tr>';
   const note = D.autopilot_versions_from_gcs
     ? '<div class="mute">The aircraft did not send AUTOPILOT_VERSION; this is the Paparazzi version from the GCS log header.</div>'

@@ -813,9 +813,11 @@ void for_each_tag(const std::string &x, F cb,
   }
 }
 
-// Checklist items of the airframe by name: the item text (whitespace normalized) and its optional help text
+// Checklist items of the airframe by name: the item text (whitespace normalized), its optional help text and whether
+// the item may be left empty (optional="true")
 struct ChecklistItem {
   std::string label, help;
+  bool optional = false;
 };
 
 std::map<std::string, ChecklistItem> checklist_entries(const std::string &xml)
@@ -823,6 +825,7 @@ std::map<std::string, ChecklistItem> checklist_entries(const std::string &xml)
   std::map<std::string, ChecklistItem> entries;
   size_t depth = 0, checklist_depth = 0, item_depth = 0;
   std::string name, label, help;
+  bool optional = false;
   for_each_tag(xml, [&](const std::string &tag, const XmlAttrs &at, bool closing, bool selfclose) {
     if (closing) {
       if (item_depth && depth == item_depth) {
@@ -836,7 +839,7 @@ std::map<std::string, ChecklistItem> checklist_entries(const std::string &xml)
             space = false;
           }
         }
-        if (!name.empty() && !normalized.empty()) { entries[name] = ChecklistItem{normalized, help}; }
+        if (!name.empty() && !normalized.empty()) { entries[name] = ChecklistItem{normalized, help, optional}; }
         item_depth = 0;
       }
       if (depth == checklist_depth) { checklist_depth = 0; }
@@ -848,6 +851,7 @@ std::map<std::string, ChecklistItem> checklist_entries(const std::string &xml)
         item_depth = depth;
         name = attr_ci(at, "name");
         help = attr_ci(at, "help");
+        optional = attr_ci(at, "optional") == "true";
         label.clear();
       }
     }
@@ -2595,6 +2599,7 @@ int main(int argc, char *argv[])
               << ", \"checklist_value\": " << json_escape(body.size() == match->first.size() ? "" :
                                                           trim(body.substr(match->first.size() + 1)));
             if (!match->second.help.empty()) { o << ", \"checklist_help\": " << json_escape(match->second.help); }
+            if (match->second.optional) { o << ", \"checklist_optional\": true"; }
           }
         }
         o << "}";

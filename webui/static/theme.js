@@ -3,16 +3,20 @@ window.estimatedDateBadge = function (record) {
 };
 
 // A checklist answer as logged by the GCS ("[PFC] key: value"): checkboxes as a check mark or cross, an optional item
-// left empty as a dash; older GCS versions logged a confirmed item without any value.
-window.checklistAnswerHTML = function (answer, logged) {
+// left empty as skipped and a required one as a warning (optional is undefined when the airframe does not define the
+// item); older GCS versions logged a confirmed item without any value.
+window.checklistAnswerHTML = function (answer, logged, optional) {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c =>
     ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
   const value = String(answer ?? '').trim();
   if (/^true$/i.test(value)) return '<span style="color:var(--ok);font-weight:600" title="Checked">✓</span>';
   if (/^false$/i.test(value)) return '<span style="color:var(--err);font-weight:600" title="Not checked">✗</span>';
   if (value) return escape(value);
-  return /:\s*$/.test(logged || '') ? '<span class="mute" title="Left empty">–</span>'
-    : '<span style="color:var(--ok);font-weight:600" title="Confirmed without an answer">✓</span>';
+  if (!/:\s*$/.test(logged || ''))
+    return '<span style="color:var(--ok);font-weight:600" title="Confirmed without an answer">✓</span>';
+  if (optional === undefined) return '<span class="mute" title="Left empty">–</span>';  // no airframe definition
+  return optional ? '<span class="mute" title="Optional item, left empty">skipped (optional)</span>'
+    : '<span style="color:var(--warn);font-weight:600" title="Required, but logged without an answer">!</span>';
 };
 
 window.preflightCheckHTML = function (message) {
@@ -21,7 +25,7 @@ window.preflightCheckHTML = function (message) {
   if (!message.checklist_label) return escape(message.text);
   const help = message.checklist_help ? message.checklist_help + '\n\n' : '';
   return `<span tabindex="0" title="${escape(help)}Logged: ${escape(message.text)}">${escape(message.checklist_label)}: ${
-    window.checklistAnswerHTML(message.checklist_value, message.text)}</span>`;
+    window.checklistAnswerHTML(message.checklist_value, message.text, !!message.checklist_optional)}</span>`;
 };
 
 // How an operator is shown everywhere, and where a logbook entry's operator comes from (operators.py).

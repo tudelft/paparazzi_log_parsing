@@ -15,16 +15,17 @@ class ParserPreflightTests(unittest.TestCase):
   <item name="goal" type="text">Goal of the flight</item>
   <item name="basic law" help="NOTAM &amp; wind limits">Location, airspace &amp; weather</item>
   <item name="heading">Check heading</item>
+  <item name="special" type="text" optional="true">Special conditions</item>
 </checklist>
 </airframe>"""
         bodies = [
             "pic: Pilot A", "pac: Pilot B", "gcs: Operator C", "goal: Test flight",
-            "basic law: done", "heading: done", "heading: rechecked", "unknown: retained",
+            "basic law: done", "heading: done", "heading: rechecked", "unknown: retained", "special:",
         ]
         doc = parse_simulation_fixture(
             {5: ("Aircraft", airframe)},
             [f'{i + 1} 5 INFO_MSG "[PFC] {body}"\n' for i, body in enumerate(bodies)]
-            + ['9 5 INFO_MSG "Ordinary message"\n'],
+            + ['10 5 INFO_MSG "Ordinary message"\n'],
         )
         ac = doc["aircraft"][0]
         self.assertEqual(ac["mission"], {
@@ -32,13 +33,15 @@ class ParserPreflightTests(unittest.TestCase):
         })
         checks = ac["preflight_checks"]
         self.assertEqual([m["text"] for m in checks], bodies)
-        self.assertEqual([m["time_s"] for m in checks], list(range(1, 9)))
+        self.assertEqual([m["time_s"] for m in checks], list(range(1, 10)))
         self.assertTrue(all(m["utc"] for m in checks))
         self.assertEqual(checks[0]["checklist_label"], "Enter the PIC")
         self.assertEqual(checks[0]["checklist_value"], "Pilot A")
         self.assertEqual(checks[4]["checklist_label"], "Location, airspace & weather")
         self.assertEqual(checks[4]["checklist_help"], "NOTAM & wind limits")
         self.assertNotIn("checklist_help", checks[0])
+        self.assertEqual((checks[8]["checklist_optional"], checks[8]["checklist_value"]), (True, ""))
+        self.assertNotIn("checklist_optional", checks[0])
         self.assertEqual(checks[6]["checklist_value"], "rechecked")
         self.assertNotIn("checklist_label", checks[7])
         self.assertEqual([m["text"] for m in ac["info_messages"]], ["Ordinary message"])
