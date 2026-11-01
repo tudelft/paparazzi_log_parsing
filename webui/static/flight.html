@@ -68,7 +68,6 @@
   .note { white-space:pre-wrap; }
   table.checklist { min-width:0; }
   table.checklist td:nth-child(2) { white-space:normal; max-width:520px; padding-right:24px; }
-  .done { color:var(--ok); font-weight:600; }
   .link-button { background:none; border:0; padding:0; color:var(--acc); cursor:pointer; font:inherit; }
   .link-button:hover, .link-button:focus-visible { text-decoration:underline; }
   .link-button:disabled { color:var(--mute); cursor:default; }
@@ -976,7 +975,7 @@ function renderMisc() {
   $('checksCount').textContent = checks.length ? `· ${checks.length}` : '';
   $('pfc').innerHTML = checks.map(({m, item, answer}) => `<tr><td class="mono" style="white-space:nowrap" title="${esc(m.utc ? fmtTime(m.utc) : '')}">${rel(m.time_s)}</td>
       <td title="Logged: ${esc(m.text)}">${esc(item)}</td>
-      <td>${answer ? esc(answer) : '<span class="done" title="Confirmed without an answer">✓</span>'}</td></tr>`).join('')
+      <td>${window.checklistAnswerHTML(answer, m.text)}</td></tr>`).join('')
     || '<tr><td colspan="3" class="mute">No checklist items recorded in this log.</td></tr>';
   const note = D.autopilot_versions_from_gcs
     ? '<div class="mute">The aircraft did not send AUTOPILOT_VERSION; this is the Paparazzi version from the GCS log header.</div>'

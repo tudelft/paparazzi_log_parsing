@@ -2,12 +2,25 @@ window.estimatedDateBadge = function (record) {
   return record.date_estimated ? ' <span class="badge date-unknown" title="GPS time-of-week plus firmware commit; the calendar week is uncertain">estimated date</span>' : '';
 };
 
+// A checklist answer as logged by the GCS ("[PFC] key: value"): checkboxes as a check mark or cross, an optional item
+// left empty as a dash; older GCS versions logged a confirmed item without any value.
+window.checklistAnswerHTML = function (answer, logged) {
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
+  const value = String(answer ?? '').trim();
+  if (/^true$/i.test(value)) return '<span style="color:var(--ok);font-weight:600" title="Checked">✓</span>';
+  if (/^false$/i.test(value)) return '<span style="color:var(--err);font-weight:600" title="Not checked">✗</span>';
+  if (value) return escape(value);
+  return /:\s*$/.test(logged || '') ? '<span class="mute" title="Left empty">–</span>'
+    : '<span style="color:var(--ok);font-weight:600" title="Confirmed without an answer">✓</span>';
+};
+
 window.preflightCheckHTML = function (message) {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c =>
     ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
   if (!message.checklist_label) return escape(message.text);
-  const value = message.checklist_value;
-  return `<span tabindex="0" title="Logged: ${escape(message.text)}">${escape(message.checklist_label)}${value ? ': ' + escape(value) : ''}</span>`;
+  return `<span tabindex="0" title="Logged: ${escape(message.text)}">${escape(message.checklist_label)}: ${
+    window.checklistAnswerHTML(message.checklist_value, message.text)}</span>`;
 };
 
 // How an operator is shown everywhere, and where a logbook entry's operator comes from (operators.py).
