@@ -6092,8 +6092,9 @@ def download(log_id, kind):
         return jsonify(error="Uncompressed legacy storage is unsupported; delete and re-upload this test log."), 409
     headers = {"Content-Disposition": f'attachment; filename="{safe_filename(Path(rel).name[:-3])}"',
                "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"}
-    return Response(storage.chunks(STORAGE_DIR / rel, compressed=True),
-                    mimetype="application/octet-stream", headers=headers)
+    response = storage.send_stored(STORAGE_DIR / rel, True, "application/octet-stream")
+    response.headers.update(headers)
+    return response
 
 
 class _Sink:

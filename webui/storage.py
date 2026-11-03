@@ -7,6 +7,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from flask import Response, request, send_file
+
 CHUNK = 1 << 20
 
 
@@ -65,6 +67,21 @@ def chunks(path, compressed=False):
     with (gzip.open(path, "rb") if compressed else open(path, "rb")) as source:
         while chunk := source.read(CHUNK):
             yield chunk
+
+
+def send_stored(path, compressed, mimetype):
+    """Response with a stored file. A gzip-stored file goes out as is with Content-Encoding: gzip when the client
+    accepts it (browsers decompress while saving, so the transfer is the compressed size); other clients get it
+    decompressed. Range requests are only answered for files stored uncompressed."""
+    if not compressed:
+        return send_file(path, mimetype=mimetype, conditional=True)
+    if request.accept_encodings["gzip"]:
+        response = send_file(path, mimetype=mimetype, conditional=False, etag=False)
+        response.headers["Content-Encoding"] = "gzip"
+    else:
+        response = Response(chunks(path, compressed=True), mimetype=mimetype)
+    response.headers["Vary"] = "Accept-Encoding"
+    return response
 
 
 def save_attachment(stream, folder, limit):

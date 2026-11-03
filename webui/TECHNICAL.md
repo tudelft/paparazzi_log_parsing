@@ -500,6 +500,11 @@ Deduplication still hashes the original `.data` bytes. The parser temporarily de
 under `<WEB_DATA>/tmp` and removes it afterwards; allow local free space for one uncompressed pair
 per parse worker. Individual downloads restore the original files; paired downloads stream a compressed
 ZIP containing the original `.data` / `.log`, not nested gzip files.
+Single `.data` / `.log` downloads and gzip-stored attachments go out as stored, with `Content-Encoding: gzip`,
+when the client sends `Accept-Encoding: gzip` (browsers, Python `requests`): the client decompresses while saving,
+so only the compressed size is transferred and the server does not decompress. Other clients (plain `curl`,
+`wget`) get the decompressed file. These compressed responses do not answer Range requests; files stored
+uncompressed (photos, video) still do. Scripts that send `Accept-Encoding: gzip` themselves must decompress.
 Uncompressed legacy log storage is **not supported** by this test-environment change: delete those
 test uploads and re-upload their originals. There is no automatic conversion or destructive reset.
 The database, accounts and paper records do not need to be deleted. Attachments live under
