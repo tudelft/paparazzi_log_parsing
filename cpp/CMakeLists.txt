@@ -26,3 +26,7 @@ add_executable(blackbox_decode ${BLACKBOX_SRC})
 target_include_directories(blackbox_decode PRIVATE blackbox-tools/src)
 target_compile_definitions(blackbox_decode PRIVATE _DEFAULT_SOURCE)
 target_link_libraries(blackbox_decode Threads::Threads m)
+# Vendored upstream code is kept unchanged; silence its two known harmless warnings
+target_compile_options(blackbox_decode PRIVATE
+  $<$<C_COMPILER_ID:GNU>:-Wno-discarded-qualifiers -Wno-unused-result>
+  $<$<C_COMPILER_ID:Clang,AppleClang>:-Wno-incompatible-pointer-types-discards-qualifiers -Wno-unused-result>)
