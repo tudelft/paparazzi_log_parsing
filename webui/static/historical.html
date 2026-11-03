@@ -192,7 +192,8 @@ $('csvFile').onchange = resetImport;
 // What the import will do with logs already on the server (#35): a clear match is linked and then counts once,
 // as the log; other nearby logs of the aircraft are left for a person to link or dismiss in the logbook.
 const logTime = f => esc((f.takeoff_utc || '').slice(11, 16)) + ' ' + esc({onboard_sd:'SD', gcs:'GCS', px4_ulog:'PX4',
-  ardupilot:'ArduPilot', mavlink_tlog:'tlog'}[f.log_type] || '');
+  ardupilot:'ArduPilot', mavlink_tlog:'tlog', betaflight:'Betaflight', indiflight:'INDIFlight',
+  blackbox:'Blackbox'}[f.log_type] || '');
 function logsCell(logs) {
   if (!logs) return '';
   if (logs.linked.length) return 'Linked to ' + logs.linked.map(f => `<a href="/flight/${f.flight_id}">${logTime(f)}</a>`).join(', ');

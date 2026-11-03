@@ -73,7 +73,8 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const TYPE = {onboard_sd: 'SD', gcs: 'GCS', px4_ulog: 'PX4', ardupilot: 'ArduPilot', mavlink_tlog: 'tlog'};
+const TYPE = {onboard_sd: 'SD', gcs: 'GCS', px4_ulog: 'PX4', ardupilot: 'ArduPilot', mavlink_tlog: 'tlog',
+  betaflight: 'Betaflight', indiflight: 'INDIFlight', blackbox: 'Blackbox'};
 const ts = iso => iso && iso.length > 10 ? Date.parse(iso) / 1000 : null;
 const dur = s => s == null ? '' : `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, '0')}s`;
 const time = iso => iso && iso.length > 10 ? iso.slice(11, 19) : '';

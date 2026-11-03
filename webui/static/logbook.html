@@ -585,9 +585,10 @@ function combine(list) {
   return groups.sort((a, b) => (b.flights[0].takeoff_utc || '').localeCompare(a.flights[0].takeoff_utc || ''));
 }
 
-const TYPE_LABEL = {onboard_sd: 'SD', gcs: 'GCS', px4_ulog: 'PX4', ardupilot: 'ArduPilot', mavlink_tlog: 'tlog'};
+const TYPE_LABEL = {onboard_sd: 'SD', gcs: 'GCS', px4_ulog: 'PX4', ardupilot: 'ArduPilot', mavlink_tlog: 'tlog',
+  betaflight: 'Betaflight', indiflight: 'INDIFlight', blackbox: 'Blackbox'};
 const srcLabel = fl => fl.some(f => f.manual_id) ? (fl[0].record_kind === 'daily' ? 'Paper daily total' : 'Paper') + (fl.some(f => f.possible_duplicates?.length) ? ' · possible duplicate' : '')
-  : ['onboard_sd', 'px4_ulog', 'ardupilot', 'mavlink_tlog', 'gcs'].filter(t => fl.some(f => (f.sources || []).some(s => s.log_type === t))).map(t => TYPE_LABEL[t]).join(' + ')
+  : ['onboard_sd', 'px4_ulog', 'ardupilot', 'betaflight', 'indiflight', 'mavlink_tlog', 'gcs'].filter(t => fl.some(f => (f.sources || []).some(s => s.log_type === t))).map(t => TYPE_LABEL[t]).join(' + ')
     + (fl.some(f => f.linked_records?.length) ? ' + Paper' : '') + (fl.some(f => f.conflicts?.some(c => !c.reviewed_by)) ? ' · conflict' : '');
 const verdictMark = f => (f.simulation?.detected ? ' <span class="mute">(Simulation)</span>' : '') + (f.verdict === 'ground' ? ' <span class="mute" title="Probably not a real flight">(ground)</span>'
   : f.verdict === 'uncertain' ? ' <span class="mute" title="Unsure whether this was a real flight">(?)</span>' : '')
