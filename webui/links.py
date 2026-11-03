@@ -6,6 +6,7 @@ Records and logs are never merged or changed: a row in flight_links only says "s
 survive re-parsing (flight ids do not); the takeoff time stored with the link detects a re-parse that numbered the
 flights differently, and such a stale link is ignored instead of attaching to another flight.
 """
+import re
 from datetime import datetime, timezone
 
 AUTO_WINDOW_S = 300        # clear matches: same aircraft, takeoff within 5 min
@@ -14,7 +15,16 @@ STALE_S = 60
 NO_AC_ID = -1              # ac_id is part of the unique key, so NULL is stored as -1
 
 
+# The stored forms of _ts; fromisoformat parses them about ten times faster than strptime, with the same result.
+_PLAIN_ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6}Z|Z)?")
+
+
 def _ts(iso):
+    if isinstance(iso, str) and _PLAIN_ISO.fullmatch(iso):
+        try:
+            return datetime.fromisoformat(iso.removesuffix("Z")).replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            pass
     for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"):
         try:
             return datetime.strptime(iso, fmt).replace(tzinfo=timezone.utc).timestamp()
