@@ -333,7 +333,8 @@ class BlackboxParseTests(unittest.TestCase):
              "quat[0]": "8127", "quat[1]": "0", "quat[2]": "0", "quat[3]": "0"},
         ]
         doc = mav_parse._blackbox_document(path, "abc", 100, headers, rows, path_rate=1)
-        self.assertEqual(doc["parser"]["version"], mav_parse.PARSER_VERSION)
+        self.assertEqual(doc["parser"]["name"], mav_parse.BLACKBOX_PARSER_NAME)
+        self.assertEqual(doc["parser"]["version"], mav_parse.BLACKBOX_PARSER_VERSION)
         self.assertEqual(doc["log"]["type"], mav_parse.LOG_BF)
         ac = doc["aircraft"][0]
         self.assertEqual(ac["name"], "Quad")
@@ -380,6 +381,43 @@ class BlackboxParseTests(unittest.TestCase):
         self.assertAlmostEqual(path[0]["position"]["gps_alt_m"], -34.0)
         self.assertIsNone(path[1]["position"]["gps_alt_m"])
 
+    def test_ekf_range_without_jump_keeps_ekf_and_motor_output(self):
+        headers = {
+            "Product": "Blackbox flight data recorder by Nicholas Sherlock",
+            "Firmware revision": "Indiflight 5.0.0",
+            "Log start datetime": "2026-01-02T12:00:00Z",
+            "Craft name": "Quad",
+            "motorOutput": "0,1000",
+        }
+        rows = [
+            {"time": str(i * 1_000_000), "flightModeFlags": "1", "motor[0]": "500",
+             "ekf_pos[0]": str(v), "ekf_pos[1]": "0", "ekf_pos[2]": "0",
+             "pos[0]": "1000", "pos[1]": "0", "pos[2]": "0"}
+            for i, v in enumerate((-35000, -10000, 10000, 35000))
+        ]
+        doc = mav_parse._blackbox_document(Path("wide.BFL"), "x", 100, headers, rows, 1)
+        norths = [p["ins"]["position_ned_m"]["north"] for p in doc["aircraft"][0]["flights"][0]["path"]]
+        self.assertAlmostEqual(norths[0], -35.0)
+        self.assertAlmostEqual(norths[-1], 35.0)
+        self.assertAlmostEqual(doc["aircraft"][0]["flights"][0]["path"][0]["actuators"][0], 0.5)
+
+    def test_state_flags_arm_when_box_is_off(self):
+        headers = {
+            "Product": "Blackbox flight data recorder by Nicholas Sherlock",
+            "Firmware revision": "Betaflight 4.5.0",
+            "Log start datetime": "2026-01-02T12:00:00Z",
+            "Craft name": "Quad",
+        }
+        rows = [
+            {"time": "0", "flightModeFlags": "0", "stateFlags": "1",
+             "GPS_coord[0]": "51.99", "GPS_coord[1]": "4.37", "GPS_numSat": "10"},
+            {"time": "2000000", "flightModeFlags": "0", "stateFlags": "0",
+             "GPS_coord[0]": "51.9902", "GPS_coord[1]": "4.3702", "GPS_numSat": "10"},
+        ]
+        doc = mav_parse._blackbox_document(Path("arm.bfl"), "x", 100, headers, rows, 1)
+        self.assertGreaterEqual(len(doc["aircraft"][0]["flights"]), 1)
+        self.assertAlmostEqual(doc["aircraft"][0]["flights"][0]["duration_s"], 2.0)
+
     @unittest.skipUnless(Path(mav_parse.blackbox_decode_bin()).is_file(), "blackbox_decode not built")
     def test_tiny_indiflight_file(self):
         path = Path(__file__).parent / "fixtures" / "blackbox_tiny.bfl"
@@ -387,6 +425,17 @@ class BlackboxParseTests(unittest.TestCase):
         self.assertEqual(doc["log"]["type"], mav_parse.LOG_INDI)
         self.assertTrue(doc["aircraft"][0]["flights"])
         self.assertTrue(any("Indiflight" in (m["text"] or "") for m in doc["aircraft"][0]["info_messages"]))
+        self.assertEqual(doc["parser"]["name"], mav_parse.BLACKBOX_PARSER_NAME)
+
+    @unittest.skipUnless(Path(mav_parse.blackbox_decode_bin()).is_file(), "blackbox_decode not built")
+    def test_concatenated_file_decodes_each_log(self):
+        src = Path(__file__).parent / "fixtures" / "blackbox_tiny.bfl"
+        with tempfile.TemporaryDirectory() as d:
+            two = Path(d) / "two.bfl"
+            two.write_bytes(src.read_bytes() + src.read_bytes())
+            doc = mav_parse.parse(two, path_rate=5)
+        self.assertEqual(doc["log"]["type"], mav_parse.LOG_INDI)
+        self.assertGreaterEqual(len(doc["aircraft"][0]["flights"]), 2)
 
 
 class UploadGroupingTests(AppTests):

@@ -4401,15 +4401,20 @@ def current_version():
 def expected_parser_version(parser_name):
     if parser_name == mav_parse.PARSER_NAME:
         return mav_parse.PARSER_VERSION
+    if parser_name == mav_parse.BLACKBOX_PARSER_NAME:
+        return mav_parse.BLACKBOX_PARSER_VERSION
     return current_version()
 
 
 def outdated_sql():
     """Match logs whose stored parser version is not the one that would parse them today."""
     return ("((COALESCE(parser_name,'') = ? AND COALESCE(parser_version,'') != ?)"
-            " OR (COALESCE(parser_name,'') != ? AND COALESCE(parser_version,'') != ?))",
+            " OR (COALESCE(parser_name,'') = ? AND COALESCE(parser_version,'') != ?)"
+            " OR (COALESCE(parser_name,'') != ? AND COALESCE(parser_name,'') != ?"
+            " AND COALESCE(parser_version,'') != ?))",
             (mav_parse.PARSER_NAME, mav_parse.PARSER_VERSION,
-             mav_parse.PARSER_NAME, current_version() or ""))
+             mav_parse.BLACKBOX_PARSER_NAME, mav_parse.BLACKBOX_PARSER_VERSION,
+             mav_parse.PARSER_NAME, mav_parse.BLACKBOX_PARSER_NAME, current_version() or ""))
 
 
 # File clocks before this year are treated as missing (Unix epoch 1970 / GPS epoch 1980).

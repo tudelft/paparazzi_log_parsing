@@ -242,7 +242,7 @@ def check():
             errors.append(f"parser does not run: {e}")
     decoder = str(env_path("BLACKBOX_DECODE"))
     if not (os.path.isfile(decoder) and os.access(decoder, os.X_OK)):
-        errors.append(f"Blackbox decoder not found or not executable: {decoder} (build it in ../cpp)")
+        warnings.append(f"Blackbox decoder not found or not executable: {decoder} (build it in ../cpp)")
 
     data = env_path("WEB_DATA")
     if not _writable(data):
