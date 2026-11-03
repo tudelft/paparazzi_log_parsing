@@ -4,6 +4,7 @@ import struct
 import tempfile
 import unittest
 import zipfile
+from datetime import datetime
 from pathlib import Path
 
 import mav_parse
@@ -427,15 +428,59 @@ class BlackboxParseTests(unittest.TestCase):
         self.assertTrue(any("Indiflight" in (m["text"] or "") for m in doc["aircraft"][0]["info_messages"]))
         self.assertEqual(doc["parser"]["name"], mav_parse.BLACKBOX_PARSER_NAME)
 
+    def test_headers_at_log_offset(self):
+        first = (b"H Product:Blackbox flight data recorder by Nicholas Sherlock\n"
+                 b"H Log start datetime:2026-01-01T00:00:00Z\n"
+                 b"H motorOutput:158,2048\nI\n")
+        second = (b"H Product:Blackbox flight data recorder by Nicholas Sherlock\n"
+                  b"H Log start datetime:2026-01-01T01:00:00Z\n"
+                  b"H motorOutput:0,1000\nI\n")
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "two.bfl"
+            path.write_bytes(first + second)
+            h0 = mav_parse._blackbox_headers(path, 0)
+            h1 = mav_parse._blackbox_headers(path, len(first))
+        self.assertEqual(h0["motorOutput"], "158,2048")
+        self.assertEqual(h1["motorOutput"], "0,1000")
+        self.assertEqual(h0["Log start datetime"], "2026-01-01T00:00:00Z")
+        self.assertEqual(h1["Log start datetime"], "2026-01-01T01:00:00Z")
+
     @unittest.skipUnless(Path(mav_parse.blackbox_decode_bin()).is_file(), "blackbox_decode not built")
     def test_concatenated_file_decodes_each_log(self):
         src = Path(__file__).parent / "fixtures" / "blackbox_tiny.bfl"
+        stamp = b"H Log start datetime:2026-10-29T16:45:12.347+00:00"
+        later = b"H Log start datetime:2026-10-29T17:45:12.347+00:00"
+        raw = src.read_bytes()
+        self.assertIn(stamp, raw)
         with tempfile.TemporaryDirectory() as d:
             two = Path(d) / "two.bfl"
-            two.write_bytes(src.read_bytes() + src.read_bytes())
+            two.write_bytes(raw + raw.replace(stamp, later, 1))
             doc = mav_parse.parse(two, path_rate=5)
-        self.assertEqual(doc["log"]["type"], mav_parse.LOG_INDI)
-        self.assertGreaterEqual(len(doc["aircraft"][0]["flights"]), 2)
+        flights = doc["aircraft"][0]["flights"]
+        self.assertGreaterEqual(len(flights), 2)
+        self.assertAlmostEqual(
+            datetime.fromisoformat(flights[1]["takeoff"]["utc"].replace("Z", "+00:00")).timestamp()
+            - datetime.fromisoformat(flights[0]["takeoff"]["utc"].replace("Z", "+00:00")).timestamp(),
+            3600, delta=120)
+        self.assertTrue(any("Log 2 Log start datetime:" in (m["text"] or "")
+                            and "2026-10-29T17:45:12.347" in (m["text"] or "")
+                            for m in doc["aircraft"][0]["info_messages"]))
+
+    @unittest.skipUnless(Path(mav_parse.blackbox_decode_bin()).is_file(), "blackbox_decode not built")
+    def test_decoder_hang_times_out(self):
+        src = Path(__file__).parent / "fixtures" / "blackbox_tiny.bfl"
+        with tempfile.TemporaryDirectory() as d:
+            hang = Path(d) / "hang"
+            hang.write_text("#!/bin/sh\nexec sleep 30\n")
+            hang.chmod(0o755)
+            old = mav_parse.BLACKBOX_DECODE_TIMEOUT_S
+            mav_parse.BLACKBOX_DECODE_TIMEOUT_S = 0.2
+            try:
+                with self.assertRaises(RuntimeError) as ctx:
+                    list(mav_parse._iter_blackbox_csv(src, str(hang)))
+            finally:
+                mav_parse.BLACKBOX_DECODE_TIMEOUT_S = old
+        self.assertIn("timed out", str(ctx.exception).lower())
 
 
 class UploadGroupingTests(AppTests):

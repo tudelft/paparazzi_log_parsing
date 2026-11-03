@@ -13,7 +13,7 @@ import os
 import re
 import struct
 import subprocess
-import time
+import threading
 from bisect import bisect_right
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,7 +21,8 @@ from pathlib import Path
 PARSER_NAME = "mav-log"
 PARSER_VERSION = "1.0.3"
 BLACKBOX_PARSER_NAME = "blackbox"
-BLACKBOX_PARSER_VERSION = "1.0.0"
+BLACKBOX_PARSER_VERSION = "1.0.1"
+BLACKBOX_DECODE_TIMEOUT_S = 300
 
 LOG_PX4 = "px4_ulog"
 LOG_AP = "ardupilot"
@@ -1392,9 +1393,11 @@ def _parse_tlog(path, digest, size, path_rate):
 # ---------------------------------------------------------------------------------------------------------------------
 # Betaflight / INDIFlight Blackbox (.bfl / .bbl)
 # ---------------------------------------------------------------------------------------------------------------------
-def _blackbox_headers(path):
+def _blackbox_headers(path, offset=0):
     headers = {}
     with open(path, "rb") as handle:
+        if offset:
+            handle.seek(offset)
         while True:
             line = handle.readline()
             if not line:
@@ -1552,8 +1555,8 @@ def _blackbox_indexes(stderr):
     for line in stderr.splitlines():
         parts = line.split()
         if parts and parts[0].isdigit() and len(parts) >= 3:
-            out.append(int(parts[0]))
-    return out or [1]
+            out.append((int(parts[0]), int(parts[1]), int(parts[2])))
+    return out or [(1, 0, 0)]
 
 
 def _blackbox_decode_cmd(decoder, path, index=None):
@@ -1574,11 +1577,27 @@ def _iter_blackbox_csv(path, decoder, index=None):
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     except OSError as exc:
         raise RuntimeError(f"Blackbox decoder failed to start: {exc}") from exc
+    timed_out = threading.Event()
+
+    def _kill():
+        timed_out.set()
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+    timer = threading.Timer(BLACKBOX_DECODE_TIMEOUT_S, _kill)
+    timer.daemon = True
+    timer.start()
     try:
         header_line = proc.stdout.readline()
+        if timed_out.is_set():
+            raise RuntimeError(f"Blackbox decoder timed out on {Path(path).name}")
         if not header_line.strip():
             err = (proc.stderr.read() or "").strip()
             proc.wait(timeout=30)
+            if timed_out.is_set():
+                raise RuntimeError(f"Blackbox decoder timed out on {Path(path).name}")
             indexes = _blackbox_indexes(err) if index is None else None
             if indexes:
                 yield from ()
@@ -1586,18 +1605,19 @@ def _iter_blackbox_csv(path, decoder, index=None):
             raise RuntimeError(err or f"Blackbox decoder exit code {proc.returncode}")
         names = _norm_csv_fields(next(csv.reader([header_line], skipinitialspace=True)))
         idx_map = {name: i for i, name in enumerate(names) if name in BLACKBOX_KEEP}
-        deadline = time.monotonic() + 300
         for line in proc.stdout:
-            if time.monotonic() > deadline:
-                proc.kill()
+            if timed_out.is_set():
                 raise RuntimeError(f"Blackbox decoder timed out on {Path(path).name}")
             parts = next(csv.reader([line], skipinitialspace=True))
             yield {name: parts[i] for name, i in idx_map.items() if i < len(parts)}
         err = (proc.stderr.read() or "").strip()
         proc.wait(timeout=30)
+        if timed_out.is_set():
+            raise RuntimeError(f"Blackbox decoder timed out on {Path(path).name}")
         if proc.returncode not in (0, None):
             raise RuntimeError(err or f"Blackbox decoder exit code {proc.returncode}")
     finally:
+        timer.cancel()
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=5)
@@ -1613,16 +1633,16 @@ def _blackbox_row_streams(path, decoder):
     try:
         first = next(stream)
     except StopIteration as stop:
-        indexes = stop.value
-        if indexes:
-            for index in indexes:
-                yield _iter_blackbox_csv(path, decoder, index)
+        listing = stop.value
+        if listing:
+            for index, offset, _size in listing:
+                yield _blackbox_headers(path, offset), _iter_blackbox_csv(path, decoder, index)
             return
         raise RuntimeError(f"Blackbox log {Path(path).name} contained no frames") from stop
     def with_first():
         yield first
         yield from stream
-    yield with_first()
+    yield _blackbox_headers(path), with_first()
 
 
 def _gps_point(row):
@@ -1769,24 +1789,32 @@ def _blackbox_collect(headers, rows, path_rate, indi):
     return samples, armed, t_first, t_last
 
 
-def _blackbox_finish(path, digest, size, headers, flights, t_first, t_last, path_rate):
+def _blackbox_finish(path, digest, size, headers, flights, t_first, t_last, path_rate,
+                     all_headers=None):
     if not flights:
         raise RuntimeError(f"Blackbox log {Path(path).name} contained no frames")
     for i, flight in enumerate(flights, start=1):
         flight["flight"] = i
+    groups = all_headers or [headers]
     kind, basis = _blackbox_kind(headers)
     t0_epoch = _blackbox_epoch(headers)
-    craft = (headers.get("Craft name") or "").strip()
+    craft = next(((h.get("Craft name") or "").strip() for h in groups if (h.get("Craft name") or "").strip()), "")
     name = craft or Path(path).stem
-    revision = headers.get("Firmware revision") or headers.get("Firmware type") or basis
-    versions = [revision] if revision else []
+    versions = []
+    for h in groups:
+        revision = h.get("Firmware revision") or h.get("Firmware type") or basis
+        if revision and revision not in versions:
+            versions.append(revision)
     info, preflight = [], []
-    epoch = (lambda t: t0_epoch + t if t0_epoch is not None else None)
-    for key in ("Firmware type", "Firmware revision", "Firmware date", "Board information",
-                "Craft name", "Log start datetime"):
-        value = headers.get(key)
-        if value:
-            _push_msg(info, 0, epoch(0) if t0_epoch is not None else None, f"{key}: {value}")
+    for i, h in enumerate(groups):
+        log_epoch = _blackbox_epoch(h)
+        prefix = f"Log {i + 1} " if len(groups) > 1 else ""
+        for key in ("Firmware type", "Firmware revision", "Firmware date", "Board information",
+                    "Craft name", "Log start datetime"):
+            value = h.get(key)
+            if value:
+                label = f"{prefix}{key}: {value}" if prefix and key == "Log start datetime" else f"{key}: {value}"
+                _push_msg(info, 0, log_epoch, label)
     return _document(path, digest, size, kind, basis, path_rate, t0_epoch, t_first, t_last,
                      1, name, versions, flights, info, preflight,
                      parser_name=BLACKBOX_PARSER_NAME, parser_version=BLACKBOX_PARSER_VERSION)
@@ -1801,21 +1829,34 @@ def _blackbox_document(path, digest, size, headers, rows, path_rate):
 
 
 def _parse_blackbox(path, digest, size, path_rate, decoder=None):
-    headers = _blackbox_headers(path)
-    if "Blackbox" not in headers.get("Product", ""):
+    first = _blackbox_headers(path)
+    if "Blackbox" not in first.get("Product", ""):
         raise RuntimeError(f"not a Blackbox log: {Path(path).name}")
-    kind, _basis = _blackbox_kind(headers)
-    t0_epoch = _blackbox_epoch(headers)
-    flights, t_first, t_last = [], None, 0.0
-    for rows in _blackbox_row_streams(path, decoder):
+    flights, groups = [], []
+    first_epoch = span_end = duration = None
+    for headers, rows in _blackbox_row_streams(path, decoder):
+        groups.append(headers)
+        kind, _basis = _blackbox_kind(headers)
+        epoch = _blackbox_epoch(headers)
         samples, armed, tf, tl = _blackbox_collect(headers, rows, path_rate, kind == LOG_INDI)
         if not samples:
             continue
-        flights.extend(_split_flights(samples, armed, t0_epoch, path_rate))
-        t_first = 0.0 if t_first is None else t_first
+        flights.extend(_split_flights(samples, armed, epoch, path_rate))
+        if first_epoch is None:
+            first_epoch = epoch
+        if epoch is not None and tl is not None:
+            end = epoch + tl
+            span_end = end if span_end is None else max(span_end, end)
         if tf is not None and tl is not None:
-            t_last += tl - tf
-    return _blackbox_finish(path, digest, size, headers, flights, t_first, t_last, path_rate)
+            duration = (duration or 0.0) + (tl - tf)
+    headers = groups[0] if groups else first
+    t_first = 0.0 if flights else None
+    if first_epoch is not None and span_end is not None:
+        t_last = span_end - first_epoch
+    else:
+        t_last = duration
+    return _blackbox_finish(path, digest, size, headers, flights, t_first, t_last, path_rate,
+                            all_headers=groups or [first])
 
 
 def write_ulog(path, *, start_us=0, info=None, formats=None, logged=None, add=None, samples=None):

@@ -181,12 +181,14 @@ Altitude-range assessment uses one datum (accepted global altitude, or barometri
 when no global altitude is available). Missing GPS does not by itself prove an indoor flight.
 Deploy and reparse outdated uploads to update existing PX4 results. Paparazzi parsing is unchanged.
 
-**Betaflight and INDIFlight Blackbox.** Parser `blackbox` 1.0.0 (separate from `mav-log`)
+**Betaflight and INDIFlight Blackbox.** Parser `blackbox` 1.0.1 (separate from `mav-log`)
 runs `.bfl`/`.bbl` files through `blackbox_decode` (INDIFlight's field-aware build of
 Nicholas Sherlock's tools, built next to the Paparazzi parser) and then the INDIFlight
 log-tools SI conversion (metres, motor 0–1, unit quaternions). CSV is streamed; only
 the logbook columns are kept, and path samples are taken at `path_rate`. Files that
-contain several logs (one per arming) are decoded with `--index` as separate flights.
+contain several logs (one per arming) are decoded with `--index` as separate flights,
+each with its own header block (start time, `motorOutput`, firmware). The decoder is
+killed if it produces no output for 300 s.
 Stock Betaflight and INDIFlight share the same container; extra INDIFlight columns
 (EKF pose, pitot, RLS) are used when present. GPS coordinates come from merged G
 frames (degrees, at least five satellites); unsigned GPS altitude is read as signed
