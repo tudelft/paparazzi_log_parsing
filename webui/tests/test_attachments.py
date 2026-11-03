@@ -83,6 +83,10 @@ class AttachmentTests(test_historical.AppTests):
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachments").fetchone()[0], 1)
         downloaded = self.client.get(f"/api/attachments/{aid}/download")
         self.assertEqual(downloaded.data, data)
+        self.assertNotIn("Content-Encoding", downloaded.headers)
+        encoded = self.client.get(f"/api/attachments/{aid}/download", headers={"Accept-Encoding": "br, gzip"})
+        self.assertEqual((encoded.headers["Content-Encoding"], gzip.decompress(encoded.data)), ("gzip", data))
+        self.assertEqual(int(encoded.headers["Content-Length"]), row["stored_bytes"])
         self.assertIn("filename*=UTF-8", downloaded.headers["Content-Disposition"])
         self.assertEqual(downloaded.headers["X-Content-Type-Options"], "nosniff")
         listing = self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json
@@ -429,6 +433,14 @@ class AttachmentTests(test_historical.AppTests):
             response = self.client.get(f'/api/logs/{log["id"]}/download/data')
             self.assertEqual(response.data, raw)
             self.assertIn('filename="sample.data"', response.headers["Content-Disposition"])
+            # Browsers accept gzip: the stored file goes out as is and the browser decompresses it.
+            response = self.client.get(f'/api/logs/{log["id"]}/download/data', headers={"Accept-Encoding": "gzip"})
+            self.assertEqual(response.headers["Content-Encoding"], "gzip")
+            self.assertEqual(response.data, (root / data_rel).read_bytes())
+            self.assertEqual(gzip.decompress(response.data), raw)
+            self.assertIn('filename="sample.data"', response.headers["Content-Disposition"])
+            self.assertNotIn("Content-Encoding", self.client.get(
+                f'/api/logs/{log["id"]}/download/data', headers={"Accept-Encoding": "gzip;q=0, deflate"}).headers)
             response = self.client.get(f'/api/logs/{log["id"]}/download')
             with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
                 self.assertEqual(archive.namelist(), ["sample.data", "sample.log"])

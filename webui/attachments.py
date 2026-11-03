@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import quote, unquote
 
-from flask import Response, g, jsonify, request, send_file, send_from_directory
+from flask import g, jsonify, request, send_file, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.http import dump_options_header
 
@@ -396,10 +396,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
         if not path.is_file():
             raise Error("Attachment is missing from storage; contact an administrator.", 410)
         disposition = "inline" if inline else "attachment"
-        if not row["compressed"]:
-            response = send_file(path, mimetype=mimetype, conditional=True)
-        else:
-            response = Response(storage.chunks(path, compressed=True), mimetype=mimetype)
+        response = storage.send_stored(path, row["compressed"], mimetype)
         response.headers["Content-Disposition"] = dump_options_header(
             disposition, {"filename": row["filename"].encode("ascii", "ignore").decode() or "attachment"}) \
             + "; filename*=UTF-8''" + quote(row["filename"], safe="")
