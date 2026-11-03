@@ -10,7 +10,7 @@ MIN_DURATION_S = 60        # short flights match too many others on duration alo
 DURATION_TOLERANCE_S = 1.0
 DURATION_TOLERANCE = 0.01  # relative, for long flights
 TIME_OF_DAY_TOLERANCE_S = 30
-ONBOARD = {"onboard_sd", "px4_ulog", "ardupilot"}
+ONBOARD = {"onboard_sd", "px4_ulog", "ardupilot", "betaflight", "indiflight", "blackbox"}
 GROUND = {"gcs", "mavlink_tlog"}
 
 

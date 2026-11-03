@@ -181,6 +181,26 @@ Altitude-range assessment uses one datum (accepted global altitude, or barometri
 when no global altitude is available). Missing GPS does not by itself prove an indoor flight.
 Deploy and reparse outdated uploads to update existing PX4 results. Paparazzi parsing is unchanged.
 
+**Betaflight and INDIFlight Blackbox.** Parser `blackbox` 1.0.1 (separate from `mav-log`)
+runs `.bfl`/`.bbl` files through `blackbox_decode` (INDIFlight's field-aware build of
+Nicholas Sherlock's tools, built next to the Paparazzi parser) and then the INDIFlight
+log-tools SI conversion (metres, motor 0–1, unit quaternions). CSV is streamed; only
+the logbook columns are kept, and path samples are taken at `path_rate`. Files that
+contain several logs (one per arming) are decoded with `--index` as separate flights,
+each with its own header block (start time, `motorOutput`, firmware). The decoder is
+killed if it produces no output for 300 s.
+Stock Betaflight and INDIFlight share the same container; extra INDIFlight columns
+(EKF pose, pitot, RLS) are used when present. GPS coordinates come from merged G
+frames (degrees, at least five satellites); unsigned GPS altitude is read as signed
+32-bit so small negatives are not 4e9 m. Baro altitude is centimetres. An INDIFlight
+`ekf_pos` jump of about 65 m between consecutive samples (16-bit millimetre wrap) is
+discarded in favour of `pos`. Arming prefers `stateFlags` bit 0 when that bit is used,
+otherwise `flightModeFlags` bit 0 (the arm box). Motors use the `motorOutput` header
+range. Voltage is treated as centivolts when the raw value is above 60. An empty craft
+name falls back to the filename. Log type is `indiflight` or `betaflight` from the
+firmware revision header. Rebuild `blackbox_decode` with the C++ parser; Blackbox
+uploads need a reparse, existing PX4/ArduPilot/tlog results do not.
+
 The flight map uses only finite, in-range geographic coordinates, not barometer-only position
 objects. Missing coordinates and sample gaps over five seconds split the displayed line; isolated
 positions remain visible as dots. First/last recorded-position markers are distinct from takeoff/
@@ -616,6 +636,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `BULK_MAX_BYTES` | `17179869184` | Shared estimated-byte budget for bulk scripts (16 GiB) |
 | `LOCAL_MIN_FREE_BYTES` | `2147483648` | Local staging/decompression headroom (2 GiB; parser output needs extra space) |
 | `FASTREADER` | `../cpp/build/paparazzi_log_parsing` | Parser binary |
+| `BLACKBOX_DECODE` | `../cpp/build/blackbox_decode` | Betaflight/INDIFlight Blackbox decoder |
 | `SESSION_HOURS` | `12` | How long a login lasts |
 | `SECRET_KEY` | generated in `<WEB_DATA>/secret_key` | Session signing key |
 
@@ -1137,7 +1158,9 @@ Rerunning skips already stored pairs; existing parser-error logs are not automat
 
 ## How it works
 
-**Uploads.** A `.data` file is paired with the `.log` of the same name in the same folder; other files are ignored.
+**Uploads.** A `.data` file is paired with the `.log` of the same name in the same folder.
+Single-file PX4 `.ulg`, ArduPilot `.bin`, MAVLink `.tlog` and Betaflight/INDIFlight `.bfl`/`.bbl` logs are stored
+on their own. An ArduPilot text `.log` is accepted without a `.data` companion.
 The upload returns as soon as the files are on disk; hashing, duplicate checks, unzipping and parsing run in the
 background. The SHA-256 of the `.data` file identifies a log, so a known log is not stored twice (a missing `.log` is
 added later). Files are kept in `<LOG_DIR>/<sha[:2]>/<sha>/` with the flight paths in `paths-<id>.json.gz`; uploads

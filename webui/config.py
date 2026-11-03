@@ -35,6 +35,8 @@ SETTINGS = {
         "BACKUP_EXTERNAL_PERMISSIONS": ("0", "Allow backups when the destination cannot enforce chmod 600. "
                                        "Enable only when share/host ACLs restrict access to trusted operators"),
         "FASTREADER": (str(HERE.parent / "cpp" / "build" / "paparazzi_log_parsing"), "Parser binary"),
+        "BLACKBOX_DECODE": (str(HERE.parent / "cpp" / "build" / "blackbox_decode"),
+                            "Betaflight/INDIFlight Blackbox decoder binary"),
         "FIRMWARE_GITHUB_ENABLED": ("1", "Resolve firmware commit dates via GitHub automatically during parsing "
                                        "(sends revision hashes, never log contents). 0 disables lookups and week estimates"),
         "FIRMWARE_GITHUB_REPOS": ("", "Additional public/private GitHub owner/repository names, comma-separated; "
@@ -166,7 +168,8 @@ def bind_address():
 SERVER_EXAMPLE = {"PUBLIC_URL": "https://logs.example.org", "PROXIES": "1", "COOKIE_SECURE": "1",
                   "WEB_DATA": "/var/lib/flight-logs", "LOG_DIR": "/mnt/flight-logs/logs",
                   "BACKUP_DIR": "/mnt/flight-logs/backup"}
-PORTABLE_DEFAULTS = {"WEB_DATA": "data", "FASTREADER": "../cpp/build/paparazzi_log_parsing"}  # relative to webui/
+PORTABLE_DEFAULTS = {"WEB_DATA": "data", "FASTREADER": "../cpp/build/paparazzi_log_parsing",
+                    "BLACKBOX_DECODE": "../cpp/build/blackbox_decode"}  # relative to webui/
 
 
 def example():
@@ -237,6 +240,9 @@ def check():
             print(f"\nParser: {version or 'no version output'}")
         except (OSError, subprocess.SubprocessError) as e:
             errors.append(f"parser does not run: {e}")
+    decoder = str(env_path("BLACKBOX_DECODE"))
+    if not (os.path.isfile(decoder) and os.access(decoder, os.X_OK)):
+        warnings.append(f"Blackbox decoder not found or not executable: {decoder} (build it in ../cpp)")
 
     data = env_path("WEB_DATA")
     if not _writable(data):

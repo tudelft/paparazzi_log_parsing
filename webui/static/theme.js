@@ -48,7 +48,8 @@ window.categoryText = f => (f.category === 'national' ? 'National rules' : windo
 
 // Short name of an uploaded log by type; its download always contains every file of that log (.data + .log).
 window.logLabel = t => ({onboard_sd: 'SD log', gcs: 'GCS log', px4_ulog: 'PX4 log', ardupilot: 'ArduPilot log',
-  mavlink_tlog: 'MAVLink log'}[t] || 'log');
+  mavlink_tlog: 'MAVLink log', betaflight: 'Betaflight log', indiflight: 'INDIFlight log',
+  blackbox: 'Blackbox log'}[t] || 'log');
 
 // A stored file: its name opens it in the browser when it can be viewed there (else downloads it), with a
 // small download button beside a viewable one. `attrs` adds attributes such as a class or title to the name.

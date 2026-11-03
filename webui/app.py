@@ -1,4 +1,4 @@
-"""Web interface to upload flight logs (Paparazzi pairs, PX4 .ulg, ArduPilot, MAVLink tlog, zips).
+"""Web interface to upload flight logs (Paparazzi pairs, PX4 .ulg, ArduPilot, MAVLink tlog, Betaflight/INDIFlight Blackbox, zips).
 
 Uploaded logs are kept on disk, hashed (sha256 of the main log file) and parsed into a SQLite
 database. Paparazzi .data files go through the C++ parser; PX4/ArduPilot/tlog files go through
@@ -67,6 +67,7 @@ LOCAL_STAGE_DIR = DATA_DIR / "incoming"
 TMP_DIR = DATA_DIR / "tmp"
 DB_PATH = str(DATA_DIR / "logs.db")
 FASTREADER = str(env_path("FASTREADER"))
+BLACKBOX_DECODE = str(env_path("BLACKBOX_DECODE"))
 PATH_RATE = env_float("PATH_RATE")
 # Parser binaries run in parallel; SQLite writes are still one-at-a-time (db.write_lock).
 WORKERS = env_int("WORKERS")
@@ -240,7 +241,8 @@ def parse_log(log_id):
         data_path = Path(unpacked.name) / Path(row["data_path"]).name[:-3]
         kind = mav_parse.sniff(data_path)
         if kind:
-            doc = mav_parse.parse(data_path, sha256=row["sha256"], path_rate=PATH_RATE, log_type=kind)
+            doc = mav_parse.parse(data_path, sha256=row["sha256"], path_rate=PATH_RATE, log_type=kind,
+                                 blackbox_decode=BLACKBOX_DECODE)
         else:
             cmd = [FASTREADER, "-r", str(PATH_RATE), "--sha256", row["sha256"], str(data_path)]
             fd, out_path = tempfile.mkstemp(dir=TMP_DIR, suffix=".json")
@@ -462,7 +464,7 @@ def enqueue_staged_log(con, parent_stage, name, src, user_id, companion=None):
 
 
 def explode_zip(con, row):
-    """Unpack a zip in the background and enqueue Paparazzi pairs plus PX4/ArduPilot/tlog files."""
+    """Unpack a zip in the background and enqueue Paparazzi pairs plus single-file logs."""
     stage = ingest_stage(row["stage_dir"])
     zip_path = stage / row["data_name"]
     try:
@@ -478,7 +480,7 @@ def explode_zip(con, row):
         for info in zf.infolist():
             member = clean_relpath(info.filename)
             ext = posixpath.splitext(member)[1].lower()
-            if info.is_dir() or ext not in (".data", ".log", ".ulg", ".bin", ".tlog"):
+            if info.is_dir() or ext not in {".data", ".log"} | mav_parse.MAV_SINGLE_EXTS:
                 continue
             dest = unpacked / uuid.uuid4().hex
             with zf.open(info) as src, open(dest, "wb") as dst:
@@ -495,12 +497,12 @@ def explode_zip(con, row):
                                companion=parts[".log"][1])
             n += 1
             continue
-        for ext in (".ulg", ".bin", ".tlog"):
+        for ext in mav_parse.MAV_SINGLE_EXTS:
             if ext not in parts:
                 continue
             enqueue_staged_log(con, row["stage_dir"], parts[ext][0], parts[ext][1], row["uploaded_by"])
             n += 1
-        if ".log" in parts and ".data" not in parts and mav_parse.sniff(parts[".log"][1]) == mav_parse.LOG_AP:
+        if ".log" in parts and ".data" not in parts and mav_parse.sniff(parts[".log"][1]) is not None:
             enqueue_staged_log(con, row["stage_dir"], parts[".log"][0], parts[".log"][1], row["uploaded_by"])
             n += 1
     shutil.rmtree(unpacked, ignore_errors=True)
@@ -534,7 +536,7 @@ def ingest_pair(con, row):
         drop_stage(stage)
         return
     kind = mav_parse.sniff(data_src)
-    if row["log_name"] is None and Path(name).suffix.lower() == ".log" and kind != mav_parse.LOG_AP:
+    if row["log_name"] is None and Path(name).suffix.lower() == ".log" and kind is None:
         err = ("needs the matching .data file" if mav_parse.looks_paparazzi_xml(data_src)
                else "unrecognised .log file (not ArduPilot)")
         set_ingest(con, row["id"], status="rejected", error=err)
@@ -4422,15 +4424,20 @@ def current_version():
 def expected_parser_version(parser_name):
     if parser_name == mav_parse.PARSER_NAME:
         return mav_parse.PARSER_VERSION
+    if parser_name == mav_parse.BLACKBOX_PARSER_NAME:
+        return mav_parse.BLACKBOX_PARSER_VERSION
     return current_version()
 
 
 def outdated_sql():
     """Match logs whose stored parser version is not the one that would parse them today."""
     return ("((COALESCE(parser_name,'') = ? AND COALESCE(parser_version,'') != ?)"
-            " OR (COALESCE(parser_name,'') != ? AND COALESCE(parser_version,'') != ?))",
+            " OR (COALESCE(parser_name,'') = ? AND COALESCE(parser_version,'') != ?)"
+            " OR (COALESCE(parser_name,'') != ? AND COALESCE(parser_name,'') != ?"
+            " AND COALESCE(parser_version,'') != ?))",
             (mav_parse.PARSER_NAME, mav_parse.PARSER_VERSION,
-             mav_parse.PARSER_NAME, current_version() or ""))
+             mav_parse.BLACKBOX_PARSER_NAME, mav_parse.BLACKBOX_PARSER_VERSION,
+             mav_parse.PARSER_NAME, mav_parse.BLACKBOX_PARSER_NAME, current_version() or ""))
 
 
 # File clocks before this year are treated as missing (Unix epoch 1970 / GPS epoch 1980).
@@ -4743,7 +4750,8 @@ def stats_page():
 
 
 SAME_FLIGHT_SLACK_S = 60
-TYPE_ORDER = {"onboard_sd": 0, "px4_ulog": 0, "ardupilot": 0, "gcs": 1, "mavlink_tlog": 1}
+TYPE_ORDER = {"onboard_sd": 0, "px4_ulog": 0, "ardupilot": 0, "betaflight": 0, "indiflight": 0,
+              "blackbox": 0, "gcs": 1, "mavlink_tlog": 1}
 
 
 _FRACTION_ISO_Z = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{1,6}Z")

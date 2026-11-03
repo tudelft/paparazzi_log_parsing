@@ -4,6 +4,7 @@ import struct
 import tempfile
 import unittest
 import zipfile
+from datetime import datetime
 from pathlib import Path
 
 import mav_parse
@@ -240,6 +241,22 @@ class SniffTests(unittest.TestCase):
             tlog = Path(d) / "link.tlog"
             tlog.write_bytes(struct.pack(">Q", 1) + b"\xfd" + b"\x00" * 20)
             self.assertEqual(mav_parse.sniff(tlog), mav_parse.LOG_TLOG)
+            bf = Path(d) / "stock.bfl"
+            bf.write_bytes(
+                b"H Product:Blackbox flight data recorder by Nicholas Sherlock\n"
+                b"H Data version:2\n"
+                b"H Firmware type:Cleanflight\n"
+                b"H Firmware revision:Betaflight 4.5.0\n")
+            self.assertEqual(mav_parse.sniff(bf), mav_parse.LOG_BLACKBOX)
+            self.assertEqual(mav_parse._blackbox_kind(mav_parse._blackbox_headers(bf)),
+                             (mav_parse.LOG_BF, "Betaflight Blackbox"))
+            indi = Path(d) / "indi.bbl"
+            indi.write_bytes(
+                b"H Product:Blackbox flight data recorder by Nicholas Sherlock\n"
+                b"H Firmware revision:Indiflight 5.0.0\n")
+            self.assertEqual(mav_parse.sniff(indi), mav_parse.LOG_BLACKBOX)
+            self.assertEqual(mav_parse._blackbox_kind(mav_parse._blackbox_headers(indi))[0],
+                             mav_parse.LOG_INDI)
 
 
 class ParseTests(unittest.TestCase):
@@ -292,6 +309,180 @@ class ParseTests(unittest.TestCase):
         self.assertGreaterEqual(len(ac["flights"]), 1)
 
 
+class BlackboxParseTests(unittest.TestCase):
+    def test_stock_and_indiflight_csv_mapping(self):
+        path = Path("stock.bfl")
+        headers = {
+            "Product": "Blackbox flight data recorder by Nicholas Sherlock",
+            "Firmware revision": "Betaflight 4.5.0",
+            "Log start datetime": "2026-01-02T12:00:00Z",
+            "Craft name": "Quad",
+            "motorOutput": "158,2048",
+        }
+        rows = [
+            {"time": "1000", "flightModeFlags": "1", "GPS_coord[0]": "51.99",
+             "GPS_coord[1]": "4.37", "GPS_numSat": "10", "GPS_altitude": "12",
+             "GPS_speed": "250", "vbatLatest": "2511", "motor[0]": "1000",
+             "quat[0]": "8127", "quat[1]": "0", "quat[2]": "0", "quat[3]": "0"},
+            {"time": "2001000", "flightModeFlags": "1", "GPS_coord[0]": "51.9902",
+             "GPS_coord[1]": "4.3702", "GPS_numSat": "10", "GPS_altitude": "20",
+             "GPS_speed": "400", "vbatLatest": "2500", "motor[0]": "1200",
+             "quat[0]": "8127", "quat[1]": "0", "quat[2]": "0", "quat[3]": "0"},
+            {"time": "3001000", "flightModeFlags": "0", "GPS_coord[0]": "51.9902",
+             "GPS_coord[1]": "4.3702", "GPS_numSat": "10", "GPS_altitude": "12",
+             "GPS_speed": "0", "vbatLatest": "2490", "motor[0]": "158",
+             "quat[0]": "8127", "quat[1]": "0", "quat[2]": "0", "quat[3]": "0"},
+        ]
+        doc = mav_parse._blackbox_document(path, "abc", 100, headers, rows, path_rate=1)
+        self.assertEqual(doc["parser"]["name"], mav_parse.BLACKBOX_PARSER_NAME)
+        self.assertEqual(doc["parser"]["version"], mav_parse.BLACKBOX_PARSER_VERSION)
+        self.assertEqual(doc["log"]["type"], mav_parse.LOG_BF)
+        ac = doc["aircraft"][0]
+        self.assertEqual(ac["name"], "Quad")
+        self.assertGreaterEqual(len(ac["flights"]), 1)
+        flight = ac["flights"][0]
+        self.assertTrue(any(p.get("position") and p["position"]["lat"] for p in flight["path"]))
+        self.assertAlmostEqual(flight["path"][0]["battery_voltage_v"], 25.11)
+        self.assertAlmostEqual(flight["path"][0]["groundspeed_ms"], 2.5)
+        self.assertAlmostEqual(flight["path"][0]["actuators"][0], (1000 - 158) / (2048 - 158), places=3)
+        indi_headers = dict(headers, **{"Firmware revision": "Indiflight 5.0.0", "Craft name": ""})
+        indi_rows = [{**row, "ekf_pos[0]": "1500", "ekf_pos[1]": "-2000", "ekf_pos[2]": "3000"} for row in rows]
+        indi = mav_parse._blackbox_document(Path("LOG00031.BFL"), "def", 100, indi_headers, indi_rows, 1)
+        self.assertEqual(indi["log"]["type"], mav_parse.LOG_INDI)
+        self.assertEqual(indi["aircraft"][0]["name"], "LOG00031")
+        ins = indi["aircraft"][0]["flights"][0]["path"][0]["ins"]["position_ned_m"]
+        self.assertAlmostEqual(ins["north"], 1.5)
+        self.assertAlmostEqual(ins["east"], -2.0)
+        self.assertAlmostEqual(ins["down"], 3.0)
+
+    def test_wrapped_ekf_pos_falls_back_to_pos_and_signed_gps_alt(self):
+        headers = {
+            "Product": "Blackbox flight data recorder by Nicholas Sherlock",
+            "Firmware revision": "Indiflight 5.0.0",
+            "Log start datetime": "2026-01-02T12:00:00Z",
+            "Craft name": "Quad",
+        }
+        rows = [
+            {"time": "0", "flightModeFlags": "1", "GPS_coord[0]": "52.16",
+             "GPS_coord[1]": "4.41", "GPS_numSat": "12", "GPS_altitude": "4294967262",
+             "baroAlt": "-3400", "ekf_pos[0]": "-32000", "ekf_pos[1]": "100",
+             "ekf_pos[2]": "32000", "pos[0]": "1000", "pos[1]": "2000", "pos[2]": "-22000"},
+            {"time": "1000000", "flightModeFlags": "1", "GPS_coord[0]": "52.1601",
+             "GPS_coord[1]": "4.4101", "GPS_numSat": "12", "GPS_altitude": "200",
+             "baroAlt": "2230", "ekf_pos[0]": "32000", "ekf_pos[1]": "-100",
+             "ekf_pos[2]": "-32000", "pos[0]": "1100", "pos[1]": "2100", "pos[2]": "-22450"},
+        ]
+        doc = mav_parse._blackbox_document(Path("LOG00039.BFL"), "x", 100, headers, rows, 1)
+        path = doc["aircraft"][0]["flights"][0]["path"]
+        ins = path[0]["ins"]["position_ned_m"]
+        self.assertAlmostEqual(ins["north"], 1.0)
+        self.assertAlmostEqual(ins["east"], 2.0)
+        self.assertAlmostEqual(ins["down"], -22.0)
+        self.assertAlmostEqual(path[0]["position"]["baro_alt_m"], -34.0)
+        self.assertAlmostEqual(path[0]["position"]["gps_alt_m"], -34.0)
+        self.assertIsNone(path[1]["position"]["gps_alt_m"])
+
+    def test_ekf_range_without_jump_keeps_ekf_and_motor_output(self):
+        headers = {
+            "Product": "Blackbox flight data recorder by Nicholas Sherlock",
+            "Firmware revision": "Indiflight 5.0.0",
+            "Log start datetime": "2026-01-02T12:00:00Z",
+            "Craft name": "Quad",
+            "motorOutput": "0,1000",
+        }
+        rows = [
+            {"time": str(i * 1_000_000), "flightModeFlags": "1", "motor[0]": "500",
+             "ekf_pos[0]": str(v), "ekf_pos[1]": "0", "ekf_pos[2]": "0",
+             "pos[0]": "1000", "pos[1]": "0", "pos[2]": "0"}
+            for i, v in enumerate((-35000, -10000, 10000, 35000))
+        ]
+        doc = mav_parse._blackbox_document(Path("wide.BFL"), "x", 100, headers, rows, 1)
+        norths = [p["ins"]["position_ned_m"]["north"] for p in doc["aircraft"][0]["flights"][0]["path"]]
+        self.assertAlmostEqual(norths[0], -35.0)
+        self.assertAlmostEqual(norths[-1], 35.0)
+        self.assertAlmostEqual(doc["aircraft"][0]["flights"][0]["path"][0]["actuators"][0], 0.5)
+
+    def test_state_flags_arm_when_box_is_off(self):
+        headers = {
+            "Product": "Blackbox flight data recorder by Nicholas Sherlock",
+            "Firmware revision": "Betaflight 4.5.0",
+            "Log start datetime": "2026-01-02T12:00:00Z",
+            "Craft name": "Quad",
+        }
+        rows = [
+            {"time": "0", "flightModeFlags": "0", "stateFlags": "1",
+             "GPS_coord[0]": "51.99", "GPS_coord[1]": "4.37", "GPS_numSat": "10"},
+            {"time": "2000000", "flightModeFlags": "0", "stateFlags": "0",
+             "GPS_coord[0]": "51.9902", "GPS_coord[1]": "4.3702", "GPS_numSat": "10"},
+        ]
+        doc = mav_parse._blackbox_document(Path("arm.bfl"), "x", 100, headers, rows, 1)
+        self.assertGreaterEqual(len(doc["aircraft"][0]["flights"]), 1)
+        self.assertAlmostEqual(doc["aircraft"][0]["flights"][0]["duration_s"], 2.0)
+
+    @unittest.skipUnless(Path(mav_parse.blackbox_decode_bin()).is_file(), "blackbox_decode not built")
+    def test_tiny_indiflight_file(self):
+        path = Path(__file__).parent / "fixtures" / "blackbox_tiny.bfl"
+        doc = mav_parse.parse(path, path_rate=5)
+        self.assertEqual(doc["log"]["type"], mav_parse.LOG_INDI)
+        self.assertTrue(doc["aircraft"][0]["flights"])
+        self.assertTrue(any("Indiflight" in (m["text"] or "") for m in doc["aircraft"][0]["info_messages"]))
+        self.assertEqual(doc["parser"]["name"], mav_parse.BLACKBOX_PARSER_NAME)
+
+    def test_headers_at_log_offset(self):
+        first = (b"H Product:Blackbox flight data recorder by Nicholas Sherlock\n"
+                 b"H Log start datetime:2026-01-01T00:00:00Z\n"
+                 b"H motorOutput:158,2048\nI\n")
+        second = (b"H Product:Blackbox flight data recorder by Nicholas Sherlock\n"
+                  b"H Log start datetime:2026-01-01T01:00:00Z\n"
+                  b"H motorOutput:0,1000\nI\n")
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "two.bfl"
+            path.write_bytes(first + second)
+            h0 = mav_parse._blackbox_headers(path, 0)
+            h1 = mav_parse._blackbox_headers(path, len(first))
+        self.assertEqual(h0["motorOutput"], "158,2048")
+        self.assertEqual(h1["motorOutput"], "0,1000")
+        self.assertEqual(h0["Log start datetime"], "2026-01-01T00:00:00Z")
+        self.assertEqual(h1["Log start datetime"], "2026-01-01T01:00:00Z")
+
+    @unittest.skipUnless(Path(mav_parse.blackbox_decode_bin()).is_file(), "blackbox_decode not built")
+    def test_concatenated_file_decodes_each_log(self):
+        src = Path(__file__).parent / "fixtures" / "blackbox_tiny.bfl"
+        stamp = b"H Log start datetime:2026-10-29T16:45:12.347+00:00"
+        later = b"H Log start datetime:2026-10-29T17:45:12.347+00:00"
+        raw = src.read_bytes()
+        self.assertIn(stamp, raw)
+        with tempfile.TemporaryDirectory() as d:
+            two = Path(d) / "two.bfl"
+            two.write_bytes(raw + raw.replace(stamp, later, 1))
+            doc = mav_parse.parse(two, path_rate=5)
+        flights = doc["aircraft"][0]["flights"]
+        self.assertGreaterEqual(len(flights), 2)
+        self.assertAlmostEqual(
+            datetime.fromisoformat(flights[1]["takeoff"]["utc"].replace("Z", "+00:00")).timestamp()
+            - datetime.fromisoformat(flights[0]["takeoff"]["utc"].replace("Z", "+00:00")).timestamp(),
+            3600, delta=120)
+        self.assertTrue(any("Log 2 Log start datetime:" in (m["text"] or "")
+                            and "2026-10-29T17:45:12.347" in (m["text"] or "")
+                            for m in doc["aircraft"][0]["info_messages"]))
+
+    @unittest.skipUnless(Path(mav_parse.blackbox_decode_bin()).is_file(), "blackbox_decode not built")
+    def test_decoder_hang_times_out(self):
+        src = Path(__file__).parent / "fixtures" / "blackbox_tiny.bfl"
+        with tempfile.TemporaryDirectory() as d:
+            hang = Path(d) / "hang"
+            hang.write_text("#!/bin/sh\nexec sleep 30\n")
+            hang.chmod(0o755)
+            old = mav_parse.BLACKBOX_DECODE_TIMEOUT_S
+            mav_parse.BLACKBOX_DECODE_TIMEOUT_S = 0.2
+            try:
+                with self.assertRaises(RuntimeError) as ctx:
+                    list(mav_parse._iter_blackbox_csv(src, str(hang)))
+            finally:
+                mav_parse.BLACKBOX_DECODE_TIMEOUT_S = old
+        self.assertIn("timed out", str(ctx.exception).lower())
+
+
 class UploadGroupingTests(AppTests):
     def post_files(self, names_and_bytes):
         files = [(io.BytesIO(data), name) for name, data in names_and_bytes]
@@ -340,6 +531,21 @@ class UploadGroupingTests(AppTests):
         self.assertIn("pair", kinds)
         self.assertIn("file", kinds)
         self.assertTrue(any(n.endswith(".ulg") for n in names))
+
+    def test_bfl_is_accepted_and_zipped(self):
+        header = b"H Product:Blackbox flight data recorder by Nicholas Sherlock\nH Data version:2\n"
+        r = self.post_files([("LOG00031.BFL", header)])
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertEqual(r.json["results"][0]["status"], "accepted")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("inside.bbl", header)
+        zipped = self.post_files([("logs.zip", buf.getvalue())])
+        iid = zipped.json["results"][0]["ingest_id"]
+        row = self.con.execute("SELECT * FROM ingest WHERE id=?", (iid,)).fetchone()
+        self.ns["explode_zip"](self.con, row)
+        names = {r["name"] for r in self.con.execute("SELECT name FROM ingest WHERE id!=?", (iid,))}
+        self.assertTrue(any(n.lower().endswith(".bbl") for n in names))
 
 
 class FleetLinkTests(AppTests):

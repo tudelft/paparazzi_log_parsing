@@ -1,0 +1,326 @@
+H Product:Blackbox flight data recorder by Nicholas Sherlock
+H Data version:2
+H Field I name:loopIteration,time,rcCommand[0],rcCommand[1],rcCommand[2],rcCommand[3],vbatLatest,amperageLatest,rssi,gyroADC[0],gyroADC[1],gyroADC[2],gyroADCafterRpm[0],gyroADCafterRpm[1],gyroADCafterRpm[2],accSmooth[0],accSmooth[1],accSmooth[2],accADCafterRpm[0],accADCafterRpm[1],accADCafterRpm[2],debug[0],debug[1],debug[2],debug[3],motor[0],motor[1],servo_feedback[0],servo_feedback[1],servo_feedback[2],servo_feedback[3],quat[0],quat[1],quat[2],quat[3],alpha[0],alpha[1],alpha[2],quatSp[0],quatSp[1],quatSp[2],quatSp[3],gyroSp[0],gyroSp[1],gyroSp[2],alphaSp[0],alphaSp[1],alphaSp[2],spfSp[0],spfSp[1],spfSp[2],dv[0],dv[1],dv[2],dv[3],dv[4],dv[5],u[0],u[1],u[2],u[3],u[4],u[5],u[6],u[7],u_state[0],u_state[1],u_state[2],u_state[3],u_state[4],u_state[5],u_state[6],u_state[7],omega[0],omega[1],omega[2],omega[3],omega[4],omega[5],omega[6],omega[7],omegaUnfiltered[0],omegaUnfiltered[1],omegaUnfiltered[2],omegaUnfiltered[3],omegaUnfiltered[4],omegaUnfiltered[5],omegaUnfiltered[6],omegaUnfiltered[7],omega_dot[0],omega_dot[1],omega_dot[2],omega_dot[3],omega_dot[4],omega_dot[5],omega_dot[6],omega_dot[7],pitot_pressureZero,pitot_pressure,pitot_temperature,pitot_airSpeed,pos[0],pos[1],pos[2],extTime,localPos[0],localPos[1],localPos[2],posSp[0],posSp[1],posSp[2],vel[0],vel[1],vel[2],localVel[0],localVel[1],localVel[2],velSp[0],velSp[1],velSp[2],accSp[0],accSp[1],accSp[2],localQuat[0],localQuat[1],localQuat[2],localQuat[3],latest_key_pressed,tt_active,ekf_pos[0],ekf_pos[1],ekf_pos[2],ekf_vel[0],ekf_vel[1],ekf_vel[2],ekf_quat[0],ekf_quat[1],ekf_quat[2],ekf_quat[3],ekf_acc_b[0],ekf_acc_b[1],ekf_acc_b[2],ekf_gyro_b[0],ekf_gyro_b[1],ekf_gyro_b[2],motor_0_rls_x[0],motor_0_rls_x[1],motor_0_rls_x[2],motor_0_rls_x[3],motor_0_rls_e_var,motor_0_rls_lambda,motor_1_rls_x[0],motor_1_rls_x[1],motor_1_rls_x[2],motor_1_rls_x[3],motor_1_rls_e_var,motor_1_rls_lambda,motor_2_rls_x[0],motor_2_rls_x[1],motor_2_rls_x[2],motor_2_rls_x[3],motor_2_rls_e_var,motor_2_rls_lambda,motor_3_rls_x[0],motor_3_rls_x[1],motor_3_rls_x[2],motor_3_rls_x[3],motor_3_rls_e_var,motor_3_rls_lambda,motor_4_rls_x[0],motor_4_rls_x[1],motor_4_rls_x[2],motor_4_rls_x[3],motor_4_rls_e_var,motor_4_rls_lambda,motor_5_rls_x[0],motor_5_rls_x[1],motor_5_rls_x[2],motor_5_rls_x[3],motor_5_rls_e_var,motor_5_rls_lambda,motor_6_rls_x[0],motor_6_rls_x[1],motor_6_rls_x[2],motor_6_rls_x[3],motor_6_rls_e_var,motor_6_rls_lambda,motor_7_rls_x[0],motor_7_rls_x[1],motor_7_rls_x[2],motor_7_rls_x[3],motor_7_rls_e_var,motor_7_rls_lambda,imu_rls_x[0],imu_rls_x[1],imu_rls_x[2],fx_x_rls_x[0],fx_x_rls_x[1],fx_x_rls_x[2],fx_x_rls_x[3],fx_x_rls_x[4],fx_x_rls_x[5],fx_x_rls_x[6],fx_x_rls_x[7],fx_y_rls_x[0],fx_y_rls_x[1],fx_y_rls_x[2],fx_y_rls_x[3],fx_y_rls_x[4],fx_y_rls_x[5],fx_y_rls_x[6],fx_y_rls_x[7],fx_z_rls_x[0],fx_z_rls_x[1],fx_z_rls_x[2],fx_z_rls_x[3],fx_z_rls_x[4],fx_z_rls_x[5],fx_z_rls_x[6],fx_z_rls_x[7],sigma_rls[0],sigma_rls[1],sigma_rls[2],fx_p_rls_x[0],fx_p_rls_x[1],fx_p_rls_x[2],fx_p_rls_x[3],fx_p_rls_x[4],fx_p_rls_x[5],fx_p_rls_x[6],fx_p_rls_x[7],fx_p_rls_x[8],fx_p_rls_x[9],fx_p_rls_x[10],fx_p_rls_x[11],fx_p_rls_x[12],fx_p_rls_x[13],fx_p_rls_x[14],fx_p_rls_x[15],fx_q_rls_x[0],fx_q_rls_x[1],fx_q_rls_x[2],fx_q_rls_x[3],fx_q_rls_x[4],fx_q_rls_x[5],fx_q_rls_x[6],fx_q_rls_x[7],fx_q_rls_x[8],fx_q_rls_x[9],fx_q_rls_x[10],fx_q_rls_x[11],fx_q_rls_x[12],fx_q_rls_x[13],fx_q_rls_x[14],fx_q_rls_x[15],fx_r_rls_x[0],fx_r_rls_x[1],fx_r_rls_x[2],fx_r_rls_x[3],fx_r_rls_x[4],fx_r_rls_x[5],fx_r_rls_x[6],fx_r_rls_x[7],fx_r_rls_x[8],fx_r_rls_x[9],fx_r_rls_x[10],fx_r_rls_x[11],fx_r_rls_x[12],fx_r_rls_x[13],fx_r_rls_x[14],fx_r_rls_x[15],fx_x_rls_e_var,fx_x_rls_lambda,fx_y_rls_e_var,fx_y_rls_lambda,fx_z_rls_e_var,fx_z_rls_lambda,fx_p_rls_e_var,fx_p_rls_lambda,fx_q_rls_e_var,fx_q_rls_lambda,fx_r_rls_e_var,fx_r_rls_lambda,learner_gains[0],learner_gains[1],learner_gains[2],learner_gains[3],learner_gains[4],learner_gains[5],hoverAttitude[0],hoverAttitude[1],hoverAttitude[2],hoverAttitude[3],learnerTimings[0],learnerTimings[1],learnerTimings[2],learnerTimings[3],learnerTimings[4],learnerTimings[5],learnerTimings[6]
+H Field I signed:0,0,1,1,1,0,0,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,0,0,1,1,1,1,0,0,1,1,1,1,0,0,1,1,1,1,0,0,1,1,1,1,0,0,1,1,1,1,0,0,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+H Field I predictor:0,0,0,0,0,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+H Field I encoding:1,1,0,0,0,1,3,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0
+H Field P predictor:6,2,1,1,1,1,1,1,1,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+H Field P encoding:9,0,8,8,8,8,6,6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+H Field H name:GPS_home[0],GPS_home[1]
+H Field H signed:1,1
+H Field H predictor:0,0
+H Field H encoding:0,0
+H Field G name:time,GPS_numSat,GPS_coord[0],GPS_coord[1],GPS_altitude,GPS_speed,GPS_ground_course
+H Field G signed:0,0,1,1,0,0,0
+H Field G predictor:10,0,7,7,0,0,0
+H Field G encoding:1,1,0,0,1,1,1
+H Field S name:flightModeFlags,stateFlags,failsafePhase,rxSignalReceived,rxFlightChannelsValid
+H Field S signed:0,0,0,0,0
+H Field S predictor:0,0,0,0,0
+H Field S encoding:1,1,7,7,7
+H Firmware type:Cleanflight
+H Firmware revision:Indiflight 5.0.0 (462ccded9+dirty) STM32H743
+H Firmware date:Oct 29 2026 16:34:08
+H Board information:MTKS H743
+H Log start datetime:2026-10-29T16:45:12.347+00:00
+H Craft name:
+H I interval:32
+H P interval:4
+H P ratio:8
+H minthrottle:1070
+H maxthrottle:2000
+H gyro_scale:0x3f800000
+H motorOutput:158,2047
+H acc_1G:2048
+H vbat_scale:110
+H vbatcellvoltage:330,350,430
+H vbatref:2511
+H currentSensor:0,50
+H looptime:125
+H gyro_sync_denom:1
+H pid_process_denom:8
+H thr_mid:50
+H thr_expo:0
+H tpa_mode:1
+H tpa_rate:65
+H tpa_breakpoint:1350
+H rc_rates:100,100,20
+H rc_expo:1,1,1
+H rates:70,70,20
+H rate_limits:1998,1998,1998
+H rollPID:45,80,40
+H pitchPID:47,84,46
+H yawPID:45,80,0
+H levelPID:50,50,75
+H magPID:40
+H d_min:30,34,0
+H d_max_gain:37
+H d_max_advance:20
+H dterm_lpf1_type:0
+H dterm_lpf1_static_hz:0
+H dterm_lpf1_dyn_hz:0,75
+H dterm_lpf2_type:0
+H dterm_lpf2_static_hz:0
+H yaw_lowpass_hz:0
+H dterm_notch_hz:0
+H dterm_notch_cutoff:0
+H iterm_windup:85
+H iterm_relax:1
+H iterm_relax_type:1
+H iterm_relax_cutoff:15
+H pid_at_min_throttle:1
+H anti_gravity_gain:80
+H anti_gravity_cutoff_hz:5
+H anti_gravity_p_gain:100
+H abs_control_gain:0
+H use_integrated_yaw:0
+H ff_weight:120,125,120
+H feedforward_transition:0
+H feedforward_averaging:0
+H feedforward_smooth_factor:25
+H feedforward_jitter_factor:7
+H feedforward_boost:15
+H feedforward_max_rate_limit:90
+H acc_limit_yaw:0
+H acc_limit:0
+H pidsum_limit:500
+H pidsum_limit_yaw:400
+H deadband:0
+H yaw_deadband:0
+H gyro_hardware_lpf:0
+H gyro_lpf1_type:0
+H gyro_lpf1_static_hz:100
+H gyro_lpf1_dyn_hz:0,250
+H gyro_lpf2_type:0
+H gyro_lpf2_static_hz:0
+H gyro_notch_hz:0,0
+H gyro_notch_cutoff:0,0
+H gyro_to_use:0
+H dyn_notch_max_hz:600
+H dyn_notch_count:0
+H dyn_notch_q:500
+H dyn_notch_min_hz:100
+H dshot_bidir:1
+H motor_poles:14
+H rpm_filter_harmonics:0
+H rpm_filter_q:500
+H rpm_filter_min_hz:60
+H rpm_filter_fade_range_hz:50
+H rpm_filter_lpf_hz:150
+H acc_lpf_hz:5000
+H acc_hardware:0
+H baro_hardware:1
+H altitude_source:0
+H altitude_prefer_baro:100
+H altitude_lpf:300
+H altitude_d_lpf:100
+H gyro_cal_on_first_arm:0
+H airmode_activate_throttle:25
+H serialrx_provider:9
+H use_unsynced_pwm:0
+H motor_pwm_protocol:7
+H motor_pwm_rate:480
+H dshot_idle_value:550
+H debug_mode:55
+H features:272630920
+H rc_smoothing:1
+H rc_smoothing_auto_factor:30
+H rc_smoothing_auto_factor_throttle:30
+H rc_smoothing_feedforward_cutoff:0
+H rc_smoothing_setpoint_cutoff:0
+H rc_smoothing_throttle_cutoff:0
+H rc_smoothing_debug_axis:0
+H rc_smoothing_active_cutoffs_ff_sp_thr:77,77,77
+H rc_smoothing_rx_average:4844
+H rates_type:3
+H fields_disabled_mask:5
+H blackbox_high_resolution:1
+H vbat_sag_compensation:0
+H dyn_idle_min_rpm:0
+H dyn_idle_p_gain:50
+H dyn_idle_i_gain:50
+H dyn_idle_d_gain:50
+H dyn_idle_max_increase:150
+H simplified_pids_mode:2
+H simplified_master_multiplier:100
+H simplified_i_gain:100
+H simplified_d_gain:100
+H simplified_pi_gain:100
+H simplified_dmax_gain:100
+H simplified_feedforward_gain:100
+H simplified_pitch_d_gain:100
+H simplified_pitch_pi_gain:100
+H simplified_dterm_filter:0
+H simplified_dterm_filter_multiplier:100
+H simplified_gyro_filter:1
+H simplified_gyro_filter_multiplier:40
+H motor_output_limit:100
+H throttle_limit_type:0
+H throttle_limit_percent:100
+H throttle_boost:5
+H throttle_boost_cutoff:15
+H gps_provider:1
+H gps_use_3d_speed:0
+H gps_rescue_min_start_dist:15
+H gps_rescue_alt_mode:0
+H gps_rescue_initial_climb:10
+H gps_rescue_ascend_rate:750
+H gps_rescue_return_alt:30
+H gps_rescue_ground_speed:750
+H gps_rescue_max_angle:45
+H gps_rescue_roll_mix:150
+H gps_rescue_pitch_cutoff:75
+H gps_rescue_descent_dist:20
+H gps_rescue_descend_rate:150
+H gps_rescue_landing_alt:4
+H gps_rescue_disarm_threshold:20
+H gps_rescue_throttle_min:1100
+H gps_rescue_throttle_max:1700
+H gps_rescue_throttle_hover:1275
+H gps_rescue_sanity_checks:2
+H gps_rescue_min_sats:8
+H gps_rescue_allow_arming_without_fix:0
+H gps_rescue_throttle_p:15
+H gps_rescue_throttle_i:15
+H gps_rescue_throttle_d:20
+H gps_rescue_velocity_p:8
+H gps_rescue_velocity_i:40
+H gps_rescue_velocity_d:12
+H gps_rescue_yaw_p:20
+H geofence_max_altitude:120
+H geofence_hard_offset:3
+H geofence_grace_count:5
+H geofence_descend_delay:10
+H indi_attitude_gains:400,300,400
+H indi_rate_gains:100,100,100
+H indi_attitude_max_tilt_rate:800
+H indi_attitude_max_yaw_rate:200
+H indi_max_rate_setpoint:1800,1800,1800
+H indi_manual_use_coordinated_yaw:1
+H indi_manual_max_upwards_accel:30
+H indi_manual_max_tilt:45
+H indi_use_increment:1
+H indi_use_accel_for_thrust:0
+H indi_use_rpm_dot_feedback:0
+H indi_act_num:4
+H indi_act_time_constant_ms:33,33,70,70
+H indi_act_max_rpm:26000,26000,0,0
+H indi_act_nonlinearity:40,40,0,0
+H indi_act_min:0,0,-40,-40
+H indi_act_max:80,80,40,40
+H indi_act_type:1,1,2,2
+H indi_act_g1_fx:306,306,-191,-191
+H indi_act_g1_fy:0,0,0,0
+H indi_act_g1_fz:-1872,-1872,0,0
+H indi_act_g1_roll:1975,-1975,0,0
+H indi_act_g1_pitch:0,0,-810,-810
+H indi_act_g1_yaw:0,0,-563,563
+H indi_act_g2_roll:0,0,0,0
+H indi_act_g2_pitch:0,0,0,0
+H indi_act_g2_yaw:0,0,0,0
+H indi_tails_use_scheduled:1
+H indi_tails_use_sine:0
+H indi_tails_d0:-2100,-918
+H indi_tails_cxw:405,405
+H indi_tails_cyw:0,0
+H indi_tails_czw:-2481,-2481
+H indi_tails_clw:2597,-2597
+H indi_tails_cmw:0,0
+H indi_tails_cnw:-702,702
+H indi_tails_cnwd:-260,260
+H indi_tails_cxd:-42,-42
+H indi_tails_cmd:-2234,-2234
+H indi_tails_cnd:-1662,1662
+H indi_sync_lowpass_hz:3
+H indi_wls_axes_weights:1,1,10,50,50,5
+H indi_wls_act_penalties:5,5,1,1
+H indi_wls_act_preferred_state:0,0,0,0
+H position_horizontal_p:25
+H position_horizontal_i:5
+H position_horizontal_d:22
+H position_max_horizontal_speed:3500
+H position_max_horizontal_accel:2000
+H position_max_tilt:45
+H position_vertical_p:30
+H position_vertical_i:5
+H position_vertical_d:15
+H position_max_upwards_speed:500
+H position_max_downwards_speed:150
+H position_max_upwards_accel:3000
+H position_max_downwards_accel:150
+H position_yaw_p:50
+H position_weathervane_p:0
+H position_weathervane_min_v:200
+H position_use_thrust_attenuation:0
+H ahrs_process_denom:8
+H ekf_use_quat:1
+H ekf_use_for_manual_flight:0
+H ekf_meas_source:0
+H ekf_proc_noise_acc:500000,500000,500000
+H ekf_proc_noise_gyro:100000,100000,100000
+H ekf_proc_noise_acc_bias:20,20,20
+H ekf_proc_noise_gyro_bias:10,10,10
+H ekf_meas_noise_position:1000,1000,1000
+H ekf_meas_noise_quat:50000,50000,50000,50000
+H ekf_meas_delay:0
+H throw_to_arm_acc_high:20
+H throw_to_arm_acc_clip:45
+H throw_to_arm_acc_low:20
+H throw_to_arm_gyro_high:600
+H throw_to_arm_momentum_thresh:400
+H throw_to_arm_release_delay_ms:150
+H throw_to_arm_idle_before_throw:0
+H throw_to_arm_allow_manual_modes:0
+H learner_imu_lowpass_hz:10
+H learner_fx_lowpass_hz:20
+H learner_motor_lowpass_hz:40
+H learner_servo_lowpass_hz:20
+H learner_use_fortescue:0
+H learner_zeta_rate:55
+H learner_zeta_attitude:70
+H learner_zeta_velocity:80
+H learner_zeta_position:70
+H learner_zeta_velocity_vert:100
+H learner_zeta_position_vert:90
+H learner_roll_misalignment:0
+H learner_pitch_misalignment:0
+H learner_yaw_misalignment:0
+H learner_randomize_misalignment:0
+H learner_apply_indi_profile:1
+H learner_apply_position_profile:1
+H learner_apply_hover_rotation:0
+I É˛Î
+êN   $‡JÂ ¸ïÀ#    éÜ  ¯~sÆg ˛~	cJª       -: ÷∆    6 ‘
+§    ∞å      ±å                                       ê                                                                                                                                                                      ˛~          E £ıÀ
+G›		Ä»ÙÔÄËí&»¸ˇˇ¬SPA 1“¸•µ£≥»                            !ÆÖ
+                                                                                                                                                                    P´  y§=éª≤Ë‰Œ                         E≈                                                                                                                                                                   P‘ 	6 8∫ñˆÜÕï                         ‹                                                                                                                                                                    P –F2jöç’ ˜     È                      -æ≠                                                                                                                                                                   P œei/ôã‚ù§Ü˛                       ΩÅ                                                                                                                                                                    P≠ ‡>∑ﬂ¬D=àÑª
+      Ñ
+                   $î	î                                                                                                                                                                    P‘ ﬂ(á*>·—Ë2Å¯î
+    	              
+      µ	                                                                                                                                                                     I „ÇÓ
+êN¯  *A±6MëîÇóˆ·è!    Ïä  ¯~s¶Q ˛~	GJ∑"      : ßú    4 ¿∏    ∞å      ±å                                       ê                                                                                                                                                                      ˛~          PA ∏!^∫EÑƒ<ŸŒÂÜÆ               	         ú
+À                                                                                                                                                                   P© 4('îzÔâç°      µ                  ÂÚ	É                                                                                                                                                                   P“ ﬂE ˚\µ≤5G                           oc                                                                                                                                                                    P ËS √vøÀöÖ´     ¯                       	¢                                                                                                                                                                   P# Áû|¶∑û≠ºÏ                     #∏ë                                                                                                                                                                   Pß  ÇÃL∫à‘™Ã¡Ä      ≥             ) ¸‘Å                                                                                                                                                                   P∆ 3†à-†‘.t„ßûß                      +∫Ö	                                                                                                                                                                   Gﬁ		í»ÙÔ“Áí&≈¸ˇˇ'€I@≈á
+êN˘à	 %+êãNGäﬂ!‡±ß"    ¨_  ¯~q¶Y  ˛~	[J∑      !T æœ    8 ¸M    ∞å      ≠ç                                       ê                                                                                                                                                                      ˛~          P˙A ø$:*d¥‡ô.ˇàÏ                          wB                                                                                                                                                                    P∑ †-Z-l§??≥¸˘      ∂
+                  ﬁ€º                                                                                                                                                                   P‘ †
+yx£ôÏ‘jçî                  
+       «	Ú                                                                                                                                                                     P  -“±?íµ∫ê“î™û     „          #      =Ó	åë                                                                                                                                                                   P- ßéó)À÷%≥’ã•          
+              8É¿                                                                                                                                                                   P• ¿"◊ã.°[âˇˇÈxÍ      ˛            "       :Ωı	û                                                                                                                                                                   P– ò—6_F¶≥ﬁ‘"‡
+                 
+      	´◊                                                                                                                                                                   I`¶åÚ
+êNò *≈fÕ†rß•Çè    ˛‘  ¯~s™_  ˛~	WJπ
+      
+!$* ’ú    8 ¶å    ∞å      ±å                                       ê                                                                                                                                                                      ˛~          PA ∞,
+,˝,ÒåÌ°	                       	~‰                                                                                                                                                                     P©  ân±≤K≠Ω∂	˝ê       ı                   èçü                                                                                                                                                                   PŒ 
+whæZ∂‰	7™ûíÆ                           “q                                                                                                                                                                   P «#>“3bÑäçÈ≈Æﬂ     Ë                 
+'à	Âˆ                                                                                                                                                                    P% á· ≈]ØÑù√Åƒ                           çõ                                                                                                                                                                    P• @U*¥{ÜŒÄÆ%ﬁ      Ü                 	ˆˆ                                                                                                                                                                   P∆ N
+ t(¯âÓ˙	±                        ä0                                                                                                                                                                    Gﬁ		™»ÙÔ†Áí&¡¸ˇˇ€IÄÜëÙ
+êNı  4∏2ñspÌ’òŸ"    
+Ë‰
+  ¯~q∞K ˛~	KJª      )!2 ¶«    6 §‚    ∞å      ±ç                                       ê                                                                                                                                                                      ˛~          PˆA ÁA≈;ºjΩÓ‹◊                       
+ó	„                                                                                                                                                                   P∑ #O≈&JüÀ∫ ¶$∂      ƒ                 *’ƒ÷                                                                                                                                                                   Pÿ "ñá$∞©ÏøÄŸçú    	                     $á˛                                                                                                                                                                    P 
+ ∏N	zñìßÂ|ì     ”                  
+Ω„                                                                                                                                                                   P+ †_Å!?-À‰
+Ä¨                           ÒÀ                                                                                                                                                                   P©  .#lMÍæò¬ƒ      ≈                    ‘ÊØ	                                                                                                                                                                   P– »Q>¿·ª∑•Â
+                        ç‚                                                                                                                                                                    I†Âïˆ
+êN‡ ùLõ∆óëÛ!›ïè    †‚  ¯~q¶k ˛~	gJ∑      
+( /D    2 äà    ∞å      ≠å                                       ê                                                           

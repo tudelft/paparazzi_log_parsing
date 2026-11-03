@@ -6,23 +6,52 @@ Messages tab, with a cap so full-rate IMU dumps do not freeze the UI.
 """
 from __future__ import annotations
 
+import csv
 import hashlib
 import math
+import os
 import re
 import struct
+import subprocess
+import threading
 from bisect import bisect_right
 from datetime import datetime, timezone
 from pathlib import Path
 
 PARSER_NAME = "mav-log"
 PARSER_VERSION = "1.0.3"
+BLACKBOX_PARSER_NAME = "blackbox"
+BLACKBOX_PARSER_VERSION = "1.0.1"
+BLACKBOX_DECODE_TIMEOUT_S = 300
 
 LOG_PX4 = "px4_ulog"
 LOG_AP = "ardupilot"
 LOG_TLOG = "mavlink_tlog"
+LOG_BF = "betaflight"
+LOG_INDI = "indiflight"
+LOG_BLACKBOX = "blackbox"
 
-MAV_SINGLE_EXTS = {".ulg", ".bin", ".tlog"}
+BLACKBOX_EXTS = {".bfl", ".bbl"}
+MAV_SINGLE_EXTS = {".ulg", ".bin", ".tlog"} | BLACKBOX_EXTS
 MAV_EXTS = MAV_SINGLE_EXTS | {".log"}
+BLACKBOX_MAGIC = b"H Product:Blackbox"
+BLACKBOX_QUAT_SCALE = float((127 << 6) - 1)
+BLACKBOX_U16_SCALE = float((127 << 7) - 1)
+BLACKBOX_DEG = 57.2957796
+BLACKBOX_G = 9.80665
+BLACKBOX_DSHOT = (158.0, 2048.0)
+BLACKBOX_FLAG_COLS = (
+    "flightModeFlags", "stateFlags", "failsafePhase", "rxSignalReceived", "rxFlightChannelValid",
+)
+BLACKBOX_EKF_JUMP_M = 50.0
+BLACKBOX_KEEP = frozenset(
+    ("time", "flightModeFlags", "stateFlags",
+     "GPS_coord[0]", "GPS_coord[1]", "GPS_numSat", "GPS_altitude", "GPS_speed",
+     "vbatLatest", "baroAlt", "pitot_airSpeed")
+    + tuple(f"motor[{i}]" for i in range(8))
+    + tuple(f"{prefix}[{i}]" for prefix in ("quat", "ekf_quat") for i in range(4))
+    + tuple(f"{prefix}[{i}]" for prefix in ("ekf_pos", "pos", "ekf_vel", "vel") for i in range(3))
+)
 
 MAX_INFO_MESSAGES = 50_000
 MAX_PER_TYPE = 2_000
@@ -59,10 +88,10 @@ ULOG_MAGIC = b"ULog\x01\x12\x35"
 
 
 def sniff(path) -> str | None:
-    """Return log_type for a PX4/ArduPilot/tlog file, or None for Paparazzi / unknown."""
+    """Return log_type for a PX4/ArduPilot/tlog/Blackbox file, or None for Paparazzi / unknown."""
     p = Path(path)
     try:
-        head = p.read_bytes()[:512]
+        head = p.read_bytes()[:4096]
     except OSError:
         return None
     if not head:
@@ -72,6 +101,8 @@ def sniff(path) -> str | None:
         return LOG_PX4
     if suf == ".ulg":
         return LOG_PX4
+    if looks_blackbox(head) or suf in BLACKBOX_EXTS:
+        return LOG_BLACKBOX
     if looks_tlog(head) or suf == ".tlog":
         return LOG_TLOG if looks_tlog(head) or suf == ".tlog" else None
     if head.startswith(DF_HEAD) or suf == ".bin":
@@ -80,6 +111,15 @@ def sniff(path) -> str | None:
     if looks_ap_text(head):
         return LOG_AP
     return None
+
+
+def looks_blackbox(head: bytes) -> bool:
+    return BLACKBOX_MAGIC in head
+
+
+def blackbox_decode_bin():
+    return os.environ.get("LOGDB_BLACKBOX_DECODE") or str(
+        Path(__file__).resolve().parent.parent / "cpp" / "build" / "blackbox_decode")
 
 
 def looks_tlog(head: bytes) -> bool:
@@ -102,18 +142,20 @@ def looks_paparazzi_xml(path) -> bool:
     return low.startswith(b"<?xml") or low.startswith(b"<protocol") or b"<msg_class" in low or b"<configuration" in low
 
 
-def parse(path, sha256=None, path_rate=5.0, log_type=None):
+def parse(path, sha256=None, path_rate=5.0, log_type=None, blackbox_decode=None):
     """Parse a mavlog into the same JSON document fastreader emits."""
     p = Path(path)
     kind = log_type or sniff(p)
     if kind is None:
-        raise RuntimeError(f"not a PX4, ArduPilot or MAVLink log: {p.name}")
+        raise RuntimeError(f"not a PX4, ArduPilot, MAVLink or Blackbox log: {p.name}")
     raw = p.read_bytes()
     digest = sha256 or hashlib.sha256(raw).hexdigest()
     if kind == LOG_PX4:
         return _parse_ulog(p, digest, len(raw), path_rate)
     if kind == LOG_TLOG:
         return _parse_tlog(p, digest, len(raw), path_rate)
+    if kind in (LOG_BLACKBOX, LOG_BF, LOG_INDI):
+        return _parse_blackbox(p, digest, len(raw), path_rate, decoder=blackbox_decode)
     return _parse_ardupilot(p, digest, len(raw), path_rate)
 
 
@@ -489,14 +531,19 @@ def _split_flights(samples, armed, t0_epoch, path_rate, *, airborne=None, strict
 
 
 def _document(path, digest, size, log_type, type_basis, path_rate, t0_epoch, t_first, t_last,
-              ac_id, name, versions, flights, info_messages, preflight, settings_timeline=None):
+              ac_id, name, versions, flights, info_messages, preflight, settings_timeline=None,
+              parser_name=None, parser_version=None):
     total_time = sum(f["duration_s"] or 0 for f in flights)
     total_dist = sum(f["distance_m"] or 0 for f in flights)
     start_utc = _utc(t0_epoch) if t0_epoch is not None else None
     first_utc = _utc(t0_epoch + t_first if t0_epoch is not None else None)
     end_utc = _utc(t0_epoch + t_last if t0_epoch is not None else None)
     return {
-        "parser": {"name": PARSER_NAME, "version": PARSER_VERSION, "path_rate_hz": path_rate},
+        "parser": {
+            "name": parser_name or PARSER_NAME,
+            "version": parser_version or PARSER_VERSION,
+            "path_rate_hz": path_rate,
+        },
         "log": {
             "file": Path(path).name, "type": log_type, "type_basis": type_basis,
             "sha256": digest, "size_bytes": size,
@@ -1341,6 +1388,475 @@ def _parse_tlog(path, digest, size, path_rate):
     info_messages.sort(key=lambda m: m["time_s"])
     return _document(path, digest, size, LOG_TLOG, "MAVLink tlog", path_rate, t0_epoch, t_first, t_last,
                      sysid, f"MAVLink-{sysid}", versions, flights, info_messages, preflight)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Betaflight / INDIFlight Blackbox (.bfl / .bbl)
+# ---------------------------------------------------------------------------------------------------------------------
+def _blackbox_headers(path, offset=0):
+    headers = {}
+    with open(path, "rb") as handle:
+        if offset:
+            handle.seek(offset)
+        while True:
+            line = handle.readline()
+            if not line:
+                break
+            if line.startswith(b"H "):
+                text = line.decode("ascii", "replace").rstrip("\r\n")
+                key, _, value = text[2:].partition(":")
+                if key:
+                    headers[key.strip()] = value.strip()
+            elif headers:
+                break
+    return headers
+
+
+def _blackbox_kind(headers):
+    blob = " ".join(headers.get(key, "") for key in ("Firmware type", "Firmware revision")).lower()
+    if "indiflight" in blob:
+        return LOG_INDI, "INDIFlight Blackbox"
+    return LOG_BF, "Betaflight Blackbox"
+
+
+def _blackbox_epoch(headers):
+    raw = headers.get("Log start datetime") or ""
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def _blackbox_dshot(headers):
+    raw = headers.get("motorOutput") or ""
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    if len(parts) >= 2:
+        try:
+            return int(float(parts[0])), int(float(parts[1]))
+        except ValueError:
+            pass
+    return tuple(int(v) for v in BLACKBOX_DSHOT)
+
+
+def _blackbox_high_res(headers):
+    raw = headers.get("blackbox_high_resolution")
+    if raw in (None, ""):
+        return 1.0
+    try:
+        return 10.0 if int(float(raw)) else 1.0
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _blackbox_si_value(col, x, high_res, acc_1g, motors_lo, motors_hi):
+    """INDIFlight log-tools `_processData` scaling: decoder CSV in SI units."""
+    if col == "loopIteration":
+        return int(x)
+    if col == "rcCommand[3]":
+        return (x - 1000.0 * high_res) / (1000.0 * high_res)
+    if col.startswith("rcCommand"):
+        return x / (500.0 * high_res)
+    if col.startswith("gyro"):
+        return x / (BLACKBOX_DEG * high_res)
+    if col.startswith("accSp"):
+        return x / 100.0
+    if col.startswith("acc"):
+        return x * BLACKBOX_G / acc_1g
+    if re.match(r"^motor\[[0-9]+\]$", col):
+        span = max(1.0, motors_hi - motors_lo)
+        return (x - motors_lo) / span
+    if col.startswith(("quat", "extQuat", "ekf_quat", "localQuat")):
+        return x / BLACKBOX_QUAT_SCALE
+    if col.startswith("alpha"):
+        return x / (0.1 * BLACKBOX_DEG)
+    if col.startswith("spfSp"):
+        return x / 100.0
+    if col.startswith("dv"):
+        return x / 10.0
+    if col.startswith("u["):
+        return x / BLACKBOX_QUAT_SCALE
+    if col.startswith("u_state"):
+        return x / BLACKBOX_QUAT_SCALE
+    if col.startswith("omega_dot"):
+        return x * 100.0
+    if col.startswith("omega"):
+        return x
+    if col.startswith("servo_feedback"):
+        return x / (100.0 * BLACKBOX_DEG)
+    if col.startswith(("pos", "extPos", "ekf_pos", "localPos")):
+        return x / 1000.0
+    if col.startswith(("vel", "extVel", "ekf_vel", "localVel")):
+        return x / 100.0
+    if col.startswith(("extAtt", "ekf_att")):
+        return x / 1000.0
+    if col.startswith("ekf_acc_b"):
+        return x / 1000.0
+    if col.startswith("ekf_gyro_b"):
+        return x / (BLACKBOX_DEG * 1000.0)
+    if col.startswith("learnerGains"):
+        return x / 10.0
+    if col.startswith("hoverAttitude"):
+        return x / BLACKBOX_QUAT_SCALE
+    if col.endswith("_lambda"):
+        return x / BLACKBOX_U16_SCALE
+    if col.endswith("_e_var"):
+        return x / (0.001 * ((1 << 16) - 1))
+    if col in BLACKBOX_FLAG_COLS:
+        return int(x)
+    return x
+
+
+def _blackbox_si_row(row, high_res, acc_1g, motors_lo, motors_hi):
+    si = {}
+    for col, val in row.items():
+        if col not in BLACKBOX_KEEP:
+            continue
+        if col in BLACKBOX_FLAG_COLS and val in (None, ""):
+            si[col] = 0
+            continue
+        number = _csv_num({col: val}, col)
+        si[col] = _blackbox_si_value(col, number, high_res, acc_1g, motors_lo, motors_hi) if number is not None else val
+    return si
+
+
+def _csv_num(row, *keys):
+    for key in keys:
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number):
+            return number
+    return None
+
+
+def _norm_csv_fields(names):
+    out = []
+    for name in names or []:
+        name = (name or "").strip()
+        if " (" in name:
+            name = name.split(" (", 1)[0]
+        out.append(name)
+    return out
+
+
+def _blackbox_indexes(stderr):
+    if "multiple flight logs" not in (stderr or ""):
+        return None
+    out = []
+    for line in stderr.splitlines():
+        parts = line.split()
+        if parts and parts[0].isdigit() and len(parts) >= 3:
+            out.append((int(parts[0]), int(parts[1]), int(parts[2])))
+    return out or [(1, 0, 0)]
+
+
+def _blackbox_decode_cmd(decoder, path, index=None):
+    cmd = [decoder, "--stdout", "--merge-gps", "--unit-flags", "raw"]
+    if index is not None:
+        cmd.extend(["--index", str(index)])
+    cmd.append(str(path))
+    return cmd
+
+
+def _iter_blackbox_csv(path, decoder, index=None):
+    decoder = decoder or blackbox_decode_bin()
+    if not (os.path.isfile(decoder) and os.access(decoder, os.X_OK)):
+        raise RuntimeError(f"Blackbox decoder not found or not executable: {decoder} (build it in cpp/)")
+    try:
+        proc = subprocess.Popen(
+            _blackbox_decode_cmd(decoder, path, index),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except OSError as exc:
+        raise RuntimeError(f"Blackbox decoder failed to start: {exc}") from exc
+    timed_out = threading.Event()
+
+    def _kill():
+        timed_out.set()
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+    timer = threading.Timer(BLACKBOX_DECODE_TIMEOUT_S, _kill)
+    timer.daemon = True
+    timer.start()
+    try:
+        header_line = proc.stdout.readline()
+        if timed_out.is_set():
+            raise RuntimeError(f"Blackbox decoder timed out on {Path(path).name}")
+        if not header_line.strip():
+            err = (proc.stderr.read() or "").strip()
+            proc.wait(timeout=30)
+            if timed_out.is_set():
+                raise RuntimeError(f"Blackbox decoder timed out on {Path(path).name}")
+            indexes = _blackbox_indexes(err) if index is None else None
+            if indexes:
+                yield from ()
+                return indexes
+            raise RuntimeError(err or f"Blackbox decoder exit code {proc.returncode}")
+        names = _norm_csv_fields(next(csv.reader([header_line], skipinitialspace=True)))
+        idx_map = {name: i for i, name in enumerate(names) if name in BLACKBOX_KEEP}
+        for line in proc.stdout:
+            if timed_out.is_set():
+                raise RuntimeError(f"Blackbox decoder timed out on {Path(path).name}")
+            parts = next(csv.reader([line], skipinitialspace=True))
+            yield {name: parts[i] for name, i in idx_map.items() if i < len(parts)}
+        err = (proc.stderr.read() or "").strip()
+        proc.wait(timeout=30)
+        if timed_out.is_set():
+            raise RuntimeError(f"Blackbox decoder timed out on {Path(path).name}")
+        if proc.returncode not in (0, None):
+            raise RuntimeError(err or f"Blackbox decoder exit code {proc.returncode}")
+    finally:
+        timer.cancel()
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+        if proc.stdout:
+            proc.stdout.close()
+        if proc.stderr:
+            proc.stderr.close()
+    return None
+
+
+def _blackbox_row_streams(path, decoder):
+    stream = _iter_blackbox_csv(path, decoder)
+    try:
+        first = next(stream)
+    except StopIteration as stop:
+        listing = stop.value
+        if listing:
+            for index, offset, _size in listing:
+                yield _blackbox_headers(path, offset), _iter_blackbox_csv(path, decoder, index)
+            return
+        raise RuntimeError(f"Blackbox log {Path(path).name} contained no frames") from stop
+    def with_first():
+        yield first
+        yield from stream
+    yield _blackbox_headers(path), with_first()
+
+
+def _gps_point(row):
+    lat, lon = _csv_num(row, "GPS_coord[0]"), _csv_num(row, "GPS_coord[1]")
+    if lat is None or lon is None:
+        return None, None, None, None
+    if abs(lat) > 180 or abs(lon) > 180:
+        lat, lon = lat / 1e7, lon / 1e7
+    sats = _csv_num(row, "GPS_numSat")
+    if sats is not None and sats < 5:
+        return None, None, None, None
+    if not -90 <= lat <= 90 or not -180 <= lon <= 180 or (lat == 0 and lon == 0):
+        return None, None, None, None
+    alt = _int32(_csv_num(row, "GPS_altitude"))
+    if alt is not None and not -500 <= alt <= 20000:
+        alt = None
+    speed = _csv_num(row, "GPS_speed")
+    if speed is not None and speed > 80:
+        speed /= 100.0
+    return lat, lon, alt, speed
+
+
+def _int32(value):
+    if value is None:
+        return None
+    x = int(round(value))
+    if x >= 2 ** 31:
+        x -= 2 ** 32
+    elif x < -2 ** 31:
+        x += 2 ** 32
+    return float(x)
+
+
+def _ned(row, prefix, scale):
+    values = [_csv_num(row, f"{prefix}[{i}]") for i in range(3)]
+    if any(v is None for v in values) or all(v == 0 for v in values):
+        return None, None, None
+    return tuple(v / scale for v in values)
+
+
+def _ekf_axis_jump(prev, row, jump=BLACKBOX_EKF_JUMP_M):
+    if prev is None:
+        return False
+    for i in range(3):
+        a, b = _csv_num(prev, f"ekf_pos[{i}]"), _csv_num(row, f"ekf_pos[{i}]")
+        if a is not None and b is not None and abs(b - a) >= jump:
+            return True
+    return False
+
+
+def _blackbox_sample(row, indi):
+    lat, lon, alt, gs = _gps_point(row)
+    flags = int(_csv_num(row, "flightModeFlags") or 0)
+    modes = []
+    if flags & 1:
+        modes.append("ARM")
+    if flags & 2:
+        modes.append("ANGLE")
+    if flags & 4:
+        modes.append("HORIZON")
+    volt = _csv_num(row, "vbatLatest")
+    if volt is not None and volt > 60:
+        volt /= 100.0
+    baro = _csv_num(row, "baroAlt")
+    if baro is not None:
+        baro /= 100.0
+    if alt is not None and baro is not None and abs(alt - baro) > 50:
+        alt = None
+    actuators = []
+    for i in range(8):
+        value = _csv_num(row, f"motor[{i}]")
+        if value is None:
+            break
+        actuators.append(round(max(0.0, min(1.0, value)), 3))
+    quat_keys = "quat" if _csv_num(row, "quat[0]") is not None else "ekf_quat"
+    quat = [_csv_num(row, f"{quat_keys}[{i}]") for i in range(4)]
+    roll = pitch = yaw = None
+    qi = qx = qy = qz = None
+    if all(v is not None for v in quat):
+        qi, qx, qy, qz = quat
+        roll, pitch, yaw = _quat_euler_deg(*quat)
+    pos = vel = ekf = ekf_vel = (None, None, None)
+    if indi:
+        pos, vel = _ned(row, "pos", 1.0), _ned(row, "vel", 1.0)
+        ekf, ekf_vel = _ned(row, "ekf_pos", 1.0), _ned(row, "ekf_vel", 1.0)
+    state = _csv_num(row, "stateFlags")
+    tas = _csv_num(row, "pitot_airSpeed")
+    return {
+        "lat": lat, "lon": lon, "alt": alt, "gs": gs, "baro_alt": baro, "volt": volt,
+        "roll": roll, "pitch": pitch, "yaw": yaw, "qi": qi, "qx": qx, "qy": qy, "qz": qz,
+        "tas": tas, "mode": "+".join(modes) or "DISARM",
+        "actuators": actuators or None,
+        "_pos": pos, "_vel": vel, "_ekf": ekf, "_ekf_vel": ekf_vel,
+        "_box_arm": bool(flags & 1),
+        "_state_arm": None if state is None else bool(int(state) & 1),
+    }
+
+
+def _blackbox_collect(headers, rows, path_rate, indi):
+    high_res = _blackbox_high_res(headers)
+    acc_1g = _csv_num(headers, "acc_1G") or 2048.0
+    motors_lo, motors_hi = (float(v) for v in _blackbox_dshot(headers))
+    dt = (1.0 / path_rate) if path_rate and path_rate > 0 else None
+    samples, wrapped = [], False
+    t_first = t_last = t0_us = nxt = prev_si = None
+    for raw in rows:
+        row = _blackbox_si_row(raw, high_res, acc_1g, motors_lo, motors_hi)
+        raw_t = _csv_num(row, "time")
+        if raw_t is None:
+            continue
+        if t0_us is None:
+            t0_us = raw_t
+        t = (raw_t - t0_us) / 1e6
+        t_first = t if t_first is None else t_first
+        t_last = t
+        if _ekf_axis_jump(prev_si, row):
+            wrapped = True
+        prev_si = row
+        sample = _blackbox_sample(row, indi)
+        keep = nxt is None or dt is None or t + 1e-9 >= nxt
+        if not keep and samples:
+            prev = samples[-1][1]
+            keep = sample["_box_arm"] != prev["_box_arm"] or sample["_state_arm"] != prev["_state_arm"]
+        if keep:
+            samples.append((t, sample))
+            if nxt is None or t + 1e-9 >= nxt:
+                nxt = None if dt is None else t + dt
+    if not samples:
+        return [], [], None, None
+    use_state = any(s["_state_arm"] for _, s in samples)
+    use_ekf = indi and not wrapped
+    armed, prev_armed = [], None
+    for t, sample in samples:
+        on = sample["_state_arm"] if use_state and sample["_state_arm"] is not None else sample["_box_arm"]
+        n, e, d = sample["_ekf"] if use_ekf and sample["_ekf"][0] is not None else sample["_pos"]
+        vn, ve, vd = sample["_ekf_vel"] if use_ekf and sample["_ekf_vel"][0] is not None else sample["_vel"]
+        sample["n"], sample["e"], sample["d"] = n, e, d
+        sample["vn"], sample["ve"], sample["vd"] = vn, ve, vd
+        if prev_armed is None or on != prev_armed:
+            armed.append((t, on))
+            prev_armed = on
+        for key in ("_pos", "_vel", "_ekf", "_ekf_vel", "_box_arm", "_state_arm"):
+            sample.pop(key, None)
+    return samples, armed, t_first, t_last
+
+
+def _blackbox_finish(path, digest, size, headers, flights, t_first, t_last, path_rate,
+                     all_headers=None):
+    if not flights:
+        raise RuntimeError(f"Blackbox log {Path(path).name} contained no frames")
+    for i, flight in enumerate(flights, start=1):
+        flight["flight"] = i
+    groups = all_headers or [headers]
+    kind, basis = _blackbox_kind(headers)
+    t0_epoch = _blackbox_epoch(headers)
+    craft = next(((h.get("Craft name") or "").strip() for h in groups if (h.get("Craft name") or "").strip()), "")
+    name = craft or Path(path).stem
+    versions = []
+    for h in groups:
+        revision = h.get("Firmware revision") or h.get("Firmware type") or basis
+        if revision and revision not in versions:
+            versions.append(revision)
+    info, preflight = [], []
+    for i, h in enumerate(groups):
+        log_epoch = _blackbox_epoch(h)
+        prefix = f"Log {i + 1} " if len(groups) > 1 else ""
+        for key in ("Firmware type", "Firmware revision", "Firmware date", "Board information",
+                    "Craft name", "Log start datetime"):
+            value = h.get(key)
+            if value:
+                label = f"{prefix}{key}: {value}" if prefix and key == "Log start datetime" else f"{key}: {value}"
+                _push_msg(info, 0, log_epoch, label)
+    return _document(path, digest, size, kind, basis, path_rate, t0_epoch, t_first, t_last,
+                     1, name, versions, flights, info, preflight,
+                     parser_name=BLACKBOX_PARSER_NAME, parser_version=BLACKBOX_PARSER_VERSION)
+
+
+def _blackbox_document(path, digest, size, headers, rows, path_rate):
+    kind, _basis = _blackbox_kind(headers)
+    t0_epoch = _blackbox_epoch(headers)
+    samples, armed, t_first, t_last = _blackbox_collect(headers, rows, path_rate, kind == LOG_INDI)
+    flights = _split_flights(samples, armed, t0_epoch, path_rate) if samples else []
+    return _blackbox_finish(path, digest, size, headers, flights, t_first, t_last, path_rate)
+
+
+def _parse_blackbox(path, digest, size, path_rate, decoder=None):
+    first = _blackbox_headers(path)
+    if "Blackbox" not in first.get("Product", ""):
+        raise RuntimeError(f"not a Blackbox log: {Path(path).name}")
+    flights, groups = [], []
+    first_epoch = span_end = duration = None
+    for headers, rows in _blackbox_row_streams(path, decoder):
+        groups.append(headers)
+        kind, _basis = _blackbox_kind(headers)
+        epoch = _blackbox_epoch(headers)
+        samples, armed, tf, tl = _blackbox_collect(headers, rows, path_rate, kind == LOG_INDI)
+        if not samples:
+            continue
+        flights.extend(_split_flights(samples, armed, epoch, path_rate))
+        if first_epoch is None:
+            first_epoch = epoch
+        if epoch is not None and tl is not None:
+            end = epoch + tl
+            span_end = end if span_end is None else max(span_end, end)
+        if tf is not None and tl is not None:
+            duration = (duration or 0.0) + (tl - tf)
+    headers = groups[0] if groups else first
+    t_first = 0.0 if flights else None
+    if first_epoch is not None and span_end is not None:
+        t_last = span_end - first_epoch
+    else:
+        t_last = duration
+    return _blackbox_finish(path, digest, size, headers, flights, t_first, t_last, path_rate,
+                            all_headers=groups or [first])
 
 
 def write_ulog(path, *, start_us=0, info=None, formats=None, logged=None, add=None, samples=None):

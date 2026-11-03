@@ -69,10 +69,10 @@
       <button type="button" id="pickFilesBtn">Select files</button>
       <button type="button" class="sec" id="pickDirBtn">Select folder</button>
       <details><summary>Help</summary>
-      <p>Paparazzi .data and .log files must come as a pair with the same name. PX4 .ulg, ArduPilot .bin / .log and MAVLink .tlog files are uploaded on their own. Zips and folders may mix all of those. Files are accepted quickly; fingerprinting, duplicates and parsing run in the background. The list below shows 25 logs per page by default, newest first; open a log for its details and flights. For hundreds of logs, drop a zip or a folder — picking thousands of files one by one can freeze the browser.</p>
+      <p>Paparazzi .data and .log files must come as a pair with the same name. PX4 .ulg, ArduPilot .bin / .log, MAVLink .tlog and Betaflight/INDIFlight .bfl / .bbl files are uploaded on their own. Zips and folders may mix all of those. Files are accepted quickly; fingerprinting, duplicates and parsing run in the background. The list below shows 25 logs per page by default, newest first; open a log for its details and flights. For hundreds of logs, drop a zip or a folder — picking thousands of files one by one can freeze the browser.</p>
       <div class="mute" style="margin-top:8px">Project is set automatically from the aircraft (then the uploader, GCS operator or PIC). Admins can change it in Edit mode after it is parsed. Edit mode also shows Re-parse and Delete on an opened log, and the Re-parse outdated / unknown dates tools.</div>
       </details>
-      <input id="pickFiles" type="file" multiple hidden accept=".data,.log,.zip,.ulg,.bin,.tlog">
+      <input id="pickFiles" type="file" multiple hidden accept=".data,.log,.zip,.ulg,.bin,.tlog,.bfl,.bbl">
       <input id="pickDir" type="file" webkitdirectory hidden>
     </div>
     <div id="batch" class="mute" style="margin-top:12px" hidden></div>
@@ -174,12 +174,13 @@ fetch('/api/me').then(r => r.json()).then(async d => {
 });
 
 // ---- upload -------------------------------------------------------------------------------------------------
-// Groups: every zip or PX4/ArduPilot/tlog file alone, Paparazzi .data/.log paired by directory + name.
+const MAV_SINGLE = /\.(ulg|bin|tlog|bfl|bbl)$/i;
+// Groups: every zip or PX4/ArduPilot/tlog/Blackbox file alone, Paparazzi .data/.log paired by directory + name.
 function groupFiles(items) {
   const groups = new Map(), skipped = [];
   for (const {file, rel} of items) {
     const lower = rel.toLowerCase();
-    if (lower.endsWith('.zip') || /\.(ulg|bin|tlog)$/i.test(lower)) { groups.set(rel, [{file, rel}]); continue; }
+    if (lower.endsWith('.zip') || MAV_SINGLE.test(lower)) { groups.set(rel, [{file, rel}]); continue; }
     const m = rel.match(/^(.*)\.(data|log)$/i);
     if (!m) { skipped.push(rel); continue; }
     if (!groups.has(m[1])) groups.set(m[1], []);
@@ -289,7 +290,7 @@ async function uploadItems(items) {
   for (const g of groups) {
     const one = g.length === 1 ? g[0].rel.toLowerCase() : '';
     const isZip = one.endsWith('.zip');
-    const isMav = /\.(ulg|bin|tlog)$/.test(one);
+    const isMav = MAV_SINGLE.test(one);
     const isLoneLog = /\.log$/.test(one);
     if (!isZip && !isMav && !isLoneLog && !(g.some(x => /\.data$/i.test(x.rel)) && g.some(x => /\.log$/i.test(x.rel)))) {
       incomplete++;
