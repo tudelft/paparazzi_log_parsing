@@ -151,6 +151,9 @@ def conn():
     return db.connect(DB_PATH)
 
 
+_file_conn = conn
+
+
 def parser_version():
     """Version reported by the installed parser binary (None if it is missing)."""
     try:
@@ -819,6 +822,15 @@ def user_public(u):
     return {"id": u["id"], "username": u["username"], "display_name": u["display_name"] or u["username"],
             "is_admin": bool(u["is_admin"]), "provider": u["provider"],
             "has_password": bool(u["password_hash"])}
+
+
+@app.after_request
+def server_timing(resp):
+    """Server-Timing header (shown in the browser's Network tab) for requests that use the logbook read model."""
+    timings = g.get("server_timing")
+    if timings:
+        resp.headers["Server-Timing"] = ", ".join(f'{name};desc="{desc}";dur={ms:.1f}' for name, desc, ms in timings)
+    return resp
 
 
 @app.after_request
@@ -2112,6 +2124,16 @@ def _in_shape(sh, lat, lon):
     return inside
 
 
+def _shape_box(sh):
+    """(south, north, west, east) around a shape, slightly enlarged: points outside it are never inside the shape."""
+    if sh["type"] == "circle":
+        (lat, lon), r = sh["center"], sh["radius_m"] * 1.001 + 1
+        dlat, dlon = r / 111320.0, r / (111320.0 * max(math.cos(math.radians(lat)), 1e-6))
+        return lat - dlat, lat + dlat, lon - dlon, lon + dlon
+    lats, lons = [p[0] for p in sh["points"]], [p[1] for p in sh["points"]]
+    return min(lats) - 1e-9, max(lats) + 1e-9, min(lons) - 1e-9, max(lons) + 1e-9
+
+
 def _shape_size(sh):
     if sh["type"] == "circle":
         return math.pi * sh["radius_m"] ** 2
@@ -2122,15 +2144,16 @@ def _shape_size(sh):
 def place_resolver(con):
     """Return place(lat, lon) -> (name, indoor, id) of the smallest named place containing the point,
     else (None, False, None)."""
-    places = sorted(((_shape_size(sh), r["name"], bool(r["indoor"]), r["id"], sh)
+    places = sorted(((_shape_size(sh), r["name"], bool(r["indoor"]), r["id"], sh, _shape_box(sh))
                      for r in con.execute("SELECT id, name, indoor, shape FROM places")
                      for sh in [json.loads(r["shape"])]), key=lambda t: t[0])
 
+    @functools.lru_cache(maxsize=None)
     def place(lat, lon):
         if lat is None or lon is None:
             return None, False, None
-        return next(((name, indoor, pid) for _, name, indoor, pid, sh in places if _in_shape(sh, lat, lon)),
-                    (None, False, None))
+        return next(((name, indoor, pid) for _, name, indoor, pid, sh, (s, n, w, e) in places
+                     if s <= lat <= n and w <= lon <= e and _in_shape(sh, lat, lon)), (None, False, None))
 
     return place
 
@@ -4417,6 +4440,10 @@ _UTC_KEYS = {
 }
 
 
+# The usual stored form; fromisoformat parses it about ten times faster than strptime, with the same result.
+_PLAIN_ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?")
+
+
 def parse_iso_utc(iso):
     """Parse an API/parser UTC string to a timezone-aware datetime, or None."""
     if not iso or not isinstance(iso, str):
@@ -4424,6 +4451,11 @@ def parse_iso_utc(iso):
     s = iso.strip()
     if s.endswith("Z"):
         s = s[:-1]
+    if _PLAIN_ISO.fullmatch(s):
+        try:
+            return datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
     if "." in s:
         try:
             return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S.%f").replace(tzinfo=timezone.utc)
@@ -4714,8 +4746,13 @@ SAME_FLIGHT_SLACK_S = 60
 TYPE_ORDER = {"onboard_sd": 0, "px4_ulog": 0, "ardupilot": 0, "gcs": 1, "mavlink_tlog": 1}
 
 
+_FRACTION_ISO_Z = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{1,6}Z")
+
+
 def _ts(iso):
     try:
+        if _FRACTION_ISO_Z.fullmatch(iso):
+            return datetime.fromisoformat(iso[:-1]).replace(tzinfo=timezone.utc).timestamp()
         return datetime.strptime(iso, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).timestamp()
     except (TypeError, ValueError):
         return None
@@ -4988,11 +5025,29 @@ def logbook():
         session_required()
         if not g.user["is_admin"]:
             abort(403)
-    rows = logbook_rows(hidden=hidden, hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT"))
-    if request.args.get("compact") == "1":
-        rows = [compact_logbook_row(row) for row in rows]
-    response = jsonify(rows)
+    hide_unlinked = env_bool("HIDE_UNLINKED_AIRCRAFT")
+    compact, gz = request.args.get("compact") == "1", request.accept_encodings.best_match(("gzip", "identity")) == "gzip"
+    key = logbook_key(hidden, hide_unlinked)
+    body_key = key and key + ("body", compact, gz)
+    body = logbook_cached(body_key)
+    if body is not None:  # the finished response: serializing and compressing thousands of rows takes longest
+        g.setdefault("server_timing", []).append(("logbook", "response cached", 0.0))
+        response = Response(body, mimetype="application/json")
+        response.vary.add("Accept-Encoding")
+        if gz and body[:2] == b"\x1f\x8b":
+            response.headers["Content-Encoding"] = "gzip"
+    else:
+        rows = logbook_rows(hidden=hidden, hide_unlinked=hide_unlinked)
+        if compact:
+            rows = [compact_logbook_row(row) for row in rows]
+        response = gzip_json(jsonify(rows))
+        logbook_store(body_key, response.get_data())
     response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+def gzip_json(response):
+    """Compress a large JSON response for clients that accept gzip (the proxy usually does not compress JSON)."""
     response.vary.add("Accept-Encoding")
     if request.accept_encodings.best_match(("gzip", "identity")) == "gzip":
         body = response.get_data()
@@ -5262,7 +5317,67 @@ def endpoint_location_fallback(row):
     return any(known.values())
 
 
+_LOGBOOK_CACHE = {}  # (database version, user, request options) -> rows; also (..., "body", options) -> bytes
+_LOGBOOK_LOCK = threading.Lock()
+_LOGBOOK_WATCH = {}  # DB_PATH -> connection that only reads PRAGMA data_version
+LOGBOOK_CACHE_SIZE = 8  # read models kept (about 25 MB each for 5000 flights), plus as many logbook responses
+
+
+def _database_version():
+    """Changes whenever any other connection commits to the database file; None when it cannot be watched."""
+    if conn is not _file_conn or not os.path.isfile(DB_PATH):  # tests swap in their own (in-memory) connection
+        return None
+    with _LOGBOOK_LOCK:
+        watch = _LOGBOOK_WATCH.get(DB_PATH)
+        if watch is None:
+            watch = _LOGBOOK_WATCH[DB_PATH] = sqlite3.connect(DB_PATH, check_same_thread=False)
+        return watch.execute("PRAGMA data_version").fetchone()[0]
+
+
+def logbook_key(hidden=False, hide_unlinked=False):
+    """Cache key of this user's logbook read model, or None when the database cannot be watched."""
+    version = _database_version()
+    if version is None:
+        return None
+    return (version, datetime.now(timezone.utc).date(), g.user["id"], bool(g.user["is_admin"]), bool(g.get("via_key")),
+            hidden, hide_unlinked, request.args.get("project"))
+
+
+def logbook_cached(key):
+    with _LOGBOOK_LOCK:
+        return _LOGBOOK_CACHE.get(key) if key is not None else None
+
+
+def logbook_store(key, value):
+    """Keep `value` until the database changes (or the day does), dropping the oldest entries beyond the limit."""
+    if key is None:
+        return
+    with _LOGBOOK_LOCK:
+        for old in [k for k in _LOGBOOK_CACHE if k[:2] != key[:2]]:
+            del _LOGBOOK_CACHE[old]
+        kind = isinstance(value, bytes)
+        same = [k for k, v in _LOGBOOK_CACHE.items() if isinstance(v, bytes) == kind]
+        for old in same[:max(0, len(same) - LOGBOOK_CACHE_SIZE + 1)]:
+            del _LOGBOOK_CACHE[old]
+        _LOGBOOK_CACHE[key] = value
+
+
 def logbook_rows(hidden=False, hide_unlinked=False):
+    """The logbook read model for this user (see build_logbook_rows), reused until anything in the database
+    changes. Rows are shared between requests: callers copy what they change."""
+    started = time.perf_counter()
+    key = logbook_key(hidden, hide_unlinked)
+    rows = logbook_cached(key)
+    hit = rows is not None
+    if not hit:
+        rows = build_logbook_rows(hidden, hide_unlinked)
+        logbook_store(key, rows)
+    g.setdefault("server_timing", []).append(
+        ("logbook", "cached" if hit else "built", (time.perf_counter() - started) * 1000))
+    return [dict(r) for r in rows]
+
+
+def build_logbook_rows(hidden=False, hide_unlinked=False):
     where, params = flight_list_clause()
     con = conn()
     rows = con.execute(
@@ -5425,7 +5540,7 @@ def flight_detail(flight_id):
     invalid_reports = config.get("invalid_setting_reports") or []
     apply_clock_to_obj(invalid_reports, days)
     versions, from_gcs = with_gcs_autopilot_fallback(json.loads(row["autopilot_versions"] or "[]"), row["log_path"])
-    return jsonify(
+    return gzip_json(jsonify(
         entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
         aircraft_pk=row["aircraft_pk"],
         timing=log_timing(row),
@@ -5434,7 +5549,7 @@ def flight_detail(flight_id):
         setting_changes=changes, invalid_setting_reports=invalid_reports,
         info_messages=json.loads(row["info_messages"] or "[]"),
         preflight_checks=json.loads(row["preflight_checks"] or "[]"),
-        autopilot_versions=versions, autopilot_versions_from_gcs=from_gcs)
+        autopilot_versions=versions, autopilot_versions_from_gcs=from_gcs))
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -5831,8 +5946,9 @@ def get_path(flight_id):
         f" JOIN logs l ON l.id = a.log_id WHERE f.id=? AND {where}", (flight_id, *params)).fetchone()
     if row is None:
         abort(404)
-    return jsonify(flight_path(row["paths_file"], row["path_idx"], clock_shift_days(row["start_utc"], row["date_override"]),
-                               row["path_gz"] if HAVE_PATH_GZ else None))
+    return gzip_json(jsonify(flight_path(row["paths_file"], row["path_idx"],
+                                         clock_shift_days(row["start_utc"], row["date_override"]),
+                                         row["path_gz"] if HAVE_PATH_GZ else None)))
 
 
 # MATLAB export (matlab_export.py): browser users who may download the log request a .mat file, which is built in

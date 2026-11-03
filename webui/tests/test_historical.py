@@ -338,6 +338,35 @@ class HistoricalTests(AppTests):
             self.assertEqual(response.json["logs"], [])
         self.assertEqual(self.client.get("/api/logbook?project=2").json, [])
 
+    def test_logbook_cache_follows_database_changes(self):
+        # The cache watches the database file, so this test copies the fixture into one.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "logs.db")
+        copy = sqlite3.connect(path)
+        self.con.backup(copy)
+        copy.close()
+        watch, cache = self.ns["_LOGBOOK_WATCH"], self.ns["_LOGBOOK_CACHE"]
+        self.addCleanup(lambda: (watch.pop(path).close() if path in watch else None, cache.clear()))
+        with patch.dict(self.ns, conn=self.ns["_file_conn"], DB_PATH=path):
+            def logbook(url="/api/logbook"):
+                response = self.client.get(url)
+                return len(response.json), response.headers["Server-Timing"].split('"')[1]
+
+            self.create()
+            self.assertEqual(logbook(), (1, "built"))
+            self.assertEqual(logbook(), (1, "response cached"))
+            self.assertEqual(logbook("/api/logbook?compact=1"), (1, "cached"))  # same rows, another response
+            self.assertEqual(logbook("/api/logbook?project=2"), (0, "built"))  # request options are part of the key
+            self.create(reference="Book 2", date="2011-02-03")
+            self.assertEqual(logbook(), (2, "built"))  # any commit invalidates
+            self.sign_in(1)
+            self.assertEqual(logbook(), (2, "built"))  # per user
+            self.sign_in(2)
+            self.assertEqual(logbook(), (2, "response cached"))
+            detail = self.client.get("/api/detail/people/2")
+            self.assertIn('logbook;desc="cached"', detail.headers["Server-Timing"])
+
     def test_recorded_time_and_deletion_guards(self):
         self.sign_in(1)
         self.assertEqual(self.create(kind="flight", flight_count=1, takeoff_time="09:12").status_code, 201)
@@ -374,7 +403,7 @@ class HistoricalTests(AppTests):
         key = {"Authorization": "Bearer test-only"}
 
         def as_key(uid):
-            self.ns["user_for_key"] = lambda token: self.con.execute("SELECT * FROM users WHERE id=?",
+            self.ns["user_for_key"] = lambda token: self.con.execute("SELECT *, 0 AS key_read_only FROM users WHERE id=?",
                                                                      (uid,)).fetchone()
 
         def key_csv(text):

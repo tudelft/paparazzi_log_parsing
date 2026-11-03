@@ -45,7 +45,7 @@ class CategoryTests(LinkFixtures):
         key = {"Authorization": "Bearer test-only"}
 
         def put(uid, **body):
-            self.ns["user_for_key"] = lambda token: self.con.execute("SELECT * FROM users WHERE id=?",
+            self.ns["user_for_key"] = lambda token: self.con.execute("SELECT *, 0 AS key_read_only FROM users WHERE id=?",
                                                                      (uid,)).fetchone()
             return self.client.put("/api/logbook/records", headers=key, json=dict(record_keys=["log:1"], **body))
 

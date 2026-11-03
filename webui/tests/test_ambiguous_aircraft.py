@@ -312,7 +312,7 @@ class AmbiguousAircraftTests(AppTests):
         self.assertEqual(self.client.post("/api/admin/ambiguous-drone-names", json={"name": "test"}).status_code, 403)
         self.assertEqual(self.client.put("/api/admin/logs/1/aircraft/7", json={"drone_id": 1}).status_code, 403)
         self.sign_in(1)
-        admin = dict(self.con.execute("SELECT * FROM users WHERE id=1").fetchone())
+        admin = dict(self.con.execute("SELECT *, 0 AS key_read_only FROM users WHERE id=1").fetchone())
         with patch.dict(self.ns, user_for_key=lambda key: admin):
             self.assertEqual(self.client.post("/api/admin/ambiguous-drone-names", json={"name": "test"},
                                              headers={"Authorization": "Bearer test"}).status_code, 403)

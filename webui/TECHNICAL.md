@@ -224,6 +224,14 @@ displacement only. Vertical movement adds no distance. Altitudes remain availabl
 flight assessment. This prevents differing GPS altitude reference levels from inflating distances;
 horizontal GPS noise/jumps can still affect them. Reparse existing uploads to replace old 3D distances.
 
+**Logbook read model cache.** The logbook, statistics, review, places, overview and flight pages share one
+read model (`logbook_rows`). Building it takes about a second per few thousand flights, so it is kept in memory
+per user and request options and rebuilt only after any commit to the database (`PRAGMA data_version` on a
+watching connection) or at the start of a new UTC day. The finished logbook response is kept the same way.
+At most eight of each are kept; each read model takes roughly 25 MB per 5000 flights. These responses carry a
+`Server-Timing` header (`built`, `cached` or `response cached`, with the time) shown in the browser's Network tab.
+Flight detail and path responses are gzip-compressed for clients that accept it.
+
 **Missing telemetry locations.** The shared logbook read model copies the known endpoint's GPS
 latitude/longitude for display and named-place resolution when the other endpoint is missing.
 The flight Overview labels the inferred location; no event, time, altitude or raw coordinates are
