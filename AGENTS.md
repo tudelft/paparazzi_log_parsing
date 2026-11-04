@@ -2,9 +2,11 @@
 
 ## Start here
 
-- [User guide](webui/README.md): everyday workflows and quick start.
-- [Technical guide](webui/TECHNICAL.md): setup, configuration, storage, permissions and detailed feature rules.
+- [README](README.md): what the repository holds, and the only [quick start](README.md#quick-start) (build and run).
+- [User guide](webui/README.md): everyday workflows.
+- [Technical guide](webui/TECHNICAL.md): setup, configuration, storage, permissions, tests and detailed feature rules.
 - Keep the user guide compact; put implementation and operational detail in the technical guide.
+- Each topic is described in one place; elsewhere, link to it instead of repeating it.
 
 ## Repository map
 
@@ -66,9 +68,8 @@
 
 - Use only simple, minimal validation relevant to the change. **Do not run the full test suite unless requested.**
 - Documentation-only edits need no application tests; check local links and `git diff --check`.
-- For Python changes, use the selected project environment and run a relevant test class/method.
-  Example, from `webui/`: `python -m unittest tests.test_people.PeopleDirectoryTests -q`.
-- App test fixtures use temporary storage/in-memory SQLite and load routes without starting ingestion workers.
+- For Python changes, use the selected project environment and run a relevant test class/method; commands and
+  fixtures are in the technical guide's [Tests](webui/TECHNICAL.md#tests) section.
 - For UI-only changes, prefer editor diagnostics and a small mock-data browser check if needed.
   Do not install new tooling just to validate a small change.
 

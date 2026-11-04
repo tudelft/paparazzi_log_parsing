@@ -17,12 +17,7 @@ For everyday use, start with the [user guide](README.md). Coding assistants shou
 
 ## Try it locally
 
-    cmake -S ../cpp -B ../cpp/build -DCMAKE_BUILD_TYPE=Release && cmake --build ../cpp/build   # the parser
-    pip install -r requirements.txt
-    python3 app.py create-user alice --admin
-    python3 app.py                                  # http://127.0.0.1:8000
-
-Data goes to `webui/data/`. Always build the parser as `Release`; a Debug build is many times slower.
+Follow the [quick start](../README.md#quick-start).
 
 ## Install on a server
 
@@ -65,8 +60,8 @@ instead of creating a second one. Fresh installations skip this step.
 
 The shared page footer shows the nearest reachable `webui-vMAJOR.MINOR.PATCH` release tag, the number
 of commits since it (when nonzero), and a link to the Web UI's exact Git commit. Web UI release tags
-are separate from parser versions; create an annotated tag on the tested release commit and push
-that tag with the code. Deployments must fetch tags to display release names; the installer does
+are separate from parser versions; how to make one is in [AGENTS.md](../AGENTS.md#commits-and-releases).
+Deployments must fetch tags to display release names; the installer does
 this explicitly on updates. Version detection trusts only the application checkout through a
 per-command Git `safe.directory` setting, allowing the `logdb` service to inspect root-owned code
 without changing ownership or global Git configuration.
@@ -739,6 +734,8 @@ python -m unittest tests.test_people.PeopleDirectoryTests -q
 
 Choose the test class/method or module that covers your change. Do not run the full suite unless requested.
 When explicitly needed, full discovery is `python -m unittest discover -s tests -t . -v`.
+The tests write large temporary files: if `/tmp` is small, point `TMPDIR` at an existing folder with more free
+space, for example `TMPDIR=/path/to/tmp python -m unittest discover -s tests -t .`.
 App tests use temporary storage and in-memory databases, without starting ingestion workers or using real logs.
 
 ### Interface layout

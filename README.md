@@ -1,9 +1,11 @@
 # Paparazzi log parsing
 
+Flight-log parsing tools and a web-based flight logbook.
+
 ## Quick start
 
-For a local trial, run from `webui/` using your Python environment after building the
-[C++ parser](cpp/) in **Release** mode:
+For a local trial, build the [C++ parser](cpp/) in **Release** mode (a Debug build is many times slower) and
+run the web app from `webui/` with your Python environment. Data goes to `webui/data/`.
 
 ```sh
 cd webui
@@ -13,9 +15,9 @@ python3 app.py create-user alice --admin
 python3 app.py                                  # http://127.0.0.1:8000
 ```
 
-Flight-log parsing tools and a web-based flight logbook.
+## Guides
 
-- **[User guide and quick start](webui/README.md)** - uploading logs, browsing flights and managing records.
+- **[User guide](webui/README.md)** - uploading logs, browsing flights and managing records.
 - **[Technical guide](webui/TECHNICAL.md)** - deployment, configuration, backups, permissions and development.
 - **[Coding assistant guidance](AGENTS.md)** - repository structure and change/test conventions.
 
