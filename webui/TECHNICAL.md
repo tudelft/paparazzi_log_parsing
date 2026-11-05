@@ -1650,7 +1650,16 @@ Charts list their series as chips (× removes); **+ Add** offers only series wit
 and **+ Add chart** adds a preset (height and speed, attitude, acceleration, wind, battery) or an empty chart.
 Without a recent position (no GPS fix or motion capture for 2 s) the Paparazzi parser (1.11.0+) still stores
 samples at the path rate with null latitude/longitude, so GPS-less flights have charts (barometric height,
-attitude, battery) although the map stays empty. Wind speed and
+attitude, battery) although the map stays empty.
+
+**Datalink quality** (parser 1.12.0+). The ground station's `LINK_REPORT` (ping, `rx_max_gap` or else
+`rx_lost_time`, frame and error counters) and the `LINK_STATS` of the nodes on the link path (`rssi`, `rssi_ac`;
+127 = not available, the weakest node counts) are added to each path point as `link` and summarised per flight
+(`link`: mean/max ping, longest gap, bad-frame percentage, weakest signal; reports after the landing time are
+ignored because the ground station keeps reporting the silence at the end of a log). The summary is stored in
+`flights.link_json`. The flight page shows it as **Datalink** and offers Ping, Longest link gap and Signal series
+and Datalink and Signal strength chart presets. The logbook marks a flight with **(link)** when the longest gap is at least 3 s or at
+least 5% of the frames were bad; an onboard SD log merged with its GCS log takes the GCS log's summary. Wind speed and
 direction come from the per-point `wind` estimate. Hovering shows the exact values at that time; axes use four
 rounded steps (wind direction 0–360°). Click moves the map marker; drag or scroll zooms.
 

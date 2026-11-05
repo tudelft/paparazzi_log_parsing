@@ -102,6 +102,13 @@ bool utm_to_lla(double east_m, double north_m, int zone, double &lat_deg, double
   return lat_deg >= -90.0 && lat_deg <= 90.0;
 }
 
+// Datalink quality at one moment: ground station LINK_REPORT (ping, gaps) and LINK_STATS of the nodes on the path
+// (signal strength). NaN = not reported.
+struct LinkSample {
+  bool any = false;
+  double ping_ms = NAN, max_gap_ms = NAN, lost_s = NAN, rssi_dbm = NAN, rssi_ac_dbm = NAN;
+};
+
 struct PathPoint {
   double t, lat, lon, alt;
   double distance_m;       // cumulative horizontal distance flown along the path [m]
@@ -121,6 +128,7 @@ struct PathPoint {
   bool has_gs = false;
   double gndspeed = 0;  // GPS 2D ground speed [m/s]
   bool navigation_position = false;
+  LinkSample link{};
 };
 
 struct Range {
@@ -140,6 +148,11 @@ struct FlightStats {
   double acc_count = 0, acc_mean[3] = {0, 0, 0}, acc_m2[3] = {0, 0, 0};  // Welford, INS acceleration
   double max_speed = 0, max_vspeed = 0, max_tilt_deg = 0;
   int status_msgs = 0, motors_on_msgs = 0;  // ROTORCRAFT_STATUS messages during the flight
+  // Datalink during the flight: ground station reports (summarised up to the landing time, because at the end of a
+  // log the ground station keeps reporting the growing silence) and the weakest signal of the nodes
+  struct LinkRec { double t, ping_ms, gap_ms, msgs, err; };
+  std::vector<LinkRec> link_log;
+  double rssi_min = NAN, rssi_ac_min = NAN;
   Range energy_volt;                         // ENERGY voltage while current is reported [V]
   int energy_msgs = 0;
   double energy_current_sum = 0;             // sum of ENERGY current [A]
@@ -354,7 +367,32 @@ struct FirmwareInfo {
   }
 };
 
+struct HopSignal { double t, rssi, rssi_ac; };
+
 struct AircraftState {
+  // Datalink: last ground station LINK_REPORT and the last LINK_STATS signal of each node (hop)
+  double link_time = -1;
+  double link_ping_ms = NAN, link_gap_ms = NAN, link_lost_s = NAN;
+  std::map<int, HopSignal> hops;
+  LinkSample link_at(double t) const {  // reports older than 10 s are not current
+    LinkSample l;
+    if (link_time >= 0 && t - link_time <= 10) {
+      l.any = true;
+      l.ping_ms = link_ping_ms; l.max_gap_ms = link_gap_ms; l.lost_s = link_lost_s;
+    }
+    for (const auto &h : hops) {
+      if (t - h.second.t > 10) { continue; }
+      if (std::isfinite(h.second.rssi)) {
+        l.any = true;
+        l.rssi_dbm = std::isfinite(l.rssi_dbm) ? std::min(l.rssi_dbm, h.second.rssi) : h.second.rssi;
+      }
+      if (std::isfinite(h.second.rssi_ac)) {
+        l.any = true;
+        l.rssi_ac_dbm = std::isfinite(l.rssi_ac_dbm) ? std::min(l.rssi_ac_dbm, h.second.rssi_ac) : h.second.rssi_ac;
+      }
+    }
+    return l;
+  }
   bool in_flight = false;
   bool seen_status = false;
   double first_time = -1, last_time = 0;
@@ -563,7 +601,7 @@ LogHeader read_log_header(const std::string &log_file)
   std::ifstream f(log_file);
   std::string line;
   int cur_conf = -1;
-  bool in_blocks = false, in_protocol = false, in_telemetry_class = false;
+  bool in_blocks = false, in_protocol = false, in_telemetry_class = false, in_ground_class = false;
   std::vector<std::string> *cur_fields = nullptr;
   std::string cur_msg;
   size_t block_indent = 0, cap_indent = 0;
@@ -615,15 +653,20 @@ LogHeader read_log_header(const std::string &log_file)
     if (strncmp(l, "<protocol>", 10) == 0) { in_protocol = true; continue; }
     if (in_protocol) {
       if (strncmp(l, "</protocol>", 11) == 0) {
-        in_protocol = in_telemetry_class = false;
+        in_protocol = in_telemetry_class = in_ground_class = false;
         cur_fields = nullptr;
       } else if (strncmp(l, "<msg_class ", 11) == 0) {
-        in_telemetry_class = xml_attr(line, 0, "name") == "telemetry";
+        const std::string cls = xml_attr(line, 0, "name");
+        in_telemetry_class = cls == "telemetry";
+        in_ground_class = cls == "ground";
       } else if (strncmp(l, "</msg_class>", 12) == 0) {
-        in_telemetry_class = false;
+        in_telemetry_class = in_ground_class = false;
         cur_fields = nullptr;
       } else if (in_telemetry_class && strncmp(l, "<message ", 9) == 0) {
         cur_msg = xml_attr(line, 0, "name");
+        cur_fields = &h.telemetry[cur_msg];
+      } else if (in_ground_class && strncmp(l, "<message ", 9) == 0 && xml_attr(line, 0, "name") == "LINK_REPORT") {
+        cur_msg = "LINK_REPORT";  // link statistics of the ground station, logged as a ground message
         cur_fields = &h.telemetry[cur_msg];
       } else if (strncmp(l, "</message>", 10) == 0) {
         cur_fields = nullptr;
@@ -1193,7 +1236,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.11.0";
+constexpr const char *PARSER_VERSION = "1.12.0";
 
 struct GpsClock {
   size_t count = 0;
@@ -1625,6 +1668,14 @@ int main(int argc, char *argv[])
   const MsgFields att_f = resolve_fields(hdr, "ATTITUDE", {"phi", "theta", "psi"});
   enum { AS_EAS };
   const MsgFields as_f = resolve_fields(hdr, "AIRSPEED", {"airspeed"});
+  enum { LR_AC, LR_LOST, LR_MSGS, LR_ERR, LR_PING, LR_GAP };
+  const MsgFields link_f = hdr.telemetry.count("LINK_REPORT")
+      ? resolve_fields(hdr, "LINK_REPORT", {"ac_id", "rx_lost_time", "rx_msgs?", "rx_err?", "ping_time?", "rx_max_gap?"})
+      : MsgFields{};
+  enum { LS_HOP, LS_RSSI, LS_RSSI_AC };
+  const MsgFields link_stats_f = hdr.telemetry.count("LINK_STATS")
+      ? resolve_fields(hdr, "LINK_STATS", {"hop", "rssi?", "rssi_ac?"})
+      : MsgFields{};
   enum { EN_VOLT, EN_CURRENT };
   const MsgFields energy_f = resolve_fields(hdr, "ENERGY", {"voltage", "current?"});
   const MsgFields compact_f = resolve_fields(hdr, "ROTORCRAFT_FP_MIN", {"east", "north", "up", "gspeed?"});
@@ -1712,6 +1763,7 @@ int main(int argc, char *argv[])
                                         s.qy, s.qz, s.ap_mode, s.h_mode, s.v_mode, s.block, s.stage,
                                         parse_int_list(s.actuators_raw), s.wind, s.ins, s.has_gs, s.gndspeed,
                                         navigation});
+    s.flights.back().path.back().link = s.link_at(t);
   };
   // Without a recent position (no GPS fix, no motion capture), still store sensor samples at the path rate so the
   // flight page can chart barometer, attitude and battery. Such points have no latitude/longitude.
@@ -2115,6 +2167,46 @@ int main(int argc, char *argv[])
           use_gps(ac, t, lat, lon, std::numeric_limits<double>::quiet_NaN(), true);
         }
         break;
+      case 'L':
+        if (name == "LINK_REPORT") {
+          if (!link_f.split) { break; }
+          const Picked f = pick(link_f, q, eol);
+          int target;
+          if (!to_num(f[LR_AC], target)) { target = ac; }
+          auto it = acs.find(target);
+          if (it == acs.end()) { break; }  // a report alone does not create an aircraft
+          AircraftState &s = it->second;
+          double lost, ping, gap, msgs, err;
+          s.link_time = t;
+          s.link_lost_s = to_num(f[LR_LOST], lost) && lost >= 0 ? lost : NAN;
+          s.link_ping_ms = to_num(f[LR_PING], ping) && ping >= 0 ? ping : NAN;
+          s.link_gap_ms = to_num(f[LR_GAP], gap) && gap >= 0 ? gap : NAN;
+          if (s.in_flight && !s.flights.empty()) {
+            // longest time without a frame: rx_max_gap (ms) when the protocol has it, else rx_lost_time (s)
+            const double g = std::isfinite(s.link_gap_ms) ? s.link_gap_ms
+                : std::isfinite(s.link_lost_s) ? s.link_lost_s * 1000 : NAN;
+            const bool counts = to_num(f[LR_MSGS], msgs) && to_num(f[LR_ERR], err);
+            s.flights.back().stats.link_log.push_back({t, s.link_ping_ms, g, counts ? msgs : NAN, counts ? err : NAN});
+          }
+        } else if (name == "LINK_STATS") {
+          if (!link_stats_f.split) { break; }
+          const Picked f = pick(link_stats_f, q, eol);
+          int hop, rssi, rssi_ac;
+          if (!to_num(f[LS_HOP], hop)) { break; }
+          AircraftState &s = touch(ac, t);
+          HopSignal h{t, NAN, NAN};
+          if (to_num(f[LS_RSSI], rssi) && rssi != 127) { h.rssi = rssi; }  // 127: not available
+          if (to_num(f[LS_RSSI_AC], rssi_ac) && rssi_ac != 127) { h.rssi_ac = rssi_ac; }
+          s.hops[hop] = h;
+          if (s.in_flight && !s.flights.empty()) {
+            FlightStats &st = s.flights.back().stats;
+            if (std::isfinite(h.rssi)) { st.rssi_min = std::isfinite(st.rssi_min) ? std::min(st.rssi_min, h.rssi) : h.rssi; }
+            if (std::isfinite(h.rssi_ac)) {
+              st.rssi_ac_min = std::isfinite(st.rssi_ac_min) ? std::min(st.rssi_ac_min, h.rssi_ac) : h.rssi_ac;
+            }
+          }
+        }
+        break;
       case 'P':
         if (name == "PPRZ_MODE") {
           if (!pprz_f.split) { break; }
@@ -2447,6 +2539,35 @@ int main(int argc, char *argv[])
   };
 
   auto rng = [&](const Range &r) { return r.any ? num(r.span()) : std::string("null"); };
+  auto opt = [&](double v) { return std::isfinite(v) ? num(v) : std::string("null"); };
+  auto link_json = [&](const LinkSample &l) {
+    if (!l.any) { return std::string("null"); }
+    return "{\"ping_ms\": " + opt(l.ping_ms) + ", \"max_gap_ms\": " + opt(l.max_gap_ms) + ", \"lost_s\": " + opt(l.lost_s) +
+           ", \"rssi_dbm\": " + opt(l.rssi_dbm) + ", \"rssi_ac_dbm\": " + opt(l.rssi_ac_dbm) + "}";
+  };
+  auto link_summary_json = [&](const Flight &f) {
+    const FlightStats &st = f.stats;
+    int reports = 0, pings = 0;
+    double ping_sum = 0, ping_max = NAN, gap_max = NAN, msgs0 = NAN, err0 = NAN, msgs1 = NAN, err1 = NAN;
+    for (const auto &r : st.link_log) {
+      if (r.t > f.landing_time) { break; }
+      ++reports;
+      if (std::isfinite(r.ping_ms)) { ping_sum += r.ping_ms; ++pings; ping_max = std::isfinite(ping_max) ? std::max(ping_max, r.ping_ms) : r.ping_ms; }
+      if (std::isfinite(r.gap_ms)) { gap_max = std::isfinite(gap_max) ? std::max(gap_max, r.gap_ms) : r.gap_ms; }
+      if (std::isfinite(r.msgs) && std::isfinite(r.err)) {
+        if (!std::isfinite(msgs0)) { msgs0 = r.msgs; err0 = r.err; }
+        msgs1 = r.msgs; err1 = r.err;
+      }
+    }
+    if (!reports && !std::isfinite(st.rssi_min) && !std::isfinite(st.rssi_ac_min)) { return std::string("null"); }
+    const double d_msgs = msgs1 - msgs0, d_err = err1 - err0;  // NaN without counters
+    const double err_pct = d_msgs >= 0 && d_err >= 0 && d_msgs + d_err > 0 ? 100.0 * d_err / (d_msgs + d_err) : NAN;
+    return "{\"reports\": " + std::to_string(reports) + ", \"mean_ping_ms\": " + opt(pings ? ping_sum / pings : NAN) +
+           ", \"max_ping_ms\": " + opt(ping_max) +
+           ", \"longest_gap_s\": " + opt(std::isfinite(gap_max) ? gap_max / 1000 : NAN) +
+           ", \"error_pct\": " + opt(err_pct) + ", \"min_rssi_dbm\": " + opt(st.rssi_min) +
+           ", \"min_rssi_ac_dbm\": " + opt(st.rssi_ac_min) + "}";
+  };
   auto assessment_json = [&](const Flight &f) {
     const Assessment a = assess(f);
     const FlightStats &st = f.stats;
@@ -2532,6 +2653,7 @@ int main(int argc, char *argv[])
         << ",\n          \"takeoff\": " << event(f.takeoff_time, f.has_pos, f.lat, f.lon, f.alt, f.has_takeoff_volt, f.takeoff_volt, f.takeoff_wind, f.takeoff_ins)
         << ",\n          \"landing\": "
         << event(f.landing_time, f.has_land_pos, f.land_lat, f.land_lon, f.land_alt, f.has_land_volt, f.land_volt, f.land_wind, f.land_ins)
+        << ",\n          \"link\": " << link_summary_json(f)
         << ",\n          \"path\": [";
       bool fp = true;
       for (const auto &pt : f.path) {
@@ -2601,6 +2723,7 @@ int main(int argc, char *argv[])
           << ", \"v_mode\": " << mode_name("ap_v_mode", pt.v_mode) << "}"
           << ",\n             \"nav\": {\"block_id\": " << pt.block << ", \"block\": " << block_name(id, pt.block)
           << ", \"stage_id\": " << pt.stage << ", \"stage\": " << stage_name(id, pt.block, pt.stage) << "}";
+        o << ",\n             \"link\": " << link_json(pt.link);
         o << ",\n             \"actuators\": ";
         if (pt.actuators.empty()) {
           o << "null";

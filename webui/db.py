@@ -252,6 +252,7 @@ CREATE TABLE IF NOT EXISTS flights (
     num_points INTEGER,
     has_gps_position INTEGER CHECK(has_gps_position IN (0,1)),
     track_quality TEXT,                -- JSON timing/density summary; SQL NULL = not backfilled
+    link_json TEXT,                    -- datalink summary from the parser (ping, longest gap, errors, signal); NULL = none
     verdict TEXT,                      -- parser estimate: flight | uncertain | ground
     assessment_json TEXT,              -- score, reasons and metrics behind the verdict
     project_id INTEGER,                -- projects.id; auto from aircraft / uploader / GCS / PIC, then editable
@@ -525,6 +526,8 @@ def init(path):
         con.execute("ALTER TABLE flights ADD COLUMN has_gps_position INTEGER CHECK(has_gps_position IN (0,1))")
     if "track_quality" not in fcols:
         con.execute("ALTER TABLE flights ADD COLUMN track_quality TEXT")
+    if "link_json" not in fcols:
+        con.execute("ALTER TABLE flights ADD COLUMN link_json TEXT")
     if "project_source" not in fcols:
         con.execute("ALTER TABLE flights ADD COLUMN project_source TEXT")
     for table in ("flights", "flight_records"):
@@ -735,8 +738,8 @@ def store_parsed(con, log_id, doc, paths_file):
                 "INSERT INTO flights (aircraft_id, idx, duration_s, distance_m, from_takeoff_m, max_from_takeoff_m, landed,"
                 " takeoff_time_s, takeoff_utc, takeoff_lat, takeoff_lon, takeoff_alt_m, takeoff_voltage_v,"
                 " landing_time_s, landing_utc, landing_lat, landing_lon, landing_alt_m, landing_voltage_v,"
-                " takeoff_json, landing_json, num_points, verdict, assessment_json, path_idx, has_gps_position, track_quality)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " takeoff_json, landing_json, num_points, verdict, assessment_json, path_idx, has_gps_position, track_quality,"
+                " link_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (ac_pk, f.get("flight"), f.get("duration_s"), f.get("distance_m"), f.get("from_takeoff_m"),
                  f.get("max_from_takeoff_m"), int(bool(f.get("landed"))),
                  to.get("time_s"), to.get("utc"), tlat, tlon, talt, to.get("voltage_v"),
@@ -745,7 +748,8 @@ def store_parsed(con, log_id, doc, paths_file):
                  (f.get("assessment") or {}).get("verdict"), json.dumps(f.get("assessment")), path_idx,
                  int(valid_gps_location(tlat, tlon) or valid_gps_location(llat, llon)
                      or path_has_gps_position(path)),
-                 json.dumps(track_quality(path, to.get("time_s"), f.get("duration_s")))),
+                 json.dumps(track_quality(path, to.get("time_s"), f.get("duration_s"))),
+                 json.dumps(f["link"]) if f.get("link") else None),
             )
             path_idx += 1
         changes = (ac.get("settings_changes") or {}).get("timeline") or []
