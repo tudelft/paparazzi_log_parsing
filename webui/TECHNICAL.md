@@ -859,10 +859,14 @@ Nothing is seeded at startup; questionnaires are added by hand or imported. **Im
 with that JSON plus JPEG/PNG question images (same size and content checks as the image upload).
 Form field `preview=1` validates and shows a summary without writing. Validation matches the edit
 endpoints (kinds, 2–20 choices, exactly one correct for single, at least one for multi); any error
-rejects the whole file. A name that already exists is rejected unless `replace=1`. Link a
+rejects the whole file. A pass score above total points is rejected. A name that already exists is
+rejected unless `replace=1`, which updates that training in place (same id; pass records kept;
+questions and images replaced, old image files removed after a successful write). Link a
 qualification by picking an existing type (`type_id` form field); types that require evidence are
-not offered, and a type that requires expiry needs validity days in the JSON. **Export**
-(`GET /api/admin/trainings/<id>/export`) returns the same JSON, or a ZIP when images are present.
+not offered, and a type that requires expiry needs validity days in the JSON. ZIP imports check
+each entry's size before reading (JSON ≤ 1 MiB, images ≤ 2 MiB) and only load referenced images.
+**Export** (`GET /api/admin/trainings/<id>/export`) returns the same JSON, or a ZIP when images are
+present.
 Takers retry until they pass; each submission returns the score. Failed answers are discarded;
 `training_progress` keeps the attempt count and, on a pass, the answers and timestamp. A current
 pass blocks retakes (`409`); when the linked qualification has expired, or an administrator resets

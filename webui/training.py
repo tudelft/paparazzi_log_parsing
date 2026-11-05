@@ -221,6 +221,9 @@ def parse_question_body(body, index=None):
     return prompt, kind, points, choices, image_name
 
 
+MAX_JSON_BYTES = 1 * 1024 * 1024
+
+
 def check_image_bytes(name, data):
     suffix = Path(name).suffix.lower()
     if suffix not in IMAGE_TYPES:
@@ -231,6 +234,11 @@ def check_image_bytes(name, data):
     if not data.startswith(magic):
         raise TrainingError(f"Question images must be JPEG or PNG with matching file content ({name}).")
     return mime, suffix
+
+
+def check_pass_score(pass_score, total_points):
+    if pass_score is not None and total_points > 0 and pass_score > total_points:
+        raise TrainingError(f"Pass score ({pass_score}) is higher than total points ({total_points}).")
 
 
 def grant_qualification(con, user_id, kind, valid_days):
@@ -372,6 +380,22 @@ def register(app, connection, root, require_session):
                 "INSERT INTO training_choices(question_id,label,correct,sort_order) VALUES (?,?,?,?)",
                 [(qid, label, int(correct), order) for label, correct, order in choices])
 
+    def read_zip_json(zf):
+        names = [n for n in zf.namelist() if not n.endswith("/") and not Path(n).name.startswith(".")]
+        json_names = [n for n in names if n.lower().endswith(".json")]
+        if len(json_names) != 1:
+            raise TrainingError("A ZIP must contain exactly one JSON questionnaire file.")
+        info = zf.getinfo(json_names[0])
+        if info.file_size > MAX_JSON_BYTES:
+            raise TrainingError("The questionnaire JSON must be at most 1 MiB.")
+        try:
+            data = json.loads(zf.read(json_names[0]).decode("utf-8"))
+        except UnicodeDecodeError as exc:
+            raise TrainingError("The questionnaire JSON must be UTF-8.") from exc
+        except json.JSONDecodeError as exc:
+            raise TrainingError("The questionnaire JSON is not valid.") from exc
+        return data, names, json_names[0]
+
     def read_import_payload():
         uploaded = request.files.get("file")
         if uploaded is None or not uploaded.filename:
@@ -385,30 +409,47 @@ def register(app, connection, root, require_session):
         if suffix == ".zip" or raw[:2] == b"PK":
             try:
                 with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-                    names = [n for n in zf.namelist() if not n.endswith("/") and not Path(n).name.startswith(".")]
-                    json_names = [n for n in names if n.lower().endswith(".json")]
-                    if len(json_names) != 1:
-                        raise TrainingError("A ZIP must contain exactly one JSON questionnaire file.")
-                    data = json.loads(zf.read(json_names[0]).decode("utf-8"))
-                    for name in names:
-                        if name == json_names[0]:
-                            continue
-                        entry = zf.read(name)
-                        rel = name.replace("\\", "/")
-                        images[rel] = entry
-                        images[Path(rel).name] = entry
+                    data, names, json_name = read_zip_json(zf)
+                # Image bytes are filled after parse_import knows which names are referenced.
+                return data, {"_raw": raw, "_names": names, "_json_name": json_name}
             except zipfile.BadZipFile as exc:
                 raise TrainingError("The ZIP file is not valid.") from exc
-            except UnicodeDecodeError as exc:
-                raise TrainingError("The questionnaire JSON must be UTF-8.") from exc
-            except json.JSONDecodeError as exc:
-                raise TrainingError("The questionnaire JSON is not valid.") from exc
-        else:
-            try:
-                data = json.loads(raw.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                raise TrainingError("The import file must be UTF-8 JSON or a ZIP containing one JSON file.") from exc
+        if len(raw) > MAX_JSON_BYTES:
+            raise TrainingError("The questionnaire JSON must be at most 1 MiB.")
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise TrainingError("The import file must be UTF-8 JSON or a ZIP containing one JSON file.") from exc
         return data, images
+
+    def load_referenced_images(images, needed):
+        """Read only referenced image entries; check ZipInfo.file_size before loading."""
+        if "_raw" not in images:
+            return images
+        raw = images["_raw"]
+        names = images["_names"]
+        json_name = images["_json_name"]
+        out = {}
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            by_rel = {n.replace("\\", "/"): n for n in names if n != json_name}
+            by_base = {}
+            for rel, original in by_rel.items():
+                by_base.setdefault(Path(rel).name, original)
+            for wanted in needed:
+                original = by_rel.get(wanted) or by_base.get(Path(wanted).name)
+                if original is None:
+                    continue
+                info = zf.getinfo(original)
+                if info.file_size > MAX_IMAGE_BYTES:
+                    raise TrainingError(f"Question images must be non-empty and at most 2 MiB ({wanted}).")
+                if info.file_size <= 0:
+                    raise TrainingError(f"Question images must be non-empty and at most 2 MiB ({wanted}).")
+                entry = zf.read(original)
+                rel = original.replace("\\", "/")
+                out[rel] = entry
+                out[Path(rel).name] = entry
+                out[wanted] = entry
+        return out
 
     def parse_import(cid, data, images, type_id):
         if not isinstance(data, dict):
@@ -441,6 +482,8 @@ def register(app, connection, root, require_session):
             if image_name:
                 needed_images.add(image_name)
             parsed.append((prompt, kind, points, choices, image_name))
+        check_pass_score(pass_score, sum(p[2] for p in parsed))
+        images = load_referenced_images(images, needed_images)
         missing = sorted(n for n in needed_images if n not in images and Path(n).name not in images)
         if missing:
             raise TrainingError("Missing image file(s): " + ", ".join(missing) + ".")
@@ -454,6 +497,7 @@ def register(app, connection, root, require_session):
             "existing_id": existing["id"] if existing else None,
             "question_count": len(parsed),
             "image_count": len(needed_images),
+            "images": images,
         }
 
     @app.get("/training")
@@ -582,7 +626,7 @@ def register(app, connection, root, require_session):
         return jsonify(passed=passed, score=earned, total=total, needed=needed, attempts=attempts,
                        passed_at=passed_at, qualification_id=submission_id)
 
-    def training_fields(cid, body):
+    def training_fields(cid, body, training_id=None):
         name = clip_text(body.get("name"), 80, "Name")
         description = (body.get("description") or "").strip()
         if len(description) > 2000:
@@ -595,6 +639,10 @@ def register(app, connection, root, require_session):
         ask_briefed_by = body.get("ask_briefed_by", False)
         briefers = parse_briefers(cid, ask_briefed_by, body.get("briefers"))
         resolve_type(cid, type_id, valid_days)
+        if training_id is not None:
+            total = cid.execute("SELECT COALESCE(SUM(points),0) FROM training_questions WHERE training_id=?",
+                                (training_id,)).fetchone()[0]
+            check_pass_score(pass_score, total)
         return name, description, type_id, pass_score, valid_days, ask_briefed_by, briefers
 
     @app.post("/api/admin/trainings")
@@ -623,7 +671,8 @@ def register(app, connection, root, require_session):
         if type(body.get("active", True)) is not bool:
             raise TrainingError("Active must be true or false.")
         cid = con()
-        name, description, type_id, pass_score, valid_days, ask_briefed_by, briefers = training_fields(cid, body)
+        name, description, type_id, pass_score, valid_days, ask_briefed_by, briefers = training_fields(
+            cid, body, training_id=training_id)
         with db.write_lock, cid:
             cid.execute("BEGIN IMMEDIATE")
             training_row(cid, training_id)
@@ -683,31 +732,46 @@ def register(app, connection, root, require_session):
             result["type_name"] = kind["name"] if kind else None
         else:
             result["type_name"] = None
+        warnings = []
         if parsed["ask_briefed_by"]:
-            result["warning"] = "Who can deliver the briefing must be set in Edit mode after import."
+            warnings.append("Who can deliver the briefing must be set in Edit mode after import.")
+        if action == "replace":
+            warnings.append("Questions and images are replaced in place; existing pass records are kept.")
+        if warnings:
+            result["warning"] = " ".join(warnings)
         if preview:
             return jsonify(result)
-        image_blobs = {}
-        for prompt, kind, points, choices, image_name in parsed["questions"]:
-            if image_name:
-                image_blobs[image_name] = images.get(image_name) or images[Path(image_name).name]
+        image_blobs = parsed["images"]
+        old_paths = []
         with db.write_lock, cid:
             cid.execute("BEGIN IMMEDIATE")
             if action == "replace":
-                delete_training_images(cid, parsed["existing_id"])
-                cid.execute("DELETE FROM trainings WHERE id=?", (parsed["existing_id"],))
-            nxt = cid.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM trainings").fetchone()[0]
-            try:
-                tid = cid.execute(
-                    "INSERT INTO trainings(name,description,type_id,pass_score,valid_days,ask_briefed_by,sort_order)"
-                    " VALUES (?,?,?,?,?,?,?)",
-                    (parsed["name"], parsed["description"], type_id, parsed["pass_score"],
-                     parsed["valid_days"], int(parsed["ask_briefed_by"]), nxt)).lastrowid
-            except sqlite3.IntegrityError as exc:
-                raise TrainingError("A training with that name already exists.", 409) from exc
+                tid = parsed["existing_id"]
+                old_paths = [r["image_path"] for r in cid.execute(
+                    "SELECT image_path FROM training_questions WHERE training_id=? AND image_path IS NOT NULL",
+                    (tid,))]
+                cid.execute(
+                    "UPDATE trainings SET description=?,type_id=?,pass_score=?,valid_days=?,ask_briefed_by=? WHERE id=?",
+                    (parsed["description"], type_id, parsed["pass_score"], parsed["valid_days"],
+                     int(parsed["ask_briefed_by"]), tid))
+                if not parsed["ask_briefed_by"]:
+                    cid.execute("DELETE FROM training_briefers WHERE training_id=?", (tid,))
+                cid.execute("DELETE FROM training_questions WHERE training_id=?", (tid,))
+            else:
+                nxt = cid.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM trainings").fetchone()[0]
+                try:
+                    tid = cid.execute(
+                        "INSERT INTO trainings(name,description,type_id,pass_score,valid_days,ask_briefed_by,sort_order)"
+                        " VALUES (?,?,?,?,?,?,?)",
+                        (parsed["name"], parsed["description"], type_id, parsed["pass_score"],
+                         parsed["valid_days"], int(parsed["ask_briefed_by"]), nxt)).lastrowid
+                except sqlite3.IntegrityError as exc:
+                    raise TrainingError("A training with that name already exists.", 409) from exc
             insert_questions(cid, tid, parsed["questions"], image_blobs)
+        for path in old_paths:
+            (image_dir() / path).unlink(missing_ok=True)
         result["id"] = tid
-        return jsonify(result), 201
+        return jsonify(result), (200 if action == "replace" else 201)
 
     @app.get("/api/admin/trainings/<int:training_id>/export")
     def export_training(training_id):
@@ -783,7 +847,7 @@ def register(app, connection, root, require_session):
         created = question_id is None
         with db.write_lock, cid:
             cid.execute("BEGIN IMMEDIATE")
-            training_row(cid, training_id)
+            row = training_row(cid, training_id)
             if created:
                 nxt = cid.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM training_questions WHERE training_id=?",
                                   (training_id,)).fetchone()[0]
@@ -791,9 +855,9 @@ def register(app, connection, root, require_session):
                     "INSERT INTO training_questions(training_id,prompt,kind,points,sort_order) VALUES (?,?,?,?,?)",
                     (training_id, prompt, kind, points, nxt)).lastrowid
             else:
-                row = cid.execute("SELECT id FROM training_questions WHERE id=? AND training_id=?",
-                                  (question_id, training_id)).fetchone()
-                if row is None:
+                existing = cid.execute("SELECT id FROM training_questions WHERE id=? AND training_id=?",
+                                       (question_id, training_id)).fetchone()
+                if existing is None:
                     raise TrainingError("No such question.", 404)
                 cid.execute("UPDATE training_questions SET prompt=?,kind=?,points=? WHERE id=?",
                             (prompt, kind, points, question_id))
@@ -801,6 +865,9 @@ def register(app, connection, root, require_session):
             cid.executemany(
                 "INSERT INTO training_choices(question_id,label,correct,sort_order) VALUES (?,?,?,?)",
                 [(question_id, label, int(correct), order) for label, correct, order in choices])
+            total = cid.execute("SELECT COALESCE(SUM(points),0) FROM training_questions WHERE training_id=?",
+                                (training_id,)).fetchone()[0]
+            check_pass_score(row["pass_score"], total)
         return jsonify(ok=True, id=question_id), (201 if created else 200)
 
     @app.post("/api/admin/trainings/<int:training_id>/questions/<int:question_id>/image")
@@ -872,7 +939,7 @@ def register(app, connection, root, require_session):
                 if sub and sub["status"] == "approved":
                     cid.execute("UPDATE qualification_submissions SET status='withdrawn' WHERE id=?",
                                 (progress["submission_id"],))
-                    qualifications.audit(cid, g.user["id"], user_id, "training-reset",
+                    qualifications.audit(cid, user_id, g.user["id"], "training-reset",
                                          dict(id=progress["submission_id"], training_id=training_id))
             cid.execute("DELETE FROM training_progress WHERE user_id=? AND training_id=?",
                         (user_id, training_id))

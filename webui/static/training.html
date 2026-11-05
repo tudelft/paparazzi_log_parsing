@@ -334,12 +334,12 @@ async function importTraining(preview) {
       ${d.warning ? `<tr><th></th><td class="dialog-error">${esc(d.warning)}</td></tr>` : ''}
     </tbody></table>`;
     if (preview) {
-      $('importConfirm').textContent = d.action === 'replace' ? 'Replace training' : 'Import training';
+      $('importConfirm').textContent = d.action === 'replace' ? 'Replace questions' : 'Import training';
       $('importConfirm').hidden = false;
       $('importMsg').textContent = '';
     } else {
       $('importConfirm').hidden = true;
-      $('importMsg').textContent = d.action === 'replace' ? 'Replaced.' : 'Imported.';
+      $('importMsg').textContent = d.action === 'replace' ? 'Questions replaced in place.' : 'Imported.';
       $('importFile').value = '';
       selected = d.id;
       window.viewState.save(true);

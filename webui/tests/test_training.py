@@ -223,11 +223,22 @@ class TrainingTests(AppTests):
         self.assertTrue(quiz["questions"][0]["image"])
         duplicate = self.import_file(payload, type_id=self.type_id)
         self.assertEqual(duplicate.status_code, 409, duplicate.json)
+        admin_q = self.client.get(f"/api/trainings/{tid}").json["questions"][0]
+        qid = admin_q["id"]
+        safe = next(c["id"] for c in admin_q["choices"] if c["correct"])
+        self.sign_in(2)
+        self.assertTrue(self.client.post(f"/api/trainings/{tid}/submit",
+                                         json={"answers": {str(qid): safe}}).json["passed"])
+        self.sign_in(1)
         replaced = self.import_file(self.sample_payload(description="Replaced"), type_id=self.type_id, replace=True)
-        self.assertEqual(replaced.status_code, 201, replaced.json)
+        self.assertEqual(replaced.status_code, 200, replaced.json)
         self.assertEqual(replaced.json["action"], "replace")
+        self.assertEqual(replaced.json["id"], tid)
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM trainings").fetchone()[0], 1)
-        self.assertEqual(self.client.get(f"/api/trainings/{replaced.json['id']}").json["description"], "Replaced")
+        self.assertEqual(self.client.get(f"/api/trainings/{tid}").json["description"], "Replaced")
+        progress = self.con.execute("SELECT passed_at FROM training_progress WHERE user_id=2 AND training_id=?",
+                                    (tid,)).fetchone()
+        self.assertIsNotNone(progress["passed_at"])
 
     def test_import_rejects_bad_questions_and_evidence_types(self):
         bad = self.import_file(self.sample_payload(questions=[{
@@ -246,6 +257,9 @@ class TrainingTests(AppTests):
         named = self.import_file({**self.sample_payload(), "qualification": "Briefing"})
         self.assertEqual(named.status_code, 400)
         self.assertIn("qualification", named.json["error"].lower())
+        too_high = self.import_file(self.sample_payload(pass_score=99))
+        self.assertEqual(too_high.status_code, 400)
+        self.assertIn("pass score", too_high.json["error"].lower())
 
     def test_export_round_trip(self):
         tid = self.add_training()
@@ -290,6 +304,10 @@ class TrainingTests(AppTests):
         status = self.con.execute("SELECT status FROM qualification_submissions WHERE id=?",
                                   (renewed.json["qualification_id"],)).fetchone()["status"]
         self.assertEqual(status, "withdrawn")
+        audit = self.con.execute("SELECT subject_id, actor_id, action FROM qualification_audit"
+                                 " WHERE action='training-reset' ORDER BY id DESC LIMIT 1").fetchone()
+        self.assertEqual(audit["subject_id"], 2)
+        self.assertEqual(audit["actor_id"], 1)
         self.sign_in(2)
         self.assertIsNone(self.client.get(f"/api/trainings/{tid}").json["passed_at"])
         self.assertTrue(self.client.post(f"/api/trainings/{tid}/submit",
