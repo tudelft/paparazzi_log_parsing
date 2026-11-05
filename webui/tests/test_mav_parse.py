@@ -622,6 +622,83 @@ class FleetLinkTests(AppTests):
         self.ns["link_log_aircraft"](self.con, 2)
         self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=2").fetchone()[0], 10)
 
+    def test_nested_unique_folder_links_and_skips_log_filename_alias(self):
+        self.con.execute(
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Modular Hex 1','TUD00500','now')")
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) "
+            "VALUES (1,'Modular Hex 1/2026-10-13/LOG00030.BFL','aa','a.gz','done','now')")
+        self.con.execute("INSERT INTO aircraft(log_id, ac_id, name) VALUES (1, 1, 'LOG00030')")
+        self.con.commit()
+        self.ns["link_log_aircraft"](self.con, 1)
+        self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=1").fetchone()[0], 10)
+        aliases = {r[0] for r in self.con.execute("SELECT alias FROM drone_aliases WHERE drone_id=10")}
+        self.assertNotIn("LOG00030", aliases)
+        payload = self.ns["fleet_payload"](self.con, include_unlinked=True)
+        self.assertFalse(any(e["name"] == "LOG00030" for e in payload["unlinked"]))
+
+    def test_nested_generic_folder_does_not_pick_a_fleet_quad(self):
+        self.con.execute(
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Lorenz Quad','TUD00489','now')")
+        self.con.execute(
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'Till Quad','TUD00487','now')")
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) "
+            "VALUES (1,'Quadrotor/2026-10-13/a.ulg','aa','a.gz','done','now')")
+        self.con.execute("INSERT INTO aircraft(log_id, ac_id, name) VALUES (1, 1, 'quad_x 00500040')")
+        self.con.commit()
+        self.ns["link_log_aircraft"](self.con, 1)
+        self.assertIsNone(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=1").fetchone()[0])
+        payload = self.ns["fleet_payload"](self.con, include_unlinked=True)
+        row = next(e for e in payload["unlinked"] if e["name"] == "quad_x 00500040")
+        self.assertEqual(row["folders"], ["Quadrotor"])
+        self.assertEqual(row["candidates"], [])
+
+    def test_ambiguous_inner_folder_still_uses_unique_outer_folder(self):
+        self.con.execute(
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (9,'Quad 1','TUD00488','now')")
+        self.con.execute(
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Quad 2','TUD00489','now')")
+        self.con.execute(
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'Modular Hex 1','TUD00500','now')")
+        self.assertEqual(len(self.ns["matching_drones_for_folder"](self.con, "Quad")), 2)
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) "
+            "VALUES (1,'Modular Hex 1/Quad/a.ulg','aa','a.gz','done','now')")
+        self.con.execute("INSERT INTO aircraft(log_id, ac_id, name) VALUES (1, 1, 'quad_x 00500040')")
+        self.con.commit()
+        self.ns["link_log_aircraft"](self.con, 1)
+        self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=1").fetchone()[0], 11)
+
+    def test_deepest_unique_folder_wins_over_outer_unique_folder(self):
+        self.con.execute(
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'DarkO 2','TUD00480','now')")
+        self.con.execute(
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'Modular Hex 1','TUD00500','now')")
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) "
+            "VALUES (1,'DarkO 2/Modular Hex 1/a.ulg','aa','a.gz','done','now')")
+        self.con.execute("INSERT INTO aircraft(log_id, ac_id, name) VALUES (1, 1, 'LOG00001')")
+        self.con.commit()
+        self.ns["link_log_aircraft"](self.con, 1)
+        self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=1").fetchone()[0], 11)
+
+    def test_startup_relink_picks_up_nested_folder_uploads(self):
+        self.con.execute(
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Modular Hex 1','TUD00500','now')")
+        self.con.execute(
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'DarkO 2','TUD00480','now')")
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) VALUES "
+            "(1,'Modular Hex 1/2026-10-13/LOG00030.BFL','aa','a.gz','done','now'),"
+            "(2,'DarkO 2/a.data','bb','b.gz','done','now')")
+        self.con.execute("INSERT INTO aircraft(log_id, ac_id, name, drone_id) VALUES (1, 1, 'LOG00030', NULL)")
+        self.con.execute("INSERT INTO aircraft(log_id, ac_id, name, drone_id) VALUES (2, 5, 'DarkO 2', 11)")
+        self.con.commit()
+        self.ns["relink_unlinked_aircraft"](self.con)
+        self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=1").fetchone()[0], 10)
+        self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=2").fetchone()[0], 11)
+
 
 class DistanceHelperTests(unittest.TestCase):
     def test_haversine_nearby_delft(self):
