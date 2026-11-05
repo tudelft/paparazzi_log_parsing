@@ -656,12 +656,15 @@ class FleetLinkTests(AppTests):
 
     def test_ambiguous_inner_folder_still_uses_unique_outer_folder(self):
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Lorenz Quad','TUD00489','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (9,'Quad 1','TUD00488','now')")
+        self.con.execute(
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Quad 2','TUD00489','now')")
         self.con.execute(
             "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'Modular Hex 1','TUD00500','now')")
+        self.assertEqual(len(self.ns["matching_drones_for_folder"](self.con, "Quad")), 2)
         self.con.execute(
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) "
-            "VALUES (1,'Modular Hex 1/Quadrotor/a.ulg','aa','a.gz','done','now')")
+            "VALUES (1,'Modular Hex 1/Quad/a.ulg','aa','a.gz','done','now')")
         self.con.execute("INSERT INTO aircraft(log_id, ac_id, name) VALUES (1, 1, 'quad_x 00500040')")
         self.con.commit()
         self.ns["link_log_aircraft"](self.con, 1)

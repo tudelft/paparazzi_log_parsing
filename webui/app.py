@@ -1483,7 +1483,7 @@ def resolve_drone(names, drones, name):
 
 _HEX_ID = re.compile(r"[0-9A-Fa-f]{8,36}")
 _DATE_FOLDER = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_LOG_STEM_ALIAS = re.compile(r"^log\d+", re.I)
+_LOG_STEM_ALIAS = re.compile(r"^log\d+$", re.I)
 _GENERIC_LOG_FOLDERS = {
     "log", "logs", "ulg", "bin", "tlog", "data", "px4", "px4logs", "ardupilot", "upload",
     "uploads", "download", "downloads", "desktop", "documents", "incoming",
