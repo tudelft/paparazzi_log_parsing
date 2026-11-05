@@ -592,6 +592,7 @@ const srcLabel = fl => fl.some(f => f.manual_id) ? (fl[0].record_kind === 'daily
     + (fl.some(f => f.linked_records?.length) ? ' + Paper' : '') + (fl.some(f => f.conflicts?.some(c => !c.reviewed_by)) ? ' · conflict' : '');
 const verdictMark = f => (f.simulation?.detected ? ' <span class="mute">(Simulation)</span>' : '') + (f.verdict === 'ground' ? ' <span class="mute" title="Probably not a real flight">(ground)</span>'
   : f.verdict === 'uncertain' ? ' <span class="mute" title="Unsure whether this was a real flight">(?)</span>' : '')
+  + (f.link_warning ? ` <span class="mute" title="Datalink: ${esc(f.link_warning)}">(link)</span>` : '')
   + (f.optitrack ? ' <span class="mute" title="OptiTrack or motion-capture pose in this log">(OptiTrack)</span>' : '')
   + (f.indoor && !f.optitrack ? ' <span class="mute" title="Takeoff is inside a named indoor place">(indoor)</span>' : '');
 function dateTd(f) {

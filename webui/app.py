@@ -5098,13 +5098,29 @@ def gzip_json(response):
     return response
 
 
+LINK_GAP_WARNING_S = 3
+LINK_ERROR_WARNING_PCT = 5
+
+
+def link_warning(link):
+    """Short text when the datalink had a long dropout or many bad frames during the flight, else None."""
+    link = link or {}
+    problems = []
+    gap, errors = link.get("longest_gap_s"), link.get("error_pct")
+    if isinstance(gap, (int, float)) and gap >= LINK_GAP_WARNING_S:
+        problems.append(f"no datalink for {gap:.1f} s")
+    if isinstance(errors, (int, float)) and errors >= LINK_ERROR_WARNING_PCT:
+        problems.append(f"{errors:.0f}% bad frames")
+    return ", ".join(problems) or None
+
+
 LOGBOOK_OVERVIEW_KEYS = (
     "record_key", "source_type", "flight_id", "manual_id", "log_id", "flight_count",
     "record_kind", "reference", "takeoff_utc", "landing_utc", "duration_s",
     "distance_m", "from_takeoff_m", "max_from_takeoff_m", "aircraft", "aircraft_uid", "drone_id",
     "project_id", "project_name", "takeoff_place", "takeoff_place_id", "takeoff_lat", "takeoff_lon",
     "landing_place", "landing_place_id", "landing_lat", "landing_lon",
-    "pic", "pac", "gcs", "goal", "comment", "verdict", "indoor", "optitrack",
+    "pic", "pac", "gcs", "goal", "comment", "verdict", "indoor", "optitrack", "link_warning",
     "date_ok", "date_override", "date_estimated", "hidden", "can_edit_record", "can_edit_crew",
     "source_selection_reason",
     "can_edit_project", "can_edit_date", "linked_records", "conflicts", "possible_duplicates",
@@ -5428,7 +5444,7 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
         " d.unique_id AS aircraft_uid, a.drone_id, a.pic, a.pac, a.gcs, a.goal,"
         " EXISTS(SELECT 1 FROM ambiguous_drone_names n WHERE n.name=TRIM(a.name) COLLATE NOCASE) AS aircraft_ambiguous,"
         " f.verdict, f.assessment_json, f.takeoff_voltage_v, f.landing_voltage_v, f.num_points, f.takeoff_json, f.landing_json,"
-        " l.id AS log_id, l.name AS log_name, l.size_bytes, l.log_type, l.uploaded_by, l.uploaded_at, l.sha256, l.log_path IS NOT NULL AS has_log,"
+        " f.link_json, l.id AS log_id, l.name AS log_name, l.size_bytes, l.log_type, l.uploaded_by, l.uploaded_at, l.sha256, l.log_path IS NOT NULL AS has_log,"
         " l.project_id AS log_project_id, l.start_utc AS log_start_utc, l.date_override, l.date_estimated,"
         " (SELECT username FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name"
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id"
@@ -5443,6 +5459,7 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
         d["landing"] = json.loads(d.pop("landing_json") or "null")
         d["simulation"] = json.loads(d["simulation"]) if d["simulation"] is not None else None
         d["track_quality"] = json.loads(d["track_quality"]) if d["track_quality"] is not None else None
+        d["link"] = json.loads(d.pop("link_json") or "null")
         apply_row_clock(d)
         prepared.append(d)
     out = merge_sources(prepared, links.source_decisions(con))
@@ -5466,6 +5483,10 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
         r["landing_place"], _, r["landing_place_id"] = place(r["landing_lat"], r["landing_lon"])
         r["assessment"] = json.loads(r.pop("assessment_json") or "null")
         r["optitrack"] = bool((r["assessment"] or {}).get("optitrack"))
+        if not r.get("link"):  # an onboard SD log has no link reports; take them from the merged GCS log
+            r["link"] = next((source_rows[s["flight_id"]]["link"] for s in r["sources"]
+                              if source_rows[s["flight_id"]].get("link")), None)
+        r["link_warning"] = link_warning(r["link"])
         gps_summaries = [source_rows[s["flight_id"]]["has_gps_position"] for s in r["sources"]]
         r.pop("has_gps_position")
         if not has_endpoint and not any(gps_summaries) and None in gps_summaries:
