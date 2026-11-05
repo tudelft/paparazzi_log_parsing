@@ -1319,14 +1319,14 @@ identity again through these rules. Use **Mark ambiguous** for a generic name th
 automatically assigned by name or folder.
 
 **Upload-path folder matching.** When the logged name does not identify a fleet aircraft, the
-upload path is a hint. Folders are tried from the top-level dropped/selected folder downward,
-skipping generic dump names (`logs`, `uploads`, …) and `YYYY-MM-DD` date folders. The first
-folder that uniquely overlaps one fleet name wins, so `Hex 1/2026-10-13/LOG00030.BFL`
-links to Hex 1. An ambiguous token such as `Quadrotor` is skipped and a later unique
+upload path is a hint. Folders are tried from the file's own folder upward, skipping generic
+dump names (`logs`, `uploads`, …) and `YYYY-MM-DD` date folders. The first (deepest) folder
+that uniquely overlaps one fleet name wins, so `Hex 1/2026-10-13/LOG00030.BFL`
+links to Hex 1. An ambiguous token such as `Quadrotor` is skipped and a higher unique
 folder may still match. Select folder includes the chosen folder name in the stored path (drop
 and zip already did). Filename stems such as `LOG00030` are not stored as aliases, so sequential
 Blackbox names on another aircraft are not stolen. Existing unlinked recordings are retried at
-the next start; no reparse is needed.
+each start; no reparse is needed.
 
 Marking a name removes its global alias and recomputes the affected logs' automatic fleet
 links. Neither the name nor upload-folder hints may assign that shared name to a fleet aircraft.

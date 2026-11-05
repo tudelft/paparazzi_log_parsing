@@ -654,20 +654,20 @@ class FleetLinkTests(AppTests):
         self.assertEqual(row["folders"], ["Quadrotor"])
         self.assertEqual(row["candidates"], [])
 
-    def test_ambiguous_outer_folder_still_uses_unique_inner_folder(self):
+    def test_ambiguous_inner_folder_still_uses_unique_outer_folder(self):
         self.con.execute(
             "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Lorenz Quad','TUD00489','now')")
         self.con.execute(
             "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'Modular Hex 1','TUD00500','now')")
         self.con.execute(
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) "
-            "VALUES (1,'Quadrotor/Modular Hex 1/a.ulg','aa','a.gz','done','now')")
+            "VALUES (1,'Modular Hex 1/Quadrotor/a.ulg','aa','a.gz','done','now')")
         self.con.execute("INSERT INTO aircraft(log_id, ac_id, name) VALUES (1, 1, 'quad_x 00500040')")
         self.con.commit()
         self.ns["link_log_aircraft"](self.con, 1)
         self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=1").fetchone()[0], 11)
 
-    def test_top_level_unique_folder_wins_over_inner_unique_folder(self):
+    def test_deepest_unique_folder_wins_over_outer_unique_folder(self):
         self.con.execute(
             "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'DarkO 2','TUD00480','now')")
         self.con.execute(
@@ -678,7 +678,7 @@ class FleetLinkTests(AppTests):
         self.con.execute("INSERT INTO aircraft(log_id, ac_id, name) VALUES (1, 1, 'LOG00001')")
         self.con.commit()
         self.ns["link_log_aircraft"](self.con, 1)
-        self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=1").fetchone()[0], 10)
+        self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=1").fetchone()[0], 11)
 
     def test_startup_relink_picks_up_nested_folder_uploads(self):
         self.con.execute(

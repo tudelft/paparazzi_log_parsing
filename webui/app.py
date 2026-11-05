@@ -1543,10 +1543,10 @@ def guess_drone_from_log_path(con, log_name):
     """If a folder in the upload path uniquely matches one fleet aircraft, use that.
 
     PX4 and Blackbox logs often lack a fleet nickname; the dropped folder is named after the aircraft
-    even when the files sit in dated subfolders. The top-level folder is tried first. Only a unique
-    match links, so 'Quadrotor' does not steal every quad in the fleet.
+    even when the files sit in dated subfolders. The deepest folder is tried first, so a person or project
+    folder above it does not win. Only a unique match links, so 'Quadrotor' does not steal every quad.
     """
-    for folder in log_folder_labels(log_name):
+    for folder in reversed(log_folder_labels(log_name)):
         hits = matching_drones_for_folder(con, folder)
         if len(hits) == 1:
             return hits[0]
@@ -1774,7 +1774,7 @@ def relink_unlinked_aircraft(con):
     """Apply unique upload-path folder matches to recordings that still have no fleet aircraft."""
     before = con.execute("SELECT COUNT(*) FROM aircraft WHERE drone_id IS NULL").fetchone()[0]
     cache = {}
-    for r in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE drone_id IS NULL"):
+    for r in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE drone_id IS NULL").fetchall():
         link_log_aircraft(con, r["log_id"], cache=cache)
     linked = before - con.execute("SELECT COUNT(*) FROM aircraft WHERE drone_id IS NULL").fetchone()[0]
     if linked:
