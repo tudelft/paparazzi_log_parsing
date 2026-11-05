@@ -323,6 +323,7 @@ def start_workers():
     HAVE_PATH_GZ = "path_gz" in {r[1] for r in con.execute("PRAGMA table_info(flights)")}
     backfill_gps_positions(con)
     seed_drone_projects_from_defaults(con)
+    relink_unlinked_aircraft(con)
     assign_open_flights(con)
     links.auto_link(con, now())
     if merged := attachments.merge_duplicates(con, STORAGE_DIR):
@@ -1481,6 +1482,8 @@ def resolve_drone(names, drones, name):
 
 
 _HEX_ID = re.compile(r"[0-9A-Fa-f]{8,36}")
+_DATE_FOLDER = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_LOG_STEM_ALIAS = re.compile(r"^log\d+", re.I)
 _GENERIC_LOG_FOLDERS = {
     "log", "logs", "ulg", "bin", "tlog", "data", "px4", "px4logs", "ardupilot", "upload",
     "uploads", "download", "downloads", "desktop", "documents", "incoming",
@@ -1500,13 +1503,27 @@ def identity_tokens(logged_name):
     return out
 
 
-def log_folder_label(log_name):
-    """Immediate parent folder of an uploaded log, or None for generic dump folders."""
+def log_folder_labels(log_name):
+    """Upload-path folders from the top-level folder down, skipping generic dump and date folders."""
     rel = (log_name or "").replace("\\", "/")
-    parent = posixpath.basename(posixpath.dirname(rel)).strip()
-    if not parent or fold_ac(parent) in _GENERIC_LOG_FOLDERS:
-        return None
-    return parent
+    parts = [p.strip() for p in posixpath.dirname(rel).split("/") if p.strip() and p not in (".", "..")]
+    out, seen = [], set()
+    for part in parts:
+        key = fold_ac(part)
+        if not key or key in _GENERIC_LOG_FOLDERS or _DATE_FOLDER.match(part):
+            continue
+        folded = part.casefold()
+        if folded in seen:
+            continue
+        seen.add(folded)
+        out.append(part)
+    return out
+
+
+def log_folder_label(log_name):
+    """Top-level useful upload folder, or None for generic dump folders."""
+    labels = log_folder_labels(log_name)
+    return labels[0] if labels else None
 
 
 def matching_drones_for_folder(con, folder):
@@ -1523,17 +1540,16 @@ def matching_drones_for_folder(con, folder):
 
 
 def guess_drone_from_log_path(con, log_name):
-    """If the upload folder uniquely matches one fleet aircraft, use that.
+    """If a folder in the upload path uniquely matches one fleet aircraft, use that.
 
-    PX4 does not store a nickname; the folder the files were dropped from often is the aircraft.
-    Only links when exactly one drone matches, so 'Quadrotor' does not steal every quad in the fleet.
+    PX4 and Blackbox logs often lack a fleet nickname; the dropped folder is named after the aircraft
+    even when the files sit in dated subfolders. The top-level folder is tried first. Only a unique
+    match links, so 'Quadrotor' does not steal every quad in the fleet.
     """
-    folder = log_folder_label(log_name)
-    if not folder:
-        return None
-    hits = matching_drones_for_folder(con, folder)
-    if len(hits) == 1:
-        return hits[0]
+    for folder in log_folder_labels(log_name):
+        hits = matching_drones_for_folder(con, folder)
+        if len(hits) == 1:
+            return hits[0]
     return None
 
 
@@ -1545,6 +1561,8 @@ def remember_drone_log_identity(con, drone_id, logged_name):
         if len(label) < 4:
             continue
         if fold_ac(label) in _GENERIC_LOG_FOLDERS:
+            continue
+        if _LOG_STEM_ALIAS.match(label):
             continue
         if name_taken(con, label, drone_id):
             continue
@@ -1750,6 +1768,17 @@ def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None, remember_ide
 def board_map(con):
     """Autopilot board ID -> drone id; None for a board an admin excluded from matching."""
     return {r["mcu_uid"]: r["drone_id"] for r in con.execute("SELECT mcu_uid, drone_id FROM drone_boards")}
+
+
+def relink_unlinked_aircraft(con):
+    """Apply unique upload-path folder matches to recordings that still have no fleet aircraft."""
+    before = con.execute("SELECT COUNT(*) FROM aircraft WHERE drone_id IS NULL").fetchone()[0]
+    cache = {}
+    for r in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE drone_id IS NULL"):
+        link_log_aircraft(con, r["log_id"], cache=cache)
+    linked = before - con.execute("SELECT COUNT(*) FROM aircraft WHERE drone_id IS NULL").fetchone()[0]
+    if linked:
+        print(f"Linked {linked} recording(s) from upload-path folder names.", flush=True)
 
 
 def relink_all_aircraft(con):
@@ -2823,7 +2852,8 @@ def fleet_payload(con, include_unlinked=False, project_ids=None):
         seen = {}
         for a in con.execute(
                 "SELECT a.name AS ac_name, l.name AS log_name FROM aircraft a "
-                "JOIN logs l ON l.id = a.log_id WHERE a.name IS NOT NULL AND TRIM(a.name) != ''"):
+                "JOIN logs l ON l.id = a.log_id WHERE a.drone_id IS NULL AND a.name IS NOT NULL "
+                "AND TRIM(a.name) != ''"):
             ac_name = (a["ac_name"] or "").strip()
             if not ac_name or resolve_drone(names, drones, ac_name) is not None:
                 continue
@@ -2832,9 +2862,9 @@ def fleet_payload(con, include_unlinked=False, project_ids=None):
                 continue
             e = seen.setdefault(key, {"name": ac_name, "count": 0, "folders": [], "board_ids": []})
             e["count"] += 1
-            folder = log_folder_label(a["log_name"])
-            if folder and folder not in e["folders"]:
-                e["folders"].append(folder)
+            for folder in log_folder_labels(a["log_name"]):
+                if folder not in e["folders"]:
+                    e["folders"].append(folder)
             for tok in identity_tokens(ac_name):
                 if tok not in e["board_ids"]:
                     e["board_ids"].append(tok)

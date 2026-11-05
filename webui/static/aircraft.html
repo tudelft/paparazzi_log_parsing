@@ -113,7 +113,7 @@
   <details class="card" id="unlinkedCard" hidden>
     <summary>Unlinked aircraft names</summary>
     <div class="section-heading">
-    <details><summary>Help</summary><p>Paparazzi logs usually already have the fleet name. PX4 logs do not: they show the airframe type plus the flight-controller id (for example <code>quad_x 00500040</code>). Link that once to the real aircraft; later logs from the same board attach automatically. The upload folder is only a hint, and is never used when more than one aircraft could match.</p></details></div>
+    <details><summary>Help</summary><p>Paparazzi logs usually already have the fleet name. PX4 and Blackbox logs do not: they show the airframe type plus the flight-controller id (for example <code>quad_x 00500040</code>) or a filename such as <code>LOG00030</code>. Link that once to the real aircraft; later logs from the same board attach automatically. The dropped folder name is a hint, including a parent folder above dated subfolders, and is never used when more than one aircraft could match.</p></details></div>
     <div class="scroll"><table><thead id="unlinkedHead"></thead><tbody id="unlinked"></tbody></table></div>
   </details>
   <details class="card" id="ambiguousCard" hidden>

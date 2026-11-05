@@ -69,7 +69,7 @@
       <button type="button" id="pickFilesBtn">Select files</button>
       <button type="button" class="sec" id="pickDirBtn">Select folder</button>
       <details><summary>Help</summary>
-      <p>Paparazzi .data and .log files must come as a pair with the same name. PX4 .ulg, ArduPilot .bin / .log, MAVLink .tlog and Betaflight/INDIFlight .bfl / .bbl files are uploaded on their own. Zips and folders may mix all of those. Files are accepted quickly; fingerprinting, duplicates and parsing run in the background. The list below shows 25 logs per page by default, newest first; open a log for its details and flights. For hundreds of logs, drop a zip or a folder — picking thousands of files one by one can freeze the browser.</p>
+      <p>Paparazzi .data and .log files must come as a pair with the same name. PX4 .ulg, ArduPilot .bin / .log, MAVLink .tlog and Betaflight/INDIFlight .bfl / .bbl files are uploaded on their own. Zips and folders may mix all of those. If the top folder is named after one fleet aircraft, logs in dated subfolders attach to it. Files are accepted quickly; fingerprinting, duplicates and parsing run in the background. The list below shows 25 logs per page by default, newest first; open a log for its details and flights. For hundreds of logs, drop a zip or a folder — picking thousands of files one by one can freeze the browser.</p>
       <div class="mute" style="margin-top:8px">Project is set automatically from the aircraft (then the uploader, GCS operator or PIC). Admins can change it in Edit mode after it is parsed. Edit mode also shows Re-parse and Delete on an opened log, and the Re-parse outdated / unknown dates tools.</div>
       </details>
       <input id="pickFiles" type="file" multiple hidden accept=".data,.log,.zip,.ulg,.bin,.tlog,.bfl,.bbl">
@@ -366,7 +366,7 @@ $('pickDirBtn').onclick = async () => {
       const dir = await window.showDirectoryPicker();
       const items = [];
       paintPrepare(0);
-      await walkDirHandle(dir, '', items);
+      await walkDirHandle(dir, dir.name + '/', items);
       await uploadItems(items);
     } catch (err) {
       if (err && err.name !== 'AbortError')
