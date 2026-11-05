@@ -54,6 +54,7 @@ import storage
 import saml
 import config
 import qualifications
+import training
 import weather
 import mav_parse
 import firmware
@@ -1170,7 +1171,7 @@ def check_logs():
 
 @app.get("/api/me")
 def me():
-    return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION)
+    return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION, training=env_bool("TRAINING"))
 
 
 @app.get("/api/people")
@@ -6391,6 +6392,7 @@ def delete_log(log_id):
 attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, env_int("ATTACHMENT_MAX_BYTES"),
                      office=env("OFFICE"))
 qualifications.register(app, lambda: conn(), STORAGE_DIR, session_required)
+training.register(app, lambda: conn(), DATA_DIR, session_required)
 
 
 if __name__ == "__main__" and len(sys.argv) > 1:

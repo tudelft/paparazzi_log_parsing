@@ -24,6 +24,7 @@ SETTINGS = {
                          "client addresses and https are seen correctly; keep 0 when clients connect directly"),
         "HIDE_UNLINKED_AIRCRAFT": ("0", "Exclude flights without a linked fleet aircraft from statistics, logbook "
                                       "person details and locations; hide the aircraft-page notice outside Edit mode"),
+        "TRAINING": ("0", "1 shows Training: in-app questionnaires that can grant a qualification on a pass"),
     },
     "Storage and parsing": {
         "WEB_DATA": (str(HERE / "data"), "Local directory with the database, session key and SAML keys. Keep it on "

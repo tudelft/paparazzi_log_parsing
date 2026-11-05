@@ -471,6 +471,7 @@ window.timingEvidenceHTML = function (timing) {
 
   const ADMIN_KEY = 'logdbAdmin';
   const EDIT_KEY = 'logdbEdit';
+  const TRAINING_KEY = 'logdbTraining';
   window.editMode = function () {
     try { return localStorage.getItem(EDIT_KEY) === '1'; } catch (e) { return false; }
   };
@@ -495,11 +496,23 @@ window.timingEvidenceHTML = function (timing) {
   function setCachedAdmin(on) {
     try { localStorage.setItem(ADMIN_KEY, on ? '1' : '0'); } catch (e) {}
   }
+  function cachedTraining() {
+    try { return localStorage.getItem(TRAINING_KEY) === '1'; } catch (e) { return false; }
+  }
+  function setCachedTraining(on) {
+    try { localStorage.setItem(TRAINING_KEY, on ? '1' : '0'); } catch (e) {}
+  }
+  function navTabs() {
+    const items = TABS.slice();
+    if (cachedTraining()) items.push(['/training', 'Training']);
+    return items;
+  }
   function currentTab() {
     const p = location.pathname;
     if (p === '/logbook' || p === '/attachments' || p === '/review' || p.startsWith('/flight/') || p.startsWith('/historical/')) return '/';
     if (p === '/uploads') return '/uploads';
     if (p === '/stats') return '/stats';
+    if (p === '/training' || p.startsWith('/training/')) return '/training';
     for (const tab of ['/people', '/projects', '/aircraft', '/locations'])
       if (p === tab || p.startsWith(tab + '/')) return tab;
     if (p === '/' || p === '') return '/';
@@ -509,7 +522,7 @@ window.timingEvidenceHTML = function (timing) {
     const nav = document.getElementById('nav');
     if (!nav) return;
     const here = currentTab();
-    nav.innerHTML = TABS.map(([href, label]) =>
+    nav.innerHTML = navTabs().map(([href, label]) =>
       `<a href="${href}"${href === here ? ' class="cur" aria-current="page"' : ''}>${label}</a>`).join('');
   }
 
@@ -566,7 +579,7 @@ window.timingEvidenceHTML = function (timing) {
   }
 
   window.logout = async function () {
-    try { localStorage.removeItem(ADMIN_KEY); } catch (e) {}
+    try { localStorage.removeItem(ADMIN_KEY); localStorage.removeItem(TRAINING_KEY); } catch (e) {}
     await fetch('/logout', {method: 'POST'});
     location.href = '/login';
   };
@@ -592,7 +605,7 @@ window.timingEvidenceHTML = function (timing) {
   if (!/^\/(login|setup)/.test(location.pathname)) {
     fetch('/api/me').then(async r => {
       if (r.status === 401) {
-        try { localStorage.removeItem(ADMIN_KEY); } catch (e) {}
+        try { localStorage.removeItem(ADMIN_KEY); localStorage.removeItem(TRAINING_KEY); } catch (e) {}
         return;
       }
       if (!r.ok) throw new Error(`Could not load account and Web UI version (${r.status})`);
@@ -600,6 +613,8 @@ window.timingEvidenceHTML = function (timing) {
       ready(() => paintVersion(d.webui_version));
       admin = !!(d.user && d.user.is_admin);
       setCachedAdmin(admin);
+      setCachedTraining(!!d.training);
+      paintNav();
       paintEdit();
     }).catch(error => { console.warn('Could not load account and Web UI version:', error); });
   }

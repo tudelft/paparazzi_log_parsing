@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Training</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --err:#cf222e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
+  main { max-width:none; width:100%; margin:0; padding:16px 12px 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  .toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .toolbar h2 { margin:0; }
+  #search { flex:0 1 280px; min-width:0; }
+  .toolbar details { margin-left:auto; }
+  #err { color:var(--err); margin-bottom:8px; }
+  #err:empty { display:none; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr)); gap:10px; }
+  a.item { display:block; height:104px; min-width:0; padding:8px 10px; border:1px solid var(--fieldline); border-left:4px solid var(--acc);
+    border-radius:8px; background:var(--detail); color:var(--txt); text-decoration:none; box-shadow:0 2px 4px #0002; }
+  a.item:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
+  a.item h3 { margin:0; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  a.item p { margin:6px 0 0; font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ok { color:var(--ok); }
+  .question { border-top:1px solid var(--line); padding:12px 0; }
+  .question:first-child { border-top:0; padding-top:0; }
+  .question img { max-width:min(100%,420px); max-height:220px; display:block; margin:8px 0; }
+  .choices { display:flex; flex-direction:column; gap:6px; margin:8px 0 0; }
+  .choices label { display:flex; gap:8px; align-items:flex-start; }
+  .rank { margin:8px 0 0; padding:0; list-style:none; }
+  .rank li { display:flex; gap:8px; align-items:center; margin:4px 0; }
+  .rank li span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button.sec { background:var(--sec); color:var(--txt); }
+  button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
+  input, select, textarea { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
+  textarea { min-height:70px; resize:vertical; }
+  label.field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
+  td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:28em; }
+  .choice-row { display:flex; gap:8px; align-items:center; margin:4px 0; }
+  .choice-row input[type=text] { flex:1; min-width:0; }
+  .chip { display:inline-flex; align-items:center; gap:4px; background:var(--chip); border-radius:12px;
+    padding:1px 8px; margin:2px 4px 2px 0; max-width:100%; }
+  .chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .chip button { background:none; color:var(--err); padding:0 4px; }
+  #briefersField { display:flex; flex-direction:column; gap:6px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body data-edit="admin">
+<header>
+  <h1>Training</h1>
+  <span class="meta" id="nav"></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <div id="err"></div>
+  <section class="card" id="listCard">
+    <div class="toolbar">
+      <h2>Trainings</h2>
+      <span class="mute" id="count" role="status"></span>
+      <input type="search" id="search" aria-label="Search trainings" placeholder="Search" oninput="onSearch()">
+      <button type="button" id="addBtn" hidden onclick="openTraining()">Add training</button>
+      <button type="button" id="importBtn" class="sec" hidden onclick="openImport()">Import</button>
+      <details><summary>Help</summary><p>Complete a questionnaire until you pass. Only the passing answers and the number of attempts are kept. Each submission shows your score and you may retry without limit, so answers can be found by trial and error. A pass writes the linked qualification immediately; administrators do not review it. After a pass expires (or an administrator resets it), you can take the questionnaire again.</p></details>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
+  <section class="card" id="detailCard" hidden></section>
+</main>
+<dialog class="entry-dialog" id="importDialog" aria-labelledby="importTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="importTitle">Import training</h2><button type="button" class="sec" onclick="$('importDialog').close()">Close</button></div>
+  <p>One JSON questionnaire, or a ZIP with that JSON plus JPEG/PNG question images. Preview first; nothing is written until you import. A name that already exists is rejected unless you enable replace.</p>
+  <p class="dialog-error" id="importError" role="alert"></p>
+  <div class="dialog-fields">
+    <label class="field">File<input id="importFile" type="file" accept=".json,.zip,application/json,application/zip" onchange="clearImportPreview()"></label>
+    <label class="field">Qualification<select id="importType"><option value="">None</option></select></label>
+    <label class="field"><span><input id="importReplace" type="checkbox"> Replace if the name already exists</span></label>
+    <button type="button" class="sec" onclick="importTraining(true)">Check file</button>
+  </div>
+  <div class="scroll" id="importPreview"></div>
+  <p><button type="button" id="importConfirm" hidden onclick="importTraining(false)"></button> <span id="importMsg" class="mute"></span></p>
+</dialog>
+<dialog class="entry-dialog" id="trainingDialog" aria-labelledby="trainingTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="trainingForm">
+    <div class="dialog-header"><h2 id="trainingTitle">New training</h2><button type="button" class="sec" onclick="$('trainingDialog').close()">Close</button></div>
+    <label class="field">Name<input name="name" required maxlength="80"></label>
+    <label class="field">Description<textarea name="description" maxlength="2000"></textarea></label>
+    <label class="field">Qualification<select name="type_id"><option value="">None</option></select></label>
+    <label class="field">Validity days<input name="valid_days" type="number" min="1" placeholder="optional"></label>
+    <label class="field">Pass score<input name="pass_score" type="number" min="1" placeholder="all points"></label>
+    <label class="field"><span><input name="ask_briefed_by" type="checkbox" onchange="syncBriefersField()"> Ask who delivered the briefing</span></label>
+    <div id="briefersField" hidden>
+      <span class="mute">Who can be chosen (a short list)</span>
+      <div id="brieferChips"></div>
+      <select id="brieferPick" onchange="addBriefer()"><option value="">Add a person…</option></select>
+    </div>
+    <label class="field" id="activeField" hidden><span><input name="active" type="checkbox" checked> Active</span></label>
+    <p class="dialog-error" id="trainingError" role="alert"></p>
+    <div class="row"><button type="submit">Save</button> <button type="button" class="sec" onclick="$('trainingDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="questionDialog" aria-labelledby="questionTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="questionForm">
+    <div class="dialog-header"><h2 id="questionTitle">Question</h2><button type="button" class="sec" onclick="$('questionDialog').close()">Close</button></div>
+    <label class="field">Question<textarea name="prompt" required maxlength="2000"></textarea></label>
+    <label class="field">Type<select name="kind"><option value="single">Single choice</option><option value="multi">Multiple choice</option><option value="ranking">Ranking</option></select></label>
+    <label class="field">Points<input name="points" type="number" min="1" max="100" value="1"></label>
+    <p class="mute" id="choiceHint"></p>
+    <div id="choiceList"></div>
+    <button type="button" class="sec" onclick="addChoiceRow()">Add choice</button>
+    <p class="dialog-error" id="questionError" role="alert"></p>
+    <div class="row"><button type="submit">Save</button> <button type="button" class="sec" onclick="$('questionDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = t => t ? t.replace('T', ' ').replace('Z', ' UTC') : '';
+let me, trainings = [], types = [], people = [], brieferIds = [], query = '', selected = 0, detail, editingId = null, editingQuestion = null, lastResult = null;
+async function api(url, opt) {
+  const r = await fetch(url, opt);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || r.statusText);
+  return d;
+}
+function onSearch() {
+  query = $('search').value;
+  window.viewState.save();
+  renderList();
+}
+function filtered() {
+  const q = query.trim().toLowerCase();
+  return trainings.filter(t => !q || t.name.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q));
+}
+function statusLine(t) {
+  if (t.passed_at) return `Passed · ${t.attempts} attempt${t.attempts === 1 ? '' : 's'}`;
+  if (t.expired_pass) return `Expired · retake available · ${t.attempts} attempt${t.attempts === 1 ? '' : 's'}`;
+  if (t.attempts) return `${t.attempts} attempt${t.attempts === 1 ? '' : 's'}`;
+  return t.type_name ? 'Grants ' + t.type_name : 'No qualification';
+}
+function renderList() {
+  const items = filtered();
+  $('count').textContent = items.length ? items.length + ' training' + (items.length === 1 ? '' : 's') : '';
+  $('grid').innerHTML = items.map(t =>
+    `<a class="item" href="/training?id=${t.id}" data-id="${t.id}" title="${esc(t.name)}"><h3>${esc(t.name)}</h3>
+     <p class="${t.passed_at ? 'ok' : 'mute'}" title="${esc(statusLine(t))}">${esc(statusLine(t))}</p>
+     <p title="${esc(t.description || '')}">${esc(t.description || '')}</p></a>`).join('')
+    || '<p class="mute">No trainings yet.</p>';
+  $('grid').querySelectorAll('a.item').forEach(a => a.onclick = event => {
+    event.preventDefault();
+    selected = +a.dataset.id;
+    window.viewState.save(true);
+    show();
+  });
+}
+function show() {
+  $('err').textContent = '';
+  if (!selected) lastResult = null;
+  $('listCard').hidden = !!selected;
+  $('detailCard').hidden = !selected;
+  if (!selected) return renderList();
+  loadDetail();
+}
+async function loadDetail() {
+  try {
+    detail = await api('/api/trainings/' + selected);
+    paintDetail();
+  } catch (e) { $('err').textContent = e.message; }
+}
+function paintDetail() {
+  const t = detail;
+  const edit = me.is_admin && window.editMode();
+  const questions = t.questions || [];
+  let html = `<div class="toolbar"><h2 title="${esc(t.name)}">${esc(t.name)}</h2>
+    <button type="button" class="sec" onclick="selected=0; window.viewState.save(true); show()">Back</button>
+    ${edit ? `<button type="button" class="sec" onclick="openTraining(${t.id})">Edit</button>
+      <a class="sec" href="/api/admin/trainings/${t.id}/export" style="display:inline-block;padding:4px 10px;border-radius:6px;background:var(--sec);color:var(--txt);text-decoration:none">Export</a>
+      <button type="button" class="danger" onclick="removeTraining(${t.id})">Delete</button>` : ''}
+    <details><summary>Help</summary><p>Retry until you pass. Each try shows your score; failed answers are not stored. A pass writes the qualification immediately. When that qualification expires, or an administrator resets your pass, you can take it again.</p></details></div>
+    ${t.description ? `<p>${esc(t.description)}</p>` : ''}
+    <p class="mute">${t.passed_at ? 'Passed ' + fmt(t.passed_at) + ' · ' + t.attempts + ' attempt' + (t.attempts === 1 ? '' : 's')
+      : (t.expired_pass ? 'Previous pass expired — retake available. ' : '')
+        + (t.attempts ? t.attempts + ' attempt' + (t.attempts === 1 ? '' : 's') + ' so far. ' : '')
+        + (t.type_name ? 'Grants ' + esc(t.type_name) + (t.valid_days ? ' for ' + t.valid_days + ' days' : '') + '.' : 'No qualification is granted.')}</p>`;
+  if (t.passed_at) {
+    html += '<p class="ok">You have passed this training.</p>';
+    if (t.briefed_by_name) html += `<p class="mute" title="${esc(t.briefed_by_name)}">Briefed by ${esc(t.briefed_by_name)}</p>`;
+  } else if (lastResult && !lastResult.passed) html += `<p role="status">Not passed (${lastResult.score} / ${lastResult.needed}). Try again.</p>`;
+  if (!t.passed_at && questions.length && !edit) html += quizHTML(questions);
+  else if (!t.passed_at && !questions.length && !edit) html += '<p class="mute">No questions yet.</p>';
+  if (edit) html += editorHTML(questions);
+  $('detailCard').innerHTML = html;
+  if (!t.passed_at && questions.length && !edit) bindQuiz();
+  if (edit) loadResults();
+}
+function quizHTML(questions) {
+  const briefers = (detail.briefers || []).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  return `<form id="quiz">${questions.map(q => `<div class="question" data-id="${q.id}" data-kind="${q.kind}">
+    <p><strong>${esc(q.prompt)}</strong> <span class="mute">${q.points} pt</span></p>
+    ${q.image ? `<img src="/api/trainings/questions/${q.id}/image" alt="">` : ''}
+    ${q.kind === 'ranking' ? rankHTML(q) : choiceHTML(q)}</div>`).join('')}
+    ${detail.ask_briefed_by ? `<label class="field">Who delivered the briefing<select name="briefed_by" required>
+      <option value="">Choose…</option>${briefers}</select></label>` : ''}
+    <p id="quizMsg" role="status"></p>
+    <button type="submit">Submit answers</button></form>`;
+}
+function choiceHTML(q) {
+  const type = q.kind === 'multi' ? 'checkbox' : 'radio';
+  return `<div class="choices">${q.choices.map(c => `<label><input type="${type}" name="q${q.id}" value="${c.id}"> ${esc(c.label)}</label>`).join('')}</div>`;
+}
+function rankHTML(q) {
+  return `<ol class="rank">${q.choices.map((c, i) => `<li data-id="${c.id}"><span title="${esc(c.label)}">${esc(c.label)}</span>
+    <button type="button" class="sec" data-dir="-1"${i === 0 ? ' disabled' : ''}>Up</button>
+    <button type="button" class="sec" data-dir="1"${i === q.choices.length - 1 ? ' disabled' : ''}>Down</button></li>`).join('')}</ol>`;
+}
+function bindQuiz() {
+  $('quiz').onsubmit = submitQuiz;
+  $('quiz').querySelectorAll('.rank').forEach(list => list.onclick = event => {
+    const btn = event.target.closest('button');
+    if (!btn) return;
+    const item = btn.parentElement;
+    const next = btn.dataset.dir === '-1' ? item.previousElementSibling : item.nextElementSibling;
+    if (next) list.insertBefore(item, btn.dataset.dir === '-1' ? next : next.nextElementSibling);
+    [...list.children].forEach((li, i, all) => {
+      li.querySelector('[data-dir="-1"]').disabled = i === 0;
+      li.querySelector('[data-dir="1"]').disabled = i === all.length - 1;
+    });
+  });
+}
+function collectAnswers() {
+  const answers = {};
+  $('quiz').querySelectorAll('.question').forEach(q => {
+    const id = q.dataset.id;
+    if (q.dataset.kind === 'ranking') answers[id] = [...q.querySelectorAll('li')].map(li => +li.dataset.id);
+    else if (q.dataset.kind === 'multi') answers[id] = [...q.querySelectorAll('input:checked')].map(i => +i.value);
+    else {
+      const picked = q.querySelector('input:checked');
+      if (picked) answers[id] = +picked.value;
+    }
+  });
+  return answers;
+}
+async function submitQuiz(event) {
+  event.preventDefault();
+  try {
+    const payload = {answers: collectAnswers()};
+    if (detail.ask_briefed_by) payload.briefed_by = +$('quiz').briefed_by.value || null;
+    lastResult = await api('/api/trainings/' + selected + '/submit', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+    await load();
+    await loadDetail();
+  } catch (e) { $('quizMsg').textContent = e.message; }
+}
+function editorHTML(questions) {
+  return `<h3>Questions</h3>
+    <p><button type="button" onclick="openQuestion()">Add question</button></p>
+    <table><thead><tr><th>Question</th><th>Type</th><th></th></tr></thead><tbody>${
+      questions.map(q => `<tr><td title="${esc(q.prompt)}">${esc(q.prompt)}</td><td>${esc(q.kind)}</td>
+        <td><button type="button" class="sec" onclick="openQuestion(${q.id})">Edit</button>
+            <button type="button" class="sec" onclick="attachImage(${q.id})">Image</button>
+            <button type="button" class="danger" onclick="removeQuestion(${q.id})">Delete</button></td></tr>`).join('')
+      || '<tr><td colspan="3" class="mute">No questions yet.</td></tr>'}</tbody></table>
+    <h3>Passes</h3><div id="results">Loading…</div>`;
+}
+async function loadResults() {
+  const box = $('results');
+  if (!box) return;
+  try {
+    const d = await api('/api/admin/trainings/' + selected + '/results');
+    const showBriefer = detail.ask_briefed_by || d.results.some(r => r.briefed_by_name);
+    box.innerHTML = d.results.length
+      ? `<table><thead><tr><th>Person</th>${showBriefer ? '<th>Briefed by</th>' : ''}<th>Attempts</th><th>Passed</th><th></th></tr></thead><tbody>${
+          d.results.map(r => `<tr><td title="${esc(r.person)}">${esc(r.person)}</td>${
+            showBriefer ? `<td title="${esc(r.briefed_by_name || '')}">${esc(r.briefed_by_name || '')}</td>` : ''
+          }<td>${r.attempts}</td><td>${fmt(r.passed_at)}${r.current ? '' : ' · expired'}</td>
+          <td>${r.current ? `<button type="button" class="sec" onclick="resetProgress(${r.user_id})">Reset</button>` : ''}</td></tr>`).join('')
+        }</tbody></table>`
+      : '<p class="mute">No passes yet.</p>';
+  } catch (e) { box.textContent = e.message; }
+}
+async function resetProgress(userId) {
+  if (!confirm('Clear this pass so the person can retake? The linked qualification is withdrawn.')) return;
+  try {
+    await api(`/api/admin/trainings/${selected}/progress/${userId}`, {method: 'DELETE'});
+    await loadDetail();
+  } catch (e) { $('err').textContent = e.message; }
+}
+function clearImportPreview() {
+  $('importConfirm').hidden = true;
+  $('importPreview').innerHTML = '';
+  $('importMsg').textContent = '';
+  $('importError').textContent = '';
+}
+function openImport() {
+  fillTypes($('importType'), null);
+  $('importFile').value = '';
+  $('importReplace').checked = false;
+  clearImportPreview();
+  $('importDialog').showModal();
+}
+async function importTraining(preview) {
+  const f = $('importFile').files[0];
+  $('importError').textContent = $('importMsg').textContent = '';
+  if (!f) { $('importError').textContent = 'Choose a JSON or ZIP file first.'; return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  if ($('importType').value) fd.append('type_id', $('importType').value);
+  if ($('importReplace').checked) fd.append('replace', '1');
+  if (preview) fd.append('preview', '1');
+  try {
+    const r = await fetch('/api/admin/trainings/import', {method: 'POST', body: fd});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      $('importError').textContent = d.error || 'Import failed';
+      $('importConfirm').hidden = true;
+      return;
+    }
+    $('importPreview').innerHTML = `<table><tbody>
+      <tr><th>Name</th><td title="${esc(d.name)}">${esc(d.name)}</td></tr>
+      <tr><th>Action</th><td>${d.action === 'replace' ? 'Replace existing' : 'Create'}</td></tr>
+      <tr><th>Questions</th><td>${d.question_count} · ${d.image_count} image${d.image_count === 1 ? '' : 's'}</td></tr>
+      <tr><th>Qualification</th><td>${esc(d.type_name || 'None')}</td></tr>
+      <tr><th>Validity</th><td>${d.valid_days ? d.valid_days + ' days' : '—'}</td></tr>
+      ${d.warning ? `<tr><th></th><td class="dialog-error">${esc(d.warning)}</td></tr>` : ''}
+    </tbody></table>`;
+    if (preview) {
+      $('importConfirm').textContent = d.action === 'replace' ? 'Replace training' : 'Import training';
+      $('importConfirm').hidden = false;
+      $('importMsg').textContent = '';
+    } else {
+      $('importConfirm').hidden = true;
+      $('importMsg').textContent = d.action === 'replace' ? 'Replaced.' : 'Imported.';
+      $('importFile').value = '';
+      selected = d.id;
+      window.viewState.save(true);
+      $('importDialog').close();
+      await load();
+      show();
+    }
+  } catch (e) { $('importError').textContent = 'Import failed: ' + e.message; }
+}
+function fillTypes(select, current) {
+  select.innerHTML = '<option value="">None</option>' + types.map(t =>
+    `<option value="${t.id}"${t.id === current ? ' selected' : ''}>${esc(t.name)}</option>`).join('');
+}
+function personName(id) {
+  const fromBriefers = (detail && detail.briefers || []).find(p => p.id === id);
+  if (fromBriefers) return fromBriefers.name;
+  const p = people.find(x => x.id === id);
+  return p ? p.display_name : String(id);
+}
+function paintBrieferChips() {
+  $('brieferChips').innerHTML = brieferIds.map(id => {
+    const name = personName(id);
+    return `<span class="chip" title="${esc(name)}"><span>${esc(name)}</span>
+      <button type="button" aria-label="Remove ${esc(name)}" onclick="removeBriefer(${id})">×</button></span>`;
+  }).join('');
+  const pick = $('brieferPick');
+  pick.innerHTML = '<option value="">Add a person…</option>' + people
+    .filter(p => !p.is_external && !brieferIds.includes(p.id))
+    .map(p => `<option value="${p.id}">${esc(p.display_name)}</option>`).join('');
+}
+function syncBriefersField() {
+  $('briefersField').hidden = !$('trainingForm').ask_briefed_by.checked;
+}
+function addBriefer() {
+  const id = +$('brieferPick').value;
+  if (!id || brieferIds.includes(id)) return;
+  brieferIds.push(id);
+  paintBrieferChips();
+}
+function removeBriefer(id) {
+  brieferIds = brieferIds.filter(x => x !== id);
+  paintBrieferChips();
+}
+async function openTraining(id) {
+  editingId = id || null;
+  const t = (detail && detail.id === id) ? detail : trainings.find(x => x.id === id) || {};
+  if (!people.length) people = await api('/api/people');
+  $('trainingTitle').textContent = id ? 'Edit training' : 'New training';
+  $('trainingForm').name.value = t.name || '';
+  $('trainingForm').description.value = t.description || '';
+  fillTypes($('trainingForm').type_id, t.type_id);
+  $('trainingForm').valid_days.value = t.valid_days || '';
+  $('trainingForm').pass_score.value = t.pass_score || '';
+  $('trainingForm').ask_briefed_by.checked = !!t.ask_briefed_by;
+  $('trainingForm').active.checked = t.active !== false;
+  brieferIds = (t.briefers || []).map(b => b.id);
+  $('activeField').hidden = !id;
+  $('trainingError').textContent = '';
+  paintBrieferChips();
+  syncBriefersField();
+  $('trainingDialog').showModal();
+}
+$('trainingForm').onsubmit = async event => {
+  event.preventDefault();
+  const f = event.target;
+  const body = {name: f.name.value, description: f.description.value,
+    type_id: f.type_id.value ? +f.type_id.value : null,
+    valid_days: f.valid_days.value ? +f.valid_days.value : null,
+    pass_score: f.pass_score.value ? +f.pass_score.value : null,
+    ask_briefed_by: f.ask_briefed_by.checked,
+    briefers: f.ask_briefed_by.checked ? brieferIds : []};
+  if (editingId) body.active = f.active.checked;
+  $('trainingError').textContent = '';
+  try {
+    if (editingId) await api('/api/admin/trainings/' + editingId, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    else {
+      const d = await api('/api/admin/trainings', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      selected = d.id;
+    }
+    $('trainingDialog').close();
+    await load();
+    show();
+  } catch (e) { $('trainingError').textContent = e.message; }
+};
+function addChoiceRow(label = '', correct = false) {
+  const row = document.createElement('div');
+  row.className = 'choice-row';
+  row.innerHTML = `<input type="text" maxlength="400" placeholder="Choice" value="${esc(label)}">
+    <label class="mark"><input type="checkbox"${correct ? ' checked' : ''}> Correct</label>
+    <button type="button" class="sec" onclick="this.parentElement.remove()">Remove</button>`;
+  $('choiceList').append(row);
+  syncChoiceHint();
+}
+function syncChoiceHint() {
+  const ranking = $('questionForm').kind.value === 'ranking';
+  $('choiceHint').textContent = ranking ? 'Top to bottom is the correct order.' : 'Mark the correct answer(s).';
+  $('choiceList').querySelectorAll('.mark').forEach(el => { el.hidden = ranking; });
+}
+function openQuestion(id) {
+  editingQuestion = id || null;
+  const q = (detail.questions || []).find(x => x.id === id) || {kind: 'single', points: 1, choices: [{}, {}]};
+  $('questionTitle').textContent = id ? 'Edit question' : 'New question';
+  $('questionForm').prompt.value = q.prompt || '';
+  $('questionForm').kind.value = q.kind || 'single';
+  $('questionForm').points.value = q.points || 1;
+  $('choiceList').innerHTML = '';
+  (q.choices.length ? q.choices : [{}, {}]).forEach(c => addChoiceRow(c.label || '', !!c.correct));
+  $('questionError').textContent = '';
+  $('questionDialog').showModal();
+}
+$('questionForm').kind.onchange = syncChoiceHint;
+$('questionForm').onsubmit = async event => {
+  event.preventDefault();
+  const f = event.target;
+  const choices = [...$('choiceList').querySelectorAll('.choice-row')].map(row => ({
+    label: row.querySelector('input[type=text]').value,
+    correct: row.querySelector('input[type=checkbox]').checked,
+  }));
+  const body = {prompt: f.prompt.value, kind: f.kind.value, points: +f.points.value, choices};
+  $('questionError').textContent = '';
+  try {
+    const url = '/api/admin/trainings/' + selected + '/questions' + (editingQuestion ? '/' + editingQuestion : '');
+    await api(url, {method: editingQuestion ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    $('questionDialog').close();
+    await loadDetail();
+  } catch (e) { $('questionError').textContent = e.message; }
+};
+async function attachImage(id) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/jpeg,image/png,.jpg,.jpeg,.png';
+  input.onchange = async () => {
+    if (!input.files[0]) return;
+    const data = new FormData();
+    data.append('image', input.files[0]);
+    try {
+      await api(`/api/admin/trainings/${selected}/questions/${id}/image`, {method: 'POST', body: data});
+      await loadDetail();
+    } catch (e) { $('err').textContent = e.message; }
+  };
+  input.click();
+}
+async function removeQuestion(id) {
+  if (!confirm('Delete this question?')) return;
+  try { await api(`/api/admin/trainings/${selected}/questions/${id}`, {method: 'DELETE'}); await loadDetail(); }
+  catch (e) { $('err').textContent = e.message; }
+}
+async function removeTraining(id) {
+  if (!confirm('Delete this training and its questions? Passes already granted stay on the person.')) return;
+  try {
+    await api('/api/admin/trainings/' + id, {method: 'DELETE'});
+    selected = 0;
+    window.viewState.save(true);
+    await load();
+    show();
+  } catch (e) { $('err').textContent = e.message; }
+}
+async function load() {
+  const d = await api('/api/trainings');
+  trainings = d.trainings || [];
+  types = d.types || [];
+  renderList();
+}
+window.viewState.setup(p => {
+  query = p.get('q') || '';
+  selected = window.viewState.integer(p.get('id'), 0, 1);
+}, p => {
+  window.viewState.set(p, 'q', query);
+  window.viewState.set(p, 'id', selected || '', '');
+}, show);
+function syncAdminButtons() {
+  const on = !!(me && me.is_admin && window.editMode());
+  $('addBtn').hidden = !on;
+  $('importBtn').hidden = !on;
+  if (!on) $('importDialog').close();
+}
+fetch('/api/me').then(r => r.json()).then(async d => {
+  me = d.user;
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  syncAdminButtons();
+  $('search').value = query;
+  await load();
+  show();
+  if (selected && me.is_admin && window.editMode()) loadResults();
+}).catch(e => { $('err').textContent = e.message; });
+window.addEventListener('editchange', () => {
+  syncAdminButtons();
+  if (selected) { paintDetail(); if (me.is_admin && window.editMode()) loadResults(); }
+});
+</script>
+</body>
+</html>

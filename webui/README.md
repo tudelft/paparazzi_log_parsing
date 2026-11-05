@@ -46,6 +46,7 @@ to gain descriptions and previously omitted crew entries.
 | **Uploads** | Drop logs, ZIP archives or folders; check parsing progress and errors. Paparazzi logs need matching `.data` and `.log` files. PX4 `.ulg`, ArduPilot `.bin`/`.log`, `.tlog` and Betaflight/INDIFlight `.bfl`/`.bbl` files can also be uploaded. A folder named after one fleet aircraft still links when the files sit in subfolders; already uploaded logs with that layout are linked at each start. |
 | **Statistics** | View totals for aircraft, projects and crew within your access. |
 | **Aircraft / People / Projects / Locations** | Browse records and open their histories, totals and flights. |
+| **Training** | When enabled, complete questionnaires until you pass. A pass writes the linked qualification immediately. |
 | **My account** | Click your name at the top right to manage your password, API keys and private qualification submissions. |
 
 - Dates and times are **UTC**. Indoor and uncertain/non-flight records are hidden by default;
@@ -196,6 +197,13 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
   (`place,lat,lon,radius_m,indoor`; the other columns are ignored) and shows a preview before importing.
 
 ## Qualifications and additional files
+
+**Training** (optional): when the server turns it on, a Training tab lists questionnaires. Retry until you pass;
+only the passing answers and the attempt count are kept. A pass writes the linked qualification immediately,
+without admin approval. After that qualification expires (or an administrator resets the pass), you can take
+it again. Admins create questionnaires in Edit mode (single choice, multiple choice, ranking, optional image)
+or import a JSON/ZIP file kept outside the repository, and can ask who delivered the briefing from a short
+list of people.
 
 **Qualifications:** submit your own evidence under **My account**; admins review it on **People**.
 Each type determines whether evidence, expiry and a licence number are required (the number is read from a

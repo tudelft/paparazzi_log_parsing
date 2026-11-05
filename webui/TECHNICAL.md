@@ -11,6 +11,7 @@ For everyday use, start with the [user guide](README.md). Coding assistants shou
 - [Accounts and TU Delft login](#accounts-and-tu-delft-login)
 - [Tests](#tests)
 - [Interface layout](#interface-layout)
+- [Training questionnaires](#training-questionnaires)
 - [Private licences and qualifications](#private-licences-and-qualifications)
 - [Uploading with a script](#uploading-with-a-script)
 - [How it works](#how-it-works)
@@ -615,6 +616,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `PROXIES` | `0` | `1` behind nginx/Caddy (trust its `X-Forwarded-*` headers) |
 | `BIND` | `127.0.0.1:8000` | Address gunicorn listens on |
 | `HIDE_UNLINKED_AIRCRAFT` | `0` | `1` excludes unlinked telemetry flights from Logbook, Statistics, person details and Locations, and hides the Aircraft notice outside Edit mode |
+| `TRAINING` | `0` | `1` shows Training: in-app questionnaires that can grant a qualification on a pass |
 | `WEB_DATA` | `webui/data` | Database and keys; local disk only |
 | `LOG_DIR` | `<WEB_DATA>/logs` | Uploaded logs and flight paths; may be a share |
 | `BACKUP_DIR` | (empty) | Destination of `app.py backup` |
@@ -763,7 +765,7 @@ is ticked. A person counts as having logs as uploader or as linked PIC/PAC/GCS; 
 selected in Edit mode stays listed. Non-admins only count qualifications they may see.
 Logbook has no top-level project filter and no longer applies a previously saved project filter.
 Project reassignment controls in Edit mode remain available.
-The menu puts Logbook (`/`) first, followed by Uploads (`/uploads`), Statistics, Aircraft, People, Projects and Locations.
+The menu puts Logbook (`/`) first, followed by Uploads (`/uploads`), Statistics, Aircraft, People, Projects and Locations. Training (`/training`) is added when `LOGDB_TRAINING=1`.
 `/logbook` remains a working alias. Upload log-detail anchors use `/uploads#log<id>`.
 The Uploads list has one line per log (date, log with its size, aircraft, project, flights, flight time, status;
 admins also see who uploaded it and when). A log with one flight links straight to its flight page; several open
@@ -847,6 +849,30 @@ indoor flag and circle is `unchanged`, anything else updates it (keeping its ID,
 records stay linked). A name that matches more than one place, a repeated name in the file, or an invalid
 row rejects the whole file. With form field `preview=1` the response lists each row's action without
 writing; the page shows that first. Replacing a drawn polygon by a circle is flagged in the preview.
+
+### Training questionnaires
+
+Off unless `LOGDB_TRAINING=1`. The Training page is session-only (API keys get 403). Admins create
+questionnaires in Edit mode: single choice, multiple choice and ranking, each with optional JPEG/PNG.
+Nothing is seeded at startup; questionnaires are added by hand or imported. **Import**
+(`POST /api/admin/trainings/import`, Edit-mode dialog) accepts one JSON file per training, or a ZIP
+with that JSON plus JPEG/PNG question images (same size and content checks as the image upload).
+Form field `preview=1` validates and shows a summary without writing. Validation matches the edit
+endpoints (kinds, 2–20 choices, exactly one correct for single, at least one for multi); any error
+rejects the whole file. A name that already exists is rejected unless `replace=1`. Link a
+qualification by picking an existing type (`type_id` form field); types that require evidence are
+not offered, and a type that requires expiry needs validity days in the JSON. **Export**
+(`GET /api/admin/trainings/<id>/export`) returns the same JSON, or a ZIP when images are present.
+Takers retry until they pass; each submission returns the score. Failed answers are discarded;
+`training_progress` keeps the attempt count and, on a pass, the answers and timestamp. A current
+pass blocks retakes (`409`); when the linked qualification has expired, or an administrator resets
+progress (`DELETE /api/admin/trainings/<id>/progress/<user_id>`, which withdraws that
+training-granted qualification), the person may take it again. A training can require choosing who
+delivered the briefing from a short list of existing People the administrator sets; that name is
+stored on the pass. There is no card-photo upload. A pass inserts an approved
+`qualification_submissions` row immediately (`training-passed` in the audit log), superseding a
+previous approval of that type and withdrawing a pending one. Images live under
+`WEB_DATA/training-images`, not the log share.
 
 ### Private licences and qualifications
 
