@@ -512,7 +512,7 @@ const SERIES = {
   accE: {label: 'Accel east', unit: 'm/s²', color: '#d63384', val: p => acc(p, 'east')},
   accD: {label: 'Accel down', unit: 'm/s²', color: '#57606a', val: p => acc(p, 'down')},
 };
-const SERIES_ORDER = Object.keys(SERIES);
+let SERIES_ORDER = Object.keys(SERIES);
 const SERIES_GROUPS = [['Height', ['height', 'baro']], ['Battery', ['volt']], ['Speed', ['gs', 'as']], ['Wind', ['wind', 'windDir']],
   ['Datalink', ['ping', 'linkGap', 'rssi', 'rssiAc']],
   ['Attitude', ['roll', 'pitch', 'yaw']], ['Acceleration', ['accN', 'accE', 'accD']]];
@@ -583,8 +583,28 @@ function renderAddChart() {
     .map(([label, ks], i) => !ks.length || ks.some(k => available.has(k)) ? `<option value="${i}">${esc(label)}</option>` : '').join('');
   $('addChart').disabled = charts.length >= MAX_CHARTS;
 }
+// Actuator commands (ACTUATORS, named after the airframe's servos, else ACT_<n>) become one series each: raw values,
+// no unit.
+const ACTUATOR_COLORS = ['#1f6feb', '#cf222e', '#1a7f37', '#8250df', '#e36209', '#0891b2', '#d63384', '#9a6700',
+  '#57606a', '#0a7d6f', '#6639ba', '#bc4c00'];
+function addActuatorSeries() {
+  if (SERIES_GROUPS.some(([group]) => group === 'Actuators')) return;
+  const names = [];
+  for (const p of D.path || []) for (const name of Object.keys(p.actuators || {})) if (!names.includes(name)) names.push(name);
+  if (!names.length) return;
+  names.sort((a, b) => a.localeCompare(b, undefined, {numeric: true}));  // the API sorts keys; ACT_2 before ACT_10
+  const keys = names.map((name, i) => {
+    const key = 'act:' + name;
+    SERIES[key] = {label: name, unit: '', color: ACTUATOR_COLORS[i % ACTUATOR_COLORS.length], val: p => p.actuators?.[name] ?? null};
+    return key;
+  });
+  SERIES_ORDER = Object.keys(SERIES);
+  SERIES_GROUPS.push(['Actuators', keys]);
+  CHART_PRESETS.splice(CHART_PRESETS.length - 1, 0, ['Actuators', keys]);
+}
 // Called once the flight data is loaded: hide series this log does not have.
 function setAvailableSeries() {
+  addActuatorSeries();
   available = new Set(SERIES_ORDER.filter(k => (D.path || []).some(p => SERIES[k].val(p) != null)));
   charts.forEach(renderChartHead);
   renderAddChart();

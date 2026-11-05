@@ -1658,7 +1658,9 @@ attitude, battery) although the map stays empty.
 (`link`: mean/max ping, longest gap, bad-frame percentage, weakest signal; reports after the landing time are
 ignored because the ground station keeps reporting the silence at the end of a log). The summary is stored in
 `flights.link_json`. The flight page shows it as **Datalink** and offers Ping, Longest link gap and Signal series
-and Datalink and Signal strength chart presets. The logbook marks a flight with **(link)** when the longest gap is at least 3 s or at
+and Datalink and Signal strength chart presets.
+Actuator commands (`ACTUATORS`, raw values, named after the airframe's servos or `ACT_<n>`) appear as an
+**Actuators** series group and chart preset when the log has them. The logbook marks a flight with **(link)** when the longest gap is at least 3 s or at
 least 5% of the frames were bad; an onboard SD log merged with its GCS log takes the GCS log's summary. Wind speed and
 direction come from the per-point `wind` estimate. Hovering shows the exact values at that time; axes use four
 rounded steps (wind direction 0–360°). Click moves the map marker; drag or scroll zooms.
