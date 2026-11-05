@@ -140,6 +140,10 @@ struct FlightStats {
   double acc_count = 0, acc_mean[3] = {0, 0, 0}, acc_m2[3] = {0, 0, 0};  // Welford, INS acceleration
   double max_speed = 0, max_vspeed = 0, max_tilt_deg = 0;
   int status_msgs = 0, motors_on_msgs = 0;  // ROTORCRAFT_STATUS messages during the flight
+  Range energy_volt;                         // ENERGY voltage while current is reported [V]
+  int energy_msgs = 0;
+  double energy_current_sum = 0;             // sum of ENERGY current [A]
+  double mean_current() const { return energy_msgs ? energy_current_sum / energy_msgs : 0; }
   double gps_lat_ref = 0;
 
   void add_ins(const InsState &n) {
@@ -308,6 +312,12 @@ Assessment assess(const Flight &f) {
     if (on < 0.5) { add(-3, "motors off for most of the flight"); motors_off = true; }
     else if (on < 0.9 && st.status_msgs >= 3) { add(-1, "motors off for part of the flight"); }
     else if (on >= 0.9) { add(0.5, "motors on throughout"); }
+  }
+  // A battery sags under load. A voltage that stays flat for minutes while current is drawn means an
+  // external power supply (bench or tether test). Only lowers the score, so it can at most make a flight
+  // "uncertain" (hidden by default), never "ground" on its own.
+  if (st.energy_msgs >= 20 && dur >= 120 && st.mean_current() >= 1.0 && st.energy_volt.span() < 0.1) {
+    add(-2, "battery voltage steady under load (external power?)");
   }
   // GPS-denied: duration + motors is the evidence we have. Without this, indoor / no-GPS
   // logs stay "uncertain" and the logbook hides them by default.
@@ -1183,7 +1193,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.10.0";
+constexpr const char *PARSER_VERSION = "1.11.0";
 
 struct GpsClock {
   size_t count = 0;
@@ -1615,8 +1625,8 @@ int main(int argc, char *argv[])
   const MsgFields att_f = resolve_fields(hdr, "ATTITUDE", {"phi", "theta", "psi"});
   enum { AS_EAS };
   const MsgFields as_f = resolve_fields(hdr, "AIRSPEED", {"airspeed"});
-  enum { EN_VOLT };
-  const MsgFields energy_f = resolve_fields(hdr, "ENERGY", {"voltage"});
+  enum { EN_VOLT, EN_CURRENT };
+  const MsgFields energy_f = resolve_fields(hdr, "ENERGY", {"voltage", "current?"});
   const MsgFields compact_f = resolve_fields(hdr, "ROTORCRAFT_FP_MIN", {"east", "north", "up", "gspeed?"});
   const MsgFields position_f = resolve_fields(hdr, "ROTORCRAFT_FP", {"east", "north", "up", "veast?", "vnorth?"});
   const MsgFields origin_f = resolve_fields(hdr, "INS_REF", {"ecef_x0", "ecef_y0", "ecef_z0", "lat0", "lon0", "alt0", "hmsl0"});
@@ -1693,6 +1703,28 @@ int main(int argc, char *argv[])
     s.seen_status = true;
   };
 
+  auto push_path_point = [&](AircraftState &s, double t, double lat, double lon, double alt, bool navigation) {
+    s.last_path_bucket = static_cast<long>(t * path_rate);
+    s.flights.back().path.push_back({t, lat, lon, alt, s.flights.back().distance_m,
+                                        s.flights.back().from_takeoff_m, s.has_baro, s.pressure, s.baro_alt,
+                                        s.has_volt, s.has_as, s.vsupply, s.airspeed, s.tas, s.diff_p,
+                                        s.has_euler, s.has_quat, s.roll, s.pitch, s.yaw, s.qi, s.qx,
+                                        s.qy, s.qz, s.ap_mode, s.h_mode, s.v_mode, s.block, s.stage,
+                                        parse_int_list(s.actuators_raw), s.wind, s.ins, s.has_gs, s.gndspeed,
+                                        navigation});
+  };
+  // Without a recent position (no GPS fix, no motion capture), still store sensor samples at the path rate so the
+  // flight page can chart barometer, attitude and battery. Such points have no latitude/longitude.
+  auto sample_without_position = [&](int ac, double t) {
+    if (path_rate <= 0) { return; }
+    auto it = acs.find(ac);
+    if (it == acs.end()) { return; }
+    AircraftState &s = it->second;
+    if (!s.in_flight || s.flights.empty() || (s.has_gps && t - s.position_time <= 2.0) ||
+        static_cast<long>(t * path_rate) == s.last_path_bucket) { return; }
+    push_path_point(s, t, NAN, NAN, NAN, false);
+  };
+
   auto use_gps = [&](int ac, double t, double lat_d, double lon_d, double alt_d, bool navigation = false) {
     if (!Flight::plausible_ll(lat_d, lon_d)) { return; }
     AircraftState &s = touch(ac, t);
@@ -1712,14 +1744,7 @@ int main(int argc, char *argv[])
     }
     if (path_rate > 0 && s.in_flight && !s.flights.empty() &&
         static_cast<long>(t * path_rate) != s.last_path_bucket) {
-      s.last_path_bucket = static_cast<long>(t * path_rate);
-      s.flights.back().path.push_back({t, s.lat, s.lon, s.alt, s.flights.back().distance_m,
-                                          s.flights.back().from_takeoff_m, s.has_baro, s.pressure, s.baro_alt,
-                                          s.has_volt, s.has_as, s.vsupply, s.airspeed, s.tas, s.diff_p,
-                                          s.has_euler, s.has_quat, s.roll, s.pitch, s.yaw, s.qi, s.qx,
-                                          s.qy, s.qz, s.ap_mode, s.h_mode, s.v_mode, s.block, s.stage,
-                                          parse_int_list(s.actuators_raw), s.wind, s.ins, s.has_gs, s.gndspeed,
-                                          navigation});
+      push_path_point(s, t, s.lat, s.lon, s.alt, navigation);
     }
   };
 
@@ -1909,6 +1934,7 @@ int main(int argc, char *argv[])
                 FlightStats &fs = s.flights.back().stats;
                 fs.max_tilt_deg = std::max(fs.max_tilt_deg, std::hypot(s.roll, s.pitch));
               }
+              sample_without_position(ac, t);
             }
           }
           const MsgFields &position = compact ? compact_f : position_f;
@@ -2146,11 +2172,18 @@ int main(int argc, char *argv[])
         } else if (name == "ENERGY") {
           if (!energy_f.split) { break; }
           const Picked f = pick(energy_f, q, eol);
-          float vsupply;
+          float vsupply, current;
           if (to_num(f[EN_VOLT], vsupply)) {
             AircraftState &s = touch(ac, t);
             s.has_volt = true;
             s.vsupply = vsupply;
+            if (s.in_flight && !s.flights.empty() && to_num(f[EN_CURRENT], current) && std::isfinite(current)) {
+              FlightStats &st = s.flights.back().stats;
+              st.energy_volt.add(vsupply);
+              st.energy_current_sum += current;
+              ++st.energy_msgs;
+            }
+            sample_without_position(ac, t);
           }
         }
         break;
@@ -2238,6 +2271,7 @@ int main(int argc, char *argv[])
           s.roll = phi * 180.0 / M_PI;
           s.pitch = theta * 180.0 / M_PI;
           s.yaw = psi * 180.0 / M_PI;
+          sample_without_position(ac, t);
         } else if (name == "AIRSPEED") {
           if (!as_f.split) { break; }
           const Picked f = pick(as_f, q, eol);
@@ -2256,13 +2290,14 @@ int main(int argc, char *argv[])
           if (!to_num(f[AD_AMSL], baro_alt)) { break; }
           float airspeed = 0, tas = 0;
           bool has_as = to_num(f[AD_AIRSPEED], airspeed);
-          has_as = has_as && to_num(f[AD_TAS], tas);
+          has_as = has_as && to_num(f[AD_TAS], tas) && airspeed >= 0;  // -1: no airspeed sensor
           AircraftState &s = touch(ac, t);
           if (has_as) { s.has_as = true; s.airspeed = airspeed; s.tas = tas; s.diff_p = diff_p; }
           s.has_baro = true;
           s.pressure = press;
           s.baro_alt = baro_alt;
           if (s.in_flight && !s.flights.empty()) { s.flights.back().stats.baro.add(baro_alt); }
+          sample_without_position(ac, t);
         } else if (name == "AUTOPILOT_VERSION") {
           touch(ac, t).versions.insert(parse_autopilot_version(av_fields, q, eol));
         }
@@ -2423,6 +2458,8 @@ int main(int argc, char *argv[])
                     ", \"max_speed_ms\": " + num(st.max_speed) + ", \"max_vertical_speed_ms\": " + num(st.max_vspeed) +
                     ", \"motors_on_fraction\": " + (st.status_msgs ? num(static_cast<double>(st.motors_on_msgs) / st.status_msgs) : "null") +
                     ", \"max_tilt_deg\": " + num(st.max_tilt_deg) + ", \"acc_rms_ms2\": " + num(st.acc_rms()) +
+                    ", \"voltage_range_v\": " + rng(st.energy_volt) +
+                    ", \"mean_current_a\": " + (st.energy_msgs ? num(st.mean_current()) : "null") +
                     "}, \"optitrack\": " + std::string(f.has_optitrack ? "true" : "false") + "}";
     return m;
   };
@@ -2503,8 +2540,12 @@ int main(int argc, char *argv[])
         o << (fp ? "" : ",") << "\n            {\"time_s\": " << num(pt.t) << ", \"utc\": " << utc(pt.t)
           << ", \"distance_m\": " << num(pt.distance_m)
           << ", \"from_takeoff_m\": " << num(pt.from_takeoff_m);
-        snprintf(buf, sizeof(buf), ", \"position\": {\"lat\": %.7f, \"lon\": %.7f, \"gps_alt_m\": ", pt.lat, pt.lon);
-        o << buf;
+        if (std::isfinite(pt.lat) && std::isfinite(pt.lon)) {
+          snprintf(buf, sizeof(buf), ", \"position\": {\"lat\": %.7f, \"lon\": %.7f, \"gps_alt_m\": ", pt.lat, pt.lon);
+          o << buf;
+        } else {  // sensor sample without a position (no GPS fix or motion capture)
+          o << ", \"position\": {\"lat\": null, \"lon\": null, \"gps_alt_m\": ";
+        }
         if (std::isfinite(pt.alt)) {
           snprintf(buf, sizeof(buf), "%.1f", pt.alt);
           o << buf;

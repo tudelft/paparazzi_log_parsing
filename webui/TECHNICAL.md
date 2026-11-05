@@ -1638,13 +1638,19 @@ location boundaries. Omitting the date arguments retains all-time API behavior; 
 **Real flight or not.** The autopilot's in-flight flag also toggles on the ground (arming, motor tests, carrying).
 The parser scores each takeoff/landing on duration, climb, distance, speed, tilt and acceleration and gives a verdict
 `flight`, `uncertain` or `ground` with the reasons. The logbook hides the last two unless **Show non-flights**
-is ticked.
+is ticked. When `ENERGY` reports current, a flight of at least two minutes that draws on average 1 A or more while
+its voltage varies by less than 0.1 V loses 2 points ("battery voltage steady under load"): that points to an
+external power supply (bench or tether test). The rule only lowers the score, so on its own it can turn a flight
+into `uncertain` but not into `ground`.
 
 **Flight page** (`/flight/<id>`). Path on a map with the flight plan waypoints, a time slider, charts,
 takeoff/landing details, setting changes, messages, checklist and autopilot version; switch between the SD
 and GCS log when both exist. Missing `AUTOPILOT_VERSION` falls back to the GCS `.log` header.
 Charts list their series as chips (× removes); **+ Add** offers only series with data in this log, grouped by kind,
-and **+ Add chart** adds a preset (height and speed, attitude, acceleration, wind) or an empty chart. Wind speed and
+and **+ Add chart** adds a preset (height and speed, attitude, acceleration, wind, battery) or an empty chart.
+Without a recent position (no GPS fix or motion capture for 2 s) the Paparazzi parser (1.11.0+) still stores
+samples at the path rate with null latitude/longitude, so GPS-less flights have charts (barometric height,
+attitude, battery) although the map stays empty. Wind speed and
 direction come from the per-point `wind` estimate. Hovering shows the exact values at that time; axes use four
 rounded steps (wind direction 0–360°). Click moves the map marker; drag or scroll zooms.
 
