@@ -482,6 +482,8 @@ const euler = (p, k) => p.attitude?.euler_deg?.[k] ?? null;
 const acc = (p, k) => p.ins?.acceleration_ned_ms2?.[k] ?? null;
 const SERIES = {
   height: {label: 'Height', unit: 'm', color: '#1f6feb', val: alt},
+  baro: {label: 'Baro altitude', unit: 'm', color: '#0550ae', val: p => p.position?.baro_alt_m ?? null},
+  volt: {label: 'Battery', unit: 'V', color: '#bf8700', val: p => p.battery_voltage_v ?? null},
   gs: {label: 'Ground speed', unit: 'm/s', color: '#e36209', val: gs},
   as: {label: 'Airspeed', unit: 'm/s', color: '#0a7d6f', val: p => p.airspeed?.eas_ms ?? null},
   wind: {label: 'Wind speed', unit: 'm/s', color: '#9a6700', val: p => p.wind?.speed_ms ?? null},
@@ -494,10 +496,10 @@ const SERIES = {
   accD: {label: 'Accel down', unit: 'm/s²', color: '#57606a', val: p => acc(p, 'down')},
 };
 const SERIES_ORDER = Object.keys(SERIES);
-const SERIES_GROUPS = [['Height', ['height']], ['Speed', ['gs', 'as']], ['Wind', ['wind', 'windDir']],
+const SERIES_GROUPS = [['Height', ['height', 'baro']], ['Battery', ['volt']], ['Speed', ['gs', 'as']], ['Wind', ['wind', 'windDir']],
   ['Attitude', ['roll', 'pitch', 'yaw']], ['Acceleration', ['accN', 'accE', 'accD']]];
 const CHART_PRESETS = [['Height and speed', ['height', 'gs', 'as', 'wind']], ['Attitude', ['roll', 'pitch', 'yaw']],
-  ['Acceleration', ['accN', 'accE', 'accD']], ['Wind', ['wind', 'windDir']], ['Empty chart', []]];
+  ['Acceleration', ['accN', 'accE', 'accD']], ['Wind', ['wind', 'windDir']], ['Battery', ['volt']], ['Empty chart', []]];
 const CHART_DEFAULTS = [CHART_PRESETS[0][1], CHART_PRESETS[1][1]];
 const MAX_CHARTS = 8;
 const charts = [];
