@@ -240,6 +240,32 @@ class TrainingTests(AppTests):
                                     (tid,)).fetchone()
         self.assertIsNotNone(progress["passed_at"])
 
+    def test_failed_import_removes_written_images(self):
+        question = self.sample_payload()["questions"][0]
+        payload = self.sample_payload(questions=[question, {**question, "image": "two.png"}])
+        real, calls = training.check_image_bytes, []
+
+        def fail_on_last_write(name, data):
+            calls.append(name)
+            if len(calls) == 4:  # two checks while parsing, then the second write
+                raise training.TrainingError("disk full")
+            return real(name, data)
+
+        with patch.object(training, "check_image_bytes", fail_on_last_write):
+            r = self.import_file(payload, images={"plot.png": PNG, "two.png": PNG}, type_id=self.type_id)
+        self.assertEqual(r.status_code, 400, r.json)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM trainings").fetchone()[0], 0)
+        self.assertEqual(list(Path(self.app.config["TRAINING_IMAGE_DIR"]).iterdir()), [])
+
+    def test_deleting_a_question_cannot_leave_pass_score_unreachable(self):
+        tid = self.add_training(pass_score=2)
+        self.add_question(tid)
+        last = self.add_question(tid)
+        r = self.client.delete(f"/api/admin/trainings/{tid}/questions/{last}")
+        self.assertEqual(r.status_code, 400, r.json)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM training_questions WHERE training_id=?",
+                                          (tid,)).fetchone()[0], 2)
+
     def test_import_rejects_bad_questions_and_evidence_types(self):
         bad = self.import_file(self.sample_payload(questions=[{
             "prompt": "Broken", "kind": "single",

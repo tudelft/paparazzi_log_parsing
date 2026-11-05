@@ -364,7 +364,8 @@ def register(app, connection, root, require_session):
             if q["image_path"]:
                 (image_dir() / q["image_path"]).unlink(missing_ok=True)
 
-    def insert_questions(cid, training_id, parsed_questions, image_blobs):
+    def insert_questions(cid, training_id, parsed_questions, image_blobs, written):
+        """Insert questions; new image files are appended to written so a failed import can remove them."""
         for i, (prompt, kind, points, choices, image_name) in enumerate(parsed_questions):
             qid = cid.execute(
                 "INSERT INTO training_questions(training_id,prompt,kind,points,sort_order) VALUES (?,?,?,?,?)",
@@ -374,6 +375,7 @@ def register(app, connection, root, require_session):
                 mime, suffix = check_image_bytes(image_name, data)
                 stored = uuid.uuid4().hex + suffix
                 (image_dir() / stored).write_bytes(data)
+                written.append(stored)
                 cid.execute("UPDATE training_questions SET image_path=?, image_mime=? WHERE id=?",
                             (stored, mime, qid))
             cid.executemany(
@@ -742,12 +744,24 @@ def register(app, connection, root, require_session):
         if preview:
             return jsonify(result)
         image_blobs = parsed["images"]
-        old_paths = []
+        old_paths, written = [], []
+        try:
+            tid = write_import(cid, action, parsed, type_id, image_blobs, old_paths, written)
+        except Exception:
+            for path in written:
+                (image_dir() / path).unlink(missing_ok=True)
+            raise
+        for path in old_paths:
+            (image_dir() / path).unlink(missing_ok=True)
+        result["id"] = tid
+        return jsonify(result), (200 if action == "replace" else 201)
+
+    def write_import(cid, action, parsed, type_id, image_blobs, old_paths, written):
         with db.write_lock, cid:
             cid.execute("BEGIN IMMEDIATE")
             if action == "replace":
                 tid = parsed["existing_id"]
-                old_paths = [r["image_path"] for r in cid.execute(
+                old_paths[:] = [r["image_path"] for r in cid.execute(
                     "SELECT image_path FROM training_questions WHERE training_id=? AND image_path IS NOT NULL",
                     (tid,))]
                 cid.execute(
@@ -767,11 +781,8 @@ def register(app, connection, root, require_session):
                          parsed["valid_days"], int(parsed["ask_briefed_by"]), nxt)).lastrowid
                 except sqlite3.IntegrityError as exc:
                     raise TrainingError("A training with that name already exists.", 409) from exc
-            insert_questions(cid, tid, parsed["questions"], image_blobs)
-        for path in old_paths:
-            (image_dir() / path).unlink(missing_ok=True)
-        result["id"] = tid
-        return jsonify(result), (200 if action == "replace" else 201)
+            insert_questions(cid, tid, parsed["questions"], image_blobs, written)
+        return tid
 
     @app.get("/api/admin/trainings/<int:training_id>/export")
     def export_training(training_id):
@@ -836,9 +847,13 @@ def register(app, connection, root, require_session):
                               (question_id, training_id)).fetchone()
             if row is None:
                 raise TrainingError("No such question.", 404)
-            if row["image_path"]:
-                (image_dir() / row["image_path"]).unlink(missing_ok=True)
             cid.execute("DELETE FROM training_questions WHERE id=?", (question_id,))
+            total = cid.execute("SELECT COALESCE(SUM(points),0) FROM training_questions WHERE training_id=?",
+                                (training_id,)).fetchone()[0]
+            pass_score = cid.execute("SELECT pass_score FROM trainings WHERE id=?", (training_id,)).fetchone()[0]
+            check_pass_score(pass_score, total)
+        if row["image_path"]:
+            (image_dir() / row["image_path"]).unlink(missing_ok=True)
         return jsonify(ok=True)
 
     def save_question(cid, training_id, question_id):
@@ -865,9 +880,10 @@ def register(app, connection, root, require_session):
             cid.executemany(
                 "INSERT INTO training_choices(question_id,label,correct,sort_order) VALUES (?,?,?,?)",
                 [(question_id, label, int(correct), order) for label, correct, order in choices])
-            total = cid.execute("SELECT COALESCE(SUM(points),0) FROM training_questions WHERE training_id=?",
-                                (training_id,)).fetchone()[0]
-            check_pass_score(row["pass_score"], total)
+            if not created:  # adding a question only raises the total, so a quiz can be built one question at a time
+                total = cid.execute("SELECT COALESCE(SUM(points),0) FROM training_questions WHERE training_id=?",
+                                    (training_id,)).fetchone()[0]
+                check_pass_score(row["pass_score"], total)
         return jsonify(ok=True, id=question_id), (201 if created else 200)
 
     @app.post("/api/admin/trainings/<int:training_id>/questions/<int:question_id>/image")

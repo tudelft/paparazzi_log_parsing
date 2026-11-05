@@ -859,7 +859,9 @@ Nothing is seeded at startup; questionnaires are added by hand or imported. **Im
 with that JSON plus JPEG/PNG question images (same size and content checks as the image upload).
 Form field `preview=1` validates and shows a summary without writing. Validation matches the edit
 endpoints (kinds, 2–20 choices, exactly one correct for single, at least one for multi); any error
-rejects the whole file. A pass score above total points is rejected. A name that already exists is
+rejects the whole file. A pass score above total points is rejected, also when editing a training or
+editing/deleting a question (adding questions is always allowed). A failed import removes the image
+files it wrote. A name that already exists is
 rejected unless `replace=1`, which updates that training in place (same id; pass records kept;
 questions and images replaced, old image files removed after a successful write). Link a
 qualification by picking an existing type (`type_id` form field); types that require evidence are
