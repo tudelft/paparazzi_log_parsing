@@ -377,6 +377,51 @@ CREATE TABLE IF NOT EXISTS qualification_audit (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_qualification_audit_subject ON qualification_audit(subject_id,id);
+CREATE TABLE IF NOT EXISTS trainings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    description TEXT NOT NULL DEFAULT '',
+    type_id INTEGER REFERENCES qualification_types(id) ON DELETE SET NULL,
+    pass_score INTEGER,
+    valid_days INTEGER,
+    ask_briefed_by INTEGER NOT NULL DEFAULT 0 CHECK(ask_briefed_by IN (0,1)),
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS training_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    training_id INTEGER NOT NULL REFERENCES trainings(id) ON DELETE CASCADE,
+    prompt TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('single','multi','ranking')),
+    image_path TEXT,
+    image_mime TEXT,
+    points INTEGER NOT NULL DEFAULT 1 CHECK(points >= 1),
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS training_choices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    question_id INTEGER NOT NULL REFERENCES training_questions(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    correct INTEGER NOT NULL DEFAULT 0 CHECK(correct IN (0,1)),
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS training_progress (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    training_id INTEGER NOT NULL REFERENCES trainings(id) ON DELETE CASCADE,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    passed_at TEXT,
+    answers_json TEXT,
+    submission_id INTEGER REFERENCES qualification_submissions(id) ON DELETE SET NULL,
+    briefed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    PRIMARY KEY (user_id, training_id)
+);
+CREATE TABLE IF NOT EXISTS training_briefers (
+    training_id INTEGER NOT NULL REFERENCES trainings(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (training_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS ix_training_questions ON training_questions(training_id, sort_order, id);
+CREATE INDEX IF NOT EXISTS ix_training_choices ON training_choices(question_id, sort_order, id);
 """
 
 _local = threading.local()
@@ -578,6 +623,13 @@ def init(path):
                         + (" REFERENCES authorisations(id)" if table == "flight_records" else ""))
     if "exemption" not in {r[1] for r in con.execute("PRAGMA table_info(authorisations)")}:
         con.execute("ALTER TABLE authorisations ADD COLUMN exemption INTEGER NOT NULL DEFAULT 0")
+    tcols = {r["name"] for r in con.execute("PRAGMA table_info(trainings)")}
+    if tcols and "ask_briefed_by" not in tcols:
+        con.execute("ALTER TABLE trainings ADD COLUMN ask_briefed_by INTEGER NOT NULL DEFAULT 0"
+                    " CHECK(ask_briefed_by IN (0,1))")
+    pcols = {r["name"] for r in con.execute("PRAGMA table_info(training_progress)")}
+    if pcols and "briefed_by" not in pcols:
+        con.execute("ALTER TABLE training_progress ADD COLUMN briefed_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
     con.commit()
 
 
