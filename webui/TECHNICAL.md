@@ -1646,6 +1646,9 @@ into `uncertain` but not into `ground`.
 **Flight page** (`/flight/<id>`). Path on a map with the flight plan waypoints, a time slider, charts,
 takeoff/landing details, setting changes, messages, checklist and autopilot version; switch between the SD
 and GCS log when both exist. Missing `AUTOPILOT_VERSION` falls back to the GCS `.log` header.
+Logs the MATLAB export does not cover (PX4, ArduPilot, MAVLink, Betaflight/INDIFlight) get a **Download <type> log**
+button next to the MATLAB menu, on the flight page and in an expanded Logbook row (`/api/logs/<id>/download`, the
+original file).
 Charts list their series as chips (× removes); **+ Add** offers only series with data in this log, grouped by kind,
 and **+ Add chart** adds a preset (height and speed, attitude, acceleration, wind, battery) or an empty chart.
 Without a recent position (no GPS fix or motion capture for 2 s) the Paparazzi parser (1.11.0+) still stores

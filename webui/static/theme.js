@@ -51,6 +51,18 @@ window.logLabel = t => ({onboard_sd: 'SD log', gcs: 'GCS log', px4_ulog: 'PX4 lo
   mavlink_tlog: 'MAVLink log', betaflight: 'Betaflight log', indiflight: 'INDIFlight log',
   blackbox: 'Blackbox log'}[t] || 'log');
 
+// Download buttons for the logs of a flight that the MATLAB export does not cover (PX4, ArduPilot, MAVLink,
+// Betaflight/INDIFlight): one per log, next to the MATLAB menu on the flight page and in the logbook.
+window.logDownloadButtons = function (sources, extraClass = '') {
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  const seen = new Set();
+  return (sources || []).filter(s => s.log_id && !['onboard_sd', 'gcs'].includes(s.log_type) && !seen.has(s.log_id)
+      && seen.add(s.log_id))
+    .map(s => `<a class="btn sec log-download ${extraClass}" href="/api/logs/${s.log_id}/download" download
+      title="Download the original ${esc(window.logLabel(s.log_type))}${s.log_name ? ' (' + esc(s.log_name) + ')' : ''}">Download ${esc(window.logLabel(s.log_type))}</a>`)
+    .join('');
+};
+
 // A stored file: its name opens it in the browser when it can be viewed there (else downloads it), with a
 // small download button beside a viewable one. `attrs` adds attributes such as a class or title to the name.
 window.fileLink = function ({name, view, download, viewable, attrs = ''}) {

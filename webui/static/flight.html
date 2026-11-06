@@ -78,6 +78,8 @@
   .flight-tabs button[aria-selected="true"] { background:var(--acc); color:#fff; }
   .flight-tabs .tabs-end { margin-left:auto; }
   .flight-tabs .matlab-button { background:var(--btn); color:#fff; border-color:var(--btn); }
+  .flight-tabs .tabs-end { display:flex; gap:6px; align-items:center; }
+  .flight-tabs .log-download { white-space:nowrap; padding:5px 12px; }
   summary { cursor:pointer; font-weight:600; }
   details[open] > summary { margin-bottom:12px; }
   .pager { display:flex; align-items:center; gap:12px; margin-top:12px; flex-wrap:wrap; }
@@ -1041,7 +1043,7 @@ fetch(`/api/flights/${flightId}/detail`).then(r => r.ok ? r.json() : Promise.rej
       if (dt > 0.05) b.groundspeed_ms = Math.max(0, (b.distance_m - a.distance_m) / dt);
     }
   }
-  $('matlabMenu').innerHTML = MatlabExport.button(D.entry.sources);
+  $('matlabMenu').innerHTML = logDownloadButtons(D.entry.sources) + MatlabExport.button(D.entry.sources);
   setAvailableSeries(); renderSummary(); renderLists(); renderMisc(); loadWeather(); selectTab(activeTab);
   $('allChanges').onchange = () => { listPages.changes = 0; renderLists(); };
   $('allMsgs').onchange = () => { listPages.msgs = 0; renderLists(); };
