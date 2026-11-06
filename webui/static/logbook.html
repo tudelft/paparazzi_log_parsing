@@ -433,7 +433,7 @@ function detail(f) {
     <div class="detail-info"><h4>Comment</h4>${f.comment ? `<div class="note">${esc(f.comment)}</div>` : '<span class="mute">No comment</span>'}
       ${linkedInfo(f)}${sourcesInfo(f)}
       <div class="actions"><a class="btn" href="/flight/${f.flight_id}">Open flight page</a>
-        ${MatlabExport.button(f.sources)}</div>
+        ${logDownloadButtons(f.sources)}${MatlabExport.button(f.sources)}</div>
     </div>
   </div>`;
 }
