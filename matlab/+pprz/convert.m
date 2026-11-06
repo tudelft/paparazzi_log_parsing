@@ -3,7 +3,11 @@ function mat = convert(data)
 %   the parser and Python of pprz_setup (webui/matlab_export.py, the same file as the logbook's "Whole log").
 %   The .mat is written next to the .data and reused while it is newer than the .data and the parser; when that
 %   folder is read-only (an SD card), it goes to the cache folder of pprz_setup.
-    data = char(data);
+    found = dir(char(data));  % also expands ~ and relative paths: the converter gets an absolute path
+    if numel(found) ~= 1 || found.isdir
+        error('pprz:convert', '%s not found.', char(data));
+    end
+    data = fullfile(found.folder, found.name);
     [folder, name, ext] = fileparts(data);
     if strcmpi(ext, '.gz')
         [~, name] = fileparts(name);

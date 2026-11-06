@@ -39,7 +39,7 @@ function cfg = pprz_setup(varargin)
     candidates = candidates(~cellfun(@isempty, candidates));
     python = '';
     for k = 1:numel(candidates)
-        if system([quote_cmd(candidates{k}) ' -c "import sys; sys.exit(sys.version_info < (3, 8))"']) == 0
+        if run([quote_cmd(candidates{k}) ' -c "import sys; sys.exit(sys.version_info < (3, 8))"']) == 0
             python = candidates{k};
             break
         end
@@ -48,11 +48,17 @@ function cfg = pprz_setup(varargin)
         cfg.problems{end + 1} = ['Python 3 was not found. Install it (python.org; on Windows tick "Add to PATH") ' ...
             'or give its path: pprz_setup(''python'', ''C:\...\python.exe'')'];
     else
-        modules = system([quote_cmd(python) ' -c "import h5py, numpy"']) == 0;
+        modules = run([quote_cmd(python) ' -c "import h5py, numpy"']) == 0;
         if ~modules && opt.install
-            fprintf('Installing h5py and numpy with pip…\n');
-            system([quote_cmd(python) ' -m pip install --user h5py numpy']);
-            modules = system([quote_cmd(python) ' -c "import h5py, numpy"']) == 0;
+            fprintf('Installing h5py and numpy with pip… ');
+            [status, out] = run([quote_cmd(python) ' -m pip install --user --quiet --progress-bar off ' ...
+                '--disable-pip-version-check h5py numpy']);
+            modules = run([quote_cmd(python) ' -c "import h5py, numpy"']) == 0;
+            if modules
+                fprintf('done\n');
+            else
+                fprintf('failed (exit %d):\n%s\n', status, strtrim(out));
+            end
         end
         if modules
             cfg.python = python;
@@ -96,7 +102,7 @@ function cfg = pprz_setup(varargin)
         end
     end
     if ~isempty(found)
-        [status, out] = system([quote_cmd(found) ' --version']);
+        [status, out] = run([quote_cmd(found) ' --version']);
         if status == 0
             cfg.parser = found;
             cfg.parser_version = strtrim(out);
@@ -158,6 +164,11 @@ function file = download_parser(exe)
     if ~ispc
         system(['chmod +x ' quote_cmd(file)]);
     end
+end
+
+function [status, out] = run(cmd)
+% system() with the output captured, so failed checks print nothing
+    [status, out] = system(cmd);
 end
 
 function c = quote_cmd(cmd)

@@ -90,6 +90,15 @@ def chars(ds):
 
 @unittest.skipUnless(h5py is not None and PARSER.exists(), "needs h5py and a built cpp parser")
 class MatlabExporterTests(unittest.TestCase):
+    def test_local_converter_runs_without_flask(self):
+        """MATLAB's pprz_setup only installs h5py and numpy: the converter must not need the server's Flask."""
+        import subprocess
+        import sys
+        code = "import sys; sys.modules['flask'] = None; import matlab_export; print(matlab_export.EXPORTER_VERSION)"
+        result = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parents[1],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def export(self, windows=None, flights=()):
         folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
         (folder / "x.data.gz").write_bytes(gzip.compress(("\n".join(ROWS) + "\n").encode()))
