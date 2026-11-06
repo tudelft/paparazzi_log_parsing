@@ -1676,7 +1676,13 @@ ignored because the ground station keeps reporting the silence at the end of a l
 and Datalink and Signal strength chart presets.
 Actuator commands (`ACTUATORS`, raw values, named after the airframe's servos or `ACT_<n>`) appear as an
 **Actuators** series group and chart preset when the log has them. The logbook marks a flight with **(link)** when the longest gap is at least 3 s or at
-least 5% of the frames were bad; an onboard SD log merged with its GCS log takes the GCS log's summary. Wind speed and
+least 5% of the frames were bad. Parser 1.12.2 adds the aircraft's own `DATALINK_REPORT`, so SD logs have
+link data too: `uplink_lost_time` per point (**Uplink silence**) and per flight the longest uplink gap (counted once
+the silence ends, so a flight without any ground link is no problem) and the bad uplink frames (`uplink_err` +
+`uplink_ovrn` against `uplink_nb_msgs`, counters unwrapped). The logbook also marks an uplink gap of at least 10 s
+(the ground can be quiet for several seconds) or 5% bad uplink frames. When a flight has both an SD and a GCS log,
+the logbook combines their summaries (worst value of each), and each flight page fills the datalink values of
+its points from the other log, matched by UTC within 2.5 s. Wind speed and
 direction come from the per-point `wind` estimate. Hovering shows the exact values at that time; axes use four
 rounded steps (wind direction 0–360°). Click moves the map marker; drag or scroll zooms.
 

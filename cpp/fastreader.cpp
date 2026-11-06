@@ -104,6 +104,7 @@ bool utm_to_lla(double east_m, double north_m, int zone, double &lat_deg, double
 struct LinkSample {
   bool any = false;
   double ping_ms = NAN, max_gap_ms = NAN, lost_s = NAN, rssi_dbm = NAN, rssi_ac_dbm = NAN;
+  double uplink_lost_s = NAN;  // DATALINK_REPORT of the aircraft: seconds since its last uplink frame
 };
 
 struct PathPoint {
@@ -149,6 +150,9 @@ struct FlightStats {
   // log the ground station keeps reporting the growing silence) and the weakest signal of the nodes
   struct LinkRec { double t, ping_ms, gap_ms, msgs, err; };
   std::vector<LinkRec> link_log;
+  // The aircraft's own DATALINK_REPORT (also in SD logs): uplink silence and uplink frame counters
+  struct UplinkRec { double t, lost_s, msgs, err, ovrn; };
+  std::vector<UplinkRec> uplink_log;
   double rssi_min = NAN, rssi_ac_min = NAN;
   Range energy_volt;                         // ENERGY voltage while current is reported [V]
   int energy_msgs = 0;
@@ -372,12 +376,17 @@ struct AircraftState {
   // Datalink: last ground station LINK_REPORT and the last LINK_STATS signal of each node (hop)
   double link_time = -1;
   double link_ping_ms = NAN, link_gap_ms = NAN, link_lost_s = NAN;
+  double uplink_time = -1, uplink_lost_s = NAN;  // last DATALINK_REPORT (sent every few seconds)
   std::map<int, HopSignal> hops;
   LinkSample link_at(double t) const {  // reports older than 10 s are not current
     LinkSample l;
     if (link_time >= 0 && t - link_time <= 10) {
       l.any = true;
       l.ping_ms = link_ping_ms; l.max_gap_ms = link_gap_ms; l.lost_s = link_lost_s;
+    }
+    if (uplink_time >= 0 && t - uplink_time <= 12 && std::isfinite(uplink_lost_s)) {
+      l.any = true;
+      l.uplink_lost_s = uplink_lost_s;
     }
     for (const auto &h : hops) {
       if (t - h.second.t > 10) { continue; }
@@ -1235,7 +1244,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.12.1";
+constexpr const char *PARSER_VERSION = "1.12.2";
 
 struct GpsClock {
   size_t count = 0;
@@ -1670,6 +1679,10 @@ int main(int argc, char *argv[])
   enum { LR_AC, LR_LOST, LR_MSGS, LR_ERR, LR_PING, LR_GAP };
   const MsgFields link_f = hdr.telemetry.count("LINK_REPORT")
       ? resolve_fields(hdr, "LINK_REPORT", {"ac_id", "rx_lost_time", "rx_msgs?", "rx_err?", "ping_time?", "rx_max_gap?"})
+      : MsgFields{};
+  enum { DR_LOST, DR_MSGS, DR_ERR, DR_OVRN };
+  const MsgFields uplink_f = hdr.telemetry.count("DATALINK_REPORT")
+      ? resolve_fields(hdr, "DATALINK_REPORT", {"uplink_lost_time", "uplink_nb_msgs?", "uplink_err?", "uplink_ovrn?"})
       : MsgFields{};
   enum { LS_HOP, LS_RSSI, LS_RSSI_AC };
   const MsgFields link_stats_f = hdr.telemetry.count("LINK_STATS")
@@ -2231,7 +2244,21 @@ int main(int argc, char *argv[])
         }
         break;
       case 'D':
-        if (name == "DL_VALUE") {
+        if (name == "DATALINK_REPORT") {
+          if (!uplink_f.split) { break; }
+          const Picked f = pick(uplink_f, q, eol);
+          double lost, msgs, err, ovrn;
+          if (!to_num(f[DR_LOST], lost) || lost < 0) { break; }
+          AircraftState &s = touch(ac, t);
+          s.uplink_time = t;
+          s.uplink_lost_s = lost;
+          if (s.in_flight && !s.flights.empty()) {
+            const bool counts = to_num(f[DR_MSGS], msgs) && to_num(f[DR_ERR], err);
+            if (!to_num(f[DR_OVRN], ovrn)) { ovrn = 0; }
+            s.flights.back().stats.uplink_log.push_back({t, lost, counts ? msgs : NAN, counts ? err : NAN,
+                                                         counts ? ovrn : NAN});
+          }
+        } else if (name == "DL_VALUE") {
           if (!dl_f.split) { break; }
           const Picked f = pick(dl_f, q, eol);
           int idx;
@@ -2528,7 +2555,8 @@ int main(int argc, char *argv[])
   auto link_json = [&](const LinkSample &l) {
     if (!l.any) { return std::string("null"); }
     return "{\"ping_ms\": " + opt(l.ping_ms) + ", \"max_gap_ms\": " + opt(l.max_gap_ms) + ", \"lost_s\": " + opt(l.lost_s) +
-           ", \"rssi_dbm\": " + opt(l.rssi_dbm) + ", \"rssi_ac_dbm\": " + opt(l.rssi_ac_dbm) + "}";
+           ", \"rssi_dbm\": " + opt(l.rssi_dbm) + ", \"rssi_ac_dbm\": " + opt(l.rssi_ac_dbm) +
+           ", \"uplink_lost_s\": " + opt(l.uplink_lost_s) + "}";
   };
   auto link_summary_json = [&](const Flight &f) {
     const FlightStats &st = f.stats;
@@ -2544,14 +2572,40 @@ int main(int argc, char *argv[])
         msgs1 = r.msgs; err1 = r.err;
       }
     }
-    if (!reports && !std::isfinite(st.rssi_min) && !std::isfinite(st.rssi_ac_min)) { return std::string("null"); }
+    // Uplink seen by the aircraft (DATALINK_REPORT). A gap counts once it ended (the silence counter dropped
+    // again): a flight without any ground station link never resets it and is not a link problem.
+    int uplinks = 0;
+    double up_gap = NAN, run_peak = 0, up_msgs = 0, up_bad = 0;
+    bool up_counts = false;
+    const FlightStats::UplinkRec *prev = nullptr;
+    for (const auto &r : st.uplink_log) {
+      if (r.t > f.landing_time) { break; }
+      ++uplinks;
+      if (prev && r.lost_s < prev->lost_s) {
+        up_gap = std::isfinite(up_gap) ? std::max(up_gap, run_peak) : run_peak;
+        run_peak = 0;
+      }
+      run_peak = std::max(run_peak, r.lost_s);
+      if (prev && std::isfinite(r.msgs) && std::isfinite(prev->msgs)) {  // counters wrap: uint16 / uint8
+        up_msgs += std::fmod(r.msgs - prev->msgs + 65536, 65536);
+        up_bad += std::fmod(r.err - prev->err + 256, 256) + std::fmod(r.ovrn - prev->ovrn + 256, 256);
+        up_counts = true;
+      }
+      prev = &r;
+    }
+    const double up_err_pct = up_counts && up_msgs + up_bad > 0 ? 100.0 * up_bad / (up_msgs + up_bad) : NAN;
+    if (!reports && !uplinks && !std::isfinite(st.rssi_min) && !std::isfinite(st.rssi_ac_min)) {
+      return std::string("null");
+    }
     const double d_msgs = msgs1 - msgs0, d_err = err1 - err0;  // NaN without counters
     const double err_pct = d_msgs >= 0 && d_err >= 0 && d_msgs + d_err > 0 ? 100.0 * d_err / (d_msgs + d_err) : NAN;
     return "{\"reports\": " + std::to_string(reports) + ", \"mean_ping_ms\": " + opt(pings ? ping_sum / pings : NAN) +
            ", \"max_ping_ms\": " + opt(ping_max) +
            ", \"longest_gap_s\": " + opt(std::isfinite(gap_max) ? gap_max / 1000 : NAN) +
            ", \"error_pct\": " + opt(err_pct) + ", \"min_rssi_dbm\": " + opt(st.rssi_min) +
-           ", \"min_rssi_ac_dbm\": " + opt(st.rssi_ac_min) + "}";
+           ", \"min_rssi_ac_dbm\": " + opt(st.rssi_ac_min) +
+           ", \"uplink_reports\": " + std::to_string(uplinks) +
+           ", \"longest_uplink_gap_s\": " + opt(up_gap) + ", \"uplink_error_pct\": " + opt(up_err_pct) + "}";
   };
   auto assessment_json = [&](const Flight &f) {
     const Assessment a = assess(f);
