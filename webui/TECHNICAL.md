@@ -62,6 +62,11 @@ instead of creating a second one. Fresh installations skip this step.
 The shared page footer shows the nearest reachable `webui-vMAJOR.MINOR.PATCH` release tag, the number
 of commits since it (when nonzero), and a link to the Web UI's exact Git commit. Web UI release tags
 are separate from parser versions; how to make one is in [AGENTS.md](../AGENTS.md#commits-and-releases).
+The **Parser** workflow (`.github/workflows/parser.yml`) only runs when `cpp/` changes: it builds the parser on
+Linux x64, macOS arm64 and Windows x64 for pull requests and master, and on master publishes a GitHub release
+`parser-v<PARSER_VERSION>` with the three binaries when that version has no release yet (MATLAB's `pprz_setup`
+downloads them). Existing releases are never changed, so a new binary needs a new `PARSER_VERSION`. On Windows
+`cpp/platform.h` replaces the POSIX file calls; `-DBUILD_BLACKBOX=OFF` builds only the parser.
 Deployments must fetch tags to display release names; the installer does
 this explicitly on updates. Version detection trusts only the application checkout through a
 per-command Git `safe.directory` setting, allowing the `logdb` service to inspect root-owned code

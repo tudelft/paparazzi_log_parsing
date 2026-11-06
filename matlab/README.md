@@ -6,11 +6,23 @@ Tools to load, plot and analyse Paparazzi flights exported by the flight logbook
 
 - **From the logbook:** **MATLAB ▾** on a flight page or an expanded Logbook row (this flight, all flights or
   the whole log), or tick flights and use **MATLAB ▾** next to "N selected" for a `.zip` with one `.mat` per log.
-- **Offline, from a local `.data` with its `.log` next to it** (plain or `.gz`), with the same result:
+- **Offline, from a local `.data` with its `.log` next to it** (plain or `.gz`), also in the field without
+  internet. Prepare the computer once, with internet (Windows, Linux and macOS on Apple silicon):
+
+  ```matlab
+  pprz_setup('install', true)   % finds Python 3 (installs h5py/numpy with pip) and downloads the released parser
+  s = pprz_load('24_10_30__16_27_37_SD.data');   % or its .log, a .data.gz, or a folder of logs; pprz_view too
+  ```
+
+  The whole log is converted to `24_10_30__16_27_37_SD_whole_log.mat` next to the `.data` (in the cache folder of
+  `pprz_setup` when that folder is read-only, e.g. an SD card) and reused while it is newer than the `.data`
+  and the parser. `pprz_flights` lists the detected flights in it. Python 3 must be installed first
+  (python.org; on Windows tick "Add to PATH"); `pprz_setup('python', path)` picks another one.
+  A self-built parser (`cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release && cmake --build cpp/build
+  --config Release`; on Windows with `-DBUILD_BLACKBOX=OFF` and Visual Studio's C++ tools) is used before a
+  downloaded one; `pprz_setup('parser', path)` sets one explicitly. The converter also runs without MATLAB:
 
   ```sh
-  cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release && cmake --build cpp/build   # once
-  pip install h5py numpy                                                              # once
   python3 webui/matlab_export.py 24_10_30__16_27_37_SD.data              # whole log -> ..._whole_log.mat
   python3 webui/matlab_export.py 24_10_30__16_27_37_SD.data --flights    # detected flights -> ..._flights.mat
   python3 webui/matlab_export.py logs/*.data --flights -o out/           # many logs
@@ -34,7 +46,8 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 
 | Function | Use |
 |---|---|
-| `pprz_load` | Load `.mat` files, folders or bulk `.zip` files into a struct array of exports. |
+| `pprz_load` | Load `.mat` files, folders or bulk `.zip` files into a struct array of exports; `.data`/`.log` files are converted first (offline, after `pprz_setup`). |
+| `pprz_setup` | Prepare offline conversion once: Python with h5py/numpy and the parser (self-built or downloaded from the latest `parser-v*` release). |
 | `pprz_flights` | Table of all flights (row numbers for `pprz_flight`); flight 0 is a whole-log export. |
 | `pprz_flight` | One flight ready to plot: `f.data`, `f.time`, `f.summary`, `f.aircraft`, `f.messages`, `f.title`. A flight in a whole-log export is cut from the log. |
 | `pprz_plot` | Make plots by name, or every plot whose messages were logged; options `modes` (`ap`/`rc`), `range` [t0 t1], `docked`, `events` (markers: `true` or kinds such as `{'mode', 'message'}`). |

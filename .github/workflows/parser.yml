@@ -1,0 +1,76 @@
+# Builds the C++ parser on Linux, macOS and Windows when cpp/ changes, and publishes the binaries as a GitHub
+# release "parser-v<PARSER_VERSION>" when master has a parser version without a release yet (MATLAB's pprz_setup
+# downloads them). Existing releases and tags are never changed: a new binary needs a new PARSER_VERSION.
+name: Parser
+
+on:
+  push:
+    branches: [master]
+    paths: ["cpp/**", ".github/workflows/parser.yml"]
+  pull_request:
+    paths: ["cpp/**", ".github/workflows/parser.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, name: linux-x64}
+          - {os: macos-latest, name: macos-arm64}
+          - {os: windows-latest, name: windows-x64}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        shell: bash
+        run: |
+          set -eu
+          # The Blackbox decoder is only used by the Web UI; on Windows only the parser is built
+          extra=""
+          if [ "$RUNNER_OS" = "Windows" ]; then extra="-DBUILD_BLACKBOX=OFF"; fi
+          cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release $extra
+          cmake --build build --config Release --parallel
+      - name: Package
+        shell: bash
+        run: |
+          set -eu
+          exe=paparazzi_log_parsing; [ "$RUNNER_OS" = "Windows" ] && exe=$exe.exe
+          bin=$(find build -name "$exe" -type f | head -1)
+          "$bin" --version
+          mkdir dist
+          cp "$bin" "dist/paparazzi_log_parsing-${{ matrix.name }}${exe#paparazzi_log_parsing}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parser-${{ matrix.name }}
+          path: dist/*
+
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Release when the parser version is new
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          version=$(sed -n 's/.*PARSER_VERSION = "\([0-9.]*\)".*/\1/p' cpp/fastreader.cpp)
+          tag="parser-v$version"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "$tag already released; binaries are only published for a new PARSER_VERSION"
+            exit 0
+          fi
+          gh release create "$tag" dist/* --target "$GITHUB_SHA" --title "Parser $version" \
+            --notes "Paparazzi log parser $version for MATLAB's pprz_setup (Linux x64, macOS arm64, Windows x64)."
