@@ -5603,39 +5603,114 @@ def with_gcs_autopilot_fallback(versions, log_rel):
     return [format_paparazzi_version_message(desc)], True
 
 
-def add_link_from_other_logs(con, path, flight_ids, max_gap_s=2.5):
-    """Fill the datalink values of path points from the other recordings of the same flight (the GCS log's ground
-    station reports on the SD log's page and the reverse), matched by UTC within max_gap_s. Changed points are
-    replaced by copies in the list (the cached paths stay unchanged)."""
-    def epoch(point):
-        dt = parse_iso_utc(point.get("utc")) if isinstance(point.get("utc"), str) else None
-        return dt.timestamp() if dt else None
-    samples = []
+LOG_LABELS = {"onboard_sd": "SD log", "gcs": "GCS log"}
+
+
+def utc_epoch(iso):
+    dt = parse_iso_utc(iso) if isinstance(iso, str) else None
+    return dt.timestamp() if dt else None
+
+
+def has_position(point):
+    pos = point.get("position") or {}
+    return valid_gps_location(pos.get("lat"), pos.get("lon"))
+
+
+def other_recordings(con, flight_ids):
+    """The other recordings of a flight (e.g. the GCS log next to the SD log): label, path, messages, setting
+    changes and `base`, the UTC epoch of their log time 0 (from the takeoff time), to move their times onto
+    another recording's clock."""
+    out = []
     for fid in flight_ids:
-        other = con.execute(
-            "SELECT f.path_idx, l.paths_file, l.start_utc, l.date_override" + (", f.path_gz" if HAVE_PATH_GZ else "") +
+        r = con.execute(
+            "SELECT f.path_idx, f.takeoff_time_s, f.takeoff_utc, a.id AS aircraft_pk, a.info_messages, l.log_type,"
+            " l.paths_file, l.start_utc, l.date_override" + (", f.path_gz" if HAVE_PATH_GZ else "") +
             " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id WHERE f.id=?",
             (fid,)).fetchone()
-        if other is None:
+        if r is None:
             continue
-        days = clock_shift_days(other["start_utc"], other["date_override"])
-        for p in flight_path(other["paths_file"], other["path_idx"], days, other["path_gz"] if HAVE_PATH_GZ else None):
-            if p.get("link") and (t := epoch(p)) is not None:
-                samples.append((t, p["link"]))
-    if not samples:
-        return
-    samples.sort(key=lambda s: s[0])
-    times = [t for t, _ in samples]
-    for i, p in enumerate(path):
-        t = epoch(p)
-        if t is None:
+        days = clock_shift_days(r["start_utc"], r["date_override"])
+        takeoff = utc_epoch(shift_iso(r["takeoff_utc"], days))
+        changes = [dict(c) for c in con.execute(
+            "SELECT time_s, utc, idx, var, from_value, to_value, in_flight FROM setting_changes"
+            " WHERE aircraft_id=? ORDER BY time_s", (r["aircraft_pk"],))]
+        out.append(dict(
+            label=LOG_LABELS.get(r["log_type"], "other log"),
+            base=takeoff - r["takeoff_time_s"] if takeoff is not None and r["takeoff_time_s"] is not None else None,
+            path=flight_path(r["paths_file"], r["path_idx"], days, r["path_gz"] if HAVE_PATH_GZ else None),
+            messages=json.loads(r["info_messages"] or "[]"), changes=apply_clock_to_obj(changes, days)))
+    return out
+
+
+def combine_other_logs(con, own, path, messages, changes, flight_ids, max_gap_s=2.5):
+    """Combine the other recordings of the same flight into this log's page. ``own`` has takeoff_time_s,
+    landing_time_s and base (UTC epoch of this log's time 0). Returns new lists (cached data stays unchanged):
+    path with datalink values, missing positions and gaps filled from the other log (points marked
+    ``from_other_log``; their times moved onto this clock), messages and setting changes of both logs without
+    duplicates (same text or setting within 2 s; the other log's ones carry ``log``), and the number of path
+    points taken from the other log."""
+    path, messages, changes, added = list(path), list(messages), list(changes), 0
+    for other in other_recordings(con, flight_ids):
+        # datalink values by UTC (the ground station's reports on the SD page and the reverse)
+        samples = sorted((t, p["link"]) for p in other["path"] if p.get("link") and (t := utc_epoch(p.get("utc"))))
+        times = [t for t, _ in samples]
+        for i, p in enumerate(path):
+            t = utc_epoch(p.get("utc"))
+            if t is None or not times:
+                continue
+            k = bisect.bisect_left(times, t)
+            near = min((j for j in (k - 1, k) if 0 <= j < len(times)), key=lambda j: abs(times[j] - t))
+            if abs(times[near] - t) <= max_gap_s:
+                own_link = p.get("link") or {}
+                path[i] = dict(p, link={**samples[near][1], **{key: v for key, v in own_link.items() if v is not None}})
+        if own.get("base") is None or other["base"] is None:
             continue
-        k = bisect.bisect_left(times, t)
-        near = min((j for j in (k - 1, k) if 0 <= j < len(times)), key=lambda j: abs(times[j] - t))
-        if abs(times[near] - t) > max_gap_s:
-            continue
-        own = p.get("link") or {}
-        path[i] = dict(p, link={**samples[near][1], **{key: v for key, v in own.items() if v is not None}})
+        shift = other["base"] - own["base"]  # other log time + shift = this log's time
+
+        def moved(items, same):
+            out = []
+            for item in items:
+                t = item.get("time_s")
+                if not isinstance(t, (int, float)):
+                    continue
+                t += shift
+                if not any(abs(x["time_s"] - t) <= 2 and same(x, item) for x in messages_or_changes):
+                    out.append(dict(item, time_s=t, log=other["label"]))
+            return out
+        messages_or_changes = messages
+        messages += moved(other["messages"], lambda a, b: a.get("text") == b.get("text"))
+        messages_or_changes = changes
+        changes += moved(other["changes"], lambda a, b: a.get("idx") == b.get("idx") and a.get("to_value") == b.get("to_value"))
+
+        # path: positions for points without one, and the other log's points where this one has none
+        theirs = [dict(p, time_s=p["time_s"] + shift) for p in other["path"] if isinstance(p.get("time_s"), (int, float))]
+        their_times = [p["time_s"] for p in theirs]
+        located = [p for p in theirs if has_position(p)]
+        located_times = [p["time_s"] for p in located]
+        for i, p in enumerate(path):
+            if has_position(p) or not located_times or not isinstance(p.get("time_s"), (int, float)):
+                continue
+            k = bisect.bisect_left(located_times, p["time_s"])
+            near = min((j for j in (k - 1, k) if 0 <= j < len(located_times)),
+                       key=lambda j: abs(located_times[j] - p["time_s"]))
+            if abs(located_times[near] - p["time_s"]) <= max_gap_s:
+                position = dict(located[near]["position"], source="other_log")
+                path[i] = dict(p, position=position, from_other_log=other["label"])
+                added += 1
+        own_times = sorted(p["time_s"] for p in path if isinstance(p.get("time_s"), (int, float)))
+        t0, t1 = own.get("takeoff_time_s"), own.get("landing_time_s")
+        for p, t in zip(theirs, their_times):
+            if t0 is not None and t < t0 or t1 is not None and t > t1:
+                continue
+            k = bisect.bisect_left(own_times, t)
+            if any(0 <= j < len(own_times) and abs(own_times[j] - t) <= 1.5 for j in (k - 1, k)):
+                continue
+            path.append(dict(p, distance_m=None, from_takeoff_m=None, from_other_log=other["label"]))
+            added += 1
+    path.sort(key=lambda p: p.get("time_s") if isinstance(p.get("time_s"), (int, float)) else 0)
+    messages.sort(key=lambda m: m.get("time_s") if isinstance(m.get("time_s"), (int, float)) else 0)
+    changes.sort(key=lambda c: c.get("time_s") if isinstance(c.get("time_s"), (int, float)) else 0)
+    return path, messages, changes, added
 
 
 @app.get("/api/flights/<int:flight_id>/detail")
@@ -5647,7 +5722,7 @@ def flight_detail(flight_id):
         abort(404)
     con = conn()
     row = con.execute(
-        "SELECT f.takeoff_time_s, f.landing_time_s, f.path_idx, l.paths_file, a.id AS aircraft_pk, a.name, a.ac_id,"
+        "SELECT f.takeoff_time_s, f.landing_time_s, f.takeoff_utc, f.path_idx, l.paths_file, a.id AS aircraft_pk, a.name, a.ac_id,"
         " a.autopilot_versions, a.info_messages, a.preflight_checks, a.config_gz, l.id AS log_id, l.log_type,"
         " l.name AS log_name, l.log_path, l.start_utc AS log_start_utc, l.start_utc, l.timing, l.date_override"
         + (", f.path_gz" if HAVE_PATH_GZ else "") +
@@ -5659,8 +5734,13 @@ def flight_detail(flight_id):
     config = db.unpack(row["config_gz"]) or {}
     days = clock_shift_days(row["log_start_utc"], row["date_override"])
     path = flight_path(row["paths_file"], row["path_idx"], days, row["path_gz"] if HAVE_PATH_GZ else None)
-    add_link_from_other_logs(con, path, [s["flight_id"] for s in entry["sources"] if s["flight_id"] != flight_id])
     apply_clock_to_obj(changes, days)
+    takeoff = utc_epoch(shift_iso(row["takeoff_utc"], days))
+    own = dict(takeoff_time_s=row["takeoff_time_s"], landing_time_s=row["landing_time_s"],
+               base=takeoff - row["takeoff_time_s"] if takeoff is not None and row["takeoff_time_s"] is not None else None)
+    path, messages, changes, from_other = combine_other_logs(
+        con, own, path, json.loads(row["info_messages"] or "[]"), changes,
+        [s["flight_id"] for s in entry["sources"] if s["flight_id"] != flight_id])
     invalid_reports = config.get("invalid_setting_reports") or []
     apply_clock_to_obj(invalid_reports, days)
     versions, from_gcs = with_gcs_autopilot_fallback(json.loads(row["autopilot_versions"] or "[]"), row["log_path"])
@@ -5671,7 +5751,7 @@ def flight_detail(flight_id):
         takeoff_time_s=row["takeoff_time_s"], landing_time_s=row["landing_time_s"],
         path=path, flight_plan=config.get("flight_plan"),
         setting_changes=changes, invalid_setting_reports=invalid_reports,
-        info_messages=json.loads(row["info_messages"] or "[]"),
+        info_messages=messages, path_points_from_other_log=from_other,
         preflight_checks=json.loads(row["preflight_checks"] or "[]"),
         autopilot_versions=versions, autopilot_versions_from_gcs=from_gcs))
 
