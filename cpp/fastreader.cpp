@@ -305,7 +305,9 @@ Assessment assess(const Flight &f) {
 
   // Taxi / ground test: motors on and rolling, but height hardly changes.
   // Known taxis climb < 0.5 m while rolling 16–66 m; real flights in the set climb ≥ 26 m.
-  bool ground_roll = has_climb && has_horiz && climb < 1.5 && horiz >= 3;
+  // Not with motion capture (OptiTrack): indoor flights stay low while moving a few metres, and nothing taxis
+  // in a motion-capture arena.
+  bool ground_roll = !f.has_optitrack && has_climb && has_horiz && climb < 1.5 && horiz >= 3;
   if (ground_roll) { add(-4, "moved on the ground without climbing"); }
 
   if (st.max_speed >= 1) { add(1, "speed above 1 m/s"); }
@@ -1233,7 +1235,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.12.0";
+constexpr const char *PARSER_VERSION = "1.12.1";
 
 struct GpsClock {
   size_t count = 0;
