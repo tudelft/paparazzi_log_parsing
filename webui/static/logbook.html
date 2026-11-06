@@ -35,6 +35,8 @@
   .bar { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
   .bar[hidden] { display:none; }
   a { color:var(--acc); }
+  .parse-notice { margin:0 0 12px; padding:8px 12px; border-radius:6px; background:var(--warnbg); color:var(--warn); display:flex; flex-wrap:wrap; gap:6px 10px; align-items:baseline; }
+  .parse-notice a { margin-left:auto; }
   a.btn { display:inline-block; background:var(--btn); color:#fff; padding:6px 12px; border-radius:6px; text-decoration:none; }
   a.btn.sec { background:var(--sec); color:var(--txt); }
   a.btn[hidden] { display:none; }
@@ -86,6 +88,7 @@
   <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
 </header>
 <main>
+  <div id="parseNotice" class="parse-notice" role="status" hidden></div>
   <section class="card">
     <div class="bar">
       <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date, reference…)">
@@ -173,6 +176,7 @@ fetch('/api/me').then(r => r.json()).then(async d => {
   fillBulkMenus();
   syncEditUi();
   loadFlights();
+  checkParsing();
 });
 async function loadFlights() {
   const generation = ++loadGeneration;
@@ -190,6 +194,26 @@ async function loadFlights() {
   } catch (error) { if (generation === loadGeneration) $('bulkMsg').textContent = error.message; }
 }
 let loadGeneration = 0;
+
+// While logs wait for (re-)parsing the logbook is not final: re-parsed logs show their previous results and new
+// uploads are missing. The notice checks every 10 s and reloads the logbook once the queue is empty.
+let parseNoticeTimer = null;
+async function checkParsing() {
+  clearTimeout(parseNoticeTimer);
+  let st;
+  try { st = await fetch('/api/status').then(r => r.ok ? r.json() : null); } catch (e) { st = null; }
+  const c = st?.counts || {};
+  const pending = (c.queued || 0) + (c.parsing || 0), total = Object.values(c).reduce((a, b) => a + b, 0);
+  const wasShown = !$('parseNotice').hidden;
+  $('parseNotice').hidden = !pending;
+  if (pending) {
+    $('parseNotice').innerHTML = `<strong>Parsing logs:</strong> ${pending} of ${total} logs are still waiting or being parsed;
+      results may change and new uploads appear when they are done. <a href="/uploads">Uploads</a>`;
+    parseNoticeTimer = setTimeout(checkParsing, 10000);
+  } else if (wasShown) {
+    loadFlights();
+  }
+}
 
 const entityLink = (kind, id, name) => id != null ? `<a href="/${kind}/${id}">${esc(name)}</a>` : esc(name);
 const place = (lat, lon, name, id) => id != null ? entityLink('locations', id, name) : lat == null ? (name ? esc(name) : '<span class="mute" title="No GPS fix">no GPS</span>') :
