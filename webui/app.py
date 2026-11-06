@@ -902,6 +902,10 @@ def session_required():
         abort(403)
 
 
+# POST routes that only read: a read-only API key may use them (MATLAB export requests).
+KEY_READ_POSTS = {"request_matlab_export", "request_flight_matlab_export"}
+
+
 @app.before_request
 def require_login():
     if request.endpoint in PUBLIC_ENDPOINTS:
@@ -913,7 +917,7 @@ def require_login():
         user = user_for_key(auth[7:].strip()) if request.path.startswith("/api/") else None
         if user is None:
             return jsonify(error="invalid API key"), 401
-        if user["key_read_only"] and request.method not in ("GET", "HEAD"):
+        if user["key_read_only"] and request.method not in ("GET", "HEAD") and request.endpoint not in KEY_READ_POSTS:
             return jsonify(error="this API key is read-only"), 403
         g.user, g.via_key = user, True
         return None
@@ -6108,8 +6112,10 @@ def matlab_module():
     return matlab_export
 
 
-def submit_log_export(matlab_export, con, row, scope, flights, all_flights, limit=None):
-    """Queue (or reuse) the export of one log; ``flights`` are the exported flights (unused for scope log)."""
+def submit_log_export(matlab_export, con, row, scope, flights, all_flights, limit=None, check=False):
+    """Queue (or reuse) the export of one log; ``flights`` are the exported flights (unused for scope log).
+    With ``check`` nothing is queued: the job id (which changes with the log, parser, exporter and logbook data)
+    and its status (``missing`` when no such export exists) let a client reuse a file it already has."""
     days = clock_shift_days(row["start_utc"], row["date_override"])  # same date correction as the pages
     windows = None if scope == "log" else [matlab_window(f, days) for f in flights]
     extras = dict(matlab_extras(con, row, days),
@@ -6120,6 +6126,9 @@ def submit_log_export(matlab_export, con, row, scope, flights, all_flights, limi
     stem = posixpath.splitext(posixpath.basename(row["name"]))[0]
     suffix = {"log": "whole_log", "flights": "flights", "flight": f"flight_{flights[0]['id']}" if flights else ""}[scope]
     filename = safe_filename(f"{stem}_{suffix}.mat")
+    if check:
+        known = export_jobs().status(job_id)
+        return dict(known or dict(id=job_id, status="missing", progress=0.0, error=None), filename=filename)
     info = dict(name=row["name"], sha256=row["sha256"], log_type=row["log_type"], size_bytes=row["size_bytes"],
                 scope=scope)
     data_gz, log_gz = STORAGE_DIR / row["data_path"], STORAGE_DIR / row["log_path"]
@@ -6133,7 +6142,6 @@ def submit_log_export(matlab_export, con, row, scope, flights, all_flights, limi
 
 @app.post("/api/logs/<int:log_id>/matlab")
 def request_matlab_export(log_id):
-    session_required()
     matlab_export = matlab_module()
     con = conn()
     row = visible_log(con, log_id, MATLAB_LOG_COLUMNS)
@@ -6157,6 +6165,33 @@ def request_matlab_export(log_id):
     except matlab_export.ExportError as error:
         return jsonify(error=str(error)), 503
     return jsonify(matlab_job_json(job)), 202
+
+
+@app.post("/api/flights/<int:flight_id>/matlab")
+def request_flight_matlab_export(flight_id):
+    """Export one flight by its logbook number (``/flight/<id>``) from that recording's own log, for scripts such as
+    MATLAB's pprz_fetch. ``{"check": true}`` (or form/query ``check=1``) only reports the job id and status, so a
+    client can keep a local copy until the export would change."""
+    matlab_export = matlab_module()
+    con = conn()
+    found = con.execute("SELECT a.log_id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE f.id=?",
+                        (flight_id,)).fetchone()
+    if found is None:
+        abort(404)
+    row = visible_log(con, found["log_id"], MATLAB_LOG_COLUMNS)
+    if problem := matlab_unsupported(row):
+        return jsonify(error=problem), 409
+    all_flights = matlab_flights(con, row["id"])
+    flights = [f for f in all_flights if f["id"] == flight_id]
+    if not flights:
+        return jsonify(error="This flight has no takeoff time to export."), 409
+    check = (request.get_json(silent=True) or {}).get("check") is True or request.values.get("check") == "1"
+    try:
+        job = submit_log_export(matlab_export, con, row, "flight", flights, all_flights, check=check)
+    except matlab_export.ExportError as error:
+        return jsonify(error=str(error)), 503
+    out = dict(matlab_job_json(job), log_id=row["id"], flight_id=flight_id)
+    return jsonify(out), 200 if check else 202
 
 
 @app.post("/api/matlab-bulk")
@@ -6224,7 +6259,6 @@ def request_matlab_bulk():
 
 def visible_export(job_id):
     """The export job, after re-checking that the user may still see its log (404 otherwise)."""
-    session_required()
     if not re.fullmatch(r"[0-9a-f]{32}", job_id):
         abort(404)
     job = export_jobs().status(job_id) or export_jobs().bundle_status(job_id)  # an export or a .zip of several
