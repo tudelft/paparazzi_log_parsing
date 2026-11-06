@@ -33,6 +33,9 @@ Tools to load, plot and analyse Paparazzi flights exported by the flight logbook
 
 ## Quick start
 
+`pprz_example.m` is a section-by-section example session (load, pick a flight, ready-made and own plots,
+helpers, analysis); run it one section at a time.
+
 ```matlab
 addpath(genpath('matlab'))                      % from the repository root; +pprz is found automatically
 pprz_view                                       % pick files, a flight and plots in a window
