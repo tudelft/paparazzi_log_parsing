@@ -49,11 +49,38 @@ class LinkQualityTests(AppTests):
         loads = self.ns["flight_path"]
         self.ns["flight_path"] = lambda *args, **kw: gcs_path
         self.addCleanup(self.ns.__setitem__, "flight_path", loads)
-        self.ns["add_link_from_other_logs"](self.con, sd_path, [self.con.execute("SELECT MIN(id) FROM flights").fetchone()[0]])
-        self.assertEqual(sd_path[0]["link"], {"ping_ms": 6, "rssi_dbm": -70, "uplink_lost_s": 0})  # own value kept
-        self.assertIsNone(sd_path[1]["link"])  # 4 s from the nearest GCS sample
-        self.assertEqual(sd_path[2]["link"]["ping_ms"], 9)
-        self.assertEqual(original[0]["link"], {"ping_ms": None, "uplink_lost_s": 0})  # points are copied, not changed
+        fid = self.con.execute("SELECT MIN(id) FROM flights").fetchone()[0]
+        path, _, _, _ = self.ns["combine_other_logs"](self.con, {"base": None}, sd_path, [], [], [fid])
+        self.assertEqual(path[0]["link"], {"ping_ms": 6, "rssi_dbm": -70, "uplink_lost_s": 0})  # own value kept
+        self.assertIsNone(path[1]["link"])  # 4 s from the nearest GCS sample
+        self.assertEqual(path[2]["link"]["ping_ms"], 9)
+        self.assertEqual(sd_path, original)  # the (cached) input is not changed
+
+    def test_messages_settings_and_path_gaps_from_the_other_log(self):
+        # this log's time 0 is at epoch 1000; the GCS log's at 1100 (its times are 100 s smaller)
+        def point(t, utc_t, lat=None):
+            return {"time_s": t, "utc": None, "distance_m": 5,
+                    "position": {"lat": lat, "lon": 4.0 if lat else None}}
+        gcs = {"label": "GCS log", "base": 1100.0,
+               "path": [point(20, 0, 52.0), point(30, 0, 52.1), point(40, 0, 52.2)],
+               "messages": [{"time_s": 10.5, "text": "Takeoff"}, {"time_s": 25, "text": "Low battery"}],
+               "changes": [{"time_s": 26, "idx": 3, "to_value": 1.0}, {"time_s": 12, "idx": 2, "to_value": 5.0}]}
+        sd_path = [point(120, 0), point(150, 0, 51.9)]  # no position at 120; nothing between 121 and 149
+        messages = [{"time_s": 111, "text": "Takeoff"}]
+        changes = [{"time_s": 112, "idx": 2, "to_value": 5.0}]
+        originals = self.ns["other_recordings"]
+        self.ns["other_recordings"] = lambda con, ids: [gcs]
+        self.addCleanup(self.ns.__setitem__, "other_recordings", originals)
+        own = {"base": 1000.0, "takeoff_time_s": 100, "landing_time_s": 160}
+        path, msgs, chs, added = self.ns["combine_other_logs"](self.con, own, sd_path, messages, changes, [1])
+        self.assertEqual([m["text"] for m in msgs], ["Takeoff", "Low battery"])  # the duplicate Takeoff is dropped
+        self.assertEqual((msgs[1]["time_s"], msgs[1]["log"]), (125, "GCS log"))
+        self.assertEqual([(c["idx"], c["time_s"]) for c in chs], [(2, 112), (3, 126)])
+        self.assertEqual([p["time_s"] for p in path], [120, 130, 140, 150])
+        self.assertEqual(path[0]["position"], {"lat": 52.0, "lon": 4.0, "source": "other_log"})  # filled at 120
+        self.assertEqual((path[1]["from_other_log"], path[1]["distance_m"]), ("GCS log", None))  # gap filled
+        self.assertEqual(added, 3)
+        self.assertEqual(sd_path[0]["position"]["lat"], None)  # inputs unchanged
 
     def test_logbook_and_flight_page_show_the_link_summary(self):
         self.con.execute("UPDATE flights SET link_json=? WHERE id=(SELECT MIN(id) FROM flights)", (json.dumps(LINK),))

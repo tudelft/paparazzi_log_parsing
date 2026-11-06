@@ -1683,7 +1683,12 @@ the silence ends, so a flight without any ground link is no problem) and the bad
 `uplink_ovrn` against `uplink_nb_msgs`, counters unwrapped). The logbook also marks an uplink gap of at least 10 s
 (the ground can be quiet for several seconds) or 5% bad uplink frames. When a flight has both an SD and a GCS log,
 the logbook combines their summaries (worst value of each), and each flight page fills the datalink values of
-its points from the other log, matched by UTC within 2.5 s. Wind speed and
+its points from the other log, matched by UTC within 2.5 s. The flight page also combines the rest: the other log's
+times are moved onto this log's clock (from both takeoff times in UTC); its info messages and setting changes are
+added to the lists unless the same text or setting appears within 2 s, labelled with their log; points without a
+position get the other log's nearest position within 2.5 s (position source "SD log"/"GCS log"), and between
+takeoff and landing the other log's points fill gaps of more than 1.5 s. The map says how many points came from the
+other log; distances stay this log's own. Wind speed and
 direction come from the per-point `wind` estimate. Hovering shows the exact values at that time; axes use four
 rounded steps (wind direction 0–360°). Click moves the map marker; drag or scroll zooms.
 
