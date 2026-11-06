@@ -287,7 +287,7 @@ function render() {
     <summary>${esc(item.name)} — ambiguous (${item.recordings.length} recordings)</summary>
     <button type="button" data-name="${esc(item.name)}" onclick="clearAmbiguous(this.dataset.name)">Remove ambiguous status</button>
     <div class="scroll"><table><thead><tr><th>Recording</th><th>Autopilot ID</th><th>Explicit aircraft assignment</th></tr></thead><tbody>
-    ${item.recordings.map((r, j) => `<tr><td><a href="/uploads#log${r.log_id}">${esc(r.log_name)}</a></td><td>${esc(r.ac_id)}</td><td>
+    ${item.recordings.map((r, j) => `<tr><td><a href="/logs#log${r.log_id}">${esc(r.log_name)}</a></td><td>${esc(r.ac_id)}</td><td>
       ${r.ac_id == null ? 'No autopilot ID; manual assignment unavailable' : `<select id="manual-${i}-${j}" aria-label="Aircraft for ${esc(r.log_name)}">
       <option value="">Automatic / unresolved</option>${data.drones.map(d => `<option value="${d.id}"${r.manual && r.drone_id === d.id ? ' selected' : ''}>${esc(droneLabel(d))}</option>`).join('')}</select>
       <button type="button" onclick="saveManualAircraft(${r.log_id},${r.ac_id},'manual-${i}-${j}')">Save</button>`}</td></tr>`).join('')}

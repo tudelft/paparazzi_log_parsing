@@ -484,6 +484,7 @@ window.timingEvidenceHTML = function (timing) {
   const ADMIN_KEY = 'logdbAdmin';
   const EDIT_KEY = 'logdbEdit';
   const TRAINING_KEY = 'logdbTraining';
+  const UPLOAD_KEY = 'logdbCanUpload';
   window.editMode = function () {
     try { return localStorage.getItem(EDIT_KEY) === '1'; } catch (e) { return false; }
   };
@@ -492,15 +493,9 @@ window.timingEvidenceHTML = function (timing) {
     paintEdit();
     window.dispatchEvent(new Event('editchange'));
   };
-  const TABS = [
-    ['/', 'Logbook'],
-    ['/uploads', 'Uploads'],
-    ['/stats', 'Statistics'],
-    ['/aircraft', 'Aircraft'],
-    ['/people', 'People'],
-    ['/projects', 'Projects'],
-    ['/locations', 'Locations'],
-  ];
+  // Menu: Logbook · Statistics · Directory ▾ · Training (when enabled); Upload logs, Edit and the name menu on the right
+  const DIRECTORY = [['/aircraft', 'Aircraft'], ['/people', 'People'], ['/projects', 'Projects'], ['/locations', 'Locations'],
+    null, ['/logs', 'Logs']];
 
   function cachedAdmin() {
     try { return localStorage.getItem(ADMIN_KEY) === '1'; } catch (e) { return false; }
@@ -514,29 +509,135 @@ window.timingEvidenceHTML = function (timing) {
   function setCachedTraining(on) {
     try { localStorage.setItem(TRAINING_KEY, on ? '1' : '0'); } catch (e) {}
   }
-  function navTabs() {
-    const items = TABS.slice();
-    if (cachedTraining()) items.push(['/training', 'Training']);
-    return items;
-  }
   function currentTab() {
     const p = location.pathname;
     if (p === '/logbook' || p === '/attachments' || p === '/review' || p.startsWith('/flight/') || p.startsWith('/historical/')) return '/';
-    if (p === '/uploads') return '/uploads';
     if (p === '/stats') return '/stats';
     if (p === '/training' || p.startsWith('/training/')) return '/training';
-    for (const tab of ['/people', '/projects', '/aircraft', '/locations'])
+    for (const [tab] of DIRECTORY.filter(Boolean))
       if (p === tab || p.startsWith(tab + '/')) return tab;
     if (p === '/' || p === '') return '/';
     return '';
   }
+
+  // A small menu panel under its button: fixed position (so a scrolling header does not clip it), closes on a click
+  // elsewhere, Escape or a choice.
+  let openMenu = null;
+  function closeMenu() {
+    if (!openMenu) return;
+    openMenu.panel.hidden = true;
+    openMenu.button.setAttribute('aria-expanded', 'false');
+    openMenu = null;
+  }
+  function bindMenu(button, panel, alignRight) {
+    button.setAttribute('aria-haspopup', 'menu');
+    button.setAttribute('aria-expanded', 'false');
+    button.onclick = e => {
+      e.stopPropagation();
+      if (openMenu && openMenu.panel === panel) { closeMenu(); return; }
+      closeMenu();
+      const r = button.getBoundingClientRect();
+      panel.hidden = false;
+      panel.style.top = `${r.bottom + 2}px`;
+      panel.style.left = alignRight ? `${Math.max(8, r.right - panel.offsetWidth)}px` : `${Math.max(8, r.left)}px`;
+      button.setAttribute('aria-expanded', 'true');
+      openMenu = {button, panel};
+      panel.querySelector('a, button')?.focus();
+    };
+    panel.addEventListener('click', e => { if (e.target.closest('a, button')) closeMenu(); });
+  }
+  document.addEventListener('click', e => { if (openMenu && !openMenu.panel.contains(e.target)) closeMenu(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && openMenu) { const b = openMenu.button; closeMenu(); b.focus(); }
+  });
+  window.addEventListener('resize', closeMenu);
+
   function paintNav() {
     const nav = document.getElementById('nav');
     if (!nav) return;
     const here = currentTab();
-    nav.innerHTML = navTabs().map(([href, label]) =>
-      `<a href="${href}"${href === here ? ' class="cur" aria-current="page"' : ''}>${label}</a>`).join('');
+    const tab = (href, label) => `<a href="${href}"${href === here ? ' class="cur" aria-current="page"' : ''}>${label}</a>`;
+    const inDirectory = DIRECTORY.some(item => item && item[0] === here);
+    nav.innerHTML = tab('/', 'Logbook') + tab('/stats', 'Statistics')
+      + `<button type="button" class="nav-drop${inDirectory ? ' cur' : ''}" id="directoryBtn">Directory ▾</button>`
+      + (cachedTraining() ? tab('/training', 'Training') : '');
+    let panel = document.getElementById('directoryMenu');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'directoryMenu';
+      panel.className = 'menu-panel';
+      panel.setAttribute('role', 'menu');
+      panel.hidden = true;
+      document.body.appendChild(panel);
+    }
+    panel.innerHTML = DIRECTORY.map(item => item
+      ? `<a href="${item[0]}" role="menuitem"${item[0] === here ? ' class="cur" aria-current="page"' : ''}>${item[1]}</a>` : '<hr>').join('');
+    bindMenu(document.getElementById('directoryBtn'), panel, false);
   }
+
+  // The right side of the header: Upload logs, Edit and a name menu (My account, Night mode, Sign out). Pages keep
+  // their #who element (they set the name); the old Night and Sign out buttons are folded into the menu.
+  function paintActions() {
+    const night = document.getElementById('nightBtn');
+    const who = document.getElementById('who');
+    if (!night || document.getElementById('headerActions')) return;
+    const right = night.parentElement;
+    const actions = document.createElement('span');
+    actions.id = 'headerActions';
+    actions.className = 'header-actions';
+    actions.innerHTML = `<button type="button" id="uploadBtn" title="Upload log files, zips or folders (or drop them on the page)">⬆<span class="upload-label"> Upload logs</span></button>
+      <button type="button" id="userMenuBtn"></button>`;
+    const nameButton = actions.querySelector('#userMenuBtn');
+    if (who) { who.style.cssText = ''; who.onclick = null; nameButton.append(who); }
+    nameButton.append(' ▾');
+    right.replaceChildren(actions);
+    const panel = document.createElement('div');
+    panel.id = 'userMenu';
+    panel.className = 'menu-panel';
+    panel.setAttribute('role', 'menu');
+    panel.hidden = true;
+    panel.innerHTML = `<a href="/account" role="menuitem">My account</a>
+      <button type="button" role="menuitem" id="nightBtn"><span class="when-day">Night mode</span><span class="when-night">Day mode</span></button>
+      <hr><button type="button" role="menuitem" id="signOutBtn">Sign out</button>`;
+    document.body.appendChild(panel);
+    panel.querySelector('#nightBtn').onclick = () => window.toggleNight();
+    panel.querySelector('#signOutBtn').onclick = () => window.logout();
+    bindMenu(nameButton, panel, true);
+    actions.querySelector('#uploadBtn').onclick = () => window.openUpload();
+    paintUpload();
+  }
+  // Only users who may add logs (admins, project members with add or full access) see Upload logs.
+  function canUpload() {
+    try { return localStorage.getItem(UPLOAD_KEY) !== '0'; } catch (e) { return true; }
+  }
+  function paintUpload() {
+    const btn = document.getElementById('uploadBtn');
+    if (btn) btn.hidden = !canUpload();
+  }
+
+  // The upload dialog lives in /upload.js, loaded the first time it is needed (button or files dropped on a page).
+  let uploadScript = null;
+  window.openUpload = function (dropEvent) {
+    if (!uploadScript) uploadScript = new Promise((ok, fail) => {
+      const tag = document.createElement('script');
+      tag.src = '/upload.js';
+      tag.onload = ok;
+      tag.onerror = fail;
+      document.head.appendChild(tag);
+    });
+    return uploadScript.then(() => window.LogUpload.open(dropEvent));
+  };
+  // Dropping files anywhere on a page opens the upload dialog with them (pages with their own drop zones handle theirs).
+  const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
+  const uploadShown = () => { const b = document.getElementById('uploadBtn'); return b && !b.hidden; };
+  document.addEventListener('dragover', e => {
+    if (hasFiles(e) && !e.defaultPrevented && uploadShown()) e.preventDefault();
+  });
+  document.addEventListener('drop', e => {
+    if (!hasFiles(e) || e.defaultPrevented || !uploadShown()) return;
+    e.preventDefault();
+    window.openUpload(e);
+  });
 
   function paintVersion(version) {
     let footer = document.getElementById('webuiVersion');
@@ -573,9 +674,9 @@ window.timingEvidenceHTML = function (timing) {
 
   // Pages opt in with <body data-edit="all"> or <body data-edit="admin">.
   function paintEdit() {
-    const night = document.getElementById('nightBtn');
+    const anchor = document.getElementById('userMenuBtn');
     const kind = document.body && document.body.dataset.edit;
-    if (!night || !kind) return;
+    if (!anchor || !kind) return;
     let btn = document.getElementById('editBtn');
     if (!btn) {
       btn = document.createElement('button');
@@ -584,14 +685,14 @@ window.timingEvidenceHTML = function (timing) {
       btn.textContent = 'Edit';
       btn.title = 'Edit mode: show the forms and menus to change things on the pages that have them';
       btn.onclick = window.toggleEditMode;
-      night.before(btn, ' ');
+      anchor.before(btn);
     }
     btn.hidden = kind === 'admin' && !admin;
     btn.setAttribute('aria-pressed', window.editMode() ? 'true' : 'false');
   }
 
   window.logout = async function () {
-    try { localStorage.removeItem(ADMIN_KEY); localStorage.removeItem(TRAINING_KEY); } catch (e) {}
+    try { [ADMIN_KEY, TRAINING_KEY, UPLOAD_KEY].forEach(k => localStorage.removeItem(k)); } catch (e) {}
     await fetch('/logout', {method: 'POST'});
     location.href = '/login';
   };
@@ -603,15 +704,11 @@ window.timingEvidenceHTML = function (timing) {
   }
   ready(() => {
     paintNav();
-    paintEdit();
-    if (!/^\/(login|setup)/.test(location.pathname)) paintVersion(null);
-    const who = document.getElementById('who');
-    if (who && !/^\/(login|setup)/.test(location.pathname)) {
-      who.style.cursor = 'pointer';
-      who.style.textDecoration = 'underline';
-      who.title = 'Your account, passwords and API keys';
-      who.onclick = () => { location.href = '/account'; };
+    if (!/^\/(login|setup)/.test(location.pathname)) {
+      paintActions();
+      paintVersion(null);
     }
+    paintEdit();
   });
 
   if (!/^\/(login|setup)/.test(location.pathname)) {
@@ -626,6 +723,8 @@ window.timingEvidenceHTML = function (timing) {
       admin = !!(d.user && d.user.is_admin);
       setCachedAdmin(admin);
       setCachedTraining(!!d.training);
+      try { localStorage.setItem(UPLOAD_KEY, d.can_upload === false ? '0' : '1'); } catch (e) {}
+      paintUpload();
       paintNav();
       paintEdit();
     }).catch(error => { console.warn('Could not load account and Web UI version:', error); });

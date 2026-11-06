@@ -9,21 +9,22 @@ tests and API/storage architecture, use the [technical guide](TECHNICAL.md).
 Upload flight logs and browse flights, crew, projects, aircraft and locations in one logbook.
 All pages require sign-in; the records you can see depend on your access. Where TU Delft sign-in is set up, the
 sign-in page shows only that; **Sign in with a local account** opens the username/password form (`/login?local=1`).
-The home page (`/`) opens the logbook. Uploads has its own page at `/uploads`;
-existing `/logbook` links still work.
+The home page (`/`) opens the logbook. The menu has Logbook, Statistics, **Directory ▾** (Aircraft, People, Projects,
+Locations and Logs) and Training (when enabled). **⬆ Upload logs** at the top right opens the upload dialog; your
+name opens My account, Night mode and Sign out. Existing `/logbook` links still work.
 
 ## Everyday use
 
-On **Uploads**, use **Filename** to find logs by part of their filename across all pages.
+On **Logs** (Directory ▾), use **Filename** to find logs by part of their filename across all pages.
 It works together with the status filter.
 
-Logbook, Uploads and entity flight/log tables remember their page and view options in the
+Logbook, Logs and entity flight/log tables remember their page and view options in the
 URL. Open a flight and use browser **Back** to return to the same view and scroll position.
 Use the arrows or page numbers to move through large lists. The first and last page numbers
 stay visible; type into the highlighted current-page number to jump directly to another page.
 
 After changing firmware lookup repositories, administrators can use **Re-parse unknown dates**
-on **Uploads** to retry completed logs with unknown dates, even with the current parser version.
+on **Logs** to retry completed logs with unknown dates, even with the current parser version.
 Manual dates and plausible estimated dates are left unchanged.
 
 Estimated dates in the logbook have a dotted underline. Hover over or keyboard-focus the
@@ -43,7 +44,7 @@ to gain descriptions and previously omitted crew entries.
 | Page | What to do |
 |---|---|
 | **Logbook** | Filter flights (also by a paper record's reference, e.g. F00090), review flight time, expand a row or open its flight page. Click aircraft, crew, project or location names for their detail pages. |
-| **Uploads** | Drop logs, ZIP archives or folders; check parsing progress and errors. Paparazzi logs need matching `.data` and `.log` files. PX4 `.ulg`, ArduPilot `.bin`/`.log`, `.tlog` and Betaflight/INDIFlight `.bfl`/`.bbl` files can also be uploaded. A folder named after one fleet aircraft still links when the files sit in subfolders; already uploaded logs with that layout are linked at each start. |
+| **Upload logs** | The button at the top right (or drop files on any page): send logs, ZIP archives or folders and follow your recent uploads while they are parsed. **Logs** (Directory ▾) lists every log you can see, with parsing progress and errors. Paparazzi logs need matching `.data` and `.log` files. PX4 `.ulg`, ArduPilot `.bin`/`.log`, `.tlog` and Betaflight/INDIFlight `.bfl`/`.bbl` files can also be uploaded. A folder named after one fleet aircraft still links when the files sit in subfolders; already uploaded logs with that layout are linked at each start. |
 | **Statistics** | View totals for aircraft, projects and crew within your access. |
 | **Aircraft / People / Projects / Locations** | Browse records and open their histories, totals and flights. |
 | **Training** | When enabled, complete questionnaires until you pass. A pass writes the linked qualification immediately. |
@@ -70,7 +71,7 @@ to gain descriptions and previously omitted crew entries.
   boundaries independently of the flight-plan waypoint markers. Waypoint names appear above
   their dots with a subtle text halo; **Show flight plan** hides/shows both the dots and names. Waypoints whose names
   start with `_` are hidden by default; enable **Show hidden waypoints** to reveal them.
-- Uploads has a **Status** filter: **Parser errors**, **Unfinished logs** (queued, parsing or
+- Logs has a **Status** filter: **Parser errors**, **Unfinished logs** (queued, parsing or
   error), or **All failures** (also failed/rejected upload receipts). Filters cover all pages.
 - Statistics uses the shared flight filters. **Total log data (GB)** sums original telemetry sizes for logs contributing to
   filtered flights, counting each SD/GCS source once and excluding companion files.
@@ -88,9 +89,9 @@ to gain descriptions and previously omitted crew entries.
   and counts once, as the log; unclear cases show as *possible duplicate* to link or dismiss, and an expanded
   entry shows where the paper record differs from the log.
 - An onboard log without a calendar date (1980 clock) that matches a dated ground station log of the same flight gets
-  a **suggested date** in its details on Uploads; accept it there (admins can accept all at once).
+  a **suggested date** in its details on Logs; accept it there (admins can accept all at once).
 - Uploading a file that someone else already uploaded keeps one copy and makes you a **co-uploader**: you can then
-  see that log and its flights, and the Uploads page links to it.
+  see that log and its flights, and the Logs page links to it.
 - **Review** (Logbook, Edit mode) walks through possible duplicates, paper records where only another aircraft
   flew, and conflicts, with the paper record next to the candidate logs; every decision can be undone there.
 - In Edit mode, tick the entries of one flight and press **Same flight** to join them (also when the automatic

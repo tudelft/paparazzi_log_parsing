@@ -492,7 +492,7 @@ function renderSummary() {
         + (D.timing.correction_s != null ? ' · parser correction: ' + esc(D.timing.correction_s) + ' s' : '')
         + (D.timing.warning ? '<br>' + esc(D.timing.warning) : '') + timingEvidenceHTML(D.timing)) : ''}
       ${e.sources.map(s => kv(TYPE[s.log_type] || s.log_type, `<a href="/flight/${s.flight_id}" class="${s.flight_id === flightId ? 'cur' : ''}">${esc(s.log_name)}</a>${s.flight_id === flightId ? ' <span class="mute">(shown)</span>' : ''}
-        · <a href="/api/logs/${s.log_id}/download" title="Download ${downloadLabel(s.log_type)} (all its files)">download</a> · <a href="/uploads#log${s.log_id}">log details</a>`)
+        · <a href="/api/logs/${s.log_id}/download" title="Download ${downloadLabel(s.log_type)} (all its files)">download</a> · <a href="/logs#log${s.log_id}">log details</a>`)
 ).join('')}
       ${insRows('Takeoff', e.takeoff)}${insRows('Landing', e.landing)}
       ${kv('Uploaded', esc(fmtTime(e.uploaded_at)) + (e.uploaded_by_name ? ' by ' + esc(e.uploaded_by_name) : ''))}

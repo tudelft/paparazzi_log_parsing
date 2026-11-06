@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Flight log database</title>
+<title>Logs</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/theme.js"></script>
 <link rel="stylesheet" href="/theme.css">
@@ -16,13 +16,6 @@
   main { max-width:none; width:100%; margin:0; padding:16px 12px 20px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
   .scroll { overflow-x:auto; }
-  #drop { border:2px dashed var(--drop); border-radius:8px; padding:10px 14px; color:var(--mute); transition:.15s;
-    display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-  #drop > strong { color:var(--txt); font-weight:600; }
-  #drop > details { margin-left:auto; }
-  #drop > details[open] { flex-basis:100%; order:9; }
-  #drop > details > summary { text-align:right; font-size:13px; color:var(--mute); }
-  #drop.over { border-color:var(--acc); background:var(--dropover); color:var(--acc); }
   button, .btn { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
   button.sec { background:var(--sec); color:var(--txt); }
   button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
@@ -44,7 +37,6 @@
   .date-unknown { background:var(--warnbg); color:var(--warn); }
   .mono { font-family:ui-monospace, monospace; font-size:12px; }
   .mute { color:var(--mute); }
-  #uploads div { padding:3px 0; display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
   #batch { color:var(--txt); }
   progress { width:160px; }
   .detail { background:var(--detail); padding:12px 16px; }
@@ -54,35 +46,29 @@
   pre { background:#0f1720; color:#d6e2f0; padding:10px; border-radius:6px; max-height:260px; overflow:auto; font-size:12px; }
   .actions { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
   #status { text-align:right; font-size:12px; color:var(--mute); padding:0 20px 20px; margin:0; }
+  .logs-help { order:9; font-size:13px; }
+  .logs-help[open] { flex-basis:100%; }
+  .logs-help summary { cursor:pointer; color:var(--mute); }
 </style>
 </head>
 <body data-edit="all">
 <header>
-  <h1>Flight log database</h1>
+  <h1>Flight logbook</h1>
   <span class="meta" id="nav"></span>
   <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" style="padding:2px 8px" onclick="logout()">Sign out</button></span>
 </header>
 <main>
-  <section class="card">
-    <div id="drop">
-      <strong>Drop log files, zips or folders here</strong><span>or</span>
-      <button type="button" id="pickFilesBtn">Select files</button>
-      <button type="button" class="sec" id="pickDirBtn">Select folder</button>
-      <details><summary>Help</summary>
-      <p>Paparazzi .data and .log files must come as a pair with the same name. PX4 .ulg, ArduPilot .bin / .log, MAVLink .tlog and Betaflight/INDIFlight .bfl / .bbl files are uploaded on their own. Zips and folders may mix all of those. If a folder is named after one fleet aircraft, logs in its dated subfolders attach to it. Files are accepted quickly; fingerprinting, duplicates and parsing run in the background. The list below shows 25 logs per page by default, newest first; open a log for its details and flights. For hundreds of logs, drop a zip or a folder — picking thousands of files one by one can freeze the browser.</p>
-      <div class="mute" style="margin-top:8px">Project is set automatically from the aircraft (then the uploader, GCS operator or PIC). Admins can change it in Edit mode after it is parsed. Edit mode also shows Re-parse and Delete on an opened log, and the Re-parse outdated / unknown dates tools.</div>
-      </details>
-      <input id="pickFiles" type="file" multiple hidden accept=".data,.log,.zip,.ulg,.bin,.tlog,.bfl,.bbl">
-      <input id="pickDir" type="file" webkitdirectory hidden>
-    </div>
-    <div id="batch" class="mute" style="margin-top:12px" hidden></div>
-    <div id="uploads" style="margin-top:8px"></div>
-  </section>
-  <p id="noUpload" class="mute" hidden>You can look at logs here. Adding logs needs access from an admin.</p>
 
   <section class="card">
     <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap">
       <h2 style="margin:0; font-size:17px">Logs</h2><span class="mute" id="logCount"></span>
+      <details class="logs-help"><summary>Help</summary>
+        <p>Every log you can see: those of your projects and the ones you uploaded. Upload new logs with
+        <strong>Upload logs</strong> at the top right, or drop files on any page. The list shows 25 logs per page by
+        default, newest first; open a log for its details and flights.</p>
+        <p class="mute">The project is set automatically from the aircraft (then the uploader, GCS operator or PIC).
+        Admins can change it in Edit mode after it is parsed. Edit mode also shows Re-parse and Delete on an opened log,
+        and the Re-parse outdated / unknown dates tools.</p></details>
       <input type="search" id="logSearch" placeholder="Search by filename" aria-label="Search logs by filename">
       <select id="logStatus" aria-label="Status"><option value="all">All logs</option><option value="errors">Parser errors</option><option value="unfinished">Unfinished logs</option><option value="failures">All failures</option><option value="outdated">Outdated</option><option value="date_unknown">Date unknown</option></select>
       <button type="button" class="badge-filter outdated" id="outdatedBadge" hidden title="Parsed with an older parser version; show them" onclick="filterStatus('outdated')"></button>
@@ -118,7 +104,7 @@ const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 100
 const fmtSize = b => b > 1e9 ? (b/1e9).toFixed(2)+' GB' : (b/1e6).toFixed(1)+' MB';
 let expanded = new Set(), me = null, projects = [];
 let LOG_PAGE = 25;
-let logOffset = 0, logTotal = 0, sendTotal = 0, sendDone = 0, sendActive = 0;
+let logOffset = 0, logTotal = 0;
 if (/^#log\d+$/.test(location.hash)) expanded.add(+location.hash.slice(4));
 
 // Any API call answered with 401 means the session expired
@@ -148,11 +134,7 @@ function logsQuery() {
 }
 function showLog(id) { onlyLog = id; expanded.add(id); logOffset = 0; window.viewState.save(true); refresh(); }
 function showAllLogs() { onlyLog = null; history.replaceState(history.state, '', location.pathname + location.search); logOffset = 0; window.viewState.save(true); refresh(); }
-function fillProjects() {
-  const open = me.is_admin || projects.some(p => p.can_add);
-  $('drop').hidden = !open;
-  $('noUpload').hidden = open;
-}
+function fillProjects() {}
 const editing = () => window.editMode();
 // Columns of the log list; admins also see who uploaded each log and when.
 const logColumns = () => [['Date (UTC)', '12%'], ['Log', '22%'], ['Aircraft', '14%'], ['Project', '13%'],
@@ -173,216 +155,8 @@ fetch('/api/me').then(r => r.json()).then(async d => {
   refresh();
 });
 
-// ---- upload -------------------------------------------------------------------------------------------------
-const MAV_SINGLE = /\.(ulg|bin|tlog|bfl|bbl)$/i;
-// Groups: every zip or PX4/ArduPilot/tlog/Blackbox file alone, Paparazzi .data/.log paired by directory + name.
-function groupFiles(items) {
-  const groups = new Map(), skipped = [];
-  for (const {file, rel} of items) {
-    const lower = rel.toLowerCase();
-    if (lower.endsWith('.zip') || MAV_SINGLE.test(lower)) { groups.set(rel, [{file, rel}]); continue; }
-    const m = rel.match(/^(.*)\.(data|log)$/i);
-    if (!m) { skipped.push(rel); continue; }
-    if (!groups.has(m[1])) groups.set(m[1], []);
-    groups.get(m[1]).push({file, rel});
-  }
-  return {groups: [...groups.values()], skipped};
-}
-
-const UPLOAD_CONCURRENCY = 3;
-const PAIRS_PER_POST = 20;
-const MAX_POST_BYTES = 64 * 1024 * 1024;
-
-function yieldToUi() { return new Promise(r => setTimeout(r, 0)); }
-
-function paintPrepare(seen, total) {
-  const el = $('batch');
-  el.hidden = false;
-  el.textContent = total != null ? `Preparing ${seen} / ${total} files…` : `Preparing ${seen} files…`;
-}
-
-function paintBatch() {
-  const el = $('batch');
-  if (!el) return;
-  if (!sendTotal && !sendActive) { el.hidden = true; return; }
-  el.hidden = false;
-  if (sendActive)
-    el.innerHTML = `<strong>Uploading… ${sendDone} of ${sendTotal} logs sent</strong> <progress max="${sendTotal}" value="${sendDone}"></progress>
-      <span class="mute">Keep this page open until it is finished.</span>`;
-  else
-    el.innerHTML = `<strong>Upload finished: ${sendDone} of ${sendTotal} logs sent.</strong>
-      <span class="mute">Checking and parsing continue on the server; see the list below.</span>`
-      + (sendDone < sendTotal ? ` <span class="badge error">${sendTotal - sendDone} failed — see above</span>` : '');
-}
-
-function noteUpload(html) {
-  const box = $('uploads');
-  box.insertAdjacentHTML('beforeend', html);
-  while (box.children.length > 50) box.removeChild(box.firstChild);
-}
-
-function packJobs(jobs) {
-  const packs = [];
-  let cur = [], bytes = 0;
-  const flush = () => { if (cur.length) { packs.push(cur); cur = []; bytes = 0; } };
-  for (const g of jobs) {
-    const isZip = g.length === 1 && g[0].rel.toLowerCase().endsWith('.zip');
-    const gBytes = g.reduce((a, x) => a + x.file.size, 0);
-    if (isZip) { flush(); packs.push([g]); continue; }
-    if (cur.length && (cur.length >= PAIRS_PER_POST || bytes + gBytes > MAX_POST_BYTES)) flush();
-    cur.push(g);
-    bytes += gBytes;
-  }
-  flush();
-  return packs;
-}
-
-function postBatch(pack) {
-  sendActive++;
-  paintBatch();
-  const fd = new FormData();
-  for (const g of pack)
-    for (const {file, rel} of g) { fd.append('files', file, file.name); fd.append('names', rel); }
-  const n = pack.length;
-  const names = pack.map(g => g[0].rel.replace(/\.(data|log)$/i, ''));
-  const failAll = why => noteUpload(`<div><span class="badge error">failed</span> <span>${esc(why)}:</span> <span class="mute">${names.map(esc).join(', ')}</span></div>`);
-  let arrived = 0;
-  return new Promise(resolve => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/upload');
-    xhr.onload = () => {
-      if (xhr.status === 401) { location.href = '/login'; return; }
-      try {
-        const body = JSON.parse(xhr.responseText);
-        if (body.results) {
-          arrived = n;
-          for (const r of body.results) {
-            if (r.status === 'rejected' || r.status === 'error')
-              noteUpload(`<div><span class="badge error">${esc(r.status)}</span> <span class="mute">${esc(r.name)}${r.reason ? ' — ' + esc(r.reason) : ''}</span></div>`);
-          }
-        } else failAll(body.error || ('server error ' + xhr.status));
-      } catch { failAll(xhr.status === 413 ? 'too large for the server' : 'server error ' + xhr.status); }
-      resolve();
-    };
-    xhr.onerror = () => { failAll('connection lost'); resolve(); };
-    xhr.send(fd);
-  }).finally(() => { sendActive--; sendDone += arrived; paintBatch(); });
-}
-
-async function itemsFromFileList(list, relFn) {
-  const items = [], n = list.length;
-  paintPrepare(0, n);
-  for (let i = 0; i < n; i++) {
-    items.push({file: list[i], rel: relFn(list[i])});
-    if ((i & 31) === 0) { paintPrepare(i + 1, n); await yieldToUi(); }
-  }
-  return items;
-}
-
-async function uploadItems(items) {
-  paintPrepare(items.length, items.length);
-  await yieldToUi();
-  const {groups, skipped} = groupFiles(items);
-  if (skipped.length)
-    noteUpload(`<div class="mute">${skipped.length} ignored (not a recognised log or zip)</div>`);
-  const jobs = [];
-  let incomplete = 0;
-  for (const g of groups) {
-    const one = g.length === 1 ? g[0].rel.toLowerCase() : '';
-    const isZip = one.endsWith('.zip');
-    const isMav = MAV_SINGLE.test(one);
-    const isLoneLog = /\.log$/.test(one);
-    if (!isZip && !isMav && !isLoneLog && !(g.some(x => /\.data$/i.test(x.rel)) && g.some(x => /\.log$/i.test(x.rel)))) {
-      incomplete++;
-      continue;
-    }
-    jobs.push(g);
-  }
-  if (incomplete)
-    noteUpload(`<div><span class="badge error">rejected</span> <span class="mute">${incomplete} skipped — Paparazzi logs need both a .data and a matching .log file</span></div>`);
-  if (!jobs.length) { paintBatch(); return; }
-  const packs = packJobs(jobs);
-  sendTotal += jobs.length;
-  paintBatch();
-  let next = 0;
-  async function run() {
-    while (next < packs.length) {
-      const pack = packs[next++];
-      await postBatch(pack);
-      await yieldToUi();
-    }
-  }
-  await Promise.all(Array.from({length: Math.min(UPLOAD_CONCURRENCY, packs.length)}, run));
-  refresh();
-}
-
-async function readEntry(entry, path, out) {
-  if (entry.isFile) {
-    const file = await new Promise((ok, no) => entry.file(ok, no));
-    out.push({file, rel: path + entry.name});
-    if (out.length % 40 === 0) { paintPrepare(out.length); await yieldToUi(); }
-    return;
-  }
-  const reader = entry.createReader();
-  for (;;) {
-    const batch = await new Promise((ok, no) => reader.readEntries(ok, no));
-    if (!batch.length) break;
-    for (const e of batch) await readEntry(e, path + entry.name + '/', out);
-  }
-}
-
-async function walkDirHandle(handle, prefix, items) {
-  for await (const child of handle.values()) {
-    const rel = prefix + child.name;
-    if (child.kind === 'directory') await walkDirHandle(child, rel + '/', items);
-    else if (child.kind === 'file') items.push({file: await child.getFile(), rel});
-    if (items.length && items.length % 40 === 0) { paintPrepare(items.length); await yieldToUi(); }
-  }
-}
-
-const drop = $('drop');
-['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
-['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
-drop.addEventListener('drop', async e => {
-  const items = [];
-  paintPrepare(0);
-  for (const i of e.dataTransfer.items) {
-    const en = i.webkitGetAsEntry && i.webkitGetAsEntry();
-    if (en) await readEntry(en, '', items);
-  }
-  await uploadItems(items);
-});
-$('pickFilesBtn').onclick = () => $('pickFiles').click();
-$('pickFiles').onchange = async e => {
-  const list = e.target.files;
-  if (!list || !list.length) return;
-  const items = await itemsFromFileList(list, f => f.name);
-  e.target.value = '';
-  await uploadItems(items);
-};
-$('pickDirBtn').onclick = async () => {
-  if (window.showDirectoryPicker) {
-    try {
-      const dir = await window.showDirectoryPicker();
-      const items = [];
-      paintPrepare(0);
-      await walkDirHandle(dir, dir.name + '/', items);
-      await uploadItems(items);
-    } catch (err) {
-      if (err && err.name !== 'AbortError')
-        noteUpload(`<div><span class="badge error">error</span> <span class="mute">${esc(err.message || err)}</span></div>`);
-    }
-    return;
-  }
-  $('pickDir').click();
-};
-$('pickDir').onchange = async e => {
-  const list = e.target.files;
-  if (!list || !list.length) return;
-  const items = await itemsFromFileList(list, f => f.webkitRelativePath || f.name);
-  e.target.value = '';
-  await uploadItems(items);
-};
+// Logs uploaded with the header's Upload logs dialog (upload.js) appear here
+window.addEventListener('logsuploaded', () => refresh());
 
 // ---- log list -----------------------------------------------------------------------------------------------
 function paintStatus(st) {
@@ -400,7 +174,7 @@ function paintStatus(st) {
   const co = st.co_uploaded || [];
   $('coUploaded').hidden = !co.length;
   $('coUploaded').innerHTML = co.length ? `Already on the server, uploaded by someone else; you are now a co-uploader and can open ${co.length === 1 ? 'it' : 'them'}: `
-    + co.map(c => `<a href="/uploads#log${c.log_id}" onclick="showLog(${c.log_id})">${esc(c.name)}</a>`).join(', ') : '';
+    + co.map(c => `<a href="/logs#log${c.log_id}" onclick="showLog(${c.log_id})">${esc(c.name)}</a>`).join(', ') : '';
   $('reparseAll').disabled = !st.outdated && !c.error;
   $('outdatedBadge').hidden = !st.outdated || $('logStatus').value === 'outdated';
   $('outdatedBadge').textContent = `${st.outdated} outdated`;
@@ -436,7 +210,7 @@ async function refresh() {
   const cols = logColumns();
   $('logCols').innerHTML = cols.map(c => `<col style="width:${c[1]}">`).join('');
   $('logHead').innerHTML = '<tr>' + cols.map(c => `<th${c[2] ? ` class="${c[2]}"` : ''}>${c[0]}</th>`).join('') + '</tr>';
-  if (onlyLog) $('pageInfo').innerHTML = `Showing log ${onlyLog} only · <a href="/uploads" onclick="event.preventDefault(); showAllLogs()">Show all logs</a>`;
+  if (onlyLog) $('pageInfo').innerHTML = `Showing log ${onlyLog} only · <a href="/logs" onclick="event.preventDefault(); showAllLogs()">Show all logs</a>`;
   window.viewState.pager($('uploadPages'), Math.floor(logOffset / LOG_PAGE), LOG_PAGE, logTotal,
     n => { logOffset = n * LOG_PAGE; window.viewState.save(true); refresh(); });
   const tb = $('logs');
@@ -460,7 +234,7 @@ async function refresh() {
     // one flight opens its flight page; several open the log with a link per flight
     const flights = !l.num_flights ? '<span class="mute">—</span>'
       : l.flight_rows === 1 && l.first_flight_id ? `<a href="/flight/${l.first_flight_id}" onclick="event.stopPropagation()" title="Open the flight">1</a>`
-      : `<a href="/uploads#log${l.id}" onclick="event.preventDefault(); event.stopPropagation(); expanded.add(${l.id}); refresh()" title="Show the flights of this log">${l.num_flights}</a>`;
+      : `<a href="/logs#log${l.id}" onclick="event.preventDefault(); event.stopPropagation(); expanded.add(${l.id}); refresh()" title="Show the flights of this log">${l.num_flights}</a>`;
     const status = l.status === 'done' ? '' : `<span class="badge ${l.status}" title="${esc(l.error || '')}">${l.status}</span>`;
     const outdated = l.outdated ? `<span class="badge outdated" title="Parsed with ${esc(l.parser_name || 'parser')} ${esc(l.parser_version || '?')}; re-parse to update">outdated</span>` : '';
     const noLog = !l.has_log && (!l.log_type || l.log_type === 'onboard_sd' || l.log_type === 'gcs') ? ' · no .log' : '';
@@ -498,7 +272,7 @@ function dateField(l) {
     : l.date_estimated ? 'The calendar week is estimated from firmware and GPS. Enter the confirmed date; GPS time of day is kept.'
     : 'This log has no usable calendar date (often 1980 from GPS week 0). Enter the real date; the time of day from the log is kept.';
   const suggestion = l.date_suggestion ? `<br>Date probably <strong>${esc(l.date_suggestion.date)}</strong>: matches
-    <a href="/uploads#log${l.date_suggestion.gcs_log_id}" onclick="event.stopPropagation(); showLog(${l.date_suggestion.gcs_log_id})">GCS log ${l.date_suggestion.gcs_log_id}</a>
+    <a href="/logs#log${l.date_suggestion.gcs_log_id}" onclick="event.stopPropagation(); showLog(${l.date_suggestion.gcs_log_id})">GCS log ${l.date_suggestion.gcs_log_id}</a>
     (same aircraft, duration and time of day; ${l.date_suggestion.flights} flight(s), offset ${l.date_suggestion.offset_s} s)
     <button type="button" class="sec" onclick="event.stopPropagation(); acceptLogDateSuggestion(${l.id})">Accept</button>` : '';
   const setBy = l.date_override && l.date_override_by_name

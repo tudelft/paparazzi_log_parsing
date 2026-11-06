@@ -102,14 +102,18 @@ class HistoricalTests(AppTests):
                 self.assertEqual((response.status_code, response.mimetype), (200, "image/svg+xml"), name)
         self.assertEqual(self.client.get("/logos/missing.svg").status_code, 404)
 
-    def test_home_is_logbook_and_uploads_has_own_route(self):
+    def test_home_is_logbook_and_logs_has_own_route(self):
         for path in ("/", "/logbook"):
             with self.client.get(path) as response:
                 self.assertEqual(response.status_code, 200)
                 self.assertIn("<title>Flight logbook</title>", response.get_data(as_text=True))
-        with self.client.get("/uploads") as response:
+        with self.client.get("/logs") as response:
             self.assertEqual(response.status_code, 200)
-            self.assertIn('id="drop', response.get_data(as_text=True))
+            self.assertIn('id="logs"', response.get_data(as_text=True))
+        self.assertEqual(self.client.get("/uploads").status_code, 404)  # replaced by /logs
+        with self.client.get("/upload.js") as response:
+            self.assertIn("window.LogUpload", response.get_data(as_text=True))
+        self.assertIn("can_upload", self.client.get("/api/me").json)
 
     def test_create_read_update_delete_and_no_fake_logs(self):
         response = self.create()
