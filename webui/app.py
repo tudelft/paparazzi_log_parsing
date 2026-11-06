@@ -5478,7 +5478,8 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
         " (SELECT username FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name"
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id"
         " LEFT JOIN drones d ON d.id = a.drone_id"
-        f" WHERE {where} AND l.status = 'done' AND f.hidden=?"
+        # a log waiting for (or in) a re-parse keeps its previous flights until the new ones replace them in one go
+        f" WHERE {where} AND l.status IN ('done','queued','parsing') AND f.hidden=?"
         " ORDER BY COALESCE(f.takeoff_utc, l.start_utc) DESC, f.idx", (*params, int(hidden))).fetchall()
     names = {p["id"]: p["name"] for p in con.execute("SELECT id, name FROM projects")}
     prepared = []

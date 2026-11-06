@@ -1205,6 +1205,11 @@ background. The SHA-256 of the `.data` file identifies a log, so a known log is 
 added later). Files are kept in `<LOG_DIR>/<sha[:2]>/<sha>/` with the flight paths in `paths-<id>.json.gz`; uploads
 are staged in `<WEB_DATA>/incoming`. Each log records its parser version; **Re-parse outdated** re-runs the current
 parser on older and failed logs.
+While a log waits for or is in a re-parse (`queued`/`parsing`), the logbook read model (and so Logbook, Statistics,
+detail pages and flight pages) keeps its previous flights; the new ones replace them in one transaction. A log
+whose parse fails (`error`) is not shown. Automatic matching, date suggestions, the bulk MATLAB export and the
+Uploads counters still use only finished logs. The Logbook shows a notice while logs are waiting or being parsed
+(from `/api/status`, checked every 10 s) and reloads when the queue is empty.
 
 The Uploads **Filename** field adds `q`, a case-insensitive literal filename substring search across
 all accessible logs (and ingestion receipts in the failures view). It combines with status
