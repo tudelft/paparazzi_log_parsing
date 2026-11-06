@@ -430,7 +430,8 @@ is removed. Deleting a flight's parent log or a paper record removes the corresp
 Re-parsing retains links to flights with the same aircraft ID, flight index and takeoff time; if that
 flight no longer exists, its file links move to the parent log instead of losing the file.
 A key created as **read-only** (on My account, `read_only` in `POST /api/keys`) is refused (403) for every
-request other than GET and HEAD.
+request other than GET and HEAD, except the MATLAB export requests (`POST /api/logs/<id>/matlab`,
+`POST /api/flights/<id>/matlab`), which only read.
 API keys can upload files (`POST /api/attachments`) and link an existing file to more targets
 (`POST /api/attachments/<id>/links`) with the same permission checks; the upload returns the file `id`.
 Removing links (and so deleting files) requires a browser session.
@@ -485,8 +486,12 @@ at least six days old. No API key is required; the free service is
 expanded Logbook row offers, per Paparazzi source log (`onboard_sd`/`gcs` with its `.log`), **This flight**,
 **All flights** and **Whole log**, with progress and the download inside the menu. `POST /api/logs/<id>/matlab`
 (`scope` = `flight` with `flight_id`, `flights` or `log`) queues a job; `GET /api/matlab-exports/<job>` reports
-queued/running/ready/failed with progress and `/download` returns the file. All need a browser session (API keys
-get 403) and re-check that the user may see the log. Jobs are identified by log hash, scope, flight windows,
+queued/running/ready/failed with progress and `/download` returns the file.
+`POST /api/flights/<id>/matlab` exports one flight by its logbook number from that recording's own log (the same job
+as **This flight**); with `{"check": true}` or form field `check=1` it only returns the job id and status
+(`missing` when there is no such export), so MATLAB's `pprz_fetch` reuses a cached file until the id changes.
+These routes, the status and the download also accept API keys, read-only keys included (the requests are POSTs
+but only read); the bulk `.zip` needs a browser session. All re-check that the user may see the log. Jobs are identified by log hash, scope, flight windows,
 parser and exporter version, so the same request reuses a finished file. Finished files are published atomically
 to `WEB_DATA/exports` (local disk) with a JSON side file and kept two weeks; above `LOGDB_EXPORT_MAX_BYTES`
 (50 GiB) the oldest go first. `LOGDB_EXPORT_WORKERS` (1) bounds concurrent exports (each also uses up to 8
