@@ -3,6 +3,7 @@ function fig = pprz_view(logs)
 %   pprz_view               pick .mat / .zip files in a dialog
 %   pprz_view(path)         a .mat file, a folder or a bulk .zip
 %   pprz_view(logs)         exports loaded with pprz_load
+%   pprz_view([1234 1240])  flights from the logbook server by number (pprz_fetch; set it with pprz_server)
 %   Left: pick a flight, the time window (applied live to every plot), shading and event markers, tick plots
 %   (search; unlogged plots are greyed out) and press Plot. Plots open as tabs on the right; Undock moves one
 %   to its own figure. Click or drag in any time plot to move the cursor on all of them (arrow keys step it);
@@ -15,6 +16,8 @@ function fig = pprz_view(logs)
         logs = pprz_load();
     elseif ischar(logs) || isstring(logs)
         logs = pprz_load(logs);
+    elseif isnumeric(logs)
+        logs = pprz_fetch(logs);
     end
     if isempty(logs)
         fig = [];
@@ -41,7 +44,11 @@ function fig = pprz_view(logs)
         {'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', 'fit', '1x', 'fit', 'fit', 'fit', 'fit'});  % the tree grows
     heading(side, 'Flight');
     rows = arrayfun(@(r) row_label(T(r, :)), 1:height(T), 'UniformOutput', false);
-    pick = uidropdown(side, 'Items', rows, 'ItemsData', 1:height(T), 'ValueChangedFcn', @(~, ~) select());
+    fg = uigridlayout(side, [1 2], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', 'fit'});
+    pick = uidropdown(fg, 'Items', rows, 'ItemsData', 1:height(T), 'ValueChangedFcn', @(~, ~) select());
+    uibutton(fg, 'Text', 'From logbook…', 'Tooltip', ...
+        'Add flights from the logbook server by number (pprz_fetch; set the server with pprz_server)', ...
+        'ButtonPushedFcn', @(~, ~) add_from_logbook());
     info = uilabel(side, 'Text', '', 'WordWrap', 'on', 'FontColor', [0.4 0.4 0.4], 'FontSize', 11);
 
     window_label = heading(side, 'Time window');
@@ -128,6 +135,31 @@ function fig = pprz_view(logs)
     select();
 
     % ---- flight and plot list
+    function add_from_logbook()
+        answer = inputdlg('Flight numbers (as in /flight/<number>), separated by spaces or commas:', ...
+            'From logbook', [1 50]);
+        ids = str2double(regexp(strjoin(answer, ' '), '\d+', 'match'));
+        if isempty(ids)
+            return
+        end
+        try
+            added = pprz_fetch(ids);
+        catch err
+            uialert(fig, err.message, 'From logbook');
+            return
+        end
+        before = numel(logs);
+        logs = [logs(:)', added(:)'];
+        T = pprz_flights(logs);
+        T = T(T.has_data, :);
+        rows = arrayfun(@(r) row_label(T(r, :)), 1:height(T), 'UniformOutput', false);
+        pick.Items = rows;
+        pick.ItemsData = 1:height(T);
+        first = find(T.log > before, 1);  % show the first added flight
+        pick.Value = ifelse(isempty(first), pick.Value, first);
+        select();
+    end
+
     function select_row(row)
         pick.Value = row;
         select();

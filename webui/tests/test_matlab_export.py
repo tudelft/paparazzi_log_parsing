@@ -356,12 +356,40 @@ class MatlabExportRouteTests(MatlabRouteFixture):
         self.assertEqual(self.ask(scope="log").status_code, 404)
         self.assertEqual(self.client.get(f"/api/matlab-exports/{job}").status_code, 404)
         self.assertEqual(self.client.get("/api/matlab-exports/not-a-job").status_code, 404)
+        response = self.client.post("/api/logs/1/matlab", json=dict(scope="log"), headers=self.key(1, False))
+        self.assertEqual(response.status_code, 202)  # API keys may export (scripts such as pprz_fetch)
+
+    def key(self, user_id, read_only):
         original = self.ns["user_for_key"]
         self.addCleanup(self.ns.__setitem__, "user_for_key", original)
-        self.ns["user_for_key"] = lambda token: self.con.execute("SELECT * FROM users WHERE id=1").fetchone()
-        response = self.client.post("/api/logs/1/matlab", json=dict(scope="log"),
-                                    headers={"Authorization": "Bearer test-only"})
-        self.assertEqual(response.status_code, 403)  # API keys cannot export
+        user = dict(self.con.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone(), key_read_only=read_only)
+        self.ns["user_for_key"] = lambda token: user
+        return {"Authorization": "Bearer test-only"}
+
+    def test_flight_export_by_logbook_number_with_a_read_only_key(self):
+        headers = self.key(2, True)
+        check = self.client.post("/api/flights/10/matlab", json={"check": True}, headers=headers)
+        self.assertEqual(check.status_code, 200)
+        self.assertEqual((check.json["status"], check.json["log_id"], check.json["flight_id"]), ("missing", 1, 10))
+        self.assertEqual(self.jobs.jobs, {})  # a check queues nothing
+        form = self.client.post("/api/flights/10/matlab", data={"check": "1"}, headers=headers)  # MATLAB/Octave form
+        self.assertEqual((form.status_code, form.json["id"]), (200, check.json["id"]))
+        self.assertEqual(self.jobs.jobs, {})
+        queued = self.client.post("/api/flights/10/matlab", json={}, headers=headers)
+        self.assertEqual(queued.status_code, 202)
+        self.assertEqual(queued.json["id"], check.json["id"])
+        self.assertEqual(queued.json["id"], self.ask(scope="flight", flight_id=10).json["id"])  # same as the web menu
+        self.assertEqual(queued.json["filename"], "26_10_21__09_04_50_SD_flight_10.mat")
+        self.jobs.finish(queued.json["id"], b"mat")
+        ready = self.client.post("/api/flights/10/matlab", json={"check": True}, headers=headers).json
+        self.assertEqual((ready["status"], ready["download"]), ("ready", f"/api/matlab-exports/{queued.json['id']}/download"))
+        self.assertEqual(self.client.get(ready["download"], headers=headers).data, b"mat")
+        self.assertEqual(self.client.post("/api/flights/99/matlab", json={}, headers=headers).status_code, 404)
+        self.assertEqual(self.client.post("/api/matlab-bulk", json={"entries": [[10]]}, headers=headers).status_code,
+                         403)  # other POSTs stay closed to read-only keys
+        outsider = self.key(4, True)
+        self.assertEqual(self.client.post("/api/flights/10/matlab", json={}, headers=outsider).status_code, 404)
+        self.assertEqual(self.client.get(ready["download"], headers=outsider).status_code, 404)
 
 
 @unittest.skipUnless(h5py is not None, "needs h5py")

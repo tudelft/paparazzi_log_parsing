@@ -4,6 +4,18 @@ Tools to load, plot and analyse Paparazzi flights exported by the flight logbook
 
 ## Get a .mat file
 
+- **Straight into MATLAB from the logbook server**, by flight number (the number in `/flight/<number>`). Create an
+  API key once under **My account** (read-only is enough):
+
+  ```matlab
+  pprz_server('https://logs.example.org', 'API-KEY')   % once; kept in MATLAB's preferences
+  T = pprz_logbook();                                   % table of the flights you may see (flight, date, aircraft, …)
+  logs = pprz_fetch([1234 1240]);                       % or pprz_view([1234 1240]), or From logbook… in pprz_view
+  ```
+
+  Each flight is exported from its own log ("This flight") and kept in a cache folder (`pprz_server('cache',
+  folder)`; default in `prefdir`). A cached file is reused until the export would change (new log version,
+  parser or logbook corrections such as the crew); without a connection the last cached copy is used.
 - **From the logbook:** **MATLAB ▾** on a flight page or an expanded Logbook row (this flight, all flights or
   the whole log), or tick flights and use **MATLAB ▾** next to "N selected" for a `.zip` with one `.mat` per log.
 - **Offline, from a local `.data` with its `.log` next to it** (plain or `.gz`), with the same result:
@@ -35,6 +47,9 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | Function | Use |
 |---|---|
 | `pprz_load` | Load `.mat` files, folders or bulk `.zip` files into a struct array of exports. |
+| `pprz_server` | Set (or show) the logbook server, API key and cache folder for `pprz_fetch` and `pprz_logbook`. |
+| `pprz_fetch(ids)` | Load flights from the logbook server by flight number, cached locally; `'force', true` downloads again. |
+| `pprz_logbook` | Table of the logbook flights the key may see, to pick numbers for `pprz_fetch` (`'all', true` adds uncertain and ground records). |
 | `pprz_flights` | Table of all flights (row numbers for `pprz_flight`); flight 0 is a whole-log export. |
 | `pprz_flight` | One flight ready to plot: `f.data`, `f.time`, `f.summary`, `f.aircraft`, `f.messages`, `f.title`. A flight in a whole-log export is cut from the log. |
 | `pprz_plot` | Make plots by name, or every plot whose messages were logged; options `modes` (`ap`/`rc`), `range` [t0 t1], `docked`, `events` (markers: `true` or kinds such as `{'mode', 'message'}`). |

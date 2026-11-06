@@ -8,6 +8,7 @@ function logs = pprz_load(varargin)
 %
 %   Returns a struct array of the exported s structs (see README.md), each with the field 'file' added.
 %   Convert a local .data/.log first with: python3 webui/matlab_export.py LOG.data [--flights]
+%   Flights from the logbook server: pprz_fetch (see pprz_server).
     if nargin == 0
         [names, folder] = uigetfile({'*.mat;*.zip', 'Logbook MATLAB exports (*.mat, *.zip)'}, ...
             'Select exports', 'MultiSelect', 'on');
