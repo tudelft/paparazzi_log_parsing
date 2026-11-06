@@ -103,6 +103,52 @@ html.night .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.
   border:1px solid #3d5168; border-radius:6px; padding:2px 8px; cursor:pointer;
 }
 #nightBtn:hover { color:#fff; }
+.menu-panel #nightBtn { border:0; padding:7px 10px; color:var(--txt); }
+
+/* Directory ▾ and the name menu in the header (theme.js); the panels are fixed so #nav's scrolling does not clip them */
+body > header #nav .nav-drop { display:flex; align-items:center; padding:0 14px; color:#9fb0c3; background:none; border:0;
+  border-bottom:3px solid transparent; border-top:3px solid transparent; font:inherit; cursor:pointer; white-space:nowrap; }
+body > header #nav .nav-drop:hover, body > header #nav .nav-drop[aria-expanded="true"] { color:#fff; background:rgba(255,255,255,.07); }
+body > header #nav .nav-drop.cur { color:#fff; font-weight:600; background:rgba(255,255,255,.1); border-bottom-color:#58a6ff; }
+@media (max-width: 1150px) { body > header #nav .nav-drop { padding:0 9px; } }
+.menu-panel { position:fixed; z-index:2100; min-width:170px; padding:6px; background:var(--card); color:var(--txt);
+  border:1px solid var(--line); border-radius:8px; box-shadow:0 10px 30px #0003; font-size:14px; white-space:nowrap; }
+.menu-panel[hidden] { display:none; }
+.menu-panel a, .menu-panel button { display:block; width:100%; box-sizing:border-box; text-align:left; padding:7px 10px;
+  border:0; border-radius:6px; background:none; color:var(--txt); font:inherit; text-decoration:none; cursor:pointer; }
+.menu-panel a:hover, .menu-panel button:hover, .menu-panel a:focus-visible, .menu-panel button:focus-visible { background:var(--sec); }
+.menu-panel a.cur { font-weight:600; background:var(--sec); }
+.menu-panel hr { border:0; border-top:1px solid var(--line); margin:4px 0; }
+body > header .header-actions { display:flex; align-items:center; gap:8px; }
+#uploadBtn { font:inherit; font-size:14px; font-weight:600; background:#1f6feb; color:#fff; border:1px solid #1f6feb;
+  border-radius:6px; padding:5px 12px; cursor:pointer; white-space:nowrap; }
+#uploadBtn:hover { background:#388bfd; }
+#userMenuBtn { font:inherit; background:none; border:0; color:#c9d5e2; cursor:pointer; padding:4px 2px; white-space:nowrap;
+  max-width:16em; overflow:hidden; text-overflow:ellipsis; }
+#userMenuBtn:hover { color:#fff; }
+@media (max-width:750px) { #uploadBtn .upload-label { display:none; } }
+
+/* Upload dialog (upload.js) */
+.upload-back { position:fixed; inset:0; z-index:2200; background:#0006; display:flex; align-items:flex-start; justify-content:center;
+  padding:80px 12px 12px; overflow:auto; }
+.upload-back[hidden] { display:none; }
+.upload-dialog { background:var(--card); color:var(--txt); border-radius:10px; width:560px; max-width:100%; padding:18px 20px;
+  box-shadow:0 12px 40px #0005; }
+.upload-dialog .dialog-header h2 { margin:0; font-size:18px; }
+.upload-zone { border:2px dashed var(--line); border-radius:8px; padding:20px; text-align:center; color:var(--mute); }
+.upload-zone.over { border-color:var(--acc); background:var(--sec); }
+.upload-zone strong { color:var(--txt); display:block; margin-bottom:4px; }
+.upload-zone .upload-buttons { display:flex; gap:8px; justify-content:center; margin-top:12px; }
+.upload-zone .upload-buttons button { font:inherit; padding:6px 12px; border-radius:6px; border:1px solid var(--line); background:var(--sec); color:var(--txt); cursor:pointer; }
+.upload-zone .upload-buttons button.primary { background:#1f6feb; border-color:#1f6feb; color:#fff; }
+.upload-dialog details { margin-top:10px; font-size:13px; color:var(--mute); }
+.upload-dialog #uploadBatch { margin-top:12px; font-size:14px; }
+.upload-dialog #uploadNotes { margin-top:6px; font-size:13px; }
+.upload-recent { margin-top:14px; font-size:13px; }
+.upload-recent h3 { margin:0 0 4px; font-size:13px; }
+.upload-recent .row { display:flex; gap:10px; justify-content:space-between; padding:5px 0; border-top:1px solid var(--line); }
+.upload-recent .row a { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.upload-recent .ok { color:var(--ok); } .upload-recent .busy { color:var(--warn); } .upload-recent .bad { color:var(--err); }
 #flightFiltersMenu { flex:0 0 auto; }
 #flightFiltersButton {
   font:inherit; font-size:12px; background:#263b54; color:#d6e6f6; border:1px solid #7299c2;

@@ -47,7 +47,7 @@ Day-to-day:
     sudo systemctl start flight-logs-backup          # back up now
     sudo -u logdb /opt/flight-logs/app/webui/venv/bin/python /opt/flight-logs/app/webui/app.py check-config
 
-After an update that changes the parser version, click **Re-parse outdated** on the Uploads page (in Edit mode).
+After an update that changes the parser version, click **Re-parse outdated** on the Logs page (in Edit mode).
 
 An ordinary update automatically reloads the installer if Git changes it, even when running the
 installed copy directly. One invocation updates the code, dependencies and service files. First
@@ -276,7 +276,7 @@ only produce a warning; smaller differences leave companion timing unchanged.
 Missing companion timing can be recovered from consistent GPS evidence. Insufficient/inconsistent
 evidence or conflicting aircraft clocks retain the companion clock with a warning.
 
-Uploads details and the flight Overview's **Log sources and upload details** show the original
+Logs details and the flight Overview's **Log sources and upload details** show the original
 companion start, effective start, parser correction in seconds, source and any warning for the selected
 recording. Manual calendar-date overrides remain authoritative and survive reparsing; the parser's
 original clock evidence remains visible. Old results have no clock evidence until reparsed. All absolute
@@ -296,7 +296,7 @@ relative to recording time zero, including continuity across Sunday rollover.
 the log's own protocol and adds `sha1`, `build_time_utc` and `mcu_uid` (hex) to each firmware entry; a
 full `sha1` replaces the short `-g<hash>` from `desc` as the revision, so GitHub resolves it exactly.
 Zero/empty values are `null`. Logs without these fields parse as before; `raw` stays `version desc`. The flight page
-(Software) and the Uploads log details show the full commit, build time and board ID; MATLAB exports add
+(Software) and the Logs log details show the full commit, build time and board ID; MATLAB exports add
 them to `s.aircraft(i).version`. An empty array prints as no token, so the column exporter accepts missing
 trailing array fields as empty (a board without a unique ID). PX4 and ArduPilot logs are unaffected.
 
@@ -333,7 +333,7 @@ fingerprints, never plaintext tokens. Rate-limit/network failures temporarily pa
 across hashes. Parsing still completes with explicit warnings, retaining unknown dates when no
 estimate can be supported. After fixing configuration or waiting for cache expiry, use the individual
 log's **Re-parse** action to retry, or as an administrator use **Re-parse unknown dates**
-on the Uploads page. This queues completed logs with missing or implausible dates even when
+on the Logs page. This queues completed logs with missing or implausible dates even when
 their parser version is current. It skips manual date overrides, plausible dates (including
 estimated dates), failed logs and logs already queued or parsing. It uses the same project
 scope as **Re-parse outdated**, not the displayed page or date filters. Repository/token changes
@@ -350,7 +350,7 @@ recording of the same flight: same aircraft (fleet link, else logged name), same
 time of day (±30 s), at least 60 s long (short flights match too many others), and no dated onboard partner yet.
 Every matched flight of the log must have exactly one such GCS flight, no other undated flight may claim it,
 and all must agree on the day; the result is a **suggestion** shown in the log details ("Date probably
-2020-07-22: matches GCS log 713 …") with **Accept**. Admins get **Accept date suggestions (N)** on the Uploads
+2020-07-22: matches GCS log 713 …") with **Accept**. Admins get **Accept date suggestions (N)** on the Logs
 page (`GET/POST /api/admin/date-suggestions`). Accepting sets the normal date override and records who set it
 and why (`date_override_by`, `date_override_note`); a date typed by hand records the person only. Nothing is
 changed without a person accepting it.
@@ -370,7 +370,7 @@ the week remains uncertain and later seven-day alternatives remain possible.
 
 The estimate shifts all absolute recording/aircraft/event/message/path timestamps, not durations
 or relative times. Original timing, evidence and estimate basis remain stored. The Web UI labels
-estimated dates in Uploads, Logbook, entity histories and flight details; they follow normal period
+estimated dates in Logs, Logbook, entity histories and flight details; they follow normal period
 filters and are not hidden by **Show unknown dates** being off. The API exposes `date_estimated`
 separately from `date_ok`. Estimated clocks are not used for automatic source merging or automatic
 paper associations until manually confirmed; explicit joins remain available. Manual date overrides
@@ -398,7 +398,7 @@ Tabs support keyboard arrows and can be linked directly, for example `/flight/42
 
 **Paparazzi pre-flight checklist (parser 1.8.1).** All recorded `[PFC]` events, including
 PIC, PAC, GCS operator and goal, appear in the Checklist tab on the flight page and expanded
-Uploads log. Crew and goal extraction remains unchanged. Each aircraft's embedded airframe
+Logs entry. Crew and goal extraction remains unchanged. Each aircraft's embedded airframe
 `<checklist><item name="key">Full text</item></checklist>` supplies descriptions for matching
 `key: answer` messages. The parser retains the original `text`, `time_s` and `utc`, adding
 `checklist_label` and `checklist_value` when a definition matches. XML entities and CDATA are
@@ -775,9 +775,15 @@ is ticked. A person counts as having logs as uploader or as linked PIC/PAC/GCS; 
 selected in Edit mode stays listed. Non-admins only count qualifications they may see.
 Logbook has no top-level project filter and no longer applies a previously saved project filter.
 Project reassignment controls in Edit mode remain available.
-The menu puts Logbook (`/`) first, followed by Uploads (`/uploads`), Statistics, Aircraft, People, Projects and Locations. Training (`/training`) is added when `LOGDB_TRAINING=1`.
-`/logbook` remains a working alias. Upload log-detail anchors use `/uploads#log<id>`.
-The Uploads list has one line per log (date, log with its size, aircraft, project, flights, flight time, status;
+The menu (`theme.js`) has Logbook (`/`), Statistics, **Directory ▾** (Aircraft, People, Projects, Locations, then Logs
+at `/logs`) and Training (`/training`, when `LOGDB_TRAINING=1`), then the flight filters. On the right: **⬆ Upload
+logs** (for admins and members with add or full access on a project, `can_upload` in `/api/me`), Edit (pages that
+have it) and the name menu (My account, Night mode, Sign out). Menus close on a click elsewhere or Escape.
+The upload dialog (`upload.js`, loaded on first use) takes files, zips and folders, also dropped anywhere on a page,
+sends them in batches to `/api/upload` and lists **Your recent uploads** (`/api/logs?mine=1`) with their parsing
+status; the open page refreshes on its `logsuploaded` event. `/logbook` remains a working alias; `/uploads` was
+replaced by `/logs` (log-detail anchors `/logs#log<id>`).
+The Logs list has one line per log (date, log with its size, aircraft, project, flights, flight time, status;
 admins also see who uploaded it and when). A log with one flight links straight to its flight page; several open
 the log, where each flight links to its page. Status shows only what needs attention (queued, parsing, error,
 outdated); the **outdated** / **date unknown** badges filter the list (`/api/logs?status=outdated|date_unknown`).
@@ -922,15 +928,15 @@ and Help. Breakdown cards show name, flights and hours, with the top five entrie
 visible initially and Show all / Show fewer controls. Cards share a 320px minimum height for
 short lists; expanded cards grow independently. Use the main navigation or browser Back to leave a detail page.
 
-**List navigation.** Logbook and Uploads use query parameters `page`, `size` and `q`;
+**List navigation.** Logbook and Logs use query parameters `page`, `size` and `q`;
 Logbook also stores `group=none` (the default is Group by day) and
-`hidden=1`, while Uploads stores `status` and `log`. Legacy Uploads `#log123` links
+`hidden=1`, while Logs stores `status` and `log`. Legacy Logs `#log123` links
 still open that log. Entity detail pages use independent `flights_page` / `flights_size`
 and `logs_page` / `logs_size`, plus the chart's `step`. Defaults are omitted.
 The shared flight-filter snapshot uses `period` (always explicit), custom `from` / `to`
 and enabled `indoor`, `nonflights`, `unknown_dates` flags. This prevents later changes to
 browser-wide preferences from altering an older history entry; restoring an entry does
-not overwrite the saved browser-wide preference. Uploads still lists uploads independently
+not overwrite the saved browser-wide preference. Logs still lists logs independently
 of the flight filters. Page changes and applied view options create history entries;
 typing a search replaces the current entry. Polling and page clamping never add entries.
 The shared helpers in `static/theme.js` restore controls on Back/Forward and keep scroll,
@@ -1193,7 +1199,7 @@ Transient network failures and HTTP 408/429/500/502/503/504 retry with exponenti
 `Retry-After`. `--retries` defaults to 3 (0 disables request retries); bulk capacity waits continue up to
 their wait limit. Upload retries reopen the original files instead of keeping them in memory.
 Rerunning skips already stored pairs; existing parser-error logs are not automatically reparsed
-(use the Uploads page). A timed-out upload may still complete on the server.
+(use the Logs page). A timed-out upload may still complete on the server.
 
 ## How it works
 
@@ -1208,14 +1214,14 @@ parser on older and failed logs.
 While a log waits for or is in a re-parse (`queued`/`parsing`), the logbook read model (and so Logbook, Statistics,
 detail pages and flight pages) keeps its previous flights; the new ones replace them in one transaction. A log
 whose parse fails (`error`) is not shown. Automatic matching, date suggestions, the bulk MATLAB export and the
-Uploads counters still use only finished logs. The Logbook shows a notice while logs are waiting or being parsed
+Logs counters still use only finished logs. The Logbook shows a notice while logs are waiting or being parsed
 (from `/api/status`, checked every 10 s) and reloads when the queue is empty.
 
-The Uploads **Filename** field adds `q`, a case-insensitive literal filename substring search across
+The Logs **Filename** field adds `q`, a case-insensitive literal filename substring search across
 all accessible logs (and ingestion receipts in the failures view). It combines with status
 and project filters; changing the search returns to the first page and leaves single-log mode.
 
-The Uploads **Status** dropdown filters `/api/logs` before counting and pagination:
+The Logs **Status** dropdown filters `/api/logs` before counting and pagination:
 `status=all` (default), `errors` (parser errors), `unfinished` (queued/parsing/error), or
 `failures` (parser errors plus error/rejected ingestion receipts). The combined failures view
 sorts by upload timestamp, with stable ID/type tie-breaks; ordinary log views retain descending
@@ -1243,7 +1249,7 @@ upload supplies a `.log` the log lacked).
   (`is_uploader`). Deleting a log stays with the first uploader (when it has no project), full project members
   and admins, so a co-uploader cannot remove the file for everyone.
 - **Shown** in the log details ("Uploaded … by A, also uploaded by B · date") and on B's person page.
-- **Uploads page.** `/api/status` lists the logs the user became co-uploader of in the last hour
+- **Logs page and upload dialog.** `/api/status` lists the logs the user became co-uploader of in the last hour
   (`co_uploaded`); the page shows them with a link that opens that one log (`/api/logs?log=<id>`, also used by
   every `/uploads#log<id>` link, with *Show all logs* to return).
 - **Scripts.** `/api/logs/check` reports `mine` per known hash. `upload_logs.py` skips only files the user

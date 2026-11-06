@@ -209,7 +209,7 @@ async function checkParsing() {
   $('parseNotice').hidden = !pending;
   if (pending) {
     $('parseNotice').innerHTML = `<strong>Parsing logs:</strong> ${pending} of ${total} logs are still waiting or being parsed;
-      results may change and new uploads appear when they are done. <a href="/uploads">Uploads</a>`;
+      results may change and new uploads appear when they are done. <a href="/logs">Logs</a>`;
     parseNoticeTimer = setTimeout(checkParsing, 10000);
   } else if (wasShown) {
     loadFlights();

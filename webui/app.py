@@ -843,7 +843,7 @@ def no_cache_pages(resp):
             "/api/detail/people/", "/api/users/", "/api/qualification-", "/api/admin/qualification-", "/api/admin/users/")):
         resp.headers["Cache-Control"] = "private, no-store"
     if resp.mimetype == "text/html" or request.path in ("/theme.css", "/theme.js", "/attachments.js",
-                                                        "/qualifications.js", "/matlab.js"):
+                                                        "/qualifications.js", "/matlab.js", "/upload.js"):
         resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -861,6 +861,11 @@ def theme_js():
 @app.get("/matlab.js")
 def matlab_js():
     return send_from_directory(PAGES_DIR, "matlab.js")
+
+
+@app.get("/upload.js")
+def upload_js():
+    return send_from_directory(PAGES_DIR, "upload.js")
 
 
 @app.get("/favicon.svg")
@@ -1175,7 +1180,8 @@ def check_logs():
 
 @app.get("/api/me")
 def me():
-    return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION, training=env_bool("TRAINING"))
+    return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION, training=env_bool("TRAINING"),
+                   can_upload=can_upload_any(conn()))
 
 
 @app.get("/api/people")
@@ -4768,7 +4774,7 @@ def visible_log(con, log_id, columns="*"):
     return row
 
 
-@app.get("/uploads")
+@app.get("/logs")
 def index():
     return send_from_directory(PAGES_DIR, "index.html")
 
@@ -5999,7 +6005,11 @@ def list_logs():
     elif status_filter == "date_unknown":
         where += " AND l.status='done' AND l.date_override IS NULL AND (l.start_utc IS NULL OR l.start_utc < ?)"
         params = (*params, f"{CLOCK_MIN_YEAR:04d}-01-01")
-    if request.args.get("log", "").isdigit():  # /uploads#log<id> opens that one log, wherever it is in the list
+    if request.args.get("mine") == "1":  # the upload dialog's "Your recent uploads"
+        mine, mine_params = uploader_clause("l.")
+        where += " AND " + mine
+        params = (*params, *mine_params)
+    if request.args.get("log", "").isdigit():  # /logs#log<id> opens that one log, wherever it is in the list
         where += " AND l.id=?"
         params = (*params, int(request.args["log"]))
     con = conn()
