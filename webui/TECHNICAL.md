@@ -1672,7 +1672,8 @@ attitude, battery) although the map stays empty.
 127 = not available, the weakest node counts) are added to each path point as `link` and summarised per flight
 (`link`: mean/max ping, longest gap, bad-frame percentage, weakest signal; reports after the landing time are
 ignored because the ground station keeps reporting the silence at the end of a log). The summary is stored in
-`flights.link_json`. The flight page shows it as **Datalink** and offers Ping, Longest link gap and Signal series
+`flights.link_json`. The flight page shows it as one short **Datalink** line (mean ping · longest gap, ground or uplink · weakest
+signal) with the full summary on hover, and offers Ping, Longest link gap and Signal series
 and Datalink and Signal strength chart presets.
 Actuator commands (`ACTUATORS`, raw values, named after the airframe's servos or `ACT_<n>`) appear as an
 **Actuators** series group and chart preset when the log has them. The logbook marks a flight with **(link)** when the longest gap is at least 3 s or at

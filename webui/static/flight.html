@@ -419,8 +419,19 @@ const linkSummary = e => {
   if (l.min_rssi_ac_dbm != null) parts.push(`${l.min_rssi_ac_dbm} dBm aircraft side`);
   if (l.longest_uplink_gap_s != null) parts.push(`longest uplink gap ${l.longest_uplink_gap_s} s`);
   if (l.uplink_error_pct != null && l.uplink_error_pct > 0) parts.push(`${l.uplink_error_pct.toFixed(1)}% bad uplink frames`);
+  return parts.join(' · ');
+};
+// One short datalink line (mean ping · longest gap, ground or uplink · weakest signal); the full summary on hover.
+const linkShort = e => {
+  const l = e.link;
+  if (!l) return '';
+  const gaps = [l.longest_gap_s, l.longest_uplink_gap_s].filter(g => g != null);
+  const parts = [l.mean_ping_ms != null ? `${Math.round(l.mean_ping_ms)} ms` : '',
+    gaps.length ? `gap ${Math.max(...gaps).toFixed(1)} s` : '',
+    l.min_rssi_dbm != null ? `${l.min_rssi_dbm} dBm` : ''].filter(Boolean);
   if (!parts.length) return '';
-  return e.link_warning ? `<span style="color:var(--warn)" title="${esc(e.link_warning)}">${esc(parts.join(' · '))}</span>` : esc(parts.join(' · '));
+  const tip = linkSummary(e) + (e.link_warning ? ` (${e.link_warning})` : '');
+  return `<span title="${esc(tip)}"${e.link_warning ? ' style="color:var(--warn)"' : ''}>${esc(parts.join(' · '))}</span>`;
 };
 const wind = x => windTxt(x?.wind);
 // INS state is engineering detail: listed under Log sources, not in the summary.
@@ -458,7 +469,7 @@ function renderSummary() {
         ${kv('Landing', (landingTime ? esc(landingTime) + ' · ' : '') + place(e.landing_place, e.landing_lat, e.landing_lon, e.landing_place_id, e.landing)
           + (e.landing_location_inferred ? ' <span class="mute">(location inferred from takeoff)</span>' : ''))}
         ${kv('Distance flown', fmtDist(e.distance_m))}${kv('Max from takeoff', fmtDist(e.max_from_takeoff_m))}${kv('At landing', fmtDist(e.from_takeoff_m))}
-        ${kv('Battery', pair(e, volts))}${kv('Wind (logged)', pair(e, wind))}${kv('Datalink', linkSummary(e))}
+        ${kv('Battery', pair(e, volts))}${kv('Wind (logged)', pair(e, wind))}${kv('Datalink', linkShort(e))}
       </div></div>
       <div><h3>Crew</h3><div class="kv">${kv('PIC', crewField(e, 'pic'))}${kv('PAC', crewField(e, 'pac'))}${kv('GCS operator', crewField(e, 'gcs'))}</div></div>
       <div><h3>Operation</h3><div class="kv">
