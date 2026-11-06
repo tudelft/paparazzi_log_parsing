@@ -11,6 +11,16 @@ find_package(Threads REQUIRED)
 
 add_executable(paparazzi_log_parsing fastreader.cpp export_columns.cpp)
 target_link_libraries(paparazzi_log_parsing Threads::Threads)
+if(MSVC)
+  target_compile_options(paparazzi_log_parsing PRIVATE /utf-8 /EHsc)
+  target_compile_definitions(paparazzi_log_parsing PRIVATE _CRT_SECURE_NO_WARNINGS)  # fopen is fine here
+endif()
+
+# The Blackbox decoder is only needed by the Web UI for Betaflight/INDIFlight logs, not for MATLAB conversions
+option(BUILD_BLACKBOX "Build blackbox_decode for .bfl/.bbl logs" ON)
+if(NOT BUILD_BLACKBOX)
+  return()
+endif()
 
 set(BLACKBOX_SRC
   blackbox-tools/src/blackbox_decode.c
@@ -25,7 +35,10 @@ set(BLACKBOX_SRC
 add_executable(blackbox_decode ${BLACKBOX_SRC})
 target_include_directories(blackbox_decode PRIVATE blackbox-tools/src)
 target_compile_definitions(blackbox_decode PRIVATE _DEFAULT_SOURCE)
-target_link_libraries(blackbox_decode Threads::Threads m)
+target_link_libraries(blackbox_decode Threads::Threads)
+if(NOT WIN32)
+  target_link_libraries(blackbox_decode m)
+endif()
 # Vendored upstream code is kept unchanged; silence its two known harmless warnings
 target_compile_options(blackbox_decode PRIVATE
   $<$<C_COMPILER_ID:GNU>:-Wno-discarded-qualifiers -Wno-unused-result>

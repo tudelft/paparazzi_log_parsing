@@ -21,13 +21,14 @@
 // a time or aircraft id: top.f64 + top.txt. Progress goes to stderr as "progress <fraction>".
 // The clock-wrap correction only applies when the time jumps back by more than 2000 s (old onboard logs);
 // other logs keep their timestamps unchanged.
+#include "platform.h"  // first: Windows needs _USE_MATH_DEFINES before <cmath>
 #include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <fcntl.h>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -36,8 +37,6 @@
 #include <string_view>
 #include <tuple>
 #include <unordered_map>
-#include <sys/stat.h>
-#include <unistd.h>
 #include <vector>
 
 void write_config_names(const std::string &log_file, std::ostream &out);  // fastreader.cpp
@@ -192,13 +191,17 @@ int export_columns(int argc, char *argv[])
     }
   }
 
-  const int fd = data_file == "-" ? STDIN_FILENO : open(data_file.c_str(), O_RDONLY);
-  struct stat st;
-  if (fd < 0 || fstat(fd, &st) != 0) {
+  if (data_file == "-") { binary_stdin(); }
+  FILE *in = data_file == "-" ? stdin : std::fopen(data_file.c_str(), "rb");
+  if (!in) {
     std::cerr << " - Cannot open DATA file\n";
     return 1;
   }
-  if (S_ISREG(st.st_mode) && expected_size <= 0) { expected_size = static_cast<double>(st.st_size); }
+  std::error_code size_error;
+  if (data_file != "-" && expected_size <= 0) {
+    const auto bytes = std::filesystem::file_size(data_file, size_error);
+    if (!size_error) { expected_size = static_cast<double>(bytes); }
+  }
 
   std::vector<std::unique_ptr<Stream>> owned;
   std::unordered_map<uint64_t, Stream *> streams;  // (window, aircraft, message) -> stream
@@ -365,8 +368,8 @@ int export_columns(int argc, char *argv[])
   std::vector<char> buf(16u << 20);
   size_t have = 0;
   while (true) {
-    const ssize_t n = read(fd, buf.data() + have, buf.size() - have);
-    if (n < 0) {
+    const size_t n = std::fread(buf.data() + have, 1, buf.size() - have, in);
+    if (n == 0 && std::ferror(in)) {
       std::cerr << " - Cannot read DATA file\n";
       return 1;
     }
@@ -392,9 +395,11 @@ int export_columns(int argc, char *argv[])
     if (have == buf.size()) { buf.resize(buf.size() * 2); }  // a single line longer than the buffer
   }
 
+  if (in != stdin) { std::fclose(in); }
+
   bool failed = false;
   auto done = [&](Out &o) { o.flush(); failed |= o.failed; };
-  std::ofstream man(out_dir + "/manifest.tsv");
+  std::ofstream man(out_dir + "/manifest.tsv", std::ios::binary);  // \n line ends on Windows too
   for (auto &s : owned) {
     done(s->scalar);
     man << "stream\t" << s->id << "\t" << s->window << "\t" << s->ac << "\t" << s->msg << "\t" << s->rows << "\n";

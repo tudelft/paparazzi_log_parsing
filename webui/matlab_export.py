@@ -1132,17 +1132,25 @@ def convert(fastreader, data_path, out_path, scope="log", progress=lambda fracti
                       extras=extras)
 
 
+def default_parser():
+    """The self-built parser in cpp/build (Release subfolder for Visual Studio builds), else LOGDB_FASTREADER."""
+    if os.environ.get("LOGDB_FASTREADER"):
+        return os.environ["LOGDB_FASTREADER"]
+    name = "paparazzi_log_parsing" + (".exe" if os.name == "nt" else "")
+    build = Path(__file__).resolve().parent.parent / "cpp" / "build"
+    return str(next((p for p in (build / name, build / "Release" / name) if p.is_file()), build / name))
+
+
 def main(argv=None):
     import argparse
-    here = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description="Convert Paparazzi .data/.log files to MATLAB (format 5), as the "
                                      "Web UI export does. The .log must be next to its .data (plain or .gz).")
     parser.add_argument("data", nargs="+", help=".data files (or .data.gz)")
     parser.add_argument("--flights", action="store_true", help="only the detected flights, each from 10 s before "
                         "takeoff to 10 s after landing (default: the whole log)")
     parser.add_argument("-o", "--out", help="output .mat (one input) or folder (default: next to the .data)")
-    parser.add_argument("--parser", default=os.environ.get("LOGDB_FASTREADER", str(
-        here.parent / "cpp" / "build" / "paparazzi_log_parsing")), help="path of the built C++ parser")
+    parser.add_argument("--parser", default=default_parser(), help="path of the C++ parser (self-built or downloaded "
+                        "by MATLAB's pprz_setup; default: cpp/build)")
     args = parser.parse_args(argv)
     if not Path(args.parser).is_file():
         parser.error(f"parser not found at {args.parser}; build cpp/ first (see matlab/README.md)")

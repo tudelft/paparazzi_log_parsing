@@ -5,6 +5,7 @@
  * the handful of messages that are needed. No XML/pprzlink/boost needed.
  */
 
+#include "platform.h"  // first: Windows needs _USE_MATH_DEFINES before <cmath>
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -25,10 +26,6 @@
 #include <string_view>
 #include <vector>
 
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 namespace
 {
@@ -1118,7 +1115,7 @@ std::string utc_iso(double epoch)
   int ms = static_cast<int>((epoch - sec) * 1000 + 0.5);
   if (ms == 1000) { sec++; ms = 0; }
   struct tm tm;
-  gmtime_r(&sec, &tm);
+  utc_tm(sec, tm);
   char buf[128];
   snprintf(buf, sizeof(buf), "\"%04d-%02d-%02dT%02d:%02d:%02d.%03dZ\"", tm.tm_year + 1900, tm.tm_mon + 1,
            tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, ms);
@@ -1622,7 +1619,7 @@ int main(int argc, char *argv[])
 
   std::string log_file = data_file;
   if (log_file.size() > 4) { log_file.replace(log_file.size() - 4, 4, "log"); }
-  if (access(log_file.c_str(), R_OK) != 0) {
+  if (!readable(log_file)) {
     std::cerr << " - Cannot open LOG file " << log_file << "\n";
     return 1;
   }
@@ -1685,27 +1682,14 @@ int main(int argc, char *argv[])
   const double voltage_scale = status_units != hdr.units.end() && status_units->second.count("vsupply") &&
       status_units->second.at("vsupply") == "decivolt" ? 0.1 : 1.0;
 
-  int fd = open(data_file.c_str(), O_RDONLY);
-  struct stat st;
-  if (fd < 0 || fstat(fd, &st) != 0) {
-    std::cerr << " - Cannot open DATA file\n";
+  MappedFile mapped;
+  std::string open_error;
+  if (!mapped.open(data_file, open_error)) {
+    std::cerr << " - " << open_error << "\n";
     return 1;
   }
-  if (st.st_size == 0) {
-    std::cerr << " - Empty DATA file\n";
-    return 1;
-  }
-  const size_t size = st.st_size;
-  void *map = mmap(nullptr, size, PROT_READ, MAP_PRIVATE | MAP_POPULATE, fd, 0);
-  if (map == MAP_FAILED) {
-    map = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
-  }
-  if (map == MAP_FAILED) {
-    std::cerr << " - mmap failed\n";
-    return 1;
-  }
-  madvise(map, size, MADV_SEQUENTIAL);
-  const char *base = static_cast<const char *>(map);
+  const size_t size = mapped.size();
+  const char *base = mapped.data();
   const char *end = base + size;
   std::string sha256;
   std::thread hasher;
@@ -2399,8 +2383,7 @@ int main(int argc, char *argv[])
     }
   }
   if (hasher.joinable()) { hasher.join(); }
-  munmap(map, size);
-  close(fd);
+  mapped.close();
 
   // Close flights still ongoing at end of log
   for (auto &kv : acs) {
