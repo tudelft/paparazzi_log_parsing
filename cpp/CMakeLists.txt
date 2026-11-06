@@ -13,6 +13,7 @@ add_executable(paparazzi_log_parsing fastreader.cpp export_columns.cpp)
 target_link_libraries(paparazzi_log_parsing Threads::Threads)
 if(MSVC)
   target_compile_options(paparazzi_log_parsing PRIVATE /utf-8 /EHsc)
+  target_compile_definitions(paparazzi_log_parsing PRIVATE _CRT_SECURE_NO_WARNINGS)  # fopen is fine here
 endif()
 
 # The Blackbox decoder is only needed by the Web UI for Betaflight/INDIFlight logs, not for MATLAB conversions

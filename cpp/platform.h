@@ -98,6 +98,14 @@ inline void utc_tm(time_t sec, struct tm &out) {
 #endif
 }
 
+// true when the file exists and can be opened for reading (access(R_OK), also on Windows)
+inline bool readable(const std::string &path) {
+  FILE *f = std::fopen(path.c_str(), "rb");
+  if (!f) { return false; }
+  std::fclose(f);
+  return true;
+}
+
 // stdin in binary mode (Windows would otherwise translate line endings of the piped .data)
 inline void binary_stdin() {
 #ifdef _WIN32

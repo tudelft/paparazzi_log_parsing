@@ -1619,7 +1619,7 @@ int main(int argc, char *argv[])
 
   std::string log_file = data_file;
   if (log_file.size() > 4) { log_file.replace(log_file.size() - 4, 4, "log"); }
-  if (access(log_file.c_str(), R_OK) != 0) {
+  if (!readable(log_file)) {
     std::cerr << " - Cannot open LOG file " << log_file << "\n";
     return 1;
   }
