@@ -5103,18 +5103,43 @@ def gzip_json(response):
 
 
 LINK_GAP_WARNING_S = 3
+LINK_UPLINK_GAP_WARNING_S = 10  # the uplink can be quiet for several seconds when the ground sends little
 LINK_ERROR_WARNING_PCT = 5
+LINK_MAX_KEYS = ("max_ping_ms", "longest_gap_s", "error_pct", "longest_uplink_gap_s", "uplink_error_pct")
+LINK_MIN_KEYS = ("min_rssi_dbm", "min_rssi_ac_dbm")
+
+
+def merge_links(links):
+    """One datalink summary from the recordings of a flight (GCS: ground station reports; SD: the aircraft's
+    DATALINK_REPORT): the worst value of each, counts added, the mean ping weighted by its reports."""
+    links = [link for link in links if link]
+    if len(links) < 2:
+        return links[0] if links else None
+    out = {}
+    for key in LINK_MAX_KEYS + LINK_MIN_KEYS:
+        values = [link[key] for link in links if isinstance(link.get(key), (int, float))]
+        out[key] = (max if key in LINK_MAX_KEYS else min)(values) if values else None
+    for key in ("reports", "uplink_reports"):
+        out[key] = sum(link.get(key) or 0 for link in links)
+    pings = [(link["mean_ping_ms"], link.get("reports") or 1) for link in links
+             if isinstance(link.get("mean_ping_ms"), (int, float))]
+    out["mean_ping_ms"] = sum(p * n for p, n in pings) / sum(n for _, n in pings) if pings else None
+    return out
 
 
 def link_warning(link):
     """Short text when the datalink had a long dropout or many bad frames during the flight, else None."""
     link = link or {}
+    number = lambda key: link.get(key) if isinstance(link.get(key), (int, float)) else None
     problems = []
-    gap, errors = link.get("longest_gap_s"), link.get("error_pct")
-    if isinstance(gap, (int, float)) and gap >= LINK_GAP_WARNING_S:
+    if (gap := number("longest_gap_s")) is not None and gap >= LINK_GAP_WARNING_S:
         problems.append(f"no datalink for {gap:.1f} s")
-    if isinstance(errors, (int, float)) and errors >= LINK_ERROR_WARNING_PCT:
+    if (errors := number("error_pct")) is not None and errors >= LINK_ERROR_WARNING_PCT:
         problems.append(f"{errors:.0f}% bad frames")
+    if (gap := number("longest_uplink_gap_s")) is not None and gap >= LINK_UPLINK_GAP_WARNING_S:
+        problems.append(f"no uplink for {gap:.0f} s")
+    if (errors := number("uplink_error_pct")) is not None and errors >= LINK_ERROR_WARNING_PCT:
+        problems.append(f"{errors:.0f}% bad uplink frames")
     return ", ".join(problems) or None
 
 
@@ -5487,9 +5512,8 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
         r["landing_place"], _, r["landing_place_id"] = place(r["landing_lat"], r["landing_lon"])
         r["assessment"] = json.loads(r.pop("assessment_json") or "null")
         r["optitrack"] = bool((r["assessment"] or {}).get("optitrack"))
-        if not r.get("link"):  # an onboard SD log has no link reports; take them from the merged GCS log
-            r["link"] = next((source_rows[s["flight_id"]]["link"] for s in r["sources"]
-                              if source_rows[s["flight_id"]].get("link")), None)
+        # the GCS log has the ground station's view of the link, the SD log the aircraft's: combine them
+        r["link"] = merge_links([source_rows[s["flight_id"]]["link"] for s in r["sources"]])
         r["link_warning"] = link_warning(r["link"])
         gps_summaries = [source_rows[s["flight_id"]]["has_gps_position"] for s in r["sources"]]
         r.pop("has_gps_position")
@@ -5579,6 +5603,41 @@ def with_gcs_autopilot_fallback(versions, log_rel):
     return [format_paparazzi_version_message(desc)], True
 
 
+def add_link_from_other_logs(con, path, flight_ids, max_gap_s=2.5):
+    """Fill the datalink values of path points from the other recordings of the same flight (the GCS log's ground
+    station reports on the SD log's page and the reverse), matched by UTC within max_gap_s. Changed points are
+    replaced by copies in the list (the cached paths stay unchanged)."""
+    def epoch(point):
+        dt = parse_iso_utc(point.get("utc")) if isinstance(point.get("utc"), str) else None
+        return dt.timestamp() if dt else None
+    samples = []
+    for fid in flight_ids:
+        other = con.execute(
+            "SELECT f.path_idx, l.paths_file, l.start_utc, l.date_override" + (", f.path_gz" if HAVE_PATH_GZ else "") +
+            " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id WHERE f.id=?",
+            (fid,)).fetchone()
+        if other is None:
+            continue
+        days = clock_shift_days(other["start_utc"], other["date_override"])
+        for p in flight_path(other["paths_file"], other["path_idx"], days, other["path_gz"] if HAVE_PATH_GZ else None):
+            if p.get("link") and (t := epoch(p)) is not None:
+                samples.append((t, p["link"]))
+    if not samples:
+        return
+    samples.sort(key=lambda s: s[0])
+    times = [t for t, _ in samples]
+    for i, p in enumerate(path):
+        t = epoch(p)
+        if t is None:
+            continue
+        k = bisect.bisect_left(times, t)
+        near = min((j for j in (k - 1, k) if 0 <= j < len(times)), key=lambda j: abs(times[j] - t))
+        if abs(times[near] - t) > max_gap_s:
+            continue
+        own = p.get("link") or {}
+        path[i] = dict(p, link={**samples[near][1], **{key: v for key, v in own.items() if v is not None}})
+
+
 @app.get("/api/flights/<int:flight_id>/detail")
 def flight_detail(flight_id):
     """Everything for the flight page: the logbook entry (merged sources), this log's path, flight plan,
@@ -5600,6 +5659,7 @@ def flight_detail(flight_id):
     config = db.unpack(row["config_gz"]) or {}
     days = clock_shift_days(row["log_start_utc"], row["date_override"])
     path = flight_path(row["paths_file"], row["path_idx"], days, row["path_gz"] if HAVE_PATH_GZ else None)
+    add_link_from_other_logs(con, path, [s["flight_id"] for s in entry["sources"] if s["flight_id"] != flight_id])
     apply_clock_to_obj(changes, days)
     invalid_reports = config.get("invalid_setting_reports") or []
     apply_clock_to_obj(invalid_reports, days)

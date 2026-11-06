@@ -417,6 +417,8 @@ const linkSummary = e => {
   if (l.error_pct != null && l.error_pct > 0) parts.push(`${l.error_pct.toFixed(1)}% bad frames`);
   if (l.min_rssi_dbm != null) parts.push(`weakest signal ${l.min_rssi_dbm} dBm`);
   if (l.min_rssi_ac_dbm != null) parts.push(`${l.min_rssi_ac_dbm} dBm aircraft side`);
+  if (l.longest_uplink_gap_s != null) parts.push(`longest uplink gap ${l.longest_uplink_gap_s} s`);
+  if (l.uplink_error_pct != null && l.uplink_error_pct > 0) parts.push(`${l.uplink_error_pct.toFixed(1)}% bad uplink frames`);
   if (!parts.length) return '';
   return e.link_warning ? `<span style="color:var(--warn)" title="${esc(e.link_warning)}">${esc(parts.join(' · '))}</span>` : esc(parts.join(' · '));
 };
@@ -501,6 +503,7 @@ const SERIES = {
   volt: {label: 'Battery', unit: 'V', color: '#bf8700', val: p => p.battery_voltage_v ?? null},
   ping: {label: 'Ping', unit: 'ms', color: '#0a7d6f', val: p => p.link?.ping_ms ?? null},
   linkGap: {label: 'Longest link gap', unit: 's', color: '#cf222e', val: p => p.link?.max_gap_ms != null ? p.link.max_gap_ms / 1000 : null},
+  uplinkLost: {label: 'Uplink silence (aircraft)', unit: 's', color: '#bc4c00', val: p => p.link?.uplink_lost_s ?? null},
   rssi: {label: 'Signal (ground side)', unit: 'dBm', color: '#8250df', val: p => p.link?.rssi_dbm ?? null},
   rssiAc: {label: 'Signal (aircraft side)', unit: 'dBm', color: '#e36209', val: p => p.link?.rssi_ac_dbm ?? null},
   gs: {label: 'Ground speed', unit: 'm/s', color: '#e36209', val: gs},
@@ -516,11 +519,11 @@ const SERIES = {
 };
 let SERIES_ORDER = Object.keys(SERIES);
 const SERIES_GROUPS = [['Height', ['height', 'baro']], ['Battery', ['volt']], ['Speed', ['gs', 'as']], ['Wind', ['wind', 'windDir']],
-  ['Datalink', ['ping', 'linkGap', 'rssi', 'rssiAc']],
+  ['Datalink', ['ping', 'linkGap', 'uplinkLost', 'rssi', 'rssiAc']],
   ['Attitude', ['roll', 'pitch', 'yaw']], ['Acceleration', ['accN', 'accE', 'accD']]];
 const CHART_PRESETS = [['Height and speed', ['height', 'gs', 'as', 'wind']], ['Attitude', ['roll', 'pitch', 'yaw']],
   ['Acceleration', ['accN', 'accE', 'accD']], ['Wind', ['wind', 'windDir']], ['Battery', ['volt']],
-  ['Datalink', ['ping', 'linkGap']], ['Signal strength', ['rssi', 'rssiAc']], ['Empty chart', []]];
+  ['Datalink', ['ping', 'linkGap', 'uplinkLost']], ['Signal strength', ['rssi', 'rssiAc']], ['Empty chart', []]];
 const CHART_DEFAULTS = [CHART_PRESETS[0][1], CHART_PRESETS[1][1]];
 const MAX_CHARTS = 8;
 const charts = [];
@@ -738,6 +741,7 @@ function show(i) {
     + cell('Wind', p.wind ? esc(windTxt(p.wind)) : null)
     + cell('Battery', p.battery_voltage_v != null ? p.battery_voltage_v + ' V' : null)
     + cell('Ping', p.link?.ping_ms != null ? p.link.ping_ms + ' ms' : null)
+    + cell('Uplink silence', p.link?.uplink_lost_s != null ? p.link.uplink_lost_s + ' s' : null)
     + cell('Signal', p.link?.rssi_dbm != null ? p.link.rssi_dbm + ' dBm' : null)
     + cell('Mode', m ? esc([m.ap_mode, m.h_mode, m.v_mode].join(' / ')) : null) + cell('Block', n?.block ? esc(n.block) + (n.stage ? ' · ' + esc(n.stage) : '') : null)
     + cell('Roll / pitch / yaw', at ? `${at.roll}° / ${at.pitch}° / ${at.yaw}°` : null)

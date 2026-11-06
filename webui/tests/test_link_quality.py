@@ -24,9 +24,40 @@ class LinkQualityTests(AppTests):
         self.assertIsNone(warning({"longest_gap_s": 2.9, "error_pct": 4.9}))
         self.assertEqual(warning({"longest_gap_s": 4.2, "error_pct": 6}), "no datalink for 4.2 s, 6% bad frames")
 
+    def test_uplink_warning_and_merging_gcs_and_sd_summaries(self):
+        warning, merge = self.ns["link_warning"], self.ns["merge_links"]
+        self.assertIsNone(warning({"longest_uplink_gap_s": 9, "uplink_error_pct": 4}))
+        self.assertEqual(warning({"longest_uplink_gap_s": 12, "uplink_error_pct": 7}),
+                         "no uplink for 12 s, 7% bad uplink frames")
+        gcs = dict(LINK, longest_uplink_gap_s=None, uplink_reports=0)
+        sd = {"reports": 0, "mean_ping_ms": None, "longest_gap_s": None, "uplink_reports": 16,
+              "longest_uplink_gap_s": 11, "uplink_error_pct": 0}
+        merged = merge([gcs, sd, None])
+        self.assertEqual((merged["longest_gap_s"], merged["longest_uplink_gap_s"], merged["min_rssi_dbm"],
+                          merged["mean_ping_ms"], merged["reports"], merged["uplink_reports"]),
+                         (4.2, 11, -91, 15.0, 120, 16))
+        self.assertIs(merge([None, sd]), sd)
+        self.assertIsNone(merge([None]))
+
+    def test_sd_path_gets_the_gcs_link_samples_by_utc(self):
+        gcs_path = [{"utc": "2026-11-06T10:00:00.000Z", "link": {"ping_ms": 6, "rssi_dbm": -70, "uplink_lost_s": None}},
+                    {"utc": "2026-11-06T10:00:10.000Z", "link": {"ping_ms": 9, "rssi_dbm": -80, "uplink_lost_s": None}}]
+        sd_path = [{"utc": "2026-11-06T10:00:01.000Z", "link": {"ping_ms": None, "uplink_lost_s": 0}},
+                   {"utc": "2026-11-06T10:00:05.000Z", "link": None},
+                   {"utc": "2026-11-06T10:00:09.500Z"}]
+        original = [dict(p) for p in sd_path]
+        loads = self.ns["flight_path"]
+        self.ns["flight_path"] = lambda *args, **kw: gcs_path
+        self.addCleanup(self.ns.__setitem__, "flight_path", loads)
+        self.ns["add_link_from_other_logs"](self.con, sd_path, [self.con.execute("SELECT MIN(id) FROM flights").fetchone()[0]])
+        self.assertEqual(sd_path[0]["link"], {"ping_ms": 6, "rssi_dbm": -70, "uplink_lost_s": 0})  # own value kept
+        self.assertIsNone(sd_path[1]["link"])  # 4 s from the nearest GCS sample
+        self.assertEqual(sd_path[2]["link"]["ping_ms"], 9)
+        self.assertEqual(original[0]["link"], {"ping_ms": None, "uplink_lost_s": 0})  # points are copied, not changed
+
     def test_logbook_and_flight_page_show_the_link_summary(self):
-        self.con.execute("UPDATE flights SET link_json=?", (json.dumps(LINK),))
-        self.con.commit()
+        self.con.execute("UPDATE flights SET link_json=? WHERE id=(SELECT MIN(id) FROM flights)", (json.dumps(LINK),))
+        self.con.commit()  # one recording (the GCS log) has link reports; the merged entry shows them
         row = self.client.get("/api/logbook").json[0]
         self.assertEqual(row["link"], LINK)
         self.assertEqual(row["link_warning"], "no datalink for 4.2 s")
