@@ -448,6 +448,12 @@ const wind = x => windTxt(x?.wind);
 // INS state is engineering detail: listed under Log sources, not in the summary.
 const insRows = (label, x) => x ? kv(label + ' INS position (NED, m)', ned(x.ins?.position_ned_m))
   + kv(label + ' INS speed (NED, m/s)', ned(x.ins?.velocity_ned_ms)) + kv(label + ' INS accel (NED, m/s²)', ned(x.ins?.acceleration_ned_ms2)) : '';
+// The number in /flight/<number> and for pprz_fetch in MATLAB; the other recordings of the same flight in the tooltip.
+function flightNumberTip() {
+  const others = (D.entry?.sources || []).filter(s => s.flight_id !== flightId);
+  return 'Flight number, for pprz_fetch in MATLAB' + (others.length
+    ? '. Other recordings: ' + others.map(s => `${s.flight_id} (${TYPE[s.log_type] || s.log_type})`).join(', ') : '');
+}
 function renderSummary() {
   const e = D.entry, a = e.assessment;
   $('loggedWind').innerHTML = kv('Logged wind at takeoff', windTxt(e.takeoff?.wind) || 'Not available')
@@ -470,6 +476,7 @@ function renderSummary() {
   $('summary').innerHTML = `<div class="flight-focus">
       <div><span class="label">Aircraft</span><div class="value">${e.drone_id != null ? `<a href="/aircraft/${e.drone_id}">${esc(e.aircraft)}</a>` : esc(e.aircraft)}</div>${e.aircraft_uid ? `<span class="mute">${esc(e.aircraft_uid)}</span>` : ''}${e.aircraft_identity_inferred ? '<div class="mute">Identity inferred from matching GCS recording; SD name is shared.</div>' : (e.aircraft_ambiguous && e.drone_id == null ? '<div class="mute">Shared aircraft name; fleet identity unresolved.</div>' : '')}</div>
       <div class="goal"><span class="label">Flight goal</span><div class="value">${e.goal ? esc(e.goal) : '<span class="mute">Not recorded</span>'}</div></div>
+      <div title="${esc(flightNumberTip())}"><span class="label">Flight no.</span><div class="value">${flightId}</div></div>
       <div><span class="label">Flight time</span><div class="value">${fmtDur(e.duration_s) || '–'}</div></div>
     </div>
     <div class="summary-body"><div class="summary-main"><div class="summary-groups">
