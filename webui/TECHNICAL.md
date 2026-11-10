@@ -84,6 +84,12 @@ not the installed parser binary or a separately cached browser asset.
 configuration. XML comments and `<description>` text no longer count, so a note such as "can be used with
 Optitrack" does not mark outdoor flights. Re-parse outdated logs to update existing flights.
 
+**INS path (parser 1.13.0).** Each path point's `ins` also carries `lat`/`lon`: the INS NED position converted
+through the latest `INS_REF` origin. The flight page offers **GPS path** or **OptiTrack / INS path** when these
+exist, defaulting to the INS path for OptiTrack flights (indoors the GPS receiver wanders); the choice is kept in
+the URL (`?path=gps|ins`). With the INS path, the takeoff and landing markers are its first and last point. The
+maps zoom to level 23 (tiles above 19 are scaled up). Distances and the logbook places still come from GPS.
+
 **Fixed-wing navigation fallback.** Parser 1.7.9 can fill gaps in direct GPS using recorded
 `NAVIGATION.pos_x/pos_y` (metres east/north) and the latest received `NAVIGATION_REF`
 UTM origin. GPS still takes precedence for two seconds. A reference must first agree
