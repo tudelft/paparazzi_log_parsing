@@ -1664,7 +1664,10 @@ its voltage varies by less than 0.1 V loses 2 points ("battery voltage steady un
 external power supply (bench or tether test). The rule only lowers the score, so on its own it can turn a flight
 into `uncertain` but not into `ground`. The taxi rule ("moved on the ground without climbing": 3 m or more
 horizontally with less than 1.5 m height change) does not apply when motion capture (OptiTrack) is used: indoor
-flights stay low while moving a few metres (parser 1.12.1).
+flights stay low while moving a few metres (parser 1.12.1). Nor does it apply when the log has `LIDAR` height
+above ground and at least 10% of the flight's readings (and at least 5) are 0.5 m or more above the lowest one:
+the aircraft left the ground, so it was a low hover rather than a taxi. Hybrids can also roll, so the aircraft type
+alone does not decide it (parser 1.12.3; `lidar_rise_m` in the metrics).
 
 **Flight page** (`/flight/<id>`). Path on a map with the flight plan waypoints, a time slider, charts,
 takeoff/landing details, setting changes, messages, checklist and autopilot version; switch between the SD

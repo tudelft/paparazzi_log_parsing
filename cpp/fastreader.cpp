@@ -146,6 +146,14 @@ struct FlightStats {
   double acc_count = 0, acc_mean[3] = {0, 0, 0}, acc_m2[3] = {0, 0, 0};  // Welford, INS acceleration
   double max_speed = 0, max_vspeed = 0, max_tilt_deg = 0;
   int status_msgs = 0, motors_on_msgs = 0;  // ROTORCRAFT_STATUS messages during the flight
+  // LIDAR height above ground [m]: the lowest reading (resting on the ground) and the readings at least 0.5 m higher
+  std::vector<float> lidar;
+  bool lidar_airborne() const {
+    if (lidar.size() < 10) { return false; }
+    const float ground = *std::min_element(lidar.begin(), lidar.end());
+    const size_t high = std::count_if(lidar.begin(), lidar.end(), [&](float d) { return d >= ground + 0.5f; });
+    return high >= 5 && high * 10 >= lidar.size();  // at least 10% of the flight, so a single spike does not count
+  }
   // Datalink during the flight: ground station reports (summarised up to the landing time, because at the end of a
   // log the ground station keeps reporting the growing silence) and the weakest signal of the nodes
   struct LinkRec { double t, ping_ms, gap_ms, msgs, err; };
@@ -311,7 +319,9 @@ Assessment assess(const Flight &f) {
   // Known taxis climb < 0.5 m while rolling 16–66 m; real flights in the set climb ≥ 26 m.
   // Not with motion capture (OptiTrack): indoor flights stay low while moving a few metres, and nothing taxis
   // in a motion-capture arena.
-  bool ground_roll = !f.has_optitrack && has_climb && has_horiz && climb < 1.5 && horiz >= 3;
+  // Not when a height-above-ground sensor (LIDAR) shows the aircraft left the ground: a low hover, not a taxi
+  // (hybrids can also roll, so the aircraft type alone does not decide it).
+  bool ground_roll = !f.has_optitrack && !st.lidar_airborne() && has_climb && has_horiz && climb < 1.5 && horiz >= 3;
   if (ground_roll) { add(-4, "moved on the ground without climbing"); }
 
   if (st.max_speed >= 1) { add(1, "speed above 1 m/s"); }
@@ -1244,7 +1254,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.12.2";
+constexpr const char *PARSER_VERSION = "1.12.3";
 
 struct GpsClock {
   size_t count = 0;
@@ -1690,6 +1700,7 @@ int main(int argc, char *argv[])
       : MsgFields{};
   enum { EN_VOLT, EN_CURRENT };
   const MsgFields energy_f = resolve_fields(hdr, "ENERGY", {"voltage", "current?"});
+  const MsgFields lidar_f = resolve_fields(hdr, "LIDAR", {"distance"});
   const MsgFields compact_f = resolve_fields(hdr, "ROTORCRAFT_FP_MIN", {"east", "north", "up", "gspeed?"});
   const MsgFields position_f = resolve_fields(hdr, "ROTORCRAFT_FP", {"east", "north", "up", "veast?", "vnorth?"});
   const MsgFields origin_f = resolve_fields(hdr, "INS_REF", {"ecef_x0", "ecef_y0", "ecef_z0", "lat0", "lon0", "alt0", "hmsl0"});
@@ -2167,6 +2178,17 @@ int main(int argc, char *argv[])
         }
         break;
       case 'L':
+        if (name == "LIDAR") {
+          if (!lidar_f.split) { break; }
+          const Picked f = pick(lidar_f, q, eol);
+          float d;
+          if (!to_num(f[0], d) || !std::isfinite(d) || d <= 0 || d > 100) { break; }
+          auto it = acs.find(ac);
+          if (it != acs.end() && it->second.in_flight && !it->second.flights.empty()) {
+            it->second.flights.back().stats.lidar.push_back(d);
+          }
+          break;
+        }
         if (name == "LINK_REPORT") {
           if (!link_f.split) { break; }
           const Picked f = pick(link_f, q, eol);
@@ -2620,6 +2642,9 @@ int main(int argc, char *argv[])
                     ", \"max_tilt_deg\": " + num(st.max_tilt_deg) + ", \"acc_rms_ms2\": " + num(st.acc_rms()) +
                     ", \"voltage_range_v\": " + rng(st.energy_volt) +
                     ", \"mean_current_a\": " + (st.energy_msgs ? num(st.mean_current()) : "null") +
+                    ", \"lidar_rise_m\": " + (st.lidar.empty() ? std::string("null")
+                        : num(*std::max_element(st.lidar.begin(), st.lidar.end()) -
+                              *std::min_element(st.lidar.begin(), st.lidar.end()))) +
                     "}, \"optitrack\": " + std::string(f.has_optitrack ? "true" : "false") + "}";
     return m;
   };
