@@ -1,24 +1,32 @@
-function out = api(method, path, varargin)
-%API Call the logbook API with the server and key of pprz_server. method is 'GET' or 'POST'; a POST sends the
-%   name/value pairs in varargin as form fields (MATLAB and Octave both support those).
-%   Errors carry the server's message, e.g. an unknown flight or a key without access.
+function out = api(method, path, body)
+%API Call the logbook API with the server and key of pprz_server, signing in through the browser when needed.
+%   out = pprz.api('GET', '/api/me')
+%   out = pprz.api('POST', path, struct(...))     JSON body
+%   out = pprz.api('POST', path, provider)        a matlab.net.http content provider (uploads)
+%   An expired or revoked browser login is renewed once (pprz_login). Errors 'pprz:http' carry the server's message,
+%   e.g. an unknown flight or a key without access; 'pprz:offline' means the server could not be reached.
+    if nargin < 3
+        body = [];
+    end
     cfg = pprz_server();
-    if isempty(cfg.server) || isempty(cfg.key)
-        error('pprz:server', 'Set the logbook first: pprz_server(''https://logs.example.org'', ''API-KEY'')');
+    if isempty(cfg.server)
+        error('pprz:server', 'Set the logbook first: pprz_server(''https://logs.example.org'')');
     end
-    opts = weboptions('HeaderFields', {'Authorization', ['Bearer ' cfg.key]}, 'Timeout', 60, ...
-        'ContentType', 'json');
-    url = [cfg.server path];
-    try
-        if strcmpi(method, 'POST')
-            out = webwrite(url, varargin{:}, opts);
-        else
-            out = webread(url, opts);
+    if isempty(cfg.key)
+        pprz_login(cfg.server);
+        cfg = pprz_server();
+    end
+    [out, status] = pprz.http(method, [cfg.server path], body, cfg.key);
+    if status == 401 && strcmp(cfg.source, 'stored')
+        pprz_login(cfg.server);
+        cfg = pprz_server();
+        [out, status] = pprz.http(method, [cfg.server path], body, cfg.key);
+    end
+    if status >= 400
+        message = '';
+        if isstruct(out) && isfield(out, 'error')
+            message = char(string(out.error));
         end
-    catch err
-        error('pprz:api', '%s %s failed: %s', method, path, err.message);
-    end
-    if ischar(out) && ~isempty(out)  % Octave returns the JSON text
-        out = jsondecode(out);
+        error('pprz:http', '%s %s failed: HTTP %d %s', method, path, status, message);
     end
 end

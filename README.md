@@ -23,4 +23,5 @@ python3 app.py                                  # http://127.0.0.1:8000
 
 The [C++ parser](cpp/) powers the [web app](webui/).
 The [MATLAB tools](matlab/README.md) load, plot and analyse flights exported by the logbook (or converted
-locally with `webui/matlab_export.py`); the repository also contains [Python](python/) tools.
+locally with `webui/matlab_export.py`). The Python package [mavlab-logs](client/README.md) downloads and uploads logs
+of the logbook from your own code; the repository also contains [Python](python/) tools.

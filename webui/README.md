@@ -258,6 +258,8 @@ python3 upload_logs.py ~/paparazzi/var/logs         # upload
 ```
 
 Keep the key private. For a large initial import, see [controlled bulk uploads](TECHNICAL.md#uploading-with-a-script).
+To download and upload logs from your own Python code or MATLAB, use the [mavlab-logs](../client/README.md) package
+(`pip install mavlab-logs`) or the [MATLAB tools](../matlab/README.md); they sign in through the browser.
 
 A key can also add paper records: `POST /api/historical` (full project access) and, with an admin's key,
 the CSV import `POST /api/historical/import`. A key can also upload additional files to records it may edit

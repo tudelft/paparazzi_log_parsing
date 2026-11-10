@@ -258,7 +258,7 @@ window.timingEvidenceHTML = function (timing) {
   }
   function mount() {
     const nav = document.getElementById('nav');
-    if (!nav || /^\/(login|setup)/.test(location.pathname)) return;
+    if (!nav || /^\/(login|setup|cli-login)/.test(location.pathname)) return;
     const wrapper = document.createElement('div');
     wrapper.id = 'flightFiltersMenu';
     wrapper.innerHTML = `<button type="button" id="flightFiltersButton" aria-expanded="false" aria-controls="flightFiltersPanel"></button>
@@ -704,14 +704,14 @@ window.timingEvidenceHTML = function (timing) {
   }
   ready(() => {
     paintNav();
-    if (!/^\/(login|setup)/.test(location.pathname)) {
+    if (!/^\/(login|setup|cli-login)/.test(location.pathname)) {
       paintActions();
       paintVersion(null);
     }
     paintEdit();
   });
 
-  if (!/^\/(login|setup)/.test(location.pathname)) {
+  if (!/^\/(login|setup|cli-login)/.test(location.pathname)) {
     fetch('/api/me').then(async r => {
       if (r.status === 401) {
         try { localStorage.removeItem(ADMIN_KEY); localStorage.removeItem(TRAINING_KEY); } catch (e) {}

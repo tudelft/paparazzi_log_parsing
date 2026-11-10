@@ -302,7 +302,19 @@ CREATE TABLE IF NOT EXISTS api_keys (
     prefix TEXT NOT NULL,              -- first characters, to recognise the key in the list
     created_at TEXT NOT NULL,
     last_used_at TEXT,
-    read_only INTEGER NOT NULL DEFAULT 0 CHECK(read_only IN (0,1))  -- GET/HEAD requests only
+    read_only INTEGER NOT NULL DEFAULT 0 CHECK(read_only IN (0,1)),  -- GET/HEAD requests only
+    expires_at TEXT                    -- keys from a browser login (cli_logins) expire; NULL = until revoked
+);
+CREATE TABLE IF NOT EXISTS cli_logins (  -- RFC 8628 device logins of scripts (Python package, MATLAB)
+    id INTEGER PRIMARY KEY,
+    device_hash TEXT NOT NULL UNIQUE,  -- sha256 of the device code the client polls with; never shown in a browser
+    user_code TEXT NOT NULL UNIQUE,    -- short code the user compares in the terminal and the browser
+    client TEXT NOT NULL,              -- program and computer, as the client describes itself
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    polled_at TEXT,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- who approved or denied it
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','denied','used'))
 );
 CREATE TABLE IF NOT EXISTS user_aliases (
     id INTEGER PRIMARY KEY,
@@ -498,6 +510,8 @@ def init(path):
         con.execute("ALTER TABLE qualification_submissions ADD COLUMN number TEXT")
     if "read_only" not in {r["name"] for r in con.execute("PRAGMA table_info(api_keys)")}:
         con.execute("ALTER TABLE api_keys ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0 CHECK(read_only IN (0,1))")
+    if "expires_at" not in {r["name"] for r in con.execute("PRAGMA table_info(api_keys)")}:
+        con.execute("ALTER TABLE api_keys ADD COLUMN expires_at TEXT")
     if "sort_order" not in type_cols:
         con.execute("ALTER TABLE qualification_types ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
         for i, row in enumerate(con.execute("SELECT id FROM qualification_types ORDER BY name"), 1):

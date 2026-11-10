@@ -1227,6 +1227,42 @@ their wait limit. Upload retries reopen the original files instead of keeping th
 Rerunning skips already stored pairs; existing parser-error logs are not automatically reparsed
 (use the Logs page). A timed-out upload may still complete on the server.
 
+## Script login and the Python/MATLAB clients
+
+The [mavlab-logs](../client/README.md) package and the [MATLAB tools](../matlab/README.md) (`pprz_login`,
+`pprz_download`, `pprz_upload`) sign in with an OAuth 2.0 device authorization flow (RFC 8628), so no key has to be
+copied from the account page:
+
+1. `POST /api/cli-login` (no login; `{"client": "Python on laptop"}`) returns a secret `device_code`, a short
+   `user_code` such as `BCDF-GHJK`, `verification_uri_complete` (`/cli-login?code=<user_code>`), `expires_in`
+   (600 s) and `interval` (5 s). At most eight logins start per address in five minutes.
+2. The client prints the link and the code and opens the browser. `/cli-login` needs a signed-in browser (login,
+   also TU Delft sign-in, returns to it through `?next=`, which accepts only paths of this site). The page shows
+   the code and the client's description; the user compares the code and presses **Allow** or **Deny**
+   (`POST /api/cli-login/<user_code>` with JSON `{"approve": true}`, browser session only). Approval is never
+   automatic on opening the link, so a link sent by someone else cannot obtain a key.
+3. The client polls `POST /api/cli-login/token` with `device_code` and gets the RFC 8628 errors
+   `authorization_pending`, `slow_down`, `access_denied` or `expired_token` until then. Once approved it receives,
+   exactly once, a new full-access API key of the approving user (`access_token`, `expires_at`).
+
+The device code never appears in a URL, and only its SHA-256 is stored (`cli_logins`); keys are not stored at
+all, as for other keys. A key from a script login is named `Login: <client>` and has `api_keys.expires_at`, seven
+days after the login; the server refuses it afterwards and deletes it when keys are listed or created. A new login
+of the same client replaces its earlier key, so they do not fill the 20-key limit. Such keys appear on the
+account page with their end date and can be revoked there. `DELETE /api/key` revokes the key a request is made
+with, which `logout` uses (also with a read-only key).
+
+The clients use `GET /api/flights/<id>/files` (the flight's log, the SHA-256 of its data file and the
+`/api/logs/<log>/download/<kind>` URLs of its files) and the MATLAB export routes of `pprz_fetch`; uploads go
+through `POST /api/upload` as for `upload_logs.py`. `GET /api/ingest/<id>` lists the parsed log's `flight_ids`.
+Both clients keep the login and the cache in the same per-user folders (see the
+[package README](../client/README.md#where-files-are-kept)); `client/mavlab_logs/settings.py` and
+`matlab/+pprz/config.m` must keep the same rules. The package is tested and released to PyPI by
+`.github/workflows/client.yml`: pushing a tag `client-v<version>` (equal to `mavlab_logs.__version__`, on master)
+publishes that version by trusted publishing (PyPI publisher: this repository, `client.yml`, environment `pypi`);
+merging alone publishes nothing. Client tags are separate from Web UI and parser tags.
+Run its tests with `python -m unittest discover -s client/tests`.
+
 ## How it works
 
 **Uploads.** A `.data` file is paired with the `.log` of the same name in the same folder.

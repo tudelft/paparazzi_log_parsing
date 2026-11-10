@@ -75,7 +75,8 @@
   <section class="card">
     <div class="section-heading"><h2>API keys</h2>
     <details><summary>Help</summary><p>A key lets a script use the API as you (upload and read logs you can access). It cannot manage keys. A <em>read-only</em> key can only read (GET), e.g. for a script that builds a document.
-      Send it as <code>Authorization: Bearer &lt;key&gt;</code>. Revoke a key if it leaks.</p></details></div>
+      Send it as <code>Authorization: Bearer &lt;key&gt;</code>. Revoke a key if it leaks.
+      The Python package <code>mavlab-logs</code> and the MATLAB tools can also sign in through the browser instead; they get a key that expires after a week.</p></details></div>
     <form class="row" onsubmit="addKey(event)">
       <input id="name" placeholder="Name, e.g. laptop uploader" required maxlength="60" style="min-width:240px">
       <label title="The key can only read (GET), e.g. for a script that builds a document"><input type="checkbox" id="readOnly"> Read-only</label>
@@ -108,7 +109,7 @@ async function api(url, opt) {
 async function load() {
   try {
     const keys = await api('/api/keys');
-    $('keys').innerHTML = keys.map(k => `<tr><td>${esc(k.name)}${k.read_only ? ' <span class="mute">· read-only</span>' : ''}</td><td><code>${esc(k.prefix)}…</code></td><td>${fmt(k.created_at)}</td><td>${fmt(k.last_used_at)}</td>
+    $('keys').innerHTML = keys.map(k => `<tr><td>${esc(k.name)}${k.read_only ? ' <span class="mute">· read-only</span>' : ''}${k.expires_at ? ` <span class="mute" title="From a script login; expires ${esc(k.expires_at.replace('T', ' ').replace('Z', ' UTC'))}">· until ${esc(k.expires_at.slice(0, 10))}</span>` : ''}</td><td><code>${esc(k.prefix)}…</code></td><td>${fmt(k.created_at)}</td><td>${fmt(k.last_used_at)}</td>
       <td><button class="danger" onclick="revoke(${k.id}, '${esc(k.name).replace(/'/g, '')}')">Revoke</button></td></tr>`).join('')
       || '<tr><td colspan="5" class="mute">No keys yet.</td></tr>';
   } catch (e) { $('err').textContent = e.message; }
