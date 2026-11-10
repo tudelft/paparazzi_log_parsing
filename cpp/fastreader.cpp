@@ -40,6 +40,8 @@ struct Wind {
 struct InsState {
   bool valid = false;
   double pos[3] = {0, 0, 0}, vel[3] = {0, 0, 0}, acc[3] = {0, 0, 0};
+  bool has_ll = false;  // geographic position of pos via the INS reference (NED origin)
+  double lat = 0, lon = 0;
 };
 
 // Horizontal metres on the WGS84 sphere.
@@ -1249,12 +1251,17 @@ std::string ins_json(const InsState &n)
            "\"velocity_ned_ms\": {\"north\": %.3f, \"east\": %.3f, \"down\": %.3f}, \"groundspeed_ms\": %.3f, "
            "\"acceleration_ned_ms2\": {\"north\": %.3f, \"east\": %.3f, \"down\": %.3f}}",
            n.pos[0], n.pos[1], n.pos[2], n.vel[0], n.vel[1], n.vel[2], gs, n.acc[0], n.acc[1], n.acc[2]);
-  return buf;
+  std::string out = buf;
+  if (n.has_ll) {  // the INS position on the map (indoors: OptiTrack instead of the GPS receiver)
+    snprintf(buf, sizeof(buf), ", \"lat\": %.8f, \"lon\": %.8f}", n.lat, n.lon);
+    out.replace(out.size() - 1, 1, buf);
+  }
+  return out;
 }
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.12.3";
+constexpr const char *PARSER_VERSION = "1.13.0";
 
 struct GpsClock {
   size_t count = 0;
@@ -2353,6 +2360,14 @@ int main(int argc, char *argv[])
             n.pos[i] = v[i] / 256.0;
             n.vel[i] = v[3 + i] / 524288.0;
             n.acc[i] = v[6 + i] / 1024.0;
+          }
+          n.has_ll = false;
+          if (const Origin &o = origins[ac]; o.valid) {
+            const double sp = std::sin(o.lat), cp = std::cos(o.lat), sl = std::sin(o.lon), cl = std::cos(o.lon);
+            const double e = n.pos[1], no = n.pos[0], u = -n.pos[2];
+            double alt;
+            n.has_ll = ecef_to_lla(o.x - sl * e - sp * cl * no + cp * cl * u, o.y + cl * e - sp * sl * no + cp * sl * u,
+                                   o.z + cp * no + sp * u, n.lat, n.lon, alt);
           }
           {
             AircraftState &s = touch(ac, t);

@@ -71,6 +71,8 @@ to gain descriptions and previously omitted crew entries.
   boundaries independently of the flight-plan waypoint markers. Waypoint names appear above
   their dots with a subtle text halo; **Show flight plan** hides/shows both the dots and names. Waypoints whose names
   start with `_` are hidden by default; enable **Show hidden waypoints** to reveal them.
+  OptiTrack flights show the **OptiTrack / INS path** by default; switch to **GPS path** next to the title
+  (see "INS path" in the [technical guide](TECHNICAL.md)).
 - Logs has a **Status** filter: **Parser errors**, **Unfinished logs** (queued, parsing or
   error), or **All failures** (also failed/rejected upload receipts). Filters cover all pages.
 - Statistics uses the shared flight filters. **Total log data (GB)** sums original telemetry sizes for logs contributing to

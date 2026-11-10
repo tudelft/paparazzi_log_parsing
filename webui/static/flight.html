@@ -157,6 +157,8 @@
   <section class="card" id="panel-path" role="tabpanel" aria-labelledby="tab-path" hidden>
     <div class="bar">
       <h2 style="margin:0">Flight path</h2>
+      <select id="pathSource" hidden title="Which position the map shows: the GPS receiver, or the aircraft's own INS estimate (OptiTrack indoors)">
+        <option value="gps">GPS path</option><option value="ins">OptiTrack / INS path</option></select>
       <label><input type="checkbox" id="showPlan" checked> Show flight plan</label>
       <label><input type="checkbox" id="showHiddenWaypoints"> Show hidden waypoints</label>
       <label><input type="checkbox" id="showSectors" checked> Show sectors</label>
@@ -370,17 +372,26 @@ async function loadWeather(fetchRemote = false) {
 $('fetchWeather').onclick = () => loadWeather(true);
 const ned = v => v ? `N ${v.north}, E ${v.east}, D ${v.down}` : '';
 
+// Map position of a path point: the GPS position, or the INS estimate (OptiTrack indoors) when chosen.
+const hasInsPath = () => (D.path || []).some(p => geographicPosition(p.ins));
+function pathSource() {
+  const asked = new URLSearchParams(location.search).get('path');
+  if (!hasInsPath()) return 'gps';
+  return asked === 'gps' || asked === 'ins' ? asked : D.entry?.optitrack ? 'ins' : 'gps';
+}
+const mapPos = p => pathSource() === 'ins' ? p.ins : p.position;
 // Geographic path pieces; a gap of more than 5 s starts a new piece.
 function pathSegments() {
   const segments = [];
   let segment = null, previous = null;
   for (const p of D.path || []) {
-    if (!geographicPosition(p.position)) { segment = null; previous = null; continue; }
+    const q = mapPos(p);
+    if (!geographicPosition(q)) { segment = null; previous = null; continue; }
     if (!segment || p.time_s - previous.time_s > 5) {
       segment = [];
       segments.push(segment);
     }
-    segment.push([p.position.lat, p.position.lon]);
+    segment.push([q.lat, q.lon]);
     previous = p;
   }
   return segments;
@@ -393,13 +404,13 @@ function drawOverviewMap() {
   if (!el || !window.L || !segments.length) { if (el) el.parentElement.hidden = true; return; }
   overviewMap = L.map(el, {zoomControl: false, attributionControl: false, dragging: false, scrollWheelZoom: false,
     doubleClickZoom: false, boxZoom: false, keyboard: false, touchZoom: false});
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(overviewMap);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxNativeZoom: 19, maxZoom: 22}).addTo(overviewMap);
   const group = L.featureGroup().addTo(overviewMap);
   for (const points of segments) {
     if (points.length > 1) L.polyline(points, {color: '#1f6feb', weight: 3}).addTo(group);
     else L.circleMarker(points[0], {radius: 3, color: '#1f6feb', fillOpacity: 1}).addTo(group);
   }
-  overviewMap.fitBounds(group.getBounds().pad(0.15), {maxZoom: 18});
+  overviewMap.fitBounds(group.getBounds().pad(0.15), {maxZoom: pathSource() === 'ins' ? 21 : 18});
 }
 // Takeoff → landing value for one measurement, e.g. battery "16.70 V → 14.90 V".
 const pair = (e, value) => {
@@ -645,10 +656,23 @@ function geographicPosition(p) {
 }
 
 function initMap() {
-  map = L.map('map').setView([52, 4.4], 6);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap contributors'}).addTo(map);
-  const path = D.path.filter(p => geographicPosition(p.position));
-  const ll = path.map(p => [p.position.lat, p.position.lon]);
+  // Tiles stop at zoom 19; beyond that they are scaled up so small indoor (OptiTrack) paths can be inspected.
+  map = L.map('map', {maxZoom: 23}).setView([52, 4.4], 6);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxNativeZoom: 19, maxZoom: 23,
+    attribution: '© OpenStreetMap contributors'}).addTo(map);
+  const source = pathSource();
+  $('pathSource').hidden = !hasInsPath();
+  $('pathSource').value = source;
+  $('pathSource').onchange = () => {
+    const url = new URL(location.href);
+    url.searchParams.set('path', $('pathSource').value);
+    history.replaceState(history.state, '', url);
+    const at = +$('scrub').value;
+    map.remove(); map = null; marker = null;
+    initMap(); drawOverviewMap(); show(at);
+  };
+  const path = D.path.filter(p => geographicPosition(mapPos(p)));
+  const ll = path.map(p => [mapPos(p).lat, mapPos(p).lon]);
   const group = L.featureGroup();
   const segments = pathSegments();
   for (const points of segments) {
@@ -663,7 +687,8 @@ function initMap() {
       ? 'Partial path: samples without valid geographic coordinates and gaps over 5 seconds are not connected.' : '';
     const borrowed = D.path_points_from_other_log || 0;
     if (borrowed) $('mapMsg').textContent += `${$('mapMsg').textContent ? ' ' : ''}Includes ${borrowed} points from the other log of this flight (missing positions and gaps).`;
-    const recovered = path.filter(p => p.position.source === 'navigation').length;
+    const recovered = source === 'ins' ? 0 : path.filter(p => p.position.source === 'navigation').length;
+    if (source === 'ins') $('mapMsg').textContent += `${$('mapMsg').textContent ? ' ' : ''}Showing the INS position estimate (OptiTrack indoors) instead of GPS.`;
     if (recovered) $('mapMsg').textContent += `${$('mapMsg').textContent ? ' ' : ''}Includes ${recovered} GPS-validated navigation positions; these have no GPS altitude.`;
   } else {
     $('mapMsg').textContent = D.path.length
@@ -671,7 +696,9 @@ function initMap() {
       : 'No path samples stored for this flight.';
   }
   for (const [event, label, color] of [['takeoff', 'Takeoff', '#1a7f37'], ['landing', 'Landing', '#c62828']]) {
-    const position = D.entry?.[event]?.location;
+    // The logbook's takeoff/landing places come from GPS; with the INS path use its own first/last point.
+    const position = source === 'ins' ? mapPos((event === 'takeoff' ? path[0] : path[path.length - 1]) || {})
+      : D.entry?.[event]?.location;
     if (geographicPosition(position)) {
       L.circleMarker([position.lat, position.lon], {radius: 5, color, fillOpacity: .9})
         .bindTooltip(label).addTo(group);
@@ -723,7 +750,7 @@ function initMap() {
     const bounds = L.featureGroup([group, sectorLayer, visibleWaypoints,
       ...($('showHiddenWaypoints').checked ? [hiddenWaypoints] : [])]).getBounds();
     const b = group.getBounds().isValid() ? group.getBounds() : bounds;
-    if (b.isValid()) map.fitBounds(b.pad(0.1), {maxZoom: 19}); else map.setView([52, 4.4], 6);
+    if (b.isValid()) map.fitBounds(b.pad(0.1), {maxZoom: source === 'ins' ? 22 : 19}); else map.setView([52, 4.4], 6);
   };
   const togglePlan = () => { $('showPlan').checked ? planLayer.addTo(map) : planLayer.remove(); };
   $('showPlan').onchange = togglePlan;
@@ -738,7 +765,7 @@ function show(i) {
   const p = pt(i);
   if (!p) { $('readout').innerHTML = ''; return; }
   if (marker) {
-    if (geographicPosition(p.position)) marker.setLatLng([p.position.lat, p.position.lon]).addTo(map);
+    if (geographicPosition(mapPos(p))) marker.setLatLng([mapPos(p).lat, mapPos(p).lon]).addTo(map);
     else marker.remove();
   }
   $('scrub').value = i;
