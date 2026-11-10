@@ -31,6 +31,7 @@
   th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
   th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; }
   .mono { font-family:ui-monospace, monospace; font-size:12px; }
+  td.num { color:var(--mute); }
   .mute { color:var(--mute); }
   .bar { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
   .bar[hidden] { display:none; }
@@ -92,7 +93,7 @@
   <div id="parseNotice" class="parse-notice" role="status" hidden></div>
   <section class="card">
     <div class="bar">
-      <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date, reference…)">
+      <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date, reference, #number…)">
       <label title="One row per aircraft, crew, day and takeoff location, like a paper daily log. Expand a row for its flights."><input type="checkbox" id="combine" checked> Group by day</label>
       <span class="col-menu"><button type="button" id="colButton" aria-expanded="false" aria-controls="colForm">Columns</button>
         <form id="colForm" hidden aria-label="Shown columns"></form></span>
@@ -124,7 +125,7 @@
     </div>
     <div class="scroll">
     <table class="log">
-      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"><input type="checkbox" id="selAll" title="Select all on this page" aria-label="Select all on this page"></th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
+      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"><input type="checkbox" id="selAll" title="Select all on this page" aria-label="Select all on this page"></th><th title="Flight number: the number in /flight/&lt;number&gt;, used by pprz_fetch in MATLAB">No.</th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
         <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -260,7 +261,7 @@ function categoryCell(f) {
 }
 
 // Column visibility is a per-browser preference, so it survives page changes, Back and new sessions.
-const COLUMNS = ['Date (UTC)', 'Takeoff', 'Landing', 'Flights', 'Duration', 'Flown', 'Source', 'Aircraft', 'Project',
+const COLUMNS = ['No.', 'Date (UTC)', 'Takeoff', 'Landing', 'Flights', 'Duration', 'Flown', 'Source', 'Aircraft', 'Project',
   'Operator', 'Category', 'Takeoff location', 'Landing location', 'PIC', 'PAC', 'GCS', 'Goal', 'Comment'];
 const COLUMNS_KEY = 'logbook.hiddenColumns';
 let hiddenColumns = new Set();
@@ -274,7 +275,7 @@ function applyColumns() {
   try { localStorage.setItem(COLUMNS_KEY, JSON.stringify([...hiddenColumns])); } catch (e) {}
 }
 function fillColumns() {
-  $('colForm').innerHTML = COLUMNS.map(c => `<label><input type="checkbox" value="${esc(c)}"${hiddenColumns.has(c) ? '' : ' checked'}${c === COLUMNS[0] ? ' disabled' : ''}> ${esc(c)}</label>`).join('')
+  $('colForm').innerHTML = COLUMNS.map(c => `<label><input type="checkbox" value="${esc(c)}"${hiddenColumns.has(c) ? '' : ' checked'}${c === 'Date (UTC)' ? ' disabled' : ''}> ${esc(c)}</label>`).join('')
     + '<div class="col-actions"><button type="button" id="colAll">Show all</button><button type="button" id="colClose">Close</button></div>';
 }
 $('colButton').onclick = () => {
@@ -395,7 +396,7 @@ function chk(ids, can) {
   const all = ids.length > 0 && ids.every(id => selected.has(id));
   return `<td class="chk"><input type="checkbox" ${all ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel(${esc(JSON.stringify(ids))}, this.checked)"></td>`;
 }
-const text = f => [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_estimated ? 'estimated date' : '', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, f.operator_name, f.operator_registration, categoryText(f), f.authorisation_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
+const text = f => [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)])].filter(id => id != null).map(id => '#' + id).join(' ') + ' ' + [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_estimated ? 'estimated date' : '', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, f.operator_name, f.operator_registration, categoryText(f), f.authorisation_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
 
 function projectOptions(selected) {
   const addable = projects.filter(p => me && (me.is_admin || p.can_add || p.id === selected));
@@ -639,7 +640,15 @@ async function setLogDate(logId, value) {
   loadFlights();
 }
 const timesTip = o => o.times ? ` class="times" title="${esc(o.times)}"` : '';
-const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '▾' : '▸') : ''}</td>${chk(o.ids, o.canEdit)}${dateTd(f)}<td><span${timesTip(o)}>${esc(fmtHm(f.takeoff_utc))}</span></td><td><span${timesTip(o)}>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</span></td>
+// Flight number (as in /flight/<number> and pprz_fetch): the recording the flight page opens; the other recordings
+// of the same flight (SD and GCS log) in the tooltip. Empty for paper records and for a day with several flights.
+function numberTd(f, o) {
+  if (f.flight_id == null || (o.group && o.count > 1)) return '<td class="num"></td>';
+  const ids = [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)])];
+  const tip = ids.length > 1 ? ` title="Recordings: ${esc((f.sources || []).map(s => `${s.flight_id} (${TYPE_LABEL[s.log_type] || s.log_type})`).join(', '))}"` : '';
+  return `<td class="num mono"><span${tip}>${f.flight_id}</span></td>`;
+}
+const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '▾' : '▸') : ''}</td>${chk(o.ids, o.canEdit)}${numberTd(f, o)}${dateTd(f)}<td><span${timesTip(o)}>${esc(fmtHm(f.takeoff_utc))}</span></td><td><span${timesTip(o)}>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</span></td>
     <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${o.sources}</td><td><span${f.aircraft_uid ? ` title="${esc(f.aircraft_uid)}"` : ''}>${entityLink('aircraft', f.drone_id, f.aircraft)}</span>${verdictMark(f)}</td>
     <td>${o.project}</td><td>${operatorCell(f)}</td><td>${categoryCell(f)}</td>
     <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place, f.takeoff_place_id)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place, landingPlaceId)}</td>
@@ -648,7 +657,7 @@ const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '
 function flightRows(f, cls = '') {
   const ids = crewIds(f);
   return `<tr class="flight ${cls}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: editOn() ? f.can_edit_crew : exportable(f)}, f.landing_place_id)}</tr>`
-    + (open_.has(f.record_key) ? `<tr><td colspan="20" class="detail">${detail(f)}</td></tr>` : '');
+    + (open_.has(f.record_key) ? `<tr><td colspan="21" class="detail">${detail(f)}</td></tr>` : '');
 }
 
 function groupRows(g) {
@@ -707,7 +716,7 @@ $('rows').onclick = e => {
 };
 
 function exportCsv() {
-  const cols = ['source_type', 'simulation', 'flight_count', 'record_kind', 'reference', 'takeoff_utc', 'landing_utc', 'date_ok', 'date_estimated', 'date_override', 'duration_s', 'distance_m', 'from_takeoff_m', 'max_from_takeoff_m', 'aircraft', 'aircraft_uid', 'project_name', 'operator_name', 'operator_registration', 'operator_source', 'category_label', 'authorisation_name', 'category_source', 'category_check', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
+  const cols = ['flight_id', 'source_type', 'simulation', 'flight_count', 'record_kind', 'reference', 'takeoff_utc', 'landing_utc', 'date_ok', 'date_estimated', 'date_override', 'duration_s', 'distance_m', 'from_takeoff_m', 'max_from_takeoff_m', 'aircraft', 'aircraft_uid', 'project_name', 'operator_name', 'operator_registration', 'operator_source', 'category_label', 'authorisation_name', 'category_source', 'category_check', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
   const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const csv = [cols.join(',')].concat(render().map(f => cols.map(c => cell(c === 'simulation' ? f.simulation?.detected : c.endsWith('_user') ? f[c]?.display_name : f[c])).join(','))).join('\n');
   const a = document.createElement('a');
