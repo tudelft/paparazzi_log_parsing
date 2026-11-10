@@ -1664,7 +1664,9 @@ its voltage varies by less than 0.1 V loses 2 points ("battery voltage steady un
 external power supply (bench or tether test). The rule only lowers the score, so on its own it can turn a flight
 into `uncertain` but not into `ground`. The taxi rule ("moved on the ground without climbing": 3 m or more
 horizontally with less than 1.5 m height change) does not apply when motion capture (OptiTrack) is used: indoor
-flights stay low while moving a few metres (parser 1.12.1).
+flights stay low while moving a few metres (parser 1.12.1). Nor does it apply to a rotorcraft (`ROTORCRAFT_STATUS`)
+that rose at least 0.5 m and moved less than 16 m, the shortest known taxi: a multirotor cannot roll on the
+ground, so that is a low hover (parser 1.12.3).
 
 **Flight page** (`/flight/<id>`). Path on a map with the flight plan waypoints, a time slider, charts,
 takeoff/landing details, setting changes, messages, checklist and autopilot version; switch between the SD
