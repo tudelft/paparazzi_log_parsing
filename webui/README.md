@@ -185,7 +185,9 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
 - Admins manage **Aircraft** using Details, Project history and Aliases. Add/import buttons open dialogs;
   Close or Escape dismisses them. **Manager** and **Current user** suggest registered users as you type (free text
   is allowed for people without an account); a new aircraft starts with you as manager.
-  Link unrecognised log names to an existing aircraft/person in Edit mode.
+  Link unrecognised log names to an existing aircraft/person in Edit mode. There, Aircraft shows tabs
+  (Aircraft · Unlinked names · Shared names) and People shows tabs (People · Unlinked crew names · Approval queue ·
+  Qualification types), so one list is on screen at a time; the tab is kept in the URL.
   Logs with an autopilot board ID (newer firmware) also match the aircraft that board was seen on.
   Servers can hide unlinked aircraft flights from Logbook, Statistics, person details and Locations until linked;
   admins can still find the names in Aircraft Edit mode (see the [settings](TECHNICAL.md#settings)).

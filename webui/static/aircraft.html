@@ -110,9 +110,10 @@
 </header>
 <main>
   <div id="err"></div>
+  <div class="page-tabs" id="pageTabs" aria-label="Aircraft page sections" hidden></div>
   <details class="card" id="unlinkedCard" hidden>
     <summary>Unlinked aircraft names</summary>
-    <div class="section-heading">
+    <div class="section-heading"><input type="search" id="unlinkedQ" placeholder="Find name in log" aria-label="Find unlinked name" style="float:left">
     <details><summary>Help</summary><p>Paparazzi logs usually already have the fleet name. PX4 and Blackbox logs do not: they show the airframe type plus the flight-controller id (for example <code>quad_x 00500040</code>) or a filename such as <code>LOG00030</code>. Link that once to the real aircraft; later logs from the same board attach automatically. The dropped folder name is a hint, including a parent folder above dated subfolders, and is never used when more than one aircraft could match.</p></details></div>
     <div class="scroll"><table><thead id="unlinkedHead"></thead><tbody id="unlinked"></tbody></table></div>
   </details>
@@ -130,7 +131,7 @@
     <input type="search" id="pickSearch" placeholder="Search aircraft" aria-label="Search aircraft" autocomplete="off">
     <div class="pick-list" id="pickList" role="listbox" aria-label="Aircraft"></div>
   </div>
-  <section class="card">
+  <section class="card" id="fleetCard">
     <div class="fleet-toolbar"><h2 id="fleetTitle">Aircraft</h2><span class="fleet-count" id="fleetCount"></span>
       <input id="q" type="search" placeholder="Search name, serial, alias, person, project…" aria-label="Search aircraft">
       <select id="statusFilter" aria-label="Status"><option value="">All statuses</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select>
@@ -277,6 +278,21 @@ function statusOptions(selected) {
     `<option${s === selected ? ' selected' : ''}>${s}</option>`).join('');
 }
 
+// In Edit mode the long admin lists (Unlinked names, Shared names) are tabs next to the fleet, one on screen at a time.
+let pageTab = 'fleet';
+function paintPageTabs(open) {
+  const tabs = [['fleet', `Aircraft (${data.drones.length})`]];
+  if (!$('unlinkedCard').hidden) tabs.push(['unlinked', `Unlinked names (${open})`]);
+  if (!$('ambiguousCard').hidden) tabs.push(['shared', `Shared names (${(data.ambiguous || []).length})`]);
+  if (!tabs.some(t => t[0] === pageTab)) pageTab = 'fleet';
+  const tabbed = tabs.length > 1;
+  window.pageTabs($('pageTabs'), tabs, pageTab, key => { pageTab = key; window.viewState.save(true); render(); });
+  for (const [key, el] of [['unlinked', $('unlinkedCard')], ['shared', $('ambiguousCard')]]) {
+    el.classList.toggle('tabbed', tabbed);
+    if (tabbed) { el.open = true; if (key !== pageTab) el.hidden = true; }
+  }
+  $('fleetCard').hidden = tabbed && pageTab !== 'fleet';
+}
 function render() {
   closePick(false);
   const q = ($('q').value || '').trim().toLowerCase();
@@ -295,9 +311,11 @@ function render() {
   const open = me && me.is_admin ? data.unlinked.length : 0;
   $('unlinkedCard').hidden = !(editing && open);
   $('pending').hidden = !!data.hide_unlinked_aircraft || !(open && !editing);
+  paintPageTabs(open);
   $('pending').textContent = `${open} unlinked log name${open === 1 ? '' : 's'}`;
   $('pending').title = `Names in the logs that are not linked to an aircraft yet. Turn on Edit in the menu to link ${open === 1 ? 'it' : 'them'}.`;
-  const shownUnlinked = data.unlinked.filter(e => !q || e.name.toLowerCase().includes(q));
+  const uq = ($('unlinkedQ').value || '').trim().toLowerCase();
+  const shownUnlinked = data.unlinked.filter(e => !uq || [e.name, ...(e.names || []), ...(e.board_ids || [])].join(' ').toLowerCase().includes(uq));
   $('unlinkedHead').innerHTML = '<tr><th>Name in log</th><th>Board id</th><th>Seen</th><th>Upload folder</th><th>Link to aircraft</th></tr>';
   $('unlinked').innerHTML = shownUnlinked.map(e => {
     const idx = data.unlinked.indexOf(e);
@@ -726,6 +744,7 @@ function removeDrone(id) {
     send('DELETE', '/api/admin/drones/' + id);
 }
 $('q').oninput = () => { page = 0; window.viewState.save(); render(); };
+$('unlinkedQ').oninput = () => { window.viewState.save(); render(); };
 $('statusFilter').onchange = $('showDiscarded').onchange = $('showWithoutLogs').onchange = () => { page = 0; window.viewState.save(true); render(); };
 $('size').onchange = () => { pageSize = +$('size').value; page = 0; window.viewState.save(true); render(); };
 // Search, filters and sort live in the URL, so Back returns to the same view.
@@ -738,6 +757,8 @@ window.viewState.setup(p => {
   sortKey = ['serial', ...FLEET_COLUMNS.map(c => c.sort).filter(Boolean)].includes(key) ? key : 'serial';
   sortDesc = key === sortKey ? dir === 'desc' : true;
   page = window.viewState.integer(p.get('page'), 1) - 1;
+  pageTab = ['unlinked', 'shared'].includes(p.get('tab')) ? p.get('tab') : 'fleet';
+  $('unlinkedQ').value = p.get('uq') || '';
   const size = [...$('size').options].some(o => o.value === p.get('size')) ? p.get('size') : '50';
   $('size').value = size; pageSize = +size;
 }, p => {
@@ -746,6 +767,7 @@ window.viewState.setup(p => {
   set(p, 'discarded', $('showDiscarded').checked ? '1' : ''); set(p, 'without_logs', $('showWithoutLogs').checked ? '1' : '');
   set(p, 'sort', `${sortKey}-${sortDesc ? 'desc' : 'asc'}`, 'serial-desc');
   set(p, 'page', page + 1, 1); set(p, 'size', pageSize, 50);
+  set(p, 'tab', pageTab, 'fleet'); set(p, 'uq', $('unlinkedQ').value);
 }, () => render());
 window.addEventListener('editchange', toggleEdit);
 fetch('/api/me').then(r => r.json()).then(d => {

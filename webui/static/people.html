@@ -115,12 +115,13 @@
 </header>
 <main>
   <div id="err"></div>
+  <div class="page-tabs" id="pageTabs" aria-label="People page sections" hidden></div>
   <section class="card" id="unlinkedCard" hidden>
     <div class="section-heading"><h2>Unlinked crew names</h2>
     <details><summary>Help</summary><p>PIC/PAC/GCS names from logs that do not match a person yet. Link each name to an existing person, or use Add user first if a new profile is needed. Add as external records crew of another operator (for example when flying under their operational authorisation): their flights are linked, but they cannot sign in or join projects. Choose the operator they fly for first: their flights are then counted under that operator. Logs do not create profiles automatically.</p></details></div>
     <div class="scroll"><table><thead><tr><th>Name in log</th><th>Seen</th><th>Link to user</th><th></th></tr></thead><tbody id="unlinked"></tbody></table></div>
   </section>
-  <section class="card">
+  <section class="card" id="peopleCard">
     <div class="people-title-row"><h2>People</h2>
     <label class="directory-search" id="directorySearchLabel"><input type="search" id="directorySearch" aria-label="Search people" placeholder="Search people" oninput="renderDirectory()"></label>
     <label id="showExternalLabel" title="External people stay hidden until this is ticked" hidden><input type="checkbox" id="showExternal" onchange="render()"> Show external</label>
@@ -311,6 +312,24 @@ function qualBits(q) {
     .map(bit).join('');
 }
 
+// The admin sections (Unlinked crew names, Approval queue, Qualification types) are tabs next to People, one on
+// screen at a time; the tab is kept in the URL (?tab=) so Back returns to it.
+let pageTab = new URLSearchParams(location.search).get('tab') || 'people';
+function paintPageTabs(open) {
+  const sections = [['people', 'People', $('peopleCard')], ['unlinked', `Unlinked crew names (${open})`, $('unlinkedCard')],
+    ['approvals', `Approval queue (${pendingQualifications.length})`, $('approvalSection')],
+    ['types', 'Qualification types', $('typesSection')]].filter(([, , el]) => el === $('peopleCard') || !el.hidden);
+  if (!sections.some(t => t[0] === pageTab)) pageTab = 'people';
+  window.pageTabs($('pageTabs'), sections.map(([key, label]) => [key, label]), pageTab, key => {
+    pageTab = key;
+    const url = new URL(location.href);
+    if (key === 'people') url.searchParams.delete('tab'); else url.searchParams.set('tab', key);
+    history.pushState(history.state, '', url);
+    render();
+  });
+  if (sections.length > 1) for (const [key, , el] of sections) el.hidden = key !== pageTab;
+}
+window.addEventListener('popstate', () => { pageTab = new URLSearchParams(location.search).get('tab') || 'people'; render(); });
 function render() {
   const admin = !!(me && me.is_admin);
   const editing = admin && window.editMode();
@@ -327,6 +346,7 @@ function render() {
   if (!editing) $('qualImportDialog').close();
   $('unlinkedCard').hidden = !(editing && open);
   $('showExternalLabel').hidden = !people.users.some(u => u.is_external);
+  paintPageTabs(open);
   $('pending').hidden = !(open && !editing);
   const bits = [];
   if (open) bits.push(`${open} name${open === 1 ? ' in the logs is' : 's in the logs are'} not linked`);

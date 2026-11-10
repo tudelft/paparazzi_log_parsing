@@ -730,3 +730,24 @@ window.timingEvidenceHTML = function (timing) {
     }).catch(error => { console.warn('Could not load account and Web UI version:', error); });
   }
 })();
+
+// Page-level tabs: tabs is [[key, label], ...]; renders accessible tab buttons (arrow keys move between them) and
+// calls choose(key) on a click. Hidden when there is only one tab.
+window.pageTabs = function (el, tabs, current, choose) {
+  el.hidden = tabs.length < 2;
+  el.setAttribute('role', 'tablist');
+  el.innerHTML = tabs.map(([key, label]) => `<button type="button" role="tab" data-tab="${key}" aria-selected="${key === current}"
+    tabindex="${key === current ? 0 : -1}">${label}</button>`).join('');
+  const buttons = [...el.querySelectorAll('[role="tab"]')];
+  buttons.forEach((b, i) => {
+    b.onclick = () => choose(b.dataset.tab);
+    b.onkeydown = e => {
+      const step = {ArrowRight: 1, ArrowLeft: -1}[e.key];
+      if (!step) return;
+      e.preventDefault();
+      const next = buttons[(i + step + buttons.length) % buttons.length];
+      choose(next.dataset.tab);
+      el.querySelector(`[data-tab="${next.dataset.tab}"]`)?.focus();
+    };
+  });
+};
