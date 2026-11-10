@@ -158,6 +158,26 @@ class CatalogImportTests(AppTests):
         self.sign_in(2)
         self.assertEqual(self.upload_places(good).status_code, 403)
 
+    def test_place_country_by_code_or_name_kept_when_empty_and_validated(self):
+        text = "place,lat,lon,radius_m,country\nDune,52.2,4.4,300,nl\nForest,54.3,-0.7,300,United Kingdom\n"
+        self.assertEqual(self.upload_places(text).status_code, 200)
+        country = lambda name: self.con.execute("SELECT country FROM places WHERE name=?", (name,)).fetchone()[0]
+        self.assertEqual((country("Dune"), country("Forest")), ("NL", "GB"))
+        again = self.upload_places("place,lat,lon,radius_m,country\nDune,52.2,4.4,300,\n")
+        self.assertEqual(again.json["unchanged"], 1)  # an empty country keeps the one already set
+        bad = self.upload_places("place,lat,lon,radius_m,country\nDune,52.2,4.4,300,Atlantis\n")
+        self.assertEqual(bad.status_code, 400)
+        self.assertIn("unknown country", bad.json["error"])
+        pid = self.con.execute("SELECT id FROM places WHERE name='Dune'").fetchone()[0]
+        self.assertEqual(self.client.put(f"/api/admin/places/{pid}", json={"country": "be"}).status_code, 200)
+        self.assertEqual(country("Dune"), "BE")
+        self.assertEqual(self.client.put(f"/api/admin/places/{pid}", json={"country": "XX"}).status_code, 400)
+        self.assertEqual(self.client.put(f"/api/admin/places/{pid}", json={"country": None}).status_code, 200)
+        self.assertIsNone(country("Dune"))
+        listed = self.client.get("/api/places").json
+        self.assertIn(["NL", "Netherlands"], listed["countries"])
+        self.assertIn("country", listed["places"][0])
+
     def test_project_validation_is_atomic(self):
         cases = (
             "project,person,role\nNew,Viewer,view\nResearch,Unknown,add\n",

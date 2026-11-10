@@ -50,6 +50,7 @@ import links
 import date_suggest
 import operators
 import categories
+import countries
 import storage
 import saml
 import config
@@ -2264,11 +2265,11 @@ def list_places():
                 if f.get(end + "_place_id") is None:
                     point["unnamed_count"] += 1
     places = [dict(id=r["id"], name=r["name"], indoor=bool(r["indoor"]), shape=json.loads(r["shape"]),
-                   operator_id=r["operator_id"], category=r["category"], authorisation_id=r["authorisation_id"],
+                   country=r["country"], operator_id=r["operator_id"], category=r["category"], authorisation_id=r["authorisation_id"],
                    **stats.get(r["id"], {"flights": 0, "seconds": 0.0, "last": None}))
               for r in con.execute("SELECT * FROM places ORDER BY name") if admin or r["id"] in visible_places]
     return jsonify(places=places, points=[{"lat": k[0], "lon": k[1], **n} for k, n in pts.items()],
-                   admin=admin)
+                   admin=admin, countries=countries.choices())
 
 
 @app.post("/api/admin/places")
@@ -2286,8 +2287,13 @@ def admin_add_place():
         category, authorisation_id = categories.parse(con, body)
     except categories.CategoryError as exc:
         return jsonify(error=str(exc)), exc.status
-    cur = con.execute("INSERT INTO places (name, indoor, shape, operator_id, category, authorisation_id) VALUES (?,?,?,?,?,?)",
-                      (name, int(bool(body.get("indoor"))), json.dumps(shape), operator_id, category, authorisation_id))
+    try:
+        country = countries.parse(body.get("country"))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    cur = con.execute("INSERT INTO places (name, indoor, shape, operator_id, category, authorisation_id, country)"
+                      " VALUES (?,?,?,?,?,?,?)", (name, int(bool(body.get("indoor"))), json.dumps(shape), operator_id,
+                                                  category, authorisation_id, country))
     con.commit()
     return jsonify(id=cur.lastrowid)
 
@@ -2314,8 +2320,13 @@ def admin_update_place(place_id):
             category, authorisation_id = categories.parse(con, body)
         except categories.CategoryError as exc:
             return jsonify(error=str(exc)), exc.status
-    con.execute("UPDATE places SET name=?, indoor=?, shape=?, operator_id=?, category=?, authorisation_id=? WHERE id=?",
-                (name, indoor, json.dumps(shape), operator_id, category, authorisation_id, place_id))
+    try:
+        country = countries.parse(body["country"]) if "country" in body else row["country"]
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    con.execute("UPDATE places SET name=?, indoor=?, shape=?, operator_id=?, category=?, authorisation_id=?, country=?"
+                " WHERE id=?", (name, indoor, json.dumps(shape), operator_id, category, authorisation_id, country,
+                                place_id))
     con.commit()
     return jsonify(ok=True)
 
@@ -2431,7 +2442,7 @@ def admin_delete_authorisation(authorisation_id):
     return jsonify(ok=True)
 
 
-PLACE_CSV_COLUMNS = ("place", "lat", "lon", "radius_m", "indoor")
+PLACE_CSV_COLUMNS = ("place", "lat", "lon", "radius_m", "indoor", "country")
 # Columns of logbooks/places.csv that the database does not keep; they are accepted and ignored.
 PLACE_CSV_IGNORED = ("timezone", "log_names", "source", "confirmed")
 
@@ -2448,7 +2459,7 @@ def admin_import_places():
         missing = [c for c in PLACE_CSV_COLUMNS[:4] if c not in headers]
         unknown = set(headers) - set(PLACE_CSV_COLUMNS) - set(PLACE_CSV_IGNORED)
         if missing or unknown:
-            raise historical.RecordError("CSV columns are place, lat, lon, radius_m and optionally indoor"
+            raise historical.RecordError("CSV columns are place, lat, lon, radius_m and optionally indoor and country"
                                          + (f"; missing {', '.join(missing)}" if missing else "")
                                          + (f"; unknown {', '.join(sorted(unknown))}" if unknown else "") + ".")
         existing = {}
@@ -2472,18 +2483,24 @@ def admin_import_places():
             if indoor_text not in ("", "yes", "no", "1", "0", "true", "false"):
                 raise historical.RecordError(f"Row {line}: indoor must be yes or no.")
             indoor = int(indoor_text in ("yes", "1", "true"))
+            try:  # an empty or missing country keeps the one already set
+                country = countries.parse(rec.get("country"))
+            except ValueError as exc:
+                raise historical.RecordError(f"Row {line}: {exc}.") from None
             shape = {"type": "circle", "center": [lat, lon], "radius_m": radius}
             matches = existing.get(name.casefold(), [])
             if len(matches) > 1:
                 raise historical.RecordError(f"Row {line}: more than one place is called '{name}'. Rename or delete one first.")
-            item = dict(line=line, name=name, indoor=bool(indoor), shape=shape, warning=None)
+            item = dict(line=line, name=name, indoor=bool(indoor), shape=shape, country=country, warning=None)
             if not matches:
                 item["action"] = "create"
             else:
                 old = matches[0]
                 item["id"] = old["id"]
                 old_shape = json.loads(old["shape"])
-                if old_shape == shape and old["indoor"] == indoor and old["name"] == name:
+                if country is None:
+                    item["country"] = old["country"]
+                if old_shape == shape and old["indoor"] == indoor and old["name"] == name and old["country"] == item["country"]:
                     item["action"] = "unchanged"
                 else:
                     item["action"] = "update"
@@ -2494,12 +2511,13 @@ def admin_import_places():
             with db.write_lock, con:
                 con.execute("BEGIN IMMEDIATE")
                 for item in result:
-                    values = (item["name"], int(item["indoor"]), json.dumps(item["shape"]))
+                    values = (item["name"], int(item["indoor"]), json.dumps(item["shape"]), item["country"])
                     if item["action"] == "create":
-                        item["id"] = con.execute("INSERT INTO places (name, indoor, shape) VALUES (?,?,?)",
+                        item["id"] = con.execute("INSERT INTO places (name, indoor, shape, country) VALUES (?,?,?,?)",
                                                  values).lastrowid
                     elif item["action"] == "update":
-                        con.execute("UPDATE places SET name=?, indoor=?, shape=? WHERE id=?", (*values, item["id"]))
+                        con.execute("UPDATE places SET name=?, indoor=?, shape=?, country=? WHERE id=?",
+                                    (*values, item["id"]))
         counts = {a: sum(i["action"] == a for i in result) for a in ("create", "update", "unchanged")}
         return jsonify(preview=preview, rows=result, created=counts["create"], updated=counts["update"],
                        unchanged=counts["unchanged"])
@@ -2511,7 +2529,7 @@ def admin_import_places():
 def places_csv_template():
     admin_required()
     return Response(",".join(PLACE_CSV_COLUMNS + PLACE_CSV_IGNORED) + "\n"
-                    'Example field,52.0,4.4,500,no,Europe/Amsterdam,Field;Example,"survey, 2026",yes\n',
+                    'Example field,52.0,4.4,500,no,NL,Europe/Amsterdam,Field;Example,"survey, 2026",yes\n',
                     mimetype="text/csv", headers={"Content-Disposition": 'attachment; filename="places.csv"'})
 
 
