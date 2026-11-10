@@ -56,14 +56,25 @@ class CliLoginTests(AppTests):
         self.sign_in(2)
         self.assertEqual(self.client.get("/api/keys").json, [])
 
-    def test_a_key_can_revoke_itself(self):
+    def test_revoke_all_keeps_manual_keys_unless_asked(self):
         self.sign_in(2)
-        key = self.client.post("/api/keys", json={"name": "laptop", "read_only": True}).json["key"]
-        self.assertEqual(self.client.delete("/api/key").status_code, 400)
+        manual = self.client.post("/api/keys", json={"name": "laptop"}).json["key"]
+        read_only = self.client.post("/api/keys", json={"name": "ci", "read_only": True}).json["key"]
+        self.con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at, expires_at)"
+                         " VALUES (2, 'Login: x', 'h', 'logdb_', '2026-01-01T00:00:00Z', '2099-01-01T00:00:00Z')")
+        self.con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at, expires_at)"
+                         " VALUES (3, 'Login: y', 'h3', 'logdb_', '2026-01-01T00:00:00Z', '2099-01-01T00:00:00Z')")
+        self.con.commit()
         with self.client.session_transaction() as session:
             session.clear()
-        self.assertTrue(self.client.delete("/api/key", headers={"Authorization": "Bearer " + key}).json["ok"])
-        self.assertEqual(self.client.get("/api/me", headers={"Authorization": "Bearer " + key}).status_code, 401)
+        auth = lambda key: {"Authorization": "Bearer " + key}  # noqa: E731
+        self.assertEqual(self.client.post("/api/keys/revoke-all", headers=auth(read_only)).status_code, 403)
+        self.assertEqual(self.client.post("/api/keys/revoke-all", headers=auth(manual)).json["revoked"], 1)
+        self.assertEqual(self.client.get("/api/me", headers=auth(manual)).status_code, 200)
+        revoked = self.client.post("/api/keys/revoke-all", json={"include_manual": True}, headers=auth(manual))
+        self.assertEqual(revoked.json["revoked"], 2)
+        self.assertEqual(self.client.get("/api/me", headers=auth(manual)).status_code, 401)
+        self.assertEqual(self.con.execute("SELECT user_id FROM api_keys").fetchall()[0][0], 3)  # other users keep theirs
 
     def test_denied_expired_and_repeated_logins(self):
         start = self.start()

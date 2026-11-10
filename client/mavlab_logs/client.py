@@ -88,34 +88,43 @@ def _write_atomic(target, write):
 
 
 class Client:
-    """Connection to one logbook server.
+    """Connection to one logbook server; usually made with mavlab_logs.connect().
 
-    server: URL, else LOGDB_SERVER, else the default stored by the last login.
-    key: API key, else LOGDB_API_KEY (used only with LOGDB_SERVER's server), else the stored login for the server.
-    login: sign in through the browser when there is no valid key (False raises AuthError instead).
+    server: URL or host name (required).
+    key: API key, else LOGDB_API_KEY (unless LOGDB_SERVER names another server), else the key of the last
+    browser login to the server, else a new browser login (login=False raises AuthError instead).
+    Values taken from the environment are announced, and named in errors.
     """
 
-    def __init__(self, server=None, key=None, *, login=True, insecure=False, timeout=600, retries=3, quiet=False):
+    def __init__(self, server, key=None, *, login=True, insecure=False, timeout=600, retries=3, quiet=False):
+        self.allow_login, self.quiet = login, quiet
         env_server = os.environ.get("LOGDB_SERVER")
-        server = server or env_server or settings.load().get("default")
-        if not server:
-            raise ValueError("no server: pass server='https://…', set LOGDB_SERVER, or log in once with a server")
         self.server = settings.normal_server(server)
         self.key, self.key_source = key, "argument" if key else None
         env_key = os.environ.get("LOGDB_API_KEY")
         if not self.key and env_key and (not env_server or settings.normal_server(env_server) == self.server):
-            self.key, self.key_source = env_key, "environment"
+            self.key, self.key_source = env_key, "LOGDB_API_KEY"
         if not self.key:
             stored = settings.entry(self.server)
             if stored and stored.get("key") and not settings.expired(stored):
-                self.key, self.key_source = stored["key"], "stored"
-        self.allow_login, self.quiet = login, quiet
+                self.key, self.key_source = stored["key"], "browser login"
+        if self.key_source == "LOGDB_API_KEY":
+            self._say("Using LOGDB_API_KEY from the environment.")
         self.timeout, self.retries = timeout, retries
         u = urlsplit(self.server)
         self.https = u.scheme == "https"
         self.host, self.port = u.hostname, u.port or (443 if self.https else 80)
         self.prefix = u.path.rstrip("/")
         self.ctx = ssl._create_unverified_context() if insecure else None
+
+    def _origin(self):
+        """Where the server and key came from, for error messages."""
+        parts = [f"server {self.server}"]
+        if self.key_source == "LOGDB_API_KEY":
+            parts.append("API key from the environment variable LOGDB_API_KEY")
+        elif self.key_source:
+            parts.append(f"API key from the {self.key_source}")
+        return "; ".join(parts)
 
     def _say(self, text):
         if not self.quiet:
@@ -168,8 +177,8 @@ class Client:
                 return self._send(method, path, body, headers, auth, sink)
             except (OSError, http.client.HTTPException, HTTPError) as exc:
                 if isinstance(exc, HTTPError) and exc.status == 401 and auth:
-                    if relogged or self.key_source in ("argument", "environment") or not self.allow_login:
-                        raise AuthError(f"the server refused the API key ({self.key_source}): {exc}") from exc
+                    if relogged or self.key_source in ("argument", "LOGDB_API_KEY") or not self.allow_login:
+                        raise AuthError(f"the server refused the API key ({self._origin()}): {exc}") from exc
                     self.key = None  # an expired or revoked stored login: sign in again, once
                     continue
                 if isinstance(exc, ssl.SSLCertVerificationError):
@@ -191,10 +200,10 @@ class Client:
     # --- login ---------------------------------------------------------------------------------------------------
     def _need_login(self):
         if not self.allow_login:
-            raise AuthError(f"not signed in to {self.server}: call login() or pass an API key")
-        self.login()
+            raise AuthError(f"no valid API key for {self.server}: pass key=… or allow the browser login")
+        self._browser_login()
 
-    def login(self, open_browser=True, client=None):
+    def _browser_login(self, open_browser=True, client=None):
         """Sign in through the browser (RFC 8628 device flow) and store the key, valid for a week.
 
         Prints a link and a code; the browser opens the link, where you sign in, compare the code and allow it.
@@ -221,32 +230,25 @@ class Client:
                     interval += 5
                     continue
                 raise AuthError(f"login failed: {exc}") from exc
-            self.key, self.key_source = token["access_token"], "stored"
+            self.key, self.key_source = token["access_token"], "browser login"
             user = token.get("user") or {}
             settings.store(self.server, self.key, token.get("expires_at", ""), user.get("display_name", ""))
             self._say(f"Signed in as {user.get('display_name', '?')} until {token.get('expires_at', '?')}.")
             return user
         raise AuthError("login timed out: the code was not confirmed in the browser in time")
 
-    def use_key(self, key):
-        """Check an API key from the account page and store it for this server (it does not expire by itself)."""
-        self.key, self.key_source = key, "argument"
-        user = self.me()
-        settings.store(self.server, key, "", user.get("display_name", ""))
-        self.key_source = "stored"
-        return user
-
-    def logout(self):
-        """Revoke the stored key on the server (when it still works) and forget it on this computer."""
+    def revoke_all(self, include_manual=False):
+        """Revoke your API keys from browser logins on the server (all computers, Python and MATLAB) and forget the
+        stored one here. include_manual=True also revokes the keys made on the account page. Returns the number
+        of keys revoked."""
+        revoked = self._json("POST", "/api/keys/revoke-all", {"include_manual": bool(include_manual)})["revoked"]
         stored = settings.entry(self.server)
-        if stored and stored.get("key"):
-            self.key = stored["key"]
-            try:
-                self._send("DELETE", "/api/key")
-            except (OSError, http.client.HTTPException, HTTPError):
-                pass  # already expired/revoked, or offline: forgetting it locally is what remains
+        if stored and (include_manual or stored.get("expires_at")):
             settings.forget(self.server)
-        self.key, self.key_source = None, None
+        if include_manual or self.key_source == "browser login":
+            self.key, self.key_source = None, None
+        self._say(f"Revoked {revoked} API key(s) on {self.server}.")
+        return revoked
 
     def me(self):
         """The signed-in user (display_name, username, …)."""

@@ -8,7 +8,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -80,11 +80,6 @@ class Stub(BaseHTTPRequestHandler):
         else:
             self.reply(404, {"error": "not found"})
 
-    def do_DELETE(self):
-        if self.authorized():
-            self.state["revoked"] = True
-            self.reply(200, {"ok": True})
-
     def do_POST(self):
         s = self.state
         if self.path == "/api/cli-login":
@@ -101,6 +96,9 @@ class Stub(BaseHTTPRequestHandler):
                                  "user": {"display_name": "Pilot"}})
         elif not self.authorized():
             return
+        elif self.path == "/api/keys/revoke-all":
+            s["revoked"] = self.body()
+            self.reply(200, {"revoked": 1})
         elif self.path == "/api/flights/7/matlab":
             s["mat_requests"].append(self.body())
             self.reply(200, {"id": "e" * 32, "status": "ready", "filename": "x.mat",
@@ -134,6 +132,9 @@ class ClientTests(unittest.TestCase):
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
         self.url = f"http://127.0.0.1:{self.server.server_port}"
+        connected = patch.object(ml, "_client", None)
+        connected.start()
+        self.addCleanup(connected.stop)
         browser = patch("webbrowser.open")
         self.browser = browser.start()
         self.addCleanup(browser.stop)
@@ -141,36 +142,49 @@ class ClientTests(unittest.TestCase):
     def client(self, **kw):
         return ml.Client(self.url, quiet=True, retries=0, **kw)
 
-    def test_browser_login_is_stored_and_redone_when_the_key_is_refused(self):
-        with redirect_stderr(io.StringIO()) as err:
-            user = ml.Client(self.url, retries=0).login()
-        self.assertEqual(user["display_name"], "Pilot")
+    def test_connect_signs_in_through_the_browser_and_redoes_a_refused_login(self):
+        with self.assertRaises(ml.Error):
+            ml.download(7)  # not connected yet
+        with redirect_stderr(io.StringIO()) as err, redirect_stdout(io.StringIO()) as out:
+            client = ml.connect(self.url)
+        self.assertEqual(client.key_source, "browser login")
         self.assertIn("BCDF-GHJK", err.getvalue())
+        self.assertIn("as Pilot", out.getvalue())
         self.browser.assert_called_once_with("http://stub/cli-login?code=BCDF-GHJK")
         self.assertTrue(Stub.state["client"].startswith("Python on "))
         stored = settings.entry(self.url)
         self.assertEqual((stored["key"], stored["expires_at"]), ("logdb_new", "2099-01-01T00:00:00Z"))
-        self.assertEqual(settings.load()["default"], self.url)
         if os.name != "nt":
             self.assertEqual((self.dir / "config" / "config.json").stat().st_mode & 0o777, 0o600)
-        # the next client finds the server and key; a revoked key starts a new login
+        # the next connection reuses the stored key; a revoked key starts a new login
         Stub.state.update(key="logdb_other", token_polls=0)
-        client = ml.Client(quiet=True, retries=0)
-        self.assertEqual(client.key_source, "stored")
+        client = self.client()
+        self.assertEqual(client.key_source, "browser login")
         self.assertEqual(client.me()["display_name"], "Pilot")
         self.assertEqual(Stub.state["auth"][-2:], ["Bearer logdb_new", "Bearer logdb_new"])
         # an expired stored key is not even tried
         settings.store(self.url, "logdb_new", "2000-01-01T00:00:00Z")
         self.assertIsNone(self.client().key)
-        client.logout()
-        self.assertTrue(Stub.state["revoked"])
+        settings.store(self.url, "logdb_new", "2099-01-01T00:00:00Z")
+        with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
+            ml.connect(self.url)
+            self.assertEqual(ml.revoke_all(), 1)
+        self.assertEqual(Stub.state["revoked"], {"include_manual": False})
         self.assertIsNone(settings.entry(self.url))
 
     def test_keys_from_the_environment_or_arguments_are_never_replaced(self):
+        self.assertEqual(self.client().server, self.url)
+        self.assertEqual(ml.Client("logs.example.org", quiet=True).server, "https://logs.example.org")
         with patch.dict(os.environ, LOGDB_API_KEY="logdb_old", LOGDB_SERVER="https://elsewhere.example"):
             self.assertIsNone(self.client().key)  # a key for another server is not sent here
         with patch.dict(os.environ, LOGDB_API_KEY="logdb_old"):
             self.assertEqual(self.client().me()["id"], 2)
+        with patch.dict(os.environ, LOGDB_API_KEY="logdb_wrong", LOGDB_SERVER=self.url):
+            with redirect_stderr(io.StringIO()) as err:
+                client = ml.Client(self.url, retries=0)
+            self.assertIn("Using LOGDB_API_KEY from the environment", err.getvalue())
+            with self.assertRaisesRegex(ml.AuthError, "environment variable LOGDB_API_KEY"):
+                client.me()
         with self.assertRaises(ml.AuthError):
             self.client(key="logdb_wrong").me()
         with self.assertRaises(ml.AuthError):

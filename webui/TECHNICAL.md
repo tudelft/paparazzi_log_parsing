@@ -1229,7 +1229,7 @@ Rerunning skips already stored pairs; existing parser-error logs are not automat
 
 ## Script login and the Python/MATLAB clients
 
-The [mavlab-logs](../client/README.md) package and the [MATLAB tools](../matlab/README.md) (`pprz_login`,
+The [mavlab-logs](../client/README.md) package and the [MATLAB tools](../matlab/README.md) (`pprz_connect`,
 `pprz_download`, `pprz_upload`) sign in with an OAuth 2.0 device authorization flow (RFC 8628), so no key has to be
 copied from the account page:
 
@@ -1249,8 +1249,9 @@ The device code never appears in a URL, and only its SHA-256 is stored (`cli_log
 all, as for other keys. A key from a script login is named `Login: <client>` and has `api_keys.expires_at`, seven
 days after the login; the server refuses it afterwards and deletes it when keys are listed or created. A new login
 of the same client replaces its earlier key, so they do not fill the 20-key limit. Such keys appear on the
-account page with their end date and can be revoked there. `DELETE /api/key` revokes the key a request is made
-with, which `logout` uses (also with a read-only key).
+account page with their end date and can be revoked there. `POST /api/keys/revoke-all` (also with a full-access
+API key, as `revoke_all` uses it) revokes the user's script-login keys, and with `{"include_manual": true}` all of
+the user's keys; it returns the number revoked.
 
 The clients use `GET /api/flights/<id>/files` (the flight's log, the SHA-256 of its data file and the
 `/api/logs/<log>/download/<kind>` URLs of its files) and the MATLAB export routes of `pprz_fetch`; uploads go

@@ -11,7 +11,7 @@ function logs = pprz_load(varargin)
 %   A folder also converts the .data files in it. Converting needs pprz_setup once (Python with h5py and
 %   the parser); after that it works without internet.
 %   Returns a struct array of the exported s structs (see README.md), each with the field 'file' added.
-%   Flights from the logbook server: pprz_fetch (see pprz_server).
+%   Flights from the logbook server: pprz_fetch (after pprz_connect).
     if nargin == 0
         [names, folder] = uigetfile({'*.mat;*.zip;*.data;*.data.gz;*.log', ...
             'Exports and Paparazzi logs (*.mat, *.zip, *.data, *.log)'}, 'Select exports or logs', 'MultiSelect', 'on');

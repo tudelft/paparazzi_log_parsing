@@ -7,8 +7,8 @@ function receipts = pprz_upload(files, varargin)
 %                                                     to that fleet aircraft
 %   pprz_download(r(1).flight_ids)                    the flights found in it (with 'wait', true)
 %   A log you already uploaded is skipped (status "skipped") unless 'skip_existing', false. Receipts have name,
-%   status (accepted, skipped or done), ingest_id and, with 'wait', log_id and flight_ids. Uses the server and
-%   login of pprz_server (signing in through the browser when needed).
+%   status (accepted, skipped or done), ingest_id and, with 'wait', log_id and flight_ids. Uses the connection of
+%   pprz_connect.
     opt = struct('name', '', 'wait', false, 'skip_existing', true, 'poll', 5, 'max_wait', 3600);
     for k = 1:2:numel(varargin)
         opt.(lower(varargin{k})) = varargin{k + 1};

@@ -1,16 +1,8 @@
-function user = pprz_login(server)
-%PPRZ_LOGIN Sign in to the logbook server through the browser; the key is stored for a week (pprz_server).
-%   pprz_login()                              the server of pprz_server
-%   pprz_login('https://logs.example.org')    another server, which becomes the default if none is set
+function key = login(server)
+%LOGIN Sign in to the logbook server through the browser (RFC 8628) and return the key, stored for a week.
+%   key = pprz.login('https://logs.example.org')    used by pprz_connect when there is no valid key
 %   Prints a link and a code and opens the browser: sign in there, check that it shows the same code and press
-%   Allow. pprz_fetch, pprz_download, pprz_upload and pprz_logbook call it themselves when no valid key is stored.
-%   The login is shared with the Python package mavlab-logs.
-    if nargin < 1 || isempty(server)
-        server = pprz_server().server;
-        if isempty(server)
-            error('pprz:server', 'Set the logbook first: pprz_server(''https://logs.example.org'')');
-        end
-    end
+%   Allow. The stored key is shared with the Python package mavlab-logs.
     server = regexprep(char(server), '/+$', '');
     [start, status] = pprz.http('POST', [server '/api/cli-login'], ...
         struct('client', ['MATLAB on ' char(java.net.InetAddress.getLocalHost().getHostName())]), '');
@@ -31,10 +23,7 @@ function user = pprz_login(server)
         if status == 200
             pprz.config('store', server, token.access_token, token.expires_at, token.user.display_name);
             fprintf('Signed in as %s until %s.\n', token.user.display_name, token.expires_at);
-            user = token.user;
-            if nargout == 0
-                clear user
-            end
+            key = token.access_token;
             return
         end
         code = '';

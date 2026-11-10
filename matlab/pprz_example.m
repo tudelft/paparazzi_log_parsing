@@ -13,7 +13,7 @@ close all
 logs = pprz_load('24_10_30__16_27_37_SD.data');     % converted once to ..._whole_log.mat next to it
 
 %% 1b. ...or flights from the logbook server by their number (/flight/<number>), cached locally
-% Once: pprz_server('https://logs.example.org')    % the first call signs in through the browser, for a week
+% pprz_connect('logs.example.org');                  % once per session; signs in through the browser if needed
 % T = pprz_logbook();                                % table of the flights you may see
 % logs = pprz_fetch([1234 1240]);
 

@@ -1,10 +1,13 @@
 function out = config(action, varargin)
 %CONFIG Settings shared with the Python package mavlab-logs: the stored login per server and the cache folder.
-%   cfg = pprz.config()              read config.json: default (server), cache ('' = default), servers (cell of
-%                                    structs with server, key, expires_at ('' = no expiry) and user)
+%   cfg = pprz.config()              read config.json: cache ('' = default) and servers (cell of structs with
+%                                    server, key, expires_at and user of the last browser login per server)
 %   pprz.config('save', cfg)         write it, readable by this user only (it holds API keys)
-%   pprz.config('store', server, key, expires_at, user)   remember a key; the first server becomes the default
+%   pprz.config('store', server, key, expires_at, user)   remember the key of a browser login
 %   pprz.config('forget', server)    drop the key of a server
+%   s = pprz.config('entry', server) the stored entry of a server ([] when none)
+%   key = pprz.config('key', server) its key while it has not expired, else ''
+%   url = pprz.config('normal', url) https://host without a trailing /; 'host' alone means https://host
 %   folder = pprz.config('cache')    the cache folder in use: MAVLAB_LOGS_CACHE, the stored one, else
 %                                    ~/.cache/mavlab-logs, ~/Library/Caches/mavlab-logs or %LOCALAPPDATA%\mavlab-logs\Cache
 %   folder = pprz.config('dir')      MAVLAB_LOGS_CONFIG, else ~/.config/mavlab-logs,
@@ -25,9 +28,6 @@ function out = config(action, varargin)
             cfg.servers = cfg.servers(~cellfun(@(s) strcmp(s.server, server), cfg.servers));
             cfg.servers{end + 1} = struct('server', server, 'key', char(varargin{2}), ...
                 'expires_at', char(varargin{3}), 'user', char(varargin{4}));
-            if isempty(cfg.default)
-                cfg.default = server;
-            end
             save_config(cfg);
         case 'forget'
             cfg = load_config();
@@ -48,6 +48,27 @@ function out = config(action, varargin)
                     out = fullfile(env('XDG_CACHE_HOME', fullfile(home(), '.cache')), 'mavlab-logs');
                 end
             end
+        case 'entry'
+            out = [];
+            cfg = load_config();
+            match = cellfun(@(s) strcmp(s.server, varargin{1}), cfg.servers);
+            if any(match)
+                out = cfg.servers{find(match, 1)};
+            end
+        case 'key'
+            out = '';
+            s = pprz.config('entry', varargin{1});
+            if ~isempty(s) && ~expired(s.expires_at)
+                out = s.key;
+            end
+        case 'normal'
+            out = regexprep(strtrim(char(varargin{1})), '/+$', '');
+            if ~isempty(out) && ~contains(out, '://')
+                out = ['https://' out];
+            end
+            if isempty(regexp(out, '^https?://[^/\s]+', 'once'))
+                error('pprz:server', 'Not a server URL: ''%s'' (e.g. https://logs.example.org)', out);
+            end
         case 'dir'
             out = config_dir();
         case 'tag'
@@ -59,7 +80,7 @@ function out = config(action, varargin)
 end
 
 function cfg = load_config()
-    cfg = struct('default', '', 'cache', '', 'servers', {{}});
+    cfg = struct('cache', '', 'servers', {{}});
     file = fullfile(config_dir(), 'config.json');
     if ~isfile(file)
         return
@@ -69,10 +90,8 @@ function cfg = load_config()
     catch err
         error('pprz:config', '%s is not valid JSON (%s); fix or delete it', file, err.message);
     end
-    for name = {'default', 'cache'}
-        if isfield(raw, name{1}) && ischar(raw.(name{1}))
-            cfg.(name{1}) = raw.(name{1});
-        end
+    if isfield(raw, 'cache') && ischar(raw.cache)
+        cfg.cache = raw.cache;
     end
     if isfield(raw, 'servers')
         list = raw.servers;
@@ -100,7 +119,7 @@ function save_config(cfg)
     if ~isfolder(folder)
         mkdir(folder);
     end
-    out = struct('version', 1, 'default', char(cfg.default), 'cache', char(cfg.cache));
+    out = struct('version', 1, 'cache', char(cfg.cache));
     out.servers = reshape(cfg.servers, 1, []);  % a cell array is written as a JSON list, also with one entry
     file = fullfile(folder, 'config.json');
     temp = [tempname(folder) '.tmp'];
@@ -115,6 +134,14 @@ function save_config(cfg)
     fwrite(fid, jsonencode(out, 'PrettyPrint', true), 'char');
     fclose(fid);
     movefile(temp, file, 'f');
+end
+
+function tf = expired(stamp)
+    tf = false;
+    if ~isempty(stamp)
+        when = datetime(stamp, 'InputFormat', 'yyyy-MM-dd''T''HH:mm:ss''Z''', 'TimeZone', 'UTC');
+        tf = when - datetime('now', 'TimeZone', 'UTC') < seconds(60);
+    end
 end
 
 function delete_if(file)

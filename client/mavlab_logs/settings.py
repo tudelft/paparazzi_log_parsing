@@ -1,8 +1,7 @@
 """Where the stored login and the log cache live; shared with the MATLAB tools (matlab/+pprz/config.m).
 
-config.json in the config folder holds the default server, an optional cache folder and one entry per server:
-``{"version": 1, "default": "https://…", "cache": "", "servers": [{"server", "key", "expires_at", "user"}]}``.
-``expires_at`` is "" for a key that does not expire (pasted from the account page).
+config.json in the config folder holds an optional cache folder and the key of the last browser login per server:
+``{"version": 1, "cache": "", "servers": [{"server", "key", "expires_at", "user"}]}``.
 """
 import json
 import os
@@ -49,6 +48,8 @@ def cache_dir():
 
 def normal_server(url):
     url = (url or "").strip().rstrip("/")
+    if url and "://" not in url:
+        url = "https://" + url
     if not re.match(r"^https?://[^/\s]+", url):
         raise ValueError(f"the server must start with https:// (or http://), e.g. https://logs.example.org: {url!r}")
     return url
@@ -108,13 +109,11 @@ def expired(item, margin_s=60):
 
 
 def store(server, key, expires_at="", user=""):
-    """Remember the key for a server; the first server stored becomes the default."""
+    """Remember the key of a browser login for a server."""
     server = normal_server(server)
     cfg = load()
     cfg["servers"] = [s for s in cfg["servers"] if s["server"] != server]
     cfg["servers"].append(dict(server=server, key=key, expires_at=expires_at or "", user=user or ""))
-    cfg.setdefault("default", server)
-    cfg["default"] = cfg["default"] or server
     save(cfg)
 
 
@@ -122,12 +121,6 @@ def forget(server):
     server = normal_server(server)
     cfg = load()
     cfg["servers"] = [s for s in cfg["servers"] if s["server"] != server]
-    save(cfg)
-
-
-def set_default_server(server):
-    cfg = load()
-    cfg["default"] = normal_server(server)
     save(cfg)
 
 

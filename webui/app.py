@@ -911,9 +911,8 @@ def session_required():
         abort(403)
 
 
-# POST routes that only read: a read-only API key may use them (MATLAB export requests), and revoking itself.
-KEY_READ_POSTS = {"request_matlab_export", "request_flight_matlab_export", "request_flights_matlab_export",
-                  "revoke_current_key"}
+# POST routes that only read: a read-only API key may use them (MATLAB export requests).
+KEY_READ_POSTS = {"request_matlab_export", "request_flight_matlab_export", "request_flights_matlab_export"}
 
 
 @app.before_request
@@ -1164,15 +1163,18 @@ def create_key():
     return jsonify(id=cur.lastrowid, name=name, key=key, read_only=read_only)
 
 
-@app.delete("/api/key")
-def revoke_current_key():
-    """Revoke the API key this request is made with (a script logging out)."""
-    if not g.via_key:
-        return jsonify(error="only with an API key"), 400
+@app.post("/api/keys/revoke-all")
+def revoke_all_keys():
+    """Revoke the user's keys from script (browser) logins, or with include_manual also those made on the account
+    page. Also with an API key, so the Python and MATLAB clients can do it."""
+    include_manual = (request.get_json(silent=True) or {}).get("include_manual", False)
+    if type(include_manual) is not bool:
+        return jsonify(error="include_manual must be true or false"), 400
     con = conn()
-    con.execute("DELETE FROM api_keys WHERE id=?", (g.user["key_id"],))
+    cur = con.execute("DELETE FROM api_keys WHERE user_id=?" + ("" if include_manual else " AND expires_at IS NOT NULL"),
+                      (g.user["id"],))
     con.commit()
-    return jsonify(ok=True)
+    return jsonify(revoked=cur.rowcount)
 
 
 MAX_KEYS = 20
@@ -1261,6 +1263,11 @@ def cli_login_token():
                        (row["user_id"],)).fetchone()
     if user is None:
         return cli_error("access_denied", "the approving account is disabled")
+    # claim the approved login first, so two polls at the same moment cannot both receive a key
+    if con.execute("UPDATE cli_logins SET status='used' WHERE id=? AND status='approved'",
+                   (row["id"],)).rowcount != 1:
+        con.rollback()
+        return cli_error("invalid_grant", "unknown or already used login")
     name = f"Login: {row['client']}"[:60]
     drop_expired_keys(con, user["id"])
     # a new login of the same program on the same computer replaces its previous key
@@ -1273,7 +1280,6 @@ def cli_login_token():
     con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at, read_only, expires_at)"
                 " VALUES (?,?,?,?,?,0,?)", (user["id"], name, hashlib.sha256(key.encode()).hexdigest(), key[:10],
                                             now(), expires))
-    con.execute("UPDATE cli_logins SET status='used' WHERE id=?", (row["id"],))
     con.commit()
     return jsonify(access_token=key, token_type="Bearer", expires_in=CLI_KEY_DAYS * 86400, expires_at=expires,
                    user=user_public(user))
@@ -6628,7 +6634,8 @@ def request_flights_matlab_export():
     body = request.get_json(silent=True) or request.values
     raw = body.get("flight_ids")
     try:
-        ids = [int(x) for x in (raw.split(",") if isinstance(raw, str) else raw or []) if str(x).strip()]
+        raw = [raw] if isinstance(raw, int) else raw.split(",") if isinstance(raw, str) else raw or []
+        ids = [int(x) for x in raw if str(x).strip()]
     except (TypeError, ValueError):
         return jsonify(error="flight_ids must be flight numbers"), 400
     ids = list(dict.fromkeys(ids))

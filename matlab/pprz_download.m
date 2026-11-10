@@ -5,7 +5,7 @@ function files = pprz_download(ids, varargin)
 %   files = pprz_download([1234 1240], 'mat', true)   the flights' MATLAB exports (.mat), as pprz_fetch loads them
 %   files = pprz_download(ids, 'force', true)     download again even when cached
 %   s = pprz_load(pprz_download(1234){1})         convert a Paparazzi log locally (after pprz_setup)
-%   files is a cell array of paths in the order of ids. Downloads are cached in pprz_server's cache folder, shared
+%   files is a cell array of paths in the order of ids. Downloads are cached in pprz_cache_dir, shared
 %   with the Python package mavlab-logs: an original log is named by its SHA-256 (checked after the download) and
 %   never goes stale; an export is fetched again when it would change (new log version, parser or logbook
 %   corrections such as the crew). Without a connection the cached copies are used.
@@ -13,7 +13,7 @@ function files = pprz_download(ids, varargin)
     for k = 1:2:numel(varargin)
         opt.(lower(varargin{k})) = varargin{k + 1};
     end
-    cfg = pprz_server();
+    cfg = pprz.connection();
     ids = double(ids(:)');
     files = cell(1, numel(ids));
     for k = 1:numel(ids)
@@ -112,7 +112,7 @@ end
 
 function partial = save_part(url, target)
     % Accept-Encoding identity: the server then sends a gzip-stored log decompressed
-    cfg = pprz_server();  % the key may be new: pprz.api signs in when needed
+    cfg = pprz.connection();  % the key may be new: pprz.api signs in again when needed
     opts = weboptions('HeaderFields', {'Authorization', ['Bearer ' cfg.key]; 'Accept-Encoding', 'identity'}, ...
         'Timeout', 300);
     partial = [target '.part'];

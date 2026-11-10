@@ -1,4 +1,4 @@
-"""Command line: mavlab-logs login | logout | status | download | upload."""
+"""Command line: mavlab-logs [--server URL] [--key KEY] status | download | upload | revoke-all."""
 import argparse
 import sys
 
@@ -9,14 +9,11 @@ from .client import Client, Error
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="mavlab-logs", description="Download and upload logs of a flight log database.")
     ap.add_argument("--version", action="version", version=__version__)
-    ap.add_argument("--server", help="server URL (default: LOGDB_SERVER or the last server signed in to)")
+    ap.add_argument("--server", required=True, help="server URL or host name")
+    ap.add_argument("--key", help="API key (default: LOGDB_API_KEY, else the stored browser login, else a new one)")
     ap.add_argument("--insecure", action="store_true", help="do not verify the https certificate")
     sub = ap.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("login", help="sign in through the browser (or store an API key with --key)")
-    p.add_argument("--key", help="API key from the account page, stored instead of a browser login")
-    p.add_argument("--no-browser", action="store_true", help="only print the link")
-    sub.add_parser("logout", help="revoke and forget the stored key")
-    sub.add_parser("status", help="show the server, user, key expiry and cache folder")
+    sub.add_parser("status", help="sign in if needed and show the server, user, key and cache folder")
     p = sub.add_parser("download", help="download flights by number and print their local paths")
     p.add_argument("flights", nargs="+", type=int, help="flight numbers (the number in /flight/<number>)")
     p.add_argument("--mat", action="store_true", help="the flight's MATLAB export instead of the original log")
@@ -26,23 +23,18 @@ def main(argv=None):
     p.add_argument("--name", help="stored name of a single file, e.g. 'Hex 1/LOG00030.BFL'")
     p.add_argument("--wait", action="store_true", help="wait until the server has parsed each log")
     p.add_argument("--again", action="store_true", help="upload even when the server already has the log")
+    p = sub.add_parser("revoke-all", help="revoke your keys from browser logins (all computers)")
+    p.add_argument("--include-manual", action="store_true", help="also the keys made on the account page")
     a = ap.parse_args(argv)
     try:
-        client = Client(a.server, insecure=a.insecure, login=a.command not in ("login", "logout", "status"))
-        if a.command == "login":
-            user = client.use_key(a.key) if a.key else client.login(open_browser=not a.no_browser)
-            settings.set_default_server(client.server)
-            print(f"Signed in to {client.server} as {user.get('display_name')}")
-        elif a.command == "logout":
-            client.logout()
-            print(f"Signed out of {client.server}")
-        elif a.command == "status":
+        client = Client(a.server, a.key, insecure=a.insecure)
+        if a.command == "status":
             stored = settings.entry(client.server) or {}
+            user = client.me()
             print(f"Server: {client.server}")
-            print(f"Key: {client.key_source or 'none'}" + (f", until {stored['expires_at']}"
-                  if client.key_source == "stored" and stored.get("expires_at") else ""))
-            if client.key:
-                print(f"User: {client.me().get('display_name')}")
+            print(f"User: {user.get('display_name')}")
+            print(f"Key: {client.key_source}" + (f", until {stored['expires_at']}"
+                  if client.key_source == "browser login" and stored.get("expires_at") else ""))
             print(f"Cache: {settings.cache_dir()}")
         elif a.command == "download":
             for path in client.download(a.flights, mat=a.mat, force=a.force):
@@ -51,6 +43,8 @@ def main(argv=None):
             for r in client.upload(a.files, name=a.name, wait=a.wait, skip_existing=not a.again):
                 extra = f" log {r['log_id']}, flights {r.get('flight_ids')}" if r.get("log_id") else ""
                 print(f"{r.get('name')}: {r['status']}{extra}")
+        elif a.command == "revoke-all":
+            client.revoke_all(a.include_manual)
     except (Error, OSError, ValueError) as exc:
         print(f"mavlab-logs: {exc}", file=sys.stderr)
         return 1

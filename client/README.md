@@ -13,22 +13,24 @@ pip install mavlab-logs
 ```python
 import mavlab_logs as ml
 
-paths = ml.download([1234, 1240], server="https://logs.example.org")  # flight numbers, as in /flight/1234
+ml.connect("logs.example.org")                     # or ml.connect("logs.example.org", key="logdb_…")
+paths = ml.download([1234, 1240])                  # flight numbers, as in /flight/1234
 paths[0]                     # e.g. ~/.cache/mavlab-logs/logs/<sha256>/24_10_30__16_27_37_SD.data (.log next to it)
 mats = ml.download(1234, mat=True)                 # the flight's MATLAB export (.mat) instead
 receipts = ml.upload(["flight.data", "LOG00030.BFL"], wait=True)
 receipts[0]["flight_ids"]                          # the flights the server found, for ml.download
 ```
 
-The first call opens the browser: sign in, check that the page shows the same code as the terminal and press
-**Allow**. The key the script receives acts as you for a week; afterwards the next call asks again. The server is
-remembered, so later calls need no `server=`. Instead of the browser login you can use an API key from your
-account page: `ml.login(server, key="logdb_…")` stores it, or set `LOGDB_SERVER` and `LOGDB_API_KEY` (as for
-`upload_logs.py`). `ml.logout()` revokes the stored key.
+`connect(server, key)` does the authentication. The server is required (`https://` is added to a bare host name);
+the key defaults to `LOGDB_API_KEY` (a key from your account page, as for `upload_logs.py`; not used when
+`LOGDB_SERVER` names another server), else the key of the last browser login to that server. Values taken from the environment are announced and named
+in errors. Without a key, `connect` opens the browser: sign in, check that the page shows the same code as the
+terminal and press **Allow**. That key acts as you for a week and is stored for the next `connect`.
+`connect(..., login=False)` raises `AuthError` instead (for unattended scripts); `insecure=True` accepts a
+self-signed certificate. `connect` returns a `Client` with the same methods, for using several servers at once.
 
-For several calls, keep one client: `c = ml.Client("https://logs.example.org")`, then `c.download(...)`,
-`c.upload(...)`, `c.me()`. `Client(..., login=False)` raises `AuthError` instead of opening the browser (for
-unattended scripts); `insecure=True` accepts a self-signed certificate.
+`ml.revoke_all()` revokes your browser-login keys on every computer (Python and MATLAB) and forgets the stored one;
+`ml.revoke_all(include_manual=True)` also revokes the keys made on the account page.
 
 **Downloads** are cached and reused. An original log never changes (it is named by its SHA-256, which is checked
 after each download); an export is downloaded again when the server would export it differently (new parser or
@@ -41,11 +43,11 @@ aircraft. With `wait=True` each call returns once the server has parsed the log,
 ## Command line
 
 ```sh
-mavlab-logs --server https://logs.example.org login     # or: login --key logdb_…
-mavlab-logs download 1234 1240                          # prints the local paths; --mat for the export
-mavlab-logs upload flight.data LOG00030.BFL --wait
-mavlab-logs status                                      # server, user, key expiry and cache folder
-mavlab-logs logout
+mavlab-logs --server logs.example.org status                       # signs in if needed; user, key and cache
+mavlab-logs --server logs.example.org download 1234 1240            # prints the local paths; --mat for the export
+mavlab-logs --server logs.example.org upload flight.data LOG00030.BFL --wait
+mavlab-logs --server logs.example.org revoke-all                    # --include-manual for account-page keys too
+mavlab-logs --server logs.example.org --key logdb_… download 1234   # as connect(server, key)
 ```
 
 ## Where files are kept

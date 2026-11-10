@@ -3,7 +3,7 @@ function fig = pprz_view(logs)
 %   pprz_view               pick .mat / .zip files in a dialog
 %   pprz_view(path)         a .mat file, a folder or a bulk .zip
 %   pprz_view(logs)         exports loaded with pprz_load
-%   pprz_view([1234 1240])  flights from the logbook server by number (pprz_fetch; set it with pprz_server)
+%   pprz_view([1234 1240])  flights from the logbook server by number (pprz_fetch, after pprz_connect)
 %   Left: pick a flight, the time window (applied live to every plot), shading and event markers, tick plots
 %   (search; unlogged plots are greyed out) and press Plot. Plots open as tabs on the right; Undock moves one
 %   to its own figure. Click or drag in any time plot to move the cursor on all of them (arrow keys step it);
@@ -47,7 +47,7 @@ function fig = pprz_view(logs)
     fg = uigridlayout(side, [1 2], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', 'fit'});
     pick = uidropdown(fg, 'Items', rows, 'ItemsData', 1:height(T), 'ValueChangedFcn', @(~, ~) select());
     uibutton(fg, 'Text', 'From logbook…', 'Tooltip', ...
-        'Add flights from the logbook server by number (pprz_fetch; set the server with pprz_server)', ...
+        'Add flights from the logbook server by number (pprz_fetch, after pprz_connect)', ...
         'ButtonPushedFcn', @(~, ~) add_from_logbook());
     info = uilabel(side, 'Text', '', 'WordWrap', 'on', 'FontColor', [0.4 0.4 0.4], 'FontSize', 11);
 
