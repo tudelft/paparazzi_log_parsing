@@ -241,10 +241,10 @@ class ClientTests(unittest.TestCase):
 
     def test_cache_folders_follow_the_platform(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(settings.os.path, "expanduser", lambda p: "/h"):
-            with patch.object(settings.sys, "platform", "darwin"), patch.object(settings.os, "name", "posix"):
+            with patch.object(settings.sys, "platform", "darwin"):
                 self.assertEqual(settings.config_dir(), Path("/h/Library/Application Support/mavlab-logs"))
                 self.assertEqual(settings.default_cache_dir(), Path("/h/Library/Caches/mavlab-logs"))
-            with patch.object(settings.sys, "platform", "linux"), patch.object(settings.os, "name", "posix"):
+            with patch.object(settings.sys, "platform", "linux"):
                 self.assertEqual(settings.default_cache_dir(), Path("/h/.cache/mavlab-logs"))
         ml.set_cache_dir(self.dir / "elsewhere")
         with patch.dict(os.environ):

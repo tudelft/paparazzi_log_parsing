@@ -2,7 +2,7 @@
 
 Download and upload drone flight logs of a [MAVLab flight log database](https://github.com/tudelft/paparazzi_log_parsing)
 from Python, without a browser download or drag and drop. Works with every log the server stores (Paparazzi
-`.data`/`.log`, ArduPilot `.bin`/`.log`/`.tlog`, PX4 `.ulg`, Betaflight `.BFL`, …). Pure Python 3.9+, no dependencies.
+`.data`/`.log`, ArduPilot `.bin`/`.log`/`.tlog`, PX4 `.ulg`, Betaflight `.BFL`, …). Pure Python 3.10+, no dependencies.
 The [MATLAB tools](https://github.com/tudelft/paparazzi_log_parsing/tree/master/matlab) offer the same and share the
 login and the cache.
 

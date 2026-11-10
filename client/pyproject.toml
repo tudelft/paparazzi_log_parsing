@@ -7,7 +7,7 @@ name = "mavlab-logs"
 dynamic = ["version"]
 description = "Download and upload drone flight logs of a MAVLab flight log database (Paparazzi, ArduPilot, PX4, Betaflight)"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
 dependencies = []

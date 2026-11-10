@@ -23,7 +23,7 @@ def config_dir():
     MAVLAB_LOGS_CONFIG chooses another folder."""
     if os.environ.get("MAVLAB_LOGS_CONFIG"):
         return Path(os.environ["MAVLAB_LOGS_CONFIG"])
-    if os.name == "nt":
+    if sys.platform == "win32":
         base = Path(os.environ.get("APPDATA") or _home() / "AppData" / "Roaming")
     elif sys.platform == "darwin":
         base = _home() / "Library" / "Application Support"
@@ -34,7 +34,7 @@ def config_dir():
 
 def default_cache_dir():
     """Linux ~/.cache/mavlab-logs, macOS ~/Library/Caches/mavlab-logs, Windows %LOCALAPPDATA%\\mavlab-logs\\Cache."""
-    if os.name == "nt":
+    if sys.platform == "win32":
         return Path(os.environ.get("LOCALAPPDATA") or _home() / "AppData" / "Local") / APP / "Cache"
     if sys.platform == "darwin":
         return _home() / "Library" / "Caches" / APP
