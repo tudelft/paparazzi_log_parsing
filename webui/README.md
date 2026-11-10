@@ -145,14 +145,14 @@ to gain descriptions and previously omitted crew entries.
 Administrators can use **People → Edit → Account** to grant or remove another person's admin rights
 and inspect or revoke their API keys (not retrieve secret values). You cannot remove your own admin rights.
 
-- The **Locations** map groups nearby places into numbered markers when zoomed out.
-  Click a group to zoom in; hover for names or select a location to keep its label visible.
-  Boundaries appear when zoomed in or editing. Use **Find location** to filter the table,
-  then **Show** to select and zoom to a place.
+- **Locations** lists the places on the left (search by name or country, filter by **Country**) and shows the map
+  on the right. Click a location in the list or on the map to select it: the map zooms to it and its details and
+  actions (Open location, and in Edit mode Name / type, Edit shape, Delete) appear under the list. Nearby places
+  are grouped into numbered markers when zoomed out; click a group to zoom in.
 - On **Locations**, admins can turn on **Edit**, choose **Edit shape** beside a place,
   then drag the map handles to move or resize its circle or polygon. Choose **Save shape**
-  to apply the boundary or **Cancel** to discard changes. **Name / type** changes its name
-  or indoor status separately.
+  to apply the boundary or **Cancel** to discard changes. **Name / type** changes its name,
+  country (two-letter code, e.g. NL), indoor status, operator and category separately.
   To replace the boundary entirely, use **Edit shape**, select a **New shape** (polygon,
   rectangle or circle), then **Redraw boundary** and draw it on the map. **Save shape**
   keeps the location's name and linked records; **Cancel** restores the original boundary.
@@ -200,7 +200,7 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
   then projects, then aircraft. Aircraft project changes require a `project_effective_date`;
   manual and legacy flight assignments are preserved. Both import dialogs offer templates.
 - Locations has **Import places from CSV** in Edit mode. It accepts `logbooks/places.csv` from SVN as is
-  (`place,lat,lon,radius_m,indoor`; the other columns are ignored) and shows a preview before importing.
+  (`place,lat,lon,radius_m,indoor`, optionally `country`; the other columns are ignored) and shows a preview before importing.
 
 ## Qualifications and additional files
 

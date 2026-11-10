@@ -316,6 +316,7 @@ CREATE TABLE IF NOT EXISTS places (
     operator_id INTEGER,                -- operators.id of a site that runs its own operation (e.g. a test centre)
     category TEXT,                      -- default operation category here, e.g. SPECIFIC (categories.py)
     authorisation_id INTEGER,
+    country TEXT,                       -- ISO 3166-1 alpha-2 code, e.g. NL (countries.py); NULL = not set
     shape TEXT NOT NULL                 -- JSON: {"type":"polygon","points":[[lat,lon],...]} or {"type":"circle","center":[lat,lon],"radius_m":r}
 );
 CREATE TABLE IF NOT EXISTS ingest (
@@ -563,6 +564,8 @@ def init(path):
     con.execute("CREATE INDEX IF NOT EXISTS ix_flights_project ON flights(project_id)")
     if "indoor" not in {r[1] for r in con.execute("PRAGMA table_info(places)")}:
         con.execute("ALTER TABLE places ADD COLUMN indoor INTEGER NOT NULL DEFAULT 0")
+    if "country" not in {r[1] for r in con.execute("PRAGMA table_info(places)")}:
+        con.execute("ALTER TABLE places ADD COLUMN country TEXT")
     if "log_type" not in cols:
         con.execute("ALTER TABLE logs ADD COLUMN log_type TEXT")
     if "project_id" not in cols:

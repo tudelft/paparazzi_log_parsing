@@ -869,7 +869,8 @@ These logs appear in the aircraft/project detail pages' Log files section but ad
 
 `POST /api/admin/places/import` (admin; button on Locations in Edit mode) reads the same CSV limits as
 the catalog imports. Columns: `place`, `lat`, `lon`, `radius_m`, optional `indoor` (yes/no, 1/0,
-true/false; blank is no). The extra columns of `logbooks/places.csv` (`timezone`, `log_names`, `source`,
+true/false; blank is no) and `country` (ISO 3166-1 alpha-2 code or English name, e.g. `NL` or `Netherlands`; blank
+keeps the country already set; `countries.py` holds the list, stored as `places.country`). The extra columns of `logbooks/places.csv` (`timezone`, `log_names`, `source`,
 `confirmed`) are accepted and ignored; any other column is an error. Every row becomes a circle.
 Places match by name, case-insensitively: no match creates a place, a match with the same name,
 indoor flag and circle is `unchanged`, anything else updates it (keeping its ID, so flights and paper

@@ -9,7 +9,25 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
 <style>
-  #map { height:480px; border-radius:6px; border:1px solid var(--line); }
+  #map { height:560px; border-radius:6px; border:1px solid var(--line); }
+  /* List left, map right; on narrow screens the map comes first. */
+  .places-grid { display:grid; grid-template-columns:minmax(300px, 2fr) 3fr; gap:16px; align-items:start; }
+  .places-grid > #map { grid-column:2; grid-row:1; }
+  .places-side { grid-column:1; grid-row:1; min-width:0; }
+  @media (max-width: 820px) { .places-grid { grid-template-columns:1fr; } .places-grid > #map, .places-side { grid-column:1; grid-row:auto; } .places-grid > #map { order:-1; height:360px; } }
+  .places-tools { display:flex; gap:8px; }
+  .places-tools input { flex:1; min-width:0; }
+  .place-list { margin-top:8px; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .place-row { display:flex; gap:8px; align-items:baseline; padding:7px 10px; border-top:1px solid var(--line); cursor:pointer; }
+  .place-row:first-child { border-top:0; }
+  .place-row[aria-selected="true"] { background:color-mix(in srgb, var(--acc) 12%, transparent); }
+  .place-row .name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--acc); }
+  .place-row .stats { white-space:nowrap; }
+  .place-list .empty { padding:10px; }
+  #placePages { margin-top:8px; }
+  #placePanel { margin-top:10px; padding:8px 10px; border:1px solid var(--line); border-radius:6px; }
+  #placePanel .actions { margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  #placePanel a { text-decoration:none; } #placePanel a:hover { text-decoration:underline; }
   :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --err:#cf222e; }
   * { box-sizing: border-box; }
   body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
@@ -48,7 +66,7 @@
   <div id="err"></div>
   <section class="card">
     <div class="section-heading"><h2>Takeoff and landing locations</h2>
-    <details><summary>Help</summary><p><span id="intro"></span> Blue dots are positions where flights took off or landed, grouped to about 100 m. <span id="unnamedHelp" hidden>Use Only unnamed dots to review positions outside named places. Select a dot or use Previous / Next to visit it. Draw a boundary around it and give the place a name; covered positions leave the unnamed list after saving.</span></p></details></div>
+    <details><summary>Help</summary><p><span id="intro"></span> Blue dots are positions where flights took off or landed, grouped to about 100 m. Click a location in the list or on the map to select it; click a numbered group to zoom in. Boundaries appear when zoomed in or editing. <span id="unnamedHelp" hidden>Use Only unnamed dots to review positions outside named places. Select a dot or use Previous / Next to visit it. Draw a boundary around it and give the place a name; covered positions leave the unnamed list after saving.</span></p></details></div>
     <div class="point-tools">
       <span class="mute" data-flight-filter-summary></span>
       <label id="unnamedFilter" hidden><input type="checkbox" id="unnamedOnly"> Only unnamed dots</label>
@@ -60,9 +78,17 @@
       <button type="button" id="pointNext" class="sec" onclick="visitPoint(selectedPoint + 1)">Next</button>
       <span id="pointHint" class="mute"></span>
     </div>
-    <div id="map"></div>
+    <div class="places-grid">
+      <div class="places-side">
+        <div class="places-tools"><input id="placeSearch" type="search" placeholder="Find location" aria-label="Find location">
+          <select id="placeCountry" aria-label="Country"><option value="">All countries</option></select></div>
+        <div class="place-list" id="placeList" role="listbox" aria-label="Locations"></div>
+        <div id="placePages" class="navigation-pages"></div>
+        <div id="placePanel" hidden></div>
+      </div>
+      <div id="map"></div>
+    </div>
     <div id="mapMsg" class="mute" style="margin-top:6px"></div>
-    <p class="mute">Click a numbered group to zoom in. Hover for a name; click a location or use Show to select it. Boundaries appear when zoomed in or editing.</p>
     <div id="shapeForm" style="margin-top:8px" hidden>
       <span id="shapeLabel"></span>
       <label>New shape <select id="shapeType"><option value="polygon">Polygon</option><option value="rectangle">Rectangle</option><option value="circle">Circle</option></select></label>
@@ -72,12 +98,12 @@
       <span id="shapeError" role="alert"></span>
     </div>
     <div id="nameForm" style="margin-top:8px" hidden>
-      <span id="nameLabel"></span> <input id="placeName" size="30" maxlength="80" placeholder="Name"> <label><input type="checkbox" id="placeIndoor"> Indoors</label> <label title="A site that runs its own operation, such as a test centre: flights here are under that operator unless set otherwise">Operator <select id="placeOperator"></select></label> <label title="The rules flights here are flown under, e.g. SPECIFIC with the authorisation a site needs, unless the flight or its project says otherwise">Category <select id="placeCategory"></select></label> <button id="nameSave">Save</button> <button id="nameCancel" class="sec">Cancel</button>
+      <span id="nameLabel"></span> <input id="placeName" size="30" maxlength="80" placeholder="Name"> <label><input type="checkbox" id="placeIndoor"> Indoors</label> <label>Country <select id="placeCountrySet"></select></label> <label title="A site that runs its own operation, such as a test centre: flights here are under that operator unless set otherwise">Operator <select id="placeOperator"></select></label> <label title="The rules flights here are flown under, e.g. SPECIFIC with the authorisation a site needs, unless the flight or its project says otherwise">Category <select id="placeCategory"></select></label> <button id="nameSave">Save</button> <button id="nameCancel" class="sec">Cancel</button>
     </div>
     <p id="importSection" hidden><button type="button" class="sec" onclick="$('importPlacesDialog').showModal()">Import places from CSV</button></p>
     <dialog class="entry-dialog" id="importPlacesDialog" aria-labelledby="importPlacesTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
     <div class="dialog-header"><h2 id="importPlacesTitle">Import places from CSV</h2><button type="button" onclick="$('importPlacesDialog').close()" aria-label="Close CSV import">Close</button></div>
-    <p>Each row is a circle (<code>place</code>, <code>lat</code>, <code>lon</code>, <code>radius_m</code>, optional <code>indoor</code> yes/no). A place with the same name is updated; importing the same file again changes nothing. One bad row imports nothing. Other columns of <code>logbooks/places.csv</code> are ignored.</p>
+    <p>Each row is a circle (<code>place</code>, <code>lat</code>, <code>lon</code>, <code>radius_m</code>, optional <code>indoor</code> yes/no and <code>country</code>, e.g. NL). A place with the same name is updated; importing the same file again changes nothing. One bad row imports nothing. Other columns of <code>logbooks/places.csv</code> are ignored.</p>
     <p><a href="/api/admin/places/template">Download CSV template</a></p>
     <p class="dialog-error" id="importPlacesError" role="alert"></p>
     <div class="dialog-fields">
@@ -87,8 +113,6 @@
     <div class="scroll" id="placesPreview"></div>
     <p><button type="button" id="importPlaces" hidden onclick="importPlaces(false)"></button> <span id="importPlacesMsg" class="mute"></span></p>
     </dialog>
-    <label>Find location <input id="placeSearch" type="search" placeholder="Search by name" oninput="renderTable()"></label>
-    <div class="scroll"><table style="margin-top:8px"><thead><tr><th>Name</th><th>Type</th><th>Shape</th><th class="num">Flights</th><th class="num">Flight time</th><th>Last flight</th><th></th></tr></thead><tbody id="places"></tbody></table></div>
   </section>
 </main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -216,10 +240,12 @@ let operators = [], authorisations = [];
 fetch('/api/operators').then(r => r.json()).then(d => { operators = d.operators || []; if (placeData) renderTable(); });
 fetch('/api/authorisations').then(r => r.json()).then(d => { authorisations = d.authorisations || []; });
 const operatorName = id => operators.find(o => o.id === id)?.name;
-function askName(mode, label, value, indoor = false, operatorId = null, category = '') {
+function askName(mode, label, value, indoor = false, operatorId = null, category = '', country = '') {
   cancelShape();
   naming = mode;
   $('placeIndoor').checked = indoor;
+  $('placeCountrySet').innerHTML = '<option value="">—</option>' + (placeData.countries || []).map(([code, name]) =>
+    `<option value="${code}"${code === country ? ' selected' : ''}>${esc(code)} · ${esc(name)}</option>`).join('');
   $('placeOperator').innerHTML = '<option value="">Own operator, or the project\'s</option>' + operators.map(o =>
     `<option value="${o.id}"${o.id === operatorId ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('');
   $('placeCategory').innerHTML = '<option value="">From the project or date</option>' + categoryOptions(authorisations, category);
@@ -237,10 +263,10 @@ async function saveName() {
   const name = $('placeName').value.trim();
   if (!name || !naming) return;
   const n = naming, indoor = $('placeIndoor').checked, operator_id = $('placeOperator').value ? +$('placeOperator').value : null,
-    category = categoryChoice($('placeCategory').value);
+    category = categoryChoice($('placeCategory').value), country = $('placeCountrySet').value || null;
   closeName();
-  if (n.kind === 'new') await send('POST', '/api/admin/places', {name, shape: n.shape, indoor, operator_id, ...category});
-  else await send('PUT', '/api/admin/places/' + n.id, {name, indoor, operator_id, ...category});
+  if (n.kind === 'new') await send('POST', '/api/admin/places', {name, shape: n.shape, indoor, operator_id, country, ...category});
+  else await send('PUT', '/api/admin/places/' + n.id, {name, indoor, operator_id, country, ...category});
 }
 
 function initMap() {
@@ -374,14 +400,52 @@ function renderPoints(focus = false) {
   if (only && focus) visitPoint(selectedPoint);
 }
 
-function renderTable() {
-  const edit = canEdit();
-  const query = $('placeSearch').value.trim().toLocaleLowerCase();
-  $('places').innerHTML = placeData.places.filter(p => p.name.toLocaleLowerCase().includes(query)).map(p => `<tr><td><a href="/locations/${p.id}">${esc(p.name)}</a></td><td>${p.indoor ? 'Indoors' : 'Outdoors'}${operatorName(p.operator_id) ? ` · <span title="Flights here are under this operator">${esc(operatorName(p.operator_id))}</span>` : ''}</td><td class="mute">${p.shape.type === 'circle' ? 'circle, ' + Math.round(p.shape.radius_m) + ' m' : 'polygon, ' + p.shape.points.length + ' points'}</td>
-    <td class="num">${p.flights}</td><td class="num">${fmtHours(p.seconds)}</td><td>${esc((p.last || '').slice(0, 10))}</td>
-    <td><button class="sec" onclick="zoomPlace(${p.id})">Show</button>${edit ? ` <button onclick="renamePlace(${p.id})">Name / type</button> <button onclick="editShape(${p.id})">Edit shape</button> <button class="danger" onclick="deletePlace(${p.id})">Delete</button>` : ''}</td></tr>`).join('')
-    || `<tr><td colspan="7" class="mute">${query ? 'No matching locations.' : placeData.admin ? 'No places yet.' : 'No named places on your flights yet.'}</td></tr>`;
+// Compact list (search and country first), paged at the bottom; the selected location's details and actions
+// are in the panel underneath. Page, search, country and selection are kept in the URL.
+const PLACE_PAGE = 12;
+let placePage = 0;
+const countryName = code => (placeData.countries || []).find(c => c[0] === code)?.[1] || code;
+function shownPlaces() {
+  const query = $('placeSearch').value.trim().toLocaleLowerCase(), country = $('placeCountry').value;
+  return placeData.places.filter(p => (!country || p.country === country)
+    && [p.name, p.country, p.country && countryName(p.country)].join(' ').toLocaleLowerCase().includes(query));
 }
+function renderTable() {
+  const used = [...new Set(placeData.places.map(p => p.country).filter(Boolean))].sort((a, b) => countryName(a).localeCompare(countryName(b)));
+  const chosen = $('placeCountry').value || pendingCountry;
+  $('placeCountry').innerHTML = '<option value="">All countries</option>'
+    + used.map(c => `<option value="${esc(c)}">${esc(c)} · ${esc(countryName(c))}</option>`).join('');
+  $('placeCountry').value = used.includes(chosen) ? chosen : '';
+  $('placeCountry').hidden = !used.length;
+  if (placeData.places.length) pendingCountry = '';
+  const list = shownPlaces();
+  $('placeSearch').placeholder = `Find location (${placeData.places.length})`;
+  placePage = Math.min(placePage, Math.max(0, Math.ceil(list.length / PLACE_PAGE) - 1));
+  const query = $('placeSearch').value.trim();
+  $('placeList').innerHTML = list.slice(placePage * PLACE_PAGE, (placePage + 1) * PLACE_PAGE).map(p => `
+    <div class="place-row" role="option" aria-selected="${p.id === selectedPlace}" data-id="${p.id}" title="${esc(p.name)}">
+      <span class="name">${esc(p.name)}${p.country ? ` <span class="mute" title="${esc(countryName(p.country))}">· ${esc(p.country)}</span>` : ''}${p.indoor ? ' <span class="mute">· indoors</span>' : ''}</span>
+      <span class="stats mute">${p.flights} flight${p.flights === 1 ? '' : 's'} · ${fmtHours(p.seconds)}</span></div>`).join('')
+    || `<div class="empty mute">${query || $('placeCountry').value ? 'No matching locations.' : placeData.admin ? 'No places yet.' : 'No named places on your flights yet.'}</div>`;
+  for (const row of $('placeList').querySelectorAll('.place-row')) row.onclick = () => zoomPlace(+row.dataset.id);
+  window.viewState.pager($('placePages'), placePage, PLACE_PAGE, list.length, n => { placePage = n; saveState(true); renderTable(); });
+  $('placePages').hidden = list.length <= PLACE_PAGE;
+  renderPanel();
+}
+function renderPanel() {
+  const p = placeData.places.find(x => x.id === selectedPlace);
+  $('placePanel').hidden = !p;
+  if (!p) return;
+  const edit = canEdit();
+  const shape = p.shape.type === 'circle' ? 'circle ' + Math.round(p.shape.radius_m) + ' m' : 'polygon, ' + p.shape.points.length + ' points';
+  const details = [p.country && countryName(p.country), p.indoor ? 'indoors' : 'outdoors', operatorName(p.operator_id), shape,
+    p.last && 'last flight ' + p.last.slice(0, 10)].filter(Boolean);
+  $('placePanel').innerHTML = `<b>${esc(p.name)}</b> <span class="mute">· ${details.map(esc).join(' · ')}</span>
+    <div class="actions"><a href="/locations/${p.id}">Open location</a>${edit ? ` <button onclick="renamePlace(${p.id})">Name / type</button>
+      <button onclick="editShape(${p.id})">Edit shape</button> <button class="danger" onclick="deletePlace(${p.id})">Delete</button>` : ''}</div>`;
+}
+let pendingCountry = '', pendingPlace = null;
+function saveState(push = false) { window.viewState.save(push); }
 
 function bindPlace(layer, place) {
   layer.bindTooltip(esc(place.name), {permanent: place.id === selectedPlace, direction: 'top'});
@@ -443,6 +507,7 @@ async function loadPlaces() {
   $('err').textContent = '';
   if (!map) { paintMode(); return; }
   layers.clearLayers(); layerById.clear();
+  if (pendingPlace != null && placeData.places.some(p => p.id === pendingPlace)) { selectedPlace = pendingPlace; fitted = true; }
   if (!placeData.places.some(p => p.id === selectedPlace)) selectedPlace = null;
   for (const p of placeData.places) {
     const layer = bindPlace(layerOf(p.shape), p);
@@ -456,18 +521,24 @@ async function loadPlaces() {
     pointMarkers.forEach(marker => b.extend(marker.getLatLng()));
     if (b.isValid()) { map.fitBounds(b.pad(0.2), {maxZoom: 16}); fitted = true; }
   }
+  if (pendingPlace != null) { const id = pendingPlace; pendingPlace = null; if (id === selectedPlace) zoomPlace(id); }
 }
 function zoomPlace(id) {
   const layer = layerById.get(id);
   if (!layer || !map) return;
   selectedPlace = id;
+  // Page to the selected location, so a click on the map shows it in the list too.
+  const index = shownPlaces().findIndex(p => p.id === id);
+  if (index >= 0) placePage = Math.floor(index / PLACE_PAGE);
   map.fitBounds(boundaryBounds(layer).pad(.3), {maxZoom: 18, animate: false});
   renderNamedPlaces();
+  renderTable();
+  saveState();
   layer.openTooltip();
 }
 function renamePlace(id) {
   const cur = placeData.places.find(p => p.id === id);
-  askName({kind: 'rename', id}, 'Name and type:', cur.name, cur.indoor, cur.operator_id, categoryValue(cur));
+  askName({kind: 'rename', id}, 'Name and type:', cur.name, cur.indoor, cur.operator_id, categoryValue(cur), cur.country || '');
 }
 // Check first (preview=1 writes nothing), then import the same file.
 async function importPlaces(preview) {
@@ -504,6 +575,20 @@ fetch('/api/me').then(r => r.json()).then(d => {
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
 });
 window.addEventListener('editchange', paintMode);
+window.viewState.setup(p => {
+  $('placeSearch').value = p.get('q') || '';
+  pendingCountry = p.get('country') || '';
+  $('placeCountry').value = pendingCountry;
+  placePage = window.viewState.integer(p.get('page'), 1) - 1;
+  pendingPlace = window.viewState.integer(p.get('place'), null);
+  if (pendingPlace == null) selectedPlace = null;
+}, p => {
+  const set = window.viewState.set;
+  set(p, 'q', $('placeSearch').value); set(p, 'country', $('placeCountry').value || pendingCountry);
+  set(p, 'page', placePage + 1, 1); set(p, 'place', selectedPlace ?? '', '');
+}, () => { if (pendingPlace != null && layerById.has(pendingPlace)) { const id = pendingPlace; pendingPlace = null; zoomPlace(id); } else renderTable(); });
+$('placeSearch').oninput = () => { placePage = 0; saveState(); renderTable(); };
+$('placeCountry').onchange = () => { placePage = 0; pendingCountry = ''; saveState(true); renderTable(); };
 initMap();
 window.addEventListener('flightfilterschange', () => loadPlaces().catch(e => { $('err').textContent = e.message; }));
 $('unnamedOnly').onchange = () => renderPoints(true);
