@@ -373,6 +373,23 @@ class BoardMatchingTests(AppTests):
         self.relink(1)
         self.assertIsNone(self.drone_of(1))  # a PC machine ID in simulation is not a board
 
+    def test_linking_a_board_places_every_recording_on_it_and_replaces_hand_assignments(self):
+        self.mark()  # "Airframe" (log 1) no longer identifies an aircraft
+        self.con.execute("UPDATE aircraft SET mcu_uid='00cc33' WHERE id=1")
+        self.con.execute("INSERT INTO log_aircraft_links(log_id,ac_id,drone_id) SELECT log_id,ac_id,2 FROM aircraft WHERE id=1")
+        self.relink(1)
+        self.assertEqual(self.drone_of(1), 2)  # by hand
+        rec = self.client.get("/api/drones").json["ambiguous"][0]["recordings"][0]
+        self.assertEqual((rec["mcu_uid"], rec["board_drone_id"], rec["manual"]), ("00cc33", 2, 1))  # the hand link taught the board
+        self.assertEqual(self.client.put("/api/admin/drone-boards", json={"mcu_uid": "00CC33", "drone_id": 1}).status_code, 200)
+        self.assertEqual(self.drone_of(1), 1)
+        self.assertIsNone(self.con.execute("SELECT 1 FROM log_aircraft_links").fetchone())
+        self.assertEqual(tuple(self.con.execute("SELECT drone_id, source FROM drone_boards").fetchone()), (1, "manual"))
+        rec = self.client.get("/api/drones").json["ambiguous"][0]["recordings"][0]
+        self.assertEqual((rec["board_drone_id"], rec["manual"]), (1, 0))
+        self.assertEqual(self.client.put("/api/admin/drone-boards", json={"mcu_uid": "00cc33", "drone_id": 99}).status_code, 400)
+        self.assertEqual(self.client.put("/api/admin/drone-boards", json={"mcu_uid": "zz", "drone_id": 1}).status_code, 400)
+
     def test_board_id_is_stored_from_the_parser_firmware_entries(self):
         timing = {"firmware": [{"ac_id": 7, "mcu_uid": "0102"}, {"ac_id": 7, "mcu_uid": None},
                                {"ac_id": 8, "mcu_uid": "0304"}]}

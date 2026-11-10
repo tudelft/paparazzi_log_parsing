@@ -314,6 +314,11 @@ board that also appears under another aircraft is marked on the Aircraft page (A
 matching by a board (a board moved to another airframe, a shared test board) and allow it again in Edit mode
 under shared names. Simulated recordings never match by board (their ID is the PC's machine ID). The
 migration fills board IDs of logs already parsed with parser 1.9.0.
+Admins can also link a board directly (`PUT /api/admin/drone-boards` with `mcu_uid` and `drone_id`, stored as
+`manual`): every recording on that board follows it and hand assignments of single recordings on the board are
+replaced; a clear name still wins. **Link names + board** in Unlinked aircraft names stores the names as aliases
+and their board IDs in one go, and the ambiguous-name list shows one row per board (with how its recordings are
+linked now) and one row per recording without a board ID.
 
 During Web UI ingestion, GitHub resolves firmware hashes and stores full hashes, repository provenance,
 committer dates, author dates and explicit resolution failures in the log's timing JSON.

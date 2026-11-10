@@ -2894,11 +2894,18 @@ def fleet_payload(con, include_unlinked=False, project_ids=None):
     ambiguous = []
     if include_unlinked:
         for row in con.execute("SELECT name FROM ambiguous_drone_names ORDER BY name"):
-            recordings = [dict(r) for r in con.execute(
-                "SELECT a.log_id,a.ac_id,a.drone_id,l.name AS log_name,"
-                " EXISTS(SELECT 1 FROM log_aircraft_links x WHERE x.log_id=a.log_id AND x.ac_id=a.ac_id) AS manual"
-                " FROM aircraft a JOIN logs l ON l.id=a.log_id WHERE TRIM(a.name)=? COLLATE NOCASE"
-                " ORDER BY l.name,a.ac_id", (row["name"],))]
+            recordings = []
+            for r in con.execute(
+                    "SELECT a.log_id,a.ac_id,a.drone_id,a.mcu_uid,a.simulation,b.drone_id AS board_drone_id,"
+                    " l.name AS log_name,"
+                    " EXISTS(SELECT 1 FROM log_aircraft_links x WHERE x.log_id=a.log_id AND x.ac_id=a.ac_id) AS manual"
+                    " FROM aircraft a JOIN logs l ON l.id=a.log_id LEFT JOIN drone_boards b ON b.mcu_uid=a.mcu_uid"
+                    " WHERE TRIM(a.name)=? COLLATE NOCASE ORDER BY l.name,a.ac_id", (row["name"],)):
+                r = dict(r)
+                # A simulated run reports the PC's machine ID, which is not a board (see link_log_aircraft).
+                if (json.loads(r.pop("simulation") or "{}") or {}).get("detected"):
+                    r["mcu_uid"] = r["board_drone_id"] = None
+                recordings.append(r)
             ambiguous.append(dict(name=row["name"], recordings=recordings))
     excluded = board_payload(con, None) if include_unlinked else []
     return dict(drones=fleet, unlinked=unlinked, projects=projects, ambiguous=ambiguous, excluded_boards=excluded)
@@ -3247,6 +3254,30 @@ def admin_delete_drone_alias():
                 or any(key == token.casefold() for token in identity_tokens(r["name"]))]
     for log_id, name in affected:
         link_log_aircraft(con, log_id, logged_name=name, remember_identity=False)
+    con.commit()
+    return jsonify(ok=True)
+
+
+@app.put("/api/admin/drone-boards")
+def admin_link_drone_board():
+    """Link an autopilot board ID to a fleet aircraft: every recording on that board follows it, now and in later
+    uploads. Hand assignments of single recordings on the board are replaced; a clear name still wins."""
+    admin_required()
+    body = request.get_json(silent=True) or {}
+    uid = (body.get("mcu_uid") or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{2,128}", uid):
+        return jsonify(error="send the board ID as hex"), 400
+    con = conn()
+    drone_id = body.get("drone_id")
+    if not isinstance(drone_id, int) or not con.execute("SELECT 1 FROM drones WHERE id=?", (drone_id,)).fetchone():
+        return jsonify(error="unknown aircraft"), 400
+    con.execute("INSERT INTO drone_boards (mcu_uid, drone_id, source, created_at) VALUES (?,?,'manual',?)"
+                " ON CONFLICT(mcu_uid) DO UPDATE SET drone_id=excluded.drone_id, source='manual'", (uid, drone_id, now()))
+    con.execute("DELETE FROM log_aircraft_links WHERE (log_id, ac_id) IN"
+                " (SELECT log_id, ac_id FROM aircraft WHERE mcu_uid=?)", (uid,))
+    cache = {}
+    for r in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE mcu_uid=?", (uid,)).fetchall():
+        link_log_aircraft(con, r["log_id"], remember_identity=False, cache=cache)
     con.commit()
     return jsonify(ok=True)
 

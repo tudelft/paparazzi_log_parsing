@@ -118,7 +118,7 @@
   </details>
   <details class="card" id="ambiguousCard" hidden>
     <summary>Ambiguous / shared aircraft names</summary>
-    <p class="mute">Shared airframe names do not identify a physical aircraft. SD recordings may inherit a uniquely matched GCS identity in the logbook. Manual assignments below affect only one log and survive reparsing.</p>
+    <p class="mute">Shared airframe names do not identify a physical aircraft. SD recordings may inherit a uniquely matched GCS identity in the logbook. Choosing an aircraft for a board links every recording on that board; a recording without a board ID is assigned on its own. Both survive reparsing.</p>
     <form class="row" onsubmit="event.preventDefault();markAmbiguous($('ambiguousName').value)">
       <label class="field">Generic logged name<input id="ambiguousName" required maxlength="80"></label>
       <button type="submit">Mark ambiguous</button>
@@ -283,15 +283,8 @@ function render() {
   const status = $('statusFilter').value;
   const editing = editOn();
   $('ambiguousCard').hidden = !editing;
-  $('ambiguousNames').innerHTML = (data.ambiguous || []).map((item, i) => `<details>
-    <summary>${esc(item.name)} — ambiguous (${item.recordings.length} recordings)</summary>
-    <button type="button" data-name="${esc(item.name)}" onclick="clearAmbiguous(this.dataset.name)">Remove ambiguous status</button>
-    <div class="scroll"><table><thead><tr><th>Recording</th><th>Autopilot ID</th><th>Explicit aircraft assignment</th></tr></thead><tbody>
-    ${item.recordings.map((r, j) => `<tr><td><a href="/logs#log${r.log_id}">${esc(r.log_name)}</a></td><td>${esc(r.ac_id)}</td><td>
-      ${r.ac_id == null ? 'No autopilot ID; manual assignment unavailable' : `<select id="manual-${i}-${j}" aria-label="Aircraft for ${esc(r.log_name)}">
-      <option value="">Automatic / unresolved</option>${data.drones.map(d => `<option value="${d.id}"${r.manual && r.drone_id === d.id ? ' selected' : ''}>${esc(droneLabel(d))}</option>`).join('')}</select>
-      <button type="button" onclick="saveManualAircraft(${r.log_id},${r.ac_id},'manual-${i}-${j}')">Save</button>`}</td></tr>`).join('')}
-    </tbody></table></div></details>`).join('') || '<p class="mute">No shared names marked ambiguous.</p>';
+  $('ambiguousNames').innerHTML = (data.ambiguous || []).map((item, i) => ambiguousHTML(item, i)).join('')
+    || '<p class="mute">No shared names marked ambiguous.</p>';
   $('excludedBoards').innerHTML = (data.excluded_boards || []).length ? `<h3>Boards not used for matching</h3>
     ${data.excluded_boards.map(b => `<span class="chip"><span class="mono">${esc(b.mcu_uid)}</span> · ${b.log_count} log${b.log_count === 1 ? '' : 's'}<button type="button" data-board="${esc(b.mcu_uid)}" class="allow" onclick="boardMatching(this, 'POST')">Allow again</button></span>`).join('')}` : '';
   $('addSection').hidden = $('importSection').hidden = !editing;
@@ -319,7 +312,7 @@ function render() {
     const preferred = cand.length === 1 ? cand[0].id : null;
     const first = data.drones.find(d => d.id === preferred);
     const link = opts ? `<button type="button" class="sec pick-button" id="sel${idx}" data-value="${first ? first.id : ''}" aria-haspopup="listbox" onclick="openPick(${idx})">${first ? esc(droneLabel(first)) : 'Choose aircraft'}</button>
-      <button onclick="linkUnlinked(${idx})">Link</button>${hint}` : '<span class="mute">Add an aircraft first</span>';
+      <button onclick="linkUnlinked(${idx})"${(e.board_ids || []).length ? ' title="Adds the names as aliases and links the board ID to this aircraft"' : ''}>${(e.board_ids || []).length ? 'Link names + board' : 'Link'}</button>${hint}` : '<span class="mute">Add an aircraft first</span>';
     return `<tr><td>${esc(e.name)}${also}</td><td class="mono">${esc(boards)}</td><td>${e.count}×</td><td><span class="folder-list" title="${esc(folders)}">${esc(folders)}</span></td><td>${link}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="mute">Nothing matches the filter.</td></tr>';
   const shown = data.drones.filter(d => matches(d, q, status));
@@ -610,6 +603,53 @@ document.addEventListener('mousedown', e => {
 });
 addEventListener('resize', () => closePick(false));
 document.addEventListener('scroll', e => { if (!$('pickMenu').contains(e.target)) closePick(false); }, true);
+// One row per board for a shared name: a choice there links every recording on that board. Recordings without a
+// board ID keep a row each (a hand assignment of that one log).
+function ambiguousHTML(item, i) {
+  const groups = [], byBoard = new Map();
+  for (const r of item.recordings) {
+    if (!r.mcu_uid) { groups.push({board: null, recs: [r]}); continue; }
+    if (!byBoard.has(r.mcu_uid)) { const g = {board: r.mcu_uid, recs: []}; byBoard.set(r.mcu_uid, g); groups.push(g); }
+    byBoard.get(r.mcu_uid).recs.push(r);
+  }
+  const boards = byBoard.size;
+  const name = id => { const d = data.drones.find(x => x.id === id); return d ? esc(d.name) : '?'; };
+  const now = g => {
+    const ids = [...new Set(g.recs.map(r => r.drone_id))];
+    if (ids.length > 1) return ids.map(id => id == null ? '<span class="mute">unresolved</span>'
+      : `${name(id)} <span class="mute">(${g.recs.filter(r => r.drone_id === id).length})</span>`).join(', ');
+    const id = ids[0];
+    if (id == null) return '<span class="mute">Unresolved</span>';
+    const how = g.recs.every(r => r.manual) ? 'by hand' : g.board && g.recs[0].board_drone_id === id ? 'by board' : '';
+    return name(id) + (how ? ` <span class="mute">· ${how}</span>` : '');
+  };
+  const choice = (g, j) => {
+    const r = g.recs[0];
+    if (!g.board && r.ac_id == null) return '<span class="mute">No board or autopilot ID; cannot be assigned</span>';
+    const current = g.board ? (r.board_drone_id ?? null) : (r.manual ? r.drone_id : null);
+    const id = `manual-${i}-${j}`;
+    return `<select id="${id}" aria-label="Aircraft for ${g.board ? 'board ' + esc(g.board) : esc(r.log_name)}">
+      <option value="">${g.board ? 'Choose aircraft' : 'Automatic / unresolved'}</option>${data.drones.map(d => `<option value="${d.id}"${current === d.id ? ' selected' : ''}>${esc(droneLabel(d))}</option>`).join('')}</select>
+      <button type="button" onclick="${g.board ? `saveBoardAircraft('${esc(g.board)}','${id}')` : `saveManualAircraft(${r.log_id},${r.ac_id},'${id}')`}">Save</button>`;
+  };
+  const recs = g => {
+    const r = g.recs[0];
+    const more = g.recs.slice(1).map(x => x.log_name).join(', ');
+    return `${g.recs.length} · <a href="/logs#log${r.log_id}">${esc(r.log_name.replace(/\.data$/, ''))}</a>${more ? ` <span class="mute" title="${esc(more)}">+${g.recs.length - 1}</span>` : ''}${!g.board && r.ac_id != null ? ` <span class="mute">(autopilot ${esc(r.ac_id)})</span>` : ''}`;
+  };
+  return `<details>
+    <summary>${esc(item.name)} — ambiguous (${item.recordings.length} recording${item.recordings.length === 1 ? '' : 's'}${boards ? ` on ${boards} board${boards === 1 ? '' : 's'}` : ''})</summary>
+    <button type="button" data-name="${esc(item.name)}" onclick="clearAmbiguous(this.dataset.name)">Remove ambiguous status</button>
+    <div class="scroll"><table><thead><tr><th>Board</th><th>Recordings</th><th>Aircraft now</th><th>Link to</th></tr></thead><tbody>
+    ${groups.map((g, j) => `<tr><td>${g.board ? `<span class="mono" title="${esc(g.board)}">${esc(g.board.slice(0, 8))}…</span>` : '<span class="mute">No board ID</span>'}</td>
+      <td>${recs(g)}</td><td>${now(g)}</td><td>${choice(g, j)}</td></tr>`).join('')}
+    </tbody></table></div>${boards ? '<p class="mute">Saving a board links every recording on it, now and in later uploads. Recordings without a board ID are linked one by one.</p>' : ''}</details>`;
+}
+function saveBoardAircraft(board, selectId) {
+  const value = $(selectId).value;
+  if (!value) { $('err').textContent = 'Pick an aircraft for this board.'; return; }
+  send('PUT', '/api/admin/drone-boards', {mcu_uid: board, drone_id: +value});
+}
 async function linkUnlinked(i) {
   const sel = $('sel' + i);
   if (!sel || !sel.dataset.value) { $('err').textContent = data.drones.length ? 'Pick an aircraft to link.' : 'Add an aircraft first.'; return; }
@@ -622,6 +662,14 @@ async function linkUnlinked(i) {
     });
     $('err').textContent = r.ok ? '' : (((await r.json().catch(() => ({}))).error) || 'failed');
     if (!r.ok) return;
+  }
+  // The board IDs too, so the link holds even if a name is later marked ambiguous.
+  for (const board of e.board_ids || []) {
+    const r = await fetch('/api/admin/drone-boards', {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mcu_uid: board, drone_id: +sel.dataset.value}),
+    });
+    if (!r.ok) { $('err').textContent = ((await r.json().catch(() => ({}))).error) || 'failed'; return; }
   }
   load();
 }
