@@ -953,7 +953,8 @@ Where it shows:
   supervisor sees the people they supervise. Both come from `GET /api/profiles`; flights are those as PIC within
   the flight filters. Filters, sort and page are kept in the URL (`p_*` parameters);
 - People in Edit mode: the person **Profile** tab, and **Profile options** to edit the role and department lists
-  (`PUT /api/admin/profile-options`). The default lists are seeded once when the tables are created. Removing a list
+  (`PUT /api/admin/profile-options`). The role list is seeded once when the tables are created; the department list starts empty, because it is
+site-specific: admins add departments there or **Import CSV** (`name,group` per line), and people can also type one. Removing a list
 entry empties that field in the profiles that used it, so those people are asked again.
 
 ### Private licences and qualifications
