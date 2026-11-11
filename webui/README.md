@@ -10,7 +10,7 @@ Upload flight logs and browse flights, crew, projects, aircraft and locations in
 All pages require sign-in; the records you can see depend on your access. Where TU Delft sign-in is set up, the
 sign-in page shows only that; **Sign in with a local account** opens the username/password form (`/login?local=1`).
 The home page (`/`) opens the logbook. The menu has Logbook, Statistics, **Directory ▾** (Aircraft, People, Projects,
-Locations and Logs), Training and Cyberzoo (when enabled). **⬆ Upload logs** at the top right opens the upload dialog; your
+Locations and Logs), Training and Agenda (when enabled). **⬆ Upload logs** at the top right opens the upload dialog; your
 name opens My account, Night mode and Sign out. Existing `/logbook` links still work.
 
 ## Everyday use
@@ -48,7 +48,7 @@ to gain descriptions and previously omitted crew entries.
 | **Statistics** | View totals for aircraft, projects and crew within your access. |
 | **Aircraft / People / Projects / Locations** | Browse records and open their histories, totals and flights. |
 | **Training** | When enabled, complete questionnaires until you pass. A pass writes the linked qualification immediately. |
-| **Cyberzoo** | When enabled, book the indoor arena. Needs a current Cyberzoo Safety Briefing; see [Cyberzoo agenda](#cyberzoo-agenda). |
+| **Agenda** | When enabled, book shared items such as an indoor arena; see [Agenda](#agenda). |
 | **My account** | Click your name at the top right to manage your password, API keys, private qualification submissions and, when enabled, your profile. |
 
 - Dates and times are **UTC**. Indoor and uncertain/non-flight records are hidden by default;
@@ -206,13 +206,15 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
 - Locations has **Import places from CSV** in Edit mode. It accepts `logbooks/places.csv` from SVN as is
   (`place,lat,lon,radius_m,indoor`, optionally `country`; the other columns are ignored) and shows a preview before importing.
 
-## Cyberzoo agenda
+## Agenda
 
-**Cyberzoo** (optional) is a week agenda of the indoor arena. You need a current Cyberzoo Safety Briefing to see
-it; without one the page tells you so and links to the briefing training. **New booking** asks for a description of
-the test, start and end, whether others are allowed and whether it is a demo. Bookings are green when others are
-allowed, red when not and yellow for a demo. A booking can overlap another only when both allow others and neither
-is a demo. You can change or delete your own bookings; administrators can change any.
+**Agenda** (optional) is a week agenda of bookable items, one tab per item plus **All**. Click a booking to open
+it, or an empty slot (or **New booking**) to book. A booking has a description, start and end, and the item's
+options, for example "Others allowed" or "Demo". Bookings of one item overlap only when both tick a shared option
+and neither ticks a blocking one; an item without options never overlaps. An item can need a current
+qualification, for example an arena safety briefing, to book or even to see its agenda; without it the page says
+so and links to the training that grants it. You can change or delete your own bookings; administrators can
+change any and set up the items in Edit mode (**Add item**, **Edit item**).
 
 ## Qualifications and additional files
 
