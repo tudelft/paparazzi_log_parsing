@@ -55,7 +55,9 @@ window.QualificationManager = class {
       <span title="${esc(dates.join(' · '))}">${item.has_evidence ? fileLink({name, viewable: item.viewable, view: `/api/qualification-submissions/${item.id}/evidence/view`, download: `/api/qualification-submissions/${item.id}/evidence`}) : name}</span>${number} · ${esc(item.status === 'superseded' ? 'archived' : item.status)}${item.internal ? ' · Internal' : ''}${item.expired ? ' (expired)' : ''}
       <span class="info-tip"><button type="button" aria-label="Submission details">i</button><span class="tip" role="tooltip">${tip}</span></span>
       <div>${item.has_evidence ? `<span class="mute">${esc(item.filename || 'Evidence')}</span>`
-        : item.note ? `<span class="mute">${esc(item.note)}</span>`
+        : item.note ? (item.training_id
+          ? `<a class="mute" href="/training?id=${item.training_id}${this.admin && item.training_user_id ? `&pass_user=${item.training_user_id}` : ''}">${esc(item.note)}</a>`
+          : `<span class="mute">${esc(item.note)}</span>`)
         : `<span class="mute">${item.evidence_deleted_at ? 'Evidence deleted by admin' : 'No evidence attached'}</span>`}
       ${this.editing && item.status === 'pending' ? `${this.admin
         ? `<button type="button" data-review="approve" data-id="${item.id}">Approve</button>

@@ -87,6 +87,11 @@ def qualifications_payload(con, viewer, user_id):
         item["has_evidence"] = bool(row["evidence_path"])
         item["viewable"] = item["has_evidence"] and storage.view_type(row["filename"] or "") is not None
         item["expired"] = bool(row["valid_until"] and row["valid_until"] < datetime.date.today().isoformat())
+        link = con.execute(
+            "SELECT training_id, user_id FROM training_progress WHERE submission_id=?",
+            (row["id"],)).fetchone()
+        item["training_id"] = link["training_id"] if link else None
+        item["training_user_id"] = link["user_id"] if link else None
         items.append(item)
     return dict(items=items, types=[dict(r) for r in con.execute(
         "SELECT * FROM qualification_types ORDER BY sort_order, name")], can_manage=bool(viewer["is_admin"]),
@@ -405,6 +410,9 @@ def register(app, connection, root, require_session):
             " WHERE q.status='pending' ORDER BY q.id").fetchall()
         out = []
         for r in rows:
+            link = connection().execute(
+                "SELECT training_id FROM training_progress WHERE submission_id=?",
+                (r["id"],)).fetchone()
             out.append({
                 "id": r["id"], "user_id": r["user_id"], "type_id": r["type_id"],
                 "category": r["category"], "requires_start": r["requires_start"],
@@ -412,6 +420,7 @@ def register(app, connection, root, require_session):
                 "valid_until": r["valid_until"], "submitted_at": r["submitted_at"],
                 "person": r["person"], "has_evidence": bool(r["evidence_path"]),
                 "evidence_label": r["note"] or None,
+                "training_id": link["training_id"] if link else None,
             })
         return jsonify(submissions=out)
 

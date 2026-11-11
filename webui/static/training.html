@@ -147,7 +147,7 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => t ? t.replace('T', ' ').replace('Z', ' UTC') : '';
-let me, trainings = [], types = [], people = [], brieferIds = [], query = '', selected = 0, detail, editingId = null, editingQuestion = null, lastResult = null, quizStep = 0;
+let me, trainings = [], types = [], people = [], brieferIds = [], query = '', selected = 0, detail, editingId = null, editingQuestion = null, lastResult = null, quizStep = 0, passUser = 0;
 async function api(url, opt) {
   const r = await fetch(url, opt);
   const d = await r.json().catch(() => ({}));
@@ -275,7 +275,7 @@ function renumberRank(list) {
   [...list.children].forEach((li, i) => { li.querySelector('.rank-num').textContent = String(i + 1); });
 }
 function moveRankItem(list, item, before) {
-  if (!item || item === before) return;
+  if (!item || item === before || item.nextElementSibling === before) return;
   list.insertBefore(item, before || null);
   renumberRank(list);
 }
@@ -329,36 +329,36 @@ function bindRankList(list) {
       item.focus();
     }
   });
-  list.querySelectorAll('li').forEach(li => {
-    const handle = li.querySelector('.rank-handle');
-    const endDrag = event => {
-      if (!drag || drag !== li) return;
-      li.classList.remove('dragging');
-      drag = null;
-      renumberRank(list);
-      try { handle.releasePointerCapture(event.pointerId); } catch (_) {}
-    };
+  const endDrag = event => {
+    if (!drag) return;
+    drag.classList.remove('dragging');
+    drag = null;
+    renumberRank(list);
+    try { list.releasePointerCapture(event.pointerId); } catch (_) {}
+  };
+  list.addEventListener('pointermove', event => {
+    if (!drag) return;
+    const y = event.clientY;
+    const over = [...list.children].find(row => {
+      if (row === drag) return false;
+      const box = row.getBoundingClientRect();
+      return y >= box.top && y <= box.bottom;
+    });
+    if (!over) return;
+    const mid = over.getBoundingClientRect().top + over.offsetHeight / 2;
+    moveRankItem(list, drag, y < mid ? over : over.nextElementSibling);
+  });
+  list.addEventListener('pointerup', endDrag);
+  list.addEventListener('pointercancel', endDrag);
+  list.querySelectorAll('.rank-handle').forEach(handle => {
     handle.addEventListener('pointerdown', event => {
       if (event.pointerType === 'mouse' && event.button !== 0) return;
       event.preventDefault();
-      drag = li;
-      li.classList.add('dragging');
-      handle.setPointerCapture(event.pointerId);
+      drag = handle.closest('li');
+      if (!drag) return;
+      drag.classList.add('dragging');
+      list.setPointerCapture(event.pointerId);
     });
-    handle.addEventListener('pointermove', event => {
-      if (!drag || drag !== li) return;
-      const y = event.clientY;
-      const over = [...list.children].find(row => {
-        if (row === drag) return false;
-        const box = row.getBoundingClientRect();
-        return y >= box.top && y <= box.bottom;
-      });
-      if (!over) return;
-      const mid = over.getBoundingClientRect().top + over.offsetHeight / 2;
-      moveRankItem(list, drag, y < mid ? over : over.nextElementSibling);
-    });
-    handle.addEventListener('pointerup', endDrag);
-    handle.addEventListener('pointercancel', endDrag);
   });
 }
 function bindQuiz() {
@@ -418,20 +418,46 @@ function editorHTML(questions) {
       || '<tr><td colspan="3" class="mute">No questions yet.</td></tr>'}</tbody></table>
     <h3>Passes</h3><div id="results">Loading…</div>`;
 }
+function formatPassAnswers(answers) {
+  if (!answers || !detail || !detail.questions) return '';
+  return detail.questions.map(q => {
+    const raw = answers[q.id] ?? answers[String(q.id)];
+    let picked = '';
+    if (q.kind === 'ranking' && Array.isArray(raw)) {
+      picked = raw.map(id => (q.choices.find(c => c.id === id) || {}).label || id).join(' → ');
+    } else if (q.kind === 'multi' && Array.isArray(raw)) {
+      picked = raw.map(id => (q.choices.find(c => c.id === id) || {}).label || id).join(', ');
+    } else {
+      const choice = q.choices.find(c => c.id === raw);
+      picked = choice ? choice.label : (raw == null ? '—' : String(raw));
+    }
+    return `<div title="${esc(q.prompt)}"><span class="mute">${esc(q.prompt)}</span><br>${esc(picked)}</div>`;
+  }).join('');
+}
 async function loadResults() {
   const box = $('results');
   if (!box) return;
   try {
     const d = await api('/api/admin/trainings/' + selected + '/results');
     const showBriefer = detail.ask_briefed_by || d.results.some(r => r.briefed_by_name);
+    const cols = 4 + (showBriefer ? 1 : 0);
     box.innerHTML = d.results.length
       ? `<table><thead><tr><th>Person</th>${showBriefer ? '<th>Briefed by</th>' : ''}<th>Attempts</th><th>Passed</th><th></th></tr></thead><tbody>${
-          d.results.map(r => `<tr><td title="${esc(r.person)}">${esc(r.person)}</td>${
-            showBriefer ? `<td title="${esc(r.briefed_by_name || '')}">${esc(r.briefed_by_name || '')}</td>` : ''
-          }<td>${r.attempts}</td><td>${fmt(r.passed_at)}${r.current ? '' : ' · expired'}</td>
-          <td>${r.current ? `<button type="button" class="sec" onclick="resetProgress(${r.user_id})">Reset</button>` : ''}</td></tr>`).join('')
+          d.results.map(r => {
+            const focus = passUser === r.user_id;
+            return `<tr id="pass-user-${r.user_id}"${focus ? ' style="outline:2px solid var(--acc);outline-offset:-2px"' : ''}>
+              <td title="${esc(r.person)}">${esc(r.person)}</td>${
+              showBriefer ? `<td title="${esc(r.briefed_by_name || '')}">${esc(r.briefed_by_name || '')}</td>` : ''
+            }<td>${r.attempts}</td><td>${fmt(r.passed_at)}${r.current ? '' : ' · expired'}</td>
+              <td>${r.current ? `<button type="button" class="sec" onclick="resetProgress(${r.user_id})">Reset</button>` : ''}</td></tr>
+              ${focus && r.answers ? `<tr><td colspan="${cols}">${formatPassAnswers(r.answers)}</td></tr>` : ''}`;
+          }).join('')
         }</tbody></table>`
       : '<p class="mute">No passes yet.</p>';
+    if (passUser) {
+      const row = document.getElementById('pass-user-' + passUser);
+      if (row) row.scrollIntoView({block: 'nearest'});
+    }
   } catch (e) { box.textContent = e.message; }
 }
 async function resetProgress(userId) {
@@ -655,10 +681,12 @@ window.viewState.setup(p => {
   query = p.get('q') || '';
   selected = window.viewState.integer(p.get('id'), 0, 1);
   quizStep = selected ? window.viewState.integer(p.get('qi'), 0, 0) : 0;
+  passUser = selected ? window.viewState.integer(p.get('pass_user'), 0, 1) : 0;
 }, p => {
   window.viewState.set(p, 'q', query);
   window.viewState.set(p, 'id', selected || '', '');
   window.viewState.set(p, 'qi', selected && quizStep ? quizStep : '', 0);
+  window.viewState.set(p, 'pass_user', selected && passUser ? passUser : '', 0);
 }, show);
 function syncAdminButtons() {
   const on = !!(me && me.is_admin && window.editMode());

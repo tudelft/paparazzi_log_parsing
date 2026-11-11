@@ -117,12 +117,20 @@ class TrainingTests(AppTests):
         self.assertEqual(passed.json["attempts"], 2)
         self.assertEqual(self.client.post(f"/api/trainings/{tid}/submit",
                                           json={"answers": {str(qid): safe}}).status_code, 409)
-        row = self.con.execute("SELECT status, valid_from, valid_until FROM qualification_submissions"
+        row = self.con.execute("SELECT status, valid_from, valid_until, note, filename FROM qualification_submissions"
                                " WHERE id=?", (passed.json["qualification_id"],)).fetchone()
         today = datetime.datetime.now(datetime.timezone.utc).date()
         self.assertEqual(row["status"], "approved")
         self.assertEqual(row["valid_from"], today.isoformat())
         self.assertEqual(row["valid_until"], (today + datetime.timedelta(days=365)).isoformat())
+        self.assertIsNone(row["filename"])
+        self.assertIn('Training "Safety" passed', row["note"])
+        self.assertIn(today.isoformat(), row["note"])
+        quals = self.client.get("/api/users/2/qualifications").json["items"]
+        match = next(q for q in quals if q["id"] == passed.json["qualification_id"])
+        self.assertEqual(match["training_id"], tid)
+        self.assertEqual(match["training_user_id"], 2)
+        self.assertIn('Training "Safety" passed', match["note"])
         listed = self.client.get("/api/trainings").json["trainings"]
         self.assertEqual(listed[0]["attempts"], 2)
         self.assertTrue(listed[0]["passed_at"])
@@ -362,7 +370,8 @@ class TrainingTests(AppTests):
                                (sid,)).fetchone()
         self.assertEqual(row["status"], "pending")
         self.assertIsNone(row["filename"])
-        self.assertIn("Training passed", row["note"])
+        self.assertIn('Training "Safety"', row["note"])
+        self.assertIn("passed", row["note"])
         self.assertIn("briefed by", row["note"])
         detail = self.client.get(f"/api/trainings/{tid}").json
         self.assertTrue(detail["awaiting_approval"])

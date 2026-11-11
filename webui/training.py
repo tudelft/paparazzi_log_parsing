@@ -250,7 +250,16 @@ def validity_window(kind, valid_days):
     return start, until
 
 
-def grant_qualification(con, user_id, kind, valid_days):
+def pass_note(training_name, earned, needed, briefed_by_name=None, when=None):
+    """Short label stored on the qualification submission for a training pass."""
+    day = (when or utc_now())[:10]
+    text = f'Training "{training_name}" passed {earned}/{needed} on {day}'
+    if briefed_by_name:
+        text += f" · briefed by {briefed_by_name}"
+    return text[:300]
+
+
+def grant_qualification(con, user_id, kind, valid_days, note=None):
     """Insert an approved qualification for a training pass. Returns the submission id or None."""
     if not kind:
         return None
@@ -262,14 +271,14 @@ def grant_qualification(con, user_id, kind, valid_days):
     now = utc_now()
     sid = con.execute(
         "INSERT INTO qualification_submissions(user_id,type_id,valid_from,valid_until,status,submitted_by,"
-        " submitted_at,reviewed_by,reviewed_at) VALUES (?,?,?,?,'approved',?,?,?,?)",
-        (user_id, kind["id"], start, until, user_id, now, user_id, now)).lastrowid
+        " submitted_at,reviewed_by,reviewed_at,note) VALUES (?,?,?,?,'approved',?,?,?,?,?)",
+        (user_id, kind["id"], start, until, user_id, now, user_id, now, note)).lastrowid
     qualifications.audit(con, user_id, user_id, "training-passed",
-                         dict(id=sid, category=kind["name"], valid_from=start, valid_until=until))
+                         dict(id=sid, category=kind["name"], valid_from=start, valid_until=until, note=note))
     return sid
 
 
-def queue_qualification(con, user_id, kind, valid_days, evidence_label):
+def queue_qualification(con, user_id, kind, valid_days, note):
     """Insert a pending qualification for a training pass that needs approval."""
     if not kind:
         raise TrainingError("A pass that needs approval must link to a qualification.")
@@ -280,10 +289,9 @@ def queue_qualification(con, user_id, kind, valid_days, evidence_label):
     sid = con.execute(
         "INSERT INTO qualification_submissions(user_id,type_id,valid_from,valid_until,status,submitted_by,"
         " submitted_at,note) VALUES (?,?,?,?,'pending',?,?,?)",
-        (user_id, kind["id"], start, until, user_id, now, evidence_label[:200])).lastrowid
+        (user_id, kind["id"], start, until, user_id, now, note[:300] if note else None)).lastrowid
     qualifications.audit(con, user_id, user_id, "training-pass-queued",
-                         dict(id=sid, category=kind["name"], valid_from=start, valid_until=until,
-                              note=evidence_label))
+                         dict(id=sid, category=kind["name"], valid_from=start, valid_until=until, note=note))
     return sid
 
 
@@ -691,14 +699,12 @@ def register(app, connection, root, require_session):
                     raise TrainingError("The linked qualification type is disabled.")
                 if kind and kind["requires_evidence"]:
                     raise TrainingError("Trainings cannot link to a type that requires evidence.")
+                note = pass_note(row["name"], earned, needed, briefer_name, passed_at)
                 if row["needs_approval"]:
-                    label = f"Training passed {earned}/{needed}"
-                    if briefer_name:
-                        label += f" · briefed by {briefer_name}"
-                    submission_id = queue_qualification(cid, g.user["id"], kind, row["valid_days"], label)
+                    submission_id = queue_qualification(cid, g.user["id"], kind, row["valid_days"], note)
                     awaiting = True
                 else:
-                    submission_id = grant_qualification(cid, g.user["id"], kind, row["valid_days"])
+                    submission_id = grant_qualification(cid, g.user["id"], kind, row["valid_days"], note)
                 cid.execute(
                     "INSERT INTO training_progress(user_id,training_id,attempts,passed_at,answers_json,submission_id,briefed_by)"
                     " VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id,training_id) DO UPDATE SET"
@@ -1017,7 +1023,8 @@ def register(app, connection, root, require_session):
         training_row(cid, training_id)
         rows = [dict(r) for r in cid.execute(
             "SELECT p.user_id, COALESCE(u.display_name,u.username) AS person, p.attempts, p.passed_at,"
-            " p.briefed_by, COALESCE(b.display_name,b.username) AS briefed_by_name, p.submission_id"
+            " p.briefed_by, COALESCE(b.display_name,b.username) AS briefed_by_name, p.submission_id,"
+            " p.answers_json"
             " FROM training_progress p JOIN users u ON u.id=p.user_id"
             " LEFT JOIN users b ON b.id=p.briefed_by"
             " WHERE p.training_id=? AND p.passed_at IS NOT NULL ORDER BY p.passed_at", (training_id,))]
@@ -1030,6 +1037,11 @@ def register(app, connection, root, require_session):
                 current = bool(sub and sub["status"] == "approved"
                                and (not sub["valid_until"] or sub["valid_until"] >= today))
             row["current"] = current
+            try:
+                row["answers"] = json.loads(row["answers_json"]) if row["answers_json"] else None
+            except (TypeError, ValueError, json.JSONDecodeError):
+                row["answers"] = None
+            del row["answers_json"]
             del row["submission_id"]
         return jsonify(results=rows)
 

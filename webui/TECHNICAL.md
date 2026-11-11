@@ -922,11 +922,12 @@ qualification), the person may take it again. A training can require choosing wh
 briefing from a short list of existing People the administrator sets; that name is stored on the pass.
 There is no card-photo upload. By default a pass inserts an approved `qualification_submissions` row
 immediately (`training-passed` in the audit log), superseding a previous approval of that type and
-withdrawing a pending one. With `needs_approval` (off by default; requires a linked type) the pass
-inserts a **pending** submission instead (`training-pass-queued`), storing the queue label in the
-submission `note` column (for example `Training passed 9/10 · briefed by …`) and leaving `filename`
-for uploaded files; admins approve or reject it in the People approval queue like other evidence.
-Images live under
+withdrawing a pending one. Immediate and queued passes both store a `note` such as
+`Training "Flight safety briefing" passed 9/10 on 2026-11-11 · briefed by …` (`filename` stays for
+uploaded files). With `needs_approval` (off by default; requires a linked type) the pass inserts a
+**pending** submission (`training-pass-queued`) instead of an approved one; admins approve or reject
+it in the People approval queue. Qualification views link that note to `/training?id=…` (admins get
+`pass_user` so the Passes list opens on that person with their answers). Images live under
 `WEB_DATA/training-images`, not the log share.
 
 ### Private licences and qualifications
