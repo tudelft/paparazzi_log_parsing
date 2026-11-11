@@ -427,6 +427,18 @@ CREATE TABLE IF NOT EXISTS qualification_audit (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_qualification_audit_subject ON qualification_audit(subject_id,id);
+CREATE TABLE IF NOT EXISTS cyberzoo_bookings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    description TEXT NOT NULL,
+    starts_at TEXT NOT NULL,           -- local time of the arena, YYYY-MM-DDTHH:MM
+    ends_at TEXT NOT NULL,
+    others_allowed INTEGER NOT NULL DEFAULT 1 CHECK(others_allowed IN (0,1)),
+    demo INTEGER NOT NULL DEFAULT 0 CHECK(demo IN (0,1)),
+    created_at TEXT NOT NULL,
+    CHECK(ends_at > starts_at)
+);
+CREATE INDEX IF NOT EXISTS ix_cyberzoo_bookings_time ON cyberzoo_bookings(starts_at, ends_at);
 CREATE TABLE IF NOT EXISTS trainings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
