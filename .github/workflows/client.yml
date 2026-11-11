@@ -1,7 +1,7 @@
 # Tests the Python package mavlab-logbook-client (python/mavlab-logbook-client/) on Linux, macOS and Windows. Pushing a tag "client-v<version>"
-# (equal to mavlab_logbook_client.__version__, on a master commit) publishes that version to TestPyPI by trusted publishing;
+# (equal to mavlab_logbook_client.__version__, on a master commit) publishes that version to PyPI by trusted publishing;
 # nothing else publishes. Published versions and tags are never changed: a change to the package needs a new version.
-# TestPyPI: the project's trusted publisher is this repository, workflow client.yml, environment "testpypi".
+# PyPI: the project's trusted publisher is this repository, workflow client.yml, environment "pypi".
 name: Python client
 
 on:
@@ -40,11 +40,11 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/client-v')
     runs-on: ubuntu-latest
     environment:
-      name: testpypi
-      url: https://test.pypi.org/p/mavlab-logbook-client
+      name: pypi
+      url: https://pypi.org/p/mavlab-logbook-client
     permissions:
       contents: read
-      id-token: write   # TestPyPI trusted publishing
+      id-token: write   # PyPI trusted publishing
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,4 +69,3 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: python/mavlab-logbook-client/dist
-          repository-url: https://test.pypi.org/legacy/

@@ -7,7 +7,7 @@ The API follows the [MATLAB tools](https://github.com/tudelft/paparazzi_log_pars
 the login and the cache.
 
 ```sh
-pip install -i https://test.pypi.org/simple/ mavlab-logbook-client
+pip install mavlab-logbook-client
 ```
 
 ```python
