@@ -484,7 +484,7 @@ window.timingEvidenceHTML = function (timing) {
   const ADMIN_KEY = 'logdbAdmin';
   const EDIT_KEY = 'logdbEdit';
   const TRAINING_KEY = 'logdbTraining';
-  const CYBERZOO_KEY = 'logdbCyberzoo';
+  const BOOKINGS_KEY = 'logdbBookings';
   const UPLOAD_KEY = 'logdbCanUpload';
   window.editMode = function () {
     try { return localStorage.getItem(EDIT_KEY) === '1'; } catch (e) { return false; }
@@ -510,18 +510,15 @@ window.timingEvidenceHTML = function (timing) {
   function setCachedTraining(on) {
     try { localStorage.setItem(TRAINING_KEY, on ? '1' : '0'); } catch (e) {}
   }
-  function cachedCyberzoo() {
-    try { return localStorage.getItem(CYBERZOO_KEY) === '1'; } catch (e) { return false; }
-  }
-  function setCachedCyberzoo(on) {
-    try { localStorage.setItem(CYBERZOO_KEY, on ? '1' : '0'); } catch (e) {}
+  function cachedBookings() {
+    try { return localStorage.getItem(BOOKINGS_KEY) === '1'; } catch (e) { return false; }
   }
   function currentTab() {
     const p = location.pathname;
     if (p === '/logbook' || p === '/attachments' || p === '/review' || p.startsWith('/flight/') || p.startsWith('/historical/')) return '/';
     if (p === '/stats') return '/stats';
     if (p === '/training' || p.startsWith('/training/')) return '/training';
-    if (p === '/cyberzoo') return '/cyberzoo';
+    if (p === '/agenda') return '/agenda';
     for (const [tab] of DIRECTORY.filter(Boolean))
       if (p === tab || p.startsWith(tab + '/')) return tab;
     if (p === '/' || p === '') return '/';
@@ -569,7 +566,7 @@ window.timingEvidenceHTML = function (timing) {
     nav.innerHTML = tab('/', 'Logbook') + tab('/stats', 'Statistics')
       + `<button type="button" class="nav-drop${inDirectory ? ' cur' : ''}" id="directoryBtn">Directory ▾</button>`
       + (cachedTraining() ? tab('/training', 'Training') : '')
-      + (cachedCyberzoo() ? tab('/cyberzoo', 'Cyberzoo') : '');
+      + (cachedBookings() ? tab('/agenda', 'Agenda') : '');
     let panel = document.getElementById('directoryMenu');
     if (!panel) {
       panel = document.createElement('div');
@@ -701,7 +698,7 @@ window.timingEvidenceHTML = function (timing) {
   }
 
   window.logout = async function () {
-    try { [ADMIN_KEY, TRAINING_KEY, UPLOAD_KEY].forEach(k => localStorage.removeItem(k)); } catch (e) {}
+    try { [ADMIN_KEY, TRAINING_KEY, BOOKINGS_KEY, UPLOAD_KEY].forEach(k => localStorage.removeItem(k)); } catch (e) {}
     await fetch('/logout', {method: 'POST'});
     location.href = '/login';
   };
@@ -723,7 +720,7 @@ window.timingEvidenceHTML = function (timing) {
   if (!/^\/(login|setup|cli-login|profile)/.test(location.pathname)) {
     fetch('/api/me').then(async r => {
       if (r.status === 401) {
-        try { localStorage.removeItem(ADMIN_KEY); localStorage.removeItem(TRAINING_KEY); localStorage.removeItem(CYBERZOO_KEY); } catch (e) {}
+        try { localStorage.removeItem(ADMIN_KEY); localStorage.removeItem(TRAINING_KEY); localStorage.removeItem(BOOKINGS_KEY); } catch (e) {}
         return;
       }
       if (!r.ok) throw new Error(`Could not load account and Web UI version (${r.status})`);
@@ -732,7 +729,7 @@ window.timingEvidenceHTML = function (timing) {
       admin = !!(d.user && d.user.is_admin);
       setCachedAdmin(admin);
       setCachedTraining(!!d.training);
-      setCachedCyberzoo(!!d.cyberzoo);
+      try { localStorage.setItem(BOOKINGS_KEY, d.bookings ? '1' : '0'); } catch (e) {}
       try { localStorage.setItem(UPLOAD_KEY, d.can_upload === false ? '0' : '1'); } catch (e) {}
       paintUpload();
       paintNav();
