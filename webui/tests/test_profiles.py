@@ -151,3 +151,44 @@ class ProfileTests(AppTests):
         self.assertEqual((saved.json["profile"]["number"], saved.json["missing"]), ("777", []))
         self.assertEqual(self.client.put("/api/users/3/profile", json={**body, "number": ""}).status_code, 400)  # same rules
         self.assertEqual(self.client.put("/api/users/999/profile", json=body).status_code, 404)
+
+    def test_csv_import_fills_only_empty_fields_and_asks_to_confirm(self):
+        self.save(5)  # Uploader: Staff, can supervise; number 123
+        self.sign_in(1)
+        csv_text = ("username,role,department,supervisors,end_date,number,github\n"
+                    "viewer,Master Student,Other lab,uploader;Dr. Partner,2099-01-01,555,\n"
+                    "uploader,PhD Student,,,,999,octocat\n"
+                    "outsider,,,,,,\n")
+        preview = self.client.post("/api/admin/profiles/import", json={"csv": csv_text}).json
+        self.assertEqual(preview["errors"], 0)
+        rows = {r["username"]: r for r in preview["rows"]}
+        self.assertEqual((rows["viewer"]["status"], rows["viewer"]["changes"]),
+                         ("new", ["role", "department", "end date", "number", "supervisors"]))
+        self.assertEqual((rows["uploader"]["status"], rows["uploader"]["changes"]), ("update", ["GitHub"]))  # role and number kept
+        self.assertEqual(rows["outsider"]["status"], "unchanged")
+        self.assertIsNone(self.con.execute("SELECT 1 FROM user_profiles WHERE user_id=3").fetchone())  # preview only
+        applied = self.client.post("/api/admin/profiles/import", json={"csv": csv_text, "apply": True}).json
+        self.assertTrue(applied["applied"])
+        viewer = self.profiles.profile(self.con, 3)
+        self.assertEqual((viewer["role"], viewer["department"], viewer["number"], viewer["to_confirm"]),
+                         ("Master Student", "Other lab", "555", True))
+        self.assertEqual([s["name"] for s in viewer["supervisors"]], ["Uploader", "Dr. Partner"])
+        uploader = self.profiles.profile(self.con, 5)
+        self.assertEqual((uploader["role"], uploader["number"], uploader["github"]), ("Staff", "123", "octocat"))
+        # complete but imported: the person still checks it at the next sign-in, and saving it confirms
+        self.sign_in(3)
+        self.assertEqual(self.client.get("/logbook").status_code, 302)
+        self.assertEqual(self.client.put("/api/profile", json=self.form(
+            role_id=self.role["Master Student"], indefinite=False, end_date="2099-01-01", number="555",
+            supervisors=[{"id": 5}])).status_code, 200)
+        self.assertEqual(self.client.get("/logbook").status_code, 200)
+
+    def test_csv_import_errors_block_the_whole_file(self):
+        self.sign_in(1)
+        bad = "username,role,end_date\nviewer,Wizard,\nnobody,,\npic,,31-12-2030\n"
+        result = self.client.post("/api/admin/profiles/import", json={"csv": bad, "apply": True}).json
+        self.assertEqual((result["errors"], result["applied"]), (3, False))
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM user_profiles").fetchone()[0], 0)
+        self.assertEqual(self.client.post("/api/admin/profiles/import", json={"csv": "name\nx\n"}).status_code, 400)
+        self.sign_in(2)
+        self.assertEqual(self.client.post("/api/admin/profiles/import", json={"csv": bad}).status_code, 403)
