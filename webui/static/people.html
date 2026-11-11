@@ -48,7 +48,8 @@
   .chip button { background:none; color:var(--err); padding:0 6px; font-size:15px; }
   button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
   .card-profile { font-size:12px; color:var(--mute); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .card-profile.warn-text { color:var(--warn); }
+  .card-profile.missing { font-style:italic; opacity:.75; }
+  .with-profile .directory-person { height:104px; }  /* room for the role line; cards stay equal-sized */
   .profiles-table { width:100%; border-collapse:collapse; }
   .profiles-table th { text-align:left; padding:0; }
   .profiles-table th button.sort { background:none; border:0; color:var(--mute); font:inherit; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; padding:6px 8px; cursor:pointer; white-space:nowrap; }
@@ -70,7 +71,9 @@
   .supervision-group td { padding:4px 6px 4px 0; border-top:1px solid var(--line); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:13px; }
   .supervision-group td.end-ended { color:var(--err); }
   .supervision-group td.end-soon { color:var(--warn); }
-  .supervision-group td.projects .chip { margin:0 3px 0 0; }
+  .supervision-group td.projects { text-overflow:clip; }
+  .supervision-group td.projects .chip { display:inline-block; max-width:calc(100% - 28px); overflow:hidden; text-overflow:ellipsis;
+    vertical-align:middle; margin:0 3px 0 0; }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:4px 14px; }
   .profile-options { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:8px 24px; }
   .profile-options h3 { margin:6px 0; font-size:13px; }
@@ -497,6 +500,7 @@ function renderDirectory() {
     totals.set(f.user_id, t);
   }
   $('directoryCount').textContent = `${rows.length} of ${people.users.length} people`;
+  $('directoryPeople').classList.toggle('with-profile', profileList.some(x => !x.self || me?.is_admin));
   $('directoryPeople').innerHTML = (picError ? `<p role="alert">${esc(picError)}</p>` : '') + rows.map(u => {
     const t = totals.get(u.id) || {count:0, seconds:0, last:''};
     return `<a class="directory-person" href="/people/${u.id}" aria-label="${esc(u.display_name || u.username)}"><div class="directory-person-header">
@@ -949,16 +953,16 @@ function renderSupervision() {
     const sub = g.id ? [own?.role, own?.department].filter(Boolean).map(esc).join(' · ') : 'External supervisor';
     return `<div class="supervision-group${g.id ? '' : ' external'}"><h3>${g.id ? `<a href="/people/${g.id}">${esc(g.name)}</a>` : esc(g.name)}</h3>
       <div class="mute small">${sub ? sub + ' · ' : ''}${g.people.length} ${g.people.length === 1 ? 'person' : 'people'}</div>
-      <table><colgroup><col style="width:21%"><col style="width:19%"><col style="width:25%"><col style="width:22%"><col style="width:13%"></colgroup>${g.people.map(x => `<tr><td><a href="/people/${x.id}">${esc(x.name)}</a></td><td class="mute">${esc(x.profile?.role || '')}</td>
-        <td class="${x.status === 'ended' || x.status === 'soon' ? 'end-' + x.status : ''}" title="${x.status === 'ended' ? 'Ended' : x.status === 'soon' ? 'Ends within 3 months' : ''}">${x.profile?.indefinite ? 'Indefinite' : esc(x.profile?.end_date || '')}${x.status === 'ended' ? ' · ended' : x.status === 'soon' ? ' · soon' : ''}</td>
-        <td class="projects">${x.projects.map(p => `<a class="chip" href="/projects/${p.id}" title="${esc(p.name)}">${esc(p.name)}</a>`).join('')}</td>
+      <table><colgroup><col style="width:20%"><col style="width:19%"><col style="width:15%"><col style="width:28%"><col style="width:18%"></colgroup>${g.people.map(x => `<tr><td><a href="/people/${x.id}">${esc(x.name)}</a></td><td class="mute">${esc(x.profile?.role || '')}</td>
+        <td class="${x.status === 'ended' || x.status === 'soon' ? 'end-' + x.status : ''}" title="${x.status === 'ended' ? 'Ended' : x.status === 'soon' ? 'Ends within 3 months' : ''}">${x.profile?.indefinite ? 'Indefinite' : esc(x.profile?.end_date || '')}</td>
+        <td class="projects" title="${esc(x.projects.map(p => p.name).join(', '))}">${x.projects.length ? `<a class="chip" href="/projects/${x.projects[0].id}">${esc(x.projects[0].name)}</a>${x.projects.length > 1 ? `<span class="mute"> +${x.projects.length - 1}</span>` : ''}` : ''}</td>
         <td class="mute">${flightsText(totals.get(x.id))}</td></tr>`).join('')}</table></div>`;
   }).join('') || '<p class="mute">No matching people.</p>';
 }
 function cardProfileLine(u) {
   const x = profileList.find(p => p.id === u.id);
   if (!x) return '';
-  if (!x.profile) return '<div class="card-profile warn-text">Profile not filled in</div>';
+  if (!x.profile) return '<div class="card-profile missing">Profile not filled in</div>';
   const text = [x.profile.role, x.profile.department].filter(Boolean).join(' · ');
   return `<div class="card-profile" title="${esc(text)}">${esc(text)}</div>`;
 }
@@ -974,8 +978,10 @@ function profileFormHTML(d) {
       .map(x => `<option value="${x.id}"${x.id === p.department_id ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
     return grp ? `<optgroup label="${esc(grp)}">${items}</optgroup>` : items;
   }).join('');
-  return `${!d.profile ? '<p class="mute">Not filled in yet; the person is asked at their next sign-in.</p>'
-      : todo.length ? `<p class="mute">Still to fill in: ${esc(todo.join(', '))}</p>` : ''}
+  const state = !d.profile ? 'not filled in yet' : todo.length ? 'still to fill in: ' + todo.join(', ') : '';
+  return `<div class="section-heading"><h3>Profile${state ? ` <span class="mute" style="font-weight:400;font-size:13px">· ${esc(state)}</span>` : ''}</h3>
+      <details><summary>Help</summary><p>Fill in what you know: fields may stay empty, but what is filled in must be valid.
+      The person checks the profile and completes the rest at their next sign-in.</p></details></div>
     <form class="account-profile" id="profileForm" onsubmit="event.preventDefault();savePersonProfile()">
     <label class="field">Role<select id="pfRole"><option value="">Choose…</option>${o.roles.map(r =>
       `<option value="${r.id}"${r.id === p.role_id ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}</select></label>

@@ -149,7 +149,13 @@ class ProfileTests(AppTests):
         saved = self.client.put("/api/users/3/profile", json=body)
         self.assertEqual(saved.status_code, 200, saved.json)
         self.assertEqual((saved.json["profile"]["number"], saved.json["missing"]), ("777", []))
-        self.assertEqual(self.client.put("/api/users/3/profile", json={**body, "number": ""}).status_code, 400)  # same rules
+        self.assertEqual(self.client.put("/api/users/3/profile", json={**body, "github": "-bad-"}).status_code, 400)
+        # an admin fills in only what they know; the person is asked for the rest
+        partial = self.client.put("/api/users/4/profile", json={"department_text": "Elsewhere", "supervisors": []})
+        self.assertEqual(partial.status_code, 200, partial.json)
+        self.assertEqual(partial.json["missing"], ["role", "end_date", "number"])
+        self.assertTrue(partial.json["profile"]["to_confirm"])
+        self.assertEqual(self.client.put("/api/users/4/profile", json={"end_date": "2000-01-01"}).status_code, 200)
         self.assertEqual(self.client.put("/api/users/999/profile", json=body).status_code, 404)
 
     def test_csv_import_fills_only_empty_fields_and_asks_to_confirm(self):
