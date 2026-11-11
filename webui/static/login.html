@@ -41,6 +41,9 @@
 </form>
 <script>
 const q = new URLSearchParams(location.search);
+// Where to go after signing in: only a page of this site (as safe_next on the server).
+const next = (n => n && n.startsWith('/') && !n.startsWith('//') && !n.includes('\\') && !/[\x00-\x1f]/.test(n) ? n : '/')(q.get('next'));
+if (next !== '/') document.getElementById('sso').href = '/login/tudelft?' + new URLSearchParams({next});
 if (q.get('ready')) document.getElementById('note').textContent = 'Password saved. Sign in with it.';
 if (q.get('error')) document.getElementById('err').textContent = q.get('error') === 'sso'
   ? 'TU Delft sign-in failed. Ask an admin if this site is registered as a service provider.'
@@ -74,7 +77,7 @@ document.getElementById('f').onsubmit = async e => {
   const fd = new FormData(e.target);
   const r = await fetch('/login', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({username: fd.get('username'), password: fd.get('password')})});
-  if (r.ok) { location.href = '/'; return; }
+  if (r.ok) { location.href = next; return; }
   document.getElementById('err').textContent = (await r.json().catch(() => ({}))).error || 'login failed';
 };
 </script>

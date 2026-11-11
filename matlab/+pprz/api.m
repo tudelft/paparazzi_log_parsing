@@ -1,24 +1,40 @@
-function out = api(method, path, varargin)
-%API Call the logbook API with the server and key of pprz_server. method is 'GET' or 'POST'; a POST sends the
-%   name/value pairs in varargin as form fields (MATLAB and Octave both support those).
-%   Errors carry the server's message, e.g. an unknown flight or a key without access.
-    cfg = pprz_server();
-    if isempty(cfg.server) || isempty(cfg.key)
-        error('pprz:server', 'Set the logbook first: pprz_server(''https://logs.example.org'', ''API-KEY'')');
+function out = api(method, path, body)
+%API Call the logbook API with the connection of pprz_connect.
+%   out = pprz.api('GET', '/api/me')
+%   out = pprz.api('POST', path, struct(...))     JSON body
+%   out = pprz.api('POST', path, provider)        a matlab.net.http content provider (uploads)
+%   An expired or revoked browser login is renewed once (pprz.login). Errors 'pprz:http' carry the server's message,
+%   e.g. an unknown flight or a key without access; 'pprz:unavailable' is a server error (HTTP 5xx) and
+%   'pprz:offline' means the server could not be reached.
+    if nargin < 3
+        body = [];
     end
-    opts = weboptions('HeaderFields', {'Authorization', ['Bearer ' cfg.key]}, 'Timeout', 60, ...
-        'ContentType', 'json');
-    url = [cfg.server path];
-    try
-        if strcmpi(method, 'POST')
-            out = webwrite(url, varargin{:}, opts);
-        else
-            out = webread(url, opts);
+    c = pprz.connection();
+    if isempty(c.key) && strcmp(c.source, 'browser login')
+        c = relogin(c);
+    end
+    [out, status] = pprz.http(method, [c.server path], body, c.key);
+    if status == 401 && strcmp(c.source, 'browser login')
+        c = relogin(c);
+        [out, status] = pprz.http(method, [c.server path], body, c.key);
+    end
+    if status >= 400
+        message = '';
+        if isstruct(out) && isfield(out, 'error')
+            message = char(string(out.error));
         end
-    catch err
-        error('pprz:api', '%s %s failed: %s', method, path, err.message);
+        if status == 401
+            message = sprintf('%s (%s)', message, c.origin);
+        end
+        id = 'pprz:http';
+        if status >= 500
+            id = 'pprz:unavailable';
+        end
+        error(id, '%s %s failed: HTTP %d %s', method, path, status, message);
     end
-    if ischar(out) && ~isempty(out)  % Octave returns the JSON text
-        out = jsondecode(out);
-    end
+end
+
+function c = relogin(c)
+    c.key = pprz.login(c.server);
+    pprz.connection(c);
 end

@@ -4,25 +4,36 @@ Tools to load, plot and analyse Paparazzi flights exported by the flight logbook
 
 ## Get a .mat file
 
-- **Straight into MATLAB from the logbook server**, by flight number (the number in `/flight/<number>`). Create an
-  API key once under **My account** (read-only is enough):
+- **Straight into MATLAB from the logbook server**, by flight number (the number in `/flight/<number>`):
 
   ```matlab
-  pprz_server('https://logs.example.org', 'API-KEY')   % once; kept in MATLAB's preferences
-  T = pprz_logbook();                                   % table of the flights you may see (flight, date, aircraft, …)
-  logs = pprz_fetch([1234 1240]);                       % or pprz_view([1234 1240]), or From logbook… in pprz_view
-  logs = pprz_fetch([1234 1240], 'scope', 'log');       % the whole logs instead
-  f = pprz_flight(logs, 'number', 1240);                % one flight by its logbook number
+  pprz_connect('logs.example.org')           % once per session; or pprz_connect('logs.example.org', key)
+  T = pprz_logbook();                        % table of the flights you may see (flight, date, aircraft, …;
+                                             % date is NaT when the log's clock was not set)
+  logs = pprz_fetch([1234 1240]);            % or pprz_view([1234 1240]), or From logbook… in pprz_view
+  logs = pprz_fetch([1234 1240], 'scope', 'log');   % the whole logs instead
+  f = pprz_flight(logs, 'number', 1240);     % one flight by its logbook number
+  r = pprz_upload({'a.data', 'LOG00030.BFL'}, 'wait', true);   % upload; r(1).flight_ids for pprz_fetch
   ```
+
+  `pprz_connect(server, key)` connects; the server is required (`https://`; `http://` only for `localhost`, so keys
+  never travel unencrypted). The key defaults to `LOGDB_API_KEY` (a key from
+  **My account**; not used when `LOGDB_SERVER` names another server), else the last browser login. Values from the environment are announced. Without a key it opens the browser: sign in, check that the
+  page shows the code printed in MATLAB and press **Allow**; that key acts as you for a week.
+  `pprz_revoke_all` revokes your browser-login keys on all computers; keys made on **My account** are revoked there.
+  The login and the cache are shared with the Python package
+  [mavlab-logbook-client](../python/mavlab-logbook-client/README.md), whose `fetch` follows `pprz_fetch` and whose
+  `fetch_raw` downloads the original log files.
 
   `pprz_fetch` makes **one file per log**: numbers from the same log end up in one export with those flights
   (`logs(i).aircraft(a).flights(k)`). `'scope'` chooses what to download: `'selected'` (default) the given
   flights, `'all'` every flight of those logs, `'log'` the whole log of each (also between flights), `'flight'`
   one file per number. Copy numbers in the logbook's Select mode gives the list to paste.
-
-  The exports are made on the server from each log and kept in a cache folder (`pprz_server('cache',
-  folder)`; default in `prefdir`). A cached file is reused until the export would change (new log version,
-  parser or logbook corrections such as the crew); without a connection the last cached copy is used.
+  A cached export is reused until it would change (new log version, parser or logbook corrections such as the
+  crew); without a connection or when the server fails (HTTP 5xx) the cached copies are used, with a warning.
+  The cache folder is shown and set with `pprz_cache_dir`; see the package's
+  [README](../python/mavlab-logbook-client/README.md#where-files-are-kept) for the default places and environment variables.
+  These functions need MATLAB R2021a or newer (not Octave).
 - **From the logbook:** **MATLAB ▾** on a flight page or an expanded Logbook row (this flight, all flights or
   the whole log), or tick flights and use **MATLAB ▾** next to "N selected" for a `.zip` with one `.mat` per log.
 - **Offline, from a local `.data` with its `.log` next to it** (plain or `.gz`), also in the field without
@@ -70,8 +81,11 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 |---|---|
 | `pprz_load` | Load `.mat` files, folders or bulk `.zip` files into a struct array of exports; `.data`/`.log` files are converted first (offline, after `pprz_setup`). |
 | `pprz_setup` | Prepare offline conversion once: Python with h5py/numpy and the parser (self-built or downloaded from the latest `parser-v*` release). |
-| `pprz_server` | Set (or show) the logbook server, API key and cache folder for `pprz_fetch` and `pprz_logbook`. |
+| `pprz_connect` | Connect to the logbook server for the functions below (API key, or sign in through the browser). |
+| `pprz_revoke_all` | Revoke your browser-login keys on all computers. |
+| `pprz_cache_dir` | Show or set the folder where downloads are cached. |
 | `pprz_fetch(ids)` | Load flights from the logbook server by flight number, one file per log, cached locally; `'scope'` `selected`/`all`/`log`/`flight`; `'force', true` downloads again. |
+| `pprz_upload(files)` | Upload logs (a `.data` with its `.log`); `'wait', true` returns the parsed log's `flight_ids` for `pprz_fetch`. |
 | `pprz_logbook` | Table of the logbook flights the key may see, to pick numbers for `pprz_fetch` (`'all', true` adds uncertain and ground records). |
 | `pprz_flights` | Table of all flights (row numbers for `pprz_flight`), with the logbook `number`; flight 0 is a whole-log export. |
 | `pprz_flight` | One flight ready to plot (row of `pprz_flights`, or `'number', n`): `f.data`, `f.time`, `f.summary`, `f.logbook`, `f.aircraft`, `f.messages`, `f.title`. A flight in a whole-log export is cut from the log. |

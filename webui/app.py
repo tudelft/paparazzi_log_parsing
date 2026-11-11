@@ -32,6 +32,7 @@ import time
 import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode
 from pathlib import Path
 
 from flask import (Flask, Response, abort, g, jsonify, make_response, redirect, request, send_file, send_from_directory,
@@ -804,7 +805,8 @@ def upload():
 # Local passwords plus TU Delft NetID SAML 2.0. IdP metadata:
 #   https://login.tudelft.nl/sso/saml2/idp/metadata.php
 PUBLIC_ENDPOINTS = {"login_page", "login", "login_options", "setup_page", "setup_info", "setup_password",
-                    "theme_css", "theme_js", "favicon", "saml_login", "saml_acs", "saml_metadata", "saml_sls"}
+                    "theme_css", "theme_js", "favicon", "saml_login", "saml_acs", "saml_metadata", "saml_sls",
+                    "cli_login_start", "cli_login_token"}
 SETUP_HOURS = 48
 MAX_FAILURES, FAILURE_WINDOW_S = 8, 300
 _failures: dict = {}
@@ -889,7 +891,8 @@ def user_for_key(key):
     h = hashlib.sha256(key.encode()).hexdigest()
     row = con.execute("SELECT k.id AS key_id, k.last_used_at AS key_used, k.read_only AS key_read_only, u.*"
                       " FROM api_keys k JOIN users u ON u.id = k.user_id"
-                      " WHERE k.key_hash=? AND u.is_active=1 AND u.is_external=0", (h,)).fetchone()
+                      " WHERE k.key_hash=? AND u.is_active=1 AND u.is_external=0"
+                      " AND (k.expires_at IS NULL OR k.expires_at > ?)", (h, now())).fetchone()
     if row is None:
         return None
     stamp = now()
@@ -933,9 +936,19 @@ def require_login():
         session.clear()
         if request.path.startswith("/api/"):
             return jsonify(error="login required"), 401
+        if request.method == "GET" and request.path != "/":
+            return redirect("/login?" + urlencode({"next": request.full_path.rstrip("?")}))
         return redirect("/login")
     g.user = user
     return None
+
+
+def safe_next(target):
+    """A page of this site to return to after signing in; anything else (other sites, //host) goes to /."""
+    target = target or ""
+    if not target.startswith("/") or target.startswith("//") or "\\" in target or any(ord(c) < 32 for c in target):
+        return "/"
+    return target
 
 
 @app.get("/login")
@@ -1012,7 +1025,7 @@ def saml_login():
         return redirect("/login")
     try:
         auth = saml.auth_for(request, DATA_DIR)
-        url = auth.login(return_to="/")
+        url = auth.login(return_to=safe_next(request.args.get("next")))
     except Exception:
         return redirect("/login?error=sso")
     return redirect(url)
@@ -1034,10 +1047,7 @@ def saml_acs():
         return redirect("/login?error=sso")
     if err or user is None:
         return redirect("/login?error=sso")
-    nxt = request.form.get("RelayState") or "/"
-    if not nxt.startswith("/"):
-        nxt = "/"
-    return redirect(nxt)
+    return redirect(safe_next(request.form.get("RelayState")))
 
 
 @app.get("/saml/metadata")
@@ -1125,8 +1135,10 @@ def change_password():
 @app.get("/api/keys")
 def list_keys():
     session_required()
-    rows = conn().execute("SELECT id, name, prefix, created_at, last_used_at, read_only FROM api_keys WHERE user_id=?"
-                          " ORDER BY id DESC", (g.user["id"],))
+    con = conn()
+    drop_expired_keys(con, g.user["id"])
+    rows = con.execute("SELECT id, name, prefix, created_at, last_used_at, read_only, expires_at FROM api_keys"
+                       " WHERE user_id=? ORDER BY id DESC", (g.user["id"],))
     return jsonify([dict(r, read_only=bool(r["read_only"])) for r in rows])
 
 
@@ -1141,13 +1153,183 @@ def create_key():
     if type(read_only) is not bool:
         return jsonify(error="read_only must be true or false"), 400
     con = conn()
-    if con.execute("SELECT COUNT(*) FROM api_keys WHERE user_id=?", (g.user["id"],)).fetchone()[0] >= 20:
-        return jsonify(error="at most 20 keys per user"), 400
+    drop_expired_keys(con, g.user["id"])
+    if con.execute("SELECT COUNT(*) FROM api_keys WHERE user_id=?", (g.user["id"],)).fetchone()[0] >= MAX_KEYS:
+        return jsonify(error=f"at most {MAX_KEYS} keys per user"), 400
     key = API_KEY_PREFIX + secrets.token_urlsafe(32)
     cur = con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at, read_only) VALUES (?,?,?,?,?,?)",
                       (g.user["id"], name, hashlib.sha256(key.encode()).hexdigest(), key[:10], now(), int(read_only)))
     con.commit()
     return jsonify(id=cur.lastrowid, name=name, key=key, read_only=read_only)
+
+
+@app.post("/api/keys/revoke-all")
+def revoke_all_keys():
+    """Revoke the user's keys from script (browser) logins, or with include_manual also those made on the account
+    page. The former also with an API key, so the Python and MATLAB clients can do it; include_manual needs a
+    browser session, so a leaked one-week key cannot delete the long-lived keys."""
+    include_manual = (request.get_json(silent=True) or {}).get("include_manual", False)
+    if type(include_manual) is not bool:
+        return jsonify(error="include_manual must be true or false"), 400
+    if include_manual and g.via_key:
+        return jsonify(error="revoking the keys made on the account page needs a signed-in browser"), 403
+    con = conn()
+    cur = con.execute("DELETE FROM api_keys WHERE user_id=?" + ("" if include_manual else " AND expires_at IS NOT NULL"),
+                      (g.user["id"],))
+    con.commit()
+    return jsonify(revoked=cur.rowcount)
+
+
+MAX_KEYS = 20
+
+
+def drop_expired_keys(con, user_id):
+    con.execute("DELETE FROM api_keys WHERE user_id=? AND expires_at IS NOT NULL AND expires_at <= ?", (user_id, now()))
+
+
+# Browser login for scripts (RFC 8628 device authorization): the client gets a secret device code it polls with and
+# a short user code it shows; the user opens /cli-login?code=<user code> in a signed-in browser, compares the code
+# and approves. The next poll then receives a new full-access API key that expires after CLI_KEY_DAYS. The device
+# code never appears in a URL, so browser history and server logs cannot be used to collect the key.
+CLI_LOGIN_SECONDS, CLI_POLL_SECONDS, CLI_KEY_DAYS = 600, 5, 7
+CLI_CODE_ALPHABET = "BCDFGHJKLMNPQRSTVWXZ"  # no vowels (no words), no look-alike digits
+
+
+def iso_in(seconds):
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def normal_user_code(code):
+    code = "".join(c for c in (code or "").upper() if c.isalnum())
+    return f"{code[:4]}-{code[4:]}" if len(code) == 8 else None
+
+
+def cli_error(code, description, status=400):
+    return jsonify(error=code, error_description=description), status
+
+
+@app.post("/api/cli-login")
+def cli_login_start():
+    """Start a browser login for a script; the client shows user_code and opens verification_uri_complete."""
+    if too_many_failures(f"cli|{request.remote_addr}"):
+        return cli_error("slow_down", "too many logins from this address, try again in a few minutes", 429)
+    note_failure(f"cli|{request.remote_addr}")  # counts every start: at most MAX_FAILURES per window and address
+    body = request.get_json(silent=True) or request.form
+    client = " ".join(str(body.get("client") or "script").split())[:80] or "script"
+    con = conn()
+    con.execute("DELETE FROM cli_logins WHERE expires_at <= ?", (now(),))
+    device_code = secrets.token_urlsafe(32)
+    for _ in range(5):
+        user_code = normal_user_code("".join(secrets.choice(CLI_CODE_ALPHABET) for _ in range(8)))
+        try:
+            con.execute("INSERT INTO cli_logins (device_hash, user_code, client, address, created_at, expires_at)"
+                        " VALUES (?,?,?,?,?,?)", (hashlib.sha256(device_code.encode()).hexdigest(), user_code,
+                                                  client, request.remote_addr, now(), iso_in(CLI_LOGIN_SECONDS)))
+            break
+        except sqlite3.IntegrityError:
+            continue
+    else:
+        return cli_error("server_error", "could not create a login code", 503)
+    con.commit()
+    base = request.host_url.rstrip("/")
+    return jsonify(device_code=device_code, user_code=user_code, verification_uri=f"{base}/cli-login",
+                   verification_uri_complete=f"{base}/cli-login?{urlencode({'code': user_code})}",
+                   expires_in=CLI_LOGIN_SECONDS, interval=CLI_POLL_SECONDS)
+
+
+@app.post("/api/cli-login/token")
+def cli_login_token():
+    """Poll for the key of a browser login; RFC 8628 errors until the user has approved it, then the key once."""
+    body = request.get_json(silent=True) or request.form
+    device_code = body.get("device_code")
+    if not isinstance(device_code, str) or not device_code:
+        return cli_error("invalid_request", "device_code is required")
+    con = conn()
+    row = con.execute("SELECT * FROM cli_logins WHERE device_hash=?",
+                      (hashlib.sha256(device_code.encode()).hexdigest(),)).fetchone()
+    if row is None or row["status"] == "used":
+        return cli_error("invalid_grant", "unknown or already used login")
+    if row["expires_at"] <= now():
+        return cli_error("expired_token", "the login expired; start a new one")
+    if row["status"] == "denied":
+        return cli_error("access_denied", "the login was denied in the browser")
+    stamp = now()
+    too_fast = row["polled_at"] and (datetime.fromisoformat(stamp[:-1]) - datetime.fromisoformat(
+        row["polled_at"][:-1])).total_seconds() < CLI_POLL_SECONDS - 1
+    con.execute("UPDATE cli_logins SET polled_at=? WHERE id=?", (stamp, row["id"]))
+    con.commit()
+    if too_fast:
+        return cli_error("slow_down", f"poll at most every {CLI_POLL_SECONDS} s")
+    if row["status"] == "pending":
+        return cli_error("authorization_pending", "waiting for approval in the browser")
+    user = con.execute("SELECT * FROM users WHERE id=? AND is_active=1 AND is_external=0",
+                       (row["user_id"],)).fetchone()
+    if user is None:
+        return cli_error("access_denied", "the approving account is disabled")
+    # claim the approved login first, so two polls at the same moment cannot both receive a key
+    if con.execute("UPDATE cli_logins SET status='used' WHERE id=? AND status='approved'",
+                   (row["id"],)).rowcount != 1:
+        con.rollback()
+        return cli_error("invalid_grant", "unknown or already used login")
+    name = f"Login: {row['client']}"[:60]
+    drop_expired_keys(con, user["id"])
+    # a new login of the same program on the same computer replaces its previous key
+    con.execute("DELETE FROM api_keys WHERE user_id=? AND name=? AND expires_at IS NOT NULL", (user["id"], name))
+    if con.execute("SELECT COUNT(*) FROM api_keys WHERE user_id=?", (user["id"],)).fetchone()[0] >= MAX_KEYS:
+        con.rollback()
+        return cli_error("access_denied", f"at most {MAX_KEYS} API keys per user; revoke one on the account page")
+    key = API_KEY_PREFIX + secrets.token_urlsafe(32)
+    expires = iso_in(CLI_KEY_DAYS * 86400)
+    con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at, read_only, expires_at)"
+                " VALUES (?,?,?,?,?,0,?)", (user["id"], name, hashlib.sha256(key.encode()).hexdigest(), key[:10],
+                                            now(), expires))
+    con.commit()
+    return jsonify(access_token=key, token_type="Bearer", expires_in=CLI_KEY_DAYS * 86400, expires_at=expires,
+                   user=user_public(user))
+
+
+@app.get("/cli-login")
+def cli_login_page():
+    return send_from_directory(PAGES_DIR, "cli-login.html")
+
+
+def pending_cli_login(con, user_code):
+    """The pending login with this user code, or 404 (with a failure count against guessing codes)."""
+    limit = f"cli-code|{g.user['id']}"
+    if too_many_failures(limit):
+        abort(429)
+    row = con.execute("SELECT * FROM cli_logins WHERE user_code=? AND status='pending' AND expires_at > ?",
+                      (normal_user_code(user_code) or "", now())).fetchone()
+    if row is None:
+        note_failure(limit)
+        abort(404)
+    return row
+
+
+@app.get("/api/cli-login/<user_code>")
+def cli_login_info(user_code):
+    session_required()
+    row = pending_cli_login(conn(), user_code)
+    age = datetime.now(timezone.utc) - datetime.fromisoformat(row["created_at"][:-1]).replace(tzinfo=timezone.utc)
+    return jsonify(user_code=row["user_code"], client=row["client"], address=row["address"],
+                   created_at=row["created_at"], age_s=max(0, int(age.total_seconds())),
+                   expires_at=row["expires_at"], key_days=CLI_KEY_DAYS)
+
+
+@app.post("/api/cli-login/<user_code>")
+def cli_login_decide(user_code):
+    """Approve or deny a pending login in the signed-in browser: ``{"approve": true}``. JSON only, so another site
+    cannot submit it as a form."""
+    session_required()
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or type(body.get("approve")) is not bool:
+        return jsonify(error="approve must be true or false"), 400
+    con = conn()
+    row = pending_cli_login(con, user_code)
+    con.execute("UPDATE cli_logins SET status=?, user_id=? WHERE id=? AND status='pending'",
+                ("approved" if body["approve"] else "denied", g.user["id"], row["id"]))
+    con.commit()
+    return jsonify(ok=True, approved=body["approve"])
 
 
 @app.delete("/api/keys/<int:key_id>")
@@ -6030,7 +6212,12 @@ def ingest_result(ingest_id):
         (ingest_id, g.user["is_admin"], g.user["id"])).fetchone()
     if row is None:
         abort(404)
-    return jsonify(dict(row))
+    out = dict(row)
+    if row["log_status"] == "done":  # the flights found in the log, e.g. to download them right after the upload
+        out["flight_ids"] = [r[0] for r in conn().execute(
+            "SELECT f.id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE a.log_id=? ORDER BY f.id",
+            (row["log_id"],))]
+    return jsonify(out)
 
 
 @app.get("/api/logs")
@@ -6452,7 +6639,8 @@ def request_flights_matlab_export():
     body = request.get_json(silent=True) or request.values
     raw = body.get("flight_ids")
     try:
-        ids = [int(x) for x in (raw.split(",") if isinstance(raw, str) else raw or []) if str(x).strip()]
+        raw = [raw] if isinstance(raw, int) else raw.split(",") if isinstance(raw, str) else raw or []
+        ids = [int(x) for x in raw if str(x).strip()]
     except (TypeError, ValueError):
         return jsonify(error="flight_ids must be flight numbers"), 400
     ids = list(dict.fromkeys(ids))
@@ -6582,6 +6770,23 @@ def matlab_export_download(job_id):
                         headers=headers)
     return send_file(export_jobs().path(job_id), mimetype="application/octet-stream", as_attachment=True,
                      download_name=job["filename"], conditional=True, max_age=0)
+
+
+@app.get("/api/flights/<int:flight_id>/files")
+def flight_files(flight_id):
+    """The log a flight was recorded in and its original files (as /api/logs/<log>/download/<kind> names them),
+    for clients that keep a local copy: ``sha256`` is the hash of the data file."""
+    con = conn()
+    found = con.execute("SELECT a.log_id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE f.id=?",
+                        (flight_id,)).fetchone()
+    if found is None:
+        abort(404)
+    row = visible_log(con, found["log_id"], "id, name, sha256, log_type, data_path, log_path, size_bytes")
+    files = [dict(kind=kind, name=safe_filename(Path(rel).name[:-3] if rel.endswith(".gz") else Path(rel).name),
+                  url=f"/api/logs/{row['id']}/download/{kind}")
+             for kind, rel in (("data", row["data_path"]), ("log", row["log_path"])) if rel]
+    return jsonify(flight_id=flight_id, log_id=row["id"], name=row["name"], sha256=row["sha256"],
+                   log_type=row["log_type"], size_bytes=row["size_bytes"], files=files)
 
 
 @app.get("/api/logs/<int:log_id>/download/<kind>")

@@ -15,6 +15,9 @@
 - `webui/db.py`: SQLite schema and migrations; `config.py`: `LOGDB_*` configuration.
 - `webui/historical.py`: paper records; `mav_parse.py`: other telemetry formats.
 - `webui/qualifications.py`, `training.py`, `attachments.py`, `weather.py`, `storage.py`, `saml.py`: feature-specific helpers.
+- `python/mavlab-logbook-client/`: Python package `mavlab-logbook-client` (TestPyPI; browser login, cached downloads, uploads), sharing its
+  login and cache with `matlab/` (`+pprz/config.m`); released to TestPyPI only by pushing a `client-v<version>` tag
+  (`.github/workflows/client.yml`).
 - `matlab/`: tools for the MATLAB export (`pprz_*.m`, `+pprz/`, `plotters/`); the format is in `matlab/README.md`.
 - `webui/static/`: plain HTML/JavaScript pages; shared navigation in `theme.js`, styling in `theme.css`.
 - `webui/tests/`: unittest regression tests. Reuse existing fixtures; do not start real workers to test routes.

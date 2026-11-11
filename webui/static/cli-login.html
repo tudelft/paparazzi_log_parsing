@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sign in a script - Flight log database</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); font:14px/1.45 system-ui, sans-serif; color:var(--txt); }
+  form { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:28px; width:360px; }
+  h1 { font-size:18px; margin:0 0 8px; }
+  p { margin:0 0 14px; }
+  .mute { color:var(--mute); }
+  a { color:var(--acc); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  label { display:block; margin-bottom:12px; font-size:12px; color:var(--mute); }
+  input { box-sizing:border-box; width:100%; margin-top:4px; padding:8px; font:inherit; border:1px solid var(--fieldline); border-radius:6px; background:var(--field); color:var(--txt); text-transform:uppercase; letter-spacing:.1em; }
+  .code { font:600 26px/1.2 ui-monospace, monospace; letter-spacing:.12em; text-align:center; padding:10px; margin:0 0 14px; border:1px solid var(--line); border-radius:6px; }
+  .client { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+  .warn { border-left:3px solid var(--err); padding:6px 10px; }
+  .buttons { display:flex; gap:8px; }
+  button { flex:1; padding:9px; font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; cursor:pointer; }
+  button.secondary { background:none; color:var(--txt); border:1px solid var(--fieldline); }
+  #err { color:var(--err); margin-top:12px; }
+  #err:empty { display:none; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button>
+<form id="f">
+  <h1>Sign in a script</h1>
+  <div id="ask" hidden>
+    <p class="mute">Enter the code shown by your script.</p>
+    <label>Code<input id="code" autocomplete="off" maxlength="9" placeholder="BCDF-GHJK"></label>
+    <div class="buttons"><button type="submit">Continue</button></div>
+  </div>
+  <div id="confirm" hidden>
+    <p><span class="client" id="client"></span> asks to use the flight log database as <b id="who"></b>.</p>
+    <div class="code" id="shown"></div>
+    <p class="mute" id="origin"></p>
+    <p class="warn"><b>Only allow if you started this yourself just now</b> and your script shows this same code.
+      If not, press Deny: someone may be trying to get into your account.</p>
+    <p class="mute">The script receives a key that acts as you (upload and read what you may) for
+      <span id="days">7</span> days; revoke it on your <a href="/account">account page</a> at any time.</p>
+    <div class="buttons"><button type="button" class="secondary" id="deny">Deny</button>
+      <button type="button" id="allow">Allow</button></div>
+  </div>
+  <div id="done" hidden><p id="doneText"></p><p class="mute">You can close this tab.</p></div>
+  <div id="err"></div>
+</form>
+<script>
+const $ = id => document.getElementById(id);
+const pick = view => ['ask', 'confirm', 'done'].forEach(v => $(v).hidden = v !== view);
+let current = null;
+async function api(url, opt) {
+  const r = await fetch(url, opt);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(r.status === 404 ? 'This code is unknown, expired or already used. Start the login in your script again.'
+    : r.status === 429 ? 'Too many attempts; wait a few minutes.' : d.error || r.statusText);
+  return d;
+}
+async function show(code) {
+  $('err').textContent = '';
+  try {
+    const [d, me] = await Promise.all([api('/api/cli-login/' + encodeURIComponent(code)), api('/api/me')]);
+    current = d.user_code;
+    $('client').textContent = $('client').title = d.client;
+    $('who').textContent = me.user.display_name;
+    $('shown').textContent = d.user_code;
+    $('days').textContent = d.key_days;
+    const ago = d.age_s < 90 ? `${d.age_s} s` : `${Math.round(d.age_s / 60)} min`;
+    $('origin').textContent = `Started ${ago} ago` + (d.address ? ` from ${d.address}.` : '.');
+    pick('confirm');
+    $('allow').focus();
+  } catch (e) {
+    pick('ask');
+    $('code').value = code;
+    $('err').textContent = e.message;
+  }
+}
+async function decide(approve) {
+  $('err').textContent = '';
+  try {
+    await api('/api/cli-login/' + encodeURIComponent(current), {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({approve})});
+    $('doneText').textContent = approve ? 'Done: your script is signed in.' : 'Denied: the script did not get a key.';
+    pick('done');
+    history.replaceState(null, '', '/cli-login');  // the code is used up; Back does not offer it again
+  } catch (e) { $('err').textContent = e.message; }
+}
+$('allow').onclick = () => decide(true);
+$('deny').onclick = () => decide(false);
+$('f').onsubmit = e => { e.preventDefault(); if (!$('ask').hidden && $('code').value.trim()) show($('code').value.trim()); };
+const code = new URLSearchParams(location.search).get('code');
+if (code) show(code); else { pick('ask'); $('code').focus(); }
+</script>
+</body>
+</html>

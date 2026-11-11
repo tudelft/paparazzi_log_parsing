@@ -445,6 +445,7 @@ class MatlabExportRouteTests(MatlabRouteFixture):
         windows = export.call_args.args[6]
         self.assertEqual([w["index"] for w in windows], [1, 3])
         self.assertEqual([w["logbook"]["number"] for w in windows], [10, 12])
+        self.assertEqual(post(flight_ids=10).json["exports"][0]["id"], selected["id"])  # one number, as MATLAB sends it
         self.assertEqual(post(flight_ids=[10, 99]).status_code, 404)
         self.assertEqual(post(flight_ids=[10], scope="nope").status_code, 400)
         self.assertEqual(post(flight_ids=[]).status_code, 400)
