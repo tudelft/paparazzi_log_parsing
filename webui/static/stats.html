@@ -81,14 +81,6 @@
       <div><strong id="totPacs">—</strong><span>PACs</span></div>
     </div>
   </section>
-  <section class="card" id="storageCard" hidden>
-    <div class="section-heading"><h2>Storage</h2><span style="float:left;display:flex;gap:10px;align-items:baseline">
-      <span class="mute" id="storageWhen" role="status" style="font-size:12px"></span>
-      <button type="button" class="sec" id="storageRefresh" onclick="loadStorage(true)">Measure now</button></span>
-      <details><summary>Help</summary><p>What the stored files take on disk (compressed), for administrators. The log storage is measured in the background at most every few hours, because walking a network share takes a while; <em>Measure now</em> starts a new measurement. Logs are the stored .data and .log files of every upload, compared with the original size of the .data files. Flight paths are the paths drawn on maps. Attachments include their PDF previews. The database size and the free space are current.</p></details>
-    </div>
-    <div class="totals" id="storageTotals"></div>
-  </section>
   <section class="card">
     <div class="section-heading"><h2>Monthly activity</h2>
       <details><summary>Help</summary><p>Flight hours or flight counts per UTC month, using the shared filters. Paper records contribute their recorded time and flight count. Records without a valid or corrected date are excluded. Hover over a bar for both totals.</p></details>
@@ -146,6 +138,14 @@
       </div>
     </section>
   </div>
+  <section class="card" id="storageCard" hidden>
+    <div class="section-heading"><h2>Storage</h2><span style="float:left;display:flex;gap:10px;align-items:baseline">
+      <span class="mute" id="storageWhen" role="status" style="font-size:12px"></span>
+      <button type="button" class="sec" id="storageRefresh" onclick="loadStorage(true)">Measure now</button></span>
+      <details><summary>Help</summary><p>What the stored files take on disk (compressed), for administrators. The log storage is measured in the background at most every few hours, because walking a network share takes a while; <em>Measure now</em> starts a new measurement. Logs are the stored .data and .log files of every upload, compared with the original size of the .data files. Flight paths are the paths drawn on maps. Attachments include their PDF previews. The database size and the free space are current.</p></details>
+    </div>
+    <div class="totals" id="storageTotals"></div>
+  </section>
 </main>
 <script>
 const $ = id => document.getElementById(id);
