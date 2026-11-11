@@ -648,12 +648,14 @@ function renderPersonPanel() {
       ${editing ? `<form class="panel-row" onsubmit="event.preventDefault();addAlias(null,${id})">
         <label class="field">New alias<input id="new${id}" required maxlength="80"></label><button type="submit">Add alias</button></form>` : ''}`;
   } else if (selectedTab === 'profile') {
-    $('personContent').innerHTML = '<div class="kv" id="personProfile" role="status">Loading profile...</div>';
+    $('personContent').innerHTML = '<div id="personProfile" role="status">Loading profile...</div>';
     adminApi(`/api/users/${id}/profile`).then(d => {
       if (generation !== panelGeneration) return;
-      const todo = (d.missing || []).filter(m => m !== 'profile').map(m => m.replace('_', ' '));
-      $('personProfile').innerHTML = profileHTML(d.profile)
-        + (todo.length ? `<span class="mute">Still to fill in</span><span>${esc(todo.join(', '))}</span>` : '');
+      profileEdit = {id, sups: (d.profile?.supervisors || []).map(s => ({id: s.id, name: s.name})),
+        options: {...d.options, supervisors: d.options.supervisors.filter(s => s.id !== id)}};
+      $('personProfile').innerHTML = profileFormHTML(d);
+      profileSavedFor = 0;
+      renderProfileSups();
     }).catch(error => { $('personProfile').textContent = error.message; });
   } else if (selectedTab === 'api') {
     $('personContent').innerHTML = `<div class="section-heading"><h3>API keys</h3>
@@ -901,6 +903,70 @@ function cardProfileLine(u) {
   if (!x.profile) return '<div class="card-profile warn-text">Profile not filled in</div>';
   const text = [x.profile.role, x.profile.department].filter(Boolean).join(' · ');
   return `<div class="card-profile" title="${esc(text)}">${esc(text)}</div>`;
+}
+
+// The person Profile tab (admins, Edit mode): the profile as an inline form, saved with the person's own rules.
+let profileEdit = null, profileSavedFor = 0;  // the form repaints after a save; say so once
+function profileFormHTML(d) {
+  const p = d.profile || {}, o = profileEdit.options;
+  const todo = (d.missing || []).filter(m => m !== 'profile').map(m => m.replace('_', ' '));
+  const groups = [...new Set(o.departments.map(x => x.grp || ''))];
+  const depts = groups.map(grp => {
+    const items = o.departments.filter(x => (x.grp || '') === grp)
+      .map(x => `<option value="${x.id}"${x.id === p.department_id ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
+    return grp ? `<optgroup label="${esc(grp)}">${items}</optgroup>` : items;
+  }).join('');
+  return `${!d.profile ? '<p class="mute">Not filled in yet; the person is asked at their next sign-in.</p>'
+      : todo.length ? `<p class="mute">Still to fill in: ${esc(todo.join(', '))}</p>` : ''}
+    <form class="account-profile" id="profileForm" onsubmit="event.preventDefault();savePersonProfile()">
+    <label class="field">Role<select id="pfRole"><option value="">Choose…</option>${o.roles.map(r =>
+      `<option value="${r.id}"${r.id === p.role_id ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}</select></label>
+    <label class="field">Department / section<select id="pfDept" onchange="$('pfDeptText').hidden=this.value!=='other'">
+      <option value="">Choose…</option>${depts}<option value="other"${!p.department_id && p.department_text ? ' selected' : ''}>Other… (type it)</option></select>
+      <input id="pfDeptText" maxlength="120" value="${esc(p.department_text || '')}" placeholder="Department or section"${!p.department_id && p.department_text ? '' : ' hidden'}></label>
+    <label class="field">Expected end<input type="date" id="pfEnd" value="${esc(p.end_date || '')}"${p.indefinite ? ' disabled' : ''}></label>
+    <label class="field">&nbsp;<span><input type="checkbox" id="pfIndef"${p.indefinite ? ' checked' : ''} onchange="$('pfEnd').disabled=this.checked"> Indefinite</span></label>
+    <label class="field">Student / employee no.<input id="pfNumber" maxlength="40" autocomplete="off" value="${esc(p.number || '')}"></label>
+    <label class="field">GitHub (optional)<input id="pfGithub" maxlength="39" autocomplete="off" value="${esc(p.github || '')}"></label>
+    <div class="field" style="grid-column:1/-1">Supervisors <span id="pfSups"></span>
+      <span class="panel-row" style="margin:4px 0 0"><input id="pfSupInput" list="pfSupList" maxlength="120" placeholder="Type a name and pick it from the list"
+        onchange="addProfileSup()" onkeydown="if(event.key==='Enter'){event.preventDefault();addProfileSup()}">
+      <button type="button" class="sec" onclick="addProfileSup(true)" title="Add the typed name as a supervisor without an account here">Add external</button></span>
+      <datalist id="pfSupList">${o.supervisors.map(s => `<option value="${esc(s.name)}">${esc(s.role)}</option>`).join('')}</datalist></div>
+    <button type="submit">Save profile</button> <span id="pfStatus" class="mute" role="status">${profileSavedFor === profileEdit.id ? 'Saved.' : ''}</span></form>
+    <p class="mute" style="margin-top:8px">Last confirmed ${esc((p.updated_at || '').slice(0, 10)) || '—'}</p>`;
+}
+function renderProfileSups() {
+  $('pfSups').innerHTML = profileEdit.sups.map((s, i) => `<span class="chip">${s.id ? '' : 'External: '}${esc(s.name)}<button type="button"
+    aria-label="Remove ${esc(s.name)}" onclick="profileEdit.sups.splice(${i},1);renderProfileSups()">×</button></span>`).join('') || '<span class="mute">none</span>';
+}
+function addProfileSup(external) {
+  const input = $('pfSupInput'), text = input.value.trim();
+  if (!text) return;
+  if (external) {
+    if (!profileEdit.sups.some(s => !s.id && s.name.toLowerCase() === text.toLowerCase())) profileEdit.sups.push({name: text});
+  } else {
+    const hit = profileEdit.options.supervisors.find(s => s.name.toLowerCase() === text.toLowerCase());
+    if (!hit) return;
+    if (!profileEdit.sups.some(s => s.id === hit.id)) profileEdit.sups.push({id: hit.id, name: hit.name});
+  }
+  input.value = '';
+  renderProfileSups();
+}
+async function savePersonProfile() {
+  const dept = $('pfDept').value;
+  const body = {role_id: +$('pfRole').value || null, department_id: dept && dept !== 'other' ? +dept : null,
+    department_text: dept === 'other' ? $('pfDeptText').value : null, indefinite: $('pfIndef').checked,
+    end_date: $('pfIndef').checked ? null : $('pfEnd').value, number: $('pfNumber').value, github: $('pfGithub').value,
+    supervisors: profileEdit.sups.map(s => s.id ? {id: s.id} : {name: s.name})};
+  $('pfStatus').textContent = '';
+  try {
+    await adminApi(`/api/users/${profileEdit.id}/profile`, {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)});
+    profileSavedFor = profileEdit.id;
+    $('pfStatus').textContent = 'Saved.';
+    await loadProfileList();  // cards, Profiles and Supervision; repaints this tab with the saved values
+  } catch (error) { $('pfStatus').textContent = error.message; }
 }
 
 // Profile options (roles and departments of the person profile), admins in Edit mode.

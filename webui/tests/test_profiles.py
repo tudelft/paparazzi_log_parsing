@@ -135,3 +135,19 @@ class ProfileTests(AppTests):
         self.sign_in(3)
         self.assertEqual([p["id"] for p in self.client.get("/api/profiles").json["people"]], [3])
         self.assertEqual(self.client.get("/api/users/5/profile").status_code, 404)
+
+    def test_admins_edit_someone_elses_profile(self):
+        body = self.form(role_id=self.role["Master Student"], indefinite=False, end_date="2099-01-01",
+                         supervisors=[{"name": "Dr. Partner"}], number="777")
+        self.sign_in(2)
+        self.assertEqual(self.client.put("/api/users/3/profile", json=body).status_code, 403)
+        self.assertNotIn("options", self.client.get("/api/users/2/profile").json)  # own view, no admin form data
+        self.sign_in(1)
+        form = self.client.get("/api/users/3/profile").json
+        self.assertEqual(form["name"], "Viewer")
+        self.assertIn("roles", form["options"])
+        saved = self.client.put("/api/users/3/profile", json=body)
+        self.assertEqual(saved.status_code, 200, saved.json)
+        self.assertEqual((saved.json["profile"]["number"], saved.json["missing"]), ("777", []))
+        self.assertEqual(self.client.put("/api/users/3/profile", json={**body, "number": ""}).status_code, 400)  # same rules
+        self.assertEqual(self.client.put("/api/users/999/profile", json=body).status_code, 404)
