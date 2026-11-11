@@ -467,6 +467,11 @@ CREATE TABLE IF NOT EXISTS booking_flag_values (
     flag_id INTEGER NOT NULL REFERENCES booking_flags(id) ON DELETE CASCADE,
     PRIMARY KEY (booking_id, flag_id)
 );
+CREATE TABLE IF NOT EXISTS calendar_tokens (  -- private calendar feed links (bookings.py), one per person
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    token TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS trainings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -771,7 +776,7 @@ def init(path):
 LOGBOOK_UNRELATED = {
     "api_keys", "cli_logins", "password_setup_tokens", "ingest", "bulk_reservations", "weather_cache",
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
-    "training_progress", "training_briefers", "booking_things", "booking_flags", "bookings", "booking_flag_values",
+    "training_progress", "training_briefers", "booking_things", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
     "profile_roles", "profile_departments", "user_profiles", "user_supervisors", "logbook_version",
 }
 LOGBOOK_UNRELATED_COLUMNS = {"users": {"last_login"}}

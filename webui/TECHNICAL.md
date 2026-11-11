@@ -991,7 +991,8 @@ keeps the mark and the person's "last confirmed" date.
 
 Off unless `LOGDB_BOOKINGS=1`; session-only (`bookings.py`, `static/agenda.html`). Administrators set up the
 bookable items in Edit mode (`/api/admin/booking-things`, table `booking_things`): name, description, optional
-place, optional colour (used in the All view), active and sort order. An item may need a qualification type, for
+colour (used in the All view) and **Open for bookings** (active); they order the tabs by dragging them
+(`PUT /api/admin/booking-things-order`). The place link is no longer shown or set. An item may need a qualification type, for
 `booking` only (everyone sees its agenda) or for `viewing` and booking; it counts when an approved submission of
 that type is valid today. Without it the API answers 403 with `thing_id` and `training_id` (an active training
 that grants the type), and the page shows a dialog that links to it. Administrators may always view and change
@@ -1003,6 +1004,17 @@ never conflict with each other. `GET /api/bookings?from=&to=` (at most two month
 bookings of the items the person may view. Times are local wall-clock time (`YYYY-MM-DDTHH:MM`), at most 7 days
 per booking. The item tab (`item=`) and week (`week=`, the Monday) are kept in the URL. An item with bookings
 cannot be deleted; make it inactive instead.
+
+Bookings are drawn in the item's colour; the options a booking ticks show as tags in their own colour, and in the
+booking dialog as toggle chips (exclusive ones marked). Dragging in an empty part of a day picks the start and end in
+quarter hours; a click books an hour. With a single item the page shows that item without tabs.
+
+**Calendar feeds.** Each person can make a private link (`calendar_tokens`, `GET`/`POST`/`DELETE
+/api/bookings/calendar`, **Subscribe** on the agenda): `/calendar/<token>/all.ics` and `/calendar/<token>/<item id>.ics`
+are iCalendar feeds of the bookings that person may see, 30 days back to a year ahead, in floating (local) time.
+The feed is reachable without a session (`calendar_feed` in `PUBLIC_ENDPOINTS`); the token is the key, so replacing
+or turning off the link stops the old one. Calendar apps fetch it themselves, so they need to reach the site (VPN);
+web calendars such as Google Calendar fetch from their own servers.
 
 ### Private licences and qualifications
 

@@ -127,3 +127,38 @@ class BookingTests(AppTests):
         with patch.dict(os.environ, LOGDB_BOOKINGS="0"):
             self.assertEqual(self.week().status_code, 404)
             self.assertFalse(self.client.get("/api/me").json["bookings"])
+
+    def test_calendar_feed_by_private_link(self):
+        day = (datetime.date.today() + datetime.timedelta(days=2)).isoformat()
+        self.assertEqual(self.book(start=f"{day}T10:00", end=f"{day}T12:00", flags=[self.shared]).status_code, 201)
+        self.assertEqual(self.book(self.room, start=f"{day}T13:00", end=f"{day}T14:00").status_code, 201)
+        self.assertIsNone(self.client.get("/api/bookings/calendar").json["token"])
+        token = self.client.post("/api/bookings/calendar").json["token"]
+        with self.client.session_transaction() as session:
+            session.clear()  # calendar apps cannot sign in: the token is the key
+        feed = self.client.get(f"/calendar/{token}/all.ics")
+        self.assertEqual((feed.status_code, feed.mimetype), (200, "text/calendar"))
+        text = feed.get_data(as_text=True)
+        self.assertEqual(text.count("BEGIN:VEVENT"), 2)
+        self.assertIn("DTSTART:" + day.replace("-", "") + "T100000", text)
+        self.assertIn("SUMMARY:Indoor arena: Hover test", text)
+        self.assertIn("Others allowed", text)
+        one = self.client.get(f"/calendar/{token}/{self.room}.ics").get_data(as_text=True)
+        self.assertEqual((one.count("BEGIN:VEVENT"), "X-WR-CALNAME:Meeting room" in one), (1, True))
+        self.assertEqual(self.client.get("/calendar/not-a-real-token-at-all-xx/all.ics").status_code, 404)
+        # someone without the qualification does not see an item that needs it for viewing
+        self.sign_in(4)
+        other = self.client.post("/api/bookings/calendar").json["token"]
+        self.assertEqual(self.client.get(f"/calendar/{other}/all.ics").get_data(as_text=True).count("BEGIN:VEVENT"), 1)
+        # replacing the link stops the old one
+        self.sign_in(2)
+        self.client.post("/api/bookings/calendar")
+        self.assertEqual(self.client.get(f"/calendar/{token}/all.ics").status_code, 404)
+
+    def test_admin_orders_the_tabs(self):
+        url = "/api/admin/booking-things-order"
+        self.assertEqual(self.client.put(url, json={"ids": [self.room, self.arena]}).status_code, 403)
+        self.sign_in(1)
+        self.assertEqual(self.client.put(url, json={"ids": [self.room]}).status_code, 400)
+        self.assertEqual(self.client.put(url, json={"ids": [self.room, self.arena]}).status_code, 200)
+        self.assertEqual([t["id"] for t in self.week().json["things"]], [self.room, self.arena])

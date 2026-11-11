@@ -38,12 +38,30 @@
   .hl:first-child { transform:none; }
   .col { position:relative; border-left:1px solid var(--line);
     background:repeating-linear-gradient(to bottom, transparent 0 39px, var(--line) 39px 40px); }
-  .col.bookable { cursor:copy; }
+  .col.bookable { cursor:copy; touch-action:pan-y; }
   .bk { position:absolute; border-radius:5px; border-left:4px solid var(--c); padding:2px 5px; font-size:12px; overflow:hidden;
     cursor:pointer; color:var(--txt); background:color-mix(in srgb, var(--c) 22%, var(--card)); box-shadow:0 0 0 1px var(--card); }
   .bk:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
   .bk b, .bk span { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .bk span { color:var(--mute); }
+  .bk .tags { display:flex; flex-wrap:wrap; gap:2px; margin-top:1px; white-space:normal; }
+  .tag { display:inline-flex; align-items:center; gap:3px; border:1px solid var(--line); border-radius:8px; padding:0 5px;
+    font-size:10.5px; line-height:15px; color:var(--txt); background:var(--card); white-space:nowrap; }
+  .bk .tag { display:inline-block; max-width:100%; color:var(--txt); overflow:hidden; text-overflow:ellipsis; }
+  .tag i { display:inline-block; width:7px; height:7px; margin-right:3px; border-radius:50%; background:var(--c, var(--mute)); }
+  .ghost { position:absolute; left:2px; right:2px; border-radius:5px; background:color-mix(in srgb, var(--acc) 25%, transparent);
+    border:1px dashed var(--acc); font-size:11px; padding:1px 4px; pointer-events:none; color:var(--txt); }
+  .flag-chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .flag-chip { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--fieldline); border-radius:14px;
+    padding:3px 10px; font-size:13px; cursor:pointer; user-select:none; }
+  .flag-chip input { position:absolute; opacity:0; pointer-events:none; }
+  .flag-chip i { width:9px; height:9px; border-radius:50%; background:var(--c, var(--mute)); }
+  .flag-chip:has(input:checked) { border-color:var(--acc); background:color-mix(in srgb, var(--acc) 18%, var(--card)); font-weight:600; }
+  .flag-chip:has(input:focus-visible) { outline:2px solid var(--acc); outline-offset:1px; }
+  .flag-chip:has(input:disabled) { cursor:default; opacity:.75; }
+  .flag-chip small { color:var(--mute); font-weight:400; }
+  #tabs [role=tab][draggable=true] { cursor:grab; }
+  #tabs [role=tab].drop { box-shadow:inset 3px 0 0 var(--acc); }
   .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
   .check { display:flex; gap:6px; align-items:center; font-size:13px; }
   .flag-row { display:grid; grid-template-columns:1fr auto auto auto auto; gap:6px; align-items:center; }
@@ -66,14 +84,15 @@
   <div id="err"></div>
   <section class="card">
     <div class="toolbar">
-      <h2>Agenda</h2>
+      <h2 id="agendaTitle">Agenda</h2>
       <button type="button" class="sec" aria-label="Previous week" onclick="moveWeek(-7)">‹</button>
       <strong id="range"></strong>
       <button type="button" class="sec" aria-label="Next week" onclick="moveWeek(7)">›</button>
       <button type="button" class="sec" onclick="moveWeek(0)">Today</button>
       <button type="button" id="newBtn" onclick="openBooking()">New booking</button>
       <span class="legend" id="legend"></span>
-      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it, or an empty slot to book that time. Bookings of the same item overlap only when both set a shared option (for example "Others allowed") and neither sets a blocking one (for example "Demo"); an item without options never overlaps. Some items need a current qualification to book, or to see their agenda at all. You can change or delete your own bookings; administrators can change any and set up the items in Edit mode. Times are local.</p></details>
+      <button type="button" class="sec" onclick="openCalendar()" title="Show this agenda in your own calendar app">Subscribe</button>
+      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day to book that time (a click books an hour). Options a booking ticks show as tags, with their colour; the block's colour is the item's. With one item there are no tabs. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item overlap only when both set a shared option (for example "Others allowed") and neither sets a blocking one (for example "Demo"); an item without options never overlaps. Some items need a current qualification to book, or to see their agenda at all. You can change or delete your own bookings; administrators can change any and set up the items in Edit mode. Times are local.</p></details>
     </div>
     <div class="page-tabs" id="tabs" aria-label="Bookable items"></div>
     <p id="about"></p>
@@ -95,29 +114,37 @@
       <label class="field">Start<input name="start" type="datetime-local" required></label>
       <label class="field">End<input name="end" type="datetime-local" required></label>
     </div>
-    <div id="flagChecks" class="row"></div>
+    <div class="field" id="flagField"><span class="mute" style="font-size:12px">Options</span><div id="flagChecks" class="flag-chips"></div></div>
     <p class="dialog-error" id="bookingError" role="alert"></p>
     <div class="row" id="bookingActions"><button type="submit">Save</button> <button type="button" class="danger" id="deleteBtn" onclick="removeBooking()">Delete</button> <button type="button" class="sec" onclick="$('bookingDialog').close()">Cancel</button></div>
   </form>
+</dialog>
+<dialog class="entry-dialog" id="calendarDialog" aria-labelledby="calendarTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="calendarTitle">Subscribe in your calendar</h2><button type="button" class="sec" onclick="$('calendarDialog').close()">Close</button></div>
+  <p class="mute">Add a link to Outlook, Apple Calendar, Thunderbird or another calendar app ("subscribe" or "add calendar from
+    URL"). The app checks it for changes every so often, and shows the bookings you may see here. The link is private to you:
+    anyone with it can read these bookings, so replace it if it leaks. The app can only reach it while it can reach this site
+    (for example with the VPN on); web calendars such as Google Calendar run on their own servers and may not reach it.</p>
+  <div id="calendarLinks"></div>
+  <p class="dialog-error" id="calendarError" role="alert"></p>
+  <div class="row" id="calendarActions"></div>
 </dialog>
 <dialog class="entry-dialog" id="itemDialog" aria-labelledby="itemTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <form id="itemForm">
     <div class="dialog-header"><h2 id="itemTitle">Bookable item</h2><button type="button" class="sec" onclick="$('itemDialog').close()">Close</button></div>
     <label class="field">Name<input name="name" required maxlength="80"></label>
     <label class="field">Description<textarea name="description" maxlength="500"></textarea></label>
-    <label class="field">Place<select name="place_id"></select></label>
     <div class="two">
       <label class="field">Qualification<select name="type_id" onchange="syncItemForm()"></select></label>
       <label class="field" id="modeField">Needed for<select name="qualification_for">
         <option value="booking">Booking only</option><option value="viewing">Viewing and booking</option></select></label>
     </div>
     <div class="row">
-      <label class="check"><input name="use_colour" type="checkbox" onchange="syncItemForm()"> Colour</label>
+      <label class="check" title="The colour of this item's bookings in the All view"><input name="use_colour" type="checkbox" onchange="syncItemForm()"> Colour in the All view</label>
       <input name="colour" type="color" value="#4493f8" aria-label="Colour">
-      <label class="check"><input name="active" type="checkbox" checked> Active</label>
-      <label class="check">Order <input name="sort_order" type="number" style="width:70px" value="0"></label>
+      <label class="check" title="Off: hidden for everyone but administrators and not bookable; existing bookings stay"><input name="active" type="checkbox" checked> Open for bookings</label>
     </div>
-    <span class="mute">Booking options (a booking may tick them)</span>
+    <span class="mute">Booking options (a booking may tick them; with a colour they show as a coloured tag)</span>
     <div id="flagRows"></div>
     <div><button type="button" class="sec" onclick="addFlagRow()">Add option</button></div>
     <p class="dialog-error" id="itemError" role="alert"></p>
@@ -188,21 +215,27 @@ async function load() {
   }
   paint(true);
 }
-function colourOf(b) {
-  const t = item(b.thing_id);
-  if (tab !== 'all') {
-    const f = t.flags.find(f => f.colour && b.flags.includes(f.id));
-    if (f) return f.colour;
-  }
-  return t.colour || 'var(--acc)';
+function colourOf(b) {  // the item's colour; options show as tags with their own colour
+  return item(b.thing_id).colour || 'var(--acc)';
 }
+const visibleThings = () => data.things.filter(t => t.active || editing_());
+// With one item (and not editing) there are no tabs: the agenda is that item's.
+const single = () => !editing_() && visibleThings().length === 1 && visibleThings()[0].can_view;
 function paintTabs() {
-  const visible = data.things.filter(t => t.active || editing_());
+  const visible = visibleThings();
+  if (single()) {
+    tab = String(visible[0].id);
+    $('tabs').hidden = true;
+    $('agendaTitle').textContent = visible[0].name;
+    return;
+  }
+  $('agendaTitle').textContent = 'Agenda';
   const count = id => data.bookings.filter(b => b.thing_id === id).length;
   window.pageTabs($('tabs'), [['all', 'All', data.bookings.length],
     ...visible.map(t => [String(t.id), esc(t.name) + (t.active ? '' : ' (inactive)') + (t.can_view ? '' : ' (locked)'),
       t.can_view ? count(t.id) : null])], tab, choose);
   $('tabs').hidden = false;
+  if (editing_()) bindTabOrder();
   if (editing_()) {
     const t = current();
     $('tabs').insertAdjacentHTML('beforeend', `<span class="tabs-end">${t ? '<button type="button" class="sec" onclick="openItem(' + t.id + ')">Edit item</button>' : ''}
@@ -216,13 +249,11 @@ function paintAbout() {
     if (!data.things.length) parts.push(editing_() ? 'No bookable items yet: add one with Add item.' : 'Nothing can be booked yet.');
   } else {
     if (t.description) parts.push(esc(t.description));
-    if (t.place_name) parts.push('Place: ' + esc(t.place_name));
     if (t.type_id && !t.can_book && t.active)
       parts.push(`Booking needs a current ${esc(t.type_name)}. <a href="${t.training_id ? '/training?id=' + t.training_id : '/training'}">Go to the training</a>`);
   }
   $('about').innerHTML = parts.join(' · ');
-  const legend = t ? t.flags.filter(f => f.colour).map(f => [f.colour, f.label]).concat(t.colour && t.flags.some(f => f.colour) ? [[t.colour, 'Other bookings']] : [])
-    : data.things.filter(x => x.can_view && x.colour).map(x => [x.colour, x.name]);
+  const legend = t ? [] : single() ? [] : data.things.filter(x => x.can_view && x.colour).map(x => [x.colour, x.name]);
   $('legend').innerHTML = legend.map(([c, label]) => `<span><i style="--c:${esc(c)}"></i>${esc(label)}</span>`).join('');
 }
 function bookable() { const t = current(); return t ? t.can_book : data.things.some(x => x.can_book); }
@@ -268,14 +299,16 @@ function paint(scroll) {
     layout(mine);
     html += `<div class="col${canBook ? ' bookable' : ''}" data-day="${day}" style="height:${hours * HOUR}px">` + mine.map(p => {
       const t = item(p.b.thing_id);
-      const flags = t.flags.filter(f => p.b.flags.includes(f.id)).map(f => f.label);
+      const ticked = t.flags.filter(f => p.b.flags.includes(f.id));
+      const flags = ticked.map(f => f.label);
       const when = `${p.b.start.slice(11)}–${p.b.end.slice(11)}`;
       const tip = [tab === 'all' ? t.name : '', p.b.description, p.b.person, `${p.b.start.replace('T', ' ')} – ${p.b.end.replace('T', ' ')}`, ...flags]
         .filter(Boolean).join(' · ');
       return `<div role="button" tabindex="0" class="bk" data-id="${p.b.id}" title="${esc(tip)}"
         style="--c:${esc(colourOf(p.b))};top:${(p.s - first) * HOUR}px;height:${Math.max((p.e - p.s) * HOUR - 2, 18)}px;
         left:calc(${p.lane / p.n * 100}% + 2px);width:calc(${100 / p.n}% - 4px)">
-        <b>${esc(tab === 'all' ? t.name + ': ' + p.b.description : p.b.description)}</b><span>${esc(p.b.person)} · ${when}${flags.length ? ' · ' + esc(flags.join(', ')) : ''}</span></div>`;
+        <b>${esc(tab === 'all' ? t.name + ': ' + p.b.description : p.b.description)}</b><span>${esc(p.b.person)} · ${when}</span>
+        ${ticked.length ? `<span class="tags">${ticked.map(f => `<span class="tag"${f.colour ? ` style="--c:${esc(f.colour)}"` : ''}>${f.colour ? '<i></i>' : ''}${esc(f.label)}</span>`).join('')}</span>` : ''}</div>`;
     }).join('') + '</div>';
   });
   $('week').innerHTML = html;
@@ -283,26 +316,86 @@ function paint(scroll) {
     el.onclick = e => { e.stopPropagation(); openBooking(null, +el.dataset.id); };
     el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBooking(null, +el.dataset.id); } };
   });
-  $('week').querySelectorAll('.col.bookable').forEach(col => col.onclick = e => {
-    if (e.target !== col) return;
-    const at = first + Math.floor(e.offsetY / (HOUR / 2)) / 2;
-    openBooking(`${col.dataset.day}T${pad(Math.floor(at))}:${at % 1 ? '30' : '00'}`);
-  });
+  $('week').querySelectorAll('.col.bookable').forEach(col => bindSlotDrag(col, first));
   if (scroll) {  // show 08:00 at the top, unless every booking of the week is outside 08:00-20:00
     const inDay = pieces.some(p => p.e > 8 && p.s < 20);
     const top = pieces.length && !inDay ? Math.min(...pieces.map(p => p.s)) : 8;
     $('scroll').scrollTop = Math.max(0, (top - first) * HOUR - 8);
   }
 }
+// Drag in a day column to pick the start and end (quarter hours); a plain click books an hour from there.
+function bindSlotDrag(col, first) {
+  const QUARTER = HOUR / 4;
+  const at = y => Math.max(0, Math.round(y / QUARTER));
+  const time = q => { const h = first + q / 4; return `${col.dataset.day}T${pad(Math.floor(h))}:${pad(Math.round(h % 1 * 60))}`; };
+  col.onpointerdown = e => {
+    if (e.target !== col || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    if (e.pointerType === 'touch') return;  // a finger scrolls; a tap still books (click below)
+    e.preventDefault();
+    const box = col.getBoundingClientRect(), start = Math.floor((e.clientY - box.top) / QUARTER);
+    let end = start + 4, moved = false;
+    const ghost = document.createElement('div');
+    ghost.className = 'ghost';
+    col.append(ghost);
+    const draw = () => {
+      const a = Math.min(start, end), b = Math.max(start, end);
+      ghost.style.top = a * QUARTER + 'px';
+      ghost.style.height = Math.max(b - a, 1) * QUARTER + 'px';
+      ghost.textContent = `${time(a).slice(11)}–${time(Math.max(b, a + 1)).slice(11)}`;
+    };
+    draw();
+    col.setPointerCapture(e.pointerId);
+    col.onpointermove = m => {
+      const q = at(m.clientY - box.top);
+      if (q !== end && Math.abs(m.clientY - e.clientY) > 4) { moved = true; end = q === start ? start + 1 : q; draw(); }
+    };
+    col.onpointerup = col.onpointercancel = u => {
+      col.onpointermove = col.onpointerup = col.onpointercancel = null;
+      ghost.remove();
+      if (u.type === 'pointercancel') return;
+      const a = Math.min(start, end), b = Math.max(start, end);
+      openBooking(time(a), null, moved ? time(Math.max(b, a + 1)) : null);
+    };
+  };
+  col.onclick = e => {  // touch: book an hour from the tapped half hour
+    if (e.target !== col || e.pointerType === 'mouse' || !e.pointerType) return;
+    const q = Math.floor(e.offsetY / (HOUR / 2)) * 2;
+    openBooking(time(q));
+  };
+}
+// Admins (Edit mode) drag the item tabs to order them.
+function bindTabOrder() {
+  const tabs = [...$('tabs').querySelectorAll('[role=tab]')].filter(b => b.dataset.tab !== 'all');
+  let dragged = null;
+  tabs.forEach(b => {
+    b.draggable = true;
+    b.title = 'Drag to change the order';
+    b.ondragstart = e => { dragged = b; e.dataTransfer.effectAllowed = 'move'; };
+    b.ondragover = e => { if (dragged && dragged !== b) { e.preventDefault(); b.classList.add('drop'); } };
+    b.ondragleave = () => b.classList.remove('drop');
+    b.ondrop = async e => {
+      e.preventDefault();
+      b.classList.remove('drop');
+      if (!dragged || dragged === b) return;
+      const ids = tabs.map(x => +x.dataset.tab).filter(id => id !== +dragged.dataset.tab);
+      ids.splice(ids.indexOf(+b.dataset.tab), 0, +dragged.dataset.tab);
+      const missing = data.things.map(t => t.id).filter(id => !ids.includes(id));
+      try { await api('/api/admin/booking-things-order', json('PUT', {ids: [...ids, ...missing]})); load(); }
+      catch (err) { $('err').textContent = err.message; }
+    };
+  });
+}
 function paintFlagChecks(checked) {
   const f = $('bookingForm');
   const t = item(+f.thing_id.value);
-  $('flagChecks').innerHTML = (t ? t.flags : []).map(x => `<label class="check"><input type="checkbox" value="${x.id}"
-    ${checked.includes(x.id) ? 'checked' : ''}> ${esc(x.label)}</label>`).join('');
+  $('flagField').hidden = !(t && t.flags.length);
+  $('flagChecks').innerHTML = (t ? t.flags : []).map(x => `<label class="flag-chip"${x.colour ? ` style="--c:${esc(x.colour)}"` : ''}
+    title="${x.blocks_overlap ? 'Never overlaps another booking' : 'May overlap another booking that also has this option'}">
+    <input type="checkbox" value="${x.id}"${checked.includes(x.id) ? ' checked' : ''}>${x.colour ? '<i></i>' : ''}${esc(x.label)}${x.blocks_overlap ? ' <small>exclusive</small>' : ''}</label>`).join('');
   const disabled = f.description.disabled;
   $('flagChecks').querySelectorAll('input').forEach(i => { i.disabled = disabled; });
 }
-function openBooking(start, id) {
+function openBooking(start, id, end) {
   const b = id ? data.bookings.find(x => x.id === id) : null;
   editing = b;
   const f = $('bookingForm');
@@ -321,8 +414,9 @@ function openBooking(start, id) {
       ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1) : addDays(monday, 0);
     if (from.getHours() === 0) from.setHours(9);
   }
-  const to = new Date(from);
+  let to = new Date(from);
   to.setHours(to.getHours() + 1);
+  if (end) to = new Date(end);
   f.description.value = b ? b.description : '';
   f.start.value = b ? b.start : local(from);
   f.end.value = b ? b.end : local(to);
@@ -379,15 +473,12 @@ function openItem(id) {
   $('itemTitle').textContent = id ? 'Edit bookable item' : 'New bookable item';
   f.name.value = t.name || '';
   f.description.value = t.description || '';
-  f.place_id.innerHTML = '<option value="">None</option>' + (data.places || []).map(p =>
-    `<option value="${p.id}"${p.id === t.place_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
   f.type_id.innerHTML = '<option value="">None</option>' + (data.types || []).map(q =>
     `<option value="${q.id}"${q.id === t.type_id ? ' selected' : ''}>${esc(q.name)}</option>`).join('');
   f.qualification_for.value = t.qualification_for;
   f.use_colour.checked = !!t.colour;
   f.colour.value = t.colour || '#4493f8';
   f.active.checked = t.active;
-  f.sort_order.value = t.sort_order || 0;
   $('flagRows').innerHTML = '';
   t.flags.forEach(addFlagRow);
   $('itemDeleteBtn').hidden = !id;
@@ -399,9 +490,9 @@ $('itemForm').onsubmit = async event => {
   event.preventDefault();
   const f = event.target;
   const body = {name: f.name.value, description: f.description.value,
-    place_id: f.place_id.value ? +f.place_id.value : null, type_id: f.type_id.value ? +f.type_id.value : null,
+    type_id: f.type_id.value ? +f.type_id.value : null,
     qualification_for: f.qualification_for.value, colour: f.use_colour.checked ? f.colour.value : null,
-    active: f.active.checked, sort_order: +f.sort_order.value || 0,
+    active: f.active.checked, sort_order: editingItem ? item(editingItem).sort_order : data.things.length,
     flags: [...$('flagRows').children].map(row => ({id: row.dataset.id ? +row.dataset.id : null,
       label: row.querySelector('input[type=text]').value,
       colour: row.querySelector('.use').checked ? row.querySelector('input[type=color]').value : null,
@@ -423,6 +514,28 @@ async function removeItem() {
     window.viewState.save();
     load();
   } catch (e) { $('itemError').textContent = e.message; }
+}
+// Calendar feed links (private to this person): all items, and one per item.
+async function openCalendar(make) {
+  $('calendarError').textContent = '';
+  let d;
+  try {
+    d = make === 'new' ? await api('/api/bookings/calendar', {method: 'POST'})
+      : make === 'off' ? (await api('/api/bookings/calendar', {method: 'DELETE'}), {token: null})
+      : await api('/api/bookings/calendar');
+  } catch (e) { $('calendarError').textContent = e.message; return; }
+  const base = `${location.origin}/calendar/${d.token}/`;
+  const feeds = [['all', 'All items'], ...data.things.filter(t => t.active && t.can_view).map(t => [t.id, t.name])];
+  $('calendarLinks').innerHTML = d.token ? `<table style="width:100%;border-collapse:collapse">${feeds.map(([key, name]) =>
+    `<tr><td style="padding:4px 8px 4px 0;white-space:nowrap">${esc(name)}</td><td style="width:100%"><input readonly value="${esc(base + key + '.ics')}"
+      style="width:100%" onfocus="this.select()" aria-label="Calendar link for ${esc(name)}"></td>
+      <td style="padding-left:6px"><button type="button" class="sec" onclick="navigator.clipboard.writeText(this.closest('tr').querySelector('input').value).then(() => { this.textContent = 'Copied'; })">Copy</button></td></tr>`).join('')}</table>`
+    : '<p>You have no calendar link yet.</p>';
+  $('calendarActions').innerHTML = d.token
+    ? `<button type="button" class="sec" onclick="if (confirm('Replace your link? Calendars that use the old one stop updating.')) openCalendar('new')">Replace link</button>
+       <button type="button" class="danger" onclick="if (confirm('Turn off your calendar link?')) openCalendar('off')">Turn off</button>`
+    : '<button type="button" onclick="openCalendar(\'new\')">Make my link</button>';
+  if (!$('calendarDialog').open) $('calendarDialog').showModal();
 }
 window.viewState.setup(p => {
   const raw = p.get('week');

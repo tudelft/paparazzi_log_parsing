@@ -13,9 +13,10 @@ Times are local wall-clock times (YYYY-MM-DDTHH:MM). The booker and administrato
 """
 import datetime
 import re
+import secrets
 import sqlite3
 
-from flask import abort, g, jsonify, request, send_from_directory
+from flask import Response, abort, g, jsonify, request, send_from_directory
 
 import db
 from config import env_bool
@@ -159,6 +160,51 @@ def booking_json(row, flags, user):
         "description": row["description"], "start": row["starts_at"], "end": row["ends_at"], "flags": sorted(flags),
         "can_edit": row["user_id"] == user["id"] or bool(user["is_admin"]),
     }
+
+
+def ics_text(value):
+    return str(value or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
+
+def ics_fold(line):
+    """Lines of at most 75 octets (RFC 5545), continued with a space."""
+    out, raw = [], line.encode()
+    while len(raw) > 75:
+        cut = 75
+        while (raw[cut] & 0xC0) == 0x80:  # do not split a UTF-8 character
+            cut -= 1
+        out.append(raw[:cut].decode())
+        raw = b" " + raw[cut:]
+    out.append(raw.decode())
+    return "\r\n".join(out)
+
+
+def ics_feed(con, user, thing_id, host):
+    """An iCalendar feed of the bookings this person may see (one item, or all), 30 days back to a year ahead.
+    Times are the arena's local wall-clock times, written as floating times."""
+    first = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
+    last = (datetime.date.today() + datetime.timedelta(days=366)).isoformat()
+    things = {t["id"]: t for t in con.execute(ITEM_SQL + " WHERE t.active=1")
+              if access(con, t, user)[0] and (thing_id is None or t["id"] == thing_id)}
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//flight-logbook//agenda//EN", "CALSCALE:GREGORIAN",
+             "X-WR-CALNAME:" + ics_text(things[thing_id]["name"] if thing_id in things else "Agenda")]
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    fmt = lambda t: t.replace("-", "").replace(":", "") + "00"  # noqa: E731
+    if things:
+        rows = con.execute(
+            "SELECT b.*, COALESCE(u.display_name,u.username) AS person FROM bookings b JOIN users u ON u.id=b.user_id"
+            f" WHERE b.thing_id IN ({','.join('?' * len(things))}) AND b.ends_at>? AND b.starts_at<? ORDER BY b.starts_at",
+            (*things, first, last)).fetchall()
+        for r in rows:
+            t = things[r["thing_id"]]
+            labels = [f["label"] for f in load_flags(con, t["id"]) if f["id"] in booking_flags(con, r["id"])]
+            lines += ["BEGIN:VEVENT", f"UID:booking-{r['id']}@{host}", "DTSTAMP:" + stamp,
+                      "DTSTART:" + fmt(r["starts_at"]), "DTEND:" + fmt(r["ends_at"]),
+                      "SUMMARY:" + ics_text((f"{t['name']}: " if thing_id is None else "") + r["description"]),
+                      "DESCRIPTION:" + ics_text(" · ".join([f"Booked by {r['person']}", *labels])),
+                      "LOCATION:" + ics_text(t["name"]), "END:VEVENT"]
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(ics_fold(line) for line in lines) + "\r\n"
 
 
 ITEM_SQL = ("SELECT t.*, p.name AS place_name, q.name AS type_name FROM booking_things t"
@@ -375,6 +421,63 @@ def register(app, connection, require_session, pages_dir):
                 raise BookingError("This item has bookings; make it inactive instead.", 409)
             cid.execute("DELETE FROM booking_things WHERE id=?", (thing_id,))
         return jsonify(ok=True)
+
+    @app.put("/api/admin/booking-things-order")
+    def order_booking_things():
+        """The order of the item tabs: {"ids": [...]} with every item once."""
+        admin()
+        ids = (request.get_json(silent=True) or {}).get("ids")
+        cid = connection()
+        if not isinstance(ids, list) or any(type(i) is not int for i in ids):
+            raise BookingError("ids must be a list of item ids.")
+        with db.write_lock, cid:
+            cid.execute("BEGIN IMMEDIATE")
+            if sorted(ids) != sorted(r[0] for r in cid.execute("SELECT id FROM booking_things")):
+                raise BookingError("Give every bookable item exactly once.")
+            cid.executemany("UPDATE booking_things SET sort_order=? WHERE id=?", [(i, t) for i, t in enumerate(ids)])
+        return jsonify(ok=True)
+
+    # Calendar feeds: a private link per person (a token in the URL, because calendar apps cannot sign in) that
+    # shows the bookings that person may see. Replacing the link stops the old one.
+    @app.get("/api/bookings/calendar")
+    def calendar_link():
+        signed_in()
+        row = connection().execute("SELECT token, created_at FROM calendar_tokens WHERE user_id=?",
+                                   (g.user["id"],)).fetchone()
+        return jsonify(token=row["token"] if row else None, created_at=row["created_at"] if row else None)
+
+    @app.post("/api/bookings/calendar")
+    def new_calendar_link():
+        signed_in()
+        token, cid = secrets.token_urlsafe(24), connection()
+        with db.write_lock, cid:
+            cid.execute("BEGIN IMMEDIATE")
+            cid.execute("INSERT INTO calendar_tokens(user_id,token,created_at) VALUES (?,?,?) ON CONFLICT(user_id)"
+                        " DO UPDATE SET token=excluded.token, created_at=excluded.created_at",
+                        (g.user["id"], token, utc_now()))
+        return jsonify(token=token, created_at=utc_now())
+
+    @app.delete("/api/bookings/calendar")
+    def remove_calendar_link():
+        signed_in()
+        cid = connection()
+        with db.write_lock, cid:
+            cid.execute("BEGIN IMMEDIATE")
+            cid.execute("DELETE FROM calendar_tokens WHERE user_id=?", (g.user["id"],))
+        return jsonify(ok=True)
+
+    @app.get("/calendar/<token>/<feed>.ics")
+    def calendar_feed(token, feed):
+        """Public by token (see PUBLIC_ENDPOINTS): all.ics or <item id>.ics."""
+        if not enabled() or not re.fullmatch(r"[A-Za-z0-9_-]{20,64}", token) or not re.fullmatch(r"all|\d+", feed):
+            abort(404)
+        cid = connection()
+        user = cid.execute("SELECT u.* FROM calendar_tokens c JOIN users u ON u.id=c.user_id"
+                           " WHERE c.token=? AND u.is_active=1", (token,)).fetchone()
+        if user is None:
+            abort(404)
+        body = ics_feed(cid, user, None if feed == "all" else int(feed), request.host.split(":")[0])
+        return Response(body, mimetype="text/calendar", headers={"Cache-Control": "private, max-age=300"})
 
     @app.errorhandler(BookingError)
     def booking_error(exc):
