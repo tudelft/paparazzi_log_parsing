@@ -115,7 +115,8 @@ to gain descriptions and previously omitted crew entries.
 - **Columns** in the Logbook hides or shows table columns. Your choice is kept in this browser;
   **Export CSV** always contains every column.
 - **No.** is the flight number, the number in `/flight/<number>` and on the flight page, which MATLAB's
-  `pprz_fetch` uses ([MATLAB tools](../matlab/README.md)). Search for `#1234` to find a flight by number; with SD
+  `pprz_fetch` uses ([MATLAB tools](../matlab/README.md)). In **Select** mode, **Copy numbers** copies the ticked flights' numbers
+  (`1, 3, 4`) to paste into a MATLAB or Python array. Search for `#1234` to find a flight by number; with SD
   and GCS recordings of one flight, hover over the number for both.
 - SD and GCS recordings of the same flight are merged. **Group by day** (on by default) shows one row per
   aircraft, crew and takeoff place per day, like a paper daily log; click a row with ▸ to see its flights.

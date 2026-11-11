@@ -99,6 +99,7 @@
         <form id="colForm" hidden aria-label="Shown columns"></form></span>
       <button type="button" class="sec" id="selectBtn" title="Tick flights to export them together for MATLAB">Select</button>
       <span id="selPill" class="sel-pill" hidden><span id="selPillCount"></span><span class="mute">·</span><span id="selPillMatlab"></span>
+        <button type="button" class="sec" id="selCopy" style="padding:2px 8px">Copy numbers</button>
         <button type="button" class="x" id="selClear" aria-label="Clear the selection" title="Clear the selection">✕</button></span>
       <a class="btn sec" href="/historical/new" id="addHistorical" hidden>Import CSV</a>
       <a class="btn sec" href="/review" id="reviewLink" hidden title="Paper records and logs that need a person to decide">Review</a>
@@ -694,6 +695,11 @@ function render() {
   $('selPill').hidden = !picking() || !(count || selecting);
   $('selPillCount').textContent = `${count} selected`;
   $('selPillMatlab').innerHTML = matlab ? MatlabExport.bulkButton(matlabEntries) : '<span class="mute" title="None of the ticked flights has an SD or GCS log">MATLAB</span>';
+  const numbers = selectedNumbers(), papers = count - numbers.length;
+  $('selCopy').hidden = !numbers.length;
+  if (!copiedTimer) $('selCopy').textContent = 'Copy numbers';
+  $('selCopy').title = `Copy the flight numbers (${numbers.join(', ')}), e.g. into pprz_fetch([…]) in MATLAB`
+    + (papers > 0 ? `; ${papers} paper record${papers === 1 ? ' has' : 's have'} no number` : '');
   $('selectBtn').hidden = editOn() || selecting;
   $('selAll').onchange = () => { toggleSel(pageIds, $('selAll').checked); };
   const total = shown.reduce((s, f) => s + (f.duration_s || 0), 0);
@@ -726,6 +732,23 @@ function exportCsv() {
 }
 
 $('selectBtn').onclick = () => { selecting = true; render(); };
+// The ticked flights' numbers (the one each flight page opens), sorted and comma-separated, so they paste into both
+// MATLAB and Python arrays. Paper records have no number.
+const selectedNumbers = () => [...new Set(pickedFlights().map(f => f.flight_id).filter(id => id != null))].sort((a, b) => a - b);
+let copiedTimer = null;
+$('selCopy').onclick = async () => {
+  const numbers = selectedNumbers(), text = numbers.join(', ');
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) {  // no clipboard API (plain http): select the text in a temporary field and copy that
+    const field = Object.assign(document.createElement('textarea'), {value: text});
+    document.body.append(field); field.select();
+    const ok = document.execCommand('copy'); field.remove();
+    if (!ok) { prompt('Copy the flight numbers:', text); return; }
+  }
+  $('selCopy').textContent = `Copied ${numbers.length}`;
+  clearTimeout(copiedTimer);
+  copiedTimer = setTimeout(() => { copiedTimer = null; $('selCopy').textContent = 'Copy numbers'; }, 2000);
+};
 $('selClear').onclick = () => { selected.clear(); selecting = false; render(); };
 $('q').oninput = () => { page = 0; window.viewState.save(); render(); };
 $('combine').onchange = () => { page = 0; window.viewState.save(true); render(); };
