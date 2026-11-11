@@ -11,9 +11,16 @@ Tools to load, plot and analyse Paparazzi flights exported by the flight logbook
   pprz_server('https://logs.example.org', 'API-KEY')   % once; kept in MATLAB's preferences
   T = pprz_logbook();                                   % table of the flights you may see (flight, date, aircraft, …)
   logs = pprz_fetch([1234 1240]);                       % or pprz_view([1234 1240]), or From logbook… in pprz_view
+  logs = pprz_fetch([1234 1240], 'scope', 'log');       % the whole logs instead
+  f = pprz_flight(logs, 'number', 1240);                % one flight by its logbook number
   ```
 
-  Each flight is exported from its own log ("This flight") and kept in a cache folder (`pprz_server('cache',
+  `pprz_fetch` makes **one file per log**: numbers from the same log end up in one export with those flights
+  (`logs(i).aircraft(a).flights(k)`). `'scope'` chooses what to download: `'selected'` (default) the given
+  flights, `'all'` every flight of those logs, `'log'` the whole log of each (also between flights), `'flight'`
+  one file per number. Copy numbers in the logbook's Select mode gives the list to paste.
+
+  The exports are made on the server from each log and kept in a cache folder (`pprz_server('cache',
   folder)`; default in `prefdir`). A cached file is reused until the export would change (new log version,
   parser or logbook corrections such as the crew); without a connection the last cached copy is used.
 - **From the logbook:** **MATLAB ▾** on a flight page or an expanded Logbook row (this flight, all flights or
@@ -64,10 +71,10 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | `pprz_load` | Load `.mat` files, folders or bulk `.zip` files into a struct array of exports; `.data`/`.log` files are converted first (offline, after `pprz_setup`). |
 | `pprz_setup` | Prepare offline conversion once: Python with h5py/numpy and the parser (self-built or downloaded from the latest `parser-v*` release). |
 | `pprz_server` | Set (or show) the logbook server, API key and cache folder for `pprz_fetch` and `pprz_logbook`. |
-| `pprz_fetch(ids)` | Load flights from the logbook server by flight number, cached locally; `'force', true` downloads again. |
+| `pprz_fetch(ids)` | Load flights from the logbook server by flight number, one file per log, cached locally; `'scope'` `selected`/`all`/`log`/`flight`; `'force', true` downloads again. |
 | `pprz_logbook` | Table of the logbook flights the key may see, to pick numbers for `pprz_fetch` (`'all', true` adds uncertain and ground records). |
-| `pprz_flights` | Table of all flights (row numbers for `pprz_flight`); flight 0 is a whole-log export. |
-| `pprz_flight` | One flight ready to plot: `f.data`, `f.time`, `f.summary`, `f.aircraft`, `f.messages`, `f.title`. A flight in a whole-log export is cut from the log. |
+| `pprz_flights` | Table of all flights (row numbers for `pprz_flight`), with the logbook `number`; flight 0 is a whole-log export. |
+| `pprz_flight` | One flight ready to plot (row of `pprz_flights`, or `'number', n`): `f.data`, `f.time`, `f.summary`, `f.logbook`, `f.aircraft`, `f.messages`, `f.title`. A flight in a whole-log export is cut from the log. |
 | `pprz_plot` | Make plots by name, or every plot whose messages were logged; options `modes` (`ap`/`rc`), `range` [t0 t1], `docked`, `events` (markers: `true` or kinds such as `{'mode', 'message'}`). |
 | `pprz_view` | One window: pick a flight, the time window (a range slider applied live to every plot), shading and event markers (modes, settings, checklist, messages), then tick plots (search; unlogged ones greyed out) and press Plot. Plots open as tabs (Undock, Save PNG, Close). Click or drag in any time plot to move a linked cursor on all of them; below the plots are the values at the cursor and the events near it (click one to jump there). Analysis buttons: 3-D replay (follows the cursor), System ID and Effectiveness; *Compare flights…* overlays the ticked plots of several flights. |
 | `pprz_compare(flights, names...)` | Overlay the same plots (by name) or signals (`'MSG.field'`) of several flights, one colour per flight. Align at takeoff (default), `'align', {'setting', name}` (first change), `{'mode', 'NAV'}` (first switch) or given times; `'range'` [t0 t1]. Also *Compare…* in `pprz_view`. |
@@ -133,6 +140,13 @@ s
       ├─ time          takeoff_utc, landing_utc, takeoff_posix, offset_s (log time of takeoff), window_s
       │                (from takeoff), start_s / end_s (log time, to slice a whole-log export)
       ├─ summary       duration, distance, range, positions, battery, landed, verdict, reasons
+      ├─ logbook       the flight as the logbook shows it (empty fields when exported without the logbook):
+      │                number (flight number, pprz_fetch), comment, goal, pic, pac, gcs (linked people),
+      │                project, operator, category, authorisation, takeoff_place, landing_place, indoor,
+      │                recordings (flight_id, log_id, log_type, log_name, this: e.g. the GCS log of an SD flight),
+      │                other_setting_changes (t, index, name, from, to, log) and other_messages (t, text, log):
+      │                those of the other recordings, not already in this log, on this log's time (s); in a
+      │                flight export only from 10 s before takeoff to 10 s after landing, in a whole log all
       └─ data, unparsed  flight exports only; t = 0 at takeoff
 ```
 

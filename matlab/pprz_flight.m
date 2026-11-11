@@ -1,13 +1,21 @@
 function f = pprz_flight(logs, varargin)
 %PPRZ_FLIGHT One flight (or whole log) ready for plotting.
 %   f = pprz_flight(logs, n)          row n of pprz_flights(logs)
+%   f = pprz_flight(logs, 'number', 1234)   the flight with that logbook number (see pprz_fetch)
 %   f = pprz_flight(logs, l, a, k)    log l, aircraft a, flight k (k = 0: the aircraft's whole log)
 %   f = pprz_flight(s)                the first flight with data, else the whole log
 %
 %   f.data holds the messages (time 0 at takeoff; log time for a whole log). A flight listed in a whole-log
 %   export is cut from the whole log (10 s margins). f also has title, time, summary, index, aircraft
 %   (id, name, crew, settings, checklist, config...), log and messages (units, coef, enums).
-    if nargin == 2
+    if nargin == 3 && strcmpi(varargin{1}, 'number')
+        T = pprz_flights(logs);
+        r = T(T.number == varargin{2}, :);
+        if isempty(r)
+            error('pprz_flight:number', 'No flight with logbook number %d in these logs', varargin{2});
+        end
+        [l, a, k] = deal(r.log(1), r.aircraft(1), r.flight(1));
+    elseif nargin == 2
         T = pprz_flights(logs);
         r = T(varargin{1}, :);
         [l, a, k] = deal(r.log, r.aircraft, r.flight);
@@ -42,6 +50,9 @@ function f = pprz_flight(logs, varargin)
     f.index = fl.index;
     f.time = fl.time;
     f.summary = fl.summary;
+    if isfield(fl, 'logbook')  % comment, crew, recordings and the other recordings' changes and messages
+        f.logbook = fl.logbook;
+    end
     if isfield(fl, 'data')
         f.data = fl.data;
     elseif isfield(ac, 'data')

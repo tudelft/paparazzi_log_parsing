@@ -501,6 +501,14 @@ queued/running/ready/failed with progress and `/download` returns the file.
 `POST /api/flights/<id>/matlab` exports one flight by its logbook number from that recording's own log (the same job
 as **This flight**); with `{"check": true}` or form field `check=1` it only returns the job id and status
 (`missing` when there is no such export), so MATLAB's `pprz_fetch` reuses a cached file until the id changes.
+`POST /api/flights/matlab` takes several numbers (`flight_ids`, a list or `"1,3,4"` as a form field) and a `scope`
+(`selected`: those flights of each log; `all`: every flight of those logs except the ones judged ground; `log`: the
+whole log) and returns one job per log (`exports`, each with `log_id` and its `flight_ids`); `check` works as above.
+Every exported flight carries `flights(k).logbook` (`matlab_logbook`): the logbook entry (comment, crew as linked
+people, project, operator, category, places), its recordings, and the other recordings' setting changes and
+messages that this log lacks, moved onto this log's clock as on the flight page (inside the export window for
+flights, all for a whole log; no telemetry of the other logs). The logbook data is part of the job identity, so a
+changed comment or link gives a new export.
 These routes, the status and the download also accept API keys, read-only keys included (the requests are POSTs
 but only read); the bulk `.zip` needs a browser session. All re-check that the user may see the log. Jobs are identified by log hash, scope, flight windows,
 parser and exporter version, so the same request reuses a finished file. Finished files are published atomically
