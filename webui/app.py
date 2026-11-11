@@ -6285,6 +6285,42 @@ def matlab_window(f, days):
                     reasons=(json.loads(f["assessment_json"] or "null") or {}).get("reasons") or []))
 
 
+def matlab_logbook(con, flights, days):
+    """Per flight id the logbook view of that flight for the export: the entry as the Logbook shows it (comment,
+    crew as linked people, project, operator, category, places), every recording of it (so a script can fetch the
+    GCS log next to the SD one) and the setting changes and messages of those other recordings, moved onto this
+    log's clock (log time, seconds), as the flight page combines them. Telemetry of the other logs is not included."""
+    wanted = {f["id"] for f in flights}
+    entries = {s["flight_id"]: r for r in logbook_rows() for s in r["sources"] if s["flight_id"] in wanted}
+    out = {}
+    for f in flights:
+        e = entries.get(f["id"])
+        if e is None:
+            continue
+        person = lambda role: (e.get(role + "_user") or {}).get("display_name") or e.get(role) or ""  # noqa: E731
+        recordings = [dict(flight_id=s["flight_id"], log_id=s["log_id"], log_type=s["log_type"],
+                           log_name=s.get("log_name") or "", this=int(s["flight_id"] == f["id"]))
+                      for s in e["sources"]]
+        others = [s["flight_id"] for s in e["sources"] if s["flight_id"] != f["id"]]
+        changes = messages = []
+        if others:
+            takeoff = utc_epoch(shift_iso(f["takeoff_utc"], days))
+            own = dict(takeoff_time_s=f["takeoff_time_s"], landing_time_s=f["landing_time_s"],
+                       base=takeoff - f["takeoff_time_s"] if takeoff is not None else None)
+            _, merged_messages, merged_changes, _ = combine_other_logs(con, own, [], [], [], others)
+            messages = [dict(t=m["time_s"], text=m.get("text") or "", log=m.get("log") or "") for m in merged_messages]
+            changes = [dict(t=c["time_s"], index=c.get("idx"), name=c.get("var") or "", from_value=c.get("from_value"),
+                            to_value=c.get("to_value"), log=c.get("log") or "") for c in merged_changes]
+        out[f["id"]] = dict(
+            number=f["id"], comment=e.get("comment") or "", goal=e.get("goal") or "",
+            pic=person("pic"), pac=person("pac"), gcs=person("gcs"), project=e.get("project_name") or "",
+            operator=e.get("operator_name") or "", category=e.get("category_label") or "",
+            authorisation=e.get("authorisation_name") or "", takeoff_place=e.get("takeoff_place") or "",
+            landing_place=e.get("landing_place") or "", indoor=int(bool(e.get("indoor"))),
+            recordings=recordings, other_setting_changes=changes, other_messages=messages)
+    return out
+
+
 def matlab_extras(con, row, days):
     """Crew, simulation, settings, checklist and configuration per aircraft of a log, and the UTC of log time 0."""
     aircraft = {}
@@ -6317,9 +6353,11 @@ def submit_log_export(matlab_export, con, row, scope, flights, all_flights, limi
     With ``check`` nothing is queued: the job id (which changes with the log, parser, exporter and logbook data)
     and its status (``missing`` when no such export exists) let a client reuse a file it already has."""
     days = clock_shift_days(row["start_utc"], row["date_override"])  # same date correction as the pages
-    windows = None if scope == "log" else [matlab_window(f, days) for f in flights]
+    logbook = matlab_logbook(con, all_flights if scope == "log" else flights, days)
+    window = lambda f: dict(matlab_window(f, days), logbook=logbook.get(f["id"]))  # noqa: E731
+    windows = None if scope == "log" else [window(f) for f in flights]
     extras = dict(matlab_extras(con, row, days),
-                  flights=[matlab_window(f, days) for f in all_flights] if scope == "log" else [])
+                  flights=[window(f) for f in all_flights] if scope == "log" else [])
     identity = json.dumps([row["sha256"], scope, matlab_export.EXPORTER_VERSION, matlab_export.MARGIN_S,
                            row["parser_version"], windows, extras], sort_keys=True, default=str)
     job_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
