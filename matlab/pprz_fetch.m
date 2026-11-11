@@ -12,7 +12,8 @@ function logs = pprz_fetch(ids, varargin)
 %   Each flight has flights(k).logbook: the comment, crew and project as the logbook shows them, its recordings
 %   (e.g. the GCS log next to the SD log, to fetch by its number) and the setting changes and messages of those
 %   other recordings. Exports are cached in pprz_cache_dir and reused while they would be identical; a change of
-%   the log, parser or logbook data fetches them again. Without a connection the cached copies are used.
+%   the log, parser or logbook data fetches them again. Without a connection, or when the server fails (HTTP 5xx),
+%   the cached copies are used with a warning.
 %   Connect first with pprz_connect.
     opt = struct('force', false, 'scope', 'selected');
     for k = 1:2:numel(varargin)
@@ -40,7 +41,7 @@ function file = fetch_flight(id, folder, force)
     try
         job = pprz.api('POST', path, struct('check', true));
     catch err
-        if ~strcmp(err.identifier, 'pprz:offline') || isempty(old)
+        if ~use_cache(err) || isempty(old)
             rethrow(err);
         end
         [~, newest] = max([old.datenum]);
@@ -65,7 +66,7 @@ function files = fetch_logs(ids, scope, folder, force)
         reply = pprz.api('POST', '/api/flights/matlab', struct('flight_ids', numbers(ids), 'scope', scope, ...
             'check', true));
     catch err
-        if ~strcmp(err.identifier, 'pprz:offline')
+        if ~use_cache(err)
             rethrow(err);
         end
         files = offline(ids, scope, folder, err);
@@ -93,6 +94,11 @@ function files = fetch_logs(ids, scope, folder, force)
             remove_others(dir(fullfile(folder, [prefix '*.mat'])), file);
         end
     end
+end
+
+function ok = use_cache(err)
+    % The cached copies stand in when the server cannot be reached or fails (HTTP 5xx), not for other errors.
+    ok = any(strcmp(err.identifier, {'pprz:offline', 'pprz:unavailable'}));
 end
 
 function remove_others(old, file)

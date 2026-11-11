@@ -27,8 +27,9 @@ Tools to load, plot and analyse Paparazzi flights exported by the flight logbook
   flights, `'all'` every flight of those logs, `'log'` the whole log of each (also between flights), `'flight'`
   one file per number. Copy numbers in the logbook's Select mode gives the list to paste.
   A cached export is reused until it would change (new log version, parser or logbook corrections such as the
-  crew); without a connection the cached copies are used. The cache folder is shown and set with `pprz_cache_dir`; see the
-  package's [README](../client/README.md#where-files-are-kept) for the default places and environment variables.
+  crew); without a connection or when the server fails (HTTP 5xx) the cached copies are used, with a warning.
+  The cache folder is shown and set with `pprz_cache_dir`; see the package's
+  [README](../client/README.md#where-files-are-kept) for the default places and environment variables.
   These functions need MATLAB R2021a or newer (not Octave).
 - **From the logbook:** **MATLAB ▾** on a flight page or an expanded Logbook row (this flight, all flights or
   the whole log), or tick flights and use **MATLAB ▾** next to "N selected" for a `.zip` with one `.mat` per log.

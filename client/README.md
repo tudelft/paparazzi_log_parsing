@@ -36,7 +36,8 @@ self-signed certificate. `connect` returns a `Client` with the same methods, for
 into flights (use MATLAB's `pprz_fetch` for exports of single flights). `scope` is that of `pprz_fetch`:
 `"selected"` (default), `"all"` and `"log"` return one path per log, `"flight"` one path per number. Logs are
 cached and reused; one never changes (it is named by its SHA-256, which is checked after each download).
-`force=True` downloads again; without a connection the cached copies are used.
+`force=True` downloads again; without a connection or when the server fails (HTTP 5xx) the cached copies are
+used, with a warning.
 
 **Uploads** pair a `.data` with the `.log` next to it (whichever of the two you pass). A log already on the server
 is skipped. `name="Hex 1/LOG00030.BFL"` sets the stored name of a single file, which can link it to a fleet

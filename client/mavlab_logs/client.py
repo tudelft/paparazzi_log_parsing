@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import uuid
+import warnings
 import webbrowser
 import zlib
 from datetime import datetime, timezone
@@ -291,7 +292,8 @@ class Client:
         given flights, in the order the numbers first name it; "flight" one path per number. A log is binary and
         always downloaded whole, so "selected", "all" and "log" return the same files.
         Files are cached (see cache_dir()) by their SHA-256 and never go stale; force=True downloads again.
-        Without a connection, the copies cached before are returned."""
+        Without a connection, or when the server fails (HTTP 5xx), the cached copies are returned with a
+        warning."""
         if scope not in SCOPES:
             raise ValueError(f"scope must be one of {', '.join(SCOPES)}: {scope!r}")
         paths = [self._raw(i, force) for i in dict.fromkeys(_flight_ids(flights))]
@@ -301,14 +303,17 @@ class Client:
         index = self._index(flight_id)
         try:
             info = self._request("GET", f"/api/flights/{flight_id}/files")
-        except (OSError, http.client.HTTPException) as exc:
+        except (OSError, http.client.HTTPException, HTTPError) as exc:
+            if isinstance(exc, HTTPError) and exc.status < 500:
+                raise
             try:
                 info = json.loads(index.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 raise exc from None
             folder = settings.cache_dir() / "logs" / info["sha256"]
             if all((folder / f["name"]).is_file() for f in info["files"]):
-                self._say(f"Flight {flight_id}: offline, using the cached copy ({exc})")
+                warnings.warn(f"Flight {flight_id}: server unreachable or failing, using the cached copy ({exc})",
+                              stacklevel=3)
                 return folder / info["files"][0]["name"]
             raise
         folder = settings.cache_dir() / "logs" / info["sha256"]

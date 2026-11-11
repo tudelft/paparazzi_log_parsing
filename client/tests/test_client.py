@@ -58,6 +58,9 @@ class Stub(BaseHTTPRequestHandler):
             self.reply(200, {"user": {"id": 2, "display_name": "Pilot"}})
         elif self.path.startswith("/api/flights/") and self.path.endswith("/files"):
             s["files_calls"] += 1
+            if s.get("fail"):
+                self.reply(s["fail"], {"error": "failing"})
+                return
             flight = int(self.path.split("/")[3])
             if LOG_OF.get(flight) == 1:
                 self.reply(200, {"flight_id": flight, "log_id": 1, "sha256": SHA, "files": [
@@ -197,12 +200,19 @@ class ClientTests(unittest.TestCase):
     def test_fetch_caches_by_sha256_and_works_offline(self):
         client = self.client(key="logdb_old")
         path, = client.fetch([7, "7"])
+        Stub.state["fail"] = 503  # a failing server: the cached copy, with a warning
+        with self.assertWarnsRegex(UserWarning, "HTTP 503"):
+            self.assertEqual(client.fetch(7), [path])
+        Stub.state["fail"] = 404  # not a server failure: raised
+        with self.assertRaises(ml.HTTPError):
+            client.fetch(7)
+        del Stub.state["fail"]
         self.assertEqual(path, self.dir / "cache" / "logs" / SHA / "a.data")
         self.assertEqual(path.read_bytes(), DATA)
         self.assertEqual(path.with_suffix(".log").read_bytes(), LOG)
         self.server.shutdown()
         self.server.server_close()  # connections are refused now: offline
-        with redirect_stderr(io.StringIO()):
+        with self.assertWarnsRegex(UserWarning, "using the cached copy"):
             self.assertEqual(self.client(key="logdb_old").fetch(7), [path])
         with self.assertRaises(ValueError):
             client.fetch([True])
