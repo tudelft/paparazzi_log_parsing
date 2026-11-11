@@ -427,18 +427,41 @@ CREATE TABLE IF NOT EXISTS qualification_audit (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_qualification_audit_subject ON qualification_audit(subject_id,id);
-CREATE TABLE IF NOT EXISTS cyberzoo_bookings (
+CREATE TABLE IF NOT EXISTS booking_things (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    description TEXT NOT NULL DEFAULT '',
+    place_id INTEGER REFERENCES places(id) ON DELETE SET NULL,
+    type_id INTEGER REFERENCES qualification_types(id) ON DELETE SET NULL,  -- qualification needed, if any
+    qualification_for TEXT NOT NULL DEFAULT 'booking' CHECK(qualification_for IN ('booking','viewing')),
+    colour TEXT,                       -- #rrggbb for its bookings in the All view
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS booking_flags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thing_id INTEGER NOT NULL REFERENCES booking_things(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    colour TEXT,                       -- #rrggbb for bookings with this flag
+    blocks_overlap INTEGER NOT NULL DEFAULT 0 CHECK(blocks_overlap IN (0,1)),
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS bookings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thing_id INTEGER NOT NULL REFERENCES booking_things(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     description TEXT NOT NULL,
-    starts_at TEXT NOT NULL,           -- local time of the arena, YYYY-MM-DDTHH:MM
+    starts_at TEXT NOT NULL,           -- local wall-clock time, YYYY-MM-DDTHH:MM
     ends_at TEXT NOT NULL,
-    others_allowed INTEGER NOT NULL DEFAULT 1 CHECK(others_allowed IN (0,1)),
-    demo INTEGER NOT NULL DEFAULT 0 CHECK(demo IN (0,1)),
     created_at TEXT NOT NULL,
     CHECK(ends_at > starts_at)
 );
-CREATE INDEX IF NOT EXISTS ix_cyberzoo_bookings_time ON cyberzoo_bookings(starts_at, ends_at);
+CREATE INDEX IF NOT EXISTS ix_bookings_time ON bookings(thing_id, starts_at, ends_at);
+CREATE TABLE IF NOT EXISTS booking_flag_values (
+    booking_id INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+    flag_id INTEGER NOT NULL REFERENCES booking_flags(id) ON DELETE CASCADE,
+    PRIMARY KEY (booking_id, flag_id)
+);
 CREATE TABLE IF NOT EXISTS trainings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
