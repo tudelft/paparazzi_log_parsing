@@ -46,11 +46,12 @@
   .choices label { display:flex; gap:10px; align-items:flex-start; width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; cursor:pointer; }
   .choices label:has(input:checked) { border-color:var(--acc); background:color-mix(in srgb, var(--acc) 10%, transparent); }
   .rank { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:8px; }
-  .rank li { display:flex; gap:10px; align-items:center; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--card); touch-action:none; cursor:grab; }
+  .rank li { display:flex; gap:10px; align-items:center; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--card); }
   .rank li.dragging { opacity:.85; border-color:var(--acc); box-shadow:0 2px 8px #0002; }
   .rank li:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
   .rank .rank-num { width:1.4em; color:var(--mute); font-variant-numeric:tabular-nums; }
-  .rank .rank-handle { color:var(--mute); letter-spacing:-2px; user-select:none; }
+  .rank .rank-handle { color:var(--mute); letter-spacing:-2px; user-select:none; cursor:grab; touch-action:none; padding:4px 2px; }
+  .rank .rank-handle:active { cursor:grabbing; }
   .rank .rank-label { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .rank-hint { margin:8px 0 0; font-size:12px; color:var(--mute); }
   #unansweredHint { margin:8px 0 0; }
@@ -265,10 +266,10 @@ function choiceHTML(q) {
 }
 function rankHTML(q) {
   return `<ol class="rank" aria-label="Drag to order">${q.choices.map((c, i) =>
-    `<li data-id="${c.id}" draggable="true" tabindex="0"><span class="rank-num">${i + 1}</span>
-      <span class="rank-handle" aria-hidden="true">⋮⋮</span>
+    `<li data-id="${c.id}" tabindex="0"><span class="rank-num">${i + 1}</span>
+      <span class="rank-handle" aria-label="Drag to reorder">⋮⋮</span>
       <span class="rank-label" title="${esc(c.label)}">${esc(c.label)}</span></li>`).join('')}</ol>
-    <p class="rank-hint">Drag the rows (or focus one and use the arrow keys).</p>`;
+    <p class="rank-hint">Drag the handle (or focus a row and use the arrow keys).</p>`;
 }
 function renumberRank(list) {
   [...list.children].forEach((li, i) => { li.querySelector('.rank-num').textContent = String(i + 1); });
@@ -315,7 +316,7 @@ function syncQuizStep() {
 }
 function bindRankList(list) {
   let drag = null;
-  const onKey = event => {
+  list.addEventListener('keydown', event => {
     const item = event.target.closest('li');
     if (!item || !list.contains(item)) return;
     if (event.key === 'ArrowUp' && item.previousElementSibling) {
@@ -327,46 +328,37 @@ function bindRankList(list) {
       moveRankItem(list, item, item.nextElementSibling.nextElementSibling);
       item.focus();
     }
-  };
-  list.addEventListener('keydown', onKey);
+  });
   list.querySelectorAll('li').forEach(li => {
-    li.addEventListener('dragstart', event => {
+    const handle = li.querySelector('.rank-handle');
+    const endDrag = event => {
+      if (!drag || drag !== li) return;
+      li.classList.remove('dragging');
+      drag = null;
+      renumberRank(list);
+      try { handle.releasePointerCapture(event.pointerId); } catch (_) {}
+    };
+    handle.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      event.preventDefault();
       drag = li;
       li.classList.add('dragging');
-      event.dataTransfer.effectAllowed = 'move';
-      try { event.dataTransfer.setData('text/plain', li.dataset.id); } catch (_) {}
+      handle.setPointerCapture(event.pointerId);
     });
-    li.addEventListener('dragend', () => { li.classList.remove('dragging'); drag = null; renumberRank(list); });
-    li.addEventListener('dragover', event => {
-      event.preventDefault();
-      const over = event.target.closest('li');
-      if (!drag || !over || over === drag) return;
-      const mid = over.getBoundingClientRect().top + over.offsetHeight / 2;
-      moveRankItem(list, drag, event.clientY < mid ? over : over.nextElementSibling);
-    });
-    let touchY = null;
-    li.addEventListener('touchstart', event => {
-      if (event.touches.length !== 1) return;
-      drag = li;
-      touchY = event.touches[0].clientY;
-      li.classList.add('dragging');
-    }, {passive: true});
-    li.addEventListener('touchmove', event => {
-      if (!drag || event.touches.length !== 1) return;
-      event.preventDefault();
-      const y = event.touches[0].clientY;
+    handle.addEventListener('pointermove', event => {
+      if (!drag || drag !== li) return;
+      const y = event.clientY;
       const over = [...list.children].find(row => {
         if (row === drag) return false;
         const box = row.getBoundingClientRect();
         return y >= box.top && y <= box.bottom;
       });
-      if (over) {
-        const mid = over.getBoundingClientRect().top + over.offsetHeight / 2;
-        moveRankItem(list, drag, y < mid ? over : over.nextElementSibling);
-      }
-      touchY = y;
-    }, {passive: false});
-    li.addEventListener('touchend', () => { if (drag) drag.classList.remove('dragging'); drag = null; touchY = null; renumberRank(list); });
+      if (!over) return;
+      const mid = over.getBoundingClientRect().top + over.offsetHeight / 2;
+      moveRankItem(list, drag, y < mid ? over : over.nextElementSibling);
+    });
+    handle.addEventListener('pointerup', endDrag);
+    handle.addEventListener('pointercancel', endDrag);
   });
 }
 function bindQuiz() {

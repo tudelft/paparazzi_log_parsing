@@ -81,7 +81,7 @@ def qualifications_payload(con, viewer, user_id):
             " WHERE q.user_id=? ORDER BY t.sort_order, t.name, q.id DESC", (user_id,)):
         item = {key: row[key] for key in (
             "id", "type_id", "category", "status", "valid_from", "valid_until", "submitted_at",
-            "reviewed_at", "reviewer", "evidence_deleted_at", "filename", "requires_evidence",
+            "reviewed_at", "reviewer", "evidence_deleted_at", "filename", "note", "requires_evidence",
             "requires_start", "requires_expiry", "requires_number", "number")}
         item["internal"] = bool(row["internal"])
         item["has_evidence"] = bool(row["evidence_path"])
@@ -399,16 +399,20 @@ def register(app, connection, root, require_session):
         admin()
         rows = connection().execute(
             "SELECT q.id,q.user_id,q.type_id,t.name AS category,t.requires_start,t.requires_expiry,"
-            " q.valid_from,q.valid_until,q.submitted_at,q.filename,q.evidence_path,"
+            " q.valid_from,q.valid_until,q.submitted_at,q.note,q.evidence_path,"
             " COALESCE(u.display_name,u.username) AS person FROM qualification_submissions q"
             " JOIN users u ON u.id=q.user_id JOIN qualification_types t ON t.id=q.type_id"
             " WHERE q.status='pending' ORDER BY q.id").fetchall()
         out = []
         for r in rows:
-            item = dict(r)
-            item["has_evidence"] = bool(r["evidence_path"])
-            item["evidence_label"] = r["filename"] if r["filename"] else None
-            out.append(item)
+            out.append({
+                "id": r["id"], "user_id": r["user_id"], "type_id": r["type_id"],
+                "category": r["category"], "requires_start": r["requires_start"],
+                "requires_expiry": r["requires_expiry"], "valid_from": r["valid_from"],
+                "valid_until": r["valid_until"], "submitted_at": r["submitted_at"],
+                "person": r["person"], "has_evidence": bool(r["evidence_path"]),
+                "evidence_label": r["note"] or None,
+            })
         return jsonify(submissions=out)
 
     @app.get("/api/admin/qualifications/import/template")
@@ -618,10 +622,8 @@ def register(app, connection, root, require_session):
             con.execute("UPDATE qualification_submissions SET status=?,reviewed_by=?,reviewed_at=? WHERE id=?",
                         (state, g.user["id"], _utc_now(), sid))
             if action in ("reject", "withdraw"):
-                # Queued training passes link progress.submission_id; clear so the person can retake.
-                con.execute(
-                    "UPDATE training_progress SET passed_at=NULL, answers_json=NULL, submission_id=NULL,"
-                    " briefed_by=NULL WHERE submission_id=?", (sid,))
+                from training import clear_progress_for_submission
+                clear_progress_for_submission(con, sid)
             audit(con, row["user_id"], g.user["id"], state,
                   dict(id=sid, category=row["category"], valid_from=row["valid_from"], valid_until=row["valid_until"]))
         return jsonify(ok=True)

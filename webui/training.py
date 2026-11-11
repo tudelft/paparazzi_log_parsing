@@ -279,11 +279,11 @@ def queue_qualification(con, user_id, kind, valid_days, evidence_label):
     now = utc_now()
     sid = con.execute(
         "INSERT INTO qualification_submissions(user_id,type_id,valid_from,valid_until,status,submitted_by,"
-        " submitted_at,filename) VALUES (?,?,?,?,'pending',?,?,?)",
-        (user_id, kind["id"], start, until, user_id, now, evidence_label[:160])).lastrowid
+        " submitted_at,note) VALUES (?,?,?,?,'pending',?,?,?)",
+        (user_id, kind["id"], start, until, user_id, now, evidence_label[:200])).lastrowid
     qualifications.audit(con, user_id, user_id, "training-pass-queued",
                          dict(id=sid, category=kind["name"], valid_from=start, valid_until=until,
-                              evidence=evidence_label))
+                              note=evidence_label))
     return sid
 
 

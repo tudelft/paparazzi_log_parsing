@@ -358,11 +358,12 @@ class TrainingTests(AppTests):
         self.assertTrue(passed.json["passed"])
         self.assertTrue(passed.json["awaiting_approval"])
         sid = passed.json["qualification_id"]
-        row = self.con.execute("SELECT status, filename FROM qualification_submissions WHERE id=?",
+        row = self.con.execute("SELECT status, filename, note FROM qualification_submissions WHERE id=?",
                                (sid,)).fetchone()
         self.assertEqual(row["status"], "pending")
-        self.assertIn("Training passed", row["filename"])
-        self.assertIn("briefed by", row["filename"])
+        self.assertIsNone(row["filename"])
+        self.assertIn("Training passed", row["note"])
+        self.assertIn("briefed by", row["note"])
         detail = self.client.get(f"/api/trainings/{tid}").json
         self.assertTrue(detail["awaiting_approval"])
         self.assertIsNone(detail["passed_at"])

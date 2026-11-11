@@ -923,9 +923,10 @@ briefing from a short list of existing People the administrator sets; that name 
 There is no card-photo upload. By default a pass inserts an approved `qualification_submissions` row
 immediately (`training-passed` in the audit log), superseding a previous approval of that type and
 withdrawing a pending one. With `needs_approval` (off by default; requires a linked type) the pass
-inserts a **pending** submission instead (`training-pass-queued`), using the filename field as the
-queue label (for example `Training passed 9/10 · briefed by …`); admins approve or reject it in the
-People approval queue like other evidence. Images live under
+inserts a **pending** submission instead (`training-pass-queued`), storing the queue label in the
+submission `note` column (for example `Training passed 9/10 · briefed by …`) and leaving `filename`
+for uploaded files; admins approve or reject it in the People approval queue like other evidence.
+Images live under
 `WEB_DATA/training-images`, not the log share.
 
 ### Private licences and qualifications

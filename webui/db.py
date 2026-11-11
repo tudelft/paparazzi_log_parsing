@@ -363,6 +363,7 @@ CREATE TABLE IF NOT EXISTS qualification_submissions (
     reviewed_at TEXT,
     evidence_path TEXT,
     filename TEXT,
+    note TEXT,                         -- short text evidence, e.g. a training pass summary
     mime TEXT,
     compressed INTEGER NOT NULL DEFAULT 0,
     size_bytes INTEGER NOT NULL DEFAULT 0,
@@ -640,6 +641,9 @@ def init(path):
     pcols = {r["name"] for r in con.execute("PRAGMA table_info(training_progress)")}
     if pcols and "briefed_by" not in pcols:
         con.execute("ALTER TABLE training_progress ADD COLUMN briefed_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
+    qcols = {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}
+    if qcols and "note" not in qcols:
+        con.execute("ALTER TABLE qualification_submissions ADD COLUMN note TEXT")
     con.commit()
 
 
