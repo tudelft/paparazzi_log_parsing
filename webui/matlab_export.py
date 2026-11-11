@@ -661,8 +661,34 @@ class LogWriter:
         w.char(sg, "verdict", assessment.get("verdict") or "")
         w.cellstr(sg, "reasons", assessment.get("reasons") or [])
         finish_struct(sg)
+        self.logbook(g, span.get("logbook") or {})
         if window is not None:
             self.write_data(g, window, span["ac_id"], span["takeoff_s"])
+
+    def logbook(self, g, lb):
+        """flights(k).logbook: the flight as the logbook shows it, every recording of it (e.g. the GCS log next to
+        the SD log) and the setting changes and messages of those other recordings on this log's clock. The same
+        fields for every flight (empty when unknown), so flights stays one struct array."""
+        w = self.w
+        lg = w.struct(g, "logbook")
+        w.number(lg, "number", lb.get("number"))
+        for key in ("comment", "goal", "pic", "pac", "gcs", "project", "operator", "category", "authorisation",
+                    "takeoff_place", "landing_place"):
+            w.char(lg, key, lb.get(key) or "")
+        w.number(lg, "indoor", lb.get("indoor") or 0)
+        rec = lb.get("recordings") or []
+        w.table(lg, "recordings", dict(flight_id=[r["flight_id"] for r in rec], log_id=[r["log_id"] for r in rec],
+                                       log_type=[r["log_type"] for r in rec], log_name=[r["log_name"] for r in rec],
+                                       this=[r["this"] for r in rec]))
+        ch = lb.get("other_setting_changes") or []
+        w.table(lg, "other_setting_changes", {
+            "t": [c["t"] for c in ch], "index": [c.get("index") for c in ch], "name": [c.get("name") or "" for c in ch],
+            "from": [c.get("from_value") for c in ch], "to": [c.get("to_value") for c in ch],
+            "log": [c.get("log") or "" for c in ch]})
+        ms = lb.get("other_messages") or []
+        w.table(lg, "other_messages", dict(t=[m["t"] for m in ms], text=[m.get("text") or "" for m in ms],
+                                           log=[m.get("log") or "" for m in ms]))
+        finish_struct(lg)
 
     def aircraft(self, g, ac):
         """id, name, version, crew, simulation, settings, checklist and config of one aircraft (log time)."""

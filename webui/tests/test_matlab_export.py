@@ -222,6 +222,29 @@ class MatlabExporterTests(unittest.TestCase):
         settings = file[aircraft["settings"][0, 0]]
         np.testing.assert_allclose(column(settings["values"]["gain"]["t"]), [4.5, 40.0])  # whole log
 
+    def test_logbook_block_per_flight(self):
+        logbook = dict(number=10, comment="windy", pic="A. Pilot", category="OPEN", indoor=0,
+                       recordings=[dict(flight_id=10, log_id=1, log_type="onboard_sd", log_name="x_SD.data", this=1),
+                                   dict(flight_id=11, log_id=2, log_type="gcs", log_name="x.data", this=0)],
+                       other_setting_changes=[dict(t=3.0, index=4, name="gain", from_value=1, to_value=2,
+                                                   log="GCS log")],
+                       other_messages=[dict(t=2.5, text="from the ground", log="GCS log")])
+        windows = [dict(index=1, ac_id=5, takeoff_s=2.0, landing_s=6.0, logbook=logbook),
+                   dict(index=2, ac_id=5, takeoff_s=4290.0, landing_s=None)]  # no logbook: same fields, empty
+        file, _, _ = self.export(windows)
+        flights = self.element(file, file["s"]["aircraft"], "flights", 0)
+        lb = self.element(file, flights, "logbook", 0)
+        self.assertEqual((lb["number"][0, 0], text(file, lb["comment"].ref), text(file, lb["pic"].ref)),
+                         (10, "windy", "A. Pilot"))
+        np.testing.assert_allclose(column(lb["recordings"]["flight_id"]), [10, 11])
+        self.assertEqual(text(file, lb["recordings"]["log_type"][0, 1]), "gcs")
+        self.assertEqual(text(file, lb["other_setting_changes"]["name"][0, 0]), "gain")
+        np.testing.assert_allclose(column(lb["other_setting_changes"]["to"]), [2])
+        self.assertEqual(text(file, lb["other_messages"]["text"][0, 0]), "from the ground")
+        empty = self.element(file, flights, "logbook", 1)
+        self.assertEqual(sorted(empty), sorted(lb))
+        self.assertTrue(np.isnan(empty["number"][0, 0]))
+
     def test_zip_stream_holds_the_files(self):
         import io
         import zipfile
@@ -319,7 +342,8 @@ class MatlabRouteFixture(AppTests):
             "'onboard_sd',100), (2,'px4.ulg','sha2','b.ulg.gz',NULL,'done','now',2,1,'px4_ulog',100)")
         self.con.execute("INSERT INTO aircraft(id,log_id,drone_id,name,ac_id) VALUES (1,1,1,'Drone',5)")
         self.con.executemany(
-            "INSERT INTO flights(id,aircraft_id,idx,takeoff_time_s,landing_time_s,verdict) VALUES (?,1,?,?,?,?)",
+            "INSERT INTO flights(id,aircraft_id,idx,takeoff_time_s,landing_time_s,verdict,has_gps_position)"
+            " VALUES (?,1,?,?,?,?,0)",
             [(10, 0, 100.0, 200.0, "flight"), (11, 1, 300.0, 310.0, "ground"), (12, 2, 400.0, None, "uncertain")])
         self.con.commit()
 
@@ -401,6 +425,33 @@ class MatlabExportRouteTests(MatlabRouteFixture):
         self.assertEqual(self.client.get(ready["download"], headers=outsider).status_code, 404)
 
 
+    def test_flights_by_number_one_export_per_log_and_scopes(self):
+        headers = self.key(2, True)
+        post = lambda **body: self.client.post("/api/flights/matlab", json=body, headers=headers)  # noqa: E731
+        check = post(flight_ids=[10, 12], check=True)
+        self.assertEqual(check.status_code, 200)
+        self.assertEqual([(e["log_id"], e["flight_ids"], e["scope"], e["status"]) for e in check.json["exports"]],
+                         [(1, [10, 12], "selected", "missing")])
+        self.assertEqual(self.jobs.jobs, {})
+        both = post(flight_ids="10,12").json["exports"][0]  # a form-style list as from MATLAB
+        selected = post(flight_ids=[10]).json["exports"][0]
+        everything = post(flight_ids=[10], scope="all").json["exports"][0]
+        self.assertEqual(both["id"], everything["id"])  # 10 and 12 are all non-ground flights: the same export
+        whole = post(flight_ids=[10], scope="log").json["exports"][0]
+        self.assertEqual(len({selected["id"], everything["id"], whole["id"]}), 3)
+        self.assertEqual(everything["id"], post(flight_ids=[12], scope="all").json["exports"][0]["id"])
+        with patch.object(matlab_export, "export", return_value=[]) as export:
+            self.jobs.jobs[both["id"]]["task"]("out.mat", "work", lambda f: None)
+        windows = export.call_args.args[6]
+        self.assertEqual([w["index"] for w in windows], [1, 3])
+        self.assertEqual([w["logbook"]["number"] for w in windows], [10, 12])
+        self.assertEqual(post(flight_ids=[10, 99]).status_code, 404)
+        self.assertEqual(post(flight_ids=[10], scope="nope").status_code, 400)
+        self.assertEqual(post(flight_ids=[]).status_code, 400)
+        self.assertEqual(self.client.post("/api/flights/matlab", json={"flight_ids": [10]},
+                                          headers=self.key(4, True)).status_code, 404)
+
+
 @unittest.skipUnless(h5py is not None, "needs h5py")
 class MatlabBulkRouteTests(MatlabRouteFixture):
     def setUp(self):
@@ -410,7 +461,8 @@ class MatlabBulkRouteTests(MatlabRouteFixture):
             "size_bytes) VALUES (3,'26_10_21__09_04_50.data','sha3','c.data.gz','c.log.gz','done','now',2,1,'gcs',100)")
         self.con.execute("INSERT INTO aircraft(id,log_id,name,ac_id) VALUES (3,3,'Drone',5)")
         self.con.executemany(
-            "INSERT INTO flights(id,aircraft_id,idx,takeoff_time_s,landing_time_s,verdict) VALUES (?,3,?,?,?,?)",
+            "INSERT INTO flights(id,aircraft_id,idx,takeoff_time_s,landing_time_s,verdict,has_gps_position)"
+            " VALUES (?,3,?,?,?,?,0)",
             [(30, 0, 50.0, 150.0, "flight"), (31, 1, 500.0, 600.0, "flight")])
         self.con.commit()
 
