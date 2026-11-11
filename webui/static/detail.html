@@ -14,18 +14,21 @@
   header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
   header h1 { margin:0; font-size:18px; }
   header .meta { color:#9fb0c3; font-size:12px; }
-  .profile-card h2 { display:flex; gap:10px; align-items:baseline; margin:0 0 12px; }
+  .profile-card h2 { display:flex; gap:8px; align-items:baseline; margin:0 0 8px; font-size:15px; }
   .profile-card h2 a { margin-left:auto; font-size:13px; font-weight:400; }
   .profile-who { font-size:12px; font-weight:400; color:var(--mute); }
-  .profile-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:14px 24px; }
-  .profile-grid .k { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
-  .profile-grid .v { font-size:16px; margin-top:2px; overflow-wrap:anywhere; }
+  .profile-grid { display:flex; flex-wrap:wrap; gap:6px 28px; }
+  .profile-grid > div { min-width:0; max-width:100%; }
+  .profile-grid .k { font-size:11px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
+  .profile-grid .v { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .profile-grid .s, .profile-students .s { font-size:13px; color:var(--mute); }
-  .profile-students { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
-  .profile-students h3 { margin:0 0 6px; font-size:14px; }
+  .profile-students { margin-top:8px; }
+  .profile-students summary { cursor:pointer; font-size:13px; font-weight:600; }
+  .profile-students[open] summary { margin-bottom:4px; }
   .profile-students table { width:100%; border-collapse:collapse; }
-  .profile-students td { padding:6px 8px 6px 0; border-bottom:1px solid var(--line); }
-  .project-chip { display:inline-block; border:1px solid var(--line); border-radius:10px; padding:0 8px; font-size:12px; margin:0 4px 2px 0; color:var(--txt); }
+  .profile-students td { padding:3px 8px 3px 0; font-size:13px; border-bottom:1px solid var(--line); }
+  .project-chip { display:inline-block; border:1px solid var(--line); border-radius:10px; padding:0 7px; font-size:12px; line-height:1.5; margin:0 4px 0 0; color:var(--txt); text-decoration:none; }
+  .project-chip:hover { text-decoration:underline; }
   main { max-width:1500px; margin:0 auto; padding:16px 12px 20px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
   h2 { margin:0 0 10px; font-size:15px; }
@@ -132,7 +135,7 @@
     <section class="card profile-card" id="profileCard" hidden>
       <h2>Profile <span class="profile-who" id="profileWho"></span><a href="/profile" id="profileEdit" hidden>Edit</a></h2>
       <div class="profile-grid" id="profileGrid"></div>
-      <div class="profile-students" id="profileStudents" hidden></div>
+      <details class="profile-students" id="profileStudents" hidden></details>
     </section>
 
     <div class="cols">
@@ -260,32 +263,34 @@ async function loadProfile() {
   if (!d.profile && !d.self && !me.is_admin) return;
   const p = d.profile || {}, today = new Date().toISOString().slice(0, 10);
   const name = $('name').textContent || 'this person';
-  $('profileWho').textContent = '🔒 ' + (d.self ? 'visible to you, admins and your supervisors' : `visible to ${name}, admins and ${name}'s supervisors`);
-  $('profileWho').title = 'Supervisors do not see the student/employee number';
+  $('profileWho').textContent = '🔒';
+  $('profileWho').title = (d.self ? 'Visible to you, admins and your supervisors' : `Visible to ${name}, admins and ${name}'s supervisors`)
+    + '; supervisors do not see the student/employee number';
   $('profileEdit').hidden = !d.self;
   const until = end => {
     const months = Math.round((new Date(end) - new Date(today)) / 2629800000);
     return end < today ? 'passed' : months < 1 ? 'this month' : months < 24 ? `in ${months} months` : `in ${Math.floor(months / 12)} years`;
   };
   const projects = list => list.map(x => `<a class="project-chip" href="/projects/${x.id}">${esc(x.name)}</a>`).join('') || '<span class="s">none</span>';
-  const field = (k, v, sub) => `<div><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
+  const field = (k, v, tip) => `<div${tip ? ` title="${tip}"` : ''}><div class="k">${k}</div><div class="v">${v}</div></div>`;
   const sups = (p.supervisors || []).map(s => s.id ? `<a href="/people/${s.id}">${esc(s.name)}</a>`
-    : `${esc(s.name)} <span class="s">(external)</span>`).join('<br>');
+    : `${esc(s.name)} <span class="s">(external)</span>`).join(', ');
   const todo = (d.missing || []).filter(m => m !== 'profile').map(m => m.replace('_', ' '));
   $('profileGrid').innerHTML = !d.profile ? '<p class="s">Not filled in yet.</p>' : [
     field('Role', esc(p.role) || '<span class="s">none</span>'),
     field('Department', esc(p.department), esc(p.department_group || '')),
     sups ? field('Supervisors', sups) : '',
-    field('Expected end', p.indefinite ? 'Indefinite' : esc(p.end_date), p.indefinite ? '' : until(p.end_date)),
-    'number' in p ? field('Student / employee no.', esc(p.number), d.self ? 'you and admins only' : `${esc(name)} and admins only`) : '',
+    field('Expected end', p.indefinite ? 'Indefinite' : esc(p.end_date) + (p.end_date < today ? ' <span class="s">(passed)</span>' : ''), p.indefinite ? '' : until(p.end_date)),
+    'number' in p ? field('Student / employee no.', esc(p.number), d.self ? 'Only you and admins see this' : `Only ${esc(name)} and admins see this`) : '',
     p.github ? field('GitHub', `<a href="https://github.com/${encodeURIComponent(p.github)}" target="_blank" rel="noopener">${esc(p.github)}</a>`) : '',
     field('Projects', projects(d.projects || [])),
-    field('Last confirmed', esc((p.updated_at || '').slice(0, 10)), todo.length ? `still to fill in: ${esc(todo.join(', '))}` : ''),
+    field('Last confirmed', esc((p.updated_at || '').slice(0, 10))),
+    todo.length ? field('Still to fill in', `<span class="s">${esc(todo.join(', '))}</span>`) : '',
   ].join('');
   const current = (d.students || []).filter(s => !s.profile || s.profile.indefinite || !s.profile.end_date || s.profile.end_date >= today);
   const ended = (d.students || []).length - current.length;
   $('profileStudents').hidden = !current.length && !ended;
-  $('profileStudents').innerHTML = `<h3>Supervises · ${current.length}${ended ? ` <span class="s">(+${ended} ended)</span>` : ''}</h3><table>`
+  $('profileStudents').innerHTML = `<summary>Supervises · ${current.length}${ended ? ` <span class="s">(+${ended} ended)</span>` : ''}</summary><table>`
     + current.map(s => `<tr><td><a href="/people/${s.id}">${esc(s.name)}</a></td><td class="s">${esc(s.profile?.role || '')}</td>`
       + `<td>${s.profile?.indefinite ? 'Indefinite' : s.profile?.end_date ? 'until ' + esc(s.profile.end_date) : ''}</td>`
       + `<td>${projects(s.projects || [])}</td></tr>`).join('') + '</table>';
