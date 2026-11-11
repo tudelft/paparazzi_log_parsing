@@ -45,7 +45,7 @@ to gain descriptions and previously omitted crew entries.
 |---|---|
 | **Logbook** | Filter flights (also by a paper record's reference, e.g. F00090), review flight time, expand a row or open its flight page. Click aircraft, crew, project or location names for their detail pages. |
 | **Upload logs** | The button at the top right (or drop files on any page): send logs, ZIP archives or folders and follow your recent uploads while they are parsed. **Logs** (Directory ▾) lists every log you can see, with parsing progress and errors. Paparazzi logs need matching `.data` and `.log` files. PX4 `.ulg`, ArduPilot `.bin`/`.log`, `.tlog` and Betaflight/INDIFlight `.bfl`/`.bbl` files can also be uploaded. A folder named after one fleet aircraft still links when the files sit in subfolders; already uploaded logs with that layout are linked at each start. |
-| **Statistics** | Under Directory: totals for aircraft, projects and crew within your access. |
+| **Statistics** | Under Directory: totals for aircraft, projects and crew within your access; admins also see the disk space used. |
 | **Aircraft / People / Projects / Locations** | Browse records and open their histories, totals and flights. |
 | **Training** | When enabled, complete questionnaires until you pass. A pass writes the linked qualification immediately. |
 | **Agenda** | When enabled, book shared items such as an indoor arena; see [Agenda](#agenda). |

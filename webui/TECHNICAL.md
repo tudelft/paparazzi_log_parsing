@@ -252,6 +252,12 @@ displacement only. Vertical movement adds no distance. Altitudes remain availabl
 flight assessment. This prevents differing GPS altitude reference levels from inflating distances;
 horizontal GPS noise/jumps can still affect them. Reparse existing uploads to replace old 3D distances.
 
+**Storage on Statistics.** Admins see a Storage card (`GET /api/admin/storage`, `storage_usage.py`): what the
+stored logs, flight paths, attachments (with PDF previews) and qualification evidence take on disk, the original
+size of the uploaded `.data` files, the database file and the free space on the log storage and the database disk.
+Walking the log storage can be slow on a network share, so a background thread measures it at most every six
+hours (`?refresh=1`, **Measure now**, starts a new one); the database figures and free space are read live.
+
 **Logbook read model cache.** The logbook, statistics, review, places, overview and flight pages share one
 read model (`logbook_rows`). Building it takes about a second per few thousand flights, so it is kept in memory
 per user and request options and rebuilt only after a committed write it may show, or at the start of a new UTC
