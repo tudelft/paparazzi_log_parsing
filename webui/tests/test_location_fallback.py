@@ -46,12 +46,15 @@ class LocationFallbackTests(AppTests):
                 self.assertEqual(rows[0]["distance_m"], 2000, url)
                 if url != "/api/stats":
                     self.assertEqual(rows[0]["flight_id"], 2, url)
-        for identity, count in ((2, 61), (1, 4)):
+        # The flight page fills this log's gaps from the other recording (points more than 1.5 s from an own point).
+        for identity, count, filled in ((2, 61, 0), (1, 4, 51)):
             detail = self.client.get(f"/api/flights/{identity}/detail").json
             self.assertEqual(detail["flight_id"], identity)
             self.assertEqual(detail["log_id"], identity)
             self.assertEqual(detail["aircraft_pk"], identity)
-            self.assertEqual(len(detail["path"]), count)
+            self.assertEqual(sum(not p.get("from_other_log") for p in detail["path"]), count)
+            self.assertEqual(detail["path_points_from_other_log"], filled)
+            self.assertEqual(len(detail["path"]), count + filled)
             self.assertEqual(detail["entry"]["flight_id"], 2)
             self.assertIn("GCS selected", detail["entry"]["source_selection_reason"])
         self.sign_in(4)
