@@ -911,7 +911,8 @@ not offered, and a type that requires expiry needs validity days in the JSON. ZI
 each entry's size before reading (JSON ≤ 1 MiB, images ≤ 2 MiB) and only load referenced images.
 **Export** (`GET /api/admin/trainings/<id>/export`) returns the same JSON, or a ZIP when images are
 present.
-Takers retry until they pass; each submission returns the score. Failed answers are discarded;
+The quiz UI shows one question at a time (`qi` in the URL); Previous / Next keep answers in the form
+until Submit. Takers retry until they pass; each submission returns the score. Failed answers are discarded;
 `training_progress` keeps the attempt count and, on a pass, the answers and timestamp. A current
 pass blocks retakes (`409`); when the linked qualification has expired, or an administrator resets
 progress (`DELETE /api/admin/trainings/<id>/progress/<user_id>`, which withdraws that

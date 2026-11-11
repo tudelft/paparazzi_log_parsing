@@ -28,9 +28,10 @@
   a.item h3 { margin:0; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   a.item p { margin:6px 0 0; font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ok { color:var(--ok); }
-  .question { border-top:1px solid var(--line); padding:12px 0; }
-  .question:first-child { border-top:0; padding-top:0; }
+  .question { padding:4px 0 12px; }
   .question img { max-width:min(100%,420px); max-height:220px; display:block; margin:8px 0; }
+  #quizNav { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; }
+  #quizProgress { margin:0 0 8px; }
   .choices { display:flex; flex-direction:column; gap:6px; margin:8px 0 0; }
   .choices label { display:flex; gap:8px; align-items:flex-start; }
   .rank { margin:8px 0 0; padding:0; list-style:none; }
@@ -126,7 +127,7 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => t ? t.replace('T', ' ').replace('Z', ' UTC') : '';
-let me, trainings = [], types = [], people = [], brieferIds = [], query = '', selected = 0, detail, editingId = null, editingQuestion = null, lastResult = null;
+let me, trainings = [], types = [], people = [], brieferIds = [], query = '', selected = 0, detail, editingId = null, editingQuestion = null, lastResult = null, quizStep = 0;
 async function api(url, opt) {
   const r = await fetch(url, opt);
   const d = await r.json().catch(() => ({}));
@@ -165,7 +166,7 @@ function renderList() {
 }
 function show() {
   $('err').textContent = '';
-  if (!selected) lastResult = null;
+  if (!selected) { lastResult = null; quizStep = 0; }
   $('listCard').hidden = !!selected;
   $('detailCard').hidden = !selected;
   if (!selected) return renderList();
@@ -205,14 +206,22 @@ function paintDetail() {
 }
 function quizHTML(questions) {
   const briefers = (detail.briefers || []).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
-  return `<form id="quiz">${questions.map(q => `<div class="question" data-id="${q.id}" data-kind="${q.kind}">
+  const n = questions.length;
+  quizStep = Math.max(0, Math.min(quizStep, Math.max(0, n - 1)));
+  return `<form id="quiz">
+    <p class="mute" id="quizProgress">Question ${quizStep + 1} of ${n}</p>
+    ${questions.map((q, i) => `<div class="question" data-id="${q.id}" data-kind="${q.kind}"${i === quizStep ? '' : ' hidden'}>
     <p><strong>${esc(q.prompt)}</strong> <span class="mute">${q.points} pt</span></p>
     ${q.image ? `<img src="/api/trainings/questions/${q.id}/image" alt="">` : ''}
     ${q.kind === 'ranking' ? rankHTML(q) : choiceHTML(q)}</div>`).join('')}
-    ${detail.ask_briefed_by ? `<label class="field">Who delivered the briefing<select name="briefed_by" required>
+    ${detail.ask_briefed_by ? `<label class="field" id="briefedByField"${quizStep === n - 1 ? '' : ' hidden'}>Who delivered the briefing<select name="briefed_by" required>
       <option value="">Choose…</option>${briefers}</select></label>` : ''}
     <p id="quizMsg" role="status"></p>
-    <button type="submit">Submit answers</button></form>`;
+    <div id="quizNav">
+      <button type="button" class="sec" id="quizPrev"${quizStep === 0 ? ' hidden' : ''}>Previous</button>
+      <button type="button" id="quizNext"${quizStep === n - 1 ? ' hidden' : ''}>Next</button>
+      <button type="submit" id="quizSubmit"${quizStep === n - 1 ? '' : ' hidden'}>Submit answers</button>
+    </div></form>`;
 }
 function choiceHTML(q) {
   const type = q.kind === 'multi' ? 'checkbox' : 'radio';
@@ -223,8 +232,27 @@ function rankHTML(q) {
     <button type="button" class="sec" data-dir="-1"${i === 0 ? ' disabled' : ''}>Up</button>
     <button type="button" class="sec" data-dir="1"${i === q.choices.length - 1 ? ' disabled' : ''}>Down</button></li>`).join('')}</ol>`;
 }
+function syncQuizStep() {
+  const form = $('quiz');
+  if (!form) return;
+  const questions = [...form.querySelectorAll('.question')];
+  const n = questions.length;
+  if (!n) return;
+  quizStep = Math.max(0, Math.min(quizStep, n - 1));
+  questions.forEach((q, i) => { q.hidden = i !== quizStep; });
+  const brief = $('briefedByField');
+  const last = quizStep === n - 1;
+  if (brief) brief.hidden = !last;
+  $('quizPrev').hidden = quizStep === 0;
+  $('quizNext').hidden = last;
+  $('quizSubmit').hidden = !last;
+  $('quizProgress').textContent = `Question ${quizStep + 1} of ${n}`;
+  window.viewState.save();
+}
 function bindQuiz() {
   $('quiz').onsubmit = submitQuiz;
+  $('quizPrev').onclick = () => { quizStep -= 1; syncQuizStep(); };
+  $('quizNext').onclick = () => { quizStep += 1; syncQuizStep(); };
   $('quiz').querySelectorAll('.rank').forEach(list => list.onclick = event => {
     const btn = event.target.closest('button');
     if (!btn) return;
@@ -236,6 +264,7 @@ function bindQuiz() {
       li.querySelector('[data-dir="1"]').disabled = i === all.length - 1;
     });
   });
+  syncQuizStep();
 }
 function collectAnswers() {
   const answers = {};
@@ -257,6 +286,7 @@ async function submitQuiz(event) {
     if (detail.ask_briefed_by) payload.briefed_by = +$('quiz').briefed_by.value || null;
     lastResult = await api('/api/trainings/' + selected + '/submit', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+    quizStep = 0;
     await load();
     await loadDetail();
   } catch (e) { $('quizMsg').textContent = e.message; }
@@ -506,9 +536,11 @@ async function load() {
 window.viewState.setup(p => {
   query = p.get('q') || '';
   selected = window.viewState.integer(p.get('id'), 0, 1);
+  quizStep = selected ? window.viewState.integer(p.get('qi'), 0, 0) : 0;
 }, p => {
   window.viewState.set(p, 'q', query);
   window.viewState.set(p, 'id', selected || '', '');
+  window.viewState.set(p, 'qi', selected && quizStep ? quizStep : '', 0);
 }, show);
 function syncAdminButtons() {
   const on = !!(me && me.is_admin && window.editMode());

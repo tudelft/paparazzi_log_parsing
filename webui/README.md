@@ -207,12 +207,12 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
 
 ## Qualifications and additional files
 
-**Training** (optional): when the server turns it on, a Training tab lists questionnaires. Retry until you pass;
-only the passing answers and the attempt count are kept. A pass writes the linked qualification immediately,
-without admin approval. After that qualification expires (or an administrator resets the pass), you can take
-it again. Admins create questionnaires in Edit mode (single choice, multiple choice, ranking, optional image)
-or import a JSON/ZIP file kept outside the repository, and can ask who delivered the briefing from a short
-list of people.
+**Training** (optional): when the server turns it on, a Training tab lists questionnaires. Answer one question
+at a time (Next / Previous), then submit. Retry until you pass; only the passing answers and the attempt count
+are kept. A pass writes the linked qualification immediately, without admin approval. After that qualification
+expires (or an administrator resets the pass), you can take it again. Admins create questionnaires in Edit mode
+(single choice, multiple choice, ranking, optional image) or import a JSON/ZIP file kept outside the repository,
+and can ask who delivered the briefing from a short list of people.
 
 **Qualifications:** submit your own evidence under **My account**; admins review it on **People**.
 Each type determines whether evidence, expiry and a licence number are required (the number is read from a
