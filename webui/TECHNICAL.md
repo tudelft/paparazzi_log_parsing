@@ -897,7 +897,8 @@ writing; the page shows that first. Replacing a drawn polygon by a circle is fla
 ### Training questionnaires
 
 Off unless `LOGDB_TRAINING=1`. The Training page is session-only (API keys get 403). Admins create
-questionnaires in Edit mode: single choice, multiple choice and ranking, each with optional JPEG/PNG.
+questionnaires in Edit mode: single choice, multiple choice and ranking, each with optional JPEG/PNG. Questions
+are reordered by dragging their handle (or the arrow keys on it; `PUT /api/admin/trainings/<id>/question-order`).
 Nothing is seeded at startup; questionnaires are added by hand or imported. **Import**
 (`POST /api/admin/trainings/import`, Edit-mode dialog) accepts one JSON file per training, or a ZIP
 with that JSON plus JPEG/PNG question images (same size and content checks as the image upload).
