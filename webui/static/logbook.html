@@ -696,9 +696,9 @@ function render() {
   const count = pickedFlights().length, matlab = matlabEntries().length;
   $('selPill').hidden = !picking() || !(count || selecting);
   $('selPillCount').textContent = `${count} selected`;
-  $('selPillMatlab').innerHTML = matlab ? MatlabExport.bulkButton(matlabEntries) : '<span class="mute" title="None of the ticked flights has a Paparazzi SD or GCS log">MATLAB</span>';
-  if (matlab && matlab < count) $('selPillMatlab').title = `${matlab} of ${count} ticked flights can be exported for MATLAB (Paparazzi SD or GCS logs)`;
-  else $('selPillMatlab').removeAttribute('title');
+  // MATLAB stays usable; its menu says when ticked flights have no Paparazzi log and are left out
+  $('selPillMatlab').innerHTML = count ? MatlabExport.bulkButton(matlabEntries, () => pickedFlights().filter(f => selectable(f) && !exportable(f)).length)
+    : '<span class="mute">MATLAB</span>';
   const numbers = selectedNumbers(), papers = count - numbers.length;
   $('selCopy').hidden = !numbers.length;
   if (!copiedTimer) $('selCopy').textContent = 'Copy numbers';

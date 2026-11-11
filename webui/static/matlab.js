@@ -12,7 +12,7 @@
     ['flights', 'All flights', 'Every detected flight of this log (ground records left out), each with 10 s margins'],
     ['log', 'Whole log', 'The complete log: every aircraft and message, with the original log timestamps']];
   const jobs = {};  // "<log>:<scope>:<flight>" (or "bulk:<entries>") -> last status
-  let menu = null, anchor = null, bulkEntries = () => [];
+  let menu = null, anchor = null, bulkEntries = () => [], bulkSkipped = () => 0;
   const key = (source, scope) => `${source.log_id}:${scope}:${scope === 'flight' ? source.flight_id : ''}`;
   const usable = sources => (sources || []).filter(s => TYPES[s.log_type]);
   const size = bytes => `${(bytes / 1048576).toFixed(bytes < 10485760 ? 1 : 0)} MB`;
@@ -49,11 +49,20 @@
     return `<button type="button" class="matlab-item" data-matlab-bulk-start title="${esc(tip)}"${busy || !entries.length ? ' disabled' : ''}>${label}<span class="matlab-state">${state}</span></button>`;
   }
 
+  // Ticked flights without a Paparazzi log (PX4, ArduPilot, blackbox) are not exported: say so in the menu.
+  function skippedNote() {
+    const skipped = bulkSkipped(), n = bulkEntries().length;
+    if (!skipped) return '';
+    return `<div class="matlab-note">${n ? `Only Paparazzi logs are exported: ${skipped} of the ${n + skipped} ticked flights`
+      : `None of the ${skipped} ticked flight${skipped === 1 ? '' : 's'}`} ${n ? (skipped === 1 ? 'is' : 'are') + ' left out'
+      : 'has a Paparazzi log'} (PX4, ArduPilot and blackbox logs have no MATLAB export yet).</div>`;
+  }
+
   function render() {
     if (!menu) return;
     if (anchor.hasAttribute('data-matlab-bulk')) {
       menu.innerHTML = `<div class="matlab-group"><div class="matlab-head">Selected flights${helpTip(
-        'A .zip with one .mat per log: the SD log of each flight when there is one, else its GCS log; paper records are left out. At most 200 logs.<br>')}</div>${bulkItem()}</div>`;
+        'A .zip with one .mat per log: the SD log of each flight when there is one, else its GCS log; paper records are left out. At most 200 logs.<br>')}</div>${bulkItem()}${skippedNote()}</div>`;
       return;
     }
     const sources = JSON.parse(anchor.dataset.matlabSources);
@@ -142,8 +151,9 @@
       return `<button type="button" class="matlab-button ${extraClass}" aria-haspopup="menu" aria-expanded="false"
         title="Export this flight or its log for MATLAB (.mat)" data-matlab-sources="${esc(JSON.stringify(list))}">MATLAB ▾</button>`;
     },
-    bulkButton(entries) {
+    bulkButton(entries, skipped = () => 0) {
       bulkEntries = entries;
+      bulkSkipped = skipped;
       return `<button type="button" class="matlab-button" aria-haspopup="menu" aria-expanded="false"
         title="Export the selected flights for MATLAB: a .zip with one .mat per log" data-matlab-bulk>MATLAB ▾</button>`;
     },
