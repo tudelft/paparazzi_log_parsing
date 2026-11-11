@@ -58,6 +58,22 @@ class CliLoginTests(AppTests):
         self.sign_in(2)
         self.assertEqual(self.client.get("/api/keys").json, [])
 
+    def test_no_transaction_stays_open_after_a_request(self):
+        # The thread's connection is reused by its next request: a write left uncommitted held the write lock.
+        self.sign_in(2)
+        self.con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at, expires_at)"
+                         " VALUES (2, 'Login: old', 'h', 'logdb_', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')")
+        self.con.commit()
+        self.assertEqual(self.client.get("/api/keys").json, [])
+        self.assertFalse(self.con.in_transaction)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM api_keys").fetchone()[0], 0)
+        # and the request teardown rolls back what a route leaves open on the thread's connection
+        self.con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at) VALUES (2, 'x', 'h2', 'p', 'n')")
+        with patch.object(self.ns["db"]._local, "con", self.con, create=True):
+            self.assertEqual(self.client.get("/api/me").status_code, 200)
+        self.assertFalse(self.con.in_transaction)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM api_keys").fetchone()[0], 0)
+
     def test_revoke_all_keeps_manual_keys_unless_asked(self):
         self.sign_in(2)
         manual = self.client.post("/api/keys", json={"name": "laptop"}).json["key"]

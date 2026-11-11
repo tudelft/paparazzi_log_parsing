@@ -831,6 +831,18 @@ def user_public(u):
             "has_password": bool(u["password_hash"])}
 
 
+@app.teardown_request
+def end_open_transaction(exc):
+    """Roll back a transaction a request left open on its thread's connection. The connection is reused by the
+    thread's next request: an open write transaction would hold the database's write lock until then, so other
+    writers wait for the busy timeout and that thread's next BEGIN fails."""
+    con = getattr(db._local, "con", None)
+    if con is not None and con.in_transaction:
+        con.rollback()
+        if exc is None:
+            app.logger.warning("rolled back a transaction left open by %s %s", request.method, request.url_rule)
+
+
 @app.after_request
 def server_timing(resp):
     """Server-Timing header (shown in the browser's Network tab) for requests that use the logbook read model."""
@@ -1137,6 +1149,7 @@ def list_keys():
     session_required()
     con = conn()
     drop_expired_keys(con, g.user["id"])
+    con.commit()
     rows = con.execute("SELECT id, name, prefix, created_at, last_used_at, read_only, expires_at FROM api_keys"
                        " WHERE user_id=? ORDER BY id DESC", (g.user["id"],))
     return jsonify([dict(r, read_only=bool(r["read_only"])) for r in rows])
@@ -1155,6 +1168,7 @@ def create_key():
     con = conn()
     drop_expired_keys(con, g.user["id"])
     if con.execute("SELECT COUNT(*) FROM api_keys WHERE user_id=?", (g.user["id"],)).fetchone()[0] >= MAX_KEYS:
+        con.commit()
         return jsonify(error=f"at most {MAX_KEYS} keys per user"), 400
     key = API_KEY_PREFIX + secrets.token_urlsafe(32)
     cur = con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at, read_only) VALUES (?,?,?,?,?,?)",
