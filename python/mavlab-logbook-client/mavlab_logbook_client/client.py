@@ -1,4 +1,5 @@
-"""HTTP client for the flight log database: browser login, the logbook, cached downloads by flight number, and uploads."""
+"""HTTP client for the flight log database: browser login, the logbook, cached downloads by flight number and
+uploads."""
 import hashlib
 import http.client
 import json
@@ -89,8 +90,15 @@ def _write_atomic(target, write):
         raise
 
 
+def _remove_others(old, keep):
+    """Delete older exports of the same flight or log."""
+    for path in old:
+        if path != keep:
+            path.unlink(missing_ok=True)
+
+
 class Client:
-    """Connection to one logbook server; usually made with mavlab_logs.connect().
+    """Connection to one logbook server; usually made with mavlab_logbook_client.connect().
 
     server: URL or host name (required).
     key: API key, else LOGDB_API_KEY (unless LOGDB_SERVER names another server), else the key of the last
@@ -239,15 +247,15 @@ class Client:
             return user
         raise AuthError("login timed out: the code was not confirmed in the browser in time")
 
-    def revoke_all(self, include_manual=False):
+    def revoke_all(self):
         """Revoke your API keys from browser logins on the server (all computers, Python and MATLAB) and forget the
-        stored one here. include_manual=True also revokes the keys made on the account page. Returns the number
-        of keys revoked."""
-        revoked = self._json("POST", "/api/keys/revoke-all", {"include_manual": bool(include_manual)})["revoked"]
+        stored one here. Keys made on the account page keep working; revoke those on the account page. Returns the
+        number of keys revoked."""
+        revoked = self._json("POST", "/api/keys/revoke-all", {})["revoked"]
         stored = settings.entry(self.server)
-        if stored and (include_manual or stored.get("expires_at")):
+        if stored and stored.get("expires_at"):
             settings.forget(self.server)
-        if include_manual or self.key_source == "browser login":
+        if self.key_source == "browser login":
             self.key, self.key_source = None, None
         self._say(f"Revoked {revoked} API key(s) on {self.server}.")
         return revoked
@@ -259,9 +267,11 @@ class Client:
     def logbook(self, all=False):
         """The logbook flights you may see, newest first, to pick numbers for fetch(); as MATLAB's pprz_logbook.
 
-        Returns one dict per flight: flight (number for fetch), date (takeoff, UTC datetime or None), aircraft,
-        duration_min, pic, project, goal, verdict and log. Only flights the parser judged real, unless all=True
-        (also "uncertain" and "ground"). Paper records are left out (they have no telemetry).
+        Returns one dict per flight: flight (number for fetch), date (takeoff, UTC datetime; None when unknown),
+        date_ok (False when the log's clock was not set and no date was entered), aircraft, duration_min, pic,
+        project, goal, verdict, simulation (True for a simulated flight) and log. Only flights the parser judged
+        real, unless all=True (also "uncertain" and "ground"). Paper records are left out (they have no
+        telemetry).
         pandas.DataFrame(rows) makes a table of it."""
         def sink(response):
             raw = response.read()
@@ -278,18 +288,22 @@ class Client:
             if not all and r.get("verdict") in ("uncertain", "ground"):
                 continue
             utc = r.get("takeoff_utc") or ""
+            date_ok = r.get("date_ok") is True
             try:  # ISO 8601, e.g. 2026-11-05T09:59:46.627Z: seconds are enough here
                 date = datetime.strptime(utc[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
             except ValueError:
                 date = None
+            if not date_ok:  # the clock of the log was not set (e.g. 1970): not a date
+                date = None
             duration = r.get("duration_s")
             person = r.get("pic_user")
             out.append({
-                "flight": r["flight_id"], "date": date, "aircraft": r.get("aircraft") or "",
+                "flight": r["flight_id"], "date": date, "date_ok": date_ok, "aircraft": r.get("aircraft") or "",
                 "duration_min": duration / 60 if isinstance(duration, (int, float)) else None,
                 "pic": (person.get("display_name") if isinstance(person, dict) else None) or r.get("pic") or "",
                 "project": r.get("project_name") or "", "goal": r.get("goal") or "",
-                "verdict": r.get("verdict") or "", "log": r.get("log_id"),
+                "verdict": r.get("verdict") or "",
+                "simulation": bool((r.get("simulation") or {}).get("detected")), "log": r.get("log_id"),
             })
         return out
 
@@ -321,27 +335,141 @@ class Client:
     def _index(self, flight_id):
         return settings.cache_dir() / "flights" / settings.server_tag(self.server) / f"{flight_id}.json"
 
-    def fetch(self, flights, scope="selected", force=False):
-        """Download the original logs of flights by number (the number in /flight/<number>) and return their paths.
+    @staticmethod
+    def _server_down(exc):
+        """The cached copies stand in when the server cannot be reached or fails (HTTP 5xx), not for other errors."""
+        return not isinstance(exc, HTTPError) or exc.status >= 500
 
-        A path is that of the log's data file (.data, .BFL, .ulg, …), with a Paparazzi .log next to it. scope is
-        that of MATLAB's pprz_fetch: "selected" (default), "all" or "log" return one path per log that holds the
-        given flights, in the order the numbers first name it; "flight" one path per number. A log is binary and
-        always downloaded whole, so "selected", "all" and "log" return the same files.
+    def fetch(self, flights, scope="selected", force=False):
+        """Download the MATLAB exports (.mat) of flights by number (the number in /flight/<number>), as MATLAB's
+        pprz_fetch, and return their paths.
+
+        scope: "selected" (default) the given flights of each log (10 s before takeoff to 10 s after landing),
+        "all" every flight of those logs, "log" the whole log of each (also the time between flights), each one
+        file per log in the order the numbers first name it; "flight" one file per number. The files are MATLAB
+        v7.3 (HDF5, e.g. for h5py; see matlab/README.md) and exist for Paparazzi logs only: use fetch_raw() for
+        the original logs of any format. Exports are cached (see cache_dir(), shared with MATLAB) and reused while
+        they would be identical; force=True downloads again. Without a connection, or when the server fails
+        (HTTP 5xx), the cached copies are returned with a warning."""
+        if scope not in SCOPES:
+            raise ValueError(f"scope must be one of {', '.join(SCOPES)}: {scope!r}")
+        ids = list(dict.fromkeys(_flight_ids(flights)))
+        folder = settings.cache_dir() / "mat" / settings.server_tag(self.server)
+        if scope != "flight":
+            return self._mat_logs(ids, scope, folder, force)
+        paths = []
+        for i in ids:
+            paths.append(self._mat_flight(i, folder, force))
+        return paths
+
+    def _mat_flight(self, flight_id, folder, force):
+        old = sorted(folder.glob(f"flight_{flight_id}_*.mat"), key=lambda p: p.stat().st_mtime)
+        path = f"/api/flights/{flight_id}/matlab"
+        try:
+            job = self._json("POST", path, {"check": True})
+        except (OSError, http.client.HTTPException, HTTPError) as exc:
+            if not self._server_down(exc) or not old:
+                raise
+            warnings.warn(f"Flight {flight_id}: server unreachable or failing, using the cached copy ({exc})",
+                          stacklevel=3)
+            return old[-1]
+        target = folder / f"flight_{flight_id}_{job['id'][:16]}.mat"
+        if target.is_file() and not force:
+            return target
+        if job["status"] != "ready":
+            job = self._json("POST", path, {"check": False})
+        self._export(job, target, f"Flight {flight_id}")
+        _remove_others(old, target)
+        return target
+
+    def _mat_logs(self, ids, scope, folder, force):
+        """One export per log: the server groups the numbers by log."""
+        try:
+            reply = self._json("POST", "/api/flights/matlab", {"flight_ids": ids, "scope": scope, "check": True})
+        except (OSError, http.client.HTTPException, HTTPError) as exc:
+            if not self._server_down(exc):
+                raise
+            return self._mat_offline(ids, scope, folder, exc)
+        files = []
+        for e in reply["exports"]:
+            self._remember(folder, e["flight_ids"], e["log_id"])
+            prefix = f"log_{e['log_id']}_{scope}_"
+            target = folder / f"{prefix}{e['id'][:16]}.mat"
+            files.append(target)
+            if target.is_file() and not force:
+                continue
+            label = f"Log {e['log_id']} (flight {' '.join(map(str, e['flight_ids']))})"
+            if e["status"] != "ready":
+                e = self._json("POST", "/api/flights/matlab", {"flight_ids": e["flight_ids"], "scope": scope,
+                                                               "check": False})["exports"][0]
+            self._export(e, target, label)
+            if scope != "selected":  # "all" and "log" are the same whichever numbers ask for them
+                _remove_others(folder.glob(prefix + "*.mat"), target)
+        return files
+
+    def _export(self, job, target, label):
+        """Wait until the server has built the export, then download it."""
+        last = None
+        while job["status"] != "ready":
+            if job["status"] in ("failed", "missing"):
+                raise Error(f"{label}: the export failed: {job.get('error')}")
+            pct = round(100 * float(job.get("progress") or 0))
+            if pct != last:
+                self._say(f"{label}: preparing the export on the server, {pct}%")
+                last = pct
+            time.sleep(1)
+            job = self._request("GET", f"/api/matlab-exports/{job['id']}")
+        self._say(f"{label}: downloading {job.get('filename')}")
+        self._download(job["download"], target)
+
+    @staticmethod
+    def _known(folder):
+        """flight number -> log of earlier downloads (flight_logs.txt in the cache, as MATLAB), for offline use."""
+        try:
+            lines = (folder / "flight_logs.txt").read_text(encoding="ascii").split("\n")
+        except OSError:
+            return {}
+        return {int(f): int(log) for f, log in (line.split() for line in lines if line.strip())}
+
+    def _remember(self, folder, flight_ids, log_id):
+        index = self._known(folder)
+        index.update({int(f): int(log_id) for f in flight_ids})
+        text = "".join(f"{f} {log}\n" for f, log in index.items())
+        _write_atomic(folder / "flight_logs.txt", lambda h: h.write(text.encode()))
+
+    def _mat_offline(self, ids, scope, folder, exc):
+        """Without a connection: the newest cached export of each log the numbers belong to."""
+        index = self._known(folder)
+        if any(i not in index for i in ids):
+            raise exc
+        files = []
+        for log in dict.fromkeys(index[i] for i in ids):
+            old = sorted(folder.glob(f"log_{log}_{scope}_*.mat"), key=lambda p: p.stat().st_mtime)
+            if not old:
+                raise exc
+            warnings.warn(f"Log {log}: server unreachable or failing, using the cached copy ({exc})", stacklevel=4)
+            files.append(old[-1])
+        return files
+
+    def fetch_raw(self, flights, force=False):
+        """Download the original logs of flights by number, untouched, and return one path per log, in the order
+        the numbers first name it.
+
+        A path is that of the log's data file (.data, .BFL, .ulg, .bin, …), with a Paparazzi .log next to it.
         Files are cached (see cache_dir()) by their SHA-256 and never go stale; force=True downloads again.
         Without a connection, or when the server fails (HTTP 5xx), the cached copies are returned with a
         warning."""
-        if scope not in SCOPES:
-            raise ValueError(f"scope must be one of {', '.join(SCOPES)}: {scope!r}")
-        paths = [self._raw(i, force) for i in dict.fromkeys(_flight_ids(flights))]
-        return paths if scope == "flight" else list(dict.fromkeys(paths))
+        paths = []
+        for i in dict.fromkeys(_flight_ids(flights)):
+            paths.append(self._raw(i, force))
+        return list(dict.fromkeys(paths))
 
     def _raw(self, flight_id, force):
         index = self._index(flight_id)
         try:
             info = self._request("GET", f"/api/flights/{flight_id}/files")
         except (OSError, http.client.HTTPException, HTTPError) as exc:
-            if isinstance(exc, HTTPError) and exc.status < 500:
+            if not self._server_down(exc):
                 raise
             try:
                 info = json.loads(index.read_text(encoding="utf-8"))

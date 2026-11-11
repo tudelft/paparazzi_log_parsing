@@ -3,7 +3,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mavlab-logs"
+name = "mavlab-logbook-client"
 dynamic = ["version"]
 description = "Download and upload drone flight logs of a MAVLab flight log database (Paparazzi, ArduPilot, PX4, Betaflight)"
 readme = "README.md"
@@ -18,13 +18,13 @@ classifiers = [
 ]
 
 [project.urls]
-Source = "https://github.com/tudelft/paparazzi_log_parsing/tree/master/client"
+Source = "https://github.com/tudelft/paparazzi_log_parsing/tree/master/python/mavlab-logbook-client"
 
 [project.scripts]
-mavlab-logs = "mavlab_logs.__main__:main"
+mavlab-logbook-client = "mavlab_logbook_client.__main__:main"
 
 [tool.setuptools]
-packages = ["mavlab_logs"]
+packages = ["mavlab_logbook_client"]
 
 [tool.setuptools.dynamic]
-version = {attr = "mavlab_logs.__version__"}
+version = {attr = "mavlab_logbook_client.__version__"}

@@ -1,5 +1,5 @@
 function out = config(action, varargin)
-%CONFIG Settings shared with the Python package mavlab-logs: the stored login per server and the cache folder.
+%CONFIG Settings shared with the Python package mavlab-logbook-client: the stored login per server and the cache folder.
 %   cfg = pprz.config()              read config.json: cache ('' = default) and servers (cell of structs with
 %                                    server, key, expires_at and user of the last browser login per server)
 %   pprz.config('save', cfg)         write it, readable by this user only (it holds API keys)
@@ -7,13 +7,16 @@ function out = config(action, varargin)
 %   pprz.config('forget', server)    drop the key of a server
 %   s = pprz.config('entry', server) the stored entry of a server ([] when none)
 %   key = pprz.config('key', server) its key while it has not expired, else ''
-%   url = pprz.config('normal', url) https://host without a trailing /; 'host' alone means https://host
-%   folder = pprz.config('cache')    the cache folder in use: MAVLAB_LOGS_CACHE, the stored one, else
-%                                    ~/.cache/mavlab-logs, ~/Library/Caches/mavlab-logs or %LOCALAPPDATA%\mavlab-logs\Cache
-%   folder = pprz.config('dir')      MAVLAB_LOGS_CONFIG, else ~/.config/mavlab-logs,
-%                                    ~/Library/Application Support/mavlab-logs or %APPDATA%\mavlab-logs
+%   url = pprz.config('normal', url) https://host without a trailing /; 'host' alone means https://host; http:// is
+%                                    refused except for localhost, so that keys never travel unencrypted
+%   folder = pprz.config('cache')    the cache folder in use: MAVLAB_LOGBOOK_CACHE, the stored one, else
+%                                    ~/.cache/mavlab-logbook-client, ~/Library/Caches/mavlab-logbook-client or
+%                                    %LOCALAPPDATA%\mavlab-logbook-client\Cache
+%   folder = pprz.config('dir')      MAVLAB_LOGBOOK_CONFIG, else ~/.config/mavlab-logbook-client,
+%                                    ~/Library/Application Support/mavlab-logbook-client or
+%                                    %APPDATA%\mavlab-logbook-client
 %   tag = pprz.config('tag', server) folder name for what is specific to a server (flight numbers, exports)
-%   Keep the rules in step with client/mavlab_logs/settings.py.
+%   Keep the rules in step with python/mavlab-logbook-client/mavlab_logbook_client/settings.py.
     if nargin == 0
         action = 'load';
     end
@@ -35,17 +38,18 @@ function out = config(action, varargin)
             save_config(cfg);
         case 'cache'
             cfg = load_config();
-            out = getenv('MAVLAB_LOGS_CACHE');
+            out = getenv('MAVLAB_LOGBOOK_CACHE');
             if isempty(out)
                 out = cfg.cache;
             end
             if isempty(out)
                 if ispc
-                    out = fullfile(env('LOCALAPPDATA', fullfile(home(), 'AppData', 'Local')), 'mavlab-logs', 'Cache');
+                    out = fullfile(env('LOCALAPPDATA', fullfile(home(), 'AppData', 'Local')), ...
+                        'mavlab-logbook-client', 'Cache');
                 elseif ismac
-                    out = fullfile(home(), 'Library', 'Caches', 'mavlab-logs');
+                    out = fullfile(home(), 'Library', 'Caches', 'mavlab-logbook-client');
                 else
-                    out = fullfile(env('XDG_CACHE_HOME', fullfile(home(), '.cache')), 'mavlab-logs');
+                    out = fullfile(env('XDG_CACHE_HOME', fullfile(home(), '.cache')), 'mavlab-logbook-client');
                 end
             end
         case 'entry'
@@ -68,6 +72,11 @@ function out = config(action, varargin)
             end
             if isempty(regexp(out, '^https?://[^/\s]+', 'once'))
                 error('pprz:server', 'Not a server URL: ''%s'' (e.g. https://logs.example.org)', out);
+            end
+            local = '^http://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(/|$)';
+            if startsWith(out, 'http://') && isempty(regexp(out, local, 'once'))
+                error('pprz:server', ['Refusing %s: http:// would send the API key unencrypted; use https:// ' ...
+                    '(http:// only for localhost)'], out);
             end
         case 'dir'
             out = config_dir();
@@ -151,16 +160,16 @@ function delete_if(file)
 end
 
 function folder = config_dir()
-    folder = getenv('MAVLAB_LOGS_CONFIG');
+    folder = getenv('MAVLAB_LOGBOOK_CONFIG');
     if ~isempty(folder)
         return
     end
     if ispc
-        folder = fullfile(env('APPDATA', fullfile(home(), 'AppData', 'Roaming')), 'mavlab-logs');
+        folder = fullfile(env('APPDATA', fullfile(home(), 'AppData', 'Roaming')), 'mavlab-logbook-client');
     elseif ismac
-        folder = fullfile(home(), 'Library', 'Application Support', 'mavlab-logs');
+        folder = fullfile(home(), 'Library', 'Application Support', 'mavlab-logbook-client');
     else
-        folder = fullfile(env('XDG_CONFIG_HOME', fullfile(home(), '.config')), 'mavlab-logs');
+        folder = fullfile(env('XDG_CONFIG_HOME', fullfile(home(), '.config')), 'mavlab-logbook-client');
     end
 end
 

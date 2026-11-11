@@ -76,7 +76,7 @@
     <div class="section-heading"><h2>API keys</h2>
     <details><summary>Help</summary><p>A key lets a script use the API as you (upload and read logs you can access). It cannot manage keys. A <em>read-only</em> key can only read (GET), e.g. for a script that builds a document.
       Send it as <code>Authorization: Bearer &lt;key&gt;</code>. Revoke a key if it leaks.
-      The Python package <code>mavlab-logs</code> and the MATLAB tools can also sign in through the browser instead; they get a key that expires after a week.</p></details></div>
+      The Python package <code>mavlab-logbook-client</code> and the MATLAB tools can also sign in through the browser instead; they get a key that expires after a week.</p></details></div>
     <form class="row" onsubmit="addKey(event)">
       <input id="name" placeholder="Name, e.g. laptop uploader" required maxlength="60" style="min-width:240px">
       <label title="The key can only read (GET), e.g. for a script that builds a document"><input type="checkbox" id="readOnly"> Read-only</label>

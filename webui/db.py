@@ -310,6 +310,7 @@ CREATE TABLE IF NOT EXISTS cli_logins (  -- RFC 8628 device logins of scripts (P
     device_hash TEXT NOT NULL UNIQUE,  -- sha256 of the device code the client polls with; never shown in a browser
     user_code TEXT NOT NULL UNIQUE,    -- short code the user compares in the terminal and the browser
     client TEXT NOT NULL,              -- program and computer, as the client describes itself
+    address TEXT,                      -- IP address the login was started from, shown on the approval page
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
     polled_at TEXT,
@@ -512,6 +513,8 @@ def init(path):
         con.execute("ALTER TABLE api_keys ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0 CHECK(read_only IN (0,1))")
     if "expires_at" not in {r["name"] for r in con.execute("PRAGMA table_info(api_keys)")}:
         con.execute("ALTER TABLE api_keys ADD COLUMN expires_at TEXT")
+    if "address" not in {r["name"] for r in con.execute("PRAGMA table_info(cli_logins)")}:
+        con.execute("ALTER TABLE cli_logins ADD COLUMN address TEXT")
     if "sort_order" not in type_cols:
         con.execute("ALTER TABLE qualification_types ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
         for i, row in enumerate(con.execute("SELECT id FROM qualification_types ORDER BY name"), 1):

@@ -5,7 +5,7 @@ function c = pprz_connect(server, key)
 %   c = pprz_connect(...)                         server, user and where the key came from (source)
 %   Without a key, LOGDB_API_KEY is used (unless LOGDB_SERVER names another server), else the key of the last
 %   browser login to this server, else the browser opens: sign in, check that it shows the code printed here and
-%   press Allow. That key lasts a week and is shared with the Python package mavlab-logs. Values taken from the
+%   press Allow. That key lasts a week and is shared with the Python package mavlab-logbook-client. Values taken from the
 %   environment are announced and named in errors.
     if nargin < 1 || isempty(server)
         error('pprz:server', 'Give the server: pprz_connect(''https://logs.example.org'')');

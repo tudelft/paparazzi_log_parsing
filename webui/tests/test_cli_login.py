@@ -14,7 +14,7 @@ class CliLoginTests(AppTests):
     def start(self):
         with self.client.session_transaction() as session:
             session.clear()
-        response = self.client.post("/api/cli-login", json={"client": "mavlab-logs (Python) on laptop"})
+        response = self.client.post("/api/cli-login", json={"client": "mavlab-logbook-client (Python) on laptop"})
         self.assertEqual(response.status_code, 200, response.json)
         return response.json
 
@@ -33,7 +33,9 @@ class CliLoginTests(AppTests):
         self.assertIn("/login?next=%2Fcli-login%3Fcode%3D", page.location)
         self.sign_in(2)
         info = self.client.get("/api/cli-login/" + start["user_code"].replace("-", "").lower())
-        self.assertEqual(info.json["client"], "mavlab-logs (Python) on laptop")
+        self.assertEqual(info.json["client"], "mavlab-logbook-client (Python) on laptop")
+        self.assertEqual(info.json["address"], "127.0.0.1")  # where and when it started, for the approval page
+        self.assertLess(info.json["age_s"], 60)
         self.assertEqual(self.client.post("/api/cli-login/" + start["user_code"], data={"approve": "1"}).status_code, 400)
         self.assertTrue(self.client.post("/api/cli-login/" + start["user_code"], json={"approve": True}).json["approved"])
         self.assertEqual(self.client.get("/api/cli-login/" + start["user_code"]).status_code, 404)
@@ -47,7 +49,7 @@ class CliLoginTests(AppTests):
         me = self.client.get("/api/me", headers={"Authorization": "Bearer " + key})
         self.assertEqual(me.json["user"]["id"], 2)
         row = self.con.execute("SELECT name, read_only, expires_at FROM api_keys WHERE user_id=2").fetchone()
-        self.assertEqual((row["name"], row["read_only"]), ("Login: mavlab-logs (Python) on laptop", 0))
+        self.assertEqual((row["name"], row["read_only"]), ("Login: mavlab-logbook-client (Python) on laptop", 0))
         self.assertEqual(row["expires_at"], token.json["expires_at"])
         # the server enforces the expiry, and the account page no longer lists the key
         self.con.execute("UPDATE api_keys SET expires_at='2000-01-01T00:00:00Z'")
@@ -71,8 +73,14 @@ class CliLoginTests(AppTests):
         self.assertEqual(self.client.post("/api/keys/revoke-all", headers=auth(read_only)).status_code, 403)
         self.assertEqual(self.client.post("/api/keys/revoke-all", headers=auth(manual)).json["revoked"], 1)
         self.assertEqual(self.client.get("/api/me", headers=auth(manual)).status_code, 200)
-        revoked = self.client.post("/api/keys/revoke-all", json={"include_manual": True}, headers=auth(manual))
-        self.assertEqual(revoked.json["revoked"], 2)
+        # a key cannot revoke the account-page keys, so a leaked one-week key cannot delete them; the browser can
+        refused = self.client.post("/api/keys/revoke-all", json={"include_manual": True}, headers=auth(manual))
+        self.assertEqual(refused.status_code, 403)
+        self.assertEqual(self.client.get("/api/me", headers=auth(manual)).status_code, 200)
+        self.sign_in(2)
+        self.assertEqual(self.client.post("/api/keys/revoke-all", json={"include_manual": True}).json["revoked"], 2)
+        with self.client.session_transaction() as session:
+            session.clear()
         self.assertEqual(self.client.get("/api/me", headers=auth(manual)).status_code, 401)
         self.assertEqual(self.con.execute("SELECT user_id FROM api_keys").fetchall()[0][0], 3)  # other users keep theirs
 

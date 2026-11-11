@@ -3,8 +3,9 @@ function T = pprz_logbook(varargin)
 %   T = pprz_logbook()                    flights judged real by the parser
 %   T = pprz_logbook('all', true)         also uncertain and ground records
 %   logs = pprz_fetch(T.flight(contains(T.aircraft, 'Hex') & T.date > datetime(2026, 10, 1)))
-%   Columns: flight (number for pprz_fetch), date (takeoff, UTC), aircraft, duration_min, pic, project, goal,
-%   verdict and log. Paper records are left out (they have no telemetry to export).
+%   Columns: flight (number for pprz_fetch), date (takeoff, UTC; NaT when unknown), date_ok (false when the log's
+%   clock was not set and no date was entered), aircraft, duration_min, pic, project, goal, verdict, simulation
+%   (true for a simulated flight) and log. Paper records are left out (they have no telemetry to export).
     opt = struct('all', false);
     for k = 1:2:numel(varargin)
         opt.(lower(varargin{k})) = varargin{k + 1};
@@ -20,12 +21,16 @@ function T = pprz_logbook(varargin)
     date = NaT(n, 1, 'TimeZone', 'UTC');
     duration_min = nan(n, 1);
     [aircraft, pic, project, goal, verdict] = deal(strings(n, 1));
+    [date_ok, simulation] = deal(false(n, 1));
     log = zeros(n, 1);
     for k = 1:n
         r = rows{k};
         flight(k) = r.flight_id;
         utc = char(field(r, 'takeoff_utc'));
-        if numel(utc) >= 19  % ISO 8601, e.g. 2026-11-05T09:59:46.627Z: seconds are enough here
+        date_ok(k) = isequal(field(r, 'date_ok'), true);
+        sim = field(r, 'simulation');
+        simulation(k) = isstruct(sim) && isfield(sim, 'detected') && isequal(sim.detected, true);
+        if numel(utc) >= 19 && date_ok(k)  % ISO 8601, e.g. 2026-11-05T09:59:46.627Z; not a clock left at 1970
             date(k) = datetime(utc(1:19), 'InputFormat', 'yyyy-MM-dd''T''HH:mm:ss', 'TimeZone', 'UTC');
         end
         if isnumeric(field(r, 'duration_s')) && ~isempty(field(r, 'duration_s'))
@@ -45,7 +50,7 @@ function T = pprz_logbook(varargin)
             log(k) = r.log_id;
         end
     end
-    T = table(flight, date, aircraft, duration_min, pic, project, goal, verdict, log);
+    T = table(flight, date, date_ok, aircraft, duration_min, pic, project, goal, verdict, simulation, log);
     if ~opt.all
         T = T(~ismember(T.verdict, ["uncertain", "ground"]), :);
     end

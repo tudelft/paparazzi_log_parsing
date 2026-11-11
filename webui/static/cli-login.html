@@ -18,6 +18,7 @@
   input { box-sizing:border-box; width:100%; margin-top:4px; padding:8px; font:inherit; border:1px solid var(--fieldline); border-radius:6px; background:var(--field); color:var(--txt); text-transform:uppercase; letter-spacing:.1em; }
   .code { font:600 26px/1.2 ui-monospace, monospace; letter-spacing:.12em; text-align:center; padding:10px; margin:0 0 14px; border:1px solid var(--line); border-radius:6px; }
   .client { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+  .warn { border-left:3px solid var(--err); padding:6px 10px; }
   .buttons { display:flex; gap:8px; }
   button { flex:1; padding:9px; font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; cursor:pointer; }
   button.secondary { background:none; color:var(--txt); border:1px solid var(--fieldline); }
@@ -38,9 +39,11 @@
   <div id="confirm" hidden>
     <p><span class="client" id="client"></span> asks to use the flight log database as <b id="who"></b>.</p>
     <div class="code" id="shown"></div>
-    <p class="mute">Allow only if your script shows this same code and you started it yourself. It receives a key that
-      acts as you (upload and read what you may) for <span id="days">7</span> days; revoke it on your
-      <a href="/account">account page</a> at any time.</p>
+    <p class="mute" id="origin"></p>
+    <p class="warn"><b>Only allow if you started this yourself just now</b> and your script shows this same code.
+      If not, press Deny: someone may be trying to get into your account.</p>
+    <p class="mute">The script receives a key that acts as you (upload and read what you may) for
+      <span id="days">7</span> days; revoke it on your <a href="/account">account page</a> at any time.</p>
     <div class="buttons"><button type="button" class="secondary" id="deny">Deny</button>
       <button type="button" id="allow">Allow</button></div>
   </div>
@@ -67,6 +70,8 @@ async function show(code) {
     $('who').textContent = me.user.display_name;
     $('shown').textContent = d.user_code;
     $('days').textContent = d.key_days;
+    const ago = d.age_s < 90 ? `${d.age_s} s` : `${Math.round(d.age_s / 60)} min`;
+    $('origin').textContent = `Started ${ago} ago` + (d.address ? ` from ${d.address}.` : '.');
     pick('confirm');
     $('allow').focus();
   } catch (e) {

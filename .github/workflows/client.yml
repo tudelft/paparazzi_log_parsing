@@ -1,5 +1,5 @@
-# Tests the Python package mavlab-logs (client/) on Linux, macOS and Windows. Pushing a tag "client-v<version>"
-# (equal to mavlab_logs.__version__, on a master commit) publishes that version to TestPyPI by trusted publishing;
+# Tests the Python package mavlab-logbook-client (python/mavlab-logbook-client/) on Linux, macOS and Windows. Pushing a tag "client-v<version>"
+# (equal to mavlab_logbook_client.__version__, on a master commit) publishes that version to TestPyPI by trusted publishing;
 # nothing else publishes. Published versions and tags are never changed: a change to the package needs a new version.
 # TestPyPI: the project's trusted publisher is this repository, workflow client.yml, environment "testpypi".
 name: Python client
@@ -7,10 +7,10 @@ name: Python client
 on:
   push:
     branches: [master]
-    paths: ["client/**", ".github/workflows/client.yml"]
+    paths: ["python/mavlab-logbook-client/**", ".github/workflows/client.yml"]
     tags: ["client-v*"]
   pull_request:
-    paths: ["client/**", ".github/workflows/client.yml"]
+    paths: ["python/mavlab-logbook-client/**", ".github/workflows/client.yml"]
   workflow_dispatch:
 
 permissions:
@@ -33,7 +33,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Test
-        run: python -m unittest discover -s client/tests -v
+        run: python -m unittest discover -s python/mavlab-logbook-client/tests -v
 
   publish:
     needs: test
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testpypi
-      url: https://test.pypi.org/p/mavlab-logs
+      url: https://test.pypi.org/p/mavlab-logbook-client
     permissions:
       contents: read
       id-token: write   # TestPyPI trusted publishing
@@ -52,7 +52,7 @@ jobs:
       - name: Check the tag
         run: |
           set -eu
-          version=$(python3 -c "import ast; t = ast.parse(open('client/mavlab_logs/__init__.py').read()); print(next(n.value.value for n in t.body if isinstance(n, ast.Assign) and n.targets[0].id == '__version__'))")
+          version=$(python3 -c "import ast; t = ast.parse(open('python/mavlab-logbook-client/mavlab_logbook_client/__init__.py').read()); print(next(n.value.value for n in t.body if isinstance(n, ast.Assign) and n.targets[0].id == '__version__'))")
           if [ "$GITHUB_REF_NAME" != "client-v$version" ]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match the package version $version"; exit 1
           fi
@@ -65,8 +65,8 @@ jobs:
       - name: Build
         run: |
           python -m pip install build
-          python -m build client
+          python -m build python/mavlab-logbook-client
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: client/dist
+          packages-dir: python/mavlab-logbook-client/dist
           repository-url: https://test.pypi.org/legacy/

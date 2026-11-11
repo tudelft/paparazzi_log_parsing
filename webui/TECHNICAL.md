@@ -1229,7 +1229,7 @@ Rerunning skips already stored pairs; existing parser-error logs are not automat
 
 ## Script login and the Python/MATLAB clients
 
-The [mavlab-logs](../client/README.md) package and the [MATLAB tools](../matlab/README.md) (`pprz_connect`,
+The [mavlab-logbook-client](../python/mavlab-logbook-client/README.md) package and the [MATLAB tools](../matlab/README.md) (`pprz_connect`,
 `pprz_fetch`, `pprz_upload`) sign in with an OAuth 2.0 device authorization flow (RFC 8628), so no key has to be
 copied from the account page:
 
@@ -1238,7 +1238,9 @@ copied from the account page:
    (600 s) and `interval` (5 s). At most eight logins start per address in five minutes.
 2. The client prints the link and the code and opens the browser. `/cli-login` needs a signed-in browser (login,
    also TU Delft sign-in, returns to it through `?next=`, which accepts only paths of this site). The page shows
-   the code and the client's description; the user compares the code and presses **Allow** or **Deny**
+   the code, the client's description and where and when the login started (the requesting address, stored in
+   `cli_logins.address`, and its age), with a warning to allow only a login the user started just now. The user
+   compares the code and presses **Allow** or **Deny**
    (`POST /api/cli-login/<user_code>` with JSON `{"approve": true}`, browser session only). Approval is never
    automatic on opening the link, so a link sent by someone else cannot obtain a key.
 3. The client polls `POST /api/cli-login/token` with `device_code` and gets the RFC 8628 errors
@@ -1250,21 +1252,23 @@ all, as for other keys. A key from a script login is named `Login: <client>` and
 days after the login; the server refuses it afterwards and deletes it when keys are listed or created. A new login
 of the same client replaces its earlier key, so they do not fill the 20-key limit. Such keys appear on the
 account page with their end date and can be revoked there. `POST /api/keys/revoke-all` (also with a full-access
-API key, as `revoke_all` uses it) revokes the user's script-login keys, and with `{"include_manual": true}` all of
-the user's keys; it returns the number revoked.
+API key, as `revoke_all` uses it) revokes the user's script-login keys; `{"include_manual": true}` (all of the
+user's keys) needs a browser session, so a leaked script key cannot delete long-lived keys. It returns the number
+revoked. Both clients refuse `http://` servers except `localhost`/`127.0.0.1`, so keys never travel unencrypted.
 
 Both clients fetch flights by number with the same `scope` (`selected`, `all`, `log` or `flight`): MATLAB's
-`pprz_fetch` downloads exports through the MATLAB export routes, Python's `fetch` the original log files through
-`GET /api/flights/<id>/files` (the flight's log, the SHA-256 of its data file and the
-`/api/logs/<log>/download/<kind>` URLs of its files), whole whatever the scope; uploads go
-through `POST /api/upload` as for `upload_logs.py`. `GET /api/ingest/<id>` lists the parsed log's `flight_ids`.
+`pprz_fetch` and Python's `fetch` download exports through `POST /api/flights/matlab` (one per log) or
+`POST /api/flights/<id>/matlab` (`flight`), into the same cache folder. Python's `fetch_raw` downloads the original
+log files through `GET /api/flights/<id>/files` (the flight's log, the SHA-256 of its data file and the
+`/api/logs/<log>/download/<kind>` URLs of its files). Uploads go through `POST /api/upload` as for
+`upload_logs.py`. `GET /api/ingest/<id>` lists the parsed log's `flight_ids`.
 Both clients keep the login and the cache in the same per-user folders (see the
-[package README](../client/README.md#where-files-are-kept)); `client/mavlab_logs/settings.py` and
+[package README](../python/mavlab-logbook-client/README.md#where-files-are-kept)); `python/mavlab-logbook-client/mavlab_logbook_client/settings.py` and
 `matlab/+pprz/config.m` must keep the same rules. The package is tested and released to TestPyPI by
-`.github/workflows/client.yml`: pushing a tag `client-v<version>` (equal to `mavlab_logs.__version__`, on master)
+`.github/workflows/client.yml`: pushing a tag `client-v<version>` (equal to `mavlab_logbook_client.__version__`, on master)
 publishes that version by trusted publishing (TestPyPI publisher: this repository, `client.yml`, environment `testpypi`);
 merging alone publishes nothing. Client tags are separate from Web UI and parser tags.
-Run its tests with `python -m unittest discover -s client/tests`.
+Run its tests with `python -m unittest discover -s python/mavlab-logbook-client/tests`.
 
 ## How it works
 

@@ -10,8 +10,9 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
-APP = "mavlab-logs"
+APP = "mavlab-logbook-client"
 
 
 def _home():
@@ -19,10 +20,11 @@ def _home():
 
 
 def config_dir():
-    """Linux ~/.config/mavlab-logs, macOS ~/Library/Application Support/mavlab-logs, Windows %APPDATA%\\mavlab-logs;
-    MAVLAB_LOGS_CONFIG chooses another folder."""
-    if os.environ.get("MAVLAB_LOGS_CONFIG"):
-        return Path(os.environ["MAVLAB_LOGS_CONFIG"])
+    """Linux ~/.config/mavlab-logbook-client, macOS ~/Library/Application Support/mavlab-logbook-client,
+    Windows %APPDATA%\\mavlab-logbook-client;
+    MAVLAB_LOGBOOK_CONFIG chooses another folder."""
+    if os.environ.get("MAVLAB_LOGBOOK_CONFIG"):
+        return Path(os.environ["MAVLAB_LOGBOOK_CONFIG"])
     if sys.platform == "win32":
         base = Path(os.environ.get("APPDATA") or _home() / "AppData" / "Roaming")
     elif sys.platform == "darwin":
@@ -33,7 +35,8 @@ def config_dir():
 
 
 def default_cache_dir():
-    """Linux ~/.cache/mavlab-logs, macOS ~/Library/Caches/mavlab-logs, Windows %LOCALAPPDATA%\\mavlab-logs\\Cache."""
+    """Linux ~/.cache/mavlab-logbook-client, macOS ~/Library/Caches/mavlab-logbook-client,
+    Windows %LOCALAPPDATA%\\mavlab-logbook-client\\Cache."""
     if sys.platform == "win32":
         return Path(os.environ.get("LOCALAPPDATA") or _home() / "AppData" / "Local") / APP / "Cache"
     if sys.platform == "darwin":
@@ -42,16 +45,24 @@ def default_cache_dir():
 
 
 def cache_dir():
-    """The cache folder: MAVLAB_LOGS_CACHE, else the one set with set_cache_dir(), else the default of this OS."""
-    return Path(os.environ.get("MAVLAB_LOGS_CACHE") or load().get("cache") or default_cache_dir())
+    """The cache folder: MAVLAB_LOGBOOK_CACHE, else the one set with set_cache_dir(), else the default of this OS."""
+    return Path(os.environ.get("MAVLAB_LOGBOOK_CACHE") or load().get("cache") or default_cache_dir())
+
+
+LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
 
 
 def normal_server(url):
+    """https://host without a trailing /; a bare host name gets https://. http:// only for this computer, so that
+    API keys never travel unencrypted."""
     url = (url or "").strip().rstrip("/")
     if url and "://" not in url:
         url = "https://" + url
     if not re.match(r"^https?://[^/\s]+", url):
-        raise ValueError(f"the server must start with https:// (or http://), e.g. https://logs.example.org: {url!r}")
+        raise ValueError(f"the server must start with https://, e.g. https://logs.example.org: {url!r}")
+    if url.startswith("http://") and urlsplit(url).hostname not in LOCAL_HOSTS:
+        raise ValueError(f"refusing {url}: http:// would send the API key unencrypted; use https:// "
+                         "(http:// only for localhost)")
     return url
 
 

@@ -1166,10 +1166,13 @@ def create_key():
 @app.post("/api/keys/revoke-all")
 def revoke_all_keys():
     """Revoke the user's keys from script (browser) logins, or with include_manual also those made on the account
-    page. Also with an API key, so the Python and MATLAB clients can do it."""
+    page. The former also with an API key, so the Python and MATLAB clients can do it; include_manual needs a
+    browser session, so a leaked one-week key cannot delete the long-lived keys."""
     include_manual = (request.get_json(silent=True) or {}).get("include_manual", False)
     if type(include_manual) is not bool:
         return jsonify(error="include_manual must be true or false"), 400
+    if include_manual and g.via_key:
+        return jsonify(error="revoking the keys made on the account page needs a signed-in browser"), 403
     con = conn()
     cur = con.execute("DELETE FROM api_keys WHERE user_id=?" + ("" if include_manual else " AND expires_at IS NOT NULL"),
                       (g.user["id"],))
@@ -1219,9 +1222,9 @@ def cli_login_start():
     for _ in range(5):
         user_code = normal_user_code("".join(secrets.choice(CLI_CODE_ALPHABET) for _ in range(8)))
         try:
-            con.execute("INSERT INTO cli_logins (device_hash, user_code, client, created_at, expires_at)"
-                        " VALUES (?,?,?,?,?)", (hashlib.sha256(device_code.encode()).hexdigest(), user_code,
-                                                client, now(), iso_in(CLI_LOGIN_SECONDS)))
+            con.execute("INSERT INTO cli_logins (device_hash, user_code, client, address, created_at, expires_at)"
+                        " VALUES (?,?,?,?,?,?)", (hashlib.sha256(device_code.encode()).hexdigest(), user_code,
+                                                  client, request.remote_addr, now(), iso_in(CLI_LOGIN_SECONDS)))
             break
         except sqlite3.IntegrityError:
             continue
@@ -1307,7 +1310,9 @@ def pending_cli_login(con, user_code):
 def cli_login_info(user_code):
     session_required()
     row = pending_cli_login(conn(), user_code)
-    return jsonify(user_code=row["user_code"], client=row["client"], created_at=row["created_at"],
+    age = datetime.now(timezone.utc) - datetime.fromisoformat(row["created_at"][:-1]).replace(tzinfo=timezone.utc)
+    return jsonify(user_code=row["user_code"], client=row["client"], address=row["address"],
+                   created_at=row["created_at"], age_s=max(0, int(age.total_seconds())),
                    expires_at=row["expires_at"], key_days=CLI_KEY_DAYS)
 
 

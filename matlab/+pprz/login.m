@@ -2,7 +2,7 @@ function key = login(server)
 %LOGIN Sign in to the logbook server through the browser (RFC 8628) and return the key, stored for a week.
 %   key = pprz.login('https://logs.example.org')    used by pprz_connect when there is no valid key
 %   Prints a link and a code and opens the browser: sign in there, check that it shows the same code and press
-%   Allow. The stored key is shared with the Python package mavlab-logs.
+%   Allow. The stored key is shared with the Python package mavlab-logbook-client.
     server = regexprep(char(server), '/+$', '');
     [start, status] = pprz.http('POST', [server '/api/cli-login'], ...
         struct('client', ['MATLAB on ' char(java.net.InetAddress.getLocalHost().getHostName())]), '');

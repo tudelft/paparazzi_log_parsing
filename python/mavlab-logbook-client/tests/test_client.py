@@ -1,4 +1,4 @@
-"""Tests of mavlab_logs against a small local stub of the server API (no real server, logs or keys)."""
+"""Tests of mavlab_logbook_client against a small local stub of the server API (no real server, logs or keys)."""
 import gzip
 import hashlib
 import io
@@ -15,13 +15,24 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import mavlab_logs as ml  # noqa: E402
-from mavlab_logs import settings  # noqa: E402
+import mavlab_logbook_client as ml  # noqa: E402
+from mavlab_logbook_client import settings  # noqa: E402
 
 DATA, LOG = b"paparazzi data" * 100, b"<protocol/>"
 SHA = hashlib.sha256(DATA).hexdigest()
 OTHER = b"LOG00030" * 50  # flight 20, a Betaflight log on its own
 LOG_OF = {7: 1, 8: 1, 20: 2}  # flight number -> log
+MAT = b"\x89HDF\r\n" * 10  # an export
+
+
+def job(name, ready, version=1):
+    """An export job as the server reports it; its id changes with the content (version)."""
+    jid = hashlib.sha256(f"{name}|{version}".encode()).hexdigest()[:32]
+    out = {"id": jid, "status": "ready" if ready else "missing", "progress": 0, "error": None,
+           "filename": name + ".mat"}
+    if ready:
+        out["download"] = f"/api/matlab-exports/{jid}/download"
+    return out
 
 
 class Stub(BaseHTTPRequestHandler):
@@ -59,11 +70,13 @@ class Stub(BaseHTTPRequestHandler):
             self.reply(200, {"user": {"id": 2, "display_name": "Pilot"}})
         elif self.path == "/api/logbook?compact=1":
             rows = [
-                {"flight_id": 8, "takeoff_utc": "2026-11-05T09:59:46.627Z", "duration_s": 90, "aircraft": "Hex 1",
-                 "pic_user": {"id": 2, "display_name": "Pilot"}, "pic": "pilot", "project_name": "P",
-                 "goal": "test", "verdict": "flight", "log_id": 2},
-                {"flight_id": 7, "takeoff_utc": None, "aircraft": "Quad", "pic_user": None, "pic": "Guest",
-                 "verdict": "ground", "log_id": 1},
+                {"flight_id": 8, "takeoff_utc": "2026-11-05T09:59:46.627Z", "date_ok": True, "duration_s": 90,
+                 "aircraft": "Hex 1", "pic_user": {"id": 2, "display_name": "Pilot"}, "pic": "pilot",
+                 "project_name": "P", "goal": "test", "verdict": "flight", "log_id": 2,
+                 "simulation": {"detected": False}},
+                {"flight_id": 7, "takeoff_utc": "1970-01-01T00:02:00Z", "date_ok": False, "aircraft": "Quad",
+                 "pic_user": None, "pic": "Guest", "verdict": "ground", "log_id": 1,
+                 "simulation": {"detected": True}},
                 {"flight_id": None, "historical_id": 3, "aircraft": "Paper", "verdict": "flight"}]
             self.reply(200, gzip.compress(json.dumps(rows).encode()), {"Content-Encoding": "gzip"})
         elif self.path.startswith("/api/flights/") and self.path.endswith("/files"):
@@ -82,6 +95,14 @@ class Stub(BaseHTTPRequestHandler):
                                             "url": "/api/logs/2/download/data"}]})
             else:
                 self.reply(404, {"error": f"no flight {flight}"})
+        elif self.path.startswith("/api/matlab-exports/"):
+            jid = self.path.split("/")[3]
+            if self.path.endswith("/download"):
+                s["downloads"].append(jid)
+                self.reply(200, MAT)
+            else:
+                s["status_polls"] += 1
+                self.reply(200, job(s["jobs"][jid], True, s["version"]))
         elif self.path == "/api/logs/2/download/data":
             self.reply(200, OTHER)
         elif self.path.startswith("/api/logs/1/download/"):
@@ -116,6 +137,21 @@ class Stub(BaseHTTPRequestHandler):
                                  "user": {"display_name": "Pilot"}})
         elif not self.authorized():
             return
+        elif s.get("fail") and "/matlab" in self.path:
+            self.reply(s["fail"], {"error": "failing"})
+        elif self.path == "/api/flights/matlab":
+            body = self.body()
+            exports = []
+            for log in dict.fromkeys(LOG_OF[f] for f in body["flight_ids"]):
+                wanted = [f for f in body["flight_ids"] if LOG_OF[f] == log]
+                name = f"log{log}_{body['scope']}" + ("_" + "_".join(map(str, wanted))
+                                                       if body["scope"] == "selected" else "")
+                exports.append(dict(self.submit(name, body["check"]), log_id=log, flight_ids=wanted,
+                                    scope=body["scope"]))
+            self.reply(200 if body["check"] else 202, {"exports": exports})
+        elif self.path.startswith("/api/flights/") and self.path.endswith("/matlab"):
+            flight = int(self.path.split("/")[3])
+            self.reply(200, dict(self.submit(f"flight{flight}", self.body()["check"]), flight_id=flight))
         elif self.path == "/api/keys/revoke-all":
             s["revoked"] = self.body()
             self.reply(200, {"revoked": 1})
@@ -130,19 +166,30 @@ class Stub(BaseHTTPRequestHandler):
             self.reply(404, {"error": "not found"})
 
 
+    def submit(self, name, check):
+        """An export is ready once it was asked for without check."""
+        s = self.state
+        out = job(name, name in s["built"], s["version"])
+        s["jobs"][out["id"]] = name
+        if not check and name not in s["built"]:
+            s["built"].add(name)
+            out["status"] = "queued"
+        return out
+
+
 class ClientTests(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.dir = Path(folder.name)
-        env = patch.dict(os.environ, {"MAVLAB_LOGS_CONFIG": str(self.dir / "config"),
-                                      "MAVLAB_LOGS_CACHE": str(self.dir / "cache")})
+        env = patch.dict(os.environ, {"MAVLAB_LOGBOOK_CONFIG": str(self.dir / "config"),
+                                      "MAVLAB_LOGBOOK_CACHE": str(self.dir / "cache")})
         env.start()
         self.addCleanup(env.stop)
         for name in ("LOGDB_SERVER", "LOGDB_API_KEY"):
             os.environ.pop(name, None)
         Stub.state = dict(key="logdb_old", auth=[], files_calls=0, token_polls=0, polls=0,
-                          uploads=[], known=set())
+                          uploads=[], known=set(), jobs={}, built=set(), version=1, downloads=[], status_polls=0)
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Stub)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
@@ -160,7 +207,7 @@ class ClientTests(unittest.TestCase):
 
     def test_connect_signs_in_through_the_browser_and_redoes_a_refused_login(self):
         with self.assertRaises(ml.Error):
-            ml.fetch(7)  # not connected yet
+            ml.fetch_raw(7)  # not connected yet
         with redirect_stderr(io.StringIO()) as err, redirect_stdout(io.StringIO()) as out:
             client = ml.connect(self.url)
         self.assertEqual(client.key_source, "browser login")
@@ -185,7 +232,7 @@ class ClientTests(unittest.TestCase):
         with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
             ml.connect(self.url)
             self.assertEqual(ml.revoke_all(), 1)
-        self.assertEqual(Stub.state["revoked"], {"include_manual": False})
+        self.assertEqual(Stub.state["revoked"], {})
         self.assertIsNone(settings.entry(self.url))
 
     def test_keys_from_the_environment_or_arguments_are_never_replaced(self):
@@ -207,15 +254,54 @@ class ClientTests(unittest.TestCase):
             self.client(login=False).me()
         self.assertEqual(Stub.state["token_polls"], 0)
 
-    def test_fetch_caches_by_sha256_and_works_offline(self):
+    def test_keys_never_travel_over_plain_http(self):
+        for url in ("http://logs.example.org", "http://10.0.0.1:8000"):
+            with self.assertRaisesRegex(ValueError, "unencrypted"):
+                ml.Client(url, quiet=True)
+        for url in ("http://localhost:8000", "http://127.0.0.1", "http://[::1]:8000"):
+            self.assertEqual(settings.normal_server(url + "/"), url)
+
+    def test_fetch_downloads_exports_per_log_or_flight_and_reuses_them(self):
         client = self.client(key="logdb_old")
-        path, = client.fetch([7, "7"])
+        folder = self.dir / "cache" / "mat" / settings.server_tag(self.url)
+        with patch("time.sleep"):
+            first = client.fetch([8, 7], scope="selected")
+            self.assertEqual(len(first), 1)
+            self.assertTrue(first[0].name.startswith("log_1_selected_"))
+            self.assertEqual(first[0].read_bytes(), MAT)
+            self.assertEqual(client.fetch([8, 7]), first)  # cached: no download
+            self.assertEqual(len(Stub.state["downloads"]), 1)
+            self.assertEqual((folder / "flight_logs.txt").read_text(), "8 1\n7 1\n")
+            per_flight = client.fetch([7, 8, 7], scope="flight")
+            self.assertEqual([p.name.split("_")[1] for p in per_flight], ["7", "8"])
+            # a changed export (new parser or logbook data) replaces the old whole-log file
+            whole = client.fetch(7, scope="log")
+            Stub.state["version"] = 2
+            again = client.fetch(7, scope="log")
+            self.assertNotEqual(whole, again)
+            self.assertFalse(whole[0].exists())
+            Stub.state["fail"] = 503  # a failing server: the cached copies, with a warning
+            with self.assertWarnsRegex(UserWarning, "HTTP 503"):
+                self.assertEqual(client.fetch([7, 8], scope="log"), again)
+            with self.assertWarnsRegex(UserWarning, "cached copy"):
+                self.assertEqual(client.fetch(7, scope="flight"), per_flight[:1])
+            with self.assertRaises(ml.HTTPError):
+                client.fetch(20)  # never fetched: nothing to fall back on
+            Stub.state["fail"] = 409  # not a server failure: raised
+            with self.assertRaises(ml.HTTPError):
+                client.fetch(7)
+        with self.assertRaises(ValueError):
+            client.fetch(7, scope="nope")
+
+    def test_fetch_raw_caches_by_sha256_and_works_offline(self):
+        client = self.client(key="logdb_old")
+        path, = client.fetch_raw([7, "7"])
         Stub.state["fail"] = 503  # a failing server: the cached copy, with a warning
         with self.assertWarnsRegex(UserWarning, "HTTP 503"):
-            self.assertEqual(client.fetch(7), [path])
+            self.assertEqual(client.fetch_raw(7), [path])
         Stub.state["fail"] = 404  # not a server failure: raised
         with self.assertRaises(ml.HTTPError):
-            client.fetch(7)
+            client.fetch_raw(7)
         del Stub.state["fail"]
         self.assertEqual(path, self.dir / "cache" / "logs" / SHA / "a.data")
         self.assertEqual(path.read_bytes(), DATA)
@@ -223,42 +309,35 @@ class ClientTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()  # connections are refused now: offline
         with self.assertWarnsRegex(UserWarning, "using the cached copy"):
-            self.assertEqual(self.client(key="logdb_old").fetch(7), [path])
+            self.assertEqual(self.client(key="logdb_old").fetch_raw(7), [path])
         with self.assertRaises(ValueError):
-            client.fetch([True])
+            client.fetch_raw([True])
 
     def test_logbook_lists_real_flights_unless_all(self):
         client = self.client(key="logdb_old")
         row, = client.logbook()
         self.assertEqual(row, {"flight": 8, "date": datetime(2026, 11, 5, 9, 59, 46, tzinfo=timezone.utc),
-                               "aircraft": "Hex 1", "duration_min": 1.5, "pic": "Pilot", "project": "P",
-                               "goal": "test", "verdict": "flight", "log": 2})
-        ground = client.logbook(all=True)[1]
-        self.assertEqual((ground["flight"], ground["date"], ground["pic"], ground["duration_min"]),
-                         (7, None, "Guest", None))
+                               "date_ok": True, "aircraft": "Hex 1", "duration_min": 1.5, "pic": "Pilot",
+                               "project": "P", "goal": "test", "verdict": "flight", "simulation": False, "log": 2})
+        ground = client.logbook(all=True)[1]  # a clock that was not set (1970) is not a date
+        self.assertEqual((ground["flight"], ground["date"], ground["date_ok"], ground["simulation"], ground["pic"],
+                          ground["duration_min"]), (7, None, False, True, "Guest", None))
         self.assertEqual(len(client.logbook(all=True)), 2)  # the paper record has no flight number
 
     def test_corrupt_download_is_not_kept(self):
         Stub.state["corrupt"] = True
         with self.assertRaises(ml.Error):
-            self.client(key="logdb_old").fetch(7)
+            self.client(key="logdb_old").fetch_raw(7)
         self.assertEqual(list((self.dir / "cache" / "logs" / SHA).iterdir()), [])
 
-    def test_scope_returns_whole_logs_per_log_or_per_number(self):
+    def test_fetch_raw_returns_one_whole_log_per_log(self):
         client = self.client(key="logdb_old")
-        data, other = self.dir / "cache" / "logs" / SHA / "a.data", None
-        for scope in ("selected", "all", "log"):  # binary logs are never cut: the same files
-            paths = client.fetch([8, 20, 7], scope=scope)
-            self.assertEqual(paths[0], data)
-            other = other or paths[1]
-            self.assertEqual(paths, [data, other])
+        data, other = client.fetch_raw([8, 20, 7])
+        self.assertEqual(data, self.dir / "cache" / "logs" / SHA / "a.data")
         self.assertEqual(other.name, "LOG00030.BFL")
         self.assertEqual(other.read_bytes(), OTHER)
-        self.assertEqual(client.fetch([8, 20, 7, 8], scope="flight"), [data, other, data])
-        with self.assertRaises(ValueError):
-            client.fetch(7, scope="nope")
         with self.assertRaises(ml.HTTPError):
-            client.fetch([7, 99])
+            client.fetch_raw([7, 99])
 
     def test_upload_pairs_skips_and_waits(self):
         data, bfl = self.dir / "f.data", self.dir / "LOG1.BFL"
@@ -269,7 +348,8 @@ class ClientTests(unittest.TestCase):
         with patch("time.sleep"):
             receipts = client.upload([data.with_suffix(".log"), data], wait=True)
         self.assertEqual(len(receipts), 1)
-        self.assertEqual((receipts[0]["status"], receipts[0]["log_id"], receipts[0]["flight_ids"]), ("done", 3, [11, 12]))
+        self.assertEqual((receipts[0]["status"], receipts[0]["log_id"], receipts[0]["flight_ids"]),
+                         ("done", 3, [11, 12]))
         self.assertEqual(Stub.state["uploads"], [["f.data", "f.log"]])
         client.upload(bfl, name="Hex 1/LOG1.BFL")
         self.assertEqual(Stub.state["uploads"][-1], ["Hex 1/LOG1.BFL"])
@@ -282,13 +362,13 @@ class ClientTests(unittest.TestCase):
     def test_cache_folders_follow_the_platform(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(settings.os.path, "expanduser", lambda p: "/h"):
             with patch.object(settings.sys, "platform", "darwin"):
-                self.assertEqual(settings.config_dir(), Path("/h/Library/Application Support/mavlab-logs"))
-                self.assertEqual(settings.default_cache_dir(), Path("/h/Library/Caches/mavlab-logs"))
+                self.assertEqual(settings.config_dir(), Path("/h/Library/Application Support/mavlab-logbook-client"))
+                self.assertEqual(settings.default_cache_dir(), Path("/h/Library/Caches/mavlab-logbook-client"))
             with patch.object(settings.sys, "platform", "linux"):
-                self.assertEqual(settings.default_cache_dir(), Path("/h/.cache/mavlab-logs"))
+                self.assertEqual(settings.default_cache_dir(), Path("/h/.cache/mavlab-logbook-client"))
         ml.set_cache_dir(self.dir / "elsewhere")
         with patch.dict(os.environ):
-            del os.environ["MAVLAB_LOGS_CACHE"]
+            del os.environ["MAVLAB_LOGBOOK_CACHE"]
             self.assertEqual(ml.cache_dir(), (self.dir / "elsewhere").resolve())
 
 
