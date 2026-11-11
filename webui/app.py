@@ -809,7 +809,7 @@ def upload():
 #   https://login.tudelft.nl/sso/saml2/idp/metadata.php
 PUBLIC_ENDPOINTS = {"login_page", "login", "login_options", "setup_page", "setup_info", "setup_password",
                     "theme_css", "theme_js", "favicon", "saml_login", "saml_acs", "saml_metadata", "saml_sls",
-                    "cli_login_start", "cli_login_token"}
+                    "cli_login_start", "cli_login_token", "calendar_feed"}
 SETUP_HOURS = 48
 MAX_FAILURES, FAILURE_WINDOW_S = 8, 300
 _failures: dict = {}
