@@ -2527,7 +2527,7 @@ def admin_delete_place(place_id):
 @app.get("/api/operators")
 def list_operators():
     """UAS operators flights can be flown under (operators.py); a reference catalog, like projects."""
-    return jsonify(operators=operators.catalog(conn()), admin=bool(g.user["is_admin"]))
+    return jsonify(operators=operators.catalog(conn()), admin=bool(g.user["is_admin"]), countries=countries.choices())
 
 
 @app.post("/api/operators")

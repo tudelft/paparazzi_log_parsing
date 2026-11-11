@@ -17,6 +17,23 @@ class OperatorTests(LinkFixtures):
                               (3, "Test centre", "TC-3", "NL", 0)])
         self.con.commit()
 
+    def test_operator_country_is_a_code_from_the_list_and_old_text_is_migrated(self):
+        self.con.execute("UPDATE operators SET country='Belgium' WHERE id=2")
+        self.con.execute("UPDATE operators SET country='somewhere' WHERE id=3")
+        self.con.commit()
+        with patch.object(db, "connect", return_value=self.con):  # the migration runs at every start, idempotent
+            db.init("unused")
+            db.init("unused")
+        rows = dict(self.con.execute("SELECT id, country FROM operators").fetchall())
+        self.assertEqual(rows, {1: "NL", 2: "BE", 3: None})
+        self.sign_in(1)
+        self.assertIn(["NL", "Netherlands"], self.client.get("/api/operators").json["countries"])
+        self.assertEqual(self.client.put("/api/admin/operators/3", json={"country": "de"}).status_code, 200)
+        self.assertEqual(self.con.execute("SELECT country FROM operators WHERE id=3").fetchone()[0], "DE")
+        bad = self.client.put("/api/admin/operators/3", json={"country": "Atlantis"})
+        self.assertEqual(bad.status_code, 400)
+        self.assertIn("unknown country", bad.json["error"])
+
     def entry(self, **match):
         return next(r for r in self.logbook() if all(r.get(k) == v for k, v in match.items()))
 
