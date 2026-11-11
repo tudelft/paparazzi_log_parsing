@@ -654,6 +654,9 @@ function renderPersonPanel() {
       const todo = (d.missing || []).filter(m => m !== 'profile').map(m => m.replace('_', ' '));
       $('personProfile').innerHTML = profileHTML(d.profile)
         + (todo.length ? `<span class="mute">Still to fill in</span><span>${esc(todo.join(', '))}</span>` : '');
+      const url = `/profile?user=${id}&next=${encodeURIComponent(location.pathname + location.search)}`;
+      $('personProfile').insertAdjacentHTML('beforebegin', `<p><button type="button" class="sec"
+        onclick="location.href='${url}'">${d.profile ? 'Edit profile' : 'Fill in profile'}</button></p>`);
     }).catch(error => { $('personProfile').textContent = error.message; });
   } else if (selectedTab === 'api') {
     $('personContent').innerHTML = `<div class="section-heading"><h3>API keys</h3>

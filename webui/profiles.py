@@ -270,6 +270,12 @@ def save_options(con, body):
         con.execute(f"DELETE FROM {table} WHERE id NOT IN ({','.join('?' * len(keep))})", keep)
 
 
+def person_name(con, user_id):
+    row = con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=? AND is_external=0",
+                      (user_id,)).fetchone()
+    return row[0] if row else None
+
+
 def students_of(con, user_id):
     """The people this user supervises, with their profiles without the number."""
     return [dict(id=r["user_id"], name=r["name"], profile=profile(con, r["user_id"], with_number=False))
@@ -340,9 +346,26 @@ def register(app, connection, require_session, now, pages_dir):
         if admin or own:  # the people this person supervises, as their supervisor sees them
             students = [dict(id=s["id"], name=s["name"], profile=s["profile"], projects=projects(c, s["id"], g.user))
                         for s in students_of(c, user_id)]
-        return jsonify({"profile": profile(c, user_id, with_number=admin or own), "self": own,
-                        "missing": missing(c, user_id) if admin or own else None,
-                        "projects": projects(c, user_id, g.user), "students": students})
+        out = {"profile": profile(c, user_id, with_number=admin or own), "self": own, "can_edit": admin or own,
+               "missing": missing(c, user_id) if admin or own else None,
+               "projects": projects(c, user_id, g.user), "students": students}
+        if admin:  # what the edit form needs
+            out["options"] = options(c)
+            out["name"] = person_name(c, user_id)
+        return jsonify(out)
+
+    @app.put("/api/users/<int:user_id>/profile")
+    def save_person_profile(user_id):
+        """Admins edit someone's profile, with the same rules as the person's own form."""
+        signed_in()
+        if not g.user["is_admin"]:
+            abort(403)
+        c = con()
+        if person_name(c, user_id) is None:
+            abort(404)
+        save(c, user_id, request.get_json(silent=True), now())
+        c.commit()
+        return jsonify(profile=profile(c, user_id), missing=missing(c, user_id))
 
     @app.get("/api/profiles")
     def visible_profiles():

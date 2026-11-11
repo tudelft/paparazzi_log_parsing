@@ -280,7 +280,7 @@ async function loadProfile() {
   const studentRow = s => `${personLink(s)} <span class="m">· ${[s.profile?.role, s.profile ? (s.profile.indefinite ? 'Indefinite' : 'until ' + s.profile.end_date) : '',
     ...(s.projects || []).map(x => x.name)].filter(Boolean).map(v => `<span class="nw">${esc(v)}</span>`).join(' · ')}</span>`;
   const kv = (k, v) => v ? `<span class="m">${k}</span><span>${v}</span>` : '';
-  $('profilePop').innerHTML = `<h3>Profile <span class="m" title="${esc(who)}">🔒</span>${d.self ? '<a href="/profile">Edit</a>' : ''}</h3><div class="kv">`
+  $('profilePop').innerHTML = `<h3>Profile <span class="m" title="${esc(who)}">🔒</span>${d.self ? '<a href="/profile">Edit</a>' : d.can_edit ? `<a href="/profile?user=${ITEM_ID}&next=${encodeURIComponent(location.pathname + location.search)}">Edit</a>` : ''}</h3><div class="kv">`
     + (d.profile ? kv('Department', esc(p.department) + (p.department_group ? ` <span class="m">(${esc(p.department_group)})</span>` : ''))
       + kv('Expected end', p.indefinite ? 'Indefinite' : `${esc(p.end_date)} <span class="m">(${until(p.end_date)})</span>`)
       + ('number' in p ? kv('Number', `${esc(p.number)} <span class="m">(${d.self ? 'you' : esc(name)} and admins only)</span>`) : '')

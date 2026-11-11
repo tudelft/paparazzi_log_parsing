@@ -41,7 +41,7 @@
   <h1 id="title">Your profile</h1>
   <p class="mute small" id="intro" style="margin:0">Asked after signing in, and again when your expected end date has
     passed. You can change it later under <a href="/account">My account</a>.</p>
-  <label class="f">I am<select id="role" required></select></label>
+  <label class="f"><span id="roleLabel">I am</span><select id="role" required></select></label>
   <label class="f">Department / section<select id="dept"></select></label>
   <label class="f" id="deptTextBox" hidden>Your department or section<input id="deptText" maxlength="120"></label>
   <div id="supBox">
@@ -64,6 +64,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const next = new URLSearchParams(location.search).get('next');
+const target = +new URLSearchParams(location.search).get('user') || 0;  // an admin editing someone else's profile
 let opts = null, sups = [];
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 
@@ -139,7 +140,7 @@ $('f').onsubmit = async e => {
   };
   $('save').disabled = true;
   try {
-    await api('/api/profile', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    await api(target ? `/api/users/${target}/profile` : '/api/profile', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     location.href = safeNext();
   } catch (err) {
     $('err').textContent = err.message;
@@ -148,20 +149,31 @@ $('f').onsubmit = async e => {
   }
 };
 function safeNext() {
-  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/profile') ? next : (next ? '/' : '/account');
+  if (next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/profile')) return next;
+  return target ? `/people/${target}` : next ? '/' : '/account';
 }
 
 (async () => {
   let d;
-  try { d = await api('/api/profile'); } catch (err) { $('err').textContent = err.message; return; }
-  opts = d.options;
+  try { d = await api(target ? `/api/users/${target}/profile` : '/api/profile'); }
+  catch (err) { $('err').textContent = err.message; return; }
+  if (target && !d.options) { $('err').textContent = 'Only administrators can edit someone else\'s profile.'; return; }
+  opts = {...d.options, supervisors: d.options.supervisors.filter(s => s.id !== (target || -1))};
   const p = d.profile || {};
   const complete = d.profile && !d.missing.length;
-  $('title').textContent = complete ? 'Your profile' : d.profile ? 'Update your profile' : 'Complete your profile';
-  if (d.profile && d.missing.includes('end_date') && d.missing.length === 1)
-    $('intro').textContent = 'Your expected end date has passed. Give a new one, or tick Indefinite.';
-  $('cancel').hidden = !complete;
-  $('save').textContent = complete ? 'Save' : 'Save and continue';
+  if (target) {
+    $('title').textContent = 'Profile of ' + d.name;
+    $('roleLabel').textContent = 'Role';
+    document.title = 'Profile of ' + d.name + ' - Flight log database';
+    $('intro').textContent = `You are editing ${d.name}'s profile as an administrator. The same rules apply as when they fill it in.`;
+    $('cancel').href = safeNext();
+  } else {
+    $('title').textContent = complete ? 'Your profile' : d.profile ? 'Update your profile' : 'Complete your profile';
+    if (d.profile && d.missing.includes('end_date') && d.missing.length === 1)
+      $('intro').textContent = 'Your expected end date has passed. Give a new one, or tick Indefinite.';
+  }
+  $('cancel').hidden = !complete && !target;
+  $('save').textContent = complete || target ? 'Save' : 'Save and continue';
   $('role').innerHTML = '<option value="">Choose…</option>'
     + opts.roles.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
   const groups = [...new Set(opts.departments.map(x => x.grp || ''))];
