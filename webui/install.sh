@@ -189,7 +189,9 @@ if [ "$CONFIGURE" -eq 1 ]; then
     echo "Uploaded logs (large) and the database backup can go on a network share, e.g. a Samba share mounted"
     echo "via /etc/fstab. The database itself stays in $WEB_DATA on this server's disk."
     echo "Mount the share before continuing, with the service user '$SVC_USER' as owner, e.g. in /etc/fstab:"
-    echo "  //fileserver/share /mnt/flight-logs cifs credentials=/etc/flight-logs/smb.cred,uid=$SVC_USER,gid=$SVC_USER,file_mode=0660,dir_mode=0770,_netdev,nofail 0 0"
+    echo "  //fileserver/share /mnt/flight-logs cifs credentials=/etc/flight-logs/smb.cred,uid=$SVC_USER,gid=$SVC_USER,file_mode=0660,dir_mode=0770,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30 0 0"
+    echo "(x-systemd.automount mounts the share on first use, so a share that is not reachable at boot does not keep"
+    echo "the service from starting; do not use noauto.)"
     LOG_DIR=$(get_setting LOG_DIR)
     BACKUP_DIR=$(get_setting BACKUP_DIR)
     ask LOG_DIR "Directory for the uploaded logs" "${LOG_DIR:-/mnt/flight-logs/logs}"
