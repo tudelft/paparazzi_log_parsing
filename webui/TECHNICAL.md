@@ -961,8 +961,8 @@ Where it shows:
 - My account: the person's own profile and the people they supervise;
 - People: the role and department on the cards; the **Profiles** tab (a sortable, filterable table with CSV
   download) and the **Supervision** tab (one card per supervisor, external ones by name). Admins see everyone; a
-  supervisor sees the people they supervise. Both come from `GET /api/profiles`; flights are those as PIC within
-  the flight filters. Filters, sort and page are kept in the URL (`p_*` parameters);
+  supervisor sees the people they supervise. Both come from `GET /api/profiles`; the Profiles table also shows
+  flights as PIC within the flight filters (Supervision does not). Filters, sort and page are kept in the URL (`p_*` parameters);
 - People in Edit mode: the person **Profile** tab, where admins edit the profile in place (`PUT /api/users/<id>/profile`):
   like the import, they may fill in only what they know (empty fields are allowed, a past end date too), but what is
   filled in must be valid; the person is asked for the rest at the next sign-in, and **Profile options** to edit the role and department lists

@@ -276,7 +276,7 @@
     <div class="people-title-row"><h2>Supervision</h2><span class="mute" id="supervisionCount" role="status"></span>
       <label class="directory-search"><input type="search" id="supervisionSearch" aria-label="Search supervision" placeholder="Search supervisor, person or project" oninput="profileState('sq', this.value)"></label>
       <label><input type="checkbox" id="supervisionEnded" onchange="profileState('ended', this.checked ? '1' : '')"> Include ended</label>
-      <details><summary>Help</summary><p>Who supervises whom, from the profiles. Each card lists the people a supervisor supervises, with their projects (those you can open) and their flights as PIC within the flight filters. External supervisors have no account and are grouped by name.</p></details></div>
+      <details><summary>Help</summary><p>Who supervises whom, from the profiles. Each card lists the people a supervisor supervises, with their role, expected end and projects (those you can open). External supervisors have no account and are grouped by name.</p></details></div>
     <div class="supervision-grid" id="supervisionGroups"></div>
   </section>
   <dialog class="entry-dialog" id="fillNumbersDialog" aria-labelledby="fillNumbersTitle">
@@ -942,7 +942,7 @@ function supervisionGroups() {
   return [...groups.values()].sort((a, b) => (!a.id - !b.id) || a.name.localeCompare(b.name));
 }
 function renderSupervision() {
-  const totals = picTotals(), q = profileParam('sq').toLowerCase();
+  const q = profileParam('sq').toLowerCase();
   const byId = new Map(profileList.map(x => [x.id, x]));
   const groups = supervisionGroups().map(g => ({...g, people: g.people.filter(x => !q || [g.name, x.name, ...x.projects.map(p => p.name)].join(' ').toLowerCase().includes(q))}))
     .filter(g => g.people.length);
@@ -953,10 +953,10 @@ function renderSupervision() {
     const sub = g.id ? [own?.role, own?.department].filter(Boolean).map(esc).join(' · ') : 'External supervisor';
     return `<div class="supervision-group${g.id ? '' : ' external'}"><h3>${g.id ? `<a href="/people/${g.id}">${esc(g.name)}</a>` : esc(g.name)}</h3>
       <div class="mute small">${sub ? sub + ' · ' : ''}${g.people.length} ${g.people.length === 1 ? 'person' : 'people'}</div>
-      <table><colgroup><col style="width:20%"><col style="width:19%"><col style="width:15%"><col style="width:28%"><col style="width:18%"></colgroup>${g.people.map(x => `<tr><td><a href="/people/${x.id}">${esc(x.name)}</a></td><td class="mute">${esc(x.profile?.role || '')}</td>
+      <table><colgroup><col style="width:22%"><col style="width:20%"><col style="width:16%"><col style="width:42%"></colgroup>${g.people.map(x => `<tr><td><a href="/people/${x.id}">${esc(x.name)}</a></td><td class="mute">${esc(x.profile?.role || '')}</td>
         <td class="${x.status === 'ended' || x.status === 'soon' ? 'end-' + x.status : ''}" title="${x.status === 'ended' ? 'Ended' : x.status === 'soon' ? 'Ends within 3 months' : ''}">${x.profile?.indefinite ? 'Indefinite' : esc(x.profile?.end_date || '')}</td>
         <td class="projects" title="${esc(x.projects.map(p => p.name).join(', '))}">${x.projects.length ? `<a class="chip" href="/projects/${x.projects[0].id}">${esc(x.projects[0].name)}</a>${x.projects.length > 1 ? `<span class="mute"> +${x.projects.length - 1}</span>` : ''}` : ''}</td>
-        <td class="mute">${flightsText(totals.get(x.id))}</td></tr>`).join('')}</table></div>`;
+</tr>`).join('')}</table></div>`;
   }).join('') || '<p class="mute">No matching people.</p>';
 }
 function cardProfileLine(u) {
