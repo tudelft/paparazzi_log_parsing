@@ -9,8 +9,8 @@ tests and API/storage architecture, use the [technical guide](TECHNICAL.md).
 Upload flight logs and browse flights, crew, projects, aircraft and locations in one logbook.
 All pages require sign-in; the records you can see depend on your access. Where TU Delft sign-in is set up, the
 sign-in page shows only that; **Sign in with a local account** opens the username/password form (`/login?local=1`).
-The home page (`/`) opens the logbook. The menu has Logbook, Statistics, **Directory ▾** (Aircraft, People, Projects,
-Locations and Logs), Training and Agenda (when enabled). **⬆ Upload logs** at the top right opens the upload dialog; your
+The home page (`/`) opens the logbook. The menu has Logbook, Agenda and Training (when enabled) and
+**Directory ▾** (People, Aircraft, Projects, Locations, then Logs and Statistics). **⬆ Upload logs** at the top right opens the upload dialog; your
 name opens My account, Night mode and Sign out. Existing `/logbook` links still work.
 
 ## Everyday use
@@ -45,7 +45,7 @@ to gain descriptions and previously omitted crew entries.
 |---|---|
 | **Logbook** | Filter flights (also by a paper record's reference, e.g. F00090), review flight time, expand a row or open its flight page. Click aircraft, crew, project or location names for their detail pages. |
 | **Upload logs** | The button at the top right (or drop files on any page): send logs, ZIP archives or folders and follow your recent uploads while they are parsed. **Logs** (Directory ▾) lists every log you can see, with parsing progress and errors. Paparazzi logs need matching `.data` and `.log` files. PX4 `.ulg`, ArduPilot `.bin`/`.log`, `.tlog` and Betaflight/INDIFlight `.bfl`/`.bbl` files can also be uploaded. A folder named after one fleet aircraft still links when the files sit in subfolders; already uploaded logs with that layout are linked at each start. |
-| **Statistics** | View totals for aircraft, projects and crew within your access. |
+| **Statistics** | Under Directory: totals for aircraft, projects and crew within your access. |
 | **Aircraft / People / Projects / Locations** | Browse records and open their histories, totals and flights. |
 | **Training** | When enabled, complete questionnaires until you pass. A pass writes the linked qualification immediately. |
 | **Agenda** | When enabled, book shared items such as an indoor arena; see [Agenda](#agenda). |

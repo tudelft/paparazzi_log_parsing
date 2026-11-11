@@ -495,8 +495,8 @@ window.timingEvidenceHTML = function (timing) {
     window.dispatchEvent(new Event('editchange'));
   };
   // Menu: Logbook · Statistics · Directory ▾ · Training (when enabled); Upload logs, Edit and the name menu on the right
-  const DIRECTORY = [['/aircraft', 'Aircraft'], ['/people', 'People'], ['/projects', 'Projects'], ['/locations', 'Locations'],
-    null, ['/logs', 'Logs']];
+  const DIRECTORY = [['/people', 'People'], ['/aircraft', 'Aircraft'], ['/projects', 'Projects'], ['/locations', 'Locations'],
+    null, ['/logs', 'Logs'], ['/stats', 'Statistics']];
 
   function cachedAdmin() {
     try { return localStorage.getItem(ADMIN_KEY) === '1'; } catch (e) { return false; }
@@ -516,7 +516,6 @@ window.timingEvidenceHTML = function (timing) {
   function currentTab() {
     const p = location.pathname;
     if (p === '/logbook' || p === '/attachments' || p === '/review' || p.startsWith('/flight/') || p.startsWith('/historical/')) return '/';
-    if (p === '/stats') return '/stats';
     if (p === '/training' || p.startsWith('/training/')) return '/training';
     if (p === '/agenda') return '/agenda';
     for (const [tab] of DIRECTORY.filter(Boolean))
@@ -563,10 +562,11 @@ window.timingEvidenceHTML = function (timing) {
     const here = currentTab();
     const tab = (href, label) => `<a href="${href}"${href === here ? ' class="cur" aria-current="page"' : ''}>${label}</a>`;
     const inDirectory = DIRECTORY.some(item => item && item[0] === here);
-    nav.innerHTML = tab('/', 'Logbook') + tab('/stats', 'Statistics')
-      + `<button type="button" class="nav-drop${inDirectory ? ' cur' : ''}" id="directoryBtn">Directory ▾</button>`
+    // what people use daily first; the reference lists, Logs and Statistics under Directory
+    nav.innerHTML = tab('/', 'Logbook')
+      + (cachedBookings() ? tab('/agenda', 'Agenda') : '')
       + (cachedTraining() ? tab('/training', 'Training') : '')
-      + (cachedBookings() ? tab('/agenda', 'Agenda') : '');
+      + `<button type="button" class="nav-drop${inDirectory ? ' cur' : ''}" id="directoryBtn">Directory ▾</button>`;
     let panel = document.getElementById('directoryMenu');
     if (!panel) {
       panel = document.createElement('div');
