@@ -957,8 +957,8 @@ Where it shows:
   download) and the **Supervision** tab (one card per supervisor, external ones by name). Admins see everyone; a
   supervisor sees the people they supervise. Both come from `GET /api/profiles`; flights are those as PIC within
   the flight filters. Filters, sort and page are kept in the URL (`p_*` parameters);
-- People in Edit mode: the person **Profile** tab with **Edit profile** (admins edit someone's profile with the same
-  rules, `/profile?user=<id>`, `PUT /api/users/<id>/profile`; also **Edit** in the person page's profile popover), and **Profile options** to edit the role and department lists
+- People in Edit mode: the person **Profile** tab, where admins edit the profile in place with the same rules as
+  the person's own form (`PUT /api/users/<id>/profile`), and **Profile options** to edit the role and department lists
   (`PUT /api/admin/profile-options`). The role list is seeded once when the tables are created; the department list starts empty, because it is
 site-specific: admins add departments there or **Import CSV** (`name,group` per line), and people can also type one. Removing a list
 entry empties that field in the profiles that used it, so those people are asked again.
