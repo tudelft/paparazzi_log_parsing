@@ -9,6 +9,7 @@ import tempfile
 import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -56,6 +57,15 @@ class Stub(BaseHTTPRequestHandler):
             return
         if self.path == "/api/me":
             self.reply(200, {"user": {"id": 2, "display_name": "Pilot"}})
+        elif self.path == "/api/logbook?compact=1":
+            rows = [
+                {"flight_id": 8, "takeoff_utc": "2026-11-05T09:59:46.627Z", "duration_s": 90, "aircraft": "Hex 1",
+                 "pic_user": {"id": 2, "display_name": "Pilot"}, "pic": "pilot", "project_name": "P",
+                 "goal": "test", "verdict": "flight", "log_id": 2},
+                {"flight_id": 7, "takeoff_utc": None, "aircraft": "Quad", "pic_user": None, "pic": "Guest",
+                 "verdict": "ground", "log_id": 1},
+                {"flight_id": None, "historical_id": 3, "aircraft": "Paper", "verdict": "flight"}]
+            self.reply(200, gzip.compress(json.dumps(rows).encode()), {"Content-Encoding": "gzip"})
         elif self.path.startswith("/api/flights/") and self.path.endswith("/files"):
             s["files_calls"] += 1
             if s.get("fail"):
@@ -216,6 +226,17 @@ class ClientTests(unittest.TestCase):
             self.assertEqual(self.client(key="logdb_old").fetch(7), [path])
         with self.assertRaises(ValueError):
             client.fetch([True])
+
+    def test_logbook_lists_real_flights_unless_all(self):
+        client = self.client(key="logdb_old")
+        row, = client.logbook()
+        self.assertEqual(row, {"flight": 8, "date": datetime(2026, 11, 5, 9, 59, 46, tzinfo=timezone.utc),
+                               "aircraft": "Hex 1", "duration_min": 1.5, "pic": "Pilot", "project": "P",
+                               "goal": "test", "verdict": "flight", "log": 2})
+        ground = client.logbook(all=True)[1]
+        self.assertEqual((ground["flight"], ground["date"], ground["pic"], ground["duration_min"]),
+                         (7, None, "Guest", None))
+        self.assertEqual(len(client.logbook(all=True)), 2)  # the paper record has no flight number
 
     def test_corrupt_download_is_not_kept(self):
         Stub.state["corrupt"] = True

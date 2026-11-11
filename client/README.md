@@ -14,6 +14,8 @@ pip install -i https://test.pypi.org/simple/ mavlab-logs
 import mavlab_logs as ml
 
 ml.connect("logs.example.org")                     # or ml.connect("logs.example.org", key="logdb_…")
+rows = ml.logbook()                                # the flights you may see, newest first (as pprz_logbook)
+numbers = [r["flight"] for r in rows if "Hex" in r["aircraft"]]
 paths = ml.fetch([1234, 1240])                     # flight numbers, as in /flight/1234: one path per log
 paths[0]                     # e.g. ~/.cache/mavlab-logs/logs/<sha256>/24_10_30__16_27_37_SD.data (.log next to it)
 paths = ml.fetch([1234, 1240], scope="flight")     # one path per number instead
@@ -32,6 +34,11 @@ self-signed certificate. `connect` returns a `Client` with the same methods, for
 `ml.revoke_all()` revokes your browser-login keys on every computer (Python and MATLAB) and forgets the stored one;
 `ml.revoke_all(include_manual=True)` also revokes the keys made on the account page.
 
+**The logbook** (`ml.logbook()`, as MATLAB's `pprz_logbook`) is a list of dicts, one per flight, newest first:
+`flight` (the number for `fetch`), `date` (takeoff, UTC `datetime`), `aircraft`, `duration_min`, `pic`, `project`,
+`goal`, `verdict` and `log`. It holds the flights the parser judged real; `all=True` adds uncertain and ground
+records. Paper records are left out. `pandas.DataFrame(rows)` makes a table of it.
+
 **Fetching** downloads the original log files that hold the flights, always whole: they are binary and are not cut
 into flights (use MATLAB's `pprz_fetch` for exports of single flights). `scope` is that of `pprz_fetch`:
 `"selected"` (default), `"all"` and `"log"` return one path per log, `"flight"` one path per number. Logs are
@@ -47,6 +54,7 @@ aircraft. With `wait=True` each call returns once the server has parsed the log,
 
 ```sh
 mavlab-logs --server logs.example.org status                       # signs in if needed; user, key and cache
+mavlab-logs --server logs.example.org logbook                      # tab-separated flights; --all
 mavlab-logs --server logs.example.org fetch 1234 1240               # prints the local paths; --scope flight
 mavlab-logs --server logs.example.org upload flight.data LOG00030.BFL --wait
 mavlab-logs --server logs.example.org revoke-all                    # --include-manual for account-page keys too

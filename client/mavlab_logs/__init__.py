@@ -2,6 +2,7 @@
 
     import mavlab_logs as ml
     ml.connect("logs.example.org")     # signs in through the browser when needed
+    rows = ml.logbook()                # the flights you may see, newest first
     paths = ml.fetch([1234, 1240])     # flight numbers, as in /flight/1234; the original logs
     ml.upload("LOG00030.BFL", wait=True)
 
@@ -11,14 +12,14 @@ from .client import AuthError, Client, Error, HTTPError, ProcessingFailed
 from .settings import cache_dir, set_cache_dir
 
 __version__ = "0.1.0"
-__all__ = ["Client", "connect", "fetch", "upload", "revoke_all", "cache_dir", "set_cache_dir",
+__all__ = ["Client", "connect", "logbook", "fetch", "upload", "revoke_all", "cache_dir", "set_cache_dir",
            "Error", "AuthError", "HTTPError", "ProcessingFailed"]
 
 _client = None
 
 
 def connect(server, key=None, *, login=True, insecure=False):
-    """Connect to the logbook server for fetch(), upload() and revoke_all(), and return the Client.
+    """Connect to the logbook server for logbook(), fetch(), upload() and revoke_all(), and return the Client.
 
     server: URL or host name, e.g. "logs.example.org" (https:// is added).
     key: API key from the account page; default LOGDB_API_KEY, else the key of the last browser login to this
@@ -40,6 +41,11 @@ def _connected():
     if _client is None:
         raise Error("not connected: call mavlab_logs.connect() first")
     return _client
+
+
+def logbook(all=False):
+    """The logbook flights you may see, newest first (dicts with flight, date, aircraft, …); see Client.logbook."""
+    return _connected().logbook(all=all)
 
 
 def fetch(flights, scope="selected", force=False):

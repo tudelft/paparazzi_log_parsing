@@ -1,4 +1,4 @@
-"""HTTP client for the flight log database: browser login, cached downloads by flight number, and uploads."""
+"""HTTP client for the flight log database: browser login, the logbook, cached downloads by flight number, and uploads."""
 import hashlib
 import http.client
 import json
@@ -255,6 +255,43 @@ class Client:
     def me(self):
         """The signed-in user (display_name, username, …)."""
         return self._request("GET", "/api/me")["user"]
+
+    def logbook(self, all=False):
+        """The logbook flights you may see, newest first, to pick numbers for fetch(); as MATLAB's pprz_logbook.
+
+        Returns one dict per flight: flight (number for fetch), date (takeoff, UTC datetime or None), aircraft,
+        duration_min, pic, project, goal, verdict and log. Only flights the parser judged real, unless all=True
+        (also "uncertain" and "ground"). Paper records are left out (they have no telemetry).
+        pandas.DataFrame(rows) makes a table of it."""
+        def sink(response):
+            raw = response.read()
+            if response.getheader("Content-Encoding", "").lower() == "gzip":
+                raw = zlib.decompress(raw, 31)
+            return json.loads(raw)
+        rows = self._request("GET", "/api/logbook?compact=1", headers={"Accept-Encoding": "gzip"}, sink=sink)
+        if not isinstance(rows, list):
+            raise Error("invalid JSON response from /api/logbook")
+        out = []
+        for r in rows:
+            if not isinstance(r, dict) or type(r.get("flight_id")) is not int:
+                continue  # paper records have no flight number
+            if not all and r.get("verdict") in ("uncertain", "ground"):
+                continue
+            utc = r.get("takeoff_utc") or ""
+            try:  # ISO 8601, e.g. 2026-11-05T09:59:46.627Z: seconds are enough here
+                date = datetime.strptime(utc[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+            except ValueError:
+                date = None
+            duration = r.get("duration_s")
+            person = r.get("pic_user")
+            out.append({
+                "flight": r["flight_id"], "date": date, "aircraft": r.get("aircraft") or "",
+                "duration_min": duration / 60 if isinstance(duration, (int, float)) else None,
+                "pic": (person.get("display_name") if isinstance(person, dict) else None) or r.get("pic") or "",
+                "project": r.get("project_name") or "", "goal": r.get("goal") or "",
+                "verdict": r.get("verdict") or "", "log": r.get("log_id"),
+            })
+        return out
 
     # --- downloads -----------------------------------------------------------------------------------------------
     def _download(self, path, target, sha256=None):

@@ -1,4 +1,4 @@
-"""Command line: mavlab-logs [--server URL] [--key KEY] status | fetch | upload | revoke-all."""
+"""Command line: mavlab-logs [--server URL] [--key KEY] status | logbook | fetch | upload | revoke-all."""
 import argparse
 import sys
 
@@ -14,6 +14,8 @@ def main(argv=None):
     ap.add_argument("--insecure", action="store_true", help="do not verify the https certificate")
     sub = ap.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="sign in if needed and show the server, user, key and cache folder")
+    p = sub.add_parser("logbook", help="list the flights you may see, newest first, tab-separated")
+    p.add_argument("--all", action="store_true", help="also flights judged uncertain or ground")
     p = sub.add_parser("fetch", help="download the original logs of flights by number and print their paths")
     p.add_argument("flights", nargs="+", type=int, help="flight numbers (the number in /flight/<number>)")
     p.add_argument("--scope", choices=("selected", "all", "log", "flight"), default="selected",
@@ -37,6 +39,13 @@ def main(argv=None):
             print(f"Key: {client.key_source}" + (f", until {stored['expires_at']}"
                   if client.key_source == "browser login" and stored.get("expires_at") else ""))
             print(f"Cache: {settings.cache_dir()}")
+        elif a.command == "logbook":
+            columns = ("flight", "date", "aircraft", "duration_min", "pic", "project", "goal", "verdict", "log")
+            print("\t".join(columns))
+            for r in client.logbook(all=a.all):
+                r["date"] = r["date"].strftime("%Y-%m-%d %H:%M:%S") if r["date"] else ""
+                r["duration_min"] = f"{r['duration_min']:.1f}" if r["duration_min"] is not None else ""
+                print("\t".join("" if r[c] is None else str(r[c]).replace("\t", " ") for c in columns))
         elif a.command == "fetch":
             for path in client.fetch(a.flights, scope=a.scope, force=a.force):
                 print(path)
