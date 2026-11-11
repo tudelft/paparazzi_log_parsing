@@ -148,11 +148,11 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
 
 - **Locations** lists the places on the left (search by name or country, filter by **Country**) and shows the map
   on the right. Click a location in the list or on the map to select it: the map zooms to it and its details and
-  actions (Open location, and in Edit mode Name / type, Edit shape, Delete) appear under the list. Nearby places
+  actions (Open location, and in Edit mode Edit details, Edit shape, Delete) appear under the list. Nearby places
   are grouped into numbered markers when zoomed out; click a group to zoom in.
 - On **Locations**, admins can turn on **Edit**, choose **Edit shape** beside a place,
   then drag the map handles to move or resize its circle or polygon. Choose **Save shape**
-  to apply the boundary or **Cancel** to discard changes. **Name / type** changes its name,
+  to apply the boundary or **Cancel** to discard changes. **Edit details** opens a small dialog for its name,
   country (two-letter code, e.g. NL), indoor status, operator and category separately.
   To replace the boundary entirely, use **Edit shape**, select a **New shape** (polygon,
   rectangle or circle), then **Redraw boundary** and draw it on the map. **Save shape**

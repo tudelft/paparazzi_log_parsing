@@ -12,9 +12,15 @@
   #map { height:560px; border-radius:6px; border:1px solid var(--line); }
   /* List left, map right; on narrow screens the map comes first. */
   .places-grid { display:grid; grid-template-columns:minmax(300px, 2fr) 3fr; gap:16px; align-items:start; }
-  .places-grid > #map { grid-column:2; grid-row:1; }
+  .places-grid > .map-wrap { grid-column:2; grid-row:1; position:relative; }
   .places-side { grid-column:1; grid-row:1; min-width:0; }
-  @media (max-width: 820px) { .places-grid { grid-template-columns:1fr; } .places-grid > #map, .places-side { grid-column:1; grid-row:auto; } .places-grid > #map { order:-1; height:360px; } }
+  @media (max-width: 820px) { .places-grid { grid-template-columns:1fr; } .places-grid > .map-wrap, .places-side { grid-column:1; grid-row:auto; } .places-grid > .map-wrap { order:-1; } #map { height:360px; } }
+  /* hints and the shape editor float on the map (Edit mode) */
+  .map-bar { position:absolute; top:10px; left:56px; right:10px; z-index:500; display:flex; gap:6px; align-items:center; flex-wrap:wrap; width:fit-content; max-width:calc(100% - 66px);
+    background:var(--card); border:1px solid var(--line); border-radius:6px; padding:4px 10px; font-size:12px; color:var(--mute); box-shadow:0 2px 8px #0003; }
+  .map-bar[hidden] { display:none; }
+  #shapeForm { color:var(--txt); font-size:13px; top:auto; bottom:28px; left:10px; }
+  #placePanel .actions .right { margin-left:auto; display:flex; gap:6px; }
   .places-tools { display:flex; gap:8px; }
   .places-tools input { flex:1; min-width:0; }
   .place-list { margin-top:8px; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
@@ -81,26 +87,36 @@
     <div class="places-grid">
       <div class="places-side">
         <div class="places-tools"><input id="placeSearch" type="search" placeholder="Find location" aria-label="Find location">
-          <select id="placeCountry" aria-label="Country"><option value="">All countries</option></select></div>
+          <select id="placeCountry" aria-label="Country"><option value="">All countries</option></select>
+          <button type="button" class="sec" id="importBtn" hidden onclick="$('importPlacesDialog').showModal()" style="white-space:nowrap">Import CSV</button></div>
         <div class="place-list" id="placeList" role="listbox" aria-label="Locations"></div>
         <div id="placePages" class="navigation-pages"></div>
         <div id="placePanel" hidden></div>
       </div>
-      <div id="map"></div>
+      <div class="map-wrap"><div id="map"></div>
+        <div class="map-bar" id="mapHint" hidden>Draw a new place with the tools on the left, then name it.</div>
+      <div id="shapeForm" class="map-bar" hidden>
+        <span id="shapeLabel"></span>
+        <label>New shape <select id="shapeType"><option value="polygon">Polygon</option><option value="rectangle">Rectangle</option><option value="circle">Circle</option></select></label>
+        <button type="button" id="shapeRedraw" class="sec" onclick="redrawShape()">Redraw boundary</button>
+        <button type="button" id="shapeSave" onclick="saveShape()">Save shape</button>
+        <button type="button" id="shapeCancel" class="sec" onclick="cancelShape()">Cancel</button>
+        <span id="shapeError" role="alert"></span>
+      </div>
+      </div>
     </div>
     <div id="mapMsg" class="mute" style="margin-top:6px"></div>
-    <div id="shapeForm" style="margin-top:8px" hidden>
-      <span id="shapeLabel"></span>
-      <label>New shape <select id="shapeType"><option value="polygon">Polygon</option><option value="rectangle">Rectangle</option><option value="circle">Circle</option></select></label>
-      <button type="button" id="shapeRedraw" class="sec" onclick="redrawShape()">Redraw boundary</button>
-      <button type="button" id="shapeSave" onclick="saveShape()">Save shape</button>
-      <button type="button" id="shapeCancel" class="sec" onclick="cancelShape()">Cancel</button>
-      <span id="shapeError" role="alert"></span>
-    </div>
-    <div id="nameForm" style="margin-top:8px" hidden>
-      <span id="nameLabel"></span> <input id="placeName" size="30" maxlength="80" placeholder="Name"> <label><input type="checkbox" id="placeIndoor"> Indoors</label> <label>Country <select id="placeCountrySet"></select></label> <label title="A site that runs its own operation, such as a test centre: flights here are under that operator unless set otherwise">Operator <select id="placeOperator"></select></label> <label title="The rules flights here are flown under, e.g. SPECIFIC with the authorisation a site needs, unless the flight or its project says otherwise">Category <select id="placeCategory"></select></label> <button id="nameSave">Save</button> <button id="nameCancel" class="sec">Cancel</button>
-    </div>
-    <p id="importSection" hidden><button type="button" class="sec" onclick="$('importPlacesDialog').showModal()">Import places from CSV</button></p>
+    <dialog class="entry-dialog" id="nameForm" aria-labelledby="nameLabel" style="width:min(420px,calc(100% - 32px))">
+      <div class="dialog-header"><h2 id="nameLabel">Location details</h2><button type="button" class="sec" id="nameClose">Close</button></div>
+      <div class="dialog-fields" style="display:grid;gap:10px">
+        <label class="field">Name<input id="placeName" maxlength="80" required></label>
+        <label class="field">Country<select id="placeCountrySet"></select></label>
+        <label class="field" title="A site that runs its own operation, such as a test centre: flights here are under that operator unless set otherwise">Operator<select id="placeOperator"></select></label>
+        <label class="field" title="The rules flights here are flown under, e.g. SPECIFIC with the authorisation a site needs, unless the flight or its project says otherwise">Category<select id="placeCategory"></select></label>
+        <label><input type="checkbox" id="placeIndoor"> Indoors <span class="mute">(flights here count as indoor)</span></label>
+      </div>
+      <p style="display:flex;justify-content:flex-end;gap:8px;margin:14px 0 0"><button type="button" id="nameCancel" class="sec">Cancel</button><button type="button" id="nameSave">Save</button></p>
+    </dialog>
     <dialog class="entry-dialog" id="importPlacesDialog" aria-labelledby="importPlacesTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
     <div class="dialog-header"><h2 id="importPlacesTitle">Import places from CSV</h2><button type="button" onclick="$('importPlacesDialog').close()" aria-label="Close CSV import">Close</button></div>
     <p>Each row is a circle (<code>place</code>, <code>lat</code>, <code>lon</code>, <code>radius_m</code>, optional <code>indoor</code> yes/no and <code>country</code>, e.g. NL). A place with the same name is updated; importing the same file again changes nothing. One bad row imports nothing. Other columns of <code>logbooks/places.csv</code> are ignored.</p>
@@ -207,7 +223,8 @@ function editShape(id) {
   $('shapeLabel').textContent = `Editing ${place.name}: drag the handles to move or resize the boundary.`;
   $('shapeError').textContent = '';
   $('shapeForm').hidden = false;
-  $('map').scrollIntoView({behavior: 'smooth', block: 'center'});
+  $('mapHint').hidden = true;
+  $('map').scrollIntoView({behavior: 'smooth', block: 'nearest'});
 }
 async function saveShape() {
   if (!shapeEdit || shapeSaving || shapeEdit.drawer || !canEdit()) return;
@@ -251,13 +268,13 @@ function askName(mode, label, value, indoor = false, operatorId = null, category
   $('placeCategory').innerHTML = '<option value="">From the project or date</option>' + categoryOptions(authorisations, category);
   $('nameLabel').textContent = label;
   $('placeName').value = value;
-  $('nameForm').hidden = false;
+  if (!$('nameForm').open) $('nameForm').showModal();
   $('placeName').focus();
 }
 function closeName() {
   if (pendingLayer) { pendingLayer.remove(); pendingLayer = null; }
   naming = null;
-  $('nameForm').hidden = true;
+  if ($('nameForm').open) $('nameForm').close();
 }
 async function saveName() {
   const name = $('placeName').value.trim();
@@ -295,7 +312,7 @@ function initMap() {
       return;
     }
     pendingLayer = e.layer.addTo(map);
-    askName({kind: 'new', shape: shapeOf(e.layer)}, 'Name for the new place:', '');
+    askName({kind: 'new', shape: shapeOf(e.layer)}, 'New location', '');
   });
   map.on(L.Draw.Event.DRAWSTOP, () => {
     if (!shapeEdit || !shapeEdit.drawer) return;
@@ -305,7 +322,8 @@ function initMap() {
     shapeControls();
   });
   $('nameSave').onclick = saveName;
-  $('nameCancel').onclick = closeName;
+  $('nameCancel').onclick = $('nameClose').onclick = closeName;
+  $('nameForm').addEventListener('cancel', event => { event.preventDefault(); closeName(); });  // Escape
   $('placeName').onkeydown = e => { if (e.key === 'Enter') saveName(); else if (e.key === 'Escape') closeName(); };
   map.on(L.Draw.Event.EDITED, async e => {
     for (const layer of e.layers.getLayers()) await send('PUT', '/api/admin/places/' + layer.placeId, {shape: shapeOf(layer)});
@@ -323,12 +341,13 @@ function paintMode() {
   renderPoints();
   if (!edit && shapeEdit && !shapeSaving) { cancelShape(); return; }
   $('intro').textContent = edit
-    ? 'Draw a polygon, rectangle or circle with the tools on the map, then give it a name. Use Edit shape in the table to adjust a boundary, or choose a New shape and Redraw boundary to replace it. Save shape keeps the same location and linked records; Cancel restores its original boundary. Takeoffs and landings inside it show that name in the logbook (the smallest matching shape wins).'
+    ? 'Draw a polygon, rectangle or circle with the tools on the map, then give it a name. Select a location and use Edit shape to adjust its boundary, or choose a New shape and Redraw boundary to replace it. Save shape keeps the same location and linked records; Cancel restores its original boundary. Takeoffs and landings inside it show that name in the logbook (the smallest matching shape wins).'
     : placeData.admin
       ? 'Takeoffs and landings inside a place show its name in the logbook. Turn on Edit (top right) to add, change or delete places.'
       : 'Places where flights you have access to took off or landed.';
   if (!edit) { closeName(); $('importPlacesDialog').close(); }
-  $('importSection').hidden = !edit;
+  $('importBtn').hidden = !edit;
+  $('mapHint').hidden = !edit || !!shapeEdit;
   if (map) {
     if (edit && !drawControl && !shapeEdit) {
       drawControl = new L.Control.Draw({
@@ -441,8 +460,8 @@ function renderPanel() {
   const details = [p.country && countryName(p.country), p.indoor ? 'indoors' : 'outdoors', operatorName(p.operator_id), shape,
     p.last && 'last flight ' + p.last.slice(0, 10)].filter(Boolean);
   $('placePanel').innerHTML = `<b>${esc(p.name)}</b> <span class="mute">· ${details.map(esc).join(' · ')}</span>
-    <div class="actions"><a href="/locations/${p.id}">Open location</a>${edit ? ` <button onclick="renamePlace(${p.id})">Name / type</button>
-      <button onclick="editShape(${p.id})">Edit shape</button> <button class="danger" onclick="deletePlace(${p.id})">Delete</button>` : ''}</div>`;
+    <div class="actions"><a href="/locations/${p.id}">Open location</a>${edit ? `<span class="right"><button class="sec" onclick="renamePlace(${p.id})">Edit details</button>
+      <button class="sec" onclick="editShape(${p.id})">Edit shape</button> <button class="danger" onclick="deletePlace(${p.id})">Delete</button></span>` : ''}</div>`;
 }
 let pendingCountry = '', pendingPlace = null;
 function saveState(push = false) { window.viewState.save(push); }
@@ -538,7 +557,7 @@ function zoomPlace(id) {
 }
 function renamePlace(id) {
   const cur = placeData.places.find(p => p.id === id);
-  askName({kind: 'rename', id}, 'Name and type:', cur.name, cur.indoor, cur.operator_id, categoryValue(cur), cur.country || '');
+  askName({kind: 'rename', id}, 'Location details', cur.name, cur.indoor, cur.operator_id, categoryValue(cur), cur.country || '');
 }
 // Check first (preview=1 writes nothing), then import the same file.
 async function importPlaces(preview) {
