@@ -653,7 +653,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `BIND` | `127.0.0.1:8000` | Address gunicorn listens on |
 | `HIDE_UNLINKED_AIRCRAFT` | `0` | `1` excludes unlinked telemetry flights from Logbook, Statistics, person details and Locations, and hides the Aircraft notice outside Edit mode |
 | `TRAINING` | `0` | `1` shows Training: in-app questionnaires that can grant a qualification on a pass |
-| `CYBERZOO_QUALIFICATION` | (empty) | Name of the qualification type needed for the [Cyberzoo agenda](#cyberzoo-agenda); empty hides it |
+| `BOOKINGS` | `0` | `1` shows the [Agenda](#booking-agenda) of bookable items |
 | `PERSON_PROFILE` | `0` | `1` asks everyone who signs in for a [person profile](#person-profiles) |
 | `WEB_DATA` | `webui/data` | Database and keys; local disk only |
 | `LOG_DIR` | `<WEB_DATA>/logs` | Uploaded logs and flight paths; may be a share |
@@ -804,8 +804,8 @@ selected in Edit mode stays listed. Non-admins only count qualifications they ma
 Logbook has no top-level project filter and no longer applies a previously saved project filter.
 Project reassignment controls in Edit mode remain available.
 The menu (`theme.js`) has Logbook (`/`), Statistics, **Directory ▾** (Aircraft, People, Projects, Locations, then Logs
-at `/logs`), Training (`/training`, when `LOGDB_TRAINING=1`) and Cyberzoo (`/cyberzoo`, when
-`LOGDB_CYBERZOO_QUALIFICATION` is set), then the flight filters. On the right: **⬆ Upload
+at `/logs`), Training (`/training`, when `LOGDB_TRAINING=1`) and Agenda (`/agenda`, when `LOGDB_BOOKINGS=1`), then
+the flight filters. On the right: **⬆ Upload
 logs** (for admins and members with add or full access on a project, `can_upload` in `/api/me`), Edit (pages that
 have it) and the name menu (My account, Night mode, Sign out). Menus close on a click elsewhere or Escape.
 The upload dialog (`upload.js`, loaded on first use) takes files, zips and folders, also dropped anywhere on a page,
@@ -950,17 +950,22 @@ in Edit mode (`PUT /api/admin/profile-options`). Supervisors may read their stud
 (`GET /api/users/<id>/profile`). The default lists are seeded once when the tables are created. Removing a list
 entry empties that field in the profiles that used it, so those people are asked again.
 
-### Cyberzoo agenda
+### Booking agenda
 
-Off unless `LOGDB_CYBERZOO_QUALIFICATION` names a qualification type (matched case-insensitively, e.g.
-`Cyberzoo Safety Briefing`). Session-only (`cyberzoo.py`, `static/cyberzoo.html`; table `cyberzoo_bookings`).
-`GET /api/cyberzoo/bookings?from=&to=` (at most two months) and the writes need a current approved submission of
-that type (valid_from/valid_until around today); without it they answer 403 with `training_id`, an active training
-that grants the type, which the page links to from a blocking dialog. Administrators may always view and change
-or delete any booking, but booking still needs the qualification; others change or delete only their own.
-Times are the arena's local wall-clock time (`YYYY-MM-DDTHH:MM`), at most 7 days per booking. Two bookings may
-overlap only when both have `others_allowed` and neither is a `demo` (409 otherwise). The week shown is kept in
-the URL (`week=`, the Monday).
+Off unless `LOGDB_BOOKINGS=1`; session-only (`bookings.py`, `static/agenda.html`). Administrators set up the
+bookable items in Edit mode (`/api/admin/booking-things`, table `booking_things`): name, description, optional
+place, optional colour (used in the All view), active and sort order. An item may need a qualification type, for
+`booking` only (everyone sees its agenda) or for `viewing` and booking; it counts when an approved submission of
+that type is valid today. Without it the API answers 403 with `thing_id` and `training_id` (an active training
+that grants the type), and the page shows a dialog that links to it. Administrators may always view and change
+or delete any booking, but booking still needs the qualification; others change only their own and delete only
+where they may view. Each item has up to 10 options (`booking_flags`: label, optional colour,
+`blocks_overlap`); a booking stores the ones it ticks in `booking_flag_values`. Two bookings of the same item
+may overlap only when they share a non-blocking option and neither has a blocking one (409 otherwise); items
+never conflict with each other. `GET /api/bookings?from=&to=` (at most two months) returns the items and the
+bookings of the items the person may view. Times are local wall-clock time (`YYYY-MM-DDTHH:MM`), at most 7 days
+per booking. The item tab (`item=`) and week (`week=`, the Monday) are kept in the URL. An item with bookings
+cannot be deleted; make it inactive instead.
 
 ### Private licences and qualifications
 
