@@ -349,6 +349,8 @@ class HistoricalTests(AppTests):
         path = os.path.join(tmp.name, "logs.db")
         copy = sqlite3.connect(path)
         self.con.backup(copy)
+        db.logbook_version_triggers(copy)  # created by db.init on a real database
+        copy.commit()
         copy.close()
         watch, cache = self.ns["_LOGBOOK_WATCH"], self.ns["_LOGBOOK_CACHE"]
         self.addCleanup(lambda: (watch.pop(path).close() if path in watch else None, cache.clear()))
@@ -363,7 +365,15 @@ class HistoricalTests(AppTests):
             self.assertEqual(logbook("/api/logbook?compact=1"), (1, "cached"))  # same rows, another response
             self.assertEqual(logbook("/api/logbook?project=2"), (0, "built"))  # request options are part of the key
             self.create(reference="Book 2", date="2011-02-03")
-            self.assertEqual(logbook(), (2, "built"))  # any commit invalidates
+            self.assertEqual(logbook(), (2, "built"))  # a commit the logbook may show invalidates
+            file_con = self.ns["_file_conn"]()
+            file_con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at) VALUES (2,'k','h','p','n')")
+            file_con.execute("UPDATE users SET last_login='now' WHERE id=2")
+            file_con.commit()
+            self.assertEqual(logbook(), (2, "response cached"))  # unrelated writes keep the cache
+            file_con.execute("UPDATE users SET display_name='Pilot Two' WHERE id=2")
+            file_con.commit()
+            self.assertEqual(logbook(), (2, "built"))  # another column of the same table still counts
             self.sign_in(1)
             self.assertEqual(logbook(), (2, "built"))  # per user
             self.sign_in(2)

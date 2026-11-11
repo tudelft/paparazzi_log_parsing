@@ -5667,19 +5667,20 @@ def endpoint_location_fallback(row):
 
 _LOGBOOK_CACHE = {}  # (database version, user, request options) -> rows; also (..., "body", options) -> bytes
 _LOGBOOK_LOCK = threading.Lock()
-_LOGBOOK_WATCH = {}  # DB_PATH -> connection that only reads PRAGMA data_version
+_LOGBOOK_WATCH = {}  # DB_PATH -> connection that only reads the logbook version
 LOGBOOK_CACHE_SIZE = 8  # read models kept (about 25 MB each for 5000 flights), plus as many logbook responses
 
 
 def _database_version():
-    """Changes whenever any other connection commits to the database file; None when it cannot be watched."""
+    """Changes whenever a committed write may change what the logbook shows (db.logbook_version, raised by triggers;
+    unrelated writes such as API key use or sign-ins leave it alone); None when it cannot be watched."""
     if conn is not _file_conn or not os.path.isfile(DB_PATH):  # tests swap in their own (in-memory) connection
         return None
     with _LOGBOOK_LOCK:
         watch = _LOGBOOK_WATCH.get(DB_PATH)
         if watch is None:
             watch = _LOGBOOK_WATCH[DB_PATH] = sqlite3.connect(DB_PATH, check_same_thread=False)
-        return watch.execute("PRAGMA data_version").fetchone()[0]
+        return db.logbook_version(watch)
 
 
 def logbook_key(hidden=False, hide_unlinked=False):
