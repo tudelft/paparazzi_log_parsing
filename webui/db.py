@@ -476,6 +476,8 @@ CREATE TABLE IF NOT EXISTS trainings (
     valid_days INTEGER,
     ask_briefed_by INTEGER NOT NULL DEFAULT 0 CHECK(ask_briefed_by IN (0,1)),
     needs_approval INTEGER NOT NULL DEFAULT 0 CHECK(needs_approval IN (0,1)),
+    shuffle_questions INTEGER NOT NULL DEFAULT 0 CHECK(shuffle_questions IN (0,1)),  -- a new order per attempt
+    question_count INTEGER,            -- questions drawn per attempt; NULL = all
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
     sort_order INTEGER NOT NULL DEFAULT 0
 );
@@ -504,6 +506,7 @@ CREATE TABLE IF NOT EXISTS training_progress (
     answers_json TEXT,
     submission_id INTEGER REFERENCES qualification_submissions(id) ON DELETE SET NULL,
     briefed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    draw_json TEXT,                    -- the current attempt: question ids in order and each one's answer order
     PRIMARY KEY (user_id, training_id)
 );
 CREATE TABLE IF NOT EXISTS training_briefers (
@@ -742,9 +745,16 @@ def init(path):
     if tcols and "needs_approval" not in tcols:
         con.execute("ALTER TABLE trainings ADD COLUMN needs_approval INTEGER NOT NULL DEFAULT 0"
                     " CHECK(needs_approval IN (0,1))")
+    if tcols and "shuffle_questions" not in tcols:
+        con.execute("ALTER TABLE trainings ADD COLUMN shuffle_questions INTEGER NOT NULL DEFAULT 0"
+                    " CHECK(shuffle_questions IN (0,1))")
+    if tcols and "question_count" not in tcols:
+        con.execute("ALTER TABLE trainings ADD COLUMN question_count INTEGER")
     pcols = {r["name"] for r in con.execute("PRAGMA table_info(training_progress)")}
     if pcols and "briefed_by" not in pcols:
         con.execute("ALTER TABLE training_progress ADD COLUMN briefed_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
+    if pcols and "draw_json" not in pcols:
+        con.execute("ALTER TABLE training_progress ADD COLUMN draw_json TEXT")
     qcols = {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}
     if qcols and "note" not in qcols:
         con.execute("ALTER TABLE qualification_submissions ADD COLUMN note TEXT")

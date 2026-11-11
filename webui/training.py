@@ -127,15 +127,68 @@ def save_briefers(con, training_id, ids):
                     [(training_id, uid) for uid in ids])
 
 
-def public_questions(questions, choices_by_q):
-    """Questions for a taker: no keys, choices shuffled (ranking too)."""
+def public_questions(questions, choices_by_q, draw=None):
+    """Questions for a taker: no keys, choices shuffled (ranking too). With a draw (see new_draw) the questions,
+    their order and the answer order are the attempt's, so they stay the same until it is submitted."""
+    if draw:
+        by_id = {q["id"]: q for q in questions}
+        questions = [by_id[i] for i in draw["questions"]]
     out = []
     for q in questions:
         opts = [{"id": c["id"], "label": c["label"]} for c in choices_by_q.get(q["id"], [])]
-        random.shuffle(opts)
+        if draw:
+            order = {cid: i for i, cid in enumerate(draw["choices"][str(q["id"])])}
+            opts.sort(key=lambda o: order[o["id"]])
+        else:
+            random.shuffle(opts)
         out.append({"id": q["id"], "prompt": q["prompt"], "kind": q["kind"], "points": q["points"],
                     "image": bool(q["image_path"]), "choices": opts})
     return out
+
+
+def new_draw(row, questions, choices_by_q):
+    """One attempt: the questions asked (all, or question_count of them drawn at random), in the admin's order or
+    shuffled, and a shuffled answer order per question."""
+    ids = [q["id"] for q in questions]
+    count = row["question_count"]
+    if count and count < len(ids):
+        keep = set(random.sample(ids, count))
+        ids = [i for i in ids if i in keep]
+    if row["shuffle_questions"]:
+        random.shuffle(ids)
+    order = {}
+    for qid in ids:
+        cids = [c["id"] for c in choices_by_q.get(qid, [])]
+        random.shuffle(cids)
+        order[str(qid)] = cids
+    return {"questions": ids, "choices": order}
+
+
+def valid_draw(raw, questions, choices_by_q):
+    """The stored draw when it still matches the training's questions and answers, else None."""
+    try:
+        draw = json.loads(raw) if raw else None
+        by_id = {q["id"]: q for q in questions}
+        if not draw or not draw["questions"] or any(i not in by_id for i in draw["questions"]):
+            return None
+        for qid in draw["questions"]:
+            if sorted(draw["choices"][str(qid)]) != sorted(c["id"] for c in choices_by_q.get(qid, [])):
+                return None
+        return draw
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def needed_points(row, asked, questions):
+    """Points needed to pass. The pass score is set against all questions; when an attempt asks only some of them,
+    it is scaled to the points of those (rounded up). Without a pass score every asked point is needed."""
+    asked_total = sum(q["points"] for q in asked)
+    if row["pass_score"] is None:
+        return asked_total
+    all_total = sum(q["points"] for q in questions)
+    if asked_total == all_total or not all_total:
+        return row["pass_score"]
+    return min(asked_total, max(1, -(-row["pass_score"] * asked_total // all_total)))
 
 
 def parse_answers(body, questions):
@@ -411,6 +464,7 @@ def register(app, connection, root, require_session):
                 "pass_score": row["pass_score"], "valid_days": row["valid_days"],
                 "ask_briefed_by": bool(row["ask_briefed_by"]),
                 "needs_approval": bool(row["needs_approval"]),
+                "shuffle_questions": bool(row["shuffle_questions"]), "question_count": row["question_count"],
                 "active": bool(row["active"]),
                 "passed_at": progress.get("passed_at") if current else None,
                 "awaiting_approval": awaiting,
@@ -600,8 +654,9 @@ def register(app, connection, root, require_session):
         if awaiting and progress and progress["answers_json"]:
             try:
                 stored = json.loads(progress["answers_json"])
-                earned, total = score_answers(questions, choices, stored)
-                needed = row["pass_score"] if row["pass_score"] is not None else total
+                asked = [q for q in questions if str(q["id"]) in stored] or questions
+                earned, total = score_answers(asked, choices, stored)
+                needed = needed_points(row, asked, questions)
                 pass_score_text = f"{earned}/{needed}"
             except (TypeError, ValueError, json.JSONDecodeError):
                 pass_score_text = None
@@ -610,6 +665,7 @@ def register(app, connection, root, require_session):
             "type_id": row["type_id"], "pass_score": row["pass_score"], "valid_days": row["valid_days"],
             "ask_briefed_by": bool(row["ask_briefed_by"]),
             "needs_approval": bool(row["needs_approval"]),
+            "shuffle_questions": bool(row["shuffle_questions"]), "question_count": row["question_count"],
             "active": bool(row["active"]),
             "passed_at": progress["passed_at"] if progress and current else None,
             "submitted_at": progress["passed_at"] if progress and awaiting else None,
@@ -631,11 +687,36 @@ def register(app, connection, root, require_session):
                 "choices": [{"id": c["id"], "label": c["label"], "correct": bool(c["correct"]),
                              "sort_order": c["sort_order"]} for c in choices.get(q["id"], [])],
             } for q in questions]
+        elif (out["passed_at"] or awaiting) and request.args.get("practice") == "1" and questions:
+            # practice after a pass: a fresh draw each time, not stored; the result changes nothing
+            draw = new_draw(row, questions, choices)
+            out["questions"], out["practice"] = public_questions(questions, choices, draw), True
+            asked = [q for q in questions if q["id"] in set(draw["questions"])]
+            out["needed"], out["asked_points"] = needed_points(row, asked, questions), sum(q["points"] for q in asked)
         elif out["passed_at"] or awaiting:
             out["questions"] = []
+        elif questions:
+            draw = current_draw(cid, training_id, row, questions, choices)
+            out["questions"] = public_questions(questions, choices, draw)
+            asked = [q for q in questions if q["id"] in set(draw["questions"])]
+            out["needed"], out["asked_points"] = needed_points(row, asked, questions), sum(q["points"] for q in asked)
         else:
-            out["questions"] = public_questions(questions, choices)
+            out["questions"] = []
         return jsonify(out)
+
+    def current_draw(cid, training_id, row, questions, choices):
+        """This person's attempt (kept in training_progress.draw_json); a new one when none matches."""
+        stored = cid.execute("SELECT draw_json FROM training_progress WHERE user_id=? AND training_id=?",
+                             (g.user["id"], training_id)).fetchone()
+        draw = valid_draw(stored["draw_json"] if stored else None, questions, choices)
+        if draw is None:
+            draw = new_draw(row, questions, choices)
+            with db.write_lock, cid:
+                cid.execute("BEGIN IMMEDIATE")
+                cid.execute("INSERT INTO training_progress(user_id,training_id,attempts,draw_json) VALUES (?,?,0,?)"
+                            " ON CONFLICT(user_id,training_id) DO UPDATE SET draw_json=excluded.draw_json",
+                            (g.user["id"], training_id, json.dumps(draw)))
+        return draw
 
     @app.get("/api/trainings/questions/<int:question_id>/image")
     def question_image(question_id):
@@ -658,6 +739,9 @@ def register(app, connection, root, require_session):
             row = training_row(cid, training_id, active_only=True)
             progress = cid.execute("SELECT * FROM training_progress WHERE user_id=? AND training_id=?",
                                    (g.user["id"], training_id)).fetchone()
+            body = request.get_json(silent=True) or {}
+            if body.get("practice") is True:
+                return practice_result(cid, row, training_id, body)
             if pass_is_current(cid, g.user["id"], row, progress):
                 raise TrainingError("You have already passed this training.", 409)
             if pass_awaiting_approval(cid, progress):
@@ -665,8 +749,11 @@ def register(app, connection, root, require_session):
             questions, choices = load_questions(cid, training_id)
             if not questions:
                 raise TrainingError("This training has no questions yet.")
-            body = request.get_json(silent=True) or {}
-            answers = parse_answers(body, questions)
+            draw = valid_draw(progress["draw_json"] if progress else None, questions, choices)
+            if draw is None and (row["question_count"] or row["shuffle_questions"]) and not g.user["is_admin"]:
+                raise TrainingError("The questions of this training changed; open it again to start a new attempt.", 409)
+            asked = [q for q in questions if q["id"] in set(draw["questions"])] if draw else questions
+            answers = parse_answers(body, asked)
             briefed_by = None
             briefer_name = None
             if row["ask_briefed_by"]:
@@ -681,8 +768,8 @@ def register(app, connection, root, require_session):
                     raise TrainingError("Choose who delivered the briefing.")
                 briefed_by = raw
                 briefer_name = briefer["name"]
-            earned, total = score_answers(questions, choices, answers)
-            needed = row["pass_score"] if row["pass_score"] is not None else total
+            earned, total = score_answers(asked, choices, answers)
+            needed = needed_points(row, asked, questions)
             passed = earned >= needed and total > 0
             attempts = (progress["attempts"] if progress else 0) + 1
             submission_id = None
@@ -710,15 +797,27 @@ def register(app, connection, root, require_session):
                     " VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id,training_id) DO UPDATE SET"
                     " attempts=excluded.attempts, passed_at=excluded.passed_at,"
                     " answers_json=excluded.answers_json, submission_id=excluded.submission_id,"
-                    " briefed_by=excluded.briefed_by",
+                    " briefed_by=excluded.briefed_by, draw_json=NULL",
                     (g.user["id"], training_id, attempts, passed_at, stored_answers, submission_id, briefed_by))
             else:
                 cid.execute(
                     "INSERT INTO training_progress(user_id,training_id,attempts) VALUES (?,?,?)"
-                    " ON CONFLICT(user_id,training_id) DO UPDATE SET attempts=excluded.attempts",
+                    " ON CONFLICT(user_id,training_id) DO UPDATE SET attempts=excluded.attempts, draw_json=NULL",
                     (g.user["id"], training_id, attempts))
         return jsonify(passed=passed, score=earned, total=total, needed=needed, attempts=attempts,
                        passed_at=passed_at, qualification_id=submission_id, awaiting_approval=awaiting)
+
+    def practice_result(cid, row, training_id, body):
+        """Score a practice attempt (after a pass): the answered questions are the ones drawn; nothing is stored."""
+        questions, choices = load_questions(cid, training_id)
+        answers = parse_answers(body, questions)
+        expected = min(row["question_count"] or len(questions), len(questions))
+        if len(answers) != expected:
+            raise TrainingError(f"Answer all {expected} questions.")
+        asked = [q for q in questions if q["id"] in answers]
+        earned, total = score_answers(asked, choices, answers)
+        needed = needed_points(row, asked, questions)
+        return jsonify(practice=True, passed=earned >= needed and total > 0, score=earned, total=total, needed=needed)
 
     def training_fields(cid, body, training_id=None):
         name = clip_text(body.get("name"), 80, "Name")
@@ -742,23 +841,26 @@ def register(app, connection, root, require_session):
             total = cid.execute("SELECT COALESCE(SUM(points),0) FROM training_questions WHERE training_id=?",
                                 (training_id,)).fetchone()[0]
             check_pass_score(pass_score, total)
-        return name, description, type_id, pass_score, valid_days, ask_briefed_by, needs_approval, briefers
+        if type(body.get("shuffle_questions", False)) is not bool:
+            raise TrainingError("Shuffle questions must be true or false.")
+        draw = (int(body.get("shuffle_questions", False)), optional_int(body.get("question_count"), "Questions per attempt"))
+        return name, description, type_id, pass_score, valid_days, ask_briefed_by, needs_approval, briefers, draw
 
     @app.post("/api/admin/trainings")
     def add_training():
         admin()
         cid = con()
-        name, description, type_id, pass_score, valid_days, ask_briefed_by, needs_approval, briefers = training_fields(
-            cid, request.get_json(silent=True) or {})
+        name, description, type_id, pass_score, valid_days, ask_briefed_by, needs_approval, briefers, draw = \
+            training_fields(cid, request.get_json(silent=True) or {})
         try:
             with db.write_lock, cid:
                 cid.execute("BEGIN IMMEDIATE")
                 nxt = cid.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM trainings").fetchone()[0]
                 tid = cid.execute(
                     "INSERT INTO trainings(name,description,type_id,pass_score,valid_days,ask_briefed_by,"
-                    "needs_approval,sort_order) VALUES (?,?,?,?,?,?,?,?)",
+                    "needs_approval,sort_order,shuffle_questions,question_count) VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (name, description, type_id, pass_score, valid_days, int(ask_briefed_by),
-                     int(needs_approval), nxt)).lastrowid
+                     int(needs_approval), nxt, *draw)).lastrowid
                 save_briefers(cid, tid, briefers)
         except sqlite3.IntegrityError as exc:
             raise TrainingError("A training with that name already exists.", 409) from exc
@@ -771,16 +873,17 @@ def register(app, connection, root, require_session):
         if type(body.get("active", True)) is not bool:
             raise TrainingError("Active must be true or false.")
         cid = con()
-        name, description, type_id, pass_score, valid_days, ask_briefed_by, needs_approval, briefers = training_fields(
-            cid, body, training_id=training_id)
+        name, description, type_id, pass_score, valid_days, ask_briefed_by, needs_approval, briefers, draw = \
+            training_fields(cid, body, training_id=training_id)
         with db.write_lock, cid:
             cid.execute("BEGIN IMMEDIATE")
             training_row(cid, training_id)
             try:
                 cid.execute("UPDATE trainings SET name=?,description=?,type_id=?,pass_score=?,valid_days=?,"
-                            "ask_briefed_by=?,needs_approval=?,active=? WHERE id=?",
+                            "ask_briefed_by=?,needs_approval=?,active=?,shuffle_questions=?,question_count=? WHERE id=?",
                             (name, description, type_id, pass_score, valid_days, int(ask_briefed_by),
-                             int(needs_approval), body.get("active", True), training_id))
+                             int(needs_approval), body.get("active", True), *draw, training_id))
+                cid.execute("UPDATE training_progress SET draw_json=NULL WHERE training_id=?", (training_id,))
                 save_briefers(cid, training_id, briefers)
             except sqlite3.IntegrityError as exc:
                 raise TrainingError("A training with that name already exists.", 409) from exc
@@ -950,6 +1053,7 @@ def register(app, connection, root, require_session):
             if row is None:
                 raise TrainingError("No such question.", 404)
             cid.execute("DELETE FROM training_questions WHERE id=?", (question_id,))
+            cid.execute("UPDATE training_progress SET draw_json=NULL WHERE training_id=?", (training_id,))
             total = cid.execute("SELECT COALESCE(SUM(points),0) FROM training_questions WHERE training_id=?",
                                 (training_id,)).fetchone()[0]
             pass_score = cid.execute("SELECT pass_score FROM trainings WHERE id=?", (training_id,)).fetchone()[0]
@@ -974,6 +1078,7 @@ def register(app, connection, root, require_session):
                 raise TrainingError("Give every question of this training exactly once.")
             cid.executemany("UPDATE training_questions SET sort_order=? WHERE id=?",
                             [(i, qid) for i, qid in enumerate(ids, 1)])
+            cid.execute("UPDATE training_progress SET draw_json=NULL WHERE training_id=?", (training_id,))
         return jsonify(ok=True)
 
     def save_question(cid, training_id, question_id):
@@ -1000,6 +1105,7 @@ def register(app, connection, root, require_session):
             cid.executemany(
                 "INSERT INTO training_choices(question_id,label,correct,sort_order) VALUES (?,?,?,?)",
                 [(question_id, label, int(correct), order) for label, correct, order in choices])
+            cid.execute("UPDATE training_progress SET draw_json=NULL WHERE training_id=?", (training_id,))
             if not created:  # adding a question only raises the total, so a quiz can be built one question at a time
                 total = cid.execute("SELECT COALESCE(SUM(points),0) FROM training_questions WHERE training_id=?",
                                     (training_id,)).fetchone()[0]

@@ -910,6 +910,12 @@ writing; the page shows that first. Replacing a drawn polygon by a circle is fla
 Off unless `LOGDB_TRAINING=1`. The Training page is session-only (API keys get 403). Admins create
 questionnaires in Edit mode: single choice, multiple choice and ranking, each with optional JPEG/PNG. Questions
 are reordered by dragging their handle (or the arrow keys on it; `PUT /api/admin/trainings/<id>/question-order`).
+Answer options are shuffled per attempt. A training may also **shuffle the questions** and draw a number of
+**questions per attempt** at random (`shuffle_questions`, `question_count`); the attempt (questions, their order
+and the answer order) is kept in `training_progress.draw_json` until it is submitted, so Previous/Next and a reload
+show the same questions, and any change to the questions or settings starts a new attempt. With a subset, the pass
+score (set against all questions) is scaled to the points of the questions drawn, rounded up. After a pass,
+**Practice again** (`?practice=1`, submit with `practice: true`) answers a fresh draw; its result changes nothing.
 Nothing is seeded at startup; questionnaires are added by hand or imported. **Import**
 (`POST /api/admin/trainings/import`, Edit-mode dialog) accepts one JSON file per training, or a ZIP
 with that JSON plus JPEG/PNG question images (same size and content checks as the image upload).
