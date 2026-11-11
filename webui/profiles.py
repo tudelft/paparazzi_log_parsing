@@ -183,11 +183,14 @@ def _text(body, key, limit):
 
 
 def save(con, user_id, body, stamp, by_admin=False):
-    """Validate and store a person's own profile (the whole form)."""
+    """Validate and store a profile (the whole form). The person must fill in every required field; an admin may
+    leave fields empty (the person is asked for the rest at the next sign-in), but what is filled in must be valid."""
     if not isinstance(body, dict):
         raise ProfileError("Send a JSON object.")
     role_id = body.get("role_id")
-    if type(role_id) is not int or not con.execute("SELECT 1 FROM profile_roles WHERE id=?", (role_id,)).fetchone():
+    if role_id is None and by_admin:
+        pass
+    elif type(role_id) is not int or not con.execute("SELECT 1 FROM profile_roles WHERE id=?", (role_id,)).fetchone():
         raise ProfileError("Choose what you are.")
     department_id = body.get("department_id")
     department_text = _text(body, "department_text", 120)
@@ -196,23 +199,23 @@ def save(con, user_id, body, stamp, by_admin=False):
                 "SELECT 1 FROM profile_departments WHERE id=?", (department_id,)).fetchone():
             raise ProfileError("Unknown department.")
         department_text = None
-    elif not department_text:
+    elif not department_text and not by_admin:
         raise ProfileError("Choose a department or type it.")
     indefinite = body.get("indefinite", False)
     if type(indefinite) is not bool:
         raise ProfileError("indefinite must be true or false.")
     end_date = None if indefinite else _text(body, "end_date", 10)
-    if not indefinite:
+    if not indefinite and (end_date or not by_admin):
         try:
             if not end_date or not DATE.match(end_date):
                 raise ValueError
             datetime.date.fromisoformat(end_date)
         except ValueError:
             raise ProfileError("Give the expected end date (or tick indefinite).") from None
-        if end_date < today():
+        if end_date < today() and not by_admin:  # an admin may record that someone has left
             raise ProfileError("The expected end date has passed; give a new one.")
     number = _text(body, "number", 40)
-    if not number:
+    if not number and not by_admin:
         raise ProfileError("Give your student or employee number.")
     github = _text(body, "github", 39)
     if github and not GITHUB_NAME.match(github):
@@ -234,8 +237,8 @@ def save(con, user_id, body, stamp, by_admin=False):
         else:
             raise ProfileError("Each supervisor is {id} from the list or {name} for an external one.")
     rows = list(dict.fromkeys(rows))
-    needs = con.execute("SELECT needs_supervisor FROM profile_roles WHERE id=?", (role_id,)).fetchone()[0]
-    if needs and not rows:
+    needs = con.execute("SELECT needs_supervisor FROM profile_roles WHERE id=?", (role_id,)).fetchone()
+    if needs and needs[0] and not rows and not by_admin:
         raise ProfileError("Name at least one supervisor.")
     con.execute(
         "INSERT INTO user_profiles (user_id, role_id, department_id, department_text, end_date, indefinite, number,"
@@ -490,7 +493,7 @@ def register(app, connection, require_session, now, pages_dir):
 
     @app.put("/api/users/<int:user_id>/profile")
     def save_person_profile(user_id):
-        """Admins edit someone's profile, with the same rules as the person's own form."""
+        """Admins edit someone's profile: fields may stay empty, but what is filled in must be valid."""
         signed_in()
         if not g.user["is_admin"]:
             abort(403)

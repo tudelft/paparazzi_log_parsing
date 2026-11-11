@@ -974,8 +974,8 @@ function profileFormHTML(d) {
       .map(x => `<option value="${x.id}"${x.id === p.department_id ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
     return grp ? `<optgroup label="${esc(grp)}">${items}</optgroup>` : items;
   }).join('');
-  return `${!d.profile ? '<p class="mute">Not filled in yet; the person is asked at their next sign-in.</p>'
-      : todo.length ? `<p class="mute">Still to fill in: ${esc(todo.join(', '))}</p>` : ''}
+  return `<p class="mute">${!d.profile ? 'Not filled in yet. ' : todo.length ? `Still to fill in: ${esc(todo.join(', '))}. ` : ''}Fill in
+      what you know; the person checks it and completes the rest at their next sign-in.</p>
     <form class="account-profile" id="profileForm" onsubmit="event.preventDefault();savePersonProfile()">
     <label class="field">Role<select id="pfRole"><option value="">Choose…</option>${o.roles.map(r =>
       `<option value="${r.id}"${r.id === p.role_id ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}</select></label>
