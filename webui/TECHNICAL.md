@@ -254,8 +254,10 @@ horizontal GPS noise/jumps can still affect them. Reparse existing uploads to re
 
 **Logbook read model cache.** The logbook, statistics, review, places, overview and flight pages share one
 read model (`logbook_rows`). Building it takes about a second per few thousand flights, so it is kept in memory
-per user and request options and rebuilt only after any commit to the database (`PRAGMA data_version` on a
-watching connection) or at the start of a new UTC day. The finished logbook response is kept the same way.
+per user and request options and rebuilt only after a committed write it may show, or at the start of a new UTC
+day. Triggers raise a counter (`logbook_version`, recreated at every start) on writes to every table except those
+in `db.LOGBOOK_UNRELATED` (API keys, sign-in and upload bookkeeping, caches, training, bookings, profiles) and
+`users.last_login`, so those no longer empty the cache; a table missing from that list only costs a refresh. The finished logbook response is kept the same way.
 At most eight of each are kept; each read model takes roughly 25 MB per 5000 flights. These responses carry a
 `Server-Timing` header (`built`, `cached` or `response cached`, with the time) shown in the browser's Network tab.
 Flight detail and path responses are gzip-compressed for clients that accept it.

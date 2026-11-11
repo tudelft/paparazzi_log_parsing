@@ -418,6 +418,10 @@ CREATE TABLE IF NOT EXISTS qualification_submissions (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ix_qualification_pending ON qualification_submissions(user_id,type_id) WHERE status='pending';
 CREATE UNIQUE INDEX IF NOT EXISTS ix_qualification_approved ON qualification_submissions(user_id,type_id) WHERE status='approved';
+CREATE TABLE IF NOT EXISTS logbook_version (  -- raised by triggers on writes the logbook may show (cache key)
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    n INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS qualification_audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     subject_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -743,7 +747,46 @@ def init(path):
     qcols = {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}
     if qcols and "note" not in qcols:
         con.execute("ALTER TABLE qualification_submissions ADD COLUMN note TEXT")
+    logbook_version_triggers(con)
     con.commit()
+
+
+# Tables (and columns) the logbook read model never reads. Writes to them, such as an API key's last use, a sign-in
+# or upload bookkeeping, leave the logbook version alone, so they do not empty the logbook cache. Any other table
+# counts, including tables added later, so a missing entry here only costs a cache refresh, never stale data.
+LOGBOOK_UNRELATED = {
+    "api_keys", "cli_logins", "password_setup_tokens", "ingest", "bulk_reservations", "weather_cache",
+    "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
+    "training_progress", "training_briefers", "booking_things", "booking_flags", "bookings", "booking_flag_values",
+    "profile_roles", "profile_departments", "user_profiles", "user_supervisors", "logbook_version",
+}
+LOGBOOK_UNRELATED_COLUMNS = {"users": {"last_login"}}
+
+
+def logbook_version_triggers(con):
+    """(Re)create the triggers that raise logbook_version.n on every write to a table the logbook may read; run at
+    every start, so new tables and columns are covered."""
+    con.execute("INSERT OR IGNORE INTO logbook_version (id, n) VALUES (1, 0)")
+    for (name,) in con.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'logbook_v_%'").fetchall():
+        con.execute(f'DROP TRIGGER "{name}"')
+    bump = "BEGIN UPDATE logbook_version SET n=n+1 WHERE id=1; END"
+    tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+    for table in tables:
+        if table in LOGBOOK_UNRELATED:
+            continue
+        con.execute(f'CREATE TRIGGER "logbook_v_{table}_i" AFTER INSERT ON "{table}" {bump}')
+        con.execute(f'CREATE TRIGGER "logbook_v_{table}_d" AFTER DELETE ON "{table}" {bump}')
+        skip = LOGBOOK_UNRELATED_COLUMNS.get(table, set())
+        cols = [r[1] for r in con.execute(f'PRAGMA table_info("{table}")') if r[1] not in skip]
+        changed = " OR ".join('NEW."%s" IS NOT OLD."%s"' % (c, c) for c in cols)
+        when = " WHEN " + changed if skip and cols else ""
+        con.execute(f'CREATE TRIGGER "logbook_v_{table}_u" AFTER UPDATE ON "{table}"{when} {bump}')
+
+
+def logbook_version(con):
+    """Raised by every committed write the logbook may show (see logbook_version_triggers)."""
+    row = con.execute("SELECT n FROM logbook_version WHERE id=1").fetchone()
+    return row[0] if row else None
 
 
 def pack(obj):
