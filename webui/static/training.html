@@ -24,6 +24,7 @@
   .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr)); gap:10px; }
   a.item { display:block; height:104px; min-width:0; padding:8px 10px; border:1px solid var(--fieldline); border-left:4px solid var(--acc);
     border-radius:8px; background:var(--detail); color:var(--txt); text-decoration:none; box-shadow:0 2px 4px #0002; }
+  a.item.passed { border-left-color:var(--ok); }
   a.item:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
   a.item h3 { margin:0; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   a.item p { margin:6px 0 0; font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -127,6 +128,8 @@
     <label class="field">Qualification<select name="type_id"><option value="">None</option></select></label>
     <label class="field">Validity days<input name="valid_days" type="number" min="1" placeholder="optional"></label>
     <label class="field">Pass score<input name="pass_score" type="number" min="1" placeholder="all points"></label>
+    <label class="field" title="Draw this many questions at random for each attempt; the pass score is scaled to the points of the questions drawn">Questions per attempt<input name="question_count" type="number" min="1" placeholder="all"></label>
+    <label class="field"><span><input name="shuffle_questions" type="checkbox"> Shuffle the questions for each attempt</span></label>
     <label class="field"><span><input name="ask_briefed_by" type="checkbox" onchange="syncBriefersField()"> Ask who delivered the briefing</span></label>
     <div id="briefersField" hidden>
       <span class="mute">Who can be chosen (a short list)</span>
@@ -157,7 +160,7 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => t ? t.replace('T', ' ').replace('Z', ' UTC') : '';
-let me, trainings = [], types = [], people = [], brieferIds = [], query = '', selected = 0, detail, editingId = null, editingQuestion = null, lastResult = null, quizStep = 0, passUser = 0, editTab = 'questions', passCount = null, passCountFor = 0;
+let me, trainings = [], types = [], people = [], brieferIds = [], query = '', selected = 0, detail, editingId = null, editingQuestion = null, lastResult = null, quizStep = 0, passUser = 0, editTab = 'questions', passCount = null, passCountFor = 0, practice = false;
 async function api(url, opt) {
   const r = await fetch(url, opt);
   const d = await r.json().catch(() => ({}));
@@ -174,7 +177,7 @@ function filtered() {
   return trainings.filter(t => !q || t.name.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q));
 }
 function statusLine(t) {
-  if (t.passed_at) return `Passed · ${t.attempts} attempt${t.attempts === 1 ? '' : 's'}`;
+  if (t.passed_at) return `✓ Passed ${t.passed_at.slice(0, 10)} · ${t.attempts} attempt${t.attempts === 1 ? '' : 's'}`;
   if (t.awaiting_approval) return `Waiting for approval · ${t.attempts} attempt${t.attempts === 1 ? '' : 's'}`;
   if (t.expired_pass) return `Expired · retake available · ${t.attempts} attempt${t.attempts === 1 ? '' : 's'}`;
   if (t.attempts) return `${t.attempts} attempt${t.attempts === 1 ? '' : 's'}`;
@@ -184,7 +187,7 @@ function renderList() {
   const items = filtered();
   $('count').textContent = items.length ? items.length + ' training' + (items.length === 1 ? '' : 's') : '';
   $('grid').innerHTML = items.map(t =>
-    `<a class="item" href="/training?id=${t.id}" data-id="${t.id}" title="${esc(t.name)}"><h3>${esc(t.name)}</h3>
+    `<a class="item${t.passed_at ? ' passed' : ''}" href="/training?id=${t.id}" data-id="${t.id}" title="${esc(t.name)}"><h3>${esc(t.name)}</h3>
      <p class="${t.passed_at ? 'ok' : 'mute'}" title="${esc(statusLine(t))}">${esc(statusLine(t))}</p>
      <p title="${esc(t.description || '')}">${esc(t.description || '')}</p></a>`).join('')
     || '<p class="mute">No trainings yet.</p>';
@@ -197,7 +200,7 @@ function renderList() {
 }
 function show() {
   $('err').textContent = '';
-  if (!selected) { lastResult = null; quizStep = 0; }
+  if (!selected) { lastResult = null; quizStep = 0; practice = false; }
   $('listCard').hidden = !!selected;
   $('detailCard').hidden = !selected;
   if (!selected) return renderList();
@@ -205,7 +208,7 @@ function show() {
 }
 async function loadDetail() {
   try {
-    detail = await api('/api/trainings/' + selected);
+    detail = await api('/api/trainings/' + selected + (practice ? '?practice=1' : ''));
     if (passCountFor !== selected) { passCount = null; passCountFor = selected; }  // not the previous training's count
     paintDetail();
   } catch (e) { $('err').textContent = e.message; }
@@ -214,9 +217,9 @@ function paintDetail() {
   const t = detail;
   const edit = me.is_admin && window.editMode();
   const questions = t.questions || [];
-  const taking = !edit && !t.passed_at && !t.awaiting_approval && questions.length;
+  const taking = !edit && (t.practice || (!t.passed_at && !t.awaiting_approval)) && questions.length;
   let html = `<div class="toolbar">
-    <button type="button" class="sec" onclick="selected=0; editTab='questions'; passCount=null; window.viewState.save(true); show()">Back</button>
+    <button type="button" class="sec" onclick="if (practice) { practice = false; quizStep = 0; loadDetail(); return; } selected=0; editTab='questions'; passCount=null; window.viewState.save(true); show()">Back</button>
     ${taking ? '' : `<h2 title="${esc(t.name)}">${esc(t.name)}</h2>${t.awaiting_approval ? '<span class="wait">Waiting for approval</span>' : ''}`}
     ${edit ? `<span style="flex:1"></span><button type="button" class="sec" onclick="openTraining(${t.id})">Edit</button>
       <a class="sec" href="/api/admin/trainings/${t.id}/export" style="display:inline-block;padding:4px 10px;border-radius:6px;background:var(--sec);color:var(--txt);text-decoration:none">Export</a>
@@ -232,7 +235,9 @@ function paintDetail() {
           + (t.attempts ? t.attempts + ' attempt' + (t.attempts === 1 ? '' : 's') + ' so far. ' : '')
           + (t.type_name ? 'Grants ' + esc(t.type_name) + (t.valid_days ? ' for ' + t.valid_days + ' days' : '') + '.' : 'No qualification is granted.')}</p>`;
     if (t.passed_at) {
-      html += '<p class="ok">You have passed this training.</p>';
+      html += `<p class="ok">You have passed this training.</p>${lastResult && lastResult.practice
+        ? `<p role="status">Practice: ${lastResult.score} / ${lastResult.total}${lastResult.passed ? ' · enough to pass' : ` · ${lastResult.needed} needed to pass`}. Your pass is unchanged.</p>` : ''}
+        ${questions.length || t.total_points ? `<p><button type="button" class="sec" onclick="startPractice()" title="Answer the questions again; the result changes nothing">Practice again</button></p>` : ''}`;
       if (t.briefed_by_name) html += `<p class="mute" title="${esc(t.briefed_by_name)}">Briefed by ${esc(t.briefed_by_name)}</p>`;
     } else if (t.awaiting_approval) {
       const score = t.pass_score_text || (lastResult ? `${lastResult.score} / ${lastResult.needed}` : '');
@@ -259,7 +264,7 @@ function quizHTML(questions) {
     ${q.image ? `<img src="/api/trainings/questions/${q.id}/image" alt="">` : ''}
     <p class="prompt"><strong>${esc(q.prompt)}</strong> <span class="mute">${q.points} pt${q.kind === 'ranking' ? ' · drag to order' : ''}</span></p>
     ${q.kind === 'ranking' ? rankHTML(q) : choiceHTML(q)}</div>`).join('')}
-    ${detail.ask_briefed_by ? `<label class="field" id="briefedByField"${quizStep === n - 1 ? '' : ' hidden'}>Who delivered the briefing<select name="briefed_by" required>
+    ${detail.ask_briefed_by && !detail.practice ? `<label class="field" id="briefedByField"${quizStep === n - 1 ? '' : ' hidden'}>Who delivered the briefing<select name="briefed_by" required>
       <option value="">Choose…</option>${briefers}</select></label>` : ''}
     <p class="mute" id="unansweredHint" hidden></p>
     <p id="quizMsg" role="status"></p>
@@ -403,16 +408,24 @@ function collectAnswers() {
   });
   return answers;
 }
+function startPractice() {
+  practice = true;
+  quizStep = 0;
+  lastResult = null;
+  loadDetail();
+}
 async function submitQuiz(event) {
   event.preventDefault();
   const n = $('quiz').querySelectorAll('.question').length;
   if (quizStep !== n - 1) return;
   try {
     const payload = {answers: collectAnswers()};
-    if (detail.ask_briefed_by) payload.briefed_by = +$('quiz').briefed_by.value || null;
+    if (detail.practice) payload.practice = true;
+    else if (detail.ask_briefed_by) payload.briefed_by = +$('quiz').briefed_by.value || null;
     lastResult = await api('/api/trainings/' + selected + '/submit', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
     quizStep = 0;
+    practice = false;
     await load();
     await loadDetail();
   } catch (e) { $('quizMsg').textContent = e.message; }
@@ -648,6 +661,8 @@ async function openTraining(id) {
   fillTypes($('trainingForm').type_id, t.type_id);
   $('trainingForm').valid_days.value = t.valid_days || '';
   $('trainingForm').pass_score.value = t.pass_score || '';
+  $('trainingForm').question_count.value = t.question_count || '';
+  $('trainingForm').shuffle_questions.checked = !!t.shuffle_questions;
   $('trainingForm').ask_briefed_by.checked = !!t.ask_briefed_by;
   $('trainingForm').needs_approval.checked = !!t.needs_approval;
   $('trainingForm').active.checked = t.active !== false;
@@ -665,6 +680,8 @@ $('trainingForm').onsubmit = async event => {
     type_id: f.type_id.value ? +f.type_id.value : null,
     valid_days: f.valid_days.value ? +f.valid_days.value : null,
     pass_score: f.pass_score.value ? +f.pass_score.value : null,
+    question_count: f.question_count.value ? +f.question_count.value : null,
+    shuffle_questions: f.shuffle_questions.checked,
     ask_briefed_by: f.ask_briefed_by.checked,
     needs_approval: f.needs_approval.checked,
     briefers: f.ask_briefed_by.checked ? brieferIds : []};

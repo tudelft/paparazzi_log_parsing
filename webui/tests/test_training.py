@@ -265,6 +265,59 @@ class TrainingTests(AppTests):
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM trainings").fetchone()[0], 0)
         self.assertEqual(list(Path(self.app.config["TRAINING_IMAGE_DIR"]).iterdir()), [])
 
+    def correct_answers(self, tid, questions):
+        """Right answers for the questions a taker was given, from the admin view of the training."""
+        with self.client.session_transaction() as session:
+            uid = session["uid"]
+        self.sign_in(1)
+        keys = {q["id"]: q for q in self.client.get(f"/api/trainings/{tid}").json["questions"]}
+        self.sign_in(uid)
+        return {str(q["id"]): next(c["id"] for c in keys[q["id"]]["choices"] if c["correct"]) for q in questions}
+
+    def test_subset_and_shuffle_stay_fixed_during_an_attempt(self):
+        tid = self.add_training(pass_score=8)  # 8 of 10 points
+        for i in range(10):
+            self.add_question(tid, prompt=f"Q{i}")
+        settings = self.client.get(f"/api/trainings/{tid}").json
+        body = {k: settings[k] for k in ("name", "type_id", "valid_days", "pass_score")}
+        self.assertEqual(self.client.put(f"/api/admin/trainings/{tid}", json={
+            **body, "question_count": 5, "shuffle_questions": True}).status_code, 200)
+        self.sign_in(2)
+        first = self.client.get(f"/api/trainings/{tid}").json
+        self.assertEqual(len(first["questions"]), 5)
+        self.assertEqual((first["needed"], first["asked_points"]), (4, 5))  # 8/10 scaled to the 5 points drawn
+        again = self.client.get(f"/api/trainings/{tid}").json  # a reload keeps the attempt
+        self.assertEqual([(q["id"], [c["id"] for c in q["choices"]]) for q in again["questions"]],
+                         [(q["id"], [c["id"] for c in q["choices"]]) for q in first["questions"]])
+        right = self.correct_answers(tid, first["questions"])
+        other = next(str(q["id"]) for q in self.client.get(f"/api/trainings/{tid}").json["questions"])
+        not_drawn = next(i for i in range(1, 100) if str(i) not in right and self.con.execute(
+            "SELECT 1 FROM training_questions WHERE id=? AND training_id=?", (i, tid)).fetchone())
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/submit",
+                                          json={"answers": {str(not_drawn): 1}}).status_code, 400)
+        wrong = dict(right)
+        wrong[other] = wrong[other] + 1  # one wrong of five: 4 >= 4 still passes
+        passed = self.client.post(f"/api/trainings/{tid}/submit", json={"answers": wrong}).json
+        self.assertEqual((passed["passed"], passed["score"], passed["total"], passed["needed"]), (True, 4, 5, 4))
+        self.assertIsNone(self.con.execute("SELECT draw_json FROM training_progress WHERE user_id=2").fetchone()[0])
+
+    def test_practice_after_a_pass_changes_nothing(self):
+        tid = self.add_training()
+        self.add_question(tid)
+        self.sign_in(2)
+        quiz = self.client.get(f"/api/trainings/{tid}").json
+        right = self.correct_answers(tid, quiz["questions"])
+        self.assertTrue(self.client.post(f"/api/trainings/{tid}/submit", json={"answers": right}).json["passed"])
+        self.assertEqual(self.client.get(f"/api/trainings/{tid}").json["questions"], [])
+        practice = self.client.get(f"/api/trainings/{tid}?practice=1").json
+        self.assertTrue(practice["practice"])
+        self.assertEqual(len(practice["questions"]), 1)
+        before = dict(self.con.execute("SELECT * FROM training_progress WHERE user_id=2").fetchone())
+        wrong = {k: v + 1 for k, v in right.items()}
+        result = self.client.post(f"/api/trainings/{tid}/submit", json={"answers": wrong, "practice": True}).json
+        self.assertEqual((result["practice"], result["passed"], result["score"]), (True, False, 0))
+        self.assertEqual(dict(self.con.execute("SELECT * FROM training_progress WHERE user_id=2").fetchone()), before)
+
     def test_question_order(self):
         tid = self.add_training()
         a, b, c = (self.add_question(tid, prompt=p) for p in ("A", "B", "C"))

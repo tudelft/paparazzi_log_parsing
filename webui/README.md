@@ -219,7 +219,8 @@ change any and set up the items in Edit mode (**Add item**, **Edit item**).
 ## Qualifications and additional files
 
 **Training** (optional): when the server turns it on, a Training tab lists questionnaires. Answer one question
-at a time (Next / Previous), then submit. Retry until you pass; only the passing answers and the attempt count
+at a time (Next / Previous), then submit; answers (and, when the training is set up so, the questions) come in a new
+random order each attempt. After passing, **Practice again** lets you answer the questions again without changing your pass. Retry until you pass; only the passing answers and the attempt count
 are kept. A pass can grant the linked qualification immediately, or wait in the People approval queue when the
 training has **A pass needs approval** on. After that qualification expires, a queued pass is rejected, or an
 administrator resets the pass, you can take it again. Admins create questionnaires in Edit mode (single choice,
