@@ -105,3 +105,28 @@ class ProfileTests(AppTests):
             self.con.execute("DELETE FROM profile_roles WHERE name='Extern'")
             db.init("unused")
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM profile_roles").fetchone()[0], 6)
+
+    def test_lists_follow_the_visibility_rules(self):
+        self.save(5)  # Staff: supervises user 2
+        self.save(2, role_id=self.role["Master Student"], indefinite=False, end_date="2099-01-01",
+                  supervisors=[{"id": 5}])
+        # user 2 is in projects 1 (Research) and, here, 2 (Private); user 5 only in Research
+        self.con.execute("INSERT INTO project_members(project_id,user_id,role) VALUES (2,2,'view')")
+        self.con.commit()
+        self.sign_in(1)
+        everyone = {p["id"]: p for p in self.client.get("/api/profiles").json["people"]}
+        self.assertEqual(set(everyone), {1, 2, 3, 4, 5})
+        self.assertEqual(everyone[2]["profile"]["number"], "123")
+        self.assertEqual([p["name"] for p in everyone[2]["projects"]], ["Private", "Research"])
+        self.assertEqual(everyone[3]["missing"], ["profile"])
+        self.sign_in(5)
+        own = {p["id"]: p for p in self.client.get("/api/profiles").json["people"]}
+        self.assertEqual(set(own), {2, 5})
+        self.assertNotIn("number", own[2]["profile"])
+        self.assertEqual([p["name"] for p in own[2]["projects"]], ["Research"])  # not a project the supervisor cannot open
+        page = self.client.get("/api/users/5/profile").json
+        self.assertEqual([s["id"] for s in page["students"]], [2])
+        self.assertTrue(page["self"])
+        self.sign_in(3)
+        self.assertEqual([p["id"] for p in self.client.get("/api/profiles").json["people"]], [3])
+        self.assertEqual(self.client.get("/api/users/5/profile").status_code, 404)

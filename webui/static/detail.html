@@ -14,6 +14,18 @@
   header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
   header h1 { margin:0; font-size:18px; }
   header .meta { color:#9fb0c3; font-size:12px; }
+  .profile-card h2 { display:flex; gap:10px; align-items:baseline; margin:0 0 12px; }
+  .profile-card h2 a { margin-left:auto; font-size:13px; font-weight:400; }
+  .profile-who { font-size:12px; font-weight:400; color:var(--mute); }
+  .profile-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:14px 24px; }
+  .profile-grid .k { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
+  .profile-grid .v { font-size:16px; margin-top:2px; overflow-wrap:anywhere; }
+  .profile-grid .s, .profile-students .s { font-size:13px; color:var(--mute); }
+  .profile-students { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
+  .profile-students h3 { margin:0 0 6px; font-size:14px; }
+  .profile-students table { width:100%; border-collapse:collapse; }
+  .profile-students td { padding:6px 8px 6px 0; border-bottom:1px solid var(--line); }
+  .project-chip { display:inline-block; border:1px solid var(--line); border-radius:10px; padding:0 8px; font-size:12px; margin:0 4px 2px 0; color:var(--txt); }
   main { max-width:1500px; margin:0 auto; padding:16px 12px 20px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
   h2 { margin:0 0 10px; font-size:15px; }
@@ -115,6 +127,12 @@
         <span class="mute filter-context" data-flight-filter-summary></span>
         <details class="page-help"><summary>Help</summary><p id="scope"></p>
         <p>Statistics, map, charts and tables follow the shared flight filters. Qualification dates appear on hover; qualifications with evidence open the file when you have access. Past qualifications and account details can be expanded.</p></details>
+    </section>
+
+    <section class="card profile-card" id="profileCard" hidden>
+      <h2>Profile <span class="profile-who" id="profileWho"></span><a href="/profile" id="profileEdit" hidden>Edit</a></h2>
+      <div class="profile-grid" id="profileGrid"></div>
+      <div class="profile-students" id="profileStudents" hidden></div>
     </section>
 
     <div class="cols">
@@ -227,13 +245,59 @@ const personLink = (f, role) => {
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
   $('who').textContent = me.display_name + (me.is_admin ? ' (admin)' : '');
+  profileOn = !!d.person_profile && KIND === 'people';
+  if (D) loadProfile();
 });
+
+// The person profile (profiles.py), shown only to the person, admins and the person's supervisors.
+let profileOn = false;
+async function loadProfile() {
+  if (!profileOn) return;
+  profileOn = false;
+  const r = await fetch(`/api/users/${ITEM_ID}/profile`);
+  if (!r.ok) return;
+  const d = await r.json();
+  if (!d.profile && !d.self && !me.is_admin) return;
+  const p = d.profile || {}, today = new Date().toISOString().slice(0, 10);
+  const name = $('name').textContent || 'this person';
+  $('profileWho').textContent = '🔒 ' + (d.self ? 'visible to you, admins and your supervisors' : `visible to ${name}, admins and ${name}'s supervisors`);
+  $('profileWho').title = 'Supervisors do not see the student/employee number';
+  $('profileEdit').hidden = !d.self;
+  const until = end => {
+    const months = Math.round((new Date(end) - new Date(today)) / 2629800000);
+    return end < today ? 'passed' : months < 1 ? 'this month' : months < 24 ? `in ${months} months` : `in ${Math.floor(months / 12)} years`;
+  };
+  const projects = list => list.map(x => `<a class="project-chip" href="/projects/${x.id}">${esc(x.name)}</a>`).join('') || '<span class="s">none</span>';
+  const field = (k, v, sub) => `<div><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
+  const sups = (p.supervisors || []).map(s => s.id ? `<a href="/people/${s.id}">${esc(s.name)}</a>`
+    : `${esc(s.name)} <span class="s">(external)</span>`).join('<br>');
+  const todo = (d.missing || []).filter(m => m !== 'profile').map(m => m.replace('_', ' '));
+  $('profileGrid').innerHTML = !d.profile ? '<p class="s">Not filled in yet.</p>' : [
+    field('Role', esc(p.role) || '<span class="s">none</span>'),
+    field('Department', esc(p.department), esc(p.department_group || '')),
+    sups ? field('Supervisors', sups) : '',
+    field('Expected end', p.indefinite ? 'Indefinite' : esc(p.end_date), p.indefinite ? '' : until(p.end_date)),
+    'number' in p ? field('Student / employee no.', esc(p.number), d.self ? 'you and admins only' : `${esc(name)} and admins only`) : '',
+    p.github ? field('GitHub', `<a href="https://github.com/${encodeURIComponent(p.github)}" target="_blank" rel="noopener">${esc(p.github)}</a>`) : '',
+    field('Projects', projects(d.projects || [])),
+    field('Last confirmed', esc((p.updated_at || '').slice(0, 10)), todo.length ? `still to fill in: ${esc(todo.join(', '))}` : ''),
+  ].join('');
+  const current = (d.students || []).filter(s => !s.profile || s.profile.indefinite || !s.profile.end_date || s.profile.end_date >= today);
+  const ended = (d.students || []).length - current.length;
+  $('profileStudents').hidden = !current.length && !ended;
+  $('profileStudents').innerHTML = `<h3>Supervises · ${current.length}${ended ? ` <span class="s">(+${ended} ended)</span>` : ''}</h3><table>`
+    + current.map(s => `<tr><td><a href="/people/${s.id}">${esc(s.name)}</a></td><td class="s">${esc(s.profile?.role || '')}</td>`
+      + `<td>${s.profile?.indefinite ? 'Indefinite' : s.profile?.end_date ? 'until ' + esc(s.profile.end_date) : ''}</td>`
+      + `<td>${projects(s.projects || [])}</td></tr>`).join('') + '</table>';
+  $('profileCard').hidden = false;
+}
 fetch(`/api/detail/${KIND}/${ITEM_ID}`).then(async r => {
   if (!r.ok) { $('missing').style.display = 'block'; document.title = 'Not found'; return; }
   D = await r.json();
   $('page').hidden = false;
   renderHead();
   render();
+  loadProfile();
 });
 
 function shown() {

@@ -217,7 +217,8 @@ delivered the briefing from a short list of people.
 
 **Profile** (optional): when the server turns it on, you fill in your role, department, supervisors, expected end
 date and student/employee number after signing in, and again once that end date has passed. Change it under
-**My account**. Admins and your supervisors can see it; supervisors do not see your number.
+**My account**. Only you, admins and your supervisors see it (supervisors without your number): on your person
+page, and on People in the **Profiles** and **Supervision** tabs, which show supervisors the people they supervise.
 
 **Qualifications:** submit your own evidence under **My account**; admins review it on **People**.
 Each type determines whether evidence, expiry and a licence number are required (the number is read from a

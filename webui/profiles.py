@@ -95,6 +95,41 @@ def profile(con, user_id, with_number=True):
     return out
 
 
+def projects(con, user_id, viewer):
+    """The projects a person is a member of, limited to those the viewer may open (admins: all)."""
+    sql = ("SELECT p.id, p.name FROM project_members m JOIN projects p ON p.id=m.project_id WHERE m.user_id=?")
+    args = [user_id]
+    if not viewer["is_admin"]:
+        sql += " AND p.id IN (SELECT project_id FROM project_members WHERE user_id=?)"
+        args.append(viewer["id"])
+    return [dict(r) for r in con.execute(sql + " ORDER BY p.name", args)]
+
+
+def supervised_ids(con, supervisor_id):
+    return [r[0] for r in con.execute("SELECT DISTINCT s.user_id FROM user_supervisors s JOIN users u ON u.id=s.user_id"
+                                      " WHERE s.supervisor_id=? AND u.is_active=1", (supervisor_id,))]
+
+
+def visible_people(con, viewer):
+    """The people whose profile the viewer may see in lists: admins everyone who can sign in; others themselves
+    and the people they supervise."""
+    if viewer["is_admin"]:
+        ids = [r[0] for r in con.execute("SELECT id FROM users WHERE is_active=1 AND is_external=0")]
+    else:
+        ids = [viewer["id"], *supervised_ids(con, viewer["id"])]
+    out = []
+    for uid in dict.fromkeys(ids):
+        u = con.execute("SELECT id, username, COALESCE(display_name, username) AS name FROM users WHERE id=?",
+                        (uid,)).fetchone()
+        if u is None:
+            continue
+        own = uid == viewer["id"]
+        out.append(dict(id=u["id"], name=u["name"], username=u["username"], self=own,
+                        profile=profile(con, uid, with_number=bool(viewer["is_admin"]) or own),
+                        missing=missing(con, uid), projects=projects(con, uid, viewer)))
+    return sorted(out, key=lambda r: r["name"].casefold())
+
+
 def missing(con, user_id):
     """What still has to be filled in (empty when the profile is complete and current)."""
     p = profile(con, user_id)
@@ -250,6 +285,15 @@ def save_options(con, body):
         con.execute(f"DELETE FROM {table} WHERE id NOT IN ({','.join('?' * len(keep))})", keep)
 
 
+def students_of(con, user_id):
+    """The people this user supervises, with their profiles without the number."""
+    return [dict(id=r["user_id"], name=r["name"], profile=profile(con, r["user_id"], with_number=False))
+            for r in con.execute(
+                "SELECT DISTINCT s.user_id, COALESCE(u.display_name, u.username) AS name FROM user_supervisors s"
+                " JOIN users u ON u.id=s.user_id WHERE s.supervisor_id=? AND u.is_active=1 ORDER BY name",
+                (user_id,))]
+
+
 def register(app, connection, require_session, now, pages_dir):
     def con():
         return connection()
@@ -293,12 +337,7 @@ def register(app, connection, require_session, now, pages_dir):
         return jsonify(status=github_status(name))
 
     def students(c, user_id):
-        """The people this user supervises, with their profiles without the number."""
-        return [dict(id=r["user_id"], name=r["name"], profile=profile(c, r["user_id"], with_number=False))
-                for r in c.execute(
-                    "SELECT DISTINCT s.user_id, COALESCE(u.display_name, u.username) AS name FROM user_supervisors s"
-                    " JOIN users u ON u.id=s.user_id WHERE s.supervisor_id=? AND u.is_active=1 ORDER BY name",
-                    (user_id,))]
+        return students_of(c, user_id)
 
     @app.get("/api/users/<int:user_id>/profile")
     def person_profile(user_id):
@@ -311,8 +350,22 @@ def register(app, connection, require_session, now, pages_dir):
                                (user_id, g.user["id"])).fetchone() is not None
         if not (admin or supervisor or user_id == g.user["id"]):
             abort(404)
-        return jsonify(profile=profile(c, user_id, with_number=admin or user_id == g.user["id"]),
-                       missing=missing(c, user_id) if admin else None)
+        own = user_id == g.user["id"]
+        students = []
+        if admin or own:  # the people this person supervises, as their supervisor sees them
+            students = [dict(id=s["id"], name=s["name"], profile=s["profile"], projects=projects(c, s["id"], g.user))
+                        for s in students_of(c, user_id)]
+        return jsonify({"profile": profile(c, user_id, with_number=admin or own), "self": own,
+                        "missing": missing(c, user_id) if admin or own else None,
+                        "projects": projects(c, user_id, g.user), "students": students})
+
+    @app.get("/api/profiles")
+    def visible_profiles():
+        """Profiles for the People Profiles and Supervision tabs: admins everyone, others themselves and the
+        people they supervise (without numbers)."""
+        signed_in()
+        c = con()
+        return jsonify(people=visible_people(c, g.user), admin=bool(g.user["is_admin"]))
 
     @app.put("/api/admin/profile-options")
     def save_profile_options():
