@@ -565,7 +565,13 @@ The database, accounts and paper records do not need to be deleted. Attachments 
 
 A Samba share can be mounted with the service user as owner, in `/etc/fstab`:
 
-    //fileserver/share  /mnt/flight-logs  cifs  credentials=/etc/flight-logs/smb.cred,uid=logdb,gid=logdb,file_mode=0660,dir_mode=0770,_netdev,nofail  0 0
+    //fileserver/share  /mnt/flight-logs  cifs  credentials=/etc/flight-logs/smb.cred,uid=logdb,gid=logdb,file_mode=0660,dir_mode=0770,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30  0 0
+
+The service needs the share (`RequiresMountsFor`). With `x-systemd.automount` the share is mounted on first use,
+so a file server that is not reachable at boot does not leave the service failed with "dependency" (it then
+starts, and reading a log fails until the share is back; no restart needed). Avoid `noauto`: the share is then
+only mounted when the service starts, and a failure at boot is not retried. After changing `/etc/fstab`, run
+`sudo systemctl daemon-reload`; the automount takes over at the next boot (or after unmounting the share).
 
 with `LOGDB_LOG_DIR=/mnt/flight-logs/logs` and `LOGDB_BACKUP_DIR=/mnt/flight-logs/backup`. The credentials file has
 `username=` and `password=` lines (mode 600).
