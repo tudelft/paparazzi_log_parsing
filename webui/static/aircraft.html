@@ -72,10 +72,7 @@
   #aircraftPanel { border:1px solid var(--line); border-top:4px solid var(--acc); border-radius:8px; padding:16px; min-width:0; overflow-wrap:anywhere; }
   #aircraftHeading { font-size:20px; margin:0; }
   .panel-header { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center; }
-  .aircraft-tabs { display:flex; flex-wrap:wrap; gap:4px; margin:16px 0; border-bottom:1px solid var(--line); }
-  .aircraft-tabs button { background:var(--sec); color:var(--txt); border-bottom:3px solid transparent; border-radius:6px 6px 0 0; padding:9px 12px; }
-  .aircraft-tabs [aria-selected="true"] { background:var(--card); border-bottom-color:var(--acc); font-weight:600; }
-  .aircraft-button:focus-visible, .aircraft-tabs button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+  .aircraft-button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
   .detail-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
   .detail-fields .full { grid-column:1/-1; }
   .detail-fields textarea { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; resize:vertical; }
@@ -175,7 +172,7 @@
       <section id="aircraftPanel" aria-label="Selected aircraft">
         <div class="panel-header"><h2 id="aircraftHeading">No aircraft selected</h2><a id="aircraftLink" hidden>View aircraft overview</a></div>
         <p class="mute" id="aircraftIdentity">Select an aircraft from the list to manage its details, project history and aliases.</p>
-        <div class="aircraft-tabs" id="aircraftTabs" role="tablist" aria-label="Aircraft management" hidden>
+        <div class="seg-tabs" id="aircraftTabs" role="tablist" aria-label="Aircraft management" hidden>
           <button type="button" role="tab" id="aircraft-tab-details" aria-controls="aircraftContent" onclick="selectAircraftTab('details')">Details</button>
           <button type="button" role="tab" id="aircraft-tab-projects" aria-controls="aircraftContent" onclick="selectAircraftTab('projects')">Project history</button>
           <button type="button" role="tab" id="aircraft-tab-aliases" aria-controls="aircraftContent" onclick="selectAircraftTab('aliases')">Aliases</button>
@@ -281,9 +278,9 @@ function statusOptions(selected) {
 // In Edit mode the long admin lists (Unlinked names, Shared names) are tabs next to the fleet, one on screen at a time.
 let pageTab = 'fleet';
 function paintPageTabs(open) {
-  const tabs = [['fleet', `Aircraft (${data.drones.length})`]];
-  if (!$('unlinkedCard').hidden) tabs.push(['unlinked', `Unlinked names (${open})`]);
-  if (!$('ambiguousCard').hidden) tabs.push(['shared', `Shared names (${(data.ambiguous || []).length})`]);
+  const tabs = [['fleet', 'Aircraft', data.drones.length]];
+  if (!$('unlinkedCard').hidden) tabs.push(['unlinked', 'Unlinked names', open]);
+  if (!$('ambiguousCard').hidden) tabs.push(['shared', 'Shared names', (data.ambiguous || []).length]);
   if (!tabs.some(t => t[0] === pageTab)) pageTab = 'fleet';
   const tabbed = tabs.length > 1;
   window.pageTabs($('pageTabs'), tabs, pageTab, key => { pageTab = key; window.viewState.save(true); render(); });

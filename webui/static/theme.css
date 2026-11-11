@@ -236,15 +236,22 @@ body > #nightBtn:hover { color:var(--txt); }
 }
 .tabs a:hover { color: var(--txt); }
 .tabs a.cur { color: var(--txt); font-weight: 600; border-bottom-color: var(--acc); }
-/* Page-level tabs (Aircraft and People in Edit mode): one long section on screen at a time. */
-.page-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
-.page-tabs [role="tab"] { background: var(--sec); color: var(--txt); border: 1px solid var(--line); white-space: nowrap; }
-.page-tabs [aria-selected="true"] { background: var(--acc); color: #fff; border-color: var(--acc); }
+/* Tabs, one look everywhere. Page and section tabs (.page-tabs: Flight, Projects, Aircraft and People in Edit mode)
+   are folder tabs with an optional grey count (.n); tabs inside a card (.seg-tabs: a selected person or aircraft,
+   qualification views) are a small segmented control. */
+.page-tabs { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-end; border-bottom: 1px solid var(--line); margin: 0 0 14px; }
+.page-tabs [role="tab"] { background: var(--sec); color: var(--txt); border: 0; border-bottom: 3px solid transparent;
+  border-radius: 6px 6px 0 0; padding: 8px 14px; white-space: nowrap; }
+.page-tabs [aria-selected="true"] { background: var(--card); border-bottom-color: var(--acc); font-weight: 600; }
+.page-tabs .n { color: var(--mute); font-weight: 400; margin-left: 4px; }
+.page-tabs .tabs-end { margin-left: auto; align-self: center; display: flex; gap: 6px; align-items: center; padding-bottom: 4px; }
+.page-tabs [role="tab"]:focus-visible, .seg-tabs [role="tab"]:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 details.card.tabbed > summary { display: none; }
-.qual-tabs { display: flex; gap: 2px; margin: 4px 0 8px; border-bottom: 1px solid var(--line); }
-.qual-tabs [role="tab"] { background: none; color: var(--mute); border: 0; border-bottom: 2px solid transparent;
-  border-radius: 0; padding: 4px 10px; margin-bottom: -1px; font-size: 13px; }
-.qual-tabs [aria-selected="true"] { color: var(--txt); font-weight: 600; border-bottom-color: var(--acc); }
+.seg-tabs { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; margin: 4px 0 10px; }
+.seg-tabs [role="tab"] { background: none; color: var(--mute); border: 0; border-right: 1px solid var(--line); border-radius: 0;
+  padding: 4px 12px; font-size: 13px; }
+.seg-tabs [role="tab"]:last-child { border-right: 0; }
+.seg-tabs [aria-selected="true"] { background: var(--sec); color: var(--txt); font-weight: 600; }
 
 /* Keep nested headings smaller than their section, including browser-default h3s. */
 main h2 { font-size:16px; font-weight:600; line-height:1.35; margin:0 0 10px; }

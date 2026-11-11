@@ -88,10 +88,7 @@
   table.merge-plan { width:100%; border-collapse:collapse; font-size:13px; }
   table.merge-plan td { padding:3px 4px; border-bottom:1px solid var(--line); }
   table.merge-plan td:last-child { text-align:right; }
-  .tabs { display:flex; gap:4px; flex-wrap:wrap; margin:16px 0 0; border-bottom:2px solid var(--line); }
-  .tabs [role="tab"] { background:var(--sec); color:var(--txt); border:1px solid var(--line); border-bottom:3px solid transparent; border-radius:6px 6px 0 0; padding:10px 14px; margin-bottom:-2px; }
-  .tabs [aria-selected="true"] { background:var(--card); border-bottom-color:var(--acc); font-weight:700; }
-  .tabs [role="tab"]:focus-visible, .person-button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+  .person-button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
   #personContent { padding-top:16px; }
   .panel-row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin:12px 0; }
   input, select { max-width:100%; min-width:0; }
@@ -187,7 +184,7 @@
             <a id="personLink" hidden>View pilot page</a>
           </div>
           <p id="personIdentity">Choose a person from the list to see their account, aliases and qualifications here.</p>
-          <div class="tabs" role="tablist" aria-label="Person management" id="personTabs" hidden>
+          <div class="seg-tabs" role="tablist" aria-label="Person management" id="personTabs" hidden>
             <button type="button" role="tab" id="tab-account" aria-controls="personContent" onclick="selectPersonTab('account')">Account</button>
             <button type="button" role="tab" id="tab-api" aria-controls="personContent" onclick="selectPersonTab('api')">API keys</button>
             <button type="button" role="tab" id="tab-aliases" aria-controls="personContent" onclick="selectPersonTab('aliases')">Aliases</button>
@@ -316,11 +313,11 @@ function qualBits(q) {
 // screen at a time; the tab is kept in the URL (?tab=) so Back returns to it.
 let pageTab = new URLSearchParams(location.search).get('tab') || 'people';
 function paintPageTabs(open) {
-  const sections = [['people', 'People', $('peopleCard')], ['unlinked', `Unlinked crew names (${open})`, $('unlinkedCard')],
-    ['approvals', `Approval queue (${pendingQualifications.length})`, $('approvalSection')],
+  const sections = [['people', 'People', $('peopleCard')], ['unlinked', 'Unlinked crew names', $('unlinkedCard'), open],
+    ['approvals', 'Approval queue', $('approvalSection'), pendingQualifications.length],
     ['types', 'Qualification types', $('typesSection')]].filter(([, , el]) => el === $('peopleCard') || !el.hidden);
   if (!sections.some(t => t[0] === pageTab)) pageTab = 'people';
-  window.pageTabs($('pageTabs'), sections.map(([key, label]) => [key, label]), pageTab, key => {
+  window.pageTabs($('pageTabs'), sections.map(([key, label, , count]) => [key, label, count]), pageTab, key => {
     pageTab = key;
     const url = new URL(location.href);
     if (key === 'people') url.searchParams.delete('tab'); else url.searchParams.set('tab', key);
