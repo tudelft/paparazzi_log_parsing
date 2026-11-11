@@ -340,7 +340,8 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     indefinite INTEGER NOT NULL DEFAULT 0 CHECK(indefinite IN (0,1)),
     number TEXT,                       -- student or employee number (person and admins only)
     github TEXT,
-    updated_at TEXT
+    updated_at TEXT,                   -- when the person last saved it themselves
+    to_confirm INTEGER NOT NULL DEFAULT 0 CHECK(to_confirm IN (0,1))  -- filled in by an admin or import
 );
 CREATE TABLE IF NOT EXISTS user_supervisors (
     id INTEGER PRIMARY KEY,
@@ -747,6 +748,9 @@ def init(path):
     qcols = {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}
     if qcols and "note" not in qcols:
         con.execute("ALTER TABLE qualification_submissions ADD COLUMN note TEXT")
+    upcols = {r["name"] for r in con.execute("PRAGMA table_info(user_profiles)")}
+    if upcols and "to_confirm" not in upcols:
+        con.execute("ALTER TABLE user_profiles ADD COLUMN to_confirm INTEGER NOT NULL DEFAULT 0 CHECK(to_confirm IN (0,1))")
     logbook_version_triggers(con)
     con.commit()
 

@@ -963,6 +963,17 @@ Where it shows:
 site-specific: admins add departments there or **Import CSV** (`name,group` per line), and people can also type one. Removing a list
 entry empties that field in the profiles that used it, so those people are asked again.
 
+**Import CSV** on the Profiles tab (admins, `POST /api/admin/profiles/import` with `csv` and `apply`) reads
+`username, role, department, supervisors, end_date, number, github` (only `username` is required; it may be an
+email). It fills in only empty fields, so what people entered stays, and rows may leave fields empty. Roles and
+listed departments match by name; other departments are stored as typed. Supervisors (`;`-separated) link to someone
+who can supervise by name or username, otherwise they are external. `end_date` is `YYYY-MM-DD` or `indefinite`.
+A preview lists per row what would be filled in and what stays empty; nothing is written while any row has an
+error. Profiles filled in by an import, or created by an admin, are marked `to_confirm`: the person is asked to
+check them at the next sign-in (even when complete), and saving their own form clears it. An admin's later edit
+keeps the mark and the person's "last confirmed" date.
+
+
 ### Booking agenda
 
 Off unless `LOGDB_BOOKINGS=1`; session-only (`bookings.py`, `static/agenda.html`). Administrators set up the

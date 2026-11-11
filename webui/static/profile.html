@@ -156,10 +156,13 @@ function safeNext() {
   try { d = await api('/api/profile'); } catch (err) { $('err').textContent = err.message; return; }
   opts = d.options;
   const p = d.profile || {};
-  const complete = d.profile && !d.missing.length;
+  const complete = d.profile && !d.missing.length && !d.profile.to_confirm;  // to confirm: still asked once
   $('title').textContent = complete ? 'Your profile' : d.profile ? 'Update your profile' : 'Complete your profile';
   if (d.profile && d.missing.includes('end_date') && d.missing.length === 1)
     $('intro').textContent = 'Your expected end date has passed. Give a new one, or tick Indefinite.';
+  else if (d.profile && d.profile.to_confirm)
+    $('intro').textContent = 'An administrator filled in (part of) your profile. Check it, complete it where needed and save.';
+  if (d.profile && d.profile.to_confirm) $('title').textContent = 'Check your profile';
   $('cancel').hidden = !complete;
   $('save').textContent = complete ? 'Save' : 'Save and continue';
   $('role').innerHTML = '<option value="">Choose…</option>'

@@ -52,6 +52,11 @@
   .profiles-table { width:100%; border-collapse:collapse; }
   .profiles-table th { text-align:left; padding:0; }
   .profiles-table th button.sort { background:none; border:0; color:var(--mute); font:inherit; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; padding:6px 8px; cursor:pointer; white-space:nowrap; }
+  #profileImportPreview th { padding:6px 8px; font-size:12px; color:var(--mute); text-transform:uppercase; }
+  #profileImportDialog { width:min(640px, calc(100vw - 32px)); box-sizing:border-box; }
+  #profileImportPreview table { width:100%; table-layout:fixed; }
+  #profileImportPreview th:first-child { width:3em; }
+  #profileImportPreview td { white-space:normal; max-width:none; overflow-wrap:anywhere; }
   .profiles-table th[aria-sort=ascending] button, .profiles-table th[aria-sort=descending] button { color:var(--txt); }
   .profiles-table td { padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:240px; }
   .supervision-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(520px, 1fr)); gap:12px; }
@@ -259,6 +264,7 @@
       <select id="profilesStatus" aria-label="Status" onchange="profileState('status', this.value)">
         <option value="">All</option><option value="missing">Incomplete</option><option value="soon">Ends within 3 months</option><option value="ended">Ended</option></select>
       <button type="button" class="sec" style="margin-left:auto" onclick="downloadProfiles()">Download CSV</button>
+      <button type="button" class="sec" id="profilesImportBtn" hidden onclick="openProfileImport()">Import CSV</button>
       <details><summary>Help</summary><p>Admins see everyone who can sign in; supervisors see the people they supervise, without numbers. Click a column heading to sort. <em>Incomplete</em> lists people who still have to fill in (part of) their profile; they are asked at their next sign-in. The flights are those as PIC within the flight filters.</p></details></div>
     <div class="scroll"><table class="profiles-table"><thead><tr id="profilesHead"></tr></thead><tbody id="profilesRows"></tbody></table></div>
     <div class="navigation" id="profilesPager"></div>
@@ -294,6 +300,21 @@
       <button type="button" id="qualImportCommit" hidden onclick="commitQualImport()">Import and approve</button>
       <span class="mute" id="qualImportStatus" role="status"></span></div>
     <div class="scroll" id="qualImportPreview"></div>
+  </dialog>
+  <dialog class="entry-dialog" id="profileImportDialog" aria-labelledby="profileImportTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="profileImportTitle">Import profiles</h2>
+      <button type="button" onclick="$('profileImportDialog').close()" aria-label="Close import">Close</button></div>
+    <p class="mute">A CSV with the columns <span class="mono">username, role, department, supervisors, end_date, number,
+      github</span> (only <span class="mono">username</span> is required; it may also be an email). Only empty fields are
+      filled in: what people already entered stays. Supervisors are separated by semicolons (<span class="mono">;</span>). A name or
+      username of someone who can supervise links to them, others become external supervisors. <span class="mono">end_date</span>
+      is <span class="mono">YYYY-MM-DD</span> or <span class="mono">indefinite</span>. Fields may stay empty. Everyone whose
+      profile is filled in this way checks it at their next sign-in. <a href="#" onclick="event.preventDefault();profileTemplate()">CSV template</a></p>
+    <p id="profileImportError" class="dialog-error" role="alert"></p>
+    <label class="field">CSV file<input type="file" id="profileImportFile" accept=".csv,text/csv,text/plain" onchange="previewProfileImport()"></label>
+    <div class="panel-row"><button type="button" id="profileImportCommit" hidden onclick="previewProfileImport(true)">Import</button>
+      <span class="mute" id="profileImportStatus" role="status"></span></div>
+    <div class="scroll" id="profileImportPreview"></div>
   </dialog>
 </main>
 <script>
@@ -407,6 +428,7 @@ function render() {
   // Profiles and Supervision: admins see everyone, a supervisor the people they supervise
   const others = profileList.filter(x => !x.self).length;
   $('profilesSection').hidden = !others;
+  $('profilesImportBtn').hidden = !admin;
   $('supervisionSection').hidden = !supervisionGroups().length;
   if (!$('profilesSection').hidden) renderProfiles();
   if (!$('supervisionSection').hidden) renderSupervision();
@@ -840,7 +862,8 @@ function renderProfiles() {
     if (k === 'role') return esc(p.role || '—');
     if (k === 'dept') return `<span title="${esc(p.department_group || '')}">${esc(p.department || '')}</span>`;
     if (k === 'sup') return (p.supervisors || []).map(s => s.id ? `<a href="/people/${s.id}">${esc(s.name)}</a>` : `${esc(s.name)} <span class="mute">(ext.)</span>`).join(', ') || '<span class="mute">—</span>';
-    if (k === 'end') return (p.indefinite ? 'Indefinite' : esc(p.end_date || '')) + ' ' + (x.status === 'missing' ? '<span class="chip pending">incomplete</span>' : badge(x));
+    if (k === 'end') return (p.indefinite ? 'Indefinite' : esc(p.end_date || '')) + ' ' + (x.status === 'missing' ? '<span class="chip pending">incomplete</span>' : badge(x))
+      + (p.to_confirm ? ' <span class="chip pending" title="Filled in by an administrator or an import; the person checks it at the next sign-in">to confirm</span>' : '');
     if (k === 'number') return esc(p.number || '');
     if (k === 'github') return p.github ? `<a href="https://github.com/${encodeURIComponent(p.github)}" target="_blank" rel="noopener">${esc(p.github)}</a>` : '';
     if (k === 'flights') return `<span class="mute">${flightsText(x.flights)}</span>`;
@@ -851,6 +874,41 @@ function renderProfiles() {
     || `<tr><td colspan="${cols.length}" class="mute">No matching people.</td></tr>`;
   if (rows.length > PROFILE_PAGE) window.viewState.pager($('profilesPager'), page, PROFILE_PAGE, rows.length, n => profileState('page', n ? String(n) : ''));
   else $('profilesPager').innerHTML = '';
+}
+// Import profiles from a CSV (admins): a preview first, then Import writes them when no row has an error.
+function openProfileImport() {
+  $('profileImportFile').value = '';
+  ['profileImportError', 'profileImportStatus', 'profileImportPreview'].forEach(id => { $(id).textContent = ''; });
+  $('profileImportCommit').hidden = true;
+  $('profileImportDialog').showModal();
+}
+function profileTemplate() {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['username,role,department,supervisors,end_date,number,github\n'], {type: 'text/csv'}));
+  a.download = 'profiles-template.csv';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+async function previewProfileImport(apply = false) {
+  const file = $('profileImportFile').files[0];
+  $('profileImportError').textContent = '';
+  if (!file) return;
+  try {
+    const d = await adminApi('/api/admin/profiles/import', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({csv: await file.text(), apply})});
+    const label = {new: 'new profile', update: 'filled in', unchanged: 'nothing to fill in'};
+    $('profileImportPreview').innerHTML = `<table class="profiles-table"><thead><tr><th>Line</th><th>Person</th><th>Result</th>
+      <th>Fills in</th></tr></thead><tbody>${d.rows.map(r => `<tr><td>${r.line}</td>
+      <td title="${esc(r.username)}">${esc(r.name || r.username || '—')}</td>
+      <td>${r.error ? `<span class="chip warn">${esc(r.error)}</span>` : esc(label[r.status])}</td>
+      <td>${esc((r.changes || []).join(', '))}${(r.still_missing || []).length
+        ? `<div class="mute">still empty: ${esc(r.still_missing.join(', '))}</div>` : ''}</td></tr>`).join('')}</tbody></table>`;
+    $('profileImportCommit').hidden = d.applied || d.errors > 0 || !d.changed;
+    $('profileImportStatus').textContent = d.applied ? `Imported: ${d.changed} profile${d.changed === 1 ? '' : 's'} filled in.`
+      : d.errors ? `${d.errors} row${d.errors === 1 ? '' : 's'} with errors; fix the file and choose it again.`
+      : d.changed ? `${d.changed} profile${d.changed === 1 ? '' : 's'} to fill in.` : 'Nothing to fill in.';
+    if (d.applied) loadProfileList();
+  } catch (error) { $('profileImportError').textContent = error.message; }
 }
 function downloadProfiles() {
   const admin = !!me.is_admin;

@@ -6,7 +6,9 @@ admins see the whole profile; supervisors see their students' profiles without t
 role and department lists (People, Edit mode). The role list is filled in once when the tables are created;
 the department list starts empty (site-specific: admins add or import it), and people can also type one.
 """
+import csv
 import datetime
+import io
 import json
 import re
 import threading
@@ -74,7 +76,8 @@ def profile(con, user_id, with_number=True):
     out = dict(role_id=row["role_id"], role=row["role"], department_id=row["department_id"],
                department=row["department"] or row["department_text"], department_group=row["department_group"],
                department_text=row["department_text"], end_date=row["end_date"], indefinite=bool(row["indefinite"]),
-               github=row["github"], updated_at=row["updated_at"], supervisors=sups)
+               github=row["github"], updated_at=row["updated_at"], to_confirm=bool(row["to_confirm"]),
+               supervisors=sups)
     if with_number:
         out["number"] = row["number"]
     return out
@@ -137,7 +140,12 @@ def missing(con, user_id):
 
 def needs_profile(con, user):
     """True when this signed-in browser user must (re)fill the profile before using the site."""
-    return enabled() and not user["is_external"] and bool(missing(con, user["id"]))
+    if not enabled() or user["is_external"]:
+        return False
+    if missing(con, user["id"]):
+        return True
+    row = con.execute("SELECT to_confirm FROM user_profiles WHERE user_id=?", (user["id"],)).fetchone()
+    return bool(row and row["to_confirm"])  # filled in by an admin or an import: the person checks it once
 
 
 def github_status(name):
@@ -174,7 +182,7 @@ def _text(body, key, limit):
     return value.strip() or None
 
 
-def save(con, user_id, body, stamp):
+def save(con, user_id, body, stamp, by_admin=False):
     """Validate and store a person's own profile (the whole form)."""
     if not isinstance(body, dict):
         raise ProfileError("Send a JSON object.")
@@ -231,11 +239,13 @@ def save(con, user_id, body, stamp):
         raise ProfileError("Name at least one supervisor.")
     con.execute(
         "INSERT INTO user_profiles (user_id, role_id, department_id, department_text, end_date, indefinite, number,"
-        " github, updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET role_id=excluded.role_id,"
-        " department_id=excluded.department_id, department_text=excluded.department_text,"
-        " end_date=excluded.end_date, indefinite=excluded.indefinite, number=excluded.number,"
-        " github=excluded.github, updated_at=excluded.updated_at",
-        (user_id, role_id, department_id, department_text, end_date, int(indefinite), number, github, stamp))
+        " github, updated_at, to_confirm) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET"
+        " role_id=excluded.role_id, department_id=excluded.department_id, department_text=excluded.department_text,"
+        " end_date=excluded.end_date, indefinite=excluded.indefinite, number=excluded.number, github=excluded.github,"
+        + (" to_confirm=to_confirm" if by_admin else " updated_at=excluded.updated_at, to_confirm=0"),
+        # an admin's change keeps "last confirmed" and, for a new profile, asks the person to check it
+        (user_id, role_id, department_id, department_text, end_date, int(indefinite), number, github,
+         None if by_admin else stamp, int(by_admin)))
     con.execute("DELETE FROM user_supervisors WHERE user_id=?", (user_id,))
     con.executemany("INSERT INTO user_supervisors (user_id, supervisor_id, external_name) VALUES (?,?,?)",
                     [(user_id, sid, name) for sid, name in rows])
@@ -268,6 +278,130 @@ def save_options(con, body):
                 keep.append(con.execute(f"INSERT INTO {table} ({', '.join(fields)}, sort_order) VALUES"
                                         f" ({', '.join('?' * (len(fields) + 1))})", values).lastrowid)
         con.execute(f"DELETE FROM {table} WHERE id NOT IN ({','.join('?' * len(keep))})", keep)
+
+
+IMPORT_COLUMNS = ("username", "role", "department", "supervisors", "end_date", "number", "github")
+
+
+def import_profiles(con, text, apply=False):
+    """Fill in profiles from CSV text (admins). A row names a person by username (or email) and fills only the fields
+    that are still empty; existing values stay. Rows may leave fields empty. Imported profiles are marked to_confirm,
+    so the person checks them at their next sign-in. Returns one result per row; nothing is written while any row
+    has an error, or without apply."""
+    if not isinstance(text, str) or not text.strip():
+        raise ProfileError("Choose a CSV file.")
+    if len(text) > 2_000_000:
+        raise ProfileError("The file is too large.")
+    reader = csv.DictReader(io.StringIO(text.lstrip("\ufeff")), skipinitialspace=True)
+    headers = {(h or "").strip().lower(): h for h in reader.fieldnames or []}
+    if "username" not in headers:
+        raise ProfileError("The CSV needs a username column (" + ", ".join(IMPORT_COLUMNS) + ").")
+    unknown = sorted(set(headers) - set(IMPORT_COLUMNS))
+    if unknown:
+        raise ProfileError("Unknown columns: " + ", ".join(unknown) + ".")
+    roles = {r["name"].casefold(): r["id"] for r in con.execute("SELECT id, name FROM profile_roles")}
+    needs = {r["id"]: r["needs_supervisor"] for r in con.execute("SELECT id, needs_supervisor FROM profile_roles")}
+    depts = {r["name"].casefold(): r["id"] for r in con.execute("SELECT id, name FROM profile_departments")}
+    supervisors = {}
+    for s in options(con)["supervisors"]:
+        supervisors.setdefault(s["name"].casefold(), s["id"])
+    for r in con.execute("SELECT u.id, u.username FROM users u WHERE u.id IN (SELECT user_id FROM user_profiles p"
+                         " JOIN profile_roles r ON r.id=p.role_id WHERE r.can_supervise=1)"):
+        supervisors.setdefault(r["username"].casefold(), r["id"])
+    rows, seen = [], set()
+    for line, raw in enumerate(reader, 2):
+        cell = {k: (raw.get(h) or "").strip() for k, h in headers.items()}
+        if not any(cell.values()):
+            continue
+        out = {"line": line, "username": cell["username"], "changes": [], "error": None}
+        rows.append(out)
+        user = con.execute("SELECT id, COALESCE(display_name, username) AS name FROM users WHERE is_external=0 AND"
+                           " (username=? COLLATE NOCASE OR email=? COLLATE NOCASE)",
+                           (cell["username"], cell["username"])).fetchone() if cell["username"] else None
+        if user is None:
+            out["error"] = "unknown username" if cell["username"] else "no username"
+            continue
+        if user["id"] in seen:
+            out["error"] = "this person is in the file twice"
+            continue
+        seen.add(user["id"])
+        out["name"], out["user_id"] = user["name"], user["id"]
+        old = con.execute("SELECT * FROM user_profiles WHERE user_id=?", (user["id"],)).fetchone()
+        new = dict(old) if old else {"role_id": None, "department_id": None, "department_text": None, "end_date": None,
+                                      "indefinite": 0, "number": None, "github": None}
+        try:
+            if cell.get("role") and not new["role_id"]:
+                if cell["role"].casefold() not in roles:
+                    raise ProfileError(f"unknown role '{cell['role']}'")
+                new["role_id"] = roles[cell["role"].casefold()]
+                out["changes"].append("role")
+            if cell.get("department") and not new["department_id"] and not new["department_text"]:
+                if cell["department"].casefold() in depts:
+                    new["department_id"] = depts[cell["department"].casefold()]
+                else:
+                    new["department_text"] = cell["department"][:120]
+                out["changes"].append("department")
+            if cell.get("end_date") and not new["end_date"] and not new["indefinite"]:
+                if cell["end_date"].casefold() == "indefinite":
+                    new["indefinite"] = 1
+                else:
+                    try:
+                        if not DATE.match(cell["end_date"]):
+                            raise ValueError
+                        datetime.date.fromisoformat(cell["end_date"])
+                    except ValueError:
+                        raise ProfileError(f"end_date '{cell['end_date']}' is not YYYY-MM-DD or indefinite") from None
+                    new["end_date"] = cell["end_date"]
+                out["changes"].append("end date")
+            if cell.get("number") and not (new["number"] or "").strip():
+                new["number"] = cell["number"][:40]
+                out["changes"].append("number")
+            if cell.get("github") and not new["github"]:
+                if not GITHUB_NAME.match(cell["github"]):
+                    raise ProfileError(f"'{cell['github']}' is not a valid GitHub username")
+                new["github"] = cell["github"]
+                out["changes"].append("GitHub")
+            sups = []
+            has_sups = con.execute("SELECT 1 FROM user_supervisors WHERE user_id=?", (user["id"],)).fetchone()
+            if cell.get("supervisors") and not has_sups:
+                for name in [n.strip() for n in cell["supervisors"].split(";") if n.strip()][:10]:
+                    sid = supervisors.get(name.casefold())
+                    if sid == user["id"]:
+                        raise ProfileError("a person cannot supervise themselves")
+                    sups.append((sid, None) if sid else (None, name[:120]))
+                sups = list(dict.fromkeys(sups))
+                if sups:
+                    out["changes"].append("supervisors")
+        except ProfileError as exc:
+            out["error"] = str(exc)
+            continue
+        out["status"] = "unchanged" if not out["changes"] else "update" if old else "new"
+        out["sups"], out["new"] = sups, new
+        out["still_missing"] = [m for m in (
+            "role" if not new["role_id"] else "", "department" if not (new["department_id"] or new["department_text"]) else "",
+            "end date" if not (new["end_date"] or new["indefinite"]) else "", "number" if not (new["number"] or "").strip() else "",
+            "supervisors" if new["role_id"] and needs.get(new["role_id"]) and not (has_sups or sups) else "") if m]
+    errors = sum(1 for r in rows if r["error"])
+    if apply and not errors:
+        for r in rows:
+            if r["status"] == "unchanged":
+                continue
+            n = r["new"]
+            con.execute(
+                "INSERT INTO user_profiles (user_id, role_id, department_id, department_text, end_date, indefinite,"
+                " number, github, to_confirm) VALUES (?,?,?,?,?,?,?,?,1) ON CONFLICT(user_id) DO UPDATE SET"
+                " role_id=excluded.role_id, department_id=excluded.department_id, department_text=excluded.department_text,"
+                " end_date=excluded.end_date, indefinite=excluded.indefinite, number=excluded.number,"
+                " github=excluded.github, to_confirm=1",
+                (r["user_id"], n["role_id"], n["department_id"], n["department_text"], n["end_date"], n["indefinite"],
+                 n["number"], n["github"]))
+            con.executemany("INSERT INTO user_supervisors (user_id, supervisor_id, external_name) VALUES (?,?,?)",
+                            [(r["user_id"], sid, name) for sid, name in r["sups"]])
+    for r in rows:
+        r.pop("new", None)
+        r.pop("sups", None)
+    return {"rows": rows, "errors": errors, "applied": bool(apply and not errors),
+            "changed": sum(1 for r in rows if r.get("status") in ("new", "update"))}
 
 
 def person_name(con, user_id):
@@ -363,7 +497,7 @@ def register(app, connection, require_session, now, pages_dir):
         c = con()
         if person_name(c, user_id) is None:
             abort(404)
-        save(c, user_id, request.get_json(silent=True), now())
+        save(c, user_id, request.get_json(silent=True), now(), by_admin=True)
         c.commit()
         return jsonify(profile=profile(c, user_id), missing=missing(c, user_id))
 
@@ -374,6 +508,19 @@ def register(app, connection, require_session, now, pages_dir):
         signed_in()
         c = con()
         return jsonify(people=visible_people(c, g.user), admin=bool(g.user["is_admin"]))
+
+    @app.post("/api/admin/profiles/import")
+    def import_profile_csv():
+        """Preview ({"csv": text}) or apply ({"csv": text, "apply": true}) a profile import."""
+        signed_in()
+        if not g.user["is_admin"]:
+            abort(403)
+        body = request.get_json(silent=True) or {}
+        c = con()
+        result = import_profiles(c, body.get("csv"), apply=body.get("apply") is True)
+        if result["applied"]:
+            c.commit()
+        return jsonify(result)
 
     @app.put("/api/admin/profile-options")
     def save_profile_options():
