@@ -318,6 +318,39 @@ CREATE TABLE IF NOT EXISTS cli_logins (  -- RFC 8628 device logins of scripts (P
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- who approved or denied it
     status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','denied','used'))
 );
+CREATE TABLE IF NOT EXISTS profile_roles (   -- person profile (profiles.py): what someone is, e.g. PhD Student
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    can_supervise INTEGER NOT NULL DEFAULT 0 CHECK(can_supervise IN (0,1)),     -- offered as a supervisor
+    needs_supervisor INTEGER NOT NULL DEFAULT 0 CHECK(needs_supervisor IN (0,1)),  -- must name a supervisor
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS profile_departments (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    grp TEXT,                          -- the department a section belongs to
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    role_id INTEGER REFERENCES profile_roles(id) ON DELETE SET NULL,
+    department_id INTEGER REFERENCES profile_departments(id) ON DELETE SET NULL,
+    department_text TEXT,              -- typed by the person when the list has no match
+    end_date TEXT,                     -- expected end, YYYY-MM-DD; NULL with indefinite=1
+    indefinite INTEGER NOT NULL DEFAULT 0 CHECK(indefinite IN (0,1)),
+    number TEXT,                       -- student or employee number (person and admins only)
+    github TEXT,
+    updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS user_supervisors (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    supervisor_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    external_name TEXT,                -- a supervisor without an account
+    CHECK((supervisor_id IS NULL) <> (external_name IS NULL))
+);
+CREATE INDEX IF NOT EXISTS ix_user_supervisors_user ON user_supervisors(user_id);
+CREATE INDEX IF NOT EXISTS ix_user_supervisors_supervisor ON user_supervisors(supervisor_id);
 CREATE TABLE IF NOT EXISTS user_aliases (
     id INTEGER PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -488,7 +521,11 @@ def connect(path):
 
 def init(path):
     con = connect(path)
+    new_profile_lists = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='profile_roles'").fetchone() is None
     con.executescript(SCHEMA)
+    if new_profile_lists:  # default lists once, when the tables are created; admins edit them afterwards
+        import profiles
+        profiles.seed(con)
     if "requires_start" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_types)")}:
         con.execute("ALTER TABLE qualification_types ADD COLUMN requires_start"
                     " INTEGER NOT NULL DEFAULT 0 CHECK(requires_start IN (0,1))")
