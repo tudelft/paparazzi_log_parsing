@@ -432,7 +432,8 @@ function renderAdminPeople() {
     const dates = [];
     if (s.valid_from) dates.push(`Valid from ${esc(s.valid_from)}`);
     if (s.valid_until) dates.push(`Valid until ${esc(s.valid_until)}`);
-    return `<div class="panel-row"><strong>${esc(s.person)}</strong> ${esc(s.category)}${dates.length ? ' · ' + dates.join(' · ') : ''}
+    const evidence = s.evidence_label || (s.has_evidence ? 'Uploaded evidence' : '');
+    return `<div class="panel-row"><strong>${esc(s.person)}</strong> ${esc(s.category)}${evidence ? ' · ' + esc(evidence) : ''}${dates.length ? ' · ' + dates.join(' · ') : ''}
       <span class="info-tip"><button type="button" aria-label="Submission details">i</button>
       <span class="tip" role="tooltip">Submitted ${esc(String(s.submitted_at || '').replace('T', ' ').replace(/Z$/, ' UTC'))}</span></span>
       <button type="button" onclick="selectPerson(${s.user_id},'qualifications')">Review submission</button></div>`;

@@ -387,6 +387,7 @@ CREATE TABLE IF NOT EXISTS trainings (
     pass_score INTEGER,
     valid_days INTEGER,
     ask_briefed_by INTEGER NOT NULL DEFAULT 0 CHECK(ask_briefed_by IN (0,1)),
+    needs_approval INTEGER NOT NULL DEFAULT 0 CHECK(needs_approval IN (0,1)),
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
     sort_order INTEGER NOT NULL DEFAULT 0
 );
@@ -633,6 +634,9 @@ def init(path):
     if tcols and "ask_briefed_by" not in tcols:
         con.execute("ALTER TABLE trainings ADD COLUMN ask_briefed_by INTEGER NOT NULL DEFAULT 0"
                     " CHECK(ask_briefed_by IN (0,1))")
+    if tcols and "needs_approval" not in tcols:
+        con.execute("ALTER TABLE trainings ADD COLUMN needs_approval INTEGER NOT NULL DEFAULT 0"
+                    " CHECK(needs_approval IN (0,1))")
     pcols = {r["name"] for r in con.execute("PRAGMA table_info(training_progress)")}
     if pcols and "briefed_by" not in pcols:
         con.execute("ALTER TABLE training_progress ADD COLUMN briefed_by INTEGER REFERENCES users(id) ON DELETE SET NULL")

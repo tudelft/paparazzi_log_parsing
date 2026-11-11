@@ -1,8 +1,9 @@
 """In-app training questionnaires. Off unless LOGDB_TRAINING=1.
 
-A pass is stored with the attempt count and can grant an approved qualification immediately.
-Failed answers are not kept. People may retry until they pass; after a pass they may retake
-when the linked qualification has expired or an administrator resets their progress.
+A pass is stored with the attempt count and can grant a qualification immediately, or queue it
+for admin approval when the training has needs_approval set. Failed answers are not kept.
+People may retry until they pass; after a pass they may retake when the linked qualification
+has expired, a queued pass was rejected, or an administrator resets their progress.
 Questionnaires are created in Edit mode or imported from a JSON/ZIP file kept outside the
 repository — nothing is seeded at startup.
 """
@@ -241,14 +242,19 @@ def check_pass_score(pass_score, total_points):
         raise TrainingError(f"Pass score ({pass_score}) is higher than total points ({total_points}).")
 
 
-def grant_qualification(con, user_id, kind, valid_days):
-    """Insert an approved qualification for a training pass. Returns the submission id or None."""
-    if not kind:
-        return None
+def validity_window(kind, valid_days):
     start = utc_date().isoformat()
     until = (utc_date() + datetime.timedelta(days=valid_days)).isoformat() if valid_days else None
     if kind["requires_expiry"] and until is None:
         raise TrainingError("This training must set validity days because the qualification expires.")
+    return start, until
+
+
+def grant_qualification(con, user_id, kind, valid_days):
+    """Insert an approved qualification for a training pass. Returns the submission id or None."""
+    if not kind:
+        return None
+    start, until = validity_window(kind, valid_days)
     con.execute("UPDATE qualification_submissions SET status='withdrawn'"
                 " WHERE user_id=? AND type_id=? AND status='pending'", (user_id, kind["id"]))
     con.execute("UPDATE qualification_submissions SET status='superseded'"
@@ -263,14 +269,48 @@ def grant_qualification(con, user_id, kind, valid_days):
     return sid
 
 
+def queue_qualification(con, user_id, kind, valid_days, evidence_label):
+    """Insert a pending qualification for a training pass that needs approval."""
+    if not kind:
+        raise TrainingError("A pass that needs approval must link to a qualification.")
+    start, until = validity_window(kind, valid_days)
+    con.execute("UPDATE qualification_submissions SET status='withdrawn'"
+                " WHERE user_id=? AND type_id=? AND status='pending'", (user_id, kind["id"]))
+    now = utc_now()
+    sid = con.execute(
+        "INSERT INTO qualification_submissions(user_id,type_id,valid_from,valid_until,status,submitted_by,"
+        " submitted_at,filename) VALUES (?,?,?,?,'pending',?,?,?)",
+        (user_id, kind["id"], start, until, user_id, now, evidence_label[:160])).lastrowid
+    qualifications.audit(con, user_id, user_id, "training-pass-queued",
+                         dict(id=sid, category=kind["name"], valid_from=start, valid_until=until,
+                              evidence=evidence_label))
+    return sid
+
+
+def clear_progress_for_submission(con, submission_id):
+    """Clear a queued training pass so the person can retake after reject or withdraw."""
+    if not submission_id:
+        return
+    con.execute(
+        "UPDATE training_progress SET passed_at=NULL, answers_json=NULL, submission_id=NULL, briefed_by=NULL"
+        " WHERE submission_id=?", (submission_id,))
+
+
+def submission_status(con, progress):
+    if not progress or not progress["submission_id"]:
+        return None
+    row = con.execute("SELECT status, valid_until FROM qualification_submissions WHERE id=?",
+                      (progress["submission_id"],)).fetchone()
+    return dict(row) if row else None
+
+
 def pass_is_current(con, user_id, training_row, progress):
-    """True when the person still holds a valid pass (blocks retake)."""
+    """True when the person still holds a valid approved pass (blocks retake)."""
     if not progress or not progress["passed_at"]:
         return False
     today = utc_date().isoformat()
+    sub = submission_status(con, progress)
     if progress["submission_id"]:
-        sub = con.execute("SELECT status, valid_until FROM qualification_submissions WHERE id=?",
-                          (progress["submission_id"],)).fetchone()
         if sub is None or sub["status"] != "approved":
             return False
         if sub["valid_until"] and sub["valid_until"] < today:
@@ -283,6 +323,14 @@ def pass_is_current(con, user_id, training_row, progress):
             (user_id, training_row["type_id"], today)).fetchone()
         return current is not None
     return True
+
+
+def pass_awaiting_approval(con, progress):
+    """True when a pass is waiting in the qualification approval queue."""
+    if not progress or not progress["passed_at"]:
+        return False
+    sub = submission_status(con, progress)
+    return bool(sub and sub["status"] == "pending")
 
 
 def register(app, connection, root, require_session):
@@ -346,15 +394,19 @@ def register(app, connection, root, require_session):
             if not row["active"] and not user["is_admin"]:
                 continue
             progress = mine.get(row["id"]) or {}
-            current = pass_is_current(cid, user["id"], row, progress or None)
+            prog = progress or None
+            current = pass_is_current(cid, user["id"], row, prog)
+            awaiting = pass_awaiting_approval(cid, prog)
             items.append({
                 "id": row["id"], "name": row["name"], "description": row["description"],
                 "type_id": row["type_id"], "type_name": row["type_name"],
                 "pass_score": row["pass_score"], "valid_days": row["valid_days"],
                 "ask_briefed_by": bool(row["ask_briefed_by"]),
+                "needs_approval": bool(row["needs_approval"]),
                 "active": bool(row["active"]),
                 "passed_at": progress.get("passed_at") if current else None,
-                "expired_pass": bool(progress.get("passed_at") and not current),
+                "awaiting_approval": awaiting,
+                "expired_pass": bool(progress.get("passed_at") and not current and not awaiting),
                 "attempts": progress.get("attempts") or 0,
             })
         return items
@@ -457,7 +509,7 @@ def register(app, connection, root, require_session):
         if not isinstance(data, dict):
             raise TrainingError("The questionnaire JSON must be an object.")
         unknown = set(data) - {"name", "description", "pass_score", "valid_days", "ask_briefed_by",
-                               "questions", "sort_order", "qualification"}
+                               "needs_approval", "questions", "sort_order", "qualification"}
         if "qualification" in data:
             raise TrainingError("Do not put a qualification name in the file; pick an existing type when importing.")
         if unknown:
@@ -471,6 +523,11 @@ def register(app, connection, root, require_session):
         if "ask_briefed_by" in data and type(data.get("ask_briefed_by")) is not bool:
             raise TrainingError("Ask who briefed must be true or false.")
         ask_briefed_by = bool(data.get("ask_briefed_by", False))
+        if "needs_approval" in data and type(data.get("needs_approval")) is not bool:
+            raise TrainingError("A pass needs approval must be true or false.")
+        needs_approval = bool(data.get("needs_approval", False))
+        if needs_approval and not type_id:
+            raise TrainingError("A pass that needs approval must link to a qualification.")
         resolve_type(cid, type_id, valid_days)
         raw_questions = data.get("questions")
         if not isinstance(raw_questions, list):
@@ -495,8 +552,8 @@ def register(app, connection, root, require_session):
         existing = cid.execute("SELECT id FROM trainings WHERE name=?", (name,)).fetchone()
         return {
             "name": name, "description": description, "pass_score": pass_score, "valid_days": valid_days,
-            "ask_briefed_by": ask_briefed_by, "type_id": type_id, "questions": parsed,
-            "existing_id": existing["id"] if existing else None,
+            "ask_briefed_by": ask_briefed_by, "needs_approval": needs_approval, "type_id": type_id,
+            "questions": parsed, "existing_id": existing["id"] if existing else None,
             "question_count": len(parsed),
             "image_count": len(needed_images),
             "images": images,
@@ -522,23 +579,37 @@ def register(app, connection, root, require_session):
         cid = con()
         row = training_row(cid, training_id, active_only=not g.user["is_admin"])
         questions, choices = load_questions(cid, training_id)
-        progress = cid.execute("SELECT attempts, passed_at, briefed_by, submission_id FROM training_progress"
+        progress = cid.execute("SELECT attempts, passed_at, briefed_by, submission_id, answers_json FROM training_progress"
                                " WHERE user_id=? AND training_id=?",
                                (g.user["id"], training_id)).fetchone()
         current = pass_is_current(cid, g.user["id"], row, progress)
+        awaiting = pass_awaiting_approval(cid, progress)
         briefer = None
-        if progress and progress["briefed_by"] and current:
+        if progress and progress["briefed_by"] and (current or awaiting):
             briefer = cid.execute("SELECT COALESCE(display_name, username) AS name FROM users WHERE id=?",
                                   (progress["briefed_by"],)).fetchone()
+        pass_score_text = None
+        if awaiting and progress and progress["answers_json"]:
+            try:
+                stored = json.loads(progress["answers_json"])
+                earned, total = score_answers(questions, choices, stored)
+                needed = row["pass_score"] if row["pass_score"] is not None else total
+                pass_score_text = f"{earned}/{needed}"
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass_score_text = None
         out = {
             "id": row["id"], "name": row["name"], "description": row["description"],
             "type_id": row["type_id"], "pass_score": row["pass_score"], "valid_days": row["valid_days"],
             "ask_briefed_by": bool(row["ask_briefed_by"]),
+            "needs_approval": bool(row["needs_approval"]),
             "active": bool(row["active"]),
             "passed_at": progress["passed_at"] if progress and current else None,
-            "expired_pass": bool(progress and progress["passed_at"] and not current),
+            "submitted_at": progress["passed_at"] if progress and awaiting else None,
+            "awaiting_approval": awaiting,
+            "pass_score_text": pass_score_text,
+            "expired_pass": bool(progress and progress["passed_at"] and not current and not awaiting),
             "attempts": progress["attempts"] if progress else 0,
-            "briefed_by": progress["briefed_by"] if progress and current else None,
+            "briefed_by": progress["briefed_by"] if progress and (current or awaiting) else None,
             "briefed_by_name": briefer["name"] if briefer else None,
             "briefers": briefer_list(cid, training_id),
             "total_points": sum(q["points"] for q in questions),
@@ -552,7 +623,7 @@ def register(app, connection, root, require_session):
                 "choices": [{"id": c["id"], "label": c["label"], "correct": bool(c["correct"]),
                              "sort_order": c["sort_order"]} for c in choices.get(q["id"], [])],
             } for q in questions]
-        elif out["passed_at"]:
+        elif out["passed_at"] or awaiting:
             out["questions"] = []
         else:
             out["questions"] = public_questions(questions, choices)
@@ -581,20 +652,27 @@ def register(app, connection, root, require_session):
                                    (g.user["id"], training_id)).fetchone()
             if pass_is_current(cid, g.user["id"], row, progress):
                 raise TrainingError("You have already passed this training.", 409)
+            if pass_awaiting_approval(cid, progress):
+                raise TrainingError("Your pass is waiting for approval.", 409)
             questions, choices = load_questions(cid, training_id)
             if not questions:
                 raise TrainingError("This training has no questions yet.")
             body = request.get_json(silent=True) or {}
             answers = parse_answers(body, questions)
             briefed_by = None
+            briefer_name = None
             if row["ask_briefed_by"]:
                 raw = body.get("briefed_by")
                 if type(raw) is not int or isinstance(raw, bool) or raw <= 0:
                     raise TrainingError("Choose who delivered the briefing.")
-                if cid.execute("SELECT 1 FROM training_briefers WHERE training_id=? AND user_id=?",
-                               (training_id, raw)).fetchone() is None:
+                briefer = cid.execute(
+                    "SELECT u.id, COALESCE(u.display_name,u.username) AS name FROM training_briefers b"
+                    " JOIN users u ON u.id=b.user_id WHERE b.training_id=? AND b.user_id=?",
+                    (training_id, raw)).fetchone()
+                if briefer is None:
                     raise TrainingError("Choose who delivered the briefing.")
                 briefed_by = raw
+                briefer_name = briefer["name"]
             earned, total = score_answers(questions, choices, answers)
             needed = row["pass_score"] if row["pass_score"] is not None else total
             passed = earned >= needed and total > 0
@@ -602,6 +680,7 @@ def register(app, connection, root, require_session):
             submission_id = None
             passed_at = None
             stored_answers = None
+            awaiting = False
             if passed:
                 passed_at = utc_now()
                 stored_answers = json.dumps(answers)
@@ -612,7 +691,14 @@ def register(app, connection, root, require_session):
                     raise TrainingError("The linked qualification type is disabled.")
                 if kind and kind["requires_evidence"]:
                     raise TrainingError("Trainings cannot link to a type that requires evidence.")
-                submission_id = grant_qualification(cid, g.user["id"], kind, row["valid_days"])
+                if row["needs_approval"]:
+                    label = f"Training passed {earned}/{needed}"
+                    if briefer_name:
+                        label += f" · briefed by {briefer_name}"
+                    submission_id = queue_qualification(cid, g.user["id"], kind, row["valid_days"], label)
+                    awaiting = True
+                else:
+                    submission_id = grant_qualification(cid, g.user["id"], kind, row["valid_days"])
                 cid.execute(
                     "INSERT INTO training_progress(user_id,training_id,attempts,passed_at,answers_json,submission_id,briefed_by)"
                     " VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id,training_id) DO UPDATE SET"
@@ -626,7 +712,7 @@ def register(app, connection, root, require_session):
                     " ON CONFLICT(user_id,training_id) DO UPDATE SET attempts=excluded.attempts",
                     (g.user["id"], training_id, attempts))
         return jsonify(passed=passed, score=earned, total=total, needed=needed, attempts=attempts,
-                       passed_at=passed_at, qualification_id=submission_id)
+                       passed_at=passed_at, qualification_id=submission_id, awaiting_approval=awaiting)
 
     def training_fields(cid, body, training_id=None):
         name = clip_text(body.get("name"), 80, "Name")
@@ -639,28 +725,34 @@ def register(app, connection, root, require_session):
         if type(body.get("ask_briefed_by", False)) is not bool:
             raise TrainingError("Ask who briefed must be true or false.")
         ask_briefed_by = body.get("ask_briefed_by", False)
+        if type(body.get("needs_approval", False)) is not bool:
+            raise TrainingError("A pass needs approval must be true or false.")
+        needs_approval = body.get("needs_approval", False)
+        if needs_approval and not type_id:
+            raise TrainingError("A pass that needs approval must link to a qualification.")
         briefers = parse_briefers(cid, ask_briefed_by, body.get("briefers"))
         resolve_type(cid, type_id, valid_days)
         if training_id is not None:
             total = cid.execute("SELECT COALESCE(SUM(points),0) FROM training_questions WHERE training_id=?",
                                 (training_id,)).fetchone()[0]
             check_pass_score(pass_score, total)
-        return name, description, type_id, pass_score, valid_days, ask_briefed_by, briefers
+        return name, description, type_id, pass_score, valid_days, ask_briefed_by, needs_approval, briefers
 
     @app.post("/api/admin/trainings")
     def add_training():
         admin()
         cid = con()
-        name, description, type_id, pass_score, valid_days, ask_briefed_by, briefers = training_fields(
+        name, description, type_id, pass_score, valid_days, ask_briefed_by, needs_approval, briefers = training_fields(
             cid, request.get_json(silent=True) or {})
         try:
             with db.write_lock, cid:
                 cid.execute("BEGIN IMMEDIATE")
                 nxt = cid.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM trainings").fetchone()[0]
                 tid = cid.execute(
-                    "INSERT INTO trainings(name,description,type_id,pass_score,valid_days,ask_briefed_by,sort_order)"
-                    " VALUES (?,?,?,?,?,?,?)",
-                    (name, description, type_id, pass_score, valid_days, int(ask_briefed_by), nxt)).lastrowid
+                    "INSERT INTO trainings(name,description,type_id,pass_score,valid_days,ask_briefed_by,"
+                    "needs_approval,sort_order) VALUES (?,?,?,?,?,?,?,?)",
+                    (name, description, type_id, pass_score, valid_days, int(ask_briefed_by),
+                     int(needs_approval), nxt)).lastrowid
                 save_briefers(cid, tid, briefers)
         except sqlite3.IntegrityError as exc:
             raise TrainingError("A training with that name already exists.", 409) from exc
@@ -673,16 +765,16 @@ def register(app, connection, root, require_session):
         if type(body.get("active", True)) is not bool:
             raise TrainingError("Active must be true or false.")
         cid = con()
-        name, description, type_id, pass_score, valid_days, ask_briefed_by, briefers = training_fields(
+        name, description, type_id, pass_score, valid_days, ask_briefed_by, needs_approval, briefers = training_fields(
             cid, body, training_id=training_id)
         with db.write_lock, cid:
             cid.execute("BEGIN IMMEDIATE")
             training_row(cid, training_id)
             try:
                 cid.execute("UPDATE trainings SET name=?,description=?,type_id=?,pass_score=?,valid_days=?,"
-                            "ask_briefed_by=?,active=? WHERE id=?",
+                            "ask_briefed_by=?,needs_approval=?,active=? WHERE id=?",
                             (name, description, type_id, pass_score, valid_days, int(ask_briefed_by),
-                             body.get("active", True), training_id))
+                             int(needs_approval), body.get("active", True), training_id))
                 save_briefers(cid, training_id, briefers)
             except sqlite3.IntegrityError as exc:
                 raise TrainingError("A training with that name already exists.", 409) from exc
@@ -726,6 +818,7 @@ def register(app, connection, root, require_session):
             "preview": preview, "action": action, "name": parsed["name"],
             "description": parsed["description"], "pass_score": parsed["pass_score"],
             "valid_days": parsed["valid_days"], "ask_briefed_by": parsed["ask_briefed_by"],
+            "needs_approval": parsed["needs_approval"],
             "type_id": type_id, "question_count": parsed["question_count"],
             "image_count": parsed["image_count"], "existing_id": parsed["existing_id"],
         }
@@ -765,9 +858,10 @@ def register(app, connection, root, require_session):
                     "SELECT image_path FROM training_questions WHERE training_id=? AND image_path IS NOT NULL",
                     (tid,))]
                 cid.execute(
-                    "UPDATE trainings SET description=?,type_id=?,pass_score=?,valid_days=?,ask_briefed_by=? WHERE id=?",
+                    "UPDATE trainings SET description=?,type_id=?,pass_score=?,valid_days=?,ask_briefed_by=?,"
+                    "needs_approval=? WHERE id=?",
                     (parsed["description"], type_id, parsed["pass_score"], parsed["valid_days"],
-                     int(parsed["ask_briefed_by"]), tid))
+                     int(parsed["ask_briefed_by"]), int(parsed["needs_approval"]), tid))
                 if not parsed["ask_briefed_by"]:
                     cid.execute("DELETE FROM training_briefers WHERE training_id=?", (tid,))
                 cid.execute("DELETE FROM training_questions WHERE training_id=?", (tid,))
@@ -775,10 +869,11 @@ def register(app, connection, root, require_session):
                 nxt = cid.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM trainings").fetchone()[0]
                 try:
                     tid = cid.execute(
-                        "INSERT INTO trainings(name,description,type_id,pass_score,valid_days,ask_briefed_by,sort_order)"
-                        " VALUES (?,?,?,?,?,?,?)",
+                        "INSERT INTO trainings(name,description,type_id,pass_score,valid_days,ask_briefed_by,"
+                        "needs_approval,sort_order) VALUES (?,?,?,?,?,?,?,?)",
                         (parsed["name"], parsed["description"], type_id, parsed["pass_score"],
-                         parsed["valid_days"], int(parsed["ask_briefed_by"]), nxt)).lastrowid
+                         parsed["valid_days"], int(parsed["ask_briefed_by"]),
+                         int(parsed["needs_approval"]), nxt)).lastrowid
                 except sqlite3.IntegrityError as exc:
                     raise TrainingError("A training with that name already exists.", 409) from exc
             insert_questions(cid, tid, parsed["questions"], image_blobs, written)
@@ -796,6 +891,7 @@ def register(app, connection, root, require_session):
             "pass_score": row["pass_score"],
             "valid_days": row["valid_days"],
             "ask_briefed_by": bool(row["ask_briefed_by"]),
+            "needs_approval": bool(row["needs_approval"]),
             "questions": [],
         }
         files = {}

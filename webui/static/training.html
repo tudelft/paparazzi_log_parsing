@@ -28,15 +28,32 @@
   a.item h3 { margin:0; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   a.item p { margin:6px 0 0; font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ok { color:var(--ok); }
-  .question { padding:4px 0 12px; }
-  .question img { max-width:min(100%,420px); max-height:220px; display:block; margin:8px 0; }
-  #quizNav { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; }
-  #quizProgress { margin:0 0 8px; }
-  .choices { display:flex; flex-direction:column; gap:6px; margin:8px 0 0; }
-  .choices label { display:flex; gap:8px; align-items:flex-start; }
-  .rank { margin:8px 0 0; padding:0; list-style:none; }
-  .rank li { display:flex; gap:8px; align-items:center; margin:4px 0; }
-  .rank li span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .wait { display:inline-block; padding:2px 10px; border-radius:999px; background:#fff3bf; color:#7a5b00; font-size:12px; font-weight:600; }
+  #detailCard:has(.quiz-shell) { background:transparent; border:0; padding:0; }
+  .quiz-shell { display:flex; justify-content:center; }
+  .quiz-card { width:min(560px, 100%); background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .quiz-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+  .quiz-head h2 { margin:0; font-size:18px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .quiz-head .step { color:var(--mute); font-size:13px; white-space:nowrap; }
+  .quiz-bar { height:3px; background:var(--line); border-radius:2px; margin:10px 0 14px; overflow:hidden; }
+  .quiz-bar > i { display:block; height:100%; width:0; background:var(--acc); border-radius:2px; transition:width .15s ease; }
+  .question { padding:0 0 8px; }
+  .question img { width:100%; max-height:260px; object-fit:cover; display:block; margin:0 0 12px; border-radius:8px; background:var(--line); }
+  .question .prompt { margin:0 0 10px; }
+  #quizNav { display:flex; gap:8px; align-items:center; justify-content:space-between; flex-wrap:wrap; margin-top:16px; }
+  #quizNav .spacer { flex:1; }
+  .choices { display:flex; flex-direction:column; gap:8px; margin:0; }
+  .choices label { display:flex; gap:10px; align-items:flex-start; width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; cursor:pointer; }
+  .choices label:has(input:checked) { border-color:var(--acc); background:color-mix(in srgb, var(--acc) 10%, transparent); }
+  .rank { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:8px; }
+  .rank li { display:flex; gap:10px; align-items:center; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--card); touch-action:none; cursor:grab; }
+  .rank li.dragging { opacity:.85; border-color:var(--acc); box-shadow:0 2px 8px #0002; }
+  .rank li:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
+  .rank .rank-num { width:1.4em; color:var(--mute); font-variant-numeric:tabular-nums; }
+  .rank .rank-handle { color:var(--mute); letter-spacing:-2px; user-select:none; }
+  .rank .rank-label { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rank-hint { margin:8px 0 0; font-size:12px; color:var(--mute); }
+  #unansweredHint { margin:8px 0 0; }
   button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
   button.sec { background:var(--sec); color:var(--txt); }
   button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
@@ -105,6 +122,8 @@
       <div id="brieferChips"></div>
       <select id="brieferPick" onchange="addBriefer()"><option value="">Add a person…</option></select>
     </div>
+    <label class="field"><span><input name="needs_approval" type="checkbox"> A pass needs approval</span></label>
+    <p class="mute">Off: the qualification is granted at once. On: the pass goes to the approval queue.</p>
     <label class="field" id="activeField" hidden><span><input name="active" type="checkbox" checked> Active</span></label>
     <p class="dialog-error" id="trainingError" role="alert"></p>
     <div class="row"><button type="submit">Save</button> <button type="button" class="sec" onclick="$('trainingDialog').close()">Cancel</button></div>
@@ -145,6 +164,7 @@ function filtered() {
 }
 function statusLine(t) {
   if (t.passed_at) return `Passed · ${t.attempts} attempt${t.attempts === 1 ? '' : 's'}`;
+  if (t.awaiting_approval) return `Waiting for approval · ${t.attempts} attempt${t.attempts === 1 ? '' : 's'}`;
   if (t.expired_pass) return `Expired · retake available · ${t.attempts} attempt${t.attempts === 1 ? '' : 's'}`;
   if (t.attempts) return `${t.attempts} attempt${t.attempts === 1 ? '' : 's'}`;
   return t.type_name ? 'Grants ' + t.type_name : 'No qualification';
@@ -182,55 +202,91 @@ function paintDetail() {
   const t = detail;
   const edit = me.is_admin && window.editMode();
   const questions = t.questions || [];
-  let html = `<div class="toolbar"><h2 title="${esc(t.name)}">${esc(t.name)}</h2>
+  const taking = !edit && !t.passed_at && !t.awaiting_approval && questions.length;
+  let html = `<div class="toolbar">
     <button type="button" class="sec" onclick="selected=0; window.viewState.save(true); show()">Back</button>
     ${edit ? `<button type="button" class="sec" onclick="openTraining(${t.id})">Edit</button>
       <a class="sec" href="/api/admin/trainings/${t.id}/export" style="display:inline-block;padding:4px 10px;border-radius:6px;background:var(--sec);color:var(--txt);text-decoration:none">Export</a>
       <button type="button" class="danger" onclick="removeTraining(${t.id})">Delete</button>` : ''}
-    <details><summary>Help</summary><p>Retry until you pass. Each try shows your score; failed answers are not stored. A pass writes the qualification immediately. When that qualification expires, or an administrator resets your pass, you can take it again.</p></details></div>
-    ${t.description ? `<p>${esc(t.description)}</p>` : ''}
-    <p class="mute">${t.passed_at ? 'Passed ' + fmt(t.passed_at) + ' · ' + t.attempts + ' attempt' + (t.attempts === 1 ? '' : 's')
-      : (t.expired_pass ? 'Previous pass expired — retake available. ' : '')
-        + (t.attempts ? t.attempts + ' attempt' + (t.attempts === 1 ? '' : 's') + ' so far. ' : '')
-        + (t.type_name ? 'Grants ' + esc(t.type_name) + (t.valid_days ? ' for ' + t.valid_days + ' days' : '') + '.' : 'No qualification is granted.')}</p>`;
-  if (t.passed_at) {
-    html += '<p class="ok">You have passed this training.</p>';
-    if (t.briefed_by_name) html += `<p class="mute" title="${esc(t.briefed_by_name)}">Briefed by ${esc(t.briefed_by_name)}</p>`;
-  } else if (lastResult && !lastResult.passed) html += `<p role="status">Not passed (${lastResult.score} / ${lastResult.needed}). Try again.</p>`;
-  if (!t.passed_at && questions.length && !edit) html += quizHTML(questions);
-  else if (!t.passed_at && !questions.length && !edit) html += '<p class="mute">No questions yet.</p>';
+    <details><summary>Help</summary><p>Answer one question at a time, then submit. Retry until you pass; failed answers are not stored. A pass may grant the qualification immediately or wait for admin approval, depending on the training. When that qualification expires, a queued pass is rejected, or an administrator resets your pass, you can take it again.</p></details></div>`;
+  if (taking) {
+    html += quizHTML(questions);
+  } else {
+    html += `<div class="toolbar"><h2 title="${esc(t.name)}">${esc(t.name)}</h2>
+      ${t.awaiting_approval ? '<span class="wait">Waiting for approval</span>' : ''}</div>
+      ${t.description ? `<p>${esc(t.description)}</p>` : ''}
+      <p class="mute">${t.passed_at ? 'Passed ' + fmt(t.passed_at) + ' · ' + t.attempts + ' attempt' + (t.attempts === 1 ? '' : 's')
+        : t.awaiting_approval ? 'Submitted ' + fmt(t.submitted_at || (lastResult && lastResult.passed_at) || '') + (t.briefed_by_name ? ' · briefed by ' + esc(t.briefed_by_name) : '')
+        : (t.expired_pass ? 'Previous pass expired — retake available. ' : '')
+          + (t.attempts ? t.attempts + ' attempt' + (t.attempts === 1 ? '' : 's') + ' so far. ' : '')
+          + (t.type_name ? 'Grants ' + esc(t.type_name) + (t.valid_days ? ' for ' + t.valid_days + ' days' : '') + '.' : 'No qualification is granted.')}</p>`;
+    if (t.passed_at) {
+      html += '<p class="ok">You have passed this training.</p>';
+      if (t.briefed_by_name) html += `<p class="mute" title="${esc(t.briefed_by_name)}">Briefed by ${esc(t.briefed_by_name)}</p>`;
+    } else if (t.awaiting_approval) {
+      const score = t.pass_score_text || (lastResult ? `${lastResult.score} / ${lastResult.needed}` : '');
+      html += `<p role="status">You passed${score ? ' (' + esc(score) + ')' : ''}. The qualification${t.type_name ? ' <strong>' + esc(t.type_name) + '</strong>' : ''} is added once an admin approves it.</p>`;
+    } else if (lastResult && !lastResult.passed) html += `<p role="status">Not passed (${lastResult.score} / ${lastResult.needed}). Try again.</p>`;
+    if (!t.passed_at && !t.awaiting_approval && !questions.length && !edit) html += '<p class="mute">No questions yet.</p>';
+  }
   if (edit) html += editorHTML(questions);
   $('detailCard').innerHTML = html;
-  if (!t.passed_at && questions.length && !edit) bindQuiz();
+  if (taking) bindQuiz();
   if (edit) loadResults();
 }
 function quizHTML(questions) {
   const briefers = (detail.briefers || []).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
   const n = questions.length;
   quizStep = Math.max(0, Math.min(quizStep, Math.max(0, n - 1)));
-  return `<form id="quiz">
-    <p class="mute" id="quizProgress">Question ${quizStep + 1} of ${n}</p>
+  const pct = Math.round(((quizStep + 1) / n) * 100);
+  return `<div class="quiz-shell"><div class="quiz-card">
+    <div class="quiz-head"><h2 title="${esc(detail.name)}">${esc(detail.name)}</h2>
+      <span class="step" id="quizProgress">Question ${quizStep + 1} of ${n}</span></div>
+    <div class="quiz-bar" aria-hidden="true"><i id="quizBar" style="width:${pct}%"></i></div>
+    <form id="quiz">
     ${questions.map((q, i) => `<div class="question" data-id="${q.id}" data-kind="${q.kind}"${i === quizStep ? '' : ' hidden'}>
-    <p><strong>${esc(q.prompt)}</strong> <span class="mute">${q.points} pt</span></p>
     ${q.image ? `<img src="/api/trainings/questions/${q.id}/image" alt="">` : ''}
+    <p class="prompt"><strong>${esc(q.prompt)}</strong> <span class="mute">${q.points} pt${q.kind === 'ranking' ? ' · drag to order' : ''}</span></p>
     ${q.kind === 'ranking' ? rankHTML(q) : choiceHTML(q)}</div>`).join('')}
     ${detail.ask_briefed_by ? `<label class="field" id="briefedByField"${quizStep === n - 1 ? '' : ' hidden'}>Who delivered the briefing<select name="briefed_by" required>
       <option value="">Choose…</option>${briefers}</select></label>` : ''}
+    <p class="mute" id="unansweredHint" hidden></p>
     <p id="quizMsg" role="status"></p>
     <div id="quizNav">
       <button type="button" class="sec" id="quizPrev"${quizStep === 0 ? ' hidden' : ''}>Previous</button>
+      <span class="spacer"></span>
       <button type="button" id="quizNext"${quizStep === n - 1 ? ' hidden' : ''}>Next</button>
-      <button type="submit" id="quizSubmit"${quizStep === n - 1 ? '' : ' hidden'}>Submit answers</button>
-    </div></form>`;
+      <button type="submit" id="quizSubmit"${quizStep === n - 1 ? '' : ' hidden'} disabled>Submit answers</button>
+    </div></form></div></div>`;
 }
 function choiceHTML(q) {
   const type = q.kind === 'multi' ? 'checkbox' : 'radio';
-  return `<div class="choices">${q.choices.map(c => `<label><input type="${type}" name="q${q.id}" value="${c.id}"> ${esc(c.label)}</label>`).join('')}</div>`;
+  return `<div class="choices">${q.choices.map(c => `<label><input type="${type}" name="q${q.id}" value="${c.id}"> <span title="${esc(c.label)}">${esc(c.label)}</span></label>`).join('')}</div>`;
 }
 function rankHTML(q) {
-  return `<ol class="rank">${q.choices.map((c, i) => `<li data-id="${c.id}"><span title="${esc(c.label)}">${esc(c.label)}</span>
-    <button type="button" class="sec" data-dir="-1"${i === 0 ? ' disabled' : ''}>Up</button>
-    <button type="button" class="sec" data-dir="1"${i === q.choices.length - 1 ? ' disabled' : ''}>Down</button></li>`).join('')}</ol>`;
+  return `<ol class="rank" aria-label="Drag to order">${q.choices.map((c, i) =>
+    `<li data-id="${c.id}" draggable="true" tabindex="0"><span class="rank-num">${i + 1}</span>
+      <span class="rank-handle" aria-hidden="true">⋮⋮</span>
+      <span class="rank-label" title="${esc(c.label)}">${esc(c.label)}</span></li>`).join('')}</ol>
+    <p class="rank-hint">Drag the rows (or focus one and use the arrow keys).</p>`;
+}
+function renumberRank(list) {
+  [...list.children].forEach((li, i) => { li.querySelector('.rank-num').textContent = String(i + 1); });
+}
+function moveRankItem(list, item, before) {
+  if (!item || item === before) return;
+  list.insertBefore(item, before || null);
+  renumberRank(list);
+}
+function unansweredCount() {
+  let n = 0;
+  $('quiz').querySelectorAll('.question').forEach(q => {
+    if (q.dataset.kind === 'ranking') return;
+    if (q.dataset.kind === 'multi' || q.dataset.kind === 'single') {
+      if (!q.querySelector('input:checked')) n += 1;
+    }
+  });
+  return n;
 }
 function syncQuizStep() {
   const form = $('quiz');
@@ -246,24 +302,90 @@ function syncQuizStep() {
   $('quizPrev').hidden = quizStep === 0;
   $('quizNext').hidden = last;
   $('quizSubmit').hidden = !last;
+  $('quizSubmit').disabled = !last;
   $('quizProgress').textContent = `Question ${quizStep + 1} of ${n}`;
+  $('quizBar').style.width = Math.round(((quizStep + 1) / n) * 100) + '%';
+  const hint = $('unansweredHint');
+  if (last) {
+    const left = unansweredCount();
+    hint.hidden = left === 0;
+    hint.textContent = left ? left + ' question' + (left === 1 ? '' : 's') + ' still unanswered.' : '';
+  } else hint.hidden = true;
   window.viewState.save();
 }
+function bindRankList(list) {
+  let drag = null;
+  const onKey = event => {
+    const item = event.target.closest('li');
+    if (!item || !list.contains(item)) return;
+    if (event.key === 'ArrowUp' && item.previousElementSibling) {
+      event.preventDefault();
+      moveRankItem(list, item, item.previousElementSibling);
+      item.focus();
+    } else if (event.key === 'ArrowDown' && item.nextElementSibling) {
+      event.preventDefault();
+      moveRankItem(list, item, item.nextElementSibling.nextElementSibling);
+      item.focus();
+    }
+  };
+  list.addEventListener('keydown', onKey);
+  list.querySelectorAll('li').forEach(li => {
+    li.addEventListener('dragstart', event => {
+      drag = li;
+      li.classList.add('dragging');
+      event.dataTransfer.effectAllowed = 'move';
+      try { event.dataTransfer.setData('text/plain', li.dataset.id); } catch (_) {}
+    });
+    li.addEventListener('dragend', () => { li.classList.remove('dragging'); drag = null; renumberRank(list); });
+    li.addEventListener('dragover', event => {
+      event.preventDefault();
+      const over = event.target.closest('li');
+      if (!drag || !over || over === drag) return;
+      const mid = over.getBoundingClientRect().top + over.offsetHeight / 2;
+      moveRankItem(list, drag, event.clientY < mid ? over : over.nextElementSibling);
+    });
+    let touchY = null;
+    li.addEventListener('touchstart', event => {
+      if (event.touches.length !== 1) return;
+      drag = li;
+      touchY = event.touches[0].clientY;
+      li.classList.add('dragging');
+    }, {passive: true});
+    li.addEventListener('touchmove', event => {
+      if (!drag || event.touches.length !== 1) return;
+      event.preventDefault();
+      const y = event.touches[0].clientY;
+      const over = [...list.children].find(row => {
+        if (row === drag) return false;
+        const box = row.getBoundingClientRect();
+        return y >= box.top && y <= box.bottom;
+      });
+      if (over) {
+        const mid = over.getBoundingClientRect().top + over.offsetHeight / 2;
+        moveRankItem(list, drag, y < mid ? over : over.nextElementSibling);
+      }
+      touchY = y;
+    }, {passive: false});
+    li.addEventListener('touchend', () => { if (drag) drag.classList.remove('dragging'); drag = null; touchY = null; renumberRank(list); });
+  });
+}
 function bindQuiz() {
-  $('quiz').onsubmit = submitQuiz;
+  const form = $('quiz');
+  form.onsubmit = submitQuiz;
+  form.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    if (event.target.tagName === 'TEXTAREA' || event.target.tagName === 'SELECT') return;
+    const n = form.querySelectorAll('.question').length;
+    if (quizStep < n - 1) {
+      event.preventDefault();
+      quizStep += 1;
+      syncQuizStep();
+    }
+  });
+  form.addEventListener('change', () => { if (quizStep === form.querySelectorAll('.question').length - 1) syncQuizStep(); });
   $('quizPrev').onclick = () => { quizStep -= 1; syncQuizStep(); };
   $('quizNext').onclick = () => { quizStep += 1; syncQuizStep(); };
-  $('quiz').querySelectorAll('.rank').forEach(list => list.onclick = event => {
-    const btn = event.target.closest('button');
-    if (!btn) return;
-    const item = btn.parentElement;
-    const next = btn.dataset.dir === '-1' ? item.previousElementSibling : item.nextElementSibling;
-    if (next) list.insertBefore(item, btn.dataset.dir === '-1' ? next : next.nextElementSibling);
-    [...list.children].forEach((li, i, all) => {
-      li.querySelector('[data-dir="-1"]').disabled = i === 0;
-      li.querySelector('[data-dir="1"]').disabled = i === all.length - 1;
-    });
-  });
+  form.querySelectorAll('.rank').forEach(bindRankList);
   syncQuizStep();
 }
 function collectAnswers() {
@@ -281,6 +403,8 @@ function collectAnswers() {
 }
 async function submitQuiz(event) {
   event.preventDefault();
+  const n = $('quiz').querySelectorAll('.question').length;
+  if (quizStep !== n - 1) return;
   try {
     const payload = {answers: collectAnswers()};
     if (detail.ask_briefed_by) payload.briefed_by = +$('quiz').briefed_by.value || null;
@@ -424,6 +548,7 @@ async function openTraining(id) {
   $('trainingForm').valid_days.value = t.valid_days || '';
   $('trainingForm').pass_score.value = t.pass_score || '';
   $('trainingForm').ask_briefed_by.checked = !!t.ask_briefed_by;
+  $('trainingForm').needs_approval.checked = !!t.needs_approval;
   $('trainingForm').active.checked = t.active !== false;
   brieferIds = (t.briefers || []).map(b => b.id);
   $('activeField').hidden = !id;
@@ -440,6 +565,7 @@ $('trainingForm').onsubmit = async event => {
     valid_days: f.valid_days.value ? +f.valid_days.value : null,
     pass_score: f.pass_score.value ? +f.pass_score.value : null,
     ask_briefed_by: f.ask_briefed_by.checked,
+    needs_approval: f.needs_approval.checked,
     briefers: f.ask_briefed_by.checked ? brieferIds : []};
   if (editingId) body.active = f.active.checked;
   $('trainingError').textContent = '';

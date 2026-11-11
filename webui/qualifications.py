@@ -399,11 +399,17 @@ def register(app, connection, root, require_session):
         admin()
         rows = connection().execute(
             "SELECT q.id,q.user_id,q.type_id,t.name AS category,t.requires_start,t.requires_expiry,"
-            " q.valid_from,q.valid_until,q.submitted_at,"
+            " q.valid_from,q.valid_until,q.submitted_at,q.filename,q.evidence_path,"
             " COALESCE(u.display_name,u.username) AS person FROM qualification_submissions q"
             " JOIN users u ON u.id=q.user_id JOIN qualification_types t ON t.id=q.type_id"
             " WHERE q.status='pending' ORDER BY q.id").fetchall()
-        return jsonify(submissions=[dict(r) for r in rows])
+        out = []
+        for r in rows:
+            item = dict(r)
+            item["has_evidence"] = bool(r["evidence_path"])
+            item["evidence_label"] = r["filename"] if r["filename"] else None
+            out.append(item)
+        return jsonify(submissions=out)
 
     @app.get("/api/admin/qualifications/import/template")
     def qualification_import_template():
@@ -611,6 +617,11 @@ def register(app, connection, root, require_session):
             state = {"approve": "approved", "reject": "rejected", "withdraw": "withdrawn"}[action]
             con.execute("UPDATE qualification_submissions SET status=?,reviewed_by=?,reviewed_at=? WHERE id=?",
                         (state, g.user["id"], _utc_now(), sid))
+            if action in ("reject", "withdraw"):
+                # Queued training passes link progress.submission_id; clear so the person can retake.
+                con.execute(
+                    "UPDATE training_progress SET passed_at=NULL, answers_json=NULL, submission_id=NULL,"
+                    " briefed_by=NULL WHERE submission_id=?", (sid,))
             audit(con, row["user_id"], g.user["id"], state,
                   dict(id=sid, category=row["category"], valid_from=row["valid_from"], valid_until=row["valid_until"]))
         return jsonify(ok=True)

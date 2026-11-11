@@ -344,6 +344,54 @@ class TrainingTests(AppTests):
         self.assertEqual(r.status_code, 400)
         self.assertIn("validity days", r.json["error"].lower())
 
+    def test_pass_needs_approval_then_reject_allows_retake(self):
+        self.assertEqual(self.client.post("/api/admin/trainings", json={
+            "name": "Needs review", "needs_approval": True}).status_code, 400)
+        tid = self.add_training(needs_approval=True, ask_briefed_by=True, briefers=[1])
+        qid = self.add_question(tid)
+        quiz = self.client.get(f"/api/trainings/{tid}").json
+        safe = next(c["id"] for c in quiz["questions"][0]["choices"] if c["correct"])
+        self.sign_in(2)
+        passed = self.client.post(f"/api/trainings/{tid}/submit",
+                                  json={"answers": {str(qid): safe}, "briefed_by": 1})
+        self.assertEqual(passed.status_code, 200, passed.json)
+        self.assertTrue(passed.json["passed"])
+        self.assertTrue(passed.json["awaiting_approval"])
+        sid = passed.json["qualification_id"]
+        row = self.con.execute("SELECT status, filename FROM qualification_submissions WHERE id=?",
+                               (sid,)).fetchone()
+        self.assertEqual(row["status"], "pending")
+        self.assertIn("Training passed", row["filename"])
+        self.assertIn("briefed by", row["filename"])
+        detail = self.client.get(f"/api/trainings/{tid}").json
+        self.assertTrue(detail["awaiting_approval"])
+        self.assertIsNone(detail["passed_at"])
+        self.assertEqual(detail["questions"], [])
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/submit",
+                                          json={"answers": {str(qid): safe}, "briefed_by": 1}).status_code, 409)
+        self.sign_in(1)
+        pending = self.client.get("/api/admin/qualification-pending").json["submissions"]
+        self.assertTrue(any(s["id"] == sid and s["evidence_label"] for s in pending))
+        reject = self.client.post(f"/api/qualification-submissions/{sid}/review", json={"action": "reject"})
+        self.assertEqual(reject.status_code, 200, reject.json)
+        self.sign_in(2)
+        again = self.client.get(f"/api/trainings/{tid}").json
+        self.assertFalse(again["awaiting_approval"])
+        self.assertEqual(len(again["questions"]), 1)
+        approved = self.client.post(f"/api/trainings/{tid}/submit",
+                                    json={"answers": {str(qid): safe}, "briefed_by": 1})
+        self.assertTrue(approved.json["passed"], approved.json)
+        self.assertTrue(approved.json["awaiting_approval"])
+        self.sign_in(1)
+        ok = self.client.post(
+            f"/api/qualification-submissions/{approved.json['qualification_id']}/review",
+            json={"action": "approve"})
+        self.assertEqual(ok.status_code, 200, ok.json)
+        self.sign_in(2)
+        done = self.client.get(f"/api/trainings/{tid}").json
+        self.assertTrue(done["passed_at"])
+        self.assertFalse(done["awaiting_approval"])
+
 
 class ScoreTests(unittest.TestCase):
     def test_answer_correct_helpers(self):
