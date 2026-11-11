@@ -16,7 +16,8 @@ class ProfileTests(AppTests):
         self.profiles.seed(self.con)
         self.con.commit()
         self.role = {r["name"]: r["id"] for r in self.con.execute("SELECT id, name FROM profile_roles")}
-        self.dept = self.con.execute("SELECT id FROM profile_departments ORDER BY sort_order").fetchone()[0]
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM profile_departments").fetchone()[0], 0)  # site-specific
+        self.dept = self.con.execute("INSERT INTO profile_departments (name, grp) VALUES ('Flight Lab', 'Robotics')").lastrowid
 
     def form(self, **changes):
         return {"role_id": self.role["Staff"], "department_id": self.dept, "end_date": None, "indefinite": True,
@@ -81,9 +82,13 @@ class ProfileTests(AppTests):
         saved = self.client.put("/api/admin/profile-options", json={"roles": roles})
         self.assertEqual(saved.status_code, 200, saved.json)
         self.assertEqual([r["name"] for r in saved.json["roles"]][-1], "Visitor")
-        self.assertEqual(len(saved.json["departments"]), 13)
+        self.assertEqual([d["name"] for d in saved.json["departments"]], ["Flight Lab"])
+        emptied = self.client.put("/api/admin/profile-options", json={"departments": []})
+        self.assertEqual(emptied.status_code, 200, emptied.json)
+        self.assertEqual(emptied.json["departments"], [])
+        self.assertEqual(self.client.put("/api/admin/profile-options", json={"roles": []}).status_code, 400)
         # a removed role empties that field, so the person is asked again
-        self.assertEqual(self.profiles.missing(self.con, 2), ["role"])
+        self.assertEqual(self.profiles.missing(self.con, 2), ["role", "department"])
         duplicate = self.client.put("/api/admin/profile-options", json={"roles": [{"name": "A"}, {"name": "a"}]})
         self.assertEqual(duplicate.status_code, 400)
 

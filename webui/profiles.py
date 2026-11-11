@@ -3,7 +3,8 @@
 Off unless LOGDB_PERSON_PROFILE=1. When on, everyone who signs in in the browser fills in their profile before
 using the site, and again once the expected end date has passed (API keys are never stopped). The person and
 admins see the whole profile; supervisors see their students' profiles without the number. Admins edit the
-role and department lists (People, Edit mode); the defaults are filled in once when the tables are created.
+role and department lists (People, Edit mode). The role list is filled in once when the tables are created;
+the department list starts empty (site-specific: admins add or import it), and people can also type one.
 """
 import datetime
 import json
@@ -20,20 +21,6 @@ from config import env, env_bool
 ROLES = (  # name, can supervise, needs a supervisor
     ("Bachelor Student", 0, 1), ("Master Student", 0, 1), ("PhD Student", 1, 1), ("PostDoc", 1, 0),
     ("Teaching Assistant", 0, 1), ("Staff", 1, 0), ("Extern", 0, 0))
-DEPARTMENTS = (  # section, department
-    ("Aerospace Manufacturing Technologies", "Aerospace Structures & Materials"),
-    ("Aerospace Structures & Computational Mechanics", "Aerospace Structures & Materials"),
-    ("Novel Aerospace Materials", "Aerospace Structures & Materials"),
-    ("Structural Integrity & Composites", "Aerospace Structures & Materials"),
-    ("Control & Simulation", "Control & Operations"),
-    ("Operations & Environment", "Control & Operations"),
-    ("Aerodynamics", "Flow Physics & Technology"),
-    ("Flight Performance & Propulsion", "Flow Physics & Technology"),
-    ("Wind Energy", "Flow Physics & Technology"),
-    ("Astrodynamics & Space Missions", "Space Engineering"),
-    ("Planetary Exploration", "Space Engineering"),
-    ("Space Instrumentation", "Space Engineering"),
-    ("Space Systems Engineering", "Space Engineering"))
 GITHUB_NAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _github_cache, _github_lock = {}, threading.Lock()
@@ -52,8 +39,6 @@ def enabled():
 def seed(con):
     con.executemany("INSERT OR IGNORE INTO profile_roles (name, can_supervise, needs_supervisor, sort_order)"
                     " VALUES (?,?,?,?)", [(n, s, need, i) for i, (n, s, need) in enumerate(ROLES, 1)])
-    con.executemany("INSERT OR IGNORE INTO profile_departments (name, grp, sort_order) VALUES (?,?,?)",
-                    [(n, grp, i) for i, (n, grp) in enumerate(DEPARTMENTS, 1)])
 
 
 def today():
@@ -264,8 +249,8 @@ def save_options(con, body):
         items = body.get(key)
         if items is None:
             continue
-        if not isinstance(items, list) or not items or len(items) > 200:
-            raise ProfileError(f"{key} must be a non-empty list.")
+        if not isinstance(items, list) or (key == "roles" and not items) or len(items) > 200:
+            raise ProfileError("roles must be a non-empty list." if key == "roles" else "departments must be a list.")
         table = "profile_roles" if key == "roles" else "profile_departments"
         seen, keep = set(), []
         for i, item in enumerate(items, 1):

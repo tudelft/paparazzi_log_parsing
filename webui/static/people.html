@@ -240,12 +240,14 @@
   </section>
   <section class="card" id="profileOptionsSection" hidden>
     <div class="section-heading"><h2>Profile options</h2>
-    <details><summary>Help</summary><p>The choices of the profile everyone fills in after signing in. <em>Supervises</em> offers people with that role as supervisors; <em>Needs supervisor</em> makes naming one required. A department's group is shown next to it; people can also type a department that is not listed. Removing an entry leaves that field empty in the profiles that used it, so those people are asked again. One Save writes both lists.</p></details></div>
+    <details><summary>Help</summary><p>The choices of the profile everyone fills in after signing in. <em>Supervises</em> offers people with that role as supervisors; <em>Needs supervisor</em> makes naming one required. A department's group is shown next to it; people can also type a department that is not listed. The department list starts empty: add your departments or sections, or <em>Import CSV</em> with one per line as <span class="mono">name,group</span>. Removing an entry leaves that field empty in the profiles that used it, so those people are asked again. One Save writes both lists.</p></details></div>
     <div class="profile-options">
       <div><h3>Roles</h3><table class="compact"><thead><tr><th>Name</th><th title="Offered as a supervisor">Supervises</th><th title="Must name a supervisor">Needs supervisor</th><th></th></tr></thead><tbody id="roleRows"></tbody></table>
         <button type="button" class="sec" onclick="addOptionRow('role')">Add role</button></div>
       <div><h3>Departments</h3><table class="compact"><thead><tr><th>Section</th><th>Department</th><th></th></tr></thead><tbody id="deptRows"></tbody></table>
-        <button type="button" class="sec" onclick="addOptionRow('dept')">Add department</button></div>
+        <button type="button" class="sec" onclick="addOptionRow('dept')">Add department</button>
+        <button type="button" class="sec" onclick="$('deptCsv').click()" title="A CSV file with one department per line: name,group (a header line is skipped). Adds the ones not yet listed; Save to keep them.">Import CSV</button>
+        <input type="file" id="deptCsv" accept=".csv,text/csv,text/plain" hidden onchange="importDepartments(this)"></div>
     </div>
     <p><button type="button" onclick="saveProfileOptions()">Save</button> <span id="profileOptionsStatus" class="mute" role="status"></span></p>
   </section>
@@ -921,6 +923,34 @@ function addOptionRow(kind) {
   const body = $(kind === 'role' ? 'roleRows' : 'deptRows');
   body.insertAdjacentHTML('beforeend', optionRow(kind));
   body.lastElementChild.querySelector('input').focus();
+}
+// "name,group" lines (quotes allowed, a header line skipped) become department rows; Save stores them.
+async function importDepartments(input) {
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  const cells = line => {
+    const out = []; let cur = '', quoted = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (quoted) { if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') quoted = false; else cur += c; }
+      else if (c === '"') quoted = true;
+      else if (c === ',' || c === ';') { out.push(cur.trim()); cur = ''; }
+      else cur += c;
+    }
+    out.push(cur.trim());
+    return out;
+  };
+  const have = new Set([...$('deptRows').querySelectorAll('input[name=name]')].map(i => i.value.trim().toLowerCase()));
+  let added = 0;
+  for (const [i, line] of (await file.text()).split(/\r?\n/).entries()) {
+    const [name, group] = cells(line);
+    if (!name || (i === 0 && /^(name|department|section)$/i.test(name)) || have.has(name.toLowerCase())) continue;
+    have.add(name.toLowerCase());
+    $('deptRows').insertAdjacentHTML('beforeend', optionRow('dept', {name: name.slice(0, 120), grp: (group || '').slice(0, 120)}));
+    added++;
+  }
+  $('profileOptionsStatus').textContent = added ? `${added} added; Save to keep them.` : 'Nothing new in that file.';
 }
 async function saveProfileOptions() {
   const rows = id => [...$(id).querySelectorAll('tr')].map(tr => {
