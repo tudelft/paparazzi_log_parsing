@@ -80,7 +80,7 @@ window.QualificationManager = class {
       Only the linked person and administrators can see these records and files.
       Hover over a qualification for recorded validity dates, or open Submission details.
       Click its name to download available evidence.</p></details></div>
-      <div class="qual-tabs" role="tablist" aria-label="Qualification views">${tab('current', 'Current')}${tab('archive', `Archive (${archive.length})`)}</div>
+      <div class="seg-tabs" role="tablist" aria-label="Qualification views">${tab('current', 'Current')}${tab('archive', `Archive (${archive.length})`)}</div>
       ${this.view === 'archive'
         ? archive.map(claim).join('') || '<p class="mute">No archived licences.</p>'
         : `${current.map(claim).join('') || '<p class="mute">None recorded.</p>'}

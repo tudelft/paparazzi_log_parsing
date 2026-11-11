@@ -73,12 +73,8 @@
   .link-button:hover, .link-button:focus-visible { text-decoration:underline; }
   .link-button:disabled { color:var(--mute); cursor:default; }
   [hidden] { display:none !important; }
-  .flight-tabs { display:flex; gap:6px; overflow-x:auto; padding:4px 0 12px; margin-bottom:8px; }
-  .flight-tabs button { white-space:nowrap; border:1px solid var(--line); }
-  .flight-tabs button[aria-selected="true"] { background:var(--acc); color:#fff; }
-  .flight-tabs .tabs-end { margin-left:auto; }
+  .flight-tabs { flex-wrap:nowrap; overflow-x:auto; }
   .flight-tabs .matlab-button { background:var(--btn); color:#fff; border-color:var(--btn); }
-  .flight-tabs .tabs-end { display:flex; gap:6px; align-items:center; }
   .flight-tabs .log-download { white-space:nowrap; padding:5px 12px; }
   summary { cursor:pointer; font-weight:600; }
   details[open] > summary { margin-bottom:12px; }
@@ -122,13 +118,13 @@
   <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button style="padding:2px 8px" onclick="logout()">Sign out</button></span>
 </header>
 <main>
-  <div class="flight-tabs" role="tablist" aria-label="Flight sections">
+  <div class="page-tabs flight-tabs" role="tablist" aria-label="Flight sections">
     <button type="button" id="tab-overview" role="tab" aria-selected="true" aria-controls="panel-overview" data-tab="overview">Overview</button>
     <button type="button" id="tab-path" role="tab" aria-selected="false" aria-controls="panel-path" tabindex="-1" data-tab="path">Path &amp; charts</button>
     <button type="button" id="tab-weather" role="tab" aria-selected="false" aria-controls="panel-weather" tabindex="-1" data-tab="weather">Weather</button>
-    <button type="button" id="tab-settings" role="tab" aria-selected="false" aria-controls="panel-settings" tabindex="-1" data-tab="settings">Settings <span id="settingsBadge"></span></button>
-    <button type="button" id="tab-messages" role="tab" aria-selected="false" aria-controls="panel-messages" tabindex="-1" data-tab="messages">Messages <span id="messagesBadge"></span></button>
-    <button type="button" id="tab-checks" role="tab" aria-selected="false" aria-controls="panel-checks" tabindex="-1" data-tab="checks">Checklist <span id="checksBadge"></span></button>
+    <button type="button" id="tab-settings" role="tab" aria-selected="false" aria-controls="panel-settings" tabindex="-1" data-tab="settings">Settings<span class="n" id="settingsBadge"></span></button>
+    <button type="button" id="tab-messages" role="tab" aria-selected="false" aria-controls="panel-messages" tabindex="-1" data-tab="messages">Messages<span class="n" id="messagesBadge"></span></button>
+    <button type="button" id="tab-checks" role="tab" aria-selected="false" aria-controls="panel-checks" tabindex="-1" data-tab="checks">Checklist<span class="n" id="checksBadge"></span></button>
     <button type="button" id="tab-files" role="tab" aria-selected="false" aria-controls="panel-files" tabindex="-1" data-tab="files">Files</button>
     <span id="matlabMenu" class="tabs-end"></span>
   </div>
@@ -1024,14 +1020,14 @@ function renderLists() {
   const reports = [...D.setting_changes, ...(D.invalid_setting_reports || []).map(r => ({...r, idx:r.index}))]
     .sort((a, b) => a.time_s - b.time_s);
   const ch = reports.filter(c => allC || inFlight(c.time_s));
-  $('settingsBadge').textContent = `(${reports.filter(c => inFlight(c.time_s)).length})`;
+  $('settingsBadge').textContent = reports.filter(c => inFlight(c.time_s)).length;
   $('changeCount').textContent = `${ch.length} of ${reports.length} changes / invalid reports`;
   $('changes').innerHTML = pageRows(ch, 'changes').map(c => `<tr class="${inFlight(c.time_s) ? '' : 'out'}"><td class="mono">${rel(c.time_s)}</td><td>${esc(c.var || 'setting')} <span class="mute">#${c.idx}</span>${fromLog(c)}</td>
     <td class="mono">${esc(c.from_value)}</td><td class="mono">${c.invalid_value ? 'Invalid value (' + esc(c.invalid_value) + ')' : esc(c.to_value)}</td><td>${inFlight(c.time_s) ? '<span class="tag">in flight</span>' : ''}</td></tr>`).join('')
     || '<tr><td colspan="5" class="mute">No setting changed during this flight.</td></tr>';
 
   const ms = D.info_messages.filter(m => allM || near(m.time_s));
-  $('messagesBadge').textContent = `(${D.info_messages.filter(m => near(m.time_s)).length})`;
+  $('messagesBadge').textContent = D.info_messages.filter(m => near(m.time_s)).length;
   $('msgCount').textContent = `${ms.length} of ${D.info_messages.length}`;
   $('msgs').innerHTML = pageRows(ms, 'msgs').map(m => `<tr class="${inFlight(m.time_s) ? '' : 'out'}"><td class="mono" style="white-space:nowrap">${rel(m.time_s)}</td><td>${esc(m.text)}${fromLog(m)}</td></tr>`).join('')
     || '<tr><td colspan="2" class="mute">No messages around this flight.</td></tr>';
@@ -1072,7 +1068,7 @@ function renderMisc() {
     const [key, ...rest] = m.checklist_label ? [m.checklist_label] : m.text.split(': ');
     return {m, item: key, answer: m.checklist_label ? m.checklist_value : rest.join(': ')};
   });
-  $('checksBadge').textContent = checks.length ? `(${checks.length})` : '';
+  $('checksBadge').textContent = checks.length || '';
   $('checksCount').textContent = checks.length ? `· ${checks.length}` : '';
   $('pfc').innerHTML = checks.map(({m, item, answer}) => `<tr><td class="mono" style="white-space:nowrap" title="${esc(m.utc ? fmtTime(m.utc) : '')}">${rel(m.time_s)}</td>
       <td title="${esc((m.checklist_help ? m.checklist_help + '\n\n' : '') + 'Logged: ' + m.text)}">${m.checklist_help

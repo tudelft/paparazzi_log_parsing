@@ -731,13 +731,13 @@ window.timingEvidenceHTML = function (timing) {
   }
 })();
 
-// Page-level tabs: tabs is [[key, label], ...]; renders accessible tab buttons (arrow keys move between them) and
+// Page-level tabs: tabs is [[key, label, count?], ...]; renders accessible tab buttons (arrow keys move between them) and
 // calls choose(key) on a click. Hidden when there is only one tab.
 window.pageTabs = function (el, tabs, current, choose) {
   el.hidden = tabs.length < 2;
   el.setAttribute('role', 'tablist');
-  el.innerHTML = tabs.map(([key, label]) => `<button type="button" role="tab" data-tab="${key}" aria-selected="${key === current}"
-    tabindex="${key === current ? 0 : -1}">${label}</button>`).join('');
+  el.innerHTML = tabs.map(([key, label, count]) => `<button type="button" role="tab" data-tab="${key}" aria-selected="${key === current}"
+    tabindex="${key === current ? 0 : -1}">${label}${count == null ? '' : `<span class="n">${count}</span>`}</button>`).join('');
   const buttons = [...el.querySelectorAll('[role="tab"]')];
   buttons.forEach((b, i) => {
     b.onclick = () => choose(b.dataset.tab);
