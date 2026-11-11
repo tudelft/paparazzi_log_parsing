@@ -4422,8 +4422,15 @@ def merge_accounts(con, plan):
     con.execute("UPDATE OR IGNORE log_uploaders SET user_id=? WHERE user_id=?", (target_id, source_id))
     for table in ("log_uploaders", "password_setup_tokens", "bulk_reservations", "project_members"):
         con.execute(f"DELETE FROM {table} WHERE user_id=?", (source_id,))
+    # one person profile per person: the kept account's profile wins, the other one is only moved when it has none
+    con.execute("DELETE FROM user_profiles WHERE user_id=? AND EXISTS (SELECT 1 FROM user_profiles WHERE user_id=?)",
+                (source_id, target_id))
     for table, column in user_reference_columns(con):
         con.execute(f"UPDATE {table} SET {column}=? WHERE {column}=?", (target_id, source_id))
+    # supervisors after the move: nobody supervises themselves, and each supervisor is listed once
+    con.execute("DELETE FROM user_supervisors WHERE user_id=supervisor_id")
+    con.execute("DELETE FROM user_supervisors WHERE id NOT IN (SELECT MIN(id) FROM user_supervisors"
+                " GROUP BY user_id, supervisor_id, external_name)")
     con.execute("DELETE FROM log_uploaders WHERE user_id=? AND log_id IN (SELECT id FROM logs WHERE uploaded_by=?)",
                 (target_id, target_id))
     for alias in plan["aliases"]:

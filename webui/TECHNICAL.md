@@ -755,7 +755,8 @@ unique display name/username/alias; otherwise a new account is made. The first m
 match. **Merge into…** (`GET`/`POST /api/admin/users/<id>/merge`, `into`) moves everything of an account to another
 and removes it: every `users` reference (foreign keys and the flight crew overrides), keeping the higher project
 role, one approved/pending qualification per type (the one valid longest; the other becomes superseded/withdrawn) and
-no duplicate uploader rows. Its display name and username become aliases; the kept account takes a password and TU
+no duplicate uploader rows, one person profile (the kept account's, else the moved one) and no duplicate or
+self-supervision. Its display name and username become aliases; the kept account takes a password and TU
 Delft ID it lacks (both then work), plus email, display name, default project and operator when empty, but keeps its
 own admin rights. Refused: your own account as the one removed, internal with external, two different TU Delft IDs,
 and removing the last administrator. **Move TU Delft sign-in…** (`POST /api/admin/users/<id>/sso-move`, `to` or a

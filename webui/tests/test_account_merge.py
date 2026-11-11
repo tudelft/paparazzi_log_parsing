@@ -57,6 +57,26 @@ class AccountMergeTests(AppTests):
         self.assertEqual((audit[0], audit[1], audit[2]), (2, 1, "account_merged"))
         self.assertEqual(json.loads(audit[3])["merged_user"], {"id": 5, "name": "Uploader"})
 
+    def test_merge_keeps_one_profile_and_clean_supervisors(self):
+        con = self.con
+        for uid, number in ((2, "kept"), (5, "dropped"), (3, None)):
+            con.execute("INSERT INTO user_profiles (user_id, number, indefinite) VALUES (?, ?, 1)", (uid, number))
+        # 2 and 5 are one person: 5 supervised 3 and was supervised by 2; 3 lists both
+        con.executemany("INSERT INTO user_supervisors (user_id, supervisor_id) VALUES (?, ?)",
+                        [(3, 2), (3, 5), (5, 2)])
+        con.commit()
+        response = self.client.post("/api/admin/users/5/merge", json=dict(into=2))
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(con.execute("SELECT number FROM user_profiles WHERE user_id=2").fetchone()[0], "kept")
+        self.assertEqual(sorted(tuple(r) for r in con.execute("SELECT user_id, supervisor_id FROM user_supervisors")),
+                         [(3, 2)])
+
+    def test_merge_moves_a_profile_to_an_account_without_one(self):
+        self.con.execute("INSERT INTO user_profiles (user_id, number, indefinite) VALUES (5, 'moved', 1)")
+        self.con.commit()
+        self.assertEqual(self.client.post("/api/admin/users/5/merge", json=dict(into=2)).status_code, 200)
+        self.assertEqual(self.con.execute("SELECT number FROM user_profiles WHERE user_id=2").fetchone()[0], "moved")
+
     def test_merge_refusals(self):
         self.assertEqual(self.preview(2, 2).status_code, 400)
         self.assertEqual(self.preview(1, 2).status_code, 400)  # your own account cannot be merged away
