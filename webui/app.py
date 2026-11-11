@@ -54,6 +54,7 @@ import categories
 import countries
 import profiles
 import storage
+import storage_usage
 import saml
 import config
 import qualifications
@@ -5583,6 +5584,23 @@ def import_historical():
             staged.unlink(missing_ok=True)
         if final and not committed:
             final.unlink(missing_ok=True)
+
+
+@app.get("/api/admin/storage")
+def storage_overview():
+    """Disk use for the Statistics page (admins): the latest background scan of the log storage (storage_usage.py,
+    at most every few hours; ?refresh=1 starts a new one), plus the original upload size, database and free space."""
+    session_required()
+    admin_required()
+    scan = storage_usage.scanned(STORAGE_DIR, refresh=request.args.get("refresh") == "1")
+    con = conn()
+    original = con.execute("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS b FROM logs").fetchone()
+    return jsonify(
+        scan={k: {"bytes": v[0], "files": v[1]} for k, v in (scan["result"] or {}).items()},
+        measured_at=scan["measured_at"], measuring=scan["running"], scan_seconds=scan.get("seconds"),
+        error=scan["error"], logs=original["n"], original_bytes=original["b"],
+        database_bytes=storage_usage.file_size(DB_PATH, DB_PATH + "-wal"),
+        free={"logs": storage_usage.disk(STORAGE_DIR), "database": storage_usage.disk(DATA_DIR)})
 
 
 @app.get("/api/stats")

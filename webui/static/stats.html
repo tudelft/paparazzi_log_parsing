@@ -81,6 +81,14 @@
       <div><strong id="totPacs">—</strong><span>PACs</span></div>
     </div>
   </section>
+  <section class="card" id="storageCard" hidden>
+    <div class="section-heading"><h2>Storage</h2><span style="float:left;display:flex;gap:10px;align-items:baseline">
+      <span class="mute" id="storageWhen" role="status" style="font-size:12px"></span>
+      <button type="button" class="sec" id="storageRefresh" onclick="loadStorage(true)">Measure now</button></span>
+      <details><summary>Help</summary><p>What the stored files take on disk (compressed), for administrators. The log storage is measured in the background at most every few hours, because walking a network share takes a while; <em>Measure now</em> starts a new measurement. Logs are the stored .data and .log files of every upload, compared with the original size of the .data files. Flight paths are the paths drawn on maps. Attachments include their PDF previews. The database size and the free space are current.</p></details>
+    </div>
+    <div class="totals" id="storageTotals"></div>
+  </section>
   <section class="card">
     <div class="section-heading"><h2>Monthly activity</h2>
       <details><summary>Help</summary><p>Flight hours or flight counts per UTC month, using the shared filters. Paper records contribute their recorded time and flight count. Records without a valid or corrected date are excluded. Hover over a bar for both totals.</p></details>
@@ -165,7 +173,45 @@ let flights = [];
 let logSizes = new Map();
 fetch('/api/me').then(r => r.json()).then(d => {
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  if (d.user.is_admin) loadStorage();
 });
+
+// Disk use (admins): the latest background scan of the log storage, polled while a measurement runs.
+const bytesText = n => n == null ? '—' : n >= 1e12 ? (n / 1e12).toFixed(2) + ' TB' : n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB'
+  : n >= 1e6 ? (n / 1e6).toFixed(0) + ' MB' : (n / 1e3).toFixed(0) + ' kB';
+let storageTimer = 0;
+async function loadStorage(refresh = false) {
+  clearTimeout(storageTimer);
+  let d;
+  try {
+    const r = await fetch('/api/admin/storage' + (refresh ? '?refresh=1' : ''));
+    if (!r.ok) return;
+    d = await r.json();
+  } catch (e) { return; }
+  $('storageCard').hidden = false;
+  const scan = d.scan || {}, size = k => scan[k] ? scan[k].bytes : (d.measured_at ? 0 : null);
+  const files = k => scan[k] ? `${scan[k].files.toLocaleString()} files` : '';
+  const ratio = scan.logs && d.original_bytes ? ` · ${Math.round(100 * scan.logs.bytes / d.original_bytes)}% of the original ${bytesText(d.original_bytes)}` : '';
+  const free = f => f ? `${bytesText(f.free)} free of ${bytesText(f.total)}` : '';
+  const tile = (value, label, tip) => `<div${tip ? ` title="${esc(tip)}"` : ''}><strong>${value}</strong><span>${label}</span></div>`;
+  $('storageTotals').innerHTML = [
+    tile(bytesText(size('logs')), 'Logs on disk', `${d.logs.toLocaleString()} logs · ${files('logs')}${ratio}`),
+    tile(bytesText(d.original_bytes), 'Logs, original', 'Original size of the uploaded .data files'),
+    tile(bytesText(size('paths')), 'Flight paths', files('paths')),
+    tile(bytesText(size('attachments')), 'Attachments', files('attachments') + ', with PDF previews'),
+    tile(bytesText(size('evidence')), 'Qualification evidence', files('evidence')),
+    tile(bytesText(d.database_bytes), 'Database', 'The SQLite database file, current'),
+    tile(d.free.logs ? bytesText(d.free.logs.free) : '—', 'Free on log storage', free(d.free.logs)),
+    tile(d.free.database ? bytesText(d.free.database.free) : '—', 'Free on database disk', free(d.free.database)),
+    ...(size('waiting') ? [tile(bytesText(size('waiting')), 'Uploads waiting', files('waiting'))] : []),
+    ...(size('other') ? [tile(bytesText(size('other')), 'Other files', files('other'))] : []),
+  ].join('');
+  $('storageWhen').textContent = d.measuring ? (d.measured_at ? 'measuring again…' : 'measuring…')
+    : d.measured_at ? `measured ${d.measured_at.replace('T', ' ').slice(0, 16)} UTC` + (d.scan_seconds != null ? ` in ${d.scan_seconds} s` : '')
+    : d.error ? 'measurement failed: ' + d.error : '';
+  $('storageRefresh').disabled = d.measuring;
+  if (d.measuring) storageTimer = setTimeout(loadStorage, 3000);
+}
 fetch('/api/stats').then(r => r.json()).then(d => {
   flights = d.flights || [];
   logSizes = new Map(d.logs.map(log => [log.id, log.size_bytes]));
