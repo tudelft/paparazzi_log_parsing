@@ -47,6 +47,25 @@
   .chip.pending { background:var(--warnbg, #fff8c5); color:var(--warn, #9a6700); }
   .chip button { background:none; color:var(--err); padding:0 6px; font-size:15px; }
   button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  .card-profile { font-size:12px; color:var(--mute); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .card-profile.warn-text { color:var(--warn); }
+  .profiles-table { width:100%; border-collapse:collapse; }
+  .profiles-table th { text-align:left; padding:0; }
+  .profiles-table th button.sort { background:none; border:0; color:var(--mute); font:inherit; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; padding:6px 8px; cursor:pointer; white-space:nowrap; }
+  .profiles-table th[aria-sort=ascending] button, .profiles-table th[aria-sort=descending] button { color:var(--txt); }
+  .profiles-table td { padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:240px; }
+  .supervision-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(520px, 1fr)); gap:12px; }
+  .supervision-group { border:1px solid var(--fieldline); border-left:4px solid var(--acc); border-radius:8px; padding:10px 12px; background:var(--detail); min-width:0; }
+  .supervision-group.external { border-left-color:var(--mute); }
+  .supervision-group h3 { margin:0; font-size:14px; }
+  .supervision-group a { text-decoration:none; }
+  .supervision-group a:hover { text-decoration:underline; }
+  .supervision-group .small { font-size:12px; margin-bottom:6px; }
+  .supervision-group table { width:100%; border-collapse:collapse; table-layout:fixed; }
+  .supervision-group td { padding:4px 6px 4px 0; border-top:1px solid var(--line); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:13px; }
+  .supervision-group td.end-ended { color:var(--err); }
+  .supervision-group td.end-soon { color:var(--warn); }
+  .supervision-group td.projects .chip { margin:0 3px 0 0; }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:4px 14px; }
   .profile-options { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:8px 24px; }
   .profile-options h3 { margin:6px 0; font-size:13px; }
@@ -230,6 +249,25 @@
     </div>
     <p><button type="button" onclick="saveProfileOptions()">Save</button> <span id="profileOptionsStatus" class="mute" role="status"></span></p>
   </section>
+  <section class="card" id="profilesSection" hidden>
+    <div class="people-title-row"><h2>Profiles</h2><span class="mute" id="profilesCount" role="status"></span>
+      <label class="directory-search"><input type="search" id="profilesSearch" aria-label="Search profiles" placeholder="Search name, supervisor, GitHub" oninput="profileState('q', this.value)"></label>
+      <select id="profilesRole" aria-label="Role" onchange="profileState('role', this.value)"></select>
+      <select id="profilesDept" aria-label="Department" onchange="profileState('dept', this.value)"></select>
+      <select id="profilesStatus" aria-label="Status" onchange="profileState('status', this.value)">
+        <option value="">All</option><option value="missing">Incomplete</option><option value="soon">Ends within 3 months</option><option value="ended">Ended</option></select>
+      <button type="button" class="sec" style="margin-left:auto" onclick="downloadProfiles()">Download CSV</button>
+      <details><summary>Help</summary><p>Admins see everyone who can sign in; supervisors see the people they supervise, without numbers. Click a column heading to sort. <em>Incomplete</em> lists people who still have to fill in (part of) their profile; they are asked at their next sign-in. The flights are those as PIC within the flight filters.</p></details></div>
+    <div class="scroll"><table class="profiles-table"><thead><tr id="profilesHead"></tr></thead><tbody id="profilesRows"></tbody></table></div>
+    <div class="navigation" id="profilesPager"></div>
+  </section>
+  <section class="card" id="supervisionSection" hidden>
+    <div class="people-title-row"><h2>Supervision</h2><span class="mute" id="supervisionCount" role="status"></span>
+      <label class="directory-search"><input type="search" id="supervisionSearch" aria-label="Search supervision" placeholder="Search supervisor, person or project" oninput="profileState('sq', this.value)"></label>
+      <label><input type="checkbox" id="supervisionEnded" onchange="profileState('ended', this.checked ? '1' : '')"> Include ended</label>
+      <details><summary>Help</summary><p>Who supervises whom, from the profiles. Each card lists the people a supervisor supervises, with their projects (those you can open) and their flights as PIC within the flight filters. External supervisors have no account and are grouped by name.</p></details></div>
+    <div class="supervision-grid" id="supervisionGroups"></div>
+  </section>
   <dialog class="entry-dialog" id="fillNumbersDialog" aria-labelledby="fillNumbersTitle">
     <div class="dialog-header"><h2 id="fillNumbersTitle">Fill numbers from PDFs</h2>
       <button type="button" onclick="$('fillNumbersDialog').close()" aria-label="Close">Close</button></div>
@@ -266,7 +304,7 @@ window.fetch = async (...args) => {
   return r;
 };
 let people = {users: [], unlinked: []};
-let me = null, profileOn = false, profileOptions = null;
+let me = null, profileOn = false, profileOptions = null, profileList = [];
 const personTabs = () => ['account', ...(profileOn ? ['profile'] : []), 'api', 'aliases', 'qualifications'];
 let selectedPerson = null, selectedTab = 'account', qualificationManager = null;
 let qualificationTypes = [], pendingQualifications = [];
@@ -285,7 +323,12 @@ async function loadPicFlights() {
     picFlights = null;
     picError = `Could not load PIC totals: ${error.message}`;
   }
+  renderFlightViews();
+}
+function renderFlightViews() {
   renderDirectory();
+  if (!$('profilesSection').hidden) renderProfiles();
+  if (!$('supervisionSection').hidden) renderSupervision();
 }
 
 async function load() {
@@ -336,7 +379,8 @@ let pageTab = new URLSearchParams(location.search).get('tab') || 'people';
 function paintPageTabs(open) {
   const sections = [['people', 'People', $('peopleCard')], ['unlinked', 'Unlinked crew names', $('unlinkedCard'), open],
     ['approvals', 'Approval queue', $('approvalSection'), pendingQualifications.length],
-    ['types', 'Qualification types', $('typesSection')], ['profile', 'Profile options', $('profileOptionsSection')]].filter(([, , el]) => el === $('peopleCard') || !el.hidden);
+    ['types', 'Qualification types', $('typesSection')], ['profile-options', 'Profile options', $('profileOptionsSection')],
+    ['profiles', 'Profiles', $('profilesSection'), profileList.filter(x => !x.self || me.is_admin).length], ['supervision', 'Supervision', $('supervisionSection'), supervisionGroups().length]].filter(([, , el]) => el === $('peopleCard') || !el.hidden);
   if (!sections.some(t => t[0] === pageTab)) pageTab = 'people';
   window.pageTabs($('pageTabs'), sections.map(([key, label, , count]) => [key, label, count]), pageTab, key => {
     pageTab = key;
@@ -358,6 +402,12 @@ function render() {
   $('approvalSection').hidden = !admin || pendingQualifications.length === 0;
   $('typesSection').hidden = !editing;
   $('profileOptionsSection').hidden = !editing || !profileOn;
+  // Profiles and Supervision: admins see everyone, a supervisor the people they supervise
+  const others = profileList.filter(x => !x.self).length;
+  $('profilesSection').hidden = !others;
+  $('supervisionSection').hidden = !supervisionGroups().length;
+  if (!$('profilesSection').hidden) renderProfiles();
+  if (!$('supervisionSection').hidden) renderSupervision();
   const open = admin ? people.unlinked.length : 0;
   document.querySelectorAll('.editOnly').forEach(el => { el.hidden = !editing; });
   if (!editing) $('setupBox').hidden = true;
@@ -429,7 +479,7 @@ function renderDirectory() {
     ${picFlights === null ? `<div class="pic-totals mute">${picError ? 'PIC totals unavailable' : 'Loading PIC totals...'}</div>` : `<div class="pic-totals mute" aria-label="PIC flight statistics">
       <span title="Flights as PIC"><strong>${t.count}</strong> flights</span><span title="Flight hours as PIC"><strong>${(t.seconds / 3600).toFixed(1)}</strong> h</span>
       <span class="pic-last" title="Last flight as PIC">Last ${esc(t.last || '—')}</span></div>`}
-    <span class="person-name" title="${esc(u.display_name || u.username)}">${esc(u.display_name || u.username)}</span></div>
+    <span class="person-name" title="${esc(u.display_name || u.username)}">${esc(u.display_name || u.username)}</span>${cardProfileLine(u)}</div>
     <div class="directory-licences" aria-label="Current licences; open the pilot page for all licences">${qualBits(u.qualifications)}</div>
     <span class="licences-more" hidden>More licences...</span></a>`;
   }).join('')
@@ -705,6 +755,150 @@ async function saveProfile(id) {
     me = await adminApi('/api/me').then(data => data.user);
     await load();
   } catch (error) { $('err').textContent = error.message; }
+}
+
+// Profiles and Supervision tabs, and the role on the cards (profiles.py). The view state is in the URL (p_* parameters).
+const PROFILE_PAGE = 25;
+const today = () => new Date().toISOString().slice(0, 10);
+const soonDay = () => { const d = new Date(); d.setMonth(d.getMonth() + 3); return d.toISOString().slice(0, 10); };
+async function loadProfileList() {
+  try { profileList = (await adminApi('/api/profiles')).people; } catch (error) { profileList = []; }
+  const opts = (sel, label, values) => { const cur = sel.value;
+    sel.innerHTML = `<option value="">${label}</option>` + [...new Set(values.filter(Boolean))].sort().map(v => `<option>${esc(v)}</option>`).join('');
+    sel.value = cur; };
+  opts($('profilesRole'), 'All roles', profileList.map(x => x.profile?.role));
+  opts($('profilesDept'), 'All departments', profileList.map(x => x.profile?.department));
+  const q = new URLSearchParams(location.search);
+  $('profilesSearch').value = q.get('p_q') || ''; $('profilesRole').value = q.get('p_role') || '';
+  $('profilesDept').value = q.get('p_dept') || ''; $('profilesStatus').value = q.get('p_status') || '';
+  $('supervisionSearch').value = q.get('p_sq') || ''; $('supervisionEnded').checked = q.get('p_ended') === '1';
+  render();
+}
+function profileState(key, value) {
+  const url = new URL(location.href);
+  if (value) url.searchParams.set('p_' + key, value); else url.searchParams.delete('p_' + key);
+  if (key !== 'page' && key !== 'sort') url.searchParams.delete('p_page');
+  history.replaceState(history.state, '', url);
+  render();
+}
+const profileParam = key => new URLSearchParams(location.search).get('p_' + key) || '';
+function profileStatus(x) {
+  const p = x.profile;
+  if (x.missing.length && !(x.missing.length === 1 && x.missing[0] === 'end_date' && p && p.end_date)) return 'missing';
+  if (!p || p.indefinite || !p.end_date) return '';
+  return p.end_date < today() ? 'ended' : p.end_date <= soonDay() ? 'soon' : '';
+}
+function picTotals() {
+  const totals = new Map();
+  for (const f of picFlights || []) {
+    if (!window.flightFilters.includes(f)) continue;
+    const t = totals.get(f.user_id) || {count: 0, seconds: 0};
+    t.count += f.flight_count || 1; t.seconds += f.duration_s || 0;
+    totals.set(f.user_id, t);
+  }
+  return totals;
+}
+const flightsText = t => t && t.count ? `${t.count} flights · ${(t.seconds / 3600).toFixed(1)} h` : '—';
+const supervisorText = p => (p?.supervisors || []).map(s => s.name + (s.id ? '' : ' (ext.)')).join(', ');
+const PROFILE_COLUMNS = [
+  ['name', 'Name', x => x.name], ['role', 'Role', x => x.profile?.role || ''], ['dept', 'Department', x => x.profile?.department || ''],
+  ['sup', 'Supervisors', x => supervisorText(x.profile)], ['end', 'Expected end', x => x.profile ? (x.profile.indefinite ? '9999' : x.profile.end_date || '') : ''],
+  ['number', 'Number', x => x.profile?.number || ''], ['github', 'GitHub', x => x.profile?.github || ''],
+  ['flights', 'Flights', x => x.flights?.count || 0], ['confirmed', 'Confirmed', x => x.profile?.updated_at || '']];
+function profileRows() {
+  const totals = picTotals();
+  const q = profileParam('q').toLowerCase(), role = profileParam('role'), dept = profileParam('dept'), status = profileParam('status');
+  const [key, dir] = (profileParam('sort') || 'end:asc').split(':');
+  const col = PROFILE_COLUMNS.find(c => c[0] === key) || PROFILE_COLUMNS[4];
+  return profileList.filter(x => !x.self || me.is_admin).map(x => ({...x, flights: totals.get(x.id), status: profileStatus(x)}))
+    .filter(x => (!q || [x.name, x.username, supervisorText(x.profile), x.profile?.github].join(' ').toLowerCase().includes(q))
+      && (!role || x.profile?.role === role) && (!dept || x.profile?.department === dept) && (!status || x.status === status))
+    .sort((a, b) => { const va = col[2](a), vb = col[2](b);
+      const c = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb));
+      return (dir === 'desc' ? -c : c) || a.name.localeCompare(b.name); });
+}
+function renderProfiles() {
+  const rows = profileRows(), admin = !!me.is_admin;
+  const [key, dir] = (profileParam('sort') || 'end:asc').split(':');
+  const cols = PROFILE_COLUMNS.filter(c => admin || c[0] !== 'number');
+  $('profilesHead').innerHTML = cols.map(([k, label]) => `<th scope="col" aria-sort="${k === key ? (dir === 'desc' ? 'descending' : 'ascending') : 'none'}">`
+    + `<button type="button" class="sort" onclick="profileState('sort', '${k}:' + ('${k}' === '${key}' && '${dir}' !== 'desc' ? 'desc' : 'asc'))">${label}${k === key ? (dir === 'desc' ? ' ▼' : ' ▲') : ''}</button></th>`).join('');
+  $('profilesCount').textContent = `${rows.length} ${rows.length === 1 ? 'person' : 'people'}`;
+  let page = Math.max(0, +profileParam('page') || 0);
+  const last = Math.max(0, Math.ceil(rows.length / PROFILE_PAGE) - 1);
+  page = Math.min(page, last);
+  const badge = x => x.status === 'ended' ? '<span class="chip warn">ended</span>' : x.status === 'soon' ? '<span class="chip pending">ends soon</span>' : '';
+  const cell = (k, x) => {
+    const p = x.profile;
+    if (k === 'name') return `<a href="/people/${x.id}">${esc(x.name)}</a>`;
+    if (!p && k === 'end') return '<span class="chip pending">not filled in</span>';
+    if (!p) return '';
+    if (k === 'role') return esc(p.role || '—');
+    if (k === 'dept') return `<span title="${esc(p.department_group || '')}">${esc(p.department || '')}</span>`;
+    if (k === 'sup') return (p.supervisors || []).map(s => s.id ? `<a href="/people/${s.id}">${esc(s.name)}</a>` : `${esc(s.name)} <span class="mute">(ext.)</span>`).join(', ') || '<span class="mute">—</span>';
+    if (k === 'end') return (p.indefinite ? 'Indefinite' : esc(p.end_date || '')) + ' ' + (x.status === 'missing' ? '<span class="chip pending">incomplete</span>' : badge(x));
+    if (k === 'number') return esc(p.number || '');
+    if (k === 'github') return p.github ? `<a href="https://github.com/${encodeURIComponent(p.github)}" target="_blank" rel="noopener">${esc(p.github)}</a>` : '';
+    if (k === 'flights') return `<span class="mute">${flightsText(x.flights)}</span>`;
+    return `<span class="mute">${esc((p.updated_at || '').slice(0, 10))}</span>`;
+  };
+  $('profilesRows').innerHTML = rows.slice(page * PROFILE_PAGE, (page + 1) * PROFILE_PAGE)
+    .map(x => `<tr>${cols.map(([k]) => `<td>${cell(k, x)}</td>`).join('')}</tr>`).join('')
+    || `<tr><td colspan="${cols.length}" class="mute">No matching people.</td></tr>`;
+  if (rows.length > PROFILE_PAGE) window.viewState.pager($('profilesPager'), page, PROFILE_PAGE, rows.length, n => profileState('page', n ? String(n) : ''));
+  else $('profilesPager').innerHTML = '';
+}
+function downloadProfiles() {
+  const admin = !!me.is_admin;
+  const head = ['Name', 'Username', 'Role', 'Department', 'Department group', 'Supervisors', 'Expected end', ...(admin ? ['Number'] : []), 'GitHub', 'Projects', 'Status', 'Last confirmed'];
+  const csv = v => /[",\n]/.test(String(v ?? '')) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v ?? '');
+  const lines = profileRows().map(x => { const p = x.profile || {};
+    return [x.name, x.username, p.role, p.department, p.department_group, supervisorText(p), p.indefinite ? 'Indefinite' : p.end_date,
+      ...(admin ? [p.number] : []), p.github, x.projects.map(pr => pr.name).join('; '), x.status, (p.updated_at || '').slice(0, 10)].map(csv).join(','); });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([[head.join(','), ...lines].join('\n') + '\n'], {type: 'text/csv'}));
+  a.download = `profiles-${today()}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function supervisionGroups() {
+  const withEnded = profileParam('ended') === '1', groups = new Map();
+  for (const x of profileList) {
+    const status = profileStatus(x);
+    if (status === 'ended' && !withEnded) continue;
+    for (const s of x.profile?.supervisors || []) {
+      if (!me.is_admin && s.id !== me.id) continue;
+      const key = s.id ? 'u' + s.id : 'x' + s.name.toLowerCase();
+      if (!groups.has(key)) groups.set(key, {id: s.id, name: s.name, people: []});
+      groups.get(key).people.push({...x, status});
+    }
+  }
+  return [...groups.values()].sort((a, b) => (!a.id - !b.id) || a.name.localeCompare(b.name));
+}
+function renderSupervision() {
+  const totals = picTotals(), q = profileParam('sq').toLowerCase();
+  const byId = new Map(profileList.map(x => [x.id, x]));
+  const groups = supervisionGroups().map(g => ({...g, people: g.people.filter(x => !q || [g.name, x.name, ...x.projects.map(p => p.name)].join(' ').toLowerCase().includes(q))}))
+    .filter(g => g.people.length);
+  const people = new Set(groups.flatMap(g => g.people.map(x => x.id)));
+  $('supervisionCount').textContent = `${groups.length} ${groups.length === 1 ? 'supervisor' : 'supervisors'} · ${people.size} ${people.size === 1 ? 'person' : 'people'}`;
+  $('supervisionGroups').innerHTML = groups.map(g => {
+    const own = g.id && byId.get(g.id)?.profile;
+    const sub = g.id ? [own?.role, own?.department].filter(Boolean).map(esc).join(' · ') : 'External supervisor';
+    return `<div class="supervision-group${g.id ? '' : ' external'}"><h3>${g.id ? `<a href="/people/${g.id}">${esc(g.name)}</a>` : esc(g.name)}</h3>
+      <div class="mute small">${sub ? sub + ' · ' : ''}${g.people.length} ${g.people.length === 1 ? 'person' : 'people'}</div>
+      <table><colgroup><col style="width:21%"><col style="width:19%"><col style="width:25%"><col style="width:22%"><col style="width:13%"></colgroup>${g.people.map(x => `<tr><td><a href="/people/${x.id}">${esc(x.name)}</a></td><td class="mute">${esc(x.profile?.role || '')}</td>
+        <td class="${x.status === 'ended' || x.status === 'soon' ? 'end-' + x.status : ''}" title="${x.status === 'ended' ? 'Ended' : x.status === 'soon' ? 'Ends within 3 months' : ''}">${x.profile?.indefinite ? 'Indefinite' : esc(x.profile?.end_date || '')}${x.status === 'ended' ? ' · ended' : x.status === 'soon' ? ' · soon' : ''}</td>
+        <td class="projects">${x.projects.map(p => `<a class="chip" href="/projects/${p.id}" title="${esc(p.name)}">${esc(p.name)}</a>`).join('')}</td>
+        <td class="mute">${flightsText(totals.get(x.id))}</td></tr>`).join('')}</table></div>`;
+  }).join('') || '<p class="mute">No matching people.</p>';
+}
+function cardProfileLine(u) {
+  const x = profileList.find(p => p.id === u.id);
+  if (!x) return '';
+  if (!x.profile) return '<div class="card-profile warn-text">Profile not filled in</div>';
+  const text = [x.profile.role, x.profile.department].filter(Boolean).join(' · ');
+  return `<div class="card-profile" title="${esc(text)}">${esc(text)}</div>`;
 }
 
 // Profile options (roles and departments of the person profile), admins in Edit mode.
@@ -1023,11 +1217,12 @@ fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
   profileOn = !!d.person_profile;
   if (profileOn && me.is_admin) loadProfileOptions();
+  if (profileOn) loadProfileList();
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   load();
 });
 window.addEventListener('editchange', render);
-window.addEventListener('flightfilterschange', renderDirectory);
+window.addEventListener('flightfilterschange', renderFlightViews);
 </script>
 </body>
 </html>

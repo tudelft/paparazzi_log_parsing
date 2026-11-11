@@ -14,6 +14,17 @@
   header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
   header h1 { margin:0; font-size:18px; }
   header .meta { color:#9fb0c3; font-size:12px; }
+  .profile-line { flex-basis:100%; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 6px; font-size:13px; }
+  .profile-line .sep, .profile-line .m, .profile-pop .m { color:var(--mute); }
+  .profile-line button.more { background:none; border:0; padding:0; font:inherit; color:var(--acc); cursor:pointer; }
+  .profile-line button.more:hover { text-decoration:underline; }
+  .profile-pop { position:absolute; z-index:2000; width:min(440px, calc(100vw - 32px)); box-sizing:border-box; background:var(--card); border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px #0003; padding:12px 14px; font-size:13px; }
+  .profile-pop h3 { margin:0 0 8px; font-size:14px; display:flex; gap:8px; align-items:baseline; }
+  .profile-pop h3 a { margin-left:auto; font-weight:400; font-size:12px; }
+  .profile-pop .kv { display:grid; grid-template-columns:max-content minmax(0, 1fr); gap:3px 12px; }
+  .profile-pop .kv > span { overflow-wrap:anywhere; }
+  .profile-pop p { margin:8px 0 0; font-size:12px; }
+  .profile-pop .nw { white-space:nowrap; }
   main { max-width:1500px; margin:0 auto; padding:16px 12px 20px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
   h2 { margin:0 0 10px; font-size:15px; }
@@ -115,7 +126,9 @@
         <span class="mute filter-context" data-flight-filter-summary></span>
         <details class="page-help"><summary>Help</summary><p id="scope"></p>
         <p>Statistics, map, charts and tables follow the shared flight filters. Qualification dates appear on hover; qualifications with evidence open the file when you have access. Past qualifications and account details can be expanded.</p></details>
+      <div class="profile-line" id="profileLine" hidden></div>
     </section>
+    <div class="profile-pop" id="profilePop" role="dialog" aria-label="Profile" hidden></div>
 
     <div class="cols">
       <section class="card">
@@ -227,13 +240,82 @@ const personLink = (f, role) => {
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
   $('who').textContent = me.display_name + (me.is_admin ? ' (admin)' : '');
+  profileOn = !!d.person_profile && KIND === 'people';
+  if (D) loadProfile();
 });
+
+// The person profile (profiles.py), shown only to the person, admins and the person's supervisors: one line under
+// the name, the rest in a popover ("more").
+let profileOn = false;
+async function loadProfile() {
+  if (!profileOn) return;
+  profileOn = false;
+  const r = await fetch(`/api/users/${ITEM_ID}/profile`);
+  if (!r.ok) return;
+  const d = await r.json();
+  if (!d.profile && !d.self && !me.is_admin) return;
+  const p = d.profile || {}, today = new Date().toISOString().slice(0, 10);
+  const name = $('name').textContent || 'this person';
+  const who = (d.self ? 'Visible to you, admins and your supervisors' : `Visible to ${name}, admins and ${name}'s supervisors`)
+    + ' (supervisors without the number).';
+  const sep = '<span class="sep">·</span>';
+  const personLink = s => `<a href="/people/${s.id}">${esc(s.name)}</a>`;
+  const sups = (p.supervisors || []).map(s => s.id ? personLink(s) : `${esc(s.name)} <span class="m">(external)</span>`).join(', ');
+  const ended = s => s.profile && !s.profile.indefinite && s.profile.end_date && s.profile.end_date < today;
+  const current = (d.students || []).filter(s => !ended(s)), endedCount = (d.students || []).length - current.length;
+  const until = end => {
+    const months = Math.round((new Date(end) - new Date(today)) / 2629800000);
+    return end < today ? 'passed' : months < 1 ? 'this month' : months < 24 ? `in ${months} months` : `in ${Math.floor(months / 12)} years`;
+  };
+  const todo = (d.missing || []).filter(m => m !== 'profile').map(m => m.replace('_', ' '));
+  const parts = !d.profile ? ['<span class="m">Profile not filled in yet</span>'] : [
+    `<b>${esc(p.role || 'No role')}</b>`, esc(p.department || ''),
+    sups ? `<span><span class="m">supervised by</span> ${sups}</span>` : '',
+    `<span><span class="m">${p.indefinite ? '' : 'until'}</span> ${p.indefinite ? 'Indefinite' : esc(p.end_date) + (p.end_date < today ? ' <span class="m">(passed)</span>' : '')}</span>`,
+    current.length ? `<span><span class="m">supervises</span> ${current.length === 1 ? personLink(current[0]) : current.length + ' people'}</span>` : '',
+  ].filter(Boolean);
+  $('profileLine').innerHTML = parts.join(sep) + `${sep}<button type="button" class="more" id="profileMore" aria-expanded="false" aria-controls="profilePop">more ▾</button>`
+    + `<span class="m" title="${esc(who)}">🔒</span>`;
+  const MAX_STUDENTS = 5;
+  const studentRow = s => `${personLink(s)} <span class="m">· ${[s.profile?.role, s.profile ? (s.profile.indefinite ? 'Indefinite' : 'until ' + s.profile.end_date) : '',
+    ...(s.projects || []).map(x => x.name)].filter(Boolean).map(v => `<span class="nw">${esc(v)}</span>`).join(' · ')}</span>`;
+  const kv = (k, v) => v ? `<span class="m">${k}</span><span>${v}</span>` : '';
+  $('profilePop').innerHTML = `<h3>Profile <span class="m" title="${esc(who)}">🔒</span>${d.self ? '<a href="/profile">Edit</a>' : ''}</h3><div class="kv">`
+    + (d.profile ? kv('Department', esc(p.department) + (p.department_group ? ` <span class="m">(${esc(p.department_group)})</span>` : ''))
+      + kv('Expected end', p.indefinite ? 'Indefinite' : `${esc(p.end_date)} <span class="m">(${until(p.end_date)})</span>`)
+      + ('number' in p ? kv('Number', `${esc(p.number)} <span class="m">(${d.self ? 'you' : esc(name)} and admins only)</span>`) : '')
+      + kv('GitHub', p.github ? `<a href="https://github.com/${encodeURIComponent(p.github)}" target="_blank" rel="noopener">${esc(p.github)}</a>` : '')
+      : kv('Profile', '<span class="m">not filled in yet</span>'))
+    + kv('Projects', (d.projects || []).map(x => `<a href="/projects/${x.id}">${esc(x.name)}</a>`).join(', '))
+    + kv('Supervises', current.slice(0, MAX_STUDENTS).map(studentRow).join('<br>')
+      + (current.length > MAX_STUDENTS ? `<br><a href="/people?tab=supervision">and ${current.length - MAX_STUDENTS} more</a>` : '')
+      + (endedCount ? `${current.length ? '<br>' : ''}<span class="m">${endedCount} ended</span>` : ''))
+    + kv('Still to fill in', todo.length ? `<span class="m">${esc(todo.join(', '))}</span>` : '')
+    + kv('Last confirmed', esc((p.updated_at || '').slice(0, 10)))
+    + `</div><p class="m">${esc(who)}</p>`;
+  $('profileLine').hidden = false;
+  $('profileMore').onclick = e => { e.stopPropagation(); toggleProfilePop(); };
+}
+function toggleProfilePop(open = $('profilePop').hidden) {
+  const pop = $('profilePop'), more = $('profileMore');
+  pop.hidden = !open;
+  more.setAttribute('aria-expanded', String(open));
+  more.textContent = open ? 'more ▴' : 'more ▾';
+  if (!open) return;
+  const r = more.getBoundingClientRect();
+  pop.style.top = `${r.bottom + scrollY + 6}px`;
+  pop.style.left = `${Math.max(16, Math.min(r.left + scrollX - 20, document.documentElement.clientWidth - pop.offsetWidth - 16))}px`;
+}
+document.addEventListener('click', e => { if (!$('profilePop').hidden && !$('profilePop').contains(e.target)) toggleProfilePop(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('profilePop').hidden) { toggleProfilePop(false); $('profileMore').focus(); } });
+window.addEventListener('resize', () => { if (!$('profilePop').hidden) toggleProfilePop(true); });
 fetch(`/api/detail/${KIND}/${ITEM_ID}`).then(async r => {
   if (!r.ok) { $('missing').style.display = 'block'; document.title = 'Not found'; return; }
   D = await r.json();
   $('page').hidden = false;
   renderHead();
   render();
+  loadProfile();
 });
 
 function shown() {

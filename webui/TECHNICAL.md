@@ -942,10 +942,17 @@ a required supervisor is missing, or the end date has passed, every page a signe
 only checked to exist (`GET /api/profile/github`, GitHub's public users API, cached an hour; `FIRMWARE_GITHUB_TOKEN`
 is used when set).
 
-The person sees and edits their profile on My account, where supervisors also see the people they supervise.
-Admins see it on People (person **Profile** tab) and edit the role and department lists under **Profile options**
-in Edit mode (`PUT /api/admin/profile-options`). Supervisors may read their students' profiles without the number
-(`GET /api/users/<id>/profile`). The default lists are seeded once when the tables are created. Removing a list
+Who sees a profile: the person, admins, and the person's supervisors (without the number); nobody else.
+Where it shows:
+- the person's page (`/people/<id>`): a Profile card, with the people that person supervises and the projects
+  of each (only projects the viewer may open), and **Edit** for the person;
+- My account: the person's own profile and the people they supervise;
+- People: the role and department on the cards; the **Profiles** tab (a sortable, filterable table with CSV
+  download) and the **Supervision** tab (one card per supervisor, external ones by name). Admins see everyone; a
+  supervisor sees the people they supervise. Both come from `GET /api/profiles`; flights are those as PIC within
+  the flight filters. Filters, sort and page are kept in the URL (`p_*` parameters);
+- People in Edit mode: the person **Profile** tab, and **Profile options** to edit the role and department lists
+  (`PUT /api/admin/profile-options`). The default lists are seeded once when the tables are created. Removing a list
 entry empties that field in the profiles that used it, so those people are asked again.
 
 ### Private licences and qualifications

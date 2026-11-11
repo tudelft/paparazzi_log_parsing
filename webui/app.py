@@ -855,7 +855,7 @@ def server_timing(resp):
 
 @app.after_request
 def no_cache_pages(resp):
-    if request.path in ("/api/people-directory", "/api/admin/people", "/api/people-pic-flights", "/api/pilots") or request.path.startswith((
+    if request.path in ("/api/people-directory", "/api/admin/people", "/api/people-pic-flights", "/api/pilots", "/api/profiles", "/api/profile") or request.path.startswith((
             "/api/detail/people/", "/api/users/", "/api/qualification-", "/api/admin/qualification-", "/api/admin/users/")):
         resp.headers["Cache-Control"] = "private, no-store"
     if resp.mimetype == "text/html" or request.path in ("/theme.css", "/theme.js", "/attachments.js",
