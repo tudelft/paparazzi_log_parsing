@@ -1,4 +1,4 @@
-"""Command line: mavlab-logs [--server URL] [--key KEY] status | download | upload | revoke-all."""
+"""Command line: mavlab-logs [--server URL] [--key KEY] status | fetch | upload | revoke-all."""
 import argparse
 import sys
 
@@ -14,9 +14,10 @@ def main(argv=None):
     ap.add_argument("--insecure", action="store_true", help="do not verify the https certificate")
     sub = ap.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="sign in if needed and show the server, user, key and cache folder")
-    p = sub.add_parser("download", help="download flights by number and print their local paths")
+    p = sub.add_parser("fetch", help="download the original logs of flights by number and print their paths")
     p.add_argument("flights", nargs="+", type=int, help="flight numbers (the number in /flight/<number>)")
-    p.add_argument("--mat", action="store_true", help="the flight's MATLAB export instead of the original log")
+    p.add_argument("--scope", choices=("selected", "all", "log", "flight"), default="selected",
+                   help="one path per log (selected, all, log: the same whole logs) or per flight number")
     p.add_argument("--force", action="store_true", help="download again even when cached")
     p = sub.add_parser("upload", help="upload log files")
     p.add_argument("files", nargs="+", help="log files (.data with its .log next to it, .BFL, .ulg, .bin, ...)")
@@ -36,8 +37,8 @@ def main(argv=None):
             print(f"Key: {client.key_source}" + (f", until {stored['expires_at']}"
                   if client.key_source == "browser login" and stored.get("expires_at") else ""))
             print(f"Cache: {settings.cache_dir()}")
-        elif a.command == "download":
-            for path in client.download(a.flights, mat=a.mat, force=a.force):
+        elif a.command == "fetch":
+            for path in client.fetch(a.flights, scope=a.scope, force=a.force):
                 print(path)
         elif a.command == "upload":
             for r in client.upload(a.files, name=a.name, wait=a.wait, skip_existing=not a.again):

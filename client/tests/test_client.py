@@ -19,6 +19,8 @@ from mavlab_logs import settings  # noqa: E402
 
 DATA, LOG = b"paparazzi data" * 100, b"<protocol/>"
 SHA = hashlib.sha256(DATA).hexdigest()
+OTHER = b"LOG00030" * 50  # flight 20, a Betaflight log on its own
+LOG_OF = {7: 1, 8: 1, 20: 2}  # flight number -> log
 
 
 class Stub(BaseHTTPRequestHandler):
@@ -54,11 +56,21 @@ class Stub(BaseHTTPRequestHandler):
             return
         if self.path == "/api/me":
             self.reply(200, {"user": {"id": 2, "display_name": "Pilot"}})
-        elif self.path == "/api/flights/7/files":
+        elif self.path.startswith("/api/flights/") and self.path.endswith("/files"):
             s["files_calls"] += 1
-            self.reply(200, {"flight_id": 7, "log_id": 1, "sha256": SHA, "files": [
-                {"kind": "data", "name": "a.data", "url": "/api/logs/1/download/data"},
-                {"kind": "log", "name": "a.log", "url": "/api/logs/1/download/log"}]})
+            flight = int(self.path.split("/")[3])
+            if LOG_OF.get(flight) == 1:
+                self.reply(200, {"flight_id": flight, "log_id": 1, "sha256": SHA, "files": [
+                    {"kind": "data", "name": "a.data", "url": "/api/logs/1/download/data"},
+                    {"kind": "log", "name": "a.log", "url": "/api/logs/1/download/log"}]})
+            elif flight in LOG_OF:
+                self.reply(200, {"flight_id": flight, "log_id": 2, "sha256": hashlib.sha256(OTHER).hexdigest(),
+                                 "files": [{"kind": "data", "name": "LOG00030.BFL",
+                                            "url": "/api/logs/2/download/data"}]})
+            else:
+                self.reply(404, {"error": f"no flight {flight}"})
+        elif self.path == "/api/logs/2/download/data":
+            self.reply(200, OTHER)
         elif self.path.startswith("/api/logs/1/download/"):
             raw = DATA if self.path.endswith("data") else LOG
             if s.get("corrupt"):
@@ -67,11 +79,6 @@ class Stub(BaseHTTPRequestHandler):
                 self.reply(200, gzip.compress(raw), {"Content-Encoding": "gzip"})
             else:
                 self.reply(200, raw)
-        elif self.path == "/api/matlab-exports/" + "e" * 32:
-            self.reply(200, {"id": "e" * 32, "status": "ready", "filename": "x.mat",
-                             "download": "/api/matlab-exports/" + "e" * 32 + "/download"})
-        elif self.path == "/api/matlab-exports/" + "e" * 32 + "/download":
-            self.reply(200, b"MATLAB 5.0")
         elif self.path == "/api/ingest/9":
             s["polls"] += 1
             done = s["polls"] > 1
@@ -99,10 +106,6 @@ class Stub(BaseHTTPRequestHandler):
         elif self.path == "/api/keys/revoke-all":
             s["revoked"] = self.body()
             self.reply(200, {"revoked": 1})
-        elif self.path == "/api/flights/7/matlab":
-            s["mat_requests"].append(self.body())
-            self.reply(200, {"id": "e" * 32, "status": "ready", "filename": "x.mat",
-                             "download": "/api/matlab-exports/" + "e" * 32 + "/download"})
         elif self.path == "/api/logs/check":
             self.reply(200, {"known": {d: {"has_log": True, "mine": True} for d in self.body()["sha256"]
                                        if d in s["known"]}})
@@ -125,7 +128,7 @@ class ClientTests(unittest.TestCase):
         self.addCleanup(env.stop)
         for name in ("LOGDB_SERVER", "LOGDB_API_KEY"):
             os.environ.pop(name, None)
-        Stub.state = dict(key="logdb_old", auth=[], files_calls=0, token_polls=0, polls=0, mat_requests=[],
+        Stub.state = dict(key="logdb_old", auth=[], files_calls=0, token_polls=0, polls=0,
                           uploads=[], known=set())
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Stub)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -144,7 +147,7 @@ class ClientTests(unittest.TestCase):
 
     def test_connect_signs_in_through_the_browser_and_redoes_a_refused_login(self):
         with self.assertRaises(ml.Error):
-            ml.download(7)  # not connected yet
+            ml.fetch(7)  # not connected yet
         with redirect_stderr(io.StringIO()) as err, redirect_stdout(io.StringIO()) as out:
             client = ml.connect(self.url)
         self.assertEqual(client.key_source, "browser login")
@@ -191,34 +194,40 @@ class ClientTests(unittest.TestCase):
             self.client(login=False).me()
         self.assertEqual(Stub.state["token_polls"], 0)
 
-    def test_download_caches_by_sha256_and_works_offline(self):
+    def test_fetch_caches_by_sha256_and_works_offline(self):
         client = self.client(key="logdb_old")
-        path, again = client.download([7, "7"])
-        self.assertEqual(path, again)
+        path, = client.fetch([7, "7"])
         self.assertEqual(path, self.dir / "cache" / "logs" / SHA / "a.data")
         self.assertEqual(path.read_bytes(), DATA)
         self.assertEqual(path.with_suffix(".log").read_bytes(), LOG)
         self.server.shutdown()
         self.server.server_close()  # connections are refused now: offline
         with redirect_stderr(io.StringIO()):
-            self.assertEqual(self.client(key="logdb_old").download(7), [path])
+            self.assertEqual(self.client(key="logdb_old").fetch(7), [path])
         with self.assertRaises(ValueError):
-            client.download([True])
+            client.fetch([True])
 
     def test_corrupt_download_is_not_kept(self):
         Stub.state["corrupt"] = True
         with self.assertRaises(ml.Error):
-            self.client(key="logdb_old").download(7)
+            self.client(key="logdb_old").fetch(7)
         self.assertEqual(list((self.dir / "cache" / "logs" / SHA).iterdir()), [])
 
-    def test_mat_export_is_reused_while_the_export_is_unchanged(self):
+    def test_scope_returns_whole_logs_per_log_or_per_number(self):
         client = self.client(key="logdb_old")
-        mat, = client.download(7, mat=True)
-        self.assertEqual(mat, self.dir / "cache" / "mat" / f"127.0.0.1_{self.server.server_port}"
-                         / f"flight_7_{'e' * 16}.mat")
-        self.assertEqual(mat.read_bytes(), b"MATLAB 5.0")
-        self.assertEqual(client.download(7, mat=True), [mat])
-        self.assertEqual(Stub.state["mat_requests"], [{"check": True}, {"check": True}])
+        data, other = self.dir / "cache" / "logs" / SHA / "a.data", None
+        for scope in ("selected", "all", "log"):  # binary logs are never cut: the same files
+            paths = client.fetch([8, 20, 7], scope=scope)
+            self.assertEqual(paths[0], data)
+            other = other or paths[1]
+            self.assertEqual(paths, [data, other])
+        self.assertEqual(other.name, "LOG00030.BFL")
+        self.assertEqual(other.read_bytes(), OTHER)
+        self.assertEqual(client.fetch([8, 20, 7, 8], scope="flight"), [data, other, data])
+        with self.assertRaises(ValueError):
+            client.fetch(7, scope="nope")
+        with self.assertRaises(ml.HTTPError):
+            client.fetch([7, 99])
 
     def test_upload_pairs_skips_and_waits(self):
         data, bfl = self.dir / "f.data", self.dir / "LOG1.BFL"

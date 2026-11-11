@@ -12,24 +12,22 @@ Tools to load, plot and analyse Paparazzi flights exported by the flight logbook
   logs = pprz_fetch([1234 1240]);            % or pprz_view([1234 1240]), or From logbook… in pprz_view
   logs = pprz_fetch([1234 1240], 'scope', 'log');   % the whole logs instead
   f = pprz_flight(logs, 'number', 1240);     % one flight by its logbook number
-  files = pprz_download([1234 1240]);        % paths of the original logs (.data with .log, .BFL, .ulg, …)
-  r = pprz_upload({'a.data', 'LOG00030.BFL'}, 'wait', true);   % upload; r(1).flight_ids for pprz_download
+  r = pprz_upload({'a.data', 'LOG00030.BFL'}, 'wait', true);   % upload; r(1).flight_ids for pprz_fetch
   ```
 
   `pprz_connect(server, key)` connects; the server is required. The key defaults to `LOGDB_API_KEY` (a key from
   **My account**; not used when `LOGDB_SERVER` names another server), else the last browser login. Values from the environment are announced. Without a key it opens the browser: sign in, check that the
   page shows the code printed in MATLAB and press **Allow**; that key acts as you for a week.
   `pprz_revoke_all` revokes your browser-login keys on all computers (`'include_manual', true` also those from
-  **My account**). The login and the downloads are shared with the Python package
-  [mavlab-logs](../client/README.md): one login serves both, and a log downloaded in one is reused by the other.
+  **My account**). The login is shared with the Python package [mavlab-logs](../client/README.md), which
+  fetches the original log files instead of exports.
 
   `pprz_fetch` makes **one file per log**: numbers from the same log end up in one export with those flights
   (`logs(i).aircraft(a).flights(k)`). `'scope'` chooses what to download: `'selected'` (default) the given
   flights, `'all'` every flight of those logs, `'log'` the whole log of each (also between flights), `'flight'`
   one file per number. Copy numbers in the logbook's Select mode gives the list to paste.
   A cached export is reused until it would change (new log version, parser or logbook corrections such as the
-  crew). An original log never changes; it is cached by its SHA-256, checked after the download. Without a
-  connection the cached copies are used. The cache folder is shown and set with `pprz_cache_dir`; see the
+  crew); without a connection the cached copies are used. The cache folder is shown and set with `pprz_cache_dir`; see the
   package's [README](../client/README.md#where-files-are-kept) for the default places and environment variables.
   These functions need MATLAB R2021a or newer (not Octave).
 - **From the logbook:** **MATLAB ▾** on a flight page or an expanded Logbook row (this flight, all flights or
@@ -83,8 +81,7 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | `pprz_revoke_all` | Revoke your browser-login keys (or with `'include_manual', true` all your API keys). |
 | `pprz_cache_dir` | Show or set the folder where downloads are cached. |
 | `pprz_fetch(ids)` | Load flights from the logbook server by flight number, one file per log, cached locally; `'scope'` `selected`/`all`/`log`/`flight`; `'force', true` downloads again. |
-| `pprz_download(ids)` | Local paths of flights by number: the original logs, or with `'mat', true` the exports of each flight (one file per number). |
-| `pprz_upload(files)` | Upload logs (a `.data` with its `.log`); `'wait', true` returns the parsed log's `flight_ids`. |
+| `pprz_upload(files)` | Upload logs (a `.data` with its `.log`); `'wait', true` returns the parsed log's `flight_ids` for `pprz_fetch`. |
 | `pprz_logbook` | Table of the logbook flights the key may see, to pick numbers for `pprz_fetch` (`'all', true` adds uncertain and ground records). |
 | `pprz_flights` | Table of all flights (row numbers for `pprz_flight`), with the logbook `number`; flight 0 is a whole-log export. |
 | `pprz_flight` | One flight ready to plot (row of `pprz_flights`, or `'number', n`): `f.data`, `f.time`, `f.summary`, `f.logbook`, `f.aircraft`, `f.messages`, `f.title`. A flight in a whole-log export is cut from the log. |

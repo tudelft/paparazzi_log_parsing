@@ -5,7 +5,7 @@ function receipts = pprz_upload(files, varargin)
 %   r = pprz_upload({'a.data', 'LOG00030.BFL'}, 'wait', true)   wait until the server has parsed each log
 %   r = pprz_upload('LOG00030.BFL', 'name', 'Hex 1/LOG00030.BFL')   stored name; a folder in it can link the log
 %                                                     to that fleet aircraft
-%   pprz_download(r(1).flight_ids)                    the flights found in it (with 'wait', true)
+%   pprz_fetch(r(1).flight_ids)                       the flights found in it (with 'wait', true)
 %   A log you already uploaded is skipped (status "skipped") unless 'skip_existing', false. Receipts have name,
 %   status (accepted, skipped or done), ingest_id and, with 'wait', log_id and flight_ids. Uses the connection of
 %   pprz_connect.

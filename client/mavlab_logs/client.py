@@ -21,6 +21,7 @@ from . import settings
 
 CHUNK = 1 << 20
 TRANSIENT = {408, 429, 500, 502, 503, 504}
+SCOPES = ("selected", "all", "log", "flight")
 
 
 class Error(RuntimeError):
@@ -282,15 +283,19 @@ class Client:
     def _index(self, flight_id):
         return settings.cache_dir() / "flights" / settings.server_tag(self.server) / f"{flight_id}.json"
 
-    def download(self, flights, mat=False, force=False):
-        """Download flights by number (the number in /flight/<number>) and return their local paths, in order.
+    def fetch(self, flights, scope="selected", force=False):
+        """Download the original logs of flights by number (the number in /flight/<number>) and return their paths.
 
-        By default the original log the flight was recorded in: the path of its data file (.data, .BFL, .ulg, …),
-        with a Paparazzi .log next to it. mat=True returns the flight's MATLAB export (.mat) instead, as pprz_fetch.
-        Files are cached (see cache_dir()) and reused; a log is identified by its SHA-256, so it never goes stale.
-        force=True downloads again. Without a connection, the copies cached before are returned."""
-        ids = _flight_ids(flights)
-        return [self._mat(i, force) if mat else self._raw(i, force) for i in ids]
+        A path is that of the log's data file (.data, .BFL, .ulg, …), with a Paparazzi .log next to it. scope is
+        that of MATLAB's pprz_fetch: "selected" (default), "all" or "log" return one path per log that holds the
+        given flights, in the order the numbers first name it; "flight" one path per number. A log is binary and
+        always downloaded whole, so "selected", "all" and "log" return the same files.
+        Files are cached (see cache_dir()) by their SHA-256 and never go stale; force=True downloads again.
+        Without a connection, the copies cached before are returned."""
+        if scope not in SCOPES:
+            raise ValueError(f"scope must be one of {', '.join(SCOPES)}: {scope!r}")
+        paths = [self._raw(i, force) for i in dict.fromkeys(_flight_ids(flights))]
+        return paths if scope == "flight" else list(dict.fromkeys(paths))
 
     def _raw(self, flight_id, force):
         index = self._index(flight_id)
@@ -314,39 +319,6 @@ class Client:
                 self._download(f["url"], target, info["sha256"] if f["kind"] == "data" else None)
         _write_atomic(index, lambda h: h.write(json.dumps(info).encode()))
         return folder / Path(info["files"][0]["name"]).name
-
-    def _mat(self, flight_id, force):
-        folder = settings.cache_dir() / "mat" / settings.server_tag(self.server)
-        old = sorted(folder.glob(f"flight_{flight_id}_*.mat"), key=lambda p: p.stat().st_mtime)
-        path = f"/api/flights/{flight_id}/matlab"
-        try:
-            job = self._json("POST", path, {"check": True})
-        except (OSError, http.client.HTTPException) as exc:
-            if not old:
-                raise
-            self._say(f"Flight {flight_id}: offline, using the cached copy ({exc})")
-            return old[-1]
-        target = folder / f"flight_{flight_id}_{job['id'][:16]}.mat"
-        if target.is_file() and not force:
-            return target
-        if job["status"] != "ready":
-            job = self._json("POST", path, {"check": False})
-        last = None
-        while job["status"] != "ready":
-            if job["status"] in ("failed", "missing"):
-                raise Error(f"Flight {flight_id}: the export failed: {job.get('error')}")
-            pct = round(100 * float(job.get("progress") or 0))
-            if pct != last:
-                self._say(f"Flight {flight_id}: preparing the export on the server, {pct}%")
-                last = pct
-            time.sleep(1)
-            job = self._request("GET", f"/api/matlab-exports/{job['id']}")
-        self._say(f"Flight {flight_id}: downloading {job['filename']}")
-        self._download(job["download"], target)
-        for stale in old:
-            if stale != target:
-                stale.unlink(missing_ok=True)
-        return target
 
     # --- uploads -------------------------------------------------------------------------------------------------
     def _check(self, digests):
@@ -410,7 +382,7 @@ class Client:
         (.BFL, .ulg, .bin, .tlog, …) on their own. name is the stored name of a single file (default: its file
         name); a folder in it, such as "Hex 1/LOG00030.BFL", can link the log to that fleet aircraft. A log that
         you already uploaded is skipped (status "skipped") unless skip_existing=False. With wait=True the call
-        returns once the server has parsed each log (status "done", with log_id and flight_ids for download())
+        returns once the server has parsed each log (status "done", with log_id and flight_ids for fetch())
         and raises ProcessingFailed if storing or parsing failed."""
         if isinstance(paths, (str, os.PathLike)):
             paths = [paths]

@@ -125,7 +125,7 @@ def forget(server):
 
 
 def set_cache_dir(folder):
-    """Keep downloads in this folder (shared with MATLAB); None or "" returns to the default of this OS."""
+    """Keep downloads in this folder (also MATLAB's pprz_cache_dir); None or "" returns to the default of this OS."""
     cfg = load()
     cfg["cache"] = str(Path(folder).expanduser().resolve()) if folder else ""
     save(cfg)

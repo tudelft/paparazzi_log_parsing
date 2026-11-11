@@ -6,7 +6,7 @@ function logs = pprz_fetch(ids, varargin)
 %       'selected' (default)  the given flights of each log (10 s before takeoff to 10 s after landing)
 %       'all'                 every flight of those logs
 %       'log'                 the whole log of each (also the time between flights)
-%       'flight'              one file per flight number (pprz_download(ids, 'mat', true))
+%       'flight'              one file per flight number
 %   logs = pprz_fetch(ids, 'force', true)    download again even when a current copy is cached
 %   T = pprz_flights(logs); f = pprz_flight(logs, 'number', 1234)   ready to plot
 %   Each flight has flights(k).logbook: the comment, crew and project as the logbook shows them, its recordings
@@ -23,18 +23,44 @@ function logs = pprz_fetch(ids, varargin)
         error('pprz_fetch:scope', 'scope must be ''selected'', ''all'', ''log'' or ''flight''');
     end
     ids = unique(double(ids(:)'), 'stable');
+    cfg = pprz.connection();
+    folder = fullfile(cfg.cache, 'mat', pprz.config('tag', cfg.server));
     if strcmp(scope, 'flight')
-        files = pprz_download(ids, 'mat', true, 'force', opt.force);
+        files = arrayfun(@(id) fetch_flight(id, folder, opt.force), ids, 'UniformOutput', false);
     else
-        files = fetch_logs(ids, scope, opt.force);
+        files = fetch_logs(ids, scope, folder, opt.force);
     end
     logs = pprz_load(files{:});
 end
 
-function files = fetch_logs(ids, scope, force)
+function file = fetch_flight(id, folder, force)
+    % The export of one flight ("This flight" on the flight page).
+    old = dir(fullfile(folder, sprintf('flight_%d_*.mat', id)));
+    path = sprintf('/api/flights/%d/matlab', id);
+    try
+        job = pprz.api('POST', path, struct('check', true));
+    catch err
+        if ~strcmp(err.identifier, 'pprz:offline') || isempty(old)
+            rethrow(err);
+        end
+        [~, newest] = max([old.datenum]);
+        file = fullfile(folder, old(newest).name);
+        warning('pprz_fetch:offline', 'Flight %d: using the cached copy (%s)', id, err.message);
+        return
+    end
+    file = fullfile(folder, sprintf('flight_%d_%s.mat', id, job.id(1:16)));
+    if isfile(file) && ~force
+        return
+    end
+    if ~strcmp(job.status, 'ready')
+        job = pprz.api('POST', path, struct('check', false));
+    end
+    download(job, file, sprintf('Flight %d', id));
+    remove_others(old, file);
+end
+
+function files = fetch_logs(ids, scope, folder, force)
     % One export per log: the server groups the numbers by log.
-    cfg = pprz.connection();
-    folder = fullfile(cfg.cache, 'mat', pprz.config('tag', cfg.server));
     try
         reply = pprz.api('POST', '/api/flights/matlab', struct('flight_ids', numbers(ids), 'scope', scope, ...
             'check', true));
@@ -64,13 +90,17 @@ function files = fetch_logs(ids, scope, force)
         end
         download(e(1), file, label);
         if ~strcmp(scope, 'selected')  % 'all' and 'log' are the same whichever numbers ask for them
-            old = dir(fullfile(folder, [prefix '*.mat']));
-            for j = 1:numel(old)
-                stale = fullfile(folder, old(j).name);
-                if ~strcmp(stale, file)
-                    delete(stale);
-                end
-            end
+            remove_others(dir(fullfile(folder, [prefix '*.mat'])), file);
+        end
+    end
+end
+
+function remove_others(old, file)
+    % Older exports of the same flight or log.
+    for k = 1:numel(old)
+        stale = fullfile(old(k).folder, old(k).name);
+        if ~strcmp(stale, file)
+            delete(stale);
         end
     end
 end

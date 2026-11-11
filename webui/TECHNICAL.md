@@ -1230,7 +1230,7 @@ Rerunning skips already stored pairs; existing parser-error logs are not automat
 ## Script login and the Python/MATLAB clients
 
 The [mavlab-logs](../client/README.md) package and the [MATLAB tools](../matlab/README.md) (`pprz_connect`,
-`pprz_download`, `pprz_upload`) sign in with an OAuth 2.0 device authorization flow (RFC 8628), so no key has to be
+`pprz_fetch`, `pprz_upload`) sign in with an OAuth 2.0 device authorization flow (RFC 8628), so no key has to be
 copied from the account page:
 
 1. `POST /api/cli-login` (no login; `{"client": "Python on laptop"}`) returns a secret `device_code`, a short
@@ -1253,8 +1253,10 @@ account page with their end date and can be revoked there. `POST /api/keys/revok
 API key, as `revoke_all` uses it) revokes the user's script-login keys, and with `{"include_manual": true}` all of
 the user's keys; it returns the number revoked.
 
-The clients use `GET /api/flights/<id>/files` (the flight's log, the SHA-256 of its data file and the
-`/api/logs/<log>/download/<kind>` URLs of its files) and the MATLAB export routes of `pprz_fetch`; uploads go
+Both clients fetch flights by number with the same `scope` (`selected`, `all`, `log` or `flight`): MATLAB's
+`pprz_fetch` downloads exports through the MATLAB export routes, Python's `fetch` the original log files through
+`GET /api/flights/<id>/files` (the flight's log, the SHA-256 of its data file and the
+`/api/logs/<log>/download/<kind>` URLs of its files), whole whatever the scope; uploads go
 through `POST /api/upload` as for `upload_logs.py`. `GET /api/ingest/<id>` lists the parsed log's `flight_ids`.
 Both clients keep the login and the cache in the same per-user folders (see the
 [package README](../client/README.md#where-files-are-kept)); `client/mavlab_logs/settings.py` and

@@ -1,5 +1,5 @@
 function folder = pprz_cache_dir(folder)
-%PPRZ_CACHE_DIR Folder where pprz_download and pprz_fetch keep downloads, shared with the Python package mavlab-logs.
+%PPRZ_CACHE_DIR Folder where pprz_fetch keeps its exports; the same folder as for the Python package mavlab-logs.
 %   folder = pprz_cache_dir()     the folder in use: MAVLAB_LOGS_CACHE, else the one set here, else the default
 %                                 (see client/README.md, "Where files are kept")
 %   pprz_cache_dir('D:\logs')     keep downloads there from now on ('' returns to the default)

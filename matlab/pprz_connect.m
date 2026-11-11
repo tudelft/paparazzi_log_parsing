@@ -1,5 +1,5 @@
 function c = pprz_connect(server, key)
-%PPRZ_CONNECT Connect to the logbook server for pprz_fetch, pprz_download, pprz_upload, pprz_logbook, pprz_revoke_all.
+%PPRZ_CONNECT Connect to the logbook server for pprz_fetch, pprz_upload, pprz_logbook, pprz_revoke_all.
 %   pprz_connect('https://logs.example.org')      the server ('logs.example.org' works too)
 %   pprz_connect(server, 'logdb_…')               with an API key from My account > API keys
 %   c = pprz_connect(...)                         server, user and where the key came from (source)

@@ -2,7 +2,7 @@
 
     import mavlab_logs as ml
     ml.connect("logs.example.org")     # signs in through the browser when needed
-    paths = ml.download([1234, 1240])  # flight numbers, as in /flight/1234
+    paths = ml.fetch([1234, 1240])     # flight numbers, as in /flight/1234; the original logs
     ml.upload("LOG00030.BFL", wait=True)
 
 See connect() and Client for the details; the command line tool is ``mavlab-logs``.
@@ -11,14 +11,14 @@ from .client import AuthError, Client, Error, HTTPError, ProcessingFailed
 from .settings import cache_dir, set_cache_dir
 
 __version__ = "0.1.0"
-__all__ = ["Client", "connect", "download", "upload", "revoke_all", "cache_dir", "set_cache_dir",
+__all__ = ["Client", "connect", "fetch", "upload", "revoke_all", "cache_dir", "set_cache_dir",
            "Error", "AuthError", "HTTPError", "ProcessingFailed"]
 
 _client = None
 
 
 def connect(server, key=None, *, login=True, insecure=False):
-    """Connect to the logbook server for download(), upload() and revoke_all(), and return the Client.
+    """Connect to the logbook server for fetch(), upload() and revoke_all(), and return the Client.
 
     server: URL or host name, e.g. "logs.example.org" (https:// is added).
     key: API key from the account page; default LOGDB_API_KEY, else the key of the last browser login to this
@@ -42,9 +42,9 @@ def _connected():
     return _client
 
 
-def download(flights, mat=False, force=False):
-    """Local paths of flights by number; see Client.download."""
-    return _connected().download(flights, mat=mat, force=force)
+def fetch(flights, scope="selected", force=False):
+    """Local paths of the original logs of flights by number; see Client.fetch."""
+    return _connected().fetch(flights, scope=scope, force=force)
 
 
 def upload(paths, name=None, wait=False, skip_existing=True):
