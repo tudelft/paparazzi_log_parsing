@@ -232,7 +232,8 @@ CREATE TABLE IF NOT EXISTS aircraft (
     total_flight_time_s REAL,
     total_flight_distance_m REAL,
     preflight_checks TEXT,             -- JSON
-    info_messages TEXT,                -- JSON
+    info_messages TEXT,                -- JSON (older rows; new ones use info_messages_gz)
+    info_messages_gz BLOB,             -- gzip JSON list of the log's text messages (see info_messages())
     simulation TEXT,                   -- JSON detection/evidence; NULL = not assessed
     config_gz BLOB,                    -- gzip JSON: flight_plan, settings, xml
     mcu_uid TEXT                       -- autopilot board unique ID (hex) from AUTOPILOT_VERSION, parser 1.9.0+
@@ -758,6 +759,9 @@ def init(path):
     pcols = {r["name"] for r in con.execute("PRAGMA table_info(training_progress)")}
     if pcols and "briefed_by" not in pcols:
         con.execute("ALTER TABLE training_progress ADD COLUMN briefed_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
+    acols = {r["name"] for r in con.execute("PRAGMA table_info(aircraft)")}
+    if acols and "info_messages_gz" not in acols:
+        con.execute("ALTER TABLE aircraft ADD COLUMN info_messages_gz BLOB")
     if pcols and "draw_json" not in pcols:
         con.execute("ALTER TABLE training_progress ADD COLUMN draw_json TEXT")
     qcols = {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}
@@ -814,6 +818,51 @@ def pack(obj):
 
 def unpack(blob):
     return json.loads(gzip.decompress(blob)) if blob else None
+
+
+def info_messages(row):
+    """An aircraft row's text messages: compressed (info_messages_gz) or, in rows not yet converted, plain JSON."""
+    keys = row.keys()
+    if "info_messages_gz" in keys and row["info_messages_gz"]:
+        return unpack(row["info_messages_gz"])
+    return json.loads(row["info_messages"]) if "info_messages" in keys and row["info_messages"] else []
+
+
+def decompress_info_messages(path):
+    """Undo compress_info_messages: plain JSON back in info_messages (for going back to a Web UI before 4.11.2).
+    Run with the service stopped: `python3 -c "import db; print(db.decompress_info_messages('<WEB_DATA>/logs.db'))"`."""
+    con = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000)
+    try:
+        rows = con.execute("SELECT id, info_messages_gz FROM aircraft WHERE info_messages_gz IS NOT NULL").fetchall()
+        con.executemany("UPDATE aircraft SET info_messages=?, info_messages_gz=NULL WHERE id=?",
+                        [(json.dumps(unpack(blob)), rid) for rid, blob in rows])
+        con.commit()
+        return len(rows)
+    finally:
+        con.close()
+
+
+def compress_info_messages(path, batch=50, pause=0.05):
+    """Move older rows' plain-JSON messages into info_messages_gz, a batch at a time (run in the background
+    after an update; readers use info_messages(), which takes either form). Returns the rows converted."""
+    con = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000)
+    con.execute("PRAGMA busy_timeout=%d" % BUSY_TIMEOUT_MS)
+    done = 0
+    try:
+        while True:
+            rows = con.execute("SELECT id, info_messages FROM aircraft WHERE info_messages IS NOT NULL"
+                               " AND info_messages_gz IS NULL LIMIT ?", (batch,)).fetchall()
+            if not rows:
+                break
+            packed = [(pack(json.loads(text)), rid) for rid, text in rows]
+            with write_lock:
+                con.executemany("UPDATE aircraft SET info_messages_gz=?, info_messages=NULL WHERE id=?", packed)
+                con.commit()
+            done += len(rows)
+            time.sleep(pause)
+    finally:
+        con.close()
+    return done
 
 
 def _loc(d):
@@ -891,12 +940,12 @@ def store_parsed(con, log_id, doc, paths_file):
                   "invalid_setting_reports": (ac.get("settings_changes") or {}).get("invalid_reports", [])}
         cur = con.execute(
             "INSERT INTO aircraft (log_id, ac_id, name, pic, pac, gcs, goal, autopilot_versions, first_utc, last_utc,"
-            " num_flights, total_flight_time_s, total_flight_distance_m, preflight_checks, info_messages, config_gz, simulation,"
+            " num_flights, total_flight_time_s, total_flight_distance_m, preflight_checks, info_messages_gz, config_gz, simulation,"
             " mcu_uid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (log_id, ac.get("ac_id"), ac.get("name"), m.get("pic"), m.get("pac"), m.get("gcs"), m.get("goal"),
              json.dumps(ac.get("autopilot_versions", [])), span.get("first_utc"), span.get("last_utc"),
              summ.get("num_flights"), summ.get("total_flight_time_s"), summ.get("total_flight_distance_m"),
-             json.dumps(ac.get("preflight_checks", [])), json.dumps(ac.get("info_messages", [])), pack(config),
+             json.dumps(ac.get("preflight_checks", [])), pack(ac.get("info_messages", [])), pack(config),
              json.dumps(ac["simulation"]) if ac.get("simulation") is not None else None,
              board_id(lg.get("timing"), ac.get("ac_id"))),
         )
