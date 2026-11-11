@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cyberzoo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
+  main { width:100%; padding:16px 12px 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .toolbar h2 { margin:0; }
+  .toolbar details { margin-left:auto; }
+  #err { color:var(--err); margin-bottom:8px; }
+  #err:empty { display:none; }
+  button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button.sec { background:var(--sec); color:var(--txt); }
+  button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
+  input, textarea { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
+  textarea { min-height:70px; resize:vertical; }
+  label.field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
+  .legend { display:flex; gap:12px; font-size:12px; color:var(--mute); flex-wrap:wrap; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
+  .scroll { overflow-x:auto; }
+  .week { display:grid; grid-template-columns:44px repeat(7, minmax(110px, 1fr)); min-width:820px; }
+  .dh { font-size:12px; color:var(--mute); text-align:center; padding:4px 0; border-bottom:1px solid var(--line); }
+  .dh.today { color:var(--acc); font-weight:600; }
+  .hl { font-size:11px; color:var(--mute); text-align:right; padding-right:6px; height:40px; transform:translateY(-7px); }
+  .col { position:relative; border-left:1px solid var(--line);
+    background:repeating-linear-gradient(to bottom, transparent 0 39px, var(--line) 39px 40px); }
+  .bk { position:absolute; left:3px; right:3px; border-radius:5px; border-left:4px solid; padding:2px 6px; font-size:12px;
+    overflow:hidden; cursor:pointer; color:var(--txt); }
+  .bk:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
+  .bk b, .bk span { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bk span { color:var(--mute); }
+  .open { background:var(--okbg); border-color:var(--ok); }
+  .closed { background:var(--errbg); border-color:var(--err); }
+  .demo { background:var(--warnbg); border-color:var(--warn); }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .check { display:flex; gap:6px; align-items:center; }
+  #lockDialog p { margin:0 0 12px; }
+  #lockDialog .row { display:flex; gap:8px; flex-wrap:wrap; }
+  #lockDialog a { padding:4px 10px; border-radius:6px; background:var(--btn); color:#fff; text-decoration:none; }
+  #lockDialog a.sec { background:var(--sec); color:var(--txt); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Cyberzoo</h1>
+  <span class="meta" id="nav"></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <div id="err"></div>
+  <section class="card" id="agenda" hidden>
+    <div class="toolbar">
+      <h2>Cyberzoo agenda</h2>
+      <button type="button" class="sec" aria-label="Previous week" onclick="moveWeek(-7)">‹</button>
+      <strong id="range"></strong>
+      <button type="button" class="sec" aria-label="Next week" onclick="moveWeek(7)">›</button>
+      <button type="button" class="sec" onclick="moveWeek(0)">Today</button>
+      <button type="button" id="newBtn" onclick="openBooking()">New booking</button>
+      <span class="legend"><span><i style="background:var(--ok)"></i>Others allowed</span><span><i style="background:var(--err)"></i>Others not allowed</span><span><i style="background:var(--warn)"></i>Demo</span></span>
+      <details><summary>Help</summary><p>Book the indoor arena for a test. Green bookings allow others to fly at the same time, red ones do not, and yellow ones are demos. A booking can overlap another only when both allow others and neither is a demo. You can change or delete your own bookings; administrators can change any. Times are local.</p></details>
+    </div>
+    <div class="scroll"><div class="week" id="week"></div></div>
+  </section>
+</main>
+<dialog class="entry-dialog" id="lockDialog" aria-labelledby="lockTitle" onkeydown="if(event.key==='Escape')event.preventDefault()">
+  <div class="dialog-header"><h2 id="lockTitle">Cyberzoo Safety Briefing required</h2></div>
+  <p id="lockText"></p>
+  <div class="row"><a id="lockLink" href="/training">Go to the briefing</a> <a class="sec" href="/">Back to the logbook</a></div>
+</dialog>
+<dialog class="entry-dialog" id="bookingDialog" aria-labelledby="bookingTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="bookingForm">
+    <div class="dialog-header"><h2 id="bookingTitle">New booking</h2><button type="button" class="sec" onclick="$('bookingDialog').close()">Close</button></div>
+    <p class="mute" id="bookedBy"></p>
+    <label class="field">Description of the test<textarea name="description" required maxlength="500"></textarea></label>
+    <div class="two">
+      <label class="field">Start<input name="start" type="datetime-local" required></label>
+      <label class="field">End<input name="end" type="datetime-local" required></label>
+    </div>
+    <label class="check"><input name="others_allowed" type="checkbox" checked> Others allowed in the Cyberzoo</label>
+    <label class="check"><input name="demo" type="checkbox"> This is a demo</label>
+    <p class="dialog-error" id="bookingError" role="alert"></p>
+    <div class="row" id="bookingActions"><button type="submit">Save</button> <button type="button" class="danger" id="deleteBtn" onclick="removeBooking()">Delete</button> <button type="button" class="sec" onclick="$('bookingDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad = n => String(n).padStart(2, '0');
+const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const DAY = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+let me, monday, bookings = [], canBook = false, editing = null;
+async function api(url, opt) {
+  const r = await fetch(url, opt);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(d.error || r.statusText); e.status = r.status; e.data = d; throw e; }
+  return d;
+}
+function mondayOf(d) {
+  const m = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  m.setDate(m.getDate() - (m.getDay() + 6) % 7);
+  return m;
+}
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function moveWeek(n) {
+  monday = n ? addDays(monday, n) : mondayOf(new Date());
+  window.viewState.save(true);
+  load();
+}
+function lock(d) {
+  $('agenda').hidden = true;
+  $('lockText').textContent = d.error || 'You can use the Cyberzoo agenda once you have completed the Cyberzoo Safety Briefing.';
+  $('lockLink').href = d.training_id ? '/training?id=' + d.training_id : '/training';
+  $('lockDialog').showModal();
+}
+async function load() {
+  $('err').textContent = '';
+  const last = addDays(monday, 6);
+  try {
+    const d = await api(`/api/cyberzoo/bookings?from=${isoDate(monday)}&to=${isoDate(last)}`);
+    bookings = d.bookings;
+    canBook = d.can_book;
+  } catch (e) {
+    if (e.status === 403) return lock(e.data);
+    $('err').textContent = e.message;
+    return;
+  }
+  $('agenda').hidden = false;
+  $('newBtn').hidden = !canBook;
+  $('range').textContent = `${monday.getDate()} ${MONTH[monday.getMonth()]} – ${last.getDate()} ${MONTH[last.getMonth()]} ${last.getFullYear()}`;
+  paint();
+}
+function kind(b) { return b.demo ? 'demo' : b.others_allowed ? 'open' : 'closed'; }
+function paint() {
+  const days = [...Array(7)].map((_, i) => isoDate(addDays(monday, i)));
+  const today = isoDate(new Date());
+  // Each booking as pieces per day (a booking may run past midnight).
+  const pieces = [];
+  for (const b of bookings) days.forEach((day, i) => {
+    const from = b.start > day + 'T00:00' ? b.start : day + 'T00:00';
+    const to = b.end < day + 'T24:00' ? b.end : day + 'T24:00';
+    if (from >= to || from.slice(0, 10) !== day) return;
+    const h = t => +t.slice(11, 13) + t.slice(14, 16) / 60;
+    pieces.push({b, i, s: h(from), e: to.slice(0, 10) === day ? h(to) : 24});
+  });
+  const first = Math.min(8, ...pieces.map(p => Math.floor(p.s)));
+  const last = Math.max(20, ...pieces.map(p => Math.ceil(p.e)));
+  const hours = last - first;
+  let html = '<div></div>' + days.map((day, i) =>
+    `<div class="dh${day === today ? ' today' : ''}">${DAY[i]} ${+day.slice(8)}</div>`).join('');
+  html += '<div>' + [...Array(hours)].map((_, i) => `<div class="hl">${pad(first + i)}:00</div>`).join('') + '</div>';
+  days.forEach((_, i) => {
+    html += `<div class="col" style="height:${hours * 40}px">` + pieces.filter(p => p.i === i).map(p => {
+      const when = `${p.b.start.slice(11)}–${p.b.end.slice(11)}`;
+      const tip = `${p.b.description} · ${p.b.person} · ${p.b.start.replace('T', ' ')} – ${p.b.end.replace('T', ' ')}`
+        + (p.b.demo ? ' · demo' : p.b.others_allowed ? ' · others allowed' : ' · others not allowed');
+      return `<div role="button" tabindex="0" class="bk ${kind(p.b)}" data-id="${p.b.id}" title="${esc(tip)}"
+        style="top:${(p.s - first) * 40}px;height:${Math.max((p.e - p.s) * 40 - 2, 18)}px">
+        <b>${esc(p.b.description)}</b><span>${esc(p.b.person)} · ${when}</span></div>`;
+    }).join('') + '</div>';
+  });
+  $('week').innerHTML = html;
+  $('week').querySelectorAll('.bk').forEach(el => {
+    el.onclick = () => openBooking(+el.dataset.id);
+    el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBooking(+el.dataset.id); } };
+  });
+}
+function openBooking(id) {
+  const b = bookings.find(x => x.id === id);
+  editing = b || null;
+  const f = $('bookingForm');
+  const canEdit = b ? b.can_edit : canBook;
+  $('bookingTitle').textContent = b ? (canEdit ? 'Edit booking' : 'Booking') : 'New booking';
+  $('bookedBy').textContent = 'Booked by ' + (b ? b.person : me.display_name);
+  const start = new Date();
+  start.setMinutes(0, 0, 0);
+  start.setHours(start.getHours() + 1);
+  const end = new Date(start);
+  end.setHours(end.getHours() + 2);
+  const local = d => `${isoDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  f.description.value = b ? b.description : '';
+  f.start.value = b ? b.start : local(start);
+  f.end.value = b ? b.end : local(end);
+  f.others_allowed.checked = b ? b.others_allowed : true;
+  f.demo.checked = b ? b.demo : false;
+  [...f.elements].forEach(el => { if (el.name) el.disabled = !canEdit; });
+  $('bookingActions').hidden = !canEdit;
+  $('deleteBtn').hidden = !b;
+  $('bookingError').textContent = '';
+  $('bookingDialog').showModal();
+}
+$('bookingForm').onsubmit = async event => {
+  event.preventDefault();
+  const f = event.target;
+  const body = {description: f.description.value, start: f.start.value, end: f.end.value,
+    others_allowed: f.others_allowed.checked, demo: f.demo.checked};
+  try {
+    await api('/api/cyberzoo/bookings' + (editing ? '/' + editing.id : ''), {
+      method: editing ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    $('bookingDialog').close();
+    load();
+  } catch (e) {
+    if (e.status === 403 && e.data.training_id !== undefined) { $('bookingDialog').close(); return lock(e.data); }
+    $('bookingError').textContent = e.message;
+  }
+};
+async function removeBooking() {
+  if (!editing || !confirm('Delete this booking?')) return;
+  try {
+    await api('/api/cyberzoo/bookings/' + editing.id, {method: 'DELETE'});
+    $('bookingDialog').close();
+    load();
+  } catch (e) { $('bookingError').textContent = e.message; }
+}
+window.viewState.setup(p => {
+  const raw = p.get('week');
+  const d = raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(raw + 'T00:00') : new Date();
+  monday = mondayOf(isNaN(d) ? new Date() : d);
+}, p => {
+  window.viewState.set(p, 'week', isoDate(monday) === isoDate(mondayOf(new Date())) ? '' : isoDate(monday), '');
+}, load);
+fetch('/api/me').then(r => r.json()).then(d => {
+  me = d.user;
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  load();
+}).catch(e => { $('err').textContent = e.message; });
+</script>
+</body>
+</html>
