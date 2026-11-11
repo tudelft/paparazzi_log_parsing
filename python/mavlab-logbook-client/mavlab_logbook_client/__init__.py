@@ -12,7 +12,7 @@ See connect() and Client for the details; the command line tool is ``mavlab-logb
 from .client import AuthError, Client, Error, HTTPError, ProcessingFailed
 from .settings import cache_dir, set_cache_dir
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = ["Client", "connect", "logbook", "fetch", "fetch_raw", "upload", "revoke_all", "cache_dir", "set_cache_dir",
            "Error", "AuthError", "HTTPError", "ProcessingFailed"]
 
