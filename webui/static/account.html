@@ -34,6 +34,8 @@
   #newKey { display:none; border:1px solid var(--acc); }
   #newKey code { font-size:13px; word-break:break-all; user-select:all; }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
+  #profileCard a { color:var(--acc); text-decoration:none; }
+  #profileCard a:hover { text-decoration:underline; }
   [hidden] { display:none !important; }
   summary { cursor:pointer; font-size:15px; font-weight:600; }
   details[open] > summary { margin-bottom:12px; }
@@ -50,6 +52,12 @@
 <main>
   <div id="err"></div>
   <section class="card"><div class="kv" id="info"></div></section>
+  <section class="card" id="profileCard" hidden>
+    <div style="display:flex;align-items:baseline;gap:12px"><h2>My profile</h2><a href="/profile" style="margin-left:auto">Edit</a></div>
+    <div class="kv" id="profile"></div>
+    <div id="studentsBox" hidden><h2 style="margin-top:14px">People I supervise</h2>
+      <table><thead><tr><th>Name</th><th>Role</th><th>Department</th><th>Expected end</th></tr></thead><tbody id="students"></tbody></table></div>
+  </section>
   <section class="card">
     <h2>My qualifications</h2>
     <div id="myQualifications">Loading qualifications...</div>
@@ -158,6 +166,14 @@ api('/api/me').then(d => {
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   $('info').innerHTML = `<span class="mute">Name</span><span>${esc(d.user.display_name)}</span><span class="mute">Username</span><span>${esc(d.user.username)}</span><span class="mute">Role</span><span>${d.user.is_admin ? 'Administrator' : 'User'}</span>`;
   $('passwordCard').hidden = d.user.provider !== 'local' || !d.user.has_password;
+  if (d.person_profile) api('/api/profile').then(p => {
+    $('profileCard').hidden = false;
+    $('profile').innerHTML = profileHTML(p.profile);
+    $('studentsBox').hidden = !p.students.length;
+    $('students').innerHTML = p.students.map(s => `<tr><td><a href="/people/${s.id}">${esc(s.name)}</a></td>`
+      + `<td>${esc(s.profile?.role)}</td><td>${esc(s.profile?.department)}</td>`
+      + `<td>${s.profile?.indefinite ? 'Indefinite' : esc(s.profile?.end_date)}</td></tr>`).join('');
+  }).catch(e => { $('err').textContent = e.message; });
 }).catch(e => { $('err').textContent = e.message; });
 load();
 </script>

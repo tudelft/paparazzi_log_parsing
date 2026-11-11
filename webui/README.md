@@ -48,7 +48,7 @@ to gain descriptions and previously omitted crew entries.
 | **Statistics** | View totals for aircraft, projects and crew within your access. |
 | **Aircraft / People / Projects / Locations** | Browse records and open their histories, totals and flights. |
 | **Training** | When enabled, complete questionnaires until you pass. A pass writes the linked qualification immediately. |
-| **My account** | Click your name at the top right to manage your password, API keys and private qualification submissions. |
+| **My account** | Click your name at the top right to manage your password, API keys, private qualification submissions and, when enabled, your profile. |
 
 - Dates and times are **UTC**. Indoor and uncertain/non-flight records are hidden by default;
   enable their filters when needed.
@@ -214,6 +214,10 @@ training has **A pass needs approval** on. After that qualification expires, a q
 administrator resets the pass, you can take it again. Admins create questionnaires in Edit mode (single choice,
 multiple choice, ranking, optional image) or import a JSON/ZIP file kept outside the repository, and can ask who
 delivered the briefing from a short list of people.
+
+**Profile** (optional): when the server turns it on, you fill in your role, department, supervisors, expected end
+date and student/employee number after signing in, and again once that end date has passed. Change it under
+**My account**. Admins and your supervisors can see it; supervisors do not see your number.
 
 **Qualifications:** submit your own evidence under **My account**; admins review it on **People**.
 Each type determines whether evidence, expiry and a licence number are required (the number is read from a

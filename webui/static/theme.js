@@ -258,7 +258,7 @@ window.timingEvidenceHTML = function (timing) {
   }
   function mount() {
     const nav = document.getElementById('nav');
-    if (!nav || /^\/(login|setup|cli-login)/.test(location.pathname)) return;
+    if (!nav || /^\/(login|setup|cli-login|profile)/.test(location.pathname)) return;
     const wrapper = document.createElement('div');
     wrapper.id = 'flightFiltersMenu';
     wrapper.innerHTML = `<button type="button" id="flightFiltersButton" aria-expanded="false" aria-controls="flightFiltersPanel"></button>
@@ -704,14 +704,14 @@ window.timingEvidenceHTML = function (timing) {
   }
   ready(() => {
     paintNav();
-    if (!/^\/(login|setup|cli-login)/.test(location.pathname)) {
+    if (!/^\/(login|setup|cli-login|profile)/.test(location.pathname)) {
       paintActions();
       paintVersion(null);
     }
     paintEdit();
   });
 
-  if (!/^\/(login|setup|cli-login)/.test(location.pathname)) {
+  if (!/^\/(login|setup|cli-login|profile)/.test(location.pathname)) {
     fetch('/api/me').then(async r => {
       if (r.status === 401) {
         try { localStorage.removeItem(ADMIN_KEY); localStorage.removeItem(TRAINING_KEY); } catch (e) {}
@@ -750,4 +750,23 @@ window.pageTabs = function (el, tabs, current, choose) {
       el.querySelector(`[data-tab="${next.dataset.tab}"]`)?.focus();
     };
   });
+};
+
+// A person profile (profiles.py) as label/value pairs of a .kv grid; the number only when the viewer may see it.
+window.profileHTML = function (p) {
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  if (!p) return '<span class="mute">Not filled in yet.</span><span></span>';
+  const sups = (p.supervisors || []).map(s => s.id ? `<a href="/people/${s.id}">${esc(s.name)}</a>`
+    : `${esc(s.name)} <span class="mute">(external)</span>`).join(' · ') || '<span class="mute">none</span>';
+  const ended = !p.indefinite && p.end_date && p.end_date < new Date().toISOString().slice(0, 10);
+  const rows = [
+    ['Role', esc(p.role) || '<span class="mute">none</span>'],
+    ['Department', esc(p.department) + (p.department_group ? ` <span class="mute">(${esc(p.department_group)})</span>` : '')],
+    ['Supervisors', sups],
+    ['Expected end', p.indefinite ? 'Indefinite' : esc(p.end_date) + (ended ? ' <span class="mute">(passed)</span>' : '')],
+  ];
+  if ('number' in p) rows.push(['Student / employee no.', esc(p.number)]);
+  rows.push(['GitHub', p.github ? `<a href="https://github.com/${encodeURIComponent(p.github)}" target="_blank" rel="noopener">${esc(p.github)}</a>` : '<span class="mute">none</span>']);
+  rows.push(['Last confirmed', `<span class="mute">${esc((p.updated_at || '').slice(0, 10))}</span>`]);
+  return rows.map(([k, v]) => `<span class="mute">${k}</span><span>${v}</span>`).join('');
 };

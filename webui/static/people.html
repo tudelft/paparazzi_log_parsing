@@ -47,6 +47,14 @@
   .chip.pending { background:var(--warnbg, #fff8c5); color:var(--warn, #9a6700); }
   .chip button { background:none; color:var(--err); padding:0 6px; font-size:15px; }
   button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  .kv { display:grid; grid-template-columns:max-content 1fr; gap:4px 14px; }
+  .profile-options { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:8px 24px; }
+  .profile-options h3 { margin:6px 0; font-size:13px; }
+  .profile-options table { width:100%; border-collapse:collapse; margin-bottom:6px; }
+  .profile-options th { font-size:12px; color:var(--mute); text-align:left; font-weight:500; }
+  .profile-options td { padding:2px 4px 2px 0; }
+  .profile-options td input:not([type=checkbox]) { width:100%; box-sizing:border-box; }
+  .profile-options td button { padding:1px 8px; }
   button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
   button.sec { background:var(--sec); color:var(--txt); }
   #setupBox { border-color:var(--acc); }
@@ -186,6 +194,7 @@
           <p id="personIdentity">Choose a person from the list to see their account, aliases and qualifications here.</p>
           <div class="seg-tabs" role="tablist" aria-label="Person management" id="personTabs" hidden>
             <button type="button" role="tab" id="tab-account" aria-controls="personContent" onclick="selectPersonTab('account')">Account</button>
+            <button type="button" role="tab" id="tab-profile" aria-controls="personContent" onclick="selectPersonTab('profile')" hidden>Profile</button>
             <button type="button" role="tab" id="tab-api" aria-controls="personContent" onclick="selectPersonTab('api')">API keys</button>
             <button type="button" role="tab" id="tab-aliases" aria-controls="personContent" onclick="selectPersonTab('aliases')">Aliases</button>
             <button type="button" role="tab" id="tab-qualifications" aria-controls="personContent" onclick="selectPersonTab('qualifications')">Qualifications</button>
@@ -209,6 +218,17 @@
     <div id="typeSettings"></div>
     <p><button type="button" class="sec" onclick="$('qualImportDialog').showModal()">Import ZIP</button>
       <a class="mute" href="/api/admin/qualifications/import/template">CSV template</a></p>
+  </section>
+  <section class="card" id="profileOptionsSection" hidden>
+    <div class="section-heading"><h2>Profile options</h2>
+    <details><summary>Help</summary><p>The choices of the profile everyone fills in after signing in. <em>Supervises</em> offers people with that role as supervisors; <em>Needs supervisor</em> makes naming one required. A department's group is shown next to it; people can also type a department that is not listed. Removing an entry leaves that field empty in the profiles that used it, so those people are asked again. One Save writes both lists.</p></details></div>
+    <div class="profile-options">
+      <div><h3>Roles</h3><table class="compact"><thead><tr><th>Name</th><th title="Offered as a supervisor">Supervises</th><th title="Must name a supervisor">Needs supervisor</th><th></th></tr></thead><tbody id="roleRows"></tbody></table>
+        <button type="button" class="sec" onclick="addOptionRow('role')">Add role</button></div>
+      <div><h3>Departments</h3><table class="compact"><thead><tr><th>Section</th><th>Department</th><th></th></tr></thead><tbody id="deptRows"></tbody></table>
+        <button type="button" class="sec" onclick="addOptionRow('dept')">Add department</button></div>
+    </div>
+    <p><button type="button" onclick="saveProfileOptions()">Save</button> <span id="profileOptionsStatus" class="mute" role="status"></span></p>
   </section>
   <dialog class="entry-dialog" id="fillNumbersDialog" aria-labelledby="fillNumbersTitle">
     <div class="dialog-header"><h2 id="fillNumbersTitle">Fill numbers from PDFs</h2>
@@ -246,7 +266,8 @@ window.fetch = async (...args) => {
   return r;
 };
 let people = {users: [], unlinked: []};
-let me = null;
+let me = null, profileOn = false, profileOptions = null;
+const personTabs = () => ['account', ...(profileOn ? ['profile'] : []), 'api', 'aliases', 'qualifications'];
 let selectedPerson = null, selectedTab = 'account', qualificationManager = null;
 let qualificationTypes = [], pendingQualifications = [];
 let panelGeneration = 0;
@@ -315,7 +336,7 @@ let pageTab = new URLSearchParams(location.search).get('tab') || 'people';
 function paintPageTabs(open) {
   const sections = [['people', 'People', $('peopleCard')], ['unlinked', 'Unlinked crew names', $('unlinkedCard'), open],
     ['approvals', 'Approval queue', $('approvalSection'), pendingQualifications.length],
-    ['types', 'Qualification types', $('typesSection')]].filter(([, , el]) => el === $('peopleCard') || !el.hidden);
+    ['types', 'Qualification types', $('typesSection')], ['profile', 'Profile options', $('profileOptionsSection')]].filter(([, , el]) => el === $('peopleCard') || !el.hidden);
   if (!sections.some(t => t[0] === pageTab)) pageTab = 'people';
   window.pageTabs($('pageTabs'), sections.map(([key, label, , count]) => [key, label, count]), pageTab, key => {
     pageTab = key;
@@ -336,6 +357,7 @@ function render() {
   $('directoryCount').hidden = editing;
   $('approvalSection').hidden = !admin || pendingQualifications.length === 0;
   $('typesSection').hidden = !editing;
+  $('profileOptionsSection').hidden = !editing || !profileOn;
   const open = admin ? people.unlinked.length : 0;
   document.querySelectorAll('.editOnly').forEach(el => { el.hidden = !editing; });
   if (!editing) $('setupBox').hidden = true;
@@ -532,7 +554,7 @@ function selectPersonTab(tab) {
 $('personTabs').addEventListener('keydown', event => {
   if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
   event.preventDefault();
-  const tabs = ['account','api','aliases','qualifications'];
+  const tabs = personTabs();
   const index = tabs.indexOf(selectedTab);
   const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
     : (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
@@ -551,7 +573,9 @@ function renderPersonPanel() {
   if (!user) { $('personContent').textContent = ''; return; }
   $('personLink').href = '/people/' + user.id;
   $('personLink').textContent = 'View pilot page';
-  for (const tab of ['account','api','aliases','qualifications']) {
+  $('tab-profile').hidden = !profileOn;
+  if (!personTabs().includes(selectedTab)) selectedTab = 'account';
+  for (const tab of personTabs()) {
     $('tab-' + tab).setAttribute('aria-selected', String(selectedTab === tab));
     $('tab-' + tab).tabIndex = selectedTab === tab ? 0 : -1;
   }
@@ -571,6 +595,14 @@ function renderPersonPanel() {
         ? `<button type="button" aria-label="Remove alias ${esc(alias)}" data-alias="${esc(alias)}" onclick="removeAlias(this.dataset.alias)">×</button>` : ''}</span>`).join('') || '<p>No aliases.</p>'}
       ${editing ? `<form class="panel-row" onsubmit="event.preventDefault();addAlias(null,${id})">
         <label class="field">New alias<input id="new${id}" required maxlength="80"></label><button type="submit">Add alias</button></form>` : ''}`;
+  } else if (selectedTab === 'profile') {
+    $('personContent').innerHTML = '<div class="kv" id="personProfile" role="status">Loading profile...</div>';
+    adminApi(`/api/users/${id}/profile`).then(d => {
+      if (generation !== panelGeneration) return;
+      const todo = (d.missing || []).filter(m => m !== 'profile').map(m => m.replace('_', ' '));
+      $('personProfile').innerHTML = profileHTML(d.profile)
+        + (todo.length ? `<span class="mute">Still to fill in</span><span>${esc(todo.join(', '))}</span>` : '');
+    }).catch(error => { $('personProfile').textContent = error.message; });
   } else if (selectedTab === 'api') {
     $('personContent').innerHTML = `<div class="section-heading"><h3>API keys</h3>
       <details><summary>Help</summary><p>Full key secrets are shown only when created and cannot be retrieved. Only key details are listed here. Revoking a key immediately stops scripts using it. Users create keys on My account.</p></details></div>
@@ -673,6 +705,42 @@ async function saveProfile(id) {
     me = await adminApi('/api/me').then(data => data.user);
     await load();
   } catch (error) { $('err').textContent = error.message; }
+}
+
+// Profile options (roles and departments of the person profile), admins in Edit mode.
+async function loadProfileOptions() {
+  try {
+    profileOptions = (await adminApi('/api/profile')).options;
+  } catch (error) { $('profileOptionsStatus').textContent = error.message; return; }
+  $('roleRows').innerHTML = profileOptions.roles.map(r => optionRow('role', r)).join('');
+  $('deptRows').innerHTML = profileOptions.departments.map(d => optionRow('dept', d)).join('');
+}
+function optionRow(kind, item = {}) {
+  const remove = '<td><button type="button" class="danger" aria-label="Remove" onclick="this.closest(\'tr\').remove()">×</button></td>';
+  if (kind === 'role') return `<tr data-id="${item.id || ''}"><td><input name="name" maxlength="120" value="${esc(item.name || '')}"></td>
+    <td><input type="checkbox" name="can_supervise"${item.can_supervise ? ' checked' : ''}></td>
+    <td><input type="checkbox" name="needs_supervisor"${item.needs_supervisor ? ' checked' : ''}></td>${remove}</tr>`;
+  return `<tr data-id="${item.id || ''}"><td><input name="name" maxlength="120" value="${esc(item.name || '')}"></td>
+    <td><input name="grp" maxlength="120" value="${esc(item.grp || '')}"></td>${remove}</tr>`;
+}
+function addOptionRow(kind) {
+  const body = $(kind === 'role' ? 'roleRows' : 'deptRows');
+  body.insertAdjacentHTML('beforeend', optionRow(kind));
+  body.lastElementChild.querySelector('input').focus();
+}
+async function saveProfileOptions() {
+  const rows = id => [...$(id).querySelectorAll('tr')].map(tr => {
+    const out = tr.dataset.id ? {id: +tr.dataset.id} : {};
+    tr.querySelectorAll('input').forEach(i => { out[i.name] = i.type === 'checkbox' ? i.checked : i.value; });
+    return out;
+  });
+  $('profileOptionsStatus').textContent = '';
+  try {
+    await adminApi('/api/admin/profile-options', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({roles: rows('roleRows'), departments: rows('deptRows')})});
+    await loadProfileOptions();
+    $('profileOptionsStatus').textContent = 'Saved.';
+  } catch (error) { $('profileOptionsStatus').textContent = error.message; }
 }
 
 function openFillNumbers() {
@@ -953,6 +1021,8 @@ async function commitQualImport() {
 
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
+  profileOn = !!d.person_profile;
+  if (profileOn && me.is_admin) loadProfileOptions();
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   load();
 });

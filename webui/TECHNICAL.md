@@ -12,6 +12,7 @@ For everyday use, start with the [user guide](README.md). Coding assistants shou
 - [Tests](#tests)
 - [Interface layout](#interface-layout)
 - [Training questionnaires](#training-questionnaires)
+- [Person profiles](#person-profiles)
 - [Private licences and qualifications](#private-licences-and-qualifications)
 - [Uploading with a script](#uploading-with-a-script)
 - [How it works](#how-it-works)
@@ -652,6 +653,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `BIND` | `127.0.0.1:8000` | Address gunicorn listens on |
 | `HIDE_UNLINKED_AIRCRAFT` | `0` | `1` excludes unlinked telemetry flights from Logbook, Statistics, person details and Locations, and hides the Aircraft notice outside Edit mode |
 | `TRAINING` | `0` | `1` shows Training: in-app questionnaires that can grant a qualification on a pass |
+| `PERSON_PROFILE` | `0` | `1` asks everyone who signs in for a [person profile](#person-profiles) |
 | `WEB_DATA` | `webui/data` | Database and keys; local disk only |
 | `LOG_DIR` | `<WEB_DATA>/logs` | Uploaded logs and flight paths; may be a share |
 | `BACKUP_DIR` | (empty) | Destination of `app.py backup` |
@@ -929,6 +931,22 @@ uploaded files). With `needs_approval` (off by default; requires a linked type) 
 it in the People approval queue. Qualification views link that note to `/training?id=…` (admins get
 `pass_user` so the Passes list opens on that person with their answers). Images live under
 `WEB_DATA/training-images`, not the log share.
+
+### Person profiles
+
+Off unless `LOGDB_PERSON_PROFILE=1` (`profiles.py`). A profile holds role, department or section (from the list,
+or typed), supervisors (people whose role can supervise, or an external name), expected end date or Indefinite,
+student/employee number and an optional GitHub username. While role, department, end date or number is missing,
+a required supervisor is missing, or the end date has passed, every page a signed-in browser opens redirects to
+`/profile?next=…`. The API and API keys keep working, so uploads and scripts are never blocked. The GitHub name is
+only checked to exist (`GET /api/profile/github`, GitHub's public users API, cached an hour; `FIRMWARE_GITHUB_TOKEN`
+is used when set).
+
+The person sees and edits their profile on My account, where supervisors also see the people they supervise.
+Admins see it on People (person **Profile** tab) and edit the role and department lists under **Profile options**
+in Edit mode (`PUT /api/admin/profile-options`). Supervisors may read their students' profiles without the number
+(`GET /api/users/<id>/profile`). The default lists are seeded once when the tables are created. Removing a list
+entry empties that field in the profiles that used it, so those people are asked again.
 
 ### Private licences and qualifications
 

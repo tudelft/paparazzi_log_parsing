@@ -13,7 +13,7 @@ import time
 import urllib.error
 import urllib.request
 
-from flask import abort, g, jsonify, request
+from flask import abort, g, jsonify, request, send_from_directory
 
 from config import env, env_bool
 
@@ -250,9 +250,15 @@ def save_options(con, body):
         con.execute(f"DELETE FROM {table} WHERE id NOT IN ({','.join('?' * len(keep))})", keep)
 
 
-def register(app, connection, require_session, now):
+def register(app, connection, require_session, now, pages_dir):
     def con():
         return connection()
+
+    @app.get("/profile")
+    def profile_page():
+        if not enabled():
+            abort(404)
+        return send_from_directory(pages_dir, "profile.html")
 
     def signed_in():
         require_session()
@@ -265,8 +271,7 @@ def register(app, connection, require_session, now):
 
     @app.get("/api/profile")
     def own_profile():
-        if not enabled():
-            abort(404)
+        signed_in()
         c = con()
         return jsonify(profile=profile(c, g.user["id"]), missing=missing(c, g.user["id"]), options=options(c),
                        students=students(c, g.user["id"]))
