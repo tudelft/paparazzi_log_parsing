@@ -7,7 +7,7 @@ The [MATLAB tools](https://github.com/tudelft/paparazzi_log_parsing/tree/master/
 MATLAB exports and share the login.
 
 ```sh
-pip install mavlab-logs
+pip install -i https://test.pypi.org/simple/ mavlab-logs
 ```
 
 ```python

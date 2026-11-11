@@ -1260,9 +1260,9 @@ Both clients fetch flights by number with the same `scope` (`selected`, `all`, `
 through `POST /api/upload` as for `upload_logs.py`. `GET /api/ingest/<id>` lists the parsed log's `flight_ids`.
 Both clients keep the login and the cache in the same per-user folders (see the
 [package README](../client/README.md#where-files-are-kept)); `client/mavlab_logs/settings.py` and
-`matlab/+pprz/config.m` must keep the same rules. The package is tested and released to PyPI by
+`matlab/+pprz/config.m` must keep the same rules. The package is tested and released to TestPyPI by
 `.github/workflows/client.yml`: pushing a tag `client-v<version>` (equal to `mavlab_logs.__version__`, on master)
-publishes that version by trusted publishing (PyPI publisher: this repository, `client.yml`, environment `pypi`);
+publishes that version by trusted publishing (TestPyPI publisher: this repository, `client.yml`, environment `testpypi`);
 merging alone publishes nothing. Client tags are separate from Web UI and parser tags.
 Run its tests with `python -m unittest discover -s client/tests`.
 
