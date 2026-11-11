@@ -52,6 +52,7 @@ import date_suggest
 import operators
 import categories
 import countries
+import profiles
 import storage
 import saml
 import config
@@ -952,6 +953,10 @@ def require_login():
             return redirect("/login?" + urlencode({"next": request.full_path.rstrip("?")}))
         return redirect("/login")
     g.user = user
+    if (request.method == "GET" and not request.path.startswith("/api/") and request.path != "/profile"
+            and "." not in request.path.rsplit("/", 1)[-1] and profiles.needs_profile(conn(), user)):
+        # pages wait for a complete profile; the API (and scripts) keep working
+        return redirect("/profile?" + urlencode({"next": request.full_path.rstrip("?")}))
     return None
 
 
@@ -1378,7 +1383,7 @@ def check_logs():
 @app.get("/api/me")
 def me():
     return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION, training=env_bool("TRAINING"),
-                   can_upload=can_upload_any(conn()))
+                   can_upload=can_upload_any(conn()), person_profile=profiles.enabled())
 
 
 @app.get("/api/people")
@@ -6959,6 +6964,7 @@ attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, en
                      office=env("OFFICE"))
 qualifications.register(app, lambda: conn(), STORAGE_DIR, session_required)
 training.register(app, lambda: conn(), DATA_DIR, session_required)
+profiles.register(app, lambda: conn(), session_required, now, PAGES_DIR)
 
 
 if __name__ == "__main__" and len(sys.argv) > 1:

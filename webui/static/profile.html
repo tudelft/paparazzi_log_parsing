@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Your profile - Flight log database</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); font:14px/1.45 system-ui, sans-serif; color:var(--txt); }
+  form { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:24px 28px; width:420px; max-width:calc(100vw - 32px); box-sizing:border-box; margin:16px 0; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .mute { color:var(--mute); }
+  .small { font-size:12px; }
+  a { color:var(--acc); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  label.f { display:block; margin-top:12px; font-size:12px; color:var(--mute); }
+  label.f > input, label.f > select, label.f > .row { margin-top:4px; }
+  input, select { box-sizing:border-box; width:100%; padding:7px 8px; font:inherit; border:1px solid var(--fieldline); border-radius:6px; background:var(--field); color:var(--txt); }
+  .row { display:flex; gap:8px; align-items:center; }
+  .row > input, .row > select { flex:1; min-width:0; }
+  .row label { flex:0 0 auto; font-size:13px; color:var(--txt); display:flex; gap:5px; align-items:center; }
+  .row label input { width:auto; }
+  button { padding:7px 14px; font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; cursor:pointer; }
+  button.secondary { background:none; color:var(--txt); border:1px solid var(--fieldline); flex:0 0 auto; }
+  .chips:empty { display:none; }
+  .chip { display:inline-flex; gap:6px; align-items:center; border:1px solid var(--line); border-radius:12px; padding:1px 4px 1px 10px; margin:4px 4px 0 0; font-size:13px; color:var(--txt); max-width:100%; }
+  .chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .chip button { background:none; color:var(--mute); padding:0 6px; font-size:14px; line-height:1; }
+  .gh { flex:0 0 auto; font-size:12px; }
+  .gh.found { color:var(--ok); } .gh.missing { color:var(--err); }
+  .buttons { display:flex; justify-content:flex-end; align-items:center; gap:12px; margin-top:18px; }
+  #err { color:var(--err); margin-top:12px; }
+  #err:empty { display:none; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button>
+<form id="f" novalidate>
+  <h1 id="title">Your profile</h1>
+  <p class="mute small" id="intro" style="margin:0">Asked after signing in, and again when your expected end date has
+    passed. You can change it later under <a href="/account">My account</a>.</p>
+  <label class="f">I am<select id="role" required></select></label>
+  <label class="f">Department / section<select id="dept"></select></label>
+  <label class="f" id="deptTextBox" hidden>Your department or section<input id="deptText" maxlength="120"></label>
+  <div id="supBox">
+    <label class="f" for="supInput">Supervisors <span id="supNeed"></span></label>
+    <div class="chips" id="chips"></div>
+    <div class="row" style="margin-top:4px">
+      <input id="supInput" list="supList" placeholder="Type a name and pick it from the list" maxlength="120">
+      <button type="button" class="secondary" id="addExternal" title="Add the typed name as a supervisor without an account here">Add external</button>
+    </div>
+    <datalist id="supList"></datalist>
+  </div>
+  <label class="f">Expected end date<span class="row"><input type="date" id="end">
+    <label><input type="checkbox" id="indefinite"> Indefinite</label></span></label>
+  <label class="f">Student / employee number<input id="number" maxlength="40" autocomplete="off"></label>
+  <label class="f">GitHub username <span>(optional)</span><span class="row"><input id="github" maxlength="39" autocomplete="off">
+    <span class="gh" id="ghStatus"></span></span></label>
+  <div id="err"></div>
+  <div class="buttons"><a href="/account" id="cancel" hidden>Cancel</a><button type="submit" id="save">Save and continue</button></div>
+</form>
+<script>
+const $ = id => document.getElementById(id);
+const next = new URLSearchParams(location.search).get('next');
+let opts = null, sups = [];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+
+async function api(url, opt) {
+  const r = await fetch(url, opt);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || r.statusText);
+  return d;
+}
+function role() { return opts.roles.find(r => r.id === +$('role').value); }
+function renderSups() {
+  $('chips').innerHTML = sups.map((s, i) => `<span class="chip" title="${esc(s.name)}${s.id ? '' : ' (external)'}">`
+    + `<span>${s.id ? '' : 'External: '}${esc(s.name)}</span><button type="button" data-i="${i}" aria-label="Remove">×</button></span>`).join('');
+}
+function syncRole() {
+  const r = role();
+  const needs = !!(r && r.needs_supervisor);
+  $('supNeed').textContent = needs ? '' : '(optional)';
+}
+function syncDept() { $('deptTextBox').hidden = $('dept').value !== 'other'; }
+function syncEnd() { $('end').disabled = $('indefinite').checked; }
+
+function addSupervisor() {
+  const text = $('supInput').value.trim();
+  if (!text) return;
+  const hit = opts.supervisors.find(s => s.name.toLowerCase() === text.toLowerCase());
+  if (!hit) return;
+  if (!sups.some(s => s.id === hit.id)) sups.push({id: hit.id, name: hit.name});
+  $('supInput').value = '';
+  renderSups();
+}
+$('supInput').addEventListener('change', addSupervisor);
+$('supInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addSupervisor(); } });
+$('addExternal').onclick = () => {
+  const name = $('supInput').value.trim();
+  if (!name) { $('supInput').focus(); return; }
+  if (!sups.some(s => !s.id && s.name.toLowerCase() === name.toLowerCase())) sups.push({name});
+  $('supInput').value = '';
+  renderSups();
+};
+$('chips').onclick = e => { const b = e.target.closest('button[data-i]'); if (b) { sups.splice(+b.dataset.i, 1); renderSups(); } };
+$('role').onchange = syncRole;
+$('dept').onchange = syncDept;
+$('indefinite').onchange = syncEnd;
+
+let ghTimer = 0;
+$('github').addEventListener('input', () => {
+  clearTimeout(ghTimer);
+  const name = $('github').value.trim(), st = $('ghStatus');
+  st.className = 'gh'; st.textContent = '';
+  if (!name) return;
+  ghTimer = setTimeout(async () => {
+    const d = await api('/api/profile/github?name=' + encodeURIComponent(name)).catch(() => ({status: 'unknown'}));
+    if ($('github').value.trim() !== name) return;
+    st.className = 'gh ' + d.status;
+    st.textContent = {found: '✓ found', missing: '✗ not on GitHub', invalid: '✗ not a valid name', unknown: 'not checked'}[d.status] || '';
+  }, 400);
+});
+
+$('f').onsubmit = async e => {
+  e.preventDefault();
+  $('err').textContent = '';
+  const dept = $('dept').value;
+  const body = {
+    role_id: +$('role').value || null,
+    department_id: dept && dept !== 'other' ? +dept : null,
+    department_text: dept === 'other' ? $('deptText').value : null,
+    indefinite: $('indefinite').checked,
+    end_date: $('indefinite').checked ? null : $('end').value,
+    number: $('number').value,
+    github: $('github').value,
+    supervisors: sups.map(s => s.id ? {id: s.id} : {name: s.name}),
+  };
+  $('save').disabled = true;
+  try {
+    await api('/api/profile', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    location.href = safeNext();
+  } catch (err) {
+    $('err').textContent = err.message;
+  } finally {
+    $('save').disabled = false;
+  }
+};
+function safeNext() {
+  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/profile') ? next : (next ? '/' : '/account');
+}
+
+(async () => {
+  let d;
+  try { d = await api('/api/profile'); } catch (err) { $('err').textContent = err.message; return; }
+  opts = d.options;
+  const p = d.profile || {};
+  const complete = d.profile && !d.missing.length;
+  $('title').textContent = complete ? 'Your profile' : d.profile ? 'Update your profile' : 'Complete your profile';
+  if (d.profile && d.missing.includes('end_date') && d.missing.length === 1)
+    $('intro').textContent = 'Your expected end date has passed. Give a new one, or tick Indefinite.';
+  $('cancel').hidden = !complete;
+  $('save').textContent = complete ? 'Save' : 'Save and continue';
+  $('role').innerHTML = '<option value="">Choose…</option>'
+    + opts.roles.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
+  const groups = [...new Set(opts.departments.map(x => x.grp || ''))];
+  $('dept').innerHTML = '<option value="">Choose…</option>' + groups.map(grp => {
+    const items = opts.departments.filter(x => (x.grp || '') === grp).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
+    return grp ? `<optgroup label="${esc(grp)}">${items}</optgroup>` : items;
+  }).join('') + '<option value="other">Other… (type it)</option>';
+  $('supList').innerHTML = opts.supervisors.map(s => `<option value="${esc(s.name)}">${esc(s.role)}</option>`).join('');
+  $('role').value = p.role_id || '';
+  $('dept').value = p.department_id || (p.department_text ? 'other' : '');
+  $('deptText').value = p.department_text || '';
+  $('indefinite').checked = !!p.indefinite;
+  $('end').value = p.end_date || '';
+  $('end').min = new Date().toISOString().slice(0, 10);
+  $('number').value = p.number || '';
+  $('github').value = p.github || '';
+  sups = (p.supervisors || []).map(s => ({id: s.id, name: s.name}));
+  renderSups(); syncRole(); syncDept(); syncEnd();
+})();
+</script>
+</body>
+</html>
