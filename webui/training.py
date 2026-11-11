@@ -958,6 +958,24 @@ def register(app, connection, root, require_session):
             (image_dir() / row["image_path"]).unlink(missing_ok=True)
         return jsonify(ok=True)
 
+    @app.put("/api/admin/trainings/<int:training_id>/question-order")
+    def order_questions(training_id):
+        """Set the order of a training's questions: {"question_ids": [...]} with every question once."""
+        admin()
+        ids = (request.get_json(silent=True) or {}).get("question_ids")
+        if not isinstance(ids, list) or any(type(i) is not int for i in ids):
+            raise TrainingError("question_ids must be a list of question ids.")
+        cid = con()
+        with db.write_lock, cid:
+            cid.execute("BEGIN IMMEDIATE")
+            training_row(cid, training_id)
+            existing = {r[0] for r in cid.execute("SELECT id FROM training_questions WHERE training_id=?", (training_id,))}
+            if len(ids) != len(existing) or set(ids) != existing:
+                raise TrainingError("Give every question of this training exactly once.")
+            cid.executemany("UPDATE training_questions SET sort_order=? WHERE id=?",
+                            [(i, qid) for i, qid in enumerate(ids, 1)])
+        return jsonify(ok=True)
+
     def save_question(cid, training_id, question_id):
         body = request.get_json(silent=True) or {}
         prompt, kind, points, choices, _image = parse_question_body(body)

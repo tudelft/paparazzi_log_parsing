@@ -265,6 +265,17 @@ class TrainingTests(AppTests):
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM trainings").fetchone()[0], 0)
         self.assertEqual(list(Path(self.app.config["TRAINING_IMAGE_DIR"]).iterdir()), [])
 
+    def test_question_order(self):
+        tid = self.add_training()
+        a, b, c = (self.add_question(tid, prompt=p) for p in ("A", "B", "C"))
+        url = f"/api/admin/trainings/{tid}/question-order"
+        self.assertEqual(self.client.put(url, json={"question_ids": [c, a, b]}).status_code, 200)
+        self.assertEqual([q["prompt"] for q in self.client.get(f"/api/trainings/{tid}").json["questions"]], ["C", "A", "B"])
+        for bad in ([c, a], [c, a, a], [c, a, b, 999], ["x"]):  # every question exactly once
+            self.assertEqual(self.client.put(url, json={"question_ids": bad}).status_code, 400)
+        self.sign_in(2)
+        self.assertEqual(self.client.put(url, json={"question_ids": [a, b, c]}).status_code, 403)
+
     def test_deleting_a_question_cannot_leave_pass_score_unreachable(self):
         tid = self.add_training(pass_score=2)
         self.add_question(tid)
