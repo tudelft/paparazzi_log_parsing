@@ -151,7 +151,7 @@
     <form id="addOperator" onsubmit="event.preventDefault();saveOperator(null)">
       <label class="field">Name<input id="opName" required maxlength="80"></label>
       <label class="field">Registration number<input id="opRegistration" maxlength="40"></label>
-      <label class="field">Country<input id="opCountry" maxlength="40"></label>
+      <label class="field">Country<select id="opCountry"></select></label>
       <label class="field" id="opOwnField">Own<input type="checkbox" id="opOwn"></label>
       <label class="field">Note<input id="opNote" maxlength="400" placeholder="e.g. authorisation flown under"></label>
       <button type="submit">Add operator</button>
@@ -171,7 +171,7 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
-let projects = [], users = [], me = null, operators = [], authorisations = [];
+let projects = [], users = [], me = null, operators = [], authorisations = [], countries = [];
 let selectedProject = null;
 let memberQuery = '';
 const ticksOf = role => ({see: !!role, upload: role === 'add' || role === 'full', del: role === 'full'});
@@ -231,7 +231,8 @@ async function load() {
       projects = await read('/api/projects');
       users = [];
     }
-    operators = (await read('/api/operators')).operators;
+    ({operators, countries = []} = await read('/api/operators'));
+    $('opCountry').innerHTML = countryOptions('');
     authorisations = (await read('/api/authorisations')).authorisations;
     render();
   } catch (error) {
@@ -282,6 +283,10 @@ function renderMemberPicker() {
     <button type="button" class="sec" onclick="setRole(${p.id},${u.id},'view')">Add with See access</button></div>`).join('')
     || '<p class="mute">No eligible people match.</p>';
 }
+// The country of an operator: an ISO code from the same list as the locations ("NL · Netherlands")
+const countryName = code => (countries.find(c => c[0] === code) || [])[1] || code || '';
+const countryOptions = selected => '<option value="">—</option>' + countries.map(([code, name]) =>
+  `<option value="${code}"${code === selected ? ' selected' : ''}>${esc(code)} · ${esc(name)}</option>`).join('');
 function renderOperators() {
   const field = (o, key, max) => editing() ? `<input id="op${key}${o.id}" value="${esc(o[key] || '')}" maxlength="${max}">` : esc(o[key] || '');
   $('countOperators').textContent = operators.length;
@@ -289,13 +294,13 @@ function renderOperators() {
   if (!editing()) {  // one line per operator; the note on hover
     $('operatorHead').innerHTML = '<tr><th style="width:40%">Name</th><th style="width:25%">Registration number</th><th style="width:20%">Country</th><th style="width:15%">Own</th></tr>';
     $('operatorRows').innerHTML = operators.map(o => `<tr><td title="${esc([o.name, o.note].filter(Boolean).join(' · '))}">${esc(o.name)}</td>
-      <td class="mono" title="${esc(o.registration || '')}">${esc(o.registration || '')}</td><td>${esc(o.country || '')}</td>
+      <td class="mono" title="${esc(o.registration || '')}">${esc(o.registration || '')}</td><td title="${esc(countryName(o.country))}">${esc(o.country || '')}</td>
       <td>${o.own ? '<span class="cat">Own operator</span>' : ''}</td></tr>`).join('')
       || '<tr><td colspan="4" class="mute">No operators yet.</td></tr>';
   } else {
   $('operatorHead').innerHTML = '<tr><th>Name</th><th>Registration number</th><th>Country</th><th>Own</th><th>Note</th><th></th></tr>';
   $('operatorRows').innerHTML = operators.map(o => `<tr><td>${field(o, 'name', 80)}</td><td>${field(o, 'registration', 40)}</td>
-    <td>${field(o, 'country', 40)}</td>
+    <td><select id="opcountry${o.id}" aria-label="Country">${countryOptions(o.country || '')}</select></td>
     <td>${editing() ? `<input type="checkbox" id="opown${o.id}"${o.own ? ' checked' : ''}>` : o.own ? 'Own' : ''}</td>
     <td>${field(o, 'note', 400)}</td>
     <td>${editing() ? `<button type="button" onclick="saveOperator(${o.id})">Save</button> <button type="button" class="danger" onclick="deleteOperator(${o.id})">Delete</button>` : ''}</td></tr>`).join('')

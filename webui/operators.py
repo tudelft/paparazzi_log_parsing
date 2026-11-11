@@ -16,6 +16,8 @@ an operator and nothing more specific applies, the entry is marked to be checked
 
 import sqlite3
 
+import countries
+
 SOURCES = ("flight", "project", "place", "pic", "default")
 
 
@@ -39,13 +41,17 @@ def validate(con, body, operator_id=None):
                               (operator_id,)).fetchone()
         body = {**dict(current), "own": bool(current["own"]), **body}
     out = {}
-    for key, limit in (("name", 80), ("registration", 40), ("country", 40), ("note", 400)):
+    for key, limit in (("name", 80), ("registration", 40), ("note", 400)):
         value = body.get(key)
         if value is None:
             value = ""
         if not isinstance(value, str) or len(value.strip()) > limit:
             raise OperatorError(f"{key} must be text of at most {limit} characters.")
         out[key] = value.strip() or None
+    try:  # an ISO 3166-1 alpha-2 code (or English name) from countries.py, as for locations
+        out["country"] = countries.parse(body.get("country"))
+    except ValueError as exc:
+        raise OperatorError(str(exc)) from None
     if not out["name"]:
         raise OperatorError("An operator needs a name.")
     if type(body.get("own", False)) is not bool:

@@ -1,4 +1,5 @@
 """SQLite storage for parsed Paparazzi logs."""
+import countries
 import gzip
 import json
 import math
@@ -583,6 +584,15 @@ def init(path):
         con.execute("ALTER TABLE places ADD COLUMN indoor INTEGER NOT NULL DEFAULT 0")
     if "country" not in {r[1] for r in con.execute("PRAGMA table_info(places)")}:
         con.execute("ALTER TABLE places ADD COLUMN country TEXT")
+    # Operator countries were free text: keep them as an ISO code (countries.py) when they name one, else clear them
+    for r in con.execute("SELECT id, country FROM operators WHERE country IS NOT NULL").fetchall():
+        if r[1] in countries.COUNTRIES:
+            continue
+        try:
+            code = countries.parse(r[1])
+        except ValueError:
+            code = None
+        con.execute("UPDATE operators SET country=? WHERE id=?", (code, r[0]))
     if "log_type" not in cols:
         con.execute("ALTER TABLE logs ADD COLUMN log_type TEXT")
     if "project_id" not in cols:

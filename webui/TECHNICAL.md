@@ -1645,7 +1645,8 @@ Statistics, Locations (`/api/places?operator=`) and overview pages.
 - `GET /api/operators`: the list (any signed-in user). `POST /api/operators`: anyone signed in adds the operator
   of a new partner (not our own); the Logbook bulk bar, the paper-record form and the People page offer
   **New operator…** for it. Admins: `POST /api/admin/operators`, `PUT`/`DELETE /api/admin/operators/<id>` (name,
-  registration, country, own, note; a `PUT` keeps the fields it leaves out). An operator still used by flights,
+  registration, country (an ISO code from `countries.py`, as for locations; older free text was converted to the
+  code it names, or cleared), own, note; a `PUT` keeps the fields it leaves out). An operator still used by flights,
   paper records, projects, places or people cannot be deleted.
 - `PUT /api/admin/users/<id>/operator` sets the operator a person flies for; `POST /api/admin/people/external`
   takes an optional `operator_id`.
