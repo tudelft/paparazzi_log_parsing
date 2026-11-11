@@ -343,8 +343,18 @@ def start_workers():
         ingest_jobs.put(r["id"])
     for _ in range(max(1, WORKERS)):
         threading.Thread(target=worker, daemon=True).start()
+    threading.Thread(target=compress_old_messages, daemon=True, name="compress-messages").start()
     for _ in range(max(1, INGEST_WORKERS)):
         threading.Thread(target=ingest_worker, daemon=True).start()
+
+
+def compress_old_messages():
+    """Once after an update: move older aircraft rows' text messages into the compressed column."""
+    try:
+        if n := db.compress_info_messages(DB_PATH):
+            app.logger.warning("compressed the messages of %d aircraft; run VACUUM once to return the space", n)
+    except Exception:
+        app.logger.exception("compressing older messages failed; they stay readable uncompressed")
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -5907,7 +5917,7 @@ def other_recordings(con, flight_ids):
     out = []
     for fid in flight_ids:
         r = con.execute(
-            "SELECT f.path_idx, f.takeoff_time_s, f.takeoff_utc, a.id AS aircraft_pk, a.info_messages, l.log_type,"
+            "SELECT f.path_idx, f.takeoff_time_s, f.takeoff_utc, a.id AS aircraft_pk, a.info_messages, a.info_messages_gz, l.log_type,"
             " l.paths_file, l.start_utc, l.date_override" + (", f.path_gz" if HAVE_PATH_GZ else "") +
             " FROM flights f JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id WHERE f.id=?",
             (fid,)).fetchone()
@@ -5922,7 +5932,7 @@ def other_recordings(con, flight_ids):
             label=LOG_LABELS.get(r["log_type"], "other log"),
             base=takeoff - r["takeoff_time_s"] if takeoff is not None and r["takeoff_time_s"] is not None else None,
             path=flight_path(r["paths_file"], r["path_idx"], days, r["path_gz"] if HAVE_PATH_GZ else None),
-            messages=json.loads(r["info_messages"] or "[]"), changes=apply_clock_to_obj(changes, days)))
+            messages=db.info_messages(r), changes=apply_clock_to_obj(changes, days)))
     return out
 
 
@@ -6007,7 +6017,7 @@ def flight_detail(flight_id):
     con = conn()
     row = con.execute(
         "SELECT f.takeoff_time_s, f.landing_time_s, f.takeoff_utc, f.path_idx, l.paths_file, a.id AS aircraft_pk, a.name, a.ac_id,"
-        " a.autopilot_versions, a.info_messages, a.preflight_checks, a.config_gz, l.id AS log_id, l.log_type,"
+        " a.autopilot_versions, a.info_messages, a.info_messages_gz, a.preflight_checks, a.config_gz, l.id AS log_id, l.log_type,"
         " l.name AS log_name, l.log_path, l.start_utc AS log_start_utc, l.start_utc, l.timing, l.date_override"
         + (", f.path_gz" if HAVE_PATH_GZ else "") +
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id WHERE f.id=?",
@@ -6023,7 +6033,7 @@ def flight_detail(flight_id):
     own = dict(takeoff_time_s=row["takeoff_time_s"], landing_time_s=row["landing_time_s"],
                base=takeoff - row["takeoff_time_s"] if takeoff is not None and row["takeoff_time_s"] is not None else None)
     path, messages, changes, from_other = combine_other_logs(
-        con, own, path, json.loads(row["info_messages"] or "[]"), changes,
+        con, own, path, db.info_messages(row), changes,
         [s["flight_id"] for s in entry["sources"] if s["flight_id"] != flight_id])
     invalid_reports = config.get("invalid_setting_reports") or []
     apply_clock_to_obj(invalid_reports, days)
@@ -6380,7 +6390,8 @@ def get_log(log_id):
     resolve = person_resolver(con)
     out["aircraft"] = []
     for a in con.execute("SELECT * FROM aircraft WHERE log_id=? ORDER BY ac_id", (log_id,)):
-        ad = {k: a[k] for k in a.keys() if k != "config_gz"}
+        ad = {k: a[k] for k in a.keys() if k not in ("config_gz", "info_messages_gz")}
+        ad["info_messages"] = db.info_messages(a)
         ad["uploaded_by"] = row["uploaded_by"]
         if a["drone_id"]:
             dn = con.execute("SELECT name, unique_id FROM drones WHERE id=?", (a["drone_id"],)).fetchone()
@@ -6390,8 +6401,7 @@ def get_log(log_id):
             ad["drone_name"] = None
             ad["drone_uid"] = None
         add_people([ad], resolve)
-        for k in ("preflight_checks", "info_messages"):
-            ad[k] = json.loads(ad[k]) if ad[k] else []
+        ad["preflight_checks"] = json.loads(ad["preflight_checks"]) if ad["preflight_checks"] else []
         ad["simulation"] = json.loads(a["simulation"]) if a["simulation"] is not None else None
         ad["autopilot_versions"], ad["autopilot_versions_from_gcs"] = with_gcs_autopilot_fallback(
             json.loads(ad["autopilot_versions"]) if ad["autopilot_versions"] else [], row["log_path"])

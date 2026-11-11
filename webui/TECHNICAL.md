@@ -252,6 +252,20 @@ displacement only. Vertical movement adds no distance. Altitudes remain availabl
 flight assessment. This prevents differing GPS altitude reference levels from inflating distances;
 horizontal GPS noise/jumps can still affect them. Reparse existing uploads to replace old 3D distances.
 
+**Text messages are stored compressed.** An aircraft's `INFO_MSG` texts (shown on the flight page) can be several
+hundred kB per log, so they are stored gzip-compressed in `aircraft.info_messages_gz`; readers use
+`db.info_messages(row)`. After the update to 4.11.2 a background thread converts older rows (plain JSON in
+`aircraft.info_messages`) in small batches and logs how many it converted. The file only shrinks after a one-time
+`VACUUM`, run with the service stopped (it needs free space about the size of the database and takes about a minute):
+
+    sudo systemctl stop flight-logs
+    sudo -u logdb /opt/flight-logs/app/webui/venv/bin/python -c \
+        "import sqlite3; sqlite3.connect('/var/lib/flight-logs/logs.db', isolation_level=None).execute('VACUUM')"
+    sudo systemctl start flight-logs
+
+To go back to an older Web UI, stop the service and undo the conversion first with
+`db.decompress_info_messages(<path to logs.db>)` (run from the `webui` directory with the venv's Python).
+
 **Storage on Statistics.** Admins see a Storage card (`GET /api/admin/storage`, `storage_usage.py`): what the
 stored logs, flight paths, attachments (with PDF previews) and qualification evidence take on disk, the original
 size of the uploaded `.data` files, the database file and the free space on the log storage and the database disk.
