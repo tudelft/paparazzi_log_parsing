@@ -812,9 +812,9 @@ is ticked. A person counts as having logs as uploader or as linked PIC/PAC/GCS; 
 selected in Edit mode stays listed. Non-admins only count qualifications they may see.
 Logbook has no top-level project filter and no longer applies a previously saved project filter.
 Project reassignment controls in Edit mode remain available.
-The menu (`theme.js`) has Logbook (`/`), Statistics, **Directory ▾** (Aircraft, People, Projects, Locations, then Logs
-at `/logs`), Training (`/training`, when `LOGDB_TRAINING=1`) and Agenda (`/agenda`, when `LOGDB_BOOKINGS=1`), then
-the flight filters. On the right: **⬆ Upload
+The menu (`theme.js`) has Logbook (`/`), Agenda (`/agenda`, when `LOGDB_BOOKINGS=1`), Training (`/training`, when
+`LOGDB_TRAINING=1`) and **Directory ▾** (People, Aircraft, Projects, Locations, then Logs at `/logs` and Statistics at
+`/stats`), then the flight filters. On the right: **⬆ Upload
 logs** (for admins and members with add or full access on a project, `can_upload` in `/api/me`), Edit (pages that
 have it) and the name menu (My account, Night mode, Sign out). Menus close on a click elsewhere or Escape.
 The upload dialog (`upload.js`, loaded on first use) takes files, zips and folders, also dropped anywhere on a page,
