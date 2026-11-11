@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agenda</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
+  main { width:100%; padding:16px 12px 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .toolbar h2 { margin:0; }
+  .toolbar details { margin-left:auto; }
+  #err { color:var(--err); margin-bottom:8px; }
+  #err:empty { display:none; }
+  button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button.sec { background:var(--sec); color:var(--txt); }
+  button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
+  input, select, textarea { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
+  textarea { min-height:70px; resize:vertical; }
+  label.field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
+  .legend { display:flex; gap:12px; font-size:12px; color:var(--mute); flex-wrap:wrap; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; background:var(--c); }
+  #about { margin:0 0 10px; font-size:13px; color:var(--mute); }
+  #about:empty { display:none; }
+  .scroll { overflow:auto; max-height:min(560px, 70vh); border-top:1px solid var(--line); }
+  .week { display:grid; grid-template-columns:44px repeat(7, minmax(84px, 1fr)); min-width:640px; }
+  .dh { position:sticky; top:0; z-index:2; background:var(--card); font-size:12px; color:var(--mute); text-align:center;
+    padding:4px 0; border-bottom:1px solid var(--line); }
+  .dh.today { color:var(--acc); font-weight:600; }
+  .hl { font-size:11px; color:var(--mute); text-align:right; padding-right:6px; height:40px; transform:translateY(-7px); }
+  .hl:first-child { transform:none; }
+  .col { position:relative; border-left:1px solid var(--line);
+    background:repeating-linear-gradient(to bottom, transparent 0 39px, var(--line) 39px 40px); }
+  .col.bookable { cursor:copy; }
+  .bk { position:absolute; border-radius:5px; border-left:4px solid var(--c); padding:2px 5px; font-size:12px; overflow:hidden;
+    cursor:pointer; color:var(--txt); background:color-mix(in srgb, var(--c) 22%, var(--card)); box-shadow:0 0 0 1px var(--card); }
+  .bk:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
+  .bk b, .bk span { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bk span { color:var(--mute); }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .check { display:flex; gap:6px; align-items:center; font-size:13px; }
+  .flag-row { display:grid; grid-template-columns:1fr auto auto auto auto; gap:6px; align-items:center; }
+  .flag-row input[type=text] { min-width:0; }
+  input[type=color] { padding:0 2px; width:34px; height:28px; }
+  #flagRows { display:flex; flex-direction:column; gap:6px; }
+  #lockDialog p { margin:0 0 12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  a.btn { padding:4px 10px; border-radius:6px; background:var(--btn); color:#fff; text-decoration:none; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body data-edit="admin">
+<header>
+  <h1>Agenda</h1>
+  <span class="meta" id="nav"></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <div id="err"></div>
+  <section class="card">
+    <div class="toolbar">
+      <h2>Agenda</h2>
+      <button type="button" class="sec" aria-label="Previous week" onclick="moveWeek(-7)">‹</button>
+      <strong id="range"></strong>
+      <button type="button" class="sec" aria-label="Next week" onclick="moveWeek(7)">›</button>
+      <button type="button" class="sec" onclick="moveWeek(0)">Today</button>
+      <button type="button" id="newBtn" onclick="openBooking()">New booking</button>
+      <span class="legend" id="legend"></span>
+      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it, or an empty slot to book that time. Bookings of the same item overlap only when both set a shared option (for example "Others allowed") and neither sets a blocking one (for example "Demo"); an item without options never overlaps. Some items need a current qualification to book, or to see their agenda at all. You can change or delete your own bookings; administrators can change any and set up the items in Edit mode. Times are local.</p></details>
+    </div>
+    <div class="page-tabs" id="tabs" aria-label="Bookable items"></div>
+    <p id="about"></p>
+    <div class="scroll" id="scroll"><div class="week" id="week"></div></div>
+  </section>
+</main>
+<dialog class="entry-dialog" id="lockDialog" aria-labelledby="lockTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();closeLock();}">
+  <div class="dialog-header"><h2 id="lockTitle">Qualification required</h2></div>
+  <p id="lockText"></p>
+  <div class="row"><a class="btn" id="lockLink" href="/training">Go to the training</a> <button type="button" class="sec" onclick="closeLock()">Close</button></div>
+</dialog>
+<dialog class="entry-dialog" id="bookingDialog" aria-labelledby="bookingTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="bookingForm">
+    <div class="dialog-header"><h2 id="bookingTitle">New booking</h2><button type="button" class="sec" onclick="$('bookingDialog').close()">Close</button></div>
+    <p class="mute" id="bookedBy"></p>
+    <label class="field">Item<select name="thing_id" onchange="paintFlagChecks([])"></select></label>
+    <label class="field">Description<textarea name="description" required maxlength="500"></textarea></label>
+    <div class="two">
+      <label class="field">Start<input name="start" type="datetime-local" required></label>
+      <label class="field">End<input name="end" type="datetime-local" required></label>
+    </div>
+    <div id="flagChecks" class="row"></div>
+    <p class="dialog-error" id="bookingError" role="alert"></p>
+    <div class="row" id="bookingActions"><button type="submit">Save</button> <button type="button" class="danger" id="deleteBtn" onclick="removeBooking()">Delete</button> <button type="button" class="sec" onclick="$('bookingDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="itemDialog" aria-labelledby="itemTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="itemForm">
+    <div class="dialog-header"><h2 id="itemTitle">Bookable item</h2><button type="button" class="sec" onclick="$('itemDialog').close()">Close</button></div>
+    <label class="field">Name<input name="name" required maxlength="80"></label>
+    <label class="field">Description<textarea name="description" maxlength="500"></textarea></label>
+    <label class="field">Place<select name="place_id"></select></label>
+    <div class="two">
+      <label class="field">Qualification<select name="type_id" onchange="syncItemForm()"></select></label>
+      <label class="field" id="modeField">Needed for<select name="qualification_for">
+        <option value="booking">Booking only</option><option value="viewing">Viewing and booking</option></select></label>
+    </div>
+    <div class="row">
+      <label class="check"><input name="use_colour" type="checkbox" onchange="syncItemForm()"> Colour</label>
+      <input name="colour" type="color" value="#4493f8" aria-label="Colour">
+      <label class="check"><input name="active" type="checkbox" checked> Active</label>
+      <label class="check">Order <input name="sort_order" type="number" style="width:70px" value="0"></label>
+    </div>
+    <span class="mute">Booking options (a booking may tick them)</span>
+    <div id="flagRows"></div>
+    <div><button type="button" class="sec" onclick="addFlagRow()">Add option</button></div>
+    <p class="dialog-error" id="itemError" role="alert"></p>
+    <div class="row"><button type="submit">Save</button> <button type="button" class="danger" id="itemDeleteBtn" onclick="removeItem()">Delete</button> <button type="button" class="sec" onclick="$('itemDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad = n => String(n).padStart(2, '0');
+const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const local = d => `${isoDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const DAY = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const HOUR = 40;
+let me, monday, tab = 'all', data = {things: [], bookings: []}, editing = null, editingItem = null;
+async function api(url, opt) {
+  const r = await fetch(url, opt);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(d.error || r.statusText); e.status = r.status; e.data = d; throw e; }
+  return d;
+}
+const json = (method, body) => ({method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+function mondayOf(d) {
+  const m = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  m.setDate(m.getDate() - (m.getDay() + 6) % 7);
+  return m;
+}
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+const editing_ = () => !!(me && me.is_admin && window.editMode());
+const item = id => data.things.find(t => t.id === id);
+const current = () => tab === 'all' ? null : item(+tab);
+function moveWeek(n) {
+  monday = n ? addDays(monday, n) : mondayOf(new Date());
+  window.viewState.save(true);
+  load();
+}
+function choose(key) {
+  const t = key === 'all' ? null : item(+key);
+  if (t && !t.can_view) return lock(t, 'Viewing the agenda of');
+  tab = key;
+  window.viewState.save(true);
+  paint();
+}
+function lock(t, verb) {
+  $('lockTitle').textContent = (t.type_name || 'Qualification') + ' required';
+  $('lockText').textContent = `${verb} ${t.name} needs a current ${t.type_name}. Pass the training that grants it, or ask an administrator.`;
+  $('lockLink').href = t.training_id ? '/training?id=' + t.training_id : '/training';
+  $('lockLink').hidden = false;
+  $('lockDialog').showModal();
+}
+function closeLock() {
+  $('lockDialog').close();
+  if (tab !== 'all' && !(current() && current().can_view)) { tab = 'all'; window.viewState.save(); paint(); }
+}
+async function load() {
+  $('err').textContent = '';
+  const last = addDays(monday, 6);
+  try {
+    data = await api(`/api/bookings?from=${isoDate(monday)}&to=${isoDate(last)}`);
+  } catch (e) { $('err').textContent = e.message; return; }
+  $('range').textContent = `${monday.getDate()} ${MONTH[monday.getMonth()]} – ${last.getDate()} ${MONTH[last.getMonth()]} ${last.getFullYear()}`;
+  const t = current();
+  if (tab !== 'all' && (!t || !t.can_view)) {
+    if (t) lock(t, 'Viewing the agenda of');
+    tab = 'all';
+    window.viewState.save();
+  }
+  paint(true);
+}
+function colourOf(b) {
+  const t = item(b.thing_id);
+  if (tab !== 'all') {
+    const f = t.flags.find(f => f.colour && b.flags.includes(f.id));
+    if (f) return f.colour;
+  }
+  return t.colour || 'var(--acc)';
+}
+function paintTabs() {
+  const visible = data.things.filter(t => t.active || editing_());
+  const count = id => data.bookings.filter(b => b.thing_id === id).length;
+  window.pageTabs($('tabs'), [['all', 'All', data.bookings.length],
+    ...visible.map(t => [String(t.id), esc(t.name) + (t.active ? '' : ' (inactive)') + (t.can_view ? '' : ' (locked)'),
+      t.can_view ? count(t.id) : null])], tab, choose);
+  $('tabs').hidden = false;
+  if (editing_()) {
+    const t = current();
+    $('tabs').insertAdjacentHTML('beforeend', `<span class="tabs-end">${t ? '<button type="button" class="sec" onclick="openItem(' + t.id + ')">Edit item</button>' : ''}
+      <button type="button" class="sec" onclick="openItem()">Add item</button></span>`);
+  }
+}
+function paintAbout() {
+  const t = current();
+  const parts = [];
+  if (!t) {
+    if (!data.things.length) parts.push(editing_() ? 'No bookable items yet: add one with Add item.' : 'Nothing can be booked yet.');
+  } else {
+    if (t.description) parts.push(esc(t.description));
+    if (t.place_name) parts.push('Place: ' + esc(t.place_name));
+    if (t.type_id && !t.can_book && t.active)
+      parts.push(`Booking needs a current ${esc(t.type_name)}. <a href="${t.training_id ? '/training?id=' + t.training_id : '/training'}">Go to the training</a>`);
+  }
+  $('about').innerHTML = parts.join(' · ');
+  const legend = t ? t.flags.filter(f => f.colour).map(f => [f.colour, f.label]).concat(t.colour && t.flags.some(f => f.colour) ? [[t.colour, 'Other bookings']] : [])
+    : data.things.filter(x => x.can_view && x.colour).map(x => [x.colour, x.name]);
+  $('legend').innerHTML = legend.map(([c, label]) => `<span><i style="--c:${esc(c)}"></i>${esc(label)}</span>`).join('');
+}
+function bookable() { const t = current(); return t ? t.can_book : data.things.some(x => x.can_book); }
+// Overlapping bookings of one day sit side by side: lanes per group of bookings that overlap in time.
+function layout(pieces) {
+  pieces.sort((a, b) => a.s - b.s || b.e - a.e);
+  let group = [], lanes = [], end = -1;
+  const close = () => group.forEach(p => { p.n = lanes.length; });
+  for (const p of pieces) {
+    if (p.s >= end) { close(); group = []; lanes = []; }
+    let lane = lanes.findIndex(e => e <= p.s);
+    if (lane < 0) { lane = lanes.length; lanes.push(0); }
+    lanes[lane] = p.e;
+    p.lane = lane;
+    group.push(p);
+    end = Math.max(end, p.e);
+  }
+  close();
+}
+function paint(scroll) {
+  paintTabs();
+  paintAbout();
+  $('newBtn').hidden = !bookable();
+  const days = [...Array(7)].map((_, i) => isoDate(addDays(monday, i)));
+  const today = isoDate(new Date());
+  const shown = data.bookings.filter(b => tab === 'all' || b.thing_id === +tab);
+  const pieces = [];
+  const h = t => +t.slice(11, 13) + t.slice(14, 16) / 60;
+  for (const b of shown) days.forEach((day, i) => {
+    const from = b.start > day + 'T00:00' ? b.start : day + 'T00:00';
+    if (from.slice(0, 10) !== day || b.end <= day + 'T00:00') return;
+    pieces.push({b, i, s: h(from), e: b.end.slice(0, 10) === day ? h(b.end) : 24});
+  });
+  const first = Math.min(8, ...pieces.map(p => Math.floor(p.s)));
+  const last = Math.max(20, ...pieces.map(p => Math.ceil(p.e)));
+  const hours = last - first;
+  let html = '<div class="dh"></div>' + days.map((day, i) =>
+    `<div class="dh${day === today ? ' today' : ''}">${DAY[i]} ${+day.slice(8)}</div>`).join('');
+  html += '<div>' + [...Array(hours)].map((_, i) => `<div class="hl">${pad(first + i)}:00</div>`).join('') + '</div>';
+  const canBook = bookable();
+  days.forEach((day, i) => {
+    const mine = pieces.filter(p => p.i === i);
+    layout(mine);
+    html += `<div class="col${canBook ? ' bookable' : ''}" data-day="${day}" style="height:${hours * HOUR}px">` + mine.map(p => {
+      const t = item(p.b.thing_id);
+      const flags = t.flags.filter(f => p.b.flags.includes(f.id)).map(f => f.label);
+      const when = `${p.b.start.slice(11)}–${p.b.end.slice(11)}`;
+      const tip = [tab === 'all' ? t.name : '', p.b.description, p.b.person, `${p.b.start.replace('T', ' ')} – ${p.b.end.replace('T', ' ')}`, ...flags]
+        .filter(Boolean).join(' · ');
+      return `<div role="button" tabindex="0" class="bk" data-id="${p.b.id}" title="${esc(tip)}"
+        style="--c:${esc(colourOf(p.b))};top:${(p.s - first) * HOUR}px;height:${Math.max((p.e - p.s) * HOUR - 2, 18)}px;
+        left:calc(${p.lane / p.n * 100}% + 2px);width:calc(${100 / p.n}% - 4px)">
+        <b>${esc(tab === 'all' ? t.name + ': ' + p.b.description : p.b.description)}</b><span>${esc(p.b.person)} · ${when}${flags.length ? ' · ' + esc(flags.join(', ')) : ''}</span></div>`;
+    }).join('') + '</div>';
+  });
+  $('week').innerHTML = html;
+  $('week').querySelectorAll('.bk').forEach(el => {
+    el.onclick = e => { e.stopPropagation(); openBooking(null, +el.dataset.id); };
+    el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBooking(null, +el.dataset.id); } };
+  });
+  $('week').querySelectorAll('.col.bookable').forEach(col => col.onclick = e => {
+    if (e.target !== col) return;
+    const at = first + Math.floor(e.offsetY / (HOUR / 2)) / 2;
+    openBooking(`${col.dataset.day}T${pad(Math.floor(at))}:${at % 1 ? '30' : '00'}`);
+  });
+  if (scroll) {  // show 08:00 at the top, unless every booking of the week is outside 08:00-20:00
+    const inDay = pieces.some(p => p.e > 8 && p.s < 20);
+    const top = pieces.length && !inDay ? Math.min(...pieces.map(p => p.s)) : 8;
+    $('scroll').scrollTop = Math.max(0, (top - first) * HOUR - 8);
+  }
+}
+function paintFlagChecks(checked) {
+  const f = $('bookingForm');
+  const t = item(+f.thing_id.value);
+  $('flagChecks').innerHTML = (t ? t.flags : []).map(x => `<label class="check"><input type="checkbox" value="${x.id}"
+    ${checked.includes(x.id) ? 'checked' : ''}> ${esc(x.label)}</label>`).join('');
+  const disabled = f.description.disabled;
+  $('flagChecks').querySelectorAll('input').forEach(i => { i.disabled = disabled; });
+}
+function openBooking(start, id) {
+  const b = id ? data.bookings.find(x => x.id === id) : null;
+  editing = b;
+  const f = $('bookingForm');
+  const canEdit = b ? b.can_edit : true;
+  const choices = b ? [item(b.thing_id)] : data.things.filter(t => t.can_book && (tab === 'all' || t.id === +tab));
+  if (!choices.length) return;
+  f.thing_id.innerHTML = choices.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+  f.thing_id.disabled = !!b || choices.length < 2;
+  $('bookingTitle').textContent = b ? (canEdit ? 'Edit booking' : 'Booking') : 'New booking';
+  $('bookedBy').textContent = 'Booked by ' + (b ? b.person : me.display_name);
+  let from;
+  if (start) from = new Date(start);
+  else {
+    const now = new Date();
+    from = isoDate(now) >= isoDate(monday) && isoDate(now) <= isoDate(addDays(monday, 6))
+      ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1) : addDays(monday, 0);
+    if (from.getHours() === 0) from.setHours(9);
+  }
+  const to = new Date(from);
+  to.setHours(to.getHours() + 1);
+  f.description.value = b ? b.description : '';
+  f.start.value = b ? b.start : local(from);
+  f.end.value = b ? b.end : local(to);
+  [f.description, f.start, f.end].forEach(el => { el.disabled = !canEdit; });
+  paintFlagChecks(b ? b.flags : []);
+  $('bookingActions').hidden = !canEdit;
+  $('deleteBtn').hidden = !b;
+  $('bookingError').textContent = '';
+  $('bookingDialog').showModal();
+}
+$('bookingForm').onsubmit = async event => {
+  event.preventDefault();
+  const f = event.target;
+  const body = {thing_id: +f.thing_id.value, description: f.description.value, start: f.start.value, end: f.end.value,
+    flags: [...$('flagChecks').querySelectorAll('input:checked')].map(i => +i.value)};
+  try {
+    await api('/api/bookings' + (editing ? '/' + editing.id : ''), json(editing ? 'PUT' : 'POST', body));
+    $('bookingDialog').close();
+    load();
+  } catch (e) {
+    if (e.status === 403 && e.data.thing_id) { $('bookingDialog').close(); lock(item(e.data.thing_id), 'Booking'); return; }
+    $('bookingError').textContent = e.message;
+  }
+};
+async function removeBooking() {
+  if (!editing || !confirm('Delete this booking?')) return;
+  try {
+    await api('/api/bookings/' + editing.id, {method: 'DELETE'});
+    $('bookingDialog').close();
+    load();
+  } catch (e) { $('bookingError').textContent = e.message; }
+}
+function syncItemForm() {
+  const f = $('itemForm');
+  $('modeField').hidden = !f.type_id.value;
+  f.colour.disabled = !f.use_colour.checked;
+}
+function addFlagRow(flag = {}) {
+  const row = document.createElement('div');
+  row.className = 'flag-row';
+  if (flag.id) row.dataset.id = flag.id;
+  row.innerHTML = `<input type="text" maxlength="40" placeholder="Option, e.g. Others allowed" value="${esc(flag.label || '')}" aria-label="Option label">
+    <label class="check" title="Colour of bookings with this option"><input type="checkbox" class="use"${flag.colour ? ' checked' : ''}> Colour</label>
+    <input type="color" value="${esc(flag.colour || '#2da44e')}" aria-label="Option colour"${flag.colour ? '' : ' disabled'}>
+    <label class="check" title="A booking with this option never overlaps another"><input type="checkbox" class="blocks"${flag.blocks_overlap ? ' checked' : ''}> Blocks overlaps</label>
+    <button type="button" class="sec" onclick="this.parentElement.remove()">Remove</button>`;
+  row.querySelector('.use').onchange = e => { row.querySelector('input[type=color]').disabled = !e.target.checked; };
+  $('flagRows').append(row);
+}
+function openItem(id) {
+  const t = id ? item(id) : {active: true, sort_order: data.things.length, flags: [], qualification_for: 'booking'};
+  editingItem = id || null;
+  const f = $('itemForm');
+  $('itemTitle').textContent = id ? 'Edit bookable item' : 'New bookable item';
+  f.name.value = t.name || '';
+  f.description.value = t.description || '';
+  f.place_id.innerHTML = '<option value="">None</option>' + (data.places || []).map(p =>
+    `<option value="${p.id}"${p.id === t.place_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+  f.type_id.innerHTML = '<option value="">None</option>' + (data.types || []).map(q =>
+    `<option value="${q.id}"${q.id === t.type_id ? ' selected' : ''}>${esc(q.name)}</option>`).join('');
+  f.qualification_for.value = t.qualification_for;
+  f.use_colour.checked = !!t.colour;
+  f.colour.value = t.colour || '#4493f8';
+  f.active.checked = t.active;
+  f.sort_order.value = t.sort_order || 0;
+  $('flagRows').innerHTML = '';
+  t.flags.forEach(addFlagRow);
+  $('itemDeleteBtn').hidden = !id;
+  $('itemError').textContent = '';
+  syncItemForm();
+  $('itemDialog').showModal();
+}
+$('itemForm').onsubmit = async event => {
+  event.preventDefault();
+  const f = event.target;
+  const body = {name: f.name.value, description: f.description.value,
+    place_id: f.place_id.value ? +f.place_id.value : null, type_id: f.type_id.value ? +f.type_id.value : null,
+    qualification_for: f.qualification_for.value, colour: f.use_colour.checked ? f.colour.value : null,
+    active: f.active.checked, sort_order: +f.sort_order.value || 0,
+    flags: [...$('flagRows').children].map(row => ({id: row.dataset.id ? +row.dataset.id : null,
+      label: row.querySelector('input[type=text]').value,
+      colour: row.querySelector('.use').checked ? row.querySelector('input[type=color]').value : null,
+      blocks_overlap: row.querySelector('.blocks').checked}))};
+  try {
+    const d = await api('/api/admin/booking-things' + (editingItem ? '/' + editingItem : ''), json(editingItem ? 'PUT' : 'POST', body));
+    $('itemDialog').close();
+    if (!editingItem) tab = String(d.id);
+    window.viewState.save();
+    load();
+  } catch (e) { $('itemError').textContent = e.message; }
+};
+async function removeItem() {
+  if (!editingItem || !confirm('Delete this bookable item?')) return;
+  try {
+    await api('/api/admin/booking-things/' + editingItem, {method: 'DELETE'});
+    $('itemDialog').close();
+    tab = 'all';
+    window.viewState.save();
+    load();
+  } catch (e) { $('itemError').textContent = e.message; }
+}
+window.viewState.setup(p => {
+  const raw = p.get('week');
+  const d = raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(raw + 'T00:00') : new Date();
+  monday = mondayOf(isNaN(d) ? new Date() : d);
+  tab = /^\d+$/.test(p.get('item') || '') ? p.get('item') : 'all';
+}, p => {
+  window.viewState.set(p, 'week', isoDate(monday) === isoDate(mondayOf(new Date())) ? '' : isoDate(monday), '');
+  window.viewState.set(p, 'item', tab === 'all' ? '' : tab, '');
+}, load);
+window.addEventListener('editchange', () => { if (me) paint(); });
+fetch('/api/me').then(r => r.json()).then(d => {
+  me = d.user;
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  load();
+}).catch(e => { $('err').textContent = e.message; });
+</script>
+</body>
+</html>

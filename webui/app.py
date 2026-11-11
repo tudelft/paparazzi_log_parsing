@@ -58,6 +58,7 @@ import saml
 import config
 import qualifications
 import training
+import bookings
 import weather
 import mav_parse
 import firmware
@@ -1382,7 +1383,7 @@ def check_logs():
 
 @app.get("/api/me")
 def me():
-    return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION, training=env_bool("TRAINING"),
+    return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION, training=env_bool("TRAINING"), bookings=env_bool("BOOKINGS"),
                    can_upload=can_upload_any(conn()), person_profile=profiles.enabled())
 
 
@@ -6965,6 +6966,7 @@ attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, en
 qualifications.register(app, lambda: conn(), STORAGE_DIR, session_required)
 training.register(app, lambda: conn(), DATA_DIR, session_required)
 profiles.register(app, lambda: conn(), session_required, now, PAGES_DIR)
+bookings.register(app, lambda: conn(), session_required, PAGES_DIR)
 
 
 if __name__ == "__main__" and len(sys.argv) > 1:
