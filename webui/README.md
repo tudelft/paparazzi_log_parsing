@@ -241,7 +241,8 @@ go to a shared mailbox) and can follow everyone's expiry reminders; **Statistics
 
 ## Qualifications and additional files
 
-**Training** (optional): when the server turns it on, a Training tab lists questionnaires. Answer one question
+**Training** (optional): when the server turns it on, a Training tab lists questionnaires. When a training has
+reading material, it opens first; confirm that you have read and understood it to start the test. Answer one question
 at a time (Next / Previous), then submit; answers (and, when the training is set up so, the questions) come in a new
 random order each attempt. After passing, **Practice again** lets you answer the questions again without changing your pass. Retry until you pass; only the passing answers and the attempt count
 are kept. A pass can grant the linked qualification immediately, or wait in the People approval queue when the
