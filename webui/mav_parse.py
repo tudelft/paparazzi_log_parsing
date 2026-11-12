@@ -21,7 +21,7 @@ from pathlib import Path
 PARSER_NAME = "mav-log"
 PARSER_VERSION = "1.0.3"
 BLACKBOX_PARSER_NAME = "blackbox"
-BLACKBOX_PARSER_VERSION = "1.0.1"
+BLACKBOX_PARSER_VERSION = "1.0.2"
 BLACKBOX_DECODE_TIMEOUT_S = 300
 
 LOG_PX4 = "px4_ulog"
@@ -392,7 +392,7 @@ def _merge_latest(streams):
     return out
 
 
-def _split_flights(samples, armed, t0_epoch, path_rate, *, airborne=None, strict_positions=False):
+def _split_flights(samples, armed, t0_epoch, path_rate, *, airborne=None, strict_positions=False, local_fallback=False):
     """samples: list of (t, dict). armed: list of (t, bool)."""
     if not samples:
         return []
@@ -511,6 +511,17 @@ def _split_flights(samples, armed, t0_epoch, path_rate, *, airborne=None, strict
         if len(gps_pts) >= 2:
             o = gps_pts[0]
             horiz = max(_haversine_m(o["lat"], o["lon"], p["lat"], p["lon"]) for p in gps_pts)
+        if local_fallback:  # no GPS (indoor Blackbox logs): climb, distance and speed from the local NED estimate
+            local = [sm for _, sm in window if None not in (sm.get("n"), sm.get("e"), sm.get("d"))]
+            if climb is None and local:
+                climb = max(sm["d"] for sm in local) - min(sm["d"] for sm in local)
+            if horiz is None and len(local) >= 2:
+                horiz = max(math.hypot(sm["n"] - local[0]["n"], sm["e"] - local[0]["e"]) for sm in local)
+            if not any(sm.get("gs") is not None for _, sm in window):
+                speeds = [math.hypot(sm["vn"], sm["ve"]) for _, sm in window
+                          if sm.get("vn") is not None and sm.get("ve") is not None]
+                if speeds:
+                    max_gs = max(speeds)
         motors = 1.0 if has_arming else None
         to = _event(t_a, t0_epoch + t_a if t0_epoch is not None else None,
                     gps_first.get("lat"), gps_first.get("lon"), gps_first.get("alt"), gps_first.get("volt") or first.get("volt"),
@@ -1824,7 +1835,7 @@ def _blackbox_document(path, digest, size, headers, rows, path_rate):
     kind, _basis = _blackbox_kind(headers)
     t0_epoch = _blackbox_epoch(headers)
     samples, armed, t_first, t_last = _blackbox_collect(headers, rows, path_rate, kind == LOG_INDI)
-    flights = _split_flights(samples, armed, t0_epoch, path_rate) if samples else []
+    flights = _split_flights(samples, armed, t0_epoch, path_rate, local_fallback=True) if samples else []
     return _blackbox_finish(path, digest, size, headers, flights, t_first, t_last, path_rate)
 
 
@@ -1841,7 +1852,7 @@ def _parse_blackbox(path, digest, size, path_rate, decoder=None):
         samples, armed, tf, tl = _blackbox_collect(headers, rows, path_rate, kind == LOG_INDI)
         if not samples:
             continue
-        flights.extend(_split_flights(samples, armed, epoch, path_rate))
+        flights.extend(_split_flights(samples, armed, epoch, path_rate, local_fallback=True))
         if first_epoch is None:
             first_epoch = epoch
         if epoch is not None and tl is not None:
