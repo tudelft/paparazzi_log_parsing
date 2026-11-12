@@ -58,17 +58,18 @@ to gain descriptions and previously omitted crew entries.
   revision, linking to that exact commit on GitHub.
   **(modified)** indicates local code changes; this is separate from the telemetry parser version.
 - Use **Flight filters** in the top menu to select a period (default: last three years), custom
-  UTC dates, **Show indoor / no-GPS flights**, **Show non-flights** and **Show unknown dates**.
-  Unknown-date records are hidden by default. **Show unknown dates** includes them alongside the
-  selected period, independently of **Show non-flights**; other visibility filters still apply.
-  Corrected and **estimated dates** follow the selected period normally, even with **Show unknown dates**
-  off. Estimated dates are labelled: the GPS time of day is known but the week is guessed from the
+  UTC dates, **Hide indoor / no-GPS flights**, **Hide non-flights** and **Hide unknown dates**.
+  By default everything is shown; ticked options stay saved in this browser. Unknown-date records are
+  shown alongside the selected period unless **Hide unknown dates** is ticked, independently of
+  **Hide non-flights**; other visibility filters still apply.
+  Corrected and **estimated dates** follow the selected period normally, even with **Hide unknown dates**
+  ticked. Estimated dates are labelled: the GPS time of day is known but the week is guessed from the
   firmware commit. Confirm or correct the date in Edit mode. Choose **Apply filters**;
   the selection stays the same when moving between pages in this browser. **Reset** restores
   the defaults after applying. The filters cover Logbook, Statistics, Locations and individual
   person, aircraft, project and location overviews, including their totals, maps, charts and
   flight lists. Detail-page log lists show contributing logs; zero-flight logs appear only
-  with **Show non-flights** enabled and within the selected period.
+  without **Hide non-flights** and within the selected period.
 - On a flight's **Path & charts** tab, use **Show sectors** to hide/show flight-plan sector
   boundaries independently of the flight-plan waypoint markers. Waypoint names appear above
   their dots with a subtle text halo; **Show flight plan** hides/shows both the dots and names. Waypoints whose names
@@ -83,8 +84,9 @@ to gain descriptions and previously omitted crew entries.
   including paper records. **Monthly activity** switches between hours and flights; hover over a bar for both.
   Unknown dates are excluded from flying days and monthly activity, with an explanatory count on the chart.
   Aircraft, project and crew tables scroll independently, with column headings kept visible.
-- Detected simulations are labelled and excluded from overview totals by default. Enable **Show
-  non-flights** to include simulations, uncertain flights and ground records. Flight details show the evidence; reparse outdated Paparazzi
+- Detected simulations, uncertain flights (marked (?)) and ground records are non-flights: tick **Hide
+  non-flights** to leave them out of lists and totals. In Edit mode, an expanded logbook flight has a
+  **Classification** choice (Automatic, Flight or Not a flight) for when the estimate is wrong. Flight details show the evidence; reparse outdated Paparazzi
   uploads to assess older recordings.
 - A missing telemetry endpoint location uses the other endpoint's GPS position for display.
   Flights with both endpoint locations unknown are included in indoor/no-GPS filtering, even if a partial

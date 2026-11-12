@@ -256,6 +256,7 @@ CREATE TABLE IF NOT EXISTS flights (
     track_quality TEXT,                -- JSON timing/density summary; SQL NULL = not backfilled
     link_json TEXT,                    -- datalink summary from the parser (ping, longest gap, errors, signal); NULL = none
     verdict TEXT,                      -- parser estimate: flight | uncertain | ground
+    verdict_override TEXT CHECK(verdict_override IN ('flight','ground')),  -- set by hand in Edit mode; NULL: the parser's
     assessment_json TEXT,              -- score, reasons and metrics behind the verdict
     project_id INTEGER,                -- projects.id; auto from aircraft / uploader / GCS / PIC, then editable
     project_source TEXT,               -- timeline | timeline_undated (only project, no date) | manual; NULL: legacy
@@ -725,6 +726,8 @@ def init(path):
             con.execute(f"ALTER TABLE flights ADD COLUMN {col} INTEGER")
     if "comment" not in {r[1] for r in con.execute("PRAGMA table_info(flights)")}:
         con.execute("ALTER TABLE flights ADD COLUMN comment TEXT")
+    if "verdict_override" not in {r[1] for r in con.execute("PRAGMA table_info(flights)")}:
+        con.execute("ALTER TABLE flights ADD COLUMN verdict_override TEXT CHECK(verdict_override IN ('flight','ground'))")
     fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
     if "distance_m" not in fcols:
         con.execute("ALTER TABLE flights ADD COLUMN distance_m REAL")

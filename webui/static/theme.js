@@ -142,7 +142,9 @@ window.timingEvidenceHTML = function (timing) {
   const OPERATORS = {all: 'All operators', own: 'Own operations only', other: 'Other operators only'};
   const CATEGORIES = {all: 'All categories', national: 'National rules (ROC / ROC-light)', open: 'OPEN', specific: 'SPECIFIC',
     luc: 'LUC', indoor: 'Indoor', unknown: 'Unknown category', check: 'Category to check'};
-  const defaults = () => ({period: '3y', from: '', to: '', indoor: false, nonflights: false, unknownDates: false, operator: 'all', category: 'all'});
+  // indoor, nonflights and unknownDates mean "shown"; by default everything is shown (the panel offers Hide options).
+  // Saved selections keep their values, so a browser that hid them keeps hiding them.
+  const defaults = () => ({period: '3y', from: '', to: '', indoor: true, nonflights: true, unknownDates: true, operator: 'all', category: 'all'});
   let storageWarning = '';
   const validDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)
     && !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
@@ -162,7 +164,7 @@ window.timingEvidenceHTML = function (timing) {
         throw new Error('Invalid saved flight filters');
       }
       return {period: value.period, from: value.from, to: value.to,
-        indoor: value.indoor, nonflights: value.nonflights, unknownDates: value.unknownDates ?? false,
+        indoor: value.indoor, nonflights: value.nonflights, unknownDates: value.unknownDates ?? true,
         operator: value.operator ?? 'all', category: value.category ?? 'all'};
     } catch (error) {
       console.warn('Could not restore flight filters:', error);
@@ -250,7 +252,7 @@ window.timingEvidenceHTML = function (timing) {
   function paint() {
     const button = document.getElementById('flightFiltersButton');
     if (!button) return;
-    const extra = Number(state.indoor) + Number(state.nonflights) + Number(state.unknownDates) + Number(state.operator !== 'all') + Number(state.category !== 'all');
+    const extra = Number(!state.indoor) + Number(!state.nonflights) + Number(!state.unknownDates) + Number(state.operator !== 'all') + Number(state.category !== 'all');
     // a funnel icon, then the period and how many other filters are changed (the full summary is the tooltip)
     button.innerHTML = '<svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
       + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>'
@@ -275,13 +277,13 @@ window.timingEvidenceHTML = function (timing) {
         <label class="filter-field">Operator<select name="operator">${Object.entries(OPERATORS).map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select></label>
         <label class="filter-field">Category<select name="category">${Object.entries(CATEGORIES).map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select></label>
         <div class="filter-options">
-          <label><input type="checkbox" name="indoor"> Show indoor / no-GPS flights</label>
-          <label><input type="checkbox" name="nonflights"> Show non-flights</label>
-          <label><input type="checkbox" name="unknownDates"> Show unknown dates</label>
+          <label><input type="checkbox" name="indoor"> Hide indoor / no-GPS flights</label>
+          <label><input type="checkbox" name="nonflights"> Hide non-flights</label>
+          <label><input type="checkbox" name="unknownDates"> Hide unknown dates</label>
         </div>
         <details class="filter-help"><summary>Help</summary>
-          <p>Non-flights include simulations, uncertain flights, ground records and zero-flight log files.</p>
-          <p>Show unknown dates includes records without a known date alongside the selected period. Other visibility filters still apply.</p>
+          <p>Non-flights are simulations, uncertain flights, ground records and zero-flight log files; uncertain flights are marked (?). In Edit mode a flight can be confirmed as a flight or not a flight.</p>
+          <p>Records without a known date are shown alongside the selected period unless Hide unknown dates is ticked. Other visibility filters still apply.</p>
           <p>Own operations are flights under our own operator registration: use them for operator reporting. Pilot experience counts all operators.</p>
           <p>Category: the rules a flight was flown under. Before 2021 that was national rules (ROC / ROC-light); since then OPEN or SPECIFIC under an operational authorisation. To check: SPECIFIC without an authorisation, or flown outside its validity.</p>
           <p>Shared across flight overviews in this browser. Changing pages keeps these settings.</p>
@@ -301,7 +303,7 @@ window.timingEvidenceHTML = function (timing) {
     }
     function fill(value) {
       for (const key of ['period', 'from', 'to', 'operator', 'category']) fields[key].value = value[key];
-      for (const key of ['indoor', 'nonflights', 'unknownDates']) fields[key].checked = value[key];
+      for (const key of ['indoor', 'nonflights', 'unknownDates']) fields[key].checked = !value[key];  // ticked = hidden
       syncDates();
     }
     function close(focus = false) {
@@ -340,7 +342,7 @@ window.timingEvidenceHTML = function (timing) {
         return;
       }
       state = {period: fields.period.value, from: custom ? fields.from.value : '', to: custom ? fields.to.value : '',
-        indoor: fields.indoor.checked, nonflights: fields.nonflights.checked, unknownDates: fields.unknownDates.checked,
+        indoor: !fields.indoor.checked, nonflights: !fields.nonflights.checked, unknownDates: !fields.unknownDates.checked,
         operator: fields.operator.value, category: fields.category.value};
       try { localStorage.setItem(KEY, JSON.stringify(state)); storageWarning = ''; }
       catch (error) {
