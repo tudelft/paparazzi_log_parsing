@@ -20,7 +20,7 @@ html.night {
   --field:#101820; --fieldline:#3a4b60;
 }
 
-html.night header { background:#0c1218; }
+html.night header { background:#1b2a3d; border-bottom:1px solid #34495f; box-shadow:0 1px 6px rgba(0,0,0,.45); }
 main a { color:var(--acc); }
 #webuiVersion { padding:12px 20px 18px; text-align:center; font-size:12px; color:var(--mute); }
 #webuiVersion a { color:var(--mute); text-decoration:none; overflow-wrap:anywhere; }

@@ -1901,8 +1901,9 @@ flight filters (`category=all|national|open|specific|luc|indoor|unknown|check`) 
 - Paper-record CSV: optional `category` (key or label) and `authorisation` (name) columns. Like the operator, they
   are not part of a record's fingerprint, and a CSV without them leaves existing records as they are.
 
-**Edit mode.** The Edit button in the menu bar shows the forms and menus to change things on the Logbook, People,
-Projects, Aircraft and Locations pages; it stays on until you turn it off. With edit mode on, admins also see the names in the
+**Edit mode.** The Edit button in the menu bar shows the forms and menus to change things on the pages that have them
+(Logbook, Logs, People, Projects, Aircraft, Locations, Agenda, Training, Documents, …); it is one setting for all pages,
+so the button is on every page, and it stays on until you turn it off. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
 are left.
 

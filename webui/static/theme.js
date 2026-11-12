@@ -597,7 +597,7 @@ window.timingEvidenceHTML = function (timing) {
     const actions = document.createElement('span');
     actions.id = 'headerActions';
     actions.className = 'header-actions';
-    actions.innerHTML = `<button type="button" id="downloadBtn" title="Download logs by flight number from Python or MATLAB">⬇<span class="upload-label"> Download logs <small>(Python/MATLAB)</small></span></button>
+    actions.innerHTML = `<button type="button" id="downloadBtn" title="Download logs by flight number from Python or MATLAB">⬇<span class="upload-label"> Download logs</span></button>
       <button type="button" id="uploadBtn" title="Upload log files, zips or folders (or drop them on the page)">⬆<span class="upload-label"> Upload logs</span></button>
       <button type="button" id="userMenuBtn"></button>`;
     const nameButton = actions.querySelector('#userMenuBtn');
@@ -731,11 +731,11 @@ window.timingEvidenceHTML = function (timing) {
     footer.replaceChildren(brand, credit);
   }
 
-  // Pages opt in with <body data-edit="all"> or <body data-edit="admin">.
+  // On every page with the header actions: Edit mode is one setting for all pages, so its switch is always in the
+  // same place (pages without anything to edit simply show nothing extra).
   function paintEdit() {
     const anchor = document.getElementById('userMenuBtn');
-    const kind = document.body && document.body.dataset.edit;
-    if (!anchor || !kind) return;
+    if (!anchor) return;
     let btn = document.getElementById('editBtn');
     if (!btn) {
       btn = document.createElement('button');
@@ -746,7 +746,6 @@ window.timingEvidenceHTML = function (timing) {
       btn.onclick = window.toggleEditMode;
       anchor.before(btn);
     }
-    btn.hidden = kind === 'admin' && !admin;
     btn.setAttribute('aria-pressed', window.editMode() ? 'true' : 'false');
   }
 
