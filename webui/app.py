@@ -335,6 +335,8 @@ def start_workers():
     backfill_gps_positions(con)
     seed_drone_projects_from_defaults(con)
     relink_unlinked_aircraft(con)
+    if gone := remove_file_name_aliases(con):
+        app.logger.warning("removed %d aircraft alias(es) that were only a log file name", gone)
     assign_open_flights(con)
     links.auto_link(con, now())
     if merged := attachments.merge_duplicates(con, STORAGE_DIR):
@@ -1752,7 +1754,7 @@ def resolve_drone(names, drones, name):
 
 _HEX_ID = re.compile(r"[0-9A-Fa-f]{8,36}")
 _DATE_FOLDER = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_LOG_STEM_ALIAS = re.compile(r"^log\d+$", re.I)
+_LOG_STEM_ALIAS = re.compile(r"^log\d+([ ._-].*)?$", re.I)  # LOG00159, LOG00159_manualShakedown
 _GENERIC_LOG_FOLDERS = {
     "log", "logs", "ulg", "bin", "tlog", "data", "px4", "px4logs", "ardupilot", "upload",
     "uploads", "download", "downloads", "desktop", "documents", "incoming",
@@ -1808,6 +1810,19 @@ def matching_drones_for_folder(con, folder):
     return hits
 
 
+def remove_file_name_aliases(con):
+    """Once at start: drop aliases that are only a log file's name (see is_file_name), learned before that was
+    filtered. Only aliases equal to a logged name of a log of that same aircraft go; hand-made aliases stay."""
+    gone = 0
+    for r in con.execute("SELECT DISTINCT d.drone_id, d.alias, l.name AS log_name FROM drone_aliases d"
+                         " JOIN aircraft a ON a.drone_id=d.drone_id AND TRIM(a.name)=d.alias COLLATE NOCASE"
+                         " JOIN logs l ON l.id=a.log_id").fetchall():
+        if is_file_name(r["alias"], r["log_name"]):
+            gone += con.execute("DELETE FROM drone_aliases WHERE drone_id=? AND alias=?", (r["drone_id"], r["alias"])).rowcount
+    con.commit()
+    return gone
+
+
 def guess_drone_from_log_path(con, log_name):
     """If a folder in the upload path uniquely matches one fleet aircraft, use that.
 
@@ -1822,8 +1837,23 @@ def guess_drone_from_log_path(con, log_name):
     return None
 
 
-def remember_drone_log_identity(con, drone_id, logged_name):
-    """After a PX4/ArduPilot log is linked, remember the logged name and board id as aliases."""
+def is_file_name(name, log_name=None):
+    """True for a logged name that is only a log file's name: the parser uses the file name when a log carries no
+    craft name (Betaflight/INDIFlight without one, PX4 without an airframe). Such a name says nothing about the
+    aircraft, so it is never remembered as an alias and not listed under Names in logs."""
+    name = (name or "").strip()
+    if not name:
+        return False
+    if _LOG_STEM_ALIAS.match(name):
+        return True
+    stem = posixpath.splitext(posixpath.basename((log_name or "").replace("\\", "/")))[0]
+    return bool(stem) and name.casefold() == stem.casefold()
+
+
+def remember_drone_log_identity(con, drone_id, logged_name, log_name=None):
+    """After a PX4/ArduPilot log is linked, remember the logged name and board id as aliases (not a file name)."""
+    if is_file_name(logged_name, log_name):
+        return
     labels = [(logged_name or "").strip()]
     labels.extend(identity_tokens(logged_name))
     for label in labels:
@@ -2021,7 +2051,7 @@ def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None, remember_ide
         if d is None and not ambiguous:
             d = guess_drone_from_log_path(con, log_name)
         if d is not None and not ambiguous and not override and remember_identity:
-            remember_drone_log_identity(con, d["id"], a["name"])
+            remember_drone_log_identity(con, d["id"], a["name"], log_name)
             drones, names = drone_name_map(con)
             if cache is not None:
                 cache["names"] = drones, names
@@ -6269,8 +6299,9 @@ def detail_aircraft(con, drone_id, admin, mine):
     out.pop("record_count")
     if not admin and d["default_project_id"] not in mine:
         out["default_project_id"] = out["default_project_name"] = None
-    out["logged_names"] = [r["name"] for r in con.execute(
-        "SELECT DISTINCT name FROM aircraft WHERE drone_id=? AND name IS NOT NULL ORDER BY name", (drone_id,))]
+    out["logged_names"] = sorted({r["name"] for r in con.execute(
+        "SELECT a.name, l.name AS log_name FROM aircraft a JOIN logs l ON l.id=a.log_id"
+        " WHERE a.drone_id=? AND a.name IS NOT NULL", (drone_id,)) if not is_file_name(r["name"], r["log_name"])})
     out["ac_ids"] = [r["ac_id"] for r in con.execute(
         "SELECT DISTINCT ac_id FROM aircraft WHERE drone_id=? AND ac_id IS NOT NULL ORDER BY ac_id", (drone_id,))]
     return out
