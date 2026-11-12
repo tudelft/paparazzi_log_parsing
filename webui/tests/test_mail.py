@@ -116,6 +116,21 @@ class MailTests(AppTests):
         mail.queue_reminders(self.con, datetime.date(2026, 11, 20))
         self.assertEqual(self.send(), [])
 
+    def test_admin_books_for_someone_and_moves_it(self):
+        self.con.execute("INSERT INTO booking_things(id,name) VALUES (1,'Arena')")
+        self.con.commit()
+        with patch.dict(os.environ, {"LOGDB_BOOKINGS": "1"}):
+            self.sign_in(1)
+            body = {"thing_id": 1, "description": "Demo", "start": "2026-11-16T10:00", "end": "2026-11-16T11:00", "user_id": 2}
+            bid = self.client.post("/api/bookings", json=body).json["id"]
+            msg, = self.send()
+            self.assertEqual((msg["To"], msg["Subject"]), ("Pilot <pic@example.org>", "Booked: Arena, Mon 16 Nov 2026 10:00–11:00"))
+            self.assertIn("Admin booked Arena for you", msg.get_body(("plain",)).get_content())
+            moved = {**body, "start": "2026-11-17T10:00", "end": "2026-11-17T11:00"}
+            self.assertEqual(self.client.put(f"/api/bookings/{bid}", json=moved).status_code, 200)
+            msg, = self.send()
+            self.assertEqual((msg["To"], msg["Subject"]), ("Pilot <pic@example.org>", "Changed: your booking of Arena"))
+
     def test_bookings_and_admin_notices(self):
         self.con.execute("INSERT INTO booking_things(id,name,colour) VALUES (1,'Arena','#2da44e')")
         self.con.execute("INSERT INTO booking_flags(id,thing_id,label) VALUES (1,1,'Shared')")

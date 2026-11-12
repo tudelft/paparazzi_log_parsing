@@ -49,6 +49,8 @@
     font-size:10.5px; line-height:15px; color:var(--txt); background:var(--card); white-space:nowrap; }
   .bk .tag { display:inline-block; max-width:100%; color:var(--txt); overflow:hidden; text-overflow:ellipsis; }
   .tag i { display:inline-block; width:7px; height:7px; margin-right:3px; border-radius:50%; background:var(--c, var(--mute)); }
+  .bk.movable { cursor:grab; user-select:none; }
+  .bk.moving { opacity:.45; }
   .ghost { position:absolute; left:2px; right:2px; border-radius:5px; background:color-mix(in srgb, var(--acc) 25%, transparent);
     border:1px dashed var(--acc); font-size:11px; padding:1px 4px; pointer-events:none; color:var(--txt); }
   .flag-chips { display:flex; flex-wrap:wrap; gap:6px; }
@@ -92,7 +94,7 @@
       <button type="button" id="newBtn" onclick="openBooking()">New booking</button>
       <span class="legend" id="legend"></span>
       <button type="button" class="sec" onclick="openCalendar()" title="Show this agenda in your own calendar app">Subscribe</button>
-      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day to book that time (a click books an hour). Options a booking ticks show as tags, with their colour; the block's colour is the item's. With one item there are no tabs. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item overlap only when both set a shared option (for example "Others allowed") and neither sets a blocking one (for example "Demo"); an item without options never overlaps. Some items need a current qualification to book, or to see their agenda at all. You can change or delete your own bookings; administrators can change any and set up the items in Edit mode. Times are local.</p></details>
+      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day to book that time (a click books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's. With one item there are no tabs. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item overlap only when both set a shared option (for example "Others allowed") and neither sets a blocking one (for example "Demo"); an item without options never overlaps. Some items need a current qualification to book, or to see their agenda at all. You can change or delete your own bookings; administrators can book for someone else, change any booking and set up the items in Edit mode. Times are local.</p></details>
     </div>
     <div class="page-tabs" id="tabs" aria-label="Bookable items"></div>
     <p id="about"></p>
@@ -108,6 +110,8 @@
   <form id="bookingForm">
     <div class="dialog-header"><h2 id="bookingTitle">New booking</h2><button type="button" class="sec" onclick="$('bookingDialog').close()">Close</button></div>
     <p class="mute" id="bookedBy"></p>
+    <p class="mute" id="moveNote" hidden></p>
+    <label class="field" id="ownerField" hidden>Booked for<select name="user_id"></select></label>
     <label class="field">Item<select name="thing_id" onchange="paintFlagChecks([])"></select></label>
     <label class="field">Description<textarea name="description" required maxlength="500"></textarea></label>
     <div class="two">
@@ -256,7 +260,9 @@ function paintAbout() {
   const legend = t ? [] : single() ? [] : data.things.filter(x => x.can_view && x.colour).map(x => [x.colour, x.name]);
   $('legend').innerHTML = legend.map(([c, label]) => `<span><i style="--c:${esc(c)}"></i>${esc(label)}</span>`).join('');
 }
-function bookable() { const t = current(); return t ? t.can_book : data.things.some(x => x.can_book); }
+// Administrators may book any open item (for themselves only with the qualification; the server checks that).
+const canBookItem = t => t.can_book || !!(me && me.is_admin && t.active);
+function bookable() { const t = current(); return t ? canBookItem(t) : data.things.some(canBookItem); }
 // Overlapping bookings of one day sit side by side: lanes per group of bookings that overlap in time.
 function layout(pieces) {
   pieces.sort((a, b) => a.s - b.s || b.e - a.e);
@@ -304,7 +310,7 @@ function paint(scroll) {
       const when = `${p.b.start.slice(11)}–${p.b.end.slice(11)}`;
       const tip = [tab === 'all' ? t.name : '', p.b.description, p.b.person, `${p.b.start.replace('T', ' ')} – ${p.b.end.replace('T', ' ')}`, ...flags]
         .filter(Boolean).join(' · ');
-      return `<div role="button" tabindex="0" class="bk" data-id="${p.b.id}" title="${esc(tip)}"
+      return `<div role="button" tabindex="0" class="bk${p.b.can_edit ? ' movable' : ''}" data-id="${p.b.id}" data-piece="${pieces.indexOf(p)}" title="${esc(tip)}"
         style="--c:${esc(colourOf(p.b))};top:${(p.s - first) * HOUR}px;height:${Math.max((p.e - p.s) * HOUR - 2, 18)}px;
         left:calc(${p.lane / p.n * 100}% + 2px);width:calc(${100 / p.n}% - 4px)">
         <b>${esc(tab === 'all' ? t.name + ': ' + p.b.description : p.b.description)}</b><span>${esc(p.b.person)} · ${when}</span>
@@ -313,7 +319,8 @@ function paint(scroll) {
   });
   $('week').innerHTML = html;
   $('week').querySelectorAll('.bk').forEach(el => {
-    el.onclick = e => { e.stopPropagation(); openBooking(null, +el.dataset.id); };
+    el.onclick = e => { e.stopPropagation(); if (!el.dataset.dragged) openBooking(null, +el.dataset.id); };
+    if (el.classList.contains('movable')) bindMove(el, pieces[+el.dataset.piece], first);
     el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBooking(null, +el.dataset.id); } };
   });
   $('week').querySelectorAll('.col.bookable').forEach(col => bindSlotDrag(col, first));
@@ -363,6 +370,46 @@ function bindSlotDrag(col, first) {
     openBooking(time(q));
   };
 }
+// Drag a booking (mouse or pen) to another time or day, in quarter hours with the same length. Nothing is saved yet:
+// the booking opens with the new times, so Save confirms the move (and sends at most the usual emails).
+const shifted = (b, days, quarters) => [b.start, b.end].map(t => {
+  const d = new Date(t);
+  d.setDate(d.getDate() + days);
+  d.setMinutes(d.getMinutes() + quarters * 15);
+  return local(d);
+});
+function bindMove(el, p, first) {
+  const QUARTER = HOUR / 4;
+  el.onpointerdown = e => {
+    if (e.pointerType === 'touch' || e.button !== 0) return;
+    const cols = [...$('week').querySelectorAll('.col')];
+    let ghost = null, days = 0, quarters = 0;
+    el.setPointerCapture(e.pointerId);
+    el.onpointermove = m => {
+      if (!ghost && Math.hypot(m.clientX - e.clientX, m.clientY - e.clientY) < 5) return;
+      if (!ghost) { ghost = document.createElement('div'); ghost.className = 'ghost'; el.classList.add('moving'); }
+      const col = cols.find(c => { const r = c.getBoundingClientRect(); return m.clientX >= r.left && m.clientX < r.right; }) || cols[p.i];
+      days = cols.indexOf(col) - p.i;
+      quarters = Math.round((m.clientY - e.clientY) / QUARTER);
+      const [start, end] = shifted(p.b, days, quarters);
+      if (ghost.parentNode !== col) col.append(ghost);
+      ghost.style.top = (p.s - first) * HOUR + quarters * QUARTER + 'px';
+      ghost.style.height = el.offsetHeight + 'px';
+      ghost.textContent = `${start.slice(11)}–${end.slice(11)}`;
+    };
+    el.onpointerup = el.onpointercancel = u => {
+      el.onpointermove = el.onpointerup = el.onpointercancel = null;
+      if (!ghost) return;
+      ghost.remove();
+      el.classList.remove('moving');
+      el.dataset.dragged = '1';  // not the click that ends the drag
+      setTimeout(() => { delete el.dataset.dragged; });
+      if (u.type === 'pointercancel' || (!days && !quarters)) return;
+      const [start, end] = shifted(p.b, days, quarters);
+      openBooking(null, p.b.id, null, {start, end});
+    };
+  };
+}
 // Admins (Edit mode) drag the item tabs to order them.
 function bindTabOrder() {
   const tabs = [...$('tabs').querySelectorAll('[role=tab]')].filter(b => b.dataset.tab !== 'all');
@@ -395,17 +442,25 @@ function paintFlagChecks(checked) {
   const disabled = f.description.disabled;
   $('flagChecks').querySelectorAll('input').forEach(i => { i.disabled = disabled; });
 }
-function openBooking(start, id, end) {
+function openBooking(start, id, end, moved) {
   const b = id ? data.bookings.find(x => x.id === id) : null;
   editing = b;
   const f = $('bookingForm');
   const canEdit = b ? b.can_edit : true;
-  const choices = b ? [item(b.thing_id)] : data.things.filter(t => t.can_book && (tab === 'all' || t.id === +tab));
+  const choices = b ? [item(b.thing_id)] : data.things.filter(t => canBookItem(t) && (tab === 'all' || t.id === +tab));
   if (!choices.length) return;
   f.thing_id.innerHTML = choices.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
   f.thing_id.disabled = !!b || choices.length < 2;
-  $('bookingTitle').textContent = b ? (canEdit ? 'Edit booking' : 'Booking') : 'New booking';
+  $('bookingTitle').textContent = moved ? 'Move booking' : b ? (canEdit ? 'Edit booking' : 'Booking') : 'New booking';
+  const owner = me.is_admin && canEdit && data.people;  // administrators book for (or hand over to) someone else
+  const ownerId = b ? b.user_id : me.id;
+  $('ownerField').hidden = !owner;
+  if (owner) f.user_id.innerHTML = (data.people.some(x => x.id === ownerId) ? data.people : [...data.people, {id: ownerId, name: b.person}])
+    .map(x => `<option value="${x.id}"${x.id === ownerId ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
+  $('bookedBy').hidden = !!owner;
   $('bookedBy').textContent = 'Booked by ' + (b ? b.person : me.display_name);
+  $('moveNote').hidden = !moved;
+  if (moved) $('moveNote').textContent = `Was ${b.start.replace('T', ' ')} – ${b.end.replace('T', ' ')}. Save to move it.`;
   let from;
   if (start) from = new Date(start);
   else {
@@ -418,8 +473,8 @@ function openBooking(start, id, end) {
   to.setHours(to.getHours() + 1);
   if (end) to = new Date(end);
   f.description.value = b ? b.description : '';
-  f.start.value = b ? b.start : local(from);
-  f.end.value = b ? b.end : local(to);
+  f.start.value = moved ? moved.start : b ? b.start : local(from);
+  f.end.value = moved ? moved.end : b ? b.end : local(to);
   [f.description, f.start, f.end].forEach(el => { el.disabled = !canEdit; });
   paintFlagChecks(b ? b.flags : []);
   $('bookingActions').hidden = !canEdit;
@@ -432,6 +487,7 @@ $('bookingForm').onsubmit = async event => {
   const f = event.target;
   const body = {thing_id: +f.thing_id.value, description: f.description.value, start: f.start.value, end: f.end.value,
     flags: [...$('flagChecks').querySelectorAll('input:checked')].map(i => +i.value)};
+  if (!$('ownerField').hidden) body.user_id = +f.user_id.value;
   try {
     await api('/api/bookings' + (editing ? '/' + editing.id : ''), json(editing ? 'PUT' : 'POST', body));
     $('bookingDialog').close();

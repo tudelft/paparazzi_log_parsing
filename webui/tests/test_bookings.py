@@ -107,6 +107,23 @@ class BookingTests(AppTests):
         self.assertEqual(self.client.put(f"/api/bookings/{bid}", json=body).status_code, 200)
         self.assertEqual(self.client.delete(f"/api/bookings/{bid}").status_code, 200)
 
+    def test_admin_books_for_someone_else_and_hands_over(self):
+        body = {"thing_id": self.room, "description": "Demo", "start": "2030-01-07T10:00", "end": "2030-01-07T11:00"}
+        self.assertEqual(self.client.post("/api/bookings", json={**body, "user_id": 3}).status_code, 403)  # not an admin
+        self.assertNotIn("people", self.week().json)
+        self.sign_in(1)
+        self.assertIn(3, [p["id"] for p in self.week().json["people"]])
+        self.assertEqual(self.client.post("/api/bookings", json={**body, "user_id": 999}).status_code, 400)
+        bid = self.client.post("/api/bookings", json={**body, "user_id": 3}).json["id"]
+        self.assertEqual(self.week().json["bookings"][0]["user_id"], 3)
+        moved = {**body, "start": "2030-01-08T14:00", "end": "2030-01-08T15:00", "user_id": 2}
+        self.assertEqual(self.client.put(f"/api/bookings/{bid}", json=moved).status_code, 200)
+        b = self.week().json["bookings"][0]
+        self.assertEqual((b["user_id"], b["start"]), (2, "2030-01-08T14:00"))
+        self.sign_in(2)  # the new owner can change it; without user_id it stays theirs
+        self.assertEqual(self.client.put(f"/api/bookings/{bid}", json=body).status_code, 200)
+        self.assertEqual(self.week().json["bookings"][0]["user_id"], 2)
+
     def test_admin_manages_items(self):
         self.assertEqual(self.client.post("/api/admin/booking-things", json={"name": "Hall"}).status_code, 403)
         self.book(self.room)
