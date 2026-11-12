@@ -88,14 +88,17 @@
     <div class="project-toolbar"><h2>Projects</h2>
     <input type="search" id="projectSearch" aria-label="Search projects" placeholder="Search projects or members" oninput="render()">
     <span class="mute" id="projectCount" role="status"></span>
+    <span class="row" id="projectActions" hidden>
+      <button type="button" onclick="$('add').reset(); $('addProjectDialog').showModal(); $('name').focus()">Add project</button>
+      <button type="button" class="sec" onclick="$('importProjectsDialog').showModal()">Import CSV</button></span>
     <details><summary>Help</summary><p id="hint">A project is a separate set of flight logs. Open a project to see its flights.</p></details></div>
-    <form class="row" id="add" hidden onsubmit="addProject(event)">
-      <label class="field">Name<input id="name" required maxlength="80"></label>
-      <button type="submit">Create project</button>
-    </form>
-    <div class="row" id="importSection" hidden>
-      <button type="button" class="sec" onclick="$('importProjectsDialog').showModal()">Import projects from CSV</button>
-    </div>
+    <dialog class="entry-dialog" id="addProjectDialog" aria-labelledby="addProjectTitle" style="width:min(420px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+      <div class="dialog-header"><h2 id="addProjectTitle">Add project</h2><button type="button" onclick="$('addProjectDialog').close()" aria-label="Close Add project">Close</button></div>
+      <form id="add" onsubmit="addProject(event)">
+        <label class="field">Name<input id="name" required maxlength="80"></label>
+        <button type="submit">Create project</button>
+      </form>
+    </dialog>
     <dialog class="entry-dialog" id="importProjectsDialog" aria-labelledby="importProjectsTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
       <div class="dialog-header"><h2 id="importProjectsTitle">Import projects from CSV</h2><button type="button" onclick="$('importProjectsDialog').close()" aria-label="Close CSV import">Close</button></div>
       <p>Columns: <code>project,person,role</code>, one row per member. Roles: <code>view</code>, <code>add</code> (view/upload; default), <code>full</code> (also delete). Match people by unique display name or alias.</p>
@@ -196,12 +199,12 @@ function applyTicks(prefix) {
 
 const editing = () => !!(me && me.is_admin && window.editMode());
 function syncEdit() {
-  $('add').hidden = !editing();
+  $('projectActions').hidden = !editing();
+  if (!editing()) $('addProjectDialog').close();
   $('addOperatorButton').hidden = !(me && window.editMode());  // anyone can add a partner; only admins mark our own
   $('addAuthorisationButton').hidden = !editing();
   if (!window.editMode()) { $('addOperatorDialog').close(); $('addAuthorisationDialog').close(); }
   $('opOwnField').hidden = !editing();
-  $('importSection').hidden = !editing();
   if (!editing()) $('importProjectsDialog').close();
   $('hint').textContent = editing()
     ? 'Select a project to manage its current members. Search for another person to add them. See, Upload and Delete permissions are saved immediately; untick all permissions to remove a member.'
@@ -424,6 +427,7 @@ async function addProject(ev) {
   const name = $('name').value.trim();
   if (!name) return;
   $('name').value = '';
+  $('addProjectDialog').close();
   const before = new Set(projects.map(p => p.id));
   await send('/api/admin/projects', 'POST', {name});
   const created = projects.find(p => !before.has(p.id));

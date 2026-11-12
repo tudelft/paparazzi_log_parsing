@@ -60,7 +60,7 @@
   #profileImportPreview td { white-space:normal; max-width:none; overflow-wrap:anywhere; }
   .profiles-table th[aria-sort=ascending] button, .profiles-table th[aria-sort=descending] button { color:var(--txt); }
   .profiles-table td { padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:240px; }
-  .supervision-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(520px, 1fr)); gap:12px; }
+  .supervision-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(520px, 1fr)); gap:12px; align-items:start; }
   .supervision-group { border:1px solid var(--fieldline); border-left:4px solid var(--acc); border-radius:8px; padding:10px 12px; background:var(--detail); min-width:0; }
   .supervision-group.external { border-left-color:var(--mute); }
   .supervision-group h3 { margin:0; font-size:14px; }
@@ -275,7 +275,7 @@
       <button type="button" class="sec" id="profilesImportBtn" hidden onclick="openProfileImport()">Import CSV</button>
       <details><summary>Help</summary><p>Admins see everyone who can sign in; supervisors see the people they supervise, without numbers. Click a column heading to sort. <em>Incomplete</em> lists people who still have to fill in (part of) their profile; they are asked at their next sign-in. The flights are those as PIC within the flight filters.</p></details></div>
     <div class="scroll"><table class="profiles-table"><thead><tr id="profilesHead"></tr></thead><tbody id="profilesRows"></tbody></table></div>
-    <div class="navigation" id="profilesPager"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:8px"><div class="navigation-pages" id="profilesPager"></div></div>
   </section>
   <section class="card" id="supervisionSection" hidden>
     <div class="people-title-row"><h2>Supervision</h2><span class="mute" id="supervisionCount" role="status"></span>
@@ -817,11 +817,16 @@ function profileState(key, value) {
   render();
 }
 const profileParam = key => new URLSearchParams(location.search).get('p_' + key) || '';
+// By the end date alone: 'ended', 'soon' (within 3 months) or ''; also for profiles that miss other fields.
+function endStatus(x) {
+  const p = x.profile;
+  if (!p || p.indefinite || !p.end_date) return '';
+  return p.end_date < today() ? 'ended' : p.end_date <= soonDay() ? 'soon' : '';
+}
 function profileStatus(x) {
   const p = x.profile;
   if (x.missing.length && !(x.missing.length === 1 && x.missing[0] === 'end_date' && p && p.end_date)) return 'missing';
-  if (!p || p.indefinite || !p.end_date) return '';
-  return p.end_date < today() ? 'ended' : p.end_date <= soonDay() ? 'soon' : '';
+  return endStatus(x);
 }
 function picTotals() {
   const totals = new Map();
@@ -847,7 +852,7 @@ function profileRows() {
   const col = PROFILE_COLUMNS.find(c => c[0] === key) || PROFILE_COLUMNS[4];
   return profileList.filter(x => !x.self || me.is_admin).map(x => ({...x, flights: totals.get(x.id), status: profileStatus(x)}))
     .filter(x => (!q || [x.name, x.username, supervisorText(x.profile), x.profile?.github].join(' ').toLowerCase().includes(q))
-      && (!role || x.profile?.role === role) && (!dept || x.profile?.department === dept) && (!status || x.status === status))
+      && (!role || x.profile?.role === role) && (!dept || x.profile?.department === dept) && (!status || (status === 'missing' ? x.status === 'missing' : endStatus(x) === status)))
     .sort((a, b) => { const va = col[2](a), vb = col[2](b);
       const c = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb));
       return (dir === 'desc' ? -c : c) || a.name.localeCompare(b.name); });
@@ -935,7 +940,7 @@ function downloadProfiles() {
 function supervisionGroups() {
   const withEnded = profileParam('ended') === '1', groups = new Map();
   for (const x of profileList) {
-    const status = profileStatus(x);
+    const status = endStatus(x);  // an incomplete profile can have ended too
     if (status === 'ended' && !withEnded) continue;
     for (const s of x.profile?.supervisors || []) {
       if (!me.is_admin && s.id !== me.id) continue;
