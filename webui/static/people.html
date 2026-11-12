@@ -335,7 +335,8 @@
       services: the link is shown on the licence for you to open.</p>
     <p class="dialog-error" id="checkQrError" role="alert" hidden></p>
     <div class="panel-row"><button type="button" id="checkQrRun" onclick="checkQr(false)">Read new</button>
-      <button type="button" class="sec" onclick="checkQr(true)">Read all again</button>
+      <button type="button" class="sec" id="checkQrAll" onclick="checkQr(true)">Read all again</button>
+      <button type="button" class="danger" id="checkQrStopBtn" hidden onclick="checkQrStop = true; this.textContent = 'Stopping…'">Stop</button>
       <span class="mute" id="checkQrStatus" role="status"></span></div>
     <div class="scroll" id="checkQrResult"></div>
   </dialog>
@@ -1189,32 +1190,59 @@ function openCheckQr() {
   $('checkQrResult').innerHTML = '';
   $('checkQrDialog').showModal();
 }
+// Read in rounds of about 20 s until none are left, with progress and Stop; Read all asks for every licence read
+// before this run started, so each is read once.
+let checkQrStop = false;
 async function checkQr(all) {
-  $('checkQrRun').disabled = true;
+  checkQrStop = false;
+  $('checkQrRun').disabled = $('checkQrAll').disabled = true;
+  $('checkQrStopBtn').hidden = false;
   $('checkQrError').hidden = true;
   $('checkQrResult').innerHTML = '';
-  $('checkQrStatus').textContent = 'Reading the QR codes… this can take a minute.';
+  const before = all ? new Date().toISOString().slice(0, 19) + 'Z' : null;
+  const results = [], started = Date.now();
+  const ask = seconds => adminApi('/api/admin/qualifications/check-qr', {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({before, seconds})});
+  const show = () => { $('checkQrStatus').textContent = `Reading… ${results.length} of ${total} read`
+    + ` (${Math.round((Date.now() - started) / 1000)} s). A PDF takes a few seconds.`; };
+  let total = 0, left = 0;
+  const ticker = setInterval(() => show(), 1000);  // the seconds keep counting while a round runs
   try {
-    const d = await adminApi('/api/admin/qualifications/check-qr', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({all})});
-    const count = s => d.results.filter(r => r.status === s).length;
-    $('checkQrStatus').textContent = d.results.length
-      ? `${d.results.length} read: ${count('differs')} differ, ${count('none')} without a QR code, ${count('generic')} with a general website link,`
+    total = left = (await ask(0)).total;
+    show();
+    while (left && !checkQrStop && results.length < total) {
+      const d = await ask(6);
+      results.push(...d.results);
+      left = d.later;
+      show();
+      renderCheckQr(results);
+    }
+    clearInterval(ticker);
+    const count = s => results.filter(r => r.status === s).length;
+    $('checkQrStatus').textContent = (results.length
+      ? `${results.length} read: ${count('differs')} differ, ${count('none')} without a QR code, ${count('generic')} with a general website link,`
         + ` ${count('read')} unknown, ${count('link') + count('match')} with a verification link or matching.`
-        + (d.later ? ` ${d.later} not read yet: press the button again.` : '')
-      : 'Nothing new to read.';
-    const row = r => `<tr><td>${esc(r.person)}</td><td>${esc(r.category)}</td><td>${esc(r.issues.join('; ') || (r.filled ? 'number filled: ' + r.filled : r.authority || r.number || ''))}</td>
-      <td><button type="button" class="sec" onclick="$('checkQrDialog').close();selectPerson(${r.user_id},'qualifications')">Open</button></td></tr>`;
-    const group = (status, title) => d.results.some(r => r.status === status)
-      ? `<h3>${title}</h3><table><tbody>${d.results.filter(r => r.status === status).map(row).join('')}</tbody></table>` : '';
-    $('checkQrResult').innerHTML = group('differs', 'Differs from what was entered') + group('none', 'No QR code found')
-      + group('generic', 'Links to a general website only') + group('read', 'Unknown link or text')
-      + group('link', 'Verification link of the authority') + group('match', 'Matches');
+      : 'Nothing new to read.') + (left ? ` Stopped: ${left} not read yet.` : '');
   } catch (error) {
+    clearInterval(ticker);
     $('checkQrStatus').textContent = '';
     $('checkQrError').textContent = error.message;
     $('checkQrError').hidden = false;
-  } finally { $('checkQrRun').disabled = false; }
+  } finally {
+    clearInterval(ticker);
+    $('checkQrRun').disabled = $('checkQrAll').disabled = false;
+    $('checkQrStopBtn').hidden = true;
+    $('checkQrStopBtn').textContent = 'Stop';
+  }
+}
+function renderCheckQr(results) {
+  const row = r => `<tr><td>${esc(r.person)}</td><td>${esc(r.category)}</td><td>${esc(r.issues.join('; ') || (r.filled ? 'number filled: ' + r.filled : r.authority || r.number || ''))}</td>
+    <td><button type="button" class="sec" onclick="$('checkQrDialog').close();selectPerson(${r.user_id},'qualifications')">Open</button></td></tr>`;
+  const group = (status, title) => results.some(r => r.status === status)
+    ? `<h3>${title}</h3><table><tbody>${results.filter(r => r.status === status).map(row).join('')}</tbody></table>` : '';
+  $('checkQrResult').innerHTML = group('differs', 'Differs from what was entered') + group('none', 'No QR code found')
+    + group('generic', 'Links to a general website only') + group('read', 'Unknown link or text')
+    + group('link', 'Verification link of the authority') + group('match', 'Matches');
 }
 
 async function fillNumbers() {
