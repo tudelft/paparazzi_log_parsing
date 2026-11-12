@@ -130,7 +130,7 @@ body > header .header-actions { display:flex; align-items:center; gap:8px; }
   border-radius:6px; padding:5px 12px; cursor:pointer; white-space:nowrap; }
 #downloadBtn:hover { background:#31506f; color:#fff; }
 #downloadBtn small { font-weight:400; font-size:12px; opacity:.8; }
-@media (max-width:750px) { #uploadBtn .upload-label, #downloadBtn .upload-label { display:none; } }
+@media (max-width:1280px) { #uploadBtn .upload-label, #downloadBtn .upload-label { display:none; } }
 @media (max-width:1150px) { #downloadBtn small { display:none; } }
 
 /* Upload dialog (upload.js) */
@@ -206,17 +206,19 @@ body > header .header-actions { display:flex; align-items:center; gap:8px; }
   body > header.has-flight-filters h1 { flex-basis:7em; width:7em; min-width:7em; }
   body > header.has-flight-filters #nav a { padding-left:8px; padding-right:8px; }
 }
-/* When the header gets tight (tablets): the filter shrinks to its funnel icon (its summary stays the tooltip) and sits
-   with the buttons on the title row; the menu gets a row of its own. On phones the title gets its own row as well. */
-@media (max-width:1000px) {
+/* When the header gets tight (up to 1280 px) the filter, Download and Upload shrink to their icons (the summary and
+   labels stay in the tooltips); below 900 px the menu gets a row of its own, and on phones the title too. */
+@media (max-width:1280px) {
+  #flightFiltersButton { padding:6px 8px; }
+  #flightFiltersButton .filter-label { display:none; }
+  #flightFiltersButton .filter-icon { width:16px; height:16px; }
+}
+@media (max-width:900px) {
   body > header.has-flight-filters { flex-wrap:wrap; gap:8px; padding:10px 12px; }
   body > header.has-flight-filters #nav { order:3; flex-basis:100%; }
   body > header.has-flight-filters #nav a { padding-top:8px; padding-bottom:8px; }
   body > header.has-flight-filters #flightFiltersMenu { order:1; margin-left:auto; }
   body > header.has-flight-filters > .meta:not(#nav) { order:2; margin-left:0 !important; }
-  #flightFiltersButton { padding:6px 8px; }
-  #flightFiltersButton .filter-label { display:none; }
-  #flightFiltersButton .filter-icon { width:16px; height:16px; }
 }
 @media (max-width:750px) {
   body > header.has-flight-filters h1 { flex:1 1 100%; width:auto; min-width:0; }
