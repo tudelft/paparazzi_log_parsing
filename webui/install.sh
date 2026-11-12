@@ -368,6 +368,10 @@ User=$SVC_USER
 Group=$SVC_USER
 WorkingDirectory=$WEBUI
 Environment=LOGDB_CONFIG=$ENV_FILE
+# gunicorn's control socket goes to \$XDG_RUNTIME_DIR (else ~/.gunicorn, not writable for the service user)
+RuntimeDirectory=flight-logs
+RuntimeDirectoryMode=0750
+Environment=XDG_RUNTIME_DIR=/run/flight-logs
 ExecStart=$VENV/bin/gunicorn
 Restart=on-failure
 RestartSec=5
