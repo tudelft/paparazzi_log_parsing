@@ -156,9 +156,17 @@ class NameDateSuggestionTests(AppTests):
         self.log(4, "2099-01-01/LOG2.BFL")          # in the future: not plausible
         self.log(5, "LOG00318.BFL")                 # no date anywhere, no neighbours
         self.log(6, "2026-04-29/LOG3.BFL", start="2026-04-28T10:00:00.000Z")  # already dated
+        self.log(7, "sd/80_01_08__17_08_26_SD.data")   # unset clock: the time is not a date
+        self.log(8, "sd/run_80_01_08_17_08_26.data")
+        self.log(9, "sd/flight_26_05_14__09_00_00.data")
+        self.log(10, "px4/19_11_29.ulg")                # PX4 file name is the time of day
+        self.log(11, "px4/2026-05-15/19_11_29.ulg")     # ... and the folder the date
+        self.log(12, "qgc/log_45_2026-3-2-14-25-30.ulg")
+        self.log(13, "x/2026041.data")
         found = self.suggestions()
         self.assertEqual({i: (s["date"], s["source"]) for i, s in found.items()},
-                         {1: ("2026-04-29", "name"), 2: ("2024-05-13", "name"), 3: ("2025-01-02", "name")})
+                         {1: ("2026-04-29", "name"), 2: ("2024-05-13", "name"), 3: ("2025-01-02", "name"),
+                          9: ("2026-05-14", "name"), 11: ("2026-05-15", "name"), 12: ("2026-03-02", "name")})
         self.assertEqual(found[1]["reason"], "date in the folder name 2026-04-29")
         self.assertEqual(found[2]["reason"], "date in the file name")
 
