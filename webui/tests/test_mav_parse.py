@@ -709,3 +709,38 @@ class DistanceHelperTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FileNameAliasTests(AppTests):
+    """Issue 211: a logged name that is only the log's file name is not an alias and not a 'name in logs'."""
+
+    def add_log(self, log_id, path, logged):
+        self.con.execute("INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) VALUES (?,?,?,'x.gz','done','now')",
+                         (log_id, path, f"s{log_id}"))
+        self.con.execute("INSERT INTO aircraft(log_id, ac_id, name) VALUES (?, 1, ?)", (log_id, logged))
+        self.con.commit()
+
+    def test_file_names_are_not_remembered_or_listed(self):
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'CINERAT T2','TUD00457','now')")
+        self.add_log(1, "CINERAT T2/LOG00159_manualShakedown.BFL", "LOG00159_manualShakedown")
+        self.add_log(2, "CINERAT T2/flight_a.bbl", "flight_a")
+        self.add_log(3, "CINERAT T2/LOG00200.BFL", "CINERAT T2 frame")  # a real craft name
+        for log_id in (1, 2, 3):
+            self.ns["link_log_aircraft"](self.con, log_id)
+        self.assertEqual({r[0] for r in self.con.execute("SELECT drone_id FROM aircraft")}, {10})
+        aliases = {r[0] for r in self.con.execute("SELECT alias FROM drone_aliases WHERE drone_id=10")}
+        self.assertEqual(aliases, {"CINERAT T2 frame"})
+        self.sign_in(1)
+        detail = self.ns["detail_aircraft"](self.con, 10, True, set())
+        self.assertEqual(detail["logged_names"], ["CINERAT T2 frame"])
+
+    def test_old_file_name_aliases_are_removed_at_start(self):
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'CINERAT T2','TUD00457','now')")
+        self.add_log(1, "CINERAT T2/LOG00160_forgotDynAgn_crash_oopsie.BFL", "LOG00160_forgotDynAgn_crash_oopsie")
+        self.con.execute("UPDATE aircraft SET drone_id=10")
+        self.con.executemany("INSERT INTO drone_aliases(drone_id, alias) VALUES (10, ?)",
+                             [("LOG00160_forgotDynAgn_crash_oopsie",), ("Cinerat second frame",)])
+        self.con.commit()
+        self.assertEqual(self.ns["remove_file_name_aliases"](self.con), 1)
+        self.assertEqual({r[0] for r in self.con.execute("SELECT alias FROM drone_aliases")}, {"Cinerat second frame"})
+        self.assertEqual(self.ns["remove_file_name_aliases"](self.con), 0)

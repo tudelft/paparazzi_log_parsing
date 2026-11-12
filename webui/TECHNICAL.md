@@ -1667,8 +1667,12 @@ dump names (`logs`, `uploads`, …) and `YYYY-MM-DD` date folders. The first (de
 that uniquely overlaps one fleet name wins, so `Hex 1/2026-10-13/LOG00030.BFL`
 links to Hex 1. An ambiguous token such as `Quadrotor` is skipped and a higher unique
 folder may still match. Select folder includes the chosen folder name in the stored path (drop
-and zip already did). Filename stems such as `LOG00030` are not stored as aliases, so sequential
-Blackbox names on another aircraft are not stolen. Existing unlinked recordings are retried at
+and zip already did). A logged name that is only the log's file name is not stored as an alias and not listed
+under *Names in logs*: the parser uses the file name when a log has no craft name (Betaflight/INDIFlight without
+one, PX4 without an airframe), so `LOG00030`, `LOG00159_manualShakedown` or `flight_a` (from `flight_a.bbl`) say
+nothing about the aircraft, and sequential Blackbox names on another aircraft are not stolen
+(`is_file_name`). Aliases of that kind learned before are removed at start (`remove_file_name_aliases`; only an
+alias equal to a logged name of that aircraft's own logs, so hand-made aliases stay). Existing unlinked recordings are retried at
 each start; no reparse is needed.
 
 Marking a name removes its global alias and recomputes the affected logs' automatic fleet
