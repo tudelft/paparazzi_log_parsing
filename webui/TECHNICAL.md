@@ -963,6 +963,19 @@ not offered, and a type that requires expiry needs validity days in the JSON. ZI
 each entry's size before reading (JSON ≤ 1 MiB, images ≤ 2 MiB) and only load referenced images.
 **Export** (`GET /api/admin/trainings/<id>/export`) returns the same JSON, or a ZIP when images are
 present.
+**Reading material**: a training may carry plain text (`reading`, at most 20 000 characters; also editable in the
+Edit dialog) and one PDF (`reading_file`, the name of a PDF in the import ZIP, at most 20 MiB, checked for the PDF
+signature and stored next to the question images). In the Edit dialog the PDF of a saved training can be
+uploaded, replaced or removed on its own (`POST`/`DELETE /api/admin/trainings/<id>/reading-file`, same checks; the
+old file is removed). Replace-import sets both from the file, so an import without them removes them; export
+writes them back. When either is present, opening the test shows the material in a
+dialog; **I have read and understood the material** (`POST /api/trainings/<id>/read`) stores
+`training_progress.read_at`, and only then does the quiz open. Submitting without a confirmation returns `409`.
+A confirmation counts until the next pass, so a retake after an expired or reset pass asks for it again.
+`GET /api/trainings/<id>/reading-file` serves the PDF to signed-in people; on screens below 700 px the dialog shows
+an **Open the PDF** button instead of the embedded PDF. Admins can read, confirm and take inactive trainings to try
+them. The material itself is kept outside
+the repository, like the questionnaires.
 The quiz UI shows one question at a time in a centred ~560 px card (`qi` in the URL); Previous / Next
 keep answers in the form until Submit. Ranking rows are dragged (or moved with the arrow keys). Takers
 retry until they pass; each submission returns the score. Failed answers are discarded;

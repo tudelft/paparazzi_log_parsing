@@ -338,6 +338,65 @@ class TrainingTests(AppTests):
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM training_questions WHERE training_id=?",
                                           (tid,)).fetchone()[0], 2)
 
+    def test_reading_material_must_be_confirmed_before_the_test(self):
+        pdf = b"%PDF-1.4 mock reading"
+        payload = self.sample_payload(reading="Read the rules.", reading_file="rules.pdf")
+        preview = self.import_file(payload, images={"plot.png": PNG, "rules.pdf": pdf}, preview=True)
+        self.assertEqual((preview.json["reading_chars"], preview.json["reading_file"]), (15, "rules.pdf"))
+        tid = self.import_file(payload, images={"plot.png": PNG, "rules.pdf": pdf}).json["id"]
+        admin_q = self.client.get(f"/api/trainings/{tid}").json["questions"][0]
+        right = {str(admin_q["id"]): next(c["id"] for c in admin_q["choices"] if c["correct"])}
+        self.sign_in(2)
+        quiz = self.client.get(f"/api/trainings/{tid}").json
+        self.assertEqual((quiz["reading"], quiz["reading_file"], quiz["must_read"]), ("Read the rules.", True, True))
+        self.assertEqual(self.client.get(f"/api/trainings/{tid}/reading-file").data, pdf)
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/submit", json={"answers": right}).status_code, 409)
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/read").status_code, 200)
+        self.assertFalse(self.client.get(f"/api/trainings/{tid}").json["must_read"])
+        self.assertTrue(self.client.post(f"/api/trainings/{tid}/submit", json={"answers": right}).json["passed"])
+        self.sign_in(1)
+        self.assertEqual(self.client.delete(f"/api/admin/trainings/{tid}/progress/2").status_code, 200)
+        exported = zipfile.ZipFile(io.BytesIO(self.client.get(f"/api/admin/trainings/{tid}/export").data))
+        manifest = json.loads(exported.read(next(n for n in exported.namelist() if n.endswith(".json"))))
+        self.assertEqual((manifest["reading"], exported.read(manifest["reading_file"])), ("Read the rules.", pdf))
+        self.sign_in(2)
+        self.assertTrue(self.client.get(f"/api/trainings/{tid}").json["must_read"])  # a retake reads again
+        self.sign_in(1)
+        bad = self.import_file(self.sample_payload(name="Other", reading_file="rules.pdf"),
+                               images={"plot.png": PNG, "rules.pdf": b"not a pdf"})
+        self.assertEqual(bad.status_code, 400, bad.json)
+        missing = self.import_file(self.sample_payload(name="Other", reading_file="gone.pdf"))
+        self.assertEqual(missing.status_code, 400, missing.json)
+        self.assertFalse(self.client.get(f"/api/trainings/{self.add_training(name='Plain')}").json["must_read"])
+
+    def test_reading_pdf_upload_replace_remove_and_admin_on_inactive_training(self):
+        tid = self.add_training(reading="Rules.")
+        qid = self.add_question(tid)
+        url = f"/api/admin/trainings/{tid}/reading-file"
+        upload = lambda blob, name="rules.pdf": self.client.post(url, data={"file": (io.BytesIO(blob), name)},
+                                                                  content_type="multipart/form-data")
+        self.assertEqual(upload(b"not a pdf").status_code, 400)
+        self.assertEqual(upload(b"%PDF-1.4 a", "rules.txt").status_code, 400)
+        self.assertEqual(upload(b"%PDF-1.4 first").json["reading_name"], "rules.pdf")
+        first = self.con.execute("SELECT reading_path FROM trainings WHERE id=?", (tid,)).fetchone()[0]
+        self.assertEqual(upload(b"%PDF-1.4 second", "rules-2026.pdf").status_code, 200)
+        self.assertFalse((self.app.config["TRAINING_IMAGE_DIR"] / first).exists())  # old file removed
+        self.assertEqual(self.client.get(f"/api/trainings/{tid}/reading-file").data, b"%PDF-1.4 second")
+        self.sign_in(2)
+        self.assertEqual(upload(b"%PDF-1.4 x").status_code, 403)
+        self.sign_in(1)
+        self.assertEqual(self.client.delete(url).status_code, 200)
+        self.assertEqual(self.client.get(f"/api/trainings/{tid}/reading-file").status_code, 404)
+        self.assertEqual(os.listdir(self.app.config["TRAINING_IMAGE_DIR"]), [])
+        # an admin can try an inactive training end to end
+        self.con.execute("UPDATE trainings SET active=0 WHERE id=?", (tid,))
+        self.con.commit()
+        right = next(c["id"] for c in self.client.get(f"/api/trainings/{tid}").json["questions"][0]["choices"] if c["correct"])
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/read").status_code, 200)
+        self.assertTrue(self.client.post(f"/api/trainings/{tid}/submit", json={"answers": {str(qid): right}}).json["passed"])
+        self.sign_in(2)
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/read").status_code, 404)
+
     def test_import_rejects_bad_questions_and_evidence_types(self):
         bad = self.import_file(self.sample_payload(questions=[{
             "prompt": "Broken", "kind": "single",

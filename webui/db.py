@@ -542,6 +542,9 @@ CREATE TABLE IF NOT EXISTS trainings (
     needs_approval INTEGER NOT NULL DEFAULT 0 CHECK(needs_approval IN (0,1)),
     shuffle_questions INTEGER NOT NULL DEFAULT 0 CHECK(shuffle_questions IN (0,1)),  -- a new order per attempt
     question_count INTEGER,            -- questions drawn per attempt; NULL = all
+    reading TEXT NOT NULL DEFAULT '',  -- reading material shown before the test (plain text)
+    reading_path TEXT,                 -- optional reading PDF in the training image folder
+    reading_name TEXT,                 -- that PDF's file name as imported
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
     sort_order INTEGER NOT NULL DEFAULT 0
 );
@@ -571,6 +574,7 @@ CREATE TABLE IF NOT EXISTS training_progress (
     submission_id INTEGER REFERENCES qualification_submissions(id) ON DELETE SET NULL,
     briefed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     draw_json TEXT,                    -- the current attempt: question ids in order and each one's answer order
+    read_at TEXT,                      -- when the person confirmed reading the material (counts until the next pass)
     PRIMARY KEY (user_id, training_id)
 );
 CREATE TABLE IF NOT EXISTS training_briefers (
@@ -827,6 +831,11 @@ def init(path):
         con.execute("ALTER TABLE aircraft ADD COLUMN info_messages_gz BLOB")
     if pcols and "draw_json" not in pcols:
         con.execute("ALTER TABLE training_progress ADD COLUMN draw_json TEXT")
+    if pcols and "read_at" not in pcols:
+        con.execute("ALTER TABLE training_progress ADD COLUMN read_at TEXT")
+    for column, ddl in (("reading", "TEXT NOT NULL DEFAULT ''"), ("reading_path", "TEXT"), ("reading_name", "TEXT")):
+        if tcols and column not in tcols:
+            con.execute(f"ALTER TABLE trainings ADD COLUMN {column} {ddl}")
     qcols = {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}
     if qcols and "note" not in qcols:
         con.execute("ALTER TABLE qualification_submissions ADD COLUMN note TEXT")
