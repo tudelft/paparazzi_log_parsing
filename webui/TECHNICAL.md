@@ -383,11 +383,19 @@ renamed `logNN_<aircraft>.data` next to a ground station `.log` header). `date_s
 recording of the same flight: same aircraft (fleet link, else logged name), same duration (±1 s or 1 %), same
 time of day (±30 s), at least 60 s long (short flights match too many others), and no dated onboard partner yet.
 Every matched flight of the log must have exactly one such GCS flight, no other undated flight may claim it,
-and all must agree on the day; the result is a **suggestion** shown in the log details ("Date probably
-2020-07-22: matches GCS log 713 …") with **Accept**. Admins get **Accept date suggestions (N)** on the Logs
-page (`GET/POST /api/admin/date-suggestions`). Accepting sets the normal date override and records who set it
-and why (`date_override_by`, `date_override_note`); a date typed by hand records the person only. Nothing is
-changed without a person accepting it.
+and all must agree on the day. Without a GCS match, the date comes from the upload path (`logs.name`): the first
+plausible date in the file name, then in the folders from the deepest up (`2026-04-29`, `20260429`, or
+`26_04_29` as in Paparazzi log names; not before 1990 or in the future). Failing that, the dated logs of the same
+aircraft just before and after it in the same upload folder (natural file-name order, undated logs skipped) give
+the day when they agree; files uploaded without a folder have no neighbours. Each suggestion has a `source`
+(`gcs`, `name`, `folder`) and a `reason`, shown in the log details ("Date probably 2026-04-29: date in the folder
+name 2026-04-29") with **Use this date**, and **Use for all in this folder (N)** when more logs in that upload folder
+that you may date have one (`POST /api/logs/<id>/date/suggestion` with `{"folder": true}`). Admins get **Review date
+suggestions (N)** on the Logs page: a dialog listing them by folder with checkboxes (`GET /api/admin/date-suggestions`;
+`POST` accepts all, or `{"log_ids": [...]}`). Accepting sets the normal date override and records who set it and
+why (`date_override_by`, `date_override_note` = "suggested: " + reason); a date typed by hand records the person
+only. Nothing is changed without a person accepting it; an unaccepted suggestion simply stays, and is recomputed,
+so it disappears once the log has a date.
 
 Until a date is set, a flight taking off on an unset clock (before 1990) is never merged with other
 recordings by time: those times are meaningless across logs, and back-to-back 1980 logs used to chain. A person
@@ -840,7 +848,7 @@ admins also see who uploaded it and when). A log with one flight links straight 
 the log, where each flight links to its page. Status shows only what needs attention (queued, parsing, error,
 outdated); the **outdated** / **date unknown** badges filter the list (`/api/logs?status=outdated|date_unknown`).
 Edit mode shows the project menus (admins), Re-parse and Delete on an opened log, date editing, and the Re-parse
-outdated / unknown dates and Accept date suggestions tools.
+outdated / unknown dates and Review date suggestions tools.
 Linked aircraft, crew, projects and named locations in the logbook open their detail pages.
 Coordinates without a linked location still open the external map; Edit mode keeps its reassignment menus.
 Aircraft serial numbers in the logbook appear on hover over the aircraft name rather than inline.

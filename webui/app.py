@@ -3574,30 +3574,44 @@ def date_suggestions(con):
 
 def accept_date_suggestion(con, log_id, suggestion):
     con.execute("UPDATE logs SET date_override=?, date_override_by=?, date_override_note=? WHERE id=?",
-                (suggestion["date"], g.user["id"], f"suggested from GCS log {suggestion['gcs_log_id']}: same aircraft,"
-                 f" duration and time of day ({suggestion['flights']} flight(s), offset {suggestion['offset_s']:+g} s)",
-                 log_id))
+                (suggestion["date"], g.user["id"], "suggested: " + suggestion["reason"], log_id))
+
+
+def log_folder(name):
+    return (name or "").replace("\\", "/").rpartition("/")[0]
+
+
+def folder_suggestions(con, row, found):
+    """The suggestions for the logs in the same upload folder as row that this user may date (row's own included)."""
+    folder = log_folder(row["name"])
+    rows = con.execute(f"SELECT * FROM logs WHERE id IN ({','.join('?' * len(found))})", list(found)).fetchall() \
+        if found else []
+    return {r["id"]: found[r["id"]] for r in rows if log_folder(r["name"]) == folder and can_set_log_date(con, r)}
 
 
 @app.post("/api/logs/<int:log_id>/date/suggestion")
 def accept_log_date_suggestion(log_id):
-    """Accept the date suggested from a matching GCS log (see date_suggest); sets the date override."""
+    """Accept the date suggestion of this log (see date_suggest), or with {"folder": true} those of every log in its
+    upload folder that the user may date; sets the date override."""
     con = conn()
     row = visible_log(con, log_id)
     if not can_set_log_date(con, row):
         return jsonify(error="you cannot set the date of this log"), 403
+    whole_folder = bool((request.get_json(silent=True) or {}).get("folder"))
     with db.write_lock, con:
         con.execute("BEGIN IMMEDIATE")
-        suggestion = date_suggestions(con).get(log_id)
-        if suggestion is None:
+        found = date_suggestions(con)
+        if log_id not in found:
             return jsonify(error="there is no date suggestion for this log"), 409
-        accept_date_suggestion(con, log_id, suggestion)
-    return jsonify(ok=True, date_override=suggestion["date"])
+        chosen = folder_suggestions(con, row, found) if whole_folder else {log_id: found[log_id]}
+        for i, suggestion in chosen.items():
+            accept_date_suggestion(con, i, suggestion)
+    return jsonify(ok=True, date_override=found[log_id]["date"], accepted=len(chosen))
 
 
 @app.route("/api/admin/date-suggestions", methods=["GET", "POST"])
 def admin_date_suggestions():
-    """List (GET) or accept all (POST) date suggestions for logs with an unset clock."""
+    """List (GET) or accept (POST; all, or only {"log_ids": [...]}) date suggestions for logs without a usable date."""
     admin_required()
     con = conn()
     if request.method == "GET":
@@ -3605,9 +3619,14 @@ def admin_date_suggestions():
         names = {r["id"]: r["name"] for r in con.execute(
             f"SELECT id, name FROM logs WHERE id IN ({','.join('?' * len(found))})", list(found))} if found else {}
         return jsonify(suggestions=[dict(s, log_id=i, log_name=names.get(i)) for i, s in sorted(found.items())])
+    wanted = (request.get_json(silent=True) or {}).get("log_ids")
+    if wanted is not None and (not isinstance(wanted, list) or not all(isinstance(i, int) for i in wanted)):
+        return jsonify(error="log_ids must be a list of log ids"), 400
     with db.write_lock, con:
         con.execute("BEGIN IMMEDIATE")
         found = date_suggestions(con)
+        if wanted is not None:
+            found = {i: found[i] for i in wanted if i in found}
         for log_id, suggestion in found.items():
             accept_date_suggestion(con, log_id, suggestion)
     return jsonify(ok=True, accepted=len(found))
@@ -6374,9 +6393,12 @@ def get_log(log_id):
     out = log_dict(row)
     out["can_delete"] = can_delete_log(con, row)
     out["can_edit_date"] = can_set_log_date(con, row)
-    out["date_suggestion"] = (date_suggestions(con).get(log_id)
-                              if out["can_edit_date"] and (not out["date_ok"] or row["date_estimated"])
-                              and not row["date_override"] else None)
+    found = (date_suggestions(con) if out["can_edit_date"] and (not out["date_ok"] or row["date_estimated"])
+             and not row["date_override"] else {})
+    out["date_suggestion"] = found.get(log_id)
+    if out["date_suggestion"]:
+        out["date_suggestion"] = dict(out["date_suggestion"], folder_count=len(folder_suggestions(con, row, found))
+                                     if log_folder(row["name"]) else 1)
     out["date_override_by_name"] = (con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",
                                                 (row["date_override_by"],)).fetchone() or [None])[0]
     out["uploaded_by_name"] = (con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",

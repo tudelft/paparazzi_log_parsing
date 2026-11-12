@@ -91,8 +91,10 @@ to gain descriptions and previously omitted crew entries.
 - A paper record that clearly matches a logged flight (same aircraft, takeoff within 5 min) is linked to it
   and counts once, as the log; unclear cases show as *possible duplicate* to link or dismiss, and an expanded
   entry shows where the paper record differs from the log.
-- An onboard log without a calendar date (1980 clock) that matches a dated ground station log of the same flight gets
-  a **suggested date** in its details on Logs; accept it there (admins can accept all at once).
+- A log without a calendar date (1980 clock) gets a **suggested date** in its details on Logs when a dated ground
+  station log matches the same flight, its file or folder name holds a date, or the same aircraft's neighbouring
+  logs in its folder agree on one. Nothing is set until you choose **Use this date** (or **Use for all in this
+  folder**); admins can review and settle all suggestions at once. The project then follows from the date.
 - Uploading a file that someone else already uploaded keeps one copy and makes you a **co-uploader**: you can then
   see that log and its flights, and the Logs page links to it.
 - **Review** (Logbook, Edit mode) walks through possible duplicates, paper records where only another aircraft
