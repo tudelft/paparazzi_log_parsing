@@ -279,6 +279,18 @@ def register(app, connection, require_session, pages_dir):
             raise BookingError("Only the person who booked and administrators can change this booking.", 403)
         return row
 
+    def owner_of(cid, body, current):
+        """Who the booking is for: an administrator may book for (or hand a booking to) another active account."""
+        raw = body.get("user_id")
+        if raw in (None, current):
+            return current
+        if not g.user["is_admin"]:
+            raise BookingError("Only administrators can book for someone else.", 403)
+        if type(raw) is not int or not cid.execute(
+                "SELECT 1 FROM users WHERE id=? AND is_active=1 AND is_external=0", (raw,)).fetchone():
+            raise BookingError("Choose an active account to book for.")
+        return raw
+
     @app.get("/agenda")
     def agenda_page():
         if not enabled():
@@ -309,6 +321,9 @@ def register(app, connection, require_session, pages_dir):
             out["types"] = [dict(r) for r in cid.execute(
                 "SELECT id, name FROM qualification_types WHERE active=1 ORDER BY sort_order, name")]
             out["places"] = [dict(r) for r in cid.execute("SELECT id, name FROM places ORDER BY name")]
+            out["people"] = [dict(r) for r in cid.execute(
+                "SELECT id, COALESCE(display_name, username) AS name FROM users WHERE is_active=1 AND is_external=0"
+                " ORDER BY name COLLATE NOCASE")]
         return jsonify(out)
 
     @app.post("/api/bookings")
@@ -321,43 +336,56 @@ def register(app, connection, require_session, pages_dir):
             raise BookingError("Choose what to book.")
         with db.write_lock, cid:
             cid.execute("BEGIN IMMEDIATE")
+            owner = owner_of(cid, body, g.user["id"])
             item = item_row(cid, body["thing_id"])
-            require(cid, item, booking=True)
+            if owner == g.user["id"]:
+                require(cid, item, booking=True)
+            elif not item["active"]:
+                raise BookingError(f"{item['name']} is not open for bookings.", 409)
             check_flags(cid, item["id"], flags)
             check_overlap(cid, item, start, end, flags)
             bid = cid.execute(
                 "INSERT INTO bookings(thing_id,user_id,description,starts_at,ends_at,created_at) VALUES (?,?,?,?,?,?)",
-                (item["id"], g.user["id"], description, start, end, utc_now())).lastrowid
+                (item["id"], owner, description, start, end, utc_now())).lastrowid
             save_flags(cid, bid, flags)
-            mail.notify(cid, g.user["id"], "bookings", f"Booked: {item['name']}, {when(start, end)}",
-                        f"You booked {item['name']} for {when(start, end)}" + (f": {description}" if description else "")
-                        + ".", f"/agenda?week={start[:10]}")
-            mail_overlaps(cid, item, start, end, bid, g.user["id"], g.user["id"])
+            who = "You" if owner == g.user["id"] else person_name(cid, g.user["id"])
+            mail.notify(cid, owner, "bookings", f"Booked: {item['name']}, {when(start, end)}",
+                        f"{who} booked {item['name']} for {'' if owner == g.user['id'] else 'you for '}{when(start, end)}"
+                        + (f": {description}" if description else "") + ".", f"/agenda?week={start[:10]}")
+            mail_overlaps(cid, item, start, end, bid, g.user["id"], owner)
         return jsonify(ok=True, id=bid), 201
 
     @app.put("/api/bookings/<int:booking_id>")
     def edit_booking(booking_id):
         signed_in()
         cid = connection()
-        description, start, end, flags = parse_booking(request.get_json(silent=True) or {})
+        body = request.get_json(silent=True) or {}
+        description, start, end, flags = parse_booking(body)
         with db.write_lock, cid:
             cid.execute("BEGIN IMMEDIATE")
             row = booking_row(cid, booking_id)
+            owner = owner_of(cid, body, row["user_id"])
             item = item_row(cid, row["thing_id"])
-            if row["user_id"] == g.user["id"]:
+            if row["user_id"] == g.user["id"] and owner == g.user["id"]:
                 require(cid, item, booking=True)
             check_flags(cid, item["id"], flags)
             check_overlap(cid, item, start, end, flags, ignore_id=booking_id)
-            cid.execute("UPDATE bookings SET description=?, starts_at=?, ends_at=? WHERE id=?",
-                        (description, start, end, booking_id))
+            cid.execute("UPDATE bookings SET user_id=?, description=?, starts_at=?, ends_at=? WHERE id=?",
+                        (owner, description, start, end, booking_id))
             save_flags(cid, booking_id, flags)
+            actor = person_name(cid, g.user["id"])
             if row["user_id"] != g.user["id"]:
+                handed = f" It is now booked for {person_name(cid, owner)}." if owner != row["user_id"] else ""
                 mail.notify(cid, row["user_id"], "bookings", f"Changed: your booking of {item['name']}",
-                            f"{person_name(cid, g.user['id'])} changed your booking of {item['name']} from "
-                            f"{when(row['starts_at'], row['ends_at'])} to {when(start, end)}.",
+                            f"{actor} changed your booking of {item['name']} from "
+                            f"{when(row['starts_at'], row['ends_at'])} to {when(start, end)}.{handed}",
                             f"/agenda?week={start[:10]}")
+            if owner not in (row["user_id"], g.user["id"]):
+                mail.notify(cid, owner, "bookings", f"Booked: {item['name']}, {when(start, end)}",
+                            f"{actor} booked {item['name']} for you for {when(start, end)}"
+                            + (f": {description}" if description else "") + ".", f"/agenda?week={start[:10]}")
             if (start, end) != (row["starts_at"], row["ends_at"]):
-                mail_overlaps(cid, item, start, end, booking_id, g.user["id"], row["user_id"])
+                mail_overlaps(cid, item, start, end, booking_id, g.user["id"], owner)
         return jsonify(ok=True)
 
     @app.delete("/api/bookings/<int:booking_id>")

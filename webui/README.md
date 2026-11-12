@@ -215,12 +215,13 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
 
 **Agenda** (optional) is a week agenda of bookable items, one tab per item plus **All** (no tabs with a single
 item). Click a booking to open it, or drag in an empty part of a day (or use **New booking**) to book that time.
+Drag a booking you may change to move it: it opens with the new times, and **Save** moves it.
 **Subscribe** gives private links to show the agenda in your calendar app. A booking has a description, start and end, and the item's
 options, for example "Others allowed" or "Demo". Bookings of one item overlap only when both tick a shared option
 and neither ticks a blocking one; an item without options never overlaps. An item can need a current
 qualification, for example an arena safety briefing, to book or even to see its agenda; without it the page says
 so and links to the training that grants it. You can change or delete your own bookings; administrators can
-change any and set up the items in Edit mode (**Add item**, **Edit item**).
+book for someone else (**Booked for**), change any and set up the items in Edit mode (**Add item**, **Edit item**).
 
 ## Documents
 

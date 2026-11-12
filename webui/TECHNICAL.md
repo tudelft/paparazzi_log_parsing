@@ -1041,7 +1041,9 @@ colour (used in the All view) and **Open for bookings** (active); they order the
 `booking` only (everyone sees its agenda) or for `viewing` and booking; it counts when an approved submission of
 that type is valid today. Without it the API answers 403 with `thing_id` and `training_id` (an active training
 that grants the type), and the page shows a dialog that links to it. Administrators may always view and change
-or delete any booking, but booking still needs the qualification; others change only their own and delete only
+or delete any booking, but booking for themselves still needs the qualification. They can also book for, or hand a
+booking to, another active non-external account (`user_id` in `POST`/`PUT /api/bookings`; `GET` lists `people` for
+them); that person gets the booking mail. Others change only their own and delete only
 where they may view. Each item has up to 10 options (`booking_flags`: label, optional colour,
 `blocks_overlap`); a booking stores the ones it ticks in `booking_flag_values`. Two bookings of the same item
 may overlap only when they share a non-blocking option and neither has a blocking one (409 otherwise); items
@@ -1052,7 +1054,9 @@ cannot be deleted; make it inactive instead.
 
 Bookings are drawn in the item's colour; the options a booking ticks show as tags in their own colour, and in the
 booking dialog as toggle chips (exclusive ones marked). Dragging in an empty part of a day picks the start and end in
-quarter hours; a click books an hour. With a single item the page shows that item without tabs.
+quarter hours; a click books an hour. Dragging a booking that may be changed (mouse or pen) shifts it by days and
+quarter hours with the same length; nothing is saved until **Save** in the booking dialog that then opens, so a move
+sends only the usual mails. With a single item the page shows that item without tabs.
 
 **Calendar feeds.** Each person can make a private link (`calendar_tokens`, `GET`/`POST`/`DELETE
 /api/bookings/calendar`, **Subscribe** on the agenda): `/calendar/<token>/all.ics` and `/calendar/<token>/<item id>.ics`
