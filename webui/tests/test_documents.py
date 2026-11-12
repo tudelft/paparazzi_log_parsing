@@ -111,3 +111,77 @@ class DocumentTests(AppTests):
         self.assertEqual(set(own), {"A1/A3", "RT"})  # expired A2 and other people's are left out
         self.assertTrue(own["A1/A3"]["view"].endswith("/evidence/view"))
         self.assertNotIn("download", own["RT"])
+
+    def test_inactive_qualification_limit_is_kept(self):
+        tid = self.create_type("Old permit", False)
+        did = self.upload(type_id=tid).json["id"]
+        self.con.execute("UPDATE qualification_types SET active=0 WHERE id=?", (tid,))
+        self.con.commit()
+        types = {t["id"]: t["active"] for t in self.listing()["types"]}
+        self.assertEqual(types[tid], 0)  # still offered to the edit dialog
+        r = self.client.put(f"/api/admin/documents/{did}", json={"title": "Renamed", "type_id": tid})
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertEqual(self.listing()["documents"][0]["type_id"], tid)
+        self.sign_in(2)
+        self.assertEqual(self.listing()["documents"], [])
+
+    def test_replace_file_keeps_settings(self):
+        tid = self.create_type("Outdoor pilot", False)
+        did = self.upload(type_id=tid, description="2026", sort_order=3).json["id"]
+        folder = Path(self.app.config["DOCUMENTS_DIR"])
+        self.assertEqual(folder.stat().st_mode & 0o777, 0o700)
+        old = set(folder.iterdir())
+        new = PDF.replace(b"%PDF", b"%PDF ", 1)
+        r = self.client.post(f"/api/admin/documents/{did}/file", data={"file": (io.BytesIO(new), "insurance-2027.pdf")},
+                             content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 200, r.json)
+        d = self.listing()["documents"][0]
+        self.assertEqual((d["title"], d["description"], d["type_id"], d["sort_order"], d["filename"]),
+                         ("Insurance", "2026", tid, 3, "insurance-2027.pdf"))
+        self.assertEqual(self.client.get(f"/api/documents/{did}/download").data, new)
+        self.assertTrue(old.isdisjoint(folder.iterdir()))  # the old file is removed
+        self.sign_in(2)
+        r = self.client.post(f"/api/admin/documents/{did}/file", data={"file": (io.BytesIO(new), "x.pdf")},
+                             content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 403)
+
+    def test_admin_only_and_profile_roles(self):
+        self.ns["profiles"].seed(self.con)
+        role = {r["name"]: r["id"] for r in self.con.execute("SELECT id, name FROM profile_roles")}
+        staff, other = role["Staff"], next(i for n, i in role.items() if n != "Staff")
+        self.con.execute("INSERT INTO user_profiles (user_id, role_id, indefinite) VALUES (2, ?, 1), (3, ?, 1)",
+                         (staff, other))
+        self.con.commit()
+        admins = self.upload(title="Admins", admin_only=1).json["id"]
+        r = self.client.post("/api/admin/documents", data={"title": "Staff", "file": (io.BytesIO(PDF), "s.pdf"),
+                                                           "role_ids": [str(staff)]}, content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 201, r.json)
+        staff_doc = r.json["id"]
+        self.assertEqual({d["id"] for d in self.listing()["documents"]}, {admins, staff_doc})
+        seen = lambda uid: (self.sign_in(uid), {d["id"] for d in self.listing()["documents"]})[1]
+        with patch.dict(os.environ, LOGDB_PERSON_PROFILE="1"):
+            self.assertEqual(seen(2), {staff_doc})
+            self.assertEqual(seen(3), set())
+        self.assertEqual(seen(2), set())  # profiles off: fails closed
+        # every limit must be met: a role and a qualification
+        self.sign_in(1)
+        tid = self.create_type("Outdoor pilot", False)
+        self.client.put(f"/api/admin/documents/{staff_doc}", json={"title": "Staff", "type_id": tid, "role_ids": [staff]})
+        with patch.dict(os.environ, LOGDB_PERSON_PROFILE="1"):
+            self.assertEqual(seen(2), set())
+            self.sign_in(1)
+            self.review(self.submit(uid=2, tid=tid, until="", content=None).json["id"])
+            self.assertEqual(seen(2), {staff_doc})
+            # the role removed from the profile lists: only admins see it
+            self.con.execute("DELETE FROM profile_roles WHERE id=?", (staff,))
+            self.con.commit()
+            self.assertEqual(seen(2), set())
+        self.sign_in(1)
+        d = next(d for d in self.listing()["documents"] if d["id"] == staff_doc)
+        self.assertEqual((d["roles_limited"], d["role_ids"]), (True, []))
+
+    def test_storage_counts_documents(self):
+        import storage_usage
+        self.upload()
+        totals = storage_usage._walk(Path(self.app.config["DOCUMENTS_DIR"]).parent)
+        self.assertEqual(list(totals), ["documents"])

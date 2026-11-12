@@ -18,7 +18,7 @@ _lock = threading.Lock()
 
 def _walk(root):
     """{category: [bytes, files]} under the log storage: logs, flight paths, attachments (with their PDF previews),
-    qualification evidence, uploads waiting to be stored and other files."""
+    qualification evidence, shared documents (Documents page), uploads waiting to be stored and other files."""
     totals = {}
     root = Path(root)
 
@@ -40,7 +40,7 @@ def _walk(root):
                     sub = kind
                     if folder == root:
                         sub = {"qualification-evidence": "evidence", ".incoming": "waiting", "attachments": "attachments",
-                               "previews": "attachments"}.get(e.name, kind)
+                               "previews": "attachments", "documents": "documents"}.get(e.name, kind)
                     stack.append((Path(e.path), sub))
                 elif e.is_file(follow_symlinks=False):
                     size = e.stat(follow_symlinks=False).st_size

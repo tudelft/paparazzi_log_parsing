@@ -513,6 +513,8 @@ CREATE TABLE IF NOT EXISTS documents (
     description TEXT NOT NULL DEFAULT '',
     group_id INTEGER REFERENCES document_groups(id),  -- NULL: shown above the groups
     type_id INTEGER REFERENCES qualification_types(id) ON DELETE SET NULL,  -- qualification needed to see it
+    admin_only INTEGER NOT NULL DEFAULT 0 CHECK(admin_only IN (0,1)),        -- only administrators see it
+    roles_limited INTEGER NOT NULL DEFAULT 0 CHECK(roles_limited IN (0,1)),  -- only the roles in document_profile_roles
     sort_order INTEGER NOT NULL DEFAULT 0,
     filename TEXT NOT NULL,
     stored_path TEXT NOT NULL,         -- file name in <LOG_DIR>/documents
@@ -521,6 +523,11 @@ CREATE TABLE IF NOT EXISTS documents (
     sha256 TEXT NOT NULL,
     uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     uploaded_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS document_profile_roles (  -- profile roles that may see a document (with roles_limited=1)
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    role_id INTEGER NOT NULL REFERENCES profile_roles(id) ON DELETE CASCADE,
+    PRIMARY KEY (document_id, role_id)
 );
 CREATE TABLE IF NOT EXISTS trainings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -830,7 +837,7 @@ LOGBOOK_UNRELATED = {
     "api_keys", "cli_logins", "password_setup_tokens", "ingest", "bulk_reservations", "weather_cache",
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
     "training_progress", "training_briefers", "booking_things", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
-    "document_settings", "document_groups", "documents",
+    "document_settings", "document_groups", "documents", "document_profile_roles",
     "mail_outbox", "mail_prefs", "mail_sent_keys",
     "profile_roles", "profile_departments", "user_profiles", "user_supervisors", "logbook_version",
 }

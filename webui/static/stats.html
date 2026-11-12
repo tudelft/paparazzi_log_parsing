@@ -259,6 +259,7 @@ async function loadStorage(refresh = false) {
     tile(bytesText(size('paths')), 'Flight paths', files('paths')),
     tile(bytesText(size('attachments')), 'Attachments', files('attachments') + ', with PDF previews'),
     tile(bytesText(size('evidence')), 'Qualification evidence', files('evidence')),
+    ...(size('documents') ? [tile(bytesText(size('documents')), 'Documents', files('documents') + ', shared on the Documents page')] : []),
     tile(bytesText(d.database_bytes), 'Database', 'The SQLite database file, current'),
     tile(d.free.logs ? bytesText(d.free.logs.free) : '—', 'Free on log storage', free(d.free.logs)),
     tile(d.free.database ? bytesText(d.free.database.free) : '—', 'Free on database disk', free(d.free.database)),

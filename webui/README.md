@@ -223,10 +223,11 @@ change any and set up the items in Edit mode (**Add item**, **Edit item**).
 ## Documents
 
 **Documents** (optional) holds shared documents, for example the ones to show when you are asked for them in the field
-(insurance, operator registration, operations approval, manuals). Administrators write a text at the top and upload
-documents in Edit mode (**Add document**, **Add group**); a document can be visible only to people with a current
-qualification. Below them, **My licences and qualifications** lists your own approved qualifications that are valid
-today, with their documents; change them under **My account** (see below). Rules: [technical guide](TECHNICAL.md#documents).
+(insurance, operator registration, operations approval, manuals), in tabs per group. Administrators write a text at the
+top and upload documents in Edit mode (**Add document**, **Add group**; **Edit** also replaces a document's file). A
+document can be only for administrators, for people with a current qualification or for some profile roles. The tab
+**My qualifications** lists your own approved qualifications that are valid today, with their documents; add or renew
+them in **My account** (see below). Rules: [technical guide](TECHNICAL.md#documents).
 
 ## Email
 

@@ -1235,18 +1235,28 @@ API key; give a document build an admin account's **read-only** key.
 
 ### Documents
 
-Off unless `LOGDB_DOCUMENTS=1`; session-only (`documents.py`, `static/documents.html`). `GET /api/documents` returns
-`intro` (the text at the top, `document_settings`), `groups` (`document_groups`: name, description, sort order; one
-level), `documents` the person may see (`documents`: title, description, optional group, optional `type_id`, file),
-`qualifications` (the person's own approved submissions valid today, with evidence `view`/`download` links when there
-is a file; also for admins, only their own) and, for admins, `types` and `max_bytes`. A document with a `type_id` is
-shown only to people with a current approved qualification of that type (as for agenda items); admins see every
-document. Files are stored under `<LOG_DIR>/documents` (gzip when it saves at least 5%, at most 100 MiB each) and served
-by `GET /api/documents/<id>/view` (inline, only the safe types of flight attachments) and `/download`.
-Admins: `PUT /api/admin/documents/intro`, `POST|PUT|DELETE /api/admin/document-groups[/<id>]` (a group that still holds
-documents cannot be deleted), `POST /api/admin/documents` (multipart: `file`, `title`, `description`, `group_id`,
-`type_id`, `sort_order`), `PUT /api/admin/documents/<id>` (the same fields without the file, as JSON) and `DELETE`
-(also removes the file).
+Off unless `LOGDB_DOCUMENTS=1`; session-only (`documents.py`, `static/documents.html`); it needs no person profiles.
+`GET /api/documents` returns `intro` (the text at the top, `document_settings`), `groups` (`document_groups`: name,
+description, sort order; one level, shown as page tabs with All, General for documents without a group and My
+qualifications; the tab is kept in the URL, `?tab=`; empty groups only in Edit mode), `documents` the person may see
+(`documents`: title, description, optional group, limits, file), `qualifications` (the person's own approved
+submissions valid today, with evidence `view`/`download` links when there is a file; also for admins, only their own)
+and, for admins, `types` (all, with `active`, so a limit to a type that was deactivated later stays in the edit
+dialog), `profiles` (person profiles on), `roles` (`profile_roles`) and `max_bytes`.
+
+Admins see every document. Anyone else must meet every limit set on it: `admin_only` (administrators only); `type_id`
+(a current approved qualification of that type, as for agenda items); `roles_limited` with the roles in
+`document_profile_roles` (the person's profile role, `profiles.py`). Role limits fail closed: with
+`LOGDB_PERSON_PROFILE` off, or when every chosen role was removed from the profile lists, only admins see the document.
+
+Files are stored under `<LOG_DIR>/documents` (mode 0700; gzip when it saves at least 5%, at most 100 MiB each; counted
+as Documents on Statistics) and served by `GET /api/documents/<id>/view` (inline, only the safe types of flight
+attachments) and `/download`. Admins: `PUT /api/admin/documents/intro`, `POST|PUT|DELETE
+/api/admin/document-groups[/<id>]` (a group that still holds documents cannot be deleted), `POST /api/admin/documents`
+(multipart: `file`, `title`, `description`, `group_id`, `type_id`, `admin_only`, `roles_limited`, `role_ids`
+repeated, `sort_order`), `PUT /api/admin/documents/<id>` (the same fields without the file, as JSON; `role_ids` a
+list), `POST /api/admin/documents/<id>/file` (multipart `file`: replaces the file, for example a renewed certificate,
+and keeps the other fields) and `DELETE` (also removes the file).
 
 Read-only People chips show only approved, non-expired submissions and omit the approval label;
 management views retain all submission states.

@@ -495,7 +495,7 @@ window.timingEvidenceHTML = function (timing) {
     paintEdit();
     window.dispatchEvent(new Event('editchange'));
   };
-  // Menu: Logbook · Agenda · Training · Documents (each when enabled) · Statistics · Directory ▾ · Training (when enabled); Upload logs, Edit and the name menu on the right
+  // Menu: Logbook · Agenda · Training · Documents (each when enabled) · Directory ▾ (People … Logs, Statistics); Upload logs, Edit and the name menu on the right
   const DIRECTORY = [['/people', 'People'], ['/aircraft', 'Aircraft'], ['/projects', 'Projects'], ['/locations', 'Locations'],
     null, ['/logs', 'Logs'], ['/stats', 'Statistics']];
 
