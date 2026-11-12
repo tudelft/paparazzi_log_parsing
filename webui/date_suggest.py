@@ -68,7 +68,9 @@ def date_in_name(name, undated):
     parts = [p for p in re.split(r"[\\/]", name or "") if p]
     for part in reversed(parts):
         for pattern, century in ((_YMD, ""), (_YY_MM_DD, "20")):
-            for m in pattern.finditer(part):
+            # Paparazzi names are YY_MM_DD__HH_MM_SS: only the first short group is a date, the time after it is not
+            # (80_01_08__17_08_26 is an unset 1980 clock, not 2017-08-26).
+            for m in list(pattern.finditer(part))[:1 if century else None]:
                 try:
                     day = date(int(century + m[1]), int(m[2]), int(m[3])).isoformat()
                 except ValueError:
