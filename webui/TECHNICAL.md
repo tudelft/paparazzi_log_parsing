@@ -49,6 +49,9 @@ Day-to-day:
     sudo -u logdb /opt/flight-logs/app/webui/venv/bin/python /opt/flight-logs/app/webui/app.py check-config
 
 After an update that changes the parser version, click **Re-parse outdated** on the Logs page (in Edit mode).
+Re-parsing keeps flight numbers (`flights.id`, used in `/flight/<number>`, `pprz_fetch` and the Python client): a flight
+with the same aircraft ID and flight index whose takeoff moved at most 60 s keeps its number (`db.store_parsed`). Other
+flights get a new number above every number of that log, so a dropped number never points at another flight.
 
 An ordinary update automatically reloads the installer if Git changes it, even when running the
 installed copy directly. One invocation updates the code, dependencies and service files. First
@@ -1760,7 +1763,7 @@ A paper record and the logged flight(s) of the same flight can be **linked** (`l
 flight" (`same=0`), with `origin` `auto` or `manual`, who and when.
 
 - **Stable keys.** A logged flight is addressed by `log_id` + `ac_id` (-1 when none) + parser flight number
-  `idx`, which survive re-parsing (flight ids do not). The takeoff time at decision time is stored too;
+  `idx`, which survive re-parsing (flight ids are kept too, see [Install on a server](#install-on-a-server), but links do not rely on them). The takeoff time at decision time is stored too;
   if a re-parse moves that flight by more than 60 s the link is ignored as stale rather than attached to
   another flight. Deleting the record or the log deletes its links.
 - **Automatic links** are made after a log is parsed, after paper records are created, edited, imported or
