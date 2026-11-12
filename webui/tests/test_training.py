@@ -338,6 +338,37 @@ class TrainingTests(AppTests):
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM training_questions WHERE training_id=?",
                                           (tid,)).fetchone()[0], 2)
 
+    def test_reading_material_must_be_confirmed_before_the_test(self):
+        pdf = b"%PDF-1.4 mock reading"
+        payload = self.sample_payload(reading="Read the rules.", reading_file="rules.pdf")
+        preview = self.import_file(payload, images={"plot.png": PNG, "rules.pdf": pdf}, preview=True)
+        self.assertEqual((preview.json["reading_chars"], preview.json["reading_file"]), (15, "rules.pdf"))
+        tid = self.import_file(payload, images={"plot.png": PNG, "rules.pdf": pdf}).json["id"]
+        admin_q = self.client.get(f"/api/trainings/{tid}").json["questions"][0]
+        right = {str(admin_q["id"]): next(c["id"] for c in admin_q["choices"] if c["correct"])}
+        self.sign_in(2)
+        quiz = self.client.get(f"/api/trainings/{tid}").json
+        self.assertEqual((quiz["reading"], quiz["reading_file"], quiz["must_read"]), ("Read the rules.", True, True))
+        self.assertEqual(self.client.get(f"/api/trainings/{tid}/reading-file").data, pdf)
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/submit", json={"answers": right}).status_code, 409)
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/read").status_code, 200)
+        self.assertFalse(self.client.get(f"/api/trainings/{tid}").json["must_read"])
+        self.assertTrue(self.client.post(f"/api/trainings/{tid}/submit", json={"answers": right}).json["passed"])
+        self.sign_in(1)
+        self.assertEqual(self.client.delete(f"/api/admin/trainings/{tid}/progress/2").status_code, 200)
+        exported = zipfile.ZipFile(io.BytesIO(self.client.get(f"/api/admin/trainings/{tid}/export").data))
+        manifest = json.loads(exported.read(next(n for n in exported.namelist() if n.endswith(".json"))))
+        self.assertEqual((manifest["reading"], exported.read(manifest["reading_file"])), ("Read the rules.", pdf))
+        self.sign_in(2)
+        self.assertTrue(self.client.get(f"/api/trainings/{tid}").json["must_read"])  # a retake reads again
+        self.sign_in(1)
+        bad = self.import_file(self.sample_payload(name="Other", reading_file="rules.pdf"),
+                               images={"plot.png": PNG, "rules.pdf": b"not a pdf"})
+        self.assertEqual(bad.status_code, 400, bad.json)
+        missing = self.import_file(self.sample_payload(name="Other", reading_file="gone.pdf"))
+        self.assertEqual(missing.status_code, 400, missing.json)
+        self.assertFalse(self.client.get(f"/api/trainings/{self.add_training(name='Plain')}").json["must_read"])
+
     def test_import_rejects_bad_questions_and_evidence_types(self):
         bad = self.import_file(self.sample_payload(questions=[{
             "prompt": "Broken", "kind": "single",
