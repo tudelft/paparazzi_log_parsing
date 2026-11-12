@@ -811,7 +811,7 @@ def register(app, connection, root, require_session):
         cid = con()
         with db.write_lock, cid:
             cid.execute("BEGIN IMMEDIATE")
-            row = training_row(cid, training_id, active_only=True)
+            row = training_row(cid, training_id, active_only=not g.user["is_admin"])
             if not has_reading(row):
                 raise TrainingError("This training has no reading material.")
             stamp = utc_now()
@@ -826,7 +826,7 @@ def register(app, connection, root, require_session):
         cid = con()
         with db.write_lock, cid:
             cid.execute("BEGIN IMMEDIATE")
-            row = training_row(cid, training_id, active_only=True)
+            row = training_row(cid, training_id, active_only=not g.user["is_admin"])
             progress = cid.execute("SELECT * FROM training_progress WHERE user_id=? AND training_id=?",
                                    (g.user["id"], training_id)).fetchone()
             body = request.get_json(silent=True) or {}
@@ -1249,6 +1249,45 @@ def register(app, connection, root, require_session):
                 (image_dir() / row["image_path"]).unlink(missing_ok=True)
             cid.execute("UPDATE training_questions SET image_path=?, image_mime=? WHERE id=?",
                         (name, mime, question_id))
+        return jsonify(ok=True)
+
+    @app.post("/api/admin/trainings/<int:training_id>/reading-file")
+    def upload_reading_file(training_id):
+        """Add or replace a training's reading PDF (same checks as the import); the old file is removed."""
+        admin()
+        uploaded = request.files.get("file")
+        if uploaded is None or not uploaded.filename:
+            raise TrainingError("Choose a PDF.")
+        name = secure_filename(uploaded.filename)[:160] or "reading.pdf"
+        if not name.lower().endswith(".pdf"):
+            raise TrainingError("The reading file must be a PDF.")
+        data = uploaded.read(MAX_READING_BYTES + 1)
+        check_pdf_bytes(name, data)
+        cid = con()
+        stored = uuid.uuid4().hex + ".pdf"
+        (image_dir() / stored).write_bytes(data)
+        try:
+            with db.write_lock, cid:
+                cid.execute("BEGIN IMMEDIATE")
+                old = training_row(cid, training_id)["reading_path"]
+                cid.execute("UPDATE trainings SET reading_path=?, reading_name=? WHERE id=?", (stored, name, training_id))
+        except Exception:
+            (image_dir() / stored).unlink(missing_ok=True)
+            raise
+        if old:
+            (image_dir() / old).unlink(missing_ok=True)
+        return jsonify(ok=True, reading_name=name)
+
+    @app.delete("/api/admin/trainings/<int:training_id>/reading-file")
+    def remove_reading_file(training_id):
+        admin()
+        cid = con()
+        with db.write_lock, cid:
+            cid.execute("BEGIN IMMEDIATE")
+            old = training_row(cid, training_id)["reading_path"]
+            cid.execute("UPDATE trainings SET reading_path=NULL, reading_name=NULL WHERE id=?", (training_id,))
+        if old:
+            (image_dir() / old).unlink(missing_ok=True)
         return jsonify(ok=True)
 
     @app.get("/api/admin/trainings/<int:training_id>/results")
