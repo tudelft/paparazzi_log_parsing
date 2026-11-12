@@ -385,7 +385,9 @@ time of day (±30 s), at least 60 s long (short flights match too many others), 
 Every matched flight of the log must have exactly one such GCS flight, no other undated flight may claim it,
 and all must agree on the day. Without a GCS match, the date comes from the upload path (`logs.name`): the first
 plausible date in the file name, then in the folders from the deepest up (`2026-04-29`, `20260429`, or
-`26_04_29` as in Paparazzi log names; not before 1990 or in the future). Failing that, the dated logs of the same
+`26_04_29` as in Paparazzi log names, of which only the first group counts because the time follows it, and
+`2026-4-29` as in ground station download names; a file named only `HH_MM_SS`, as PX4 stores them under a date
+folder, is a time; not before 1990 or in the future). Failing that, the dated logs of the same
 aircraft just before and after it in the same upload folder (natural file-name order, undated logs skipped) give
 the day when they agree; files uploaded without a folder have no neighbours. Each suggestion has a `source`
 (`gcs`, `name`, `folder`) and a `reason`, shown in the log details ("Date probably 2026-04-29: date in the folder

@@ -58,7 +58,9 @@ def suggestions(con, undated):
     return out
 
 
-_YMD = re.compile(r"(?<!\d)(20\d\d)[-_.]?(0[1-9]|1[0-2])[-_.]?(0[1-9]|[12]\d|3[01])(?!\d)")
+# 2026-04-29, 2026_04_29, 20260429, and 2020-3-12 as in ground station download names (log_45_2020-3-12-14-25-30.ulg).
+_YMD = re.compile(r"(?<!\d)(20\d\d)(?:([-_.])(0?[1-9]|1[0-2])\2|(0[1-9]|1[0-2]))(0?[1-9]|[12]\d|3[01])(?!\d)")
+_TIME_NAME = re.compile(r"\d\d_\d\d_\d\d(\.\w+)?$")
 _YY_MM_DD = re.compile(r"(?<!\d)(\d\d)_(0[1-9]|1[0-2])_(0[1-9]|[12]\d|3[01])(?!\d)")
 
 
@@ -70,9 +72,14 @@ def date_in_name(name, undated):
         for pattern, century in ((_YMD, ""), (_YY_MM_DD, "20")):
             # Paparazzi names are YY_MM_DD__HH_MM_SS: only the first short group is a date, the time after it is not
             # (80_01_08__17_08_26 is an unset 1980 clock, not 2017-08-26).
+            if century and part is parts[-1] and _TIME_NAME.match(part):
+                continue  # PX4 stores logs as YYYY-MM-DD/HH_MM_SS.ulg: the file name is a time
             for m in list(pattern.finditer(part))[:1 if century else None]:
                 try:
-                    day = date(int(century + m[1]), int(m[2]), int(m[3])).isoformat()
+                    y, mo, d = (m[1], m[3] or m[4], m[5]) if century == "" else (century + m[1], m[2], m[3])
+                    if century == "" and not m[2] and len(d) == 1:
+                        continue  # 2026041 is not a date
+                    day = date(int(y), int(mo), int(d)).isoformat()
                 except ValueError:
                     continue
                 if not undated(day + "T12:00:00Z"):
