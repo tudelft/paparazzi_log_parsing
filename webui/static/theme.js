@@ -254,7 +254,8 @@ window.timingEvidenceHTML = function (timing) {
     // a funnel icon, then the period and how many other filters are changed (the full summary is the tooltip)
     button.innerHTML = '<svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
       + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>'
-      + `<span>Flight filters · ${api.periodLabel()}${extra ? ' · +' + extra : ''} ▾</span>`;
+      + `<span class="filter-label">Flight filters · ${api.periodLabel()}${extra ? ' · +' + extra : ''} ▾</span>`;
+    button.setAttribute('aria-label', 'Flight filters: ' + api.summary());
     button.title = api.summary();
     document.getElementById('flightFiltersNotice').textContent = storageWarning;
   }

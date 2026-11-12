@@ -206,12 +206,20 @@ body > header .header-actions { display:flex; align-items:center; gap:8px; }
   body > header.has-flight-filters h1 { flex-basis:7em; width:7em; min-width:7em; }
   body > header.has-flight-filters #nav a { padding-left:8px; padding-right:8px; }
 }
-@media (max-width:750px) {
+/* When the header gets tight (tablets): the filter shrinks to its funnel icon (its summary stays the tooltip) and sits
+   with the buttons on the title row; the menu gets a row of its own. On phones the title gets its own row as well. */
+@media (max-width:1000px) {
   body > header.has-flight-filters { flex-wrap:wrap; gap:8px; padding:10px 12px; }
   body > header.has-flight-filters #nav { order:3; flex-basis:100%; }
   body > header.has-flight-filters #nav a { padding-top:8px; padding-bottom:8px; }
+  body > header.has-flight-filters #flightFiltersMenu { order:1; margin-left:auto; }
+  body > header.has-flight-filters > .meta:not(#nav) { order:2; margin-left:0 !important; }
+  #flightFiltersButton { padding:6px 8px; }
+  #flightFiltersButton .filter-label { display:none; }
+  #flightFiltersButton .filter-icon { width:16px; height:16px; }
+}
+@media (max-width:750px) {
   body > header.has-flight-filters h1 { flex:1 1 100%; width:auto; min-width:0; }
-  #flightFiltersButton { max-width:calc(100vw - 180px); }
 }
 #editBtn {
   font:inherit; width:auto; background:transparent; color:#9fb0c3;
@@ -365,4 +373,4 @@ dialog.entry-dialog label.field input, dialog.entry-dialog label.field select { 
 .matlab-help .tip { left:auto; right:0; white-space:normal; width:280px; }
 #flightFiltersButton { display:inline-flex; align-items:center; gap:6px; }
 #flightFiltersButton .filter-icon { width:14px; height:14px; flex:0 0 auto; }
-#flightFiltersButton > span { overflow:hidden; text-overflow:ellipsis; }
+#flightFiltersButton > .filter-label { overflow:hidden; text-overflow:ellipsis; }
