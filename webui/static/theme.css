@@ -130,7 +130,7 @@ body > header .header-actions { display:flex; align-items:center; gap:8px; }
   border-radius:6px; padding:5px 12px; cursor:pointer; white-space:nowrap; }
 #downloadBtn:hover { background:#31506f; color:#fff; }
 #downloadBtn small { font-weight:400; font-size:12px; opacity:.8; }
-@media (max-width:750px) { #uploadBtn .upload-label, #downloadBtn .upload-label { display:none; } }
+@media (max-width:1280px) { #uploadBtn .upload-label, #downloadBtn .upload-label { display:none; } }
 @media (max-width:1150px) { #downloadBtn small { display:none; } }
 
 /* Upload dialog (upload.js) */
@@ -206,12 +206,22 @@ body > header .header-actions { display:flex; align-items:center; gap:8px; }
   body > header.has-flight-filters h1 { flex-basis:7em; width:7em; min-width:7em; }
   body > header.has-flight-filters #nav a { padding-left:8px; padding-right:8px; }
 }
-@media (max-width:750px) {
+/* When the header gets tight (up to 1280 px) the filter, Download and Upload shrink to their icons (the summary and
+   labels stay in the tooltips); below 900 px the menu gets a row of its own, and on phones the title too. */
+@media (max-width:1280px) {
+  #flightFiltersButton { padding:6px 8px; }
+  #flightFiltersButton .filter-label { display:none; }
+  #flightFiltersButton .filter-icon { width:16px; height:16px; }
+}
+@media (max-width:900px) {
   body > header.has-flight-filters { flex-wrap:wrap; gap:8px; padding:10px 12px; }
   body > header.has-flight-filters #nav { order:3; flex-basis:100%; }
   body > header.has-flight-filters #nav a { padding-top:8px; padding-bottom:8px; }
+  body > header.has-flight-filters #flightFiltersMenu { order:1; margin-left:auto; }
+  body > header.has-flight-filters > .meta:not(#nav) { order:2; margin-left:0 !important; }
+}
+@media (max-width:750px) {
   body > header.has-flight-filters h1 { flex:1 1 100%; width:auto; min-width:0; }
-  #flightFiltersButton { max-width:calc(100vw - 180px); }
 }
 #editBtn {
   font:inherit; width:auto; background:transparent; color:#9fb0c3;
@@ -363,3 +373,6 @@ dialog.entry-dialog label.field input, dialog.entry-dialog label.field select { 
 .matlab-note { font-size:12px; color:var(--mute); padding:4px 6px 2px; max-width:300px; }
 .matlab-help { margin-left:auto; text-transform:none; letter-spacing:0; }
 .matlab-help .tip { left:auto; right:0; white-space:normal; width:280px; }
+#flightFiltersButton { display:inline-flex; align-items:center; gap:6px; }
+#flightFiltersButton .filter-icon { width:14px; height:14px; flex:0 0 auto; }
+#flightFiltersButton > .filter-label { overflow:hidden; text-overflow:ellipsis; }

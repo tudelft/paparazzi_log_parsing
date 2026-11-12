@@ -34,7 +34,6 @@
   .hero { display:flex; gap:8px 16px; align-items:center; flex-wrap:wrap; margin:0; }
   .detail-header { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; }
   .detail-header .page-help { margin-left:auto; }
-  .detail-header > .filter-context { font-size:12px; }
   .hero h2 { font-size:22px; margin:0; }
   .chip { display:inline-block; padding:1px 9px; border-radius:10px; font-size:12px; background:var(--chip); color:var(--txt); }
   .chip.pending { background:var(--warnbg, #fff8c5); color:var(--warn); }
@@ -123,7 +122,6 @@
   <div id="page" hidden>
     <section class="card detail-header">
       <div class="hero"><h2 id="name"></h2><span id="chips"></span></div>
-        <span class="mute filter-context" data-flight-filter-summary></span>
         <details class="page-help"><summary>Help</summary><p id="scope"></p>
         <p>Statistics, map, charts and tables follow the shared flight filters. Qualification dates appear on hover; qualifications with evidence open the file when you have access. Past qualifications and account details can be expanded.</p></details>
       <div class="profile-line" id="profileLine" hidden></div>
