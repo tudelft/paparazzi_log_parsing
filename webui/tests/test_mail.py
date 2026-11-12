@@ -54,6 +54,14 @@ class MailTests(AppTests):
         self.assertIn("Hello Pilot,", body)
         self.assertIn("https://logs.example.org/agenda", body)
         self.assertIn("https://logs.example.org/account#email", body)
+        self.assertIn("-- \nFlight logbook\nChoose which emails", body)
+        with patch.dict(os.environ, {"LOGDB_MAIL_FOOTER": "MAVLab\\nFaculty of Aerospace Engineering",
+                                     "LOGDB_MAIL_FROM_NAME": "MAVLab logbook"}):
+            mail.notify(self.con, 2, "bookings", "Booked: bench", "You booked the bench.")
+            self.con.commit()
+            msg, = self.send()
+            self.assertEqual(msg["From"], "MAVLab logbook <logbook@example.org>")
+            self.assertIn("-- \nMAVLab\nFaculty of Aerospace Engineering\nChoose which emails", msg.get_content())
         self.assertEqual(self.client.put("/api/account/email", json={"modes": {"bookings": "daily"}}).status_code, 200)
         for n in (1, 2):
             mail.notify(self.con, 2, "bookings", f"Booked {n}", f"Booking {n}.")

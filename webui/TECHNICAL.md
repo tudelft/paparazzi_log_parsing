@@ -1051,7 +1051,8 @@ web calendars such as Google Calendar fetch from their own servers.
 
 Off unless `LOGDB_SMTP_HOST` is set (settings in the **Email** group of `config.py example`; use the organisation's
 mail relay and a functional sender address in `LOGDB_MAIL_FROM`, and set `LOGDB_PUBLIC_URL` so mails can link to
-pages). `config.py check` reports a missing sender. Kinds (`mail.KINDS`):
+pages). `LOGDB_MAIL_FROM_NAME` is the sender name and `LOGDB_MAIL_FOOTER` the text above the settings link at the
+bottom of every mail (`\n` for a new line; default the sender name). `config.py check` reports a missing sender. Kinds (`mail.KINDS`):
 
 | Kind | Who | Default | What |
 |---|---|---|---|

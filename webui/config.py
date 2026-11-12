@@ -76,6 +76,9 @@ SETTINGS = {
         "SMTP_USER": (None, "Mail relay user name, if the relay needs a login"),
         "SMTP_PASSWORD": (None, "Mail relay password"),
         "MAIL_FROM": ("", "Sender address of the notifications, e.g. a functional mailbox of the organisation"),
+        "MAIL_FROM_NAME": ("Flight logbook", "Sender name shown with LOGDB_MAIL_FROM"),
+        "MAIL_FOOTER": (None, "Text at the bottom of every mail, above the link to the email settings; \\n starts a "
+                              "new line (default: the sender name)"),
         "MAIL_ADMIN_TO": (None, "Shared mailbox for administrator notices (qualifications to approve, logs that failed "
                                 "to parse); when unset each administrator gets them as chosen in My account"),
         "MAIL_DAILY_HOUR": ("7", "Local hour after which the daily summaries and expiry reminders are sent"),

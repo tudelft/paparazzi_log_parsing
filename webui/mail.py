@@ -123,16 +123,21 @@ def notify_admins(con, subject, text, path=None, key=None, skip=None):
 
 
 # --- composing -------------------------------------------------------------------------------------------------------
+def signature():
+    """LOGDB_MAIL_FOOTER, with \\n for line breaks; the sender name when unset."""
+    return (env("MAIL_FOOTER") or env("MAIL_FROM_NAME")).replace("\\n", "\n").strip()
+
+
 def footer(shared=False):
-    if shared:
-        return "\n\n-- \nFlight logbook: administrator notice (sent to the address in LOGDB_MAIL_ADMIN_TO)."
-    return "\n\n-- \nFlight logbook. Choose which emails you get under My account: " + link("/account#email")
+    end = ("Administrator notice, sent to the shared mailbox." if shared
+           else "Choose which emails you get under My account: " + link("/account#email"))
+    return f"\n\n-- \n{signature()}\n{end}"
 
 
 def compose(name, subject, body, shared=False):
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = formataddr(("Flight logbook", env("MAIL_FROM")))
+    msg["From"] = formataddr((env("MAIL_FROM_NAME"), env("MAIL_FROM")))
     msg["Message-ID"] = make_msgid(domain=env("MAIL_FROM").partition("@")[2] or None)
     msg.set_content((f"Hello {name},\n\n" if name else "") + f"{body}{footer(shared)}\n")
     return msg
