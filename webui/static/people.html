@@ -173,6 +173,7 @@
       <label class="field">Email (optional)<input id="newEmail" type="email" maxlength="120" autocomplete="off"></label>
       <label class="field">Default project<select id="newProject"></select></label>
       <label class="field" style="padding-bottom:6px">Admin<input type="checkbox" id="newAdmin"></label>
+      <label class="field" id="newSendMailBox" style="padding-bottom:6px" hidden title="Send the one-time link to set a password to the email address above">Email the sign-in link<input type="checkbox" id="newSendMail" checked></label>
       <button type="submit">Add user</button>
     </form>
     </dialog>
@@ -330,7 +331,7 @@ window.fetch = async (...args) => {
   return r;
 };
 let people = {users: [], unlinked: []};
-let me = null, profileOn = false, profileOptions = null, profileList = [];
+let me = null, mailOn = false, profileOn = false, profileOptions = null, profileList = [];
 const personTabs = () => ['account', ...(profileOn ? ['profile'] : []), 'api', 'aliases', 'qualifications'];
 let selectedPerson = null, selectedTab = 'account', qualificationManager = null;
 let qualificationTypes = [], pendingQualifications = [];
@@ -1157,11 +1158,12 @@ async function saveQualificationTypes(event) {
   } catch (error) { $('err').textContent = error.message; }
 }
 
-function showSetup(url, username, hasPassword, expiresAt) {
+function showSetup(url, username, hasPassword, expiresAt, mailedTo) {
   const until = new Date(expiresAt).toLocaleString();
-  $('setupHint').textContent = hasPassword
+  $('setupHint').textContent = (hasPassword
     ? username + ' can open this link once, until ' + until + ', and choose a new password. The current password keeps working until then.'
-    : username + ' can open this link once, until ' + until + ', and choose a password. Send them the link.';
+    : username + ' can open this link once, until ' + until + ', and choose a password.')
+    + (mailedTo ? ' It is being emailed to ' + mailedTo + '.' : hasPassword ? '' : ' Send them the link.');
   $('setupUrl').value = url;
   $('copied').textContent = '';
   $('setupBox').hidden = false;
@@ -1178,14 +1180,15 @@ async function addUser(ev) {
   const username = $('newUser').value.trim();
   const r = await fetch('/api/admin/users', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({username, display_name: $('newName').value.trim(), email: $('newEmail').value.trim(),
-      is_admin: $('newAdmin').checked, default_project_id: $('newProject').value ? +$('newProject').value : null})});
+      is_admin: $('newAdmin').checked, default_project_id: $('newProject').value ? +$('newProject').value : null,
+      send_email: mailOn && $('newSendMail').checked})});
   if (!r.ok) { $('addUserError').textContent = ((await r.json().catch(() => ({}))).error) || 'Could not add user'; return; }
   const data = await r.json();
   $('err').textContent = '';
   $('addUser').reset();
   $('addUserError').textContent = '';
   $('addUserDialog').close();
-  showSetup(data.setup_url, username, false, data.expires_at);
+  showSetup(data.setup_url, username, false, data.expires_at, data.mailed_to);
   selectedPerson = data.id;
   selectedTab = 'account';
   await load();
@@ -1193,11 +1196,12 @@ async function addUser(ev) {
 }
 async function newSetupLink(id) {
   const u = people.users.find(x => x.id === id);
-  const r = await fetch('/api/admin/users/' + id + '/setup-link', {method: 'POST'});
+  const r = await fetch('/api/admin/users/' + id + '/setup-link', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({send_email: mailOn})});
   if (!r.ok) { $('err').textContent = ((await r.json().catch(() => ({}))).error) || 'failed'; return; }
   const data = await r.json();
   $('err').textContent = '';
-  showSetup(data.setup_url, u ? u.username : 'This user', !!(u && u.has_password), data.expires_at);
+  showSetup(data.setup_url, u ? u.username : 'This user', !!(u && u.has_password), data.expires_at, data.mailed_to);
 }
 async function removePassword(id) {
   const u = people.users.find(x => x.id === id);
@@ -1376,6 +1380,8 @@ async function commitQualImport() {
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
   profileOn = !!d.person_profile;
+  mailOn = !!d.email;
+  $('newSendMailBox').hidden = !mailOn;
   if (profileOn && me.is_admin) loadProfileOptions();
   if (profileOn) loadProfileList();
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');

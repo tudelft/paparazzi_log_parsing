@@ -41,6 +41,9 @@
   details[open] > summary { margin-bottom:12px; }
   .table-scroll { max-height:45vh; overflow:auto; }
   input, select { max-width:100%; }
+  select { font:inherit; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--txt); }
+  .mail-prefs { display:grid; grid-template-columns:max-content max-content; gap:6px 16px; align-items:center; }
+  .mail-prefs label { cursor:help; }
 </style>
 </head>
 <body>
@@ -61,6 +64,12 @@
   <section class="card">
     <h2>My qualifications</h2>
     <div id="myQualifications">Loading qualifications...</div>
+  </section>
+  <section class="card" id="email" hidden>
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h2>Email notifications</h2>
+      <span class="mute" id="emailTo"></span><span class="mute" id="emailSaved" role="status" style="margin-left:auto"></span></div>
+    <div class="mail-prefs" id="emailPrefs"></div>
+    <div class="row" id="emailTestRow" hidden><button type="button" class="sec" onclick="testEmail()">Send me a test email</button><span class="mute" id="emailTest"></span></div>
   </section>
   <details class="card" id="passwordCard" hidden>
     <summary>Change password</summary>
@@ -166,6 +175,8 @@ api('/api/me').then(d => {
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   $('info').innerHTML = `<span class="mute">Name</span><span>${esc(d.user.display_name)}</span><span class="mute">Username</span><span>${esc(d.user.username)}</span><span class="mute">Role</span><span>${d.user.is_admin ? 'Administrator' : 'User'}</span>`;
   $('passwordCard').hidden = d.user.provider !== 'local' || !d.user.has_password;
+  $('emailTestRow').hidden = !d.user.is_admin;
+  if (d.email) loadEmail().catch(e => { $('err').textContent = e.message; });
   if (d.person_profile) api('/api/profile').then(p => {
     $('profileCard').hidden = false;
     $('profile').innerHTML = profileHTML(p.profile);
@@ -175,6 +186,31 @@ api('/api/me').then(d => {
       + `<td>${s.profile?.indefinite ? 'Indefinite' : esc(s.profile?.end_date)}</td></tr>`).join('');
   }).catch(e => { $('err').textContent = e.message; });
 }).catch(e => { $('err').textContent = e.message; });
+async function loadEmail() {
+  const d = await api('/api/account/email');
+  if (!d.enabled) return;
+  $('email').hidden = false;
+  $('emailTo').textContent = d.email ? 'to ' + d.email : 'Your account has no email address, so none are sent.';
+  $('emailPrefs').innerHTML = d.kinds.map(k => `<label for="mail-${k.kind}" title="${esc(k.help)}">${esc(k.label)}</label>`
+    + (k.modes.length < 2 ? '<span class="mute">Always</span>' : `<select id="mail-${k.kind}" data-kind="${k.kind}">`
+    + k.modes.map(m => `<option value="${m}"${m === k.mode ? ' selected' : ''}>${esc(d.modes[m])}</option>`).join('') + '</select>')).join('');
+  if (location.hash === '#email') $('email').scrollIntoView();
+}
+$('emailPrefs').onchange = async e => {
+  const sel = e.target.closest('select[data-kind]');
+  if (!sel) return;
+  $('emailSaved').textContent = '';
+  try {
+    await api('/api/account/email', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({modes: {[sel.dataset.kind]: sel.value}})});
+    $('emailSaved').textContent = 'Saved';
+  } catch (err) { $('emailSaved').textContent = err.message; }
+};
+async function testEmail() {
+  $('emailTest').textContent = 'Sending…';
+  try { const d = await api('/api/account/email/test', {method: 'POST'}); $('emailTest').textContent = 'Sent to ' + d.email + '.'; }
+  catch (err) { $('emailTest').textContent = err.message; }
+}
 load();
 </script>
 </body>

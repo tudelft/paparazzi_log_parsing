@@ -1047,6 +1047,35 @@ The feed is reachable without a session (`calendar_feed` in `PUBLIC_ENDPOINTS`);
 or turning off the link stops the old one. Calendar apps fetch it themselves, so they need to reach the site (VPN);
 web calendars such as Google Calendar fetch from their own servers.
 
+### Email notifications
+
+Off unless `LOGDB_SMTP_HOST` is set (settings in the **Email** group of `config.py example`; use the organisation's
+mail relay and a functional sender address in `LOGDB_MAIL_FROM`, and set `LOGDB_PUBLIC_URL` so mails can link to
+pages). `config.py check` reports a missing sender. Kinds (`mail.KINDS`):
+
+| Kind | Who | Default | What |
+|---|---|---|---|
+| Account | everyone | immediately (fixed) | the one-time link to set a password, when an admin ticks **Email the sign-in link** (Add user, New setup link) |
+| Expiry reminders | everyone | immediately | 30 and 7 days before an approved qualification ends (not when a newer approved or pending one of the type runs longer) and before the profile's expected end date (with person profiles on) |
+| Bookings | everyone | immediately | own new booking; someone else changed or removed yours; a new or moved booking overlaps yours |
+| Others' expiry reminders | admins | off | a copy of everyone's expiry reminders |
+| Administrator notices | admins | immediately | a qualification waits for approval (submitted by a non-admin); a log failed to parse |
+
+Each person chooses **Immediately**, **Daily summary** or **Off** per kind under **My account** (`GET/PUT
+/api/account/email`, table `mail_prefs`); admins can send themselves a test mail there. When `LOGDB_MAIL_ADMIN_TO`
+is set, administrator notices go only to that shared mailbox (no greeting, no per-person choice) instead of each
+admin.
+
+Mails are queued in `mail_outbox` in the transaction that causes them, so a rolled-back change sends nothing, and a
+background thread sends them within about 15 s. The address is read at sending time; people without an address, with
+a disabled account or external crew get nothing. Daily summaries and the reminder check run once a day after
+`LOGDB_MAIL_DAILY_HOUR` (local time). A relay that cannot be reached is retried; a mail is marked failed after five
+attempts or at once when the relay refuses the address. Once-only mails (reminders, overlap and parse-error notices)
+are recorded in `mail_sent_keys`, so a reminder comes once per qualification, end date and step. Rows older than 90
+days are deleted, and the body of a sent account mail is cleared because it holds a one-time link. Admins see the
+last 90 days on **Statistics**, **Sent emails** (`GET /api/admin/mail`, `?status=sent|waiting|failed`; a row opens
+the mail). The tables are in `db.LOGBOOK_UNRELATED`.
+
 ### Private licences and qualifications
 
 Users upload and manage their own qualifications on **My account**, alongside password settings.

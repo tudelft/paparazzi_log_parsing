@@ -21,6 +21,12 @@
   .cols { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
   @media (max-width: 960px) { .cols { grid-template-columns:1fr; } }
   .scroll { overflow-x:auto; }
+  table.mail-log { table-layout:fixed; width:100%; }
+  table.mail-log th:nth-child(1) { width:11em; } table.mail-log th:nth-child(2) { width:30%; }
+  table.mail-log th:nth-child(3) { width:12em; } table.mail-log th:nth-child(5) { width:5.5em; }
+  table.mail-log td { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  table.mail-log tbody tr[data-mail] { cursor:pointer; }
+  .mail-failed { color:var(--err); } .mail-waiting { color:var(--mute); }
   .cols .card { min-width:0; }
   .cols .scroll { max-height:360px; overflow-y:auto; overscroll-behavior-y:contain; scrollbar-gutter:stable; }
   .cols thead th { position:sticky; top:0; z-index:1; background:var(--card); box-shadow:0 1px 0 var(--line); }
@@ -146,7 +152,21 @@
     </div>
     <div class="totals" id="storageTotals"></div>
   </section>
+  <section class="card" id="mailCard" hidden>
+    <div class="section-heading"><h2>Sent emails</h2><span style="float:left;display:flex;gap:10px;align-items:baseline">
+      <span class="mute" id="mailCount" style="font-size:12px"></span>
+      <select id="mailStatus" aria-label="Status"><option value="">All</option><option value="sent">Sent</option><option value="waiting">Waiting</option><option value="failed">Failed</option></select></span>
+      <details><summary>Help</summary><p>The email notifications of the last 90 days, newest first, for administrators. <em>Waiting</em> mails are sent within a minute, or with the daily summary; a mail the relay refused five times is <em>Failed</em>, with the reason. Click a row to read the mail; one-time sign-in links are not kept after sending. People choose which mails they get under My account.</p></details>
+    </div>
+    <div class="scroll"><table class="mail-log"><thead><tr><th>Queued</th><th>To</th><th>Type</th><th>Subject</th><th>Status</th></tr></thead>
+      <tbody id="mailRows"></tbody></table></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:8px"><div id="mailPages" class="navigation-pages"></div></div>
+  </section>
 </main>
+<dialog class="entry-dialog" id="mailDialog" aria-labelledby="mailTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="mailTitle"></h2><button type="button" onclick="$('mailDialog').close()">Close</button></div>
+  <pre id="mailBody" style="white-space:pre-wrap;margin:0;font:13px/1.45 system-ui, sans-serif"></pre>
+</dialog>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -173,8 +193,47 @@ let flights = [];
 let logSizes = new Map();
 fetch('/api/me').then(r => r.json()).then(d => {
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
-  if (d.user.is_admin) loadStorage();
+  if (d.user.is_admin) { loadStorage(); loadMail(); }
 });
+
+// Sent emails (admins): the mail outbox of the last 90 days; page and status filter are kept in the URL.
+const MAIL_PAGE = 25;
+let mailState = (() => { const p = new URLSearchParams(location.search);
+  return {page: Math.max(0, (+p.get('mailpage') || 1) - 1), status: p.get('mailstatus') || ''}; })();
+function saveMailState() {
+  const p = new URLSearchParams(location.search);
+  if (mailState.page) p.set('mailpage', mailState.page + 1); else p.delete('mailpage');
+  if (mailState.status) p.set('mailstatus', mailState.status); else p.delete('mailstatus');
+  history.replaceState(history.state, '', location.pathname + (p.size ? '?' + p : '') + location.hash);
+}
+async function loadMail() {
+  const r = await fetch(`/api/admin/mail?offset=${mailState.page * MAIL_PAGE}&limit=${MAIL_PAGE}&status=${mailState.status}`);
+  if (!r.ok) return;
+  const d = await r.json();
+  if (!d.enabled && !d.total) return;  // email not set up and nothing sent before
+  $('mailCard').hidden = false;
+  $('mailStatus').value = mailState.status;
+  $('mailCount').textContent = d.enabled ? '' : 'Email is off on this server.';
+  const when = t => t ? esc(t.slice(0, 16).replace('T', ' ')) : '';
+  $('mailRows').innerHTML = d.mails.map(m => `<tr data-mail="${m.id}" title="${esc(m.subject)}">`
+    + `<td>${when(m.created_at)}</td><td class="trunc" title="${esc(m.to)}">${esc(m.to)}</td>`
+    + `<td title="${esc(d.kinds[m.kind] || m.kind)}${m.digest ? ' (daily summary)' : ''}">${esc(d.kinds[m.kind] || m.kind)}${m.digest ? ' <span class="mute">· summary</span>' : ''}</td>`
+    + `<td class="trunc">${esc(m.subject)}</td>`
+    + `<td class="mail-${m.status}" title="${esc(m.status === 'sent' ? 'Sent ' + when(m.sent_at) : m.error || '')}">`
+    + `${{sent: 'Sent', waiting: 'Waiting', failed: 'Failed'}[m.status]}</td></tr>`).join('')
+    || '<tr><td colspan="5" class="mute">No emails.</td></tr>';
+  window.viewState.pager($('mailPages'), mailState.page, MAIL_PAGE, d.total, page => { mailState.page = page; saveMailState(); loadMail(); });
+}
+$('mailStatus').onchange = () => { mailState = {page: 0, status: $('mailStatus').value}; saveMailState(); loadMail(); };
+$('mailRows').onclick = async e => {
+  const row = e.target.closest('tr[data-mail]');
+  if (!row) return;
+  const r = await fetch('/api/admin/mail/' + row.dataset.mail);
+  const d = await r.json().catch(() => ({}));
+  $('mailTitle').textContent = d.subject || 'Email';
+  $('mailBody').textContent = d.body || d.error || '';
+  $('mailDialog').showModal();
+};
 
 // Disk use (admins): the latest background scan of the log storage, polled while a measurement runs.
 const bytesText = n => n == null ? '—' : n >= 1e12 ? (n / 1e12).toFixed(2) + ' TB' : n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB'

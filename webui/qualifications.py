@@ -17,6 +17,7 @@ from flask import Response, g, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 import db
+import mail
 import qualification_import
 import storage
 
@@ -590,6 +591,13 @@ def register(app, connection, root, require_session):
                 audit(con, user_id, g.user["id"], "submitted",
                       dict(id=sid, category=kind["name"], valid_from=start, valid_until=until, number=number,
                            has_evidence=bool(destination)))
+                if not g.user["is_admin"]:
+                    person = con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",
+                                         (user_id,)).fetchone()[0]
+                    mail.notify_admins(con, f"Qualification to approve: {kind['name']} of {person}",
+                                       f"{person} submitted {kind['name']}"
+                                       + (f", valid until {until}" if until else "") + ". It waits for approval.",
+                                       "/people?tab=approvals")
             committed = True
             return jsonify(ok=True, id=sid, number=number), 201
         finally:
