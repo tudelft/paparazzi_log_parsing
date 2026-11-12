@@ -130,13 +130,24 @@
   .panel-row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin:12px 0; }
   input, select { max-width:100%; min-width:0; }
   #personPanel, #personContent { min-width:0; overflow-wrap:anywhere; }
-  #typeList, #typeNew { display:flex; flex-direction:column; }
-  .type-row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
+  #typeList { display:flex; flex-direction:column; }
+  .type-row { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; gap:10px; align-items:center; padding:8px 0; border-top:1px solid var(--line); }
   .type-row.dragging { opacity:.45; }
+  .type-row.off > .type-body, .type-row.off > .type-chips { opacity:.55; }
+  .type-body .type-desc { font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .type-chips { display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
+  .type-chips .chip { font-size:11px; margin:0; }
+  .type-tools { display:inline-flex; gap:6px; flex-wrap:wrap; }
+  .type-checks { display:grid; gap:6px; }
+  fieldset.type-checks { border:1px solid var(--line); border-radius:6px; padding:6px 10px 8px; margin:0; }
+  fieldset.type-checks legend { font-size:12px; color:var(--mute); padding:0 4px; }
+  .type-checks label { display:flex; gap:8px; align-items:flex-start; font-size:13px; color:var(--txt); }
+  .type-checks label input { margin-top:3px; }
+  .type-checks small { display:block; color:var(--mute); font-size:11px; }
+  #typeForm textarea { font:inherit; font-size:14px; resize:vertical; }
   .drag-handle { cursor:grab; background:var(--sec); color:var(--txt); padding:2px 8px; }
   .drag-handle:active { cursor:grabbing; }
   .drag-handle[hidden] { visibility:hidden; }
-  #typeActions { display:flex; gap:8px; align-items:center; margin-top:12px; }
   @media (max-width:760px) { .people-layout { grid-template-columns:1fr; } .people-list { max-height:32vh; } }
   [hidden] { display:none !important; }
 </style>
@@ -245,11 +256,31 @@
     <div id="approvalQueue"></div>
   </section>
   <section class="card" id="typesSection" hidden>
-    <div class="section-heading"><h2>Qualification types</h2>
-    <details><summary>Help</summary><p>Admins define qualification types here. Checked Evidence, Valid from and Valid until switches make those fields mandatory; unchecked fields are optional. Number asks for the licence or certificate number (read from a PDF certificate when left empty; <em>Fill numbers from PDFs…</em> does this for approved ones). Internal marks an in-house qualification such as FI or CTR rather than an external licence. Drag the handle to change the order. One Save writes every type. Both dates start checked for new types. Import a ZIP with <span class="mono">manifest.csv</span> and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
+    <div class="people-title-row"><h2>Qualification types</h2><span class="mute" id="typeCount"></span>
+      <span class="type-tools editOnly" hidden><button type="button" onclick="editType(null)">Add type</button>
+        <button type="button" class="sec" onclick="openFillNumbers()">Fill numbers from PDFs…</button>
+        <button type="button" class="sec" onclick="openCheckQr()">Check QR codes…</button>
+        <button type="button" class="sec" onclick="$('qualImportDialog').showModal()">Import ZIP</button></span>
+      <span class="mute" id="typeStatus" role="status"></span>
+    <details><summary>Help</summary><p>The kinds of licences and qualifications people can add, in this order. The labels show what someone must fill in when adding one: Evidence (a file), Valid from, Valid until (expiry reminders are sent 30 and 7 days before) and Number (the licence or certificate number, read from a PDF certificate when left empty; <em>Fill numbers from PDFs…</em> does this for approved ones). Internal marks an in-house qualification such as FI or CTR rather than an external licence. The description is shown where people add or see the type. In Edit mode, <em>Edit</em> changes a type and the handle drags it to another place. An inactive type can no longer be added; existing ones stay. <em>Import ZIP</em> takes a <span class="mono">manifest.csv</span> (<a href="/api/admin/qualifications/import/template">CSV template</a>) and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
     <div id="typeSettings"></div>
-    <p><button type="button" class="sec" onclick="$('qualImportDialog').showModal()">Import ZIP</button>
-      <a class="mute" href="/api/admin/qualifications/import/template">CSV template</a></p>
+    <dialog class="entry-dialog" id="typeDialog" aria-labelledby="typeTitle" style="width:min(460px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+      <div class="dialog-header"><h2 id="typeTitle">Qualification type</h2><button type="button" onclick="$('typeDialog').close()">Close</button></div>
+      <form id="typeForm" onsubmit="saveType(event)">
+        <label class="field">Name<input name="name" required maxlength="80" placeholder="e.g. A1/A3, A2, RT licence"></label>
+        <label class="field">Description (shown where people add or see it)<textarea name="description" rows="2" maxlength="300"></textarea></label>
+        <fieldset class="type-checks"><legend>When someone adds it</legend>
+          <label><input type="checkbox" name="requires_evidence"><span>Evidence file required<small>A scan or PDF of the certificate</small></span></label>
+          <label><input type="checkbox" name="requires_start"><span>Valid from required</span></label>
+          <label><input type="checkbox" name="requires_expiry"><span>Valid until required<small>Reminders are sent 30 and 7 days before</small></span></label>
+          <label><input type="checkbox" name="requires_number"><span>Number required<small>The licence or certificate number, e.g. NLD-RP-…</small></span></label></fieldset>
+        <div class="type-checks">
+          <label><input type="checkbox" name="internal"><span>Internal<small>Granted in house (training, exam), not an external licence</small></span></label>
+          <label><input type="checkbox" name="active"><span>Active<small>Inactive types can no longer be added; existing ones stay</small></span></label></div>
+        <p class="dialog-error" id="typeError" role="alert"></p>
+        <div class="row"><button type="submit">Save</button> <button type="button" class="sec" onclick="$('typeDialog').close()">Cancel</button></div>
+      </form>
+    </dialog>
   </section>
   <section class="card" id="profileOptionsSection" hidden>
     <div class="section-heading"><h2>Profile options</h2>
@@ -407,7 +438,7 @@ function qualBits(q) {
   const bit = (item) => {
     const {category: label, valid_from: start, valid_until: until, expired: dead} = item;
     if (!label) return '';
-    const when = [item.number ? `Number ${item.number}` : '', start ? `from ${start.slice(0, 10)}` : '',
+    const when = [item.type_description || '', item.number ? `Number ${item.number}` : '', start ? `from ${start.slice(0, 10)}` : '',
       until ? `until ${until.slice(0, 10)}` : ''].filter(Boolean).join(' · ');
     const attrs = `class="chip${dead ? ' warn' : ''}"${when ? ` title="${esc(when)}"` : ''}`;
     const labelText = `${esc(label)}${dead ? ' expired' : ''}`;
@@ -558,40 +589,61 @@ function renderAdminPeople() {
       <span class="tip" role="tooltip">Submitted ${esc(String(s.submitted_at || '').replace('T', ' ').replace(/Z$/, ' UTC'))}</span></span>
       <button type="button" onclick="selectPerson(${s.user_id},'qualifications')">Review submission</button></div>`;
   }).join('') || '<p class="mute">No submissions awaiting approval.</p>';
+  renderTypes();
+}
+
+// Qualification types: a list with what each one asks for; in Edit mode Edit opens a dialog and the handle reorders.
+const TYPE_FLAGS = [['requires_evidence', 'Evidence'], ['requires_start', 'Valid from'], ['requires_expiry', 'Valid until'],
+  ['requires_number', 'Number'], ['internal', 'Internal']];
+function renderTypes() {
   const editing = window.editMode();
-  if (!editing) {
-    $('typeSettings').innerHTML = qualificationTypes.map(t =>
-      `<p><strong>${esc(t.name)}</strong> · ${t.requires_evidence ? 'Evidence required' : 'Evidence optional'} · ${t.requires_start ? 'Valid from required' : 'Valid from optional'} · ${t.requires_expiry ? 'Valid until required' : 'Valid until optional'}${t.requires_number ? ' · Number required' : ''} · ${t.internal ? 'Internal' : 'External'} · ${t.active ? 'Active' : 'Disabled'}</p>`).join('');
-    return;
-  }
-  $('typeSettings').innerHTML = `<form id="typeForm" onsubmit="saveQualificationTypes(event)">
-    <div id="typeList">${qualificationTypes.map(t => typeRowHtml(t)).join('')}</div>
-    <div id="typeNew">${typeRowHtml(null)}</div>
-    <div id="typeActions"><button type="button" class="sec" onclick="addTypeRow()">Add type</button>
-      <button type="submit">Save</button>
-      <button type="button" class="sec" onclick="openFillNumbers()">Fill numbers from PDFs…</button>
-      <button type="button" class="sec" onclick="openCheckQr()">Check QR codes…</button>
-      <span class="mute" id="typeStatus" role="status"></span></div>
-  </form>`;
-  bindTypeDrag();
+  $('typeCount').textContent = `${qualificationTypes.length} type${qualificationTypes.length === 1 ? '' : 's'}`;
+  $('typeSettings').innerHTML = `<div id="typeList">${qualificationTypes.map(t => `<div class="type-row${t.active ? '' : ' off'}" data-type-row data-id="${t.id}">
+      ${editing ? '<button type="button" class="drag-handle" aria-label="Drag to reorder">↕</button>' : '<span></span>'}
+      <div class="type-body"><strong>${esc(t.name)}</strong>${t.active ? '' : ' <span class="chip warn">inactive</span>'}
+        <div class="type-desc" title="${esc(t.description || '')}">${t.description ? esc(t.description) : '<i>no description</i>'}</div></div>
+      <div class="type-chips">${TYPE_FLAGS.filter(([k]) => t[k]).map(([, label]) => `<span class="chip">${label}</span>`).join('')}</div>
+      ${editing ? `<button type="button" class="sec" onclick="editType(${t.id})">Edit</button>` : '<span></span>'}
+    </div>`).join('') || '<p class="mute">No qualification types yet.</p>'}</div>`;
+  if (editing) bindTypeDrag();
 }
-
-function typeRowHtml(t) {
-  const existing = !!(t && t.id);
-  return `<div class="type-row" data-type-row ${existing ? `data-id="${t.id}"` : ''}>
-    <button type="button" class="drag-handle" ${existing ? '' : 'hidden'} aria-label="Reorder" ${existing ? '' : 'tabindex="-1"'}>↕</button>
-    <input aria-label="${existing ? 'Type name' : 'New qualification type'}" name="name" value="${existing ? esc(t.name) : ''}" ${existing ? 'required' : ''} maxlength="80" placeholder="${existing ? '' : 'e.g. A1/A3, A2, RT licence'}">
-    <label><input type="checkbox" name="requires_evidence" ${!t || t.requires_evidence ? 'checked' : ''}> Evidence</label>
-    <label><input type="checkbox" name="requires_start" ${!t || t.requires_start ? 'checked' : ''}> Valid from</label>
-    <label><input type="checkbox" name="requires_expiry" ${!t || t.requires_expiry ? 'checked' : ''}> Valid until</label>
-    <label title="Licence or certificate number, e.g. NLD-RP-…; read from the PDF when possible"><input type="checkbox" name="requires_number" ${t && t.requires_number ? 'checked' : ''}> Number</label>
-    <label><input type="checkbox" name="internal" ${t && t.internal ? 'checked' : ''}> Internal</label>
-    ${existing ? `<label><input type="checkbox" name="active" ${t.active ? 'checked' : ''}> Active</label>` : ''}
-  </div>`;
+let editingTypeId = null;
+function editType(id) {
+  const t = qualificationTypes.find(x => x.id === id)
+    || {name: '', description: '', requires_evidence: 1, requires_start: 1, requires_expiry: 1, requires_number: 0, internal: 0, active: 1};
+  editingTypeId = id;
+  const f = $('typeForm');
+  f.name.value = t.name; f.description.value = t.description || '';
+  for (const k of ['requires_evidence', 'requires_start', 'requires_expiry', 'requires_number', 'internal', 'active']) f[k].checked = !!t[k];
+  $('typeTitle').textContent = id ? 'Edit qualification type' : 'Add qualification type';
+  $('typeError').textContent = '';
+  $('typeDialog').showModal();
+  f.name.focus();
 }
-
-function addTypeRow() {
-  $('typeNew').insertAdjacentHTML('beforeend', typeRowHtml(null));
+async function saveType(event) {
+  event.preventDefault();
+  const f = $('typeForm');
+  const body = {name: f.name.value, description: f.description.value};
+  for (const k of ['requires_evidence', 'requires_start', 'requires_expiry', 'requires_number', 'internal', 'active']) body[k] = f[k].checked;
+  try {
+    await adminApi(editingTypeId ? `/api/qualification-types/${editingTypeId}` : '/api/qualification-types',
+      {method: editingTypeId ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    $('typeDialog').close();
+    await load();
+  } catch (error) { $('typeError').textContent = error.message; }
+}
+// After a drag: save the new order (the bulk save keeps every other field and the descriptions).
+async function saveTypeOrder() {
+  const ids = [...document.querySelectorAll('#typeList [data-type-row]')].map(r => +r.dataset.id);
+  const byId = new Map(qualificationTypes.map(t => [t.id, t]));
+  const types = ids.map(id => byId.get(id)).map(t => ({id: t.id, name: t.name, requires_evidence: !!t.requires_evidence,
+    requires_start: !!t.requires_start, requires_expiry: !!t.requires_expiry, requires_number: !!t.requires_number,
+    internal: !!t.internal, active: !!t.active}));
+  try {
+    await adminApi('/api/admin/qualification-types', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({types})});
+    $('typeStatus').textContent = 'Order saved';
+    await load();
+  } catch (error) { $('err').textContent = error.message; }
 }
 
 function bindTypeDrag() {
@@ -611,6 +663,7 @@ function bindTypeDrag() {
       row.draggable = false;
       row.classList.remove('dragging');
       dragged = null;
+      saveTypeOrder();
     });
     row.addEventListener('dragover', event => {
       event.preventDefault();
@@ -1183,34 +1236,6 @@ async function fillNumbers() {
     $('fillNumbersError').textContent = error.message;
     $('fillNumbersError').hidden = false;
   } finally { run.disabled = false; }
-}
-
-async function saveQualificationTypes(event) {
-  event.preventDefault();
-  const rows = [...document.querySelectorAll('#typeList [data-type-row], #typeNew [data-type-row]')];
-  const types = [];
-  for (const row of rows) {
-    const name = row.querySelector('[name=name]').value.trim();
-    if (!name && !row.dataset.id) continue;
-    const item = {
-      name,
-      requires_evidence: row.querySelector('[name=requires_evidence]').checked,
-      requires_start: row.querySelector('[name=requires_start]').checked,
-      requires_expiry: row.querySelector('[name=requires_expiry]').checked,
-      requires_number: row.querySelector('[name=requires_number]').checked,
-      internal: row.querySelector('[name=internal]').checked,
-      active: row.querySelector('[name=active]') ? row.querySelector('[name=active]').checked : true,
-    };
-    if (row.dataset.id) item.id = +row.dataset.id;
-    types.push(item);
-  }
-  try {
-    await adminApi('/api/admin/qualification-types',
-      {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({types})});
-    $('err').textContent = '';
-    $('typeStatus').textContent = 'Saved.';
-    await load();
-  } catch (error) { $('err').textContent = error.message; }
 }
 
 function showSetup(url, username, hasPassword, expiresAt, mailedTo) {

@@ -66,7 +66,7 @@ window.QualificationManager = class {
     const claim = item => {
       const dates = this.dateBits(item);
       const tip = [...dates, ...this.metaTip(item)].map(line => this.esc(line)).join('<br>');
-      const name = `<strong>${esc(item.category)}</strong>`;
+      const name = `<strong${item.type_description ? ` title="${esc(item.type_description)}"` : ''}>${esc(item.category)}</strong>`;
       const number = item.number ? ` · <span class="mute">${esc(item.number)}</span>`
         : (item.requires_number && ['pending','approved'].includes(item.status) ? ' · <span class="mute">number missing</span>' : '');
       // Review actions on the right: Approve and Reject for a pending one; the rest in a small menu.
@@ -124,6 +124,7 @@ window.QualificationManager = class {
         <form data-submit>
           <label class="field">Qualification <select name="type_id" required>${types.map(t =>
             `<option value="${t.id}">${esc(t.name)}${t.internal ? ' (internal)' : ''}</option>`).join('')}</select></label>
+          <p class="mute" data-type-desc style="margin:-4px 0 0;font-size:12px"></p>
           <label class="field" data-field="valid_from">Valid from <input type="date" name="valid_from"></label>
           <label class="field" data-field="valid_until">Valid until <input type="date" name="valid_until"></label>
           <label class="field" data-field="number">Number <input name="number" maxlength="40" placeholder="e.g. NLD-RP-… (read from a PDF when empty)"></label>
@@ -191,6 +192,9 @@ window.QualificationManager = class {
         if (!type.requires_number) form.elements.number.value = '';
         show('evidence', true);
         form.elements.evidence.required = !!type.requires_evidence;
+        const desc = this.element.querySelector('[data-type-desc]');
+        desc.textContent = type.description || '';
+        desc.hidden = !type.description;
         this.element.querySelector('[data-proof-hint]').textContent =
           (type.requires_evidence ? 'Evidence is required. ' : 'Evidence is optional. ') + 'One PDF, JPEG or PNG, up to 20 MiB.';
       };
