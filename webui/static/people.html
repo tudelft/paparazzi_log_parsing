@@ -60,8 +60,10 @@
   #profileImportPreview td { white-space:normal; max-width:none; overflow-wrap:anywhere; }
   .profiles-table th[aria-sort=ascending] button, .profiles-table th[aria-sort=descending] button { color:var(--txt); }
   .profiles-table td { padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:240px; }
-  .supervision-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(520px, 1fr)); gap:12px; align-items:start; }
-  .supervision-group { border:1px solid var(--fieldline); border-left:4px solid var(--acc); border-radius:8px; padding:10px 12px; background:var(--detail); min-width:0; }
+  /* cards flow down columns (masonry), so a short card leaves no gap under it; still in alphabetical order per column */
+  .supervision-grid { columns:520px; column-gap:12px; }
+  .supervision-group { break-inside:avoid; display:inline-block; width:100%; margin:0 0 12px; box-sizing:border-box;
+    border:1px solid var(--fieldline); border-left:4px solid var(--acc); border-radius:8px; padding:10px 12px; background:var(--detail); min-width:0; }
   .supervision-group.external { border-left-color:var(--mute); }
   .supervision-group h3 { margin:0; font-size:14px; }
   .supervision-group a { text-decoration:none; }
