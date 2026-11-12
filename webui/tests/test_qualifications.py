@@ -569,10 +569,9 @@ class QualificationTests(AppTests):
         self.assertIn('id="peopleSearch"', people)
         self.assertIn('id="personTabs"', people)
         self.assertIn('id="typeSettings"', people)
-        self.assertIn('saveQualificationTypes', people)
+        self.assertIn('id="typeDialog"', people)  # one type is edited in a dialog; the order is saved after a drag
+        self.assertIn('saveTypeOrder', people)
         self.assertIn('Internal', people)
-        self.assertNotIn('saveQualificationType(', people)
-        self.assertNotIn('Save type', people)
         self.assertIn('id="approvalQueue"', people)
         self.assertNotIn("1. Choose a person", people)
         self.assertNotIn("2. Selected person", people)
@@ -868,3 +867,30 @@ class OcrTests(AppTests):
                 path = Path(folder) / f"scan{int(upside_down)}.pdf"
                 path.write_bytes(scan_pdf(upside_down=upside_down))
                 self.assertEqual(qualifications.ocr_number(path, False), "NL.66.12345")
+
+
+class QualificationTypeDescriptionTests(AppTests):
+    def test_description_is_saved_kept_and_shown(self):
+        self.sign_in(1)
+        r = self.client.post("/api/qualification-types", json={"name": "A2", "requires_evidence": True,
+                                                               "description": "  EASA A2   certificate "})
+        tid = r.json["id"]
+        types = {t["id"]: t for t in self.client.get("/api/admin/qualification-types").json["types"]}
+        self.assertEqual(types[tid]["description"], "EASA A2 certificate")
+        # the order save sends no description: it is kept
+        order = [dict(id=t["id"], name=t["name"], requires_evidence=bool(t["requires_evidence"]))
+                 for t in sorted(types.values(), key=lambda t: -t["id"])]
+        self.assertEqual(self.client.put("/api/admin/qualification-types", json={"types": order}).status_code, 200)
+        self.assertEqual({t["id"]: t["description"] for t in self.client.get("/api/admin/qualification-types").json["types"]}[tid],
+                         "EASA A2 certificate")
+        self.assertEqual(self.client.put(f"/api/qualification-types/{tid}", json={"name": "A2", "requires_evidence": True,
+                                         "description": "x" * 301}).status_code, 400)
+        self.assertEqual(self.client.put(f"/api/qualification-types/{tid}", json={"name": "A2 cert", "requires_evidence": True}).status_code, 200)
+        self.assertEqual({t["id"]: t["description"] for t in self.client.get("/api/admin/qualification-types").json["types"]}[tid],
+                         "EASA A2 certificate")
+        payload = self.client.get("/api/users/2/qualifications").json
+        self.assertEqual({t["id"]: t["description"] for t in payload["types"]}[tid], "EASA A2 certificate")
+
+    def test_migration_adds_the_column(self):
+        import db
+        self.assertIn("description", {r[1] for r in self.con.execute("PRAGMA table_info(qualification_types)")})
