@@ -579,13 +579,19 @@ const km = (a, b) => {
 
 // Group by day: one row per aircraft, crew, UTC day and takeoff place, like a paper daily log. The PIC must be
 // the same; an empty PAC or GCS matches a name, two different names do not. Logged flights share a place at the
-// same named location or within 1 km of the day's first takeoff. Paper flight records group with each other at
-// the same named location, never with logs; paper daily totals already cover a day.
+// same named location, within 1 km of the day's first takeoff, or when neither has a position (indoor flights
+// without GPS). Paper flight records group with each other at the same named location, never with logs; paper
+// daily totals already cover a day.
 const DAY_GROUP_KM = 1;
 const crewName = (f, r) => f[r + '_user'] ? 'u' + f[r + '_user'].id : f[r] ? 'n' + f[r].toLowerCase() : '';
-const groupable = f => f.date_ok && (f.manual_id ? f.record_kind !== 'daily' && f.takeoff_place_id != null : f.takeoff_lat != null);
-const samePlace = (a, b) => a.takeoff_place_id != null && b.takeoff_place_id != null
-  ? a.takeoff_place_id === b.takeoff_place_id : !a.manual_id && km(a, b) <= DAY_GROUP_KM;
+const groupable = f => f.date_ok && (f.manual_id ? f.record_kind !== 'daily' && f.takeoff_place_id != null : true);
+const hasPosition = f => f.takeoff_lat != null && f.takeoff_lon != null;
+function samePlace(a, b) {
+  if (a.takeoff_place_id != null && b.takeoff_place_id != null) return a.takeoff_place_id === b.takeoff_place_id;
+  if (a.manual_id) return false;
+  if (hasPosition(a) && hasPosition(b)) return km(a, b) <= DAY_GROUP_KM;
+  return !hasPosition(a) && !hasPosition(b);  // both without GPS: the same unknown place
+}
 const crewFits = (g, f) => crewName(f, 'pic') === g.crew.pic
   && ['pac', 'gcs'].every(r => !g.crew[r] || !crewName(f, r) || g.crew[r] === crewName(f, r));
 function combine(list) {
