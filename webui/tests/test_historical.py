@@ -595,6 +595,18 @@ class LogbookBulkTests(AppTests):
         self.assertIsNone(self.con.execute("SELECT pic_user_id FROM flights WHERE id=1").fetchone()[0])
         self.assertEqual(self.con.execute("SELECT pic_user_id FROM flight_records WHERE id=1").fetchone()[0], 2)
 
+    def test_reparse_keeps_flight_numbers(self):
+        def parse(*takeoffs):
+            db.store_parsed(self.con, 1, {"aircraft": [{"ac_id": 7, "name": "Drone", "flights": [
+                {"flight": i, "duration_s": 100, "takeoff": {"time_s": t}} for i, t in enumerate(takeoffs)]}]}, None)
+            return [r[0] for r in self.con.execute(
+                "SELECT f.id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE a.log_id=1 ORDER BY f.idx")]
+        first = parse(100, 500)
+        self.assertEqual(parse(130, 500, 900)[:2], first)  # moved 30 s: same number; a new flight gets a new one
+        again = parse(130, 800)  # the second flight moved 300 s: another flight now, so a new number
+        self.assertEqual(again[0], first[0])
+        self.assertNotIn(again[1], first)
+
     def test_hidden_state_survives_reparse_and_schema_migration(self):
         self.assertEqual(self.update(hidden=True).status_code, 200)
         kept = self.ns["snapshot_flight_edits"](self.con, 1)

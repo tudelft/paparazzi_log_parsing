@@ -990,10 +990,20 @@ def board_id(timing, ac_id):
     return uids.pop() if len(uids) == 1 else None
 
 
+FLIGHT_ID_KEEP_S = 60  # a re-parsed flight keeps its number when its takeoff moved at most this much
+
+
 def store_parsed(con, log_id, doc, paths_file):
     """Replace the parsed content of a log by the output of the C++ parser (caller commits).
 
-    The paths themselves are in paths_file (written by the caller from flight_paths(doc))."""
+    The paths themselves are in paths_file (written by the caller from flight_paths(doc)). A flight keeps its number
+    (flights.id, used in links and scripts) when the new parse has the same aircraft and flight index with a takeoff
+    within FLIGHT_ID_KEEP_S of the old one; otherwise it gets a new number above every number this log had, so a
+    dropped number never comes back as another flight."""
+    old_ids = {(r["ac_id"], r["idx"]): (r["id"], r["takeoff_time_s"]) for r in con.execute(
+        "SELECT f.id, f.idx, f.takeoff_time_s, a.ac_id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+        " WHERE a.log_id=?", (log_id,))}
+    floor = max((i for i, _ in old_ids.values()), default=0)
     con.execute("DELETE FROM aircraft WHERE log_id=?", (log_id,))
     lg = doc.get("log", {})
     pr = doc.get("parser", {})
@@ -1029,13 +1039,19 @@ def store_parsed(con, log_id, doc, paths_file):
             tlat, tlon, talt = _loc(to)
             llat, llon, lalt = _loc(ld)
             path = f.get("path") or []
+            old_id, old_takeoff = old_ids.pop((ac.get("ac_id"), f.get("flight")), (None, None))
+            if old_id is not None and None not in (old_takeoff, to.get("time_s")) \
+                    and abs(old_takeoff - to["time_s"]) > FLIGHT_ID_KEEP_S:
+                old_id = None
+            if old_id is None and floor:
+                old_id = floor = max(floor, con.execute("SELECT COALESCE(MAX(id), 0) FROM flights").fetchone()[0]) + 1
             con.execute(
-                "INSERT INTO flights (aircraft_id, idx, duration_s, distance_m, from_takeoff_m, max_from_takeoff_m, landed,"
+                "INSERT INTO flights (id, aircraft_id, idx, duration_s, distance_m, from_takeoff_m, max_from_takeoff_m, landed,"
                 " takeoff_time_s, takeoff_utc, takeoff_lat, takeoff_lon, takeoff_alt_m, takeoff_voltage_v,"
                 " landing_time_s, landing_utc, landing_lat, landing_lon, landing_alt_m, landing_voltage_v,"
                 " takeoff_json, landing_json, num_points, verdict, assessment_json, path_idx, has_gps_position, track_quality,"
-                " link_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (ac_pk, f.get("flight"), f.get("duration_s"), f.get("distance_m"), f.get("from_takeoff_m"),
+                " link_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (old_id, ac_pk, f.get("flight"), f.get("duration_s"), f.get("distance_m"), f.get("from_takeoff_m"),
                  f.get("max_from_takeoff_m"), int(bool(f.get("landed"))),
                  to.get("time_s"), to.get("utc"), tlat, tlon, talt, to.get("voltage_v"),
                  ld.get("time_s"), ld.get("utc"), llat, llon, lalt, ld.get("voltage_v"),
