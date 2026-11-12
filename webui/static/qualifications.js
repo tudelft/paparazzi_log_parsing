@@ -24,6 +24,24 @@ window.QualificationManager = class {
       this.render();
     } catch (error) { this.element.textContent = error.message; }
   }
+  // What the QR code on the evidence says (administrators only; read by the server, see licence_qr.py). A link of the
+  // issuing authority is offered, never opened automatically.
+  qrLine(item) {
+    const q = item.qr;
+    if (!q) return '';
+    const esc = s => this.esc(s);
+    const label = {match: 'QR code matches', differs: 'QR code differs', read: 'QR code read', none: 'No QR code found'}[q.status];
+    const tone = q.status === 'differs' ? 'color:var(--err)' : q.status === 'match' ? 'color:var(--ok)' : 'color:var(--mute)';
+    const links = (q.links || []).map(u => {
+      let host = u; try { host = new URL(u).host; } catch (e) {}
+      return ` · <a href="${esc(u)}" target="_blank" rel="noopener noreferrer" title="Opens the issuing authority's page: ${esc(u)}">check at ${esc(host)}</a>`;
+    }).join('');
+    const detail = q.codes && q.codes.length ? `<details style="display:inline"><summary class="mute" style="display:inline;cursor:pointer"> content</summary>
+      <pre style="white-space:pre-wrap;font-size:12px;margin:4px 0">${esc(q.codes.join('\n\n'))}</pre></details>` : '';
+    return `<div style="font-size:12px"><span style="${tone}" title="Read ${esc((q.checked_at || '').replace('T', ' ').replace('Z', ' UTC'))}">${label}</span>`
+      + (q.issues || []).map(i => ` · <span style="color:var(--err)">${esc(i)}</span>`).join('')
+      + (q.status === 'match' && q.number ? ` · ${esc(q.number)}` : '') + links + (detail ? ' ·' + detail : '') + '</div>';
+  }
   dateBits(item) {
     const bits = [];
     if (item.number) bits.push(`Number ${item.number}`);
@@ -51,21 +69,29 @@ window.QualificationManager = class {
       const name = `<strong${item.type_description ? ` title="${esc(item.type_description)}"` : ''}>${esc(item.category)}</strong>`;
       const number = item.number ? ` · <span class="mute">${esc(item.number)}</span>`
         : (item.requires_number && ['pending','approved'].includes(item.status) ? ' · <span class="mute">number missing</span>' : '');
-      return `<div style="margin:12px 0">
-      <span title="${esc(dates.join(' · '))}">${item.has_evidence ? fileLink({name, viewable: item.viewable, view: `/api/qualification-submissions/${item.id}/evidence/view`, download: `/api/qualification-submissions/${item.id}/evidence`}) : name}</span>${number} · ${esc(item.status === 'superseded' ? 'archived' : item.status)}${item.internal ? ' · Internal' : ''}${item.expired ? ' (expired)' : ''}
-      <span class="info-tip"><button type="button" aria-label="Submission details">i</button><span class="tip" role="tooltip">${tip}</span></span>
-      <div>${item.has_evidence ? `<span class="mute">${esc(item.filename || 'Evidence')}</span>`
+      // Review actions on the right: Approve and Reject for a pending one; the rest in a small menu.
+      const pending = this.editing && item.status === 'pending';
+      const more = [];
+      if (pending) more.push(`<button type="button" data-review="withdraw" data-id="${item.id}">Withdraw</button>`);
+      if (this.admin && this.editing) {
+        more.push(`<button type="button" data-dates="${item.id}">Edit number and dates</button>`);
+        if (item.has_evidence) more.push(`<button type="button" class="danger" data-delete="evidence" data-id="${item.id}">Delete evidence</button>`);
+        more.push(`<button type="button" class="danger" data-delete="record" data-id="${item.id}">Delete record</button>`);
+      }
+      const actions = (pending && this.admin ? `<button type="button" class="small" data-review="approve" data-id="${item.id}">Approve</button>
+          <button type="button" class="small sec" data-review="reject" data-id="${item.id}">Reject</button>` : '')
+        + (more.length === 1 && !this.admin ? more[0].replace('type="button"', 'type="button" class="small sec"')
+          : more.length ? `<details class="qual-more"><summary class="small sec" aria-label="More actions" title="More actions">⋯</summary>
+            <div class="qual-menu">${more.join('')}</div></details>` : '');
+      return `<div class="qual-item"><div class="qual-main">
+      <div><span title="${esc(dates.join(' · '))}">${item.has_evidence ? fileLink({name, viewable: item.viewable, view: `/api/qualification-submissions/${item.id}/evidence/view`, download: `/api/qualification-submissions/${item.id}/evidence`}) : name}</span>${number} · ${esc(item.status === 'superseded' ? 'archived' : item.status)}${item.internal ? ' · Internal' : ''}${item.expired ? ' (expired)' : ''}
+      <span class="info-tip"><button type="button" aria-label="Submission details">i</button><span class="tip" role="tooltip">${tip}</span></span></div>
+      ${this.qrLine(item)}<div>${item.has_evidence ? `<span class="mute">${esc(item.filename || 'Evidence')}</span>`
         : item.note ? (item.training_id
           ? `<a class="mute" href="/training?id=${item.training_id}${this.admin && item.training_user_id ? `&pass_user=${item.training_user_id}` : ''}">${esc(item.note)}</a>`
           : `<span class="mute">${esc(item.note)}</span>`)
-        : `<span class="mute">${item.evidence_deleted_at ? 'Evidence deleted by admin' : 'No evidence attached'}</span>`}
-      ${this.editing && item.status === 'pending' ? `${this.admin
-        ? `<button type="button" data-review="approve" data-id="${item.id}">Approve</button>
-           <button type="button" data-review="reject" data-id="${item.id}">Reject</button>` : ''}
-        <button type="button" data-review="withdraw" data-id="${item.id}">Withdraw</button>` : ''}
-      ${this.admin && this.editing ? `<button type="button" data-dates="${item.id}">Edit</button>
-        ${item.has_evidence ? `<button type="button" data-delete="evidence" data-id="${item.id}">Delete evidence</button>` : ''}
-        <button type="button" data-delete="record" data-id="${item.id}">Delete record</button>` : ''}</div></div>`;
+        : `<span class="mute">${item.evidence_deleted_at ? 'Evidence deleted by admin' : 'No evidence attached'}</span>`}</div></div>
+      ${actions ? `<div class="qual-actions">${actions}</div>` : ''}</div>`;
     };
     const archived = i => i.status === 'superseded' || (i.status === 'approved' && i.expired);
     const current = q.items.filter(i => ['pending','approved'].includes(i.status) && !archived(i));
@@ -250,3 +276,7 @@ window.QualificationManager = class {
     return this.mutate(`/api/qualification-submissions/${id}${evidenceOnly ? '/evidence' : ''}`, {method:'DELETE'});
   }
 };
+// Close an open actions menu (⋯) when clicking elsewhere.
+document.addEventListener('click', e => {
+  document.querySelectorAll('details.qual-more[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; });
+});

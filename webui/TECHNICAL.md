@@ -1226,6 +1226,20 @@ types from their evidence (the PDFs are read before the database is locked) and 
 could not read, each with a link to the person. The number is private like the evidence:
 the person, admins and `/api/pilots`.
 
+**QR codes** (`licence_qr.py`, issue 189). The QR code the issuing authority prints on a certificate is a better
+source than the text, which can hide a sample number. After an upload a background thread reads the codes of the
+evidence: the first two pages of a PDF rendered at 300 dpi with `pdftoppm`, or the image itself, decoded with
+`zbarimg` (packages `poppler-utils` and `zbar-tools`, installed by `install.sh`; without them nothing is read).
+The codes are stored in `qualification_submissions.qr_json` (cleared when the evidence is deleted) and the
+recognised parts are compared at display time with what was entered: a certificate number (same patterns as
+above), dates (`YYYY-MM-DD`, `DD/MM/YYYY`, `DD-MM-YYYY`, `YYYYMMDD`) and links. An empty number is filled from the
+code (audited `number-changed`, source `qr`). Administrators see one line per licence: *QR code matches* (the number
+and every entered date are in it), *differs* (with what differs), *read* (nothing to compare) or *No QR code found*,
+the raw content, and the authority's link as *check at <host>* to open themselves: the server never contacts
+outside services. **Check QR codes…** under Qualification types (`POST /api/admin/qualifications/check-qr`,
+`{"all": true}` to read every licence again) reads the approved and pending licences not read yet and lists them by
+result; one run stops after about 90 s. What each authority's code holds differs, so the raw content is kept as is.
+
 Internal ratings such as FI (flight instructor) and CTR are qualification types with Internal on and
 Evidence off; admins grant them by submitting and approving for the person, or by import rows without a
 file.

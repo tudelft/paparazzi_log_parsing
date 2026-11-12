@@ -28,7 +28,8 @@ class AppTests(unittest.TestCase):
                         LOGDB_LOG_DIR=storage.name + "/logs"):
             exec(compile(ast.Module(body=tree.body[:stop], type_ignores=[]), str(path), "exec"), cls.ns)
         cls.app = cls.ns["app"]
-        cls.app.config.update(TESTING=True, SECRET_KEY="historical-tests", SESSION_COOKIE_SECURE=False)
+        cls.app.config.update(TESTING=True, SECRET_KEY="historical-tests", SESSION_COOKIE_SECURE=False,
+                              QUALIFICATION_QR_BACKGROUND=False)  # tests share one connection: no reader thread
 
     def setUp(self):
         settings = patch.dict(os.environ, LOGDB_HIDE_UNLINKED_AIRCRAFT="0")
