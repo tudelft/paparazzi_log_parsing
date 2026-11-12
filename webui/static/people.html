@@ -294,6 +294,19 @@
       <span class="mute" id="fillNumbersStatus" role="status"></span></div>
     <div class="scroll" id="fillNumbersResult"></div>
   </dialog>
+  <dialog class="entry-dialog" id="checkQrDialog" aria-labelledby="checkQrTitle" style="width:min(720px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="checkQrTitle">Check QR codes</h2>
+      <button type="button" onclick="$('checkQrDialog').close()" aria-label="Close">Close</button></div>
+    <p class="mute">Reads the QR code on the evidence of approved and pending licences (PDF, JPEG, PNG; scans too) and
+      compares the number and dates in it with the ones entered. An empty number is filled from the code. New uploads are
+      read automatically. Nothing is sent to outside services; a link of the issuing authority is shown on the licence for
+      you to open.</p>
+    <p class="dialog-error" id="checkQrError" role="alert" hidden></p>
+    <div class="panel-row"><button type="button" id="checkQrRun" onclick="checkQr(false)">Read new</button>
+      <button type="button" class="sec" onclick="checkQr(true)">Read all again</button>
+      <span class="mute" id="checkQrStatus" role="status"></span></div>
+    <div class="scroll" id="checkQrResult"></div>
+  </dialog>
   <dialog class="entry-dialog" id="qualImportDialog" aria-labelledby="qualImportTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
     <div class="dialog-header"><h2 id="qualImportTitle">Import qualifications</h2>
       <button type="button" onclick="$('qualImportDialog').close()" aria-label="Close import">Close</button></div>
@@ -557,6 +570,7 @@ function renderAdminPeople() {
     <div id="typeActions"><button type="button" class="sec" onclick="addTypeRow()">Add type</button>
       <button type="submit">Save</button>
       <button type="button" class="sec" onclick="openFillNumbers()">Fill numbers from PDFs…</button>
+      <button type="button" class="sec" onclick="openCheckQr()">Check QR codes…</button>
       <span class="mute" id="typeStatus" role="status"></span></div>
   </form>`;
   bindTypeDrag();
@@ -1113,6 +1127,38 @@ function openFillNumbers() {
   $('fillNumbersResult').innerHTML = '';
   $('fillNumbersRun').disabled = false;
   $('fillNumbersDialog').showModal();
+}
+
+function openCheckQr() {
+  $('checkQrError').hidden = true;
+  $('checkQrStatus').textContent = '';
+  $('checkQrResult').innerHTML = '';
+  $('checkQrDialog').showModal();
+}
+async function checkQr(all) {
+  $('checkQrRun').disabled = true;
+  $('checkQrError').hidden = true;
+  $('checkQrResult').innerHTML = '';
+  $('checkQrStatus').textContent = 'Reading the QR codes… this can take a minute.';
+  try {
+    const d = await adminApi('/api/admin/qualifications/check-qr', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({all})});
+    const count = s => d.results.filter(r => r.status === s).length;
+    $('checkQrStatus').textContent = d.results.length
+      ? `${d.results.length} read: ${count('match')} match, ${count('differs')} differ, ${count('read')} without a number or date to compare, ${count('none')} without a QR code.`
+        + (d.later ? ` ${d.later} not read yet: press the button again.` : '')
+      : 'Nothing new to read.';
+    const row = r => `<tr><td>${esc(r.person)}</td><td>${esc(r.category)}</td><td>${esc(r.issues.join('; ') || (r.filled ? 'number filled: ' + r.filled : r.number || ''))}</td>
+      <td><button type="button" class="sec" onclick="$('checkQrDialog').close();selectPerson(${r.user_id},'qualifications')">Open</button></td></tr>`;
+    const group = (status, title) => d.results.some(r => r.status === status)
+      ? `<h3>${title}</h3><table><tbody>${d.results.filter(r => r.status === status).map(row).join('')}</tbody></table>` : '';
+    $('checkQrResult').innerHTML = group('differs', 'Differs from what was entered') + group('none', 'No QR code found')
+      + group('read', 'Read, nothing to compare') + group('match', 'Matches');
+  } catch (error) {
+    $('checkQrStatus').textContent = '';
+    $('checkQrError').textContent = error.message;
+    $('checkQrError').hidden = false;
+  } finally { $('checkQrRun').disabled = false; }
 }
 
 async function fillNumbers() {

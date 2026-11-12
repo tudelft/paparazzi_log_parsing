@@ -416,7 +416,8 @@ CREATE TABLE IF NOT EXISTS qualification_submissions (
     mime TEXT,
     compressed INTEGER NOT NULL DEFAULT 0,
     size_bytes INTEGER NOT NULL DEFAULT 0,
-    evidence_deleted_at TEXT
+    evidence_deleted_at TEXT,
+    qr_json TEXT                       -- QR codes read from the evidence (licence_qr.py); NULL = not read yet
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ix_qualification_pending ON qualification_submissions(user_id,type_id) WHERE status='pending';
 CREATE UNIQUE INDEX IF NOT EXISTS ix_qualification_approved ON qualification_submissions(user_id,type_id) WHERE status='approved';
@@ -652,6 +653,9 @@ def init(path):
     if "requires_number" not in type_cols:
         con.execute("ALTER TABLE qualification_types ADD COLUMN requires_number"
                     " INTEGER NOT NULL DEFAULT 0 CHECK(requires_number IN (0,1))")
+    if "qr_json" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}:
+        # QR codes read from the evidence (licence_qr.py): {"codes": [...], "checked_at": ...}; NULL = not read yet
+        con.execute("ALTER TABLE qualification_submissions ADD COLUMN qr_json TEXT")
     if "number" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}:
         con.execute("ALTER TABLE qualification_submissions ADD COLUMN number TEXT")
     if "read_only" not in {r["name"] for r in con.execute("PRAGMA table_info(api_keys)")}:

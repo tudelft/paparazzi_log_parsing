@@ -2,12 +2,14 @@
 import datetime
 import gzip
 import json
+import logging
 import os
 import re
 import shutil
 import sqlite3
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 import zlib
@@ -17,6 +19,7 @@ from flask import Response, g, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 import db
+import licence_qr
 import mail
 import qualification_import
 import storage
@@ -91,6 +94,10 @@ def qualifications_payload(con, viewer, user_id):
         link = con.execute(
             "SELECT training_id, user_id FROM training_progress WHERE submission_id=?",
             (row["id"],)).fetchone()
+        if viewer["is_admin"] and row["qr_json"]:
+            stored = json.loads(row["qr_json"])
+            item["qr"] = dict(licence_qr.check(stored["codes"], row["number"], row["valid_from"], row["valid_until"]),
+                              checked_at=stored.get("checked_at"))
         item["training_id"] = link["training_id"] if link else None
         item["training_user_id"] = link["user_id"] if link else None
         items.append(item)
@@ -306,6 +313,30 @@ def evidence_format(path, compressed, filename):
     if not matches:
         raise QualificationError("Evidence must be a PDF, JPEG or PNG with matching file content.")
     return mime
+
+
+def read_qr(con, row, root, actor_id=None):
+    """Read the QR codes of one submission's evidence, store them and fill an empty number from them.
+    Returns the check (licence_qr.check) or None without evidence. Reads the file outside the write lock."""
+    if not row["evidence_path"]:
+        return None
+    codes = licence_qr.read_codes(Path(root) / row["evidence_path"], bool(row["compressed"]), row["mime"])
+    found = licence_qr.facts(codes)
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        con.execute("UPDATE qualification_submissions SET qr_json=? WHERE id=? AND evidence_path=?",
+                    (json.dumps({"codes": codes, "checked_at": _utc_now()}), row["id"], row["evidence_path"]))
+        wants_number = con.execute("SELECT requires_number FROM qualification_types WHERE id=?",
+                                   (row["type_id"],)).fetchone()
+        filled = None
+        if found["number"] and not row["number"] and wants_number and wants_number[0] and con.execute(
+                "UPDATE qualification_submissions SET number=? WHERE id=? AND COALESCE(number,'')=''",
+                (found["number"], row["id"])).rowcount:
+            filled = found["number"]
+            audit(con, row["user_id"], actor_id, "number-changed",
+                  dict(id=row["id"], number=filled, old_number=None, source="qr"))
+    # compared with what was entered: a number just filled from the code says nothing about the code
+    return dict(licence_qr.check(codes, row["number"], row["valid_from"], row["valid_until"]), filled=filled)
 
 
 def register(app, connection, root, require_session):
@@ -599,6 +630,19 @@ def register(app, connection, root, require_session):
                                        + (f", valid until {until}" if until else "") + ". It waits for approval.",
                                        "/people?tab=approvals")
             committed = True
+            if destination and app.config.get("QUALIFICATION_QR_BACKGROUND", True) \
+                    and licence_qr.available(pdf=mime == "application/pdf"):
+                actor = g.user["id"]
+
+                def read_later():  # a few seconds per PDF: not while the person waits
+                    try:
+                        con2 = connection()
+                        row = con2.execute("SELECT * FROM qualification_submissions WHERE id=?", (sid,)).fetchone()
+                        if row:
+                            read_qr(con2, row, evidence_root(), actor)
+                    except Exception:  # noqa: BLE001 - the reviewer can still run Check QR codes
+                        logging.getLogger(__name__).exception("reading the QR code of submission %s failed", sid)
+                threading.Thread(target=read_later, daemon=True, name="licence-qr").start()
             return jsonify(ok=True, id=sid, number=number), 201
         finally:
             if staged:
@@ -719,7 +763,7 @@ def register(app, connection, root, require_session):
                 (evidence_root() / row["evidence_path"]).unlink(missing_ok=True)
             if evidence_only:
                 con.execute("UPDATE qualification_submissions SET evidence_path=NULL,filename=NULL,mime=NULL,"
-                            " evidence_deleted_at=? WHERE id=?", (_utc_now(), sid))
+                            " qr_json=NULL,evidence_deleted_at=? WHERE id=?", (_utc_now(), sid))
             else:
                 con.execute("DELETE FROM qualification_submissions WHERE id=?", (sid,))
             audit(con, row["user_id"], g.user["id"], "evidence-deleted" if evidence_only else "deleted",
@@ -766,6 +810,32 @@ def register(app, connection, root, require_session):
                                source="evidence"))
                     filled.append(item)
         return jsonify(filled=filled, unread=unread, later=later, ocr=ocr_available())
+
+    @app.post("/api/admin/qualifications/check-qr")
+    def check_qualification_qr():
+        """Read the QR codes of approved and pending licences with evidence (not read yet, or all with
+        {"all": true}) and list what differs from the entered number and dates. Stops after about 90 s; run again."""
+        admin()
+        if not licence_qr.available():
+            raise QualificationError("QR codes cannot be read on this server: install zbar-tools and poppler-utils.", 503)
+        everything = bool((request.get_json(silent=True) or {}).get("all"))
+        con = connection()
+        rows = con.execute(
+            "SELECT q.*,t.name AS category,COALESCE(u.display_name,u.username) AS person"
+            " FROM qualification_submissions q JOIN qualification_types t ON t.id=q.type_id JOIN users u ON u.id=q.user_id"
+            " WHERE q.status IN ('approved','pending') AND q.evidence_path IS NOT NULL"
+            + ("" if everything else " AND q.qr_json IS NULL") + " ORDER BY person, t.sort_order").fetchall()
+        results, later = [], 0
+        deadline = time.monotonic() + 90
+        for row in rows:
+            if time.monotonic() > deadline:
+                later += 1
+                continue
+            result = read_qr(con, row, evidence_root(), g.user["id"])
+            results.append(dict(id=row["id"], user_id=row["user_id"], person=row["person"], category=row["category"],
+                                status=result["status"], number=result["number"], issues=result["issues"],
+                                filled=result["filled"]))
+        return jsonify(results=results, later=later)
 
     @app.get("/api/pilots")
     def list_pilots():

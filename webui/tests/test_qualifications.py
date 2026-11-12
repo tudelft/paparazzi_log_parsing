@@ -868,3 +868,58 @@ class OcrTests(AppTests):
                 path = Path(folder) / f"scan{int(upside_down)}.pdf"
                 path.write_bytes(scan_pdf(upside_down=upside_down))
                 self.assertEqual(qualifications.ocr_number(path, False), "NL.66.12345")
+
+
+class LicenceQrTests(AppTests):
+    """QR codes on licence evidence (licence_qr.py): what is recognised, and the check against the entered values."""
+    def setUp(self):
+        AppTests.setUp(self)
+        self.sign_in(1)
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        old = self.app.config["QUALIFICATION_EVIDENCE_DIR"]
+        self.app.config["QUALIFICATION_EVIDENCE_DIR"] = Path(folder.name)
+        self.addCleanup(self.app.config.__setitem__, "QUALIFICATION_EVIDENCE_DIR", old)
+        r = self.client.post("/api/qualification-types", json={"name": "A2", "requires_evidence": True,
+                             "requires_start": False, "requires_expiry": True, "requires_number": True})
+        self.tid = r.json["id"]
+
+    create_type = QualificationTests.create_type
+    submit = QualificationTests.submit
+
+    def test_facts_and_check(self):
+        import licence_qr
+        codes = ["https://register.example.org/verify?id=NLD-RP-abcdefgh1234", "Valid until: 01/05/2027"]
+        found = licence_qr.facts(codes)
+        self.assertEqual(found["number"], "NLD-RP-abcdefgh1234")
+        self.assertEqual(found["dates"], ["2027-05-01"])
+        self.assertEqual(found["links"], ["https://register.example.org/verify?id=NLD-RP-abcdefgh1234"])
+        self.assertEqual(licence_qr.check(codes, "nld-rp-abcdefgh1234", None, "2027-05-01")["status"], "match")
+        wrong = licence_qr.check(codes, "LUX-RP-123456789ABC", None, "2027-06-01")
+        self.assertEqual(wrong["status"], "differs")
+        self.assertEqual(len(wrong["issues"]), 2)
+        self.assertEqual(licence_qr.check(["some text"], None, None, None)["status"], "read")
+        self.assertEqual(licence_qr.check([], "X", None, None)["status"], "none")
+
+    def test_check_all_reads_png_evidence(self):
+        import licence_qr
+        import shutil
+        import subprocess
+        if not (licence_qr.available(pdf=False) and shutil.which("qrencode")):
+            self.skipTest("zbarimg and qrencode are needed")
+        png = subprocess.run(["qrencode", "-o", "-", "-s", "6",
+                              "NLD-RP-abcdefgh1234 valid until 2028-06-30 https://register.example.org/v/1"],
+                             capture_output=True, check=True).stdout
+        self.assertEqual(self.submit(content=png, filename="licence.png").status_code, 201)
+        self.sign_in(2)
+        self.assertEqual(self.client.post("/api/admin/qualifications/check-qr").status_code, 403)
+        self.sign_in(1)
+        r = self.client.post("/api/admin/qualifications/check-qr").json
+        # the date matches; the empty number is filled from the code (the type asks for one)
+        self.assertEqual([(x["status"], x["filled"]) for x in r["results"]], [("match", "NLD-RP-abcdefgh1234")])
+        self.assertEqual(self.client.post("/api/admin/qualifications/check-qr").json["results"], [])  # already read
+        item = self.client.get("/api/users/2/qualifications").json["items"][0]
+        self.assertEqual(item["number"], "NLD-RP-abcdefgh1234")  # an empty number is filled from the code
+        self.assertEqual(item["qr"]["links"], ["https://register.example.org/v/1"])
+        self.sign_in(2)  # the person sees their record, not the decoded codes
+        self.assertNotIn("qr", self.client.get("/api/users/2/qualifications").json["items"][0])
