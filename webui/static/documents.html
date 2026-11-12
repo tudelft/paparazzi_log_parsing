@@ -33,6 +33,20 @@
   fieldset legend { font-size:13px; color:var(--mute); padding:0 4px; }
   label.check { display:flex; gap:6px; align-items:center; font-size:13px; }
   .roles { display:flex; flex-wrap:wrap; gap:4px 12px; margin:4px 0 0 22px; }
+  button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button.sec { background:var(--sec); color:var(--txt); }
+  button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
+  input, select, textarea { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--txt); }
+  input[type=checkbox] { padding:0; }
+  textarea { min-height:70px; resize:vertical; }
+  label.field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
+  label.field > input, label.field > select, label.field > textarea { font-size:14px; }
+  .two { display:grid; grid-template-columns:1fr 9em; gap:12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .mute { color:var(--mute); }
+  #roleNote { margin:4px 0 0 22px; font-size:12px; }
+  #roleNote:empty { display:none; }
+  #otherLimits { display:grid; gap:8px; margin-top:8px; }
   #err { color:var(--err); margin-bottom:8px; }
   #err:empty { display:none; }
   [hidden] { display:none !important; }
