@@ -251,9 +251,11 @@ window.timingEvidenceHTML = function (timing) {
     const button = document.getElementById('flightFiltersButton');
     if (!button) return;
     const extra = Number(state.indoor) + Number(state.nonflights) + Number(state.unknownDates) + Number(state.operator !== 'all') + Number(state.category !== 'all');
-    button.textContent = `Flight filters · ${api.periodLabel()}${extra ? ' · +' + extra : ''} ▾`;
+    // a funnel icon, then the period and how many other filters are changed (the full summary is the tooltip)
+    button.innerHTML = '<svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+      + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>'
+      + `<span>Flight filters · ${api.periodLabel()}${extra ? ' · +' + extra : ''} ▾</span>`;
     button.title = api.summary();
-    document.querySelectorAll('[data-flight-filter-summary]').forEach(el => { el.textContent = api.summary(); });
     document.getElementById('flightFiltersNotice').textContent = storageWarning;
   }
   function mount() {
