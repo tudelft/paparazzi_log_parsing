@@ -258,7 +258,7 @@ CREATE TABLE IF NOT EXISTS flights (
     verdict TEXT,                      -- parser estimate: flight | uncertain | ground
     assessment_json TEXT,              -- score, reasons and metrics behind the verdict
     project_id INTEGER,                -- projects.id; auto from aircraft / uploader / GCS / PIC, then editable
-    project_source TEXT,               -- timeline | manual; NULL preserves legacy assignments of unknown origin
+    project_source TEXT,               -- timeline | timeline_undated (only project, no date) | manual; NULL: legacy
     pic_user_id INTEGER,               -- override PIC/PAC/GCS with a linked user; NULL keeps the name from the log
     pac_user_id INTEGER,
     gcs_user_id INTEGER,
@@ -467,6 +467,30 @@ CREATE TABLE IF NOT EXISTS booking_flag_values (
     booking_id INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
     flag_id INTEGER NOT NULL REFERENCES booking_flags(id) ON DELETE CASCADE,
     PRIMARY KEY (booking_id, flag_id)
+);
+CREATE TABLE IF NOT EXISTS mail_outbox (   -- email notifications waiting to be sent (mail.py)
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- NULL: to_addr (the shared admin mailbox)
+    to_addr TEXT,
+    kind TEXT NOT NULL,                -- account | expiry | bookings | admin
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    digest INTEGER NOT NULL DEFAULT 0 CHECK(digest IN (0,1)),  -- 1: goes in the daily summary
+    created_at TEXT NOT NULL,
+    sent_at TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_mail_outbox_unsent ON mail_outbox(sent_at, digest);
+CREATE TABLE IF NOT EXISTS mail_prefs (    -- per person and kind: immediate | daily | off (default in mail.KINDS)
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    mode TEXT NOT NULL CHECK(mode IN ('immediate','daily','off')),
+    PRIMARY KEY (user_id, kind)
+);
+CREATE TABLE IF NOT EXISTS mail_sent_keys (  -- once-only mails already queued, e.g. "12:expiry:q34:2026-12-01:30"
+    key TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS calendar_tokens (  -- private calendar feed links (bookings.py), one per person
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -807,6 +831,7 @@ LOGBOOK_UNRELATED = {
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
     "training_progress", "training_briefers", "booking_things", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
     "document_settings", "document_groups", "documents",
+    "mail_outbox", "mail_prefs", "mail_sent_keys",
     "profile_roles", "profile_departments", "user_profiles", "user_supervisors", "logbook_version",
 }
 LOGBOOK_UNRELATED_COLUMNS = {"users": {"last_login"}}

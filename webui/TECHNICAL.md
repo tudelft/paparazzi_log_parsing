@@ -383,11 +383,21 @@ renamed `logNN_<aircraft>.data` next to a ground station `.log` header). `date_s
 recording of the same flight: same aircraft (fleet link, else logged name), same duration (±1 s or 1 %), same
 time of day (±30 s), at least 60 s long (short flights match too many others), and no dated onboard partner yet.
 Every matched flight of the log must have exactly one such GCS flight, no other undated flight may claim it,
-and all must agree on the day; the result is a **suggestion** shown in the log details ("Date probably
-2020-07-22: matches GCS log 713 …") with **Accept**. Admins get **Accept date suggestions (N)** on the Logs
-page (`GET/POST /api/admin/date-suggestions`). Accepting sets the normal date override and records who set it
-and why (`date_override_by`, `date_override_note`); a date typed by hand records the person only. Nothing is
-changed without a person accepting it.
+and all must agree on the day. Without a GCS match, the date comes from the upload path (`logs.name`): the first
+plausible date in the file name, then in the folders from the deepest up (`2026-04-29`, `20260429`, or
+`26_04_29` as in Paparazzi log names, of which only the first group counts because the time follows it, and
+`2026-4-29` as in ground station download names; a file named only `HH_MM_SS`, as PX4 stores them under a date
+folder, is a time; not before 1990 or in the future). Failing that, the dated logs of the same
+aircraft just before and after it in the same upload folder (natural file-name order, undated logs skipped) give
+the day when they agree; files uploaded without a folder have no neighbours. Each suggestion has a `source`
+(`gcs`, `name`, `folder`) and a `reason`, shown in the log details ("Date probably 2026-04-29: date in the folder
+name 2026-04-29") with **Use this date**, and **Use for all in this folder (N)** when more logs in that upload folder
+that you may date have one (`POST /api/logs/<id>/date/suggestion` with `{"folder": true}`). Admins get **Review date
+suggestions (N)** on the Logs page: a dialog listing them by folder with checkboxes (`GET /api/admin/date-suggestions`;
+`POST` accepts all, or `{"log_ids": [...]}`). Accepting sets the normal date override and records who set it and
+why (`date_override_by`, `date_override_note` = "suggested: " + reason); a date typed by hand records the person
+only. Nothing is changed without a person accepting it; an unaccepted suggestion simply stays, and is recomputed,
+so it disappears once the log has a date.
 
 Until a date is set, a flight taking off on an unset clock (before 1990) is never merged with other
 recordings by time: those times are meaningless across logs, and back-to-back 1980 logs used to chain. A person
@@ -841,7 +851,7 @@ admins also see who uploaded it and when). A log with one flight links straight 
 the log, where each flight links to its page. Status shows only what needs attention (queued, parsing, error,
 outdated); the **outdated** / **date unknown** badges filter the list (`/api/logs?status=outdated|date_unknown`).
 Edit mode shows the project menus (admins), Re-parse and Delete on an opened log, date editing, and the Re-parse
-outdated / unknown dates and Accept date suggestions tools.
+outdated / unknown dates and Review date suggestions tools.
 Linked aircraft, crew, projects and named locations in the logbook open their detail pages.
 Coordinates without a linked location still open the external map; Edit mode keeps its reassignment menus.
 Aircraft serial numbers in the logbook appear on hover over the aircraft name rather than inline.
@@ -899,6 +909,13 @@ assignments (including a manually cleared project). Existing non-empty assignmen
 are deliberately preserved; no migration guesses which were manual. Unassigned flights can still be
 filled from the timeline. Assignment origin is retained across re-parsing alongside crew edits.
 Paper records are not reassigned by an aircraft CSV import.
+
+A flight without a usable date (unset clock, no date override) gets its aircraft's project only when the
+aircraft's timeline is a single period without **From** and **Until** dates, so that project is right whatever the
+day was (`project_source='timeline_undated'`). Such assignments, and a log project that came only from them, are
+cleared and assigned again when the log's date is set (by hand or from a suggestion) or the aircraft's timeline is
+saved, so a second project or an end date sends them back to the dated timeline or to no project. Setting a date
+also fills that log's unassigned flights from the timeline right away.
 
 Successfully parsed logs with no flight records inherit a project from their linked aircraft's
 timeline on the recording date (including a corrected date). Every aircraft in the log must resolve
@@ -1030,6 +1047,37 @@ are iCalendar feeds of the bookings that person may see, 30 days back to a year 
 The feed is reachable without a session (`calendar_feed` in `PUBLIC_ENDPOINTS`); the token is the key, so replacing
 or turning off the link stops the old one. Calendar apps fetch it themselves, so they need to reach the site (VPN);
 web calendars such as Google Calendar fetch from their own servers.
+
+### Email notifications
+
+Off unless `LOGDB_SMTP_HOST` is set (settings in the **Email** group of `config.py example`; use the organisation's
+mail relay and a functional sender address in `LOGDB_MAIL_FROM`, and set `LOGDB_PUBLIC_URL` so mails can link to
+pages). `LOGDB_MAIL_FROM_NAME` is the sender name and `LOGDB_MAIL_FOOTER` the text above the settings link at the
+bottom of every mail (`\n` for a new line; default the sender name). Mails are HTML (header with the sender
+name, a button for the link, the footer with a link to the email settings) with the same text as plain-text part. `config.py check` reports a missing sender. Kinds (`mail.KINDS`):
+
+| Kind | Who | Default | What |
+|---|---|---|---|
+| Account | everyone | immediately (fixed) | the one-time link to set a password, when an admin ticks **Email the sign-in link** (Add user, New setup link) |
+| Expiry reminders | everyone | immediately | 30 and 7 days before an approved qualification ends (not when a newer approved or pending one of the type runs longer) and before the profile's expected end date (with person profiles on) |
+| Bookings | everyone | immediately | own new booking; someone else changed or removed yours; a new or moved booking overlaps yours |
+| Others' expiry reminders | admins | off | a copy of everyone's expiry reminders |
+| Administrator notices | admins | immediately | a qualification waits for approval (submitted by a non-admin); a log failed to parse |
+
+Each person chooses **Immediately**, **Daily summary** or **Off** per kind under **My account**, tab **Email** (`GET/PUT
+/api/account/email`, table `mail_prefs`); admins can send themselves a test mail there. When `LOGDB_MAIL_ADMIN_TO`
+is set, administrator notices go only to that shared mailbox (no greeting, no per-person choice) instead of each
+admin.
+
+Mails are queued in `mail_outbox` in the transaction that causes them, so a rolled-back change sends nothing, and a
+background thread sends them within about 15 s. The address is read at sending time; people without an address, with
+a disabled account or external crew get nothing. Daily summaries and the reminder check run once a day after
+`LOGDB_MAIL_DAILY_HOUR` (local time). A relay that cannot be reached is retried; a mail is marked failed after five
+attempts or at once when the relay refuses the address. Once-only mails (reminders, overlap and parse-error notices)
+are recorded in `mail_sent_keys`, so a reminder comes once per qualification, end date and step. Rows older than 90
+days are deleted, and the body of a sent account mail is cleared because it holds a one-time link. Admins see the
+last 90 days on **Statistics**, **Sent emails** (`GET /api/admin/mail`, `?status=sent|waiting|failed`; a row opens
+the mail). The tables are in `db.LOGBOOK_UNRELATED`.
 
 ### Private licences and qualifications
 

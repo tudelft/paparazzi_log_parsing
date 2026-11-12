@@ -61,6 +61,7 @@ import qualifications
 import training
 import bookings
 import documents
+import mail
 import weather
 import mav_parse
 import firmware
@@ -300,6 +301,9 @@ def parse_log(log_id):
 
         def mark_error():
             con.execute("UPDATE logs SET status='error', error=? WHERE id=?", (str(e)[:2000], log_id))
+            name = (con.execute("SELECT name FROM logs WHERE id=?", (log_id,)).fetchone() or ["?"])[0]
+            mail.notify_admins(con, f"Log {log_id} failed to parse", f"{name} could not be parsed:\n{str(e)[:500]}",
+                               f"/logs#log{log_id}", key=f"parse-error:{log_id}:{hashlib.sha256(str(e).encode()).hexdigest()[:12]}")
             con.commit()
 
         db.retry_locked(mark_error, con)
@@ -344,6 +348,7 @@ def start_workers():
         ingest_jobs.put(r["id"])
     for _ in range(max(1, WORKERS)):
         threading.Thread(target=worker, daemon=True).start()
+    mail.start(lambda: conn())
     threading.Thread(target=compress_old_messages, daemon=True, name="compress-messages").start()
     for _ in range(max(1, INGEST_WORKERS)):
         threading.Thread(target=ingest_worker, daemon=True).start()
@@ -1393,11 +1398,43 @@ def check_logs():
     return jsonify(known=known)
 
 
+@app.route("/api/account/email", methods=["GET", "PUT"])
+def account_email():
+    """Which email notifications this person gets (see mail.py)."""
+    con = conn()
+    if request.method == "PUT":
+        choices = (request.get_json(silent=True) or {}).get("modes")
+        if not isinstance(choices, dict):
+            return jsonify(error="send modes as {kind: mode}"), 400
+        try:
+            with db.write_lock, con:
+                con.execute("BEGIN IMMEDIATE")
+                mail.set_preferences(con, g.user, choices)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+    return jsonify(enabled=mail.enabled(), email=g.user["email"], kinds=mail.preferences(con, g.user),
+                   modes=mail.MODE_LABELS)
+
+
+@app.post("/api/account/email/test")
+def account_email_test():
+    admin_required()
+    if not mail.enabled():
+        return jsonify(error="Email is not set up on this server (LOGDB_SMTP_HOST)."), 400
+    if not g.user["email"]:
+        return jsonify(error="Your account has no email address."), 400
+    try:
+        mail.send_test(g.user)
+    except Exception as exc:  # noqa: BLE001 - show the relay's answer to the admin
+        return jsonify(error=f"Sending failed: {exc}"), 502
+    return jsonify(ok=True, email=g.user["email"])
+
+
 @app.get("/api/me")
 def me():
     return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION, training=env_bool("TRAINING"), bookings=env_bool("BOOKINGS"),
                    documents=env_bool("DOCUMENTS"),
-                   can_upload=can_upload_any(conn()), person_profile=profiles.enabled())
+                   can_upload=can_upload_any(conn()), person_profile=profiles.enabled(), email=mail.enabled())
 
 
 @app.get("/api/people")
@@ -2191,15 +2228,44 @@ def replace_drone_periods(con, drone_id, periods):
             (drone_id, p["project_id"], p["start_date"], p["end_date"]))
     current = current_drone_project_id(cleaned)
     con.execute("UPDATE drones SET default_project_id=? WHERE id=?", (current, drone_id))
+    redo_undated_projects(con, drone_id=drone_id)
+    return None
+
+
+def only_project_of_drone(con, drone_id):
+    """The project of an aircraft whose timeline is one period without start or end date: right whatever the day."""
+    rows = con.execute("SELECT project_id, start_date, end_date FROM drone_projects WHERE drone_id=?",
+                       (drone_id,)).fetchall()
+    if len(rows) == 1 and not rows[0]["start_date"] and not rows[0]["end_date"]:
+        return live_project(con, rows[0]["project_id"])
     return None
 
 
 def pick_flight_project(con, row, resolve):
-    """Aircraft timeline on the takeoff day. People are not used to guess the project."""
+    """(project, source): the aircraft timeline on the takeoff day, or for a flight without a usable date the
+    aircraft's only, open-ended project ('timeline_undated', redone when a date is set or the timeline changes).
+    People are not used to guess the project."""
     if not row["drone_id"]:
-        return None
+        return None, None
     day = flight_calendar_day(row["takeoff_utc"], row["log_start_utc"], row["date_override"])
-    return project_for_drone_on(con, row["drone_id"], day)
+    if day is None:
+        return only_project_of_drone(con, row["drone_id"]), "timeline_undated"
+    return project_for_drone_on(con, row["drone_id"], day), "timeline"
+
+
+def redo_undated_projects(con, drone_id=None, log_id=None):
+    """Clear the projects given to undated flights from an aircraft's only project, so they are assigned again after
+    the timeline of drone_id or the date of log_id changed."""
+    scope = "aircraft_id IN (SELECT id FROM aircraft WHERE drone_id=? OR log_id=?)"
+    # A log project that only came from such flights goes too, so it follows them again.
+    con.execute(
+        "UPDATE logs SET project_id=NULL WHERE id IN (SELECT a.log_id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+        f" WHERE f.project_source='timeline_undated' AND f.{scope}) AND NOT EXISTS (SELECT 1 FROM flights f"
+        " JOIN aircraft a ON a.id=f.aircraft_id WHERE a.log_id=logs.id AND f.project_id IS NOT NULL"
+        " AND (COALESCE(f.project_source,'')!='timeline_undated' OR f.project_id!=logs.project_id))",
+        (drone_id, log_id))
+    con.execute(f"UPDATE flights SET project_id=NULL, project_source=NULL WHERE project_source='timeline_undated' AND {scope}",
+                (drone_id, log_id))
 
 
 def import_drone_project_period(con, drone_id, project_id, start):
@@ -2298,9 +2364,11 @@ def assign_log_flights(con, log_id, kept=None):
             continue
         if f["project_id"]:
             continue
-        pid = pick_flight_project(con, f, resolve) or paired_flight_project(con, f)
+        pid, source = pick_flight_project(con, f, resolve)
+        if not pid:
+            pid, source = paired_flight_project(con, f), "timeline"
         if pid:
-            con.execute("UPDATE flights SET project_id=?, project_source='timeline' WHERE id=?", (pid, f["id"]))
+            con.execute("UPDATE flights SET project_id=?, project_source=? WHERE id=?", (pid, source, f["id"]))
     if log["project_id"] is None:
         ids = [r["project_id"] for r in con.execute(
             "SELECT DISTINCT f.project_id FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
@@ -3564,6 +3632,8 @@ def set_log_date(log_id):
         return jsonify(error="enter a date as YYYY-MM-DD"), 400
     con.execute("UPDATE logs SET date_override=?, date_override_by=?, date_override_note=NULL WHERE id=?",
                 (value, g.user["id"] if value else None, log_id))
+    redo_undated_projects(con, log_id=log_id)
+    assign_log_flights(con, log_id)
     con.commit()
     out = log_dict(con.execute("SELECT * FROM logs WHERE id=?", (log_id,)).fetchone())
     out["can_edit_date"] = True
@@ -3576,30 +3646,46 @@ def date_suggestions(con):
 
 def accept_date_suggestion(con, log_id, suggestion):
     con.execute("UPDATE logs SET date_override=?, date_override_by=?, date_override_note=? WHERE id=?",
-                (suggestion["date"], g.user["id"], f"suggested from GCS log {suggestion['gcs_log_id']}: same aircraft,"
-                 f" duration and time of day ({suggestion['flights']} flight(s), offset {suggestion['offset_s']:+g} s)",
-                 log_id))
+                (suggestion["date"], g.user["id"], "suggested: " + suggestion["reason"], log_id))
+    redo_undated_projects(con, log_id=log_id)
+    assign_log_flights(con, log_id)
+
+
+def log_folder(name):
+    return (name or "").replace("\\", "/").rpartition("/")[0]
+
+
+def folder_suggestions(con, row, found):
+    """The suggestions for the logs in the same upload folder as row that this user may date (row's own included)."""
+    folder = log_folder(row["name"])
+    rows = con.execute(f"SELECT * FROM logs WHERE id IN ({','.join('?' * len(found))})", list(found)).fetchall() \
+        if found else []
+    return {r["id"]: found[r["id"]] for r in rows if log_folder(r["name"]) == folder and can_set_log_date(con, r)}
 
 
 @app.post("/api/logs/<int:log_id>/date/suggestion")
 def accept_log_date_suggestion(log_id):
-    """Accept the date suggested from a matching GCS log (see date_suggest); sets the date override."""
+    """Accept the date suggestion of this log (see date_suggest), or with {"folder": true} those of every log in its
+    upload folder that the user may date; sets the date override."""
     con = conn()
     row = visible_log(con, log_id)
     if not can_set_log_date(con, row):
         return jsonify(error="you cannot set the date of this log"), 403
+    whole_folder = bool((request.get_json(silent=True) or {}).get("folder"))
     with db.write_lock, con:
         con.execute("BEGIN IMMEDIATE")
-        suggestion = date_suggestions(con).get(log_id)
-        if suggestion is None:
+        found = date_suggestions(con)
+        if log_id not in found:
             return jsonify(error="there is no date suggestion for this log"), 409
-        accept_date_suggestion(con, log_id, suggestion)
-    return jsonify(ok=True, date_override=suggestion["date"])
+        chosen = folder_suggestions(con, row, found) if whole_folder else {log_id: found[log_id]}
+        for i, suggestion in chosen.items():
+            accept_date_suggestion(con, i, suggestion)
+    return jsonify(ok=True, date_override=found[log_id]["date"], accepted=len(chosen))
 
 
 @app.route("/api/admin/date-suggestions", methods=["GET", "POST"])
 def admin_date_suggestions():
-    """List (GET) or accept all (POST) date suggestions for logs with an unset clock."""
+    """List (GET) or accept (POST; all, or only {"log_ids": [...]}) date suggestions for logs without a usable date."""
     admin_required()
     con = conn()
     if request.method == "GET":
@@ -3607,9 +3693,14 @@ def admin_date_suggestions():
         names = {r["id"]: r["name"] for r in con.execute(
             f"SELECT id, name FROM logs WHERE id IN ({','.join('?' * len(found))})", list(found))} if found else {}
         return jsonify(suggestions=[dict(s, log_id=i, log_name=names.get(i)) for i, s in sorted(found.items())])
+    wanted = (request.get_json(silent=True) or {}).get("log_ids")
+    if wanted is not None and (not isinstance(wanted, list) or not all(isinstance(i, int) for i in wanted)):
+        return jsonify(error="log_ids must be a list of log ids"), 400
     with db.write_lock, con:
         con.execute("BEGIN IMMEDIATE")
         found = date_suggestions(con)
+        if wanted is not None:
+            found = {i: found[i] for i in wanted if i in found}
         for log_id, suggestion in found.items():
             accept_date_suggestion(con, log_id, suggestion)
     return jsonify(ok=True, accepted=len(found))
@@ -4109,7 +4200,17 @@ def clean_email(value):
 
 
 def setup_url(token):
-    return request.host_url.rstrip("/") + "/setup/" + token
+    return (config.env("PUBLIC_URL") or request.host_url).rstrip("/") + "/setup/" + token
+
+
+def mail_setup_link(con, user_id, url, expires_at, new):
+    """Email the setup link to the person; returns the address it goes to, or None."""
+    action = "set a password for your new account" if new else "choose a new password"
+    if not mail.notify(con, user_id, "account", "Flight logbook: " + ("your new account" if new else "set a new password"),
+                       f"Open this link to {action} in the flight logbook. It works once, until "
+                       f"{expires_at.replace('T', ' ').replace('Z', ' UTC')}.\n\n{url}"):
+        return None
+    return con.execute("SELECT email FROM users WHERE id=?", (user_id,)).fetchone()["email"]
 
 
 def lookup_setup(token):
@@ -4150,10 +4251,11 @@ def admin_add_user():
             " VALUES (?,?,?,?,?,?,?)",
             (username, display_name, email or None, None, int(bool(body.get("is_admin"))), now(), default_project_id))
         token, expires_at = issue_setup_token(con, cur.lastrowid)
+        mailed = mail_setup_link(con, cur.lastrowid, setup_url(token), expires_at, True) if body.get("send_email") else None
         con.commit()
     except sqlite3.IntegrityError:
         return jsonify(error="that username already exists"), 409
-    return jsonify(id=cur.lastrowid, setup_url=setup_url(token), expires_at=expires_at)
+    return jsonify(id=cur.lastrowid, setup_url=setup_url(token), expires_at=expires_at, mailed_to=mailed)
 
 
 @app.delete("/api/admin/users/<int:user_id>/password")
@@ -4190,8 +4292,10 @@ def admin_new_setup_link(user_id):
     if row["provider"] not in ("local", "log"):
         return jsonify(error="Passwords for this account are managed by its identity provider."), 403
     token, expires_at = issue_setup_token(con, user_id)
+    send = (request.get_json(silent=True) or {}).get("send_email")
+    mailed = mail_setup_link(con, user_id, setup_url(token), expires_at, False) if send else None
     con.commit()
-    return jsonify(setup_url=setup_url(token), expires_at=expires_at)
+    return jsonify(setup_url=setup_url(token), expires_at=expires_at, mailed_to=mailed)
 
 
 @app.put("/api/admin/users/<int:user_id>/username")
@@ -5598,6 +5702,41 @@ def import_historical():
             final.unlink(missing_ok=True)
 
 
+MAIL_STATUS_SQL = {"sent": "m.sent_at IS NOT NULL", "waiting": f"m.sent_at IS NULL AND m.attempts<{mail.MAX_ATTEMPTS}",
+                   "failed": f"m.sent_at IS NULL AND m.attempts>={mail.MAX_ATTEMPTS}"}
+
+
+@app.get("/api/admin/mail")
+def admin_mail_log():
+    """The emails of the last 90 days for the Statistics page (admins), newest first; ?status=sent|waiting|failed."""
+    admin_required()
+    con = conn()
+    status = request.args.get("status", "")
+    where = MAIL_STATUS_SQL.get(status, "1")
+    offset = max(0, request.args.get("offset", 0, type=int))
+    limit = min(100, max(1, request.args.get("limit", 25, type=int)))
+    total = con.execute(f"SELECT COUNT(*) FROM mail_outbox m WHERE {where}").fetchone()[0]
+    rows = con.execute(
+        "SELECT m.id, m.kind, m.subject, m.created_at, m.sent_at, m.attempts, m.error, m.digest, m.to_addr,"
+        " COALESCE(u.display_name, u.username) AS name, u.email FROM mail_outbox m LEFT JOIN users u ON u.id=m.user_id"
+        f" WHERE {where} ORDER BY m.id DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+    return jsonify(enabled=mail.enabled(), total=total, offset=offset, limit=limit, kinds={k: v[0] for k, v in mail.KINDS.items()},
+                   mails=[{"id": r["id"], "kind": r["kind"], "subject": r["subject"], "created_at": r["created_at"],
+                           "sent_at": r["sent_at"], "error": r["error"], "digest": bool(r["digest"]),
+                           "to": r["to_addr"] or (f"{r['name']} <{r['email']}>" if r["email"] else r["name"]),
+                           "status": "sent" if r["sent_at"] else "failed" if r["attempts"] >= mail.MAX_ATTEMPTS
+                           else "waiting"} for r in rows])
+
+
+@app.get("/api/admin/mail/<int:mail_id>")
+def admin_mail_body(mail_id):
+    admin_required()
+    row = conn().execute("SELECT subject, body, kind FROM mail_outbox WHERE id=?", (mail_id,)).fetchone()
+    if row is None:
+        return jsonify(error="no such email"), 404
+    return jsonify(subject=row["subject"], body=row["body"] or "(not kept: it held a one-time sign-in link)")
+
+
 @app.get("/api/admin/storage")
 def storage_overview():
     """Disk use for the Statistics page (admins): the latest background scan of the log storage (storage_usage.py,
@@ -6376,9 +6515,12 @@ def get_log(log_id):
     out = log_dict(row)
     out["can_delete"] = can_delete_log(con, row)
     out["can_edit_date"] = can_set_log_date(con, row)
-    out["date_suggestion"] = (date_suggestions(con).get(log_id)
-                              if out["can_edit_date"] and (not out["date_ok"] or row["date_estimated"])
-                              and not row["date_override"] else None)
+    found = (date_suggestions(con) if out["can_edit_date"] and (not out["date_ok"] or row["date_estimated"])
+             and not row["date_override"] else {})
+    out["date_suggestion"] = found.get(log_id)
+    if out["date_suggestion"]:
+        out["date_suggestion"] = dict(out["date_suggestion"], folder_count=len(folder_suggestions(con, row, found))
+                                     if log_folder(row["name"]) else 1)
     out["date_override_by_name"] = (con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",
                                                 (row["date_override_by"],)).fetchone() or [None])[0]
     out["uploaded_by_name"] = (con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",

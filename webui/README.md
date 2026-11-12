@@ -49,7 +49,7 @@ to gain descriptions and previously omitted crew entries.
 | **Aircraft / People / Projects / Locations** | Browse records and open their histories, totals and flights. |
 | **Training** | When enabled, complete questionnaires until you pass. A pass writes the linked qualification immediately. |
 | **Agenda** | When enabled, book shared items such as an indoor arena; see [Agenda](#agenda). |
-| **My account** | Click your name at the top right to manage your password, API keys, private qualification submissions and, when enabled, your profile. |
+| **My account** | Click your name at the top right to manage your password, API keys, private qualification submissions, which emails you get and, when enabled, your profile. |
 
 - Dates and times are **UTC**. Indoor and uncertain/non-flight records are hidden by default;
   enable their filters when needed.
@@ -91,8 +91,11 @@ to gain descriptions and previously omitted crew entries.
 - A paper record that clearly matches a logged flight (same aircraft, takeoff within 5 min) is linked to it
   and counts once, as the log; unclear cases show as *possible duplicate* to link or dismiss, and an expanded
   entry shows where the paper record differs from the log.
-- An onboard log without a calendar date (1980 clock) that matches a dated ground station log of the same flight gets
-  a **suggested date** in its details on Logs; accept it there (admins can accept all at once).
+- A log without a calendar date (1980 clock) gets a **suggested date** in its details on Logs when a dated ground
+  station log matches the same flight, its file or folder name holds a date, or the same aircraft's neighbouring
+  logs in its folder agree on one. Nothing is set until you choose **Use this date** (or **Use for all in this
+  folder**); admins can review and settle all suggestions at once. The project then follows from the date;
+  until then an undated log only gets its aircraft's project when the aircraft has just one, open-ended project.
 - Uploading a file that someone else already uploaded keeps one copy and makes you a **co-uploader**: you can then
   see that log and its flights, and the Logs page links to it.
 - **Review** (Logbook, Edit mode) walks through possible duplicates, paper records where only another aircraft
@@ -224,6 +227,14 @@ change any and set up the items in Edit mode (**Add item**, **Edit item**).
 documents in Edit mode (**Add document**, **Add group**); a document can be visible only to people with a current
 qualification. Below them, **My licences and qualifications** lists your own approved qualifications that are valid
 today, with their documents; change them under **My account** (see below). Rules: [technical guide](TECHNICAL.md#documents).
+
+## Email
+
+When the server sends email, you get reminders 30 and 7 days before a qualification or your expected end date
+expires, and mails about your bookings. Choose per kind under **My account**, tab **Email**: immediately,
+in one daily summary, or off. Admins also choose how they get notices about approvals and failed logs (unless these
+go to a shared mailbox) and can follow everyone's expiry reminders; **Statistics** lists the mails sent. Rules:
+[technical guide](TECHNICAL.md#email-notifications).
 
 ## Qualifications and additional files
 

@@ -69,6 +69,22 @@ SETTINGS = {
         "SESSION_HOURS": ("12", "How long a login lasts"),
         "SECRET_KEY": (None, "Session signing key (default: generated once in WEB_DATA/secret_key)"),
     },
+    "Email": {
+        "SMTP_HOST": (None, "Mail relay for notifications, e.g. the organisation's SMTP server; no email is sent "
+                            "when unset"),
+        "SMTP_PORT": ("25", "Mail relay port (465 uses TLS from the start)"),
+        "SMTP_STARTTLS": ("0", "1 switches to TLS with STARTTLS before sending (needed when SMTP_USER is set on most "
+                               "relays)"),
+        "SMTP_USER": (None, "Mail relay user name, if the relay needs a login"),
+        "SMTP_PASSWORD": (None, "Mail relay password"),
+        "MAIL_FROM": ("", "Sender address of the notifications, e.g. a functional mailbox of the organisation"),
+        "MAIL_FROM_NAME": ("Flight logbook", "Sender name shown with LOGDB_MAIL_FROM"),
+        "MAIL_FOOTER": (None, "Text at the bottom of every mail, above the link to the email settings; \\n starts a "
+                              "new line (default: the sender name)"),
+        "MAIL_ADMIN_TO": (None, "Shared mailbox for administrator notices (qualifications to approve, logs that failed "
+                                "to parse); when unset each administrator gets them as chosen in My account"),
+        "MAIL_DAILY_HOUR": ("7", "Local hour after which the daily summaries and expiry reminders are sent"),
+    },
     "TU Delft SAML login": {
         "SAML_ENABLED": ("1", "0 hides the 'Sign in with TU Delft' button"),
         "SAML_METADATA_URL": ("https://login.tudelft.nl/sso/saml2/idp/metadata.php", "Identity provider metadata"),
@@ -164,6 +180,14 @@ def _writable(path):
 
 
 def bind_address():
+    if env("SMTP_HOST"):
+        if "@" not in env("MAIL_FROM"):
+            errors.append("LOGDB_MAIL_FROM must be the sender address when LOGDB_SMTP_HOST is set")
+        for name in ("SMTP_PORT", "MAIL_DAILY_HOUR"):
+            if not env(name).isdigit():
+                errors.append(f"LOGDB_{name} must be a whole number, not {env(name)!r}")
+        if not env("PUBLIC_URL"):
+            warnings.append("LOGDB_PUBLIC_URL is not set: emails cannot contain links to pages")
     host, _, port = env("BIND").rpartition(":")
     if not host or not port.isdigit():
         sys.exit(f"LOGDB_BIND must look like 127.0.0.1:8000, not {env('BIND')!r}")
@@ -203,7 +227,7 @@ def check():
         print(f"\n{group}")
         for name in items:
             value = str(env_path(name)) if name in PORTABLE_DEFAULTS else env(name)
-            shown = "(hidden)" if name in ("SECRET_KEY", "FIRMWARE_GITHUB_TOKEN") and value else (
+            shown = "(hidden)" if name in ("SECRET_KEY", "FIRMWARE_GITHUB_TOKEN", "SMTP_PASSWORD") and value else (
                 value if value is not None else "(not set)")
             print(f"  LOGDB_{name:<18} {shown:<52} {source(name)}")
 
