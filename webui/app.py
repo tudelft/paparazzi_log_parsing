@@ -2189,15 +2189,44 @@ def replace_drone_periods(con, drone_id, periods):
             (drone_id, p["project_id"], p["start_date"], p["end_date"]))
     current = current_drone_project_id(cleaned)
     con.execute("UPDATE drones SET default_project_id=? WHERE id=?", (current, drone_id))
+    redo_undated_projects(con, drone_id=drone_id)
+    return None
+
+
+def only_project_of_drone(con, drone_id):
+    """The project of an aircraft whose timeline is one period without start or end date: right whatever the day."""
+    rows = con.execute("SELECT project_id, start_date, end_date FROM drone_projects WHERE drone_id=?",
+                       (drone_id,)).fetchall()
+    if len(rows) == 1 and not rows[0]["start_date"] and not rows[0]["end_date"]:
+        return live_project(con, rows[0]["project_id"])
     return None
 
 
 def pick_flight_project(con, row, resolve):
-    """Aircraft timeline on the takeoff day. People are not used to guess the project."""
+    """(project, source): the aircraft timeline on the takeoff day, or for a flight without a usable date the
+    aircraft's only, open-ended project ('timeline_undated', redone when a date is set or the timeline changes).
+    People are not used to guess the project."""
     if not row["drone_id"]:
-        return None
+        return None, None
     day = flight_calendar_day(row["takeoff_utc"], row["log_start_utc"], row["date_override"])
-    return project_for_drone_on(con, row["drone_id"], day)
+    if day is None:
+        return only_project_of_drone(con, row["drone_id"]), "timeline_undated"
+    return project_for_drone_on(con, row["drone_id"], day), "timeline"
+
+
+def redo_undated_projects(con, drone_id=None, log_id=None):
+    """Clear the projects given to undated flights from an aircraft's only project, so they are assigned again after
+    the timeline of drone_id or the date of log_id changed."""
+    scope = "aircraft_id IN (SELECT id FROM aircraft WHERE drone_id=? OR log_id=?)"
+    # A log project that only came from such flights goes too, so it follows them again.
+    con.execute(
+        "UPDATE logs SET project_id=NULL WHERE id IN (SELECT a.log_id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+        f" WHERE f.project_source='timeline_undated' AND f.{scope}) AND NOT EXISTS (SELECT 1 FROM flights f"
+        " JOIN aircraft a ON a.id=f.aircraft_id WHERE a.log_id=logs.id AND f.project_id IS NOT NULL"
+        " AND (COALESCE(f.project_source,'')!='timeline_undated' OR f.project_id!=logs.project_id))",
+        (drone_id, log_id))
+    con.execute(f"UPDATE flights SET project_id=NULL, project_source=NULL WHERE project_source='timeline_undated' AND {scope}",
+                (drone_id, log_id))
 
 
 def import_drone_project_period(con, drone_id, project_id, start):
@@ -2296,9 +2325,11 @@ def assign_log_flights(con, log_id, kept=None):
             continue
         if f["project_id"]:
             continue
-        pid = pick_flight_project(con, f, resolve) or paired_flight_project(con, f)
+        pid, source = pick_flight_project(con, f, resolve)
+        if not pid:
+            pid, source = paired_flight_project(con, f), "timeline"
         if pid:
-            con.execute("UPDATE flights SET project_id=?, project_source='timeline' WHERE id=?", (pid, f["id"]))
+            con.execute("UPDATE flights SET project_id=?, project_source=? WHERE id=?", (pid, source, f["id"]))
     if log["project_id"] is None:
         ids = [r["project_id"] for r in con.execute(
             "SELECT DISTINCT f.project_id FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
@@ -3562,6 +3593,8 @@ def set_log_date(log_id):
         return jsonify(error="enter a date as YYYY-MM-DD"), 400
     con.execute("UPDATE logs SET date_override=?, date_override_by=?, date_override_note=NULL WHERE id=?",
                 (value, g.user["id"] if value else None, log_id))
+    redo_undated_projects(con, log_id=log_id)
+    assign_log_flights(con, log_id)
     con.commit()
     out = log_dict(con.execute("SELECT * FROM logs WHERE id=?", (log_id,)).fetchone())
     out["can_edit_date"] = True
@@ -3575,6 +3608,8 @@ def date_suggestions(con):
 def accept_date_suggestion(con, log_id, suggestion):
     con.execute("UPDATE logs SET date_override=?, date_override_by=?, date_override_note=? WHERE id=?",
                 (suggestion["date"], g.user["id"], "suggested: " + suggestion["reason"], log_id))
+    redo_undated_projects(con, log_id=log_id)
+    assign_log_flights(con, log_id)
 
 
 def log_folder(name):

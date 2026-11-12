@@ -94,7 +94,8 @@ to gain descriptions and previously omitted crew entries.
 - A log without a calendar date (1980 clock) gets a **suggested date** in its details on Logs when a dated ground
   station log matches the same flight, its file or folder name holds a date, or the same aircraft's neighbouring
   logs in its folder agree on one. Nothing is set until you choose **Use this date** (or **Use for all in this
-  folder**); admins can review and settle all suggestions at once. The project then follows from the date.
+  folder**); admins can review and settle all suggestions at once. The project then follows from the date;
+  until then an undated log only gets its aircraft's project when the aircraft has just one, open-ended project.
 - Uploading a file that someone else already uploaded keeps one copy and makes you a **co-uploader**: you can then
   see that log and its flights, and the Logs page links to it.
 - **Review** (Logbook, Edit mode) walks through possible duplicates, paper records where only another aircraft

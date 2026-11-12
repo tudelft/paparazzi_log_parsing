@@ -258,7 +258,7 @@ CREATE TABLE IF NOT EXISTS flights (
     verdict TEXT,                      -- parser estimate: flight | uncertain | ground
     assessment_json TEXT,              -- score, reasons and metrics behind the verdict
     project_id INTEGER,                -- projects.id; auto from aircraft / uploader / GCS / PIC, then editable
-    project_source TEXT,               -- timeline | manual; NULL preserves legacy assignments of unknown origin
+    project_source TEXT,               -- timeline | timeline_undated (only project, no date) | manual; NULL: legacy
     pic_user_id INTEGER,               -- override PIC/PAC/GCS with a linked user; NULL keeps the name from the log
     pac_user_id INTEGER,
     gcs_user_id INTEGER,

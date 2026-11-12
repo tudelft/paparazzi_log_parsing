@@ -909,6 +909,13 @@ are deliberately preserved; no migration guesses which were manual. Unassigned f
 filled from the timeline. Assignment origin is retained across re-parsing alongside crew edits.
 Paper records are not reassigned by an aircraft CSV import.
 
+A flight without a usable date (unset clock, no date override) gets its aircraft's project only when the
+aircraft's timeline is a single period without **From** and **Until** dates, so that project is right whatever the
+day was (`project_source='timeline_undated'`). Such assignments, and a log project that came only from them, are
+cleared and assigned again when the log's date is set (by hand or from a suggestion) or the aircraft's timeline is
+saved, so a second project or an end date sends them back to the dated timeline or to no project. Setting a date
+also fills that log's unassigned flights from the timeline right away.
+
 Successfully parsed logs with no flight records inherit a project from their linked aircraft's
 timeline on the recording date (including a corrected date). Every aircraft in the log must resolve
 to the same project; missing dates, unlinked aircraft and timeline gaps leave the log unassigned.
