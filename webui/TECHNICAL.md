@@ -1241,9 +1241,13 @@ recognised by the link's host (`licence_qr.AUTHORITIES`) and must match the coun
 licence*, *QR code links to the <authority> website, not to this licence*, *QR code differs* (with what differs: the
 country, or a number or date in the code), *QR code matches* (a number or dates in the code equal the entered ones),
 *unknown link or text*, or *No QR code found*, and the raw content. They open the link themselves: the server never
-contacts outside services. **Check QR codes…** under Qualification types (`POST /api/admin/qualifications/check-qr`,
-`{"all": true}` to read every licence again) reads the approved and pending licences not read yet and lists them by
-result; one run stops after about 90 s. What each authority's code holds differs, so the raw content is kept as is.
+contacts outside services. **Check QR codes…** under Qualification types reads the approved and pending licences not read yet (*Read
+new*) or all of them (*Read all again*) and lists them by result. `POST /api/admin/qualifications/check-qr` reads for
+about `seconds` (default 20, at most 90; `0` only counts) and returns the results with `total` and `later` (left); the
+dialog first counts, then calls it in rounds of 6 s with a counter (read of total, elapsed seconds) and **Stop**, until
+none are left. *Read all again* sends `before` (the start of the run), so every licence last read before then is read
+once. A file that cannot be read is stored as read without codes, so it does not stop the others. A licence with
+evidence that was not read yet shows *QR code not read yet* to administrators. What each authority's code holds differs, so the raw content is kept as is.
 
 Internal ratings such as FI (flight instructor) and CTR are qualification types with Internal on and
 Evidence off; admins grant them by submitting and approving for the person, or by import rows without a

@@ -94,6 +94,8 @@ def qualifications_payload(con, viewer, user_id):
         link = con.execute(
             "SELECT training_id, user_id FROM training_progress WHERE submission_id=?",
             (row["id"],)).fetchone()
+        if viewer["is_admin"] and row["evidence_path"] and not row["qr_json"]:
+            item["qr"] = {"status": "pending"}
         if viewer["is_admin"] and row["qr_json"]:
             stored = json.loads(row["qr_json"])
             item["qr"] = dict(licence_qr.check(stored["codes"], row["number"], row["valid_from"], row["valid_until"]),
@@ -833,30 +835,45 @@ def register(app, connection, root, require_session):
 
     @app.post("/api/admin/qualifications/check-qr")
     def check_qualification_qr():
-        """Read the QR codes of approved and pending licences with evidence (not read yet, or all with
-        {"all": true}) and list what differs from the entered number and dates. Stops after about 90 s; run again."""
+        """Read the QR codes of approved and pending licences with evidence: those not read yet, or with
+        {"before": "<UTC time>"} also those last read before then (the dialog's Read all: one run, read once each).
+        Reads for about {"seconds": n} (default 20, at most 90) and returns the results with how many are left, so the
+        dialog calls it again until none are left and shows the progress."""
         admin()
         if not licence_qr.available():
             raise QualificationError("QR codes cannot be read on this server: install zbar-tools and poppler-utils.", 503)
-        everything = bool((request.get_json(silent=True) or {}).get("all"))
+        body = request.get_json(silent=True) or {}
+        before = body.get("before") if isinstance(body.get("before"), str) else None
+        seconds = body.get("seconds", 20)
+        seconds = min(90, max(0, seconds)) if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) else 20
         con = connection()
         rows = con.execute(
             "SELECT q.*,t.name AS category,COALESCE(u.display_name,u.username) AS person"
             " FROM qualification_submissions q JOIN qualification_types t ON t.id=q.type_id JOIN users u ON u.id=q.user_id"
             " WHERE q.status IN ('approved','pending') AND q.evidence_path IS NOT NULL"
-            + ("" if everything else " AND q.qr_json IS NULL") + " ORDER BY person, t.sort_order").fetchall()
+            " AND (q.qr_json IS NULL OR (? IS NOT NULL AND COALESCE(json_extract(q.qr_json,'$.checked_at'),'') < ?))"
+            " ORDER BY person, t.sort_order", (before, before)).fetchall()
+        if seconds == 0:  # only count, so the dialog can show the progress from the start
+            return jsonify(results=[], later=len(rows), total=len(rows))
         results, later = [], 0
-        deadline = time.monotonic() + 90
+        deadline = time.monotonic() + seconds
         for row in rows:
             if time.monotonic() > deadline:
                 later += 1
                 continue
-            result = read_qr(con, row, evidence_root(), g.user["id"])
+            try:
+                result = read_qr(con, row, evidence_root(), g.user["id"])
+            except Exception:  # noqa: BLE001 - one unreadable file must not stop the others
+                logging.getLogger(__name__).exception("reading the QR code of submission %s failed", row["id"])
+                con.execute("UPDATE qualification_submissions SET qr_json=? WHERE id=?",
+                            (json.dumps({"codes": [], "checked_at": _utc_now(), "error": True}), row["id"]))
+                con.commit()
+                result = dict(status="none", number=None, issues=["could not be read"], authority=None, filled=None)
             results.append(dict(id=row["id"], user_id=row["user_id"], person=row["person"], category=row["category"],
                                 status=result["status"], number=result["number"], issues=result["issues"],
                                 authority=(result["authority"] or {}).get("name"),
                                 filled=result["filled"]))
-        return jsonify(results=results, later=later)
+        return jsonify(results=results, later=later, total=len(rows))
 
     @app.get("/api/pilots")
     def list_pilots():

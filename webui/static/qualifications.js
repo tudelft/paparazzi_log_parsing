@@ -31,7 +31,8 @@ window.QualificationManager = class {
     if (!q) return '';
     const esc = s => this.esc(s);
     const who = q.authority;
-    const label = {match: 'QR code matches', differs: 'QR code differs', none: 'No QR code found',
+    const label = {pending: 'QR code not read yet (Check QR codes… under Qualification types)',
+      match: 'QR code matches', differs: 'QR code differs', none: 'No QR code found',
       link: `Verification link: ${who ? who.name : ''}`, generic: `QR code links to the ${who ? who.name : ''} website, not to this licence: look the number up there`,
       read: 'QR code with an unknown link or text'}[q.status];
     const tone = q.status === 'differs' ? 'color:var(--err)' : ['match', 'link'].includes(q.status) ? 'color:var(--ok)'

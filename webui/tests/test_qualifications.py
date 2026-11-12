@@ -935,9 +935,19 @@ class LicenceQrTests(AppTests):
         # the date matches; the empty number is filled from the code (the type asks for one)
         self.assertEqual([(x["status"], x["filled"]) for x in r["results"]], [("match", "NLD-RP-abcdefgh1234")])
         self.assertEqual(self.client.post("/api/admin/qualifications/check-qr").json["results"], [])  # already read
+        # Read all: everything read before the run started, each once (a second call of the same run has nothing left)
+        import time as _time
+        _time.sleep(1.1)
+        before = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        first = self.client.post("/api/admin/qualifications/check-qr", json={"before": before}).json
+        self.assertEqual((len(first["results"]), first["total"], first["later"]), (1, 1, 0))
+        self.assertEqual(self.client.post("/api/admin/qualifications/check-qr", json={"before": before}).json["results"], [])
         item = self.client.get("/api/users/2/qualifications").json["items"][0]
         self.assertEqual(item["number"], "NLD-RP-abcdefgh1234")  # an empty number is filled from the code
         self.assertEqual(item["qr"]["links"], ["https://register.example.org/v/1"])
+        self.con.execute("UPDATE qualification_submissions SET qr_json=NULL")
+        self.con.commit()
+        self.assertEqual(self.client.get("/api/users/2/qualifications").json["items"][0]["qr"], {"status": "pending"})
         self.sign_in(2)  # the person sees their record, not the decoded codes
         self.assertNotIn("qr", self.client.get("/api/users/2/qualifications").json["items"][0])
 
