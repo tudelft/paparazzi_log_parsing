@@ -49,7 +49,7 @@ to gain descriptions and previously omitted crew entries.
 | **Aircraft / People / Projects / Locations** | Browse records and open their histories, totals and flights. |
 | **Training** | When enabled, complete questionnaires until you pass. A pass writes the linked qualification immediately. |
 | **Agenda** | When enabled, book shared items such as an indoor arena; see [Agenda](#agenda). |
-| **My account** | Click your name at the top right to manage your password, API keys, private qualification submissions and, when enabled, your profile. |
+| **My account** | Click your name at the top right to manage your password, API keys, private qualification submissions, which emails you get and, when enabled, your profile. |
 
 - Dates and times are **UTC**. Indoor and uncertain/non-flight records are hidden by default;
   enable their filters when needed.
@@ -219,6 +219,14 @@ and neither ticks a blocking one; an item without options never overlaps. An ite
 qualification, for example an arena safety briefing, to book or even to see its agenda; without it the page says
 so and links to the training that grants it. You can change or delete your own bookings; administrators can
 change any and set up the items in Edit mode (**Add item**, **Edit item**).
+
+## Email
+
+When the server sends email, you get reminders 30 and 7 days before a qualification or your expected end date
+expires, and mails about your bookings. Choose per kind under **My account**, tab **Email**: immediately,
+in one daily summary, or off. Admins also choose how they get notices about approvals and failed logs (unless these
+go to a shared mailbox) and can follow everyone's expiry reminders; **Statistics** lists the mails sent. Rules:
+[technical guide](TECHNICAL.md#email-notifications).
 
 ## Qualifications and additional files
 

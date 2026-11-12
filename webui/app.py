@@ -60,6 +60,7 @@ import config
 import qualifications
 import training
 import bookings
+import mail
 import weather
 import mav_parse
 import firmware
@@ -299,6 +300,9 @@ def parse_log(log_id):
 
         def mark_error():
             con.execute("UPDATE logs SET status='error', error=? WHERE id=?", (str(e)[:2000], log_id))
+            name = (con.execute("SELECT name FROM logs WHERE id=?", (log_id,)).fetchone() or ["?"])[0]
+            mail.notify_admins(con, f"Log {log_id} failed to parse", f"{name} could not be parsed:\n{str(e)[:500]}",
+                               f"/logs#log{log_id}", key=f"parse-error:{log_id}:{hashlib.sha256(str(e).encode()).hexdigest()[:12]}")
             con.commit()
 
         db.retry_locked(mark_error, con)
@@ -343,6 +347,7 @@ def start_workers():
         ingest_jobs.put(r["id"])
     for _ in range(max(1, WORKERS)):
         threading.Thread(target=worker, daemon=True).start()
+    mail.start(lambda: conn())
     threading.Thread(target=compress_old_messages, daemon=True, name="compress-messages").start()
     for _ in range(max(1, INGEST_WORKERS)):
         threading.Thread(target=ingest_worker, daemon=True).start()
@@ -1392,10 +1397,42 @@ def check_logs():
     return jsonify(known=known)
 
 
+@app.route("/api/account/email", methods=["GET", "PUT"])
+def account_email():
+    """Which email notifications this person gets (see mail.py)."""
+    con = conn()
+    if request.method == "PUT":
+        choices = (request.get_json(silent=True) or {}).get("modes")
+        if not isinstance(choices, dict):
+            return jsonify(error="send modes as {kind: mode}"), 400
+        try:
+            with db.write_lock, con:
+                con.execute("BEGIN IMMEDIATE")
+                mail.set_preferences(con, g.user, choices)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+    return jsonify(enabled=mail.enabled(), email=g.user["email"], kinds=mail.preferences(con, g.user),
+                   modes=mail.MODE_LABELS)
+
+
+@app.post("/api/account/email/test")
+def account_email_test():
+    admin_required()
+    if not mail.enabled():
+        return jsonify(error="Email is not set up on this server (LOGDB_SMTP_HOST)."), 400
+    if not g.user["email"]:
+        return jsonify(error="Your account has no email address."), 400
+    try:
+        mail.send_test(g.user)
+    except Exception as exc:  # noqa: BLE001 - show the relay's answer to the admin
+        return jsonify(error=f"Sending failed: {exc}"), 502
+    return jsonify(ok=True, email=g.user["email"])
+
+
 @app.get("/api/me")
 def me():
     return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION, training=env_bool("TRAINING"), bookings=env_bool("BOOKINGS"),
-                   can_upload=can_upload_any(conn()), person_profile=profiles.enabled())
+                   can_upload=can_upload_any(conn()), person_profile=profiles.enabled(), email=mail.enabled())
 
 
 @app.get("/api/people")
@@ -4161,7 +4198,17 @@ def clean_email(value):
 
 
 def setup_url(token):
-    return request.host_url.rstrip("/") + "/setup/" + token
+    return (config.env("PUBLIC_URL") or request.host_url).rstrip("/") + "/setup/" + token
+
+
+def mail_setup_link(con, user_id, url, expires_at, new):
+    """Email the setup link to the person; returns the address it goes to, or None."""
+    action = "set a password for your new account" if new else "choose a new password"
+    if not mail.notify(con, user_id, "account", "Flight logbook: " + ("your new account" if new else "set a new password"),
+                       f"Open this link to {action} in the flight logbook. It works once, until "
+                       f"{expires_at.replace('T', ' ').replace('Z', ' UTC')}.\n\n{url}"):
+        return None
+    return con.execute("SELECT email FROM users WHERE id=?", (user_id,)).fetchone()["email"]
 
 
 def lookup_setup(token):
@@ -4202,10 +4249,11 @@ def admin_add_user():
             " VALUES (?,?,?,?,?,?,?)",
             (username, display_name, email or None, None, int(bool(body.get("is_admin"))), now(), default_project_id))
         token, expires_at = issue_setup_token(con, cur.lastrowid)
+        mailed = mail_setup_link(con, cur.lastrowid, setup_url(token), expires_at, True) if body.get("send_email") else None
         con.commit()
     except sqlite3.IntegrityError:
         return jsonify(error="that username already exists"), 409
-    return jsonify(id=cur.lastrowid, setup_url=setup_url(token), expires_at=expires_at)
+    return jsonify(id=cur.lastrowid, setup_url=setup_url(token), expires_at=expires_at, mailed_to=mailed)
 
 
 @app.delete("/api/admin/users/<int:user_id>/password")
@@ -4242,8 +4290,10 @@ def admin_new_setup_link(user_id):
     if row["provider"] not in ("local", "log"):
         return jsonify(error="Passwords for this account are managed by its identity provider."), 403
     token, expires_at = issue_setup_token(con, user_id)
+    send = (request.get_json(silent=True) or {}).get("send_email")
+    mailed = mail_setup_link(con, user_id, setup_url(token), expires_at, False) if send else None
     con.commit()
-    return jsonify(setup_url=setup_url(token), expires_at=expires_at)
+    return jsonify(setup_url=setup_url(token), expires_at=expires_at, mailed_to=mailed)
 
 
 @app.put("/api/admin/users/<int:user_id>/username")
@@ -5648,6 +5698,41 @@ def import_historical():
             staged.unlink(missing_ok=True)
         if final and not committed:
             final.unlink(missing_ok=True)
+
+
+MAIL_STATUS_SQL = {"sent": "m.sent_at IS NOT NULL", "waiting": f"m.sent_at IS NULL AND m.attempts<{mail.MAX_ATTEMPTS}",
+                   "failed": f"m.sent_at IS NULL AND m.attempts>={mail.MAX_ATTEMPTS}"}
+
+
+@app.get("/api/admin/mail")
+def admin_mail_log():
+    """The emails of the last 90 days for the Statistics page (admins), newest first; ?status=sent|waiting|failed."""
+    admin_required()
+    con = conn()
+    status = request.args.get("status", "")
+    where = MAIL_STATUS_SQL.get(status, "1")
+    offset = max(0, request.args.get("offset", 0, type=int))
+    limit = min(100, max(1, request.args.get("limit", 25, type=int)))
+    total = con.execute(f"SELECT COUNT(*) FROM mail_outbox m WHERE {where}").fetchone()[0]
+    rows = con.execute(
+        "SELECT m.id, m.kind, m.subject, m.created_at, m.sent_at, m.attempts, m.error, m.digest, m.to_addr,"
+        " COALESCE(u.display_name, u.username) AS name, u.email FROM mail_outbox m LEFT JOIN users u ON u.id=m.user_id"
+        f" WHERE {where} ORDER BY m.id DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+    return jsonify(enabled=mail.enabled(), total=total, offset=offset, limit=limit, kinds={k: v[0] for k, v in mail.KINDS.items()},
+                   mails=[{"id": r["id"], "kind": r["kind"], "subject": r["subject"], "created_at": r["created_at"],
+                           "sent_at": r["sent_at"], "error": r["error"], "digest": bool(r["digest"]),
+                           "to": r["to_addr"] or (f"{r['name']} <{r['email']}>" if r["email"] else r["name"]),
+                           "status": "sent" if r["sent_at"] else "failed" if r["attempts"] >= mail.MAX_ATTEMPTS
+                           else "waiting"} for r in rows])
+
+
+@app.get("/api/admin/mail/<int:mail_id>")
+def admin_mail_body(mail_id):
+    admin_required()
+    row = conn().execute("SELECT subject, body, kind FROM mail_outbox WHERE id=?", (mail_id,)).fetchone()
+    if row is None:
+        return jsonify(error="no such email"), 404
+    return jsonify(subject=row["subject"], body=row["body"] or "(not kept: it held a one-time sign-in link)")
 
 
 @app.get("/api/admin/storage")

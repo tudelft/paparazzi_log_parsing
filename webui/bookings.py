@@ -19,6 +19,7 @@ import sqlite3
 from flask import Response, abort, g, jsonify, request, send_from_directory
 
 import db
+import mail
 from config import env_bool
 
 MAX_DESCRIPTION = 500
@@ -137,6 +138,29 @@ def check_overlap(con, item, start, end, flags, ignore_id=None):
             reason = "not shared"
         raise BookingError(f"{row['person']} has booked {item['name']} from {row['starts_at'].replace('T', ' ')}"
                            f" to {row['ends_at'].replace('T', ' ')} ({reason}).", 409)
+
+
+def when(start, end):
+    a, b = datetime.datetime.fromisoformat(start), datetime.datetime.fromisoformat(end)
+    return a.strftime("%a %d %b %Y %H:%M") + "–" + (b.strftime("%H:%M") if a.date() == b.date()
+                                                     else b.strftime("%a %d %b %Y %H:%M"))
+
+
+def person_name(con, user_id):
+    return con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?", (user_id,)).fetchone()[0]
+
+
+def mail_overlaps(con, item, start, end, booking_id, actor_id, owner_id):
+    """Tell the people whose (shared) booking of this item overlaps the new or moved one."""
+    who = person_name(con, owner_id)
+    for row in con.execute("SELECT id, user_id, starts_at, ends_at FROM bookings WHERE thing_id=? AND starts_at<?"
+                           " AND ends_at>? AND id!=?", (item["id"], end, start, booking_id)).fetchall():
+        if row["user_id"] in (actor_id, owner_id):
+            continue
+        mail.notify(con, row["user_id"], "bookings", f"{item['name']}: {who} booked during your booking",
+                    f"{who} booked {item['name']} for {when(start, end)}, which overlaps your booking of "
+                    f"{when(row['starts_at'], row['ends_at'])}.", f"/agenda?week={start[:10]}",
+                    key=f"overlap:{row['id']}:{booking_id}:{start}:{end}")
 
 
 def item_json(con, item, user):
@@ -305,6 +329,10 @@ def register(app, connection, require_session, pages_dir):
                 "INSERT INTO bookings(thing_id,user_id,description,starts_at,ends_at,created_at) VALUES (?,?,?,?,?,?)",
                 (item["id"], g.user["id"], description, start, end, utc_now())).lastrowid
             save_flags(cid, bid, flags)
+            mail.notify(cid, g.user["id"], "bookings", f"Booked: {item['name']}, {when(start, end)}",
+                        f"You booked {item['name']} for {when(start, end)}" + (f": {description}" if description else "")
+                        + ".", f"/agenda?week={start[:10]}")
+            mail_overlaps(cid, item, start, end, bid, g.user["id"], g.user["id"])
         return jsonify(ok=True, id=bid), 201
 
     @app.put("/api/bookings/<int:booking_id>")
@@ -323,6 +351,13 @@ def register(app, connection, require_session, pages_dir):
             cid.execute("UPDATE bookings SET description=?, starts_at=?, ends_at=? WHERE id=?",
                         (description, start, end, booking_id))
             save_flags(cid, booking_id, flags)
+            if row["user_id"] != g.user["id"]:
+                mail.notify(cid, row["user_id"], "bookings", f"Changed: your booking of {item['name']}",
+                            f"{person_name(cid, g.user['id'])} changed your booking of {item['name']} from "
+                            f"{when(row['starts_at'], row['ends_at'])} to {when(start, end)}.",
+                            f"/agenda?week={start[:10]}")
+            if (start, end) != (row["starts_at"], row["ends_at"]):
+                mail_overlaps(cid, item, start, end, booking_id, g.user["id"], row["user_id"])
         return jsonify(ok=True)
 
     @app.delete("/api/bookings/<int:booking_id>")
@@ -332,8 +367,13 @@ def register(app, connection, require_session, pages_dir):
         with db.write_lock, cid:
             cid.execute("BEGIN IMMEDIATE")
             row = booking_row(cid, booking_id)
-            require(cid, item_row(cid, row["thing_id"]))
+            item = item_row(cid, row["thing_id"])
+            require(cid, item)
             cid.execute("DELETE FROM bookings WHERE id=?", (booking_id,))
+            if row["user_id"] != g.user["id"]:
+                mail.notify(cid, row["user_id"], "bookings", f"Removed: your booking of {item['name']}",
+                            f"{person_name(cid, g.user['id'])} removed your booking of {item['name']} for "
+                            f"{when(row['starts_at'], row['ends_at'])}.", f"/agenda?week={row['starts_at'][:10]}")
         return jsonify(ok=True)
 
     def item_fields(cid, body):

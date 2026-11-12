@@ -59,7 +59,7 @@
   <label class="f">GitHub username <span>(optional)</span><span class="row"><input id="github" maxlength="39" autocomplete="off">
     <span class="gh" id="ghStatus"></span></span></label>
   <div id="err"></div>
-  <div class="buttons"><a href="/account" id="cancel" hidden>Cancel</a><button type="submit" id="save">Save and continue</button></div>
+  <div class="buttons"><a href="/account?tab=profile" id="cancel" hidden>Cancel</a><button type="submit" id="save">Save and continue</button></div>
 </form>
 <script>
 const $ = id => document.getElementById(id);
@@ -148,7 +148,7 @@ $('f').onsubmit = async e => {
   }
 };
 function safeNext() {
-  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/profile') ? next : (next ? '/' : '/account');
+  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/profile') ? next : (next ? '/' : '/account?tab=profile');
 }
 
 (async () => {
