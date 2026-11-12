@@ -97,7 +97,7 @@ def _telemetry(con):
     rows = con.execute(
         "SELECT f.id, f.takeoff_utc, f.landing_utc, f.duration_s, a.drone_id FROM flights f"
         " JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id"
-        " WHERE l.status='done' AND f.hidden=0 AND a.drone_id IS NOT NULL AND f.verdict!='ground'"
+        " WHERE l.status='done' AND f.hidden=0 AND a.drone_id IS NOT NULL AND COALESCE(f.verdict_override, f.verdict)!='ground'"
         " AND l.date_override IS NULL AND l.date_estimated=0 AND f.takeoff_utc>='2000'"
         " AND (a.simulation IS NULL OR json_extract(a.simulation, '$.detected') IS NOT 1)")
     out = []

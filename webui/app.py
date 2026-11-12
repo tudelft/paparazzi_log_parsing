@@ -2123,11 +2123,11 @@ def pick_project_for_user(con, user_id, aircraft_project_id):
 
 
 def snapshot_flight_edits(con, log_id):
-    """Keep edited flight project, crew, operator and category across a re-parse (flights are deleted with the aircraft
-    rows)."""
+    """Keep edited flight project, crew, operator, category and classification across a re-parse (flights are deleted
+    with the aircraft rows)."""
     return {(r["ac_id"], r["idx"]): dict(r) for r in con.execute(
         "SELECT a.ac_id, f.idx, f.project_id, f.project_source, f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment, f.hidden,"
-        " f.operator_id, f.category, f.authorisation_id"
+        " f.operator_id, f.category, f.authorisation_id, f.verdict_override"
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id=?", (log_id,))}
 
 
@@ -2384,10 +2384,11 @@ def assign_log_flights(con, log_id, kept=None):
         restore = kept.get((f["ac_id"], f["idx"])) or {}
         if restore:
             con.execute("UPDATE flights SET pic_user_id=?, pac_user_id=?, gcs_user_id=?, comment=?, hidden=?, operator_id=?,"
-                        " category=?, authorisation_id=? WHERE id=?",
+                        " category=?, authorisation_id=?, verdict_override=? WHERE id=?",
                         (restore.get("pic_user_id"), restore.get("pac_user_id"), restore.get("gcs_user_id"),
                          restore.get("comment"), restore.get("hidden", 0), restore.get("operator_id"),
-                         restore.get("category"), restore.get("authorisation_id"), f["id"]))
+                         restore.get("category"), restore.get("authorisation_id"), restore.get("verdict_override"),
+                         f["id"]))
         saved = restore.get("project_id")
         source = restore.get("project_source") if restore else f["project_source"]
         if source == "manual":
@@ -3893,8 +3894,8 @@ def update_logbook_records():
         if int(identity) > 2**63 - 1:
             return jsonify(error="Invalid record key."), 400
         targets.add((kind, int(identity)))
-    changes = {k: body[k] for k in ("project_id", "pic_user_id", "pac_user_id", "gcs_user_id", "operator_id", "hidden")
-               if k in body}
+    changes = {k: body[k] for k in ("project_id", "pic_user_id", "pac_user_id", "gcs_user_id", "operator_id", "hidden",
+                                    "verdict") if k in body}
     if "category" in body or "authorisation_id" in body:
         changes["category"] = {k: body.get(k) for k in ("category", "authorisation_id")}
     if not changes:
@@ -3903,6 +3904,10 @@ def update_logbook_records():
         return jsonify(error="Administrator access is required."), 403
     if "hidden" in changes and type(changes["hidden"]) is not bool:
         return jsonify(error="Hidden must be true or false."), 400
+    if "verdict" in changes and changes["verdict"] not in ("flight", "ground", None):
+        return jsonify(error="The classification must be flight, ground or null (automatic)."), 400
+    if "verdict" in changes and any(kind == "paper" for kind, _ in targets):
+        return jsonify(error="Paper records are always flights; only logged flights can be classified."), 400
     con = conn()
     try:
         with db.write_lock, con:
@@ -3968,6 +3973,8 @@ def update_logbook_records():
                         log_flights.add(identity)
                     if "hidden" in changes:
                         con.execute("UPDATE flights SET hidden=? WHERE id=?", (int(changes["hidden"]), identity))
+                    if "verdict" in changes:
+                        con.execute("UPDATE flights SET verdict_override=? WHERE id=?", (changes["verdict"], identity))
             if log_flights:  # the paper records linked to an entry carry its operator and category too
                 for record_id in {k["record_id"] for k in links.resolved(con) if k["same"] and k["flight_id"] in log_flights}:
                     if "operator_id" in changes:
@@ -5565,7 +5572,7 @@ LOGBOOK_OVERVIEW_KEYS = (
     "distance_m", "from_takeoff_m", "max_from_takeoff_m", "aircraft", "aircraft_uid", "drone_id",
     "project_id", "project_name", "takeoff_place", "takeoff_place_id", "takeoff_lat", "takeoff_lon",
     "landing_place", "landing_place_id", "landing_lat", "landing_lon",
-    "pic", "pac", "gcs", "goal", "comment", "verdict", "indoor", "optitrack", "link_warning",
+    "pic", "pac", "gcs", "goal", "comment", "verdict", "verdict_auto", "verdict_override", "indoor", "optitrack", "link_warning",
     "date_ok", "date_override", "date_estimated", "hidden", "can_edit_record", "can_edit_crew",
     "source_selection_reason",
     "can_edit_project", "can_edit_date", "linked_records", "conflicts", "possible_duplicates",
@@ -5941,7 +5948,8 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
         " a.id AS aircraft_pk, a.ac_id, a.simulation, COALESCE(d.name, a.name) AS aircraft, a.name AS aircraft_logged,"
         " d.unique_id AS aircraft_uid, a.drone_id, a.pic, a.pac, a.gcs, a.goal,"
         " EXISTS(SELECT 1 FROM ambiguous_drone_names n WHERE n.name=TRIM(a.name) COLLATE NOCASE) AS aircraft_ambiguous,"
-        " f.verdict, f.assessment_json, f.takeoff_voltage_v, f.landing_voltage_v, f.num_points, f.takeoff_json, f.landing_json,"
+        " COALESCE(f.verdict_override, f.verdict) AS verdict, f.verdict AS verdict_auto, f.verdict_override,"
+        " f.assessment_json, f.takeoff_voltage_v, f.landing_voltage_v, f.num_points, f.takeoff_json, f.landing_json,"
         " f.link_json, l.id AS log_id, l.name AS log_name, l.size_bytes, l.log_type, l.uploaded_by, l.uploaded_at, l.sha256, l.log_path IS NOT NULL AS has_log,"
         " l.project_id AS log_project_id, l.start_utc AS log_start_utc, l.date_override, l.date_estimated,"
         " (SELECT username FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name"
@@ -6684,7 +6692,8 @@ def matlab_unsupported(row):
 def matlab_flights(con, log_id):
     """The flights of a log with a takeoff, in log order, with what the export needs."""
     return [dict(r) for r in con.execute(
-        "SELECT f.id, f.idx, a.ac_id, f.takeoff_time_s, f.landing_time_s, f.takeoff_utc, f.landing_utc, f.verdict,"
+        "SELECT f.id, f.idx, a.ac_id, f.takeoff_time_s, f.landing_time_s, f.takeoff_utc, f.landing_utc,"
+        " COALESCE(f.verdict_override, f.verdict) AS verdict,"
         " f.assessment_json, f.duration_s, f.distance_m, f.max_from_takeoff_m, f.from_takeoff_m, f.landed,"
         " f.takeoff_lat, f.takeoff_lon, f.takeoff_alt_m, f.landing_lat, f.landing_lon, f.landing_alt_m,"
         " f.takeoff_voltage_v, f.landing_voltage_v, a.drone_id, COALESCE(d.name, a.name) AS aircraft_name"

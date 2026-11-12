@@ -460,7 +460,7 @@ function detail(f) {
   return `<div class="flight-detail">
     <div class="minimap" data-fid="${f.flight_id}" role="status">Loading path...</div>
     <div class="detail-info"><h4>Comment</h4>${f.comment ? `<div class="note">${esc(f.comment)}</div>` : '<span class="mute">No comment</span>'}
-      ${linkedInfo(f)}${sourcesInfo(f)}
+      ${linkedInfo(f)}${sourcesInfo(f)}${classInfo(f)}
       <div class="actions"><a class="btn" href="/flight/${f.flight_id}">Open flight page</a>
         ${logDownloadButtons(f.sources)}${MatlabExport.button(f.sources)}</div>
     </div>
@@ -478,6 +478,23 @@ function linkedInfo(f) {
         ? ` <span class="mute">(log value accepted by ${esc(c.reviewed_by)})</span>` : ''}</li>`).join('')}</ul>
     ${f.conflicts.some(c => !c.reviewed_by) ? '<p><a href="/review">Resolve on the review page</a></p>' : ''}` : ''}`;
 }
+// Whether this is a real flight: the parser's estimate, or a classification set by hand in Edit mode (all recordings
+// of the entry). A hand-set one survives re-parsing and counts everywhere the estimate would.
+const VERDICT_LABEL = {flight: 'Flight', uncertain: 'Uncertain', ground: 'Not a flight'};
+function classInfo(f) {
+  const auto = VERDICT_LABEL[f.verdict_auto] || 'unknown';
+  if (editOn() && f.can_edit_crew) return `<h4>Classification</h4><select data-verdict aria-label="Classification">
+      <option value="">Automatic (${esc(auto.toLowerCase())})</option>
+      <option value="flight"${f.verdict_override === 'flight' ? ' selected' : ''}>Flight</option>
+      <option value="ground"${f.verdict_override === 'ground' ? ' selected' : ''}>Not a flight</option></select>`;
+  return f.verdict_override ? `<p class="mute">Classified as ${esc(VERDICT_LABEL[f.verdict_override].toLowerCase())} by hand (parser: ${esc(auto.toLowerCase())}).</p>` : '';
+}
+document.addEventListener('change', async e => {
+  const sel = e.target.closest('[data-verdict]');
+  if (!sel) return;
+  const f = flights.find(x => x.record_key === sel.closest('tr').previousElementSibling?.dataset.id);
+  if (f && await updateRecords(crewIds(f), {verdict: sel.value || null})) loadFlights();
+});
 // Recordings merged into this entry; in Edit mode one can be split off when the automatic merge is wrong.
 function sourcesInfo(f) {
   if (!editOn() || (f.sources || []).length < 2) return '';

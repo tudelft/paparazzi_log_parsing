@@ -626,6 +626,29 @@ class LogbookBulkTests(AppTests):
         for table in ("flights", "flight_records"):
             self.assertEqual(self.con.execute(f"SELECT SUM(hidden) FROM {table}").fetchone()[0], 0)
 
+    def test_classification_set_by_hand_counts_and_survives_reparse(self):
+        def verdicts():
+            return {r["flight_id"]: (r["verdict"], r["verdict_auto"], r["verdict_override"])
+                    for r in self.client.get("/api/logbook").json if r.get("flight_id")}
+        self.con.execute("UPDATE flights SET verdict='uncertain' WHERE id=1")
+        self.con.commit()
+        put = lambda keys, value: self.client.put("/api/logbook/records", json={"record_keys": keys, "verdict": value})
+        self.assertEqual(put(["log:1", "paper:1"], "flight").status_code, 400)  # paper records are always flights
+        self.assertEqual(put(["log:1"], "maybe").status_code, 400)
+        self.assertEqual(put(["log:1"], "flight").status_code, 200)
+        self.assertEqual(put(["log:2"], "ground").status_code, 200)
+        self.assertEqual(verdicts()[1], ("flight", "uncertain", "flight"))
+        self.assertEqual(verdicts()[2], ("ground", "flight", "ground"))
+        kept = self.ns["snapshot_flight_edits"](self.con, 1)
+        db.store_parsed(self.con, 1, {"aircraft": [{"ac_id": 7, "name": "Drone", "flights": [
+            {"flight": i, "duration_s": 100, "assessment": {"verdict": "uncertain"}} for i in (0, 1)]}]}, None)
+        self.ns["assign_log_flights"](self.con, 1, kept)
+        self.con.commit()
+        self.assertEqual([r[0] for r in self.con.execute("SELECT verdict_override FROM flights ORDER BY idx")],
+                         ["flight", "ground"])
+        self.assertEqual(put(["log:1"], None).status_code, 200)  # back to automatic
+        self.assertIsNone(self.con.execute("SELECT verdict_override FROM flights WHERE idx=0").fetchone()[0])
+
 
 if __name__ == "__main__":
     unittest.main()

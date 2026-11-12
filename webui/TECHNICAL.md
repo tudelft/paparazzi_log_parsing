@@ -237,9 +237,10 @@ hardware targets do not trigger detection. `detected: false` with empty evidence
 simulation evidence was found, not proof of a physical flight.
 The web database persists this per-aircraft metadata. Flight details show the detection evidence;
 upload details and flight lists label detected simulations. Logbook, Statistics and person/aircraft/
-project/location details exclude them from displayed flights, totals and charts unless **Show
-non-flights** is selected, which includes simulations, uncertain flights and ground records.
-Locations overview counts follow the same default (`GET /api/places?nonflights=1` includes
+project/location details exclude them from displayed flights, totals and charts when **Hide
+non-flights** is ticked (off by default); non-flights are simulations, uncertain flights and ground records.
+The shared filter's defaults show indoor flights, non-flights and unknown dates; a saved browser selection keeps its
+values. The APIs keep their own defaults. Locations overview counts follow the same API default (`GET /api/places?nonflights=1` includes
 all three categories); its map hints retain non-simulation ground positions by default.
 Other overview APIs retain the metadata and
 all accessible rows so their browser filters can switch without refetching.
@@ -1961,8 +1962,11 @@ location boundaries. Omitting the date arguments retains all-time API behavior; 
 
 **Real flight or not.** The autopilot's in-flight flag also toggles on the ground (arming, motor tests, carrying).
 The parser scores each takeoff/landing on duration, climb, distance, speed, tilt and acceleration and gives a verdict
-`flight`, `uncertain` or `ground` with the reasons. The logbook hides the last two unless **Show non-flights**
-is ticked. When `ENERGY` reports current, a flight of at least two minutes that draws on average 1 A or more while
+`flight`, `uncertain` or `ground` with the reasons. **Hide non-flights** leaves out the last two. Whoever may edit
+a flight's crew can set its classification in Edit mode (`verdict` `flight`, `ground` or `null` for automatic in
+`PUT /api/logbook/records`, logged flights only): it is stored in `flights.verdict_override`, kept across a re-parse
+like the other flight edits, and counts everywhere instead of the parser's verdict (the logbook rows give `verdict`,
+`verdict_auto` and `verdict_override`). Blackbox logs without GPS are scored from the local NED position and velocity. When `ENERGY` reports current, a flight of at least two minutes that draws on average 1 A or more while
 its voltage varies by less than 0.1 V loses 2 points ("battery voltage steady under load"): that points to an
 external power supply (bench or tether test). The rule only lowers the score, so on its own it can turn a flight
 into `uncertain` but not into `ground`. The taxi rule ("moved on the ground without climbing": 3 m or more
