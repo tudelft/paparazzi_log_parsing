@@ -85,6 +85,8 @@
   button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
   button.sec { background:var(--sec); color:var(--txt); }
   #setupBox { border-color:var(--acc); }
+  #addUserDialog .checks { display:flex; gap:20px; flex-wrap:wrap; }
+  #addUserDialog .checks label { display:inline-flex; gap:6px; align-items:center; font-size:14px; }
   #setupUrl { width:100%; margin-top:8px; }
   label.field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
   label.field input { font-size:14px; color:var(--txt); }
@@ -172,8 +174,10 @@
       <label class="field">Display name<input id="newName" maxlength="80" autocomplete="off"></label>
       <label class="field">Email (optional)<input id="newEmail" type="email" maxlength="120" autocomplete="off"></label>
       <label class="field">Default project<select id="newProject"></select></label>
-      <label class="field" style="padding-bottom:6px">Admin<input type="checkbox" id="newAdmin"></label>
-      <label class="field" id="newSendMailBox" style="padding-bottom:6px" hidden title="Send the one-time link to set a password to the email address above">Email the sign-in link<input type="checkbox" id="newSendMail" checked></label>
+      <div class="checks">
+        <label><input type="checkbox" id="newAdmin"> Admin</label>
+        <label id="newSendMailBox" hidden title="Send the one-time link to set a password to the email address above"><input type="checkbox" id="newSendMail" checked> Email the sign-in link</label>
+      </div>
       <button type="submit">Add user</button>
     </form>
     </dialog>
