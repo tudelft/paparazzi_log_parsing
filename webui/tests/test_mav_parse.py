@@ -402,6 +402,25 @@ class BlackboxParseTests(unittest.TestCase):
         self.assertAlmostEqual(norths[-1], 35.0)
         self.assertAlmostEqual(doc["aircraft"][0]["flights"][0]["path"][0]["actuators"][0], 0.5)
 
+    def test_indoor_indiflight_flight_is_assessed_from_local_position(self):
+        headers = {
+            "Product": "Blackbox flight data recorder by Nicholas Sherlock",
+            "Firmware revision": "Indiflight 5.0.0",
+            "Log start datetime": "2026-01-02T12:00:00Z",
+            "Craft name": "Quad",
+        }
+        rows = [  # no GPS: 10 s, climbs 4 m, moves 5 m north at up to 3 m/s
+            {"time": str(i * 1_000_000), "flightModeFlags": "1", "ekf_pos[0]": str(i * 500), "ekf_pos[1]": "10",
+             "ekf_pos[2]": str(-400 * i), "ekf_vel[0]": "300" if 0 < i < 10 else "0", "ekf_vel[1]": "0", "ekf_vel[2]": "-40"}
+            for i in range(11)
+        ]
+        flight = mav_parse._blackbox_document(Path("indoor.BFL"), "x", 100, headers, rows, 1)["aircraft"][0]["flights"][0]
+        metrics = flight["assessment"]["metrics"]
+        self.assertEqual(flight["assessment"]["verdict"], "flight")
+        self.assertAlmostEqual(metrics["ins_up_range_m"], 4.0)
+        self.assertAlmostEqual(metrics["gps_horizontal_m"], 5.0)
+        self.assertAlmostEqual(metrics["max_speed_ms"], 3.0)
+
     def test_state_flags_arm_when_box_is_off(self):
         headers = {
             "Product": "Blackbox flight data recorder by Nicholas Sherlock",
