@@ -900,6 +900,24 @@ class LicenceQrTests(AppTests):
         self.assertEqual(licence_qr.check(["some text"], None, None, None)["status"], "read")
         self.assertEqual(licence_qr.check([], "X", None, None)["status"], "none")
 
+    def test_authorities_and_country(self):
+        import licence_qr
+        nl = ["https://vliegbewijsonbemandeluchtvaartuigencontroleren.rdw.nl/raadplegen?code=0000-TEST"]
+        fr = ["https://alphatango.aviation-civile.gouv.fr/mobile/verif.jsp?uid=1&key=test"]
+        it = ["https://enacservizi.enac.gov.it/droni-frontend/#/validation/test"]
+        lux = ["https://learningzone.eurocontrol.int/ilp/customs/Reports/DACUASComp/Certificate/Validation/1/?key=t"]
+        uk = ["https://register-drones.caa.co.uk"]
+        check = lambda codes, number=None: licence_qr.check(codes, number, None, None)  # noqa: E731
+        self.assertEqual((check(nl, "NLD-RP-abcdefgh1234")["status"], check(nl)["authority"]["name"]), ("link", "RDW (NL)"))
+        self.assertEqual(check(it, "ITA-RP-abcdefgh1234")["status"], "link")
+        de = ["https://exam.lba-openuav.de/#/droneExam/certificateVerification/test"]
+        self.assertEqual((check(de, "DEU-RP-abcdefgh1234")["status"], check(de)["authority"]["name"]), ("link", "LBA (DE)"))
+        self.assertEqual(check(lux, "LUX-RP-abcdefgh1234")["authority"]["name"], "DAC Luxembourg, via Eurocontrol")
+        self.assertEqual(check(uk, "GBR-RP-abcdefgh1234")["status"], "generic")
+        wrong = check(fr, "NLD-RP-abcdefgh1234")
+        self.assertEqual((wrong["status"], wrong["issues"]), ("differs", ["the number is from NLD, the code from DGAC AlphaTango (FR)"]))
+        self.assertEqual(check(["https://example.org/x"])["status"], "read")
+
     def test_check_all_reads_png_evidence(self):
         import licence_qr
         import shutil

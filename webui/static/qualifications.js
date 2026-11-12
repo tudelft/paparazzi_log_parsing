@@ -30,12 +30,15 @@ window.QualificationManager = class {
     const q = item.qr;
     if (!q) return '';
     const esc = s => this.esc(s);
-    const label = {match: 'QR code matches', differs: 'QR code differs', read: 'QR code read', none: 'No QR code found'}[q.status];
-    const tone = q.status === 'differs' ? 'color:var(--err)' : q.status === 'match' ? 'color:var(--ok)' : 'color:var(--mute)';
-    const links = (q.links || []).map(u => {
-      let host = u; try { host = new URL(u).host; } catch (e) {}
-      return ` · <a href="${esc(u)}" target="_blank" rel="noopener noreferrer" title="Opens the issuing authority's page: ${esc(u)}">check at ${esc(host)}</a>`;
-    }).join('');
+    const who = q.authority;
+    const label = {match: 'QR code matches', differs: 'QR code differs', none: 'No QR code found',
+      link: `Verification link: ${who ? who.name : ''}`, generic: `QR code links to the ${who ? who.name : ''} website, not to this licence: look the number up there`,
+      read: 'QR code with an unknown link or text'}[q.status];
+    const tone = q.status === 'differs' ? 'color:var(--err)' : ['match', 'link'].includes(q.status) ? 'color:var(--ok)'
+      : q.status === 'none' || q.status === 'generic' ? 'color:var(--warn, #9a6700)' : 'color:var(--mute)';
+    const open = (u, text) => ` · <a href="${esc(u)}" target="_blank" rel="noopener noreferrer" title="Opens the issuing authority's page: ${esc(u)}">${text}</a>`;
+    const links = who ? open(who.link, who.per_certificate ? 'check this licence' : 'website')
+      : (q.links || []).map(u => { let host = u; try { host = new URL(u).host; } catch (e) {} return open(u, 'open ' + esc(host)); }).join('');
     const detail = q.codes && q.codes.length ? `<details style="display:inline"><summary class="mute" style="display:inline;cursor:pointer"> content</summary>
       <pre style="white-space:pre-wrap;font-size:12px;margin:4px 0">${esc(q.codes.join('\n\n'))}</pre></details>` : '';
     return `<div style="font-size:12px"><span style="${tone}" title="Read ${esc((q.checked_at || '').replace('T', ' ').replace('Z', ' UTC'))}">${label}</span>`
