@@ -222,6 +222,15 @@ qualification, for example an arena safety briefing, to book or even to see its 
 so and links to the training that grants it. You can change or delete your own bookings; administrators can
 change any and set up the items in Edit mode (**Add item**, **Edit item**).
 
+## Documents
+
+**Documents** (optional) holds shared documents, for example the ones to show when you are asked for them in the field
+(insurance, operator registration, operations approval, manuals), in tabs per group. Administrators write a text at the
+top and upload documents in Edit mode (**Add document**, **Add group**; **Edit** also replaces a document's file). A
+document can be only for administrators, for people with a current qualification or for some profile roles. The tab
+**My qualifications** lists your own approved qualifications that are valid today, with their documents; add or renew
+them in **My account** (see below). Rules: [technical guide](TECHNICAL.md#documents).
+
 ## Email
 
 When the server sends email, you get reminders 30 and 7 days before a qualification or your expected end date

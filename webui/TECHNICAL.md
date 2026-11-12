@@ -276,7 +276,7 @@ hours (`?refresh=1`, **Measure now**, starts a new one); the database figures an
 read model (`logbook_rows`). Building it takes about a second per few thousand flights, so it is kept in memory
 per user and request options and rebuilt only after a committed write it may show, or at the start of a new UTC
 day. Triggers raise a counter (`logbook_version`, recreated at every start) on writes to every table except those
-in `db.LOGBOOK_UNRELATED` (API keys, sign-in and upload bookkeeping, caches, training, bookings, profiles) and
+in `db.LOGBOOK_UNRELATED` (API keys, sign-in and upload bookkeeping, caches, training, bookings, documents, profiles) and
 `users.last_login`, so those no longer empty the cache; a table missing from that list only costs a refresh. The finished logbook response is kept the same way.
 At most eight of each are kept; each read model takes roughly 25 MB per 5000 flights. These responses carry a
 `Server-Timing` header (`built`, `cached` or `response cached`, with the time) shown in the browser's Network tab.
@@ -686,6 +686,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `HIDE_UNLINKED_AIRCRAFT` | `0` | `1` excludes unlinked telemetry flights from Logbook, Statistics, person details and Locations, and hides the Aircraft notice outside Edit mode |
 | `TRAINING` | `0` | `1` shows Training: in-app questionnaires that can grant a qualification on a pass |
 | `BOOKINGS` | `0` | `1` shows the [Agenda](#booking-agenda) of bookable items |
+| `DOCUMENTS` | `0` | `1` shows [Documents](#documents): shared documents and each person's own qualifications |
 | `PERSON_PROFILE` | `0` | `1` asks everyone who signs in for a [person profile](#person-profiles) |
 | `WEB_DATA` | `webui/data` | Database and keys; local disk only |
 | `LOG_DIR` | `<WEB_DATA>/logs` | Uploaded logs and flight paths; may be a share |
@@ -837,7 +838,7 @@ selected in Edit mode stays listed. Non-admins only count qualifications they ma
 Logbook has no top-level project filter and no longer applies a previously saved project filter.
 Project reassignment controls in Edit mode remain available.
 The menu (`theme.js`) has Logbook (`/`), Agenda (`/agenda`, when `LOGDB_BOOKINGS=1`), Training (`/training`, when
-`LOGDB_TRAINING=1`) and **Directory ▾** (People, Aircraft, Projects, Locations, then Logs at `/logs` and Statistics at
+`LOGDB_TRAINING=1`), Documents (`/documents`, when `LOGDB_DOCUMENTS=1`) and **Directory ▾** (People, Aircraft, Projects, Locations, then Logs at `/logs` and Statistics at
 `/stats`), then the flight filters. On the right: **⬆ Upload
 logs** (for admins and members with add or full access on a project, `can_upload` in `/api/me`), Edit (pages that
 have it) and the name menu (My account, Night mode, Sign out). Menus close on a click elsewhere or Escape.
@@ -1231,6 +1232,31 @@ Operations Manual: per person `id`, `name` and `qualifications` (`type`, `number
 `valid_until`, `internal`), no contact details. `active=1` (default) leaves out deactivated accounts;
 `qualification=FI` (comma-separated types) keeps only people with one of those. Admins only, by session or
 API key; give a document build an admin account's **read-only** key.
+
+### Documents
+
+Off unless `LOGDB_DOCUMENTS=1`; session-only (`documents.py`, `static/documents.html`); it needs no person profiles.
+`GET /api/documents` returns `intro` (the text at the top, `document_settings`), `groups` (`document_groups`: name,
+description, sort order; one level, shown as page tabs with All, General for documents without a group and My
+qualifications; the tab is kept in the URL, `?tab=`; empty groups only in Edit mode), `documents` the person may see
+(`documents`: title, description, optional group, limits, file), `qualifications` (the person's own approved
+submissions valid today, with evidence `view`/`download` links when there is a file; also for admins, only their own)
+and, for admins, `types` (all, with `active`, so a limit to a type that was deactivated later stays in the edit
+dialog), `profiles` (person profiles on), `roles` (`profile_roles`) and `max_bytes`.
+
+Admins see every document. Anyone else must meet every limit set on it: `admin_only` (administrators only); `type_id`
+(a current approved qualification of that type, as for agenda items); `roles_limited` with the roles in
+`document_profile_roles` (the person's profile role, `profiles.py`). Role limits fail closed: with
+`LOGDB_PERSON_PROFILE` off, or when every chosen role was removed from the profile lists, only admins see the document.
+
+Files are stored under `<LOG_DIR>/documents` (mode 0700; gzip when it saves at least 5%, at most 100 MiB each; counted
+as Documents on Statistics) and served by `GET /api/documents/<id>/view` (inline, only the safe types of flight
+attachments) and `/download`. Admins: `PUT /api/admin/documents/intro`, `POST|PUT|DELETE
+/api/admin/document-groups[/<id>]` (a group that still holds documents cannot be deleted), `POST /api/admin/documents`
+(multipart: `file`, `title`, `description`, `group_id`, `type_id`, `admin_only`, `roles_limited`, `role_ids`
+repeated, `sort_order`), `PUT /api/admin/documents/<id>` (the same fields without the file, as JSON; `role_ids` a
+list), `POST /api/admin/documents/<id>/file` (multipart `file`: replaces the file, for example a renewed certificate,
+and keeps the other fields) and `DELETE` (also removes the file).
 
 Read-only People chips show only approved, non-expired submissions and omit the approval label;
 management views retain all submission states.

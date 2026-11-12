@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Documents</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --err:#cf222e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
+  main { width:100%; max-width:960px; margin:0 auto; padding:16px 12px 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; }
+  .card h2 { margin:0 0 4px; font-size:16px; display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; }
+  .text { white-space:pre-wrap; margin:0 0 4px; }
+  .doc { display:flex; flex-direction:column; gap:2px; padding:8px 10px; margin-top:8px; border:1px solid var(--line);
+    border-left:4px solid var(--acc); border-radius:6px; }
+  .doc a { color:var(--acc); text-decoration:none; }
+  .doc a:hover, .doc a:focus-visible { text-decoration:underline; text-underline-offset:3px; }
+  .doc a.name { font-weight:600; }
+  .doc .sub { font-size:12px; color:var(--mute); }
+  .none { color:var(--mute); margin:8px 0 0; }
+  .tools { margin-left:auto; display:flex; gap:6px; }
+  body:not(.editing) .edit-only { display:none !important; }
+  .actions { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 10px; }
+  .group-text { margin:0 0 4px; color:var(--mute); }
+  h3 .tools { font-weight:400; font-size:13px; }
+  fieldset { border:1px solid var(--line); border-radius:6px; margin:8px 0; padding:6px 10px 8px; }
+  fieldset legend { font-size:13px; color:var(--mute); padding:0 4px; }
+  label.check { display:flex; gap:6px; align-items:center; font-size:13px; }
+  .roles { display:flex; flex-wrap:wrap; gap:4px 12px; margin:4px 0 0 22px; }
+  button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button.sec { background:var(--sec); color:var(--txt); }
+  button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
+  input, select, textarea { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--txt); }
+  input[type=checkbox] { padding:0; }
+  textarea { min-height:70px; resize:vertical; }
+  label.field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
+  label.field > input, label.field > select, label.field > textarea { font-size:14px; }
+  .two { display:grid; grid-template-columns:1fr 9em; gap:12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .mute { color:var(--mute); }
+  #roleNote { margin:4px 0 0 22px; font-size:12px; }
+  #roleNote:empty { display:none; }
+  #otherLimits { display:grid; gap:8px; margin-top:8px; }
+  #err { color:var(--err); margin-bottom:8px; }
+  #err:empty { display:none; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Documents</h1>
+  <span class="meta" id="nav"></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <div id="err"></div>
+  <section class="card">
+    <div class="section-heading"><h2>Documents</h2>
+    <details><summary>Help</summary><p>Shared documents, for example the ones to show when you are asked for them in the field, and your own licences and qualifications. Pick a group in the tabs, or All for everything you may see. A document opens in a new tab; download saves it. Some documents are only for administrators, for people with a current qualification, or for some profile roles (when person profiles are on): you see a document only when you meet every limit set on it; administrators see all. My qualifications lists your own approved qualifications that are valid today; add or renew them in My account. Administrators set the text at the top, groups and documents in Edit mode; Edit on a document also replaces its file, for example a renewed certificate.</p></details></div>
+    <p class="text" id="intro"></p>
+    <div class="actions edit-only">
+      <button type="button" class="sec" onclick="editIntro()">Edit text at the top</button>
+      <button type="button" onclick="editDocument()">Add document</button>
+      <button type="button" class="sec" onclick="editGroup()">Add group</button>
+    </div>
+    <div class="page-tabs" id="tabs" aria-label="Document groups" hidden></div>
+    <div id="content"><span class="mute">Loading…</span></div>
+  </section>
+</main>
+
+<dialog class="entry-dialog" id="introDialog" aria-labelledby="introTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="introForm">
+    <div class="dialog-header"><h2 id="introTitle">Text at the top</h2><button type="button" class="sec" onclick="$('introDialog').close()">Close</button></div>
+    <label class="field">Text (plain text, shown to everyone who opens Documents)<textarea name="intro" rows="8" maxlength="5000"></textarea></label>
+    <p class="dialog-error" id="introError" role="alert"></p>
+    <div class="row"><button type="submit">Save</button> <button type="button" class="sec" onclick="$('introDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="groupDialog" aria-labelledby="groupTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="groupForm">
+    <div class="dialog-header"><h2 id="groupTitle">Group</h2><button type="button" class="sec" onclick="$('groupDialog').close()">Close</button></div>
+    <label class="field">Name<input name="name" required maxlength="80"></label>
+    <label class="field">Text<textarea name="description" maxlength="1000"></textarea></label>
+    <label class="field">Order (low first)<input name="sort_order" type="number" step="1" value="0"></label>
+    <p class="dialog-error" id="groupError" role="alert"></p>
+    <div class="row"><button type="submit">Save</button> <button type="button" class="danger" id="groupDeleteBtn" onclick="removeGroup()">Delete</button> <button type="button" class="sec" onclick="$('groupDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="docDialog" aria-labelledby="docTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="docForm">
+    <div class="dialog-header"><h2 id="docTitle">Document</h2><button type="button" class="sec" onclick="$('docDialog').close()">Close</button></div>
+    <label class="field">Title<input name="title" required maxlength="120"></label>
+    <label class="field">Description<textarea name="description" maxlength="1000"></textarea></label>
+    <div class="two">
+      <label class="field">Group<select name="group_id"></select></label>
+      <label class="field">Order (low first)<input name="sort_order" type="number" step="1" value="0"></label>
+    </div>
+    <fieldset><legend>Who sees it (administrators always; others must meet every limit)</legend>
+      <label class="check"><input name="admin_only" type="checkbox" onchange="syncDocForm()"> Administrators only</label>
+      <div id="otherLimits">
+        <label class="field">Qualification<select name="type_id"></select></label>
+        <div id="roleLimit">
+          <label class="check"><input name="roles_limited" type="checkbox" onchange="syncDocForm()"> Only these profile roles</label>
+          <div class="roles" id="roleList"></div>
+          <p class="mute" id="roleNote"></p>
+        </div>
+      </div>
+    </fieldset>
+    <label class="field" id="fileField"><span id="fileLabel">File</span><input name="file" type="file"></label>
+    <p class="dialog-error" id="docError" role="alert"></p>
+    <div class="row"><button type="submit">Save</button> <button type="button" class="danger" id="docDeleteBtn" onclick="removeDocument()">Delete</button> <button type="button" class="sec" onclick="$('docDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let me = null, data = null, editingId = null;
+const editing = () => !!(me && me.is_admin && window.editMode && window.editMode());
+
+let tab = 'all';
+const typeName = id => ((data.types || []).find(t => t.id === id) || {}).name;
+const roleName = id => ((data.roles || []).find(r => r.id === id) || {}).name;
+
+function limitsText(d) {
+  if (d.admin_only) return 'administrators only';
+  const parts = [];
+  if (d.type_id) parts.push('with ' + esc(d.type_name || typeName(d.type_id) || 'a qualification'));
+  if (d.roles_limited) parts.push(d.role_ids.length ? 'roles: ' + d.role_ids.map(r => esc(roleName(r) || '?')).join(', ')
+    : 'roles: none left (administrators only)');
+  return parts.length ? 'visible ' + parts.join(' and ') : '';
+}
+function docHTML(d) {
+  const link = d.viewable ? d.view : d.download;
+  const sub = [editing() ? limitsText(d) : '', esc(d.filename), `<a href="${esc(d.download)}">download</a>`]
+    .filter(Boolean).join(' · ');
+  return `<div class="doc"><span style="display:flex;gap:8px"><a class="name" href="${esc(link)}" target="_blank" rel="noopener">${esc(d.title)}</a>`
+    + `<span class="tools edit-only"><button type="button" class="sec" onclick="editDocument(${d.id})">Edit</button></span></span>`
+    + (d.description ? `<span class="text">${esc(d.description)}</span>` : '')
+    + `<span class="sub">${sub}</span></div>`;
+}
+function ownHTML(q) {
+  const sub = [q.number ? 'No. ' + esc(q.number) : '', q.valid_until ? 'valid until ' + esc(q.valid_until) : 'no expiry date',
+    q.download ? `<a href="${esc(q.download)}">download</a>` : 'no document'].filter(Boolean).join(' · ');
+  const name = q.view ? `<a class="name" href="${esc(q.view)}" target="_blank" rel="noopener">${esc(q.type)}</a>` : `<b>${esc(q.type)}</b>`;
+  return `<div class="doc">${name}<span class="sub">${sub}</span></div>`;
+}
+const docsOf = id => data.documents.filter(d => d.group_id === id);
+// Tabs: All, General (documents without a group), one per group, My qualifications. Empty ones only in Edit mode.
+function tabList() {
+  const tabs = [['all', 'All', null]];
+  const loose = docsOf(null).length;
+  if (loose || (editing() && data.groups.length)) tabs.push(['general', 'General', loose]);
+  for (const g of data.groups) {
+    const n = docsOf(g.id).length;
+    if (n || editing()) tabs.push([String(g.id), esc(g.name), n]);
+  }
+  tabs.push(['mine', 'My qualifications', data.qualifications.length]);
+  return tabs;
+}
+function docsHTML(docs, empty) {
+  return docs.length ? docs.map(docHTML).join('') : `<p class="none">${empty}</p>`;
+}
+function groupHTML(g, heading) {
+  const docs = docsOf(g.id);
+  const tools = `<span class="tools edit-only"><button type="button" class="sec" onclick="editGroup(${g.id})">Edit group</button></span>`;
+  return (heading ? `<h3 style="display:flex;gap:8px">${esc(g.name)}${tools}</h3>` : `<div class="actions edit-only">${tools}</div>`)
+    + (g.description ? `<p class="text group-text">${esc(g.description)}</p>` : '')
+    + docsHTML(docs, 'No documents in this group.');
+}
+function mineHTML(heading) {
+  const manage = '<a href="/account" style="font-weight:400;font-size:13px">Add or renew in My account</a>';
+  return (heading ? `<h3 style="display:flex;gap:8px;align-items:baseline">My licences and qualifications ${manage}</h3>`
+    : `<p style="margin:0">${manage}</p>`)
+    + (data.qualifications.length ? data.qualifications.map(ownHTML).join('')
+      : '<p class="none">No current approved licences or qualifications.</p>');
+}
+function paint() {
+  document.body.classList.toggle('editing', editing());
+  $('intro').textContent = data.intro || '';
+  $('intro').hidden = !data.intro;
+  const tabs = tabList();
+  if (!tabs.some(t => t[0] === tab)) tab = 'all';
+  window.pageTabs($('tabs'), tabs, tab, choose);
+  let html;
+  if (tab === 'all') {
+    const groups = data.groups.filter(g => docsOf(g.id).length || editing());
+    html = (docsOf(null).length ? docsHTML(docsOf(null), '') : '')
+      + groups.map(g => groupHTML(g, true)).join('')
+      + (data.documents.length || groups.length ? '' : '<p class="none">No shared documents yet.</p>')
+      + mineHTML(true);
+  } else if (tab === 'mine') html = mineHTML(false);
+  else if (tab === 'general') html = docsHTML(docsOf(null), 'No documents without a group.');
+  else html = groupHTML(data.groups.find(g => String(g.id) === tab), false);
+  $('content').innerHTML = html;
+}
+function choose(key) {
+  tab = key;
+  window.viewState.save(true);
+  paint();
+}
+async function load() {
+  const r = await fetch('/api/documents');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || r.statusText);
+  data = d;
+  paint();
+}
+async function send(url, method, body, errorBox) {
+  const isForm = body instanceof FormData;
+  const r = await fetch(url, {method, body: isForm ? body : JSON.stringify(body),
+    headers: isForm ? {} : {'Content-Type': 'application/json'}});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { $(errorBox).textContent = d.error || r.statusText; return false; }
+  await load();
+  return true;
+}
+function editIntro() {
+  $('introForm').intro.value = data.intro || '';
+  $('introError').textContent = '';
+  $('introDialog').showModal();
+}
+$('introForm').onsubmit = async e => {
+  e.preventDefault();
+  if (await send('/api/admin/documents/intro', 'PUT', {intro: $('introForm').intro.value}, 'introError')) $('introDialog').close();
+};
+function editGroup(id) {
+  const g = data.groups.find(x => x.id === id) || {name: '', description: '', sort_order: 0};
+  editingId = id ?? null;
+  const f = $('groupForm');
+  f.name.value = g.name; f.description.value = g.description; f.sort_order.value = g.sort_order;
+  $('groupDeleteBtn').hidden = editingId == null;
+  $('groupError').textContent = '';
+  $('groupDialog').showModal();
+}
+$('groupForm').onsubmit = async e => {
+  e.preventDefault();
+  const f = $('groupForm');
+  const body = {name: f.name.value, description: f.description.value, sort_order: parseInt(f.sort_order.value || '0', 10)};
+  const ok = editingId == null ? await send('/api/admin/document-groups', 'POST', body, 'groupError')
+    : await send(`/api/admin/document-groups/${editingId}`, 'PUT', body, 'groupError');
+  if (ok) $('groupDialog').close();
+};
+async function removeGroup() {
+  if (confirm('Delete this group?') && await send(`/api/admin/document-groups/${editingId}`, 'DELETE', {}, 'groupError'))
+    $('groupDialog').close();
+}
+function syncDocForm() {
+  const f = $('docForm');
+  $('otherLimits').hidden = f.admin_only.checked;
+  $('roleList').hidden = !f.roles_limited.checked;
+  const ticked = [...$('roleList').querySelectorAll('input:checked')].length;
+  $('roleNote').textContent = !f.roles_limited.checked ? ''
+    : !data.profiles ? 'Person profiles are off: only administrators see this document.'
+    : !ticked ? 'No role chosen: only administrators see this document.' : '';
+}
+function editDocument(id) {
+  const d = data.documents.find(x => x.id === id)
+    || {title: '', description: '', group_id: null, type_id: null, admin_only: false, roles_limited: false, role_ids: [], sort_order: 0};
+  editingId = id ?? null;
+  const f = $('docForm');
+  f.group_id.innerHTML = '<option value="">(no group: General)</option>'
+    + data.groups.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
+  // active types, plus the document's own type when it is no longer active, so saving never drops the limit
+  f.type_id.innerHTML = '<option value="">Not needed</option>'
+    + (data.types || []).filter(t => t.active || t.id === d.type_id)
+      .map(t => `<option value="${t.id}">Only with ${esc(t.name)}${t.active ? '' : ' (inactive)'}</option>`).join('');
+  f.title.value = d.title; f.description.value = d.description; f.sort_order.value = d.sort_order;
+  f.group_id.value = d.group_id ?? ''; f.type_id.value = d.type_id ?? '';
+  f.admin_only.checked = d.admin_only;
+  f.roles_limited.checked = d.roles_limited;
+  $('roleLimit').hidden = !data.profiles && !d.roles_limited;
+  $('roleList').innerHTML = (data.roles || []).map(r => `<label class="check"><input type="checkbox" value="${r.id}" onchange="syncDocForm()"${
+    d.role_ids.includes(r.id) ? ' checked' : ''}> ${esc(r.name)}</label>`).join('');
+  f.file.value = '';
+  $('fileLabel').textContent = editingId == null ? 'File' : `Replace file (optional; now ${d.filename})`;
+  $('docDeleteBtn').hidden = editingId == null;
+  $('docError').textContent = '';
+  syncDocForm();
+  $('docDialog').showModal();
+}
+$('docForm').onsubmit = async e => {
+  e.preventDefault();
+  const f = $('docForm');
+  const roles = f.roles_limited.checked ? [...$('roleList').querySelectorAll('input:checked')].map(x => +x.value) : [];
+  const fields = {title: f.title.value, description: f.description.value, group_id: f.group_id.value || null,
+    type_id: f.type_id.value || null, admin_only: f.admin_only.checked, roles_limited: f.roles_limited.checked,
+    role_ids: roles, sort_order: parseInt(f.sort_order.value || '0', 10)};
+  let ok;
+  if (editingId == null) {
+    if (!f.file.files.length) { $('docError').textContent = 'Choose a file.'; return; }
+    const form = new FormData();
+    for (const [k, v] of Object.entries(fields)) {
+      if (k === 'role_ids') v.forEach(r => form.append('role_ids', r));
+      else if (v != null) form.append(k, typeof v === 'boolean' ? (v ? '1' : '0') : v);
+    }
+    form.append('file', f.file.files[0]);
+    ok = await send('/api/admin/documents', 'POST', form, 'docError');
+  } else {
+    ok = await send(`/api/admin/documents/${editingId}`, 'PUT', fields, 'docError');
+    if (ok && f.file.files.length) {
+      const form = new FormData();
+      form.append('file', f.file.files[0]);
+      ok = await send(`/api/admin/documents/${editingId}/file`, 'POST', form, 'docError');
+    }
+  }
+  if (ok) $('docDialog').close();
+};
+async function removeDocument() {
+  if (confirm('Delete this document and its file?') && await send(`/api/admin/documents/${editingId}`, 'DELETE', {}, 'docError'))
+    $('docDialog').close();
+}
+window.viewState.setup(p => { tab = p.get('tab') || 'all'; }, p => {
+  window.viewState.set(p, 'tab', tab === 'all' ? '' : tab, '');
+}, () => { if (data) paint(); });
+window.addEventListener('editchange', () => { if (data) paint(); });
+fetch('/api/me').then(r => r.json()).then(d => {
+  me = d.user;
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  return load();
+}).catch(e => { $('err').textContent = e.message; });
+</script>
+</body>
+</html>
