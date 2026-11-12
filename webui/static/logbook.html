@@ -583,6 +583,8 @@ const km = (a, b) => {
 // without GPS). Paper flight records group with each other at the same named location, never with logs; paper
 // daily totals already cover a day.
 const DAY_GROUP_KM = 1;
+// Flights with a set date but no time (date_override only) sort and group by that date, as the server orders them.
+const when = f => f.takeoff_utc || (f.date_override ? f.date_override + 'T00:00:00Z' : '');
 const crewName = (f, r) => f[r + '_user'] ? 'u' + f[r + '_user'].id : f[r] ? 'n' + f[r].toLowerCase() : '';
 const groupable = f => f.date_ok && (f.manual_id ? f.record_kind !== 'daily' && f.takeoff_place_id != null : true);
 const hasPosition = f => f.takeoff_lat != null && f.takeoff_lon != null;
@@ -596,8 +598,8 @@ const crewFits = (g, f) => crewName(f, 'pic') === g.crew.pic
   && ['pac', 'gcs'].every(r => !g.crew[r] || !crewName(f, r) || g.crew[r] === crewName(f, r));
 function combine(list) {
   const groups = [];
-  for (const f of [...list].sort((a, b) => (a.takeoff_utc || '').localeCompare(b.takeoff_utc || ''))) {
-    const key = [f.manual_id ? 'paper' : 'log', f.drone_id ?? f.aircraft, fmtDate(f.takeoff_utc), !!f.simulation?.detected, !!f.date_estimated].join('|');
+  for (const f of [...list].sort((a, b) => when(a).localeCompare(when(b)))) {
+    const key = [f.manual_id ? 'paper' : 'log', f.drone_id ?? f.aircraft, fmtDate(when(f)), !!f.simulation?.detected, !!f.date_estimated].join('|');
     const g = groupable(f) && groups.find(g => g.key === key && groupable(g.flights[0]) && samePlace(g.flights[0], f) && crewFits(g, f));
     if (g) {
       g.flights.push(f);
@@ -617,7 +619,7 @@ function combine(list) {
     g.goals = uniq('goal');
     g.comments = uniq('comment');
   }
-  return groups.sort((a, b) => (b.flights[0].takeoff_utc || '').localeCompare(a.flights[0].takeoff_utc || ''));
+  return groups.sort((a, b) => when(b.flights[0]).localeCompare(when(a.flights[0])));
 }
 
 const TYPE_LABEL = {onboard_sd: 'SD', gcs: 'GCS', px4_ulog: 'PX4', ardupilot: 'ArduPilot', mavlink_tlog: 'tlog',
