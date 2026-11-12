@@ -1189,12 +1189,15 @@ Sharing a project never grants access to these private records; approved summari
 remain subject to the existing page access rules. Use private uploads, not flight/log attachments, for licence evidence.
 
 An admin first adds types under **Qualification types** on People, for example `A1/A3`, `A2`,
-`RT licence` or an internal qualification. Each type has evidence-required, start-date, expiry,
-internal and active switches. Internal is a label for in-house qualifications, not a licence rule.
+`RT licence` or an internal qualification. Each type has a short description (at most 300 characters;
+shown under the type when someone adds a qualification and as tooltip on its labels) and evidence-required,
+start-date, expiry, number, internal and active switches. Internal is a label for in-house qualifications, not a licence rule.
+The list shows each type with its description and labels for the switches that are on; in Edit mode **Add type**
+and **Edit** open a dialog (`POST /api/qualification-types`, `PUT /api/qualification-types/<id>`).
 Qualification chips in the People overview and current account qualification lists follow the saved
 type order, not submission order; multiple submissions of one type are newest first.
-Types keep a `sort_order`; the People editor reorders them by drag-and-drop and writes every type
-with one Save (`PUT /api/admin/qualification-types`). Types can be disabled.
+Types keep a `sort_order`; dragging a type's handle saves the new order at once
+(`PUT /api/admin/qualification-types`, which keeps a description that is not sent). Types can be disabled.
 Types have no hard-coded proof rules. Disabling a type stops submissions and approvals, without erasing
 previous approvals. Changing either requirement also applies to pending submissions at approval time.
 Types also have a **Valid from** requirement (`requires_start`); submissions store `valid_from`

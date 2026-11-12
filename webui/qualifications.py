@@ -76,7 +76,7 @@ def qualifications_payload(con, viewer, user_id):
     items = []
     for row in con.execute(
             "SELECT q.*,t.name AS category,t.requires_evidence,t.requires_start,t.requires_expiry,t.internal,"
-            " t.requires_number,"
+            " t.requires_number,t.description AS type_description,"
             " COALESCE(u.display_name,u.username) AS reviewer FROM qualification_submissions q"
             " JOIN qualification_types t ON t.id=q.type_id LEFT JOIN users u ON u.id=q.reviewed_by"
             " WHERE q.user_id=? ORDER BY t.sort_order, t.name, q.id DESC", (user_id,)):
@@ -308,6 +308,18 @@ def evidence_format(path, compressed, filename):
     return mime
 
 
+TYPE_DESCRIPTION_MAX = 300
+
+
+def type_description(body):
+    """The type's description from a request body; None when it was not sent (keep the stored one)."""
+    if "description" not in body or body["description"] is None:
+        return None
+    if not isinstance(body["description"], str) or len(body["description"].strip()) > TYPE_DESCRIPTION_MAX:
+        raise QualificationError(f"The description can be at most {TYPE_DESCRIPTION_MAX} characters.")
+    return " ".join(body["description"].split())
+
+
 def register(app, connection, root, require_session):
     app.config["QUALIFICATION_EVIDENCE_DIR"] = Path(root) / "qualification-evidence"
     app.config.setdefault("QUALIFICATION_IMPORT_DIR", Path(root).parent / "tmp" / "qual-import")
@@ -327,7 +339,7 @@ def register(app, connection, root, require_session):
         admin()
         body = request.get_json(silent=True)
         allowed = {"id", "name", "requires_evidence", "requires_expiry", "requires_start", "requires_number",
-                   "internal", "active"}
+                   "internal", "active", "description"}
         if not isinstance(body, dict) or set(body) - {"types"} or not isinstance(body.get("types"), list):
             raise QualificationError("Invalid qualification request.")
         parsed = []
@@ -360,7 +372,7 @@ def register(app, connection, root, require_session):
                 raise QualificationError(
                     "Evidence requirement, date requirements, internal and active must be true or false.")
             parsed.append(dict(
-                id=tid, name=name, requires_evidence=raw["requires_evidence"],
+                id=tid, name=name, requires_evidence=raw["requires_evidence"], description=type_description(raw),
                 requires_expiry=raw.get("requires_expiry", True), requires_start=raw.get("requires_start", True),
                 requires_number=raw.get("requires_number", False),
                 internal=raw.get("internal", False), active=raw.get("active", True)))
@@ -372,19 +384,24 @@ def register(app, connection, root, require_session):
                 for item in parsed:
                     if item["id"] is not None and item["id"] not in existing:
                         raise QualificationError("No such qualification type.", 404)
+                for item in parsed:
+                    if item["description"] is None:  # not sent: keep it
+                        item["description"] = existing[item["id"]]["description"] if item["id"] else ""
                 for order, item in enumerate(parsed, 1):
                     if item["id"] is None:
                         item["id"] = con.execute(
                             "INSERT INTO qualification_types(name,requires_evidence,requires_expiry,requires_start,"
-                            "requires_number,internal,sort_order,active) VALUES (?,?,?,?,?,?,?,?)",
+                            "requires_number,internal,sort_order,active,description) VALUES (?,?,?,?,?,?,?,?,?)",
                             (item["name"], item["requires_evidence"], item["requires_expiry"], item["requires_start"],
-                             item["requires_number"], item["internal"], order, item["active"])).lastrowid
+                             item["requires_number"], item["internal"], order, item["active"],
+                             item["description"])).lastrowid
                     else:
                         con.execute(
                             "UPDATE qualification_types SET name=?,requires_evidence=?,requires_expiry=?,"
-                            "requires_start=?,requires_number=?,internal=?,sort_order=?,active=? WHERE id=?",
+                            "requires_start=?,requires_number=?,internal=?,sort_order=?,active=?,description=? WHERE id=?",
                             (item["name"], item["requires_evidence"], item["requires_expiry"], item["requires_start"],
-                             item["requires_number"], item["internal"], order, item["active"], item["id"]))
+                             item["requires_number"], item["internal"], order, item["active"], item["description"],
+                             item["id"]))
                 leftover = [rid for rid in existing if rid not in {item["id"] for item in parsed}]
                 leftover.sort(key=lambda rid: (existing[rid]["sort_order"], existing[rid]["name"].casefold()))
                 for offset, rid in enumerate(leftover, len(parsed) + 1):
@@ -392,7 +409,7 @@ def register(app, connection, root, require_session):
                 audit(con, None, g.user["id"], "types-updated", dict(types=[
                     {key: item[key] for key in (
                         "id", "name", "requires_evidence", "requires_expiry", "requires_start", "requires_number",
-                        "internal", "active")}
+                        "internal", "active", "description")}
                     for item in parsed]))
         except sqlite3.IntegrityError as exc:
             if "qualification_types.name" not in str(exc):
@@ -476,7 +493,8 @@ def register(app, connection, root, require_session):
     def save_qualification_type(type_id=None):
         admin()
         body = json_body(("name", "requires_evidence", "requires_expiry", "requires_start", "requires_number",
-                          "internal", "active"))
+                          "internal", "active", "description"))
+        description = type_description(body)
         name = body.get("name")
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
             raise QualificationError("Type name must be 1-80 characters.")
@@ -499,10 +517,12 @@ def register(app, connection, root, require_session):
                     requires_start = body.get("requires_start", bool(existing["requires_start"]))
                     internal = body.get("internal", bool(existing["internal"]))
                     requires_number = body.get("requires_number", bool(existing["requires_number"]))
+                    if description is None:
+                        description = existing["description"]
                     con.execute("UPDATE qualification_types SET name=?,requires_evidence=?,requires_expiry=?,"
-                                "requires_start=?,requires_number=?,internal=?,active=? WHERE id=?",
+                                "requires_start=?,requires_number=?,internal=?,active=?,description=? WHERE id=?",
                                 (name.strip(), body["requires_evidence"], requires_expiry, requires_start,
-                                 requires_number, internal, body.get("active", True), type_id))
+                                 requires_number, internal, body.get("active", True), description, type_id))
                 else:
                     requires_expiry = body.get("requires_expiry", True)
                     requires_start = body.get("requires_start", True)
@@ -511,14 +531,14 @@ def register(app, connection, root, require_session):
                     nxt = con.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM qualification_types").fetchone()[0]
                     type_id = con.execute(
                         "INSERT INTO qualification_types(name,requires_evidence,requires_expiry,requires_start,"
-                        "requires_number,internal,sort_order,active) VALUES (?,?,?,?,?,?,?,?)",
+                        "requires_number,internal,sort_order,active,description) VALUES (?,?,?,?,?,?,?,?,?)",
                         (name.strip(), body["requires_evidence"], requires_expiry, requires_start, requires_number,
-                         internal, nxt, body.get("active", True))).lastrowid
+                         internal, nxt, body.get("active", True), description or "")).lastrowid
                 audit(con, None, g.user["id"], "type-updated",
                       dict(type_id=type_id, name=name.strip(), requires_evidence=body["requires_evidence"],
                            requires_expiry=requires_expiry, requires_start=requires_start,
                            requires_number=requires_number, internal=internal,
-                           active=body.get("active", True)))
+                           active=body.get("active", True), description=description))
         except sqlite3.IntegrityError as exc:
             if "qualification_types.name" not in str(exc):
                 raise

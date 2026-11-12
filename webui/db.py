@@ -396,7 +396,8 @@ CREATE TABLE IF NOT EXISTS qualification_types (
     internal INTEGER NOT NULL DEFAULT 0 CHECK(internal IN (0,1)),
     requires_number INTEGER NOT NULL DEFAULT 0 CHECK(requires_number IN (0,1)),
     sort_order INTEGER NOT NULL DEFAULT 0,
-    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    description TEXT NOT NULL DEFAULT ''  -- short text shown where people add or see this type
 );
 CREATE TABLE IF NOT EXISTS qualification_submissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -652,6 +653,8 @@ def init(path):
     if "requires_number" not in type_cols:
         con.execute("ALTER TABLE qualification_types ADD COLUMN requires_number"
                     " INTEGER NOT NULL DEFAULT 0 CHECK(requires_number IN (0,1))")
+    if "description" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_types)")}:
+        con.execute("ALTER TABLE qualification_types ADD COLUMN description TEXT NOT NULL DEFAULT ''")
     if "number" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}:
         con.execute("ALTER TABLE qualification_submissions ADD COLUMN number TEXT")
     if "read_only" not in {r["name"] for r in con.execute("PRAGMA table_info(api_keys)")}:
