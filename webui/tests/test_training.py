@@ -369,6 +369,34 @@ class TrainingTests(AppTests):
         self.assertEqual(missing.status_code, 400, missing.json)
         self.assertFalse(self.client.get(f"/api/trainings/{self.add_training(name='Plain')}").json["must_read"])
 
+    def test_reading_pdf_upload_replace_remove_and_admin_on_inactive_training(self):
+        tid = self.add_training(reading="Rules.")
+        qid = self.add_question(tid)
+        url = f"/api/admin/trainings/{tid}/reading-file"
+        upload = lambda blob, name="rules.pdf": self.client.post(url, data={"file": (io.BytesIO(blob), name)},
+                                                                  content_type="multipart/form-data")
+        self.assertEqual(upload(b"not a pdf").status_code, 400)
+        self.assertEqual(upload(b"%PDF-1.4 a", "rules.txt").status_code, 400)
+        self.assertEqual(upload(b"%PDF-1.4 first").json["reading_name"], "rules.pdf")
+        first = self.con.execute("SELECT reading_path FROM trainings WHERE id=?", (tid,)).fetchone()[0]
+        self.assertEqual(upload(b"%PDF-1.4 second", "rules-2026.pdf").status_code, 200)
+        self.assertFalse((self.app.config["TRAINING_IMAGE_DIR"] / first).exists())  # old file removed
+        self.assertEqual(self.client.get(f"/api/trainings/{tid}/reading-file").data, b"%PDF-1.4 second")
+        self.sign_in(2)
+        self.assertEqual(upload(b"%PDF-1.4 x").status_code, 403)
+        self.sign_in(1)
+        self.assertEqual(self.client.delete(url).status_code, 200)
+        self.assertEqual(self.client.get(f"/api/trainings/{tid}/reading-file").status_code, 404)
+        self.assertEqual(os.listdir(self.app.config["TRAINING_IMAGE_DIR"]), [])
+        # an admin can try an inactive training end to end
+        self.con.execute("UPDATE trainings SET active=0 WHERE id=?", (tid,))
+        self.con.commit()
+        right = next(c["id"] for c in self.client.get(f"/api/trainings/{tid}").json["questions"][0]["choices"] if c["correct"])
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/read").status_code, 200)
+        self.assertTrue(self.client.post(f"/api/trainings/{tid}/submit", json={"answers": {str(qid): right}}).json["passed"])
+        self.sign_in(2)
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/read").status_code, 404)
+
     def test_import_rejects_bad_questions_and_evidence_types(self):
         bad = self.import_file(self.sample_payload(questions=[{
             "prompt": "Broken", "kind": "single",
