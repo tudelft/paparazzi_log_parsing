@@ -133,3 +133,67 @@ class DateSuggestionTests(AppTests):
             "SELECT id, date_override, date_override_by FROM logs WHERE date_override IS NOT NULL ORDER BY id")],
             [(718, "2020-07-22", 1), (750, "2020-11-20", 1)])
         self.assertEqual(self.client.get("/api/admin/date-suggestions").json["suggestions"], [])
+
+
+class NameDateSuggestionTests(AppTests):
+    """Logs without a usable date get the date in their file or folder name, else that of the same aircraft's
+    agreeing dated neighbours in the same upload folder."""
+
+    def log(self, ident, name, start="1980-01-06T10:00:00.000Z", drone=1, kind="betaflight"):
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,log_type,start_utc)"
+            " VALUES(?,?,?,'x.data','done','now',2,1,?,?)", (ident, name, f"sha{ident}", kind, start))
+        self.con.execute("INSERT INTO aircraft(id,log_id,drone_id,name,ac_id) VALUES(?,?,?,'Drone',7)", (ident, ident, drone))
+        self.con.commit()
+
+    def suggestions(self):
+        return self.ns["date_suggestions"](self.con)
+
+    def test_dates_in_file_and_folder_names(self):
+        self.log(1, "DarkO 1/2026-04-29/LOG00317.BFL")
+        self.log(2, "sd/24_05_13__10_22_33_SD.data")
+        self.log(3, "flights 20250102/LOG1.BFL")
+        self.log(4, "2099-01-01/LOG2.BFL")          # in the future: not plausible
+        self.log(5, "LOG00318.BFL")                 # no date anywhere, no neighbours
+        self.log(6, "2026-04-29/LOG3.BFL", start="2026-04-28T10:00:00.000Z")  # already dated
+        found = self.suggestions()
+        self.assertEqual({i: (s["date"], s["source"]) for i, s in found.items()},
+                         {1: ("2026-04-29", "name"), 2: ("2024-05-13", "name"), 3: ("2025-01-02", "name")})
+        self.assertEqual(found[1]["reason"], "date in the folder name 2026-04-29")
+        self.assertEqual(found[2]["reason"], "date in the file name")
+
+    def test_agreeing_neighbours_of_the_same_aircraft(self):
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (2,'Other','UID2','now')")
+        self.log(14, "DarkO/LOG00314.BFL", start="2026-04-29T09:00:00.000Z")
+        self.log(15, "DarkO/LOG00315.BFL", drone=2, start="2026-02-16T09:00:00.000Z")  # other aircraft: ignored
+        self.log(16, "DarkO/LOG00316.BFL")
+        self.log(17, "DarkO/LOG00317.BFL")
+        self.log(18, "DarkO/LOG00318.BFL", start="2026-04-29T11:00:00.000Z")
+        found = self.suggestions()
+        self.assertEqual({i: (s["date"], s["source"], s["neighbour_log_ids"]) for i, s in found.items()},
+                         {16: ("2026-04-29", "folder", [14, 18]), 17: ("2026-04-29", "folder", [14, 18])})
+        self.con.execute("UPDATE logs SET start_utc='2026-02-16T09:00:00.000Z' WHERE id=14")
+        self.con.commit()
+        self.assertEqual(self.suggestions(), {})  # neighbours disagree
+
+    def test_a_gcs_match_comes_first(self):
+        DateSuggestionTests.flight(self, 718, "onboard_sd", "1980-01-06T10:00:12", 300)
+        DateSuggestionTests.flight(self, 713, "gcs", "2020-07-22T10:00:00", 300)
+        self.con.execute("UPDATE logs SET name='2020-07-21/log718' WHERE id=718")
+        self.con.commit()
+        self.assertEqual((self.suggestions()[718]["source"], self.suggestions()[718]["date"]), ("gcs", "2020-07-22"))
+
+    def test_use_for_all_in_this_folder_and_review_a_selection(self):
+        self.log(1, "DarkO 1/2026-04-29/LOG00317.BFL")
+        self.log(2, "DarkO 1/2026-04-29/LOG00319.BFL")
+        self.log(3, "DarkO 1/2026-04-30/LOG00320.BFL")
+        self.log(4, "DarkO 1/2026-05-01/LOG00321.BFL")
+        self.assertEqual(self.client.get("/api/logs/1").json["date_suggestion"]["folder_count"], 2)
+        self.assertEqual(self.client.post("/api/logs/1/date/suggestion", json={"folder": True}).json["accepted"], 2)
+        rows = self.con.execute("SELECT id, date_override, date_override_note FROM logs ORDER BY id").fetchall()
+        self.assertEqual([tuple(r[:2]) for r in rows], [(1, "2026-04-29"), (2, "2026-04-29"), (3, None), (4, None)])
+        self.assertEqual(rows[0][2], "suggested: date in the folder name 2026-04-29")
+        self.sign_in(1)
+        self.assertEqual(self.client.post("/api/admin/date-suggestions", json={"log_ids": [4, 99]}).json["accepted"], 1)
+        self.assertEqual([s["log_id"] for s in self.client.get("/api/admin/date-suggestions").json["suggestions"]], [3])
+        self.assertEqual(self.client.post("/api/admin/date-suggestions", json={"log_ids": "3"}).status_code, 400)

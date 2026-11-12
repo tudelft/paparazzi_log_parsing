@@ -49,6 +49,10 @@
   .logs-help { order:9; font-size:13px; }
   .logs-help[open] { flex-basis:100%; }
   .logs-help summary { cursor:pointer; color:var(--mute); }
+  .suggest-list { margin-top:6px; font-size:13px; }
+  .suggest-list h3 { font-size:13px; margin:10px 0 2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .suggest-list label { display:grid; grid-template-columns:auto minmax(0,14em) 6.5em minmax(0,1fr); gap:8px; align-items:center; padding:2px 0; }
+  .suggest-list label > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 </style>
 </head>
 <body data-edit="all">
@@ -75,7 +79,7 @@
       <button type="button" class="badge-filter date-unknown" id="unknownBadge" hidden title="Logs without a usable calendar date; show them" onclick="filterStatus('date_unknown')"></button>
       <button class="sec" id="reparseAll" style="margin-left:auto" onclick="reparseOutdated()" hidden>Re-parse outdated</button>
       <button class="sec" id="reparseUnknownDates" onclick="reparseUnknownDates()" hidden>Re-parse unknown dates</button>
-      <button class="sec" id="acceptDateSuggestions" onclick="acceptDateSuggestions()" hidden title="Dates for logs with an unset clock, taken from a matching ground station log">Accept date suggestions</button>
+      <button class="sec" id="acceptDateSuggestions" onclick="acceptDateSuggestions()" hidden title="Review the dates suggested for logs without a usable date">Review date suggestions</button>
     </div>
     <div class="scroll">
     <table class="logs">
@@ -91,6 +95,14 @@
     </div>
   </section>
 </main>
+<dialog class="entry-dialog" id="suggestDialog" aria-labelledby="suggestTitle" style="width:min(760px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="suggestTitle">Date suggestions</h2><button type="button" onclick="$('suggestDialog').close()">Close</button></div>
+  <p class="mute" style="margin:0 0 8px; font-size:13px">Tick the dates to use. Each becomes the log's date override with the reason as its note, and can be changed or cleared later on the log. Unticked ones stay suggestions.</p>
+  <label style="font-size:13px"><input type="checkbox" id="suggestAll" checked onchange="document.querySelectorAll('#suggestList input[data-log]').forEach(c => c.checked = this.checked); suggestCount()"> All</label>
+  <div id="suggestList" class="suggest-list"></div>
+  <div class="dialog-error" id="suggestError"></div>
+  <div style="display:flex; justify-content:flex-end; margin-top:12px"><button type="button" id="suggestAccept" onclick="acceptChosenSuggestions()">Use selected dates</button></div>
+</dialog>
 <p id="status"></p>
 <div id="coUploaded" class="mute" hidden></div>
 
@@ -271,10 +283,13 @@ function dateField(l) {
     ? 'Calendar date was entered by hand; the time of day is from the log.'
     : l.date_estimated ? 'The calendar week is estimated from firmware and GPS. Enter the confirmed date; GPS time of day is kept.'
     : 'This log has no usable calendar date (often 1980 from GPS week 0). Enter the real date; the time of day from the log is kept.';
-  const suggestion = l.date_suggestion ? `<br>Date probably <strong>${esc(l.date_suggestion.date)}</strong>: matches
-    <a href="/logs#log${l.date_suggestion.gcs_log_id}" onclick="event.stopPropagation(); showLog(${l.date_suggestion.gcs_log_id})">GCS log ${l.date_suggestion.gcs_log_id}</a>
-    (same aircraft, duration and time of day; ${l.date_suggestion.flights} flight(s), offset ${l.date_suggestion.offset_s} s)
-    <button type="button" class="sec" onclick="event.stopPropagation(); acceptLogDateSuggestion(${l.id})">Accept</button>` : '';
+  const sg = l.date_suggestion;
+  const suggestion = sg ? `<br>Date probably <strong>${esc(sg.date)}</strong>: ${sg.source === 'gcs'
+      ? `matches <a href="/logs#log${sg.gcs_log_id}" onclick="event.stopPropagation(); showLog(${sg.gcs_log_id})">GCS log ${sg.gcs_log_id}</a>
+        (same aircraft, duration and time of day; ${sg.flights} flight(s), offset ${sg.offset_s} s)`
+      : esc(sg.reason)}
+    <button type="button" class="sec" onclick="event.stopPropagation(); acceptLogDateSuggestion(${l.id})">Use this date</button>
+    ${sg.folder_count > 1 ? `<button type="button" class="sec" title="Use the suggested date of each of the ${sg.folder_count} logs with a suggestion in this folder" onclick="event.stopPropagation(); acceptLogDateSuggestion(${l.id}, true)">Use for all in this folder (${sg.folder_count})</button>` : ''}` : '';
   const setBy = l.date_override && l.date_override_by_name
     ? `<br><span class="mute">Set by ${esc(l.date_override_by_name)}${l.date_override_note ? ': ' + esc(l.date_override_note) : ''}</span>` : '';
   if (!l.can_edit_date || !editing())
@@ -361,30 +376,54 @@ async function reparseUnknownDates() {
     button.disabled = false;
   }
 }
-// Logs with an unset clock (1980) whose flights uniquely match a dated GCS log: same aircraft, duration, time of day.
+// Dates suggested for logs without a usable date (matching GCS log, date in the file/folder name, or neighbours).
 async function countDateSuggestions() {
   const r = await fetch('/api/admin/date-suggestions');
   if (!r.ok) return;
   const n = (await r.json()).suggestions.length;
   $('acceptDateSuggestions').hidden = !n;
-  $('acceptDateSuggestions').textContent = `Accept date suggestions (${n})`;
+  $('acceptDateSuggestions').textContent = `Review date suggestions (${n})`;
 }
 async function acceptDateSuggestions() {
   const r = await fetch('/api/admin/date-suggestions');
   const list = r.ok ? (await r.json()).suggestions : [];
-  if (!list.length || !confirm(`Set the date of ${list.length} log(s) from a matching ground station log?\n\n`
-      + list.slice(0, 20).map(s => `${s.log_name}: ${s.date} (GCS log ${s.gcs_log_id})`).join('\n')
-      + (list.length > 20 ? '\n…' : '') + '\n\nEach date can be changed or cleared later on the log.')) return;
-  const done = await fetch('/api/admin/date-suggestions', {method: 'POST'});
+  if (!list.length) return;
+  const folders = {};
+  for (const s of list) {
+    const path = (s.log_name || '').replace(/\\/g, '/');
+    const cut = path.lastIndexOf('/');
+    (folders[cut < 0 ? '' : path.slice(0, cut)] ||= []).push({...s, file: path.slice(cut + 1)});
+  }
+  $('suggestList').innerHTML = Object.keys(folders).sort().map(f => `<h3 title="${esc(f || '(top level)')}">${esc(f || '(top level)')}</h3>`
+    + folders[f].map(s => `<label title="${esc(s.log_name)}: ${esc(s.reason)}"><input type="checkbox" data-log="${s.log_id}" checked onchange="suggestCount()">`
+      + `<span>${esc(s.file)}</span><strong>${esc(s.date)}</strong><span class="mute">${esc(s.reason)}</span></label>`).join('')).join('');
+  $('suggestTitle').textContent = `Date suggestions (${list.length})`;
+  $('suggestAll').checked = true;
+  $('suggestError').textContent = '';
+  suggestCount();
+  $('suggestDialog').showModal();
+}
+function suggestCount() {
+  const n = document.querySelectorAll('#suggestList input[data-log]:checked').length;
+  $('suggestAccept').textContent = `Use ${n} selected date${n === 1 ? '' : 's'}`;
+  $('suggestAccept').disabled = !n;
+}
+async function acceptChosenSuggestions() {
+  const ids = [...document.querySelectorAll('#suggestList input[data-log]:checked')].map(c => +c.dataset.log);
+  const done = await fetch('/api/admin/date-suggestions', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({log_ids: ids})});
   const result = await done.json().catch(() => ({}));
-  if (!done.ok) { alert(result.error || 'Could not accept the suggestions'); return; }
+  if (!done.ok) { $('suggestError').textContent = result.error || 'Could not use the suggestions'; return; }
+  $('suggestDialog').close();
   countDateSuggestions();
   refresh();
 }
-async function acceptLogDateSuggestion(id) {
-  const r = await fetch(`/api/logs/${id}/date/suggestion`, {method: 'POST'});
-  if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not accept the suggestion'); return; }
+async function acceptLogDateSuggestion(id, folder) {
+  const r = await fetch(`/api/logs/${id}/date/suggestion`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({folder: !!folder})});
+  if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not use the suggestion'); return; }
   expanded.add(id);
+  if ($('acceptDateSuggestions') && !$('acceptDateSuggestions').hidden) countDateSuggestions();
   refresh();
 }
 async function setProject(id, value) {
