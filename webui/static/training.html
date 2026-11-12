@@ -46,6 +46,13 @@
   .reading-pdf { width:100%; height:62vh; border:1px solid var(--line); border-radius:8px; background:#fff; }
   .reading-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px; }
   .reading-actions .spacer { flex:1; }
+  .reading-open-btn { display:none; }
+  #readingFileField { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  #readingFileField .mute { flex:1 1 100%; }
+  @media (max-width:700px) {  /* small screens: an embedded PDF is awkward, open it in its own tab instead */
+    .reading-pdf, #readingOpen { display:none; }
+    .reading-open-btn { display:inline-block; margin:8px 0; padding:8px 14px; border-radius:6px; background:var(--acc); color:#fff; text-decoration:none; font-weight:600; }
+  }
   .quiz-shell { display:flex; justify-content:center; }
   .quiz-card { width:min(560px, 100%); background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
   .quiz-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
@@ -120,7 +127,7 @@
     <button type="button" id="readingConfirm" onclick="confirmReading()">I have read and understood the material</button></div>
 </dialog>
 <dialog class="entry-dialog" id="failDialog" aria-labelledby="failTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();retryQuiz();}">
-  <div class="dialog-header"><h2 id="failTitle">Not passed</h2></div>
+  <div class="dialog-header"><h2 id="failTitle">Not passed</h2><button type="button" class="sec" onclick="$('failDialog').close()">Close</button></div>
   <p id="failText" role="status"></p>
   <div class="row"><button type="button" onclick="retryQuiz()">Retry the test</button> <button type="button" class="sec" onclick="leaveQuiz()">Back to trainings</button></div>
 </dialog>
@@ -142,8 +149,13 @@
     <div class="dialog-header"><h2 id="trainingTitle">New training</h2><button type="button" class="sec" onclick="$('trainingDialog').close()">Close</button></div>
     <label class="field">Name<input name="name" required maxlength="80"></label>
     <label class="field">Description<textarea name="description" maxlength="2000"></textarea></label>
-    <label class="field" title="Shown before the test; people confirm they have read it. A reading PDF is added by importing a ZIP.">Reading material<textarea name="reading" maxlength="20000" rows="4" placeholder="optional"></textarea></label>
-    <p class="mute" id="readingFileNote" hidden></p>
+    <label class="field" title="Shown before the test; people confirm they have read it. Add a PDF below or in an import ZIP.">Reading material<textarea name="reading" maxlength="20000" rows="4" placeholder="optional"></textarea></label>
+    <div id="readingFileField" hidden>
+      <span class="mute" id="readingFileNote"></span>
+      <input type="file" id="readingFileInput" accept="application/pdf,.pdf" hidden onchange="uploadReadingFile()">
+      <button type="button" class="sec" id="readingUpload" onclick="$('readingFileInput').click()">Upload PDF</button>
+      <button type="button" class="danger" id="readingRemove" onclick="removeReadingFile()">Remove PDF</button>
+    </div>
     <label class="field">Qualification<select name="type_id"><option value="">None</option></select></label>
     <label class="field">Validity days<input name="valid_days" type="number" min="1" placeholder="optional"></label>
     <label class="field">Pass score<input name="pass_score" type="number" min="1" placeholder="all points"></label>
@@ -465,12 +477,42 @@ function openReading(confirming) {
   const t = detail, pdf = t.reading_file ? `/api/trainings/${t.id}/reading-file` : '';
   $('readingTitle').textContent = 'Reading material · ' + t.name;
   $('readingBody').innerHTML = (t.reading ? `<div class="reading-text">${esc(t.reading)}</div>` : '')
-    + (pdf ? `<iframe class="reading-pdf" src="${pdf}" title="${esc(t.reading_name || 'Reading PDF')}"></iframe>` : '');
+    + (pdf ? `<a class="reading-open-btn" href="${pdf}" target="_blank" rel="noopener">Open the PDF</a>
+      <iframe class="reading-pdf" src="${pdf}" title="${esc(t.reading_name || 'Reading PDF')}"></iframe>` : '');
   $('readingOpen').hidden = !pdf;
   if (pdf) $('readingOpen').href = pdf;
   $('readingConfirm').hidden = !(confirming && t.must_read);
   $('readingError').textContent = '';
   $('readingDialog').showModal();
+}
+// Edit dialog: the reading PDF of a saved training is uploaded, replaced or removed at once.
+function paintReadingFile(t) {
+  $('readingFileField').hidden = !editingId;
+  $('readingFileNote').textContent = t.reading_file ? 'Reading PDF: ' + (t.reading_name || 'attached') : 'No reading PDF.';
+  $('readingUpload').textContent = t.reading_file ? 'Replace PDF' : 'Upload PDF';
+  $('readingRemove').hidden = !t.reading_file;
+}
+async function uploadReadingFile() {
+  const file = $('readingFileInput').files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file);
+  $('trainingError').textContent = '';
+  try {
+    const d = await api('/api/admin/trainings/' + editingId + '/reading-file', {method: 'POST', body: form});
+    if (detail && detail.id === editingId) Object.assign(detail, {reading_file: true, reading_name: d.reading_name});
+    paintReadingFile({reading_file: true, reading_name: d.reading_name});
+  } catch (e) { $('trainingError').textContent = e.message; }
+  $('readingFileInput').value = '';
+}
+async function removeReadingFile() {
+  if (!confirm('Remove the reading PDF of this training?')) return;
+  $('trainingError').textContent = '';
+  try {
+    await api('/api/admin/trainings/' + editingId + '/reading-file', {method: 'DELETE'});
+    if (detail && detail.id === editingId) Object.assign(detail, {reading_file: false, reading_name: null});
+    paintReadingFile({});
+  } catch (e) { $('trainingError').textContent = e.message; }
 }
 async function confirmReading() {
   try {
@@ -729,8 +771,7 @@ async function openTraining(id) {
   $('trainingForm').name.value = t.name || '';
   $('trainingForm').description.value = t.description || '';
   $('trainingForm').reading.value = t.reading || '';
-  $('readingFileNote').hidden = !t.reading_file;
-  $('readingFileNote').textContent = t.reading_file ? 'Reading PDF: ' + (t.reading_name || 'attached') + ' (replace it by importing a ZIP).' : '';
+  paintReadingFile(t);
   fillTypes($('trainingForm').type_id, t.type_id);
   $('trainingForm').valid_days.value = t.valid_days || '';
   $('trainingForm').pass_score.value = t.pass_score || '';
