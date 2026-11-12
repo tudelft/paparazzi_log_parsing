@@ -102,3 +102,4 @@ webui/logdb.env
 
 # upload_logs.py resume state
 webui/.upload_logs-resume-*.json
+.claude/handoff/
