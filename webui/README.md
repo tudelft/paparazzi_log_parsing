@@ -10,7 +10,7 @@ Upload flight logs and browse flights, crew, projects, aircraft and locations in
 All pages require sign-in; the records you can see depend on your access. Where TU Delft sign-in is set up, the
 sign-in page shows only that; **Sign in with a local account** opens the username/password form (`/login?local=1`).
 The home page (`/`) opens the logbook. The menu has Logbook, Agenda and Training (when enabled) and
-**Directory ▾** (People, Aircraft, Projects, Locations, then Logs and Statistics). **⬆ Upload logs** at the top right opens the upload dialog; your
+**Directory ▾** (People, Aircraft, Projects, Locations, then Logs and Statistics). **⬇ Download logs** at the top right shows how to fetch logs from Python or MATLAB, **⬆ Upload logs** opens the upload dialog; your
 name opens My account, Night mode and Sign out. Existing `/logbook` links still work.
 
 ## Everyday use
@@ -44,6 +44,7 @@ to gain descriptions and previously omitted crew entries.
 | Page | What to do |
 |---|---|
 | **Logbook** | Filter flights (also by a paper record's reference, e.g. F00090), review flight time, expand a row or open its flight page. Click aircraft, crew, project or location names for their detail pages. |
+| **Download logs** | The button at the top right: install and example code for the Python package and the MATLAB tools, to download logs by flight number as `.mat` exports or original files. |
 | **Upload logs** | The button at the top right (or drop files on any page): send logs, ZIP archives or folders and follow your recent uploads while they are parsed. **Logs** (Directory ▾) lists every log you can see, with parsing progress and errors. Paparazzi logs need matching `.data` and `.log` files. PX4 `.ulg`, ArduPilot `.bin`/`.log`, `.tlog` and Betaflight/INDIFlight `.bfl`/`.bbl` files can also be uploaded. A folder named after one fleet aircraft still links when the files sit in subfolders; already uploaded logs with that layout are linked at each start. |
 | **Statistics** | Under Directory: totals for aircraft, projects and crew within your access; admins also see the disk space used. |
 | **Aircraft / People / Projects / Locations** | Browse records and open their histories, totals and flights. |
@@ -118,9 +119,10 @@ to gain descriptions and previously omitted crew entries.
   The Logbook shows only the category; hover over it for the authorisation.
 - **Columns** in the Logbook hides or shows table columns. Your choice is kept in this browser;
   **Export CSV** always contains every column.
-- **No.** is the flight number, the number in `/flight/<number>` and on the flight page, which MATLAB's
-  `pprz_fetch` uses ([MATLAB tools](../matlab/README.md)). In **Select** mode, **Copy numbers** copies the ticked flights' numbers
-  (`1, 3, 4`) to paste into a MATLAB or Python array. Search for `#1234` to find a flight by number; with SD
+- **No.** is the flight number, the number in `/flight/<number>` and on the flight page, which Python's `ml.fetch` and
+  MATLAB's `pprz_fetch` use (**Download logs**). **⧉** next to a number (Logbook, the flights of a log under Logs, the
+  flight page) copies it; in **Select** mode, **Copy numbers** copies the ticked flights' numbers
+  (`1, 3, 4`) to paste into a Python or MATLAB array. Search for `#1234` to find a flight by number; with SD
   and GCS recordings of one flight, hover over the number for both.
 - SD and GCS recordings of the same flight are merged. **Group by day** (on by default) shows one row per
   aircraft, crew and takeoff place per day, like a paper daily log; click a row with ▸ to see its flights.
@@ -288,7 +290,7 @@ python3 upload_logs.py ~/paparazzi/var/logs         # upload
 ```
 
 Keep the key private. For a large initial import, see [controlled bulk uploads](TECHNICAL.md#uploading-with-a-script).
-To download and upload logs from your own Python code or MATLAB, use the [mavlab-logbook-client](../python/mavlab-logbook-client/README.md) package
+To download and upload logs from your own Python code or MATLAB (examples under **Download logs**), use the [mavlab-logbook-client](../python/mavlab-logbook-client/README.md) package
 (`pip install mavlab-logbook-client`) or the [MATLAB tools](../matlab/README.md); they sign in through the browser.
 
 A key can also add paper records: `POST /api/historical` (full project access) and, with an admin's key,

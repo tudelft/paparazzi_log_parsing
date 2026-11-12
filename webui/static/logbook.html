@@ -126,7 +126,7 @@
     </div>
     <div class="scroll">
     <table class="log">
-      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"><input type="checkbox" id="selAll" title="Select all on this page" aria-label="Select all on this page"></th><th title="Flight number: the number in /flight/&lt;number&gt;, used by pprz_fetch in MATLAB">No.</th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
+      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"><input type="checkbox" id="selAll" title="Select all on this page" aria-label="Select all on this page"></th><th title="Flight number: the number in /flight/&lt;number&gt;, used by ml.fetch in Python and pprz_fetch in MATLAB (⧉ copies it)">No.</th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
         <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -655,7 +655,7 @@ function numberTd(f, o) {
   if (f.flight_id == null || (o.group && o.count > 1)) return '<td class="num"></td>';
   const ids = [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)])];
   const tip = ids.length > 1 ? ` title="Recordings: ${esc((f.sources || []).map(s => `${s.flight_id} (${TYPE_LABEL[s.log_type] || s.log_type})`).join(', '))}"` : '';
-  return `<td class="num mono"><span${tip}>${f.flight_id}</span></td>`;
+  return `<td class="num mono"><span${tip}>${f.flight_id}</span>${window.copyButton(f.flight_id, `flight number ${f.flight_id}`)}</td>`;
 }
 const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '▾' : '▸') : ''}</td>${chk(o.ids, o.canEdit)}${numberTd(f, o)}${dateTd(f)}<td><span${timesTip(o)}>${esc(fmtHm(f.takeoff_utc))}</span></td><td><span${timesTip(o)}>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</span></td>
     <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${o.sources}</td><td><span${f.aircraft_uid ? ` title="${esc(f.aircraft_uid)}"` : ''}>${entityLink('aircraft', f.drone_id, f.aircraft)}</span>${verdictMark(f)}</td>
@@ -708,7 +708,7 @@ function render() {
   const numbers = selectedNumbers(), papers = count - numbers.length;
   $('selCopy').hidden = !numbers.length;
   if (!copiedTimer) $('selCopy').textContent = 'Copy numbers';
-  $('selCopy').title = `Copy the flight numbers (${numbers.join(', ')}), e.g. into pprz_fetch([…]) in MATLAB`
+  $('selCopy').title = `Copy the flight numbers (${numbers.join(', ')}), e.g. into ml.fetch([…]) in Python or pprz_fetch([…]) in MATLAB`
     + (papers > 0 ? `; ${papers} paper record${papers === 1 ? ' has' : 's have'} no number` : '');
   $('selectBtn').hidden = editOn() || selecting;
   $('selAll').onchange = () => { toggleSel(pageIds, $('selAll').checked); };
@@ -748,13 +748,7 @@ const selectedNumbers = () => [...new Set(pickedFlights().map(f => f.flight_id).
 let copiedTimer = null;
 $('selCopy').onclick = async () => {
   const numbers = selectedNumbers(), text = numbers.join(', ');
-  try { await navigator.clipboard.writeText(text); }
-  catch (e) {  // no clipboard API (plain http): select the text in a temporary field and copy that
-    const field = Object.assign(document.createElement('textarea'), {value: text});
-    document.body.append(field); field.select();
-    const ok = document.execCommand('copy'); field.remove();
-    if (!ok) { prompt('Copy the flight numbers:', text); return; }
-  }
+  if (!await window.copyText(text)) { prompt('Copy the flight numbers:', text); return; }
   $('selCopy').textContent = `Copied ${numbers.length}`;
   clearTimeout(copiedTimer);
   copiedTimer = setTimeout(() => { copiedTimer = null; $('selCopy').textContent = 'Copy numbers'; }, 2000);

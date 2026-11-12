@@ -126,7 +126,12 @@ body > header .header-actions { display:flex; align-items:center; gap:8px; }
 #userMenuBtn { font:inherit; background:none; border:0; color:#c9d5e2; cursor:pointer; padding:4px 2px; white-space:nowrap;
   max-width:16em; overflow:hidden; text-overflow:ellipsis; }
 #userMenuBtn:hover { color:#fff; }
-@media (max-width:750px) { #uploadBtn .upload-label { display:none; } }
+#downloadBtn { font:inherit; font-size:14px; font-weight:600; background:#263b54; color:#d6e6f6; border:1px solid #7299c2;
+  border-radius:6px; padding:5px 12px; cursor:pointer; white-space:nowrap; }
+#downloadBtn:hover { background:#31506f; color:#fff; }
+#downloadBtn small { font-weight:400; font-size:12px; opacity:.8; }
+@media (max-width:750px) { #uploadBtn .upload-label, #downloadBtn .upload-label { display:none; } }
+@media (max-width:1150px) { #downloadBtn small { display:none; } }
 
 /* Upload dialog (upload.js) */
 .upload-back { position:fixed; inset:0; z-index:2200; background:#0006; display:flex; align-items:flex-start; justify-content:center;
@@ -148,6 +153,19 @@ body > header .header-actions { display:flex; align-items:center; gap:8px; }
 .upload-recent h3 { margin:0 0 4px; font-size:13px; }
 .upload-recent .row { display:flex; gap:10px; justify-content:space-between; padding:5px 0; border-top:1px solid var(--line); }
 .upload-recent .row a { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+/* Download dialog (download.js): examples with a copy button each */
+.download-dialog { width:720px; }
+.download-dialog p { margin:10px 0 4px; font-size:14px; }
+.download-dialog details p { font-size:13px; line-height:1.5; }
+.download-code { position:relative; }
+.download-code pre { margin:0; padding:8px 34px 8px 10px; background:var(--sec); border-radius:6px; font-size:12.5px;
+  overflow-x:auto; white-space:pre; }
+.download-code .copy-btn { position:absolute; top:4px; right:4px; }
+/* Copy button (copyButton in theme.js), e.g. next to a flight number */
+.copy-btn { font:inherit; font-size:12px; line-height:1; padding:1px 3px; margin-left:3px; border:0; border-radius:4px;
+  background:none; color:var(--mute); cursor:pointer; vertical-align:baseline; }
+.copy-btn:hover, .copy-btn:focus-visible { color:var(--txt); background:var(--sec); }
+.copy-btn.copied { color:var(--ok); }
 .upload-recent .ok { color:var(--ok); } .upload-recent .busy { color:var(--warn); } .upload-recent .bad { color:var(--err); }
 #flightFiltersMenu { flex:0 0 auto; }
 #flightFiltersButton {
