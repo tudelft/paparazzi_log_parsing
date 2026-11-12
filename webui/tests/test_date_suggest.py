@@ -205,3 +205,52 @@ class NameDateSuggestionTests(AppTests):
         self.assertEqual(self.client.post("/api/admin/date-suggestions", json={"log_ids": [4, 99]}).json["accepted"], 1)
         self.assertEqual([s["log_id"] for s in self.client.get("/api/admin/date-suggestions").json["suggestions"]], [3])
         self.assertEqual(self.client.post("/api/admin/date-suggestions", json={"log_ids": "3"}).status_code, 400)
+
+
+class UndatedProjectTests(AppTests):
+    """A flight without a usable date gets the aircraft's project when its timeline is one open-ended period; it
+    is assigned again from the dated timeline once a date is set or the timeline changes."""
+
+    def setUp(self):
+        super().setUp()
+        DateSuggestionTests.flight(self, 718, "betaflight", "1980-01-06T10:00:12", 300)
+        self.con.execute("UPDATE logs SET project_id=NULL WHERE id=718")
+        self.con.execute("UPDATE flights SET project_id=NULL, project_source=NULL")
+        self.con.commit()
+
+    def periods(self, *periods):
+        self.sign_in(1)
+        r = self.client.put("/api/admin/drones/1/projects",
+                            json={"periods": [dict(project_id=p, start_date=a, end_date=b) for p, a, b in periods]})
+        self.assertEqual(r.status_code, 200, r.json)
+
+    def project(self):
+        return tuple(self.con.execute("SELECT f.project_id, f.project_source, l.project_id FROM flights f"
+                                      " JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id").fetchone())
+
+    def test_only_open_ended_project_is_used_and_redone(self):
+        self.periods((1, None, "2026-01-31"))           # one period, but with an end: not used
+        self.assertEqual(self.project(), (None, None, None))
+        self.periods((1, None, None))
+        self.assertEqual(self.project(), (1, "timeline_undated", 1))
+        self.periods((1, None, "2026-01-31"), (2, "2026-02-01", None))   # a second project: unknown again
+        self.assertEqual(self.project(), (None, None, None))
+        self.sign_in(2)
+        self.assertEqual(self.client.put("/api/logs/718/date", json={"date_override": "2026-03-01"}).status_code, 200)
+        self.assertEqual(self.project(), (2, "timeline", 2))
+
+    def test_setting_a_date_moves_it_to_the_dated_timeline(self):
+        self.periods((1, None, None))
+        self.assertEqual(self.project(), (1, "timeline_undated", 1))
+        self.con.execute("INSERT INTO drone_projects(drone_id,project_id,start_date,end_date) VALUES (1,2,'2026-02-01',NULL)")
+        self.con.execute("UPDATE drone_projects SET end_date='2026-01-31' WHERE project_id=1")
+        self.con.commit()
+        self.assertEqual(self.client.put("/api/logs/718/date", json={"date_override": "2026-03-01"}).status_code, 200)
+        self.assertEqual(self.project(), (2, "timeline", 2))
+
+    def test_a_chosen_project_is_kept(self):
+        self.con.execute("UPDATE flights SET project_id=2, project_source='manual'")
+        self.con.execute("UPDATE logs SET project_id=2")
+        self.con.commit()
+        self.periods((1, None, None))
+        self.assertEqual(self.project(), (2, "manual", 2))
