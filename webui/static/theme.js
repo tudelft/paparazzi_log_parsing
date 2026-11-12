@@ -581,7 +581,7 @@ window.timingEvidenceHTML = function (timing) {
     bindMenu(document.getElementById('directoryBtn'), panel, false);
   }
 
-  // The right side of the header: Upload logs, Edit and a name menu (My account, Night mode, Sign out). Pages keep
+  // The right side of the header: Download logs, Upload logs, Edit and a name menu (My account, Night mode, Sign out). Pages keep
   // their #who element (they set the name); the old Night and Sign out buttons are folded into the menu.
   function paintActions() {
     const night = document.getElementById('nightBtn');
@@ -591,7 +591,8 @@ window.timingEvidenceHTML = function (timing) {
     const actions = document.createElement('span');
     actions.id = 'headerActions';
     actions.className = 'header-actions';
-    actions.innerHTML = `<button type="button" id="uploadBtn" title="Upload log files, zips or folders (or drop them on the page)">⬆<span class="upload-label"> Upload logs</span></button>
+    actions.innerHTML = `<button type="button" id="downloadBtn" title="Download logs by flight number from Python or MATLAB">⬇<span class="upload-label"> Download logs <small>(Python/MATLAB)</small></span></button>
+      <button type="button" id="uploadBtn" title="Upload log files, zips or folders (or drop them on the page)">⬆<span class="upload-label"> Upload logs</span></button>
       <button type="button" id="userMenuBtn"></button>`;
     const nameButton = actions.querySelector('#userMenuBtn');
     if (who) { who.style.cssText = ''; who.onclick = null; nameButton.append(who); }
@@ -610,6 +611,7 @@ window.timingEvidenceHTML = function (timing) {
     panel.querySelector('#signOutBtn').onclick = () => window.logout();
     bindMenu(nameButton, panel, true);
     actions.querySelector('#uploadBtn').onclick = () => window.openUpload();
+    actions.querySelector('#downloadBtn').onclick = () => window.openDownload();
     paintUpload();
   }
   // Only users who may add logs (admins, project members with add or full access) see Upload logs.
@@ -633,6 +635,51 @@ window.timingEvidenceHTML = function (timing) {
     });
     return uploadScript.then(() => window.LogUpload.open(dropEvent));
   };
+  // The download dialog (Python and MATLAB examples) lives in /download.js, loaded the first time it is opened.
+  let downloadScript = null;
+  window.openDownload = function () {
+    if (!downloadScript) downloadScript = new Promise((ok, fail) => {
+      const tag = document.createElement('script');
+      tag.src = '/download.js';
+      tag.onload = ok;
+      tag.onerror = () => { downloadScript = null; fail(); };
+      document.head.appendChild(tag);
+    });
+    return downloadScript.then(() => window.LogDownload.open());
+  };
+
+  // Copy to the clipboard, also without the clipboard API (plain http): select the text in a temporary field.
+  window.copyText = async function (text) {
+    try { await navigator.clipboard.writeText(text); return true; }
+    catch (e) {
+      const field = Object.assign(document.createElement('textarea'), {value: text});
+      document.body.append(field); field.select();
+      const ok = document.execCommand('copy'); field.remove();
+      return ok;
+    }
+  };
+  // A small copy button: copyButton('1234', 'flight number 1234'). Its click is handled here, before row handlers
+  // (a click on it does not expand a row or follow a link); it shows ✓ for a moment.
+  const attr = v => String(v).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  window.copyButton = (text, what) => {
+    const value = attr(text), label = attr(what || text);
+    return `<button type="button" class="copy-btn" data-copy="${value}" title="Copy ${label}" aria-label="Copy ${label}">⧉</button>`;
+  };
+  document.addEventListener('click', async e => {
+    const btn = e.target.closest?.('[data-copy]');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const text = btn.dataset.copy;
+    if (!await window.copyText(text)) { prompt('Copy:', text); return; }
+    btn.classList.add('copied');
+    const old = btn.dataset.copyLabel || btn.textContent;
+    btn.dataset.copyLabel = old;
+    btn.textContent = btn.classList.contains('copy-text') ? 'Copied' : '✓';
+    clearTimeout(btn.copyTimer);
+    btn.copyTimer = setTimeout(() => { btn.textContent = old; btn.classList.remove('copied'); delete btn.dataset.copyLabel; }, 1500);
+  }, true);
+
   // Dropping files anywhere on a page opens the upload dialog with them (pages with their own drop zones handle theirs).
   const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
   const uploadShown = () => { const b = document.getElementById('uploadBtn'); return b && !b.hidden; };

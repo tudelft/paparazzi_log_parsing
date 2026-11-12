@@ -113,6 +113,8 @@ class HistoricalTests(AppTests):
         self.assertEqual(self.client.get("/uploads").status_code, 404)  # replaced by /logs
         with self.client.get("/upload.js") as response:
             self.assertIn("window.LogUpload", response.get_data(as_text=True))
+        with self.client.get("/download.js") as response:
+            self.assertIn("window.LogDownload", response.get_data(as_text=True))
         self.assertIn("can_upload", self.client.get("/api/me").json)
 
     def test_create_read_update_delete_and_no_fake_logs(self):

@@ -876,7 +876,7 @@ def no_cache_pages(resp):
             "/api/detail/people/", "/api/users/", "/api/qualification-", "/api/admin/qualification-", "/api/admin/users/")):
         resp.headers["Cache-Control"] = "private, no-store"
     if resp.mimetype == "text/html" or request.path in ("/theme.css", "/theme.js", "/attachments.js",
-                                                        "/qualifications.js", "/matlab.js", "/upload.js"):
+                                                        "/qualifications.js", "/matlab.js", "/upload.js", "/download.js"):
         resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -899,6 +899,11 @@ def matlab_js():
 @app.get("/upload.js")
 def upload_js():
     return send_from_directory(PAGES_DIR, "upload.js")
+
+
+@app.get("/download.js")
+def download_js():
+    return send_from_directory(PAGES_DIR, "download.js")
 
 
 @app.get("/favicon.svg")
