@@ -26,6 +26,8 @@ SETTINGS = {
                                       "person details and locations; hide the aircraft-page notice outside Edit mode"),
         "TRAINING": ("0", "1 shows Training: in-app questionnaires that can grant a qualification on a pass"),
         "BOOKINGS": ("0", "1 shows Agenda: a week agenda of bookable items that administrators set up in Edit mode"),
+        "DOCUMENTS": ("0", "1 shows Documents: shared documents that administrators upload in Edit mode, and each "
+                           "person's own current qualifications"),
         "PERSON_PROFILE": ("0", "1 asks everyone who signs in for their role, department, supervisors, expected end "
                                 "date and student/employee number (again once the end date has passed)"),
     },

@@ -217,12 +217,13 @@ qualification, for example an arena safety briefing, to book or even to see its 
 so and links to the training that grants it. You can change or delete your own bookings; administrators can
 change any and set up the items in Edit mode (**Add item**, **Edit item**).
 
-## Field kit
+## Documents
 
-**Field kit** shows the documents to show when you are asked for them in the field, for example by the police;
-open it on your phone before you fly. **Pilot** links to your highest valid drone licence (STS, else A2, else
-A1/A3) and your RT licence, when they are approved and have a document (add them under **My account**, see
-below). **Company** and **Manuals** are still empty. Rules: [technical guide](TECHNICAL.md#field-kit).
+**Documents** (optional) holds shared documents, for example the ones to show when you are asked for them in the field
+(insurance, operator registration, operations approval, manuals). Administrators write a text at the top and upload
+documents in Edit mode (**Add document**, **Add group**); a document can be visible only to people with a current
+qualification. Below them, **My licences and qualifications** lists your own approved qualifications that are valid
+today, with their documents; change them under **My account** (see below). Rules: [technical guide](TECHNICAL.md#documents).
 
 ## Qualifications and additional files
 
