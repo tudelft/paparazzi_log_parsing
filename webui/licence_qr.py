@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import urllib.parse
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -22,6 +23,16 @@ SECONDS = 60       # per call of pdftoppm or zbarimg
 MAX_TEXT = 2000    # per code, as stored
 NUMBER = re.compile(r"[A-Z]{3}-RP-[A-Za-z0-9]{12}|\b[A-Z]{2}\.(?:66|FCL|ATCO|147)\.[A-Z0-9]+(?:\.[A-Z0-9]+)*")
 URL = re.compile(r"https?://[^\s\"'<>]+", re.I)
+# Issuing authorities recognised by the host of the link in the code (and a path part, where one host serves several):
+# (host suffix, path part, name, ISO country of the licence numbers it issues or None, link checks this certificate)
+AUTHORITIES = (
+    ("rdw.nl", "", "RDW (NL)", "NLD", True),
+    ("aviation-civile.gouv.fr", "", "DGAC AlphaTango (FR)", "FRA", True),
+    ("enac.gov.it", "", "ENAC (IT)", "ITA", True),
+    ("learningzone.eurocontrol.int", "dacuas", "DAC Luxembourg, via Eurocontrol", "LUX", True),
+    ("learningzone.eurocontrol.int", "", "Eurocontrol learning zone", None, True),
+    ("caa.co.uk", "", "UK CAA", "GBR", False),
+)
 DATES = (  # (pattern, order of year/month/day groups)
     (re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b"), (1, 2, 3)),
     (re.compile(r"\b(\d{2})[./-](\d{2})[./-](\d{4})\b"), (3, 2, 1)),
@@ -102,6 +113,20 @@ def facts(codes):
     return {"number": hit.group() if hit else None, "dates": dates, "links": URL.findall(text)[:3]}
 
 
+def authority(links):
+    """The issuing authority of the first recognised link: dict(name, country, per_certificate, link), or None."""
+    for link in links:
+        try:
+            parsed = urllib.parse.urlsplit(link)
+        except ValueError:
+            continue
+        host, rest = (parsed.hostname or "").lower(), (parsed.path + "?" + parsed.query + "#" + parsed.fragment).lower()
+        for suffix, part, name, country, per_certificate in AUTHORITIES:
+            if (host == suffix or host.endswith("." + suffix)) and part in rest:
+                return dict(name=name, country=country, per_certificate=per_certificate, link=link)
+    return None
+
+
 def _same_number(a, b):
     norm = lambda s: re.sub(r"[\s]", "", s or "").upper()  # noqa: E731
     return norm(a) == norm(b)
@@ -109,10 +134,17 @@ def _same_number(a, b):
 
 def check(codes, number, valid_from, valid_until):
     """The QR result for a submission: the codes, what was recognised and the differences with what was entered.
-    status: 'none' (no code found), 'match' (a number in the code equals the entered one and every entered date
-    appears in it), 'differs' (a recognised number or date disagrees) or 'read' (codes found, nothing to compare)."""
+    status: 'none' (no code found), 'differs' (a number, date or the authority's country disagrees), 'match' (a
+    number in the code equals the entered one and every entered date appears in it), 'link' (a link to the
+    authority's check of this certificate), 'generic' (a link to the authority's website only) or 'read' (codes
+    found, nothing recognised)."""
     found = facts(codes)
     issues = []
+    found["authority"] = authority(found["links"])
+    entered_country = re.match(r"\s*([A-Za-z]{3})-RP-", number or "")
+    if found["authority"] and found["authority"]["country"] and entered_country \
+            and entered_country.group(1).upper() != found["authority"]["country"]:
+        issues.append(f"the number is from {entered_country.group(1).upper()}, the code from {found['authority']['name']}")
     if found["number"] and number and not _same_number(found["number"], number):
         issues.append(f"number in the code is {found['number']}")
     compared = bool(found["number"] and number)
@@ -121,6 +153,8 @@ def check(codes, number, valid_from, valid_until):
             compared = True
             if value not in found["dates"]:
                 issues.append(f"{label} {value} is not in the code (dates in it: {', '.join(found['dates'])})")
-    status = "none" if not codes else "differs" if issues else "match" if compared else "read"
+    who = found["authority"]
+    status = ("none" if not codes else "differs" if issues else "match" if compared
+              else ("link" if who["per_certificate"] else "generic") if who else "read")
     return dict(found, codes=codes, issues=issues, status=status,
                 checked_at=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))

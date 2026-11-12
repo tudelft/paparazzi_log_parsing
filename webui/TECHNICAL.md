@@ -1233,10 +1233,15 @@ evidence: the first two pages of a PDF rendered at 300 dpi with `pdftoppm`, or t
 The codes are stored in `qualification_submissions.qr_json` (cleared when the evidence is deleted) and the
 recognised parts are compared at display time with what was entered: a certificate number (same patterns as
 above), dates (`YYYY-MM-DD`, `DD/MM/YYYY`, `DD-MM-YYYY`, `YYYYMMDD`) and links. An empty number is filled from the
-code (audited `number-changed`, source `qr`). Administrators see one line per licence: *QR code matches* (the number
-and every entered date are in it), *differs* (with what differs), *read* (nothing to compare) or *No QR code found*,
-the raw content, and the authority's link as *check at <host>* to open themselves: the server never contacts
-outside services. **Check QR codes…** under Qualification types (`POST /api/admin/qualifications/check-qr`,
+code (audited `number-changed`, source `qr`). On the certificates seen so far the code holds only a link: RDW (NL),
+DGAC AlphaTango (FR), ENAC (IT) and DAC Luxembourg via the Eurocontrol learning zone link to their check of that
+certificate; the UK CAA links to its general website (a Flyer ID to its *check a registration* page). The authority is
+recognised by the link's host (`licence_qr.AUTHORITIES`) and must match the country of the entered number
+(`NLD-RP-…` with RDW). Administrators see one line per licence: *Verification link: <authority>* with *check this
+licence*, *QR code links to the <authority> website, not to this licence*, *QR code differs* (with what differs: the
+country, or a number or date in the code), *QR code matches* (a number or dates in the code equal the entered ones),
+*unknown link or text*, or *No QR code found*, and the raw content. They open the link themselves: the server never
+contacts outside services. **Check QR codes…** under Qualification types (`POST /api/admin/qualifications/check-qr`,
 `{"all": true}` to read every licence again) reads the approved and pending licences not read yet and lists them by
 result; one run stops after about 90 s. What each authority's code holds differs, so the raw content is kept as is.
 

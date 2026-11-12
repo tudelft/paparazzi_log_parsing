@@ -854,6 +854,7 @@ def register(app, connection, root, require_session):
             result = read_qr(con, row, evidence_root(), g.user["id"])
             results.append(dict(id=row["id"], user_id=row["user_id"], person=row["person"], category=row["category"],
                                 status=result["status"], number=result["number"], issues=result["issues"],
+                                authority=(result["authority"] or {}).get("name"),
                                 filled=result["filled"]))
         return jsonify(results=results, later=later)
 
