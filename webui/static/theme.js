@@ -494,7 +494,7 @@ window.timingEvidenceHTML = function (timing) {
     paintEdit();
     window.dispatchEvent(new Event('editchange'));
   };
-  // Menu: Logbook · Statistics · Directory ▾ · Training (when enabled); Upload logs, Edit and the name menu on the right
+  // Menu: Logbook · Field kit · Statistics · Directory ▾ · Training (when enabled); Upload logs, Edit and the name menu on the right
   const DIRECTORY = [['/people', 'People'], ['/aircraft', 'Aircraft'], ['/projects', 'Projects'], ['/locations', 'Locations'],
     null, ['/logs', 'Logs'], ['/stats', 'Statistics']];
 
@@ -518,6 +518,7 @@ window.timingEvidenceHTML = function (timing) {
     if (p === '/logbook' || p === '/attachments' || p === '/review' || p.startsWith('/flight/') || p.startsWith('/historical/')) return '/';
     if (p === '/training' || p.startsWith('/training/')) return '/training';
     if (p === '/agenda') return '/agenda';
+    if (p === '/fieldkit') return '/fieldkit';
     for (const [tab] of DIRECTORY.filter(Boolean))
       if (p === tab || p.startsWith(tab + '/')) return tab;
     if (p === '/' || p === '') return '/';
@@ -564,6 +565,7 @@ window.timingEvidenceHTML = function (timing) {
     const inDirectory = DIRECTORY.some(item => item && item[0] === here);
     // what people use daily first; the reference lists, Logs and Statistics under Directory
     nav.innerHTML = tab('/', 'Logbook')
+      + tab('/fieldkit', 'Field kit')
       + (cachedBookings() ? tab('/agenda', 'Agenda') : '')
       + (cachedTraining() ? tab('/training', 'Training') : '')
       + `<button type="button" class="nav-drop${inDirectory ? ' cur' : ''}" id="directoryBtn">Directory ▾</button>`;

@@ -1184,6 +1184,14 @@ Operations Manual: per person `id`, `name` and `qualifications` (`type`, `number
 `qualification=FI` (comma-separated types) keeps only people with one of those. Admins only, by session or
 API key; give a document build an admin account's **read-only** key.
 
+### Field kit
+
+`GET /api/fieldkit` gives the signed-in person's field kit (page `/fieldkit`, menu **Field kit**). Pilot:
+`licence`, the first of `STS`, `A2`, `A1/A3` (`FIELDKIT_LICENCES` in `qualifications.py`; an STS certificate
+also covers A2 and A1/A3) and `rt` (`RT` or `RT licence`), each the person's own submission that is approved,
+valid today (`valid_from`/`valid_until`) and has evidence, the latest expiry first; with `type`, `number`,
+`valid_until` and the evidence `view`/`download` links. Only the person's own documents, also for admins.
+
 Read-only People chips show only approved, non-expired submissions and omit the approval label;
 management views retain all submission states.
 An existing submission without a newly required expiry must be withdrawn and resubmitted; approved records

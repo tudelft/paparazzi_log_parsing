@@ -57,6 +57,11 @@ def crew_keys(con):
     return names
 
 
+# Field kit: the drone licence shown is the highest of these that is valid (an STS certificate also covers A2 and A1/A3)
+FIELDKIT_LICENCES = ("STS", "A2", "A1/A3")
+FIELDKIT_RT = ("RT", "RT licence")
+
+
 def can_see_quals(con, viewer, subject_id):
     return bool(viewer["is_admin"] or viewer["id"] == subject_id)
 
@@ -529,6 +534,33 @@ def register(app, connection, root, require_session):
         con = connection()
         private_subject(con, g.user, user_id)
         return jsonify(qualifications_payload(con, g.user, user_id))
+
+    @app.get("/api/fieldkit")
+    def fieldkit():
+        """The signed-in person's field kit: the documents a pilot shows when asked in the field. Pilot: the
+        highest valid drone licence (STS, else A2, else A1/A3) and the RT licence, each only when approved,
+        valid today and with evidence."""
+        con = connection()
+        today = datetime.date.today().isoformat()
+        rows = con.execute(
+            "SELECT q.id,t.name AS type,q.number,q.valid_from,q.valid_until,q.filename FROM qualification_submissions q"
+            " JOIN qualification_types t ON t.id=q.type_id WHERE q.user_id=? AND q.status='approved'"
+            " AND q.evidence_path IS NOT NULL AND q.evidence_deleted_at IS NULL"
+            " AND (q.valid_until IS NULL OR q.valid_until>=?) AND (q.valid_from IS NULL OR q.valid_from<=?)"
+            " ORDER BY COALESCE(q.valid_until,'9999-12-31') DESC, q.id DESC", (g.user["id"], today, today)).fetchall()
+
+        def first(names):
+            for name in names:
+                for r in rows:
+                    if r["type"].casefold() == name.casefold():
+                        return dict(id=r["id"], type=r["type"], number=r["number"], valid_until=r["valid_until"],
+                                    filename=r["filename"],
+                                    view=f"/api/qualification-submissions/{r['id']}/evidence/view",
+                                    download=f"/api/qualification-submissions/{r['id']}/evidence")
+            return None
+
+        return jsonify(date=today, pilot=dict(name=g.user["display_name"] or g.user["username"],
+                                              licence=first(FIELDKIT_LICENCES), rt=first(FIELDKIT_RT)))
 
     @app.post("/api/users/<int:user_id>/qualifications")
     def submit_qualification(user_id):

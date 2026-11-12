@@ -2756,6 +2756,11 @@ def locations_page():
     return send_from_directory(PAGES_DIR, "locations.html")
 
 
+@app.get("/fieldkit")
+def fieldkit_page():
+    return send_from_directory(PAGES_DIR, "fieldkit.html")
+
+
 @app.get("/people")
 def people_page():
     return send_from_directory(PAGES_DIR, "people.html")
