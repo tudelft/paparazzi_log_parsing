@@ -1052,7 +1052,8 @@ web calendars such as Google Calendar fetch from their own servers.
 Off unless `LOGDB_SMTP_HOST` is set (settings in the **Email** group of `config.py example`; use the organisation's
 mail relay and a functional sender address in `LOGDB_MAIL_FROM`, and set `LOGDB_PUBLIC_URL` so mails can link to
 pages). `LOGDB_MAIL_FROM_NAME` is the sender name and `LOGDB_MAIL_FOOTER` the text above the settings link at the
-bottom of every mail (`\n` for a new line; default the sender name). `config.py check` reports a missing sender. Kinds (`mail.KINDS`):
+bottom of every mail (`\n` for a new line; default the sender name). Mails are HTML (header with the sender
+name, a button for the link, the footer with a link to the email settings) with the same text as plain-text part. `config.py check` reports a missing sender. Kinds (`mail.KINDS`):
 
 | Kind | Who | Default | What |
 |---|---|---|---|
@@ -1062,7 +1063,7 @@ bottom of every mail (`\n` for a new line; default the sender name). `config.py 
 | Others' expiry reminders | admins | off | a copy of everyone's expiry reminders |
 | Administrator notices | admins | immediately | a qualification waits for approval (submitted by a non-admin); a log failed to parse |
 
-Each person chooses **Immediately**, **Daily summary** or **Off** per kind under **My account** (`GET/PUT
+Each person chooses **Immediately**, **Daily summary** or **Off** per kind under **My account**, tab **Email** (`GET/PUT
 /api/account/email`, table `mail_prefs`); admins can send themselves a test mail there. When `LOGDB_MAIL_ADMIN_TO`
 is set, administrator notices go only to that shared mailbox (no greeting, no per-person choice) instead of each
 admin.

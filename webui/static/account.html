@@ -54,24 +54,25 @@
 </header>
 <main>
   <div id="err"></div>
-  <section class="card"><div class="kv" id="info"></div></section>
-  <section class="card" id="profileCard" hidden>
+  <nav class="page-tabs" id="accountTabs" aria-label="My account"></nav>
+  <section class="card" data-pane="account"><div class="kv" id="info"></div></section>
+  <section class="card" id="profileCard" data-pane="profile" hidden>
     <div style="display:flex;align-items:baseline;gap:12px"><h2>My profile</h2><a href="/profile" style="margin-left:auto">Edit</a></div>
     <div class="kv" id="profile"></div>
     <div id="studentsBox" hidden><h2 style="margin-top:14px">People I supervise</h2>
       <table><thead><tr><th>Name</th><th>Role</th><th>Department</th><th>Expected end</th></tr></thead><tbody id="students"></tbody></table></div>
   </section>
-  <section class="card">
+  <section class="card" data-pane="qualifications" hidden>
     <h2>My qualifications</h2>
     <div id="myQualifications">Loading qualifications...</div>
   </section>
-  <section class="card" id="email" hidden>
+  <section class="card" id="email" data-pane="email" hidden>
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h2>Email notifications</h2>
       <span class="mute" id="emailTo"></span><span class="mute" id="emailSaved" role="status" style="margin-left:auto"></span></div>
     <div class="mail-prefs" id="emailPrefs"></div>
     <div class="row" id="emailTestRow" hidden><button type="button" class="sec" onclick="testEmail()">Send me a test email</button><span class="mute" id="emailTest"></span></div>
   </section>
-  <details class="card" id="passwordCard" hidden>
+  <details class="card" id="passwordCard" data-pane="account" data-only hidden>
     <summary>Change password</summary>
     <form id="passwordForm">
       <p><label>Current password<br><input id="currentPassword" type="password" autocomplete="current-password" required maxlength="1024"></label></p>
@@ -82,14 +83,14 @@
     <p id="passwordStatus" role="status" aria-live="polite"></p>
   </details>
 
-  <section class="card" id="newKey">
+  <section class="card" id="newKey" data-pane="keys" hidden>
     <h2>New API key</h2>
     <div>Copy it now, it is not shown again:</div>
     <pre><code id="keyText"></code></pre>
     <button type="button" onclick="copyKey()" id="copyBtn">Copy</button>
   </section>
 
-  <section class="card">
+  <section class="card" data-pane="keys" hidden>
     <div class="section-heading"><h2>API keys</h2>
     <details><summary>Help</summary><p>A key lets a script use the API as you (upload and read logs you can access). It cannot manage keys. A <em>read-only</em> key can only read (GET), e.g. for a script that builds a document.
       Send it as <code>Authorization: Bearer &lt;key&gt;</code>. Revoke a key if it leaks.
@@ -105,7 +106,7 @@
     </table></div>
   </section>
 
-  <details class="card" id="uploadHelp">
+  <details class="card" id="uploadHelp" data-pane="keys" hidden>
     <summary>Upload a folder with the script</summary>
     <div class="mute">Finds every <code>.data</code>/<code>.log</code> pair below a folder and uploads those that are not on the server yet.
       Needs Python 3 only, no extra packages.</div>
@@ -174,11 +175,13 @@ api('/api/me').then(d => {
   new QualificationManager($('myQualifications'), d.user.id, false).load();
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   $('info').innerHTML = `<span class="mute">Name</span><span>${esc(d.user.display_name)}</span><span class="mute">Username</span><span>${esc(d.user.username)}</span><span class="mute">Role</span><span>${d.user.is_admin ? 'Administrator' : 'User'}</span>`;
-  $('passwordCard').hidden = d.user.provider !== 'local' || !d.user.has_password;
+  $('passwordCard').dataset.only = d.user.provider === 'local' && d.user.has_password ? '' : 'never';
+  tabs = [['account', 'Account'], ...(d.person_profile ? [['profile', 'Profile']] : []), ['qualifications', 'Qualifications'],
+    ...(d.email ? [['email', 'Email']] : []), ['keys', 'API keys and upload']];
+  showTab();
   $('emailTestRow').hidden = !d.user.is_admin;
   if (d.email) loadEmail().catch(e => { $('err').textContent = e.message; });
   if (d.person_profile) api('/api/profile').then(p => {
-    $('profileCard').hidden = false;
     $('profile').innerHTML = profileHTML(p.profile);
     $('studentsBox').hidden = !p.students.length;
     $('students').innerHTML = p.students.map(s => `<tr><td><a href="/people/${s.id}">${esc(s.name)}</a></td>`
@@ -186,15 +189,30 @@ api('/api/me').then(d => {
       + `<td>${s.profile?.indefinite ? 'Indefinite' : esc(s.profile?.end_date)}</td></tr>`).join('');
   }).catch(e => { $('err').textContent = e.message; });
 }).catch(e => { $('err').textContent = e.message; });
+// One tab at a time; the tab is kept in the URL (?tab=, and #email from the link in every mail) so Back returns to it.
+let tabs = [];
+function currentTab() {
+  const want = location.hash === '#email' ? 'email' : new URLSearchParams(location.search).get('tab') || 'account';
+  return tabs.some(t => t[0] === want) ? want : 'account';
+}
+function showTab() {
+  const tab = currentTab();
+  window.pageTabs($('accountTabs'), tabs, tab, key => {
+    const p = new URLSearchParams(location.search);
+    if (key === 'account') p.delete('tab'); else p.set('tab', key);
+    history.pushState(null, '', location.pathname + (p.size ? '?' + p : ''));
+    showTab();
+  });
+  document.querySelectorAll("main [data-pane]").forEach(el => { el.hidden = el.dataset.pane !== tab || el.dataset.only === 'never'; });
+}
+window.addEventListener('popstate', showTab);
 async function loadEmail() {
   const d = await api('/api/account/email');
   if (!d.enabled) return;
-  $('email').hidden = false;
   $('emailTo').textContent = d.email ? 'to ' + d.email : 'Your account has no email address, so none are sent.';
   $('emailPrefs').innerHTML = d.kinds.map(k => `<label for="mail-${k.kind}" title="${esc(k.help)}">${esc(k.label)}</label>`
     + (k.modes.length < 2 ? '<span class="mute">Always</span>' : `<select id="mail-${k.kind}" data-kind="${k.kind}">`
     + k.modes.map(m => `<option value="${m}"${m === k.mode ? ' selected' : ''}>${esc(d.modes[m])}</option>`).join('') + '</select>')).join('');
-  if (location.hash === '#email') $('email').scrollIntoView();
 }
 $('emailPrefs').onchange = async e => {
   const sel = e.target.closest('select[data-kind]');

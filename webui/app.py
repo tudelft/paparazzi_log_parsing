@@ -4206,7 +4206,7 @@ def mail_setup_link(con, user_id, url, expires_at, new):
     action = "set a password for your new account" if new else "choose a new password"
     if not mail.notify(con, user_id, "account", "Flight logbook: " + ("your new account" if new else "set a new password"),
                        f"Open this link to {action} in the flight logbook. It works once, until "
-                       f"{expires_at.replace('T', ' ').replace('Z', ' UTC')}:\n\n{url}"):
+                       f"{expires_at.replace('T', ' ').replace('Z', ' UTC')}.\n\n{url}"):
         return None
     return con.execute("SELECT email FROM users WHERE id=?", (user_id,)).fetchone()["email"]
 

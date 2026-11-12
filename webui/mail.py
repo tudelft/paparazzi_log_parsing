@@ -9,6 +9,8 @@ Expiry reminders are checked once a day: 30 and 7 days before a current approved
 one of the same type already covers the time after it), and before the expected end date of a person profile.
 """
 import datetime
+import html
+import re
 import smtplib
 import ssl
 import threading
@@ -130,8 +132,44 @@ def signature():
 
 def footer(shared=False):
     end = ("Administrator notice, sent to the shared mailbox." if shared
-           else "Choose which emails you get under My account: " + link("/account#email"))
+           else "Change which emails you get: " + link("/account?tab=email"))
     return f"\n\n-- \n{signature()}\n{end}"
+
+
+URL = re.compile(r"https?://[^\s<>\"]+")
+
+
+def button_label(url):
+    return "Set your password" if "/setup/" in url else "Open in the flight logbook"
+
+
+def html_body(name, body, shared):
+    """The same mail as simple HTML with inline styles (what mail programs support): a header with the sender name,
+    the text, a button for a link on its own line and a small footer with the email settings link."""
+    paragraphs = []
+    for block in (b.strip() for b in body.split("\n\n")):
+        if not block:
+            continue
+        if URL.fullmatch(block):
+            url = html.escape(block, quote=True)
+            paragraphs.append(f'<p style="margin:20px 0"><a href="{url}" style="display:inline-block;background:#1f6feb;'
+                              f'color:#ffffff;text-decoration:none;padding:9px 16px;border-radius:6px;font-weight:600">'
+                              f'{html.escape(button_label(block))}</a></p>')
+            continue
+        text = URL.sub(lambda m: f'<a href="{m[0]}" style="color:#1f6feb">{m[0]}</a>', html.escape(block, quote=False))
+        paragraphs.append('<p style="margin:0 0 14px">' + text.replace("\n", "<br>") + "</p>")
+    sign = html.escape(signature()).replace("\n", "<br>")
+    end = ("Administrator notice, sent to the shared mailbox." if shared else
+           f'<a href="{html.escape(link("/account?tab=email"), quote=True)}" style="color:#6b7785">Change which emails '
+           "you get</a>")
+    hello = f'<p style="margin:0 0 14px">Hello {html.escape(name)},</p>' if name else ""
+    return f"""<!doctype html><html><body style="margin:0;background:#f5f6f8">
+<div style="background:#f5f6f8;padding:24px 12px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<div style="max-width:580px;margin:0 auto;background:#ffffff;border:1px solid #dfe3e8;border-radius:8px;overflow:hidden">
+<div style="background:#16202c;color:#ffffff;padding:14px 22px;font-size:16px;font-weight:600">{html.escape(env("MAIL_FROM_NAME"))}</div>
+<div style="padding:22px;color:#1d2733;font-size:15px;line-height:1.5">{hello}{''.join(paragraphs)}</div>
+<div style="padding:14px 22px;border-top:1px solid #dfe3e8;color:#6b7785;font-size:12px;line-height:1.5">{sign}<br>{end}</div>
+</div></div></body></html>"""
 
 
 def compose(name, subject, body, shared=False):
@@ -140,6 +178,7 @@ def compose(name, subject, body, shared=False):
     msg["From"] = formataddr((env("MAIL_FROM_NAME"), env("MAIL_FROM")))
     msg["Message-ID"] = make_msgid(domain=env("MAIL_FROM").partition("@")[2] or None)
     msg.set_content((f"Hello {name},\n\n" if name else "") + f"{body}{footer(shared)}\n")
+    msg.add_alternative(html_body(name, body, shared), subtype="html")
     return msg
 
 
@@ -256,7 +295,7 @@ def queue_reminders(con, today=None):
         remind(con, q["user_id"], f"Your {q['name']} expires on {q['valid_until']}",
                f"Your {q['name']} is valid until {q['valid_until']} ({days} day{'s' * (days != 1)} from now). "
                "Upload the renewed one in My account so you can keep flying and booking.",
-               "/account", f"expiry:q{q['id']}:{q['valid_until']}:{step}",
+               "/account?tab=qualifications", f"expiry:q{q['id']}:{q['valid_until']}:{step}",
                f"{q['name']} expires on {q['valid_until']}")
     if env("PERSON_PROFILE") == "1":
         for p in con.execute("SELECT user_id, end_date FROM user_profiles WHERE indefinite=0 AND end_date>=?"

@@ -223,7 +223,7 @@ change any and set up the items in Edit mode (**Add item**, **Edit item**).
 ## Email
 
 When the server sends email, you get reminders 30 and 7 days before a qualification or your expected end date
-expires, and mails about your bookings. Choose per kind under **My account**, **Email notifications**: immediately,
+expires, and mails about your bookings. Choose per kind under **My account**, tab **Email**: immediately,
 in one daily summary, or off. Admins also choose how they get notices about approvals and failed logs (unless these
 go to a shared mailbox) and can follow everyone's expiry reminders; **Statistics** lists the mails sent. Rules:
 [technical guide](TECHNICAL.md#email-notifications).

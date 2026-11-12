@@ -50,18 +50,21 @@ class MailTests(AppTests):
         self.con.commit()
         msg, = self.send()
         self.assertEqual((msg["To"], msg["Subject"]), ("Pilot <pic@example.org>", "Booked: arena"))
-        body = msg.get_content()
+        body = msg.get_body(("plain",)).get_content()
         self.assertIn("Hello Pilot,", body)
         self.assertIn("https://logs.example.org/agenda", body)
-        self.assertIn("https://logs.example.org/account#email", body)
-        self.assertIn("-- \nFlight logbook\nChoose which emails", body)
+        self.assertIn("https://logs.example.org/account?tab=email", body)
+        self.assertIn("-- \nFlight logbook\nChange which emails", body)
+        page = msg.get_body(("html",)).get_content()
+        self.assertIn('href="https://logs.example.org/agenda"', page)
+        self.assertIn("Open in the flight logbook", page)
         with patch.dict(os.environ, {"LOGDB_MAIL_FOOTER": "MAVLab\\nFaculty of Aerospace Engineering",
                                      "LOGDB_MAIL_FROM_NAME": "MAVLab logbook"}):
             mail.notify(self.con, 2, "bookings", "Booked: bench", "You booked the bench.")
             self.con.commit()
             msg, = self.send()
             self.assertEqual(msg["From"], "MAVLab logbook <logbook@example.org>")
-            self.assertIn("-- \nMAVLab\nFaculty of Aerospace Engineering\nChoose which emails", msg.get_content())
+            self.assertIn("-- \nMAVLab\nFaculty of Aerospace Engineering\nChange which emails", msg.get_body(("plain",)).get_content())
         self.assertEqual(self.client.put("/api/account/email", json={"modes": {"bookings": "daily"}}).status_code, 200)
         for n in (1, 2):
             mail.notify(self.con, 2, "bookings", f"Booked {n}", f"Booking {n}.")
@@ -69,7 +72,7 @@ class MailTests(AppTests):
         self.assertEqual(self.send(), [])            # waits for the daily summary
         msg, = self.send(digests=True)
         self.assertEqual(msg["Subject"], "Flight logbook: 2 notices")
-        self.assertIn("* Booked 2", msg.get_content())
+        self.assertIn("* Booked 2", msg.get_body(("plain",)).get_content())
         self.client.put("/api/account/email", json={"modes": {"bookings": "off"}})
         self.assertFalse(mail.notify(self.con, 2, "bookings", "s", "t"))
 
@@ -87,7 +90,7 @@ class MailTests(AppTests):
                                                        "send_email": True}).json
         self.assertEqual(r["mailed_to"], "newbie@example.org")
         msg, = self.send()
-        self.assertIn(r["setup_url"], msg.get_content())
+        self.assertIn(r["setup_url"], msg.get_body(("plain",)).get_content())
         self.assertTrue(r["setup_url"].startswith("https://logs.example.org/setup/"))
         self.assertIsNone(self.client.post(f"/api/admin/users/{r['id']}/setup-link", json={}).json["mailed_to"])
         self.assertEqual(self.send(), [])
@@ -143,7 +146,7 @@ class MailTests(AppTests):
             self.con.commit()
             msg, = self.send()
             self.assertEqual(msg["To"], "team@example.org")
-            self.assertNotIn("Hello", msg.get_content())
+            self.assertNotIn("Hello", msg.get_body(("plain",)).get_content())
             self.sign_in(1)
             self.assertNotIn("admin", [k["kind"] for k in self.client.get("/api/account/email").json["kinds"]])
 
