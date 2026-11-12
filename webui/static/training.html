@@ -41,6 +41,11 @@
   @media (max-width:640px) { .q-card { flex-wrap:wrap; } .q-body { flex-basis:calc(100% - 80px); } .q-actions { width:100%; justify-content:flex-end; } }
   .wait { display:inline-block; padding:2px 10px; border-radius:999px; background:var(--warnbg); color:var(--warn); font-size:12px; font-weight:600; }
   #detailCard:has(.quiz-shell) { background:transparent; border:0; padding:0; }
+  dialog.entry-dialog.reading-dialog { width:min(900px, calc(100% - 32px)); }
+  .reading-text { white-space:pre-wrap; line-height:1.5; margin:12px 0; }
+  .reading-pdf { width:100%; height:62vh; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  .reading-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px; }
+  .reading-actions .spacer { flex:1; }
   .quiz-shell { display:flex; justify-content:center; }
   .quiz-card { width:min(560px, 100%); background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
   .quiz-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
@@ -107,9 +112,21 @@
   </section>
   <section class="card" id="detailCard" hidden></section>
 </main>
+<dialog class="entry-dialog reading-dialog" id="readingDialog" aria-labelledby="readingTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="readingTitle">Reading material</h2><button type="button" class="sec" onclick="$('readingDialog').close()">Close</button></div>
+  <div id="readingBody"></div>
+  <p class="dialog-error" id="readingError" role="alert"></p>
+  <div class="reading-actions"><a id="readingOpen" class="mute" target="_blank" rel="noopener" hidden>Open the PDF in a new tab</a><span class="spacer"></span>
+    <button type="button" id="readingConfirm" onclick="confirmReading()">I have read and understood the material</button></div>
+</dialog>
+<dialog class="entry-dialog" id="failDialog" aria-labelledby="failTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();retryQuiz();}">
+  <div class="dialog-header"><h2 id="failTitle">Not passed</h2></div>
+  <p id="failText" role="status"></p>
+  <div class="row"><button type="button" onclick="retryQuiz()">Retry the test</button> <button type="button" class="sec" onclick="leaveQuiz()">Back to trainings</button></div>
+</dialog>
 <dialog class="entry-dialog" id="importDialog" aria-labelledby="importTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <div class="dialog-header"><h2 id="importTitle">Import training</h2><button type="button" class="sec" onclick="$('importDialog').close()">Close</button></div>
-  <p>One JSON questionnaire, or a ZIP with that JSON plus JPEG/PNG question images. Preview first; nothing is written until you import. A name that already exists is rejected unless you enable replace.</p>
+  <p>One JSON questionnaire, or a ZIP with that JSON plus JPEG/PNG question images and an optional reading PDF (<code>reading_file</code>; reading text goes in <code>reading</code>). Preview first; nothing is written until you import. A name that already exists is rejected unless you enable replace.</p>
   <p class="dialog-error" id="importError" role="alert"></p>
   <div class="dialog-fields">
     <label class="field">File<input id="importFile" type="file" accept=".json,.zip,application/json,application/zip" onchange="clearImportPreview()"></label>
@@ -125,6 +142,8 @@
     <div class="dialog-header"><h2 id="trainingTitle">New training</h2><button type="button" class="sec" onclick="$('trainingDialog').close()">Close</button></div>
     <label class="field">Name<input name="name" required maxlength="80"></label>
     <label class="field">Description<textarea name="description" maxlength="2000"></textarea></label>
+    <label class="field" title="Shown before the test; people confirm they have read it. A reading PDF is added by importing a ZIP.">Reading material<textarea name="reading" maxlength="20000" rows="4" placeholder="optional"></textarea></label>
+    <p class="mute" id="readingFileNote" hidden></p>
     <label class="field">Qualification<select name="type_id"><option value="">None</option></select></label>
     <label class="field">Validity days<input name="valid_days" type="number" min="1" placeholder="optional"></label>
     <label class="field">Pass score<input name="pass_score" type="number" min="1" placeholder="all points"></label>
@@ -224,8 +243,13 @@ function paintDetail() {
     ${edit ? `<span style="flex:1"></span><button type="button" class="sec" onclick="openTraining(${t.id})">Edit</button>
       <a class="sec" href="/api/admin/trainings/${t.id}/export" style="display:inline-block;padding:4px 10px;border-radius:6px;background:var(--sec);color:var(--txt);text-decoration:none">Export</a>
       <button type="button" class="danger" onclick="removeTraining(${t.id})">Delete</button>` : ''}
-    <details><summary>Help</summary><p>Answer one question at a time, then submit. Retry until you pass; failed answers are not stored. A pass may grant the qualification immediately or wait for admin approval, depending on the training. When that qualification expires, a queued pass is rejected, or an administrator resets your pass, you can take it again.</p></details></div>`;
-  if (taking) {
+    <details><summary>Help</summary><p>If the training has reading material, read it and confirm that you have read and understood it; the test opens after that. Answer one question at a time, then submit. Retry until you pass; failed answers are not stored. A pass may grant the qualification immediately or wait for admin approval, depending on the training. When that qualification expires, a queued pass is rejected, or an administrator resets your pass, you can take it again.</p></details></div>`;
+  const gate = taking && !t.practice && t.must_read;
+  if (gate) {
+    html += `<div class="quiz-shell"><div class="quiz-card"><div class="quiz-head"><h2 title="${esc(t.name)}">${esc(t.name)}</h2></div>
+      <p>Read the material first. When you confirm that you have read and understood it, the test starts.</p>
+      <p><button type="button" onclick="openReading(true)">Open the reading material</button></p></div></div>`;
+  } else if (taking) {
     html += quizHTML(questions);
   } else {
     html += `${t.description ? `<p>${esc(t.description)}</p>` : ''}
@@ -246,8 +270,10 @@ function paintDetail() {
     if (!t.passed_at && !t.awaiting_approval && !questions.length && !edit) html += '<p class="mute">No questions yet.</p>';
   }
   if (edit) html += editorHTML(questions);
+  if (!taking && !edit && hasReading(t)) html += '<p><button type="button" class="sec" onclick="openReading(false)">Reading material</button></p>';
   $('detailCard').innerHTML = html;
-  if (taking) bindQuiz();
+  if (gate) { if (readingShownFor !== t.id) { readingShownFor = t.id; openReading(true); } }
+  else if (taking) bindQuiz();
   if (edit) { paintEditTabs(); bindQuestionOrder($('questionsPanel')); loadResults(); }
 }
 function quizHTML(questions) {
@@ -257,7 +283,7 @@ function quizHTML(questions) {
   const pct = Math.round(((quizStep + 1) / n) * 100);
   return `<div class="quiz-shell"><div class="quiz-card">
     <div class="quiz-head"><h2 title="${esc(detail.name)}">${esc(detail.name)}</h2>
-      <span class="step" id="quizProgress">Question ${quizStep + 1} of ${n}</span></div>
+      <span class="step">${hasReading(detail) ? '<a href="#" onclick="openReading(false);return false">Material</a> · ' : ''}<span id="quizProgress">Question ${quizStep + 1} of ${n}</span></span></div>
     <div class="quiz-bar" aria-hidden="true"><i id="quizBar" style="width:${pct}%"></i></div>
     <form id="quiz">
     ${questions.map((q, i) => `<div class="question" data-id="${q.id}" data-kind="${q.kind}"${i === quizStep ? '' : ' hidden'}>
@@ -425,10 +451,53 @@ async function submitQuiz(event) {
     lastResult = await api('/api/trainings/' + selected + '/submit', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
     quizStep = 0;
+    const failed = !lastResult.passed && !lastResult.practice;
     practice = false;
     await load();
     await loadDetail();
+    if (failed) showFailed();
   } catch (e) { $('quizMsg').textContent = e.message; }
+}
+// Reading material: text and/or a PDF, shown before the test until the person confirms it.
+let readingShownFor = 0;
+function hasReading(t) { return !!(t && (t.reading || t.reading_file)); }
+function openReading(confirming) {
+  const t = detail, pdf = t.reading_file ? `/api/trainings/${t.id}/reading-file` : '';
+  $('readingTitle').textContent = 'Reading material · ' + t.name;
+  $('readingBody').innerHTML = (t.reading ? `<div class="reading-text">${esc(t.reading)}</div>` : '')
+    + (pdf ? `<iframe class="reading-pdf" src="${pdf}" title="${esc(t.reading_name || 'Reading PDF')}"></iframe>` : '');
+  $('readingOpen').hidden = !pdf;
+  if (pdf) $('readingOpen').href = pdf;
+  $('readingConfirm').hidden = !(confirming && t.must_read);
+  $('readingError').textContent = '';
+  $('readingDialog').showModal();
+}
+async function confirmReading() {
+  try {
+    await api('/api/trainings/' + detail.id + '/read', {method: 'POST'});
+    $('readingDialog').close();
+    detail.must_read = false;
+    quizStep = 0;
+    paintDetail();
+  } catch (e) { $('readingError').textContent = e.message; }
+}
+// A failed attempt: say so in a dialog and offer a fresh start (the quiz behind it is already reset).
+function showFailed() {
+  const r = lastResult, n = detail.attempts;
+  $('failText').textContent = `You scored ${r.score} of ${r.total} point${r.total === 1 ? '' : 's'}; ${r.needed} ${r.needed === 1 ? 'is' : 'are'} needed to pass.`
+    + ` Your answers were not saved, so the test starts again from the first question.${n ? ` Attempts so far: ${n}.` : ''}`;
+  $('failDialog').showModal();
+}
+function retryQuiz() {
+  $('failDialog').close();
+  const first = $('quiz') && $('quiz').querySelector('.question:not([hidden]) input, .question:not([hidden]) li');
+  if (first) first.focus();
+}
+function leaveQuiz() {
+  $('failDialog').close();
+  selected = 0; editTab = 'questions'; passCount = null;
+  window.viewState.save(true);
+  show();
 }
 function editorHTML(questions) {
   return `<div class="page-tabs" id="editTabs" aria-label="Training sections"></div>
@@ -597,6 +666,7 @@ async function importTraining(preview) {
       <tr><th>Name</th><td title="${esc(d.name)}">${esc(d.name)}</td></tr>
       <tr><th>Action</th><td>${d.action === 'replace' ? 'Replace existing' : 'Create'}</td></tr>
       <tr><th>Questions</th><td>${d.question_count} · ${d.image_count} image${d.image_count === 1 ? '' : 's'}</td></tr>
+      <tr><th>Reading</th><td>${[d.reading_chars ? d.reading_chars + ' characters of text' : '', d.reading_file ? 'PDF ' + esc(d.reading_file) : ''].filter(Boolean).join(' · ') || 'None'}</td></tr>
       <tr><th>Qualification</th><td>${esc(d.type_name || 'None')}</td></tr>
       <tr><th>Validity</th><td>${d.valid_days ? d.valid_days + ' days' : '—'}</td></tr>
       ${d.warning ? `<tr><th></th><td class="dialog-error">${esc(d.warning)}</td></tr>` : ''}
@@ -653,11 +723,14 @@ function removeBriefer(id) {
 }
 async function openTraining(id) {
   editingId = id || null;
-  const t = (detail && detail.id === id) ? detail : trainings.find(x => x.id === id) || {};
+  const t = (detail && detail.id === id) ? detail : id ? await api('/api/trainings/' + id) : {};
   if (!people.length) people = await api('/api/people');
   $('trainingTitle').textContent = id ? 'Edit training' : 'New training';
   $('trainingForm').name.value = t.name || '';
   $('trainingForm').description.value = t.description || '';
+  $('trainingForm').reading.value = t.reading || '';
+  $('readingFileNote').hidden = !t.reading_file;
+  $('readingFileNote').textContent = t.reading_file ? 'Reading PDF: ' + (t.reading_name || 'attached') + ' (replace it by importing a ZIP).' : '';
   fillTypes($('trainingForm').type_id, t.type_id);
   $('trainingForm').valid_days.value = t.valid_days || '';
   $('trainingForm').pass_score.value = t.pass_score || '';
@@ -676,7 +749,7 @@ async function openTraining(id) {
 $('trainingForm').onsubmit = async event => {
   event.preventDefault();
   const f = event.target;
-  const body = {name: f.name.value, description: f.description.value,
+  const body = {name: f.name.value, description: f.description.value, reading: f.reading.value,
     type_id: f.type_id.value ? +f.type_id.value : null,
     valid_days: f.valid_days.value ? +f.valid_days.value : null,
     pass_score: f.pass_score.value ? +f.pass_score.value : null,
