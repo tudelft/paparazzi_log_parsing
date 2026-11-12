@@ -236,7 +236,6 @@ async function removeGroup() {
   if (confirm('Delete this group?') && await send(`/api/admin/document-groups/${editingId}`, 'DELETE', {}, 'groupError'))
     $('groupDialog').close();
 }
-let editingDoc = null;
 function syncDocForm() {
   const f = $('docForm');
   $('otherLimits').hidden = f.admin_only.checked;
@@ -250,7 +249,6 @@ function editDocument(id) {
   const d = data.documents.find(x => x.id === id)
     || {title: '', description: '', group_id: null, type_id: null, admin_only: false, roles_limited: false, role_ids: [], sort_order: 0};
   editingId = id ?? null;
-  editingDoc = d;
   const f = $('docForm');
   f.group_id.innerHTML = '<option value="">(no group: General)</option>'
     + data.groups.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
