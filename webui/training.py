@@ -276,6 +276,40 @@ def parse_question_body(body, index=None):
 
 
 MAX_JSON_BYTES = 1 * 1024 * 1024
+MAX_READING_BYTES = 20 * 1024 * 1024
+MAX_READING_CHARS = 20000
+
+
+def reading_text(raw):
+    """The reading material text: plain text, at most MAX_READING_CHARS characters."""
+    if raw is None:
+        return ""
+    if not isinstance(raw, str):
+        raise TrainingError("Reading material must be text.")
+    text = raw.strip()
+    if len(text) > MAX_READING_CHARS:
+        raise TrainingError(f"Reading material must be at most {MAX_READING_CHARS} characters.")
+    return text
+
+
+def check_pdf_bytes(name, data):
+    if not data or len(data) > MAX_READING_BYTES:
+        raise TrainingError(f"The reading PDF must be non-empty and at most 20 MiB ({name}).")
+    if not data.startswith(b"%PDF-"):
+        raise TrainingError(f"The reading file must be a PDF ({name}).")
+
+
+def has_reading(row):
+    return bool(row["reading"] or row["reading_path"])
+
+
+def must_read(row, progress):
+    """True while the person still has to confirm the reading material before the test. A confirmation counts
+    until the next pass, so a retake after an expired or reset pass asks for it again."""
+    if not has_reading(row):
+        return False
+    read_at = progress["read_at"] if progress else None
+    return not (read_at and (not progress["passed_at"] or read_at > progress["passed_at"]))
 
 
 def check_image_bytes(name, data):
@@ -477,6 +511,9 @@ def register(app, connection, root, require_session):
         for q in cid.execute("SELECT image_path FROM training_questions WHERE training_id=?", (training_id,)):
             if q["image_path"]:
                 (image_dir() / q["image_path"]).unlink(missing_ok=True)
+        reading = cid.execute("SELECT reading_path FROM trainings WHERE id=?", (training_id,)).fetchone()
+        if reading and reading["reading_path"]:
+            (image_dir() / reading["reading_path"]).unlink(missing_ok=True)
 
     def insert_questions(cid, training_id, parsed_questions, image_blobs, written):
         """Insert questions; new image files are appended to written so a failed import can remove them."""
@@ -567,11 +604,26 @@ def register(app, connection, root, require_session):
                 out[wanted] = entry
         return out
 
+    def load_reading_file(images, wanted):
+        """The reading PDF named in the JSON, from the ZIP (size checked before reading)."""
+        if "_raw" not in images:
+            raise TrainingError("A reading file needs a ZIP with the JSON and that PDF.")
+        with zipfile.ZipFile(io.BytesIO(images["_raw"])) as zf:
+            names = {n.replace("\\", "/"): n for n in images["_names"] if n != images["_json_name"]}
+            original = names.get(wanted) or next((n for rel, n in names.items() if Path(rel).name == Path(wanted).name), None)
+            if original is None:
+                raise TrainingError(f"Missing reading file: {wanted}.")
+            if zf.getinfo(original).file_size > MAX_READING_BYTES:
+                raise TrainingError(f"The reading PDF must be non-empty and at most 20 MiB ({wanted}).")
+            data = zf.read(original)
+        check_pdf_bytes(wanted, data)
+        return data
+
     def parse_import(cid, data, images, type_id):
         if not isinstance(data, dict):
             raise TrainingError("The questionnaire JSON must be an object.")
         unknown = set(data) - {"name", "description", "pass_score", "valid_days", "ask_briefed_by",
-                               "needs_approval", "questions", "sort_order", "qualification"}
+                               "needs_approval", "questions", "sort_order", "qualification", "reading", "reading_file"}
         if "qualification" in data:
             raise TrainingError("Do not put a qualification name in the file; pick an existing type when importing.")
         if unknown:
@@ -580,6 +632,11 @@ def register(app, connection, root, require_session):
         description = (data.get("description") or "").strip()
         if len(description) > 2000:
             raise TrainingError("Description must be at most 2000 characters.")
+        reading = reading_text(data.get("reading"))
+        reading_file = data.get("reading_file")
+        if reading_file is not None and (not isinstance(reading_file, str) or not reading_file.strip()
+                                         or not reading_file.lower().endswith(".pdf")):
+            raise TrainingError("reading_file must be the name of a PDF in the ZIP.")
         pass_score = optional_int(data.get("pass_score"), "Pass score")
         valid_days = optional_int(data.get("valid_days"), "Validity days")
         if "ask_briefed_by" in data and type(data.get("ask_briefed_by")) is not bool:
@@ -604,6 +661,7 @@ def register(app, connection, root, require_session):
                 needed_images.add(image_name)
             parsed.append((prompt, kind, points, choices, image_name))
         check_pass_score(pass_score, sum(p[2] for p in parsed))
+        reading_blob = load_reading_file(images, reading_file.strip()) if reading_file else None
         images = load_referenced_images(images, needed_images)
         missing = sorted(n for n in needed_images if n not in images and Path(n).name not in images)
         if missing:
@@ -619,6 +677,9 @@ def register(app, connection, root, require_session):
             "question_count": len(parsed),
             "image_count": len(needed_images),
             "images": images,
+            "reading": reading,
+            "reading_name": Path(reading_file.strip()).name[:160] if reading_file else None,
+            "reading_blob": reading_blob,
         }
 
     @app.get("/training")
@@ -641,8 +702,8 @@ def register(app, connection, root, require_session):
         cid = con()
         row = training_row(cid, training_id, active_only=not g.user["is_admin"])
         questions, choices = load_questions(cid, training_id)
-        progress = cid.execute("SELECT attempts, passed_at, briefed_by, submission_id, answers_json FROM training_progress"
-                               " WHERE user_id=? AND training_id=?",
+        progress = cid.execute("SELECT attempts, passed_at, briefed_by, submission_id, answers_json, read_at"
+                               " FROM training_progress WHERE user_id=? AND training_id=?",
                                (g.user["id"], training_id)).fetchone()
         current = pass_is_current(cid, g.user["id"], row, progress)
         awaiting = pass_awaiting_approval(cid, progress)
@@ -677,6 +738,10 @@ def register(app, connection, root, require_session):
             "briefed_by_name": briefer["name"] if briefer else None,
             "briefers": briefer_list(cid, training_id),
             "total_points": sum(q["points"] for q in questions),
+            "reading": row["reading"] or "",
+            "reading_file": bool(row["reading_path"]),
+            "reading_name": row["reading_name"],
+            "must_read": must_read(row, progress) and not current and not awaiting,
             "type_name": cid.execute("SELECT name FROM qualification_types WHERE id=?",
                                      (row["type_id"],)).fetchone()["name"] if row["type_id"] else None,
         }
@@ -730,6 +795,31 @@ def register(app, connection, root, require_session):
             abort(404)
         return send_file(path, mimetype=row["image_mime"] or "application/octet-stream")
 
+    @app.get("/api/trainings/<int:training_id>/reading-file")
+    def reading_file(training_id):
+        signed_in()
+        row = training_row(con(), training_id, active_only=not g.user["is_admin"])
+        path = image_dir() / row["reading_path"] if row["reading_path"] else None
+        if path is None or not path.is_file():
+            abort(404)
+        return send_file(path, mimetype="application/pdf", download_name=row["reading_name"] or "reading.pdf")
+
+    @app.post("/api/trainings/<int:training_id>/read")
+    def confirm_reading(training_id):
+        """The person confirms having read and understood the material; the test opens after this."""
+        signed_in()
+        cid = con()
+        with db.write_lock, cid:
+            cid.execute("BEGIN IMMEDIATE")
+            row = training_row(cid, training_id, active_only=True)
+            if not has_reading(row):
+                raise TrainingError("This training has no reading material.")
+            stamp = utc_now()
+            cid.execute("INSERT INTO training_progress(user_id,training_id,attempts,read_at) VALUES (?,?,0,?)"
+                        " ON CONFLICT(user_id,training_id) DO UPDATE SET read_at=excluded.read_at",
+                        (g.user["id"], training_id, stamp))
+        return jsonify(ok=True, read_at=stamp)
+
     @app.post("/api/trainings/<int:training_id>/submit")
     def submit_training(training_id):
         signed_in()
@@ -746,6 +836,8 @@ def register(app, connection, root, require_session):
                 raise TrainingError("You have already passed this training.", 409)
             if pass_awaiting_approval(cid, progress):
                 raise TrainingError("Your pass is waiting for approval.", 409)
+            if must_read(row, progress):
+                raise TrainingError("Read the material and confirm it before the test.", 409)
             questions, choices = load_questions(cid, training_id)
             if not questions:
                 raise TrainingError("This training has no questions yet.")
@@ -843,7 +935,8 @@ def register(app, connection, root, require_session):
             check_pass_score(pass_score, total)
         if type(body.get("shuffle_questions", False)) is not bool:
             raise TrainingError("Shuffle questions must be true or false.")
-        draw = (int(body.get("shuffle_questions", False)), optional_int(body.get("question_count"), "Questions per attempt"))
+        draw = (int(body.get("shuffle_questions", False)), optional_int(body.get("question_count"), "Questions per attempt"),
+                reading_text(body.get("reading")))
         return name, description, type_id, pass_score, valid_days, ask_briefed_by, needs_approval, briefers, draw
 
     @app.post("/api/admin/trainings")
@@ -858,7 +951,7 @@ def register(app, connection, root, require_session):
                 nxt = cid.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM trainings").fetchone()[0]
                 tid = cid.execute(
                     "INSERT INTO trainings(name,description,type_id,pass_score,valid_days,ask_briefed_by,"
-                    "needs_approval,sort_order,shuffle_questions,question_count) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    "needs_approval,sort_order,shuffle_questions,question_count,reading) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (name, description, type_id, pass_score, valid_days, int(ask_briefed_by),
                      int(needs_approval), nxt, *draw)).lastrowid
                 save_briefers(cid, tid, briefers)
@@ -880,7 +973,8 @@ def register(app, connection, root, require_session):
             training_row(cid, training_id)
             try:
                 cid.execute("UPDATE trainings SET name=?,description=?,type_id=?,pass_score=?,valid_days=?,"
-                            "ask_briefed_by=?,needs_approval=?,active=?,shuffle_questions=?,question_count=? WHERE id=?",
+                            "ask_briefed_by=?,needs_approval=?,active=?,shuffle_questions=?,question_count=?,reading=?"
+                            " WHERE id=?",
                             (name, description, type_id, pass_score, valid_days, int(ask_briefed_by),
                              int(needs_approval), body.get("active", True), *draw, training_id))
                 cid.execute("UPDATE training_progress SET draw_json=NULL WHERE training_id=?", (training_id,))
@@ -930,6 +1024,7 @@ def register(app, connection, root, require_session):
             "needs_approval": parsed["needs_approval"],
             "type_id": type_id, "question_count": parsed["question_count"],
             "image_count": parsed["image_count"], "existing_id": parsed["existing_id"],
+            "reading_chars": len(parsed["reading"]), "reading_file": parsed["reading_name"],
         }
         if type_id:
             kind = cid.execute("SELECT name FROM qualification_types WHERE id=?", (type_id,)).fetchone()
@@ -966,6 +1061,9 @@ def register(app, connection, root, require_session):
                 old_paths[:] = [r["image_path"] for r in cid.execute(
                     "SELECT image_path FROM training_questions WHERE training_id=? AND image_path IS NOT NULL",
                     (tid,))]
+                old_reading = cid.execute("SELECT reading_path FROM trainings WHERE id=?", (tid,)).fetchone()
+                if old_reading["reading_path"]:
+                    old_paths.append(old_reading["reading_path"])
                 cid.execute(
                     "UPDATE trainings SET description=?,type_id=?,pass_score=?,valid_days=?,ask_briefed_by=?,"
                     "needs_approval=? WHERE id=?",
@@ -986,6 +1084,13 @@ def register(app, connection, root, require_session):
                 except sqlite3.IntegrityError as exc:
                     raise TrainingError("A training with that name already exists.", 409) from exc
             insert_questions(cid, tid, parsed["questions"], image_blobs, written)
+            stored = None
+            if parsed["reading_blob"]:
+                stored = uuid.uuid4().hex + ".pdf"
+                (image_dir() / stored).write_bytes(parsed["reading_blob"])
+                written.append(stored)
+            cid.execute("UPDATE trainings SET reading=?, reading_path=?, reading_name=? WHERE id=?",
+                        (parsed["reading"], stored, parsed["reading_name"] if stored else None, tid))
         return tid
 
     @app.get("/api/admin/trainings/<int:training_id>/export")
@@ -1004,6 +1109,12 @@ def register(app, connection, root, require_session):
             "questions": [],
         }
         files = {}
+        if row["reading"]:
+            payload["reading"] = row["reading"]
+        if row["reading_path"] and (image_dir() / row["reading_path"]).is_file():
+            name = secure_filename(row["reading_name"] or "") or "reading.pdf"
+            payload["reading_file"] = name if name.lower().endswith(".pdf") else name + ".pdf"
+            files[payload["reading_file"]] = (image_dir() / row["reading_path"]).read_bytes()
         for q in questions:
             item = {
                 "prompt": q["prompt"], "kind": q["kind"], "points": q["points"],
