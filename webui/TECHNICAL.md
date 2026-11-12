@@ -1234,7 +1234,7 @@ The codes are stored in `qualification_submissions.qr_json` (cleared when the ev
 recognised parts are compared at display time with what was entered: a certificate number (same patterns as
 above), dates (`YYYY-MM-DD`, `DD/MM/YYYY`, `DD-MM-YYYY`, `YYYYMMDD`) and links. An empty number is filled from the
 code (audited `number-changed`, source `qr`). On the certificates seen so far the code holds only a link: RDW (NL),
-DGAC AlphaTango (FR), ENAC (IT) and DAC Luxembourg via the Eurocontrol learning zone link to their check of that
+DGAC AlphaTango (FR), ENAC (IT), LBA (DE) and DAC Luxembourg via the Eurocontrol learning zone link to their check of that
 certificate; the UK CAA links to its general website (a Flyer ID to its *check a registration* page). The authority is
 recognised by the link's host (`licence_qr.AUTHORITIES`) and must match the country of the entered number
 (`NLD-RP-…` with RDW). Administrators see one line per licence: *Verification link: <authority>* with *check this

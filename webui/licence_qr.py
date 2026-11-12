@@ -29,6 +29,7 @@ AUTHORITIES = (
     ("rdw.nl", "", "RDW (NL)", "NLD", True),
     ("aviation-civile.gouv.fr", "", "DGAC AlphaTango (FR)", "FRA", True),
     ("enac.gov.it", "", "ENAC (IT)", "ITA", True),
+    ("lba-openuav.de", "", "LBA (DE)", "DEU", True),
     ("learningzone.eurocontrol.int", "dacuas", "DAC Luxembourg, via Eurocontrol", "LUX", True),
     ("learningzone.eurocontrol.int", "", "Eurocontrol learning zone", None, True),
     ("caa.co.uk", "", "UK CAA", "GBR", False),

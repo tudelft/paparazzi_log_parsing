@@ -910,6 +910,8 @@ class LicenceQrTests(AppTests):
         check = lambda codes, number=None: licence_qr.check(codes, number, None, None)  # noqa: E731
         self.assertEqual((check(nl, "NLD-RP-abcdefgh1234")["status"], check(nl)["authority"]["name"]), ("link", "RDW (NL)"))
         self.assertEqual(check(it, "ITA-RP-abcdefgh1234")["status"], "link")
+        de = ["https://exam.lba-openuav.de/#/droneExam/certificateVerification/test"]
+        self.assertEqual((check(de, "DEU-RP-abcdefgh1234")["status"], check(de)["authority"]["name"]), ("link", "LBA (DE)"))
         self.assertEqual(check(lux, "LUX-RP-abcdefgh1234")["authority"]["name"], "DAC Luxembourg, via Eurocontrol")
         self.assertEqual(check(uk, "GBR-RP-abcdefgh1234")["status"], "generic")
         wrong = check(fr, "NLD-RP-abcdefgh1234")
