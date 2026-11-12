@@ -1106,8 +1106,8 @@ flight totals, map, charts, breakdowns and tables retain their filtering and acc
 Person pages show PIC, PAC and GCS flight counts and hours in an always-visible strip below the
 summary totals. Each flight counts once per matching role, including daily paper flight counts.
 The breakdown cards are Aircraft, Projects and Locations; there are no separate Roles or Flew with cards.
-Entity detail pages use a single wrapping title bar for the name, badges, filter summary
-and Help. Breakdown cards show name, flights and hours, with the top five entries by flight time
+Entity detail pages use a single wrapping title bar for the name, badges and Help (the active flight filters are on
+the Flight filters button, with the full summary as its tooltip). Breakdown cards show name, flights and hours, with the top five entries by flight time
 visible initially and Show all / Show fewer controls. Cards share a 320px minimum height for
 short lists; expanded cards grow independently. Use the main navigation or browser Back to leave a detail page.
 
