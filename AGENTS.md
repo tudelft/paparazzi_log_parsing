@@ -132,6 +132,10 @@ aviation authority, so every one of these links must keep working in every relea
   Delete the branch once the pull request is merged.
 - Do not add assistant attribution anywhere: no Claude session links, "Generated with" lines or
   `Co-Authored-By`/`Claude-Session` trailers in commits, pull request descriptions, comments or files.
+- Author and commit as the maintainer who asked for the work (their usual git name and email, as on their own
+  commits), never as an assistant or tool identity such as `Claude <noreply@anthropic.com>`. Set `git config
+  user.name`/`user.email` before the first commit, also in worktrees and for subagents, and check
+  `git log --format='%an <%ae> | %cn <%ce>'` before pushing.
 - When the user asks to commit/push, also create an annotated Web UI release tag
   `webui-vMAJOR.MINOR.PATCH` on the resulting tested master commit, unless they explicitly opt out.
 - Inspect existing remote tags and all changes since the previous release: bump PATCH for fixes,
