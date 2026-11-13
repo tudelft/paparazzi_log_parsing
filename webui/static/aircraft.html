@@ -91,6 +91,13 @@
   table.fleet .chip { padding:1px 8px; margin:0; font-size:12px; }
   .fleet-count { color:var(--mute); }
   .unlinked-badge { font-size:12px; background:var(--chip); color:var(--warn, #9a6700); border-radius:10px; padding:2px 8px; }
+  .not-linked { font-size:11px; padding:0 6px; border-radius:8px; background:var(--warnbg); color:var(--warn); cursor:help; }
+  #requestsBox { margin:0 0 12px; }
+  #requestsBox table { width:100%; table-layout:fixed; }
+  #requestsBox td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:4px 8px; color:var(--mute); }
+  #requestsBox td.actions { overflow:visible; }
+  #requestsBox h3 { font-size:13px; margin:0 0 4px; color:var(--mute); }
+  .badge.pending { background:var(--chip); color:var(--mute); border:1px dashed var(--mute); }
   .col-menu { position:relative; }
   .col-menu form { position:absolute; top:calc(100% + 6px); left:0; z-index:1000; min-width:180px; padding:10px 12px;
     border:1px solid var(--line); border-radius:6px; background:var(--card); box-shadow:0 2px 8px #0003; display:grid; gap:2px; }
@@ -139,6 +146,7 @@
       <span class="unlinked-badge" id="pending" hidden></span>
     <button id="addSection" type="button" hidden onclick="openAddAircraft()">Add aircraft</button>
     <button id="importSection" type="button" class="sec" hidden onclick="$('importAircraftDialog').showModal()">Import aircraft from CSV</button>
+    <button id="requestSection" type="button" hidden onclick="openRequest()">Request aircraft</button>
     <details><summary>Help</summary><p id="fleetHint">Each aircraft has a unique serial (TUDxxxxx) that stays with it if the name changes. Names in the logs that differ from the nice name are aliases.</p></details></div>
     <dialog class="entry-dialog" id="addAircraftDialog" aria-labelledby="addAircraftTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
     <div class="dialog-header"><h2 id="addAircraftTitle">Add aircraft</h2><button type="button" onclick="$('addAircraftDialog').close()" aria-label="Close Add aircraft">Close</button></div>
@@ -155,6 +163,26 @@
     </form>
     </dialog>
     <datalist id="peopleNames"></datalist>
+    <dialog class="entry-dialog" id="requestDialog" aria-labelledby="requestTitle" style="width:min(420px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="requestTitle">Request aircraft</h2><button type="button" onclick="$('requestDialog').close()" aria-label="Close Request aircraft">Close</button></div>
+    <p class="mute">A project manager or an administrator approves it; then it is added to the fleet with you as its manager.</p>
+    <p class="dialog-error" id="requestError" role="alert"></p>
+    <form id="requestForm" onsubmit="sendRequest(event)">
+      <label class="field">Project<select id="reqProject" required></select></label>
+      <label class="field">Name<input id="reqName" required maxlength="80" autocomplete="off" placeholder="Name as in the logs"></label>
+      <label class="field">Serial (optional)<input id="reqSerial" maxlength="40" autocomplete="off" title="Empty gets the next free TUD number when it is approved"></label>
+      <label class="field">Details (optional)<input id="reqComments" maxlength="400" autocomplete="off" placeholder="Type, purpose, …"></label>
+      <button type="submit">Send request</button>
+    </form>
+    </dialog>
+    <dialog class="entry-dialog" id="rejectDialog" aria-labelledby="rejectTitle" style="width:min(420px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="rejectTitle">Reject request</h2><button type="button" onclick="$('rejectDialog').close()" aria-label="Close Reject request">Close</button></div>
+    <form onsubmit="rejectRequest(event)">
+      <p id="rejectWhat"></p>
+      <label class="field">Reason (optional, mailed to the requester)<input id="rejectReason" maxlength="400" autocomplete="off"></label>
+      <button type="submit" class="danger">Reject</button>
+    </form>
+    </dialog>
     <dialog class="entry-dialog" id="importAircraftDialog" aria-labelledby="importAircraftTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
     <div class="dialog-header"><h2 id="importAircraftTitle">Import aircraft from CSV</h2><button type="button" onclick="$('importAircraftDialog').close()" aria-label="Close CSV import">Close</button></div>
     <p>Reimport matches serials and updates aircraft details. Import projects first. A changed Project requires <code>project_effective_date</code> (YYYY-MM-DD); blank Project leaves its assignment unchanged.</p>
@@ -167,6 +195,7 @@
       <span id="importMsg" class="mute"></span>
     </div>
     </dialog>
+    <div id="requestsBox" hidden><h3>Requested aircraft</h3><table><colgroup><col style="width:22%"><col style="width:12%"><col style="width:16%"><col style="width:16%"><col style="width:16%"><col style="width:18%"></colgroup><tbody id="requestRows"></tbody></table></div>
     <div id="aircraftManagement" class="aircraft-layout" hidden>
       <div><p class="mute" id="aircraftCount" role="status"></p><div class="aircraft-list" id="aircraftList"></div></div>
       <section id="aircraftPanel" aria-label="Selected aircraft">
@@ -200,6 +229,10 @@ let pickFor = null;
 let me = null;
 let selectedAircraft = null, selectedAircraftTab = 'details';
 const editOn = () => !!(me && me.is_admin && window.editMode());
+// Project managers and an aircraft's linked manager edit its details (not name, serial, projects or aliases).
+const manageOn = () => !!(me && window.editMode() && (me.is_admin || data.drones.some(d => d.can_edit)));
+const notLinked = d => d.manager && !d.manager_id
+  ? '<span class="not-linked" title="This name is not linked to an account. Pick the person in Edit mode.">not linked</span>' : '';
 function toggleEdit() {
   $('add').hidden = !editOn();
   $('importRow').hidden = !editOn();
@@ -260,7 +293,7 @@ async function savePeriods(id) {
 
 function matches(d, q, status) {
   if ((d.status || '') === 'Discard' && !$('showDiscarded').checked && status !== 'Discard') return false;
-  if (!d.log_count && !d.record_count && !$('showWithoutLogs').checked && !(editOn() && d.id === selectedAircraft)) return false;
+  if (!d.log_count && !d.record_count && !$('showWithoutLogs').checked && !(manageOn() && d.id === selectedAircraft)) return false;
   if (status && (d.status || '') !== status) return false;
   if (!q) return true;
   const blob = [d.name, d.unique_id, d.manager, d.current_user, d.status,
@@ -301,9 +334,13 @@ function render() {
   $('excludedBoards').innerHTML = (data.excluded_boards || []).length ? `<h3>Boards not used for matching</h3>
     ${data.excluded_boards.map(b => `<span class="chip"><span class="mono">${esc(b.mcu_uid)}</span> · ${b.log_count} log${b.log_count === 1 ? '' : 's'}<button type="button" data-board="${esc(b.mcu_uid)}" class="allow" onclick="boardMatching(this, 'POST')">Allow again</button></span>`).join('')}` : '';
   $('addSection').hidden = $('importSection').hidden = !editing;
-  $('aircraftManagement').hidden = !editing;
-  $('aircraftOverview').hidden = editing;
+  const managing = manageOn();
+  $('aircraftManagement').hidden = !managing;
+  $('aircraftOverview').hidden = managing;
   if (!editing) { $('addAircraftDialog').close(); $('importAircraftDialog').close(); }
+  $('requestSection').hidden = !(window.editMode() && (data.request_projects || []).length);
+  if ($('requestSection').hidden) $('requestDialog').close();
+  renderRequests();
   const opts = data.drones.map(d => `<option value="${d.id}">${esc(d.name)}${d.unique_id ? ' (' + esc(d.unique_id) + ')' : ''}</option>`).join('');
   const open = me && me.is_admin ? data.unlinked.length : 0;
   $('unlinkedCard').hidden = !(editing && open);
@@ -331,7 +368,7 @@ function render() {
     return `<tr><td>${esc(e.name)}${also}</td><td class="mono">${esc(boards)}</td><td>${e.count}×</td><td><span class="folder-list" title="${esc(folders)}">${esc(folders)}</span></td><td>${link}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="mute">Nothing matches the filter.</td></tr>';
   const shown = data.drones.filter(d => matches(d, q, status));
-  if (editing) {
+  if (managing) {
     $('colMenu').hidden = true;
     $('drones').innerHTML = '';
     $('aircraftCount').textContent = `${shown.length} of ${data.drones.length} aircraft`;
@@ -363,7 +400,7 @@ function render() {
       <td class="serial" title="${esc(d.unique_id || '')}">${esc(d.unique_id || '')}</td>
       <td><a href="/aircraft/${d.id}" title="${esc(d.name)}">${esc(d.name)}</a></td>
       <td>${st ? `<span class="badge st-${esc(st)}">${esc(st)}</span>` : ''}</td>
-      <td title="${esc(d.manager || '')}">${esc(d.manager || '')}</td>
+      <td title="${esc(d.manager || '')}">${me && me.is_admin && notLinked(d) ? notLinked(d) + ' ' : ''}${esc(d.manager || '')}</td>
       <td title="${esc(history)}">${project ? esc(project) : '<span class="mute">—</span>'}${ps.length > 1 ? ` <span class="mute">+${ps.length - 1}</span>` : ''}</td>
       <td class="mute" title="${esc(d.comments || '')}">${esc(d.comments || '')}</td>
       <td class="num" title="${d.log_count} uploaded log${d.log_count === 1 ? '' : 's'} · ${d.record_count || 0} paper record${d.record_count === 1 ? '' : 's'}">${total || '<span class="mute">0</span>'}</td>
@@ -466,6 +503,9 @@ function renderAircraftPanel() {
   $('aircraftLink').hidden = $('aircraftTabs').hidden = !d;
   if (!d) { $('aircraftContent').innerHTML = ''; return; }
   $('aircraftLink').href = '/aircraft/' + d.id;
+  const admin = editOn();
+  if (!admin) selectedAircraftTab = 'details';  // project history and aliases stay with administrators
+  for (const tab of ['projects', 'aliases']) $('aircraft-tab-' + tab).hidden = !admin;
   for (const tab of ['details','projects','aliases']) {
     $('aircraft-tab-' + tab).setAttribute('aria-selected', String(tab === selectedAircraftTab));
     $('aircraft-tab-' + tab).tabIndex = tab === selectedAircraftTab ? 0 : -1;
@@ -481,25 +521,28 @@ function renderAircraftPanel() {
       ${(d.boards || []).length ? `<h3>Autopilot boards</h3>
       <p class="mute">Learned from logs whose name clearly matched this aircraft; a log with a shared or unknown name on the same board is linked here too.</p>
       ${d.boards.map(b => `<span class="chip" title="${b.source === 'manual' ? 'From a hand assignment' : 'Learned automatically'} · ${b.log_count} log${b.log_count === 1 ? '' : 's'}${b.other_count ? ` · ${b.other_count} linked to another aircraft by name` : ''}"><span class="mono">${esc(b.mcu_uid)}</span>${b.other_count ? ' <span class="elsewhere">also on another aircraft</span>' : ''}<button type="button" aria-label="Stop matching board ${esc(b.mcu_uid)}" data-board="${esc(b.mcu_uid)}" onclick="boardMatching(this, 'DELETE')">×</button></span>`).join('')}` : ''}`;
+  } else if (!admin && !d.can_edit) {
+    $('aircraftContent').innerHTML = `<p class="mute">Only administrators, managers of its current project and its manager edit this aircraft.</p>`;
   } else {
     $('aircraftContent').innerHTML = `<form id="aircraftDetails" onsubmit="saveAircraftDetails(event,${d.id})">
       <div class="detail-fields">
-      <label class="field">Name<input name="name" value="${esc(d.name)}" required maxlength="80"></label>
-      <label class="field">Serial<input name="unique_id" value="${esc(d.unique_id || '')}" required maxlength="40"></label>
+      ${admin ? `<label class="field">Name<input name="name" value="${esc(d.name)}" required maxlength="80"></label>
+      <label class="field">Serial<input name="unique_id" value="${esc(d.unique_id || '')}" required maxlength="40"></label>` : ''}
       <label class="field">Status<select name="status">${statusOptions(d.status)}</select></label>
-      <label class="field">Manager<input name="manager" value="${esc(d.manager || '')}" list="peopleNames" maxlength="80" autocomplete="off" onchange="matchPerson(this)"></label>
+      <label class="field"><span>Manager ${notLinked(d)}</span><input name="manager" value="${esc(d.manager || '')}" data-pid="${d.manager_id || ''}" list="peopleNames" maxlength="80" autocomplete="off" onchange="matchPerson(this)" title="Pick a registered person; a name without an account stays not linked"></label>
       <label class="field">Current user<input name="current_user" value="${esc(d.current_user || '')}" list="peopleNames" maxlength="80" autocomplete="off" onchange="matchPerson(this)"></label>
       <label class="field full">Comments<textarea name="comments" maxlength="400" rows="3">${esc(d.comments || '')}</textarea></label>
-      </div><p class="mute">Renaming keeps the old name as an alias so existing logs still match.</p>
+      </div>${admin ? '<p class="mute">Renaming keeps the old name as an alias so existing logs still match.</p>' : ''}
       <button type="submit">Save details</button></form>
-      <p><button type="button" class="danger" onclick="removeDrone(${d.id})">Remove aircraft</button></p>`;
+      ${admin ? `<p><button type="button" class="danger" onclick="removeDrone(${d.id})">Remove aircraft</button></p>` : ''}`;
   }
 }
 async function saveAircraftDetails(event, id) {
   event.preventDefault();
   const form = event.currentTarget;
   const body = Object.fromEntries(new FormData(form));
-  await send('PUT', '/api/admin/drones/' + id, body);
+  body.manager_id = form.elements.manager.dataset.pid ? +form.elements.manager.dataset.pid : null;
+  await send('PUT', '/api/drones/' + id, body);
 }
 
 async function load() {
@@ -527,12 +570,66 @@ function loadPeople() {
 // Typed a username or another spelling of a registered name: write it as that user's display name.
 function matchPerson(input) {
   const v = input.value.trim().toLowerCase();
-  const hit = v && people.find(p => p.display_name.toLowerCase() === v || p.username.toLowerCase() === v);
+  const hit = v && (people.find(p => !p.is_external && p.username.toLowerCase() === v)
+    || people.find(p => !p.is_external && p.display_name.toLowerCase() === v) || people.find(p => p.display_name.toLowerCase() === v));
   input.value = hit ? hit.display_name : input.value.trim();
+  input.dataset.pid = hit && !hit.is_external ? hit.id : '';  // the manager is linked to this account
+}
+// Pending aircraft requests: the requester's own, and those of projects this user manages (all for admins).
+function renderRequests() {
+  const list = data.requests || [];
+  $('requestsBox').hidden = !list.length;
+  const ed = window.editMode();
+  $('requestRows').innerHTML = list.map(r => `<tr>
+    <td title="${esc(r.name)}">${esc(r.name)} <span class="badge pending" title="Waiting for a project manager or an administrator">Pending</span></td>
+    <td class="mono" title="${esc(r.unique_id || 'Next free serial on approval')}">${esc(r.unique_id || '—')}</td>
+    <td title="${esc(r.project_name)}">${esc(r.project_name)}</td>
+    <td title="Requested by ${esc(r.requested_by_name)} on ${esc((r.created_at || '').slice(0, 10))}">${esc(r.requested_by_name)}</td>
+    <td title="${esc(r.comments || '')}">${esc(r.comments || '')}</td>
+    <td class="actions">${!ed ? '<span class="mute" title="Turn on Edit to decide or withdraw">—</span>'
+      : r.can_decide ? `<button type="button" onclick="approveRequest(${r.id})">Approve</button> <button type="button" class="danger" onclick="openReject(${r.id})">Reject</button>`
+      : r.requested_by === me.id ? `<button type="button" class="sec" onclick="withdrawRequest(${r.id})">Withdraw</button>` : ''}</td></tr>`).join('');
+}
+function openRequest() {
+  $('requestForm').reset();
+  $('requestError').textContent = '';
+  $('reqProject').innerHTML = (data.request_projects || []).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  $('requestDialog').showModal();
+  $('reqName').focus();
+}
+async function sendRequest(event) {
+  event.preventDefault();
+  const r = await fetch('/api/drone-requests', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+    project_id: +$('reqProject').value, name: $('reqName').value, unique_id: $('reqSerial').value, comments: $('reqComments').value})});
+  if (!r.ok) { $('requestError').textContent = (await r.json().catch(() => ({}))).error || 'Could not send the request.'; return; }
+  $('requestDialog').close();
+  await load();
+}
+function approveRequest(id) {
+  const r = (data.requests || []).find(x => x.id === id);
+  if (r && confirm(`Add ${r.name} to the fleet in ${r.project_name}?`)) send('POST', `/api/drone-requests/${id}/approve`);
+}
+let rejecting = null;
+function openReject(id) {
+  const r = (data.requests || []).find(x => x.id === id);
+  if (!r) return;
+  rejecting = id;
+  $('rejectWhat').textContent = `${r.name} for ${r.project_name}, requested by ${r.requested_by_name}.`;
+  $('rejectReason').value = '';
+  $('rejectDialog').showModal();
+  $('rejectReason').focus();
+}
+async function rejectRequest(event) {
+  event.preventDefault();
+  $('rejectDialog').close();
+  await send('DELETE', '/api/drone-requests/' + rejecting, {reason: $('rejectReason').value});
+}
+function withdrawRequest(id) {
+  if (confirm('Withdraw this request?')) send('DELETE', '/api/drone-requests/' + id);
 }
 function openAddAircraft() {
   if (!$('uid').value && data?.next_serial) $('uid').value = data.next_serial;
-  if (!$('newManager').value && me) $('newManager').value = me.display_name;
+  if (!$('newManager').value && me) { $('newManager').value = me.display_name; $('newManager').dataset.pid = me.id; }
   $('addAircraftDialog').showModal();
 }
 async function addDrone(ev) {
@@ -543,12 +640,14 @@ async function addDrone(ev) {
   const project = $('newProject').value;
   const body = {name, unique_id, default_project_id: project ? +project : null,
     status: $('newStatus').value, manager: $('newManager').value, current_user: $('newCurrentUser').value,
+    manager_id: $('newManager').value && $('newManager').dataset.pid ? +$('newManager').dataset.pid : null,
     comments: $('newComments').value};
   try {
     const r = await fetch('/api/admin/drones', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
     if (!r.ok) { $('addAircraftError').textContent = (await r.json()).error || 'Could not add aircraft'; return; }
     $('addAircraftError').textContent = '';
     $('add').reset();
+    $('newManager').dataset.pid = '';
     $('addAircraftDialog').close();
     await load();
   } catch (error) { $('addAircraftError').textContent = 'Could not add aircraft: ' + error.message; }

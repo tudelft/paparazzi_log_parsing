@@ -30,7 +30,7 @@ class RecordError(ValueError):
 
 def can_edit(con, user, project_id):
     return bool(user["is_admin"] or con.execute(
-        "SELECT 1 FROM project_members WHERE user_id=? AND project_id=? AND role='full'",
+        "SELECT 1 FROM project_members WHERE user_id=? AND project_id=? AND role IN ('full','manager')",
         (user["id"], project_id)).fetchone())
 
 

@@ -28,6 +28,8 @@ KINDS = {
                ("immediate", "daily", "off"), "immediate", False),
     "bookings": ("Bookings", "When you book, when someone else changes or removes your booking, and when a new "
                  "booking overlaps one of yours.", ("immediate", "daily", "off"), "immediate", False),
+    "requests": ("Aircraft requests", "When your aircraft request is approved or rejected, and (project managers) new "
+                 "requests to decide.", ("immediate", "daily", "off"), "immediate", False),
     "expiry_all": ("Others' expiry reminders", "A copy of everyone's expiry reminders (30 and 7 days before).",
                    ("off", "immediate", "daily"), "off", True),
     "admin": ("Administrator notices", "Qualifications waiting for approval and logs that failed to parse.",

@@ -43,7 +43,8 @@ class MailTests(AppTests):
     def test_preferences_immediate_daily_off(self):
         self.sign_in(2)
         kinds = {k["kind"]: k["mode"] for k in self.client.get("/api/account/email").json["kinds"]}
-        self.assertEqual(kinds, {"account": "immediate", "expiry": "immediate", "bookings": "immediate"})  # no admin kind
+        self.assertEqual(kinds, {"account": "immediate", "expiry": "immediate", "bookings": "immediate",
+                                 "requests": "immediate"})  # no admin kind
         self.assertEqual(self.client.put("/api/account/email", json={"modes": {"admin": "off"}}).status_code, 400)
         self.assertEqual(self.client.put("/api/account/email", json={"modes": {"account": "off"}}).status_code, 400)
         mail.notify(self.con, 2, "bookings", "Booked: arena", "You booked the arena.", "/agenda")
