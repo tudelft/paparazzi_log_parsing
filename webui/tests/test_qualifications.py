@@ -1005,15 +1005,57 @@ class ReadEvidenceTests(AppTests):
             row = self.row(self.submit(pdf).json["id"])
         self.assertEqual((row["valid_from"], row["valid_until"]), ("2024-03-12", "2029-03-11"))
 
+    def read(self, content, client=None, **entered):
+        r = (client or self.client).post("/api/users/2/qualifications/read",
+                                         data={**entered, "evidence": (io.BytesIO(content), "evidence.pdf")})
+        r.request.input_stream.close()
+        return r
+
     def test_scanned_pdf_fills_number_by_ocr(self):
         if not qualifications.ocr_available():
             self.skipTest("pdftoppm/tesseract not installed")
-        # scan_pdf has its text in the PDF too: hide it, as in an image-only scan
+        # scan_pdf has its text in the PDF too: hide it, as in an image-only scan. OCR runs when the file is
+        # chosen (the read endpoint), not again on submit.
         with patch("licence_qr.available", return_value=False), patch("qualifications.pdf_texts", return_value=[]):
+            r = self.read(scan_pdf(), valid_from="2024-01-01", valid_until="2029-01-01")
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertEqual(r.json["found"]["number"], {"value": "NL.66.12345", "source": "ocr"})
+        self.assertEqual(r.json["notes"], [])
+
+    def test_submit_does_not_run_ocr(self):
+        with patch("licence_qr.available", return_value=False), patch("qualifications.pdf_texts", return_value=[]), \
+                patch("qualifications.ocr_available", return_value=True), patch("qualifications.ocr_read") as ocr:
             r = self.submit(scan_pdf(), start="2024-01-01", until="2029-01-01")
         self.assertEqual(r.status_code, 201, r.json)
-        self.assertEqual(self.row(r.json["id"])["number"], "NL.66.12345")
-        self.assertEqual(self.audit()["read_from"], {"number": "ocr"})
+        ocr.assert_not_called()
+        self.assertIsNone(self.row(r.json["id"])["number"])
+
+    def test_ocr_stops_at_the_time_budget(self):
+        self.app.config["QUALIFICATION_READ_SECONDS"] = 0
+        self.addCleanup(self.app.config.pop, "QUALIFICATION_READ_SECONDS")
+        with patch("licence_qr.available", return_value=False), patch("qualifications.pdf_texts", return_value=[]), \
+                patch("qualifications.ocr_available", return_value=True), patch("subprocess.run") as run:
+            r = self.read(scan_pdf())
+        self.assertEqual(r.status_code, 200, r.json)
+        run.assert_not_called()  # no time left: not even the page rendering starts
+        self.assertEqual((r.json["found"], r.json["notes"]), ({}, [qualifications.OCR_TOO_LONG]))
+
+    def test_one_read_at_a_time_per_person(self):
+        # the tests' database belongs to one thread: the second request is sent while the first is being read
+        real, during = qualifications.read_evidence, {}
+        other = self.app.test_client()
+        with other.session_transaction() as session:
+            session["uid"] = 1
+
+        def busy(*args, **kwargs):
+            if not during:
+                during["r"] = self.read(dated_pdf(), client=other)
+            return real(*args, **kwargs)
+        with patch("licence_qr.available", return_value=False), patch("qualifications.read_evidence", busy):
+            first = self.read(dated_pdf())
+            again = self.read(dated_pdf())
+        self.assertEqual(during["r"].status_code, 429, during["r"].json)
+        self.assertEqual((first.status_code, again.status_code), (200, 200))
 
     def test_qr_code_fills_number_and_dates(self):
         codes = ["https://vliegbewijsonbemandeluchtvaartuigencontroleren.rdw.nl/raadplegen?code=NLD-RP-abcdefgh1234",

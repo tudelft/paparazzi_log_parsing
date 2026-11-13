@@ -282,7 +282,8 @@ window.QualificationManager = class {
     const q = r.qr;
     const who = q && q.authority ? ` · QR code of ${this.esc(q.authority.name)}` : q && q.status === 'none' ? ' · no QR code found' : '';
     box.innerHTML = (bits.length ? 'Read: ' + bits.join(' · ') : '<span class="mute">Nothing recognised in the evidence; fill in the fields.</span>')
-      + who + (r.issues || []).map(i => `<div style="color:var(--err)">${this.esc(i)}</div>`).join('')
+      + who + (r.notes || []).map(n => `<div class="mute">${this.esc(n)}</div>`).join('')
+      + (r.issues || []).map(i => `<div style="color:var(--err)">${this.esc(i)}</div>`).join('')
       + '<div class="mute">Check the values: an admin confirms them on approval.</div>';
   }
   error(message) {

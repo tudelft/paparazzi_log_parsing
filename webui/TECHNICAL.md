@@ -1294,7 +1294,7 @@ Scanned PDFs hold only images: **Fill numbers from PDFs…** reads those with OC
 (poppler-utils) and `tesseract` (tesseract-ocr) are installed (`install.sh` installs them). It renders the
 first four pages at 200 dpi, turns each page upright (tesseract's orientation detection, and upside down as a
 second try) and takes a few seconds per scan; one run stops reading new scans after 90 s and reports the rest
-as not read yet. Uploads run OCR only when a wanted field is still empty (see *Reading at upload* below). The reviewer checks the number and
+as not read yet. Uploads run OCR only in the upload dialog, within a time limit (see *Reading at upload* below). The reviewer checks the number and
 approval is refused while a required number is missing. Admins correct it with **Edit** (with the dates,
 audited as `number-changed`). **Fill numbers from PDFs…** under Qualification types opens a dialog that
 (`POST /api/admin/qualifications/fill-numbers`) fills the empty numbers of approved submissions of such
@@ -1329,9 +1329,13 @@ evidence that was not read yet shows *QR code not read yet* to administrators. W
 `POST /api/users/<id>/qualifications/read` (same access as submitting; the file is deleted after reading and nothing is
 stored). The server reads the QR code, the PDF text and, when the number or a date is still missing, OCR, and returns
 what it found per field with its source (`qr`, `text`, `ocr`; that order of preference), the dates seen and where the
-document differs from the typed values. The dialog fills only empty, shown fields and lists the result; with a file
-chosen, the date fields are no longer required in the browser. On submit the server does the same for empty fields the
-type asks for (number, Valid from, Valid until): typed values are never replaced, a read pair with Valid from after
+document differs from the typed values. The whole read has one time limit (`READ_SECONDS`, 25 s; OCR gets what is left
+and every OCR call at most that): when it runs out, what was found so far is returned with the note *OCR took too long;
+fill in the fields* (`notes`). One read per person runs at a time; another one meanwhile gets 429 (the server runs one
+process, so an in-process set is enough). The dialog fills only empty, shown fields and lists the result; with a file
+chosen, the date fields are no longer required in the browser. On submit the server reads empty fields the type asks
+for (number, Valid from, Valid until) from the QR code and the PDF text only, without OCR (the dialog already filled
+its OCR results into the form): typed values are never replaced, a read pair with Valid from after
 Valid until is dropped, and a field missing from both form and document gives the usual error. The `submitted` audit
 event records `read_from` (field: source) and `differs`. When the QR code was read at submit it is stored in `qr_json`
 and the background read is skipped. Dates are recognised as `YYYY-MM-DD`, `D.M.YYYY` (also `-` and `/`) and
