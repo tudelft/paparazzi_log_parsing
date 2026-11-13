@@ -234,7 +234,7 @@ class CatalogImportTests(AppTests):
 
     def test_aircraft_change_requires_date_and_rolls_back_whole_file(self):
         self.make_flights()
-        text = "AC Nice Name,Serial Unique,Project\nNew aircraft,NEW,Research\nDrone,UID,Private\n"
+        text = "AC Nice Name,Serial Unique,Project,manager\nNew aircraft,NEW,Research,Pilot\nDrone,UID,Private,\n"
         response = self.upload("drones", text)
         self.assertEqual(response.status_code, 400, response.json)
         self.assertIn("effective_date", response.json["error"])
@@ -248,15 +248,15 @@ class CatalogImportTests(AppTests):
 
     def test_aircraft_blank_or_omitted_columns_preserve_existing_values(self):
         self.make_flights()
-        self.con.execute("UPDATE drones SET manager='Example manager',inventory_project='Research' WHERE id=1")
+        self.con.execute("UPDATE drones SET manager_id=2,inventory_project='Research' WHERE id=1")
         self.con.commit()
         for text in ("name,serial,Project\nDrone,UID,\n", "name,serial\nDrone,UID\n"):
             response = self.upload("drones", text)
             self.assertEqual(response.status_code, 200, response.json)
             row = self.con.execute("SELECT * FROM drones WHERE id=1").fetchone()
-            self.assertEqual((row["default_project_id"], row["inventory_project"], row["manager"]),
-                             (1, "Research", "Example manager"))
-        self.assertEqual(self.upload("drones", "name,serial,Project\nNew drone,NEW,Private\n").status_code, 200)
+            self.assertEqual((row["default_project_id"], row["inventory_project"], row["manager_id"]),
+                             (1, "Research", 2))
+        self.assertEqual(self.upload("drones", "name,serial,Project,manager\nNew drone,NEW,Private,Pilot\n").status_code, 200)
         new = self.con.execute("SELECT * FROM drones WHERE unique_id='NEW'").fetchone()
         self.assertEqual(new["default_project_id"], 2)
 

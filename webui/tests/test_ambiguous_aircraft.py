@@ -55,7 +55,7 @@ class AmbiguousAircraftTests(AppTests):
 
         relinks, relink_patch = counting("relink_all_aircraft")
         with relink_patch:
-            response = self.client.put("/api/admin/drones/2", json=dict(manager="Pilot", status="Ready", comments="x"))
+            response = self.client.put("/api/admin/drones/2", json=dict(manager_id=2, status="Ready", comments="x"))
         self.assertEqual(response.status_code, 200, response.json)
         self.assertEqual(relinks, [])
         for i in range(100, 120):  # unrelated logs must not each rebuild the name map

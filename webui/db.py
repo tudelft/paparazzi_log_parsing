@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS drones (
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
     unique_id TEXT NOT NULL UNIQUE COLLATE NOCASE,  -- fleet ID you assign; stays the same if the name changes
     default_project_id INTEGER,        -- projects.id; used when a matching log has no project yet
-    manager TEXT,                      -- post holder / responsible person
+    manager_id INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- post holder / responsible person (an account)
     current_user TEXT,                 -- who currently has the aircraft
     status TEXT,                       -- Ready | Maintenance | Development | Discard
     bought_on TEXT,                    -- YYYY-MM-DD
@@ -294,8 +294,16 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE TABLE IF NOT EXISTS project_members (
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role TEXT NOT NULL,                 -- view | add | full
+    role TEXT NOT NULL,                 -- view | add | full | manager (full, plus members and aircraft requests)
     PRIMARY KEY (project_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS drone_requests (   -- aircraft asked for by a project member, waiting for approval;
+    id INTEGER PRIMARY KEY,                   -- kept apart from drones so it reserves no name or serial
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    requested_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    comments TEXT,
+    created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS api_keys (
     id INTEGER PRIMARY KEY,
@@ -640,6 +648,18 @@ def connect(path):
     return con
 
 
+def user_by_name(con, name):
+    """The id of the one active, non-external account whose display name or username is this name (ignoring case),
+    else None (no account, or more than one)."""
+    name = (name or "").strip()
+    if not name:
+        return None
+    ids = {r[0] for r in con.execute(
+        "SELECT id FROM users WHERE is_active=1 AND is_external=0"
+        " AND (display_name=? COLLATE NOCASE OR username=? COLLATE NOCASE)", (name, name))}
+    return ids.pop() if len(ids) == 1 else None
+
+
 def init(path):
     con = connect(path)
     new_profile_lists = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='profile_roles'").fetchone() is None
@@ -786,9 +806,20 @@ def init(path):
         con.execute("ALTER TABLE drones ADD COLUMN unique_id TEXT")
         for d in con.execute("SELECT id FROM drones"):
             con.execute("UPDATE drones SET unique_id=? WHERE id=?", (str(d["id"]), d["id"]))
-    for col in ("manager", "current_user", "status", "bought_on", "inventory_project", "comments"):
+    for col in ("current_user", "status", "bought_on", "inventory_project", "comments"):
         if col not in dcols:
             con.execute(f"ALTER TABLE drones ADD COLUMN {col} TEXT")
+    if "manager_id" not in dcols:
+        con.execute("ALTER TABLE drones ADD COLUMN manager_id INTEGER REFERENCES users(id) ON DELETE SET NULL")
+    if "manager" in dcols:
+        # the manager was free text; it becomes a link to an account. Text naming exactly one account is linked, other
+        # text is dropped (no manager). Then the text column goes; SQLite before 3.35 cannot drop it, so it is emptied.
+        for d in con.execute("SELECT id, manager FROM drones WHERE manager_id IS NULL AND manager IS NOT NULL").fetchall():
+            con.execute("UPDATE drones SET manager_id=? WHERE id=?", (user_by_name(con, d["manager"]), d["id"]))
+        if sqlite3.sqlite_version_info >= (3, 35, 0):
+            con.execute("ALTER TABLE drones DROP COLUMN manager")
+        else:
+            con.execute("UPDATE drones SET manager=NULL WHERE manager IS NOT NULL")
     con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_drones_unique_id ON drones(unique_id COLLATE NOCASE)")
     con.execute(
         "CREATE TABLE IF NOT EXISTS drone_projects ("
@@ -875,7 +906,7 @@ def init(path):
 # or upload bookkeeping, leave the logbook version alone, so they do not empty the logbook cache. Any other table
 # counts, including tables added later, so a missing entry here only costs a cache refresh, never stale data.
 LOGBOOK_UNRELATED = {
-    "api_keys", "cli_logins", "password_setup_tokens", "ingest", "bulk_reservations", "weather_cache",
+    "api_keys", "cli_logins", "drone_requests", "password_setup_tokens", "ingest", "bulk_reservations", "weather_cache",
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
     "training_progress", "training_briefers", "booking_things", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
     "document_settings", "document_groups", "documents", "document_profile_roles",

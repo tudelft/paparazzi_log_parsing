@@ -6,7 +6,7 @@ from .test_historical import AppTests
 
 class DroneSerialTests(AppTests):
     def add(self, **body):
-        return self.client.post("/api/admin/drones", json={"name": "New", **body})
+        return self.client.post("/api/admin/drones", json={"name": "New", "manager_id": 1, **body})
 
     def test_new_aircraft_get_the_lowest_free_tud_serial_after_400(self):
         self.con.executemany("INSERT INTO drones(name,unique_id,created_at) VALUES (?,?,'now')",
@@ -47,7 +47,7 @@ class DroneProjectStartTests(AppTests):
     def test_a_new_aircraft_covers_earlier_logs(self):
         self.flight("2024-10-02")
         self.sign_in(1)
-        response = self.client.post("/api/admin/drones", json=dict(name="Cargo1", default_project_id=1))
+        response = self.client.post("/api/admin/drones", json=dict(name="Cargo1", default_project_id=1, manager_id=1))
         self.assertEqual(response.status_code, 200, response.json)
         drone = response.json["id"]
         self.assertEqual(tuple(self.con.execute("SELECT project_id, start_date, end_date FROM drone_projects"

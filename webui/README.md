@@ -193,8 +193,14 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
   Add a username as an alias only if it reliably identifies that person in logs. Duplicate display names
   stay unresolved unless an explicit alias identifies the person. Renaming a username does not add an alias.
 - Admins manage **Aircraft** using Details, Project history and Aliases. Add/import buttons open dialogs;
-  Close or Escape dismisses them. **Manager** and **Current user** suggest registered users as you type (free text
-  is allowed for people without an account); a new aircraft starts with you as manager.
+  Close or Escape dismisses them. **Current user** suggests registered users as you type (free text is allowed for
+  people without an account). **Manager** is always a registered person and is required for a new aircraft; it
+  starts as you.
+- Project members who may add logs can **Request aircraft** for their project (Aircraft). A project manager or an
+  admin approves or rejects it in Edit mode; the serial is assigned on approval and the requester becomes its manager.
+  Until then it is listed as **Pending** and reserves nothing.
+  Project managers also edit the status, current user, comments and manager of their project's aircraft, and the
+  linked manager of an aircraft can do the same.
   Link unrecognised log names to an existing aircraft/person in Edit mode. There, Aircraft shows tabs
   (Aircraft · Unlinked names · Shared names) and People shows tabs (People · Unlinked crew names · Approval queue ·
   Qualification types), so one list is on screen at a time; the tab is kept in the URL.
@@ -206,7 +212,9 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
   shared-name panel for explicit per-log assignments when needed.
 - Crew names in logs do not create user profiles. Admins can link multiple names to one person using
   aliases, or use Add user if a new profile is needed. Previously generated profiles are kept.
-- Admins manage project access on **Projects** and named takeoff areas on **Locations**.
+- Admins manage project access on **Projects** and named takeoff areas on **Locations**. Admins can make a member
+  **Manager** of a project; a manager adds and removes its members and sets See/Upload/Delete in Edit mode, but
+  only admins appoint managers ([details](TECHNICAL.md#accounts-and-tu-delft-login)).
   In Edit mode, Projects supports CSV import with `project,person,role`; blank roles mean view/upload.
   Reimports replace all members of included projects. For initial setup, import qualifications first,
   then projects, then aircraft. Aircraft project changes require a `project_effective_date`;

@@ -273,7 +273,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
                 params = (f"%{query}%", f"%{query}%", f"%{query}%", query)
             else:
                 params = (f"%{query}%", f"%{query}%", query)
-            sql += (f" AND (? OR {project} IN (SELECT project_id FROM project_members WHERE user_id=? AND role='full')"
+            sql += (f" AND (? OR {project} IN (SELECT project_id FROM project_members WHERE user_id=? AND role IN ('full','manager'))"
                     f" OR ({project} IS NULL AND {uploader}=?)) ORDER BY {order} DESC LIMIT 100")
             for r in con.execute(sql, (*params, g.user["is_admin"], g.user["id"], g.user["id"])):
                 found.append(target(con, g.user, category, r["id"], edit=True))

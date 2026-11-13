@@ -763,6 +763,40 @@ rename it, change current members' permissions or delete it. The member list con
 members; search by name, username or alias to add an enabled, non-external person with See access,
 then adjust Upload/Delete as needed. Removing all permissions removes membership. Existing API
 authorization and project visibility rules apply unchanged.
+
+**Project roles and managers.** `project_members.role` is `view` < `add` < `full` < `manager` (`ACCESS_ROLES`,
+`PROJECT_ROLE_RANK` in `app.py`); a manager has everything `full` has. There is no global manager role.
+Admins tick **Manager** in the members editor (or use `manager` in the project CSV). In Edit mode a manager sees the
+members editor for the projects they manage, without rename, operator, category or delete: they add and remove
+members and set See/Upload/Delete (`PUT /api/projects/<id>/members`, the same handler as
+`/api/admin/projects/<id>/members`). Only admins appoint managers or change a manager's row, also the manager's
+own (403). Creating, deleting and renaming projects, operators, categories, authorisations and the CSV import stay
+admin-only.
+
+**Aircraft manager and detail edits.** An aircraft's manager is always a person: `drones.manager_id`
+(`REFERENCES users ON DELETE SET NULL`); APIs return the person's current name as `manager` and the id as
+`manager_id`. Add aircraft (`POST /api/admin/drones`) requires one (`manager_id`, or a `manager` name naming exactly
+one active, non-external account by display name or username, case-insensitive, `db.user_by_name`; else 400). A set
+manager can be changed to another person but not cleared or set to free text (400); an aircraft without a manager
+keeps its other fields editable. The earlier free-text `drones.manager` is migrated once: names matching exactly one
+such account are linked, other names are dropped (no manager). The column is then dropped (`ALTER TABLE ... DROP
+COLUMN`, SQLite 3.35 or newer, which current Python builds bundle); with an older SQLite it is emptied and never read.
+Managers of a project the aircraft is in today (a timeline period covering today, else its default project) and its
+manager may change only status, current user, comments and manager (`PUT /api/drones/<id>`; other fields 403).
+Name, serial, project history, aliases, import and delete stay admin-only.
+
+**Aircraft requests.** A non-admin with `add`, `full` or `manager` on a project sees **Request aircraft** (also
+outside Edit mode): project, name and optional details, no serial (`POST /api/drone-requests`, browser session only).
+Requests are stored in `drone_requests`, not in `drones`, so a pending request reserves no name and is never used
+for log matching (`drone_name_map`, folder matching, relinking). The Aircraft page lists pending requests, greyed with
+**Pending**, to the requester, the project's managers and admins (`requests` in `GET /api/drones`). Admins and the
+project's managers **Approve** (`POST /api/drone-requests/<id>/approve`): the aircraft is created by the same path as
+**Add aircraft** (next free serial, project timeline from the start, relinking) with the requester as manager; a
+name taken by then gives 409 and keeps the request. **Reject** (`DELETE
+/api/drone-requests/<id>`, optional `reason`) removes it and mails the requester; the requester may withdraw their own
+the same way, without a mail. Both endpoints refuse API keys. New requests are mailed to the project's managers
+(kind *Aircraft requests*) and to the administrators (administrator notices); the requester is mailed on approval
+and rejection.
 The Aircraft title, search/status filters and visibility switches share a wrapping toolbar to keep
 the fleet list near the top of the page without sacrificing narrow-screen access.
 
@@ -888,7 +922,8 @@ Latin-1 uploads are also accepted for older fleet spreadsheets. Limit: 1 MB / 50
 from one file are committed together; any invalid row leaves the database unchanged.
 
 Project columns are `project,person,role`, one row per member. `role` is optional and defaults to
-`add` (view/upload); other values are `view` and `full` (view/upload/delete). Person matching uses
+`add` (view/upload); other values are `view`, `full` (view/upload/delete) and `manager` (see
+[Project roles and managers](#accounts-and-tu-delft-login)). Person matching uses
 unique display names or explicit aliases, case-insensitively, not implicit usernames. Unknown,
 ambiguous or inactive people and conflicting roles reject the file with a row error.
 Projects match existing names case-insensitively; reimport keeps project IDs and linked data.
@@ -899,7 +934,9 @@ use the existing Rename control for a rename that preserves identity.
 
 Aircraft retain the fleet columns `AC Nice Name`, `Serial Unique`, `Manager (Post Holder)`,
 `Current User`, `Status`, `Date Bought`, `Project`, `Comments`. `name` and `unique_id`/`serial`
-are accepted alternatives for the first two columns. Reimports use the existing serial/name matching,
+are accepted alternatives for the first two columns. `Manager (Post Holder)` (or `manager`) must name exactly one
+registered person (see [Aircraft manager](#accounts-and-tu-delft-login)); a new aircraft needs one, and an unknown or
+ambiguous name rejects the row. A blank manager keeps an existing aircraft's manager. Reimports use the existing serial/name matching,
 update provided fields and preserve omitted optional columns. Empty Project cells preserve existing
 project/default/history values; a non-empty Project must match an existing project.
 Changing an existing aircraft's project requires `project_effective_date` (or `Project Effective Date`),
@@ -1139,8 +1176,9 @@ name, a button for the link, the footer with a link to the email settings) with 
 | Account | everyone | immediately (fixed) | the one-time link to set a password, when an admin ticks **Email the sign-in link** (Add user, New setup link) |
 | Expiry reminders | everyone | immediately | 30 and 7 days before an approved qualification ends (not when a newer approved or pending one of the type runs longer) and before the profile's expected end date (with person profiles on) |
 | Bookings | everyone | immediately | own new booking; someone else changed or removed yours; a new or moved booking overlaps yours |
+| Aircraft requests | everyone | immediately | your aircraft request was approved or rejected (with the reason); project managers: a new request for their project |
 | Others' expiry reminders | admins | off | a copy of everyone's expiry reminders |
-| Administrator notices | admins | immediately | a qualification waits for approval (submitted by a non-admin); a log failed to parse |
+| Administrator notices | admins | immediately | a qualification waits for approval (submitted by a non-admin); a log failed to parse; a new aircraft request |
 | Training access requests | admins | off | a copy of each training access request mail (see [Training questionnaires](#training-questionnaires)) |
 
 Each person chooses **Immediately**, **Daily summary** or **Off** per kind under **My account**, tab **Email** (`GET/PUT

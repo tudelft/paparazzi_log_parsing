@@ -64,6 +64,7 @@
   .project-button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
   table.compact { width:100%; table-layout:fixed; }
   table.compact td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .role-tag { font-size:12px; padding:1px 8px; border-radius:9px; background:var(--chip); }
   .tag { display:inline-block; font-size:11px; padding:1px 8px; border-radius:9px; background:var(--chip); margin-left:6px; }
   .tag.exemption { background:var(--warnbg, #fff4d6); color:var(--warn, #8a6300); }
   .cat { font-size:12px; padding:1px 8px; border-radius:9px; background:var(--chip); }
@@ -101,7 +102,7 @@
     </dialog>
     <dialog class="entry-dialog" id="importProjectsDialog" aria-labelledby="importProjectsTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
       <div class="dialog-header"><h2 id="importProjectsTitle">Import projects from CSV</h2><button type="button" onclick="$('importProjectsDialog').close()" aria-label="Close CSV import">Close</button></div>
-      <p>Columns: <code>project,person,role</code>, one row per member. Roles: <code>view</code>, <code>add</code> (view/upload; default), <code>full</code> (also delete). Match people by unique display name or alias.</p>
+      <p>Columns: <code>project,person,role</code>, one row per member. Roles: <code>view</code>, <code>add</code> (view/upload; default), <code>full</code> (also delete), <code>manager</code> (full, plus managing members and aircraft requests). Match people by unique display name or alias.</p>
       <p><strong>Reimport replaces all members of each included project.</strong> Omitted projects are unchanged. A blank person leaves the project without members. Any invalid row rejects the entire import.</p>
       <p><a href="/api/admin/projects/template">Download CSV template</a></p>
       <p class="dialog-error" id="importError" role="alert"></p>
@@ -173,8 +174,11 @@ window.fetch = async (...args) => {
 let projects = [], users = [], me = null, operators = [], authorisations = [], countries = [];
 let selectedProject = null;
 let memberQuery = '';
-const ticksOf = role => ({see: !!role, upload: role === 'add' || role === 'full', del: role === 'full'});
-function roleFromBoxes(see, upload, del) {
+// Project roles: view < add < full < manager. Only admins see the Manager box (they appoint managers).
+const ticksOf = role => ({see: !!role, upload: ['add', 'full', 'manager'].includes(role), del: ['full', 'manager'].includes(role),
+  manage: role === 'manager'});
+function roleFromBoxes(see, upload, del, manage) {
+  if (manage) return 'manager';
   if (del) return 'full';
   if (upload) return 'add';
   if (see) return 'view';
@@ -186,18 +190,23 @@ function tickBoxes(prefix, role, onchange) {
     <label><input type="checkbox" id="${prefix}see" ${t.see ? 'checked' : ''} onchange="${onchange}"> See</label>
     <label><input type="checkbox" id="${prefix}up" ${t.upload ? 'checked' : ''} onchange="${onchange}"> Upload</label>
     <label><input type="checkbox" id="${prefix}del" ${t.del ? 'checked' : ''} onchange="${onchange}"> Delete</label>
+    ${me && me.is_admin ? `<label title="Manages the members (See, Upload, Delete) and decides on aircraft requests of this project, and edits the details of its aircraft"><input type="checkbox" id="${prefix}man" ${t.manage ? 'checked' : ''} onchange="${onchange}"> Manager</label>` : ''}
   </span>`;
 }
 function applyTicks(prefix) {
-  const see = $(prefix + 'see'), up = $(prefix + 'up'), del = $(prefix + 'del');
+  const see = $(prefix + 'see'), up = $(prefix + 'up'), del = $(prefix + 'del'), man = $(prefix + 'man') || {checked: false};
+  if (man.checked) { see.checked = up.checked = del.checked = true; }
   if (del.checked) { see.checked = true; up.checked = true; }
   else if (up.checked) see.checked = true;
   if (!see.checked) { up.checked = false; del.checked = false; }
   if (!up.checked) del.checked = false;
-  return roleFromBoxes(see.checked, up.checked, del.checked);
+  if (!del.checked) man.checked = false;
+  return roleFromBoxes(see.checked, up.checked, del.checked, man.checked);
 }
 
 const editing = () => !!(me && me.is_admin && window.editMode());
+// Members editor: admins for every project, project managers for theirs (without the admin-only settings).
+const managing = () => !!(me && window.editMode() && (me.is_admin || projects.some(p => p.can_manage)));
 function syncEdit() {
   $('projectActions').hidden = !editing();
   if (!editing()) $('addProjectDialog').close();
@@ -206,7 +215,9 @@ function syncEdit() {
   if (!window.editMode()) { $('addOperatorDialog').close(); $('addAuthorisationDialog').close(); }
   $('opOwnField').hidden = !editing();
   if (!editing()) $('importProjectsDialog').close();
-  $('hint').textContent = editing()
+  $('hint').textContent = managing() && !editing()
+    ? 'Projects you manage. Select one to manage its members: See, Upload and Delete are saved immediately; untick all to remove a member. Only administrators appoint managers.'
+    : editing()
     ? 'Select a project to manage its current members. Search for another person to add them. See, Upload and Delete permissions are saved immediately; untick all permissions to remove a member.'
     : me && me.is_admin
       ? 'A project is a separate set of flight logs. Search projects or members, then open a project to view its flights.'
@@ -228,7 +239,8 @@ async function load() {
       users = people.users;
     } else {
       projects = await read('/api/projects');
-      users = [];
+      users = projects.some(p => p.can_manage)  // people to add as members
+        ? (await read('/api/people')).map(u => ({...u, is_active: true})) : [];
     }
     ({operators, countries = []} = await read('/api/operators'));
     $('opCountry').innerHTML = countryOptions('');
@@ -251,8 +263,12 @@ function selectProject(id) {
 function renderProjectPanel() {
   const p = projects.find(p => p.id === selectedProject);
   if (!p) { $('projectPanel').innerHTML = '<p class="mute">Select a project to manage its members and settings.</p>'; return; }
+  const admin = editing();
+  const memberRow = m => `<div class="person"><a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a>
+      ${!admin && m.role === 'manager' ? '<span class="role-tag" title="Only administrators change a manager">Manager</span>'
+        : tickBoxes('m' + p.id + '_' + m.user_id, m.role, `saveTicks(${p.id}, ${m.user_id})`)}</div>`;
   $('projectPanel').innerHTML = `<h3>${esc(p.name)}</h3><a href="/projects/${p.id}">View project flights</a>
-    <form class="row" onsubmit="event.preventDefault();renameProject(${p.id})">
+    ${admin ? `<form class="row" onsubmit="event.preventDefault();renameProject(${p.id})">
       <label class="field">Project name<input id="ren${p.id}" value="${esc(p.name)}" required maxlength="80"></label>
       <button type="submit">Save name</button></form>
     <form class="row" onsubmit="event.preventDefault()">
@@ -261,13 +277,12 @@ function renderProjectPanel() {
         ${operators.map(o => `<option value="${o.id}"${o.id === p.operator_id ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('')}</select></label></form>
     <form class="row" onsubmit="event.preventDefault()">
       <label class="field">Category of its flights<select onchange="send('/api/admin/projects/${p.id}', 'PUT', categoryChoice(this.value))">
-        <option value="">From the takeoff location or date</option>${categoryOptions(authorisations, categoryValue(p))}</select></label></form>
+        <option value="">From the takeoff location or date</option>${categoryOptions(authorisations, categoryValue(p))}</select></label></form>` : ''}
     <h4>Members (${(p.members || []).length})</h4>
-    ${(p.members || []).map(m => `<div class="person"><a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a>
-      ${tickBoxes('m' + p.id + '_' + m.user_id, m.role, `saveTicks(${p.id}, ${m.user_id})`)}</div>`).join('') || '<p class="mute">No members yet.</p>'}
+    ${(p.members || []).map(memberRow).join('') || '<p class="mute">No members yet.</p>'}
     <div class="member-add"><label class="field">Add a member<input type="search" id="memberSearch" placeholder="Search name, username or alias" value="${esc(memberQuery)}" oninput="memberQuery=this.value;renderMemberPicker()"></label>
       <div class="member-picker" id="memberPicker"></div></div>
-    <div class="row"><button type="button" class="danger" onclick="removeProject(${p.id})">Delete project</button></div>`;
+    ${admin ? `<div class="row"><button type="button" class="danger" onclick="removeProject(${p.id})">Delete project</button></div>` : ''}`;
   renderMemberPicker();
 }
 function renderMemberPicker() {
@@ -397,10 +412,10 @@ function render() {
     .filter(Boolean).some(v => v.toLocaleLowerCase().includes(q)));
   $('projectCount').textContent = `${shown.length} of ${projects.length} projects`;
   $('countProjects').textContent = projects.length;
-  $('projectOverview').hidden = editing();
-  $('projectEditor').hidden = !editing();
-  if (editing()) {
-    $('projectList').innerHTML = shown.map(p => `<button type="button" class="project-button" aria-pressed="${p.id === selectedProject}"
+  $('projectOverview').hidden = managing();
+  $('projectEditor').hidden = !managing();
+  if (managing()) {
+    $('projectList').innerHTML = shown.filter(p => editing() || p.can_manage).map(p => `<button type="button" class="project-button" aria-pressed="${p.id === selectedProject}"
       onclick="selectProject(${p.id})">${esc(p.name)} <span class="mute">· ${(p.members || []).length} members</span></button>`).join('')
       || '<p class="mute">No matching projects.</p>';
     renderProjectPanel();
@@ -455,7 +470,7 @@ async function importProjects() {
 function saveTicks(pid, uid) {
   setRole(pid, uid, applyTicks('m' + pid + '_' + uid));
 }
-function setRole(id, userId, role) { send('/api/admin/projects/' + id + '/members', 'PUT', {user_id: userId, role}); }
+function setRole(id, userId, role) { send('/api/projects/' + id + '/members', 'PUT', {user_id: userId, role}); }
 function renameProject(id) {
   const name = ($('ren' + id).value || '').trim();
   if (!name) { $('err').textContent = 'A project name is required.'; return; }

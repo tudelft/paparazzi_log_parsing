@@ -1969,9 +1969,9 @@ def unique_import_name(con, name, uid, drone_id=None):
 
 def apply_drone_fields(con, drone_id, fields, old_name=None):
     con.execute(
-        "UPDATE drones SET name=?, unique_id=?, default_project_id=?, manager=?, current_user=?,"
+        "UPDATE drones SET name=?, unique_id=?, default_project_id=?, manager_id=?, current_user=?,"
         " status=?, bought_on=?, inventory_project=?, comments=? WHERE id=?",
-        (fields["name"], fields["unique_id"], fields["default_project_id"], fields["manager"],
+        (fields["name"], fields["unique_id"], fields["default_project_id"], fields["manager_id"],
          fields["current_user"], fields["status"], fields["bought_on"], fields["inventory_project"],
          fields["comments"], drone_id))
     if old_name and old_name.casefold() != fields["name"].casefold() and not name_taken(con, old_name, drone_id):
@@ -2877,7 +2877,11 @@ def aircraft_page():
     return send_from_directory(PAGES_DIR, "aircraft.html")
 
 
-ACCESS_ROLES = {"view": "See logs", "add": "Add logs", "full": "See, add and delete"}
+ACCESS_ROLES = {"view": "See logs", "add": "Add logs", "full": "See, add and delete",
+                "manager": "Full, plus members and aircraft requests"}
+MEMBER_ROLES = ("view", "add", "full")  # what a project manager may give; only admins appoint managers
+ADD_ROLES = ("add", "full", "manager")
+FULL_ROLES = ("full", "manager")
 
 
 @app.get("/api/projects")
@@ -2899,8 +2903,8 @@ def list_projects():
                        "SELECT m.user_id, m.role, u.username, u.display_name FROM project_members m"
                        " JOIN users u ON u.id = m.user_id WHERE m.project_id=? ORDER BY u.username", (r["id"],))]
         out.append({"id": r["id"], "name": r["name"], "role": r["role"], "log_count": n,
-                    "can_add": r["role"] in ("add", "full"), "can_delete": r["role"] == "full" or bool(g.user["is_admin"]),
-                    "members": members})
+                    "can_add": r["role"] in ADD_ROLES, "can_delete": r["role"] in FULL_ROLES or bool(g.user["is_admin"]),
+                    "can_manage": bool(g.user["is_admin"]) or r["role"] == "manager", "members": members})
     return jsonify(out)
 
 
@@ -2980,7 +2984,7 @@ def admin_import_projects():
             project = projects.setdefault(name.casefold(), {"name": name, "members": {}})
             role = row.get("role") or "add"
             if role not in ACCESS_ROLES:
-                raise historical.RecordError(f"Row {line}: role must be view, add or full.")
+                raise historical.RecordError(f"Row {line}: role must be view, add, full or manager.")
             if not person:
                 if row.get("role"):
                     raise historical.RecordError(f"Row {line}: a role needs a person.")
@@ -3064,6 +3068,7 @@ def admin_delete_project(project_id):
     con.execute("UPDATE drones SET default_project_id=NULL WHERE default_project_id=?", (project_id,))
     con.execute("UPDATE users SET default_project_id=NULL WHERE default_project_id=?", (project_id,))
     con.execute("DELETE FROM drone_projects WHERE project_id=?", (project_id,))
+    con.execute("DELETE FROM drone_requests WHERE project_id=?", (project_id,))
     con.execute("DELETE FROM project_members WHERE project_id=?", (project_id,))
     con.execute("DELETE FROM projects WHERE id=?", (project_id,))
     con.commit()
@@ -3087,9 +3092,16 @@ def admin_project_detail():
     return jsonify(projects=projects, roles=ACCESS_ROLES)
 
 
+def manages_project(con, project_id):
+    """Admins, and managers of this project: they handle its members and its aircraft requests."""
+    return bool(g.user["is_admin"]) or (project_id is not None and role_on(con, project_id) == "manager")
+
+
 @app.put("/api/admin/projects/<int:project_id>/members")
+@app.put("/api/projects/<int:project_id>/members")
 def admin_set_member(project_id):
-    admin_required()
+    """Add, change or remove (empty role) a member. A project manager may give view, add or full; only admins appoint
+    managers or change a manager's access (also a manager's own)."""
     body = request.get_json(silent=True) or {}
     role = body.get("role")
     try:
@@ -3099,6 +3111,13 @@ def admin_set_member(project_id):
     con = conn()
     if not con.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone():
         return jsonify(error="no such project"), 404
+    if not manages_project(con, project_id):
+        abort(403)
+    if not g.user["is_admin"]:
+        current = con.execute("SELECT role FROM project_members WHERE project_id=? AND user_id=?",
+                              (project_id, user_id)).fetchone()
+        if (current and current["role"] == "manager") or role == "manager":
+            return jsonify(error="only administrators appoint or change project managers"), 403
     member = con.execute("SELECT is_external FROM users WHERE id=? AND is_active=1", (user_id,)).fetchone()
     if member is None:
         return jsonify(error="no such user"), 404
@@ -3159,11 +3178,14 @@ def drone_payload(con, d):
     records = con.execute("SELECT COUNT(*) AS n FROM flight_records WHERE drone_id=?", (d["id"],)).fetchone()["n"]
     proj = con.execute("SELECT name FROM projects WHERE id=?", (d["default_project_id"],)).fetchone() if d["default_project_id"] else None
     periods = drone_periods(con, d["id"])
+    manager = con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",
+                          (d["manager_id"],)).fetchone() if d["manager_id"] else None
     return {"id": d["id"], "name": d["name"], "unique_id": d["unique_id"],
             "default_project_id": d["default_project_id"],
             "default_project_name": proj["name"] if proj else None,
             "projects": periods,
-            "manager": d["manager"], "current_user": d["current_user"], "status": d["status"],
+            "manager": manager[0] if manager else None, "manager_id": d["manager_id"] if manager else None,
+            "current_user": d["current_user"], "status": d["status"],
             "bought_on": d["bought_on"], "inventory_project": d["inventory_project"],
             "comments": d["comments"], "aliases": aliases, "log_count": n, "record_count": records,
             "boards": board_payload(con, d["id"])}
@@ -3194,7 +3216,11 @@ def fleet_payload(con, include_unlinked=False, project_ids=None):
             f"SELECT * FROM drones WHERE default_project_id IN ({q})"
             f" OR id IN (SELECT drone_id FROM drone_projects WHERE project_id IN ({q})) ORDER BY name",
             (*project_ids, *project_ids))
-    fleet = [drone_payload(con, d) for d in rows]
+    fleet = []
+    for d in rows:
+        item = drone_payload(con, d)
+        item["can_edit"] = can_edit_drone_details(con, d)
+        fleet.append(item)
     unlinked, projects = [], []
     if include_unlinked:
         seen = {}
@@ -3257,8 +3283,123 @@ def list_drones():
     if not admin:
         pids = [r["project_id"] for r in con.execute(
             "SELECT project_id FROM project_members WHERE user_id=?", (g.user["id"],))]
+    roles = {r["project_id"]: r["role"] for r in con.execute(
+        "SELECT project_id, role FROM project_members WHERE user_id=?", (g.user["id"],))}
+    request_projects = [] if admin else [dict(id=r["id"], name=r["name"]) for r in con.execute(
+        "SELECT id, name FROM projects ORDER BY name") if roles.get(r["id"]) in ADD_ROLES]
     return jsonify(**fleet_payload(con, include_unlinked=admin, project_ids=pids),
-                   hide_unlinked_aircraft=env_bool("HIDE_UNLINKED_AIRCRAFT"), next_serial=next_serial(con) if admin else None)
+                   hide_unlinked_aircraft=env_bool("HIDE_UNLINKED_AIRCRAFT"), next_serial=next_serial(con) if admin else None,
+                   requests=drone_requests_payload(con), request_projects=request_projects)
+
+
+def drone_requests_payload(con):
+    """Pending aircraft requests this user may see: their own, those of projects they manage, all for admins."""
+    out = []
+    for r in con.execute(
+            "SELECT r.*, p.name AS project_name, COALESCE(u.display_name, u.username) AS requested_by_name"
+            " FROM drone_requests r JOIN projects p ON p.id=r.project_id JOIN users u ON u.id=r.requested_by"
+            " ORDER BY r.created_at, r.id"):
+        decide = manages_project(con, r["project_id"])
+        if not decide and r["requested_by"] != g.user["id"]:
+            continue
+        out.append(dict(id=r["id"], name=r["name"], comments=r["comments"],
+                        project_id=r["project_id"], project_name=r["project_name"], requested_by=r["requested_by"],
+                        requested_by_name=r["requested_by_name"], created_at=r["created_at"], can_decide=decide))
+    return out
+
+
+def notify_request_deciders(con, project_id, subject, text):
+    """New aircraft request: mail the project's managers and the administrators."""
+    for r in con.execute("SELECT m.user_id FROM project_members m JOIN users u ON u.id=m.user_id"
+                         " WHERE m.project_id=? AND m.role='manager' AND u.is_admin=0", (project_id,)).fetchall():
+        mail.notify(con, r["user_id"], "requests", subject, text, "/aircraft")
+    mail.notify_admins(con, subject, text, "/aircraft")
+
+
+@app.post("/api/drone-requests")
+def request_drone():
+    """A member who may add logs to a project asks for a new aircraft there; an admin or project manager decides.
+    Nothing is reserved: the name is checked, and the serial generated, when it is approved."""
+    session_required()
+    body = request.get_json(silent=True) or {}
+    con = conn()
+    try:
+        project_id = int(body.get("project_id"))
+    except (TypeError, ValueError):
+        return jsonify(error="choose a project"), 400
+    project = con.execute("SELECT name FROM projects WHERE id=?", (project_id,)).fetchone()
+    if project is None:
+        return jsonify(error="no such project"), 404
+    if role_on(con, project_id) not in ADD_ROLES:
+        abort(403)
+    name = (body.get("name") or "").strip()
+    if not name or len(name) > 80:
+        return jsonify(error="an aircraft name is required (max 80 characters)"), 400
+    comments = clip_text(body.get("comments"), 400)
+    cur = con.execute("INSERT INTO drone_requests (project_id, requested_by, name, comments, created_at)"
+                      " VALUES (?,?,?,?,?)", (project_id, g.user["id"], name, comments, now()))
+    who = g.user["display_name"] or g.user["username"]
+    notify_request_deciders(con, project_id, f"Aircraft request: {name} for {project['name']}",
+                            f"{who} asks to add the aircraft {name} to the project "
+                            f"{project['name']}." + (f"\n\n{comments}" if comments else "")
+                            + "\n\nApprove or reject it on the Aircraft page.")
+    con.commit()
+    return jsonify(id=cur.lastrowid), 201
+
+
+def drone_request_row(con, request_id):
+    row = con.execute("SELECT r.*, p.name AS project_name FROM drone_requests r JOIN projects p ON p.id=r.project_id"
+                      " WHERE r.id=?", (request_id,)).fetchone()
+    if row is None:
+        abort(404)
+    return row
+
+
+@app.post("/api/drone-requests/<int:request_id>/approve")
+def approve_drone_request(request_id):
+    """Create the requested aircraft in its project (as an admin adding it would), linked to the requester as
+    manager; it gets the next free serial. 409 when its name is taken by now."""
+    session_required()
+    con = conn()
+    row = drone_request_row(con, request_id)
+    if not manages_project(con, row["project_id"]):
+        abort(403)
+    try:
+        drone_id, uid = create_drone(con, dict(name=row["name"], default_project_id=row["project_id"],
+                                               comments=row["comments"],
+                                               manager_id=row["requested_by"]))
+    except DroneError as exc:
+        con.rollback()
+        if exc.status == 409:
+            return jsonify(error=f"Cannot approve: {exc}. Reject the request with a note, or rename the existing "
+                                 "aircraft first."), 409
+        return jsonify(error=str(exc)), exc.status
+    con.execute("DELETE FROM drone_requests WHERE id=?", (request_id,))
+    mail.notify(con, row["requested_by"], "requests", f"Aircraft approved: {row['name']}",
+                f"Your request to add {row['name']} to {row['project_name']} was approved. Its serial is {uid}.",
+                f"/aircraft/{drone_id}")
+    con.commit()
+    return jsonify(id=drone_id, unique_id=uid)
+
+
+@app.delete("/api/drone-requests/<int:request_id>")
+def reject_drone_request(request_id):
+    """Reject (admin or project manager; the requester gets a mail with the optional reason) or withdraw (the
+    requester's own, no mail) a request. Either way it is removed."""
+    session_required()
+    con = conn()
+    row = drone_request_row(con, request_id)
+    decide = manages_project(con, row["project_id"])
+    if not decide and row["requested_by"] != g.user["id"]:
+        abort(403)
+    reason = clip_text((request.get_json(silent=True) or {}).get("reason"), 400)
+    con.execute("DELETE FROM drone_requests WHERE id=?", (request_id,))
+    if decide and row["requested_by"] != g.user["id"]:
+        mail.notify(con, row["requested_by"], "requests", f"Aircraft request rejected: {row['name']}",
+                    f"Your request to add {row['name']} to {row['project_name']} was rejected."
+                    + (f"\n\nReason: {reason}" if reason else ""), "/aircraft")
+    con.commit()
+    return jsonify(ok=True)
 
 
 @app.get("/api/admin/drones")
@@ -3269,54 +3410,123 @@ def admin_drones():
     return jsonify(**fleet_payload(con, include_unlinked=True), next_serial=next_serial(con))
 
 
-@app.post("/api/admin/drones")
-def admin_add_drone():
-    admin_required()
-    body = request.get_json(silent=True) or {}
+class DroneError(Exception):
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.status = status
+
+
+def manager_fields(con, body, row=None):
+    """The aircraft manager's account id from body: manager_id, or a manager name naming exactly one active,
+    non-external account. Unchanged (row's) when neither is sent. A manager is always a person: free text, an unknown
+    account or clearing a set manager raises DroneError."""
+    current = row["manager_id"] if row else None
+    if body.get("manager_id") not in (None, ""):
+        try:
+            uid = int(body["manager_id"])
+        except (TypeError, ValueError):
+            raise DroneError("no such person") from None
+        if uid != current and not con.execute(
+                "SELECT 1 FROM users WHERE id=? AND is_active=1 AND is_external=0", (uid,)).fetchone():
+            raise DroneError("no such person")
+        return uid
+    name = (body.get("manager") or "").strip()
+    if name:
+        uid = db.user_by_name(con, name)
+        if uid is None:
+            raise DroneError(f"the manager must be a registered person; '{name}' is not exactly one account")
+        return uid
+    if current and ("manager" in body or "manager_id" in body):
+        raise DroneError("an aircraft keeps its manager; pick another person instead")
+    return current
+
+
+def create_drone(con, body):
+    """Add a fleet aircraft (admin form, or an approved request); relinks logs. Raises DroneError. Caller commits."""
     name = (body.get("name") or "").strip()
     if not name or len(name) > 80:
-        return jsonify(error="an aircraft name is required (max 80 characters)"), 400
-    con = conn()
+        raise DroneError("an aircraft name is required (max 80 characters)")
     # without a serial the aircraft gets the next free one
     uid = parse_unique_id(body.get("unique_id")) if (body.get("unique_id") or "").strip() else next_serial(con)
     if uid is False:
-        return jsonify(error="the unique ID can have at most 40 characters"), 400
+        raise DroneError("the unique ID can have at most 40 characters")
     project_id = parse_project_id(body.get("default_project_id"))
     if project_id is False:
-        return jsonify(error="no such project"), 400
+        raise DroneError("no such project")
     if name_taken(con, name):
-        return jsonify(error="that name is already used by an aircraft or alias"), 409
+        raise DroneError("that name is already used by an aircraft or alias", 409)
     if unique_id_taken(con, uid):
-        return jsonify(error="that ID is already used by another aircraft"), 409
+        raise DroneError("that ID is already used by another aircraft", 409)
     if project_id is not None and not con.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone():
-        return jsonify(error="no such project"), 404
+        raise DroneError("no such project", 404)
     status = parse_status(body.get("status")) if "status" in body else None
     if status is False:
-        return jsonify(error="status must be Ready, Maintenance, Development or Discard"), 400
+        raise DroneError("status must be Ready, Maintenance, Development or Discard")
+    manager_id = manager_fields(con, body)
+    if manager_id is None:
+        raise DroneError("choose the aircraft's manager (a registered person)")
     try:
         cur = con.execute(
-            "INSERT INTO drones (name, unique_id, default_project_id, manager, current_user, status,"
+            "INSERT INTO drones (name, unique_id, default_project_id, manager_id, current_user, status,"
             " bought_on, inventory_project, comments, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (name, uid, project_id, clip_text(body.get("manager"), 80), clip_text(body.get("current_user"), 80),
+            (name, uid, project_id, manager_id, clip_text(body.get("current_user"), 80),
              status, clip_text(body.get("bought_on"), 20), clip_text(body.get("inventory_project"), 80),
              clip_text(body.get("comments"), 400), now()))
     except sqlite3.IntegrityError:
-        return jsonify(error="that ID is already used by another aircraft"), 409
+        raise DroneError("that ID is already used by another aircraft", 409) from None
     relink_all_aircraft(con)
     seed_drone_period(con, cur.lastrowid, project_id)  # from the start: earlier logs of this aircraft count too
     fill_drone_defaults(con, cur.lastrowid)
+    return cur.lastrowid, uid
+
+
+@app.post("/api/admin/drones")
+def admin_add_drone():
+    admin_required()
+    con = conn()
+    try:
+        drone_id, uid = create_drone(con, request.get_json(silent=True) or {})
+    except DroneError as exc:
+        con.rollback()
+        return jsonify(error=str(exc)), exc.status
     con.commit()
-    return jsonify(id=cur.lastrowid, unique_id=uid)
+    return jsonify(id=drone_id, unique_id=uid)
+
+
+def drone_current_projects(con, d):
+    """Projects an aircraft is in today: its timeline periods covering today, else its default project."""
+    today = datetime.now().date().isoformat()
+    ids = {r[0] for r in con.execute(
+        "SELECT project_id FROM drone_projects WHERE drone_id=? AND (start_date IS NULL OR start_date<=?)"
+        " AND (end_date IS NULL OR end_date>=?)", (d["id"], today, today))}
+    return ids or ({d["default_project_id"]} if d["default_project_id"] else set())
+
+
+def can_edit_drone_details(con, d):
+    """Admins; managers of a project the aircraft is in now; the person linked as its manager."""
+    if g.user["is_admin"] or (d["manager_id"] and d["manager_id"] == g.user["id"]):
+        return True
+    return any(role_on(con, pid) == "manager" for pid in drone_current_projects(con, d))
+
+
+# What a project manager (or the aircraft's linked manager) may change; name, serial, projects stay with admins.
+DRONE_DETAIL_FIELDS = {"status", "current_user", "comments", "manager", "manager_id"}
 
 
 @app.put("/api/admin/drones/<int:drone_id>")
+@app.put("/api/drones/<int:drone_id>")
 def admin_update_drone(drone_id):
-    admin_required()
+    """Change an aircraft. Admins change everything; project managers and its linked manager only the details."""
     body = request.get_json(silent=True) or {}
     con = conn()
     row = con.execute("SELECT * FROM drones WHERE id=?", (drone_id,)).fetchone()
     if row is None:
         return jsonify(error="no such aircraft"), 404
+    if not g.user["is_admin"]:
+        if not can_edit_drone_details(con, row):
+            abort(403)
+        if set(body) - DRONE_DETAIL_FIELDS:
+            return jsonify(error="only administrators change the name, serial or project of an aircraft"), 403
     name = row["name"]
     if "name" in body:
         name = (body.get("name") or "").strip()
@@ -3343,7 +3553,10 @@ def admin_update_drone(drone_id):
         status = parse_status(body.get("status"))
         if status is False:
             return jsonify(error="status must be Ready, Maintenance, Development or Discard"), 400
-    manager = clip_text(body.get("manager"), 80) if "manager" in body else row["manager"]
+    try:
+        manager_id = manager_fields(con, body, row)
+    except DroneError as exc:
+        return jsonify(error=str(exc)), exc.status
     current_user = clip_text(body.get("current_user"), 80) if "current_user" in body else row["current_user"]
     bought_on = clip_text(body.get("bought_on"), 20) if "bought_on" in body else row["bought_on"]
     inventory_project = clip_text(body.get("inventory_project"), 80) if "inventory_project" in body else row["inventory_project"]
@@ -3353,9 +3566,10 @@ def admin_update_drone(drone_id):
         if name.casefold() != (old_name or "").casefold():
             con.execute("DELETE FROM drone_aliases WHERE drone_id=? AND alias=?", (drone_id, name))
         con.execute(
-            "UPDATE drones SET name=?, unique_id=?, default_project_id=?, manager=?, current_user=?,"
+            "UPDATE drones SET name=?, unique_id=?, default_project_id=?, manager_id=?, current_user=?,"
             " status=?, bought_on=?, inventory_project=?, comments=? WHERE id=?",
-            (name, uid, project_id, manager, current_user, status, bought_on, inventory_project, comments, drone_id))
+            (name, uid, project_id, manager_id, current_user, status, bought_on, inventory_project, comments,
+             drone_id))
         if name.casefold() != (old_name or "").casefold() and old_name and not name_taken(con, old_name, drone_id):
             try:
                 con.execute("INSERT INTO drone_aliases (drone_id, alias) VALUES (?,?)", (drone_id, old_name))
@@ -3451,7 +3665,16 @@ def admin_import_drones():
                     "default_project_id": proj_id if proj_id else (existing["default_project_id"] if existing else None),
                     "inventory_project": proj_label if project_label else (existing["inventory_project"] if existing else None),
                 }
-                for field, key, limit in (("manager", mgr_k, 80), ("current_user", user_k, 80),
+                # the manager is a person: a name naming exactly one account; required for a new aircraft, and a
+                # blank one keeps an existing aircraft's manager
+                manager = (rec.get(mgr_k) or "").strip() if mgr_k else ""
+                fields["manager_id"] = db.user_by_name(con, manager) if manager else (
+                    existing["manager_id"] if existing else None)
+                if manager and fields["manager_id"] is None:
+                    raise historical.RecordError(f"Row {line}: manager '{manager}' is not exactly one registered person.")
+                if not existing and fields["manager_id"] is None:
+                    raise historical.RecordError(f"Row {line}: a new aircraft needs a Manager (Post Holder), a registered person.")
+                for field, key, limit in (("current_user", user_k, 80),
                                           ("bought_on", bought_k, 20), ("comments", cmt_k, 400)):
                     fields[field] = clip_text(rec.get(key), limit) if key else (existing[field] if existing else None)
                 fields["status"] = status if status_k else (existing["status"] if existing else None)
@@ -3461,9 +3684,9 @@ def admin_import_drones():
                     updated += 1
                 else:
                     cur = con.execute(
-                        "INSERT INTO drones (name, unique_id, default_project_id, manager, current_user, status,"
-                        " bought_on, inventory_project, comments, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                        (fields["name"], uid, fields["default_project_id"], fields["manager"],
+                        "INSERT INTO drones (name, unique_id, default_project_id, manager_id, current_user,"
+                        " status, bought_on, inventory_project, comments, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (fields["name"], uid, fields["default_project_id"], fields["manager_id"],
                          fields["current_user"], fields["status"], fields["bought_on"], fields["inventory_project"],
                          fields["comments"], now()))
                     drone_id = cur.lastrowid
@@ -3482,8 +3705,8 @@ def admin_import_drones():
 @app.get("/api/admin/drones/template")
 def aircraft_csv_template():
     admin_required()
-    return Response("AC Nice Name,Serial Unique,Project,project_effective_date\n"
-                    "Example aircraft,EXAMPLE-001,Example project,2024-01-01\n", mimetype="text/csv",
+    return Response("AC Nice Name,Serial Unique,Manager (Post Holder),Project,project_effective_date\n"
+                    "Example aircraft,EXAMPLE-001,Example person,Example project,2024-01-01\n", mimetype="text/csv",
                     headers={"Content-Disposition": 'attachment; filename="aircraft.csv"'})
 
 
@@ -4513,7 +4736,7 @@ def admin_delete_user(user_id):
 
 # Merging accounts and moving a TU Delft sign-in (admins, People page Account tab). A merge moves everything of
 # one account to another and removes the first; its names become aliases. Both are recorded in the audit log.
-PROJECT_ROLE_RANK = {"view": 0, "add": 1, "full": 2}
+PROJECT_ROLE_RANK = {"view": 0, "add": 1, "full": 2, "manager": 3}
 
 
 def user_reference_columns(con):
@@ -5143,7 +5366,7 @@ def role_on(con, project_id):
 def can_upload(con, project_id):
     if not con.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone():
         return False
-    return role_on(con, project_id) in ("add", "full")
+    return role_on(con, project_id) in ADD_ROLES
 
 
 def can_upload_any(con):
@@ -5151,7 +5374,7 @@ def can_upload_any(con):
     if g.user["is_admin"]:
         return True
     return con.execute(
-        "SELECT 1 FROM project_members WHERE user_id=? AND role IN ('add','full') LIMIT 1",
+        "SELECT 1 FROM project_members WHERE user_id=? AND role IN ('add','full','manager') LIMIT 1",
         (g.user["id"],)).fetchone() is not None
 
 
@@ -5160,7 +5383,7 @@ def can_delete_log(con, row):
         return True
     if row["project_id"] is None:
         return row["uploaded_by"] == g.user["id"]
-    return role_on(con, row["project_id"]) == "full"
+    return role_on(con, row["project_id"]) in FULL_ROLES
 
 
 def can_edit_log_date(con, row):
@@ -5194,7 +5417,7 @@ def can_edit_flight_project(con, row):
     if pid is None:
         return is_uploader(con, row["log_id"], row["uploaded_by"]) if "log_id" in row.keys() \
             else row["uploaded_by"] == g.user["id"]
-    return role_on(con, pid) == "full"
+    return role_on(con, pid) in FULL_ROLES
 
 
 def visible_log(con, log_id, columns="*"):
