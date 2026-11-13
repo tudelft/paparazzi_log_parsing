@@ -148,7 +148,7 @@ function docHTML(d) {
   const sub = [editing() ? limitsText(d) : '', esc(d.filename), `<a href="${esc(d.download)}">download</a>`]
     .filter(Boolean).join(' · ');
   const outdated = d.current ? '' : ` <span style="color:var(--err)" title="Only administrators see it">(${
-    d.valid_until && d.valid_until < new Date().toISOString().slice(0, 10) ? 'expired' : 'not valid yet'})</span>`;
+    d.valid_until && d.valid_until < new Date().toLocaleDateString('sv') ? 'expired' : 'not valid yet'})</span>`;
   return `<div class="doc"><span style="display:flex;gap:8px"><a class="name" href="${esc(link)}" target="_blank" rel="noopener" title="${esc(validityText(d))}">${esc(d.title)}</a>${outdated}`
     + `<span class="tools edit-only"><button type="button" class="sec" onclick="editDocument(${d.id})">Edit</button></span></span>`
     + (d.description ? `<span class="text">${esc(d.description)}</span>` : '')
