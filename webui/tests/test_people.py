@@ -129,23 +129,43 @@ class PeopleDirectoryTests(AppTests):
         self.assertIsNotNone(self.con.execute("SELECT id FROM api_keys WHERE id=?", (key["id"],)).fetchone())
         self.assertFalse(self.con.execute("SELECT is_admin FROM users WHERE id=2").fetchone()[0])
 
-    def test_optional_email_on_creation_and_update(self):
+    def test_email_required_for_new_users(self):
         self.sign_in(1)
         for index, fields in enumerate(({}, {"email": ""}, {"email": "  "}, {"email": None})):
             response = self.client.post("/api/admin/users", json={"username": f"person{index}", **fields})
-            self.assertEqual(response.status_code, 200, response.json)
-            self.assertIsNone(self.con.execute(
-                "SELECT email FROM users WHERE id=?", (response.json["id"],)).fetchone()[0])
+            self.assertEqual((response.status_code, response.json.get("error")), (400, "an email address is required"))
+        created = self.client.post("/api/admin/users", json={"username": "person", "email": "new@example.test"})
+        self.assertEqual(created.status_code, 200, created.json)
         for email in ("invalid", 42, [], "bad @example.test"):
             self.assertEqual(self.client.post("/api/admin/users", json={
                 "username": "invalid-email", "email": email}).status_code, 400)
             self.assertEqual(self.client.put("/api/admin/users/2", json={"email": email}).status_code, 400)
+        # an older account without an address may stay without one
+        self.assertEqual(self.client.put("/api/admin/users/2", json={"email": ""}).status_code, 200)
         self.assertEqual(self.client.put("/api/admin/users/2", json={"email": "pilot@example.test"}).status_code, 200)
         self.assertEqual(self.client.put("/api/admin/users/3", json={"email": "PILOT@example.test"}).status_code, 409)
         self.assertEqual(self.client.post("/api/admin/users", json={
             "username": "duplicate-email", "email": "PILOT@example.test"}).status_code, 409)
-        self.assertEqual(self.client.put("/api/admin/users/2", json={"email": ""}).status_code, 200)
-        self.assertIsNone(self.con.execute("SELECT email FROM users WHERE id=2").fetchone()[0])
+        # once set, an address can be changed but not removed (also via the Account tab's profile save)
+        self.assertEqual(self.client.put("/api/admin/users/2", json={"email": ""}).status_code, 400)
+        profile = {"username": "pic", "display_name": "Pilot", "default_project_id": None}
+        self.assertEqual(self.client.put("/api/admin/users/2/profile", json={**profile, "email": ""}).status_code, 400)
+        self.assertEqual(self.client.put("/api/admin/users/2/profile",
+                                         json={**profile, "email": "pilot2@example.test"}).status_code, 200)
+        self.assertEqual(self.con.execute("SELECT email FROM users WHERE id=2").fetchone()[0], "pilot2@example.test")
+
+    def test_username_defaults_to_email(self):
+        self.sign_in(1)
+        made = [self.client.post("/api/admin/users", json={"email": email}) for email in
+                ("J.Smith@example.test", "j.smith@other.test", "Admin@example.test")]
+        self.assertEqual([r.status_code for r in made], [200, 200, 200], [r.json for r in made])
+        self.assertEqual([r.json["username"] for r in made], ["j.smith", "j.smith2", "admin2"])
+        self.assertEqual(self.con.execute("SELECT username FROM users WHERE id=?", (made[0].json["id"],)).fetchone()[0],
+                         "j.smith")
+        typed = self.client.post("/api/admin/users", json={"username": "kim", "email": "k@example.test"})
+        self.assertEqual(typed.json["username"], "kim")
+        self.assertEqual(self.client.post("/api/admin/users", json={"username": "has space", "email": "x@example.test"})
+                         .status_code, 400)
 
     def test_log_names_stay_unlinked_until_admin_adds_aliases(self):
         self.con.execute(
@@ -304,7 +324,7 @@ class UsernameTests(AppTests):
         for name in ("pic", "newpilot"):
             self.assertIsNone(resolve("pic", name, None))
         self.assertEqual(self.client.put("/api/admin/users/2/profile", json={
-            **body, "display_name": "", "email": "", "default_project_id": None}).status_code, 200)
+            **body, "display_name": "", "email": "other@example.test", "default_project_id": None}).status_code, 200)
         self.assertIsNone(self.con.execute("SELECT display_name FROM users WHERE id=2").fetchone()[0])
 
     def rename(self, name, uid=2):

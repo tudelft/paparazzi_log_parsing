@@ -186,7 +186,8 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
 - Admins manage **People** by selecting a person and opening Account, Aliases or Qualifications.
   In Edit mode the Account tab can **Merge into…** another account (one person with two accounts) or
   **Move TU Delft sign-in…** when a TU Delft login was matched to the wrong person.
-  Email is optional when adding a user and can be cleared later.
+  A new user needs an email address (the username is optional and then taken from it); an address can be
+  changed later but not removed.
   Username, display name, email and default project share one **Save account** button.
   The normal overview shows aliases too. Logs match explicit aliases or unique display names, not usernames.
   Add a username as an alias only if it reliably identifies that person in logs. Duplicate display names
