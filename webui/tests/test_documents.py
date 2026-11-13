@@ -3,6 +3,7 @@ import hashlib
 import io
 import os
 import tempfile
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -86,7 +87,7 @@ class DocumentTests(AppTests):
 
     def test_document_visible_only_with_qualification(self):
         tid = self.create_type("Outdoor pilot", False)
-        did = self.upload(type_id=tid).json["id"]
+        did = self.upload(type_ids=tid).json["id"]
         future = (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
         r = self.submit(uid=2, tid=tid, until=future, content=None)
         self.assertEqual(r.status_code, 201, r.json)
@@ -97,6 +98,45 @@ class DocumentTests(AppTests):
         self.sign_in(4)
         self.assertEqual(self.listing()["documents"], [])
         self.assertEqual(self.client.get(f"/api/documents/{did}/download").status_code, 404)
+
+    def test_one_of_several_qualifications(self):
+        a1a3, a2, sts = (self.create_type(n, False) for n in ("A1/A3", "A2", "STS"))
+        data = {"title": "Insurance", "type_ids": [str(a1a3), str(a2), str(sts)],
+                "file": (io.BytesIO(PDF), "insurance.pdf")}
+        r = self.client.post("/api/admin/documents", data=data, content_type="multipart/form-data")
+        self.assertEqual(r.status_code, 201, r.json)
+        did = r.json["id"]
+        self.assertEqual(self.listing()["documents"][0]["type_ids"], sorted([a1a3, a2, sts]))
+        self.review(self.submit(uid=2, tid=a2, until="", content=None).json["id"])  # only A2 is enough
+        self.sign_in(2)
+        self.assertEqual([d["id"] for d in self.listing()["documents"]], [did])
+        self.sign_in(3)
+        self.assertEqual(self.listing()["documents"], [])
+        self.sign_in(1)
+        r = self.client.put(f"/api/admin/documents/{did}", json={"title": "Insurance", "type_ids": [sts]})
+        self.assertEqual(r.status_code, 200, r.json)
+        self.sign_in(2)
+        self.assertEqual(self.listing()["documents"], [])
+        self.sign_in(1)
+        self.assertEqual(self.client.put(f"/api/admin/documents/{did}", json={"title": "x", "type_ids": sts})
+                         .status_code, 400)
+
+    def test_single_qualification_moves_to_the_list(self):
+        db = self.ns["db"]
+        with tempfile.TemporaryDirectory() as folder, patch.object(db, "_local", threading.local()):
+            path = os.path.join(folder, "old.db")
+            db.init(path)
+            con = db.connect(path)
+            con.execute("INSERT INTO qualification_types(id,name,requires_evidence) VALUES (7,'A1/A3',0)")
+            con.execute("INSERT INTO documents(id,title,type_id,filename,stored_path,size_bytes,sha256,uploaded_at)"
+                        " VALUES (1,'Insurance',7,'a.pdf','x',1,'s','now')")  # as stored before the list
+            con.commit()
+            db.init(path)
+            db.init(path)  # idempotent
+            self.assertEqual([tuple(r) for r in con.execute("SELECT document_id, type_id FROM document_qualification_types")],
+                             [(1, 7)])
+            self.assertIsNone(con.execute("SELECT type_id FROM documents WHERE id=1").fetchone()[0])
+            con.close()
 
     def test_own_qualifications(self):
         future = (datetime.date.today() + datetime.timedelta(days=365)).isoformat()
@@ -115,20 +155,20 @@ class DocumentTests(AppTests):
 
     def test_inactive_qualification_limit_is_kept(self):
         tid = self.create_type("Old permit", False)
-        did = self.upload(type_id=tid).json["id"]
+        did = self.upload(type_ids=tid).json["id"]
         self.con.execute("UPDATE qualification_types SET active=0 WHERE id=?", (tid,))
         self.con.commit()
         types = {t["id"]: t["active"] for t in self.listing()["types"]}
         self.assertEqual(types[tid], 0)  # still offered to the edit dialog
-        r = self.client.put(f"/api/admin/documents/{did}", json={"title": "Renamed", "type_id": tid})
+        r = self.client.put(f"/api/admin/documents/{did}", json={"title": "Renamed", "type_ids": [tid]})
         self.assertEqual(r.status_code, 200, r.json)
-        self.assertEqual(self.listing()["documents"][0]["type_id"], tid)
+        self.assertEqual(self.listing()["documents"][0]["type_ids"], [tid])
         self.sign_in(2)
         self.assertEqual(self.listing()["documents"], [])
 
     def test_replace_file_keeps_settings(self):
         tid = self.create_type("Outdoor pilot", False)
-        did = self.upload(type_id=tid, description="2026", sort_order=3).json["id"]
+        did = self.upload(type_ids=tid, description="2026", sort_order=3).json["id"]
         folder = Path(self.app.config["DOCUMENTS_DIR"])
         self.assertEqual(folder.stat().st_mode & 0o777, 0o700)
         old = set(folder.iterdir())
@@ -137,8 +177,8 @@ class DocumentTests(AppTests):
                              content_type="multipart/form-data")
         self.assertEqual(r.status_code, 200, r.json)
         d = self.listing()["documents"][0]
-        self.assertEqual((d["title"], d["description"], d["type_id"], d["sort_order"], d["filename"]),
-                         ("Insurance", "2026", tid, 3, "insurance-2027.pdf"))
+        self.assertEqual((d["title"], d["description"], d["type_ids"], d["sort_order"], d["filename"]),
+                         ("Insurance", "2026", [tid], 3, "insurance-2027.pdf"))
         self.assertEqual(self.client.get(f"/api/documents/{did}/download").data, new)
         self.assertTrue(old.isdisjoint(folder.iterdir()))  # the old file is removed
         self.sign_in(2)
@@ -223,7 +263,7 @@ class DocumentTests(AppTests):
         # every limit must be met: a role and a qualification
         self.sign_in(1)
         tid = self.create_type("Outdoor pilot", False)
-        self.client.put(f"/api/admin/documents/{staff_doc}", json={"title": "Staff", "type_id": tid, "role_ids": [staff]})
+        self.client.put(f"/api/admin/documents/{staff_doc}", json={"title": "Staff", "type_ids": [tid], "role_ids": [staff]})
         with patch.dict(os.environ, LOGDB_PERSON_PROFILE="1"):
             self.assertEqual(seen(2), set())
             self.sign_in(1)

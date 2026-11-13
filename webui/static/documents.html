@@ -108,7 +108,7 @@
     <fieldset><legend>Who sees it (administrators always; others must meet every limit)</legend>
       <label class="check"><input name="admin_only" type="checkbox" onchange="syncDocForm()"> Administrators only</label>
       <div id="otherLimits">
-        <label class="field">Qualification<select name="type_id"></select></label>
+        <div class="field">One of these qualifications (none ticked: not needed)<div class="roles" id="typeList" style="margin-left:0"></div></div>
         <div id="roleLimit">
           <label class="check"><input name="roles_limited" type="checkbox" onchange="syncDocForm()"> Only these profile roles</label>
           <div class="roles" id="roleList"></div>
@@ -134,7 +134,7 @@ const roleName = id => ((data.roles || []).find(r => r.id === id) || {}).name;
 function limitsText(d) {
   if (d.admin_only) return 'administrators only';
   const parts = [];
-  if (d.type_id) parts.push('with ' + esc(d.type_name || typeName(d.type_id) || 'a qualification'));
+  if (d.type_ids.length) parts.push('with ' + d.type_ids.map(t => esc(typeName(t) || '?')).join(' or '));
   if (d.roles_limited) parts.push(d.role_ids.length ? 'roles: ' + d.role_ids.map(r => esc(roleName(r) || '?')).join(', ')
     : 'roles: none left (administrators only)');
   return parts.length ? 'visible ' + parts.join(' and ') : '';
@@ -271,18 +271,18 @@ function syncDocForm() {
 }
 function editDocument(id) {
   const d = data.documents.find(x => x.id === id)
-    || {title: '', description: '', group_id: null, type_id: null, admin_only: false, roles_limited: false, role_ids: [], sort_order: 0,
+    || {title: '', description: '', group_id: null, type_ids: [], admin_only: false, roles_limited: false, role_ids: [], sort_order: 0,
         valid_from: null, valid_until: null};
   editingId = id ?? null;
   const f = $('docForm');
   f.group_id.innerHTML = '<option value="">(no group: General)</option>'
     + data.groups.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
-  // active types, plus the document's own type when it is no longer active, so saving never drops the limit
-  f.type_id.innerHTML = '<option value="">Not needed</option>'
-    + (data.types || []).filter(t => t.active || t.id === d.type_id)
-      .map(t => `<option value="${t.id}">Only with ${esc(t.name)}${t.active ? '' : ' (inactive)'}</option>`).join('');
+  // active types, plus the document's own types that are no longer active, so saving never drops a limit
+  $('typeList').innerHTML = (data.types || []).filter(t => t.active || d.type_ids.includes(t.id))
+    .map(t => `<label class="check"><input type="checkbox" value="${t.id}"${d.type_ids.includes(t.id) ? ' checked' : ''}> ${
+      esc(t.name)}${t.active ? '' : ' (inactive)'}</label>`).join('');
   f.title.value = d.title; f.description.value = d.description; f.sort_order.value = d.sort_order;
-  f.group_id.value = d.group_id ?? ''; f.type_id.value = d.type_id ?? '';
+  f.group_id.value = d.group_id ?? '';
   f.valid_from.value = d.valid_from || ''; f.valid_until.value = d.valid_until || '';
   f.admin_only.checked = d.admin_only;
   f.roles_limited.checked = d.roles_limited;
@@ -301,7 +301,7 @@ $('docForm').onsubmit = async e => {
   const f = $('docForm');
   const roles = f.roles_limited.checked ? [...$('roleList').querySelectorAll('input:checked')].map(x => +x.value) : [];
   const fields = {title: f.title.value, description: f.description.value, group_id: f.group_id.value || null,
-    type_id: f.type_id.value || null, admin_only: f.admin_only.checked, roles_limited: f.roles_limited.checked,
+    type_ids: [...$('typeList').querySelectorAll('input:checked')].map(x => +x.value), admin_only: f.admin_only.checked, roles_limited: f.roles_limited.checked,
     role_ids: roles, sort_order: parseInt(f.sort_order.value || '0', 10),
     valid_from: f.valid_from.value || null, valid_until: f.valid_until.value || null};
   let ok;
@@ -309,7 +309,7 @@ $('docForm').onsubmit = async e => {
     if (!f.file.files.length) { $('docError').textContent = 'Choose a file.'; return; }
     const form = new FormData();
     for (const [k, v] of Object.entries(fields)) {
-      if (k === 'role_ids') v.forEach(r => form.append('role_ids', r));
+      if (k === 'role_ids' || k === 'type_ids') v.forEach(r => form.append(k, r));
       else if (v != null) form.append(k, typeof v === 'boolean' ? (v ? '1' : '0') : v);
     }
     form.append('file', f.file.files[0]);

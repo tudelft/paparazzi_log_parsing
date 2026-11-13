@@ -5,7 +5,7 @@ in a set order, shown as page tabs) and documents (title, description, file, opt
 can be replaced, keeping its other settings. Administrators see every document. A document can be limited, and a
 person must then meet every limit that is set:
   - admin_only: only administrators;
-  - type_id: a current approved qualification of that type;
+  - type_ids: a current approved qualification of one of these types (for example A1/A3, A2 or STS);
   - roles_limited: one of the profile roles in document_profile_roles (person profiles, profiles.py). This fails
     closed: with person profiles off, or when all its roles were removed, only administrators see the document.
 A document can have a validity (valid_from / valid_until, both optional): outside it only administrators see it,
@@ -94,13 +94,19 @@ def role_ids(cid, doc_id):
                                       (doc_id,))]
 
 
+def type_ids(cid, doc_id):
+    return [r[0] for r in cid.execute(
+        "SELECT type_id FROM document_qualification_types WHERE document_id=? ORDER BY type_id", (doc_id,))]
+
+
 def can_see(cid, row, user):
     """Administrators see everything; anyone else must meet every limit set on the document."""
     if user["is_admin"]:
         return True
     if row["admin_only"] or not is_current(row):
         return False
-    if row["type_id"] and not has_qualification(cid, user["id"], row["type_id"]):
+    types = type_ids(cid, row["id"])
+    if types and not any(has_qualification(cid, user["id"], t) for t in types):
         return False
     if row["roles_limited"]:
         if not profiles.enabled():
@@ -113,7 +119,7 @@ def can_see(cid, row, user):
 def document_json(cid, row):
     return {
         "id": row["id"], "group_id": row["group_id"], "title": row["title"], "description": row["description"],
-        "type_id": row["type_id"], "type_name": row["type_name"], "admin_only": bool(row["admin_only"]),
+        "type_ids": type_ids(cid, row["id"]), "admin_only": bool(row["admin_only"]),
         "roles_limited": bool(row["roles_limited"]), "role_ids": role_ids(cid, row["id"]), "filename": row["filename"],
         "size_bytes": row["size_bytes"], "uploaded_at": row["uploaded_at"], "sort_order": row["sort_order"],
         "valid_from": row["valid_from"], "valid_until": row["valid_until"], "current": is_current(row),
@@ -141,8 +147,7 @@ def own_qualifications(cid, user_id):
     return out
 
 
-DOCUMENT_SQL = ("SELECT d.*, t.name AS type_name FROM documents d"
-                " LEFT JOIN qualification_types t ON t.id=d.type_id")
+DOCUMENT_SQL = "SELECT d.* FROM documents d"
 
 
 def register(app, connection, root, pages_dir):
@@ -276,34 +281,40 @@ def register(app, connection, root, pages_dir):
                 raise DocumentError("No such group.", 404)
         return jsonify(ok=True)
 
-    def document_fields(cid, body, roles):
-        """(title, description, group_id, type_id, admin_only, roles_limited, sort_order, valid_from, valid_until) and
-        the role ids.
+    def id_list(cid, values, table, label):
+        out = []
+        for value in values:
+            item = optional_id(cid, value, table, label)
+            if item is not None and item not in out:
+                out.append(item)
+        return out
+
+    def document_fields(cid, body, roles, types):
+        """(title, description, group_id, admin_only, roles_limited, sort_order, valid_from, valid_until), the role ids
+        and the qualification type ids.
         roles_limited set with no roles left (for example all removed from the profile lists) means: only admins."""
         order = body.get("sort_order", 0)
         try:
             order = int(order)
         except (TypeError, ValueError):
             raise DocumentError("sort_order must be a whole number.") from None
-        role_list = []
-        for value in roles:
-            role = optional_id(cid, value, "profile_roles", "role")
-            if role is not None and role not in role_list:
-                role_list.append(role)
+        role_list = id_list(cid, roles, "profile_roles", "role")
         return (clip(body.get("title"), 120, "A title"),
                 clip(body.get("description"), MAX_TEXT, "The description", required=False),
                 optional_id(cid, body.get("group_id"), "document_groups", "group"),
-                optional_id(cid, body.get("type_id"), "qualification_types", "qualification"),
                 flag(body.get("admin_only")), int(flag(body.get("roles_limited")) or bool(role_list)), order,
-                *validity(body)), role_list
+                *validity(body)), role_list, id_list(cid, types, "qualification_types", "qualification")
 
     def flag(value):
         return int(str(value).lower() in ("1", "true"))
 
-    def set_roles(cid, doc_id, role_list):
+    def set_limits(cid, doc_id, role_list, type_list):
         cid.execute("DELETE FROM document_profile_roles WHERE document_id=?", (doc_id,))
         cid.executemany("INSERT INTO document_profile_roles(document_id, role_id) VALUES (?,?)",
                         [(doc_id, r) for r in role_list])
+        cid.execute("DELETE FROM document_qualification_types WHERE document_id=?", (doc_id,))
+        cid.executemany("INSERT INTO document_qualification_types(document_id, type_id) VALUES (?,?)",
+                        [(doc_id, t) for t in type_list])
 
     def store_upload(upload):
         """Saves an uploaded file in <LOG_DIR>/documents: (filename, stored name, compressed, size, sha256)."""
@@ -326,21 +337,22 @@ def register(app, connection, root, pages_dir):
 
     @app.post("/api/admin/documents")
     def add_document():
-        """Multipart form: file, title, description, group_id, type_id, admin_only, roles_limited, role_ids (repeated),
-        sort_order, valid_from, valid_until."""
+        """Multipart form: file, title, description, group_id, type_ids (repeated), admin_only, roles_limited, role_ids
+        (repeated), sort_order, valid_from, valid_until."""
         admin()
         cid = connection()
-        fields, role_list = document_fields(cid, request.form, request.form.getlist("role_ids"))
+        fields, role_list, type_list = document_fields(cid, request.form, request.form.getlist("role_ids"),
+                                                       request.form.getlist("type_ids"))
         filename, stored, compressed, size, sha256 = store_upload(request.files.get("file"))
         try:
             with db.write_lock, cid:
                 cid.execute("BEGIN IMMEDIATE")
                 did = cid.execute(
-                    "INSERT INTO documents(title,description,group_id,type_id,admin_only,roles_limited,sort_order,"
+                    "INSERT INTO documents(title,description,group_id,admin_only,roles_limited,sort_order,"
                     "valid_from,valid_until,filename,stored_path,compressed,size_bytes,sha256,uploaded_by,uploaded_at)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (*fields, filename, stored, compressed, size, sha256, g.user["id"], utc_now())).lastrowid
-                set_roles(cid, did, role_list)
+                set_limits(cid, did, role_list, type_list)
         except Exception:
             (folder() / stored).unlink(missing_ok=True)
             raise
@@ -351,17 +363,17 @@ def register(app, connection, root, pages_dir):
         admin()
         cid = connection()
         body = request.get_json(silent=True) or {}
-        roles = body.get("role_ids") or []
-        if not isinstance(roles, list):
-            raise DocumentError("role_ids must be a list.")
-        fields, role_list = document_fields(cid, body, roles)
+        roles, types = body.get("role_ids") or [], body.get("type_ids") or []
+        if not isinstance(roles, list) or not isinstance(types, list):
+            raise DocumentError("role_ids and type_ids must be lists.")
+        fields, role_list, type_list = document_fields(cid, body, roles, types)
         with db.write_lock, cid:
             cid.execute("BEGIN IMMEDIATE")
             if not cid.execute("SELECT 1 FROM documents WHERE id=?", (doc_id,)).fetchone():
                 raise DocumentError("No such document.", 404)
-            cid.execute("UPDATE documents SET title=?,description=?,group_id=?,type_id=?,admin_only=?,roles_limited=?,"
+            cid.execute("UPDATE documents SET title=?,description=?,group_id=?,admin_only=?,roles_limited=?,"
                         "sort_order=?,valid_from=?,valid_until=? WHERE id=?", (*fields, doc_id))
-            set_roles(cid, doc_id, role_list)
+            set_limits(cid, doc_id, role_list, type_list)
         return jsonify(ok=True)
 
     @app.post("/api/admin/documents/<int:doc_id>/file")
