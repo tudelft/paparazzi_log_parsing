@@ -7192,7 +7192,7 @@ qualifications.register(app, lambda: conn(), STORAGE_DIR, session_required)
 training.register(app, lambda: conn(), DATA_DIR, session_required)
 profiles.register(app, lambda: conn(), session_required, now, PAGES_DIR)
 bookings.register(app, lambda: conn(), session_required, PAGES_DIR)
-documents.register(app, lambda: conn(), STORAGE_DIR, session_required, PAGES_DIR)
+documents.register(app, lambda: conn(), STORAGE_DIR, PAGES_DIR)
 
 
 if __name__ == "__main__" and len(sys.argv) > 1:

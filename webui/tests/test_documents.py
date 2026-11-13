@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import io
 import os
 import tempfile
@@ -144,6 +145,62 @@ class DocumentTests(AppTests):
         r = self.client.post(f"/api/admin/documents/{did}/file", data={"file": (io.BytesIO(new), "x.pdf")},
                              content_type="multipart/form-data")
         self.assertEqual(r.status_code, 403)
+
+    def test_validity_hides_old_and_future_documents(self):
+        today = datetime.date.today()
+        day = lambda n: (today + datetime.timedelta(days=n)).isoformat()  # noqa: E731
+        old = self.upload("Insurance 2025", valid_from=day(-400), valid_until=day(-1)).json["id"]
+        now = self.upload("Insurance 2026", valid_from=day(-30), valid_until=day(300)).json["id"]
+        soon = self.upload("Insurance 2027", valid_from=day(301)).json["id"]
+        self.assertEqual(self.upload("Wrong", valid_from=day(2), valid_until=day(1)).status_code, 400)
+        self.assertEqual(self.upload("Wrong", valid_until="31-12-2026").status_code, 400)
+        docs = {d["id"]: d for d in self.listing()["documents"]}  # administrators see all three, marked
+        self.assertEqual({i: docs[i]["current"] for i in (old, now, soon)}, {old: False, now: True, soon: False})
+        self.assertEqual(docs[now]["valid_until"], day(300))
+        self.sign_in(2)
+        self.assertEqual([d["id"] for d in self.listing()["documents"]], [now])
+        self.assertEqual(self.client.get(f"/api/documents/{old}/download").status_code, 404)
+        # a renewal: new file and new dates in one call
+        self.sign_in(1)
+        r = self.client.post(f"/api/admin/documents/{old}/file", content_type="multipart/form-data",
+                             data={"file": (io.BytesIO(PDF), "2027.pdf"), "valid_from": day(-1), "valid_until": day(5)})
+        self.assertEqual(r.status_code, 200, r.json)
+        r = self.client.post(f"/api/admin/documents/{old}/file", content_type="multipart/form-data",
+                             data={"file": (io.BytesIO(PDF), "x.pdf"), "valid_from": day(6)})
+        self.assertEqual(r.status_code, 400)  # after the kept Valid until
+        self.sign_in(2)
+        self.assertEqual({d["id"] for d in self.listing()["documents"]}, {old, now})
+
+    def key(self, uid, read_only=0):
+        token = f"logdb_{uid}{read_only}" + "k" * 30
+        self.con.execute("INSERT INTO api_keys(user_id,name,key_hash,prefix,created_at,read_only)"
+                         " VALUES (?,?,?,'logdb_','now',?)",
+                         (uid, f"test{uid}{read_only}", hashlib.sha256(token.encode()).hexdigest(), read_only))
+        self.con.commit()
+        return {"Authorization": "Bearer " + token}
+
+    def test_api_keys_upload_and_download(self):
+        admin, admin_read, pilot = self.key(1), self.key(1, 1), self.key(2)
+        with self.client.session_transaction() as session:  # keys only, no browser session
+            session.clear()
+        data = lambda: {"title": "Insurance", "valid_until": "2099-12-31",  # noqa: E731
+                        "file": (io.BytesIO(PDF), "insurance.pdf")}
+        r = self.client.post("/api/admin/documents", data=data(), content_type="multipart/form-data", headers=admin)
+        self.assertEqual(r.status_code, 201, r.json)
+        did = r.json["id"]
+        for key in (admin_read, pilot):
+            self.assertEqual(self.client.post("/api/admin/documents", data=data(), content_type="multipart/form-data",
+                                           headers=key).status_code, 403)
+        r = self.client.post(f"/api/admin/documents/{did}/file", content_type="multipart/form-data", headers=admin,
+                             data={"file": (io.BytesIO(PDF), "insurance-2100.pdf"), "valid_until": "2100-12-31"})
+        self.assertEqual(r.status_code, 200, r.json)
+        r = self.client.get("/api/documents", headers=pilot)
+        self.assertEqual([(d["id"], d["filename"], d["valid_until"]) for d in r.json["documents"]],
+                         [(did, "insurance-2100.pdf", "2100-12-31")])
+        r = self.client.get(f"/api/documents/{did}/download", headers=admin_read)
+        self.assertEqual((r.status_code, r.data), (200, PDF))
+        r.close()
+        self.assertEqual(self.client.get("/documents", headers=pilot).status_code, 401)  # keys never open pages
 
     def test_admin_only_and_profile_roles(self):
         self.ns["profiles"].seed(self.con)
