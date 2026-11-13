@@ -32,6 +32,7 @@ OCR_PAGES = 4  # certificates have the number on the first pages
 OCR_SECONDS = 60  # per call of pdftoppm or tesseract
 READ_SECONDS = 25  # total for reading one chosen file in the upload dialog; OCR stops when it runs out
 OCR_TOO_LONG = "OCR took too long; fill in the fields."
+QR_TOO_LONG = "Reading the QR code took too long; fill in the fields."
 
 
 def _utc_now():
@@ -471,13 +472,17 @@ def same_value(field, a, b):
 def read_evidence(path, compressed, mime, entered, wanted=("number", "valid_from", "valid_until"), ocr=True,
                   seconds=READ_SECONDS):
     """Read number and validity dates from evidence: the QR code, the PDF text and, when something wanted is
-    still missing and ocr is set, OCR within what is left of seconds. Best effort: the reviewer confirms what was read.
+    still missing and ocr is set, OCR. The QR code and OCR share one time limit of seconds. Best effort: the reviewer confirms what was read.
     Returns dict(found={field: {value, source}}, dates=[{date, label, source}], codes (None: QR not read),
     qr (licence_qr.check against the entered values), issues: where the document differs from what was entered,
     notes: e.g. that OCR ran out of time)."""
     deadline = time.monotonic() + seconds
     found, dates, sources, notes = {}, [], {}, []
-    codes = licence_qr.read_codes(path, compressed, mime) if licence_qr.available(mime == "application/pdf") else None
+    codes = None  # None: not read (no tools, or out of time: then the background read after submit still runs)
+    if licence_qr.available(mime == "application/pdf"):
+        codes = licence_qr.read_codes(path, compressed, mime, deadline)
+        if codes is None:
+            notes.append(QR_TOO_LONG)
 
     def take(source, number, text_found):
         if number and "number" not in found:
@@ -498,7 +503,7 @@ def read_evidence(path, compressed, mime, entered, wanted=("number", "valid_from
         take("qr", facts["number"], qr_dates)
     if mime == "application/pdf":
         take("text", pdf_number(path, compressed), text_dates(b"\n".join(pdf_texts(path, compressed, readable=True))))
-        if ocr and any(field not in found for field in wanted):
+        if ocr and not notes and any(field not in found for field in wanted):
             number, text, complete = ocr_read(path, compressed, deadline)
             if number or text:
                 take("ocr", number, text_dates(text))

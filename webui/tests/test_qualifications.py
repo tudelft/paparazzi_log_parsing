@@ -3,10 +3,12 @@ import io
 import json
 import sqlite3
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+import licence_qr
 import qualifications
 import db
 from .test_historical import AppTests
@@ -1039,6 +1041,19 @@ class ReadEvidenceTests(AppTests):
         self.assertEqual(r.status_code, 200, r.json)
         run.assert_not_called()  # no time left: not even the page rendering starts
         self.assertEqual((r.json["found"], r.json["notes"]), ({}, [qualifications.OCR_TOO_LONG]))
+
+    def test_qr_read_shares_the_time_budget(self):
+        self.app.config["QUALIFICATION_READ_SECONDS"] = 0
+        self.addCleanup(self.app.config.pop, "QUALIFICATION_READ_SECONDS")
+        with patch("licence_qr.available", return_value=True), patch("qualifications.pdf_texts", return_value=[]), \
+                patch("qualifications.ocr_available", return_value=True), patch("subprocess.run") as run:
+            r = self.read(scan_pdf())
+        self.assertEqual(r.status_code, 200, r.json)
+        run.assert_not_called()  # neither the QR rendering nor OCR starts without time left
+        self.assertEqual((r.json["notes"], r.json["qr"]), ([qualifications.QR_TOO_LONG], None))
+        with patch("licence_qr.available", return_value=True), patch("subprocess.run") as run:
+            self.assertIsNone(licence_qr.read_codes(Path(__file__), False, "application/pdf", time.monotonic() - 1))
+            run.assert_not_called()
 
     def test_one_read_at_a_time_per_person(self):
         # the tests' database belongs to one thread: the second request is sent while the first is being read

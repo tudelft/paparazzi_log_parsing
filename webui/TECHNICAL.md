@@ -1329,10 +1329,12 @@ evidence that was not read yet shows *QR code not read yet* to administrators. W
 `POST /api/users/<id>/qualifications/read` (same access as submitting; the file is deleted after reading and nothing is
 stored). The server reads the QR code, the PDF text and, when the number or a date is still missing, OCR, and returns
 what it found per field with its source (`qr`, `text`, `ocr`; that order of preference), the dates seen and where the
-document differs from the typed values. The whole read has one time limit (`READ_SECONDS`, 25 s; OCR gets what is left
-and every OCR call at most that): when it runs out, what was found so far is returned with the note *OCR took too long;
-fill in the fields* (`notes`). One read per person runs at a time; another one meanwhile gets 429 (the server runs one
-process, so an in-process set is enough). The dialog fills only empty, shown fields and lists the result; with a file
+document differs from the typed values. The whole read has one time limit (`READ_SECONDS`, 25 s), shared by the QR
+code and OCR: every `pdftoppm`, `zbarimg` and `tesseract` call gets at most the time left. When it runs out, what was
+found so far is returned with a note in `notes` (*Reading the QR code took too long* or *OCR took too long; fill in the
+fields*); a QR code not read in time is read in the background after submit as usual. One read per person runs at a
+time; another one meanwhile gets 429 (the server runs one process, so an in-process set is enough). The dialog sends
+one read at a time: a file chosen during a read is read when that one is done, and after a 429 it tries again. The dialog fills only empty, shown fields and lists the result; with a file
 chosen, the date fields are no longer required in the browser. On submit the server reads empty fields the type asks
 for (number, Valid from, Valid until) from the QR code and the PDF text only, without OCR (the dialog already filled
 its OCR results into the form): typed values are never replaced, a read pair with Valid from after

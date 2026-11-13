@@ -15,7 +15,7 @@ window.QualificationManager = class {
     const r = await fetch(url, options);
     if (r.status === 401) { location.href = '/login'; throw new Error('Please sign in again.'); }
     const data = await r.json().catch(() => { throw new Error(`Invalid server response (${r.status}). Reload before retrying.`); });
-    if (!r.ok) throw new Error(data.error || 'Qualification request failed.');
+    if (!r.ok) throw Object.assign(new Error(data.error || 'Qualification request failed.'), {status: r.status});
     return data;
   }
   async load() {
@@ -255,6 +255,9 @@ window.QualificationManager = class {
     box.hidden = !file;
     if (!file) return;
     box.innerHTML = '<span class="mute">Reading the evidence…</span>';
+    // The server reads one file per person at a time: a file chosen meanwhile is read when the running read is done.
+    if (this.readBusy) { this.readAgain = true; return; }
+    this.readBusy = true;
     const data = new FormData();
     ['valid_from', 'valid_until', 'number'].forEach(name => {
       if (form.elements[name].value) data.append(name, form.elements[name].value);
@@ -262,10 +265,24 @@ window.QualificationManager = class {
     data.append('evidence', file);
     let r;
     try {
-      r = await this.request(`/api/users/${this.userId}/qualifications/read`, {method: 'POST', body: data});
+      for (let tries = 0; ; tries++) {
+        try {
+          r = await this.request(`/api/users/${this.userId}/qualifications/read`, {method: 'POST', body: data});
+          break;
+        } catch (error) {  // 429: a read of this person is still running (e.g. in another tab); wait and try again
+          if (error.status !== 429 || tries >= 10 || token !== this.reading) throw error;
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+      }
     } catch (error) {
       if (token === this.reading) box.innerHTML = `<span class="mute">Could not read the evidence: ${this.esc(error.message)}</span>`;
       return;
+    } finally {
+      this.readBusy = false;
+      if (this.readAgain) {
+        this.readAgain = false;
+        if (token !== this.reading) this.readEvidence(form);  // a newer file was chosen while this one was read
+      }
     }
     if (token !== this.reading || form.elements.evidence.files[0] !== file) return;  // another file was chosen
     const sources = {qr: 'QR code', text: 'PDF text', ocr: 'OCR'};
