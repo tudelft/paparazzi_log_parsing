@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+import mail
 import training
 from .test_historical import AppTests
 from .test_qualifications import PNG
@@ -524,6 +525,69 @@ class TrainingTests(AppTests):
         done = self.client.get(f"/api/trainings/{tid}").json
         self.assertTrue(done["passed_at"])
         self.assertFalse(done["awaiting_approval"])
+
+    def access_setup(self, **body):
+        mail_env = patch.dict(os.environ, {"LOGDB_SMTP_HOST": "relay.example.org", "LOGDB_MAIL_FROM": "logbook@example.org"})
+        mail_env.start()
+        self.addCleanup(mail_env.stop)
+        self.con.execute("UPDATE users SET email=lower(username)||'@example.org'")
+        self.con.commit()
+        self.assertEqual(self.client.post("/api/admin/trainings", json={
+            "name": "Bad", "access_mail_to": "not-an-address", "access_mail_text": "x"}).status_code, 400)
+        self.assertEqual(self.client.post("/api/admin/trainings", json={
+            "name": "Bad", "access_mail_to": "desk@example.org"}).status_code, 400)
+        tid = self.add_training(access_mail_to="desk@example.org; keys@example.org",
+                                access_mail_text="{name} ({email}) passed {training} on {date}.", **body)
+        qid = self.add_question(tid)
+        quiz = self.client.get(f"/api/trainings/{tid}").json
+        self.assertEqual(quiz["access_mail_to"], "desk@example.org, keys@example.org")
+        safe = next(c["id"] for c in quiz["questions"][0]["choices"] if c["correct"])
+        return tid, {"answers": {str(qid): safe}}
+
+    def access_mails(self):
+        return self.con.execute("SELECT * FROM mail_outbox WHERE kind='access'").fetchall()
+
+    def test_access_mail_only_after_no(self):
+        tid, answers = self.access_setup(access_question="Do you already have access to the CyberZoo?",
+                                         access_mail_cc=True)
+        self.sign_in(2)
+        self.assertEqual(self.client.get(f"/api/trainings/{tid}").json["access_question"],
+                         "Do you already have access to the CyberZoo?")
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/submit", json=answers).status_code, 400)
+        r = self.client.post(f"/api/trainings/{tid}/submit", json={**answers, "access_answer": "yes"})
+        self.assertTrue(r.json["passed"], r.json)
+        self.assertEqual(self.access_mails(), [])
+        self.sign_in(1)
+        self.assertEqual(self.client.delete(f"/api/admin/trainings/{tid}/progress/2").status_code, 200)
+        self.sign_in(2)
+        r = self.client.post(f"/api/trainings/{tid}/submit", json={**answers, "access_answer": "no"})
+        self.assertTrue(r.json["passed"], r.json)
+        row, = self.access_mails()
+        self.assertEqual((row["to_addr"], row["cc_addr"], row["reply_to"]),
+                         ("desk@example.org, keys@example.org", "pic@example.org", "pic@example.org"))
+        self.assertTrue(row["subject"].startswith("Access request: "), row["subject"])
+        self.assertIn("(pic@example.org) passed Safety on ", row["body"])
+        sent = []
+        smtp = type("FakeSMTP", (), {"send_message": lambda _, m: sent.append(m), "quit": lambda _: None})()
+        mail.send_due(self.con, lambda: smtp)
+        msg, = sent
+        self.assertEqual((msg["To"], msg["Cc"], msg["Reply-To"]),
+                         ("desk@example.org, keys@example.org", "pic@example.org", "pic@example.org"))
+        self.assertIn(mail.ACCESS_NOTE, msg.get_body(("plain",)).get_content())
+
+    def test_access_mail_waits_for_approval(self):
+        tid, answers = self.access_setup(needs_approval=True)
+        self.sign_in(2)
+        self.assertIsNone(self.client.get(f"/api/trainings/{tid}").json["access_question"])
+        r = self.client.post(f"/api/trainings/{tid}/submit", json=answers)
+        self.assertTrue(r.json["awaiting_approval"], r.json)
+        self.assertEqual(self.access_mails(), [])
+        self.sign_in(1)
+        self.assertEqual(self.client.post(f"/api/qualification-submissions/{r.json['qualification_id']}/review",
+                                          json={"action": "approve"}).status_code, 200)
+        row, = self.access_mails()
+        self.assertIsNone(row["cc_addr"])
+        self.assertEqual(row["reply_to"], "pic@example.org")
 
 
 class ScoreTests(unittest.TestCase):
