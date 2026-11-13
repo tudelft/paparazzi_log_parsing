@@ -527,7 +527,9 @@ CREATE TABLE IF NOT EXISTS documents (
     size_bytes INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
     uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    uploaded_at TEXT NOT NULL
+    uploaded_at TEXT NOT NULL,
+    valid_from TEXT,                   -- YYYY-MM-DD; NULL: no start; before it only administrators see it
+    valid_until TEXT                   -- YYYY-MM-DD; NULL: no end; after it only administrators see it
 );
 CREATE TABLE IF NOT EXISTS document_profile_roles (  -- profile roles that may see a document (with roles_limited=1)
     document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -677,6 +679,10 @@ def init(path):
         con.execute("ALTER TABLE api_keys ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0 CHECK(read_only IN (0,1))")
     if "expires_at" not in {r["name"] for r in con.execute("PRAGMA table_info(api_keys)")}:
         con.execute("ALTER TABLE api_keys ADD COLUMN expires_at TEXT")
+    document_cols = {r["name"] for r in con.execute("PRAGMA table_info(documents)")}
+    for col in ("valid_from", "valid_until"):
+        if col not in document_cols:
+            con.execute(f"ALTER TABLE documents ADD COLUMN {col} TEXT")
     if "address" not in {r["name"] for r in con.execute("PRAGMA table_info(cli_logins)")}:
         con.execute("ALTER TABLE cli_logins ADD COLUMN address TEXT")
     if "sort_order" not in type_cols:

@@ -8,8 +8,12 @@ person must then meet every limit that is set:
   - type_id: a current approved qualification of that type;
   - roles_limited: one of the profile roles in document_profile_roles (person profiles, profiles.py). This fails
     closed: with person profiles off, or when all its roles were removed, only administrators see the document.
+A document can have a validity (valid_from / valid_until, both optional): outside it only administrators see it,
+marked, so for example last year's insurance certificate never shows. Replacing the file can set new dates at once.
 Every signed-in person also sees their own current approved qualifications, with links to the evidence file when
 there is one, and a link to My account to add or renew them.
+API keys work on every route: any key reads (list, view, download), an administrator's key that is not read-only
+also manages documents and groups (for example an upload of the renewed insurance certificate by a script).
 """
 import datetime
 import os
@@ -61,6 +65,30 @@ def optional_id(cid, value, table, label):
     return value
 
 
+def date_field(raw, label):
+    """An optional YYYY-MM-DD date, or None."""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.date.fromisoformat(text).isoformat()
+    except ValueError:
+        raise DocumentError(f"{label} must be a date (YYYY-MM-DD).") from None
+
+
+def validity(body):
+    """(valid_from, valid_until) from a form or JSON body."""
+    start, until = date_field(body.get("valid_from"), "Valid from"), date_field(body.get("valid_until"), "Valid until")
+    if start and until and start > until:
+        raise DocumentError("Valid from must be on or before Valid until.")
+    return start, until
+
+
+def is_current(row, today=None):
+    today = today or datetime.date.today().isoformat()
+    return (not row["valid_from"] or row["valid_from"] <= today) and (not row["valid_until"] or row["valid_until"] >= today)
+
+
 def role_ids(cid, doc_id):
     return [r[0] for r in cid.execute("SELECT role_id FROM document_profile_roles WHERE document_id=? ORDER BY role_id",
                                       (doc_id,))]
@@ -70,7 +98,7 @@ def can_see(cid, row, user):
     """Administrators see everything; anyone else must meet every limit set on the document."""
     if user["is_admin"]:
         return True
-    if row["admin_only"]:
+    if row["admin_only"] or not is_current(row):
         return False
     if row["type_id"] and not has_qualification(cid, user["id"], row["type_id"]):
         return False
@@ -88,6 +116,7 @@ def document_json(cid, row):
         "type_id": row["type_id"], "type_name": row["type_name"], "admin_only": bool(row["admin_only"]),
         "roles_limited": bool(row["roles_limited"]), "role_ids": role_ids(cid, row["id"]), "filename": row["filename"],
         "size_bytes": row["size_bytes"], "uploaded_at": row["uploaded_at"], "sort_order": row["sort_order"],
+        "valid_from": row["valid_from"], "valid_until": row["valid_until"], "current": is_current(row),
         "viewable": storage.view_type(row["filename"]) is not None,
         "view": f"/api/documents/{row['id']}/view", "download": f"/api/documents/{row['id']}/download",
     }
@@ -116,14 +145,13 @@ DOCUMENT_SQL = ("SELECT d.*, t.name AS type_name FROM documents d"
                 " LEFT JOIN qualification_types t ON t.id=d.type_id")
 
 
-def register(app, connection, root, require_session, pages_dir):
+def register(app, connection, root, pages_dir):
     app.config["DOCUMENTS_DIR"] = Path(root) / "documents"
 
     def folder():
         return Path(app.config["DOCUMENTS_DIR"])
 
-    def signed_in():
-        require_session()
+    def signed_in():  # a browser session or an API key (require_login checked it; read-only keys only GET)
         if not enabled():
             abort(404)
 
@@ -249,7 +277,8 @@ def register(app, connection, root, require_session, pages_dir):
         return jsonify(ok=True)
 
     def document_fields(cid, body, roles):
-        """(title, description, group_id, type_id, admin_only, roles_limited, sort_order) and the role ids.
+        """(title, description, group_id, type_id, admin_only, roles_limited, sort_order, valid_from, valid_until) and
+        the role ids.
         roles_limited set with no roles left (for example all removed from the profile lists) means: only admins."""
         order = body.get("sort_order", 0)
         try:
@@ -265,7 +294,8 @@ def register(app, connection, root, require_session, pages_dir):
                 clip(body.get("description"), MAX_TEXT, "The description", required=False),
                 optional_id(cid, body.get("group_id"), "document_groups", "group"),
                 optional_id(cid, body.get("type_id"), "qualification_types", "qualification"),
-                flag(body.get("admin_only")), int(flag(body.get("roles_limited")) or bool(role_list)), order), role_list
+                flag(body.get("admin_only")), int(flag(body.get("roles_limited")) or bool(role_list)), order,
+                *validity(body)), role_list
 
     def flag(value):
         return int(str(value).lower() in ("1", "true"))
@@ -297,7 +327,7 @@ def register(app, connection, root, require_session, pages_dir):
     @app.post("/api/admin/documents")
     def add_document():
         """Multipart form: file, title, description, group_id, type_id, admin_only, roles_limited, role_ids (repeated),
-        sort_order."""
+        sort_order, valid_from, valid_until."""
         admin()
         cid = connection()
         fields, role_list = document_fields(cid, request.form, request.form.getlist("role_ids"))
@@ -307,8 +337,8 @@ def register(app, connection, root, require_session, pages_dir):
                 cid.execute("BEGIN IMMEDIATE")
                 did = cid.execute(
                     "INSERT INTO documents(title,description,group_id,type_id,admin_only,roles_limited,sort_order,"
-                    "filename,stored_path,compressed,size_bytes,sha256,uploaded_by,uploaded_at)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "valid_from,valid_until,filename,stored_path,compressed,size_bytes,sha256,uploaded_by,uploaded_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (*fields, filename, stored, compressed, size, sha256, g.user["id"], utc_now())).lastrowid
                 set_roles(cid, did, role_list)
         except Exception:
@@ -330,15 +360,17 @@ def register(app, connection, root, require_session, pages_dir):
             if not cid.execute("SELECT 1 FROM documents WHERE id=?", (doc_id,)).fetchone():
                 raise DocumentError("No such document.", 404)
             cid.execute("UPDATE documents SET title=?,description=?,group_id=?,type_id=?,admin_only=?,roles_limited=?,"
-                        "sort_order=? WHERE id=?", (*fields, doc_id))
+                        "sort_order=?,valid_from=?,valid_until=? WHERE id=?", (*fields, doc_id))
             set_roles(cid, doc_id, role_list)
         return jsonify(ok=True)
 
     @app.post("/api/admin/documents/<int:doc_id>/file")
     def replace_document_file(doc_id):
-        """Multipart form: file. Replaces the file (for example a renewed certificate); the rest stays."""
+        """Multipart form: file, optional valid_from and valid_until. Replaces the file (for example a renewed
+        certificate); sent dates replace the old ones, the rest stays."""
         admin()
         cid = connection()
+        dates = {k: v for k, v in zip(("valid_from", "valid_until"), validity(request.form)) if k in request.form}
         if not cid.execute("SELECT 1 FROM documents WHERE id=?", (doc_id,)).fetchone():
             raise DocumentError("No such document.", 404)
         filename, stored, compressed, size, sha256 = store_upload(request.files.get("file"))
@@ -351,6 +383,12 @@ def register(app, connection, root, require_session, pages_dir):
                 cid.execute("UPDATE documents SET filename=?,stored_path=?,compressed=?,size_bytes=?,sha256=?,"
                             "uploaded_by=?,uploaded_at=? WHERE id=?",
                             (filename, stored, compressed, size, sha256, g.user["id"], utc_now(), doc_id))
+                for col, value in dates.items():  # column names from the fixed tuple above
+                    cid.execute(f"UPDATE documents SET {col}=? WHERE id=?", (value, doc_id))
+                start, until = cid.execute("SELECT valid_from, valid_until FROM documents WHERE id=?",
+                                           (doc_id,)).fetchone()
+                if start and until and start > until:
+                    raise DocumentError("Valid from must be on or before Valid until.")
         except Exception:
             (folder() / stored).unlink(missing_ok=True)
             raise

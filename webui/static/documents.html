@@ -101,6 +101,10 @@
       <label class="field">Group<select name="group_id"></select></label>
       <label class="field">Order (low first)<input name="sort_order" type="number" step="1" value="0"></label>
     </div>
+    <div class="two" title="Outside these dates only administrators see the document (marked). Both are optional.">
+      <label class="field">Valid from<input name="valid_from" type="date"></label>
+      <label class="field">Valid until<input name="valid_until" type="date"></label>
+    </div>
     <fieldset><legend>Who sees it (administrators always; others must meet every limit)</legend>
       <label class="check"><input name="admin_only" type="checkbox" onchange="syncDocForm()"> Administrators only</label>
       <div id="otherLimits">
@@ -135,11 +139,17 @@ function limitsText(d) {
     : 'roles: none left (administrators only)');
   return parts.length ? 'visible ' + parts.join(' and ') : '';
 }
+function validityText(d) {
+  if (!d.valid_from && !d.valid_until) return '';
+  return 'valid ' + (d.valid_from ? 'from ' + d.valid_from + ' ' : '') + (d.valid_until ? 'until ' + d.valid_until : '');
+}
 function docHTML(d) {
   const link = d.viewable ? d.view : d.download;
   const sub = [editing() ? limitsText(d) : '', esc(d.filename), `<a href="${esc(d.download)}">download</a>`]
     .filter(Boolean).join(' · ');
-  return `<div class="doc"><span style="display:flex;gap:8px"><a class="name" href="${esc(link)}" target="_blank" rel="noopener">${esc(d.title)}</a>`
+  const outdated = d.current ? '' : ` <span style="color:var(--err)" title="Only administrators see it">(${
+    d.valid_until && d.valid_until < new Date().toLocaleDateString('sv') ? 'expired' : 'not valid yet'})</span>`;
+  return `<div class="doc"><span style="display:flex;gap:8px"><a class="name" href="${esc(link)}" target="_blank" rel="noopener" title="${esc(validityText(d))}">${esc(d.title)}</a>${outdated}`
     + `<span class="tools edit-only"><button type="button" class="sec" onclick="editDocument(${d.id})">Edit</button></span></span>`
     + (d.description ? `<span class="text">${esc(d.description)}</span>` : '')
     + `<span class="sub">${sub}</span></div>`;
@@ -261,7 +271,8 @@ function syncDocForm() {
 }
 function editDocument(id) {
   const d = data.documents.find(x => x.id === id)
-    || {title: '', description: '', group_id: null, type_id: null, admin_only: false, roles_limited: false, role_ids: [], sort_order: 0};
+    || {title: '', description: '', group_id: null, type_id: null, admin_only: false, roles_limited: false, role_ids: [], sort_order: 0,
+        valid_from: null, valid_until: null};
   editingId = id ?? null;
   const f = $('docForm');
   f.group_id.innerHTML = '<option value="">(no group: General)</option>'
@@ -272,6 +283,7 @@ function editDocument(id) {
       .map(t => `<option value="${t.id}">Only with ${esc(t.name)}${t.active ? '' : ' (inactive)'}</option>`).join('');
   f.title.value = d.title; f.description.value = d.description; f.sort_order.value = d.sort_order;
   f.group_id.value = d.group_id ?? ''; f.type_id.value = d.type_id ?? '';
+  f.valid_from.value = d.valid_from || ''; f.valid_until.value = d.valid_until || '';
   f.admin_only.checked = d.admin_only;
   f.roles_limited.checked = d.roles_limited;
   $('roleLimit').hidden = !data.profiles && !d.roles_limited;
@@ -290,7 +302,8 @@ $('docForm').onsubmit = async e => {
   const roles = f.roles_limited.checked ? [...$('roleList').querySelectorAll('input:checked')].map(x => +x.value) : [];
   const fields = {title: f.title.value, description: f.description.value, group_id: f.group_id.value || null,
     type_id: f.type_id.value || null, admin_only: f.admin_only.checked, roles_limited: f.roles_limited.checked,
-    role_ids: roles, sort_order: parseInt(f.sort_order.value || '0', 10)};
+    role_ids: roles, sort_order: parseInt(f.sort_order.value || '0', 10),
+    valid_from: f.valid_from.value || null, valid_until: f.valid_until.value || null};
   let ok;
   if (editingId == null) {
     if (!f.file.files.length) { $('docError').textContent = 'Choose a file.'; return; }
