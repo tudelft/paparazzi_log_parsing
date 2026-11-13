@@ -61,6 +61,17 @@ def scan_pdf(number="NL.66.12345", upside_down=False):
     return out + b"trailer << /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
 
 
+def dated_pdf(number="NLD-RP-0123456789ab", start="12-03-2024", until="11-03-2029", birth="01-01-1990"):
+    """A text PDF with the number and labelled dates in separate strings, and a date of birth that is not a validity."""
+    import zlib
+    lines = [f"Date of birth {birth}" if birth else "", f"Certificate {number}" if number else "",
+             f"Valid from {start}" if start else "", f"Valid until {until}" if until else ""]
+    text = " ".join(f"({line}) Tj 0 -14 Td" for line in lines if line)
+    stream = zlib.compress(f"BT /F1 12 Tf 72 712 Td {text} ET".encode())
+    return (b"%PDF-1.4\n1 0 obj << /Filter /FlateDecode /Length " + str(len(stream)).encode() + b" >>\nstream\n"
+            + stream + b"\nendstream\nendobj\n%%EOF\n")
+
+
 class QualificationTests(AppTests):
     def setUp(self):
         super().setUp()
@@ -950,6 +961,92 @@ class LicenceQrTests(AppTests):
         self.assertEqual(self.client.get("/api/users/2/qualifications").json["items"][0]["qr"], {"status": "pending"})
         self.sign_in(2)  # the person sees their record, not the decoded codes
         self.assertNotIn("qr", self.client.get("/api/users/2/qualifications").json["items"][0])
+
+
+class ReadEvidenceTests(AppTests):
+    """Issue 226: number and validity dates are read from the evidence at upload; typed values are kept."""
+    def setUp(self):
+        AppTests.setUp(self)
+        self.sign_in(1)
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        old = self.app.config["QUALIFICATION_EVIDENCE_DIR"]
+        self.app.config["QUALIFICATION_EVIDENCE_DIR"] = Path(folder.name)
+        self.addCleanup(self.app.config.__setitem__, "QUALIFICATION_EVIDENCE_DIR", old)
+        self.tid = self.client.post("/api/qualification-types", json={
+            "name": "A2", "requires_evidence": True, "requires_start": True, "requires_expiry": True,
+            "requires_number": True}).json["id"]
+
+    row = QualificationTests.row
+
+    def submit(self, content, number="", start="", until="", filename="evidence.pdf"):
+        data = {"type_id": str(self.tid), "valid_from": start, "valid_until": until, "number": number,
+                "evidence": (io.BytesIO(content), filename)}
+        r = self.client.post("/api/users/2/qualifications", data=data)
+        r.request.input_stream.close()
+        return r
+
+    def audit(self):
+        return json.loads(self.con.execute("SELECT details_json FROM qualification_audit WHERE action='submitted'"
+                                           " ORDER BY id DESC").fetchone()[0])
+
+    def test_text_pdf_fills_number_and_dates(self):
+        with patch("licence_qr.available", return_value=False):
+            r = self.submit(dated_pdf())
+        self.assertEqual(r.status_code, 201, r.json)
+        row = self.row(r.json["id"])
+        self.assertEqual((row["number"], row["valid_from"], row["valid_until"]),
+                         ("NLD-RP-0123456789ab", "2024-03-12", "2029-03-11"))  # not the date of birth
+        self.assertEqual(self.audit()["read_from"], {"number": "text", "valid_from": "text", "valid_until": "text"})
+        # unlabelled dates: the pair a whole number of years apart
+        with patch("licence_qr.available", return_value=False):
+            self.client.post(f"/api/qualification-submissions/{r.json['id']}/review", json={"action": "withdraw"})
+            pdf = dated_pdf().replace(b"Valid from ", b"").replace(b"Valid until ", b"")
+            row = self.row(self.submit(pdf).json["id"])
+        self.assertEqual((row["valid_from"], row["valid_until"]), ("2024-03-12", "2029-03-11"))
+
+    def test_scanned_pdf_fills_number_by_ocr(self):
+        if not qualifications.ocr_available():
+            self.skipTest("pdftoppm/tesseract not installed")
+        # scan_pdf has its text in the PDF too: hide it, as in an image-only scan
+        with patch("licence_qr.available", return_value=False), patch("qualifications.pdf_texts", return_value=[]):
+            r = self.submit(scan_pdf(), start="2024-01-01", until="2029-01-01")
+        self.assertEqual(r.status_code, 201, r.json)
+        self.assertEqual(self.row(r.json["id"])["number"], "NL.66.12345")
+        self.assertEqual(self.audit()["read_from"], {"number": "ocr"})
+
+    def test_qr_code_fills_number_and_dates(self):
+        codes = ["https://vliegbewijsonbemandeluchtvaartuigencontroleren.rdw.nl/raadplegen?code=NLD-RP-abcdefgh1234",
+                 "valid from 2024-03-12 valid until 2029-03-12"]
+        with patch("licence_qr.available", return_value=True), patch("licence_qr.read_codes", return_value=codes):
+            r = self.submit(dated_pdf(number=None, start=None, until=None))
+            self.assertEqual(r.status_code, 201, r.json)
+        row = self.row(r.json["id"])
+        self.assertEqual((row["number"], row["valid_from"], row["valid_until"]),
+                         ("NLD-RP-abcdefgh1234", "2024-03-12", "2029-03-12"))
+        self.assertEqual(json.loads(row["qr_json"])["codes"], codes)  # read once: no background read
+        self.assertEqual(self.audit()["read_from"], {"number": "qr", "valid_from": "qr", "valid_until": "qr"})
+
+    def test_typed_values_are_kept_and_differences_reported(self):
+        with patch("licence_qr.available", return_value=False):
+            preview = self.client.post("/api/users/2/qualifications/read", data={
+                "valid_until": "2030-01-01", "evidence": (io.BytesIO(dated_pdf()), "evidence.pdf")})
+            self.assertEqual(preview.status_code, 200, preview.json)
+            self.assertEqual(preview.json["found"]["valid_until"], {"value": "2029-03-11", "source": "text"})
+            self.assertEqual(preview.json["issues"], ["Valid until in the document (text) is 2029-03-11, entered 2030-01-01"])
+            r = self.submit(dated_pdf(), number="NLD-RP-000000000001", until="2030-01-01")
+        self.assertEqual(r.status_code, 201, r.json)
+        row = self.row(r.json["id"])
+        self.assertEqual((row["number"], row["valid_from"], row["valid_until"]),
+                         ("NLD-RP-000000000001", "2024-03-12", "2030-01-01"))
+        self.assertEqual(len(r.json["issues"]), 2)
+        self.assertEqual(self.audit()["read_from"], {"valid_from": "text"})
+        self.assertEqual(len(self.audit()["differs"]), 2)
+
+    def test_missing_everywhere_keeps_the_clear_error(self):
+        with patch("licence_qr.available", return_value=False), patch("qualifications.ocr_available", return_value=False):
+            r = self.submit(dated_pdf(start=None, until=None))
+        self.assertEqual((r.status_code, r.json["error"]), (400, "This qualification requires an expiry date."))
 
 
 class QualificationTypeDescriptionTests(AppTests):
