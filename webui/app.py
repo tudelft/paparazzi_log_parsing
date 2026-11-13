@@ -4278,7 +4278,7 @@ def admin_add_user():
     username = (body.get("username") or "").strip()
     display_name = (body.get("display_name") or "").strip() or None
     email = clean_email(body.get("email"))
-    if not username or len(username) > 40 or any(c.isspace() for c in username):
+    if len(username) > 40 or any(c.isspace() for c in username):
         return jsonify(error="username must be 1–40 characters with no spaces"), 400
     if display_name and len(display_name) > 80:
         return jsonify(error="display name must be at most 80 characters"), 400
@@ -4294,6 +4294,8 @@ def admin_add_user():
         return jsonify(error="no such project"), 404
     if con.execute("SELECT 1 FROM users WHERE email=? COLLATE NOCASE", (email,)).fetchone():
         return jsonify(error="that email address is already used"), 409
+    if not username:  # optional: the part of the email before @, numbered when taken (as for a first SSO login)
+        username = unique_username(con, email.split("@")[0][:40].lower() or "user")
     try:
         cur = con.execute(
             "INSERT INTO users (username, display_name, email, password_hash, is_admin, created_at, default_project_id)"
@@ -4304,7 +4306,8 @@ def admin_add_user():
         con.commit()
     except sqlite3.IntegrityError:
         return jsonify(error="that username already exists"), 409
-    return jsonify(id=cur.lastrowid, setup_url=setup_url(token), expires_at=expires_at, mailed_to=mailed)
+    return jsonify(id=cur.lastrowid, username=username, setup_url=setup_url(token), expires_at=expires_at,
+                   mailed_to=mailed)
 
 
 @app.delete("/api/admin/users/<int:user_id>/password")

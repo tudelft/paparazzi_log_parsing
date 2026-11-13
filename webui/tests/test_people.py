@@ -154,6 +154,19 @@ class PeopleDirectoryTests(AppTests):
                                          json={**profile, "email": "pilot2@example.test"}).status_code, 200)
         self.assertEqual(self.con.execute("SELECT email FROM users WHERE id=2").fetchone()[0], "pilot2@example.test")
 
+    def test_username_defaults_to_email(self):
+        self.sign_in(1)
+        made = [self.client.post("/api/admin/users", json={"email": email}) for email in
+                ("J.Smith@example.test", "j.smith@other.test", "Admin@example.test")]
+        self.assertEqual([r.status_code for r in made], [200, 200, 200], [r.json for r in made])
+        self.assertEqual([r.json["username"] for r in made], ["j.smith", "j.smith2", "admin2"])
+        self.assertEqual(self.con.execute("SELECT username FROM users WHERE id=?", (made[0].json["id"],)).fetchone()[0],
+                         "j.smith")
+        typed = self.client.post("/api/admin/users", json={"username": "kim", "email": "k@example.test"})
+        self.assertEqual(typed.json["username"], "kim")
+        self.assertEqual(self.client.post("/api/admin/users", json={"username": "has space", "email": "x@example.test"})
+                         .status_code, 400)
+
     def test_log_names_stay_unlinked_until_admin_adds_aliases(self):
         self.con.execute(
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by)"

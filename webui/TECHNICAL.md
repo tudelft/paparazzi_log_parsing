@@ -774,7 +774,8 @@ Everything requires a login. Admins create accounts on the People page or on the
     python3 app.py list-users
     python3 app.py deactivate-user alice                       # or activate-user
 
-A new account needs an email address (Add user, `create-user --email`). Accounts made before that rule may have none;
+A new account needs an email address (Add user, `create-user --email`). In Add user the username is optional: without one it is taken
+from the address (the part before `@`, lower case, numbered when taken, as for a first SSO login). Accounts made before that rule may have none;
 once an address is set it can be changed in the People Account tab but not removed. External crew (no sign-in), people
 created by the qualification import and first SSO logins without a `mail` attribute are not affected.
 Addresses must be valid and unique (case-insensitive). Without an email, automatic SSO

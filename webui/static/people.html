@@ -183,7 +183,7 @@
     <div class="dialog-header"><h2 id="addUserTitle">Add user</h2><button type="button" onclick="$('addUserDialog').close()" aria-label="Close Add user">Close</button></div>
     <p id="addUserError" class="dialog-error" role="alert"></p>
     <form id="addUser" onsubmit="addUser(event)">
-      <label class="field">Username<input id="newUser" required maxlength="40" autocomplete="off"></label>
+      <label class="field" title="Used for a password login. Empty: taken from the email address (before the @), numbered when taken.">Username<input id="newUser" maxlength="40" autocomplete="off" placeholder="optional: from the email"></label>
       <label class="field">Display name<input id="newName" maxlength="80" autocomplete="off"></label>
       <label class="field">Email<input id="newEmail" type="email" maxlength="120" autocomplete="off" required></label>
       <label class="field">Default project<select id="newProject"></select></label>
@@ -1301,7 +1301,7 @@ async function addUser(ev) {
   $('addUser').reset();
   $('addUserError').textContent = '';
   $('addUserDialog').close();
-  showSetup(data.setup_url, username, false, data.expires_at, data.mailed_to);
+  showSetup(data.setup_url, data.username || username, false, data.expires_at, data.mailed_to);
   selectedPerson = data.id;
   selectedTab = 'account';
   await load();
