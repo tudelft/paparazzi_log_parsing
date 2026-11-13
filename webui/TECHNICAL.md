@@ -1007,6 +1007,51 @@ or when an admin approves a queued pass (`needs_approval`). With an optional Yes
 (`access_answer` in the submit body, required then; stored in `training_progress.access_answer`) and only **No**
 sends the mail. Its Reply-To is the person; **Copy to the person** (`access_mail_cc`) adds them as Cc. The subject is
 `Access request: <name> passed <training>`. JSON export/import does not carry these settings.
+Below the typed text every access mail ends with a fixed block, one value per line, for mail flows:
+
+```text
+Request details:
+Person: <name>
+Email: <address, or ->
+Training: <training>
+Passed: <yyyy-mm-dd>
+Reference: T<training id>-U<user id>-<yyyy-mm-dd>
+```
+
+The reference is the same when one pass is mailed again, so a flow can skip duplicates.
+
+#### Access requests into a SharePoint list (Power Automate)
+
+Set the training's **To** to a shared mailbox and let a Power Automate cloud flow (premium licence not needed for
+these connectors) add each request to a SharePoint list. Nothing in the web UI changes; the flow runs in the
+Microsoft tenant under the account that owns it, which needs access to the mailbox and edit rights on the list.
+
+List columns (create each with the name in brackets, without spaces, then rename the display name if wanted; the
+flow uses these internal names): Title (rename to *Person*), Email `[Email]` and Training `[Training]` (single line
+of text), Passed on `[PassedOn]` (date only), Reference `[Reference]` (single line of text; *Enforce unique values*
+on, which also indexes it), Status `[Status]` (choice: New, In progress, Done; default New) and Notes `[Notes]`
+(multiple lines).
+
+Flow steps:
+
+1. Trigger **When a new email arrives in a shared mailbox (V2)** (Office 365 Outlook): the mailbox address, folder
+   Inbox. Under *Settings → Trigger conditions* add
+   `@startsWith(triggerOutputs()?['body/subject'], 'Access request:')` so other mail is left alone.
+2. **Html to text** (Content Conversion) with *Content* = the trigger's *Body*.
+3. **Compose** named `Details`: `last(split(body('Html_to_text'), 'Request details:'))`.
+4. One **Compose** per value, named `Person`, `Email`, `Training`, `Passed` and `Reference`, each
+   `trim(first(split(last(split(outputs('Details'), 'Email:')), decodeUriComponent('%0A'))))` with its own label
+   instead of `Email:`.
+5. **Get items** (SharePoint): the site and list, *Filter Query* `Reference eq '@{outputs('Reference')}'`,
+   *Top Count* 1.
+6. **Condition** `empty(body('Get_items')?['value'])` is equal to `true`; in *If yes* **Create item**: Title =
+   `Person`, Email, Training, PassedOn = `Passed`, Reference and Notes = the trigger's *Subject*.
+7. Optionally **Move email (V2)** to a *Processed* folder of the mailbox (same mailbox address), and a
+   **Send an email (V2)** to an administrator with *Configure run after* = *has failed* on the Create item step.
+
+Test it by passing a training whose **To** is the mailbox (or forwarding an earlier access mail to it): the flow's
+run history shows each step's output. A changed column name or the label text in the block above breaks the
+flow, so change both together.
 
 ### Person profiles
 

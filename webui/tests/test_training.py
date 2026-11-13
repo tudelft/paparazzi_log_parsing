@@ -567,6 +567,8 @@ class TrainingTests(AppTests):
                          ("desk@example.org, keys@example.org", "pic@example.org", "pic@example.org"))
         self.assertTrue(row["subject"].startswith("Access request: "), row["subject"])
         self.assertIn("(pic@example.org) passed Safety on ", row["body"])
+        self.assertRegex(row["body"], r"\n\nRequest details:\nPerson: Pilot\nEmail: pic@example.org\nTraining: Safety\n"
+                                      r"Passed: \d{4}-\d\d-\d\d\nReference: T\d+-U2-\d{4}-\d\d-\d\d$")
         sent = []
         smtp = type("FakeSMTP", (), {"send_message": lambda _, m: sent.append(m), "quit": lambda _: None})()
         mail.send_due(self.con, lambda: smtp)
