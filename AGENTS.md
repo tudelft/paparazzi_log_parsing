@@ -35,6 +35,28 @@
 - Do not touch real databases, logs, evidence, credentials or running services for development checks.
   Use isolated temporary fixtures; never add local data or environments to commits.
 
+## Links in the Operations Manual (strict rule)
+
+The MAVLab Operations Manual (OM) links to exactly five pages of the production web UI. The OM is sent to the
+aviation authority, so every one of these links must keep working in every release:
+
+| Path | Page |
+|---|---|
+| `/` | Logbook (start page) |
+| `/documents` | Documents |
+| `/people` | People (personnel and qualifications) |
+| `/aircraft` | Aircraft (fleet) |
+| `/training` | Training |
+
+- Never rename, move or remove these paths, and never let them fail for a signed-in user. They must work
+  without a query string (filters stay optional). The feature switches behind two of them
+  (`LOGDB_DOCUMENTS`, `LOGDB_TRAINING`) stay on in production.
+- The OM defines these links in one place: the `\logbook[...]` command in `settings.tex` of the OM sources
+  (MAVLab flight operations). The OM uses no other path of this server. A new OM link is first agreed there,
+  then added to this list.
+- A change that would break or redirect one of these paths: stop, raise it with the maintainer (issue with
+  label `question`) before implementing, and have the OM updated first.
+
 ## Working with the maintainer
 
 - Open questions for the maintainer are GitHub issues with the label `question` (`gh issue list -l question`).
