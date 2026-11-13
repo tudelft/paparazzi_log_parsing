@@ -192,11 +192,12 @@ and inspect or revoke their API keys (not retrieve secret values). You cannot re
   Add a username as an alias only if it reliably identifies that person in logs. Duplicate display names
   stay unresolved unless an explicit alias identifies the person. Renaming a username does not add an alias.
 - Admins manage **Aircraft** using Details, Project history and Aliases. Add/import buttons open dialogs;
-  Close or Escape dismisses them. **Manager** and **Current user** suggest registered users as you type (free text
-  is allowed for people without an account); a new aircraft starts with you as manager. A manager name without an
-  account is marked **not linked**: pick the person to link it.
-- Project members who may add logs can **Request aircraft** for their project (Aircraft, Edit mode). A project
-  manager or an admin approves or rejects it; until then it is listed as **Pending** and reserves nothing.
+  Close or Escape dismisses them. **Current user** suggests registered users as you type (free text is allowed for
+  people without an account). **Manager** is always a registered person and is required for a new aircraft; it
+  starts as you.
+- Project members who may add logs can **Request aircraft** for their project (Aircraft). A project manager or an
+  admin approves or rejects it in Edit mode; the serial is assigned on approval and the requester becomes its manager.
+  Until then it is listed as **Pending** and reserves nothing.
   Project managers also edit the status, current user, comments and manager of their project's aircraft, and the
   linked manager of an aircraft can do the same.
   Link unrecognised log names to an existing aircraft/person in Edit mode. There, Aircraft shows tabs

@@ -1969,9 +1969,9 @@ def unique_import_name(con, name, uid, drone_id=None):
 
 def apply_drone_fields(con, drone_id, fields, old_name=None):
     con.execute(
-        "UPDATE drones SET name=?, unique_id=?, default_project_id=?, manager=?, manager_id=?, current_user=?,"
+        "UPDATE drones SET name=?, unique_id=?, default_project_id=?, manager_id=?, current_user=?,"
         " status=?, bought_on=?, inventory_project=?, comments=? WHERE id=?",
-        (fields["name"], fields["unique_id"], fields["default_project_id"], fields["manager"], fields["manager_id"],
+        (fields["name"], fields["unique_id"], fields["default_project_id"], fields["manager_id"],
          fields["current_user"], fields["status"], fields["bought_on"], fields["inventory_project"],
          fields["comments"], drone_id))
     if old_name and old_name.casefold() != fields["name"].casefold() and not name_taken(con, old_name, drone_id):
@@ -3178,14 +3178,13 @@ def drone_payload(con, d):
     records = con.execute("SELECT COUNT(*) AS n FROM flight_records WHERE drone_id=?", (d["id"],)).fetchone()["n"]
     proj = con.execute("SELECT name FROM projects WHERE id=?", (d["default_project_id"],)).fetchone() if d["default_project_id"] else None
     periods = drone_periods(con, d["id"])
-    linked = con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",
-                         (d["manager_id"],)).fetchone() if d["manager_id"] else None
+    manager = con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",
+                          (d["manager_id"],)).fetchone() if d["manager_id"] else None
     return {"id": d["id"], "name": d["name"], "unique_id": d["unique_id"],
             "default_project_id": d["default_project_id"],
             "default_project_name": proj["name"] if proj else None,
             "projects": periods,
-            # manager: the linked person's current name, else the text as imported (manager_id None: not linked)
-            "manager": linked[0] if linked else d["manager"], "manager_id": d["manager_id"] if linked else None,
+            "manager": manager[0] if manager else None, "manager_id": d["manager_id"] if manager else None,
             "current_user": d["current_user"], "status": d["status"],
             "bought_on": d["bought_on"], "inventory_project": d["inventory_project"],
             "comments": d["comments"], "aliases": aliases, "log_count": n, "record_count": records,
@@ -3303,7 +3302,7 @@ def drone_requests_payload(con):
         decide = manages_project(con, r["project_id"])
         if not decide and r["requested_by"] != g.user["id"]:
             continue
-        out.append(dict(id=r["id"], name=r["name"], unique_id=r["unique_id"], comments=r["comments"],
+        out.append(dict(id=r["id"], name=r["name"], comments=r["comments"],
                         project_id=r["project_id"], project_name=r["project_name"], requested_by=r["requested_by"],
                         requested_by_name=r["requested_by_name"], created_at=r["created_at"], can_decide=decide))
     return out
@@ -3320,7 +3319,7 @@ def notify_request_deciders(con, project_id, subject, text):
 @app.post("/api/drone-requests")
 def request_drone():
     """A member who may add logs to a project asks for a new aircraft there; an admin or project manager decides.
-    Nothing is reserved: name and serial are checked when it is approved."""
+    Nothing is reserved: the name is checked, and the serial generated, when it is approved."""
     session_required()
     body = request.get_json(silent=True) or {}
     con = conn()
@@ -3336,15 +3335,12 @@ def request_drone():
     name = (body.get("name") or "").strip()
     if not name or len(name) > 80:
         return jsonify(error="an aircraft name is required (max 80 characters)"), 400
-    uid = (body.get("unique_id") or "").strip()
-    if len(uid) > 40:
-        return jsonify(error="the serial can have at most 40 characters"), 400
     comments = clip_text(body.get("comments"), 400)
-    cur = con.execute("INSERT INTO drone_requests (project_id, requested_by, name, unique_id, comments, created_at)"
-                      " VALUES (?,?,?,?,?,?)", (project_id, g.user["id"], name, uid or None, comments, now()))
+    cur = con.execute("INSERT INTO drone_requests (project_id, requested_by, name, comments, created_at)"
+                      " VALUES (?,?,?,?,?)", (project_id, g.user["id"], name, comments, now()))
     who = g.user["display_name"] or g.user["username"]
     notify_request_deciders(con, project_id, f"Aircraft request: {name} for {project['name']}",
-                            f"{who} asks to add the aircraft {name}{f' ({uid})' if uid else ''} to the project "
+                            f"{who} asks to add the aircraft {name} to the project "
                             f"{project['name']}." + (f"\n\n{comments}" if comments else "")
                             + "\n\nApprove or reject it on the Aircraft page.")
     con.commit()
@@ -3362,15 +3358,15 @@ def drone_request_row(con, request_id):
 @app.post("/api/drone-requests/<int:request_id>/approve")
 def approve_drone_request(request_id):
     """Create the requested aircraft in its project (as an admin adding it would), linked to the requester as
-    manager. 409 when its name or serial is taken by now."""
+    manager; it gets the next free serial. 409 when its name is taken by now."""
     session_required()
     con = conn()
     row = drone_request_row(con, request_id)
     if not manages_project(con, row["project_id"]):
         abort(403)
     try:
-        drone_id, uid = create_drone(con, dict(name=row["name"], unique_id=row["unique_id"] or "",
-                                               default_project_id=row["project_id"], comments=row["comments"],
+        drone_id, uid = create_drone(con, dict(name=row["name"], default_project_id=row["project_id"],
+                                               comments=row["comments"],
                                                manager_id=row["requested_by"]))
     except DroneError as exc:
         con.rollback()
@@ -3421,22 +3417,28 @@ class DroneError(Exception):
 
 
 def manager_fields(con, body, row=None):
-    """(manager name, manager_id) from body: manager_id picks an account; manager is a name, linked when it names
-    exactly one account (else kept as text, shown as not linked). Unchanged (row's) when neither is sent."""
+    """The aircraft manager's account id from body: manager_id, or a manager name naming exactly one active,
+    non-external account. Unchanged (row's) when neither is sent. A manager is always a person: free text, an unknown
+    account or clearing a set manager raises DroneError."""
+    current = row["manager_id"] if row else None
     if body.get("manager_id") not in (None, ""):
         try:
             uid = int(body["manager_id"])
         except (TypeError, ValueError):
             raise DroneError("no such person") from None
-        u = con.execute("SELECT id, display_name, username FROM users WHERE id=? AND is_active=1 AND is_external=0",
-                        (uid,)).fetchone()
-        if u is None:
+        if uid != current and not con.execute(
+                "SELECT 1 FROM users WHERE id=? AND is_active=1 AND is_external=0", (uid,)).fetchone():
             raise DroneError("no such person")
-        return u["display_name"] or u["username"], u["id"]
-    if "manager" in body or "manager_id" in body:
-        text = clip_text(body.get("manager"), 80)
-        return text, db.user_by_name(con, text)
-    return (row["manager"], row["manager_id"]) if row else (None, None)
+        return uid
+    name = (body.get("manager") or "").strip()
+    if name:
+        uid = db.user_by_name(con, name)
+        if uid is None:
+            raise DroneError(f"the manager must be a registered person; '{name}' is not exactly one account")
+        return uid
+    if current and ("manager" in body or "manager_id" in body):
+        raise DroneError("an aircraft keeps its manager; pick another person instead")
+    return current
 
 
 def create_drone(con, body):
@@ -3460,12 +3462,14 @@ def create_drone(con, body):
     status = parse_status(body.get("status")) if "status" in body else None
     if status is False:
         raise DroneError("status must be Ready, Maintenance, Development or Discard")
-    manager, manager_id = manager_fields(con, body)
+    manager_id = manager_fields(con, body)
+    if manager_id is None:
+        raise DroneError("choose the aircraft's manager (a registered person)")
     try:
         cur = con.execute(
-            "INSERT INTO drones (name, unique_id, default_project_id, manager, manager_id, current_user, status,"
-            " bought_on, inventory_project, comments, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (name, uid, project_id, manager, manager_id, clip_text(body.get("current_user"), 80),
+            "INSERT INTO drones (name, unique_id, default_project_id, manager_id, current_user, status,"
+            " bought_on, inventory_project, comments, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (name, uid, project_id, manager_id, clip_text(body.get("current_user"), 80),
              status, clip_text(body.get("bought_on"), 20), clip_text(body.get("inventory_project"), 80),
              clip_text(body.get("comments"), 400), now()))
     except sqlite3.IntegrityError:
@@ -3550,7 +3554,7 @@ def admin_update_drone(drone_id):
         if status is False:
             return jsonify(error="status must be Ready, Maintenance, Development or Discard"), 400
     try:
-        manager, manager_id = manager_fields(con, body, row)
+        manager_id = manager_fields(con, body, row)
     except DroneError as exc:
         return jsonify(error=str(exc)), exc.status
     current_user = clip_text(body.get("current_user"), 80) if "current_user" in body else row["current_user"]
@@ -3562,9 +3566,9 @@ def admin_update_drone(drone_id):
         if name.casefold() != (old_name or "").casefold():
             con.execute("DELETE FROM drone_aliases WHERE drone_id=? AND alias=?", (drone_id, name))
         con.execute(
-            "UPDATE drones SET name=?, unique_id=?, default_project_id=?, manager=?, manager_id=?, current_user=?,"
+            "UPDATE drones SET name=?, unique_id=?, default_project_id=?, manager_id=?, current_user=?,"
             " status=?, bought_on=?, inventory_project=?, comments=? WHERE id=?",
-            (name, uid, project_id, manager, manager_id, current_user, status, bought_on, inventory_project, comments,
+            (name, uid, project_id, manager_id, current_user, status, bought_on, inventory_project, comments,
              drone_id))
         if name.casefold() != (old_name or "").casefold() and old_name and not name_taken(con, old_name, drone_id):
             try:
@@ -3661,12 +3665,15 @@ def admin_import_drones():
                     "default_project_id": proj_id if proj_id else (existing["default_project_id"] if existing else None),
                     "inventory_project": proj_label if project_label else (existing["inventory_project"] if existing else None),
                 }
-                if mgr_k:  # linked when the name is exactly one account, else kept as text (not linked)
-                    fields["manager"] = clip_text(rec.get(mgr_k), 80)
-                    fields["manager_id"] = db.user_by_name(con, fields["manager"])
-                else:
-                    fields["manager"] = existing["manager"] if existing else None
-                    fields["manager_id"] = existing["manager_id"] if existing else None
+                # the manager is a person: a name naming exactly one account; required for a new aircraft, and a
+                # blank one keeps an existing aircraft's manager
+                manager = (rec.get(mgr_k) or "").strip() if mgr_k else ""
+                fields["manager_id"] = db.user_by_name(con, manager) if manager else (
+                    existing["manager_id"] if existing else None)
+                if manager and fields["manager_id"] is None:
+                    raise historical.RecordError(f"Row {line}: manager '{manager}' is not exactly one registered person.")
+                if not existing and fields["manager_id"] is None:
+                    raise historical.RecordError(f"Row {line}: a new aircraft needs a Manager (Post Holder), a registered person.")
                 for field, key, limit in (("current_user", user_k, 80),
                                           ("bought_on", bought_k, 20), ("comments", cmt_k, 400)):
                     fields[field] = clip_text(rec.get(key), limit) if key else (existing[field] if existing else None)
@@ -3677,9 +3684,9 @@ def admin_import_drones():
                     updated += 1
                 else:
                     cur = con.execute(
-                        "INSERT INTO drones (name, unique_id, default_project_id, manager, manager_id, current_user,"
-                        " status, bought_on, inventory_project, comments, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                        (fields["name"], uid, fields["default_project_id"], fields["manager"], fields["manager_id"],
+                        "INSERT INTO drones (name, unique_id, default_project_id, manager_id, current_user,"
+                        " status, bought_on, inventory_project, comments, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (fields["name"], uid, fields["default_project_id"], fields["manager_id"],
                          fields["current_user"], fields["status"], fields["bought_on"], fields["inventory_project"],
                          fields["comments"], now()))
                     drone_id = cur.lastrowid
@@ -3698,8 +3705,8 @@ def admin_import_drones():
 @app.get("/api/admin/drones/template")
 def aircraft_csv_template():
     admin_required()
-    return Response("AC Nice Name,Serial Unique,Project,project_effective_date\n"
-                    "Example aircraft,EXAMPLE-001,Example project,2024-01-01\n", mimetype="text/csv",
+    return Response("AC Nice Name,Serial Unique,Manager (Post Holder),Project,project_effective_date\n"
+                    "Example aircraft,EXAMPLE-001,Example person,Example project,2024-01-01\n", mimetype="text/csv",
                     headers={"Content-Disposition": 'attachment; filename="aircraft.csv"'})
 
 

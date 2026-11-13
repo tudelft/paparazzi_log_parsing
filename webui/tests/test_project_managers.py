@@ -82,7 +82,7 @@ class ProjectManagerTests(AppTests):
         self.assertEqual(self.client.get("/api/drones").json["request_projects"], [{"id": 1, "name": "Research"}])
         with patch.dict(os.environ, MAIL_ENV):
             self.con.execute("UPDATE users SET email=lower(username)||'@example.org'")
-            r = self.request(unique_id="NEW-1", comments="for tests")
+            r = self.request(comments="for tests")
             self.assertEqual(r.status_code, 201, r.json)
             rid = r.json["id"]
             to = {row[0] for row in self.con.execute("SELECT user_id FROM mail_outbox WHERE kind IN ('requests','admin')")}
@@ -90,6 +90,7 @@ class ProjectManagerTests(AppTests):
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM drones").fetchone()[0], 2)  # nothing created yet
         mine = self.client.get("/api/drones").json["requests"]
         self.assertEqual([(q["name"], q["can_decide"]) for q in mine], [("Newbie", False)])
+        self.assertNotIn("unique_id", mine[0])  # no serial in a request: it is generated at approval
         self.sign_in(2)  # full member, not the requester: does not see it
         self.assertEqual(self.client.get("/api/drones").json["requests"], [])
         self.assertEqual(self.client.post(f"/api/drone-requests/{rid}/approve").status_code, 403)
@@ -104,18 +105,19 @@ class ProjectManagerTests(AppTests):
                                                        " ORDER BY id DESC").fetchone()[0])
         drone = self.con.execute("SELECT * FROM drones WHERE id=?", (r.json["id"],)).fetchone()
         self.assertEqual((drone["name"], drone["unique_id"], drone["default_project_id"], drone["manager_id"],
-                          drone["comments"]), ("Newbie", "NEW-1", 1, 5, "for tests"))
+                          drone["comments"]), ("Newbie", "TUD00401", 1, 5, "for tests"))
+        self.assertEqual(r.json["unique_id"], "TUD00401")
         self.assertEqual(self.con.execute("SELECT project_id FROM drone_projects WHERE drone_id=?",
                                           (drone["id"],)).fetchone()[0], 1)
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM drone_requests").fetchone()[0], 0)
 
     def test_pending_request_reserves_nothing_and_clash_fails_at_approval(self):
         self.sign_in(5)
-        rid = self.request(name="Shared", unique_id="SER-9").json["id"]
-        second = self.request(name="Shared", unique_id="SER-9")  # a second request with the same name is fine
+        rid = self.request(name="Shared").json["id"]
+        second = self.request(name="Shared")  # a second request with the same name is fine
         self.assertEqual(second.status_code, 201)
         self.sign_in(1)
-        added = self.client.post("/api/admin/drones", json={"name": "Shared", "unique_id": "SER-9"})
+        added = self.client.post("/api/admin/drones", json={"name": "Shared", "manager_id": 1})
         self.assertEqual(added.status_code, 200, added.json)  # the pending request did not hold the name
         self.assertEqual(self.ns["drone_name_map"](self.con)[1].get("shared"), added.json["id"])
         r = self.client.post(f"/api/drone-requests/{rid}/approve")
@@ -160,42 +162,62 @@ class ProjectManagerTests(AppTests):
         self.assertTrue(fleet[1]["can_edit"])
         r = self.client.put("/api/drones/1", json={"status": "Maintenance", "comments": "Prop", "manager_id": 2})
         self.assertEqual(r.status_code, 200, r.json)
-        row = self.con.execute("SELECT status, comments, manager, manager_id FROM drones WHERE id=1").fetchone()
-        self.assertEqual(tuple(row), ("Maintenance", "Prop", "Pilot", 2))
+        row = self.con.execute("SELECT status, comments, manager_id FROM drones WHERE id=1").fetchone()
+        self.assertEqual(tuple(row), ("Maintenance", "Prop", 2))
+        drone = next(d for d in self.client.get("/api/drones").json["drones"] if d["id"] == 1)
+        self.assertEqual((drone["manager"], drone["manager_id"]), ("Pilot", 2))
         self.assertEqual(self.client.put("/api/drones/1", json={"name": "Renamed"}).status_code, 403)
         self.assertEqual(self.client.put("/api/drones/2", json={"status": "Ready"}).status_code, 403)  # not their project
         self.assertEqual(self.client.put("/api/admin/drones/1/projects", json={"periods": []}).status_code, 403)
         self.assertEqual(self.client.delete("/api/admin/drones/1").status_code, 403)
-        self.assertEqual(self.client.post("/api/admin/drones", json={"name": "X"}).status_code, 403)
+        self.assertEqual(self.client.post("/api/admin/drones", json={"name": "X", "manager_id": 4}).status_code, 403)
         self.sign_in(2)  # full member: no edits, except as the linked manager
         self.assertEqual(self.client.put("/api/drones/1", json={"comments": "Mine now"}).status_code, 200)
         self.sign_in(3)
         self.assertEqual(self.client.put("/api/drones/1", json={"comments": "No"}).status_code, 403)
         self.assertFalse(self.client.get("/api/drones").json["drones"][0]["can_edit"])
 
-    def test_manager_name_links_to_one_account(self):
+    def test_manager_is_always_a_person(self):
         self.sign_in(1)
+        self.assertEqual(self.client.put("/api/drones/1", json={"comments": "no manager yet"}).status_code, 200)
         self.assertEqual(self.client.put("/api/drones/1", json={"manager": "pilot"}).status_code, 200)
         drone = next(d for d in self.client.get("/api/drones").json["drones"] if d["id"] == 1)
         self.assertEqual((drone["manager"], drone["manager_id"]), ("Pilot", 2))
-        self.client.put("/api/drones/1", json={"manager": "Somebody Else"})
-        drone = next(d for d in self.client.get("/api/drones").json["drones"] if d["id"] == 1)
-        self.assertEqual((drone["manager"], drone["manager_id"]), ("Somebody Else", None))  # shown as not linked
-        self.assertEqual(self.client.put("/api/drones/1", json={"manager_id": 999}).status_code, 400)
-
-    def test_fleet_csv_links_manager_by_name(self):
-        self.sign_in(1)
-        csv = ("AC Nice Name,Serial Unique,Manager (Post Holder)\n"
-               "Linked,L-1,viewer\nLoose,L-2,Nobody Known\n")
-        r = self.client.post("/api/admin/drones/import", json={"csv": csv})
+        for body in ({"manager": "Somebody Else"}, {"manager": ""}, {"manager_id": None}, {"manager_id": 999}):
+            with self.subTest(body=body):  # no free text, no clearing, no unknown account
+                self.assertEqual(self.client.put("/api/drones/1", json=body).status_code, 400)
+        self.assertEqual(self.con.execute("SELECT manager_id FROM drones WHERE id=1").fetchone()[0], 2)
+        self.assertEqual(self.client.put("/api/drones/1", json={"manager_id": 5}).status_code, 200)  # another person
+        self.con.execute("DELETE FROM users WHERE id=6")
+        self.con.execute("UPDATE users SET display_name='Pilot' WHERE id=3")
+        self.con.commit()
+        for body in ({}, {"manager": "Pilot"}, {"manager": "Nobody"}):  # none, two accounts, no account
+            with self.subTest(body=body):
+                r = self.client.post("/api/admin/drones", json={"name": "Fresh", **body})
+                self.assertEqual(r.status_code, 400, r.json)
+        r = self.client.post("/api/admin/drones", json={"name": "Fresh", "manager": "pic"})
         self.assertEqual(r.status_code, 200, r.json)
-        rows = dict(self.con.execute("SELECT name, manager_id FROM drones WHERE name IN ('Linked','Loose')").fetchall())
-        self.assertEqual(rows, {"Linked": 3, "Loose": None})
-        self.assertEqual(self.con.execute("SELECT manager FROM drones WHERE name='Loose'").fetchone()[0], "Nobody Known")
+        self.assertEqual(self.con.execute("SELECT manager_id FROM drones WHERE id=?", (r.json["id"],)).fetchone()[0], 2)
+
+    def test_fleet_csv_links_manager_and_rejects_unknown_names(self):
+        self.sign_in(1)
+        for csv, error in (("AC Nice Name,Serial Unique,Manager (Post Holder)\nLinked,L-1,viewer\nLoose,L-2,Nobody Known\n",
+                            "Row 3: manager 'Nobody Known'"),
+                           ("AC Nice Name,Serial Unique\nLinked,L-1\n", "Row 2: a new aircraft needs a Manager")):
+            with self.subTest(csv=csv):
+                r = self.client.post("/api/admin/drones/import", json={"csv": csv})
+                self.assertEqual(r.status_code, 400, r.json)
+                self.assertIn(error, r.json["error"])
+                self.assertEqual(self.con.execute("SELECT COUNT(*) FROM drones").fetchone()[0], 2)  # file rejected
+        csv = "AC Nice Name,Serial Unique,Manager (Post Holder)\nLinked,L-1,viewer\nDrone,UID,\n"
+        r = self.client.post("/api/admin/drones/import", json={"csv": csv})  # an existing aircraft may stay without
+        self.assertEqual(r.status_code, 200, r.json)
+        rows = dict(self.con.execute("SELECT name, manager_id FROM drones WHERE name IN ('Linked','Drone')").fetchall())
+        self.assertEqual(rows, {"Linked": 3, "Drone": None})
 
 
 class ManagerLinkMigrationTests(unittest.TestCase):
-    def test_existing_manager_text_is_linked_once(self):
+    def test_matching_manager_text_is_linked_and_the_rest_dropped(self):
         path = os.path.join(tempfile.mkdtemp(), "old.db")
         db.init(path)
         con = sqlite3.connect(path)  # a database from before: drones without manager_id
@@ -215,12 +237,13 @@ class ManagerLinkMigrationTests(unittest.TestCase):
         for _ in range(2):  # idempotent
             db.init(path)
         con = sqlite3.connect(path)
-        self.assertEqual(con.execute("SELECT id, manager, manager_id FROM drones ORDER BY id").fetchall(),
-                         [(1, "jane doe", 1), (2, "JDOE", 1), (3, "Twin", None), (4, "Stranger", None), (5, None, None),
-                          (6, "Gone", None)])
+        self.assertEqual(con.execute("SELECT id, manager_id FROM drones ORDER BY id").fetchall(),
+                         [(1, 1), (2, 1), (3, None), (4, None), (5, None), (6, None)])
+        self.assertNotIn("manager", {r[1] for r in con.execute("PRAGMA table_info(drones)")})  # the text column goes
+        self.assertEqual(con.execute("PRAGMA integrity_check").fetchone()[0], "ok")
         con.execute("PRAGMA foreign_keys=ON")
-        con.execute("DELETE FROM users WHERE id=1")  # the link goes, the name stays
-        self.assertEqual(con.execute("SELECT manager, manager_id FROM drones WHERE id=1").fetchone(), ("jane doe", None))
+        con.execute("DELETE FROM users WHERE id=1")  # a deleted account leaves the aircraft without a manager
+        self.assertIsNone(con.execute("SELECT manager_id FROM drones WHERE id=1").fetchone()[0])
         self.assertIn("drone_requests", {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")})
         con.close()
 

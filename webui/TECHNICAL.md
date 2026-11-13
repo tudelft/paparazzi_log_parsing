@@ -773,23 +773,26 @@ members and set See/Upload/Delete (`PUT /api/projects/<id>/members`, the same ha
 own (403). Creating, deleting and renaming projects, operators, categories, authorisations and the CSV import stay
 admin-only.
 
-**Aircraft manager and detail edits.** `drones.manager` keeps the name as written and `drones.manager_id`
-(`REFERENCES users ON DELETE SET NULL`) links the person. The migration that adds the column links each existing
-name that matches exactly one active, non-external account by display name or username (case-insensitive,
-`db.user_by_name`); the fleet CSV links **Manager (Post Holder)** the same way, and a typed name in the form too.
-Names without a match stay text, shown to admins with a **not linked** marker; when a linked account is deleted the
-name stays. Managers of a project the aircraft is in today (a timeline period covering today, else its default
-project) and its linked manager may change only status, current user, comments and manager
-(`PUT /api/drones/<id>`; other fields 403). Name, serial, project history, aliases, import and delete stay admin-only.
+**Aircraft manager and detail edits.** An aircraft's manager is always a person: `drones.manager_id`
+(`REFERENCES users ON DELETE SET NULL`); APIs return the person's current name as `manager` and the id as
+`manager_id`. Add aircraft (`POST /api/admin/drones`) requires one (`manager_id`, or a `manager` name naming exactly
+one active, non-external account by display name or username, case-insensitive, `db.user_by_name`; else 400). A set
+manager can be changed to another person but not cleared or set to free text (400); an aircraft without a manager
+keeps its other fields editable. The earlier free-text `drones.manager` is migrated once: names matching exactly one
+such account are linked, other names are dropped (no manager). The column is then dropped (`ALTER TABLE ... DROP
+COLUMN`, SQLite 3.35 or newer, which current Python builds bundle); with an older SQLite it is emptied and never read.
+Managers of a project the aircraft is in today (a timeline period covering today, else its default project) and its
+manager may change only status, current user, comments and manager (`PUT /api/drones/<id>`; other fields 403).
+Name, serial, project history, aliases, import and delete stay admin-only.
 
-**Aircraft requests.** In Edit mode, a non-admin with `add`, `full` or `manager` on a project sees **Request
-aircraft** (name, optional serial, optional details; `POST /api/drone-requests`, browser session only). Requests
-are stored in `drone_requests`, not in `drones`, so a pending request reserves no name or serial and is never used
+**Aircraft requests.** A non-admin with `add`, `full` or `manager` on a project sees **Request aircraft** (also
+outside Edit mode): project, name and optional details, no serial (`POST /api/drone-requests`, browser session only).
+Requests are stored in `drone_requests`, not in `drones`, so a pending request reserves no name and is never used
 for log matching (`drone_name_map`, folder matching, relinking). The Aircraft page lists pending requests, greyed with
 **Pending**, to the requester, the project's managers and admins (`requests` in `GET /api/drones`). Admins and the
 project's managers **Approve** (`POST /api/drone-requests/<id>/approve`): the aircraft is created by the same path as
-**Add aircraft** (serial or next free one, project timeline from the start, relinking) with the requester as linked
-manager; a name or serial taken by then gives 409 and keeps the request. **Reject** (`DELETE
+**Add aircraft** (next free serial, project timeline from the start, relinking) with the requester as manager; a
+name taken by then gives 409 and keeps the request. **Reject** (`DELETE
 /api/drone-requests/<id>`, optional `reason`) removes it and mails the requester; the requester may withdraw their own
 the same way, without a mail. Both endpoints refuse API keys. New requests are mailed to the project's managers
 (kind *Aircraft requests*) and to the administrators (administrator notices); the requester is mailed on approval
@@ -928,7 +931,9 @@ use the existing Rename control for a rename that preserves identity.
 
 Aircraft retain the fleet columns `AC Nice Name`, `Serial Unique`, `Manager (Post Holder)`,
 `Current User`, `Status`, `Date Bought`, `Project`, `Comments`. `name` and `unique_id`/`serial`
-are accepted alternatives for the first two columns. Reimports use the existing serial/name matching,
+are accepted alternatives for the first two columns. `Manager (Post Holder)` (or `manager`) must name exactly one
+registered person (see [Aircraft manager](#accounts-and-tu-delft-login)); a new aircraft needs one, and an unknown or
+ambiguous name rejects the row. A blank manager keeps an existing aircraft's manager. Reimports use the existing serial/name matching,
 update provided fields and preserve omitted optional columns. Empty Project cells preserve existing
 project/default/history values; a non-empty Project must match an existing project.
 Changing an existing aircraft's project requires `project_effective_date` (or `Project Effective Date`),

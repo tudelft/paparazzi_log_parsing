@@ -183,8 +183,7 @@ CREATE TABLE IF NOT EXISTS drones (
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
     unique_id TEXT NOT NULL UNIQUE COLLATE NOCASE,  -- fleet ID you assign; stays the same if the name changes
     default_project_id INTEGER,        -- projects.id; used when a matching log has no project yet
-    manager TEXT,                      -- post holder / responsible person, as written (kept if the link goes)
-    manager_id INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- that person's account; NULL = not linked
+    manager_id INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- post holder / responsible person (an account)
     current_user TEXT,                 -- who currently has the aircraft
     status TEXT,                       -- Ready | Maintenance | Development | Discard
     bought_on TEXT,                    -- YYYY-MM-DD
@@ -303,7 +302,6 @@ CREATE TABLE IF NOT EXISTS drone_requests (   -- aircraft asked for by a project
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     requested_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    unique_id TEXT,                           -- optional; empty gets the next free serial at approval
     comments TEXT,
     created_at TEXT NOT NULL
 );
@@ -802,14 +800,20 @@ def init(path):
         con.execute("ALTER TABLE drones ADD COLUMN unique_id TEXT")
         for d in con.execute("SELECT id FROM drones"):
             con.execute("UPDATE drones SET unique_id=? WHERE id=?", (str(d["id"]), d["id"]))
-    for col in ("manager", "current_user", "status", "bought_on", "inventory_project", "comments"):
+    for col in ("current_user", "status", "bought_on", "inventory_project", "comments"):
         if col not in dcols:
             con.execute(f"ALTER TABLE drones ADD COLUMN {col} TEXT")
     if "manager_id" not in dcols:
-        # the manager becomes a link to an account: text naming exactly one account is linked, the rest stays text
         con.execute("ALTER TABLE drones ADD COLUMN manager_id INTEGER REFERENCES users(id) ON DELETE SET NULL")
-        for d in con.execute("SELECT id, manager FROM drones WHERE manager IS NOT NULL").fetchall():
+    if "manager" in dcols:
+        # the manager was free text; it becomes a link to an account. Text naming exactly one account is linked, other
+        # text is dropped (no manager). Then the text column goes; SQLite before 3.35 cannot drop it, so it is emptied.
+        for d in con.execute("SELECT id, manager FROM drones WHERE manager_id IS NULL AND manager IS NOT NULL").fetchall():
             con.execute("UPDATE drones SET manager_id=? WHERE id=?", (user_by_name(con, d["manager"]), d["id"]))
+        if sqlite3.sqlite_version_info >= (3, 35, 0):
+            con.execute("ALTER TABLE drones DROP COLUMN manager")
+        else:
+            con.execute("UPDATE drones SET manager=NULL WHERE manager IS NOT NULL")
     con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_drones_unique_id ON drones(unique_id COLLATE NOCASE)")
     con.execute(
         "CREATE TABLE IF NOT EXISTS drone_projects ("
