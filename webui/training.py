@@ -476,6 +476,14 @@ def fill_access(text, values):
     return text
 
 
+def access_details(name, email, row, day, reference):
+    """A fixed block at the end of the access mail, one "Key: value" per line, so a mail flow (e.g. Power Automate)
+    can copy the request into a list; the reference is the same for a repeated mail of one pass."""
+    lines = ["Request details:", f"Person: {name}", f"Email: {email or '-'}", f"Training: {row['name']}",
+             f"Passed: {day}", f"Reference: {reference}"]
+    return "\n".join(" ".join(line.split()) for line in lines)
+
+
 def queue_access_mail(con, user_id, row, answer, when=None):
     """Queue the training's access request for a granted pass: always without a question, else only after "No"."""
     if not row["access_mail_to"] or (row["access_question"] and answer != "no"):
@@ -485,10 +493,12 @@ def queue_access_mail(con, user_id, row, answer, when=None):
     if person is None:
         return False
     email = person["email"] or ""
+    day = (when or utc_now())[:10]
     values = {"{name}": person["name"], "{email}": email or "(no email address)", "{training}": row["name"],
-              "{date}": (when or utc_now())[:10]}
+              "{date}": day}
     return mail.queue_access(con, row["access_mail_to"], f"Access request: {person['name']} passed {row['name']}",
-                             fill_access(row["access_mail_text"], values),
+                             fill_access(row["access_mail_text"], values) + "\n\n" + access_details(
+                                 person["name"], email, row, day, f"T{row['id']}-U{user_id}-{day}"),
                              cc_addr=email if row["access_mail_cc"] and email else None, reply_to=email or None)
 
 
