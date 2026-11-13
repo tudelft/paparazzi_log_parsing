@@ -32,6 +32,8 @@ KINDS = {
                    ("off", "immediate", "daily"), "off", True),
     "admin": ("Administrator notices", "Qualifications waiting for approval and logs that failed to parse.",
               ("immediate", "daily", "off"), "immediate", True),
+    "access_copy": ("Training access requests", "A copy of the access request mails sent after a training pass.",
+                    ("off", "immediate", "daily"), "off", True),
 }
 MODE_LABELS = {"immediate": "Immediately", "daily": "Daily summary", "off": "Off"}
 REMIND_DAYS = (30, 7)
@@ -124,14 +126,31 @@ def notify_admins(con, subject, text, path=None, key=None, skip=None):
                for r in con.execute("SELECT id FROM users WHERE is_admin=1 AND is_active=1") if r["id"] != skip)
 
 
+def queue_access(con, to_addr, subject, body, cc_addr=None, reply_to=None):
+    """Queue a training access request to fixed addresses (not an account), and a copy to administrators who
+    asked for one ("access_copy"). Returns True when queued."""
+    if not enabled() or not to_addr:
+        return False
+    con.execute("INSERT INTO mail_outbox(user_id, to_addr, cc_addr, reply_to, kind, subject, body, created_at)"
+                " VALUES (NULL,?,?,?,'access',?,?,?)", (to_addr, cc_addr, reply_to, subject, body, now()))
+    for admin in con.execute("SELECT id FROM users WHERE is_admin=1 AND is_active=1").fetchall():
+        notify(con, admin["id"], "access_copy", subject, f"Sent to {to_addr}" + (f", copy to {cc_addr}" if cc_addr else "")
+               + f":\n\n{body}")
+    _wake.set()
+    return True
+
+
 # --- composing -------------------------------------------------------------------------------------------------------
 def signature():
     """LOGDB_MAIL_FOOTER, with \\n for line breaks; the sender name when unset."""
     return (env("MAIL_FOOTER") or env("MAIL_FROM_NAME")).replace("\\n", "\n").strip()
 
 
+ACCESS_NOTE = "Access request, sent by the flight logbook after a training was passed."
+
+
 def footer(shared=False):
-    end = ("Administrator notice, sent to the shared mailbox." if shared
+    end = (ACCESS_NOTE if shared == "access" else "Administrator notice, sent to the shared mailbox." if shared
            else "Change which emails you get: " + link("/account?tab=email"))
     return f"\n\n-- \n{signature()}\n{end}"
 
@@ -159,7 +178,7 @@ def html_body(name, body, shared):
         text = URL.sub(lambda m: f'<a href="{m[0]}" style="color:#1f6feb">{m[0]}</a>', html.escape(block, quote=False))
         paragraphs.append('<p style="margin:0 0 14px">' + text.replace("\n", "<br>") + "</p>")
     sign = html.escape(signature()).replace("\n", "<br>")
-    end = ("Administrator notice, sent to the shared mailbox." if shared else
+    end = (html.escape(ACCESS_NOTE) if shared == "access" else "Administrator notice, sent to the shared mailbox." if shared else
            f'<a href="{html.escape(link("/account?tab=email"), quote=True)}" style="color:#6b7785">Change which emails '
            "you get</a>")
     hello = f'<p style="margin:0 0 14px">Hello {html.escape(name)},</p>' if name else ""
@@ -221,6 +240,13 @@ def _send_batches(con, batches, connect):
                 if isinstance(user, str):  # the shared admin mailbox
                     msg = compose(None, subject, body, shared=True)
                     msg["To"] = user
+                elif isinstance(user, dict):  # a training access request to fixed addresses
+                    msg = compose(None, subject, body, shared="access")
+                    msg["To"] = user["to"]
+                    if user["cc"]:
+                        msg["Cc"] = user["cc"]
+                    if user["reply_to"]:
+                        msg["Reply-To"] = user["reply_to"]
                 elif not user or not user["email"] or not user["is_active"]:
                     raise ValueError("no address")
                 else:
@@ -255,13 +281,18 @@ def _users(con, ids):
         list(ids))} if ids else {}
 
 
+def recipient(row, users):
+    if row["kind"] == "access":
+        return {"to": row["to_addr"], "cc": row["cc_addr"], "reply_to": row["reply_to"]}
+    return row["to_addr"] if row["user_id"] is None else users.get(row["user_id"])
+
+
 def send_due(con, connect=smtp, digests=False):
     """Send the queued immediate mails, and with digests=True one summary per person of the daily ones."""
     rows = con.execute("SELECT * FROM mail_outbox WHERE sent_at IS NULL AND attempts<? AND digest IN (0, ?)"
                        " ORDER BY id", (MAX_ATTEMPTS, int(digests))).fetchall()
     users = _users(con, {r["user_id"] for r in rows if r["user_id"] is not None})
-    batches = [(r["to_addr"] if r["user_id"] is None else users.get(r["user_id"]), r["subject"], r["body"], [r["id"]])
-               for r in rows if not r["digest"]]
+    batches = [(recipient(r, users), r["subject"], r["body"], [r["id"]]) for r in rows if not r["digest"]]
     grouped = {}
     for r in rows:
         if r["digest"]:

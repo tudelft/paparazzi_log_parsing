@@ -84,6 +84,10 @@
   input, select, textarea { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
   textarea { min-height:70px; resize:vertical; }
   label.field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
+  fieldset.access-question { border:0; padding:0; margin:10px 0; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  fieldset.access-question legend { float:left; margin-right:8px; font-weight:600; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #accessField { margin:6px 0; }
+  #accessField summary { cursor:pointer; }
   table { width:100%; border-collapse:collapse; }
   th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
   th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
@@ -169,6 +173,14 @@
     </div>
     <label class="field"><span><input name="needs_approval" type="checkbox"> A pass needs approval</span></label>
     <p class="mute">Off: the qualification is granted at once. On: the pass goes to the approval queue.</p>
+    <details id="accessField"><summary>Access request mail <span class="mute" id="accessState"></span></summary>
+      <p class="mute" id="accessMailOff" hidden>Email is not set up on this server, so nothing is sent.</p>
+      <label class="field" title="Several addresses separated by commas. Empty: no mail.">To<input name="access_mail_to" maxlength="300" placeholder="e.g. secretary@example.org"></label>
+      <label class="field" title="Optional. The person answers Yes or No at the end of the test; only No sends the mail. Empty: always sent.">Ask first (Yes/No)<input name="access_question" maxlength="200" placeholder="e.g. Do you already have access to the CyberZoo?"></label>
+      <label class="field" title="{name}, {email}, {training} and {date} are filled in. Replies go to the person.">Mail<textarea name="access_mail_text" maxlength="5000" rows="5" placeholder="e.g. {name} ({email}) passed {training} on {date}. Please give access to the CyberZoo."></textarea></label>
+      <label class="field"><span><input name="access_mail_cc" type="checkbox"> Copy to the person</span></label>
+      <p class="mute">Sent when the pass is granted (after approval when it needs one). Replies go to the person.</p>
+    </details>
     <label class="field" id="activeField" hidden><span><input name="active" type="checkbox" checked> Active</span></label>
     <p class="dialog-error" id="trainingError" role="alert"></p>
     <div class="row"><button type="submit">Save</button> <button type="button" class="sec" onclick="$('trainingDialog').close()">Cancel</button></div>
@@ -255,7 +267,7 @@ function paintDetail() {
     ${edit ? `<span style="flex:1"></span><button type="button" class="sec" onclick="openTraining(${t.id})">Edit</button>
       <a class="sec" href="/api/admin/trainings/${t.id}/export" style="display:inline-block;padding:4px 10px;border-radius:6px;background:var(--sec);color:var(--txt);text-decoration:none">Export</a>
       <button type="button" class="danger" onclick="removeTraining(${t.id})">Delete</button>` : ''}
-    <details><summary>Help</summary><p>If the training has reading material, read it and confirm that you have read and understood it; the test opens after that. Answer one question at a time, then submit. Retry until you pass; failed answers are not stored. A pass may grant the qualification immediately or wait for admin approval, depending on the training. When that qualification expires, a queued pass is rejected, or an administrator resets your pass, you can take it again.</p></details></div>`;
+    <details><summary>Help</summary><p>If the training has reading material, read it and confirm that you have read and understood it; the test opens after that. Answer one question at a time, then submit. Retry until you pass; failed answers are not stored. A pass may grant the qualification immediately or wait for admin approval, depending on the training. Some trainings end with a question, for example whether you already have access to a room; answering No sends an access request on your behalf when the pass is granted. When that qualification expires, a queued pass is rejected, or an administrator resets your pass, you can take it again.</p></details></div>`;
   const gate = taking && !t.practice && t.must_read;
   if (gate) {
     html += `<div class="quiz-shell"><div class="quiz-card"><div class="quiz-head"><h2 title="${esc(t.name)}">${esc(t.name)}</h2></div>
@@ -304,6 +316,10 @@ function quizHTML(questions) {
     ${q.kind === 'ranking' ? rankHTML(q) : choiceHTML(q)}</div>`).join('')}
     ${detail.ask_briefed_by && !detail.practice ? `<label class="field" id="briefedByField"${quizStep === n - 1 ? '' : ' hidden'}>Who delivered the briefing<select name="briefed_by" required>
       <option value="">Choose…</option>${briefers}</select></label>` : ''}
+    ${detail.access_question && !detail.practice ? `<fieldset class="field access-question" id="accessQuestion"${quizStep === n - 1 ? '' : ' hidden'}>
+      <legend title="${esc(detail.access_question)}">${esc(detail.access_question)}</legend>
+      <label><input type="radio" name="access_answer" value="yes" required> Yes</label>
+      <label><input type="radio" name="access_answer" value="no"> No</label></fieldset>` : ''}
     <p class="mute" id="unansweredHint" hidden></p>
     <p id="quizMsg" role="status"></p>
     <div id="quizNav">
@@ -353,6 +369,7 @@ function syncQuizStep() {
   const brief = $('briefedByField');
   const last = quizStep === n - 1;
   if (brief) brief.hidden = !last;
+  if ($('accessQuestion')) $('accessQuestion').hidden = !last;
   $('quizPrev').hidden = quizStep === 0;
   $('quizNext').hidden = last;
   $('quizSubmit').hidden = !last;
@@ -459,7 +476,10 @@ async function submitQuiz(event) {
   try {
     const payload = {answers: collectAnswers()};
     if (detail.practice) payload.practice = true;
-    else if (detail.ask_briefed_by) payload.briefed_by = +$('quiz').briefed_by.value || null;
+    else {
+      if (detail.ask_briefed_by) payload.briefed_by = +$('quiz').briefed_by.value || null;
+      if (detail.access_question) payload.access_answer = ($('quiz').querySelector('[name=access_answer]:checked') || {}).value || null;
+    }
     lastResult = await api('/api/trainings/' + selected + '/submit', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
     quizStep = 0;
@@ -780,6 +800,13 @@ async function openTraining(id) {
   $('trainingForm').ask_briefed_by.checked = !!t.ask_briefed_by;
   $('trainingForm').needs_approval.checked = !!t.needs_approval;
   $('trainingForm').active.checked = t.active !== false;
+  $('trainingForm').access_mail_to.value = t.access_mail_to || '';
+  $('trainingForm').access_question.value = t.access_question_text || '';
+  $('trainingForm').access_mail_text.value = t.access_mail_text || '';
+  $('trainingForm').access_mail_cc.checked = !!t.access_mail_cc;
+  $('accessState').textContent = t.access_mail_to ? '· on' : '';
+  $('accessField').open = false;
+  $('accessMailOff').hidden = !id || t.mail_enabled !== false;
   brieferIds = (t.briefers || []).map(b => b.id);
   $('activeField').hidden = !id;
   $('trainingError').textContent = '';
@@ -798,7 +825,9 @@ $('trainingForm').onsubmit = async event => {
     shuffle_questions: f.shuffle_questions.checked,
     ask_briefed_by: f.ask_briefed_by.checked,
     needs_approval: f.needs_approval.checked,
-    briefers: f.ask_briefed_by.checked ? brieferIds : []};
+    briefers: f.ask_briefed_by.checked ? brieferIds : [],
+    access_mail_to: f.access_mail_to.value, access_question: f.access_question.value,
+    access_mail_text: f.access_mail_text.value, access_mail_cc: f.access_mail_cc.checked};
   if (editingId) body.active = f.active.checked;
   $('trainingError').textContent = '';
   try {

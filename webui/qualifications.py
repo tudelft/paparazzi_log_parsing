@@ -707,6 +707,9 @@ def register(app, connection, root, require_session):
             if action in ("reject", "withdraw"):
                 from training import clear_progress_for_submission
                 clear_progress_for_submission(con, sid)
+            else:
+                from training import queue_access_after_approval
+                queue_access_after_approval(con, sid)
             audit(con, row["user_id"], g.user["id"], state,
                   dict(id=sid, category=row["category"], valid_from=row["valid_from"], valid_until=row["valid_until"]))
         return jsonify(ok=True)
