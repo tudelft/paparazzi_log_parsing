@@ -1003,7 +1003,7 @@ it in the People approval queue. Qualification views link that note to `/trainin
 addresses (`access_mail_to`, e.g. a secretary who arranges room access) and a mail text (`access_mail_text`, in which
 `{name}`, `{email}`, `{training}` and `{date}` are filled in). The mail is queued when the pass is granted: at once,
 or when an admin approves a queued pass (`needs_approval`). With an optional Yes/No question (`access_question`, e.g.
-"Do you already have access to the CyberZoo?") the person answers it on the last step of the test
+"Do you already have access to the CyberZoo?") the person answers it on a last step after the questions (together with who delivered the briefing, when asked)
 (`access_answer` in the submit body, required then; stored in `training_progress.access_answer`) and only **No**
 sends the mail. Its Reply-To is the person; **Copy to the person** (`access_mail_cc`) adds them as Cc. The subject is
 `Access request: <name> passed <training>`. JSON export/import does not carry these settings.

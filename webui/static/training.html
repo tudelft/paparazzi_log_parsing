@@ -84,8 +84,10 @@
   input, select, textarea { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
   textarea { min-height:70px; resize:vertical; }
   label.field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
-  fieldset.access-question { border:0; padding:0; margin:10px 0; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
-  fieldset.access-question legend { float:left; margin-right:8px; font-weight:600; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .final-step .field { margin:10px 0; }
+  fieldset.access-question { border:0; padding:0; margin:10px 0; display:flex; gap:2px 16px; align-items:center; flex-wrap:wrap; }
+  fieldset.access-question legend { float:left; width:100%; padding:0; margin-bottom:4px; font-size:12px; color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  fieldset.access-question label { font-size:14px; color:var(--txt); }
   #accessField { margin:6px 0; }
   #accessField summary { cursor:pointer; }
   table { width:100%; border-collapse:collapse; }
@@ -302,24 +304,28 @@ function paintDetail() {
 }
 function quizHTML(questions) {
   const briefers = (detail.briefers || []).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
-  const n = questions.length;
+  const ask = !detail.practice && !!(detail.ask_briefed_by || detail.access_question);
+  const n = questions.length + (ask ? 1 : 0);
   quizStep = Math.max(0, Math.min(quizStep, Math.max(0, n - 1)));
   const pct = Math.round(((quizStep + 1) / n) * 100);
   return `<div class="quiz-shell"><div class="quiz-card">
     <div class="quiz-head"><h2 title="${esc(detail.name)}">${esc(detail.name)}</h2>
-      <span class="step">${hasReading(detail) ? '<a href="#" onclick="openReading(false);return false">Material</a> · ' : ''}<span id="quizProgress">Question ${quizStep + 1} of ${n}</span></span></div>
+      <span class="step">${hasReading(detail) ? '<a href="#" onclick="openReading(false);return false">Material</a> · ' : ''}<span id="quizProgress">${stepLabel(quizStep, questions.length)}</span></span></div>
     <div class="quiz-bar" aria-hidden="true"><i id="quizBar" style="width:${pct}%"></i></div>
     <form id="quiz">
-    ${questions.map((q, i) => `<div class="question" data-id="${q.id}" data-kind="${q.kind}"${i === quizStep ? '' : ' hidden'}>
+    ${questions.map((q, i) => `<div class="question quiz-pane" data-id="${q.id}" data-kind="${q.kind}"${i === quizStep ? '' : ' hidden'}>
     ${q.image ? `<img src="/api/trainings/questions/${q.id}/image" alt="">` : ''}
     <p class="prompt"><strong>${esc(q.prompt)}</strong> <span class="mute">${q.points} pt${q.kind === 'ranking' ? ' · drag to order' : ''}</span></p>
     ${q.kind === 'ranking' ? rankHTML(q) : choiceHTML(q)}</div>`).join('')}
-    ${detail.ask_briefed_by && !detail.practice ? `<label class="field" id="briefedByField"${quizStep === n - 1 ? '' : ' hidden'}>Who delivered the briefing<select name="briefed_by" required>
+    ${ask ? `<div class="quiz-pane final-step" id="finalStep"${quizStep === n - 1 ? '' : ' hidden'}>
+    <p class="prompt"><strong>Before you submit</strong></p>` : ''}
+    ${detail.ask_briefed_by && !detail.practice ? `<label class="field" id="briefedByField">Who delivered the briefing<select name="briefed_by" required>
       <option value="">Choose…</option>${briefers}</select></label>` : ''}
-    ${detail.access_question && !detail.practice ? `<fieldset class="field access-question" id="accessQuestion"${quizStep === n - 1 ? '' : ' hidden'}>
+    ${detail.access_question && !detail.practice ? `<fieldset class="field access-question" id="accessQuestion">
       <legend title="${esc(detail.access_question)}">${esc(detail.access_question)}</legend>
       <label><input type="radio" name="access_answer" value="yes" required> Yes</label>
       <label><input type="radio" name="access_answer" value="no"> No</label></fieldset>` : ''}
+    ${ask ? '</div>' : ''}
     <p class="mute" id="unansweredHint" hidden></p>
     <p id="quizMsg" role="status"></p>
     <div id="quizNav">
@@ -358,23 +364,25 @@ function unansweredCount() {
   });
   return n;
 }
+// The steps of a test: one per question, then a last step for who briefed and the access question when asked.
+function quizPanes() { return [...$('quiz').querySelectorAll('.quiz-pane')]; }
+function stepLabel(step, questionCount) {
+  return step < questionCount ? `Question ${step + 1} of ${questionCount}` : 'Last step';
+}
 function syncQuizStep() {
   const form = $('quiz');
   if (!form) return;
-  const questions = [...form.querySelectorAll('.question')];
-  const n = questions.length;
+  const panes = quizPanes();
+  const n = panes.length;
   if (!n) return;
   quizStep = Math.max(0, Math.min(quizStep, n - 1));
-  questions.forEach((q, i) => { q.hidden = i !== quizStep; });
-  const brief = $('briefedByField');
+  panes.forEach((q, i) => { q.hidden = i !== quizStep; });
   const last = quizStep === n - 1;
-  if (brief) brief.hidden = !last;
-  if ($('accessQuestion')) $('accessQuestion').hidden = !last;
   $('quizPrev').hidden = quizStep === 0;
   $('quizNext').hidden = last;
   $('quizSubmit').hidden = !last;
   $('quizSubmit').disabled = !last;
-  $('quizProgress').textContent = `Question ${quizStep + 1} of ${n}`;
+  $('quizProgress').textContent = stepLabel(quizStep, form.querySelectorAll('.question').length);
   $('quizBar').style.width = Math.round(((quizStep + 1) / n) * 100) + '%';
   const hint = $('unansweredHint');
   if (last) {
@@ -437,14 +445,14 @@ function bindQuiz() {
   form.addEventListener('keydown', event => {
     if (event.key !== 'Enter') return;
     if (event.target.tagName === 'TEXTAREA' || event.target.tagName === 'SELECT') return;
-    const n = form.querySelectorAll('.question').length;
+    const n = quizPanes().length;
     if (quizStep < n - 1) {
       event.preventDefault();
       quizStep += 1;
       syncQuizStep();
     }
   });
-  form.addEventListener('change', () => { if (quizStep === form.querySelectorAll('.question').length - 1) syncQuizStep(); });
+  form.addEventListener('change', () => { if (quizStep === quizPanes().length - 1) syncQuizStep(); });
   $('quizPrev').onclick = () => { quizStep -= 1; syncQuizStep(); };
   $('quizNext').onclick = () => { quizStep += 1; syncQuizStep(); };
   form.querySelectorAll('.rank').forEach(bindRankList);
@@ -471,8 +479,7 @@ function startPractice() {
 }
 async function submitQuiz(event) {
   event.preventDefault();
-  const n = $('quiz').querySelectorAll('.question').length;
-  if (quizStep !== n - 1) return;
+  if (quizStep !== quizPanes().length - 1) return;
   try {
     const payload = {answers: collectAnswers()};
     if (detail.practice) payload.practice = true;
