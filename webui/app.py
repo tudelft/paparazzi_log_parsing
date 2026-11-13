@@ -5762,7 +5762,7 @@ def admin_mail_log():
         "SELECT m.id, m.kind, m.subject, m.created_at, m.sent_at, m.attempts, m.error, m.digest, m.to_addr,"
         " COALESCE(u.display_name, u.username) AS name, u.email FROM mail_outbox m LEFT JOIN users u ON u.id=m.user_id"
         f" WHERE {where} ORDER BY m.id DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
-    return jsonify(enabled=mail.enabled(), total=total, offset=offset, limit=limit, kinds={k: v[0] for k, v in mail.KINDS.items()},
+    return jsonify(enabled=mail.enabled(), total=total, offset=offset, limit=limit, kinds={**{k: v[0] for k, v in mail.KINDS.items()}, "access": "Training access request"},
                    mails=[{"id": r["id"], "kind": r["kind"], "subject": r["subject"], "created_at": r["created_at"],
                            "sent_at": r["sent_at"], "error": r["error"], "digest": bool(r["digest"]),
                            "to": r["to_addr"] or (f"{r['name']} <{r['email']}>" if r["email"] else r["name"]),

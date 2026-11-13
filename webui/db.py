@@ -475,7 +475,9 @@ CREATE TABLE IF NOT EXISTS mail_outbox (   -- email notifications waiting to be 
     id INTEGER PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- NULL: to_addr (the shared admin mailbox)
     to_addr TEXT,
-    kind TEXT NOT NULL,                -- account | expiry | bookings | admin
+    cc_addr TEXT,                      -- training access requests: the person when the training copies them
+    reply_to TEXT,                     -- training access requests: the person
+    kind TEXT NOT NULL,                -- a mail.KINDS key, or access (training access request to to_addr)
     subject TEXT NOT NULL,
     body TEXT NOT NULL,
     digest INTEGER NOT NULL DEFAULT 0 CHECK(digest IN (0,1)),  -- 1: goes in the daily summary
@@ -546,6 +548,10 @@ CREATE TABLE IF NOT EXISTS trainings (
     reading TEXT NOT NULL DEFAULT '',  -- reading material shown before the test (plain text)
     reading_path TEXT,                 -- optional reading PDF in the training image folder
     reading_name TEXT,                 -- that PDF's file name as imported
+    access_mail_to TEXT NOT NULL DEFAULT '',     -- after a pass: request room access etc. by mail ('' = off)
+    access_mail_text TEXT NOT NULL DEFAULT '',   -- that mail; {name} {email} {training} {date} are filled in
+    access_question TEXT NOT NULL DEFAULT '',    -- optional Yes/No question; only "No" sends the mail
+    access_mail_cc INTEGER NOT NULL DEFAULT 0 CHECK(access_mail_cc IN (0,1)),  -- copy to the person
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
     sort_order INTEGER NOT NULL DEFAULT 0
 );
@@ -576,6 +582,7 @@ CREATE TABLE IF NOT EXISTS training_progress (
     briefed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     draw_json TEXT,                    -- the current attempt: question ids in order and each one's answer order
     read_at TEXT,                      -- when the person confirmed reading the material (counts until the next pass)
+    access_answer TEXT,                -- answer to the access question at the pass: yes | no
     PRIMARY KEY (user_id, training_id)
 );
 CREATE TABLE IF NOT EXISTS training_briefers (
@@ -836,7 +843,16 @@ def init(path):
         con.execute("ALTER TABLE training_progress ADD COLUMN draw_json TEXT")
     if pcols and "read_at" not in pcols:
         con.execute("ALTER TABLE training_progress ADD COLUMN read_at TEXT")
-    for column, ddl in (("reading", "TEXT NOT NULL DEFAULT ''"), ("reading_path", "TEXT"), ("reading_name", "TEXT")):
+    if pcols and "access_answer" not in pcols:
+        con.execute("ALTER TABLE training_progress ADD COLUMN access_answer TEXT")
+    mcols = {r["name"] for r in con.execute("PRAGMA table_info(mail_outbox)")}
+    for column in ("cc_addr", "reply_to"):
+        if mcols and column not in mcols:
+            con.execute(f"ALTER TABLE mail_outbox ADD COLUMN {column} TEXT")
+    for column, ddl in (("reading", "TEXT NOT NULL DEFAULT ''"), ("reading_path", "TEXT"), ("reading_name", "TEXT"),
+                        ("access_mail_to", "TEXT NOT NULL DEFAULT ''"), ("access_mail_text", "TEXT NOT NULL DEFAULT ''"),
+                        ("access_question", "TEXT NOT NULL DEFAULT ''"),
+                        ("access_mail_cc", "INTEGER NOT NULL DEFAULT 0 CHECK(access_mail_cc IN (0,1))")):
         if tcols and column not in tcols:
             con.execute(f"ALTER TABLE trainings ADD COLUMN {column} {ddl}")
     qcols = {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}

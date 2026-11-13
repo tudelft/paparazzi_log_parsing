@@ -11,6 +11,7 @@ import datetime
 import io
 import json
 import random
+import re
 import sqlite3
 import uuid
 import zipfile
@@ -20,6 +21,7 @@ from flask import abort, g, jsonify, request, send_file, send_from_directory
 from werkzeug.utils import secure_filename
 
 import db
+import mail
 import qualifications
 from config import env_bool
 
@@ -387,8 +389,8 @@ def clear_progress_for_submission(con, submission_id):
     if not submission_id:
         return
     con.execute(
-        "UPDATE training_progress SET passed_at=NULL, answers_json=NULL, submission_id=NULL, briefed_by=NULL"
-        " WHERE submission_id=?", (submission_id,))
+        "UPDATE training_progress SET passed_at=NULL, answers_json=NULL, submission_id=NULL, briefed_by=NULL,"
+        " access_answer=NULL WHERE submission_id=?", (submission_id,))
 
 
 def submission_status(con, progress):
@@ -426,6 +428,78 @@ def pass_awaiting_approval(con, progress):
         return False
     sub = submission_status(con, progress)
     return bool(sub and sub["status"] == "pending")
+
+
+ADDRESS = re.compile(r"[^@\s,;<>\"]+@[^@\s,;<>\"]+\.[^@\s,;<>\"]+")
+PLACEHOLDERS = ("{name}", "{email}", "{training}", "{date}")
+
+
+def access_fields(body):
+    """The access request mail settings of a training: (to, text, question, cc). Several addresses are separated by
+    commas or semicolons; without an address the mail is off."""
+    raw_to = body.get("access_mail_to") or ""
+    text, question = body.get("access_mail_text") or "", body.get("access_question") or ""
+    if not all(isinstance(v, str) for v in (raw_to, text, question)):
+        raise TrainingError("The access mail fields must be text.")
+    addresses = [a for a in re.split(r"[,;\s]+", raw_to) if a]
+    bad = [a for a in addresses if not ADDRESS.fullmatch(a)]
+    if bad:
+        raise TrainingError(f"Not an email address: {bad[0][:80]}")
+    to = ", ".join(addresses)
+    text, question = text.strip(), " ".join(question.split())
+    if len(to) > 300 or len(text) > 5000 or len(question) > 200:
+        raise TrainingError("The access mail has at most 300 characters of addresses, 5000 of text and 200 of question.")
+    if to and not text:
+        raise TrainingError("Type the access mail, or remove its address.")
+    if type(body.get("access_mail_cc", False)) is not bool:
+        raise TrainingError("Copy to the person must be true or false.")
+    return to, text, question, int(body.get("access_mail_cc", False))
+
+
+def access_question(row):
+    """The Yes/No question asked at submit, when the training sends an access mail and asks one first."""
+    return row["access_question"] if row["access_mail_to"] and row["access_question"] and mail.enabled() else None
+
+
+def parse_access_answer(row, body):
+    if not access_question(row):
+        return None
+    answer = body.get("access_answer")
+    if answer not in ("yes", "no"):
+        raise TrainingError("Answer the question: " + row["access_question"])
+    return answer
+
+
+def fill_access(text, values):
+    for key in PLACEHOLDERS:
+        text = text.replace(key, values[key])
+    return text
+
+
+def queue_access_mail(con, user_id, row, answer, when=None):
+    """Queue the training's access request for a granted pass: always without a question, else only after "No"."""
+    if not row["access_mail_to"] or (row["access_question"] and answer != "no"):
+        return False
+    person = con.execute("SELECT COALESCE(display_name, username) AS name, email FROM users WHERE id=?",
+                         (user_id,)).fetchone()
+    if person is None:
+        return False
+    email = person["email"] or ""
+    values = {"{name}": person["name"], "{email}": email or "(no email address)", "{training}": row["name"],
+              "{date}": (when or utc_now())[:10]}
+    return mail.queue_access(con, row["access_mail_to"], f"Access request: {person['name']} passed {row['name']}",
+                             fill_access(row["access_mail_text"], values),
+                             cc_addr=email if row["access_mail_cc"] and email else None, reply_to=email or None)
+
+
+def queue_access_after_approval(con, submission_id):
+    """An administrator approved a queued training pass: send its access request now."""
+    progress = con.execute("SELECT user_id, training_id, access_answer FROM training_progress WHERE submission_id=?",
+                           (submission_id,)).fetchone()
+    if progress is None:
+        return False
+    row = con.execute("SELECT * FROM trainings WHERE id=?", (progress["training_id"],)).fetchone()
+    return bool(row) and queue_access_mail(con, progress["user_id"], row, progress["access_answer"])
 
 
 def register(app, connection, root, require_session):
@@ -744,8 +818,12 @@ def register(app, connection, root, require_session):
             "must_read": must_read(row, progress) and not current and not awaiting,
             "type_name": cid.execute("SELECT name FROM qualification_types WHERE id=?",
                                      (row["type_id"],)).fetchone()["name"] if row["type_id"] else None,
+            "access_question": access_question(row),
         }
         if g.user["is_admin"]:
+            out.update(access_mail_to=row["access_mail_to"], access_mail_text=row["access_mail_text"],
+                       access_question_text=row["access_question"], access_mail_cc=bool(row["access_mail_cc"]),
+                       mail_enabled=mail.enabled())
             out["questions"] = [{
                 "id": q["id"], "prompt": q["prompt"], "kind": q["kind"], "points": q["points"],
                 "image": bool(q["image_path"]),
@@ -846,6 +924,7 @@ def register(app, connection, root, require_session):
                 raise TrainingError("The questions of this training changed; open it again to start a new attempt.", 409)
             asked = [q for q in questions if q["id"] in set(draw["questions"])] if draw else questions
             answers = parse_answers(body, asked)
+            access_answer = parse_access_answer(row, body)
             briefed_by = None
             briefer_name = None
             if row["ask_briefed_by"]:
@@ -884,13 +963,15 @@ def register(app, connection, root, require_session):
                     awaiting = True
                 else:
                     submission_id = grant_qualification(cid, g.user["id"], kind, row["valid_days"], note)
+                    queue_access_mail(cid, g.user["id"], row, access_answer, passed_at)
                 cid.execute(
-                    "INSERT INTO training_progress(user_id,training_id,attempts,passed_at,answers_json,submission_id,briefed_by)"
-                    " VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id,training_id) DO UPDATE SET"
+                    "INSERT INTO training_progress(user_id,training_id,attempts,passed_at,answers_json,submission_id,"
+                    "briefed_by,access_answer) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id,training_id) DO UPDATE SET"
                     " attempts=excluded.attempts, passed_at=excluded.passed_at,"
                     " answers_json=excluded.answers_json, submission_id=excluded.submission_id,"
-                    " briefed_by=excluded.briefed_by, draw_json=NULL",
-                    (g.user["id"], training_id, attempts, passed_at, stored_answers, submission_id, briefed_by))
+                    " briefed_by=excluded.briefed_by, access_answer=excluded.access_answer, draw_json=NULL",
+                    (g.user["id"], training_id, attempts, passed_at, stored_answers, submission_id, briefed_by,
+                     access_answer))
             else:
                 cid.execute(
                     "INSERT INTO training_progress(user_id,training_id,attempts) VALUES (?,?,?)"
@@ -937,6 +1018,7 @@ def register(app, connection, root, require_session):
             raise TrainingError("Shuffle questions must be true or false.")
         draw = (int(body.get("shuffle_questions", False)), optional_int(body.get("question_count"), "Questions per attempt"),
                 reading_text(body.get("reading")))
+        draw += access_fields(body)
         return name, description, type_id, pass_score, valid_days, ask_briefed_by, needs_approval, briefers, draw
 
     @app.post("/api/admin/trainings")
@@ -951,7 +1033,8 @@ def register(app, connection, root, require_session):
                 nxt = cid.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM trainings").fetchone()[0]
                 tid = cid.execute(
                     "INSERT INTO trainings(name,description,type_id,pass_score,valid_days,ask_briefed_by,"
-                    "needs_approval,sort_order,shuffle_questions,question_count,reading) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    "needs_approval,sort_order,shuffle_questions,question_count,reading,access_mail_to,access_mail_text,"
+                    "access_question,access_mail_cc) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (name, description, type_id, pass_score, valid_days, int(ask_briefed_by),
                      int(needs_approval), nxt, *draw)).lastrowid
                 save_briefers(cid, tid, briefers)
@@ -973,8 +1056,8 @@ def register(app, connection, root, require_session):
             training_row(cid, training_id)
             try:
                 cid.execute("UPDATE trainings SET name=?,description=?,type_id=?,pass_score=?,valid_days=?,"
-                            "ask_briefed_by=?,needs_approval=?,active=?,shuffle_questions=?,question_count=?,reading=?"
-                            " WHERE id=?",
+                            "ask_briefed_by=?,needs_approval=?,active=?,shuffle_questions=?,question_count=?,reading=?,"
+                            "access_mail_to=?,access_mail_text=?,access_question=?,access_mail_cc=? WHERE id=?",
                             (name, description, type_id, pass_score, valid_days, int(ask_briefed_by),
                              int(needs_approval), body.get("active", True), *draw, training_id))
                 cid.execute("UPDATE training_progress SET draw_json=NULL WHERE training_id=?", (training_id,))

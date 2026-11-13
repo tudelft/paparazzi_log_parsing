@@ -999,6 +999,15 @@ it in the People approval queue. Qualification views link that note to `/trainin
 `pass_user` so the Passes list opens on that person with their answers). Images live under
 `WEB_DATA/training-images`, not the log share.
 
+**Access request mail** (Edit dialog, collapsed section; needs email to be set up): a training may name one or more
+addresses (`access_mail_to`, e.g. a secretary who arranges room access) and a mail text (`access_mail_text`, in which
+`{name}`, `{email}`, `{training}` and `{date}` are filled in). The mail is queued when the pass is granted: at once,
+or when an admin approves a queued pass (`needs_approval`). With an optional Yes/No question (`access_question`, e.g.
+"Do you already have access to the CyberZoo?") the person answers it on the last step of the test
+(`access_answer` in the submit body, required then; stored in `training_progress.access_answer`) and only **No**
+sends the mail. Its Reply-To is the person; **Copy to the person** (`access_mail_cc`) adds them as Cc. The subject is
+`Access request: <name> passed <training>`. JSON export/import does not carry these settings.
+
 ### Person profiles
 
 Off unless `LOGDB_PERSON_PROFILE=1` (`profiles.py`). A profile holds role, department or section (from the list,
@@ -1084,6 +1093,7 @@ name, a button for the link, the footer with a link to the email settings) with 
 | Bookings | everyone | immediately | own new booking; someone else changed or removed yours; a new or moved booking overlaps yours |
 | Others' expiry reminders | admins | off | a copy of everyone's expiry reminders |
 | Administrator notices | admins | immediately | a qualification waits for approval (submitted by a non-admin); a log failed to parse |
+| Training access requests | admins | off | a copy of each training access request mail (see [Training questionnaires](#training-questionnaires)) |
 
 Each person chooses **Immediately**, **Daily summary** or **Off** per kind under **My account**, tab **Email** (`GET/PUT
 /api/account/email`, table `mail_prefs`); admins can send themselves a test mail there. When `LOGDB_MAIL_ADMIN_TO`

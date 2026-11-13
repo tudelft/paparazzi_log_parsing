@@ -252,7 +252,9 @@ are kept. A pass can grant the linked qualification immediately, or wait in the 
 training has **A pass needs approval** on. After that qualification expires, a queued pass is rejected, or an
 administrator resets the pass, you can take it again. Admins create questionnaires in Edit mode (single choice,
 multiple choice, ranking, optional image) or import a JSON/ZIP file kept outside the repository, and can ask who
-delivered the briefing from a short list of people.
+delivered the briefing from a short list of people. A training can also mail an access request (for example to a secretary, for room access)
+once a pass is granted, optionally only when the person answers **No** to a question such as "Do you already have
+access to the CyberZoo?"; admins can get a copy under **My account → Email**.
 
 **Profile** (optional): when the server turns it on, you fill in your role, department, supervisors, expected end
 date and student/employee number after signing in, and again once that end date has passed. Change it under
