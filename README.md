@@ -11,7 +11,7 @@ run the web app from `webui/` with your Python environment. Data goes to `webui/
 cd webui
 cmake -S ../cpp -B ../cpp/build -DCMAKE_BUILD_TYPE=Release && cmake --build ../cpp/build
 pip install -r requirements.txt
-python3 app.py create-user alice --admin
+python3 app.py create-user alice --admin --email alice@example.org
 python3 app.py                                  # http://127.0.0.1:8000
 ```
 

@@ -185,7 +185,7 @@
     <form id="addUser" onsubmit="addUser(event)">
       <label class="field">Username<input id="newUser" required maxlength="40" autocomplete="off"></label>
       <label class="field">Display name<input id="newName" maxlength="80" autocomplete="off"></label>
-      <label class="field">Email (optional)<input id="newEmail" type="email" maxlength="120" autocomplete="off"></label>
+      <label class="field">Email<input id="newEmail" type="email" maxlength="120" autocomplete="off" required></label>
       <label class="field">Default project<select id="newProject"></select></label>
       <div class="checks">
         <label><input type="checkbox" id="newAdmin"> Admin</label>
@@ -775,7 +775,7 @@ function renderPersonPanel() {
       ${editing ? `<form class="account-profile" onsubmit="event.preventDefault();saveProfile(${id})">
       <label class="field">Username<input id="username${id}" required maxlength="40" autocomplete="off" value="${esc(user.username)}"></label>
       <label class="field">Display name<input id="displayName${id}" maxlength="80" value="${esc(user.display_name || '')}"></label>
-      <label class="field">Email (optional)<input id="mail${id}" type="email" maxlength="120" value="${esc(user.email || '')}"></label>
+      <label class="field"${user.email ? '' : ' title="Accounts made before email became required may have none; once set it can be changed, not removed"'}>Email${user.email ? '' : ' (optional)'}<input id="mail${id}" type="email" maxlength="120" value="${esc(user.email || '')}"${user.email ? ' required' : ''}></label>
       <label class="field">Default project<select id="userProject${id}">
       <option value="">No default</option>${people.projects.map(p => `<option value="${p.id}"${p.id === user.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
       <button type="submit">Save account</button></form>`

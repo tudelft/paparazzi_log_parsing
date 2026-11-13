@@ -1580,7 +1580,7 @@ def cli(argv):
     c.add_argument("username")
     c.add_argument("--admin", action="store_true")
     c.add_argument("--name", help="display name")
-    c.add_argument("--email")
+    c.add_argument("--email", required=True)
     sp = sub.add_parser("set-password", help="change the password of an account")
     sp.add_argument("username")
     sub.add_parser("list-users")
@@ -4225,6 +4225,11 @@ def issue_setup_token(con, user_id):
     return token, expires.strftime(fmt)
 
 
+# New accounts need an email address; accounts made before this rule may still have none, but a set address can only be
+# changed, not removed. External crew (no sign-in) and people created by imports or single sign-on are not affected.
+EMAIL_REQUIRED = "an email address is required"
+
+
 def clean_email(value):
     if value is None:
         return ""
@@ -4279,6 +4284,8 @@ def admin_add_user():
         return jsonify(error="display name must be at most 80 characters"), 400
     if email is None:
         return jsonify(error="enter a valid email address"), 400
+    if not email:
+        return jsonify(error=EMAIL_REQUIRED), 400
     con = conn()
     default_project_id = parse_project_id(body.get("default_project_id"))
     if default_project_id is False:
@@ -4368,7 +4375,7 @@ def admin_rename_user(user_id):
     con = conn()
     with db.write_lock, con:
         con.execute("BEGIN IMMEDIATE")
-        user = con.execute("SELECT username,display_name,default_project_id FROM users WHERE id=?",
+        user = con.execute("SELECT username,display_name,default_project_id,email FROM users WHERE id=?",
                            (user_id,)).fetchone()
         if user is None:
             return jsonify(error="no such user"), 404
@@ -4376,6 +4383,8 @@ def admin_rename_user(user_id):
             email = clean_email(body["email"])
             if email is None:
                 return jsonify(error="enter a valid email address"), 400
+            if not email and user["email"]:
+                return jsonify(error=EMAIL_REQUIRED), 400
             if email and con.execute("SELECT 1 FROM users WHERE email=? COLLATE NOCASE AND id!=?",
                                      (email, user_id)).fetchone():
                 return jsonify(error="that email address is already used"), 409
@@ -4416,12 +4425,15 @@ def admin_update_user(user_id):
     admin_required()
     body = request.get_json(silent=True) or {}
     con = conn()
-    if not con.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone():
+    user = con.execute("SELECT email FROM users WHERE id=?", (user_id,)).fetchone()
+    if user is None:
         return jsonify(error="no such user"), 404
     if "email" in body:
         email = clean_email(body.get("email"))
         if email is None:
             return jsonify(error="enter a valid email address"), 400
+        if not email and user["email"]:
+            return jsonify(error=EMAIL_REQUIRED), 400
         if con.execute("SELECT 1 FROM users WHERE email=? COLLATE NOCASE AND id!=?", (email, user_id)).fetchone():
             return jsonify(error="that email address is already used"), 409
         con.execute("UPDATE users SET email=? WHERE id=?", (email or None, user_id))

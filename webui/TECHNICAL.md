@@ -769,13 +769,15 @@ the fleet list near the top of the page without sacrificing narrow-screen access
 Everything requires a login. Admins create accounts on the People page or on the command line (on a server prefix
 `sudo -u logdb /opt/flight-logs/app/webui/venv/bin/`):
 
-    python3 app.py create-user alice --admin --name "Alice"    # asks for a password (min. 10 characters)
+    python3 app.py create-user alice --admin --name "Alice" --email alice@example.org   # asks for a password (min. 10 characters)
     python3 app.py set-password alice
     python3 app.py list-users
     python3 app.py deactivate-user alice                       # or activate-user
 
-Email is optional for admin-created accounts and can be cleared in the People Account tab.
-Non-empty addresses must be valid and unique (case-insensitive). Without an email, automatic SSO
+A new account needs an email address (Add user, `create-user --email`). Accounts made before that rule may have none;
+once an address is set it can be changed in the People Account tab but not removed. External crew (no sign-in), people
+created by the qualification import and first SSO logins without a `mail` attribute are not affected.
+Addresses must be valid and unique (case-insensitive). Without an email, automatic SSO
 linking by email is unavailable; password setup/reset links can still be shared privately.
 
 **Sign in with TU Delft** uses SAML 2.0 against `https://login.tudelft.nl/sso/saml2/idp/metadata.php`. Register
