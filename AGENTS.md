@@ -37,7 +37,7 @@
 
 ## Links in the Operations Manual (strict rule)
 
-The MAVLab Operations Manual (OM) links to exactly five pages of the production web UI. The OM is sent to the
+The MAVLab Operations Manual (OM) links to exactly six pages of the production web UI. The OM is sent to the
 aviation authority, so every one of these links must keep working in every release:
 
 | Path | Page |
@@ -47,10 +47,11 @@ aviation authority, so every one of these links must keep working in every relea
 | `/people` | People (personnel and qualifications) |
 | `/aircraft` | Aircraft (fleet) |
 | `/training` | Training |
+| `/safety` | Safety: reporting forms (page to be made; the OM links it from its next release) |
 
 - Never rename, move or remove these paths, and never let them fail for a signed-in user. They must work
   without a query string (filters stay optional). The feature switches behind two of them
-  (`LOGDB_DOCUMENTS`, `LOGDB_TRAINING`) stay on in production.
+  (`LOGDB_DOCUMENTS`, `LOGDB_TRAINING`) stay on in production; so does any switch added for `/safety`.
 - The OM defines these links in one place: the `\logbook[...]` command in `settings.tex` of the OM sources
   (MAVLab flight operations). The OM uses no other path of this server. A new OM link is first agreed there,
   then added to this list.
