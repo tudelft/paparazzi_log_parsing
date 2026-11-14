@@ -77,7 +77,7 @@ class CliLoginTests(AppTests):
 
     def test_revoke_all_keeps_manual_keys_unless_asked(self):
         self.sign_in(2)
-        manual = self.client.post("/api/keys", json={"name": "laptop"}).json["key"]
+        manual = self.client.post("/api/keys", json={"name": "laptop", "scopes": ["read", "logs:upload"]}).json["key"]
         read_only = self.client.post("/api/keys", json={"name": "ci", "read_only": True}).json["key"]
         self.con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at, expires_at)"
                          " VALUES (2, 'Login: x', 'h', 'logdb_', '2026-01-01T00:00:00Z', '2099-01-01T00:00:00Z')")

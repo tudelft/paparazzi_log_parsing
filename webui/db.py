@@ -709,6 +709,8 @@ def init(path):
         con.execute("ALTER TABLE api_keys ADD COLUMN expires_at TEXT")
     if "scopes" not in {r["name"] for r in con.execute("PRAGMA table_info(api_keys)")}:
         con.execute("ALTER TABLE api_keys ADD COLUMN scopes TEXT")  # NULL: keys from before scopes keep working
+    # keys from a browser login (the only keys with expires_at) get the scopes such a login gives now (issue 235)
+    con.execute("UPDATE api_keys SET scopes='read logs:upload logs:edit' WHERE scopes IS NULL AND expires_at IS NOT NULL")
     document_cols = {r["name"] for r in con.execute("PRAGMA table_info(documents)")}
     for col in ("valid_from", "valid_until"):
         if col not in document_cols:

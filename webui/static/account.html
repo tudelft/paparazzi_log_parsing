@@ -134,6 +134,8 @@ let isAdmin = false;
 const scopeBoxes = (checked, allowed) => SCOPES.filter(([, , admin]) => isAdmin || !admin).map(([name, title]) =>
   `<label title="${esc(title)}"><input type="checkbox" data-scope="${name}"${checked.includes(name) ? ' checked' : ''}${allowed && !allowed.includes(name) ? ' disabled' : ''}> ${name}</label>`).join(' ');
 const scopeText = k => k.scopes ? k.scopes.join(' ') : 'full (old)';
+// what a key from before scopes may do: everything you may, except managing documents (scopes.old_full)
+const oldFull = () => SCOPES.filter(([name, , admin]) => !name.startsWith('documents:') && (isAdmin || !admin)).map(s => s[0]);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => t ? t.replace('T', ' ').replace('Z', ' UTC') : '<span class="mute">never</span>';
 async function api(url, opt) {
@@ -147,7 +149,7 @@ async function load() {
     const keys = await api('/api/keys');
     window.keyList = keys;
     $('keys').innerHTML = keys.map(k => `<tr><td>${esc(k.name)} <span class="mute">· ${esc(scopeText(k))}</span>${k.expires_at ? ` <span class="mute" title="From a script login; expires ${esc(k.expires_at.replace('T', ' ').replace('Z', ' UTC'))}">· until ${esc(k.expires_at.slice(0, 10))}</span>` : ''}</td><td><code>${esc(k.prefix)}…</code></td><td>${fmt(k.created_at)}</td><td>${fmt(k.last_used_at)}</td>
-      <td><button class="sec" onclick="narrow(${k.id})">Narrow</button> <button class="danger" onclick="revoke(${k.id}, '${esc(k.name).replace(/'/g, '')}')">Revoke</button></td></tr>`).join('')
+      <td>${!k.scopes || k.scopes.length > 1 ? `<button class="sec" onclick="narrow(${k.id})">Narrow</button> ` : ''}<button class="danger" onclick="revoke(${k.id}, '${esc(k.name).replace(/'/g, '')}')">Revoke</button></td></tr>`).join('')
       || '<tr><td colspan="5" class="mute">No keys yet.</td></tr>';
   } catch (e) { $('err').textContent = e.message; }
 }
@@ -172,7 +174,7 @@ async function copyKey() {
 function narrow(id) {
   const key = window.keyList.find(k => k.id === id);
   $('narrowTitle').textContent = `Narrow "${key.name}"`;
-  $('narrowBoxes').innerHTML = scopeBoxes(key.scopes || SCOPES.map(s => s[0]), key.scopes);
+  $('narrowBoxes').innerHTML = scopeBoxes(key.scopes || oldFull(), key.scopes || oldFull());
   $('narrowErr').textContent = '';
   $('narrowDialog').dataset.id = id;
   $('narrowDialog').showModal();

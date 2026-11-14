@@ -437,7 +437,7 @@ def register(app, connection, root, pages_dir):
 
     @app.get("/api/admin/documents/import/template")
     def document_import_template():
-        admin()
+        admin(session=True)
         return Response(document_import.TEMPLATE, mimetype="text/csv", headers={
             "Content-Disposition": 'attachment; filename="manifest.csv"', "Cache-Control": "private, no-store"})
 

@@ -128,6 +128,29 @@ def notify_admins(con, subject, text, path=None, key=None, skip=None):
                for r in con.execute("SELECT id FROM users WHERE is_admin=1 AND is_active=1") if r["id"] != skip)
 
 
+SECURITY_LABEL = "Security notice"  # kind "security": not in KINDS, so nobody can turn it off or delay it
+
+
+def notify_security(con, subject, text, path=None, skip=None):
+    """A security notice (e.g. a new administrator): at once to the shared mailbox (LOGDB_MAIL_ADMIN_TO) when set,
+    else to every active administrator except skip, regardless of their email choices. Returns the number queued."""
+    if not enabled():
+        return 0
+    body = text + (f"\n\n{link(path)}" if path else "")
+    if shared_admin_box():
+        con.execute("INSERT INTO mail_outbox(user_id, to_addr, kind, subject, body, created_at)"
+                    " VALUES (NULL,?,'security',?,?,?)", (shared_admin_box(), subject, body, now()))
+        _wake.set()
+        return 1
+    admins = [r["id"] for r in con.execute("SELECT id FROM users WHERE is_admin=1 AND is_active=1 AND is_external=0"
+                                           " AND email IS NOT NULL AND email!='' AND id IS NOT ?", (skip,))]
+    con.executemany("INSERT INTO mail_outbox(user_id, kind, subject, body, created_at) VALUES (?,'security',?,?,?)",
+                    [(uid, subject, body, now()) for uid in admins])
+    if admins:
+        _wake.set()
+    return len(admins)
+
+
 def queue_access(con, to_addr, subject, body, cc_addr=None, reply_to=None):
     """Queue a training access request to fixed addresses (not an account), and a copy to administrators who
     asked for one ("access_copy"). Returns True when queued."""
