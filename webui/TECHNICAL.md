@@ -1342,11 +1342,12 @@ time; another one meanwhile gets 429 (the server runs one process, so an in-proc
 read at a time: a file chosen during a read is read when that one is done, and after a 429 it tries again.
 
 The dialog fills empty, shown fields and remembers which ones it filled; when another file is chosen, those it filled
-and the person did not change are replaced (or cleared), typed values stay. With a file chosen, the date fields are no
+and the person did not change are replaced (or cleared, also when reading the new file fails), typed values stay. With a file chosen, the date fields are no
 longer required in the browser. On submit the dialog sends `read_from` (JSON, field: source) for the values it filled
 that are still unchanged. The server then reads the QR code and the PDF text (no OCR) when a field the type asks for is
-empty or `read_from` is sent: empty fields are filled from it, a `qr` or `text` claim whose value the server's read
-confirms is recorded in `read_from`, and an `ocr` claim or one it cannot confirm in `read_unchecked`. Typed values are
+empty or `read_from` is sent: empty fields are filled from it, a claim whose value the QR code or PDF text read there
+confirms (also an `ocr` claim the text confirms) is recorded in `read_from` with the source that confirmed it, and any
+other claim in `read_unchecked` (shown as what the upload dialog reports it read, not confirmed). Typed values are
 never replaced; a Valid from after a read Valid until gives the order error naming the read date, and a field missing
 from both form and document gives the usual error. The `submitted` audit event records `read_from`, `read_unchecked` and
 `differs`. When the QR code was read at submit it is stored in `qr_json` and the background read is skipped.
@@ -1357,7 +1358,7 @@ day is above 12, or day and month are equal; `03/12/2026` could be 3 December or
 a date, and after the previous date, decides its meaning (*valid until*, *expiry*, *geldig tot*… → Valid until;
 *valid from*, *date of issue*, *afgifte*… → Valid from; *birth*, *geboorte*… → ignored). Without labels, the latest pair
 of dates a whole number of years apart (1–10, or one day less) is taken as Valid from and Valid until; anything else is
-left for the person to type.
+left for the person to type. At most 500 dates per format are read from one document (`TEXT_DATES_MAX`).
 
 Internal ratings such as FI (flight instructor) and CTR are qualification types with Internal on and
 Evidence off; admins grant them by submitting and approving for the person, or by import rows without a

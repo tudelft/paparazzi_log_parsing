@@ -1,6 +1,7 @@
 """Private qualification submissions, evidence and administrative approval."""
 import datetime
 import gzip
+import heapq
 import json
 import logging
 import os
@@ -251,7 +252,9 @@ def ocr_read(path, compressed, deadline=None, mime="application/pdf"):
         if left <= 0:
             raise TimeoutError
         return min(OCR_SECONDS, left)
-    import numpy  # installed with h5py
+    numpy = None
+    if not image:
+        import numpy  # installed with h5py; only to turn PDF pages upright
     pages = []
     with tempfile.TemporaryDirectory() as tmp:
         copy = Path(tmp) / ("evidence" + {"image/jpeg": ".jpg", "image/png": ".png"}.get(mime, ".pdf"))
@@ -432,6 +435,7 @@ DATE_LABELS = (
                               r"|date\s*de\s*d.livrance|ausstellungsdatum", re.I)),
 )
 LABEL_WINDOW = 80  # characters before a date searched for its label, back to the previous date at most
+TEXT_DATES_MAX = 500  # dates read per pattern at most (a certificate has a handful; bounds the work on crafted files)
 
 
 def text_dates(text):
@@ -442,7 +446,10 @@ def text_dates(text):
         text = text.decode("utf-8", "replace")
     matches = []
     for index, (pattern, order) in enumerate(TEXT_DATES):
+        count = 0
         for m in pattern.finditer(text):
+            if count >= TEXT_DATES_MAX:
+                break
             parts = [m.group(i) for i in order]
             if index == SLASH_DATE and m.group(2) == "/" and int(parts[1]) <= 12 and int(parts[2]) <= 12 \
                     and int(parts[1]) != int(parts[2]):
@@ -454,20 +461,22 @@ def text_dates(text):
                 continue
             if 1980 <= day.year <= 2100:
                 matches.append((m.start(), m.end(), day.isoformat()))
+                count += 1
     matches.sort()
-    found = []
+    out, seen = [], set()
+    previous, ends = 0, []  # the last end of an earlier date before this start; ends of dates not yet passed
     for start, end, day in matches:
-        previous = max((e for s, e, _ in matches if e <= start), default=0)
+        while ends and ends[0] <= start:
+            previous = max(previous, heapq.heappop(ends))
         before, label, at = text[max(previous, start - LABEL_WINDOW):start], None, -1
         for name, words in DATE_LABELS:
             for hit in words.finditer(before):
                 if hit.start() > at:
                     label, at = name, hit.start()
-        found.append((day, label))
-    out = []
-    for day, label in found:
-        if (day, label) not in out:
+        if (day, label) not in seen:
+            seen.add((day, label))
             out.append((day, label))
+        heapq.heappush(ends, end)
     return out
 
 
@@ -525,15 +534,16 @@ def same_value(field, a, b):
 
 
 def read_evidence(path, compressed, mime, entered, wanted=("number", "valid_from", "valid_until"), ocr=True,
-                  seconds=READ_SECONDS):
+                  seconds=READ_SECONDS, chunks=None):
     """Read number and validity dates from evidence: the QR code, the PDF text and, when something wanted is
     still missing and ocr is set, OCR. The QR code and OCR share one time limit of seconds. Best effort: the reviewer confirms what was read.
     OCR runs only when the PDF has no usable text (it gave no number); a JPEG or PNG is always OCR'd if needed.
     Returns dict(found={field: {value, source}}, sources={source: {field: value}}, dates=[{date, label, source}],
     codes (None: QR not read), qr (licence_qr.check against the entered values), issues: where the document
-    differs from what was entered, notes: e.g. that OCR ran out of time)."""
+    differs from what was entered, notes: e.g. that OCR ran out of time). chunks: pdf_chunks, when already read."""
     deadline = time.monotonic() + seconds
     found, dates, sources, notes = {}, [], {}, []
+    seen = set()  # (date, label) already in dates
     codes = None  # None: not read (no tools, or out of time: then the background read after submit still runs)
     if licence_qr.available(mime == "application/pdf"):
         codes = licence_qr.read_codes(path, compressed, mime, deadline)
@@ -544,7 +554,8 @@ def read_evidence(path, compressed, mime, entered, wanted=("number", "valid_from
         if number and "number" not in found:
             found["number"] = dict(value=number, source=source)
         for day, label in text_found:
-            if not any(x["date"] == day and x["label"] == label for x in dates):
+            if (day, label) not in seen:
+                seen.add((day, label))
                 dates.append(dict(date=day, label=label, source=source))
         start, until = validity(text_found)
         for field, value in (("valid_from", start), ("valid_until", until)):
@@ -555,11 +566,13 @@ def read_evidence(path, compressed, mime, entered, wanted=("number", "valid_from
     if codes:
         facts = licence_qr.facts(codes)
         qr_dates = text_dates("\n".join(codes))
-        qr_dates += [(d, None) for d in facts["dates"] if d not in {x[0] for x in qr_dates}]
+        qr_days = {x[0] for x in qr_dates}
+        qr_dates += [(d, None) for d in facts["dates"] if d not in qr_days]
         take("qr", facts["number"], qr_dates)
     text_number = None
     if mime == "application/pdf":
-        chunks = pdf_chunks(path, compressed)
+        if chunks is None:
+            chunks = pdf_chunks(path, compressed)
         text_number = pdf_number(path, compressed, chunks)
         take("text", text_number, text_dates(b"\n".join(pdf_texts(path, compressed, readable=True, chunks=chunks))))
     if ocr and not notes and not text_number and any(field not in found for field in wanted):
@@ -866,18 +879,26 @@ def register(app, connection, root, require_session):
                 # Empty fields are read from the evidence (the reviewer confirms them); typed values are kept.
                 wanted = [field for field, key in (("number", "requires_number"), ("valid_from", "requires_start"),
                                                    ("valid_until", "requires_expiry")) if kind is not None and kind[key]]
-                if number is None and "number" not in wanted and mime == "application/pdf":
-                    number = pdf_number(staged, compressed)  # as before: from the text only
                 entered = dict(number=number, valid_from=start, valid_until=until)
-                if claims or any(entered[field] is None for field in wanted):
+                need_read = claims or any(entered[field] is None for field in wanted)
+                guess_number = number is None and "number" not in wanted and mime == "application/pdf"
+                chunks = pdf_chunks(staged, compressed) if mime == "application/pdf" and (need_read or guess_number) \
+                    else None  # decompressed once for both
+                if guess_number:
+                    number = entered["number"] = pdf_number(staged, compressed, chunks)  # as before: from the text only
+                if need_read:
                     # No OCR here: the dialog already read the chosen file and filled its OCR results into the form.
                     # Values the dialog filled (claims) are checked against the QR code and PDF text read here.
                     read = read_evidence(staged, compressed, mime, entered, wanted, ocr=False,
-                                         seconds=app.config.get("QUALIFICATION_READ_SECONDS", READ_SECONDS))
+                                         seconds=app.config.get("QUALIFICATION_READ_SECONDS", READ_SECONDS),
+                                         chunks=chunks)
                     for field, source in claims.items():
-                        read_value = read["sources"].get(source, {}).get(field)
-                        if source != "ocr" and read_value and same_value(field, entered[field], read_value):
-                            filled[field] = source
+                        # confirmed by any source read here (claimed one first); OCR does not run on submit
+                        confirmed = next((s for s in dict.fromkeys((source, "qr", "text")) if s != "ocr"
+                                          and read["sources"].get(s, {}).get(field)
+                                          and same_value(field, entered[field], read["sources"][s][field])), None)
+                        if confirmed:
+                            filled[field] = confirmed
                         else:
                             unchecked[field] = source
                     for field in wanted:
@@ -920,9 +941,9 @@ def register(app, connection, root, require_session):
                 details = dict(id=sid, category=kind["name"], valid_from=start, valid_until=until, number=number,
                                has_evidence=bool(destination))
                 if filled:
-                    details["read_from"] = filled  # field: 'qr', 'text' or 'ocr', checked or read on submit
+                    details["read_from"] = filled  # field: 'qr' or 'text' that confirmed it or that it was read from on submit
                 if unchecked:
-                    details["read_unchecked"] = unchecked  # filled by the dialog, not confirmed on submit (e.g. OCR)
+                    details["read_unchecked"] = unchecked  # what the dialog reports it read, not confirmed on submit
                 if read and read["issues"]:
                     details["differs"] = read["issues"]
                 audit(con, user_id, g.user["id"], "submitted", details)

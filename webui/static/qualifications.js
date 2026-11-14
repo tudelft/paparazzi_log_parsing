@@ -240,9 +240,9 @@ window.QualificationManager = class {
           const sources = {qr: 'QR code', text: 'PDF text', ocr: 'OCR'};
           if (detail.read_from) dates.push('read from the evidence: ' + Object.entries(detail.read_from)
             .map(([field, source]) => `${field.replace('_', ' ')} (${sources[source] || source})`).join(', '));
-          if (detail.read_unchecked) dates.push('filled from the evidence in the upload dialog, not confirmed: '
-            + Object.entries(detail.read_unchecked)
-              .map(([field, source]) => `${field.replace('_', ' ')} (${sources[source] || source})`).join(', '));
+          if (detail.read_unchecked) dates.push('the upload dialog reports it read: ' + Object.entries(detail.read_unchecked)
+            .map(([field, source]) => `${field.replace('_', ' ')} (${sources[source] || source})`).join(', ')
+            + ', not confirmed on submit');
           if (detail.differs) dates.push('differs from the evidence: ' + detail.differs.join('; '));
           return `${e.created_at} · ${e.actor || 'former user'} · ${e.action.replaceAll('-', ' ')}`
             + `\n${detail.category || 'Qualification'}${dates.length ? ' · ' + dates.join(' · ') : ''}`
@@ -299,7 +299,10 @@ window.QualificationManager = class {
         }
       }
     } catch (error) {
-      if (token === this.reading) box.innerHTML = `<span class="mute">Could not read the evidence: ${this.esc(error.message)}</span>`;
+      if (token === this.reading) {
+        this.clearFilled(form);  // values read from the previous file do not belong to this one
+        box.innerHTML = `<span class="mute">Could not read the evidence: ${this.esc(error.message)}</span>`;
+      }
       return;
     } finally {
       this.readBusy = false;

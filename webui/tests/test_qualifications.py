@@ -1120,9 +1120,16 @@ class ReadEvidenceTests(AppTests):
         with patch("licence_qr.available", return_value=False):
             r = self.submit_claimed(dated_pdf(), {"number": "ocr", "valid_from": "text", "valid_until": "text"}, **values)
         self.assertEqual(r.status_code, 201, r.json)
-        self.assertEqual(self.audit()["read_from"], {"valid_from": "text", "valid_until": "text"})  # checked here
-        self.assertEqual(self.audit()["read_unchecked"], {"number": "ocr"})  # OCR does not run on submit
+        # checked here; the number claimed as OCR is in the PDF text too, so the text confirms it
+        self.assertEqual(self.audit()["read_from"], {"number": "text", "valid_from": "text", "valid_until": "text"})
+        self.assertNotIn("read_unchecked", self.audit())
         self.assertNotIn("differs", self.audit())
+        self.client.post(f"/api/qualification-submissions/{r.json['id']}/review", json={"action": "withdraw"})
+        # an OCR claim nothing read on submit confirms (OCR does not run on submit) stays unchecked
+        with patch("licence_qr.available", return_value=False):
+            r = self.submit_claimed(dated_pdf(number=None), {"number": "ocr"}, **values)
+        self.assertEqual(r.status_code, 201, r.json)
+        self.assertEqual(self.audit()["read_unchecked"], {"number": "ocr"})
         self.client.post(f"/api/qualification-submissions/{r.json['id']}/review", json={"action": "withdraw"})
         # a claim the server's read does not confirm is recorded as unchecked, and the difference is listed
         with patch("licence_qr.available", return_value=False):
@@ -1219,6 +1226,22 @@ class ReadEvidenceTests(AppTests):
                          [("2029-03-11", "valid_until"), ("2024-05-02", None)])
         self.assertEqual(dates("gültig bis 12. März 2026; geldig tot 12 mrt 2027"),
                          [("2026-03-12", "valid_until"), ("2027-03-12", "valid_until")])
+
+    def test_many_dates_are_read_in_linear_time(self):
+        # a small PDF whose one stream repeats a dated text many times: reading it must stay fast
+        stream = zlib.compress(b"BT " + b"(Valid until 01.01.2000) Tj " * 30000 + b"ET")
+        self.assertLess(len(stream), 4096)
+        pdf = (b"%PDF-1.4\n1 0 obj << /Filter /FlateDecode /Length " + str(len(stream)).encode()
+               + b" >>\nstream\n" + stream + b"\nendstream\nendobj\n%%EOF\n")
+        path = Path(self.app.config["QUALIFICATION_EVIDENCE_DIR"]) / "dates.pdf"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(pdf)
+        started = time.process_time()
+        with patch("licence_qr.available", return_value=False):
+            read = qualifications.read_evidence(path, False, "application/pdf", {}, ocr=False)
+        self.assertLess(time.process_time() - started, 2)
+        self.assertEqual(read["dates"], [{"date": "2000-01-01", "label": "valid_until", "source": "text"}])
+        self.assertEqual(read["found"]["valid_until"], {"value": "2000-01-01", "source": "text"})
 
     def test_pdf_streams_share_one_budget(self):
         stream = zlib.compress(b"x" * 1000)
