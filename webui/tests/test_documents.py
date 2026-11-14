@@ -229,24 +229,30 @@ class DocumentTests(AppTests):
         self.con.commit()
         return {"Authorization": "Bearer " + token}
 
-    def test_api_keys_upload_and_download(self):
+    def test_api_keys_read_but_never_manage(self):
+        did = self.upload(title="Insurance", valid_until="2100-12-31").json["id"]
+        gid = self.client.post("/api/admin/document-groups", json={"name": "Company"}).json["id"]
         admin, admin_read, pilot = self.key(1), self.key(1, 1), self.key(2)
         with self.client.session_transaction() as session:  # keys only, no browser session
             session.clear()
         data = lambda: {"title": "Insurance", "valid_until": "2099-12-31",  # noqa: E731
                         "file": (io.BytesIO(PDF), "insurance.pdf")}
-        r = self.client.post("/api/admin/documents", data=data(), content_type="multipart/form-data", headers=admin)
-        self.assertEqual(r.status_code, 201, r.json)
-        did = r.json["id"]
-        for key in (admin_read, pilot):
+        for key in (admin, admin_read, pilot):  # a leaked admin key cannot change or delete documents
             self.assertEqual(self.client.post("/api/admin/documents", data=data(), content_type="multipart/form-data",
-                                           headers=key).status_code, 403)
-        r = self.client.post(f"/api/admin/documents/{did}/file", content_type="multipart/form-data", headers=admin,
-                             data={"file": (io.BytesIO(PDF), "insurance-2100.pdf"), "valid_until": "2100-12-31"})
-        self.assertEqual(r.status_code, 200, r.json)
+                                              headers=key).status_code, 403)
+            self.assertEqual(self.client.post(f"/api/admin/documents/{did}/file", content_type="multipart/form-data",
+                                              headers=key, data={"file": (io.BytesIO(PDF), "x.pdf")}).status_code, 403)
+            for method, url, body in (("put", f"/api/admin/documents/{did}", {"title": "Changed"}),
+                                      ("delete", f"/api/admin/documents/{did}", None),
+                                      ("put", "/api/admin/documents/intro", {"intro": "Changed"}),
+                                      ("post", "/api/admin/document-groups", {"name": "New"}),
+                                      ("put", f"/api/admin/document-groups/{gid}", {"name": "Changed"}),
+                                      ("delete", f"/api/admin/document-groups/{gid}", None)):
+                r = getattr(self.client, method)(url, json=body, headers=key)
+                self.assertEqual(r.status_code, 403, (method, url))
         r = self.client.get("/api/documents", headers=pilot)
         self.assertEqual([(d["id"], d["filename"], d["valid_until"]) for d in r.json["documents"]],
-                         [(did, "insurance-2100.pdf", "2100-12-31")])
+                         [(did, "insurance.pdf", "2100-12-31")])
         r = self.client.get(f"/api/documents/{did}/download", headers=admin_read)
         self.assertEqual((r.status_code, r.data), (200, PDF))
         r.close()
