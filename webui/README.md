@@ -237,7 +237,8 @@ book for someone else (**Booked for**), change any and set up the items in Edit 
 ## Documents
 
 **Documents** (optional) holds shared documents, for example the ones to show when you are asked for them in the field
-(insurance, operator registration, operations approval, manuals), in tabs per group. Administrators write a text at the
+(insurance, operator registration, operations approval, manuals), one line each in tabs per group; **Search** finds them
+by title, text or file name. The date on a line is its expiry (orange within 60 days) or its release date. Administrators write a text at the
 top and upload documents in Edit mode (**Add document**, **Add group**; **Edit** also replaces a document's file). A
 document can be only for administrators, for people with one of some current qualifications (for example A1/A3, A2 or STS) or for some profile roles, and can
 have validity dates: outside them only administrators see it, so an old certificate never shows. The tab
