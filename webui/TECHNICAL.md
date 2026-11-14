@@ -477,9 +477,26 @@ an individual link without affecting other links; the stored file is removed onl
 is removed. Deleting a flight's parent log or a paper record removes the corresponding links.
 Re-parsing retains links to flights with the same aircraft ID, flight index and takeoff time; if that
 flight no longer exists, its file links move to the parent log instead of losing the file.
-A key created as **read-only** (on My account, `read_only` in `POST /api/keys`) is refused (403) for every
-request other than GET and HEAD, except the MATLAB export requests (`POST /api/logs/<id>/matlab`,
-`POST /api/flights/<id>/matlab`), which only read.
+**API key scopes** (`scopes.py`, issue 235). A key has scopes (`api_keys.scopes`, space-separated) that narrow what
+it may do on top of its user's rights: `read` (every GET and HEAD, plus the MATLAB export requests
+`POST /api/logs/<id>/matlab` and `POST /api/flights/<id>/matlab`, which only read), `logs:upload` (log upload and
+reservations, `logs/check`, attachments: upload and share, paper records: single and CSV), `logs:edit` (project, date,
+crew and comment of logs and flights, date suggestions, conflicts, reparse), and for administrators `documents:upload`
+(add a document, replace its file), `documents:manage` (edit and delete documents, groups and the intro) and `admin`
+(every other `/api/admin/` route, and the few admin routes elsewhere listed in `scopes.ENDPOINTS`). `require_login`
+checks every key request against `scopes.allows`: a request that changes something is allowed only when its endpoint
+is mapped to one of the key's scopes; an unmapped endpoint is refused to every scoped key (403, fail closed), so a new
+route is never reachable by key by accident (`tests/test_api_key_scopes.py` lists the deliberately unmapped ones, e.g.
+deleting a log, bookings, profiles). `POST /api/keys/revoke-all` is allowed for any key with a scope beyond `read`.
+Routes that need a browser session keep refusing every key.
+
+`POST /api/keys` takes `scopes` (a list; the admin-only ones are refused for other people); without it, `read_only:
+true` gives `["read"]` and otherwise every scope the person may use. `PUT /api/keys/<id>` (browser session) and, for
+administrators, `PUT /api/admin/users/<id>/keys/<key_id>` narrow a key to a subset of its scopes; a key never gets a
+scope back. Keys from before scopes have `scopes` NULL (added by an idempotent migration) and behave as before:
+`read_only=1` as `read`, `read_only=0` as all of its user's rights, except managing documents (browser session or a
+documents scope). The lists return `scopes` (null for such a key, shown as *full (old)*), and they can be narrowed.
+Keys from a browser login (Python package, MATLAB) get `read logs:upload logs:edit`.
 API keys can upload files (`POST /api/attachments`) and link an existing file to more targets
 (`POST /api/attachments/<id>/links`) with the same permission checks; the upload returns the file `id`.
 Removing links (and so deleting files) requires a browser session.
@@ -745,9 +762,9 @@ for another person, with confirmation. Only active, non-external accounts can be
 Self-demotion is blocked: ask another administrator to remove your rights. The last active
 administrator cannot be demoted. These changes preserve ordinary project memberships and take
 effect on subsequent requests, including requests using existing API keys.
-The separate API keys tab lists the selected person's API-key names, prefixes, creation times and last-use
-times (or Never). In Edit mode, admins can revoke individual keys after confirmation; scripts using
-that key immediately lose access. The selected user's other keys remain unchanged.
+The separate API keys tab lists the selected person's API-key names, scopes (*full (old)* for a key from before
+scopes), prefixes, creation times and last-use times (or Never). In Edit mode, admins can narrow a key's scopes or
+revoke individual keys after confirmation; scripts using that key immediately lose access. The selected user's other keys remain unchanged.
 Secrets and hashes are never returned; full secrets cannot be recovered.
 Both role changes (`PUT /api/admin/users/<id>/admin`) and key-detail access
 (`GET /api/admin/users/<id>/keys`) or revocation (`DELETE /api/admin/users/<id>/keys/<key_id>`)
@@ -1374,7 +1391,7 @@ file.
 Operations Manual: per person `id`, `name` and `qualifications` (`type`, `number`, `valid_from`,
 `valid_until`, `internal`), no contact details. `active=1` (default) leaves out deactivated accounts;
 `qualification=FI` (comma-separated types) keeps only people with one of those. Admins only, by session or
-API key; give a document build an admin account's **read-only** key.
+API key; give a document build an admin account's key with only the `read` scope.
 
 ### Documents
 
@@ -1582,14 +1599,15 @@ copied from the account page:
    automatic on opening the link, so a link sent by someone else cannot obtain a key.
 3. The client polls `POST /api/cli-login/token` with `device_code` and gets the RFC 8628 errors
    `authorization_pending`, `slow_down`, `access_denied` or `expired_token` until then. Once approved it receives,
-   exactly once, a new full-access API key of the approving user (`access_token`, `expires_at`).
+   exactly once, a new API key of the approving user with the scopes `read logs:upload logs:edit`
+   (`access_token`, `expires_at`).
 
 The device code never appears in a URL, and only its SHA-256 is stored (`cli_logins`); keys are not stored at
 all, as for other keys. A key from a script login is named `Login: <client>` and has `api_keys.expires_at`, seven
 days after the login; the server refuses it afterwards and deletes it when keys are listed or created. A new login
 of the same client replaces its earlier key, so they do not fill the 20-key limit. Such keys appear on the
-account page with their end date and can be revoked there. `POST /api/keys/revoke-all` (also with a full-access
-API key, as `revoke_all` uses it) revokes the user's script-login keys; `{"include_manual": true}` (all of the
+account page with their end date and can be revoked there. `POST /api/keys/revoke-all` (also with an API key that
+has a scope beyond `read`, as `revoke_all` uses it) revokes the user's script-login keys; `{"include_manual": true}` (all of the
 user's keys) needs a browser session, so a leaked script key cannot delete long-lived keys. It returns the number
 revoked. Both clients refuse `http://` servers except `localhost`/`127.0.0.1`, so keys never travel unencrypted.
 

@@ -816,14 +816,38 @@ async function loadPersonKeys(id, generation) {
     if (generation !== panelGeneration) return;
     const stamp = value => value ? esc(value.replace('T', ' ').replace('Z', ' UTC')) : 'Never';
     $('personApiKeys').innerHTML = keys.length ? `<div class="scroll"><table>
-      <thead><tr><th>Name</th><th>Prefix</th><th>Created</th><th>Last used</th>${window.editMode() ? '<th>Actions</th>' : ''}</tr></thead>
-      <tbody>${keys.map(key => `<tr><td>${esc(key.name)}</td><td><code>${esc(key.prefix)}…</code></td>
+      <thead><tr><th>Name</th><th>Scopes</th><th>Prefix</th><th>Created</th><th>Last used</th>${window.editMode() ? '<th>Actions</th>' : ''}</tr></thead>
+      <tbody>${keys.map(key => `<tr><td>${esc(key.name)}</td><td>${esc(key.scopes ? key.scopes.join(' ') : 'full (old)')}</td><td><code>${esc(key.prefix)}…</code></td>
         <td>${stamp(key.created_at)}</td><td>${stamp(key.last_used_at)}</td>
-        ${window.editMode() ? `<td><button type="button" class="danger" onclick="revokePersonKey(${id}, ${key.id})">Revoke</button></td>` : ''}</tr>`).join('')}</tbody></table></div>`
+        ${window.editMode() ? `<td><button type="button" class="sec" onclick="narrowPersonKey(${id}, ${key.id}, ${esc(JSON.stringify(key.scopes))})">Narrow</button> <button type="button" class="danger" onclick="revokePersonKey(${id}, ${key.id})">Revoke</button></td>` : ''}</tr>`).join('')}</tbody></table></div>`
       : '<p class="mute">No API keys.</p>';
   } catch (error) {
     if (generation === panelGeneration) $('personApiKeys').textContent = `Could not load API keys: ${error.message}`;
   }
+}
+
+const KEY_SCOPES = ['read', 'logs:upload', 'logs:edit', 'documents:upload', 'documents:manage', 'admin'];
+// Take scopes away from someone's key (an old full key, scopes null, may get any); it never gets one back.
+function narrowPersonKey(id, keyId, current) {
+  const dialog = document.createElement('dialog');
+  dialog.innerHTML = `<form method="dialog"><h3>Narrow API key</h3>
+    <p class="mute">Untick what the key no longer needs. Scopes the person may not use have no effect.</p>
+    <div>${KEY_SCOPES.map(name => `<label><input type="checkbox" value="${name}"${!current || current.includes(name) ? ' checked' : ''}${current && !current.includes(name) ? ' disabled' : ''}> ${name}</label>`).join(' ')}</div>
+    <p class="dialog-error" style="color:var(--err)"></p>
+    <button type="submit" value="save">Save</button> <button type="submit" value="cancel" class="sec">Cancel</button></form>`;
+  document.body.appendChild(dialog);
+  dialog.addEventListener('close', async () => {
+    const chosen = [...dialog.querySelectorAll('input:checked')].map(box => box.value);
+    dialog.remove();
+    if (dialog.returnValue !== 'save') return;
+    try {
+      await adminApi(`/api/admin/users/${id}/keys/${keyId}`, {method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({scopes: chosen})});
+      $('err').textContent = '';
+      if (selectedPerson === id && selectedTab === 'api') renderPersonPanel();
+    } catch (error) { $('err').textContent = error.message; }
+  });
+  dialog.showModal();
 }
 
 async function revokePersonKey(id, keyId) {

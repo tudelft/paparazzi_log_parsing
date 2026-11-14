@@ -152,7 +152,7 @@ to gain descriptions and previously omitted crew entries.
 ## Add or correct information
 
 Administrators can use **People → Edit → Account** to grant or remove another person's admin rights
-and inspect or revoke their API keys (not retrieve secret values). You cannot remove your own admin rights.
+and inspect, narrow or revoke their API keys (not retrieve secret values). You cannot remove your own admin rights.
 
 - **Locations** lists the places on the left (search by name or country, filter by **Country**) and shows the map
   on the right. Click a location in the list or on the map to select it: the map zooms to it and its details and
@@ -305,7 +305,7 @@ the UTC date to Open-Meteo; its free service is non-commercial only.
 
 ## Upload a folder with a script
 
-Create an API key on **My account** and download [upload_logs.py](upload_logs.py). It needs Python 3
+Create an API key on **My account** (tick the `logs:upload` and `read` scopes) and download [upload_logs.py](upload_logs.py). It needs Python 3
 and skips Paparazzi pairs the server already has:
 
 ```sh

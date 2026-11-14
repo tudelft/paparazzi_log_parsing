@@ -314,7 +314,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
     created_at TEXT NOT NULL,
     last_used_at TEXT,
     read_only INTEGER NOT NULL DEFAULT 0 CHECK(read_only IN (0,1)),  -- GET/HEAD requests only
-    expires_at TEXT                    -- keys from a browser login (cli_logins) expire; NULL = until revoked
+    expires_at TEXT,                   -- keys from a browser login (cli_logins) expire; NULL = until revoked
+    scopes TEXT                        -- space-separated (scopes.py); NULL = a key from before scopes
 );
 CREATE TABLE IF NOT EXISTS cli_logins (  -- RFC 8628 device logins of scripts (Python package, MATLAB)
     id INTEGER PRIMARY KEY,
@@ -706,6 +707,8 @@ def init(path):
         con.execute("ALTER TABLE api_keys ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0 CHECK(read_only IN (0,1))")
     if "expires_at" not in {r["name"] for r in con.execute("PRAGMA table_info(api_keys)")}:
         con.execute("ALTER TABLE api_keys ADD COLUMN expires_at TEXT")
+    if "scopes" not in {r["name"] for r in con.execute("PRAGMA table_info(api_keys)")}:
+        con.execute("ALTER TABLE api_keys ADD COLUMN scopes TEXT")  # NULL: keys from before scopes keep working
     document_cols = {r["name"] for r in con.execute("PRAGMA table_info(documents)")}
     for col in ("valid_from", "valid_until"):
         if col not in document_cols:

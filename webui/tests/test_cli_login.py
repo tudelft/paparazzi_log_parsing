@@ -48,8 +48,9 @@ class CliLoginTests(AppTests):
             session.clear()
         me = self.client.get("/api/me", headers={"Authorization": "Bearer " + key})
         self.assertEqual(me.json["user"]["id"], 2)
-        row = self.con.execute("SELECT name, read_only, expires_at FROM api_keys WHERE user_id=2").fetchone()
+        row = self.con.execute("SELECT name, read_only, expires_at, scopes FROM api_keys WHERE user_id=2").fetchone()
         self.assertEqual((row["name"], row["read_only"]), ("Login: mavlab-logbook-client (Python) on laptop", 0))
+        self.assertEqual(row["scopes"], "read logs:upload logs:edit")  # issue 235: what the clients need
         self.assertEqual(row["expires_at"], token.json["expires_at"])
         # the server enforces the expiry, and the account page no longer lists the key
         self.con.execute("UPDATE api_keys SET expires_at='2000-01-01T00:00:00Z'")
