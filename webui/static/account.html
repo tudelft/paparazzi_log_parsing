@@ -92,12 +92,12 @@
 
   <section class="card" data-pane="keys" hidden>
     <div class="section-heading"><h2>API keys</h2>
-    <details><summary>Help</summary><p>A key lets a script use the API as you (upload and read logs you can access). It cannot manage keys. A <em>read-only</em> key can only read (GET), e.g. for a script that builds a document.
+    <details><summary>Help</summary><p>A key lets a script use the API as you; it never does more than you may, and it cannot manage keys. Its <em>scopes</em> say what else it is limited to: <em>read</em> (everything a GET shows, e.g. for a script that builds a document), <em>logs:upload</em> (upload logs, attachments and paper records), <em>logs:edit</em> (project, date, crew and comment of logs and flights, reparse), and for administrators <em>documents:upload</em> (add a document, replace its file), <em>documents:manage</em> (edit and delete documents and groups) and <em>admin</em> (the other administration). Give a key only what its script needs. <em>Narrow</em> takes scopes away from a key; a key from before scopes shows as <em>full (old)</em> and can be narrowed too.
       Send it as <code>Authorization: Bearer &lt;key&gt;</code>. Revoke a key if it leaks.
       The Python package <code>mavlab-logbook-client</code> and the MATLAB tools can also sign in through the browser instead; they get a key that expires after a week.</p></details></div>
     <form class="row" onsubmit="addKey(event)">
       <input id="name" placeholder="Name, e.g. laptop uploader" required maxlength="60" style="min-width:240px">
-      <label title="The key can only read (GET), e.g. for a script that builds a document"><input type="checkbox" id="readOnly"> Read-only</label>
+      <span id="scopeChoice" class="row" role="group" aria-label="Scopes"></span>
       <button type="submit">Create key</button>
     </form>
     <div class="table-scroll"><table style="margin-top:12px">
@@ -105,6 +105,16 @@
       <tbody id="keys"></tbody>
     </table></div>
   </section>
+
+  <dialog id="narrowDialog" aria-labelledby="narrowTitle">
+    <form onsubmit="saveNarrow(event)">
+      <h3 id="narrowTitle">Narrow key</h3>
+      <p class="mute">Untick what the key no longer needs. A key never gets a scope back; create a new key for that.</p>
+      <div id="narrowBoxes" class="row"></div>
+      <div id="narrowErr" style="color:var(--err)"></div>
+      <div class="row" style="margin-top:12px"><button type="submit">Save</button> <button type="button" class="sec" onclick="$('narrowDialog').close()">Cancel</button></div>
+    </form>
+  </dialog>
 
   <details class="card" id="uploadHelp" data-pane="keys" hidden>
     <summary>Upload a folder with the script</summary>
@@ -116,6 +126,16 @@
 </main>
 <script>
 const $ = id => document.getElementById(id);
+const SCOPES = [['read', 'everything a GET shows'], ['logs:upload', 'upload logs, attachments and paper records'],
+  ['logs:edit', 'project, date, crew and comment of logs and flights, reparse'],
+  ['documents:upload', 'add a document, replace its file', true], ['documents:manage', 'edit and delete documents and groups', true],
+  ['admin', 'the other administration routes', true]];
+let isAdmin = false;
+const scopeBoxes = (checked, allowed) => SCOPES.filter(([, , admin]) => isAdmin || !admin).map(([name, title]) =>
+  `<label title="${esc(title)}"><input type="checkbox" data-scope="${name}"${checked.includes(name) ? ' checked' : ''}${allowed && !allowed.includes(name) ? ' disabled' : ''}> ${name}</label>`).join(' ');
+const scopeText = k => k.scopes ? k.scopes.join(' ') : 'full (old)';
+// what a key from before scopes may do: everything you may, except managing documents (scopes.old_full)
+const oldFull = () => SCOPES.filter(([name, , admin]) => !name.startsWith('documents:') && (isAdmin || !admin)).map(s => s[0]);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => t ? t.replace('T', ' ').replace('Z', ' UTC') : '<span class="mute">never</span>';
 async function api(url, opt) {
@@ -127,8 +147,9 @@ async function api(url, opt) {
 async function load() {
   try {
     const keys = await api('/api/keys');
-    $('keys').innerHTML = keys.map(k => `<tr><td>${esc(k.name)}${k.read_only ? ' <span class="mute">· read-only</span>' : ''}${k.expires_at ? ` <span class="mute" title="From a script login; expires ${esc(k.expires_at.replace('T', ' ').replace('Z', ' UTC'))}">· until ${esc(k.expires_at.slice(0, 10))}</span>` : ''}</td><td><code>${esc(k.prefix)}…</code></td><td>${fmt(k.created_at)}</td><td>${fmt(k.last_used_at)}</td>
-      <td><button class="danger" onclick="revoke(${k.id}, '${esc(k.name).replace(/'/g, '')}')">Revoke</button></td></tr>`).join('')
+    window.keyList = keys;
+    $('keys').innerHTML = keys.map(k => `<tr><td>${esc(k.name)} <span class="mute">· ${esc(scopeText(k))}</span>${k.expires_at ? ` <span class="mute" title="From a script login; expires ${esc(k.expires_at.replace('T', ' ').replace('Z', ' UTC'))}">· until ${esc(k.expires_at.slice(0, 10))}</span>` : ''}</td><td><code>${esc(k.prefix)}…</code></td><td>${fmt(k.created_at)}</td><td>${fmt(k.last_used_at)}</td>
+      <td>${!k.scopes || k.scopes.length > 1 ? `<button class="sec" onclick="narrow(${k.id})">Narrow</button> ` : ''}<button class="danger" onclick="revoke(${k.id}, '${esc(k.name).replace(/'/g, '')}')">Revoke</button></td></tr>`).join('')
       || '<tr><td colspan="5" class="mute">No keys yet.</td></tr>';
   } catch (e) { $('err').textContent = e.message; }
 }
@@ -136,18 +157,37 @@ async function addKey(ev) {
   ev.preventDefault();
   $('err').textContent = '';
   try {
-    const d = await api('/api/keys', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: $('name').value, read_only: $('readOnly').checked})});
+    const d = await api('/api/keys', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: $('name').value,
+      scopes: [...$('scopeChoice').querySelectorAll('input:checked')].map(i => i.dataset.scope)})});
     $('keyText').textContent = d.key;
     $('newKey').style.display = 'block';
     $('copyBtn').textContent = 'Copy';
     $('name').value = '';
-    $('readOnly').checked = false;
+    $('scopeChoice').innerHTML = scopeBoxes(['read']);
     $('usage').textContent = `python3 upload_logs.py ~/paparazzi/var/logs --server ${location.origin} --key ${d.key}\n\n# or set it once:\nexport LOGDB_API_KEY=${d.key}\nexport LOGDB_SERVER=${location.origin}\npython3 upload_logs.py ~/paparazzi/var/logs`;
     load();
   } catch (e) { $('err').textContent = e.message; }
 }
 async function copyKey() {
   try { await navigator.clipboard.writeText($('keyText').textContent); $('copyBtn').textContent = 'Copied'; } catch (e) {}
+}
+function narrow(id) {
+  const key = window.keyList.find(k => k.id === id);
+  $('narrowTitle').textContent = `Narrow "${key.name}"`;
+  $('narrowBoxes').innerHTML = scopeBoxes(key.scopes || oldFull(), key.scopes || oldFull());
+  $('narrowErr').textContent = '';
+  $('narrowDialog').dataset.id = id;
+  $('narrowDialog').showModal();
+}
+async function saveNarrow(ev) {
+  ev.preventDefault();
+  const chosen = [...$('narrowBoxes').querySelectorAll('input:checked')].map(i => i.dataset.scope);
+  try {
+    await api('/api/keys/' + $('narrowDialog').dataset.id, {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({scopes: chosen})});
+    $('narrowDialog').close();
+    load();
+  } catch (e) { $('narrowErr').textContent = e.message; }
 }
 async function revoke(id, name) {
   if (!confirm(`Revoke key "${name}"? Scripts using it stop working.`)) return;
@@ -174,6 +214,8 @@ $('passwordForm').onsubmit = async ev => {
 api('/api/me').then(d => {
   new QualificationManager($('myQualifications'), d.user.id, false).load();
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  isAdmin = !!d.user.is_admin;
+  $('scopeChoice').innerHTML = scopeBoxes(['read']);
   $('info').innerHTML = `<span class="mute">Name</span><span>${esc(d.user.display_name)}</span><span class="mute">Username</span><span>${esc(d.user.username)}</span><span class="mute">Role</span><span>${d.user.is_admin ? 'Administrator' : 'User'}</span>`;
   $('passwordCard').dataset.only = d.user.provider === 'local' && d.user.has_password ? '' : 'never';
   tabs = [['account', 'Account'], ...(d.person_profile ? [['profile', 'Profile']] : []), ['qualifications', 'Qualifications'],

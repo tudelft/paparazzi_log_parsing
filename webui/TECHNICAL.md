@@ -477,9 +477,32 @@ an individual link without affecting other links; the stored file is removed onl
 is removed. Deleting a flight's parent log or a paper record removes the corresponding links.
 Re-parsing retains links to flights with the same aircraft ID, flight index and takeoff time; if that
 flight no longer exists, its file links move to the parent log instead of losing the file.
-A key created as **read-only** (on My account, `read_only` in `POST /api/keys`) is refused (403) for every
-request other than GET and HEAD, except the MATLAB export requests (`POST /api/logs/<id>/matlab`,
-`POST /api/flights/<id>/matlab`), which only read.
+**API key scopes** (`scopes.py`, issue 235). A key has scopes (`api_keys.scopes`, space-separated) that narrow what
+it may do on top of its user's rights: `read` (every GET and HEAD, plus the MATLAB export requests
+`POST /api/logs/<id>/matlab` and `POST /api/flights/<id>/matlab`, which only read), `logs:upload` (log upload and
+reservations, `logs/check`, attachments: upload and share, paper records: single and CSV), `logs:edit` (project, date,
+crew and comment of logs and flights, date suggestions, conflicts, reparse), and for administrators `documents:upload`
+(add a document, replace its file), `documents:manage` (edit and delete documents, groups and the intro) and `admin`
+(places, operators, authorisations, projects, aircraft, aliases, date suggestions, deleting accounts, reparse: each
+route listed by name in `scopes.ENDPOINTS["admin"]`, so a new admin route needs a decision). `require_login`
+checks every key request against `scopes.allows`: a request that changes something is allowed only when its endpoint
+is mapped to one of the key's scopes; an unmapped endpoint is refused to every scoped key (403, fail closed), so a new
+route is never reachable by key by accident (`tests/test_api_key_scopes.py` lists the deliberately unmapped ones, e.g.
+deleting a log, bookings, profiles). `POST /api/keys/revoke-all` is allowed for any key with a scope beyond `read`.
+Routes that need a browser session keep refusing every key, old full keys included. Among them are the account routes
+that could give a key holder a sign-in or more rights: adding a user (`POST /api/admin/users`), a setup link
+(`POST /api/admin/users/<id>/setup-link`), changing an account's email (`PUT /api/admin/users/<id>`), removing a
+password (`DELETE /api/admin/users/<id>/password`), admin rights, names, merges and keys of other people.
+
+`POST /api/keys` takes `scopes` (a list; the admin-only ones are refused for other people); without it the key gets
+only `read` (`read_only` is still accepted and makes no difference). `PUT /api/keys/<id>` (browser session) and, for
+administrators, `PUT /api/admin/users/<id>/keys/<key_id>` narrow a key to a subset of its scopes; a key never gets a
+scope back. Keys from before scopes have `scopes` NULL (added by an idempotent migration) and behave as before:
+`read_only=1` as `read`, `read_only=0` as all of its user's rights, except managing documents (browser session or a
+documents scope). The lists return `scopes` (null for such a key, shown as *full (old)*), and they can be narrowed to
+a subset of `scopes.old_full` (every scope the user may use except the documents ones), so narrowing never widens them.
+Keys from a browser login (Python package, MATLAB) get `read logs:upload logs:edit`; the migration also gives these
+scopes to such keys from before (the only keys with `expires_at`).
 API keys can upload files (`POST /api/attachments`) and link an existing file to more targets
 (`POST /api/attachments/<id>/links`) with the same permission checks; the upload returns the file `id`.
 Removing links (and so deleting files) requires a browser session.
@@ -746,9 +769,9 @@ for another person, with confirmation. Only active, non-external accounts can be
 Self-demotion is blocked: ask another administrator to remove your rights. The last active
 administrator cannot be demoted. These changes preserve ordinary project memberships and take
 effect on subsequent requests, including requests using existing API keys.
-The separate API keys tab lists the selected person's API-key names, prefixes, creation times and last-use
-times (or Never). In Edit mode, admins can revoke individual keys after confirmation; scripts using
-that key immediately lose access. The selected user's other keys remain unchanged.
+The separate API keys tab lists the selected person's API-key names, scopes (*full (old)* for a key from before
+scopes), prefixes, creation times and last-use times (or Never). In Edit mode, admins can narrow a key's scopes or
+revoke individual keys after confirmation; scripts using that key immediately lose access. The selected user's other keys remain unchanged.
 Secrets and hashes are never returned; full secrets cannot be recovered.
 Both role changes (`PUT /api/admin/users/<id>/admin`) and key-detail access
 (`GET /api/admin/users/<id>/keys`) or revocation (`DELETE /api/admin/users/<id>/keys/<key_id>`)
@@ -1180,6 +1203,7 @@ name, a button for the link, the footer with a link to the email settings) with 
 | Aircraft requests | everyone | immediately | your aircraft request was approved or rejected (with the reason); project managers: a new request for their project |
 | Others' expiry reminders | admins | off | a copy of everyone's expiry reminders |
 | Administrator notices | admins | immediately | a qualification waits for approval (submitted by a non-admin); a log failed to parse; a new aircraft request |
+| Security notice | admins | immediately (fixed) | an account became an administrator (who, by whom, when; `mail.notify_security`): to `LOGDB_MAIL_ADMIN_TO` when set, else every active admin except the new one; cannot be turned off or put in the daily summary |
 | Training access requests | admins | off | a copy of each training access request mail (see [Training questionnaires](#training-questionnaires)) |
 
 Each person chooses **Immediately**, **Daily summary** or **Off** per kind under **My account**, tab **Email** (`GET/PUT
@@ -1336,7 +1360,7 @@ Scanned PDFs hold only images: **Fill numbers from PDFs…** reads those with OC
 (poppler-utils) and `tesseract` (tesseract-ocr) are installed (`install.sh` installs them). It renders the
 first four pages at 200 dpi, turns each page upright (tesseract's orientation detection, and upside down as a
 second try) and takes a few seconds per scan; one run stops reading new scans after 90 s and reports the rest
-as not read yet. Uploads do not run OCR. The reviewer checks the number and
+as not read yet. Uploads run OCR only in the upload dialog, within a time limit (see *Reading at upload* below). The reviewer checks the number and
 approval is refused while a required number is missing. Admins correct it with **Edit** (with the dates,
 audited as `number-changed`). **Fill numbers from PDFs…** under Qualification types opens a dialog that
 (`POST /api/admin/qualifications/fill-numbers`) fills the empty numbers of approved submissions of such
@@ -1367,6 +1391,41 @@ none are left. *Read all again* sends `before` (the start of the run), so every 
 once. A file that cannot be read is stored as read without codes, so it does not stop the others. A licence with
 evidence that was not read yet shows *QR code not read yet* to administrators. What each authority's code holds differs, so the raw content is kept as is.
 
+**Reading at upload** (`read_evidence`, issue 226). Choosing a file in the upload dialog sends it, with the chosen
+type, to `POST /api/users/<id>/qualifications/read` (same access as submitting; browser session only; the file is
+deleted after reading and nothing is stored). The server reads the QR code, the PDF text and, when a field the type asks
+for is still missing and the PDF text gave no number (so there is no text layer to read), OCR: pages of a scanned PDF
+(turned upright first) or a JPEG/PNG as it is. It returns what it found per field with its source (`qr`, `text`, `ocr`;
+that order of preference), the dates seen and where the document differs from the typed values; people who are not
+administrators get only the QR check's status, authority and issues, not the decoded codes. The PDF is decompressed
+once per read, with one budget for all its streams together (`PDF_TEXT_BUDGET`, 80 MiB).
+
+The whole read has one time limit (`QUALIFICATION_READ_SECONDS`, default `READ_SECONDS`, 25 s), shared by the QR code
+and OCR: every `pdftoppm`, `zbarimg` and `tesseract` call gets at most the time left. When it runs out, what was found so
+far is returned with a note in `notes` (*Reading the QR code took too long* or *OCR took too long; fill in the
+fields*); a QR code not read in time is read in the background after submit as usual. One read per person runs at a
+time; another one meanwhile gets 429 (the server runs one process, so an in-process set is enough). The dialog sends one
+read at a time: a file chosen during a read is read when that one is done, and after a 429 it tries again.
+
+The dialog fills empty, shown fields and remembers which ones it filled; when another file is chosen, those it filled
+and the person did not change are replaced (or cleared, also when reading the new file fails), typed values stay. With a file chosen, the date fields are no
+longer required in the browser. On submit the dialog sends `read_from` (JSON, field: source) for the values it filled
+that are still unchanged. The server then reads the QR code and the PDF text (no OCR) when a field the type asks for is
+empty or `read_from` is sent: empty fields are filled from it, a claim whose value the QR code or PDF text read there
+confirms (also an `ocr` claim the text confirms) is recorded in `read_from` with the source that confirmed it, and any
+other claim in `read_unchecked` (shown as what the upload dialog reports it read, not confirmed). Typed values are
+never replaced; a Valid from after a read Valid until gives the order error naming the read date, and a field missing
+from both form and document gives the usual error. The `submitted` audit event records `read_from`, `read_unchecked` and
+`differs`. When the QR code was read at submit it is stored in `qr_json` and the background read is skipped.
+
+Dates are recognised as `YYYY-MM-DD`, `D.M.YYYY` and `D-M-YYYY` (day first), `D/M/YYYY` only when it is unambiguous (the
+day is above 12, or day and month are equal; `03/12/2026` could be 3 December or 12 March and is skipped), and
+`D Month YYYY` (English, Dutch, French, German month names, also `mrt` and `März`). A label in the 80 characters before
+a date, and after the previous date, decides its meaning (*valid until*, *expiry*, *geldig tot*… → Valid until;
+*valid from*, *date of issue*, *afgifte*… → Valid from; *birth*, *geboorte*… → ignored). Without labels, the latest pair
+of dates a whole number of years apart (1–10, or one day less) is taken as Valid from and Valid until; anything else is
+left for the person to type. At most 500 dates per format are read from one document (`TEXT_DATES_MAX`).
+
 Internal ratings such as FI (flight instructor) and CTR are qualification types with Internal on and
 Evidence off; admins grant them by submitting and approving for the person, or by import rows without a
 file.
@@ -1375,13 +1434,14 @@ file.
 Operations Manual: per person `id`, `name` and `qualifications` (`type`, `number`, `valid_from`,
 `valid_until`, `internal`), no contact details. `active=1` (default) leaves out deactivated accounts;
 `qualification=FI` (comma-separated types) keeps only people with one of those. Admins only, by session or
-API key; give a document build an admin account's **read-only** key.
+API key; give a document build an admin account's key with only the `read` scope.
 
 ### Documents
 
-Off unless `LOGDB_DOCUMENTS=1` (`documents.py`, `static/documents.html`); it needs no person profiles. Every route
-below also works with an API key (the page itself needs a browser session): any key reads, an admin's key that is not
-read-only also manages, for example a script that uploads the renewed insurance certificate.
+Off unless `LOGDB_DOCUMENTS=1` (`documents.py`, `static/documents.html`); it needs no person profiles. Any API key
+reads (`GET /api/documents`, view, download); the page and every `/api/admin/` route below need a browser session or
+an admin's key with the `documents:upload` or `documents:manage` scope (see API key scopes); an old full key gets 403,
+so a leaked one cannot change or delete documents (issue 235). The ZIP import needs a browser session for every key.
 `GET /api/documents` returns `intro` (the text at the top, `document_settings`), `groups` (`document_groups`: name,
 description, sort order; one level, shown as page tabs with All, General for documents without a group and My
 qualifications; the tab is kept in the URL, `?tab=`; empty groups only in Edit mode), `documents` the person may see
@@ -1407,14 +1467,35 @@ attachments) and `/download`. Admins: `PUT /api/admin/documents/intro`, `POST|PU
 repeated, `sort_order`, `valid_from`, `valid_until`), `PUT /api/admin/documents/<id>` (the same fields without the
 file, as JSON; `role_ids` and `type_ids` lists), `POST /api/admin/documents/<id>/file` (multipart `file`, optional `valid_from` and
 `valid_until`: replaces the file, for example a renewed certificate, sets the dates that are sent and keeps the other
-fields) and `DELETE` (also removes the file). For example, with an admin's key in `$KEY`:
+fields) and `DELETE` (also removes the file). Reading with a key in `$KEY`:
 
 ```sh
 curl -H "Authorization: Bearer $KEY" https://<server>/api/documents                       # list (ids, dates)
-curl -H "Authorization: Bearer $KEY" -F file=@certificate.pdf -F valid_from=2027-01-01 \
-     -F valid_until=2027-12-31 https://<server>/api/admin/documents/<id>/file            # renew
 curl -H "Authorization: Bearer $KEY" -OJ https://<server>/api/documents/<id>/download    # download
 ```
+
+**ZIP import** (`document_import.py`, Edit mode: **Import ZIP**; browser session only, API keys get 403). A ZIP holds
+`manifest.csv` (`GET /api/admin/documents/import/template`) and the files. Columns, in any order: `title` and `file`
+(required), `group` (empty, or `General` when no group has that name: no group), `description`, `valid_from`,
+`valid_until`, `admin_only` (yes/no), `qualification` (qualification type names separated by `;`, stored in
+`document_qualification_types`) and `roles` (profile role names separated by `;`). A file path with a folder must match
+that folder; a bare file name may match one file in a subfolder. Two ZIP entries with the same path, a malformed CSV
+line, or more than 500 rows are refused.
+
+`POST /api/admin/documents/import` (multipart `file`, at most 200 MiB, else 413) checks every row and returns it with an
+outcome: *add*; *replace* when the title and group (case-insensitive) match an existing document, whose file and
+settings are then replaced; *skip* when its file and settings are the same, so a ZIP can be imported again. A column
+left out of the header keeps the existing document's value (a minimal `title,group,file` manifest replaces only files).
+For a replace the preview lists what changes (`changes`) and the limits it removes or widens (`removes`: administrators
+only, qualification, roles). Unknown groups are added on commit; an unknown qualification or role, a missing file, a bad
+date or flag, or the same title and group twice is an error and blocks the import.
+
+The checked preview is staged under `DOCUMENT_IMPORT_DIR` (default `<storage>/../tmp/doc-import`) for 30 minutes. `POST
+/api/admin/documents/import/commit` (`{"token"}`, same session) stores the files first, then checks every row again in
+one transaction and imports it all or nothing: when a row's outcome or document differs from the preview (edited,
+deleted, or its group renamed meanwhile), or a replaced document's values that the import overwrites (the columns in
+the header and the file) were edited since the preview, it returns 409 and imports nothing. The old files of replaced documents are
+removed afterwards.
 
 Read-only People chips show only approved, non-expired submissions and omit the approval label;
 management views retain all submission states.
@@ -1614,14 +1695,15 @@ copied from the account page:
    automatic on opening the link, so a link sent by someone else cannot obtain a key.
 3. The client polls `POST /api/cli-login/token` with `device_code` and gets the RFC 8628 errors
    `authorization_pending`, `slow_down`, `access_denied` or `expired_token` until then. Once approved it receives,
-   exactly once, a new full-access API key of the approving user (`access_token`, `expires_at`).
+   exactly once, a new API key of the approving user with the scopes `read logs:upload logs:edit`
+   (`access_token`, `expires_at`).
 
 The device code never appears in a URL, and only its SHA-256 is stored (`cli_logins`); keys are not stored at
 all, as for other keys. A key from a script login is named `Login: <client>` and has `api_keys.expires_at`, seven
 days after the login; the server refuses it afterwards and deletes it when keys are listed or created. A new login
 of the same client replaces its earlier key, so they do not fill the 20-key limit. Such keys appear on the
-account page with their end date and can be revoked there. `POST /api/keys/revoke-all` (also with a full-access
-API key, as `revoke_all` uses it) revokes the user's script-login keys; `{"include_manual": true}` (all of the
+account page with their end date and can be revoked there. `POST /api/keys/revoke-all` (also with an API key that
+has a scope beyond `read`, as `revoke_all` uses it) revokes the user's script-login keys; `{"include_manual": true}` (all of the
 user's keys) needs a browser session, so a leaked script key cannot delete long-lived keys. It returns the number
 revoked. Both clients refuse `http://` servers except `localhost`/`127.0.0.1`, so keys never travel unencrypted.
 

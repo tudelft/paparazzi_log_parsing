@@ -152,7 +152,7 @@ to gain descriptions and previously omitted crew entries.
 ## Add or correct information
 
 Administrators can use **People → Edit → Account** to grant or remove another person's admin rights
-and inspect or revoke their API keys (not retrieve secret values). You cannot remove your own admin rights.
+and inspect, narrow or revoke their API keys (not retrieve secret values). You cannot remove your own admin rights.
 
 - **Locations** lists the places on the left (search by name or country, filter by **Country**) and shows the map
   on the right. Click a location in the list or on the map to select it: the map zooms to it and its details and
@@ -243,7 +243,9 @@ top and upload documents in Edit mode (**Add document**, **Add group**; **Edit**
 document can be only for administrators, for people with one of some current qualifications (for example A1/A3, A2 or STS) or for some profile roles, and can
 have validity dates: outside them only administrators see it, so an old certificate never shows. The tab
 **My qualifications** lists your own approved qualifications that are valid today, with their documents; add or renew
-them in **My account** (see below). Rules: [technical guide](TECHNICAL.md#documents).
+them in **My account** (see below). **Import ZIP** (Edit mode) adds or replaces many documents at once from a
+`manifest.csv` and the files: preview, then import; importing the same ZIP again skips unchanged documents. Rules:
+[technical guide](TECHNICAL.md#documents).
 
 ## Safety
 
@@ -285,8 +287,8 @@ date and student/employee number after signing in, and again once that end date 
 page, and on People in the **Profiles** and **Supervision** tabs, which show supervisors the people they supervise.
 
 **Qualifications:** submit your own evidence under **My account**; admins review it on **People**.
-Each type determines whether evidence, expiry and a licence number are required (the number is read from a
-PDF certificate when you leave it empty). Evidence is one PDF, JPEG or PNG,
+Each type determines whether evidence, expiry and a licence number are required (the number and validity
+dates are read from the evidence when you choose the file; empty fields are filled, typed values are kept). Evidence is one PDF, JPEG or PNG,
 up to **20 MiB**. Submissions need admin approval, and the previous approval stays active during renewal.
 Expired approvals are marked; approval alone does not establish operational eligibility.
 Evidence and submission history are private to you and admins; audit history is admin-only.
@@ -317,7 +319,7 @@ the UTC date to Open-Meteo; its free service is non-commercial only.
 
 ## Upload a folder with a script
 
-Create an API key on **My account** and download [upload_logs.py](upload_logs.py). It needs Python 3
+Create an API key on **My account** (tick the `logs:upload` and `read` scopes) and download [upload_logs.py](upload_logs.py). It needs Python 3
 and skips Paparazzi pairs the server already has:
 
 ```sh

@@ -166,6 +166,35 @@ class MailTests(AppTests):
             self.sign_in(1)
             self.assertNotIn("admin", [k["kind"] for k in self.client.get("/api/account/email").json["kinds"]])
 
+    def test_new_administrator_security_notice(self):
+        """Always sent at once (no mail choice or daily summary turns it off); not for other changes."""
+        self.con.execute("INSERT INTO users(id,username,display_name,email,is_admin,created_at)"
+                         " VALUES (6,'second','Second','second@example.org',1,'now')")
+        self.con.execute("INSERT INTO mail_prefs(user_id, kind, mode) VALUES (6,'admin','off'), (1,'admin','daily')")
+        self.con.commit()
+        self.sign_in(1)
+        self.assertEqual(self.client.put("/api/admin/users/2", json={"default_project_id": 1}).status_code, 200)
+        self.assertEqual(self.client.put("/api/admin/users/3/admin", json={"is_admin": False}).status_code, 200)
+        self.assertEqual(self.send(), [])
+        self.assertEqual(self.client.put("/api/admin/users/2/admin", json={"is_admin": True}).status_code, 200)
+        sent = self.send()
+        self.assertEqual(sorted(m["To"] for m in sent), ["Admin <admin@example.org>", "Second <second@example.org>"])
+        body = sent[0].get_body(("plain",)).get_content()
+        self.assertEqual(sent[0]["Subject"], "Security notice: Pilot is now an administrator")
+        for text in ("Pilot (username pic, email pic@example.org)", "By: Admin (admin)", "https://logs.example.org/people/2"):
+            self.assertIn(text, body)
+        self.assertEqual(self.client.put("/api/admin/users/2/admin", json={"is_admin": True}).status_code, 200)
+        self.assertEqual(self.send(), [])  # already an administrator
+        with patch.dict(os.environ, {"LOGDB_MAIL_ADMIN_TO": "team@example.org"}):
+            r = self.client.post("/api/admin/users", json={"username": "boss", "email": "boss@example.org",
+                                                           "is_admin": True})
+            self.assertEqual(r.status_code, 200)
+            msg, = self.send()
+            self.assertEqual((msg["To"], msg["Subject"]), ("team@example.org", "Security notice: boss is now an administrator"))
+            self.assertNotIn("/setup/", msg.get_body(("plain",)).get_content())
+            self.client.post("/api/admin/users", json={"username": "plain", "email": "plain@example.org"})
+            self.assertEqual(self.send(), [])
+
     def test_admin_mail_log(self):
         mail.notify(self.con, 2, "bookings", "Booked: arena", "You booked the arena.")
         mail.notify(self.con, 3, "bookings", "Booked: bench", "You booked the bench.")
