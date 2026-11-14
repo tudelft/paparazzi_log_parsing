@@ -12,9 +12,10 @@ A document can have a validity (valid_from / valid_until, both optional): outsid
 marked, so for example last year's insurance certificate never shows. Replacing the file can set new dates at once.
 Every signed-in person also sees their own current approved qualifications, with links to the evidence file when
 there is one, and a link to My account to add or renew them.
-Any API key reads (list, view, download). Managing documents, groups and the text (every /api/admin/ route here,
-including the ZIP import in document_import.py: manifest.csv and the files) needs a browser session, so a leaked
-administrator's key cannot change or delete documents (issue 235).
+Any API key reads (list, view, download). Managing documents, groups and the text (every /api/admin/ route here)
+needs a browser session or an administrator's key with the documents:upload (add, replace file) or documents:manage
+scope (scopes.py, issue 235); old full keys without scopes cannot, so a leaked one cannot change or delete documents.
+The ZIP import (document_import.py: manifest.csv and the files) needs a browser session, for every key.
 """
 import datetime
 import os
@@ -164,12 +165,16 @@ def register(app, connection, root, pages_dir):
         if not enabled():
             abort(404)
 
-    def admin():
+    def admin(session=False):
+        """session=True: a browser session only, never an API key (the ZIP import)."""
         signed_in()
         if not g.user["is_admin"]:
             raise DocumentError("Administrator access required.", 403)
-        if g.via_key:
-            raise DocumentError("Managing documents needs a signed-in browser; API keys can only read them.", 403)
+        if g.via_key and session:
+            raise DocumentError("Importing documents needs a signed-in browser.", 403)
+        if g.via_key and g.key_scopes is None:  # scoped keys were checked against their scopes in require_login
+            raise DocumentError("Managing documents needs a signed-in browser or an API key with a documents "
+                                "scope.", 403)
 
     def document_row(cid, doc_id):
         row = cid.execute(DOCUMENT_SQL + " WHERE d.id=?", (doc_id,)).fetchone()
@@ -432,14 +437,14 @@ def register(app, connection, root, pages_dir):
 
     @app.get("/api/admin/documents/import/template")
     def document_import_template():
-        admin()
+        admin(session=True)
         return Response(document_import.TEMPLATE, mimetype="text/csv", headers={
             "Content-Disposition": 'attachment; filename="manifest.csv"', "Cache-Control": "private, no-store"})
 
     @app.post("/api/admin/documents/import")
     def document_import_preview():
         """Multipart form: file, a ZIP with manifest.csv and the files. Returns the checked rows and a token."""
-        admin()
+        admin(session=True)
         limit = qualification_import.MAX_UPLOAD_BYTES
         request.max_content_length = limit + 2**20
         upload = request.files.get("file")
@@ -452,7 +457,7 @@ def register(app, connection, root, pages_dir):
 
     @app.post("/api/admin/documents/import/commit")
     def document_import_commit():
-        admin()
+        admin(session=True)
         token = (request.get_json(silent=True) or {}).get("token")
         if not isinstance(token, str):
             raise DocumentError("Upload the ZIP again to preview it.")

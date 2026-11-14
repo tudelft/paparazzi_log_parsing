@@ -48,8 +48,9 @@ class CliLoginTests(AppTests):
             session.clear()
         me = self.client.get("/api/me", headers={"Authorization": "Bearer " + key})
         self.assertEqual(me.json["user"]["id"], 2)
-        row = self.con.execute("SELECT name, read_only, expires_at FROM api_keys WHERE user_id=2").fetchone()
+        row = self.con.execute("SELECT name, read_only, expires_at, scopes FROM api_keys WHERE user_id=2").fetchone()
         self.assertEqual((row["name"], row["read_only"]), ("Login: mavlab-logbook-client (Python) on laptop", 0))
+        self.assertEqual(row["scopes"], "read logs:upload logs:edit")  # issue 235: what the clients need
         self.assertEqual(row["expires_at"], token.json["expires_at"])
         # the server enforces the expiry, and the account page no longer lists the key
         self.con.execute("UPDATE api_keys SET expires_at='2000-01-01T00:00:00Z'")
@@ -76,7 +77,7 @@ class CliLoginTests(AppTests):
 
     def test_revoke_all_keeps_manual_keys_unless_asked(self):
         self.sign_in(2)
-        manual = self.client.post("/api/keys", json={"name": "laptop"}).json["key"]
+        manual = self.client.post("/api/keys", json={"name": "laptop", "scopes": ["read", "logs:upload"]}).json["key"]
         read_only = self.client.post("/api/keys", json={"name": "ci", "read_only": True}).json["key"]
         self.con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at, expires_at)"
                          " VALUES (2, 'Login: x', 'h', 'logdb_', '2026-01-01T00:00:00Z', '2099-01-01T00:00:00Z')")

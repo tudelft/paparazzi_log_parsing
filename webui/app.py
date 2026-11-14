@@ -61,6 +61,7 @@ import qualifications
 import training
 import bookings
 import documents
+import scopes
 import mail
 import weather
 import mav_parse
@@ -927,7 +928,8 @@ def user_for_key(key):
         return None
     con = conn()
     h = hashlib.sha256(key.encode()).hexdigest()
-    row = con.execute("SELECT k.id AS key_id, k.last_used_at AS key_used, k.read_only AS key_read_only, u.*"
+    row = con.execute("SELECT k.id AS key_id, k.last_used_at AS key_used, k.read_only AS key_read_only,"
+                      " k.scopes AS key_scopes, u.*"
                       " FROM api_keys k JOIN users u ON u.id = k.user_id"
                       " WHERE k.key_hash=? AND u.is_active=1 AND u.is_external=0"
                       " AND (k.expires_at IS NULL OR k.expires_at > ?)", (h, now())).fetchone()
@@ -949,24 +951,31 @@ def session_required():
         abort(403)
 
 
-# POST routes that only read: a read-only API key may use them (MATLAB export requests).
-KEY_READ_POSTS = {"request_matlab_export", "request_flight_matlab_export", "request_flights_matlab_export"}
+# POST routes that only read: a key with the read scope (or an old read-only key) may use them (MATLAB export).
+KEY_READ_POSTS = scopes.READ_POSTS
 
 
 @app.before_request
 def require_login():
     if request.endpoint in PUBLIC_ENDPOINTS:
         return None
-    g.via_key = False
+    g.via_key, g.key_scopes = False, None
     auth = request.headers.get("Authorization", "")
     if auth[:7].lower() == "bearer ":
         # API keys only work on the API, never on pages
         user = user_for_key(auth[7:].strip()) if request.path.startswith("/api/") else None
         if user is None:
             return jsonify(error="invalid API key"), 401
-        if user["key_read_only"] and request.method not in ("GET", "HEAD") and request.endpoint not in KEY_READ_POSTS:
-            return jsonify(error="this API key is read-only"), 403
-        g.user, g.via_key = user, True
+        stored = user["key_scopes"] if "key_scopes" in user.keys() else None
+        allowed = scopes.of_key(stored, user["key_read_only"])  # None: an old full key
+        if allowed is not None and request.url_rule is not None and not scopes.allows(
+                allowed, request.method, request.endpoint):
+            if allowed == ["read"] and stored is None:
+                return jsonify(error="this API key is read-only"), 403
+            needed = scopes.scope_for(request.endpoint)
+            return jsonify(error=f"this API key does not have the {needed} scope" if needed else
+                           "API keys with scopes cannot do this; use a signed-in browser"), 403
+        g.user, g.via_key, g.key_scopes = user, True, allowed
         return None
     uid = session.get("uid")
     user = conn().execute("SELECT * FROM users WHERE id=? AND is_active=1 AND is_external=0", (uid,)).fetchone() if uid else None
@@ -1180,9 +1189,30 @@ def list_keys():
     con = conn()
     drop_expired_keys(con, g.user["id"])
     con.commit()
-    rows = con.execute("SELECT id, name, prefix, created_at, last_used_at, read_only, expires_at FROM api_keys"
+    rows = con.execute("SELECT id, name, prefix, created_at, last_used_at, read_only, expires_at, scopes FROM api_keys"
                        " WHERE user_id=? ORDER BY id DESC", (g.user["id"],))
-    return jsonify([dict(r, read_only=bool(r["read_only"])) for r in rows])
+    return jsonify([key_json(r) for r in rows])
+
+
+def key_json(row):
+    """A key for the lists: scopes is a list, or null for an old full key (shown as full (old))."""
+    return dict(row, read_only=bool(row["read_only"]), scopes=scopes.of_key(row["scopes"], row["read_only"]))
+
+
+def set_key_scopes(con, key_id, user_id, body, is_admin):
+    """Narrow a key to the scopes in body; a key never gets a scope it did not have."""
+    row = con.execute("SELECT * FROM api_keys WHERE id=? AND user_id=?", (key_id, user_id)).fetchone()
+    if row is None:
+        return jsonify(error="no such key"), 404
+    try:
+        new = scopes.parse(body.get("scopes"), is_admin)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    if not scopes.narrower(new, scopes.of_key(row["scopes"], row["read_only"]), is_admin):
+        return jsonify(error="a key can only be narrowed; create a new key for more scopes"), 400
+    con.execute("UPDATE api_keys SET scopes=?, read_only=? WHERE id=?", (" ".join(new), int(new == ["read"]), key_id))
+    con.commit()
+    return jsonify(ok=True, scopes=new)
 
 
 @app.post("/api/keys")
@@ -1195,16 +1225,33 @@ def create_key():
     read_only = body.get("read_only", False)
     if type(read_only) is not bool:
         return jsonify(error="read_only must be true or false"), 400
+    is_admin = bool(g.user["is_admin"])
+    if "scopes" in body:
+        try:
+            chosen = scopes.parse(body["scopes"], is_admin)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+    else:  # without scopes only read (read_only is accepted for older scripts; it makes no difference now)
+        chosen = ["read"]
+    read_only = chosen == ["read"]
     con = conn()
     drop_expired_keys(con, g.user["id"])
     if con.execute("SELECT COUNT(*) FROM api_keys WHERE user_id=?", (g.user["id"],)).fetchone()[0] >= MAX_KEYS:
         con.commit()
         return jsonify(error=f"at most {MAX_KEYS} keys per user"), 400
     key = API_KEY_PREFIX + secrets.token_urlsafe(32)
-    cur = con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at, read_only) VALUES (?,?,?,?,?,?)",
-                      (g.user["id"], name, hashlib.sha256(key.encode()).hexdigest(), key[:10], now(), int(read_only)))
+    cur = con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at, read_only, scopes)"
+                      " VALUES (?,?,?,?,?,?,?)", (g.user["id"], name, hashlib.sha256(key.encode()).hexdigest(),
+                                                  key[:10], now(), int(read_only), " ".join(chosen)))
     con.commit()
-    return jsonify(id=cur.lastrowid, name=name, key=key, read_only=read_only)
+    return jsonify(id=cur.lastrowid, name=name, key=key, read_only=read_only, scopes=chosen)
+
+
+@app.put("/api/keys/<int:key_id>")
+def narrow_key(key_id):
+    """Narrow one of your keys: {"scopes": [...]}, a subset of what it has (an old full key: scopes.old_full)."""
+    session_required()
+    return set_key_scopes(conn(), key_id, g.user["id"], request.get_json(silent=True) or {}, bool(g.user["is_admin"]))
 
 
 @app.post("/api/keys/revoke-all")
@@ -1324,9 +1371,9 @@ def cli_login_token():
         return cli_error("access_denied", f"at most {MAX_KEYS} API keys per user; revoke one on the account page")
     key = API_KEY_PREFIX + secrets.token_urlsafe(32)
     expires = iso_in(CLI_KEY_DAYS * 86400)
-    con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at, read_only, expires_at)"
-                " VALUES (?,?,?,?,?,0,?)", (user["id"], name, hashlib.sha256(key.encode()).hexdigest(), key[:10],
-                                            now(), expires))
+    con.execute("INSERT INTO api_keys (user_id, name, key_hash, prefix, created_at, read_only, expires_at, scopes)"
+                " VALUES (?,?,?,?,?,0,?,?)", (user["id"], name, hashlib.sha256(key.encode()).hexdigest(), key[:10],
+                                              now(), expires, " ".join(scopes.LOGIN_SCOPES)))
     con.commit()
     return jsonify(access_token=key, token_type="Bearer", expires_in=CLI_KEY_DAYS * 86400, expires_at=expires,
                    user=user_public(user))
@@ -1623,6 +1670,8 @@ def cli(argv):
                         (a.username, a.name, a.email, ask_password(), int(a.admin), now()))
         except sqlite3.IntegrityError:
             sys.exit(f"User '{a.username}' already exists")
+        if a.admin:
+            notify_new_admin(con, con.execute("SELECT id FROM users WHERE username=?", (a.username,)).fetchone()[0], None)
         print(f"Created {'admin ' if a.admin else ''}user {a.username}")
     elif a.cmd == "set-password":
         if not con.execute("SELECT 1 FROM users WHERE username=?", (a.username,)).fetchone():
@@ -3942,16 +3991,22 @@ def accept_log_date_suggestion(log_id):
     return jsonify(ok=True, date_override=found[log_id]["date"], accepted=len(chosen))
 
 
-@app.route("/api/admin/date-suggestions", methods=["GET", "POST"])
+@app.get("/api/admin/date-suggestions")
 def admin_date_suggestions():
-    """List (GET) or accept (POST; all, or only {"log_ids": [...]}) date suggestions for logs without a usable date."""
+    """List the date suggestions for logs without a usable date."""
     admin_required()
     con = conn()
-    if request.method == "GET":
-        found = date_suggestions(con)
-        names = {r["id"]: r["name"] for r in con.execute(
-            f"SELECT id, name FROM logs WHERE id IN ({','.join('?' * len(found))})", list(found))} if found else {}
-        return jsonify(suggestions=[dict(s, log_id=i, log_name=names.get(i)) for i, s in sorted(found.items())])
+    found = date_suggestions(con)
+    names = {r["id"]: r["name"] for r in con.execute(
+        f"SELECT id, name FROM logs WHERE id IN ({','.join('?' * len(found))})", list(found))} if found else {}
+    return jsonify(suggestions=[dict(s, log_id=i, log_name=names.get(i)) for i, s in sorted(found.items())])
+
+
+@app.post("/api/admin/date-suggestions")
+def admin_accept_date_suggestions():
+    """Accept the date suggestions: all, or only {"log_ids": [...]}."""
+    admin_required()
+    con = conn()
     wanted = (request.get_json(silent=True) or {}).get("log_ids")
     if wanted is not None and (not isinstance(wanted, list) or not all(isinstance(i, int) for i in wanted)):
         return jsonify(error="log_ids must be a list of log ids"), 400
@@ -4497,6 +4552,7 @@ def lookup_setup(token):
 @app.post("/api/admin/users")
 def admin_add_user():
     admin_required()
+    session_required()  # returns a setup link (a sign-in) and can create an administrator: never by API key
     body = request.get_json(silent=True) or {}
     username = (body.get("username") or "").strip()
     display_name = (body.get("display_name") or "").strip() or None
@@ -4525,6 +4581,8 @@ def admin_add_user():
             " VALUES (?,?,?,?,?,?,?)",
             (username, display_name, email or None, None, int(bool(body.get("is_admin"))), now(), default_project_id))
         token, expires_at = issue_setup_token(con, cur.lastrowid)
+        if body.get("is_admin"):
+            notify_new_admin(con, cur.lastrowid, g.user)
         mailed = mail_setup_link(con, cur.lastrowid, setup_url(token), expires_at, True) if body.get("send_email") else None
         con.commit()
     except sqlite3.IntegrityError:
@@ -4536,6 +4594,7 @@ def admin_add_user():
 @app.delete("/api/admin/users/<int:user_id>/password")
 def admin_remove_password(user_id):
     admin_required()
+    session_required()
     con = conn()
     with db.write_lock, con:
         con.execute("BEGIN IMMEDIATE")
@@ -4558,6 +4617,7 @@ def admin_remove_password(user_id):
 @app.post("/api/admin/users/<int:user_id>/setup-link")
 def admin_new_setup_link(user_id):
     admin_required()
+    session_required()  # the link resets the account's password: never by API key
     con = conn()
     row = con.execute("SELECT id, is_active, is_external, provider FROM users WHERE id=?", (user_id,)).fetchone()
     if row is None or not row["is_active"]:
@@ -4649,6 +4709,7 @@ def admin_rename_user(user_id):
 @app.put("/api/admin/users/<int:user_id>")
 def admin_update_user(user_id):
     admin_required()
+    session_required()  # changes the email address that setup links and SSO matching use
     body = request.get_json(silent=True) or {}
     con = conn()
     user = con.execute("SELECT email FROM users WHERE id=?", (user_id,)).fetchone()
@@ -4958,6 +5019,17 @@ def admin_people():
                    projects=projects, operators=operators.catalog(con))
 
 
+def notify_new_admin(con, user_id, actor):
+    """Security notice when an account becomes an administrator (mail.notify_security; cannot be turned off)."""
+    u = con.execute("SELECT username, display_name, email FROM users WHERE id=?", (user_id,)).fetchone()
+    who = (actor["display_name"] or actor["username"]) + f" ({actor['username']})" if actor else "the command line on the server"
+    name = u["display_name"] or u["username"]
+    mail.notify_security(con, f"Security notice: {name} is now an administrator",
+                         f"{name} (username {u['username']}, email {u['email'] or '-'}) became an administrator of the"
+                         f" flight logbook.\nBy: {who}\nAt: {now()}\n\nIf this was not intended, remove the rights"
+                         " on the People page and check the account's API keys.", f"/people/{user_id}", skip=user_id)
+
+
 @app.put("/api/admin/users/<int:user_id>/admin")
 def admin_set_admin(user_id):
     admin_required()
@@ -4981,6 +5053,8 @@ def admin_set_admin(user_id):
                 (user_id,)).fetchone():
             return jsonify(error="the last active administrator cannot be removed"), 400
         con.execute("UPDATE users SET is_admin=? WHERE id=?", (int(enabled), user_id))
+        if enabled and not user["is_admin"]:
+            notify_new_admin(con, user_id, g.user)
     return jsonify(ok=True)
 
 
@@ -4991,9 +5065,21 @@ def admin_user_keys(user_id):
     con = conn()
     if not con.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone():
         return jsonify(error="no such user"), 404
-    rows = con.execute("SELECT id,name,prefix,created_at,last_used_at,read_only FROM api_keys WHERE user_id=?"
-                       " ORDER BY id DESC", (user_id,))
-    return jsonify([dict(row, read_only=bool(row["read_only"])) for row in rows])
+    rows = con.execute("SELECT id,name,prefix,created_at,last_used_at,read_only,expires_at,scopes FROM api_keys"
+                       " WHERE user_id=? ORDER BY id DESC", (user_id,))
+    return jsonify([key_json(row) for row in rows])
+
+
+@app.put("/api/admin/users/<int:user_id>/keys/<int:key_id>")
+def admin_narrow_user_key(user_id, key_id):
+    """An administrator narrows someone's key, e.g. an old full key."""
+    admin_required()
+    session_required()
+    con = conn()
+    target = con.execute("SELECT is_admin FROM users WHERE id=?", (user_id,)).fetchone()
+    if target is None:
+        return jsonify(error="no such user"), 404
+    return set_key_scopes(con, key_id, user_id, request.get_json(silent=True) or {}, bool(target["is_admin"]))
 
 
 @app.delete("/api/admin/users/<int:user_id>/keys/<int:key_id>")
@@ -5884,7 +5970,7 @@ def historical_record(record_id):
     try:
         row = historical.visible(con, g.user, record_id)
         editable = historical.can_edit(con, g.user, row["project_id"])
-        if request.method == "GET":
+        if request.method in ("GET", "HEAD"):
             record = dict(row)
             record["project_name"] = con.execute("SELECT name FROM projects WHERE id=?", (row["project_id"],)).fetchone()["name"]
             return jsonify(record=record, can_edit=editable)
@@ -6000,7 +6086,7 @@ def admin_mail_log():
         "SELECT m.id, m.kind, m.subject, m.created_at, m.sent_at, m.attempts, m.error, m.digest, m.to_addr,"
         " COALESCE(u.display_name, u.username) AS name, u.email FROM mail_outbox m LEFT JOIN users u ON u.id=m.user_id"
         f" WHERE {where} ORDER BY m.id DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
-    return jsonify(enabled=mail.enabled(), total=total, offset=offset, limit=limit, kinds={**{k: v[0] for k, v in mail.KINDS.items()}, "access": "Training access request"},
+    return jsonify(enabled=mail.enabled(), total=total, offset=offset, limit=limit, kinds={**{k: v[0] for k, v in mail.KINDS.items()}, "access": "Training access request", "security": mail.SECURITY_LABEL},
                    mails=[{"id": r["id"], "kind": r["kind"], "subject": r["subject"], "created_at": r["created_at"],
                            "sent_at": r["sent_at"], "error": r["error"], "digest": bool(r["digest"]),
                            "to": r["to_addr"] or (f"{r['name']} <{r['email']}>" if r["email"] else r["name"]),
