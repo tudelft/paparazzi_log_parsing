@@ -816,7 +816,7 @@ Addresses must be valid and unique (case-insensitive). Without an email, automat
 linking by email is unavailable; password setup/reset links can still be shared privately.
 
 **Sign in with TU Delft** uses SAML 2.0 against `https://login.tudelft.nl/sso/saml2/idp/metadata.php`. Register
-`<PUBLIC_URL>/saml/metadata` with TU Delft ICT (`middleware-ictfm@tudelft.nl`) once; the service's signing keys are
+`<PUBLIC_URL>/saml/metadata` with TU Delft ICT (the contact listed in the IdP metadata) once; the service's signing keys are
 generated in `<WEB_DATA>/saml/` and are part of the backup (losing them means registering again). A first SSO login
 creates a non-admin account, linked to an existing local account with the same email. Give people access to projects
 on the Projects page.
@@ -1043,7 +1043,7 @@ it in the People approval queue. Qualification views link that note to `/trainin
 addresses (`access_mail_to`, e.g. a secretary who arranges room access) and a mail text (`access_mail_text`, in which
 `{name}`, `{email}`, `{training}` and `{date}` are filled in). The mail is queued when the pass is granted: at once,
 or when an admin approves a queued pass (`needs_approval`). With an optional Yes/No question (`access_question`, e.g.
-"Do you already have access to the CyberZoo?") the person answers it on a last step after the questions (together with who delivered the briefing, when asked)
+"Do you already have access to the flight lab?") the person answers it on a last step after the questions (together with who delivered the briefing, when asked)
 (`access_answer` in the submit body, required then; stored in `training_progress.access_answer`) and only **No**
 sends the mail. Its Reply-To is the person; **Copy to the person** (`access_mail_cc`) adds them as Cc. The subject is
 `Access request: <name> passed <training>`. JSON export/import does not carry these settings.

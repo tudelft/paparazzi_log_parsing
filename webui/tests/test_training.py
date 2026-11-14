@@ -548,11 +548,11 @@ class TrainingTests(AppTests):
         return self.con.execute("SELECT * FROM mail_outbox WHERE kind='access'").fetchall()
 
     def test_access_mail_only_after_no(self):
-        tid, answers = self.access_setup(access_question="Do you already have access to the CyberZoo?",
+        tid, answers = self.access_setup(access_question="Do you already have access to the flight lab?",
                                          access_mail_cc=True)
         self.sign_in(2)
         self.assertEqual(self.client.get(f"/api/trainings/{tid}").json["access_question"],
-                         "Do you already have access to the CyberZoo?")
+                         "Do you already have access to the flight lab?")
         self.assertEqual(self.client.post(f"/api/trainings/{tid}/submit", json=answers).status_code, 400)
         r = self.client.post(f"/api/trainings/{tid}/submit", json={**answers, "access_answer": "yes"})
         self.assertTrue(r.json["passed"], r.json)

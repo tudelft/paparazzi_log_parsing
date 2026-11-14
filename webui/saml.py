@@ -3,8 +3,8 @@
 IdP metadata URL (entity ID is the same URL):
   https://login.tudelft.nl/sso/saml2/idp/metadata.php
 
-Register this app as a service provider with TU Delft ICT (the contact on that
-metadata document is middleware-ictfm@tudelft.nl) using GET /saml/metadata.
+Register this app as a service provider with TU Delft ICT (the contact is listed in
+that metadata document) using GET /saml/metadata.
 """
 import os
 import re

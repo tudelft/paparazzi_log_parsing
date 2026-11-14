@@ -37,7 +37,7 @@ def _tiny_ulog(path):
         tus = t0 + i * 1_000_000
         samples.append((1, struct.pack("<QBBBBB", tus, 2 if armed else 1, 3, 1, 0, 1)))
         samples.append((2, struct.pack("<Q?", tus, bool(armed))))
-        lat, lon = 51.99 + i * 0.0002, 4.37 + i * 0.0002
+        lat, lon = 45.99 + i * 0.0002, 6.37 + i * 0.0002
         samples.append((3, struct.pack("<QddfQfB", tus, lat, lon, 10.0 + i, utc0 + i * 1_000_000, 5.0, 3)))
         samples.append((4, struct.pack("<Qffff", tus, *q)))
         samples.append((5, struct.pack("<Qf", tus, 16.2)))
@@ -59,13 +59,13 @@ def _tiny_ap_log(path):
         "PARM, 0, SYSID_THISMAV, 7\n"
         "MSG, 1000, ArduCopter V4.5.0\n"
         "MSG, 2000, PreArm: Compass not calibrated\n"
-        "GPS, 3000000, 3, 123456, 2410, 51.99, 4.37, 12.0\n"
+        "GPS, 3000000, 3, 123456, 2410, 45.99, 6.37, 12.0\n"
         "ATT, 3100000, 1.0, -2.0, 90.0\n"
         "ARM, 4000000, 1\n"
-        "GPS, 5000000, 3, 125000, 2410, 51.9903, 4.3703, 25.0\n"
+        "GPS, 5000000, 3, 125000, 2410, 45.9903, 6.3703, 25.0\n"
         "ATT, 5100000, 8.0, 3.0, 95.0\n"
         "ARM, 9000000, 0\n"
-        "GPS, 9100000, 3, 129000, 2410, 51.9904, 4.3704, 12.5\n",
+        "GPS, 9100000, 3, 129000, 2410, 45.9904, 6.3704, 12.5\n",
         encoding="ascii",
     )
 
@@ -320,16 +320,16 @@ class BlackboxParseTests(unittest.TestCase):
             "motorOutput": "158,2048",
         }
         rows = [
-            {"time": "1000", "flightModeFlags": "1", "GPS_coord[0]": "51.99",
-             "GPS_coord[1]": "4.37", "GPS_numSat": "10", "GPS_altitude": "12",
+            {"time": "1000", "flightModeFlags": "1", "GPS_coord[0]": "45.99",
+             "GPS_coord[1]": "6.37", "GPS_numSat": "10", "GPS_altitude": "12",
              "GPS_speed": "250", "vbatLatest": "2511", "motor[0]": "1000",
              "quat[0]": "8127", "quat[1]": "0", "quat[2]": "0", "quat[3]": "0"},
-            {"time": "2001000", "flightModeFlags": "1", "GPS_coord[0]": "51.9902",
-             "GPS_coord[1]": "4.3702", "GPS_numSat": "10", "GPS_altitude": "20",
+            {"time": "2001000", "flightModeFlags": "1", "GPS_coord[0]": "45.9902",
+             "GPS_coord[1]": "6.3702", "GPS_numSat": "10", "GPS_altitude": "20",
              "GPS_speed": "400", "vbatLatest": "2500", "motor[0]": "1200",
              "quat[0]": "8127", "quat[1]": "0", "quat[2]": "0", "quat[3]": "0"},
-            {"time": "3001000", "flightModeFlags": "0", "GPS_coord[0]": "51.9902",
-             "GPS_coord[1]": "4.3702", "GPS_numSat": "10", "GPS_altitude": "12",
+            {"time": "3001000", "flightModeFlags": "0", "GPS_coord[0]": "45.9902",
+             "GPS_coord[1]": "6.3702", "GPS_numSat": "10", "GPS_altitude": "12",
              "GPS_speed": "0", "vbatLatest": "2490", "motor[0]": "158",
              "quat[0]": "8127", "quat[1]": "0", "quat[2]": "0", "quat[3]": "0"},
         ]
@@ -430,9 +430,9 @@ class BlackboxParseTests(unittest.TestCase):
         }
         rows = [
             {"time": "0", "flightModeFlags": "0", "stateFlags": "1",
-             "GPS_coord[0]": "51.99", "GPS_coord[1]": "4.37", "GPS_numSat": "10"},
+             "GPS_coord[0]": "45.99", "GPS_coord[1]": "6.37", "GPS_numSat": "10"},
             {"time": "2000000", "flightModeFlags": "0", "stateFlags": "0",
-             "GPS_coord[0]": "51.9902", "GPS_coord[1]": "4.3702", "GPS_numSat": "10"},
+             "GPS_coord[0]": "45.9902", "GPS_coord[1]": "6.3702", "GPS_numSat": "10"},
         ]
         doc = mav_parse._blackbox_document(Path("arm.bfl"), "x", 100, headers, rows, 1)
         self.assertGreaterEqual(len(doc["aircraft"][0]["flights"]), 1)
@@ -568,9 +568,16 @@ class UploadGroupingTests(AppTests):
 
 
 class FleetLinkTests(AppTests):
+    def fleet(self):
+        """fleet_payload as an administrator sees it (it reads the signed-in user)."""
+        from flask import g
+        with self.app.test_request_context():
+            g.user = self.con.execute("SELECT * FROM users WHERE is_admin=1 ORDER BY id").fetchone()
+            return self.ns["fleet_payload"](self.con, include_unlinked=True)
+
     def test_unique_folder_links_and_later_logs_use_board_id(self):
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Lorenz Ranger 1600','TUD00490','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Alpha Ranger 1600','TUD00904','now')")
         self.con.execute(
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) VALUES (1,'Ranger 1600/a.ulg','aa','a.gz','done','now')")
         self.con.execute("INSERT INTO aircraft(log_id, ac_id, name) VALUES (1, 1, 'standard_plane 003e003d')")
@@ -588,16 +595,16 @@ class FleetLinkTests(AppTests):
 
     def test_generic_quad_folder_does_not_pick_a_fleet_quad(self):
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Lorenz Quad','TUD00489','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Alpha Quad','TUD00903','now')")
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'Till Quad','TUD00487','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'Bravo Quad','TUD00901','now')")
         self.con.execute(
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) VALUES (1,'Quadrotor/a.ulg','aa','a.gz','done','now')")
         self.con.execute("INSERT INTO aircraft(log_id, ac_id, name) VALUES (1, 1, 'quad_x 00500040')")
         self.con.commit()
         self.ns["link_log_aircraft"](self.con, 1)
         self.assertIsNone(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=1").fetchone()[0])
-        payload = self.ns["fleet_payload"](self.con, include_unlinked=True)
+        payload = self.fleet()
         row = next(e for e in payload["unlinked"] if e["name"] == "quad_x 00500040")
         self.assertEqual(row["count"], 1)
         self.assertEqual(row["folders"], ["Quadrotor"])
@@ -607,7 +614,7 @@ class FleetLinkTests(AppTests):
 
     def test_unlinked_groups_same_board_id(self):
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Lorenz Quad','TUD00489','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Alpha Quad','TUD00903','now')")
         self.con.execute(
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) VALUES (1,'Quadrotor/a.ulg','aa','a.gz','done','now')")
         self.con.execute("INSERT INTO aircraft(log_id, ac_id, name) VALUES (1, 1, 'quad_x 00500040')")
@@ -615,7 +622,7 @@ class FleetLinkTests(AppTests):
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) VALUES (2,'Quadrotor/b.ulg','bb','b.gz','done','now')")
         self.con.execute("INSERT INTO aircraft(log_id, ac_id, name) VALUES (2, 1, 'airframe_1001 00500040')")
         self.con.commit()
-        payload = self.ns["fleet_payload"](self.con, include_unlinked=True)
+        payload = self.fleet()
         rows = [e for e in payload["unlinked"] if "00500040" in (e.get("board_ids") or [])]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["count"], 2)
@@ -624,7 +631,7 @@ class FleetLinkTests(AppTests):
     def test_linking_unlinked_board_id_covers_later_logs(self):
         self.sign_in(1)
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Lorenz Quad','TUD00489','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Alpha Quad','TUD00903','now')")
         self.con.execute(
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) VALUES (1,'Quadrotor/a.ulg','aa','a.gz','done','now')")
         self.con.execute("INSERT INTO aircraft(log_id, ac_id, name) VALUES (1, 1, 'quad_x 00500040')")
@@ -643,7 +650,7 @@ class FleetLinkTests(AppTests):
 
     def test_nested_unique_folder_links_and_skips_log_filename_alias(self):
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Modular Hex 1','TUD00500','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Modular Hex 1','TUD00905','now')")
         self.con.execute(
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) "
             "VALUES (1,'Modular Hex 1/2026-10-13/LOG00030.BFL','aa','a.gz','done','now')")
@@ -653,14 +660,14 @@ class FleetLinkTests(AppTests):
         self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=1").fetchone()[0], 10)
         aliases = {r[0] for r in self.con.execute("SELECT alias FROM drone_aliases WHERE drone_id=10")}
         self.assertNotIn("LOG00030", aliases)
-        payload = self.ns["fleet_payload"](self.con, include_unlinked=True)
+        payload = self.fleet()
         self.assertFalse(any(e["name"] == "LOG00030" for e in payload["unlinked"]))
 
     def test_nested_generic_folder_does_not_pick_a_fleet_quad(self):
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Lorenz Quad','TUD00489','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Alpha Quad','TUD00903','now')")
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'Till Quad','TUD00487','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'Bravo Quad','TUD00901','now')")
         self.con.execute(
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) "
             "VALUES (1,'Quadrotor/2026-10-13/a.ulg','aa','a.gz','done','now')")
@@ -668,18 +675,18 @@ class FleetLinkTests(AppTests):
         self.con.commit()
         self.ns["link_log_aircraft"](self.con, 1)
         self.assertIsNone(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=1").fetchone()[0])
-        payload = self.ns["fleet_payload"](self.con, include_unlinked=True)
+        payload = self.fleet()
         row = next(e for e in payload["unlinked"] if e["name"] == "quad_x 00500040")
         self.assertEqual(row["folders"], ["Quadrotor"])
         self.assertEqual(row["candidates"], [])
 
     def test_ambiguous_inner_folder_still_uses_unique_outer_folder(self):
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (9,'Quad 1','TUD00488','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (9,'Quad 1','TUD00902','now')")
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Quad 2','TUD00489','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Quad 2','TUD00903','now')")
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'Modular Hex 1','TUD00500','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'Modular Hex 1','TUD00905','now')")
         self.assertEqual(len(self.ns["matching_drones_for_folder"](self.con, "Quad")), 2)
         self.con.execute(
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) "
@@ -691,9 +698,9 @@ class FleetLinkTests(AppTests):
 
     def test_deepest_unique_folder_wins_over_outer_unique_folder(self):
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'DarkO 2','TUD00480','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'DarkO 2','TUD00906','now')")
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'Modular Hex 1','TUD00500','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'Modular Hex 1','TUD00905','now')")
         self.con.execute(
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) "
             "VALUES (1,'DarkO 2/Modular Hex 1/a.ulg','aa','a.gz','done','now')")
@@ -704,9 +711,9 @@ class FleetLinkTests(AppTests):
 
     def test_startup_relink_picks_up_nested_folder_uploads(self):
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Modular Hex 1','TUD00500','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Modular Hex 1','TUD00905','now')")
         self.con.execute(
-            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'DarkO 2','TUD00480','now')")
+            "INSERT INTO drones(id,name,unique_id,created_at) VALUES (11,'DarkO 2','TUD00906','now')")
         self.con.execute(
             "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) VALUES "
             "(1,'Modular Hex 1/2026-10-13/LOG00030.BFL','aa','a.gz','done','now'),"
@@ -720,8 +727,8 @@ class FleetLinkTests(AppTests):
 
 
 class DistanceHelperTests(unittest.TestCase):
-    def test_haversine_nearby_delft(self):
-        m = mav_parse._haversine_m(51.99, 4.37, 51.9903, 4.3703)
+    def test_haversine_nearby(self):
+        m = mav_parse._haversine_m(45.99, 6.37, 45.9903, 6.3703)
         self.assertTrue(20 < m < 80)
         self.assertTrue(math.isfinite(m))
 
@@ -740,7 +747,7 @@ class FileNameAliasTests(AppTests):
         self.con.commit()
 
     def test_file_names_are_not_remembered_or_listed(self):
-        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'CINERAT T2','TUD00457','now')")
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'CINERAT T2','TUD00907','now')")
         self.add_log(1, "CINERAT T2/LOG00159_manualShakedown.BFL", "LOG00159_manualShakedown")
         self.add_log(2, "CINERAT T2/flight_a.bbl", "flight_a")
         self.add_log(3, "CINERAT T2/LOG00200.BFL", "CINERAT T2 frame")  # a real craft name
@@ -754,7 +761,7 @@ class FileNameAliasTests(AppTests):
         self.assertEqual(detail["logged_names"], ["CINERAT T2 frame"])
 
     def test_old_file_name_aliases_are_removed_at_start(self):
-        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'CINERAT T2','TUD00457','now')")
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'CINERAT T2','TUD00907','now')")
         self.add_log(1, "CINERAT T2/LOG00160_forgotDynAgn_crash_oopsie.BFL", "LOG00160_forgotDynAgn_crash_oopsie")
         self.con.execute("UPDATE aircraft SET drone_id=10")
         self.con.executemany("INSERT INTO drone_aliases(drone_id, alias) VALUES (10, ?)",
