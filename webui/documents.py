@@ -12,9 +12,9 @@ A document can have a validity (valid_from / valid_until, both optional): outsid
 marked, so for example last year's insurance certificate never shows. Replacing the file can set new dates at once.
 Every signed-in person also sees their own current approved qualifications, with links to the evidence file when
 there is one, and a link to My account to add or renew them.
-API keys work on every route: any key reads (list, view, download), an administrator's key that is not read-only
-also manages documents and groups (for example an upload of the renewed insurance certificate by a script).
-The ZIP import (document_import.py: manifest.csv and the files) needs a browser session.
+Any API key reads (list, view, download). Managing documents, groups and the text (every /api/admin/ route here,
+including the ZIP import in document_import.py: manifest.csv and the files) needs a browser session, so a leaked
+administrator's key cannot change or delete documents (issue 235).
 """
 import datetime
 import os
@@ -168,6 +168,8 @@ def register(app, connection, root, pages_dir):
         signed_in()
         if not g.user["is_admin"]:
             raise DocumentError("Administrator access required.", 403)
+        if g.via_key:
+            raise DocumentError("Managing documents needs a signed-in browser; API keys can only read them.", 403)
 
     def document_row(cid, doc_id):
         row = cid.execute(DOCUMENT_SQL + " WHERE d.id=?", (doc_id,)).fetchone()
@@ -428,21 +430,16 @@ def register(app, connection, root, pages_dir):
         (folder() / row["stored_path"]).unlink(missing_ok=True)
         return jsonify(ok=True)
 
-    def import_admin():
-        admin()
-        if g.via_key:
-            raise DocumentError("The import needs a browser session.", 403)
-
     @app.get("/api/admin/documents/import/template")
     def document_import_template():
-        import_admin()
+        admin()
         return Response(document_import.TEMPLATE, mimetype="text/csv", headers={
             "Content-Disposition": 'attachment; filename="manifest.csv"', "Cache-Control": "private, no-store"})
 
     @app.post("/api/admin/documents/import")
     def document_import_preview():
         """Multipart form: file, a ZIP with manifest.csv and the files. Returns the checked rows and a token."""
-        import_admin()
+        admin()
         limit = qualification_import.MAX_UPLOAD_BYTES
         request.max_content_length = limit + 2**20
         upload = request.files.get("file")
@@ -455,7 +452,7 @@ def register(app, connection, root, pages_dir):
 
     @app.post("/api/admin/documents/import/commit")
     def document_import_commit():
-        import_admin()
+        admin()
         token = (request.get_json(silent=True) or {}).get("token")
         if not isinstance(token, str):
             raise DocumentError("Upload the ZIP again to preview it.")

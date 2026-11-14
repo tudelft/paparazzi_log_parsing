@@ -1378,9 +1378,9 @@ API key; give a document build an admin account's **read-only** key.
 
 ### Documents
 
-Off unless `LOGDB_DOCUMENTS=1` (`documents.py`, `static/documents.html`); it needs no person profiles. Every route
-below also works with an API key (the page itself needs a browser session): any key reads, an admin's key that is not
-read-only also manages, for example a script that uploads the renewed insurance certificate.
+Off unless `LOGDB_DOCUMENTS=1` (`documents.py`, `static/documents.html`); it needs no person profiles. Any API key
+reads (`GET /api/documents`, view, download); the page and every `/api/admin/` route below need a browser session
+(an admin's key gets 403), so a leaked key cannot change or delete documents (issue 235).
 `GET /api/documents` returns `intro` (the text at the top, `document_settings`), `groups` (`document_groups`: name,
 description, sort order; one level, shown as page tabs with All, General for documents without a group and My
 qualifications; the tab is kept in the URL, `?tab=`; empty groups only in Edit mode), `documents` the person may see
@@ -1406,12 +1406,10 @@ attachments) and `/download`. Admins: `PUT /api/admin/documents/intro`, `POST|PU
 repeated, `sort_order`, `valid_from`, `valid_until`), `PUT /api/admin/documents/<id>` (the same fields without the
 file, as JSON; `role_ids` and `type_ids` lists), `POST /api/admin/documents/<id>/file` (multipart `file`, optional `valid_from` and
 `valid_until`: replaces the file, for example a renewed certificate, sets the dates that are sent and keeps the other
-fields) and `DELETE` (also removes the file). For example, with an admin's key in `$KEY`:
+fields) and `DELETE` (also removes the file). Reading with a key in `$KEY`:
 
 ```sh
 curl -H "Authorization: Bearer $KEY" https://<server>/api/documents                       # list (ids, dates)
-curl -H "Authorization: Bearer $KEY" -F file=@certificate.pdf -F valid_from=2027-01-01 \
-     -F valid_until=2027-12-31 https://<server>/api/admin/documents/<id>/file            # renew
 curl -H "Authorization: Bearer $KEY" -OJ https://<server>/api/documents/<id>/download    # download
 ```
 
