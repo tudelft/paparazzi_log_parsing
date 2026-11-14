@@ -1417,15 +1417,25 @@ curl -H "Authorization: Bearer $KEY" -OJ https://<server>/api/documents/<id>/dow
 
 **ZIP import** (`document_import.py`, Edit mode: **Import ZIP**; browser session only, API keys get 403). A ZIP holds
 `manifest.csv` (`GET /api/admin/documents/import/template`) and the files. Columns, in any order: `title` and `file`
-(required), `group`, `description`, `valid_from`, `valid_until`, `admin_only` (yes/no), `qualification` (a type name)
-and `roles` (profile role names separated by `;`). `POST /api/admin/documents/import` (multipart `file`, at most
-200 MiB) checks every row and returns it with an outcome: *add*; *replace* when the title and group (case-insensitive)
-match an existing document, whose file and settings are then replaced; *skip* when its file and settings are the same,
-so a ZIP can be imported again. Unknown groups are added on commit; an unknown qualification or role, a missing file, a
-bad date or flag, or the same title and group twice is an error and blocks the import. The checked preview is staged
-under `DOCUMENT_IMPORT_DIR` (default `<storage>/../tmp/doc-import`) for 30 minutes; `POST
-/api/admin/documents/import/commit` (`{"token"}`, same session) imports it all or nothing and removes the old files of
-replaced documents.
+(required), `group` (empty, or `General` when no group has that name: no group), `description`, `valid_from`,
+`valid_until`, `admin_only` (yes/no), `qualification` (qualification type names separated by `;`, stored in
+`document_qualification_types`) and `roles` (profile role names separated by `;`). A file path with a folder must match
+that folder; a bare file name may match one file in a subfolder. Two ZIP entries with the same path, a malformed CSV
+line, or more than 500 rows are refused.
+
+`POST /api/admin/documents/import` (multipart `file`, at most 200 MiB, else 413) checks every row and returns it with an
+outcome: *add*; *replace* when the title and group (case-insensitive) match an existing document, whose file and
+settings are then replaced; *skip* when its file and settings are the same, so a ZIP can be imported again. A column
+left out of the header keeps the existing document's value (a minimal `title,group,file` manifest replaces only files).
+For a replace the preview lists what changes (`changes`) and the limits it removes or widens (`removes`: administrators
+only, qualification, roles). Unknown groups are added on commit; an unknown qualification or role, a missing file, a bad
+date or flag, or the same title and group twice is an error and blocks the import.
+
+The checked preview is staged under `DOCUMENT_IMPORT_DIR` (default `<storage>/../tmp/doc-import`) for 30 minutes. `POST
+/api/admin/documents/import/commit` (`{"token"}`, same session) stores the files first, then checks every row again in
+one transaction and imports it all or nothing: when a row's outcome or document differs from the preview (edited,
+deleted, or its group renamed meanwhile) it returns 409 and imports nothing. The old files of replaced documents are
+removed afterwards.
 
 Read-only People chips show only approved, non-expired submissions and omit the approval label;
 management views retain all submission states.

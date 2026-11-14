@@ -89,6 +89,7 @@
   #importPreview th, #importPreview td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:left; }
   #importPreview .c-line { width:3em; } #importPreview .c-title { width:26%; } #importPreview .c-valid { width:11em; }
   #importPreview .c-limits { width:10%; } #importPreview .c-out { width:22%; }
+  #importPreview td.warn { color:var(--warn); }
   #roleNote { margin:4px 0 0 22px; font-size:12px; }
   #roleNote:empty { display:none; }
   #otherLimits { display:grid; gap:8px; margin-top:8px; }
@@ -169,10 +170,7 @@
 </dialog>
 <dialog class="entry-dialog" id="importDialog" aria-labelledby="importTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <div class="dialog-header"><h2 id="importTitle">Import documents</h2><button type="button" class="sec" onclick="$('importDialog').close()">Close</button></div>
-  <p class="mute">Upload a ZIP with <span class="mono">manifest.csv</span> (<a href="/api/admin/documents/import/template">template</a>) and the files.
-    Columns: title and file, optionally group, description, valid_from, valid_until, admin_only (yes/no), qualification
-    (a type name) and roles (names separated by ;). A row with the title and group of an existing document replaces its
-    file and settings; unchanged ones are skipped, so the same ZIP can be imported again. Unknown groups are added.</p>
+  <p class="mute">Upload a ZIP with <span class="mono">manifest.csv</span> (<a href="/api/admin/documents/import/template">template</a>) and the files; check the preview, then import. Columns and rules: Help on the page.</p>
   <p class="dialog-error" id="importError" role="alert"></p>
   <label class="field">ZIP<input type="file" id="importFile" accept=".zip,application/zip"></label>
   <div class="panel-row"><button type="button" class="sec" onclick="previewImport()">Preview</button>
@@ -453,11 +451,13 @@ async function previewImport() {
       ${d.rows.map(r => {
         const valid = [r.valid_from, r.valid_until].some(Boolean) ? `${r.valid_from || '…'} – ${r.valid_until || '…'}` : '';
         const limits = [r.admin_only === true ? 'Administrators' : '', r.qualification, r.roles].filter(Boolean).join(' · ');
-        const result = r.error || outcome[r.outcome] + (r.warning ? ` · ${r.warning}` : '');
+        const changes = r.outcome === 'replace' && r.changes.length ? ` (${r.changes.join(', ')})` : '';
+        const removes = r.removes && r.removes.length ? ` · removes limit: ${r.removes.join(', ')}` : '';
+        const result = r.error || outcome[r.outcome] + changes + removes + (r.warning ? ` · ${r.warning}` : '');
         return `<tr><td class="c-line">${r.line}</td><td title="${esc(r.description ? `${r.title}: ${r.description}` : r.title)}">${esc(r.title)}</td>
         <td title="${esc(r.group || 'General')}">${esc(r.group || 'General')}${r.new_group && !r.error ? ' <span class="chip">New</span>' : ''}</td>
-        ${cell(valid, 'mono')}${cell(limits)}${cell(r.file, 'mono')}
-        <td title="${esc(result)}"${r.error ? ' class="dialog-error"' : ''}>${esc(result)}</td></tr>`;
+        ${cell(valid, 'mono')}${cell(limits)}<td class="mono" title="${esc(r.path ? `${r.file} → ${r.path}` : r.file)}">${esc(r.file)}</td>
+        <td title="${esc(result)}"${r.error ? ' class="dialog-error"' : removes ? ' class="warn"' : ''}>${esc(result)}</td></tr>`;
       }).join('')}</tbody></table>`;
   } catch (error) { $('importError').textContent = error.message; $('importStatus').textContent = ''; }
 }

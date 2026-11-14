@@ -243,7 +243,9 @@ top and upload documents in Edit mode (**Add document**, **Add group**; **Edit**
 document can be only for administrators, for people with one of some current qualifications (for example A1/A3, A2 or STS) or for some profile roles, and can
 have validity dates: outside them only administrators see it, so an old certificate never shows. The tab
 **My qualifications** lists your own approved qualifications that are valid today, with their documents; add or renew
-them in **My account** (see below). Rules: [technical guide](TECHNICAL.md#documents).
+them in **My account** (see below). **Import ZIP** (Edit mode) adds or replaces many documents at once from a
+`manifest.csv` and the files: preview, then import; importing the same ZIP again skips unchanged documents. Rules:
+[technical guide](TECHNICAL.md#documents).
 
 ## Email
 

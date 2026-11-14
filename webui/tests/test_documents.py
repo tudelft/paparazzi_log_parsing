@@ -8,6 +8,8 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+import document_import
+
 from . import test_qualifications as tq
 from .test_historical import AppTests
 
@@ -352,7 +354,7 @@ class DocumentImportTests(AppTests):
         groups = {g["id"]: g["name"] for g in self.listing()["groups"]}
         self.assertEqual(groups[docs["Authorisation"]["group_id"]], "Operations")
         self.assertTrue(docs["Authorisation"]["admin_only"])
-        self.assertEqual((docs["A2 notes"]["type_id"], docs["A2 notes"]["group_id"]), (self.tid, None))
+        self.assertEqual((docs["A2 notes"]["type_ids"], docs["A2 notes"]["group_id"]), ([self.tid], None))
         self.assertEqual((docs["Insurance"]["valid_until"], docs["Insurance"]["description"]), ("2099-12-31", "Liability"))
         r = self.client.get(f"/api/documents/{docs['Authorisation']['id']}/download")
         self.assertEqual((r.data, r.headers["Content-Disposition"]), (PDF + b"%auth", 'attachment; filename="authorisation.pdf"'))
@@ -417,6 +419,108 @@ class DocumentImportTests(AppTests):
             r = self.preview(content)
             self.assertEqual(r.status_code, 400)
             self.assertIn(message, r.json["error"])
+
+    def test_qualification_list_and_general(self):
+        sts = self.create_type("STS", False)
+        manifest = ("title,group,qualification,file\n"
+                    "Either,General,A2; sts,a.pdf\n"
+                    "Unknown,,A2;ZZ,a.pdf\n")
+        r = self.preview(self.zip(manifest, {"a.pdf": PDF}))
+        self.assertEqual([(x["group"], x["new_group"], x["qualification"], bool(x["error"])) for x in r.json["rows"]],
+                         [("", None, "A2; STS", False), ("", None, "A2;ZZ", True)])  # an error row keeps the text as written
+        self.assertEqual(r.json["new_groups"], 0)  # "General" is the tab for documents without a group
+        r = self.preview(self.zip(manifest.split("Unknown")[0], {"a.pdf": PDF}))
+        self.assertEqual(self.commit(r.json["token"]).status_code, 201)
+        doc = self.listing()["documents"][0]
+        self.assertEqual((doc["group_id"], sorted(doc["type_ids"])), (None, sorted([self.tid, sts])))
+        self.assertEqual(self.listing()["groups"], [])
+        again = self.preview(self.zip("title,qualification,file\nEither,sts;A2,a.pdf\n", {"a.pdf": PDF}))
+        self.assertEqual(again.json["rows"][0]["outcome"], "skip")  # same types in another order
+
+    def test_absent_columns_keep_the_documents_values(self):
+        self.create_type("STS", False)
+        manifest = ("title,group,description,valid_until,admin_only,qualification,file\n"
+                    "Authorisation,Operations,Kept,2099-12-31,yes,A2;STS,auth.pdf\n")
+        self.assertEqual(self.commit(self.preview(self.zip(manifest, {"auth.pdf": PDF})).json["token"]).status_code, 201)
+        before = self.listing()["documents"][0]
+        minimal = "title,group,file\nAuthorisation,Operations,auth.pdf\n"
+        r = self.preview(self.zip(minimal, {"auth.pdf": PDF}))
+        self.assertEqual(r.json["rows"][0]["outcome"], "skip")  # nothing in the manifest differs
+        r = self.preview(self.zip(minimal, {"auth.pdf": PDF + b"%renewed"}))
+        row = r.json["rows"][0]
+        self.assertEqual((row["outcome"], row["changes"], row["removes"]), ("replace", ["file"], []))
+        self.assertEqual((row["admin_only"], row["qualification"], row["valid_until"]), (True, "A2; STS", "2099-12-31"))
+        self.assertEqual(self.commit(r.json["token"]).status_code, 201)
+        after = self.listing()["documents"][0]
+        for key in ("description", "valid_until", "admin_only", "type_ids", "role_ids", "roles_limited"):
+            self.assertEqual(after[key], before[key], key)
+        self.assertNotEqual(after["size_bytes"], before["size_bytes"])
+        # a column that is present and empty does clear the limit, and the preview says so
+        r = self.preview(self.zip("title,group,admin_only,qualification,file\nAuthorisation,Operations,no,,auth.pdf\n",
+                                  {"auth.pdf": PDF + b"%renewed"}))
+        row = r.json["rows"][0]
+        self.assertEqual((row["changes"], row["removes"]),
+                         (["administrators only", "qualification"], ["administrators only", "qualification"]))
+
+    def test_malformed_manifest_and_zip(self):
+        r = self.preview(self.zip('title,file\n"Unterminated,x.pdf\n', {"x.pdf": PDF}))
+        self.assertEqual(r.status_code, 400)
+        self.assertTrue(r.json["error"].startswith("manifest.csv line "), r.json)
+        raw = io.BytesIO()
+        with zipfile.ZipFile(raw, "w") as archive:
+            archive.writestr("manifest.csv", "title,file\nX,x.pdf\n")
+            archive.writestr("x.pdf", PDF)
+            with self.assertWarns(UserWarning):  # zipfile warns about the duplicate name
+                archive.writestr("x.pdf", PDF + b"%other")
+        r = self.preview(raw.getvalue())
+        self.assertEqual((r.status_code, r.json["error"]), (400, "The ZIP has more than one file named 'x.pdf'."))
+        raw = io.BytesIO()
+        with zipfile.ZipFile(raw, "w") as archive:
+            archive.writestr("manifest.csv", "title,file\nX,x.pdf\n")
+            archive.writestr("../x.pdf", PDF)
+        r = self.preview(raw.getvalue())
+        self.assertEqual((r.status_code, r.json["error"]), (400, "ZIP contains an unsafe path."))
+        with patch("qualification_import.MAX_UPLOAD_BYTES", 100):
+            self.assertEqual(self.preview(self.zip(self.MANIFEST, {"insurance.pdf": PDF * 10})).status_code, 413)
+        self.assertEqual(list(Path(self.app.config["DOCUMENT_IMPORT_DIR"]).glob("*/meta.json")), [])
+
+    def test_file_paths_match_their_folder(self):
+        manifest = "title,file\nWrong folder,a/x.pdf\nBare name,y.pdf\nSpaces,two  spaces.pdf\n"
+        r = self.preview(self.zip(manifest, {"b/x.pdf": PDF, "sub/y.pdf": PDF, "two  spaces.pdf": PDF}))
+        rows = r.json["rows"]
+        self.assertEqual(rows[0]["error"], "File not in the ZIP: 'a/x.pdf'.")
+        self.assertEqual([(x["path"], x["error"]) for x in rows[1:]],
+                         [("docs/sub/y.pdf", None), ("docs/two  spaces.pdf", None)])
+
+    def test_group_renamed_since_the_preview(self):
+        self.client.post("/api/admin/document-groups", json={"name": "Company"})
+        files = {"insurance.pdf": PDF, "auth/authorisation.pdf": PDF + b"%auth", "notes.pdf": PDF + b"%notes"}
+        self.assertEqual(self.commit(self.preview(self.zip(self.MANIFEST, files)).json["token"]).status_code, 201)
+        r = self.preview(self.zip(self.MANIFEST, dict(files, **{"insurance.pdf": PDF + b"%2100"})))
+        self.assertEqual(r.json["rows"][0]["outcome"], "replace")
+        group = next(g for g in self.listing()["groups"] if g["name"] == "Company")
+        self.assertEqual(self.client.put(f"/api/admin/document-groups/{group['id']}",
+                                         json=dict(group, name="Firm")).status_code, 200)
+        done = self.commit(r.json["token"])  # "Insurance" in "Company" would now be added: a duplicate
+        self.assertEqual((done.status_code, done.json["error"]),
+                         (409, "'Insurance' changed since the preview; upload the ZIP again."))
+        self.assertEqual(len(self.listing()["documents"]), 3)
+
+    def test_failure_mid_commit_leaves_nothing(self):
+        files = {"insurance.pdf": PDF, "auth/authorisation.pdf": PDF + b"%auth", "notes.pdf": PDF + b"%notes"}
+        r = self.preview(self.zip(self.MANIFEST, files))
+        real, calls = document_import.storage.save_attachment, []
+
+        def flaky(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 3:
+                raise OSError("disk full")
+            return real(*args, **kwargs)
+        with patch.object(document_import.storage, "save_attachment", flaky), self.assertRaises(OSError):
+            self.commit(r.json["token"])
+        self.assertEqual(self.listing()["documents"], [])
+        self.assertEqual(self.listing()["groups"], [])
+        self.assertEqual(list(Path(self.app.config["DOCUMENTS_DIR"]).iterdir()), [])
 
     def test_admins_with_a_browser_session_only(self):
         raw = self.zip(self.MANIFEST, {})
