@@ -327,6 +327,26 @@ class DocumentImportTests(AppTests):
         self.assertEqual(len(now), 3)  # the old insurance file is removed
         self.assertNotEqual(now, stored)
 
+    def test_document_changed_since_the_preview(self):
+        files = {"insurance.pdf": PDF, "auth/authorisation.pdf": PDF + b"%auth", "notes.pdf": PDF + b"%notes"}
+        self.assertEqual(self.commit(self.preview(self.zip(self.MANIFEST, files)).json["token"]).status_code, 201)
+        r = self.preview(self.zip(self.MANIFEST, dict(files, **{"notes.pdf": PDF + b"%new notes"})))
+        self.assertEqual([x["outcome"] for x in r.json["rows"]], ["skip", "skip", "replace"])
+        # "Insurance" was unchanged in the preview, so its file was not staged; then someone edits it
+        docs = {d["title"]: d for d in self.listing()["documents"]}
+        edited = dict(docs["Insurance"], description="Edited meanwhile")
+        self.assertEqual(self.client.put(f"/api/admin/documents/{edited['id']}", json=edited).status_code, 200)
+        done = self.commit(r.json["token"])
+        self.assertEqual(done.status_code, 409, done.json)
+        self.assertEqual(done.json["error"], "'Insurance' changed since the preview; upload the ZIP again.")
+        after = {d["title"]: d for d in self.listing()["documents"]}
+        self.assertEqual((after["Insurance"]["description"], after["A2 notes"]["filename"]),
+                         ("Edited meanwhile", docs["A2 notes"]["filename"]))  # nothing imported
+        # deleted meanwhile: the row becomes "add" without a staged file, refused the same way
+        r = self.preview(self.zip(self.MANIFEST, files))
+        self.assertEqual(self.client.delete(f"/api/admin/documents/{docs['Authorisation']['id']}").status_code, 200)
+        self.assertEqual(self.commit(r.json["token"]).status_code, 409)
+
     def test_errors_block_the_import(self):
         manifest = ("title,file,valid_until,qualification,roles,admin_only\n"
                     "Missing,gone.pdf,,,,\n"

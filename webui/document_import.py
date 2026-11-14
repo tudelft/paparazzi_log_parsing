@@ -260,6 +260,9 @@ def commit(app, con, token, documents_dir, now):
                     if hit is None:
                         row["error"] = f"Group {row['group']!r} was deleted; upload the ZIP again."
             plan(con, rows)
+            for row in rows:  # unchanged in the preview, so its file was not staged, but changed since
+                if not row["error"] and row["outcome"] != "skip" and not row.get("staged"):
+                    row["error"] = f"{row['title']!r} changed since the preview; upload the ZIP again."
             failed = next((row["error"] for row in rows if row["error"]), None)
             if failed:
                 raise DocumentError(failed, 409)
