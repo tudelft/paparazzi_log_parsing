@@ -44,6 +44,14 @@
   .two { display:grid; grid-template-columns:1fr 9em; gap:12px; }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   .mute { color:var(--mute); }
+  .chip { display:inline-flex; background:var(--chip); border-radius:12px; padding:1px 8px; font-size:12px; }
+  .panel-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:12px 0; }
+  .mono { font-family:ui-monospace, monospace; }
+  #importDialog { width:min(960px, calc(100vw - 32px)); }
+  #importPreview table { width:100%; table-layout:fixed; }
+  #importPreview th, #importPreview td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:left; }
+  #importPreview .c-line { width:3em; } #importPreview .c-title { width:26%; } #importPreview .c-valid { width:11em; }
+  #importPreview .c-limits { width:10%; } #importPreview .c-out { width:22%; }
   #roleNote { margin:4px 0 0 22px; font-size:12px; }
   #roleNote:empty { display:none; }
   #otherLimits { display:grid; gap:8px; margin-top:8px; }
@@ -62,12 +70,13 @@
   <div id="err"></div>
   <section class="card">
     <div class="section-heading"><h2>Documents</h2>
-    <details><summary>Help</summary><p>Shared documents, for example the ones to show when you are asked for them in the field, and your own licences and qualifications. Pick a group in the tabs, or All for everything you may see. A document opens in a new tab; download saves it. Some documents are only for administrators, for people with a current qualification, or for some profile roles (when person profiles are on): you see a document only when you meet every limit set on it; administrators see all. My qualifications lists your own approved qualifications that are valid today; add or renew them in My account. Administrators set the text at the top, groups and documents in Edit mode; Edit on a document also replaces its file, for example a renewed certificate.</p></details></div>
+    <details><summary>Help</summary><p>Shared documents, for example the ones to show when you are asked for them in the field, and your own licences and qualifications. Pick a group in the tabs, or All for everything you may see. A document opens in a new tab; download saves it. Some documents are only for administrators, for people with a current qualification, or for some profile roles (when person profiles are on): you see a document only when you meet every limit set on it; administrators see all. My qualifications lists your own approved qualifications that are valid today; add or renew them in My account. Administrators set the text at the top, groups and documents in Edit mode; Edit on a document also replaces its file, for example a renewed certificate. <em>Import ZIP</em> adds or replaces many documents at once from a <span class="mono">manifest.csv</span> (<a href="/api/admin/documents/import/template">template</a>) and the files.</p></details></div>
     <p class="text" id="intro"></p>
     <div class="actions edit-only">
       <button type="button" class="sec" onclick="editIntro()">Edit text at the top</button>
       <button type="button" onclick="editDocument()">Add document</button>
       <button type="button" class="sec" onclick="editGroup()">Add group</button>
+      <button type="button" class="sec" onclick="openImport()">Import ZIP</button>
     </div>
     <div class="page-tabs" id="tabs" aria-label="Document groups" hidden></div>
     <div id="content"><span class="mute">Loading…</span></div>
@@ -120,6 +129,19 @@
     <p class="dialog-error" id="docError" role="alert"></p>
     <div class="row"><button type="submit">Save</button> <button type="button" class="danger" id="docDeleteBtn" onclick="removeDocument()">Delete</button> <button type="button" class="sec" onclick="$('docDialog').close()">Cancel</button></div>
   </form>
+</dialog>
+<dialog class="entry-dialog" id="importDialog" aria-labelledby="importTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="importTitle">Import documents</h2><button type="button" class="sec" onclick="$('importDialog').close()">Close</button></div>
+  <p class="mute">Upload a ZIP with <span class="mono">manifest.csv</span> (<a href="/api/admin/documents/import/template">template</a>) and the files.
+    Columns: title and file, optionally group, description, valid_from, valid_until, admin_only (yes/no), qualification
+    (a type name) and roles (names separated by ;). A row with the title and group of an existing document replaces its
+    file and settings; unchanged ones are skipped, so the same ZIP can be imported again. Unknown groups are added.</p>
+  <p class="dialog-error" id="importError" role="alert"></p>
+  <label class="field">ZIP<input type="file" id="importFile" accept=".zip,application/zip"></label>
+  <div class="panel-row"><button type="button" class="sec" onclick="previewImport()">Preview</button>
+    <button type="button" id="importCommit" hidden onclick="commitImport()">Import</button>
+    <span class="mute" id="importStatus" role="status"></span></div>
+  <div class="scroll" id="importPreview"></div>
 </dialog>
 <script>
 const $ = id => document.getElementById(id);
@@ -327,6 +349,71 @@ $('docForm').onsubmit = async e => {
 async function removeDocument() {
   if (confirm('Delete this document and its file?') && await send(`/api/admin/documents/${editingId}`, 'DELETE', {}, 'docError'))
     $('docDialog').close();
+}
+let importToken = null;
+function openImport() {
+  importToken = null;
+  $('importFile').value = '';
+  ['importError', 'importStatus', 'importPreview'].forEach(id => { $(id).textContent = ''; });
+  $('importCommit').hidden = true;
+  $('importDialog').showModal();
+}
+async function importApi(url, options) {
+  const r = await fetch(url, options);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || r.statusText);
+  return d;
+}
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+async function previewImport() {
+  importToken = null;
+  ['importError', 'importStatus', 'importPreview'].forEach(id => { $(id).textContent = ''; });
+  $('importCommit').hidden = true;
+  const file = $('importFile').files[0];
+  if (!file) { $('importError').textContent = 'Choose a ZIP first.'; return; }
+  const body = new FormData();
+  body.append('file', file);
+  $('importStatus').textContent = 'Checking…';
+  try {
+    const d = await importApi('/api/admin/documents/import', {method: 'POST', body});
+    importToken = d.token;
+    const plan = `${d.added} new, ${d.replaced} to replace, ${d.skipped} unchanged`
+      + (d.new_groups ? `, ${plural(d.new_groups, 'new group', 'new groups')}` : '');
+    $('importStatus').textContent = d.errors ? `${plan}; ${d.errors} with errors.` : `${plan}.`;
+    $('importCommit').hidden = !d.can_commit;
+    const outcome = {add: 'New', replace: 'Replace', skip: 'Unchanged'};
+    const cell = (text, cls = '') => `<td class="${cls}" title="${esc(text)}">${esc(text)}</td>`;
+    $('importPreview').innerHTML = `<table><thead><tr><th class="c-line">Line</th><th class="c-title">Title</th><th>Group</th><th class="c-valid">Valid</th><th class="c-limits">Limits</th><th>File</th><th class="c-out"></th></tr></thead><tbody>
+      ${d.rows.map(r => {
+        const valid = [r.valid_from, r.valid_until].some(Boolean) ? `${r.valid_from || '…'} – ${r.valid_until || '…'}` : '';
+        const limits = [r.admin_only === true ? 'Administrators' : '', r.qualification, r.roles].filter(Boolean).join(' · ');
+        const result = r.error || outcome[r.outcome] + (r.warning ? ` · ${r.warning}` : '');
+        return `<tr><td class="c-line">${r.line}</td><td title="${esc(r.description ? `${r.title}: ${r.description}` : r.title)}">${esc(r.title)}</td>
+        <td title="${esc(r.group || 'General')}">${esc(r.group || 'General')}${r.new_group && !r.error ? ' <span class="chip">New</span>' : ''}</td>
+        ${cell(valid, 'mono')}${cell(limits)}${cell(r.file, 'mono')}
+        <td title="${esc(result)}"${r.error ? ' class="dialog-error"' : ''}>${esc(result)}</td></tr>`;
+      }).join('')}</tbody></table>`;
+  } catch (error) { $('importError').textContent = error.message; $('importStatus').textContent = ''; }
+}
+async function commitImport() {
+  if (!importToken) { $('importError').textContent = 'Preview the ZIP first.'; return; }
+  $('importError').textContent = '';
+  $('importStatus').textContent = 'Importing…';
+  $('importCommit').disabled = true;
+  try {
+    const d = await importApi('/api/admin/documents/import/commit', {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({token: importToken})});
+    $('importStatus').textContent = `Added ${d.added}, replaced ${d.replaced}, ${d.skipped} unchanged.`
+      + (d.new_groups ? ` Added ${plural(d.new_groups, 'group', 'groups')}.` : '');
+    $('importCommit').hidden = true;
+    importToken = null;
+    await load();
+  } catch (error) {
+    $('importError').textContent = error.message;
+    $('importStatus').textContent = '';
+  } finally {
+    $('importCommit').disabled = false;
+  }
 }
 window.viewState.setup(p => { tab = p.get('tab') || 'all'; }, p => {
   window.viewState.set(p, 'tab', tab === 'all' ? '' : tab, '');

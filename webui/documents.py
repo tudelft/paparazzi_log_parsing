@@ -14,6 +14,7 @@ Every signed-in person also sees their own current approved qualifications, with
 there is one, and a link to My account to add or renew them.
 API keys work on every route: any key reads (list, view, download), an administrator's key that is not read-only
 also manages documents and groups (for example an upload of the renewed insurance certificate by a script).
+The ZIP import (document_import.py: manifest.csv and the files) needs a browser session.
 """
 import datetime
 import os
@@ -25,6 +26,7 @@ from flask import Response, abort, g, jsonify, request, send_from_directory
 
 import db
 import profiles
+import qualification_import
 import storage
 from bookings import has_qualification
 from config import env_bool
@@ -146,7 +148,9 @@ DOCUMENT_SQL = ("SELECT d.*, t.name AS type_name FROM documents d"
 
 
 def register(app, connection, root, pages_dir):
+    import document_import  # imports this module
     app.config["DOCUMENTS_DIR"] = Path(root) / "documents"
+    app.config.setdefault("DOCUMENT_IMPORT_DIR", Path(root).parent / "tmp" / "doc-import")
 
     def folder():
         return Path(app.config["DOCUMENTS_DIR"])
@@ -407,6 +411,39 @@ def register(app, connection, root, pages_dir):
             cid.execute("DELETE FROM documents WHERE id=?", (doc_id,))
         (folder() / row["stored_path"]).unlink(missing_ok=True)
         return jsonify(ok=True)
+
+    def import_admin():
+        admin()
+        if g.via_key:
+            raise DocumentError("The import needs a browser session.", 403)
+
+    @app.get("/api/admin/documents/import/template")
+    def document_import_template():
+        import_admin()
+        return Response(document_import.TEMPLATE, mimetype="text/csv", headers={
+            "Content-Disposition": 'attachment; filename="manifest.csv"', "Cache-Control": "private, no-store"})
+
+    @app.post("/api/admin/documents/import")
+    def document_import_preview():
+        """Multipart form: file, a ZIP with manifest.csv and the files. Returns the checked rows and a token."""
+        import_admin()
+        limit = qualification_import.MAX_UPLOAD_BYTES
+        request.max_content_length = limit + 2**20
+        upload = request.files.get("file")
+        if upload is None or not upload.filename:
+            raise DocumentError("Choose a ZIP that contains manifest.csv and the files.")
+        raw = upload.stream.read(limit + 1)
+        if len(raw) > limit:
+            raise DocumentError(f"The ZIP can be at most {limit // 2**20} MiB.", 413)
+        return jsonify(document_import.store_preview(app, connection(), upload.filename, raw))
+
+    @app.post("/api/admin/documents/import/commit")
+    def document_import_commit():
+        import_admin()
+        token = (request.get_json(silent=True) or {}).get("token")
+        if not isinstance(token, str):
+            raise DocumentError("Upload the ZIP again to preview it.")
+        return jsonify(document_import.commit(app, connection(), token, folder(), utc_now())), 201
 
     @app.errorhandler(DocumentError)
     def document_error(exc):

@@ -3,6 +3,7 @@ import hashlib
 import io
 import os
 import tempfile
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -242,3 +243,141 @@ class DocumentTests(AppTests):
         self.upload()
         totals = storage_usage._walk(Path(self.app.config["DOCUMENTS_DIR"]).parent)
         self.assertEqual(list(totals), ["documents"])
+
+
+class DocumentImportTests(AppTests):
+    """ZIP import: manifest.csv and the files; preview, then commit from the same browser session."""
+    create_type, listing, key = tq.QualificationTests.create_type, DocumentTests.listing, DocumentTests.key
+
+    def setUp(self):
+        super().setUp()
+        settings = patch.dict(os.environ, LOGDB_DOCUMENTS="1")
+        settings.start()
+        self.addCleanup(settings.stop)
+        for key, name in (("DOCUMENTS_DIR", "documents"), ("DOCUMENT_IMPORT_DIR", "doc-import")):
+            folder = tempfile.TemporaryDirectory()
+            self.addCleanup(folder.cleanup)
+            old = self.app.config[key]
+            self.app.config[key] = Path(folder.name) / name
+            self.addCleanup(self.app.config.__setitem__, key, old)
+        self.sign_in(1)
+        self.tid = self.create_type("A2", False)
+
+    def zip(self, manifest, files):
+        raw = io.BytesIO()
+        with zipfile.ZipFile(raw, "w") as archive:
+            archive.writestr("docs/manifest.csv", manifest)
+            for name, content in files.items():
+                archive.writestr("docs/" + name, content)
+        return raw.getvalue()
+
+    def preview(self, raw, headers=None):
+        r = self.client.post("/api/admin/documents/import", data={"file": (io.BytesIO(raw), "import.zip")},
+                             content_type="multipart/form-data", headers=headers or {})
+        r.request.input_stream.close()
+        return r
+
+    def commit(self, token):
+        return self.client.post("/api/admin/documents/import/commit", json={"token": token})
+
+    MANIFEST = ("title,group,description,valid_from,valid_until,admin_only,qualification,roles,file\n"
+                "Insurance,Company,Liability,2020-01-01,2099-12-31,no,,,insurance.pdf\n"
+                "Authorisation,Operations,,,,yes,,,auth/authorisation.pdf\n"
+                "A2 notes,,,,,,a2,,notes.pdf\n")
+
+    def test_preview_and_import(self):
+        self.client.post("/api/admin/document-groups", json={"name": "Company"})
+        files = {"insurance.pdf": PDF, "auth/authorisation.pdf": PDF + b"%auth", "notes.pdf": PDF + b"%notes"}
+        r = self.preview(self.zip(self.MANIFEST, files))
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertEqual((r.json["added"], r.json["errors"], r.json["new_groups"], r.json["can_commit"]), (3, 0, 1, True))
+        self.assertEqual([(x["title"], x["group"], x["new_group"], x["outcome"]) for x in r.json["rows"]],
+                         [("Insurance", "Company", None, "add"), ("Authorisation", "Operations", "operations", "add"),
+                          ("A2 notes", "", None, "add")])
+        self.assertEqual(self.listing()["documents"], [])  # nothing stored before the commit
+        done = self.commit(r.json["token"])
+        self.assertEqual(done.status_code, 201, done.json)
+        self.assertEqual(done.json, {"added": 3, "replaced": 0, "skipped": 0, "new_groups": 1})
+        docs = {d["title"]: d for d in self.listing()["documents"]}
+        groups = {g["id"]: g["name"] for g in self.listing()["groups"]}
+        self.assertEqual(groups[docs["Authorisation"]["group_id"]], "Operations")
+        self.assertTrue(docs["Authorisation"]["admin_only"])
+        self.assertEqual((docs["A2 notes"]["type_id"], docs["A2 notes"]["group_id"]), (self.tid, None))
+        self.assertEqual((docs["Insurance"]["valid_until"], docs["Insurance"]["description"]), ("2099-12-31", "Liability"))
+        r = self.client.get(f"/api/documents/{docs['Authorisation']['id']}/download")
+        self.assertEqual((r.data, r.headers["Content-Disposition"]), (PDF + b"%auth", 'attachment; filename="authorisation.pdf"'))
+        r.close()
+        self.assertEqual(self.commit(done.json and "x").status_code, 400)  # the token is used up
+
+    def test_import_again_skips_unchanged_and_replaces_changed(self):
+        files = {"insurance.pdf": PDF, "auth/authorisation.pdf": PDF + b"%auth", "notes.pdf": PDF + b"%notes"}
+        first = self.preview(self.zip(self.MANIFEST, files))
+        self.assertEqual(self.commit(first.json["token"]).status_code, 201)
+        stored = sorted(p.name for p in Path(self.app.config["DOCUMENTS_DIR"]).iterdir())
+        again = self.preview(self.zip(self.MANIFEST, files))
+        self.assertEqual((again.json["skipped"], again.json["can_commit"]), (3, False))
+        renewed = self.MANIFEST.replace("2099-12-31", "2100-12-31")
+        r = self.preview(self.zip(renewed, dict(files, **{"insurance.pdf": PDF + b"%2100"})))
+        self.assertEqual([x["outcome"] for x in r.json["rows"]], ["replace", "skip", "skip"])
+        self.assertEqual(self.commit(r.json["token"]).json, {"added": 0, "replaced": 1, "skipped": 2, "new_groups": 0})
+        docs = {d["title"]: d for d in self.listing()["documents"]}
+        self.assertEqual(len(docs), 3)
+        self.assertEqual(docs["Insurance"]["valid_until"], "2100-12-31")
+        now = sorted(p.name for p in Path(self.app.config["DOCUMENTS_DIR"]).iterdir())
+        self.assertEqual(len(now), 3)  # the old insurance file is removed
+        self.assertNotEqual(now, stored)
+
+    def test_document_changed_since_the_preview(self):
+        files = {"insurance.pdf": PDF, "auth/authorisation.pdf": PDF + b"%auth", "notes.pdf": PDF + b"%notes"}
+        self.assertEqual(self.commit(self.preview(self.zip(self.MANIFEST, files)).json["token"]).status_code, 201)
+        r = self.preview(self.zip(self.MANIFEST, dict(files, **{"notes.pdf": PDF + b"%new notes"})))
+        self.assertEqual([x["outcome"] for x in r.json["rows"]], ["skip", "skip", "replace"])
+        # "Insurance" was unchanged in the preview, so its file was not staged; then someone edits it
+        docs = {d["title"]: d for d in self.listing()["documents"]}
+        edited = dict(docs["Insurance"], description="Edited meanwhile")
+        self.assertEqual(self.client.put(f"/api/admin/documents/{edited['id']}", json=edited).status_code, 200)
+        done = self.commit(r.json["token"])
+        self.assertEqual(done.status_code, 409, done.json)
+        self.assertEqual(done.json["error"], "'Insurance' changed since the preview; upload the ZIP again.")
+        after = {d["title"]: d for d in self.listing()["documents"]}
+        self.assertEqual((after["Insurance"]["description"], after["A2 notes"]["filename"]),
+                         ("Edited meanwhile", docs["A2 notes"]["filename"]))  # nothing imported
+        # deleted meanwhile: the row becomes "add" without a staged file, refused the same way
+        r = self.preview(self.zip(self.MANIFEST, files))
+        self.assertEqual(self.client.delete(f"/api/admin/documents/{docs['Authorisation']['id']}").status_code, 200)
+        self.assertEqual(self.commit(r.json["token"]).status_code, 409)
+
+    def test_errors_block_the_import(self):
+        manifest = ("title,file,valid_until,qualification,roles,admin_only\n"
+                    "Missing,gone.pdf,,,,\n"
+                    "Bad date,a.pdf,2026-13-01,,,\n"
+                    "Unknown type,a.pdf,,ZZ,,\n"
+                    "Unknown role,a.pdf,,,Pilot;Nobody,\n"
+                    "Bad flag,a.pdf,,,,maybe\n"
+                    "Twice,a.pdf,,,,\n"
+                    "twice,a.pdf,,,,\n")
+        r = self.preview(self.zip(manifest, {"a.pdf": PDF}))
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertEqual((r.json["errors"], r.json["can_commit"]), (6, False))
+        self.assertEqual([bool(x["error"]) for x in r.json["rows"]], [True, True, True, True, True, False, True])
+        self.assertEqual(self.commit(r.json["token"]).status_code, 400)
+        self.assertEqual(self.listing()["documents"], [])
+        for content, message in ((b"not a zip", "The ZIP could not be read."),
+                                 (self.zip("name,file\nx,a.pdf\n", {"a.pdf": PDF}), "manifest.csv headers")):
+            r = self.preview(content)
+            self.assertEqual(r.status_code, 400)
+            self.assertIn(message, r.json["error"])
+
+    def test_admins_with_a_browser_session_only(self):
+        raw = self.zip(self.MANIFEST, {})
+        key = self.key(1)
+        with self.client.session_transaction() as session:
+            session.clear()
+        self.assertEqual(self.preview(raw, headers=key).status_code, 403)
+        self.assertEqual(self.client.get("/api/admin/documents/import/template", headers=key).status_code, 403)
+        self.sign_in(2)
+        self.assertEqual(self.preview(raw).status_code, 403)
+        self.sign_in(1)
+        r = self.client.get("/api/admin/documents/import/template")
+        self.assertTrue(r.data.startswith(b"title,group,description,valid_from,valid_until,admin_only,qualification,roles,file"))
+        r.close()

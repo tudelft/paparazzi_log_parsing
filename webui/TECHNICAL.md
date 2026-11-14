@@ -1413,6 +1413,18 @@ curl -H "Authorization: Bearer $KEY" -F file=@certificate.pdf -F valid_from=2027
 curl -H "Authorization: Bearer $KEY" -OJ https://<server>/api/documents/<id>/download    # download
 ```
 
+**ZIP import** (`document_import.py`, Edit mode: **Import ZIP**; browser session only, API keys get 403). A ZIP holds
+`manifest.csv` (`GET /api/admin/documents/import/template`) and the files. Columns, in any order: `title` and `file`
+(required), `group`, `description`, `valid_from`, `valid_until`, `admin_only` (yes/no), `qualification` (a type name)
+and `roles` (profile role names separated by `;`). `POST /api/admin/documents/import` (multipart `file`, at most
+200 MiB) checks every row and returns it with an outcome: *add*; *replace* when the title and group (case-insensitive)
+match an existing document, whose file and settings are then replaced; *skip* when its file and settings are the same,
+so a ZIP can be imported again. Unknown groups are added on commit; an unknown qualification or role, a missing file, a
+bad date or flag, or the same title and group twice is an error and blocks the import. The checked preview is staged
+under `DOCUMENT_IMPORT_DIR` (default `<storage>/../tmp/doc-import`) for 30 minutes; `POST
+/api/admin/documents/import/commit` (`{"token"}`, same session) imports it all or nothing and removes the old files of
+replaced documents.
+
 Read-only People chips show only approved, non-expired submissions and omit the approval label;
 management views retain all submission states.
 An existing submission without a newly required expiry must be withdrawn and resubmitted; approved records
