@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -45,11 +46,26 @@ def available(pdf=True):
     return bool(shutil.which("zbarimg") and (not pdf or shutil.which("pdftoppm")))
 
 
-def _zbar(image):
+def _seconds(deadline):
+    """The time a call may take: SECONDS, or what is left before the deadline (time.monotonic()); TimeoutError when
+    nothing is left."""
+    if deadline is None:
+        return SECONDS
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise TimeoutError
+    return min(SECONDS, left)
+
+
+def _zbar(image, deadline=None):
     """The QR codes in one image, as text."""
     try:
         out = subprocess.run(["zbarimg", "--xml", "-q", "-Sdisable", "-Sqrcode.enable", str(image)],
-                             capture_output=True, timeout=SECONDS)
+                             capture_output=True, timeout=_seconds(deadline))
+    except subprocess.TimeoutExpired:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError from None
+        return []
     except (OSError, subprocess.SubprocessError):
         return []
     try:
@@ -65,8 +81,9 @@ def _zbar(image):
     return codes
 
 
-def read_codes(path, compressed, mime):
-    """The distinct QR texts on the first pages of a PDF or in an image; [] when none (or the tools are missing)."""
+def read_codes(path, compressed, mime, deadline=None):
+    """The distinct QR texts on the first pages of a PDF or in an image; [] when none (or the tools are missing).
+    With a deadline (time.monotonic()) every call gets at most the time left, and None is returned when it runs out."""
     if not available(pdf=mime == "application/pdf"):
         return []
     with tempfile.TemporaryDirectory() as tmp:
@@ -83,13 +100,22 @@ def read_codes(path, compressed, mime):
         if suffix == ".pdf":
             try:
                 subprocess.run(["pdftoppm", "-r", str(DPI), "-l", str(PAGES), "-png", str(src), str(Path(tmp) / "p")],
-                               capture_output=True, timeout=SECONDS)
+                               capture_output=True, timeout=_seconds(deadline))
+            except TimeoutError:
+                return None
+            except subprocess.TimeoutExpired:
+                if deadline is not None and time.monotonic() >= deadline:
+                    return None
+                return []
             except (OSError, subprocess.SubprocessError):
                 return []
             images = sorted(Path(tmp).glob("p*.png"))
         codes = []
-        for image in images:
-            codes += [c for c in _zbar(image) if c not in codes]
+        try:
+            for image in images:
+                codes += [c for c in _zbar(image, deadline) if c not in codes]
+        except TimeoutError:
+            return None
         return codes
 
 

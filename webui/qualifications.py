@@ -30,6 +30,9 @@ CERTIFICATE_NUMBER = re.compile(
     rb"[A-Z]{3}-RP-[A-Za-z0-9]{12}|\b[A-Z]{2}\.(?:66|FCL|ATCO|147)\.[A-Z0-9]+(?:\.[A-Z0-9]+)*")
 OCR_PAGES = 4  # certificates have the number on the first pages
 OCR_SECONDS = 60  # per call of pdftoppm or tesseract
+READ_SECONDS = 25  # total for reading one chosen file in the upload dialog; OCR stops when it runs out
+OCR_TOO_LONG = "OCR took too long; fill in the fields."
+QR_TOO_LONG = "Reading the QR code took too long; fill in the fields."
 
 
 def _utc_now():
@@ -159,16 +162,26 @@ def licence_number(raw):
 
 
 def pdf_number(path, compressed):
-    """The certificate number in a PDF's text, or None. Best effort: the reviewer confirms it.
+    """The certificate number in a PDF's text, or None. Best effort: the reviewer confirms it."""
+    for text in pdf_texts(path, compressed):
+        hit = CERTIFICATE_NUMBER.search(text)
+        if hit:
+            return hit.group().decode()
+    return None
+
+
+def pdf_texts(path, compressed, readable=False):
+    """The text of a PDF as byte strings to search, best first; [] when it is not a readable PDF.
+    readable: only the text strings (no raw streams such as metadata), separated by spaces.
     Reads plain and Flate-compressed streams; text in embedded subset fonts (glyph codes such as
     <0038004300...>Tj, as in the RDW certificates) is decoded with the fonts' ToUnicode maps."""
     try:
         with (gzip.open(path, "rb") if compressed else open(path, "rb")) as source:
             raw = source.read(MAX_EVIDENCE_BYTES + 1)
     except OSError:
-        return None
+        return []
     if not raw.startswith(b"%PDF-"):
-        return None
+        return []
     chunks = [raw]
     for match in re.finditer(rb"stream\r?\n", raw):
         end = raw.find(b"endstream", match.end())
@@ -179,19 +192,18 @@ def pdf_number(path, compressed):
         except zlib.error:
             continue
     texts = []
+    # Text is often split into several strings, e.g. [(NLD-RP-)-12(0123456789ab)]TJ: join the literals (for a
+    # number without a space; readable text keeps the strings apart so a label and a date stay separate words).
+    glue = b" " if readable else b""
     for chunk in chunks:
-        # Text is often split into several strings, e.g. [(NLD-RP-)-12(0123456789ab)]TJ: join the literals.
-        texts += [chunk, b"".join(s[1:-1] for s in re.findall(rb"\((?:\\.|[^\\)])*\)", chunk))]
+        joined = glue.join(s[1:-1] for s in re.findall(rb"\((?:\\.|[^\\)])*\)", chunk))
+        texts += [joined] if readable else [chunk, joined]
     content = [c for c in chunks if b"BT" in c and b"ET" in c]
     for cmap in filter(None, (to_unicode(c) for c in chunks if b"beginbf" in c)):
         # Decode every glyph string with each font's map: the one the number is set in yields it.
-        texts += ["".join(decode_glyphs(s, cmap) for s in re.findall(rb"<([0-9A-Fa-f\s]+)>", block)).encode()
+        texts += [glue.decode().join(decode_glyphs(s, cmap) for s in re.findall(rb"<([0-9A-Fa-f\s]+)>", block)).encode()
                   for chunk in content for block in re.findall(rb"BT(.*?)ET", chunk, re.S)]
-    for text in texts:
-        hit = CERTIFICATE_NUMBER.search(text)
-        if hit:
-            return hit.group().decode()
-    return None
+    return texts
 
 
 def ocr_available():
@@ -201,41 +213,72 @@ def ocr_available():
 def ocr_number(path, compressed):
     """The number read by OCR from a scanned PDF (pages turned upright first), or None. Needs the pdftoppm
     (poppler-utils) and tesseract (tesseract-ocr) commands; takes a few seconds per page."""
+    return ocr_read(path, compressed)[0]
+
+
+def ocr_read(path, compressed, deadline=None):
+    """(number or None, the recognised text of the pages read, complete) of a scanned PDF; (None, b"", True)
+    without OCR. With a deadline (time.monotonic()), every call gets at most the time left; when it runs out the
+    pages read so far are returned with complete False."""
     if not ocr_available():
-        return None
+        return None, b"", True
+
+    def seconds():
+        if deadline is None:
+            return OCR_SECONDS
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError
+        return min(OCR_SECONDS, left)
     import numpy  # installed with h5py
+    pages = []
     with tempfile.TemporaryDirectory() as tmp:
         pdf = Path(tmp) / "evidence.pdf"
         with (gzip.open(path, "rb") if compressed else open(path, "rb")) as source, open(pdf, "wb") as out:
             shutil.copyfileobj(source, out)
         try:
             subprocess.run(["pdftoppm", "-r", "200", "-gray", "-l", str(OCR_PAGES), str(pdf), str(Path(tmp) / "p")],
-                           check=True, capture_output=True, timeout=OCR_SECONDS)
+                           check=True, capture_output=True, timeout=seconds())
+        except TimeoutError:
+            return None, b"", False
+        except subprocess.TimeoutExpired:
+            return None, b"", deadline is None or time.monotonic() < deadline
         except (OSError, subprocess.SubprocessError):
-            return None
+            return None, b"", True
         for page in sorted(Path(tmp).glob("p-*.pgm")):
             try:
                 osd = subprocess.run(["tesseract", str(page), "-", "--psm", "0"], capture_output=True,
-                                     timeout=OCR_SECONDS, text=True).stdout
+                                     timeout=seconds(), text=True).stdout
                 turn = re.search(r"Rotate: (\d+)", osd)
                 turned = int(turn.group(1)) % 360 if turn else 0
                 if turned:
                     rotate_pgm(page, turned, numpy)
-                hit = CERTIFICATE_NUMBER.search(ocr_text(page))
+                text = ocr_text(page, seconds())
+                hit = CERTIFICATE_NUMBER.search(text)
                 if hit is None and turned != 180:
                     # orientation detection needs much text; a short or upside-down page gets one more try
                     rotate_pgm(page, 180, numpy)
-                    hit = CERTIFICATE_NUMBER.search(ocr_text(page))
+                    turned_text = ocr_text(page, seconds())
+                    hit = CERTIFICATE_NUMBER.search(turned_text)
+                    if hit:
+                        text = turned_text
+            except TimeoutError:
+                return None, b"\n".join(pages), False
+            except subprocess.TimeoutExpired:
+                if deadline is not None and time.monotonic() >= deadline:
+                    return None, b"\n".join(pages), False
+                continue
             except (OSError, subprocess.SubprocessError, ValueError):
                 continue
+            pages.append(text)
             if hit:
-                return hit.group().decode()
-    return None
+                return hit.group().decode(), b"\n".join(pages), True
+    return None, b"\n".join(pages), True
 
 
-def ocr_text(page):
+def ocr_text(page, seconds=OCR_SECONDS):
     return subprocess.run(["tesseract", str(page), "-", "--psm", "3"], capture_output=True,
-                          timeout=OCR_SECONDS).stdout
+                          timeout=seconds).stdout
 
 
 def rotate_pgm(page, degrees, numpy):
@@ -341,6 +384,146 @@ def read_qr(con, row, root, actor_id=None):
     return dict(licence_qr.check(codes, row["number"], row["valid_from"], row["valid_until"]), filled=filled)
 
 
+MONTHS = {name: n for n, names in enumerate((
+    "jan january januari janvier januar", "feb february februari fevrier février februar",
+    "mar march maart mars märz marz", "apr april avril", "may mei mai", "jun june juni juin",
+    "jul july juli juillet", "aug august augustus aout août", "sep sept september septembre",
+    "oct october oktober okt octobre", "nov november novembre", "dec december decembre décembre dezember dez"),
+    1) for name in names.split()}
+TEXT_DATES = (  # (pattern, order of year/month/day groups); month names are looked up in MONTHS
+    (re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b"), (1, 2, 3)),
+    (re.compile(r"\b(\d{1,2})[./-](\d{1,2})[./-](\d{4})\b"), (3, 2, 1)),
+    (re.compile(r"\b(\d{1,2})\.?\s+([A-Za-zéû]{3,9})\.?\s+(\d{4})\b"), (3, 2, 1)),
+)
+# Labels before a date (closest one wins). Dates of birth are never a validity date.
+DATE_LABELS = (
+    ("birth", re.compile(r"birth|geboren|geboorte|naissance|geburt", re.I)),
+    ("valid_until", re.compile(r"valid\s*(?:until|till|to)|expir|geldig\s*tot|vervaldatum|verloopdatum"
+                               r"|date\s*of\s*expiry|valable\s*jusqu|gültig\s*bis|g.ltig\s*bis", re.I)),
+    ("valid_from", re.compile(r"valid\s*from|date\s*of\s*issue|issue\s*date|issued|afgifte|uitgegeven|geldig\s*vanaf"
+                              r"|date\s*de\s*d.livrance|ausstellungsdatum", re.I)),
+)
+LABEL_WINDOW = 80  # characters before a date searched for its label
+
+
+def text_dates(text):
+    """The dates in a text as [(ISO date, label or None)], label 'valid_from', 'valid_until' or 'birth'."""
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", "replace")
+    found = []
+    for pattern, order in TEXT_DATES:
+        for m in pattern.finditer(text):
+            parts = [m.group(i) for i in order]
+            month = parts[1] if parts[1].isdigit() else MONTHS.get(parts[1].casefold())
+            try:
+                day = datetime.date(int(parts[0]), int(month), int(parts[2]))
+            except (TypeError, ValueError):
+                continue
+            if not 1980 <= day.year <= 2100:
+                continue
+            before, label, at = text[max(0, m.start() - LABEL_WINDOW):m.start()], None, -1
+            for name, words in DATE_LABELS:
+                for hit in words.finditer(before):
+                    if hit.start() > at:
+                        label, at = name, hit.start()
+            found.append((m.start(), day.isoformat(), label))
+    out = []
+    for _, day, label in sorted(found):
+        if (day, label) not in out:
+            out.append((day, label))
+    return out
+
+
+def years_apart(start, until):
+    """Whole years (1 to 10) from start to until, also when until is the day before the anniversary."""
+    a, b = datetime.date.fromisoformat(start), datetime.date.fromisoformat(until)
+    for years in range(1, 11):
+        try:
+            anniversary = a.replace(year=a.year + years)
+        except ValueError:  # 29 February
+            anniversary = datetime.date(a.year + years, 3, 1)
+        if b in (anniversary, anniversary - datetime.timedelta(days=1)):
+            return years
+    return None
+
+
+def validity(dates):
+    """(valid_from, valid_until) from [(date, label)]: labelled dates first; otherwise the pair of dates a whole
+    number of years apart (EASA certificates run 5 years). None where the document does not say it clearly."""
+    start = next((d for d, label in dates if label == "valid_from"), None)
+    until = max((d for d, label in dates if label == "valid_until"), default=None)
+    if start and until and start > until:
+        start = None
+    if start is None or until is None:
+        days = sorted({d for d, label in dates if label != "birth"})
+        pairs = [(a, b) for a in days for b in days if a < b and years_apart(a, b)
+                 and (start is None or a == start) and (until is None or b == until)]
+        if pairs:
+            start, until = max(pairs, key=lambda p: p[1])
+    return start, until
+
+
+def same_value(field, a, b):
+    if field == "number":
+        return re.sub(r"\s", "", a or "").upper() == re.sub(r"\s", "", b or "").upper()
+    return a == b
+
+
+def read_evidence(path, compressed, mime, entered, wanted=("number", "valid_from", "valid_until"), ocr=True,
+                  seconds=READ_SECONDS):
+    """Read number and validity dates from evidence: the QR code, the PDF text and, when something wanted is
+    still missing and ocr is set, OCR. The QR code and OCR share one time limit of seconds. Best effort: the reviewer confirms what was read.
+    Returns dict(found={field: {value, source}}, dates=[{date, label, source}], codes (None: QR not read),
+    qr (licence_qr.check against the entered values), issues: where the document differs from what was entered,
+    notes: e.g. that OCR ran out of time)."""
+    deadline = time.monotonic() + seconds
+    found, dates, sources, notes = {}, [], {}, []
+    codes = None  # None: not read (no tools, or out of time: then the background read after submit still runs)
+    if licence_qr.available(mime == "application/pdf"):
+        codes = licence_qr.read_codes(path, compressed, mime, deadline)
+        if codes is None:
+            notes.append(QR_TOO_LONG)
+
+    def take(source, number, text_found):
+        if number and "number" not in found:
+            found["number"] = dict(value=number, source=source)
+        for day, label in text_found:
+            if not any(x["date"] == day and x["label"] == label for x in dates):
+                dates.append(dict(date=day, label=label, source=source))
+        start, until = validity(text_found)
+        for field, value in (("valid_from", start), ("valid_until", until)):
+            if value and field not in found:
+                found[field] = dict(value=value, source=source)
+        sources[source] = dict(number=number, valid_from=start, valid_until=until)
+
+    if codes:
+        facts = licence_qr.facts(codes)
+        qr_dates = text_dates("\n".join(codes))
+        qr_dates += [(d, None) for d in facts["dates"] if d not in {x[0] for x in qr_dates}]
+        take("qr", facts["number"], qr_dates)
+    if mime == "application/pdf":
+        take("text", pdf_number(path, compressed), text_dates(b"\n".join(pdf_texts(path, compressed, readable=True))))
+        if ocr and not notes and any(field not in found for field in wanted):
+            number, text, complete = ocr_read(path, compressed, deadline)
+            if number or text:
+                take("ocr", number, text_dates(text))
+            if not complete:
+                notes.append(OCR_TOO_LONG)
+    issues = []
+    labels = dict(number="Number", valid_from="Valid from", valid_until="Valid until")
+    for field, label in labels.items():
+        typed = entered.get(field)
+        for source, values in sources.items():
+            if source != "qr" and typed and values[field] and not same_value(field, typed, values[field]):
+                issues.append(f"{label} in the document ({source.upper() if source == 'ocr' else source}) is "
+                              f"{values[field]}, entered {typed}")
+    qr = None
+    if codes is not None:
+        qr = licence_qr.check(codes, entered.get("number"), entered.get("valid_from"), entered.get("valid_until"))
+        issues += [f"QR code: {issue}" for issue in qr["issues"]]
+    return dict(found=found, dates=dates, codes=codes, qr=qr, issues=issues, notes=notes)
+
+
 TYPE_DESCRIPTION_MAX = 300
 
 
@@ -354,6 +537,7 @@ def type_description(body):
 
 
 def register(app, connection, root, require_session):
+    reading, reading_lock = set(), threading.Lock()  # people whose chosen file is being read (one process, threads)
     app.config["QUALIFICATION_EVIDENCE_DIR"] = Path(root) / "qualification-evidence"
     app.config.setdefault("QUALIFICATION_IMPORT_DIR", Path(root).parent / "tmp" / "qual-import")
 
@@ -604,6 +788,7 @@ def register(app, connection, root, require_session):
         committed = False
         filename = mime = None
         compressed, size = False, 0
+        read, filled = None, {}
         try:
             if uploaded and uploaded.filename:
                 filename = secure_filename(uploaded.filename)[:160]
@@ -616,8 +801,25 @@ def register(app, connection, root, require_session):
                 except ValueError as exc:
                     raise QualificationError("Evidence must be non-empty and at most 20 MiB.") from exc
                 mime = evidence_format(staged, compressed, filename)
-                if number is None and mime == "application/pdf":
-                    number = pdf_number(staged, compressed)  # pre-filled; the reviewer confirms it
+                kind = con.execute("SELECT * FROM qualification_types WHERE id=?", (tid,)).fetchone()
+                # Empty fields are read from the evidence (the reviewer confirms them); typed values are kept.
+                wanted = [field for field, key in (("number", "requires_number"), ("valid_from", "requires_start"),
+                                                   ("valid_until", "requires_expiry")) if kind is not None and kind[key]]
+                if number is None and "number" not in wanted and mime == "application/pdf":
+                    number = pdf_number(staged, compressed)  # as before: from the text only
+                entered = dict(number=number, valid_from=start, valid_until=until)
+                if any(entered[field] is None for field in wanted):
+                    # no OCR here: the dialog already read the chosen file and filled its OCR results into the form
+                    read = read_evidence(staged, compressed, mime, entered, wanted, ocr=False)
+                    for field in wanted:
+                        if entered[field] is None and field in read["found"]:
+                            filled[field] = read["found"][field]["source"]
+                            entered[field] = read["found"][field]["value"]
+                    if entered["valid_from"] and entered["valid_until"] and entered["valid_from"] > entered["valid_until"]:
+                        for field in ("valid_from", "valid_until"):
+                            if filled.pop(field, None):
+                                entered[field] = None
+                    number, start, until = entered["number"], entered["valid_from"], entered["valid_until"]
             with db.write_lock, con:
                 con.execute("BEGIN IMMEDIATE")
                 private_subject(con, g.user, user_id)
@@ -641,9 +843,16 @@ def register(app, connection, root, require_session):
                     " submitted_at,evidence_path,filename,mime,compressed,size_bytes) VALUES (?,?,?,?,?,'pending',?,?,?,?,?,?,?)",
                     (user_id, tid, start, until, number, g.user["id"], _utc_now(),
                      destination.name if destination else None, filename, mime, int(compressed), size)).lastrowid
-                audit(con, user_id, g.user["id"], "submitted",
-                      dict(id=sid, category=kind["name"], valid_from=start, valid_until=until, number=number,
-                           has_evidence=bool(destination)))
+                if read and read["codes"] is not None:
+                    con.execute("UPDATE qualification_submissions SET qr_json=? WHERE id=?",
+                                (json.dumps({"codes": read["codes"], "checked_at": _utc_now()}), sid))
+                details = dict(id=sid, category=kind["name"], valid_from=start, valid_until=until, number=number,
+                               has_evidence=bool(destination))
+                if filled:
+                    details["read_from"] = filled  # field: 'qr', 'text' or 'ocr'
+                if read and read["issues"]:
+                    details["differs"] = read["issues"]
+                audit(con, user_id, g.user["id"], "submitted", details)
                 if not g.user["is_admin"]:
                     person = con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",
                                          (user_id,)).fetchone()[0]
@@ -652,7 +861,8 @@ def register(app, connection, root, require_session):
                                        + (f", valid until {until}" if until else "") + ". It waits for approval.",
                                        "/people?tab=approvals")
             committed = True
-            if destination and app.config.get("QUALIFICATION_QR_BACKGROUND", True) \
+            if destination and not (read and read["codes"] is not None) \
+                    and app.config.get("QUALIFICATION_QR_BACKGROUND", True) \
                     and licence_qr.available(pdf=mime == "application/pdf"):
                 actor = g.user["id"]
 
@@ -665,12 +875,54 @@ def register(app, connection, root, require_session):
                     except Exception:  # noqa: BLE001 - the reviewer can still run Check QR codes
                         logging.getLogger(__name__).exception("reading the QR code of submission %s failed", sid)
                 threading.Thread(target=read_later, daemon=True, name="licence-qr").start()
-            return jsonify(ok=True, id=sid, number=number), 201
+            return jsonify(ok=True, id=sid, number=number, valid_from=start, valid_until=until, read_from=filled,
+                           issues=read["issues"] if read else []), 201
         finally:
             if staged:
                 staged.unlink(missing_ok=True)
             if destination and not committed:
                 destination.unlink(missing_ok=True)
+
+    @app.post("/api/users/<int:user_id>/qualifications/read")
+    def read_qualification_evidence(user_id):
+        """What the chosen evidence says, before submitting: nothing is stored and the file is deleted again."""
+        require_session()
+        con = connection()
+        private_subject(con, g.user, user_id)
+        request.max_content_length = MAX_EVIDENCE_BYTES + 1024 * 1024
+        if set(request.form) - {"type_id", "valid_from", "valid_until", "number"} or set(request.files) != {"evidence"} \
+                or len(request.files.getlist("evidence")) > 1:
+            raise QualificationError("Send one evidence file and optionally the entered values.")
+        entered = dict(valid_from=expiry(request.form.get("valid_from"), "Valid from"),
+                       valid_until=expiry(request.form.get("valid_until")),
+                       number=licence_number(request.form.get("number")))
+        uploaded = request.files["evidence"]
+        filename = secure_filename(uploaded.filename or "")[:160]
+        if not filename:
+            raise QualificationError("Choose an evidence filename.")
+        folder = evidence_root()
+        folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with reading_lock:  # one read at a time per person: each can take up to READ_SECONDS
+            if g.user["id"] in reading:
+                raise QualificationError("The previous file is still being read; try again when it is done.", 429)
+            reading.add(g.user["id"])
+        staged = None
+        try:
+            try:
+                staged, compressed, _, _, _ = storage.save_attachment(uploaded.stream, folder, MAX_EVIDENCE_BYTES)
+            except ValueError as exc:
+                raise QualificationError("Evidence must be non-empty and at most 20 MiB.") from exc
+            read = read_evidence(staged, compressed, evidence_format(staged, compressed, filename), entered,
+                                 seconds=app.config.get("QUALIFICATION_READ_SECONDS", READ_SECONDS))
+        finally:
+            with reading_lock:
+                reading.discard(g.user["id"])
+            if staged:
+                staged.unlink(missing_ok=True)
+        qr = read["qr"]
+        if qr is not None and not g.user["is_admin"]:
+            qr = {key: qr[key] for key in ("status", "authority", "issues")}
+        return jsonify(found=read["found"], dates=read["dates"], issues=read["issues"], notes=read["notes"], qr=qr)
 
     @app.post("/api/qualification-submissions/<int:sid>/review")
     def review_qualification(sid):

@@ -272,8 +272,8 @@ date and student/employee number after signing in, and again once that end date 
 page, and on People in the **Profiles** and **Supervision** tabs, which show supervisors the people they supervise.
 
 **Qualifications:** submit your own evidence under **My account**; admins review it on **People**.
-Each type determines whether evidence, expiry and a licence number are required (the number is read from a
-PDF certificate when you leave it empty). Evidence is one PDF, JPEG or PNG,
+Each type determines whether evidence, expiry and a licence number are required (the number and validity
+dates are read from the evidence when you choose the file; empty fields are filled, typed values are kept). Evidence is one PDF, JPEG or PNG,
 up to **20 MiB**. Submissions need admin approval, and the previous approval stays active during renewal.
 Expired approvals are marked; approval alone does not establish operational eligibility.
 Evidence and submission history are private to you and admins; audit history is admin-only.

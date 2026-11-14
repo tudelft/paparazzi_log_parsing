@@ -15,7 +15,7 @@ window.QualificationManager = class {
     const r = await fetch(url, options);
     if (r.status === 401) { location.href = '/login'; throw new Error('Please sign in again.'); }
     const data = await r.json().catch(() => { throw new Error(`Invalid server response (${r.status}). Reload before retrying.`); });
-    if (!r.ok) throw new Error(data.error || 'Qualification request failed.');
+    if (!r.ok) throw Object.assign(new Error(data.error || 'Qualification request failed.'), {status: r.status});
     return data;
   }
   async load() {
@@ -131,9 +131,10 @@ window.QualificationManager = class {
           <p class="mute" data-type-desc style="margin:-4px 0 0;font-size:12px"></p>
           <label class="field" data-field="valid_from">Valid from <input type="date" name="valid_from"></label>
           <label class="field" data-field="valid_until">Valid until <input type="date" name="valid_until"></label>
-          <label class="field" data-field="number">Number <input name="number" maxlength="40" placeholder="e.g. NLD-RP-… (read from a PDF when empty)"></label>
+          <label class="field" data-field="number">Number <input name="number" maxlength="40" placeholder="e.g. NLD-RP-… (read from the evidence when empty)"></label>
           <label class="field" data-field="evidence">Evidence <input name="evidence" type="file" accept=".pdf,.jpg,.jpeg,.png"></label>
           <p class="mute" data-proof-hint></p>
+          <div data-read-result style="font-size:12px" hidden aria-live="polite"></div>
           <button type="submit">Submit for approval</button>
         </form>
       </dialog>` : '<p class="mute">An admin must first add a qualification type on People.</p>')
@@ -202,7 +203,15 @@ window.QualificationManager = class {
         this.element.querySelector('[data-proof-hint]').textContent =
           (type.requires_evidence ? 'Evidence is required. ' : 'Evidence is optional. ') + 'One PDF, JPEG or PNG, up to 20 MiB.';
       };
-      form.elements.type_id.onchange = hint;
+      // Empty fields may stay empty when evidence is chosen: the server reads them from it on submit.
+      const required = () => {
+        const type = types.find(t => t.id === +form.elements.type_id.value);
+        const file = form.elements.evidence.files.length > 0;
+        form.elements.valid_from.required = !!type.requires_start && !file;
+        form.elements.valid_until.required = !!type.requires_expiry && !file;
+      };
+      form.elements.type_id.onchange = () => { hint(); required(); };
+      form.elements.evidence.onchange = () => { required(); this.readEvidence(form); };
       form.elements.valid_from.onchange = () => { form.elements.valid_until.min = form.elements.valid_from.value; };
       form.elements.valid_until.onchange = () => { form.elements.valid_from.max = form.elements.valid_until.value; };
       hint();
@@ -225,6 +234,10 @@ window.QualificationManager = class {
           if (detail.valid_from) dates.push(`Valid from ${detail.valid_from}`);
           if (detail.valid_until) dates.push(`Valid until ${detail.valid_until}`);
           if (detail.number) dates.push(`Number ${detail.number}`);
+          const sources = {qr: 'QR code', text: 'PDF text', ocr: 'OCR'};
+          if (detail.read_from) dates.push('read from the evidence: ' + Object.entries(detail.read_from)
+            .map(([field, source]) => `${field.replace('_', ' ')} (${sources[source] || source})`).join(', '));
+          if (detail.differs) dates.push('differs from the evidence: ' + detail.differs.join('; '));
           return `${e.created_at} · ${e.actor || 'former user'} · ${e.action.replaceAll('-', ' ')}`
             + `\n${detail.category || 'Qualification'}${dates.length ? ' · ' + dates.join(' · ') : ''}`
             + (typeof detail.has_evidence === 'boolean' ? ` · ${detail.has_evidence ? 'evidence attached' : 'no evidence attached'}` : '')
@@ -233,6 +246,62 @@ window.QualificationManager = class {
         }).join('\n\n') || 'No events.';
       } catch (error) { this.error(error.message); }
     };
+  }
+  // Read the chosen evidence (PDF text, QR code, OCR) and fill the fields that are still empty; typed values stay.
+  async readEvidence(form) {
+    const box = form.querySelector('[data-read-result]');
+    const file = form.elements.evidence.files[0];
+    const token = this.reading = (this.reading || 0) + 1;
+    box.hidden = !file;
+    if (!file) return;
+    box.innerHTML = '<span class="mute">Reading the evidence…</span>';
+    // The server reads one file per person at a time: a file chosen meanwhile is read when the running read is done.
+    if (this.readBusy) { this.readAgain = true; return; }
+    this.readBusy = true;
+    const data = new FormData();
+    ['valid_from', 'valid_until', 'number'].forEach(name => {
+      if (form.elements[name].value) data.append(name, form.elements[name].value);
+    });
+    data.append('evidence', file);
+    let r;
+    try {
+      for (let tries = 0; ; tries++) {
+        try {
+          r = await this.request(`/api/users/${this.userId}/qualifications/read`, {method: 'POST', body: data});
+          break;
+        } catch (error) {  // 429: a read of this person is still running (e.g. in another tab); wait and try again
+          if (error.status !== 429 || tries >= 10 || token !== this.reading) throw error;
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+      }
+    } catch (error) {
+      if (token === this.reading) box.innerHTML = `<span class="mute">Could not read the evidence: ${this.esc(error.message)}</span>`;
+      return;
+    } finally {
+      this.readBusy = false;
+      if (this.readAgain) {
+        this.readAgain = false;
+        if (token !== this.reading) this.readEvidence(form);  // a newer file was chosen while this one was read
+      }
+    }
+    if (token !== this.reading || form.elements.evidence.files[0] !== file) return;  // another file was chosen
+    const sources = {qr: 'QR code', text: 'PDF text', ocr: 'OCR'};
+    const labels = {number: 'Number', valid_from: 'Valid from', valid_until: 'Valid until'};
+    const bits = [];
+    for (const [name, label] of Object.entries(labels)) {
+      const hit = r.found[name];
+      const input = form.elements[name];
+      if (!hit) continue;
+      const shown = !input.closest('[data-field]').hidden;
+      if (shown && !input.value) input.value = hit.value;
+      if (shown) bits.push(`${label} ${this.esc(hit.value)} <span class="mute">(${sources[hit.source] || hit.source})</span>`);
+    }
+    const q = r.qr;
+    const who = q && q.authority ? ` · QR code of ${this.esc(q.authority.name)}` : q && q.status === 'none' ? ' · no QR code found' : '';
+    box.innerHTML = (bits.length ? 'Read: ' + bits.join(' · ') : '<span class="mute">Nothing recognised in the evidence; fill in the fields.</span>')
+      + who + (r.notes || []).map(n => `<div class="mute">${this.esc(n)}</div>`).join('')
+      + (r.issues || []).map(i => `<div style="color:var(--err)">${this.esc(i)}</div>`).join('')
+      + '<div class="mute">Check the values: an admin confirms them on approval.</div>';
   }
   error(message) {
     const box = this.element.querySelector('[data-error]');
