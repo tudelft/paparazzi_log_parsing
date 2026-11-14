@@ -87,8 +87,12 @@
   #importDialog { width:min(960px, calc(100vw - 32px)); }
   #importPreview table { width:100%; table-layout:fixed; }
   #importPreview th, #importPreview td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:left; }
-  #importPreview .c-line { width:3em; } #importPreview .c-title { width:26%; } #importPreview .c-valid { width:11em; }
+  #importPreview .c-line { width:3em; } #importPreview .c-title { width:24%; } #importPreview .c-valid { width:14em; }
   #importPreview .c-limits { width:10%; } #importPreview .c-out { width:22%; }
+  @media (max-width:640px) {  /* phones: hide limits and file, and scroll the table inside the dialog */
+    #importPreview table { min-width:640px; }
+    #importPreview .c-limits, #importPreview .c-file { display:none; }
+  }
   #importPreview td.warn { color:var(--warn); }
   #roleNote { margin:4px 0 0 22px; font-size:12px; }
   #roleNote:empty { display:none; }
@@ -170,7 +174,7 @@
 </dialog>
 <dialog class="entry-dialog" id="importDialog" aria-labelledby="importTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <div class="dialog-header"><h2 id="importTitle">Import documents</h2><button type="button" class="sec" onclick="$('importDialog').close()">Close</button></div>
-  <p class="mute">Upload a ZIP with <span class="mono">manifest.csv</span> (<a href="/api/admin/documents/import/template">template</a>) and the files; check the preview, then import. Columns and rules: Help on the page.</p>
+  <p class="mute">Upload a ZIP with <span class="mono">manifest.csv</span> (<a href="/api/admin/documents/import/template">template</a>) and the files; check the preview, then import. Columns: see the template; <em>title</em> and <em>file</em> are required, and a column left out keeps the existing document&#39;s value.</p>
   <p class="dialog-error" id="importError" role="alert"></p>
   <label class="field">ZIP<input type="file" id="importFile" accept=".zip,application/zip"></label>
   <div class="panel-row"><button type="button" class="sec" onclick="previewImport()">Preview</button>
@@ -447,7 +451,7 @@ async function previewImport() {
     $('importCommit').hidden = !d.can_commit;
     const outcome = {add: 'New', replace: 'Replace', skip: 'Unchanged'};
     const cell = (text, cls = '') => `<td class="${cls}" title="${esc(text)}">${esc(text)}</td>`;
-    $('importPreview').innerHTML = `<table><thead><tr><th class="c-line">Line</th><th class="c-title">Title</th><th>Group</th><th class="c-valid">Valid</th><th class="c-limits">Limits</th><th>File</th><th class="c-out"></th></tr></thead><tbody>
+    $('importPreview').innerHTML = `<table><thead><tr><th class="c-line">Line</th><th class="c-title">Title</th><th>Group</th><th class="c-valid">Valid</th><th class="c-limits">Limits</th><th class="c-file">File</th><th class="c-out"></th></tr></thead><tbody>
       ${d.rows.map(r => {
         const valid = [r.valid_from, r.valid_until].some(Boolean) ? `${r.valid_from || '…'} – ${r.valid_until || '…'}` : '';
         const limits = [r.admin_only === true ? 'Administrators' : '', r.qualification, r.roles].filter(Boolean).join(' · ');
@@ -456,7 +460,7 @@ async function previewImport() {
         const result = r.error || outcome[r.outcome] + changes + removes + (r.warning ? ` · ${r.warning}` : '');
         return `<tr><td class="c-line">${r.line}</td><td title="${esc(r.description ? `${r.title}: ${r.description}` : r.title)}">${esc(r.title)}</td>
         <td title="${esc(r.group || 'General')}">${esc(r.group || 'General')}${r.new_group && !r.error ? ' <span class="chip">New</span>' : ''}</td>
-        ${cell(valid, 'mono')}${cell(limits)}<td class="mono" title="${esc(r.path ? `${r.file} → ${r.path}` : r.file)}">${esc(r.file)}</td>
+        ${cell(valid, 'mono')}${cell(limits, 'c-limits')}<td class="mono c-file" title="${esc(r.path ? `${r.file} → ${r.path}` : r.file)}">${esc(r.file)}</td>
         <td title="${esc(result)}"${r.error ? ' class="dialog-error"' : removes ? ' class="warn"' : ''}>${esc(result)}</td></tr>`;
       }).join('')}</tbody></table>`;
   } catch (error) { $('importError').textContent = error.message; $('importStatus').textContent = ''; }

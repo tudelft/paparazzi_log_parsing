@@ -183,8 +183,6 @@ def resolve_rows(con, rows, files, folder=""):
         row["type_ids"].sort()
         row["role_ids"].sort()
         row["roles_limited"] = bool(row["role_ids"])
-        if row["role_ids"] and not profiles.enabled():
-            row["warning"] = row["warning"] or "Person profiles are off: only administrators will see it."
         key = lookup_file(row["file"], files, folder) if row["file"] else None
         if not row["file"]:
             fail("File is required.")
@@ -207,11 +205,12 @@ def resolve_rows(con, rows, files, folder=""):
 def plan(con, rows):
     """Outcome per valid row: add, replace (an existing document with that title and group) or skip (unchanged).
     For a replace, columns left out of the header take the document's values, and the row lists what changes
-    (changes) and which limits it removes or widens (removes)."""
+    (changes), which limits it removes or widens (removes), and a fingerprint of the document values it overwrites,
+    so the commit can refuse a document edited since the preview."""
     type_names = {r[0]: r[1] for r in con.execute("SELECT id, name FROM qualification_types")}
     role_names = {r[0]: r[1] for r in con.execute("SELECT id, name FROM profile_roles")}
     for row in rows:
-        row.update(outcome=None, document_id=None, changes=[], removes=[])
+        row.update(outcome=None, document_id=None, changes=[], removes=[], fingerprint=None)
         if row["error"]:
             continue
         existing = con.execute(
@@ -246,8 +245,14 @@ def plan(con, rows):
             if old["roles_limited"] and (not row["roles_limited"] or set(row["role_ids"]) - set(old["role_ids"])):
                 row["removes"].append("roles")
             row.update(document_id=doc["id"], changes=changes, outcome="replace" if changes else "skip")
+            if changes:  # what the replace overwrites: the columns in the header and the file
+                state = {key: old[key] for column, keys in KEPT.items() if column in row["present"] for key in keys}
+                state.update(sha256=doc["sha256"], filename=doc["filename"], uploaded_at=doc["uploaded_at"])
+                row["fingerprint"] = hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
         else:
             row["outcome"] = "add"
+        if row["role_ids"] and not profiles.enabled():  # after kept roles are filled in
+            row["warning"] = row["warning"] or "Person profiles are off: only administrators will see it."
         row["qualification"] = "; ".join(type_names.get(t, "?") for t in row["type_ids"])
         row["roles"] = "; ".join(role_names.get(r, "?") for r in row["role_ids"])
     return rows
@@ -290,7 +295,8 @@ def store_preview(app, con, filename, raw):
         row["path"] = row["file_key"]
         item = {key: row.get(key) for key in PUBLIC + ("group_id", "type_ids", "role_ids", "roles_limited", "present",
                                                         "filename", "sha256", "document_id")}
-        item.update(preview_outcome=row["outcome"], preview_document_id=row["document_id"])
+        item.update(preview_outcome=row["outcome"], preview_document_id=row["document_id"],
+                    preview_fingerprint=row["fingerprint"])
         if row["file_key"] and not row["error"] and row["outcome"] != "skip":
             (stage / f"{index}.bin").write_bytes(files[row["file_key"]])
             item["staged"] = f"{index}.bin"
@@ -341,8 +347,8 @@ def commit(app, con, token, documents_dir, now):
                         row["error"] = f"Group {row['group']!r} was deleted; upload the ZIP again."
             plan(con, rows)
             for row in rows:  # for example edited, deleted, or its group renamed since the preview
-                if not row["error"] and ((row["outcome"], row["document_id"])
-                                         != (row["preview_outcome"], row["preview_document_id"])):
+                if not row["error"] and ((row["outcome"], row["document_id"], row["fingerprint"]) != (
+                        row["preview_outcome"], row["preview_document_id"], row["preview_fingerprint"])):
                     row["error"] = f"{row['title']!r} changed since the preview; upload the ZIP again."
             failed = next((row["error"] for row in rows if row["error"]), None)
             if failed:

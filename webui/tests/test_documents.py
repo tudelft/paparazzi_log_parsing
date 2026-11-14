@@ -405,6 +405,25 @@ class DocumentImportTests(AppTests):
         self.assertEqual(self.client.delete(f"/api/admin/documents/{docs['Authorisation']['id']}").status_code, 200)
         self.assertEqual(self.commit(r.json["token"]).status_code, 409)
 
+    def test_replace_refused_after_an_edit_since_the_preview(self):
+        files = {"insurance.pdf": PDF, "auth/authorisation.pdf": PDF + b"%auth", "notes.pdf": PDF + b"%notes"}
+        self.assertEqual(self.commit(self.preview(self.zip(self.MANIFEST, files)).json["token"]).status_code, 201)
+        r = self.preview(self.zip(self.MANIFEST, dict(files, **{"insurance.pdf": PDF + b"%new"})))
+        self.assertEqual([x["outcome"] for x in r.json["rows"]], ["replace", "skip", "skip"])
+        doc = {d["title"]: d for d in self.listing()["documents"]}["Insurance"]
+        self.con.execute("UPDATE users SET is_admin=1 WHERE id=3")
+        self.con.commit()
+        other = self.app.test_client()  # another administrator makes it admin-only; the row stays a replace
+        with other.session_transaction() as session:
+            session["uid"] = 3
+        self.assertEqual(other.put(f"/api/admin/documents/{doc['id']}",
+                                   json=dict(doc, admin_only=True)).status_code, 200)
+        done = self.commit(r.json["token"])
+        self.assertEqual((done.status_code, done.json["error"]),
+                         (409, "'Insurance' changed since the preview; upload the ZIP again."))
+        after = {d["title"]: d for d in self.listing()["documents"]}["Insurance"]
+        self.assertEqual((after["admin_only"], after["filename"]), (True, doc["filename"]))
+
     def test_errors_block_the_import(self):
         manifest = ("title,file,valid_until,qualification,roles,admin_only\n"
                     "Missing,gone.pdf,,,,\n"

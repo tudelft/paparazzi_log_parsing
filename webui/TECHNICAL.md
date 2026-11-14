@@ -1432,7 +1432,8 @@ date or flag, or the same title and group twice is an error and blocks the impor
 The checked preview is staged under `DOCUMENT_IMPORT_DIR` (default `<storage>/../tmp/doc-import`) for 30 minutes. `POST
 /api/admin/documents/import/commit` (`{"token"}`, same session) stores the files first, then checks every row again in
 one transaction and imports it all or nothing: when a row's outcome or document differs from the preview (edited,
-deleted, or its group renamed meanwhile) it returns 409 and imports nothing. The old files of replaced documents are
+deleted, or its group renamed meanwhile), or a replaced document's values that the import overwrites (the columns in
+the header and the file) were edited since the preview, it returns 409 and imports nothing. The old files of replaced documents are
 removed afterwards.
 
 Read-only People chips show only approved, non-expired submissions and omit the approval label;
