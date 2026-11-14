@@ -542,5 +542,5 @@ echo "Settings:  $ENV_FILE  (after editing: sudo systemctl restart flight-logs)"
 [ -n "$BACKUP_DIR" ] && echo "Backup:    $BACKUP_DIR ($BACKUP_SCHEDULE)   now: sudo systemctl start flight-logs-backup; next: systemctl list-timers flight-logs-backup.timer"
 echo "Update:    sudo bash $WEBUI/install.sh"
 if [ "$(get_setting SAML_ENABLED)" != 0 ]; then
-    echo "SAML:      register $PUBLIC_URL/saml/metadata with TU Delft ICT (middleware-ictfm@tudelft.nl) if not done yet"
+    echo "SAML:      register $PUBLIC_URL/saml/metadata with TU Delft ICT (contact: see the IdP metadata) if not done yet"
 fi

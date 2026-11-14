@@ -115,7 +115,7 @@ class CatalogImportTests(AppTests):
         # Same header and quoting as logbooks/places.csv in SVN.
         text = ("place,lat,lon,radius_m,indoor,timezone,log_names,source,confirmed\n"
                 "Field,52.1,4.4,500,no,Europe/Amsterdam,Field,estimate,no\n"
-                "Hall,51.99,4.37,50,yes,Europe/Amsterdam,H;Hall,\"survey, 22 Oct 2026\",yes\n"
+                "Hall,45.99,6.37,50,yes,Europe/Amsterdam,H;Hall,\"survey, 22 Oct 2026\",yes\n"
                 "'t Hill,-27.27,151.29,500,no,Australia/Brisbane,t Hill,estimate,no\n")
         before = self.places()
         preview = self.upload_places(text, preview=True)
@@ -126,7 +126,7 @@ class CatalogImportTests(AppTests):
         response = self.upload_places(text)
         self.assertEqual((response.json["created"], response.json["updated"], response.json["unchanged"]), (2, 1, 0))
         places = self.places()
-        self.assertEqual(places["Hall"], (1, {"type": "circle", "center": [51.99, 4.37], "radius_m": 50.0}))
+        self.assertEqual(places["Hall"], (1, {"type": "circle", "center": [45.99, 6.37], "radius_m": 50.0}))
         self.assertEqual(places["Field"][1]["radius_m"], 500.0)
         self.assertEqual(self.con.execute("SELECT id FROM places WHERE name='Field'").fetchone()[0], 1)
         again = self.upload_places(text)
