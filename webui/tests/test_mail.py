@@ -92,6 +92,7 @@ class MailTests(AppTests):
         self.assertEqual(r["mailed_to"], "newbie@example.org")
         msg, = self.send()
         self.assertIn(r["setup_url"], msg.get_body(("plain",)).get_content())
+        self.assertIn("Your username, to sign in with afterwards: newbie", msg.get_body(("plain",)).get_content())
         self.assertTrue(r["setup_url"].startswith("https://logs.example.org/setup/"))
         self.assertIsNone(self.client.post(f"/api/admin/users/{r['id']}/setup-link", json={}).json["mailed_to"])
         self.assertEqual(self.send(), [])
