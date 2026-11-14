@@ -525,7 +525,7 @@ CREATE TABLE IF NOT EXISTS documents (
     title TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     group_id INTEGER REFERENCES document_groups(id),  -- NULL: shown above the groups
-    type_id INTEGER REFERENCES qualification_types(id) ON DELETE SET NULL,  -- qualification needed to see it
+    type_id INTEGER REFERENCES qualification_types(id) ON DELETE SET NULL,  -- no longer read or written: see document_qualification_types
     admin_only INTEGER NOT NULL DEFAULT 0 CHECK(admin_only IN (0,1)),        -- only administrators see it
     roles_limited INTEGER NOT NULL DEFAULT 0 CHECK(roles_limited IN (0,1)),  -- only the roles in document_profile_roles
     sort_order INTEGER NOT NULL DEFAULT 0,
@@ -538,6 +538,11 @@ CREATE TABLE IF NOT EXISTS documents (
     uploaded_at TEXT NOT NULL,
     valid_from TEXT,                   -- YYYY-MM-DD; NULL: no start; before it only administrators see it
     valid_until TEXT                   -- YYYY-MM-DD; NULL: no end; after it only administrators see it
+);
+CREATE TABLE IF NOT EXISTS document_qualification_types (  -- a person needs one of these current qualifications
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    type_id INTEGER NOT NULL REFERENCES qualification_types(id) ON DELETE CASCADE,
+    PRIMARY KEY (document_id, type_id)
 );
 CREATE TABLE IF NOT EXISTS document_profile_roles (  -- profile roles that may see a document (with roles_limited=1)
     document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -663,6 +668,8 @@ def user_by_name(con, name):
 def init(path):
     con = connect(path)
     new_profile_lists = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='profile_roles'").fetchone() is None
+    new_document_types = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='document_qualification_types'").fetchone() is None
     con.executescript(SCHEMA)
     if new_profile_lists:  # default lists once, when the tables are created; admins edit them afterwards
         import profiles
@@ -703,6 +710,12 @@ def init(path):
     for col in ("valid_from", "valid_until"):
         if col not in document_cols:
             con.execute(f"ALTER TABLE documents ADD COLUMN {col} TEXT")
+    if new_document_types:
+        # one qualification per document (documents.type_id) became a list: copy it once, when the table is created.
+        # The old column is left as it was (never read again), so going back to an older release keeps the limits.
+        con.execute("INSERT OR IGNORE INTO document_qualification_types(document_id, type_id)"
+                    " SELECT id, type_id FROM documents"
+                    " WHERE type_id IS NOT NULL AND type_id IN (SELECT id FROM qualification_types)")
     if "address" not in {r["name"] for r in con.execute("PRAGMA table_info(cli_logins)")}:
         con.execute("ALTER TABLE cli_logins ADD COLUMN address TEXT")
     if "sort_order" not in type_cols:
@@ -909,7 +922,7 @@ LOGBOOK_UNRELATED = {
     "api_keys", "cli_logins", "drone_requests", "password_setup_tokens", "ingest", "bulk_reservations", "weather_cache",
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
     "training_progress", "training_briefers", "booking_things", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
-    "document_settings", "document_groups", "documents", "document_profile_roles",
+    "document_settings", "document_groups", "documents", "document_profile_roles", "document_qualification_types",
     "mail_outbox", "mail_prefs", "mail_sent_keys",
     "profile_roles", "profile_departments", "user_profiles", "user_supervisors", "logbook_version",
 }

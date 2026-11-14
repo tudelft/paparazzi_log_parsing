@@ -1389,8 +1389,10 @@ submissions valid today, with evidence `view`/`download` links when there is a f
 and, for admins, `types` (all, with `active`, so a limit to a type that was deactivated later stays in the edit
 dialog), `profiles` (person profiles on), `roles` (`profile_roles`) and `max_bytes`.
 
-Admins see every document. Anyone else must meet every limit set on it: `admin_only` (administrators only); `type_id`
-(a current approved qualification of that type, as for agenda items); `roles_limited` with the roles in
+Admins see every document. Anyone else must meet every limit set on it: `admin_only` (administrators only); `type_ids`
+(`document_qualification_types`: a current approved qualification of one of these types, for example A1/A3, A2 or
+STS; the old single `documents.type_id` is copied there once, when the table is created, and is no longer read or written; a request
+that still sends `type_id` gets 400); `roles_limited` with the roles in
 `document_profile_roles` (the person's profile role, `profiles.py`). Role limits fail closed: with
 `LOGDB_PERSON_PROFILE` off, or when every chosen role was removed from the profile lists, only admins see the document.
 A document with `valid_from`/`valid_until` (both optional, `YYYY-MM-DD`) is hidden from everyone but admins outside
@@ -1400,9 +1402,9 @@ Files are stored under `<LOG_DIR>/documents` (mode 0700; gzip when it saves at l
 as Documents on Statistics) and served by `GET /api/documents/<id>/view` (inline, only the safe types of flight
 attachments) and `/download`. Admins: `PUT /api/admin/documents/intro`, `POST|PUT|DELETE
 /api/admin/document-groups[/<id>]` (a group that still holds documents cannot be deleted), `POST /api/admin/documents`
-(multipart: `file`, `title`, `description`, `group_id`, `type_id`, `admin_only`, `roles_limited`, `role_ids`
+(multipart: `file`, `title`, `description`, `group_id`, `type_ids` repeated, `admin_only`, `roles_limited`, `role_ids`
 repeated, `sort_order`, `valid_from`, `valid_until`), `PUT /api/admin/documents/<id>` (the same fields without the
-file, as JSON; `role_ids` a list), `POST /api/admin/documents/<id>/file` (multipart `file`, optional `valid_from` and
+file, as JSON; `role_ids` and `type_ids` lists), `POST /api/admin/documents/<id>/file` (multipart `file`, optional `valid_from` and
 `valid_until`: replaces the file, for example a renewed certificate, sets the dates that are sent and keeps the other
 fields) and `DELETE` (also removes the file). For example, with an admin's key in `$KEY`:
 
