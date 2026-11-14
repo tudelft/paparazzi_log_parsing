@@ -327,7 +327,7 @@ def queue_reminders(con, today=None):
         step = min(d for d in REMIND_DAYS if days <= d)
         remind(con, q["user_id"], f"Your {q['name']} expires on {q['valid_until']}",
                f"Your {q['name']} is valid until {q['valid_until']} ({days} day{'s' * (days != 1)} from now). "
-               "Upload the renewed one in My account so you can keep flying and booking.",
+               "Upload the renewed one in My account.",
                "/account?tab=qualifications", f"expiry:q{q['id']}:{q['valid_until']}:{step}",
                f"{q['name']} expires on {q['valid_until']}")
     if env("PERSON_PROFILE") == "1":
