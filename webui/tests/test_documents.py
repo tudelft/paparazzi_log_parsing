@@ -120,6 +120,12 @@ class DocumentTests(AppTests):
         self.sign_in(1)
         self.assertEqual(self.client.put(f"/api/admin/documents/{did}", json={"title": "x", "type_ids": sts})
                          .status_code, 400)
+        r = self.client.put(f"/api/admin/documents/{did}", json={"title": "x", "type_id": sts})  # old field: refused
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post("/api/admin/documents", content_type="multipart/form-data",
+                             data={"title": "Old", "type_id": str(sts), "file": (io.BytesIO(PDF), "old.pdf")})
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual([d["type_ids"] for d in self.listing()["documents"]], [[sts]])
 
     def test_single_qualification_moves_to_the_list(self):
         db = self.ns["db"]
@@ -127,15 +133,19 @@ class DocumentTests(AppTests):
             path = os.path.join(folder, "old.db")
             db.init(path)
             con = db.connect(path)
+            con.execute("DROP TABLE document_qualification_types")  # as before the list
             con.execute("INSERT INTO qualification_types(id,name,requires_evidence) VALUES (7,'A1/A3',0)")
             con.execute("INSERT INTO documents(id,title,type_id,filename,stored_path,size_bytes,sha256,uploaded_at)"
                         " VALUES (1,'Insurance',7,'a.pdf','x',1,'s','now')")  # as stored before the list
             con.commit()
             db.init(path)
-            db.init(path)  # idempotent
             self.assertEqual([tuple(r) for r in con.execute("SELECT document_id, type_id FROM document_qualification_types")],
                              [(1, 7)])
-            self.assertIsNone(con.execute("SELECT type_id FROM documents WHERE id=1").fetchone()[0])
+            self.assertEqual(con.execute("SELECT type_id FROM documents WHERE id=1").fetchone()[0], 7)  # for a rollback
+            con.execute("DELETE FROM document_qualification_types")  # the limit is removed later
+            con.commit()
+            db.init(path)  # copied once only: the old column does not bring it back
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM document_qualification_types").fetchone()[0], 0)
             con.close()
 
     def test_own_qualifications(self):

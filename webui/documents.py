@@ -340,6 +340,8 @@ def register(app, connection, root, pages_dir):
         """Multipart form: file, title, description, group_id, type_ids (repeated), admin_only, roles_limited, role_ids
         (repeated), sort_order, valid_from, valid_until."""
         admin()
+        if "type_id" in request.form:
+            raise DocumentError("type_id is replaced by type_ids (repeated).")
         cid = connection()
         fields, role_list, type_list = document_fields(cid, request.form, request.form.getlist("role_ids"),
                                                        request.form.getlist("type_ids"))
@@ -363,6 +365,8 @@ def register(app, connection, root, pages_dir):
         admin()
         cid = connection()
         body = request.get_json(silent=True) or {}
+        if "type_id" in body:
+            raise DocumentError("type_id is replaced by type_ids (a list).")
         roles, types = body.get("role_ids") or [], body.get("type_ids") or []
         if not isinstance(roles, list) or not isinstance(types, list):
             raise DocumentError("role_ids and type_ids must be lists.")

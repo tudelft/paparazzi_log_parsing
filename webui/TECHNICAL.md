@@ -1391,7 +1391,8 @@ dialog), `profiles` (person profiles on), `roles` (`profile_roles`) and `max_byt
 
 Admins see every document. Anyone else must meet every limit set on it: `admin_only` (administrators only); `type_ids`
 (`document_qualification_types`: a current approved qualification of one of these types, for example A1/A3, A2 or
-STS; the old single `documents.type_id` is moved there by the migration and stays empty); `roles_limited` with the roles in
+STS; the old single `documents.type_id` is copied there once, when the table is created, and is no longer read or written; a request
+that still sends `type_id` gets 400); `roles_limited` with the roles in
 `document_profile_roles` (the person's profile role, `profiles.py`). Role limits fail closed: with
 `LOGDB_PERSON_PROFILE` off, or when every chosen role was removed from the profile lists, only admins see the document.
 A document with `valid_from`/`valid_until` (both optional, `YYYY-MM-DD`) is hidden from everyone but admins outside
