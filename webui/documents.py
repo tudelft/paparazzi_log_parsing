@@ -12,8 +12,8 @@ A document can have a validity (valid_from / valid_until, both optional): outsid
 marked, so for example last year's insurance certificate never shows. Replacing the file can set new dates at once.
 Every signed-in person also sees their own current approved qualifications, with links to the evidence file when
 there is one, and a link to My account to add or renew them.
-API keys work on every route: any key reads (list, view, download), an administrator's key that is not read-only
-also manages documents and groups (for example an upload of the renewed insurance certificate by a script).
+Any API key reads (list, view, download). Managing documents, groups and the text (every /api/admin/ route here)
+needs a browser session, so a leaked administrator's key cannot change or delete documents (issue 235).
 """
 import datetime
 import os
@@ -164,6 +164,8 @@ def register(app, connection, root, pages_dir):
         signed_in()
         if not g.user["is_admin"]:
             raise DocumentError("Administrator access required.", 403)
+        if g.via_key:
+            raise DocumentError("Managing documents needs a signed-in browser; API keys can only read them.", 403)
 
     def document_row(cid, doc_id):
         row = cid.execute(DOCUMENT_SQL + " WHERE d.id=?", (doc_id,)).fetchone()
