@@ -13,22 +13,59 @@
   header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
   header h1 { margin:0; font-size:18px; }
   header .meta { color:#9fb0c3; font-size:12px; }
-  main { width:100%; max-width:960px; margin:0 auto; padding:16px 12px 20px; }
+  main { max-width:none; width:100%; margin:0; padding:16px 12px 20px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; }
   .card h2 { margin:0 0 4px; font-size:16px; display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; }
   .text { white-space:pre-wrap; margin:0 0 4px; }
-  .doc { display:flex; flex-direction:column; gap:2px; padding:8px 10px; margin-top:8px; border:1px solid var(--line);
-    border-left:4px solid var(--acc); border-radius:6px; }
-  .doc a { color:var(--acc); text-decoration:none; }
-  .doc a:hover, .doc a:focus-visible { text-decoration:underline; text-underline-offset:3px; }
-  .doc a.name { font-weight:600; }
-  .doc .sub { font-size:12px; color:var(--mute); }
+  /* title row: title, count, search, then Help (its text opens as a popover so the row stays one line) */
+  main .section-heading { display:flex; align-items:center; gap:10px; flex-wrap:wrap; position:relative; }
+  main .section-heading > h2 { float:none; margin:0; }
+  #count { color:var(--mute); }
+  #q { flex:0 1 260px; min-width:0; }
+  main .section-heading > details { margin-left:auto; }
+  main .section-heading > details[open] > :not(summary) { position:absolute; right:0; top:100%; z-index:5; max-width:min(560px, 100%);
+    background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 12px; box-shadow:0 4px 14px rgba(0,0,0,.25); }
+  .page-tabs { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+  .page-tabs::-webkit-scrollbar { display:none; }
+  .page-tabs [role="tab"] { white-space:nowrap; flex:none; }
+  /* groups flow into columns on wide screens; one row per document */
+  .flow { column-width:560px; column-gap:28px; }
+  .grp { break-inside:avoid; margin:0 0 16px; }
+  .grp h3 { margin:0; font-size:14px; display:flex; gap:6px; align-items:baseline; padding:2px 0 4px; border-bottom:1px solid var(--line); }
+  .grp h3 .n { color:var(--mute); font-weight:400; }
+  .grp h3 .tools { font-weight:400; font-size:12px; align-self:center; }
+  .grp h3 a { font-weight:400; font-size:12px; margin-left:auto; color:var(--acc); text-decoration:none; }
+  .grp h3 a:hover { text-decoration:underline; text-underline-offset:3px; }
+  .grp .gtext { font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:4px 0 0; }
+  .r { position:relative; display:grid; grid-template-columns:34px minmax(0,auto) minmax(0,1fr) auto auto 30px; gap:0 10px;
+    align-items:center; padding:5px 2px; border-bottom:1px solid var(--line); min-height:38px; }
+  .r .ic { font-size:9px; font-weight:700; letter-spacing:.03em; color:var(--mute); border:1px solid var(--line); border-radius:4px;
+    text-align:center; padding:3px 0; }
+  .r .t { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:22em; }
+  .r a.t { color:var(--acc); text-decoration:none; }
+  .r a.t::after { content:''; position:absolute; inset:0; }  /* the whole row opens the document */
+  .r a.t:hover, .r a.t:focus-visible { text-decoration:underline; text-underline-offset:3px; }
+  .r .d { color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:13px; }
+  .r .date { font-size:12px; color:var(--mute); white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .r .date.soon { color:#b26a00; font-weight:600; }
+  html.night .r .date.soon { color:#e3a33b; }
+  .r .date.expired { color:var(--err); font-weight:600; }
+  .r .tools, .r a.dl { position:relative; z-index:1; }
+  .r a.dl { display:grid; place-items:center; width:30px; height:30px; border-radius:6px; color:var(--mute); }
+  .r a.dl:hover, .r a.dl:focus-visible { color:var(--acc); background:var(--sec); }
+  @media (max-width:700px) {
+    main { padding:10px 8px; }
+    #q { flex:1 1 100%; order:5; }
+    .r { grid-template-columns:30px minmax(0,1fr) auto 34px; grid-template-areas:"ic t tools dl" "ic d tools dl"; row-gap:1px; padding:7px 0; }
+    .r .ic { grid-area:ic; } .r .t { grid-area:t; max-width:none; } .r .d { grid-area:d; font-size:12px; }
+    .r .tools { grid-area:tools; } .r a.dl { grid-area:dl; width:34px; height:34px; }
+    .r .date { display:none; }
+    .r .date.soon, .r .date.expired { display:inline; grid-area:d; justify-self:end; background:var(--card); padding-left:6px; }
+  }
   .none { color:var(--mute); margin:8px 0 0; }
-  .tools { margin-left:auto; display:flex; gap:6px; }
+  .tools { display:flex; gap:6px; }
   body:not(.editing) .edit-only { display:none !important; }
   .actions { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 10px; }
-  .group-text { margin:0 0 4px; color:var(--mute); }
-  h3 .tools { font-weight:400; font-size:13px; }
   fieldset { border:1px solid var(--line); border-radius:6px; margin:8px 0; padding:6px 10px 8px; }
   fieldset legend { font-size:13px; color:var(--mute); padding:0 4px; }
   label.check { display:flex; gap:6px; align-items:center; font-size:13px; }
@@ -61,8 +98,8 @@
 <main>
   <div id="err"></div>
   <section class="card">
-    <div class="section-heading"><h2>Documents</h2>
-    <details><summary>Help</summary><p>Shared documents, for example the ones to show when you are asked for them in the field, and your own licences and qualifications. Pick a group in the tabs, or All for everything you may see. A document opens in a new tab; download saves it. Some documents are only for administrators, for people with a current qualification of one of some types, or for some profile roles (when person profiles are on): you see a document only when you meet every limit set on it; administrators see all. My qualifications lists your own approved qualifications that are valid today; add or renew them in My account. Administrators set the text at the top, groups and documents in Edit mode; Edit on a document also replaces its file, for example a renewed certificate.</p></details></div>
+    <div class="section-heading"><h2>Documents</h2><span id="count"></span><input type="search" id="q" placeholder="Search documents" aria-label="Search documents">
+    <details><summary>Help</summary><p>Shared documents, for example the ones to show when you are asked for them in the field, and your own licences and qualifications. Pick a group in the tabs, or All for everything you may see. Search finds documents by title, text or file name. A click on a document opens it in a new tab; the arrow saves it. Hover over a document for its full text and file name; the date is its expiry (orange within 60 days) or, without one, its release date. Some documents are only for administrators, for people with a current qualification of one of some types, or for some profile roles (when person profiles are on): you see a document only when you meet every limit set on it; administrators see all. My qualifications lists your own approved qualifications that are valid today; add or renew them in My account. Administrators set the text at the top, groups and documents in Edit mode; Edit on a document also replaces its file, for example a renewed certificate.</p></details></div>
     <p class="text" id="intro"></p>
     <div class="actions edit-only">
       <button type="button" class="sec" onclick="editIntro()">Edit text at the top</button>
@@ -139,26 +176,47 @@ function limitsText(d) {
     : 'roles: none left (administrators only)');
   return parts.length ? 'visible ' + parts.join(' and ') : '';
 }
-function validityText(d) {
-  if (!d.valid_from && !d.valid_until) return '';
-  return 'valid ' + (d.valid_from ? 'from ' + d.valid_from + ' ' : '') + (d.valid_until ? 'until ' + d.valid_until : '');
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const longDate = s => { const [y, m, d] = s.split('-'); return `${+d} ${MONTHS[m - 1]} ${y}`; };
+const today = () => new Date().toLocaleDateString('sv');
+// the date shown on a row: the expiry (orange within 60 days, red when past), or else the release date
+function dateInfo(from, until, current = true) {
+  if (!current) return until && until < today() ? {text: 'expired ' + longDate(until), cls: 'expired', tip: 'Only administrators see it'}
+    : {text: 'from ' + longDate(from), cls: 'expired', tip: 'Not valid yet: only administrators see it'};
+  if (until) {
+    const days = (new Date(until) - new Date(today())) / 864e5;
+    return {text: 'until ' + longDate(until), cls: days < 0 ? 'expired' : days <= 60 ? 'soon' : '', tip: ''};
+  }
+  return {text: from ? longDate(from) : '', cls: '', tip: ''};
+}
+const kind = f => (String(f || '').split('.').pop() || '').slice(0, 4).toUpperCase();
+const DOWNLOAD_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 1.5v8.2m0 0L4.8 6.5M8 9.7l3.2-3.2M2.5 11.5v2h11v-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+let query = '';
+const matches = (...fields) => !query || fields.join(' ').toLowerCase().includes(query);
+const docMatches = d => matches(d.title, d.description, d.filename);
+const qualMatches = q => matches(q.type, q.number);
+function rowHTML({kindText, title, href, text, date, tip, tools = '', download, downloadName}) {
+  const name = href ? `<a class="t" href="${esc(href)}" target="_blank" rel="noopener" title="${esc(tip)}">${esc(title)}</a>`
+    : `<span class="t" title="${esc(tip)}">${esc(title)}</span>`;
+  return `<div class="r"><span class="ic">${esc(kindText)}</span>${name}<span class="d">${text}</span>`
+    + `<span class="date ${date.cls}" title="${esc(date.tip)}">${esc(date.text)}</span><span class="tools">${tools}</span>`
+    + (download ? `<a class="dl" href="${esc(download)}" title="Download ${esc(downloadName)}" aria-label="Download ${esc(downloadName)}">${DOWNLOAD_ICON}</a>`
+      : '<span></span>') + '</div>';
 }
 function docHTML(d) {
-  const link = d.viewable ? d.view : d.download;
-  const sub = [editing() ? limitsText(d) : '', esc(d.filename), `<a href="${esc(d.download)}">download</a>`]
-    .filter(Boolean).join(' · ');
-  const outdated = d.current ? '' : ` <span style="color:var(--err)" title="Only administrators see it">(${
-    d.valid_until && d.valid_until < new Date().toLocaleDateString('sv') ? 'expired' : 'not valid yet'})</span>`;
-  return `<div class="doc"><span style="display:flex;gap:8px"><a class="name" href="${esc(link)}" target="_blank" rel="noopener" title="${esc(validityText(d))}">${esc(d.title)}</a>${outdated}`
-    + `<span class="tools edit-only"><button type="button" class="sec" onclick="editDocument(${d.id})">Edit</button></span></span>`
-    + (d.description ? `<span class="text">${esc(d.description)}</span>` : '')
-    + `<span class="sub">${sub}</span></div>`;
+  const date = dateInfo(d.valid_from, d.valid_until, d.current);
+  const limits = editing() ? limitsText(d) : '';
+  return rowHTML({kindText: kind(d.filename), title: d.title, href: d.viewable ? d.view : d.download,
+    text: [limits && `<i>${limits}</i>`, esc(d.description || '')].filter(Boolean).join(' · '), date,
+    tip: [d.title, d.description, d.filename, date.text].filter(Boolean).join('\n'),
+    tools: `<button type="button" class="sec edit-only" onclick="editDocument(${d.id})">Edit</button>`,
+    download: d.download, downloadName: d.filename});
 }
 function ownHTML(q) {
-  const sub = [q.number ? 'No. ' + esc(q.number) : '', q.valid_until ? 'valid until ' + esc(q.valid_until) : 'no expiry date',
-    q.download ? `<a href="${esc(q.download)}">download</a>` : 'no document'].filter(Boolean).join(' · ');
-  const name = q.view ? `<a class="name" href="${esc(q.view)}" target="_blank" rel="noopener">${esc(q.type)}</a>` : `<b>${esc(q.type)}</b>`;
-  return `<div class="doc">${name}<span class="sub">${sub}</span></div>`;
+  const date = q.valid_until ? dateInfo(null, q.valid_until) : {text: 'no expiry date', cls: '', tip: ''};
+  return rowHTML({kindText: 'QUAL', title: q.type, href: q.view, text: q.number ? 'No. ' + esc(q.number) : '', date,
+    tip: [q.type, q.number && 'No. ' + q.number, q.download ? '' : 'no document'].filter(Boolean).join('\n'),
+    download: q.download, downloadName: q.type});
 }
 const docsOf = id => data.documents.filter(d => d.group_id === id);
 // Tabs: All, General (documents without a group), one per group, My qualifications. Empty ones only in Edit mode.
@@ -173,42 +231,50 @@ function tabList() {
   tabs.push(['mine', 'My qualifications', data.qualifications.length]);
   return tabs;
 }
-function docsHTML(docs, empty) {
-  return docs.length ? docs.map(docHTML).join('') : `<p class="none">${empty}</p>`;
+function groupHTML(name, text, rows, tools, empty) {
+  return `<section class="grp"><h3>${esc(name)} <span class="n">${rows.length}</span>${tools}</h3>`
+    + (text ? `<p class="gtext" title="${esc(text)}">${esc(text)}</p>` : '')
+    + (rows.length ? rows.join('') : `<p class="none">${empty}</p>`) + '</section>';
 }
-function groupHTML(g, heading) {
-  const docs = docsOf(g.id);
-  const tools = `<span class="tools edit-only"><button type="button" class="sec" onclick="editGroup(${g.id})">Edit group</button></span>`;
-  return (heading ? `<h3 style="display:flex;gap:8px">${esc(g.name)}${tools}</h3>` : `<div class="actions edit-only">${tools}</div>`)
-    + (g.description ? `<p class="text group-text">${esc(g.description)}</p>` : '')
-    + docsHTML(docs, 'No documents in this group.');
+// a group of documents; null is General (documents without a group). Hidden when empty, except in Edit mode without a search.
+function docGroupHTML(g, always) {
+  const docs = docsOf(g ? g.id : null).filter(docMatches);
+  if (!docs.length && !always && !(editing() && !query && g)) return '';
+  const tools = g ? `<span class="tools edit-only"><button type="button" class="sec" onclick="editGroup(${g.id})">Edit group</button></span>` : '';
+  return groupHTML(g ? g.name : 'General', g ? g.description : '', docs.map(docHTML), tools,
+    query ? 'No matching documents.' : g ? 'No documents in this group.' : 'No documents without a group.');
 }
-function mineHTML(heading) {
-  const manage = '<a href="/account" style="font-weight:400;font-size:13px">Add or renew in My account</a>';
-  return (heading ? `<h3 style="display:flex;gap:8px;align-items:baseline">My licences and qualifications ${manage}</h3>`
-    : `<p style="margin:0">${manage}</p>`)
-    + (data.qualifications.length ? data.qualifications.map(ownHTML).join('')
-      : '<p class="none">No current approved licences or qualifications.</p>');
+function mineHTML(always) {
+  const quals = data.qualifications.filter(qualMatches);
+  if (!quals.length && !always) return '';
+  return groupHTML('My qualifications', '', quals.map(ownHTML), '<a href="/account">Add or renew in My account</a>',
+    query ? 'No matching qualifications.' : 'No current approved licences or qualifications.');
 }
 function paint() {
   document.body.classList.toggle('editing', editing());
   $('intro').textContent = data.intro || '';
   $('intro').hidden = !data.intro;
+  if ($('q').value !== query) $('q').value = query;
+  const shown = data.documents.filter(docMatches).length;
+  $('count').textContent = query ? `${shown} of ${data.documents.length}` : data.documents.length;
   const tabs = tabList();
   if (!tabs.some(t => t[0] === tab)) tab = 'all';
   window.pageTabs($('tabs'), tabs, tab, choose);
   let html;
   if (tab === 'all') {
-    const groups = data.groups.filter(g => docsOf(g.id).length || editing());
-    html = (docsOf(null).length ? docsHTML(docsOf(null), '') : '')
-      + groups.map(g => groupHTML(g, true)).join('')
-      + (data.documents.length || groups.length ? '' : '<p class="none">No shared documents yet.</p>')
-      + mineHTML(true);
-  } else if (tab === 'mine') html = mineHTML(false);
-  else if (tab === 'general') html = docsHTML(docsOf(null), 'No documents without a group.');
-  else html = groupHTML(data.groups.find(g => String(g.id) === tab), false);
+    html = docGroupHTML(null, false) + data.groups.map(g => docGroupHTML(g, false)).join('') + mineHTML(false);
+    html = html ? `<div class="flow">${html}</div>`
+      : `<p class="none">${query ? 'Nothing matches your search.' : 'No shared documents yet.'}</p>`;
+  } else if (tab === 'mine') html = mineHTML(true);
+  else if (tab === 'general') html = docGroupHTML(null, true);
+  else html = docGroupHTML(data.groups.find(g => String(g.id) === tab), true);
   $('content').innerHTML = html;
 }
+$('q').oninput = e => {
+  query = e.target.value.trim().toLowerCase();
+  window.viewState.save();
+  if (data) paint();
+};
 function choose(key) {
   tab = key;
   window.viewState.save(true);
@@ -328,8 +394,9 @@ async function removeDocument() {
   if (confirm('Delete this document and its file?') && await send(`/api/admin/documents/${editingId}`, 'DELETE', {}, 'docError'))
     $('docDialog').close();
 }
-window.viewState.setup(p => { tab = p.get('tab') || 'all'; }, p => {
+window.viewState.setup(p => { tab = p.get('tab') || 'all'; query = (p.get('q') || '').trim().toLowerCase(); }, p => {
   window.viewState.set(p, 'tab', tab === 'all' ? '' : tab, '');
+  window.viewState.set(p, 'q', query, '');
 }, () => { if (data) paint(); });
 window.addEventListener('editchange', () => { if (data) paint(); });
 fetch('/api/me').then(r => r.json()).then(d => {
