@@ -47,11 +47,11 @@ aviation authority, so every one of these links must keep working in every relea
 | `/people` | People (personnel and qualifications) |
 | `/aircraft` | Aircraft (fleet) |
 | `/training` | Training |
-| `/safety` | Safety: reporting forms (page to be made; the OM links it from its next release) |
+| `/safety` | Safety: reporting forms (plus safety board and safety promotion for admins; the OM links it from its next release) |
 
 - Never rename, move or remove these paths, and never let them fail for a signed-in user. They must work
-  without a query string (filters stay optional). The feature switches behind two of them
-  (`LOGDB_DOCUMENTS`, `LOGDB_TRAINING`) stay on in production; so does any switch added for `/safety`.
+  without a query string (filters stay optional). The feature switches behind three of them
+  (`LOGDB_DOCUMENTS`, `LOGDB_TRAINING`, `LOGDB_SAFETY`) stay on in production.
 - The OM defines these links in one place: the `\logbook[...]` command in `settings.tex` of the OM sources
   (MAVLab flight operations). The OM uses no other path of this server. A new OM link is first agreed there,
   then added to this list.

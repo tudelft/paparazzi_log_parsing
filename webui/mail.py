@@ -32,7 +32,7 @@ KINDS = {
                  "requests to decide.", ("immediate", "daily", "off"), "immediate", False),
     "expiry_all": ("Others' expiry reminders", "A copy of everyone's expiry reminders (30 and 7 days before).",
                    ("off", "immediate", "daily"), "off", True),
-    "admin": ("Administrator notices", "Qualifications waiting for approval and logs that failed to parse.",
+    "admin": ("Administrator notices", "Qualifications waiting for approval, new safety reports and logs that failed to parse.",
               ("immediate", "daily", "off"), "immediate", True),
     "access_copy": ("Training access requests", "A copy of the access request mails sent after a training pass.",
                     ("off", "immediate", "daily"), "off", True),

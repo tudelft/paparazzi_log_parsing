@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Safety</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --err:#cf222e; --ok:#1a7f37; --warn:#9a6700; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
+  main { width:100%; max-width:960px; margin:0 auto; padding:16px 12px 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; }
+  .card h2 { margin:0 0 4px; font-size:16px; }
+  h3 { font-size:15px; margin:16px 0 6px; }
+  .text { white-space:pre-wrap; margin:0 0 8px; }
+  .item { display:flex; flex-direction:column; gap:2px; padding:8px 10px; margin-top:8px; border:1px solid var(--line);
+    border-left:4px solid var(--acc); border-radius:6px; }
+  .item.danger { border-left-color:var(--warn); }
+  .item.incident, .item.accident { border-left-color:var(--err); }
+  .item.past { border-left-color:var(--line); }
+  .item .top { display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; }
+  .item .sub { font-size:12px; color:var(--mute); }
+  .item a { color:var(--acc); }
+  .tag { font-size:12px; padding:0 6px; border-radius:10px; border:1px solid var(--line); }
+  .tag.new { color:var(--err); border-color:var(--err); }
+  .tag.investigating { color:var(--warn); border-color:var(--warn); }
+  .tag.closed { color:var(--ok); border-color:var(--ok); }
+  .tools { margin-left:auto; display:flex; gap:6px; }
+  .none { color:var(--mute); margin:8px 0 0; }
+  body:not(.editing) .edit-only { display:none !important; }
+  .actions { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 10px; }
+  .defs { font-size:13px; margin:0 0 10px; display:grid; grid-template-columns:max-content 1fr; gap:2px 10px; }
+  .defs dt { font-weight:600; }
+  .defs dd { margin:0; }
+  button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button.sec { background:var(--sec); color:var(--txt); }
+  button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
+  a.button { display:inline-block; text-decoration:none; background:var(--sec); color:var(--txt); border-radius:6px; padding:4px 10px; }
+  input, select, textarea { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--txt); }
+  input[type=checkbox] { padding:0; }
+  textarea { min-height:70px; resize:vertical; }
+  label.field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
+  label.field > input, label.field > select, label.field > textarea { font-size:14px; }
+  label.check { display:flex; gap:6px; align-items:center; font-size:13px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:560px) { .two { grid-template-columns:1fr; } }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .mute { color:var(--mute); }
+  .chips { display:flex; flex-wrap:wrap; gap:4px; margin:4px 0; }
+  .chip { display:inline-flex; gap:4px; align-items:center; border:1px solid var(--line); border-radius:12px; padding:0 4px 0 8px; font-size:13px; }
+  .chip button { background:none; color:var(--mute); padding:0 4px; }
+  #err { color:var(--err); margin-bottom:8px; }
+  #err:empty { display:none; }
+  [hidden] { display:none !important; }
+  #print { display:none; }
+  @media print {
+    body > *:not(#print) { display:none !important; }
+    #print { display:block; color:#000; font:12pt/1.5 system-ui, sans-serif; }
+    #print h1 { font-size:18pt; margin:0 0 4pt; }
+    #print .line { border-bottom:1px solid #000; height:22pt; margin:0 0 2pt; display:flex; align-items:flex-end; }
+    #print .line span { font-size:10pt; padding-right:6pt; }
+    #print .row .line { flex:1; }
+    #print .box { border:1px solid #000; height:200pt; margin:6pt 0; }
+    #print .pre { white-space:pre-wrap; margin:0 0 8pt; }
+  }
+</style>
+</head>
+<body data-edit="admin">
+<header>
+  <h1>Safety</h1>
+  <span class="meta" id="nav"></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <div id="err"></div>
+  <section class="card">
+    <div class="section-heading"><h2>Safety</h2>
+    <details><summary>Help</summary><p>Reporting: report a danger, incident or accident with the registration form, or print a blank copy. You see your own reports and their status; administrators see all reports, get a notice of each new one and keep the investigation where the organisation stores it (the reference on a report). Tick Confidential to leave your name out of the notice. Safety board and Safety promotion are for administrators: the schedule of safety board meetings, the safety promotion programme and the safety meetings held, each with its attendance list. Administrators change the texts and the documents link in Edit mode.</p></details></div>
+    <div class="page-tabs" id="tabs" aria-label="Safety sections" hidden></div>
+    <div id="content"><span class="mute">Loading…</span></div>
+  </section>
+</main>
+
+<dialog class="entry-dialog" id="reportDialog" aria-labelledby="reportTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="reportForm">
+    <div class="dialog-header"><h2 id="reportTitle">Danger, incident or accident report</h2><button type="button" class="sec" onclick="$('reportDialog').close()">Close</button></div>
+    <div class="two">
+      <label class="field">Type<select name="kind" required><option value="danger">Danger</option><option value="incident">Incident</option><option value="accident">Accident</option></select></label>
+      <label class="field">Date and time<input name="occurred_at" type="datetime-local" required></label>
+      <label class="field">Pilot in command<input name="pic" maxlength="200"></label>
+      <label class="field">Aircraft (RPAS)<input name="rpas" maxlength="200"></label>
+      <label class="field">Location<input name="location" required maxlength="200"></label>
+      <label class="field">Flight phase<input name="flight_phase" maxlength="200" list="phases" placeholder="e.g. take-off"></label>
+    </div>
+    <datalist id="phases"><option value="Pre-flight"><option value="Take-off"><option value="In flight"><option value="Hover"><option value="Landing"><option value="Post-flight"><option value="On the ground (not flying)"></datalist>
+    <label class="field">Conditions (weather, light, surroundings)<input name="conditions" maxlength="1000"></label>
+    <label class="field">Description: what happened, what was done, what could prevent it<textarea name="description" required rows="6" maxlength="5000"></textarea></label>
+    <label class="field">Situation sketch or photo (optional; PDF, JPEG or PNG, up to 20 MiB)<input name="sketch" type="file" accept=".pdf,.jpg,.jpeg,.png"></label>
+    <label class="check"><input name="confidential" type="checkbox"> Confidential: leave my name out of the notice to administrators</label>
+    <p class="dialog-error" id="reportError" role="alert"></p>
+    <div class="row"><button type="submit">Submit report</button> <button type="button" class="sec" onclick="$('reportDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="reviewDialog" aria-labelledby="reviewTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="reviewForm">
+    <div class="dialog-header"><h2 id="reviewTitle">Follow up report</h2><button type="button" class="sec" onclick="$('reviewDialog').close()">Close</button></div>
+    <label class="field">Status<select name="status"><option value="new">New</option><option value="investigating">Investigating</option><option value="closed">Closed</option></select></label>
+    <label class="field">Reference: where the investigation and findings are kept (administrators only)<input name="reference" maxlength="500" placeholder="https://…"></label>
+    <label class="field">Note (administrators only)<textarea name="admin_note" maxlength="5000"></textarea></label>
+    <p class="dialog-error" id="reviewError" role="alert"></p>
+    <div class="row"><button type="submit">Save</button> <button type="button" class="sec" onclick="$('reviewDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="textDialog" aria-labelledby="textTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="textForm">
+    <div class="dialog-header"><h2 id="textTitle">Text</h2><button type="button" class="sec" onclick="$('textDialog').close()">Close</button></div>
+    <label class="field"><span id="textLabel">Text (plain text)</span><textarea name="text" rows="10" maxlength="5000"></textarea></label>
+    <label class="field" id="linkField">Link to the meeting documents<input name="link" maxlength="500" placeholder="https://…"></label>
+    <p class="dialog-error" id="textError" role="alert"></p>
+    <div class="row"><button type="submit">Save</button> <button type="button" class="sec" onclick="$('textDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="meetingDialog" aria-labelledby="meetingTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="meetingForm">
+    <div class="dialog-header"><h2 id="meetingTitle">Meeting</h2><button type="button" class="sec" onclick="$('meetingDialog').close()">Close</button></div>
+    <div class="two">
+      <label class="field">Date<input name="held_on" type="date" required></label>
+      <label class="field">Time<input name="start_time" type="time"></label>
+      <label class="field">Location<input name="location" maxlength="200"></label>
+      <label class="field">Topic<input name="title" maxlength="200"></label>
+    </div>
+    <label class="field">Notes<textarea name="notes" maxlength="5000"></textarea></label>
+    <fieldset style="border:1px solid var(--line);border-radius:6px;margin:8px 0;padding:6px 10px 8px">
+      <legend class="mute" style="font-size:13px">Attendance</legend>
+      <div class="chips" id="attendeeChips"></div>
+      <div class="row">
+        <select id="personPick" aria-label="Person with a logbook account"></select> <button type="button" class="sec" onclick="addPerson()">Add</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <input id="guestName" maxlength="120" placeholder="Name without an account" aria-label="Name without an account"> <button type="button" class="sec" onclick="addGuest()">Add</button>
+      </div>
+    </fieldset>
+    <p class="dialog-error" id="meetingError" role="alert"></p>
+    <div class="row"><button type="submit">Save</button> <button type="button" class="danger" id="meetingDeleteBtn" onclick="removeMeeting()">Delete</button> <button type="button" class="sec" onclick="$('meetingDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<section id="print" aria-hidden="true"></section>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let me = null, info = null, reports = [], meetings = null, editingId = null, attendees = [], meetingKind = 'board';
+let tab = 'reporting';
+const editing = () => !!(me && me.is_admin && window.editMode && window.editMode());
+const KIND = {danger: 'Danger', incident: 'Incident', accident: 'Accident'};
+const STATUS = {new: 'New', investigating: 'Investigating', closed: 'Closed'};
+const today = () => new Date().toLocaleDateString('sv');
+const when = s => esc(String(s || '').replace('T', ' '));
+
+function tabList() {
+  const tabs = [['reporting', 'Reporting', null]];
+  if (info.is_admin) tabs.push(['board', 'Safety board', null], ['promotion', 'Safety promotion', null]);
+  return tabs;
+}
+function textBlock(value, key, label) {
+  return `<p class="text"${value ? '' : ' hidden'}>${esc(value)}</p>`
+    + `<div class="actions edit-only"><button type="button" class="sec" onclick="editText('${key}')">${label}</button></div>`;
+}
+function reportHTML(r) {
+  const who = info.is_admin ? (r.reporter ? esc(r.reporter) : 'former user') + (r.confidential ? ' <span class="tag" title="Keep the name out of shared records">confidential</span>' : '') : '';
+  const parts = [r.pic ? 'PIC ' + esc(r.pic) : '', r.rpas ? esc(r.rpas) : '', r.flight_phase ? esc(r.flight_phase) : '',
+    r.conditions ? esc(r.conditions) : ''].filter(Boolean).join(' · ');
+  const ref = info.is_admin && r.reference ? (/^https?:\/\//i.test(r.reference)
+    ? `<a href="${esc(r.reference)}" target="_blank" rel="noopener">investigation</a>` : 'ref. ' + esc(r.reference)) : '';
+  const sub = [`reported ${esc(r.created_at.slice(0, 10))}`, who, r.sketch ? `<a href="/api/safety/reports/${r.id}/sketch" target="_blank" rel="noopener">sketch</a>` : '', ref]
+    .filter(Boolean).join(' · ');
+  return `<div class="item ${r.kind}"><span class="top"><b>${KIND[r.kind]}</b> <span>${when(r.occurred_at)} · ${esc(r.location)}</span>`
+    + ` <span class="tag ${r.status}">${STATUS[r.status]}</span>`
+    + (info.is_admin ? `<span class="tools"><button type="button" class="sec" onclick="review(${r.id})">Follow up</button></span>` : '') + '</span>'
+    + (parts ? `<span class="sub">${parts}</span>` : '')
+    + `<span class="text" style="margin:0">${esc(r.description)}</span>`
+    + (info.is_admin && r.admin_note ? `<span class="sub">Note: ${esc(r.admin_note)}</span>` : '')
+    + `<span class="sub">${sub}</span></div>`;
+}
+function reportingHTML() {
+  return textBlock(info.reporting_text, 'reporting_text', 'Edit reporting text')
+    + `<dl class="defs"><dt>Danger</dt><dd>Something that affects or could affect the safety of an operation (no harm done).</dd>`
+    + `<dt>Incident</dt><dd>Safety was compromised: injury, damage to others' property, people or infrastructure put at risk, or unexpected damage to the aircraft.</dd>`
+    + `<dt>Accident</dt><dd>Injury needing medical help or damage to critical infrastructure. Call the emergency services first.</dd></dl>`
+    + `<div class="actions"><button type="button" onclick="newReport()">Report a danger, incident or accident</button>`
+    + ` <button type="button" class="sec" onclick="printReportForm()">Print blank form</button></div>`
+    + `<h3>${info.is_admin ? 'All reports' : 'My reports'}</h3>`
+    + (reports.length ? reports.map(reportHTML).join('') : '<p class="none">No reports yet.</p>');
+}
+function meetingHTML(m) {
+  const past = m.held_on < meetings.today;
+  const names = m.attendees.map(a => esc(a.name) + (a.user_id ? '' : ' <span class="mute">(no account)</span>')).join(', ');
+  return `<div class="item${past ? ' past' : ''}"><span class="top"><b>${esc(m.held_on)}${m.start_time ? ' ' + esc(m.start_time) : ''}</b>`
+    + `<span>${[esc(m.title), esc(m.location)].filter(Boolean).join(' · ')}</span>`
+    + `<span class="tools"><button type="button" class="sec" onclick="editMeeting(${m.id})">${past ? 'Edit' : 'Edit or record attendance'}</button></span></span>`
+    + `<span class="sub">${m.attendees.length ? `Attended (${m.attendees.length}): ${names}` : (past ? 'No attendance recorded.' : 'Planned.')}</span>`
+    + (m.notes ? `<span class="text" style="margin:0">${esc(m.notes)}</span>` : '') + '</div>';
+}
+function meetingList(kind, upcomingLabel, heldLabel) {
+  const list = meetings.meetings.filter(m => m.kind === kind);
+  const upcoming = list.filter(m => m.held_on >= meetings.today).reverse();
+  const held = list.filter(m => m.held_on < meetings.today);
+  return `<h3>${upcomingLabel}</h3>` + (upcoming.length ? upcoming.map(meetingHTML).join('') : '<p class="none">None planned.</p>')
+    + `<h3>${heldLabel}</h3>` + (held.length ? held.map(meetingHTML).join('') : '<p class="none">None recorded yet.</p>');
+}
+function boardHTML() {
+  const link = info.board_link ? `<a class="button" href="${esc(info.board_link)}" target="_blank" rel="noopener">Meeting documents ↗</a>`
+    : '<span class="mute">No documents link set (Edit mode).</span>';
+  return textBlock(info.board_text, 'board', 'Edit text and documents link')
+    + `<div class="actions"><button type="button" onclick="editMeeting(null, 'board')">Add meeting</button>`
+    + ` <button type="button" class="sec" onclick="printBoardForm()">Print meeting form</button> ${link}</div>`
+    + meetingList('board', 'Schedule', 'Held');
+}
+function promotionHTML() {
+  return '<h3 style="margin-top:0">Safety promotion programme</h3>'
+    + (info.promotion_text ? '' : '<p class="none">No programme written yet (Edit mode).</p>')
+    + textBlock(info.promotion_text, 'promotion_text', 'Edit programme')
+    + `<div class="actions"><button type="button" onclick="editMeeting(null, 'promotion')">Add safety meeting</button></div>`
+    + meetingList('promotion', 'Planned safety meetings', 'Safety meetings held');
+}
+function paint() {
+  document.body.classList.toggle('editing', editing());
+  const tabs = tabList();
+  if (!tabs.some(t => t[0] === tab)) tab = 'reporting';
+  window.pageTabs($('tabs'), tabs, tab, choose);
+  if (tab !== 'reporting' && !meetings) { $('content').innerHTML = '<span class="mute">Loading…</span>'; return; }
+  $('content').innerHTML = tab === 'board' ? boardHTML() : tab === 'promotion' ? promotionHTML() : reportingHTML();
+}
+function choose(key) {
+  tab = key;
+  window.viewState.save(true);
+  paint();
+}
+async function getJSON(url) {
+  const r = await fetch(url);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || r.statusText);
+  return d;
+}
+async function load() {
+  info = await getJSON('/api/safety');
+  reports = (await getJSON('/api/safety/reports')).reports;
+  meetings = info.is_admin ? await getJSON('/api/admin/safety/meetings') : null;
+  paint();
+}
+async function send(url, method, body, errorBox) {
+  const isForm = body instanceof FormData;
+  const r = await fetch(url, {method, body: isForm ? body : JSON.stringify(body),
+    headers: isForm ? {} : {'Content-Type': 'application/json'}});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { $(errorBox).textContent = d.error || r.statusText; return false; }
+  await load();
+  return true;
+}
+
+// reports
+function newReport() {
+  const f = $('reportForm');
+  f.reset();
+  f.pic.value = info.me || '';
+  const now = new Date(); now.setSeconds(0, 0);
+  f.occurred_at.value = new Date(now - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  $('reportError').textContent = '';
+  $('reportDialog').showModal();
+}
+$('reportForm').onsubmit = async e => {
+  e.preventDefault();
+  const f = $('reportForm');
+  const form = new FormData(f);
+  form.set('confidential', f.confidential.checked ? '1' : '0');
+  if (!f.sketch.files.length) form.delete('sketch');
+  if (await send('/api/safety/reports', 'POST', form, 'reportError')) $('reportDialog').close();
+};
+function review(id) {
+  const r = reports.find(x => x.id === id);
+  editingId = id;
+  const f = $('reviewForm');
+  f.status.value = r.status; f.reference.value = r.reference || ''; f.admin_note.value = r.admin_note || '';
+  $('reviewTitle').textContent = `Follow up: ${KIND[r.kind]} ${r.occurred_at.slice(0, 10)}`;
+  $('reviewError').textContent = '';
+  $('reviewDialog').showModal();
+}
+$('reviewForm').onsubmit = async e => {
+  e.preventDefault();
+  const f = $('reviewForm');
+  if (await send(`/api/admin/safety/reports/${editingId}`, 'PUT',
+    {status: f.status.value, reference: f.reference.value, admin_note: f.admin_note.value}, 'reviewError')) $('reviewDialog').close();
+};
+
+// texts
+let textKey = null;
+function editText(key) {
+  textKey = key;
+  const f = $('textForm');
+  const field = key === 'board' ? 'board_text' : key;
+  f.text.value = info[field] || '';
+  f.link.value = info.board_link || '';
+  $('linkField').hidden = key !== 'board';
+  $('textTitle').textContent = {reporting_text: 'Reporting text', board: 'Safety board', promotion_text: 'Safety promotion programme'}[key];
+  $('textLabel').textContent = key === 'reporting_text' ? 'Shown above the report form and on the printed form: who to contact, where else to report (plain text)'
+    : 'Text (plain text)';
+  $('textError').textContent = '';
+  $('textDialog').showModal();
+}
+$('textForm').onsubmit = async e => {
+  e.preventDefault();
+  const f = $('textForm');
+  const body = textKey === 'board' ? {board_text: f.text.value, board_link: f.link.value} : {[textKey]: f.text.value};
+  if (await send('/api/admin/safety/settings', 'PUT', body, 'textError')) $('textDialog').close();
+};
+
+// meetings
+function paintAttendees() {
+  $('attendeeChips').innerHTML = attendees.length ? attendees.map((a, i) => `<span class="chip">${esc(a.name)}${a.user_id ? '' : ' <span class="mute">(no account)</span>'}`
+    + `<button type="button" aria-label="Remove ${esc(a.name)}" onclick="attendees.splice(${i},1);paintAttendees()">×</button></span>`).join('')
+    : '<span class="mute">Nobody recorded.</span>';
+  const taken = new Set(attendees.filter(a => a.user_id).map(a => a.user_id));
+  $('personPick').innerHTML = '<option value="">Person with an account…</option>'
+    + meetings.people.filter(p => !taken.has(p.id)).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+}
+function addPerson() {
+  const id = +$('personPick').value;
+  const p = meetings.people.find(x => x.id === id);
+  if (p) { attendees.push({user_id: p.id, name: p.name}); paintAttendees(); }
+}
+function addGuest() {
+  const name = $('guestName').value.trim();
+  if (name && !attendees.some(a => !a.user_id && a.name.toLowerCase() === name.toLowerCase())) attendees.push({user_id: null, name});
+  $('guestName').value = '';
+  paintAttendees();
+}
+$('guestName').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addGuest(); } };
+function editMeeting(id, kind) {
+  const m = meetings.meetings.find(x => x.id === id) || {kind, held_on: today(), start_time: '', location: '', title: '', notes: '', attendees: []};
+  editingId = id ?? null;
+  meetingKind = m.kind;
+  attendees = m.attendees.map(a => ({...a}));
+  const f = $('meetingForm');
+  f.held_on.value = m.held_on; f.start_time.value = m.start_time; f.location.value = m.location; f.title.value = m.title; f.notes.value = m.notes;
+  $('meetingTitle').textContent = (meetingKind === 'board' ? 'Safety board meeting' : 'Safety meeting');
+  $('meetingDeleteBtn').hidden = editingId == null;
+  $('meetingError').textContent = '';
+  paintAttendees();
+  $('meetingDialog').showModal();
+}
+$('meetingForm').onsubmit = async e => {
+  e.preventDefault();
+  const f = $('meetingForm');
+  const body = {kind: meetingKind, held_on: f.held_on.value, start_time: f.start_time.value, location: f.location.value,
+    title: f.title.value, notes: f.notes.value, attendees: attendees.map(a => a.user_id ? {user_id: a.user_id} : {name: a.name})};
+  const ok = editingId == null ? await send('/api/admin/safety/meetings', 'POST', body, 'meetingError')
+    : await send(`/api/admin/safety/meetings/${editingId}`, 'PUT', body, 'meetingError');
+  if (ok) $('meetingDialog').close();
+};
+async function removeMeeting() {
+  if (confirm('Delete this meeting and its attendance list?') && await send(`/api/admin/safety/meetings/${editingId}`, 'DELETE', {}, 'meetingError'))
+    $('meetingDialog').close();
+}
+
+// printable forms
+const line = label => `<div class="line"><span>${label ? esc(label) + ':' : ''}</span></div>`;
+function printReportForm() {
+  $('print').innerHTML = '<h1>Danger / Incident / Accident report</h1>'
+    + (info.reporting_text ? `<p class="pre">${esc(info.reporting_text)}</p>` : '')
+    + '<p>Type: ☐ Danger &nbsp; ☐ Incident &nbsp; ☐ Accident</p>'
+    + ['Pilot in command', 'Aircraft (RPAS)', 'Location', 'Date and time', 'Conditions', 'Flight phase'].map(line).join('')
+    + line('Description') + line('') + line('') + line('') + line('')
+    + '<p style="margin:8pt 0 0">Situation sketch:</p><div class="box"></div>'
+    + '<div class="row" style="display:flex;gap:40pt">' + line('Signature') + line('Date') + '</div>';
+  window.print();
+}
+function printBoardForm() {
+  $('print').innerHTML = '<h1>Safety board meeting</h1><ul>'
+    + ['Attendees', 'Previous action points', 'New danger and incident reports: mitigation measures and manual updates',
+      'Analyse mitigation measures and changes', 'Analyse new types or classes of operations', 'Safety of upcoming events', 'Action points']
+      .map(x => `<li>${x}</li>`).join('') + '</ul>'
+    + line('Attendees') + line('') + line('Location') + line('Date and time') + line('Notes') + line('') + line('') + line('') + line('') + line('') + line('');
+  window.print();
+}
+
+window.viewState.setup(p => { tab = p.get('tab') || 'reporting'; }, p => {
+  window.viewState.set(p, 'tab', tab === 'reporting' ? '' : tab, '');
+}, () => { if (info) paint(); });
+window.addEventListener('editchange', () => { if (info) paint(); });
+fetch('/api/me').then(r => r.json()).then(d => {
+  me = d.user;
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  return load();
+}).catch(e => { $('err').textContent = e.message; });
+</script>
+</body>
+</html>

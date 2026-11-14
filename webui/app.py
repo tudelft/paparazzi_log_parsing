@@ -61,6 +61,7 @@ import qualifications
 import training
 import bookings
 import documents
+import safety
 import mail
 import weather
 import mav_parse
@@ -1440,7 +1441,7 @@ def account_email_test():
 @app.get("/api/me")
 def me():
     return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION, training=env_bool("TRAINING"), bookings=env_bool("BOOKINGS"),
-                   documents=env_bool("DOCUMENTS"),
+                   documents=env_bool("DOCUMENTS"), safety=env_bool("SAFETY"),
                    can_upload=can_upload_any(conn()), person_profile=profiles.enabled(), email=mail.enabled())
 
 
@@ -7431,6 +7432,7 @@ training.register(app, lambda: conn(), DATA_DIR, session_required)
 profiles.register(app, lambda: conn(), session_required, now, PAGES_DIR)
 bookings.register(app, lambda: conn(), session_required, PAGES_DIR)
 documents.register(app, lambda: conn(), STORAGE_DIR, PAGES_DIR)
+safety.register(app, lambda: conn(), STORAGE_DIR, PAGES_DIR, session_required)
 
 
 if __name__ == "__main__" and len(sys.argv) > 1:

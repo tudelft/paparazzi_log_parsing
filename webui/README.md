@@ -245,6 +245,18 @@ have validity dates: outside them only administrators see it, so an old certific
 **My qualifications** lists your own approved qualifications that are valid today, with their documents; add or renew
 them in **My account** (see below). Rules: [technical guide](TECHNICAL.md#documents).
 
+## Safety
+
+**Safety** (optional) is where you report a danger, incident or accident: **Report a danger, incident or accident**
+opens the registration form (pilot in command, aircraft, location, date and time, conditions, flight phase,
+description and an optional sketch or photo); **Print blank form** prints a paper copy. You see your own reports and
+their status (New, Investigating, Closed). Tick **Confidential** to leave your name out of the notice to
+administrators. Administrators see all reports, **Follow up** each one (status, a reference to where the
+investigation is kept, an internal note) and have two more tabs: **Safety board** (the schedule of safety board
+meetings with attendance lists, a printable meeting form and a link to the meeting documents) and **Safety
+promotion** (the promotion programme and the safety meetings held, with who attended). The texts and the documents
+link are set in Edit mode. Rules: [technical guide](TECHNICAL.md#safety).
+
 ## Email
 
 When the server sends email, you get reminders 30 and 7 days before a qualification or your expected end date

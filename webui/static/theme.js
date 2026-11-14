@@ -491,6 +491,7 @@ window.timingEvidenceHTML = function (timing) {
   const TRAINING_KEY = 'logdbTraining';
   const BOOKINGS_KEY = 'logdbBookings';
   const DOCUMENTS_KEY = 'logdbDocuments';
+  const SAFETY_KEY = 'logdbSafety';
   const UPLOAD_KEY = 'logdbCanUpload';
   window.editMode = function () {
     try { return localStorage.getItem(EDIT_KEY) === '1'; } catch (e) { return false; }
@@ -500,7 +501,7 @@ window.timingEvidenceHTML = function (timing) {
     paintEdit();
     window.dispatchEvent(new Event('editchange'));
   };
-  // Menu: Logbook · Agenda · Training · Documents (each when enabled) · Directory ▾ (People … Logs, Statistics); Upload logs, Edit and the name menu on the right
+  // Menu: Logbook · Agenda · Training · Documents · Safety (each when enabled) · Directory ▾ (People … Logs, Statistics); Upload logs, Edit and the name menu on the right
   const DIRECTORY = [['/people', 'People'], ['/aircraft', 'Aircraft'], ['/projects', 'Projects'], ['/locations', 'Locations'],
     null, ['/logs', 'Logs'], ['/stats', 'Statistics']];
 
@@ -522,12 +523,16 @@ window.timingEvidenceHTML = function (timing) {
   function cachedDocuments() {
     try { return localStorage.getItem(DOCUMENTS_KEY) === '1'; } catch (e) { return false; }
   }
+  function cachedSafety() {
+    try { return localStorage.getItem(SAFETY_KEY) === '1'; } catch (e) { return false; }
+  }
   function currentTab() {
     const p = location.pathname;
     if (p === '/logbook' || p === '/attachments' || p === '/review' || p.startsWith('/flight/') || p.startsWith('/historical/')) return '/';
     if (p === '/training' || p.startsWith('/training/')) return '/training';
     if (p === '/agenda') return '/agenda';
     if (p === '/documents') return '/documents';
+    if (p === '/safety') return '/safety';
     for (const [tab] of DIRECTORY.filter(Boolean))
       if (p === tab || p.startsWith(tab + '/')) return tab;
     if (p === '/' || p === '') return '/';
@@ -577,6 +582,7 @@ window.timingEvidenceHTML = function (timing) {
       + (cachedBookings() ? tab('/agenda', 'Agenda') : '')
       + (cachedTraining() ? tab('/training', 'Training') : '')
       + (cachedDocuments() ? tab('/documents', 'Documents') : '')
+      + (cachedSafety() ? tab('/safety', 'Safety') : '')
       + `<button type="button" class="nav-drop${inDirectory ? ' cur' : ''}" id="directoryBtn">Directory ▾</button>`;
     let panel = document.getElementById('directoryMenu');
     if (!panel) {
@@ -777,7 +783,7 @@ window.timingEvidenceHTML = function (timing) {
   if (!/^\/(login|setup|cli-login|profile)/.test(location.pathname)) {
     fetch('/api/me').then(async r => {
       if (r.status === 401) {
-        try { localStorage.removeItem(ADMIN_KEY); localStorage.removeItem(TRAINING_KEY); localStorage.removeItem(BOOKINGS_KEY); localStorage.removeItem(DOCUMENTS_KEY); } catch (e) {}
+        try { localStorage.removeItem(ADMIN_KEY); localStorage.removeItem(TRAINING_KEY); localStorage.removeItem(BOOKINGS_KEY); localStorage.removeItem(DOCUMENTS_KEY); localStorage.removeItem(SAFETY_KEY); } catch (e) {}
         return;
       }
       if (!r.ok) throw new Error(`Could not load account and Web UI version (${r.status})`);
@@ -788,6 +794,7 @@ window.timingEvidenceHTML = function (timing) {
       setCachedTraining(!!d.training);
       try { localStorage.setItem(BOOKINGS_KEY, d.bookings ? '1' : '0'); } catch (e) {}
       try { localStorage.setItem(DOCUMENTS_KEY, d.documents ? '1' : '0'); } catch (e) {}
+      try { localStorage.setItem(SAFETY_KEY, d.safety ? '1' : '0'); } catch (e) {}
       try { localStorage.setItem(UPLOAD_KEY, d.can_upload === false ? '0' : '1'); } catch (e) {}
       paintUpload();
       paintNav();
