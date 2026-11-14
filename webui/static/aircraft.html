@@ -138,7 +138,7 @@
     <div class="fleet-toolbar"><h2 id="fleetTitle">Aircraft</h2><span class="fleet-count" id="fleetCount"></span>
       <input id="q" type="search" placeholder="Search name, serial, alias, person, project…" aria-label="Search aircraft">
       <select id="statusFilter" aria-label="Status"><option value="">All statuses</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select>
-      <label title="Only the aircraft you are the responsible person (manager) of, also those without logs"><input type="checkbox" id="mineOnly"> My drones</label>
+      <label title="Only the aircraft you are the responsible person (manager) of, also those without logs"><input type="checkbox" id="mineOnly"> My aircraft</label>
       <label title="Aircraft marked Discard stay hidden until this is ticked"><input type="checkbox" id="showDiscarded"> Discarded</label>
       <label title="Aircraft without uploaded logs or paper records stay hidden until this is ticked"><input type="checkbox" id="showWithoutLogs"> Without logs</label>
       <span class="col-menu" id="colMenu"><button type="button" class="sec" id="colButton" aria-expanded="false" aria-controls="colForm">Columns</button>
@@ -884,7 +884,7 @@ fetch('/api/me').then(r => r.json()).then(d => {
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   $('fleetHint').textContent = d.user.is_admin
     ? 'Each aircraft has a unique serial (TUDxxxxx) that stays with it if you rename it. Import the organisation CSV to add the fleet; the Project column becomes the current period on that aircraft (from Date Bought, no end date). Add more periods only for airframes that moved project. Names in the logs that differ from the nice name are aliases. Removing an aircraft keeps the logs.'
-    : 'Aircraft on a project you belong to, and the ones you are the responsible person of (My drones). Each aircraft has a unique serial (TUDxxxxx). Names in the logs that differ from the nice name are aliases.';
+    : 'Aircraft on a project you belong to, and the ones you are the responsible person of (My aircraft). Each aircraft has a unique serial (TUDxxxxx). Names in the logs that differ from the nice name are aliases.';
   $('add').hidden = !editOn();
   $('importRow').hidden = !editOn();
   loadPeople();
