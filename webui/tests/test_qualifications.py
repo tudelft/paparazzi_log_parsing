@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import time
 import zipfile
+import zlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1104,6 +1105,129 @@ class ReadEvidenceTests(AppTests):
         with patch("licence_qr.available", return_value=False), patch("qualifications.ocr_available", return_value=False):
             r = self.submit(dated_pdf(start=None, until=None))
         self.assertEqual((r.status_code, r.json["error"]), (400, "This qualification requires an expiry date."))
+
+
+    def submit_claimed(self, content, claims, **values):
+        data = {"type_id": str(self.tid), "evidence": (io.BytesIO(content), "evidence.pdf"),
+                "read_from": json.dumps(claims), **values}
+        r = self.client.post("/api/users/2/qualifications", data=data)
+        r.request.input_stream.close()
+        return r
+
+    def test_dialog_filled_values_are_audited(self):
+        # the dialog filled all three fields from the PDF text (and the number by OCR); nothing is empty on submit
+        values = dict(number="NLD-RP-0123456789ab", valid_from="2024-03-12", valid_until="2029-03-11")
+        with patch("licence_qr.available", return_value=False):
+            r = self.submit_claimed(dated_pdf(), {"number": "ocr", "valid_from": "text", "valid_until": "text"}, **values)
+        self.assertEqual(r.status_code, 201, r.json)
+        self.assertEqual(self.audit()["read_from"], {"valid_from": "text", "valid_until": "text"})  # checked here
+        self.assertEqual(self.audit()["read_unchecked"], {"number": "ocr"})  # OCR does not run on submit
+        self.assertNotIn("differs", self.audit())
+        self.client.post(f"/api/qualification-submissions/{r.json['id']}/review", json={"action": "withdraw"})
+        # a claim the server's read does not confirm is recorded as unchecked, and the difference is listed
+        with patch("licence_qr.available", return_value=False):
+            r = self.submit_claimed(dated_pdf(), {"valid_until": "text"}, **dict(values, valid_until="2030-01-01"))
+        self.assertEqual(r.status_code, 201, r.json)
+        self.assertEqual(self.audit()["read_unchecked"], {"valid_until": "text"})
+        self.assertEqual(self.audit()["differs"], ["Valid until in the document (text) is 2029-03-11, entered 2030-01-01"])
+        for bad in ("[1]", '{"number": "guess"}', '{"name": "qr"}', "not json"):
+            r = self.submit_claimed(dated_pdf(), {}, read_from=bad)
+            self.assertEqual(r.status_code, 400, bad)
+
+    def test_submit_uses_the_configured_read_time(self):
+        self.app.config["QUALIFICATION_READ_SECONDS"] = 7
+        self.addCleanup(self.app.config.pop, "QUALIFICATION_READ_SECONDS")
+        real, seen = qualifications.read_evidence, []
+
+        def spy(*args, **kwargs):
+            seen.append(kwargs.get("seconds"))
+            return real(*args, **kwargs)
+        with patch("licence_qr.available", return_value=False), patch("qualifications.read_evidence", spy):
+            self.assertEqual(self.submit(dated_pdf()).status_code, 201)
+        self.assertEqual(seen, [7])
+
+    def test_typed_valid_from_after_the_read_valid_until(self):
+        with patch("licence_qr.available", return_value=False):
+            r = self.submit(dated_pdf(), start="2030-01-01")
+        self.assertEqual((r.status_code, r.json["error"]),
+                         (400, "Valid from must be on or before Valid until (read from the evidence: Valid until 2029-03-11)."))
+
+    def test_read_endpoint_access(self):
+        self.sign_in(2)
+        with patch("licence_qr.available", return_value=False):
+            r = self.client.post("/api/users/3/qualifications/read",
+                                 data={"evidence": (io.BytesIO(dated_pdf()), "evidence.pdf")})
+            r.request.input_stream.close()
+            self.assertEqual(r.status_code, 404)
+            with self.client.session_transaction() as session:
+                session.clear()
+            token = "logdb_2" + "k" * 30
+            self.con.execute("INSERT INTO api_keys(user_id,name,key_hash,prefix,created_at,read_only)"
+                             " VALUES (2,'k',?,'logdb_','now',0)", (hashlib.sha256(token.encode()).hexdigest(),))
+            self.con.commit()
+            r = self.client.post("/api/users/2/qualifications/read", headers={"Authorization": "Bearer " + token},
+                                 data={"evidence": (io.BytesIO(dated_pdf()), "evidence.pdf")})
+            r.request.input_stream.close()
+            self.assertIn(r.status_code, (401, 403))
+
+    def test_png_qr_code_and_filtered_check_for_non_admins(self):
+        codes = ["https://vliegbewijsonbemandeluchtvaartuigencontroleren.rdw.nl/raadplegen?code=NLD-RP-abcdefgh1234"]
+        self.sign_in(2)
+        with patch("licence_qr.available", return_value=True), patch("licence_qr.read_codes", return_value=codes) as read, \
+                patch("qualifications.ocr_read", return_value=(None, b"", True)):
+            r = self.client.post("/api/users/2/qualifications/read", data={
+                "number": "NLD-RP-abcdefgh1234", "evidence": (io.BytesIO(PNG), "licence.png")})
+            r.request.input_stream.close()
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertEqual(read.call_args.args[2], "image/png")
+        self.assertEqual(r.json["found"]["number"], {"value": "NLD-RP-abcdefgh1234", "source": "qr"})
+        self.assertEqual(set(r.json["qr"]), {"status", "authority", "issues"})  # not the decoded codes
+        self.sign_in(1)
+        with patch("licence_qr.available", return_value=True), patch("licence_qr.read_codes", return_value=codes), \
+                patch("qualifications.ocr_read", return_value=(None, b"", True)):
+            r = self.client.post("/api/users/2/qualifications/read", data={
+                "evidence": (io.BytesIO(PNG), "licence.png")})
+            r.request.input_stream.close()
+        self.assertIn("codes", r.json["qr"])
+
+    def test_images_are_ocrd_and_text_pdfs_are_not(self):
+        with patch("licence_qr.available", return_value=False), \
+                patch("qualifications.ocr_read", return_value=(None, b"Valid until 11.03.2029", True)) as ocr:
+            r = self.client.post("/api/users/2/qualifications/read", data={
+                "evidence": (io.BytesIO(PNG), "licence.png")})
+            r.request.input_stream.close()
+            self.assertEqual(r.json["found"]["valid_until"], {"value": "2029-03-11", "source": "ocr"})
+            self.assertEqual(ocr.call_args.args[3], "image/png")
+            ocr.reset_mock()
+            # the PDF text gave the number: OCR would read the same text, so it does not run
+            self.assertEqual(self.read(dated_pdf(start=None, until=None)).status_code, 200)
+            ocr.assert_not_called()
+            # a type that needs none of the fields: nothing to look for
+            none = self.client.post("/api/qualification-types", json={
+                "name": "Briefing", "requires_evidence": False, "requires_start": False, "requires_expiry": False,
+                "requires_number": False}).json["id"]
+            with patch("qualifications.pdf_texts", return_value=[]):
+                self.assertEqual(self.read(scan_pdf(), type_id=str(none)).status_code, 200)
+            ocr.assert_not_called()
+
+    def test_dates_labels_and_months(self):
+        dates = qualifications.text_dates
+        self.assertEqual(dates("Issued 03/12/2024 Expires 03/12/2026"), [])  # day/month or month/day
+        self.assertEqual(dates("Expires 13/12/2026, issued 05/05/2021"),
+                         [("2026-12-13", "valid_until"), ("2021-05-05", "valid_from")])
+        self.assertEqual(dates("Valid until 2029-03-11. Printed on 2024-05-02"),
+                         [("2029-03-11", "valid_until"), ("2024-05-02", None)])
+        self.assertEqual(dates("gültig bis 12. März 2026; geldig tot 12 mrt 2027"),
+                         [("2026-03-12", "valid_until"), ("2027-03-12", "valid_until")])
+
+    def test_pdf_streams_share_one_budget(self):
+        stream = zlib.compress(b"x" * 1000)
+        pdf = b"%PDF-1.4\n" + b"".join(b"1 0 obj<<>>stream\n" + stream + b"endstream\n" for _ in range(5))
+        path = Path(self.app.config["QUALIFICATION_EVIDENCE_DIR"]) / "budget.pdf"
+        path.write_bytes(pdf)
+        with patch("qualifications.PDF_TEXT_BUDGET", 2500):
+            chunks = qualifications.pdf_chunks(path, False)
+        self.assertEqual([len(c) for c in chunks[1:]], [1000, 1000, 500])
 
 
 class QualificationTypeDescriptionTests(AppTests):

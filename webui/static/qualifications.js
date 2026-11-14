@@ -221,7 +221,10 @@ window.QualificationManager = class {
         if (file && file.size > q.max_evidence_bytes) {
           this.error('Evidence must be at most 20 MiB.'); return;
         }
-        this.mutate(`/api/users/${this.userId}/qualifications`, {method:'POST', body:new FormData(form)});
+        const body = new FormData(form);
+        const claims = this.readClaims(form);  // values the dialog filled from the evidence, still unchanged
+        if (Object.keys(claims).length) body.append('read_from', JSON.stringify(claims));
+        this.mutate(`/api/users/${this.userId}/qualifications`, {method:'POST', body});
       };
     }
     const history = this.element.querySelector('[data-history]');
@@ -237,6 +240,9 @@ window.QualificationManager = class {
           const sources = {qr: 'QR code', text: 'PDF text', ocr: 'OCR'};
           if (detail.read_from) dates.push('read from the evidence: ' + Object.entries(detail.read_from)
             .map(([field, source]) => `${field.replace('_', ' ')} (${sources[source] || source})`).join(', '));
+          if (detail.read_unchecked) dates.push('filled from the evidence in the upload dialog, not confirmed: '
+            + Object.entries(detail.read_unchecked)
+              .map(([field, source]) => `${field.replace('_', ' ')} (${sources[source] || source})`).join(', '));
           if (detail.differs) dates.push('differs from the evidence: ' + detail.differs.join('; '));
           return `${e.created_at} · ${e.actor || 'former user'} · ${e.action.replaceAll('-', ' ')}`
             + `\n${detail.category || 'Qualification'}${dates.length ? ' · ' + dates.join(' · ') : ''}`
@@ -247,21 +253,39 @@ window.QualificationManager = class {
       } catch (error) { this.error(error.message); }
     };
   }
-  // Read the chosen evidence (PDF text, QR code, OCR) and fill the fields that are still empty; typed values stay.
+  // {field: source} of the values this dialog filled from the evidence that the person has not changed since.
+  readClaims(form) {
+    const filled = form.readFilled || {};
+    return Object.fromEntries(Object.entries(filled)
+      .filter(([name, hit]) => form.elements[name].value && form.elements[name].value === hit.value)
+      .map(([name, hit]) => [name, hit.source]));
+  }
+  // Clear the values the dialog filled from an earlier file, unless the person changed them since.
+  clearFilled(form) {
+    const filled = form.readFilled || {};
+    for (const [name, hit] of Object.entries(filled)) {
+      if (form.elements[name].value === hit.value) form.elements[name].value = '';
+    }
+    form.readFilled = {};
+  }
+  // Read the chosen evidence (PDF text, QR code, OCR) and fill the fields: empty ones, and ones filled from an
+  // earlier file and not changed since. Typed values stay.
   async readEvidence(form) {
     const box = form.querySelector('[data-read-result]');
     const file = form.elements.evidence.files[0];
     const token = this.reading = (this.reading || 0) + 1;
     box.hidden = !file;
-    if (!file) return;
+    if (!file) { this.clearFilled(form); return; }
     box.innerHTML = '<span class="mute">Reading the evidence…</span>';
     // The server reads one file per person at a time: a file chosen meanwhile is read when the running read is done.
     if (this.readBusy) { this.readAgain = true; return; }
     this.readBusy = true;
     const data = new FormData();
+    const claims = this.readClaims(form);  // filled from an earlier file: not compared with this one
     ['valid_from', 'valid_until', 'number'].forEach(name => {
-      if (form.elements[name].value) data.append(name, form.elements[name].value);
+      if (form.elements[name].value && !claims[name]) data.append(name, form.elements[name].value);
     });
+    if (form.elements.type_id.value) data.append('type_id', form.elements.type_id.value);
     data.append('evidence', file);
     let r;
     try {
@@ -288,13 +312,20 @@ window.QualificationManager = class {
     const sources = {qr: 'QR code', text: 'PDF text', ocr: 'OCR'};
     const labels = {number: 'Number', valid_from: 'Valid from', valid_until: 'Valid until'};
     const bits = [];
+    this.clearFilled(form);  // values of the previous file go, unless the person changed them
     for (const [name, label] of Object.entries(labels)) {
       const hit = r.found[name];
       const input = form.elements[name];
       if (!hit) continue;
       const shown = !input.closest('[data-field]').hidden;
-      if (shown && !input.value) input.value = hit.value;
+      if (shown && !input.value) {
+        input.value = hit.value;
+        form.readFilled[name] = {value: hit.value, source: hit.source};
+      }
       if (shown) bits.push(`${label} ${this.esc(hit.value)} <span class="mute">(${sources[hit.source] || hit.source})</span>`);
+    }
+    for (const name of ['valid_from', 'valid_until']) {  // keep the date pickers' min/max in step with the values
+      if (form.elements[name].onchange) form.elements[name].onchange();
     }
     const q = r.qr;
     const who = q && q.authority ? ` · QR code of ${this.esc(q.authority.name)}` : q && q.status === 'none' ? ' · no QR code found' : '';
