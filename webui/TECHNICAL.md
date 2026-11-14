@@ -1359,7 +1359,7 @@ Scanned PDFs hold only images: **Fill numbers from PDFs…** reads those with OC
 (poppler-utils) and `tesseract` (tesseract-ocr) are installed (`install.sh` installs them). It renders the
 first four pages at 200 dpi, turns each page upright (tesseract's orientation detection, and upside down as a
 second try) and takes a few seconds per scan; one run stops reading new scans after 90 s and reports the rest
-as not read yet. Uploads do not run OCR. The reviewer checks the number and
+as not read yet. Uploads run OCR only in the upload dialog, within a time limit (see *Reading at upload* below). The reviewer checks the number and
 approval is refused while a required number is missing. Admins correct it with **Edit** (with the dates,
 audited as `number-changed`). **Fill numbers from PDFs…** under Qualification types opens a dialog that
 (`POST /api/admin/qualifications/fill-numbers`) fills the empty numbers of approved submissions of such
@@ -1389,6 +1389,41 @@ dialog first counts, then calls it in rounds of 6 s with a counter (read of tota
 none are left. *Read all again* sends `before` (the start of the run), so every licence last read before then is read
 once. A file that cannot be read is stored as read without codes, so it does not stop the others. A licence with
 evidence that was not read yet shows *QR code not read yet* to administrators. What each authority's code holds differs, so the raw content is kept as is.
+
+**Reading at upload** (`read_evidence`, issue 226). Choosing a file in the upload dialog sends it, with the chosen
+type, to `POST /api/users/<id>/qualifications/read` (same access as submitting; browser session only; the file is
+deleted after reading and nothing is stored). The server reads the QR code, the PDF text and, when a field the type asks
+for is still missing and the PDF text gave no number (so there is no text layer to read), OCR: pages of a scanned PDF
+(turned upright first) or a JPEG/PNG as it is. It returns what it found per field with its source (`qr`, `text`, `ocr`;
+that order of preference), the dates seen and where the document differs from the typed values; people who are not
+administrators get only the QR check's status, authority and issues, not the decoded codes. The PDF is decompressed
+once per read, with one budget for all its streams together (`PDF_TEXT_BUDGET`, 80 MiB).
+
+The whole read has one time limit (`QUALIFICATION_READ_SECONDS`, default `READ_SECONDS`, 25 s), shared by the QR code
+and OCR: every `pdftoppm`, `zbarimg` and `tesseract` call gets at most the time left. When it runs out, what was found so
+far is returned with a note in `notes` (*Reading the QR code took too long* or *OCR took too long; fill in the
+fields*); a QR code not read in time is read in the background after submit as usual. One read per person runs at a
+time; another one meanwhile gets 429 (the server runs one process, so an in-process set is enough). The dialog sends one
+read at a time: a file chosen during a read is read when that one is done, and after a 429 it tries again.
+
+The dialog fills empty, shown fields and remembers which ones it filled; when another file is chosen, those it filled
+and the person did not change are replaced (or cleared, also when reading the new file fails), typed values stay. With a file chosen, the date fields are no
+longer required in the browser. On submit the dialog sends `read_from` (JSON, field: source) for the values it filled
+that are still unchanged. The server then reads the QR code and the PDF text (no OCR) when a field the type asks for is
+empty or `read_from` is sent: empty fields are filled from it, a claim whose value the QR code or PDF text read there
+confirms (also an `ocr` claim the text confirms) is recorded in `read_from` with the source that confirmed it, and any
+other claim in `read_unchecked` (shown as what the upload dialog reports it read, not confirmed). Typed values are
+never replaced; a Valid from after a read Valid until gives the order error naming the read date, and a field missing
+from both form and document gives the usual error. The `submitted` audit event records `read_from`, `read_unchecked` and
+`differs`. When the QR code was read at submit it is stored in `qr_json` and the background read is skipped.
+
+Dates are recognised as `YYYY-MM-DD`, `D.M.YYYY` and `D-M-YYYY` (day first), `D/M/YYYY` only when it is unambiguous (the
+day is above 12, or day and month are equal; `03/12/2026` could be 3 December or 12 March and is skipped), and
+`D Month YYYY` (English, Dutch, French, German month names, also `mrt` and `März`). A label in the 80 characters before
+a date, and after the previous date, decides its meaning (*valid until*, *expiry*, *geldig tot*… → Valid until;
+*valid from*, *date of issue*, *afgifte*… → Valid from; *birth*, *geboorte*… → ignored). Without labels, the latest pair
+of dates a whole number of years apart (1–10, or one day less) is taken as Valid from and Valid until; anything else is
+left for the person to type. At most 500 dates per format are read from one document (`TEXT_DATES_MAX`).
 
 Internal ratings such as FI (flight instructor) and CTR are qualification types with Internal on and
 Evidence off; admins grant them by submitting and approving for the person, or by import rows without a
