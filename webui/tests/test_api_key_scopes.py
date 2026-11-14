@@ -104,7 +104,8 @@ class ApiKeyScopeTests(AppTests):
                    "delete_log", "edit_booking", "flight_weather", "forget_flight_link", "historical_record",
                    "narrow_key", "new_calendar_link", "reject_drone_request", "remove_calendar_link", "request_drone",
                    "request_matlab_bulk", "review_qualification", "save_own_profile", "save_person_profile",
-                   "setup_password", "submit_qualification", "submit_training", "unlink_attachment",
+                   "setup_password", "submit_qualification", "read_qualification_evidence", "submit_training",
+                   "unlink_attachment",
                    "update_logbook_records",
                    # account routes that can lead to a sign-in or more rights: browser session only, for every key
                    "admin_add_user", "admin_new_setup_link", "admin_update_user", "admin_remove_password",
