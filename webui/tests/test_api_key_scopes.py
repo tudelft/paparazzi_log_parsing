@@ -107,6 +107,8 @@ class ApiKeyScopeTests(AppTests):
                    "setup_password", "submit_qualification", "read_qualification_evidence", "submit_training",
                    "unlink_attachment",
                    "update_logbook_records",
+                   # Safety (safety.py): reports and the reporting text need a browser session
+                   "create_report", "save_safety_settings",
                    # account routes that can lead to a sign-in or more rights: browser session only, for every key
                    "admin_add_user", "admin_new_setup_link", "admin_update_user", "admin_remove_password",
                    "admin_set_admin", "admin_rename_user", "admin_merge_users", "admin_move_sso", "admin_set_external",

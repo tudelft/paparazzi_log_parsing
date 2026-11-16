@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Safety</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --err:#cf222e; --ok:#1a7f37; --warn:#9a6700; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
+  main { width:100%; max-width:960px; margin:0 auto; padding:16px 12px 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; }
+  .card h2 { margin:0 0 4px; font-size:16px; }
+  h3 { font-size:15px; margin:16px 0 6px; }
+  .text { white-space:pre-wrap; margin:0 0 8px; }
+  body:not(.editing) .edit-only { display:none !important; }
+  .actions { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 10px; }
+  .defs { font-size:13px; margin:-4px 0 0; padding:8px 10px; background:var(--bg); border-radius:6px; display:grid; grid-template-columns:max-content 1fr; gap:2px 10px; }
+  .defs dt { font-weight:600; }
+  .defs dd { margin:0; }
+  button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button.sec { background:var(--sec); color:var(--txt); }
+  button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
+  input, select, textarea { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--txt); }
+  input[type=checkbox] { padding:0; }
+  textarea { min-height:70px; resize:vertical; }
+  .field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
+  .field > input, .field > select, .field > textarea { font-size:14px; }
+  .field-label { display:flex; gap:6px; align-items:center; }
+  .field-label label { color:inherit; }
+  button.help-q { width:18px; height:18px; padding:0; border-radius:50%; font-size:12px; line-height:18px; font-weight:600;
+    background:var(--sec); color:var(--txt); }
+  button:disabled { opacity:.5; cursor:default; }
+  .report-cta { border-left:4px solid var(--err); }
+  .report-cta .text { font-size:15px; margin:0 0 12px; max-width:70ch; }
+  .report-cta .actions { align-items:center; margin:0; }
+  .report-cta details { margin-top:12px; font-size:13px; }
+  .report-cta details summary { color:var(--mute); cursor:pointer; }
+  body.editing .view-only { display:none !important; }
+  .text-edit { margin:0 0 12px; display:flex; flex-direction:column; gap:6px; }
+  .text-edit textarea { font-size:15px; width:100%; max-width:70ch; min-height:84px; }
+  .text-edit .hint { font-size:12px; color:var(--mute); }
+  #textError { color:var(--err); font-size:13px; }
+  button.report-btn { background:var(--err); color:#fff; font-size:17px; font-weight:600; padding:10px 22px; border-radius:8px;
+    box-shadow:0 1px 3px rgba(0,0,0,.2); }
+  button.report-btn:hover { filter:brightness(1.08); }
+  button.report-btn:focus-visible { outline:3px solid var(--err); outline-offset:2px; }
+  @media (max-width:560px) { button.report-btn { width:100%; } }
+  label.check { display:flex; gap:6px; align-items:center; font-size:13px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:560px) { .two { grid-template-columns:1fr; } }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .mute { color:var(--mute); }
+  #err { color:var(--err); margin-bottom:8px; }
+  #err:empty { display:none; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body data-edit="admin">
+<header>
+  <h1>Safety</h1>
+  <span class="meta" id="nav"></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <div id="err"></div>
+  <section class="card report-cta">
+    <p class="text view-only" id="pageText"></p>
+    <div class="text-edit edit-only">
+      <span class="hint">Text above Report incident (plain text): who to contact, where else to report. Everyone sees it.</span>
+      <textarea id="pageTextEdit" maxlength="5000" aria-label="Text above Report incident"></textarea>
+      <div class="row"><button type="button" id="saveText" disabled>Save text</button><button type="button" class="sec" id="defaultText">Use the default text</button><span id="textError" role="alert"></span></div>
+    </div>
+    <div class="actions"><button type="button" class="report-btn" onclick="newReport()">&#9888;&#xFE0E; Report incident</button> <span id="sent" class="mute" role="status"></span></div>
+    <details><summary>Help</summary><p><b>Report incident</b> opens the form for a danger, incident or accident; the ? next to Type explains the three. Only the type, date and time and description are required. Administrators get an email with the whole report. Tick "Leave my name out of the notification email" to keep your name out of that email; it is still stored with the report. In Edit mode administrators change the text above the button.</p></details>
+  </section>
+</main>
+
+<dialog class="entry-dialog" id="reportDialog" aria-labelledby="reportTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="reportForm">
+    <div class="dialog-header"><h2 id="reportTitle">Report incident</h2><button type="button" class="sec" onclick="$('reportDialog').close()">Close</button></div>
+    <div class="two">
+      <div class="field"><span class="field-label"><label for="kind">Type</label><button type="button" class="help-q" aria-label="What do danger, incident and accident mean?" aria-expanded="false" aria-controls="kindHelp" title="What do the types mean?" onclick="toggleKindHelp(this)">?</button></span><select id="kind" name="kind" required><option value="danger">Danger</option><option value="incident">Incident</option><option value="accident">Accident</option></select></div>
+      <label class="field">Date and time<input name="occurred_at" type="datetime-local" required></label>
+    </div>
+    <dl class="defs" id="kindHelp" hidden><dt>Danger</dt><dd>An occurrence, other than an accident, associated with the operation of an aircraft that affects or could affect the safety of the operation.</dd><dt>Incident</dt><dd>An occurrence, other than an accident, where physical injury, damage to third-party or private property, the safety of people or critical infrastructure was compromised, or unanticipated damage to the aircraft.</dd><dt>Accident</dt><dd>Damage to critical infrastructure, or physical injury requiring medical assistance. Call the emergency services first.</dd></dl>
+    <div class="two">
+      <label class="field">Pilot in command (optional)<input name="pic" maxlength="200"></label>
+      <label class="field">Aircraft (RPAS) (optional)<input name="rpas" maxlength="200"></label>
+      <label class="field">Location (optional)<input name="location" maxlength="200"></label>
+      <label class="field">Flight phase (optional)<input name="flight_phase" maxlength="200" list="phases" placeholder="e.g. take-off"></label>
+    </div>
+    <datalist id="phases"><option value="Pre-flight"><option value="Take-off"><option value="In flight"><option value="Hover"><option value="Landing"><option value="Post-flight"><option value="On the ground (not flying)"></datalist>
+    <label class="field">Conditions: weather, light, surroundings (optional)<input name="conditions" maxlength="1000"></label>
+    <label class="field">Description: what happened, what was done, what could prevent it<textarea name="description" required rows="6" maxlength="5000"></textarea></label>
+    <label class="field">Situation sketch or photo (optional; PDF, JPEG or PNG, up to 20 MiB)<input name="sketch" type="file" accept=".pdf,.jpg,.jpeg,.png"></label>
+    <label class="check"><input name="leave_name_out" type="checkbox"> Leave my name out of the notification email</label>
+    <p class="mute" style="font-size:12px;margin:0 0 6px 22px">Your name is still stored with the report.</p>
+    <p class="dialog-error" id="reportError" role="alert"></p>
+    <div class="row"><button type="submit">Submit report</button> <button type="button" class="sec" onclick="$('reportDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let me = null, info = null;
+const editing = () => !!(me && me.is_admin && window.editMode && window.editMode());
+
+function toggleKindHelp(button) {
+  const open = $('kindHelp').hidden;
+  $('kindHelp').hidden = !open;
+  button.setAttribute('aria-expanded', String(open));
+}
+let sentNote = '';
+function paint() {
+  document.body.classList.toggle('editing', editing());
+  $('pageText').textContent = info.reporting_text || '';
+  if (!textDirty) $('pageTextEdit').value = info.reporting_text || '';  // keep unsaved edits when the page reloads its data
+  $('sent').textContent = sentNote;
+}
+async function getJSON(url) {
+  const r = await fetch(url);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || r.statusText);
+  return d;
+}
+async function load() {
+  info = await getJSON('/api/safety');
+  paint();
+}
+async function send(url, method, body, errorBox) {
+  const isForm = body instanceof FormData;
+  const r = await fetch(url, {method, body: isForm ? body : JSON.stringify(body),
+    headers: isForm ? {} : {'Content-Type': 'application/json'}});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { $(errorBox).textContent = d.error || r.statusText; return false; }
+  await load();
+  return true;
+}
+
+// reports
+function newReport() {
+  const f = $('reportForm');
+  f.reset();
+  f.pic.value = info.me || '';  // left empty when the reporter asks to leave their name out
+  const now = new Date(); now.setSeconds(0, 0);
+  f.occurred_at.value = new Date(now - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  $('kindHelp').hidden = true;
+  f.querySelector('.help-q').setAttribute('aria-expanded', 'false');
+  $('reportError').textContent = '';
+  $('reportDialog').showModal();
+}
+$('reportForm').onsubmit = async e => {
+  e.preventDefault();
+  const f = $('reportForm');
+  const form = new FormData(f);
+  form.set('leave_name_out', f.leave_name_out.checked ? '1' : '0');
+  if (!f.sketch.files.length) form.delete('sketch');
+  if (await send('/api/safety/reports', 'POST', form, 'reportError')) {
+    $('reportDialog').close();
+    sentNote = 'Thank you: your report was sent.';
+    paint();
+  }
+};
+// Leaving the name out of the email also empties Pilot in command when it still holds the reporter's own name.
+$('reportForm').leave_name_out.onchange = e => {
+  const pic = $('reportForm').pic;
+  if (e.target.checked && pic.value === (info.me || '')) pic.value = '';
+  else if (!e.target.checked && !pic.value) pic.value = info.me || '';
+};
+// the text above Report incident: edited in place in Edit mode (empty means the default text)
+let textDirty = false;
+$('pageTextEdit').oninput = () => { textDirty = true; $('saveText').disabled = false; $('textError').textContent = ''; };
+async function saveText(value) {
+  $('saveText').disabled = true;
+  textDirty = false;
+  if (!await send('/api/admin/safety/settings', 'PUT', {reporting_text: value}, 'textError')) {
+    textDirty = true; $('saveText').disabled = false;
+  }
+}
+$('saveText').onclick = () => saveText($('pageTextEdit').value);
+$('defaultText').onclick = () => saveText('');
+
+window.addEventListener('editchange', () => { if (info) paint(); });
+fetch('/api/me').then(r => r.json()).then(d => {
+  me = d.user;
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  return load();
+}).catch(e => { $('err').textContent = e.message; });
+</script>
+</body>
+</html>

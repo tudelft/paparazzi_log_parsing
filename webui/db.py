@@ -550,6 +550,30 @@ CREATE TABLE IF NOT EXISTS document_profile_roles (  -- profile roles that may s
     role_id INTEGER NOT NULL REFERENCES profile_roles(id) ON DELETE CASCADE,
     PRIMARY KEY (document_id, role_id)
 );
+CREATE TABLE IF NOT EXISTS safety_settings (  -- Safety page (safety.py): the text above Report incident
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    reporting_text TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS safety_reports (  -- danger, incident and accident reports; never deleted
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL CHECK(kind IN ('danger','incident','accident')),
+    pic TEXT NOT NULL DEFAULT '',
+    rpas TEXT NOT NULL DEFAULT '',
+    location TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,         -- YYYY-MM-DDTHH:MM local time, or YYYY-MM-DD
+    conditions TEXT NOT NULL DEFAULT '',
+    flight_phase TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL,
+    leave_name_out INTEGER NOT NULL DEFAULT 0 CHECK(leave_name_out IN (0,1)),  -- name left out of the notice mail
+    reporter_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    reporter_name TEXT NOT NULL DEFAULT '',  -- the reporter's name at filing time (kept when the account goes)
+    sketch_name TEXT NOT NULL DEFAULT '',
+    sketch_mime TEXT NOT NULL DEFAULT '',
+    sketch_path TEXT NOT NULL DEFAULT '', -- file name in <LOG_DIR>/safety
+    sketch_compressed INTEGER NOT NULL DEFAULT 0 CHECK(sketch_compressed IN (0,1)),
+    sketch_bytes INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS trainings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -928,6 +952,7 @@ LOGBOOK_UNRELATED = {
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
     "training_progress", "training_briefers", "booking_things", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
     "document_settings", "document_groups", "documents", "document_profile_roles", "document_qualification_types",
+    "safety_settings", "safety_reports",
     "mail_outbox", "mail_prefs", "mail_sent_keys",
     "profile_roles", "profile_departments", "user_profiles", "user_supervisors", "logbook_version",
 }

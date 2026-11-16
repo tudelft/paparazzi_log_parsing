@@ -247,6 +247,17 @@ them in **My account** (see below). **Import ZIP** (Edit mode) adds or replaces 
 `manifest.csv` and the files: preview, then import; importing the same ZIP again skips unchanged documents. Rules:
 [technical guide](TECHNICAL.md#documents).
 
+## Safety
+
+**Safety** (optional, at `/safety`) is where you report a danger, incident or accident: the red **Report incident**
+button opens the registration form. Type, date and time and description are required; pilot in command, aircraft,
+location, conditions, flight phase and a sketch or photo are optional. The **?** next to Type explains danger, incident
+and accident. The report goes by email to the administrators (**Safety
+reports** under My account → Email, separate from the other notices). Tick **Leave my name out of the notification
+email** to keep your name out of that email; it is still stored with the report. Administrators change the text above
+the button directly on the page in Edit mode (a general default text is shown until then). Rules:
+[technical guide](TECHNICAL.md#safety).
+
 ## Email
 
 When the server sends email, you get reminders 30 and 7 days before a qualification or your expected end date
