@@ -102,7 +102,6 @@ jobs:
           skip-existing: true   # a re-run after a failed tag push only adds the tag
       - name: Tag the release
         if: steps.again.outputs.released != 'true'
-        # needs GitHub Actions in the bypass list of the tag ruleset "only maintainers can push client version tags"
         run: |
           set -eu
           git config user.name "github-actions[bot]"
