@@ -716,6 +716,10 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `DOCUMENTS` | `0` | `1` shows [Documents](#documents): shared documents and each person's own qualifications |
 | `SAFETY` | `0` | `1` shows [Safety](#safety): reports, safety board and safety promotion. The Operations Manual links `/safety`: keep it on in production |
 | `PERSON_PROFILE` | `0` | `1` asks everyone who signs in for a [person profile](#person-profiles) |
+| `SITE_NAME` | `Flight logbook` | Name in tab titles, on the sign-in page, in email subjects and the sender name |
+| `SITE_LOGO` | (empty) | Logo in the header and on the sign-in page: `NAME` of `static/logos/NAME.svg` (`NAME-white.svg` on dark backgrounds when present); without it the header shows `SITE_NAME` |
+| `FOOTER_TEXT` | `SITE_NAME` | Text at the bottom of every page, before the Web UI version |
+| `FOOTER_LOGOS` | (empty) | Footer logos: comma-separated `NAME` or `NAME=https://link` |
 | `WEB_DATA` | `webui/data` | Database and keys; local disk only |
 | `LOG_DIR` | `<WEB_DATA>/logs` | Uploaded logs and flight paths; may be a share |
 | `BACKUP_DIR` | (empty) | Destination of `app.py backup` |
@@ -737,6 +741,11 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `SECRET_KEY` | generated in `<WEB_DATA>/secret_key` | Session signing key |
 
 Relative paths are relative to `webui/`.
+
+For example, the MAVLab instance uses `SITE_NAME=MAVLab`, `SITE_LOGO=mavlab`,
+`FOOTER_TEXT=MAVLab, Faculty of Aerospace Engineering, TU Delft` and
+`FOOTER_LOGOS=tudelft=https://www.tudelft.nl,mavlab=https://mavlab.tudelft.nl`. Restart the service after changing
+them; `check-config` reports logo names without a file.
 
 Set `LOGDB_HIDE_UNLINKED_AIRCRAFT=1` and restart the server to hide telemetry flights whose
 merged aircraft identity has no fleet link. Lists, counts, flight time, charts and location
@@ -840,7 +849,7 @@ Addresses must be valid and unique (case-insensitive). Without an email, automat
 linking by email is unavailable; password setup/reset links can still be shared privately.
 
 **Sign in with TU Delft** uses SAML 2.0 against `https://login.tudelft.nl/sso/saml2/idp/metadata.php`. Register
-`<PUBLIC_URL>/saml/metadata` with TU Delft ICT (`middleware-ictfm@tudelft.nl`) once; the service's signing keys are
+`<PUBLIC_URL>/saml/metadata` with TU Delft ICT (the contact listed in the IdP metadata) once; the service's signing keys are
 generated in `<WEB_DATA>/saml/` and are part of the backup (losing them means registering again). A first SSO login
 creates a non-admin account, linked to an existing local account with the same email. Give people access to projects
 on the Projects page.
@@ -1065,9 +1074,11 @@ it in the People approval queue. Qualification views link that note to `/trainin
 
 **Access request mail** (Edit dialog, collapsed section; needs email to be set up): a training may name one or more
 addresses (`access_mail_to`, e.g. a secretary who arranges room access) and a mail text (`access_mail_text`, in which
-`{name}`, `{email}`, `{training}` and `{date}` are filled in). The mail is queued when the pass is granted: at once,
+tags filled in: `{name}`, `{email}`, `{username}`, `{number}` (student or employee number), `{department}`, `{role}`,
+`{supervisor}`, `{end_date}` (expected end, or `indefinite`), `{training}`, `{date}` (the pass), `{valid_until}` (pass date
+plus the training's validity) and `{briefed_by}`; the profile tags are `-` when person profiles are off or the field is empty). The mail is queued when the pass is granted: at once,
 or when an admin approves a queued pass (`needs_approval`). With an optional Yes/No question (`access_question`, e.g.
-"Do you already have access to the CyberZoo?") the person answers it on a last step after the questions (together with who delivered the briefing, when asked)
+"Do you already have access to the flight lab?") the person answers it on a last step after the questions (together with who delivered the briefing, when asked)
 (`access_answer` in the submit body, required then; stored in `training_progress.access_answer`) and only **No**
 sends the mail. Its Reply-To is the person; **Copy to the person** (`access_mail_cc`) adds them as Cc. The subject is
 `Access request: <name> passed <training>`. JSON export/import does not carry these settings.
@@ -1077,8 +1088,16 @@ Below the typed text every access mail ends with a fixed block, one value per li
 Request details:
 Person: <name>
 Email: <address, or ->
+Username: <username>
+Number: <student or employee number, or ->
+Department: <department, or ->
+Role: <role, or ->
+Supervisor: <names, comma-separated, or ->
+Until: <expected end yyyy-mm-dd, indefinite, or ->
 Training: <training>
 Passed: <yyyy-mm-dd>
+Valid until: <yyyy-mm-dd, or ->
+Briefed by: <name, or ->
 Reference: T<training id>-U<user id>-<yyyy-mm-dd>
 ```
 
@@ -1094,7 +1113,8 @@ List columns (create each with the name in brackets, without spaces, then rename
 flow uses these internal names): Title (rename to *Person*), Email `[Email]` and Training `[Training]` (single line
 of text), Passed on `[PassedOn]` (date only), Reference `[Reference]` (single line of text; *Enforce unique values*
 on, which also indexes it), Status `[Status]` (choice: New, In progress, Done; default New) and Notes `[Notes]`
-(multiple lines).
+(multiple lines). For more of the block (Number, Department, Supervisor, Until, …) add a single line of text
+column and a Compose with that label each, the same way; a flow that ignores them keeps working.
 
 Flow steps:
 
@@ -1191,7 +1211,7 @@ web calendars such as Google Calendar fetch from their own servers.
 
 Off unless `LOGDB_SMTP_HOST` is set (settings in the **Email** group of `config.py example`; use the organisation's
 mail relay and a functional sender address in `LOGDB_MAIL_FROM`, and set `LOGDB_PUBLIC_URL` so mails can link to
-pages). `LOGDB_MAIL_FROM_NAME` is the sender name and `LOGDB_MAIL_FOOTER` the text above the settings link at the
+pages). `LOGDB_MAIL_FROM_NAME` is the sender name (default: `LOGDB_SITE_NAME`) and `LOGDB_MAIL_FOOTER` the text above the settings link at the
 bottom of every mail (`\n` for a new line; default the sender name). Mails are HTML (header with the sender
 name, a button for the link, the footer with a link to the email settings) with the same text as plain-text part. `config.py check` reports a missing sender. Kinds (`mail.KINDS`):
 

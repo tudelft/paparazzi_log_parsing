@@ -33,6 +33,15 @@ SETTINGS = {
         "PERSON_PROFILE": ("0", "1 asks everyone who signs in for their role, department, supervisors, expected end "
                                 "date and student/employee number (again once the end date has passed)"),
     },
+    "Appearance": {
+        "SITE_NAME": ("Flight logbook", "Name in tab titles, on the sign-in page, in email subjects and in the header "
+                                        "when no logo is set"),
+        "SITE_LOGO": (None, "Logo in the header and on the sign-in page: NAME of static/logos/NAME.svg (NAME-white.svg "
+                            "is used on dark backgrounds when present). When unset the header shows LOGDB_SITE_NAME"),
+        "FOOTER_TEXT": (None, "Text at the bottom of every page, before the Web UI version (default: LOGDB_SITE_NAME)"),
+        "FOOTER_LOGOS": (None, "Logos above the footer text, comma-separated NAME or NAME=https://link, "
+                               "e.g. tudelft=https://www.tudelft.nl (default: none)"),
+    },
     "Storage and parsing": {
         "WEB_DATA": (str(HERE / "data"), "Local directory with the database, session key and SAML keys. Keep it on "
                                          "a local disk: SQLite must not run on a network share"),
@@ -80,7 +89,7 @@ SETTINGS = {
         "SMTP_USER": (None, "Mail relay user name, if the relay needs a login"),
         "SMTP_PASSWORD": (None, "Mail relay password"),
         "MAIL_FROM": ("", "Sender address of the notifications, e.g. a functional mailbox of the organisation"),
-        "MAIL_FROM_NAME": ("Flight logbook", "Sender name shown with LOGDB_MAIL_FROM"),
+        "MAIL_FROM_NAME": (None, "Sender name shown with LOGDB_MAIL_FROM (default: LOGDB_SITE_NAME)"),
         "MAIL_FOOTER": (None, "Text at the bottom of every mail, above the link to the email settings; \\n starts a "
                               "new line (default: the sender name)"),
         "MAIL_ADMIN_TO": (None, "Shared mailbox for administrator notices (qualifications to approve, logs that failed "
@@ -259,6 +268,8 @@ def check():
         float(env("PATH_RATE"))
     except ValueError:
         errors.append(f"LOGDB_PATH_RATE must be a number, not {env('PATH_RATE')!r}")
+    import branding
+    errors.extend(branding.problems())
     host, _, port = env("BIND").rpartition(":")
     if not host or not port.isdigit():
         errors.append(f"LOGDB_BIND must look like 127.0.0.1:8000, not {env('BIND')!r}")

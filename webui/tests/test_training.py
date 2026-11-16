@@ -548,11 +548,11 @@ class TrainingTests(AppTests):
         return self.con.execute("SELECT * FROM mail_outbox WHERE kind='access'").fetchall()
 
     def test_access_mail_only_after_no(self):
-        tid, answers = self.access_setup(access_question="Do you already have access to the CyberZoo?",
+        tid, answers = self.access_setup(access_question="Do you already have access to the flight lab?",
                                          access_mail_cc=True)
         self.sign_in(2)
         self.assertEqual(self.client.get(f"/api/trainings/{tid}").json["access_question"],
-                         "Do you already have access to the CyberZoo?")
+                         "Do you already have access to the flight lab?")
         self.assertEqual(self.client.post(f"/api/trainings/{tid}/submit", json=answers).status_code, 400)
         r = self.client.post(f"/api/trainings/{tid}/submit", json={**answers, "access_answer": "yes"})
         self.assertTrue(r.json["passed"], r.json)
@@ -567,8 +567,10 @@ class TrainingTests(AppTests):
                          ("desk@example.org, keys@example.org", "pic@example.org", "pic@example.org"))
         self.assertTrue(row["subject"].startswith("Access request: "), row["subject"])
         self.assertIn("(pic@example.org) passed Safety on ", row["body"])
-        self.assertRegex(row["body"], r"\n\nRequest details:\nPerson: Pilot\nEmail: pic@example.org\nTraining: Safety\n"
-                                      r"Passed: \d{4}-\d\d-\d\d\nReference: T\d+-U2-\d{4}-\d\d-\d\d$")
+        self.assertRegex(row["body"], r"\n\nRequest details:\nPerson: Pilot\nEmail: pic@example.org\nUsername: pic\n"
+                                      r"Number: -\nDepartment: -\nRole: -\nSupervisor: -\nUntil: -\nTraining: Safety\n"
+                                      r"Passed: \d{4}-\d\d-\d\d\nValid until: (\d{4}-\d\d-\d\d|-)\nBriefed by: -\n"
+                                      r"Reference: T\d+-U2-\d{4}-\d\d-\d\d$")
         sent = []
         smtp = type("FakeSMTP", (), {"send_message": lambda _, m: sent.append(m), "quit": lambda _: None})()
         mail.send_due(self.con, lambda: smtp)
@@ -576,6 +578,31 @@ class TrainingTests(AppTests):
         self.assertEqual((msg["To"], msg["Cc"], msg["Reply-To"]),
                          ("desk@example.org, keys@example.org", "pic@example.org", "pic@example.org"))
         self.assertIn(mail.ACCESS_NOTE, msg.get_body(("plain",)).get_content())
+
+    def test_access_mail_tags_from_the_person_profile(self):
+        tid, _ = self.access_setup()
+        self.con.execute("UPDATE trainings SET valid_days=365, access_mail_text=? WHERE id=?",
+                         ("{name} {username} {number} {department} {role} {supervisor} {end_date} {training} {date}"
+                          " {valid_until} {briefed_by}", tid))
+        dept = self.con.execute("INSERT INTO profile_departments (name) VALUES ('Control and Simulation')").lastrowid
+        role = self.con.execute("INSERT INTO profile_roles (name) VALUES ('Visiting Student')").lastrowid
+        self.con.execute("INSERT INTO user_profiles (user_id, role_id, department_id, end_date, number)"
+                         " VALUES (2, ?, ?, '2027-08-31', 'S1234567')", (role, dept))
+        self.con.execute("INSERT INTO user_supervisors (user_id, supervisor_id) VALUES (2, 1)")
+        self.con.execute("INSERT INTO user_supervisors (user_id, external_name) VALUES (2, 'Ext Supervisor')")
+        row = self.con.execute("SELECT * FROM trainings WHERE id=?", (tid,)).fetchone()
+        admin = self.con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=1").fetchone()[0]
+        with patch.dict(os.environ, LOGDB_PERSON_PROFILE="1"):
+            self.assertTrue(training.queue_access_mail(self.con, 2, row, None, "2026-11-14T10:00:00Z", "Briefer B"))
+        body = self.access_mails()[-1]["body"]
+        self.assertTrue(body.startswith(f"Pilot pic S1234567 Control and Simulation Visiting Student {admin}, Ext Supervisor"
+                                        " 2027-08-31 Safety 2026-11-14 2027-11-14 Briefer B\n\n"), body)
+        self.assertIn(f"\nNumber: S1234567\nDepartment: Control and Simulation\nRole: Visiting Student\n"
+                      f"Supervisor: {admin}, Ext Supervisor\nUntil: 2027-08-31\nTraining: Safety\nPassed: 2026-11-14\n"
+                      "Valid until: 2027-11-14\nBriefed by: Briefer B\n", body)
+        with patch.dict(os.environ, LOGDB_PERSON_PROFILE="0"):  # profiles off: the stored profile is not used
+            training.queue_access_mail(self.con, 2, row, None, "2026-11-14T10:00:00Z")
+        self.assertIn("\nNumber: -\nDepartment: -\n", self.access_mails()[-1]["body"])
 
     def test_access_mail_waits_for_approval(self):
         tid, answers = self.access_setup(needs_approval=True)

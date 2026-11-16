@@ -1,3 +1,6 @@
+// Site name, logos and footer text; the server puts the configured values (LOGDB_SITE_*, LOGDB_FOOTER_*) before this file.
+window.SITE = Object.assign({name: 'Flight logbook', logo: null, footer_text: '', footer_logos: []}, window.SITE || {});
+
 window.estimatedDateBadge = function (record) {
   return record.date_estimated ? ' <span class="badge date-unknown" title="GPS time-of-week plus firmware commit; the calendar week is uncertain">estimated date</span>' : '';
 };
@@ -730,16 +733,60 @@ window.timingEvidenceHTML = function (timing) {
     link.title = version?.commit
       ? `Running revision: ${version.commit}${version.modified ? ' with local tracked changes' : ''}. Recorded at server startup. View on GitHub.`
       : 'The running revision could not be determined. Open the project on GitHub.';
-    // Logos (day and night versions; theme.css shows one) and who runs the logbook, above the version.
-    const logo = (href, name, label) => `<a href="${href}" target="_blank" rel="noopener noreferrer" title="${label}">`
-      + `<img class="day" src="/logos/${name}.svg" alt="${label}"><img class="night" src="/logos/${name}-white.svg" alt="${label}"></a>`;
+    // The configured logos (LOGDB_FOOTER_LOGOS, day and night versions; theme.css shows one) and text, above the version.
     const brand = document.createElement('div');
     brand.className = 'brand';
-    brand.innerHTML = logo('https://www.tudelft.nl', 'tudelft', 'TU Delft') + logo('https://mavlab.tudelft.nl', 'mavlab', 'MAVLab');
+    for (const item of SITE.footer_logos || []) {
+      const holder = document.createElement(item.href ? 'a' : 'span');
+      if (item.href) Object.assign(holder, {href: item.href, target: '_blank', rel: 'noopener noreferrer', title: item.href});
+      holder.className = 'logo-' + item.name;
+      holder.append(logoImg(item.name, 'day'), logoImg(item.night, 'night'));
+      brand.append(holder);
+    }
     const credit = document.createElement('div');
-    credit.textContent = 'Flight logbook of the MAVLab, Faculty of Aerospace Engineering, TU Delft · ';
+    credit.textContent = (SITE.footer_text || SITE.name) + ' · ';
     credit.append(link);
-    footer.replaceChildren(brand, credit);
+    footer.replaceChildren(...(brand.childElementCount ? [brand] : []), credit);
+  }
+
+  function logoImg(name, cls) {
+    const img = document.createElement('img');
+    img.src = `/logos/${encodeURIComponent(name)}.svg`;
+    img.alt = '';
+    if (cls) img.className = cls;
+    return img;
+  }
+
+  // The site logo (LOGDB_SITE_LOGO), else its name, at the left of the header; it leads to the Logbook. The page's own
+  // <h1> stays for screen readers and for pages that change it. The sign-in pages show the logo in their card and add
+  // the site name to the tab title.
+  function paintBrand() {
+    const header = document.querySelector('body > header');
+    const h1 = header && header.querySelector('h1');
+    if (h1 && !header.querySelector('.site-brand')) {
+      const a = document.createElement('a');
+      a.className = 'site-brand';
+      a.href = '/';
+      a.title = `${SITE.name} · Logbook`;
+      if (SITE.logo) {
+        const img = logoImg(SITE.logo.night);  // the header is dark in day and night mode
+        img.alt = SITE.name;
+        a.append(img);
+      } else a.append(Object.assign(document.createElement('span'), {textContent: SITE.name}));
+      h1.classList.add('sr-only');
+      h1.before(a);
+    }
+    const heading = document.querySelector('[data-site-heading]');
+    if (heading) {
+      if (SITE.logo) {
+        heading.replaceChildren(logoImg(SITE.logo.name, 'day'), logoImg(SITE.logo.night, 'night'));
+        heading.classList.add('site-logo');
+        heading.setAttribute('aria-label', SITE.name);
+      } else heading.textContent = SITE.name;
+    }
+    document.querySelectorAll('[data-site-name]').forEach(el => { el.textContent = SITE.name; });
+    if (/^\/(login|setup|cli-login|profile)/.test(location.pathname) && !document.title.endsWith(SITE.name))
+      document.title += ' - ' + SITE.name;
   }
 
   // On every page with the header actions: Edit mode is one setting for all pages, so its switch is always in the
@@ -772,6 +819,7 @@ window.timingEvidenceHTML = function (timing) {
     else fn();
   }
   ready(() => {
+    paintBrand();
     paintNav();
     if (!/^\/(login|setup|cli-login|profile)/.test(location.pathname)) {
       paintActions();

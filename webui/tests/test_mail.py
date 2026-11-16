@@ -66,6 +66,11 @@ class MailTests(AppTests):
             msg, = self.send()
             self.assertEqual(msg["From"], "MAVLab logbook <logbook@example.org>")
             self.assertIn("-- \nMAVLab\nFaculty of Aerospace Engineering\nChange which emails", msg.get_body(("plain",)).get_content())
+        with patch.dict(os.environ, {"LOGDB_SITE_NAME": "MAVLab"}):
+            mail.notify(self.con, 2, "bookings", "Booked: desk", "You booked the desk.")
+            self.con.commit()
+            msg, = self.send()
+            self.assertEqual(msg["From"], "MAVLab <logbook@example.org>")  # the sender name follows the site name
         self.assertEqual(self.client.put("/api/account/email", json={"modes": {"bookings": "daily"}}).status_code, 200)
         for n in (1, 2):
             mail.notify(self.con, 2, "bookings", f"Booked {n}", f"Booking {n}.")
@@ -92,6 +97,7 @@ class MailTests(AppTests):
         self.assertEqual(r["mailed_to"], "newbie@example.org")
         msg, = self.send()
         self.assertIn(r["setup_url"], msg.get_body(("plain",)).get_content())
+        self.assertIn("Your username, to sign in with afterwards: newbie", msg.get_body(("plain",)).get_content())
         self.assertTrue(r["setup_url"].startswith("https://logs.example.org/setup/"))
         self.assertIsNone(self.client.post(f"/api/admin/users/{r['id']}/setup-link", json={}).json["mailed_to"])
         self.assertEqual(self.send(), [])

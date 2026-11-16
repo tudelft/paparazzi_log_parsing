@@ -27,8 +27,14 @@ main a { color:var(--acc); }
 #webuiVersion a:hover, #webuiVersion a:focus-visible { color:var(--acc); text-decoration:underline; }
 #webuiVersion .brand { display:flex; justify-content:center; align-items:center; gap:28px; margin-bottom:8px; }
 #webuiVersion .brand img { display:block; height:30px; width:auto; }
-#webuiVersion .brand a:first-child img { height:58px; margin:-14px 0; }  /* the TU Delft file has its clear space built in */
+#webuiVersion .brand .logo-tudelft img { height:58px; margin:-14px 0; }  /* the TU Delft file has its clear space built in */
 #webuiVersion .brand .night, html.night #webuiVersion .brand .day { display:none; }
+body > header .site-brand span { overflow:hidden; text-overflow:ellipsis; }
+body > header .site-brand img { display:block; height:22px; max-width:100%; }
+.site-logo { text-align:center; }
+.site-logo img { height:40px; max-width:100%; }
+.site-logo .night, html.night .site-logo .day { display:none; }
+html.night .site-logo .night { display:inline; }
 html.night #webuiVersion .brand .night { display:block; }
 main table a:not(.btn) { color:var(--acc); text-decoration:none; font-weight:500; }
 main table a:not(.btn):hover, main table a:not(.btn):focus-visible {
@@ -44,9 +50,17 @@ body > header {
   padding-bottom: 0;
   min-height: 52px;
 }
-body > header h1 {
-  margin: 0;
+.sr-only {
+  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+body > header .site-brand {
+  display: flex;
+  align-items: center;
+  color: #fff;
+  text-decoration: none;
   font-size: 18px;
+  font-weight: 700;
   flex: 0 0 15em;
   width: 15em;
   min-width: 15em;
@@ -75,7 +89,7 @@ body > header #nav a {
   transition: background .12s, color .12s;
 }
 @media (max-width: 1150px) {
-  body > header h1 { flex-basis: 7em; width: 7em; min-width: 7em; }
+  body > header .site-brand { flex-basis: 7em; width: 7em; min-width: 7em; }
   body > header #nav a { padding: 0 9px; }
 }
 body > header #nav a:hover { color: #fff; background: rgba(255,255,255,.07); }

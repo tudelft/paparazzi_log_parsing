@@ -18,6 +18,7 @@ import time
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
 
+import branding
 import db
 from config import env, env_int
 
@@ -166,9 +167,14 @@ def queue_access(con, to_addr, subject, body, cc_addr=None, reply_to=None):
 
 
 # --- composing -------------------------------------------------------------------------------------------------------
+def sender_name():
+    """LOGDB_MAIL_FROM_NAME, else the site name."""
+    return (env("MAIL_FROM_NAME") or "").strip() or branding.site_name()
+
+
 def signature():
     """LOGDB_MAIL_FOOTER, with \\n for line breaks; the sender name when unset."""
-    return (env("MAIL_FOOTER") or env("MAIL_FROM_NAME")).replace("\\n", "\n").strip()
+    return (env("MAIL_FOOTER") or sender_name()).replace("\\n", "\n").strip()
 
 
 ACCESS_NOTE = "Access request, sent by the flight logbook after a training was passed."
@@ -210,7 +216,7 @@ def html_body(name, body, shared):
     return f"""<!doctype html><html><body style="margin:0;background:#f5f6f8">
 <div style="background:#f5f6f8;padding:24px 12px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
 <div style="max-width:580px;margin:0 auto;background:#ffffff;border:1px solid #dfe3e8;border-radius:8px;overflow:hidden">
-<div style="background:#16202c;color:#ffffff;padding:14px 22px;font-size:16px;font-weight:600">{html.escape(env("MAIL_FROM_NAME"))}</div>
+<div style="background:#16202c;color:#ffffff;padding:14px 22px;font-size:16px;font-weight:600">{html.escape(sender_name())}</div>
 <div style="padding:22px;color:#1d2733;font-size:15px;line-height:1.5">{hello}{''.join(paragraphs)}</div>
 <div style="padding:14px 22px;border-top:1px solid #dfe3e8;color:#6b7785;font-size:12px;line-height:1.5">{sign}<br>{end}</div>
 </div></div></body></html>"""
@@ -219,7 +225,7 @@ def html_body(name, body, shared):
 def compose(name, subject, body, shared=False):
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = formataddr((env("MAIL_FROM_NAME"), env("MAIL_FROM")))
+    msg["From"] = formataddr((sender_name(), env("MAIL_FROM")))
     msg["Message-ID"] = make_msgid(domain=env("MAIL_FROM").partition("@")[2] or None)
     msg.set_content((f"Hello {name},\n\n" if name else "") + f"{body}{footer(shared)}\n")
     msg.add_alternative(html_body(name, body, shared), subtype="html")
@@ -227,7 +233,7 @@ def compose(name, subject, body, shared=False):
 
 
 def digest_subject(rows):
-    return rows[0]["subject"] if len(rows) == 1 else f"Flight logbook: {len(rows)} notices"
+    return rows[0]["subject"] if len(rows) == 1 else f"{branding.site_name()}: {len(rows)} notices"
 
 
 def digest_body(rows):
@@ -350,7 +356,7 @@ def queue_reminders(con, today=None):
         step = min(d for d in REMIND_DAYS if days <= d)
         remind(con, q["user_id"], f"Your {q['name']} expires on {q['valid_until']}",
                f"Your {q['name']} is valid until {q['valid_until']} ({days} day{'s' * (days != 1)} from now). "
-               "Upload the renewed one in My account so you can keep flying and booking.",
+               "Upload the renewed one in My account.",
                "/account?tab=qualifications", f"expiry:q{q['id']}:{q['valid_until']}:{step}",
                f"{q['name']} expires on {q['valid_until']}")
     if env("PERSON_PROFILE") == "1":
@@ -404,7 +410,7 @@ def send_test(user):
     """Send one test mail now (admins, from My account); raises on failure."""
     server = smtp()
     try:
-        msg = compose(user["display_name"] or user["username"], "Flight logbook: test email",
+        msg = compose(user["display_name"] or user["username"], f"{branding.site_name()}: test email",
                       "This is a test email from the flight logbook. Sending email works.")
         msg["To"] = formataddr((user["display_name"] or "", user["email"]))
         server.send_message(msg)

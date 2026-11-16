@@ -431,7 +431,8 @@ def pass_awaiting_approval(con, progress):
 
 
 ADDRESS = re.compile(r"[^@\s,;<>\"]+@[^@\s,;<>\"]+\.[^@\s,;<>\"]+")
-PLACEHOLDERS = ("{name}", "{email}", "{training}", "{date}")
+PLACEHOLDERS = ("{name}", "{email}", "{username}", "{number}", "{department}", "{role}", "{supervisor}", "{end_date}",
+                "{training}", "{date}", "{valid_until}", "{briefed_by}")
 
 
 def access_fields(body):
@@ -476,40 +477,73 @@ def fill_access(text, values):
     return text
 
 
-def access_details(name, email, row, day, reference):
+def person_details(con, user_id):
+    """Name, email, username and the person profile (when profiles are on) for the access mail; "-" when unknown."""
+    import profiles
+    person = con.execute("SELECT COALESCE(display_name, username) AS name, username, email FROM users WHERE id=?",
+                         (user_id,)).fetchone()
+    if person is None:
+        return None
+    out = {"name": person["name"], "username": person["username"] or "-", "email": person["email"] or "",
+           "number": "-", "department": "-", "role": "-", "supervisor": "-", "end_date": "-"}
+    profile = con.execute(
+        "SELECT p.number, p.end_date, p.indefinite, COALESCE(d.name, p.department_text) AS department, r.name AS role"
+        " FROM user_profiles p LEFT JOIN profile_departments d ON d.id=p.department_id"
+        " LEFT JOIN profile_roles r ON r.id=p.role_id WHERE p.user_id=?", (user_id,)).fetchone()
+    if profiles.enabled() and profile is not None:
+        supervisors = [r[0] for r in con.execute(
+            "SELECT COALESCE(u.display_name, u.username, s.external_name) FROM user_supervisors s"
+            " LEFT JOIN users u ON u.id=s.supervisor_id WHERE s.user_id=? ORDER BY s.id", (user_id,))]
+        out.update(number=profile["number"] or "-", department=profile["department"] or "-",
+                   role=profile["role"] or "-", supervisor=", ".join(n for n in supervisors if n) or "-",
+                   end_date="indefinite" if profile["indefinite"] else profile["end_date"] or "-")
+    return out
+
+
+def access_details(person, row, day, valid_until, briefed_by, reference):
     """A fixed block at the end of the access mail, one "Key: value" per line, so a mail flow (e.g. Power Automate)
     can copy the request into a list; the reference is the same for a repeated mail of one pass."""
-    lines = ["Request details:", f"Person: {name}", f"Email: {email or '-'}", f"Training: {row['name']}",
-             f"Passed: {day}", f"Reference: {reference}"]
+    lines = ["Request details:", f"Person: {person['name']}", f"Email: {person['email'] or '-'}",
+             f"Username: {person['username']}", f"Number: {person['number']}", f"Department: {person['department']}",
+             f"Role: {person['role']}", f"Supervisor: {person['supervisor']}", f"Until: {person['end_date']}",
+             f"Training: {row['name']}", f"Passed: {day}", f"Valid until: {valid_until}", f"Briefed by: {briefed_by}",
+             f"Reference: {reference}"]
     return "\n".join(" ".join(line.split()) for line in lines)
 
 
-def queue_access_mail(con, user_id, row, answer, when=None):
+def queue_access_mail(con, user_id, row, answer, when=None, briefed_by=None):
     """Queue the training's access request for a granted pass: always without a question, else only after "No"."""
     if not row["access_mail_to"] or (row["access_question"] and answer != "no"):
         return False
-    person = con.execute("SELECT COALESCE(display_name, username) AS name, email FROM users WHERE id=?",
-                         (user_id,)).fetchone()
+    person = person_details(con, user_id)
     if person is None:
         return False
-    email = person["email"] or ""
+    email = person["email"]
     day = (when or utc_now())[:10]
-    values = {"{name}": person["name"], "{email}": email or "(no email address)", "{training}": row["name"],
-              "{date}": day}
+    valid_until = ((datetime.date.fromisoformat(day) + datetime.timedelta(days=row["valid_days"])).isoformat()
+                   if row["valid_days"] else "-")
+    briefed_by = briefed_by or "-"
+    values = {"{name}": person["name"], "{email}": email or "(no email address)", "{username}": person["username"],
+              "{number}": person["number"], "{department}": person["department"], "{role}": person["role"],
+              "{supervisor}": person["supervisor"], "{end_date}": person["end_date"], "{training}": row["name"],
+              "{date}": day, "{valid_until}": valid_until, "{briefed_by}": briefed_by}
     return mail.queue_access(con, row["access_mail_to"], f"Access request: {person['name']} passed {row['name']}",
                              fill_access(row["access_mail_text"], values) + "\n\n" + access_details(
-                                 person["name"], email, row, day, f"T{row['id']}-U{user_id}-{day}"),
+                                 person, row, day, valid_until, briefed_by, f"T{row['id']}-U{user_id}-{day}"),
                              cc_addr=email if row["access_mail_cc"] and email else None, reply_to=email or None)
 
 
 def queue_access_after_approval(con, submission_id):
     """An administrator approved a queued training pass: send its access request now."""
-    progress = con.execute("SELECT user_id, training_id, access_answer FROM training_progress WHERE submission_id=?",
-                           (submission_id,)).fetchone()
+    progress = con.execute(
+        "SELECT p.user_id, p.training_id, p.access_answer, COALESCE(u.display_name, u.username) AS briefer"
+        " FROM training_progress p LEFT JOIN users u ON u.id=p.briefed_by WHERE p.submission_id=?",
+        (submission_id,)).fetchone()
     if progress is None:
         return False
     row = con.execute("SELECT * FROM trainings WHERE id=?", (progress["training_id"],)).fetchone()
-    return bool(row) and queue_access_mail(con, progress["user_id"], row, progress["access_answer"])
+    return bool(row) and queue_access_mail(con, progress["user_id"], row, progress["access_answer"],
+                                           briefed_by=progress["briefer"])
 
 
 def register(app, connection, root, require_session):
@@ -973,7 +1007,7 @@ def register(app, connection, root, require_session):
                     awaiting = True
                 else:
                     submission_id = grant_qualification(cid, g.user["id"], kind, row["valid_days"], note)
-                    queue_access_mail(cid, g.user["id"], row, access_answer, passed_at)
+                    queue_access_mail(cid, g.user["id"], row, access_answer, passed_at, briefer_name)
                 cid.execute(
                     "INSERT INTO training_progress(user_id,training_id,attempts,passed_at,answers_json,submission_id,"
                     "briefed_by,access_answer) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id,training_id) DO UPDATE SET"
