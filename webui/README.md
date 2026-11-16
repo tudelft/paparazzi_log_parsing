@@ -249,15 +249,12 @@ them in **My account** (see below). **Import ZIP** (Edit mode) adds or replaces 
 
 ## Reporting
 
-**Reporting** (optional, at `/safety`) is where you report a danger, incident or accident: **Report a danger, incident or accident**
-opens the registration form (pilot in command, aircraft, location, date and time, conditions, flight phase,
-description and an optional sketch or photo). You see your own reports and
-their status (New, Investigating, Closed), filter them by status, and get an email when the status changes. Tick
-**Leave my name out of the notification email** to keep your name out of the email administrators get; they still see
-on the report who filed it. Administrators get an email for each new report (**Safety reports** under My account →
-Email, separate from the other notices), see the number of new reports on the Reporting tab, and in Edit mode **Follow
-up** each report (status, a reference to where the investigation is kept, an internal note) and change the text at the
-top. Rules: [technical guide](TECHNICAL.md#reporting-safety).
+**Reporting** (optional, at `/safety`) is where you report a danger, incident or accident: **Report a danger, incident
+or accident** opens the registration form (pilot in command, aircraft, location, date and time, conditions, flight
+phase, description and an optional sketch or photo). The report goes by email to the administrators (**Safety
+reports** under My account → Email, separate from the other notices). Tick **Leave my name out of the notification
+email** to keep your name out of that email; it is still stored with the report. Administrators change the text at
+the top in Edit mode. Rules: [technical guide](TECHNICAL.md#reporting-safety).
 
 ## Email
 

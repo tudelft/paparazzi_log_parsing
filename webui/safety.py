@@ -1,17 +1,13 @@
 """Reporting: danger, incident and accident reports (occurrence reporting). Off unless LOGDB_SAFETY=1.
 
-The page lives at /safety (the Operations Manual links that path) and is called Reporting in the menu. Everyone signed
-in files a report with the fields of a paper registration form (pilot in command, aircraft, location, date and time,
-conditions, flight phase, description, optional sketch as PDF/JPEG/PNG). People see their own reports and their
-status; administrators see all of them, set the status, a reference to where the investigation is kept (for example a
-repository with restricted access) and an internal note, and get a notice of each new report (mail kind "safety",
-immediate by default, separate from the other administrator notices). The reporter can ask to leave their name out of
-that notification email (leave_name_out); administrators still see who reported (open reporting culture). The
-reporter's name is stored at filing time, so a report keeps it when the account is deleted. The reporter gets a mail
-when the status changes (kind "safety_status"). Reports cannot be deleted.
-The text above the form (who to contact, where else to report) is set by administrators in Edit mode and stored in
-safety_settings, so nothing about one organisation is in the code. Every route needs a browser session; API keys get
-403.
+The page lives at /safety (the Operations Manual links that path) and is called Reporting in the menu. It shows the
+text set by administrators (who to contact, where else to report), the definitions and a button that opens the report
+form with the fields of a paper registration form (pilot in command, aircraft, location, date and time, conditions,
+flight phase, description, optional sketch as PDF/JPEG/PNG). There is no list of reports on the page: each report
+is stored (never deleted) and mailed in full to the administrators (mail kind "safety", immediate by default,
+separate from the other administrator notices; to LOGDB_MAIL_ADMIN_TO when set), with a link to the sketch. The
+reporter can ask to leave their name out of that email (leave_name_out); the name is still stored with the report,
+as it was at filing time. Every route needs a browser session; API keys get 403.
 """
 import datetime
 import gzip
@@ -32,8 +28,6 @@ MAX_SKETCH_BYTES = 20 * 2**20
 MAX_TEXT = 5000
 MAX_FIELD = 200
 KINDS = ("danger", "incident", "accident")
-STATUSES = ("new", "investigating", "closed")
-STATUS_LABELS = {"new": "New", "investigating": "Investigating", "closed": "Closed"}
 SKETCH_TYPES = {".pdf": ("application/pdf", b"%PDF-"), ".jpg": ("image/jpeg", b"\xff\xd8\xff"),
                 ".jpeg": ("image/jpeg", b"\xff\xd8\xff"), ".png": ("image/png", b"\x89PNG\r\n\x1a\n")}
 SETTINGS = ("reporting_text",)
@@ -48,11 +42,6 @@ class SafetyError(ValueError):
 
 def enabled():
     return env_bool("SAFETY")
-
-
-def new_count(cid):
-    """Reports with status New, for the count on the Safety menu tab (administrators)."""
-    return cid.execute("SELECT COUNT(*) FROM safety_reports WHERE status='new'").fetchone()[0]
 
 
 def utc_now():
@@ -107,17 +96,21 @@ def settings(cid):
     return {key: (row[key] if row else "") for key in SETTINGS}
 
 
-def report_json(row, admin):
-    out = {key: row[key] for key in ("id", "kind", "pic", "rpas", "location", "occurred_at", "conditions",
-                                     "flight_phase", "description", "status", "created_at", "updated_at")}
-    out["leave_name_out"] = bool(row["leave_name_out"])
-    out["sketch"] = row["sketch_name"] or None
-    out["mine"] = row["reporter_id"] == g.user["id"]
-    if admin:  # the account's current name; the name at filing time when the account was deleted
-        out.update(reporter_id=row["reporter_id"], reporter=row["reporter"] or row["reporter_name"] or None,
-                   reporter_deleted=row["reporter_id"] is None, reference=row["reference"],
-                   admin_note=row["admin_note"])
-    return out
+NOTICE_FIELDS = (("Type", "kind"), ("Date and time", "occurred_at"), ("Location", "location"),
+                 ("Pilot in command", "pic"), ("Aircraft", "rpas"), ("Flight phase", "flight_phase"),
+                 ("Conditions", "conditions"))
+
+
+def notice_text(rid, fields, reporter, sketch_name):
+    """The administrators' mail: the whole report, since the page has no list of reports."""
+    lines = [f"A new {fields['kind']} report (number {rid}) was filed by "
+             + (reporter or "a reporter who asked to leave their name out") + ".", ""]
+    lines += [f"{label}: {fields[key].replace('T', ' ') if key == 'occurred_at' else fields[key]}"
+              for label, key in NOTICE_FIELDS if fields[key]]
+    lines += ["", "Description:", fields["description"]]
+    if sketch_name:
+        lines += ["", f"Sketch or photo: {sketch_name} (open the link below while signed in)"]
+    return "\n".join(lines)
 
 
 def register(app, connection, root, pages_dir, require_session):
@@ -156,7 +149,7 @@ def register(app, connection, root, pages_dir, require_session):
         current = settings(cid)
         is_admin = bool(g.user["is_admin"])
         out = {"reporting_text": current["reporting_text"], "is_admin": is_admin, "kinds": list(KINDS),
-               "statuses": list(STATUSES), "max_sketch_bytes": MAX_SKETCH_BYTES,
+               "max_sketch_bytes": MAX_SKETCH_BYTES,
                "me": cid.execute(f"SELECT {NAME_SQL} FROM users WHERE id=?", (g.user["id"],)).fetchone()[0]}
         return jsonify(out)
 
@@ -175,21 +168,6 @@ def register(app, connection, root, pages_dir, require_session):
                         " ON CONFLICT(id) DO UPDATE SET reporting_text=excluded.reporting_text",
                         (values["reporting_text"],))
         return jsonify(ok=True)
-
-    # --- reports -----------------------------------------------------------------------------------------------
-    @app.get("/api/safety/reports")
-    def list_reports():
-        signed_in()
-        cid = connection()
-        is_admin = bool(g.user["is_admin"])
-        sql = (f"SELECT r.*, (SELECT {NAME_SQL} FROM users u WHERE u.id=r.reporter_id) AS reporter"
-               " FROM safety_reports r")
-        params = ()
-        if not is_admin:
-            sql += " WHERE r.reporter_id=?"
-            params = (g.user["id"],)
-        rows = cid.execute(sql + " ORDER BY r.created_at DESC, r.id DESC", params).fetchall()
-        return jsonify(reports=[report_json(r, is_admin) for r in rows])
 
     @app.post("/api/safety/reports")
     def create_report():
@@ -235,16 +213,13 @@ def register(app, connection, root, pages_dir, require_session):
                 name = cid.execute(f"SELECT {NAME_SQL} FROM users WHERE id=?", (g.user["id"],)).fetchone()[0]
                 rid = cid.execute(
                     "INSERT INTO safety_reports(kind,pic,rpas,location,occurred_at,conditions,flight_phase,description,"
-                    "leave_name_out,reporter_id,reporter_name,status,sketch_name,sketch_mime,sketch_path,"
-                    "sketch_compressed,sketch_bytes,created_at,updated_at)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,?,?,?)",
+                    "leave_name_out,reporter_id,reporter_name,sketch_name,sketch_mime,sketch_path,"
+                    "sketch_compressed,sketch_bytes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (*fields.values(), int(leave_name_out), g.user["id"], name, sketch_name, sketch_mime,
-                     stored.name if stored else "", int(compressed), size, now, now)).lastrowid
-                who = "a reporter who asked to leave their name out" if leave_name_out else name
+                     stored.name if stored else "", int(compressed), size, now)).lastrowid
                 mail.notify_admins(cid, f"Safety report: {fields['kind']} at {fields['location']}",
-                                   f"A new {fields['kind']} report ({fields['occurred_at'].replace('T', ' ')}, "
-                                   f"{fields['location']}) was filed by {who}.", "/safety",
-                                   kind="safety")
+                                   notice_text(rid, fields, None if leave_name_out else name, sketch_name),
+                                   f"/api/safety/reports/{rid}/sketch" if sketch_name else None, kind="safety")
         except Exception:
             if stored:
                 stored.unlink(missing_ok=True)
@@ -271,26 +246,6 @@ def register(app, connection, root, pages_dir, require_session):
             headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src 'self'"
         return Response(storage.chunks(path, bool(row["sketch_compressed"])), mimetype=row["sketch_mime"],
                         headers=headers)
-
-    @app.put("/api/admin/safety/reports/<int:report_id>")
-    def update_report(report_id):
-        admin()
-        body = request.get_json(silent=True) or {}
-        cid = connection()
-        with db.write_lock, cid:
-            cid.execute("BEGIN IMMEDIATE")
-            row = report_row(cid, report_id)
-            status = choice(body.get("status", row["status"]), STATUSES, "Status")
-            reference = text(body.get("reference", row["reference"]), "The reference", 500)
-            note = text(body.get("admin_note", row["admin_note"]), "The note", MAX_TEXT, multiline=True)
-            cid.execute("UPDATE safety_reports SET status=?, reference=?, admin_note=?, updated_at=? WHERE id=?",
-                        (status, reference, note, utc_now(), report_id))
-            if status != row["status"] and row["reporter_id"] not in (None, g.user["id"]):
-                mail.notify(cid, row["reporter_id"], "safety_status",
-                            f"Your safety report: {STATUS_LABELS[status].lower()}",
-                            f"The status of your {row['kind']} report ({row['occurred_at'].replace('T', ' ')}, "
-                            f"{row['location']}) is now {STATUS_LABELS[status]}.", "/safety")
-        return jsonify(ok=True)
 
     @app.errorhandler(SafetyError)
     def safety_error(exc):

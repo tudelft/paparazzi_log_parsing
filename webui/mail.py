@@ -37,8 +37,6 @@ KINDS = {
               ("immediate", "daily", "off"), "immediate", True),
     "safety": ("Safety reports", "Each new danger, incident or accident report on Safety.",
                ("immediate", "daily", "off"), "immediate", True),
-    "safety_status": ("Your safety reports", "When the status of a safety report you filed changes.",
-                      ("immediate", "daily", "off"), "immediate", False),
     "access_copy": ("Training access requests", "A copy of the access request mails sent after a training pass.",
                     ("off", "immediate", "daily"), "off", True),
 }

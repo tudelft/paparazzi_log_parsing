@@ -1574,31 +1574,24 @@ does not erase retained backups or snapshots.
 Off unless `LOGDB_SAFETY=1` (`safety.py`, `static/safety.html`). The page is **Reporting** in the menu and lives at
 `/safety`: the Operations Manual links that path (see `AGENTS.md`), so it works without a query string and the switch
 stays on in production; `app.py check-config` (also run by `install.sh`) warns when it, `LOGDB_DOCUMENTS` or
-`LOGDB_TRAINING` is off. Every route needs a browser session (API keys get 403). The report list's status filter and
-page are kept in the URL (`?status=`, `?page=`, 20 reports per page). Following up a report and the text at the top
-are Edit-mode actions.
+`LOGDB_TRAINING` is off. Every route needs a browser session (API keys get 403).
 
-**Reports** (`safety_reports`) have the fields of the paper danger/incident registration form: `kind` (`danger`,
-`incident`, `accident`; the definitions on the page follow the Operations Manual), `pic`, `rpas`, `location`
-(required), `occurred_at` (`YYYY-MM-DDTHH:MM` local time, or a date; not in the future, with a margin for time zones),
-`conditions`, `flight_phase`, `description` (required) and an optional sketch (PDF, JPEG or PNG with matching
-content, at most 20 MiB, stored under `<LOG_DIR>/safety`, mode 0700, gzip when it saves at least 5%). Single-line
-fields refuse control characters and line breaks, so a value cannot add lines to a mail subject. `POST
-/api/safety/reports` (multipart) files one, stores the reporter's name at that moment (`reporter_name`, kept when the
-account is deleted) and mails the administrators (`mail.notify_admins` with mail kind `safety`: separate from the other
-administrator notices, immediate by default; to `LOGDB_MAIL_ADMIN_TO` when set), link `/safety`. With
-`leave_name_out` ("Leave my name out of the notification email") the mail says "a reporter who asked to leave their
-name out"; administrators still see the reporter on the report (an open reporting culture), marked, and the form no
-longer fills in Pilot in command with the reporter's name. `GET /api/safety/reports` lists the person's own reports,
-admins get all with `reporter` (the account's current name, else the name at filing time with `reporter_deleted`),
-`reference` and `admin_note`; `GET /api/safety/reports/<id>/sketch` serves the sketch to the reporter and admins, with
-an ASCII `filename` and the full name in `filename*` (as attachments), so any file name works. `PUT
-/api/admin/safety/reports/<id>` sets `status` (`new`, `investigating`, `closed`), `reference` (where the investigation
-and findings are kept, for example a repository with restricted access) and `admin_note`; a status change mails the
-reporter (kind `safety_status`, which they can turn off). `GET /api/me` returns `safety_new` (reports with status New)
-to administrators, shown as a count on the Reporting menu tab. Reports are never deleted. `GET /api/safety` returns `reporting_text` (`safety_settings`, set with `PUT
-/api/admin/safety/settings` in Edit mode): who to contact and where else to report, so organisation details live
-only in that setting, not in the code.
+The page shows the text above the form (`reporting_text` in `safety_settings`, from `GET /api/safety`, set with `PUT
+/api/admin/safety/settings` in Edit mode: who to contact, where else to report, so organisation details live only in
+that setting), the danger/incident/accident definitions (following the Operations Manual) and the report button. There
+is no list of reports. **Reports** (`safety_reports`, never deleted) have the fields of the paper registration form:
+`kind` (`danger`, `incident`, `accident`), `pic`, `rpas`, `location` (required), `occurred_at` (`YYYY-MM-DDTHH:MM`
+local time, or a date; not in the future, with a margin for time zones), `conditions`, `flight_phase`, `description`
+(required) and an optional sketch (PDF, JPEG or PNG with matching content, at most 20 MiB, stored under
+`<LOG_DIR>/safety`, mode 0700, gzip when it saves at least 5%). Single-line fields refuse control characters and line
+breaks, so a value cannot add lines to a mail subject. `POST /api/safety/reports` (multipart) stores one with the
+reporter (`reporter_id`, and `reporter_name` as it was then, kept when the account is deleted) and mails the whole
+report to the administrators (`mail.notify_admins` with mail kind `safety`: separate from the other administrator
+notices, immediate by default; to `LOGDB_MAIL_ADMIN_TO` when set), with a link to the sketch. With `leave_name_out`
+("Leave my name out of the notification email") the mail says "a reporter who asked to leave their name out" (the
+name is still stored) and the form no longer fills in Pilot in command with the reporter's name.
+`GET /api/safety/reports/<id>/sketch` serves the sketch to the reporter and administrators, with an ASCII `filename`
+and the full name in `filename*` (as attachments), so any file name works.
 
 ## Uploading with a script
 

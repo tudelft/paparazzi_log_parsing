@@ -567,16 +567,12 @@ CREATE TABLE IF NOT EXISTS safety_reports (  -- danger, incident and accident re
     leave_name_out INTEGER NOT NULL DEFAULT 0 CHECK(leave_name_out IN (0,1)),  -- name left out of the notice mail
     reporter_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     reporter_name TEXT NOT NULL DEFAULT '',  -- the reporter's name at filing time (kept when the account goes)
-    status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','investigating','closed')),
-    reference TEXT NOT NULL DEFAULT '',   -- admins: where the investigation is kept
-    admin_note TEXT NOT NULL DEFAULT '',  -- admins only
     sketch_name TEXT NOT NULL DEFAULT '',
     sketch_mime TEXT NOT NULL DEFAULT '',
     sketch_path TEXT NOT NULL DEFAULT '', -- file name in <LOG_DIR>/safety
     sketch_compressed INTEGER NOT NULL DEFAULT 0 CHECK(sketch_compressed IN (0,1)),
     sketch_bytes INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS trainings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

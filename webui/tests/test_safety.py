@@ -42,45 +42,44 @@ class SafetyTests(AppTests):
         self.assertIn(b"<title>Reporting</title>", r.data)
         r.close()
 
-    def test_report_is_private_to_reporter_and_admins(self):
+    def test_report_is_stored_and_the_sketch_private(self):
         r = self.report(pic="Pilot", rpas="Quad 1", conditions="Gusty", flight_phase="Hover", leave_name_out="1",
                         sketch=(io.BytesIO(PNG), "sketch.png"))
         self.assertEqual(r.status_code, 201, r.json)
         rid = r.json["id"]
-        mine = self.client.get("/api/safety/reports").json["reports"]
-        self.assertEqual([(x["id"], x["status"], x["leave_name_out"], x["sketch"]) for x in mine],
-                         [(rid, "new", True, "sketch.png")])
-        self.assertNotIn("reporter", mine[0])  # admin-only fields
-        self.assertNotIn("admin_note", mine[0])
-        sketch = self.client.get(f"/api/safety/reports/{rid}/sketch")
+        row = self.con.execute("SELECT * FROM safety_reports WHERE id=?", (rid,)).fetchone()
+        self.assertEqual((row["kind"], row["pic"], row["rpas"], row["leave_name_out"], row["reporter_id"],
+                          row["reporter_name"], row["sketch_name"]),
+                         ("incident", "Pilot", "Quad 1", 1, 2, "Pilot", "sketch.png"))
+        self.assertEqual(self.client.get("/api/safety/reports").status_code, 405)  # no list of reports
+        sketch = self.client.get(f"/api/safety/reports/{rid}/sketch")  # the reporter
         self.assertEqual((sketch.status_code, sketch.mimetype, sketch.data), (200, "image/png", PNG))
         sketch.close()
         self.sign_in(3)
-        self.assertEqual(self.client.get("/api/safety/reports").json["reports"], [])
         self.assertEqual(self.client.get(f"/api/safety/reports/{rid}/sketch").status_code, 404)
-        self.assertEqual(self.client.put(f"/api/admin/safety/reports/{rid}", json={"status": "closed"}).status_code, 403)
-        self.sign_in(1)
-        listed = self.client.get("/api/safety/reports").json["reports"]
-        self.assertEqual((listed[0]["reporter"], listed[0]["rpas"]), ("Pilot", "Quad 1"))
-        r = self.client.put(f"/api/admin/safety/reports/{rid}",
-                            json={"status": "investigating", "reference": "https://repo.example/issue/1", "admin_note": "Call PIC"})
-        self.assertEqual(r.status_code, 200, r.json)
-        self.sign_in(2)
-        self.assertEqual(self.client.get("/api/safety/reports").json["reports"][0]["status"], "investigating")
+        self.sign_in(1)  # administrators open it from the link in their mail
+        sketch = self.client.get(f"/api/safety/reports/{rid}/sketch")
+        self.assertEqual(sketch.status_code, 200)
+        sketch.close()
 
-    def test_report_notice_can_leave_the_name_out(self):
+    def test_admins_get_the_whole_report_by_mail(self):
         self.con.execute("UPDATE users SET email='admin@example.org', is_active=1 WHERE id=1")
         self.con.commit()
         with patch.dict(os.environ, {"LOGDB_SMTP_HOST": "relay.example.org"}):
-            self.assertEqual(self.report(leave_name_out="1").status_code, 201)
-            self.assertEqual(self.report().status_code, 201)
-        bodies = [r["body"] for r in self.con.execute("SELECT body FROM mail_outbox WHERE user_id=1 ORDER BY id")]
-        self.assertEqual(len(bodies), 2)
-        self.assertIn("a reporter who asked to leave their name out", bodies[0])
-        kinds = [r["kind"] for r in self.con.execute("SELECT kind FROM mail_outbox WHERE user_id=1")]
-        self.assertEqual(kinds, ["safety", "safety"])  # its own kind: muting the other admin notices keeps these
-        self.assertNotIn("Pilot", bodies[0])
-        self.assertIn("by Pilot", bodies[1])
+            self.assertEqual(self.report(leave_name_out="1", rpas="Quad 1", sketch=(io.BytesIO(PNG), "s.png")).status_code, 201)
+            self.assertEqual(self.report(description="Line one\nLine two").status_code, 201)
+        mails = list(self.con.execute("SELECT kind, subject, body FROM mail_outbox WHERE user_id=1 ORDER BY id"))
+        self.assertEqual([m["kind"] for m in mails], ["safety", "safety"])  # own kind: muting other notices keeps these
+        first, second = mails[0]["body"], mails[1]["body"]
+        self.assertEqual(mails[0]["subject"], "Safety report: incident at Field")
+        self.assertIn("filed by a reporter who asked to leave their name out", first)
+        self.assertNotIn("Pilot", first)
+        for line in ("Type: incident", "Date and time: 2026-11-10 14:05", "Location: Field", "Aircraft: Quad 1",
+                     "Description:\nLost link during hover", "Sketch or photo: s.png", "/api/safety/reports/"):
+            self.assertIn(line, first)
+        self.assertIn("filed by Pilot", second)
+        self.assertIn("Line one\nLine two", second)
+        self.assertNotIn("Sketch", second)
 
     def test_report_validation(self):
         for fields, error in (({"kind": "rumour"}, "Type must be one of"), ({"location": ""}, "Location is required"),
@@ -106,7 +105,7 @@ class SafetyTests(AppTests):
         self.assertEqual(r.status_code, 200, r.json)
         d = self.client.get("/api/safety").json
         self.assertEqual(d["reporting_text"], "Call the safety manager.\nThen the board.")
-        self.assertEqual(set(d), {"reporting_text", "is_admin", "kinds", "statuses", "max_sketch_bytes", "me"})
+        self.assertEqual(set(d), {"reporting_text", "is_admin", "kinds", "max_sketch_bytes", "me"})
 
     def test_sketch_with_a_non_latin_1_name(self):
         name = "Screenshot 2026-11-14 at 10.00.00\u202fAM \u2019wing\u2019 \U0001F681.png"
@@ -128,35 +127,11 @@ class SafetyTests(AppTests):
 
     def test_reporter_name_survives_the_account(self):
         rid = self.report().json["id"]
-        self.con.execute("UPDATE users SET display_name='Pilot Renamed' WHERE id=2")
-        self.con.commit()
-        self.sign_in(1)
-        report = self.client.get("/api/safety/reports").json["reports"][0]
-        self.assertEqual((report["reporter"], report["reporter_deleted"]), ("Pilot Renamed", False))  # current name
         self.con.execute("PRAGMA foreign_keys=ON")
         self.con.execute("DELETE FROM users WHERE id=2")
         self.con.commit()
-        report = self.client.get("/api/safety/reports").json["reports"][0]
-        self.assertEqual((report["id"], report["reporter"], report["reporter_deleted"]), (rid, "Pilot", True))
-
-    def test_status_change_mails_the_reporter_and_counts_new_reports(self):
-        self.con.execute("UPDATE users SET email='pilot@example.org', is_active=1 WHERE id=2")
-        self.con.commit()
-        rid = self.report().json["id"]
-        self.report()
-        self.sign_in(1)
-        self.assertEqual(self.client.get("/api/me").json["safety_new"], 2)
-        with patch.dict(os.environ, {"LOGDB_SMTP_HOST": "relay.example.org"}):
-            self.client.put(f"/api/admin/safety/reports/{rid}", json={"admin_note": "only a note"})  # no status change
-            self.client.put(f"/api/admin/safety/reports/{rid}", json={"status": "investigating"})
-        mails = [(r["kind"], r["subject"]) for r in self.con.execute("SELECT kind, subject FROM mail_outbox WHERE user_id=2")]
-        self.assertEqual(mails, [("safety_status", "Your safety report: investigating")])
-        self.assertEqual(self.client.get("/api/me").json["safety_new"], 1)
-        self.sign_in(2)
-        self.assertEqual(self.client.get("/api/me").json["safety_new"], 0)  # administrators only
-        kinds = {k["kind"] for k in self.client.get("/api/account/email").json["kinds"]}
-        self.assertIn("safety_status", kinds)
-        self.assertNotIn("safety", kinds)  # new reports go to administrators
+        row = self.con.execute("SELECT reporter_id, reporter_name FROM safety_reports WHERE id=?", (rid,)).fetchone()
+        self.assertEqual(tuple(row), (None, "Pilot"))
 
     def test_config_check_warns_when_safety_is_off(self):
         import config
@@ -171,5 +146,5 @@ class SafetyTests(AppTests):
                          (hashlib.sha256(token.encode()).hexdigest(), "test"))
         self.con.commit()
         client = self.app.test_client()
-        for url in ("/api/safety", "/api/safety/reports"):
+        for url in ("/api/safety", "/api/safety/reports/1/sketch"):
             self.assertEqual(client.get(url, headers={"Authorization": "Bearer " + token}).status_code, 403, url)

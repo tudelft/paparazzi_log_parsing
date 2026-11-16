@@ -18,19 +18,6 @@
   .card h2 { margin:0 0 4px; font-size:16px; }
   h3 { font-size:15px; margin:16px 0 6px; }
   .text { white-space:pre-wrap; margin:0 0 8px; }
-  .item { display:flex; flex-direction:column; gap:2px; padding:8px 10px; margin-top:8px; border:1px solid var(--line);
-    border-left:4px solid var(--acc); border-radius:6px; }
-  .item.danger { border-left-color:var(--warn); }
-  .item.incident, .item.accident { border-left-color:var(--err); }
-  .item .top { display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; }
-  .item .sub { font-size:12px; color:var(--mute); }
-  .item a { color:var(--acc); }
-  .tag { font-size:12px; padding:0 6px; border-radius:10px; border:1px solid var(--line); }
-  .tag.new { color:var(--err); border-color:var(--err); }
-  .tag.investigating { color:var(--warn); border-color:var(--warn); }
-  .tag.closed { color:var(--ok); border-color:var(--ok); }
-  .tools { margin-left:auto; display:flex; gap:6px; }
-  .none { color:var(--mute); margin:8px 0 0; }
   body:not(.editing) .edit-only { display:none !important; }
   .actions { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 10px; }
   .defs { font-size:13px; margin:0 0 10px; display:grid; grid-template-columns:max-content 1fr; gap:2px 10px; }
@@ -64,7 +51,7 @@
   <div id="err"></div>
   <section class="card">
     <div class="section-heading"><h2>Danger, incident and accident reporting</h2>
-    <details><summary>Help</summary><p>Report a danger, incident or accident with the registration form. You see your own reports and their status, and get an email when the status changes; administrators see all reports and who filed them, get an email for each new one and keep the investigation where the organisation stores it (the reference on a report). Tick "Leave my name out of the notification email" to keep your name out of that email; administrators still see it on the report. In Edit mode administrators follow up reports and change the text at the top.</p></details></div>
+    <details><summary>Help</summary><p>Report a danger, incident or accident with the registration form. Administrators get an email for each new report. Tick "Leave my name out of the notification email" to keep your name out of that email; it is still stored with the report. In Edit mode administrators change the text at the top.</p></details></div>
     <div id="content"><span class="mute">Loading…</span></div>
   </section>
 </main>
@@ -85,19 +72,9 @@
     <label class="field">Description: what happened, what was done, what could prevent it<textarea name="description" required rows="6" maxlength="5000"></textarea></label>
     <label class="field">Situation sketch or photo (optional; PDF, JPEG or PNG, up to 20 MiB)<input name="sketch" type="file" accept=".pdf,.jpg,.jpeg,.png"></label>
     <label class="check"><input name="leave_name_out" type="checkbox"> Leave my name out of the notification email</label>
-    <p class="mute" style="font-size:12px;margin:0 0 6px 22px">Administrators still see on the report who filed it.</p>
+    <p class="mute" style="font-size:12px;margin:0 0 6px 22px">Your name is still stored with the report.</p>
     <p class="dialog-error" id="reportError" role="alert"></p>
     <div class="row"><button type="submit">Submit report</button> <button type="button" class="sec" onclick="$('reportDialog').close()">Cancel</button></div>
-  </form>
-</dialog>
-<dialog class="entry-dialog" id="reviewDialog" aria-labelledby="reviewTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
-  <form id="reviewForm">
-    <div class="dialog-header"><h2 id="reviewTitle">Follow up report</h2><button type="button" class="sec" onclick="$('reviewDialog').close()">Close</button></div>
-    <label class="field">Status<select name="status"><option value="new">New</option><option value="investigating">Investigating</option><option value="closed">Closed</option></select></label>
-    <label class="field">Reference: where the investigation and findings are kept (administrators only)<input name="reference" maxlength="500" placeholder="https://…"></label>
-    <label class="field">Note (administrators only)<textarea name="admin_note" maxlength="5000"></textarea></label>
-    <p class="dialog-error" id="reviewError" role="alert"></p>
-    <div class="row"><button type="submit">Save</button> <button type="button" class="sec" onclick="$('reviewDialog').close()">Cancel</button></div>
   </form>
 </dialog>
 <dialog class="entry-dialog" id="textDialog" aria-labelledby="textTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
@@ -111,35 +88,12 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let me = null, info = null, reports = [], editingId = null;
-let statusFilter = '', page = 0;
-const PAGE_SIZE = 20;
+let me = null, info = null;
 const editing = () => !!(me && me.is_admin && window.editMode && window.editMode());
-const KIND = {danger: 'Danger', incident: 'Incident', accident: 'Accident'};
-const STATUS = {new: 'New', investigating: 'Investigating', closed: 'Closed'};
-const today = () => new Date().toLocaleDateString('sv');
-const when = s => esc(String(s || '').replace('T', ' '));
 
 function textBlock(value, key, label) {
   return `<p class="text"${value ? '' : ' hidden'}>${esc(value)}</p>`
     + `<div class="actions edit-only"><button type="button" class="sec" onclick="editText('${key}')">${label}</button></div>`;
-}
-function reportHTML(r) {
-  const who = info.is_admin ? (r.reporter ? esc(r.reporter) : 'unknown') + (r.reporter_deleted ? ' <span class="mute">(account deleted)</span>' : '')
-    + (r.leave_name_out ? ' <span class="tag" title="The reporter asked to leave their name out of the notification email">name left out of the email</span>' : '') : '';
-  const parts = [r.pic ? 'PIC ' + esc(r.pic) : '', r.rpas ? esc(r.rpas) : '', r.flight_phase ? esc(r.flight_phase) : '',
-    r.conditions ? esc(r.conditions) : ''].filter(Boolean).join(' · ');
-  const ref = info.is_admin && r.reference ? (/^https?:\/\//i.test(r.reference)
-    ? `<a href="${esc(r.reference)}" target="_blank" rel="noopener">investigation</a>` : 'ref. ' + esc(r.reference)) : '';
-  const sub = [`reported ${esc(r.created_at.slice(0, 10))}`, who, r.sketch ? `<a href="/api/safety/reports/${r.id}/sketch" target="_blank" rel="noopener">sketch</a>` : '', ref]
-    .filter(Boolean).join(' · ');
-  return `<div class="item ${r.kind}"><span class="top"><b>${KIND[r.kind]}</b> <span>${when(r.occurred_at)} · ${esc(r.location)}</span>`
-    + ` <span class="tag ${r.status}">${STATUS[r.status]}</span>`
-    + (info.is_admin ? `<span class="tools edit-only"><button type="button" class="sec" onclick="review(${r.id})">Follow up</button></span>` : '') + '</span>'
-    + (parts ? `<span class="sub">${parts}</span>` : '')
-    + `<span class="text" style="margin:0">${esc(r.description)}</span>`
-    + (info.is_admin && r.admin_note ? `<span class="sub">Note: ${esc(r.admin_note)}</span>` : '')
-    + `<span class="sub">${sub}</span></div>`;
 }
 function reportingHTML() {
   return textBlock(info.reporting_text, 'reporting_text', 'Edit reporting text')
@@ -147,27 +101,12 @@ function reportingHTML() {
     + `<dt>Incident</dt><dd>An occurrence, other than an accident, where physical injury, damage to third-party or private property, the safety of people or critical infrastructure was compromised, or unanticipated damage to the aircraft.</dd>`
     + `<dt>Accident</dt><dd>Damage to critical infrastructure, or physical injury requiring medical assistance. Call the emergency services first.</dd></dl>`
     + `<div class="actions"><button type="button" onclick="newReport()">Report a danger, incident or accident</button>`
-    + `</div>`
-    + `<div class="row" style="margin-top:16px"><h3 style="margin:0">${info.is_admin ? 'All reports' : 'My reports'}</h3>`
-    + `<select id="statusFilter" aria-label="Status" onchange="filterStatus(this.value)">`
-    + `<option value="">All statuses</option>${Object.entries(STATUS).map(([k, v]) => `<option value="${k}"${k === statusFilter ? ' selected' : ''}>${v}</option>`).join('')}</select></div>`
-    + reportList();
+    + ` <span id="sent" class="mute" role="status">${sentNote}</span></div>`;
 }
-function shownReports() { return reports.filter(r => !statusFilter || r.status === statusFilter); }
-function reportList() {
-  const list = shownReports();
-  if (!list.length) return `<p class="none">${reports.length ? 'No reports with this status.' : 'No reports yet.'}</p>`;
-  const pages = Math.ceil(list.length / PAGE_SIZE);
-  page = Math.min(page, pages - 1);
-  return list.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map(reportHTML).join('')
-    + (pages > 1 ? '<div id="reportPages" class="navigation-pages"></div>' : '');  // the shared pager, only when needed
-}
-function filterStatus(value) { statusFilter = value; page = 0; window.viewState.save(true); paint(); }
+let sentNote = '';
 function paint() {
   document.body.classList.toggle('editing', editing());
   $('content').innerHTML = reportingHTML();
-  if ($('reportPages')) window.viewState.pager($('reportPages'), page, PAGE_SIZE, shownReports().length,
-    n => { page = n; window.viewState.save(true); paint(); });
 }
 async function getJSON(url) {
   const r = await fetch(url);
@@ -177,8 +116,6 @@ async function getJSON(url) {
 }
 async function load() {
   info = await getJSON('/api/safety');
-  reports = (await getJSON('/api/safety/reports')).reports;
-  if (info.is_admin && window.setSafetyNew) window.setSafetyNew(reports.filter(r => r.status === 'new').length);
   paint();
 }
 async function send(url, method, body, errorBox) {
@@ -207,7 +144,11 @@ $('reportForm').onsubmit = async e => {
   const form = new FormData(f);
   form.set('leave_name_out', f.leave_name_out.checked ? '1' : '0');
   if (!f.sketch.files.length) form.delete('sketch');
-  if (await send('/api/safety/reports', 'POST', form, 'reportError')) $('reportDialog').close();
+  if (await send('/api/safety/reports', 'POST', form, 'reportError')) {
+    $('reportDialog').close();
+    sentNote = 'Thank you: your report was sent.';
+    paint();
+  }
 };
 // Leaving the name out of the email also empties Pilot in command when it still holds the reporter's own name.
 $('reportForm').leave_name_out.onchange = e => {
@@ -215,22 +156,6 @@ $('reportForm').leave_name_out.onchange = e => {
   if (e.target.checked && pic.value === (info.me || '')) pic.value = '';
   else if (!e.target.checked && !pic.value) pic.value = info.me || '';
 };
-function review(id) {
-  const r = reports.find(x => x.id === id);
-  editingId = id;
-  const f = $('reviewForm');
-  f.status.value = r.status; f.reference.value = r.reference || ''; f.admin_note.value = r.admin_note || '';
-  $('reviewTitle').textContent = `Follow up: ${KIND[r.kind]} ${r.occurred_at.slice(0, 10)}`;
-  $('reviewError').textContent = '';
-  $('reviewDialog').showModal();
-}
-$('reviewForm').onsubmit = async e => {
-  e.preventDefault();
-  const f = $('reviewForm');
-  if (await send(`/api/admin/safety/reports/${editingId}`, 'PUT',
-    {status: f.status.value, reference: f.reference.value, admin_note: f.admin_note.value}, 'reviewError')) $('reviewDialog').close();
-};
-
 // texts
 let textKey = null;
 function editText(key) {
@@ -249,13 +174,6 @@ $('textForm').onsubmit = async e => {
   if (await send('/api/admin/safety/settings', 'PUT', body, 'textError')) $('textDialog').close();
 };
 
-window.viewState.setup(p => {
-  statusFilter = Object.keys(STATUS).includes(p.get('status')) ? p.get('status') : '';
-  page = window.viewState.integer(p.get('page'), 1) - 1;
-}, p => {
-  window.viewState.set(p, 'status', statusFilter);
-  window.viewState.set(p, 'page', page + 1, 1);
-}, () => { if (info) paint(); });
 window.addEventListener('editchange', () => { if (info) paint(); });
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
