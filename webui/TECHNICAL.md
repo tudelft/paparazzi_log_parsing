@@ -1586,7 +1586,10 @@ does not erase retained backups or snapshots.
 Off unless `LOGDB_SAFETY=1` (`safety.py`, `static/safety.html`). The page is **Safety** in the menu and lives at
 `/safety`: the Operations Manual links that path (see `AGENTS.md`), so it works without a query string and the switch
 stays on in production; `app.py check-config` (also run by `install.sh`) warns when it, `LOGDB_DOCUMENTS` or
-`LOGDB_TRAINING` is off. Every route needs a browser session (API keys get 403).
+`LOGDB_TRAINING` is off. Since the page has no list of reports, the mail is the only way a report is seen:
+`check-config` also warns when Safety is on without `LOGDB_SMTP_HOST` (reports reach nobody) or without
+`LOGDB_MAIL_ADMIN_TO` (reports only reach administrators who kept Safety reports on). Every route needs a browser
+session (API keys get 403).
 
 The page shows the text above a prominent **Report incident** button (`reporting_text` in `safety_settings`, from `GET
 /api/safety`, edited in place on the page in Edit mode and saved with `PUT /api/admin/safety/settings`: who to contact,

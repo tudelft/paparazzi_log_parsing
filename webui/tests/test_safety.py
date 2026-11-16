@@ -144,6 +144,24 @@ class SafetyTests(AppTests):
         lines = " ".join(str(c.args[0]) for c in printed.call_args_list if c.args)
         self.assertIn("LOGDB_SAFETY is off: /safety, linked from the Operations Manual, returns 404", lines)
 
+    def test_config_check_warns_when_reports_reach_nobody(self):
+        import config
+
+        def warnings(**settings):
+            with patch.dict(os.environ, {"LOGDB_SAFETY": "1", "LOGDB_SMTP_HOST": "", "LOGDB_MAIL_FROM": "",
+                                         "LOGDB_MAIL_ADMIN_TO": "", **settings}), patch("builtins.print") as printed:
+                config.check()
+            return " ".join(str(c.args[0]) for c in printed.call_args_list
+                            if c.args and str(c.args[0]).startswith("warning:"))
+
+        self.assertIn("LOGDB_SMTP_HOST is not set: safety reports are stored but nobody is told", warnings())
+        mail = {"LOGDB_SMTP_HOST": "relay.example.org", "LOGDB_MAIL_FROM": "logbook@example.org"}
+        self.assertIn("LOGDB_SAFETY is on without LOGDB_MAIL_ADMIN_TO", warnings(**mail))
+        lines = warnings(**mail, LOGDB_MAIL_ADMIN_TO="safety@example.org")
+        self.assertNotIn("safety reports", lines)
+        self.assertNotIn("LOGDB_MAIL_ADMIN_TO", lines)
+        self.assertNotIn("safety reports", warnings(LOGDB_SAFETY="0"))
+
     def test_api_keys_cannot_use_safety(self):
         token = "logdb_" + "b" * 30
         self.con.execute("INSERT INTO api_keys(user_id,name,key_hash,prefix,created_at) VALUES (1,'test',?,?,'now')",

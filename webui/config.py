@@ -331,6 +331,14 @@ def check():
         if not env_bool(switch):  # see AGENTS.md: the Operations Manual links these pages
             warnings.append(f"LOGDB_{switch} is off: {path}, linked from the Operations Manual, returns 404; "
                             "set it to 1 in production")
+    if env_bool("SAFETY"):  # the Safety page has no list of reports: the mail is the only way a report is seen
+        if not env("SMTP_HOST"):
+            warnings.append("LOGDB_SAFETY is on but LOGDB_SMTP_HOST is not set: safety reports are stored but nobody "
+                            "is told about them; set up email (LOGDB_SMTP_HOST, LOGDB_MAIL_FROM)")
+        elif not env("MAIL_ADMIN_TO"):
+            warnings.append("LOGDB_SAFETY is on without LOGDB_MAIL_ADMIN_TO: safety reports only reach administrators "
+                            "who have an email address and have not turned Safety reports off; set LOGDB_MAIL_ADMIN_TO "
+                            "to the safety officer's mailbox so every report reaches someone")
     if env_bool("SAML_ENABLED") and not url:
         warnings.append("TU Delft login is enabled: set LOGDB_PUBLIC_URL so the SAML metadata has the right URLs")
 
