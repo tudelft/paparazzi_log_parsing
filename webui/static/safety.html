@@ -52,17 +52,6 @@
   #err { color:var(--err); margin-bottom:8px; }
   #err:empty { display:none; }
   [hidden] { display:none !important; }
-  #print { display:none; }
-  @media print {
-    body > *:not(#print) { display:none !important; }
-    #print { display:block; color:#000; font:12pt/1.5 system-ui, sans-serif; }
-    #print h1 { font-size:18pt; margin:0 0 4pt; }
-    #print .line { border-bottom:1px solid #000; height:22pt; margin:0 0 2pt; display:flex; align-items:flex-end; }
-    #print .line span { font-size:10pt; padding-right:6pt; }
-    #print .row .line { flex:1; }
-    #print .box { border:1px solid #000; height:200pt; margin:6pt 0; }
-    #print .pre { white-space:pre-wrap; margin:0 0 8pt; }
-  }
 </style>
 </head>
 <body data-edit="admin">
@@ -75,7 +64,7 @@
   <div id="err"></div>
   <section class="card">
     <div class="section-heading"><h2>Danger, incident and accident reporting</h2>
-    <details><summary>Help</summary><p>Report a danger, incident or accident with the registration form, or print a blank copy. You see your own reports and their status, and get an email when the status changes; administrators see all reports and who filed them, get an email for each new one and keep the investigation where the organisation stores it (the reference on a report). Tick "Leave my name out of the notification email" to keep your name out of that email; administrators still see it on the report. In Edit mode administrators follow up reports and change the text at the top.</p></details></div>
+    <details><summary>Help</summary><p>Report a danger, incident or accident with the registration form. You see your own reports and their status, and get an email when the status changes; administrators see all reports and who filed them, get an email for each new one and keep the investigation where the organisation stores it (the reference on a report). Tick "Leave my name out of the notification email" to keep your name out of that email; administrators still see it on the report. In Edit mode administrators follow up reports and change the text at the top.</p></details></div>
     <div id="content"><span class="mute">Loading…</span></div>
   </section>
 </main>
@@ -119,7 +108,6 @@
     <div class="row"><button type="submit">Save</button> <button type="button" class="sec" onclick="$('textDialog').close()">Cancel</button></div>
   </form>
 </dialog>
-<section id="print" aria-hidden="true"></section>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -159,7 +147,7 @@ function reportingHTML() {
     + `<dt>Incident</dt><dd>An occurrence, other than an accident, where physical injury, damage to third-party or private property, the safety of people or critical infrastructure was compromised, or unanticipated damage to the aircraft.</dd>`
     + `<dt>Accident</dt><dd>Damage to critical infrastructure, or physical injury requiring medical assistance. Call the emergency services first.</dd></dl>`
     + `<div class="actions"><button type="button" onclick="newReport()">Report a danger, incident or accident</button>`
-    + ` <button type="button" class="sec" onclick="printReportForm()">Print blank form</button></div>`
+    + `</div>`
     + `<div class="row" style="margin-top:16px"><h3 style="margin:0">${info.is_admin ? 'All reports' : 'My reports'}</h3>`
     + `<select id="statusFilter" aria-label="Status" onchange="filterStatus(this.value)">`
     + `<option value="">All statuses</option>${Object.entries(STATUS).map(([k, v]) => `<option value="${k}"${k === statusFilter ? ' selected' : ''}>${v}</option>`).join('')}</select></div>`
@@ -250,7 +238,7 @@ function editText(key) {
   const f = $('textForm');
   f.text.value = info[key] || '';
   $('textTitle').textContent = 'Reporting text';
-  $('textLabel').textContent = 'Shown above the report form and on the printed form: who to contact, where else to report (plain text)';
+  $('textLabel').textContent = 'Shown above the report form: who to contact, where else to report (plain text)';
   $('textError').textContent = '';
   $('textDialog').showModal();
 }
@@ -261,18 +249,6 @@ $('textForm').onsubmit = async e => {
   if (await send('/api/admin/safety/settings', 'PUT', body, 'textError')) $('textDialog').close();
 };
 
-// printable forms
-const line = label => `<div class="line"><span>${label ? esc(label) + ':' : ''}</span></div>`;
-function printReportForm() {
-  $('print').innerHTML = '<h1>Danger / Incident / Accident report</h1>'
-    + (info.reporting_text ? `<p class="pre">${esc(info.reporting_text)}</p>` : '')
-    + '<p>Type: ☐ Danger &nbsp; ☐ Incident &nbsp; ☐ Accident</p>'
-    + ['Pilot in command', 'Aircraft (RPAS)', 'Location', 'Date and time', 'Conditions', 'Flight phase'].map(line).join('')
-    + line('Description') + line('') + line('') + line('') + line('')
-    + '<p style="margin:8pt 0 0">Situation sketch:</p><div class="box"></div>'
-    + '<div class="row" style="display:flex;gap:40pt">' + line('Signature') + line('Date') + '</div>';
-  window.print();
-}
 window.viewState.setup(p => {
   statusFilter = Object.keys(STATUS).includes(p.get('status')) ? p.get('status') : '';
   page = window.viewState.integer(p.get('page'), 1) - 1;

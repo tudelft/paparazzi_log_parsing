@@ -1596,8 +1596,7 @@ an ASCII `filename` and the full name in `filename*` (as attachments), so any fi
 /api/admin/safety/reports/<id>` sets `status` (`new`, `investigating`, `closed`), `reference` (where the investigation
 and findings are kept, for example a repository with restricted access) and `admin_note`; a status change mails the
 reporter (kind `safety_status`, which they can turn off). `GET /api/me` returns `safety_new` (reports with status New)
-to administrators, shown as a count on the Reporting menu tab. Reports are never deleted. The page prints a blank
-report form (browser print). `GET /api/safety` returns `reporting_text` (`safety_settings`, set with `PUT
+to administrators, shown as a count on the Reporting menu tab. Reports are never deleted. `GET /api/safety` returns `reporting_text` (`safety_settings`, set with `PUT
 /api/admin/safety/settings` in Edit mode): who to contact and where else to report, so organisation details live
 only in that setting, not in the code.
 
