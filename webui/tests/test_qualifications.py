@@ -12,6 +12,7 @@ from unittest.mock import patch
 import licence_qr
 import qualifications
 import db
+import storage
 from .test_historical import AppTests
 
 PDF = b"%PDF-1.4\nTest evidence\n%%EOF\n"
@@ -347,11 +348,33 @@ class QualificationTests(AppTests):
     def test_missing_evidence_is_an_explicit_failure_and_prevents_approval(self):
         sid = self.submit().json["id"]
         (self.root / self.row(sid)["evidence_path"]).unlink()
-        with self.assertLogs(self.app.logger, level="ERROR"):
+        with patch.object(storage, "STORED_FILE_RETRIES", (0, 0)), self.assertLogs(self.app.logger, level="ERROR") as log:
             response = self.client.get(f"/api/qualification-submissions/{sid}/evidence")
         self.assertEqual(response.status_code, 503)
-        self.assertEqual(self.review(sid).status_code, 400)
+        self.assertIn("Try again", response.json["error"])
+        self.assertIn("not found", log.output[0])
+        with patch.object(storage, "STORED_FILE_RETRIES", (0, 0)):
+            self.assertEqual(self.review(sid).status_code, 400)
         self.assertEqual(self.row(sid)["status"], "pending")
+
+    def test_evidence_that_the_share_briefly_misses_is_looked_up_again(self):
+        # A soft-mounted network share can report a stored file as absent for a moment (seen in production).
+        sid = self.submit().json["id"]
+        path = self.root / self.row(sid)["evidence_path"]
+        hidden = path.with_name(path.name + ".away")
+        path.rename(hidden)
+        pauses = []
+
+        def share_back(seconds):
+            pauses.append(seconds)
+            if seconds and hidden.exists():
+                hidden.rename(path)
+
+        with patch.object(storage.time, "sleep", share_back):
+            response = self.client.get(f"/api/qualification-submissions/{sid}/evidence/view")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_data().startswith(b"%PDF-"))
+        self.assertEqual(pauses, [0, storage.STORED_FILE_RETRIES[0]])
 
     def test_pilot_page_exposes_only_current_approved_summaries(self):
         old = self.submit(until="2020-01-01").json["id"]

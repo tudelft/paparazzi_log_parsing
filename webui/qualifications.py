@@ -1050,7 +1050,7 @@ def register(app, connection, root, require_session):
                 if row["requires_number"] and not row["number"]:
                     raise QualificationError("A number is required before approval. Add it with Edit.")
                 if row["requires_evidence"] and (
-                        not row["evidence_path"] or not (evidence_root() / row["evidence_path"]).is_file()):
+                        not row["evidence_path"] or storage.stored_file_problem(evidence_root() / row["evidence_path"])):
                     raise QualificationError("Evidence must be available before approval.")
                 con.execute("UPDATE qualification_submissions SET status='superseded'"
                             " WHERE user_id=? AND type_id=? AND status='approved'", (row["user_id"], row["type_id"]))
@@ -1114,9 +1114,9 @@ def register(app, connection, root, require_session):
         if not row["evidence_path"]:
             raise QualificationError("No evidence file is available.", 404)
         path = evidence_root() / row["evidence_path"]
-        if not path.is_file():
-            app.logger.error("Missing private evidence for qualification submission %s", sid)
-            raise QualificationError("Evidence is unavailable. Contact an administrator.", 503)
+        if problem := storage.stored_file_problem(path):
+            app.logger.error("Missing private evidence for qualification submission %s (%s): %s", sid, path, problem)
+            raise QualificationError(storage.UNAVAILABLE, 503)
         # Inline only for the same safe types as flight attachments; PDF viewers break under a sandbox.
         mimetype = storage.view_type(row["filename"] or "") if inline else row["mime"]
         if not mimetype:
