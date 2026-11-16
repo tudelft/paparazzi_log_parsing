@@ -964,7 +964,7 @@ KEY_READ_POSTS = scopes.READ_POSTS
 def require_login():
     if request.endpoint in PUBLIC_ENDPOINTS:
         return None
-    g.via_key, g.key_scopes = False, None
+    g.via_key, g.key_scopes, g.real_user = False, None, None
     auth = request.headers.get("Authorization", "")
     if auth[:7].lower() == "bearer ":
         # API keys only work on the API, never on pages
@@ -992,6 +992,15 @@ def require_login():
             return redirect("/login?" + urlencode({"next": request.full_path.rstrip("?")}))
         return redirect("/login")
     g.user = user
+    if session.get("view_as"):
+        target = view_as_target(conn(), user, session["view_as"])
+        if target is None:  # switched off, no longer an admin, or the person can no longer sign in
+            session.pop("view_as", None)
+        else:
+            g.real_user, g.user = user, target
+            if request.endpoint in VIEW_AS_BLOCKED:
+                return jsonify(error="Not possible while viewing as another user: stop viewing as them first."), 403
+            return None  # no profile prompt: that is the person's own step
     if (request.method == "GET" and not request.path.startswith("/api/") and request.path != "/profile"
             and "." not in request.path.rsplit("/", 1)[-1] and profiles.needs_profile(conn(), user)):
         # pages wait for a complete profile; the API (and scripts) keep working
@@ -1155,6 +1164,45 @@ def login():
 @app.post("/logout")
 def logout():
     session.clear()
+    return jsonify(ok=True)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# View as another user (LOGDB_VIEW_AS)
+# ---------------------------------------------------------------------------------------------------------------------
+# An administrator's browser session can stand in for another active account: g.user becomes that person (so every
+# page, list and change follows their access and is recorded in their name) and g.real_user is the administrator.
+# Credentials stay out of reach: changing the password, managing API keys and approving script sign-ins are refused.
+VIEW_AS_BLOCKED = {"change_password", "create_key", "narrow_key", "revoke_all_keys", "delete_key", "cli_login_decide"}
+
+
+def view_as_target(con, admin, uid):
+    """The account `admin` may view the site as, or None (feature off, not an admin, themself, or no active account)."""
+    if not env_bool("VIEW_AS") or not admin or not admin["is_admin"] or uid == admin["id"]:
+        return None
+    return con.execute("SELECT * FROM users WHERE id=? AND is_active=1 AND is_external=0 AND provider!='log'",
+                       (uid,)).fetchone()
+
+
+@app.post("/api/view-as/<int:uid>")
+def start_view_as(uid):
+    session_required()
+    admin = g.real_user or g.user
+    target = view_as_target(conn(), admin, uid)
+    if target is None:
+        abort(404)
+    session["view_as"] = uid
+    app.logger.warning("view as: admin %s (%s) started viewing as user %s (%s)",
+                       admin["id"], admin["username"], target["id"], target["username"])
+    return jsonify(user=user_public(target))
+
+
+@app.post("/api/view-as/stop")
+def stop_view_as():
+    session_required()
+    if session.pop("view_as", None) is not None and g.real_user:
+        app.logger.warning("view as: admin %s (%s) stopped viewing as user %s (%s)",
+                           g.real_user["id"], g.real_user["username"], g.user["id"], g.user["username"])
     return jsonify(ok=True)
 
 
@@ -1497,7 +1545,9 @@ def account_email_test():
 
 @app.get("/api/me")
 def me():
-    return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION, training=env_bool("TRAINING"), bookings=env_bool("BOOKINGS"),
+    return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION,
+                   viewing_as_by=dict(id=g.real_user["id"], display_name=g.real_user["display_name"] or g.real_user["username"])
+                   if g.get("real_user") else None, training=env_bool("TRAINING"), bookings=env_bool("BOOKINGS"),
                    documents=env_bool("DOCUMENTS"),
                    can_upload=can_upload_any(conn()), person_profile=profiles.enabled(), email=mail.enabled())
 
@@ -6632,6 +6682,7 @@ def detail_person(con, uid, admin, mine):
         out["qualifications"] = qualifications.current_payload(con, g.user, uid)
         out["names"] = names
     out["responsible_for"] = responsible_for(con, uid, admin, mine)
+    out["can_view_as"] = view_as_target(con, g.get("real_user") or g.user, uid) is not None
     return out
 
 

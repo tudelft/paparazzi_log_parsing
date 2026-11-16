@@ -771,6 +771,29 @@ window.timingEvidenceHTML = function (timing) {
   }
   window.addEventListener('resize', snapLogos);
 
+  // While an administrator views the site as someone else (LOGDB_VIEW_AS): a band above the header on every page.
+  function paintViewAs(by, user) {
+    document.getElementById('viewAsBar')?.remove();
+    if (!by || !user) return;
+    const bar = document.createElement('div');
+    bar.id = 'viewAsBar';
+    bar.setAttribute('role', 'status');
+    const who = document.createElement('span');
+    who.innerHTML = 'Viewing as <b></b>: you see and change everything as this person.';
+    who.querySelector('b').textContent = user.display_name;
+    who.title = `Signed in as ${by.display_name}. Passwords, API keys and script sign-ins stay blocked.`;
+    const stop = document.createElement('button');
+    stop.type = 'button';
+    stop.textContent = 'Stop viewing as';
+    stop.onclick = async () => {
+      stop.disabled = true;
+      await fetch('/api/view-as/stop', {method: 'POST'});
+      location.href = `/people/${user.id}`;
+    };
+    bar.append(who, stop);
+    document.body.prepend(bar);
+  }
+
   // The site logo (LOGDB_SITE_LOGO), else its name, at the left of the header; it leads to the Logbook. The page's own
   // <h1> stays for screen readers and for pages that change it. The sign-in pages show the logo in their card and add
   // the site name to the tab title.
@@ -851,6 +874,7 @@ window.timingEvidenceHTML = function (timing) {
       if (!r.ok) throw new Error(`Could not load account and Web UI version (${r.status})`);
       const d = await r.json();
       ready(() => paintVersion(d.webui_version));
+      ready(() => paintViewAs(d.viewing_as_by, d.user));
       admin = !!(d.user && d.user.is_admin);
       setCachedAdmin(admin);
       setCachedTraining(!!d.training);
