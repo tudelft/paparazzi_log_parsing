@@ -103,11 +103,34 @@ class HistoricalTests(AppTests):
                 self.assertEqual((response.status_code, response.mimetype), (200, "image/svg+xml"), name)
         self.assertEqual(self.client.get("/logos/missing.svg").status_code, 404)
 
+    def test_site_branding_comes_from_settings(self):
+        with self.client.session_transaction() as session:
+            session.clear()
+        settings = {"LOGDB_SITE_NAME": "MAVLab", "LOGDB_SITE_LOGO": "mavlab", "LOGDB_FOOTER_TEXT": "Lab footer",
+                    "LOGDB_FOOTER_LOGOS": "tudelft=https://www.tudelft.nl, mavlab, missing, x=javascript:alert(1)"}
+        with patch.dict(os.environ, settings):
+            source = self.client.get("/theme.js").get_data(as_text=True)
+        site = json.loads(source.partition("window.SITE = ")[2].partition(";\n")[0])
+        self.assertEqual(site["name"], "MAVLab")
+        self.assertEqual(site["logo"], {"name": "mavlab", "night": "mavlab-white", "href": None})
+        self.assertEqual(site["footer_text"], "Lab footer")
+        self.assertEqual([(l["name"], l["href"]) for l in site["footer_logos"]],
+                         [("tudelft", "https://www.tudelft.nl"), ("mavlab", None)])
+        with self.client.get("/logos/mavlab.svg") as response:  # also on the sign-in page
+            self.assertEqual(response.status_code, 200)
+        with patch.dict(os.environ, {}, clear=False):
+            for name in ("LOGDB_SITE_NAME", "LOGDB_SITE_LOGO", "LOGDB_FOOTER_TEXT", "LOGDB_FOOTER_LOGOS"):
+                os.environ.pop(name, None)
+            source = self.client.get("/theme.js").get_data(as_text=True)
+        site = json.loads(source.partition("window.SITE = ")[2].partition(";\n")[0])
+        self.assertEqual((site["name"], site["logo"], site["footer_text"], site["footer_logos"]),
+                         ("Flight logbook", None, "Flight logbook", []))
+
     def test_home_is_logbook_and_logs_has_own_route(self):
         for path in ("/", "/logbook"):
             with self.client.get(path) as response:
                 self.assertEqual(response.status_code, 200)
-                self.assertIn("<title>Flight logbook</title>", response.get_data(as_text=True))
+                self.assertIn("<title>Logbook</title>", response.get_data(as_text=True))
         with self.client.get("/logs") as response:
             self.assertEqual(response.status_code, 200)
             self.assertIn('id="logs"', response.get_data(as_text=True))
