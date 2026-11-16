@@ -715,6 +715,10 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `BOOKINGS` | `0` | `1` shows the [Agenda](#booking-agenda) of bookable items |
 | `DOCUMENTS` | `0` | `1` shows [Documents](#documents): shared documents and each person's own qualifications |
 | `PERSON_PROFILE` | `0` | `1` asks everyone who signs in for a [person profile](#person-profiles) |
+| `SITE_NAME` | `Flight logbook` | Name in tab titles, on the sign-in page, in email subjects and the sender name |
+| `SITE_LOGO` | (empty) | Logo in the header and on the sign-in page: `NAME` of `static/logos/NAME.svg` (`NAME-white.svg` on dark backgrounds when present); without it the header shows `SITE_NAME` |
+| `FOOTER_TEXT` | `SITE_NAME` | Text at the bottom of every page, before the Web UI version |
+| `FOOTER_LOGOS` | (empty) | Footer logos: comma-separated `NAME` or `NAME=https://link` |
 | `WEB_DATA` | `webui/data` | Database and keys; local disk only |
 | `LOG_DIR` | `<WEB_DATA>/logs` | Uploaded logs and flight paths; may be a share |
 | `BACKUP_DIR` | (empty) | Destination of `app.py backup` |
@@ -736,6 +740,11 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `SECRET_KEY` | generated in `<WEB_DATA>/secret_key` | Session signing key |
 
 Relative paths are relative to `webui/`.
+
+For example, the MAVLab instance uses `SITE_NAME=MAVLab`, `SITE_LOGO=mavlab`,
+`FOOTER_TEXT=MAVLab, Faculty of Aerospace Engineering, TU Delft` and
+`FOOTER_LOGOS=tudelft=https://www.tudelft.nl,mavlab=https://mavlab.tudelft.nl`. Restart the service after changing
+them; `check-config` reports logo names without a file.
 
 Set `LOGDB_HIDE_UNLINKED_AIRCRAFT=1` and restart the server to hide telemetry flights whose
 merged aircraft identity has no fleet link. Lists, counts, flight time, charts and location
@@ -1201,7 +1210,7 @@ web calendars such as Google Calendar fetch from their own servers.
 
 Off unless `LOGDB_SMTP_HOST` is set (settings in the **Email** group of `config.py example`; use the organisation's
 mail relay and a functional sender address in `LOGDB_MAIL_FROM`, and set `LOGDB_PUBLIC_URL` so mails can link to
-pages). `LOGDB_MAIL_FROM_NAME` is the sender name and `LOGDB_MAIL_FOOTER` the text above the settings link at the
+pages). `LOGDB_MAIL_FROM_NAME` is the sender name (default: `LOGDB_SITE_NAME`) and `LOGDB_MAIL_FOOTER` the text above the settings link at the
 bottom of every mail (`\n` for a new line; default the sender name). Mails are HTML (header with the sender
 name, a button for the link, the footer with a link to the email settings) with the same text as plain-text part. `config.py check` reports a missing sender. Kinds (`mail.KINDS`):
 

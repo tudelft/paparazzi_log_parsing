@@ -46,6 +46,7 @@ if __name__ == "__main__" and sys.argv[1:2] == ["check-config"]:
 
 import db
 import attachments
+import branding
 import historical
 import links
 import date_suggest
@@ -827,7 +828,7 @@ def upload():
 # Local passwords plus TU Delft NetID SAML 2.0. IdP metadata:
 #   https://login.tudelft.nl/sso/saml2/idp/metadata.php
 PUBLIC_ENDPOINTS = {"login_page", "login", "login_options", "setup_page", "setup_info", "setup_password",
-                    "theme_css", "theme_js", "favicon", "saml_login", "saml_acs", "saml_metadata", "saml_sls",
+                    "theme_css", "theme_js", "favicon", "logo", "saml_login", "saml_acs", "saml_metadata", "saml_sls",
                     "cli_login_start", "cli_login_token", "calendar_feed"}
 SETUP_HOURS = 48
 MAX_FAILURES, FAILURE_WINDOW_S = 8, 300
@@ -892,7 +893,11 @@ def theme_css():
 
 @app.get("/theme.js")
 def theme_js():
-    return send_from_directory(PAGES_DIR, "theme.js")
+    """theme.js, after window.SITE: the configured site name, logos and footer text (see branding.py)."""
+    with open(os.path.join(PAGES_DIR, "theme.js"), encoding="utf-8") as f:
+        source = f.read()
+    site = json.dumps(branding.site()).replace("<", "\\u003c")
+    return Response(f"window.SITE = {site};\n{source}", mimetype="text/javascript")
 
 
 @app.get("/matlab.js")
@@ -4538,7 +4543,7 @@ def mail_setup_link(con, user_id, url, expires_at, new):
     """Email the setup link to the person; returns the address it goes to, or None."""
     action = "set a password for your new account" if new else "choose a new password"
     username = con.execute("SELECT username FROM users WHERE id=?", (user_id,)).fetchone()["username"]
-    if not mail.notify(con, user_id, "account", "Flight logbook: " + ("your new account" if new else "set a new password"),
+    if not mail.notify(con, user_id, "account", branding.site_name() + ": " + ("your new account" if new else "set a new password"),
                        f"Open this link to {action} in the flight logbook. It works once, until "
                        f"{expires_at.replace('T', ' ').replace('Z', ' UTC')}.\n\n{url}\n\n"
                        f"Your username, to sign in with afterwards: {username}"):
