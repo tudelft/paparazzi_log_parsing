@@ -2151,6 +2151,13 @@ the step from day to year can be changed), breakdowns per aircraft/project/locat
 and log files. Admins see everything; others only see the pages and the flights and logs they have
 access to.
 
+**Responsible for** (issue 225). A drone's responsible person is `drones.manager_id`. A person's page lists the drones
+they are responsible for (`responsible_for` in `GET /api/detail/people/<id>`: name, serial, status), all of them for the
+person themself and admins, otherwise only those of the viewer's projects (default or timeline project). Everyone
+sees the drones they are responsible for in the Aircraft list (`GET /api/drones`) and can open their pages, also when
+the drone is on a project they are not in; the flights and logs shown stay limited to their own projects. **My aircraft**
+on `/aircraft` (`?mine=1`) keeps only those, including ones without logs.
+
 **Shared flight filters.** The menu's **Flight filters** popover stores its applied selection in
 browser `localStorage` (`logdbFlightFilters`): period preset or inclusive custom UTC dates,
 indoor/no-GPS visibility, non-flight visibility and unknown-date visibility. Defaults are last three years with all

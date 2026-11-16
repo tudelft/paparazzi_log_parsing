@@ -47,7 +47,7 @@ to gain descriptions and previously omitted crew entries.
 | **Download logs** | The button at the top right: install and example code for the Python package and the MATLAB tools, to download logs by flight number as `.mat` exports or original files. |
 | **Upload logs** | The button at the top right (or drop files on any page): send logs, ZIP archives or folders and follow your recent uploads while they are parsed. **Logs** (Directory ▾) lists every log you can see, with parsing progress and errors. Paparazzi logs need matching `.data` and `.log` files. PX4 `.ulg`, ArduPilot `.bin`/`.log`, `.tlog` and Betaflight/INDIFlight `.bfl`/`.bbl` files can also be uploaded. A folder named after one fleet aircraft still links when the files sit in subfolders; already uploaded logs with that layout are linked at each start. |
 | **Statistics** | Under Directory: totals for aircraft, projects and crew within your access; admins also see the disk space used. |
-| **Aircraft / People / Projects / Locations** | Browse records and open their histories, totals and flights. |
+| **Aircraft / People / Projects / Locations** | Browse records and open their histories, totals and flights. **My aircraft** on Aircraft shows the aircraft you are the responsible person of; a person's page lists them under **Responsible for**. |
 | **Training** | When enabled, complete questionnaires until you pass. A pass writes the linked qualification immediately. |
 | **Agenda** | When enabled, book shared items such as an indoor arena; see [Agenda](#agenda). |
 | **My account** | Click your name at the top right to manage your password, API keys, private qualification submissions, which emails you get and, when enabled, your profile. |

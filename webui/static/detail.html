@@ -367,6 +367,12 @@ function renderInfo() {
     const projects = it.projects || [];
     html = `<h3 class="detail-label">Projects <span class="detail-count">· ${projects.length}</span></h3>
       <div class="detail-chips">${projects.map(p => `<a class="project-chip" href="/projects/${p.id}">${esc(p.name)}</a>`).join('') || '<span class="mute">None</span>'}</div>`;
+    const drones = it.responsible_for || [];  // issue 225: the drones this person is the responsible person of
+    if (drones.length) {
+      html += chipSection('Responsible for', drones.map(d => `<a class="project-chip" href="/aircraft/${d.id}"
+        title="${esc([d.unique_id, d.status].filter(Boolean).join(' · ') || 'No serial or status')}">${esc(d.name)}${d.unique_id
+          ? ` <span class="mute">${esc(d.unique_id)}</span>` : ''}${d.status ? ` <span class="mute">· ${esc(d.status)}</span>` : ''}</a>`));
+    }
     if (q) {
       const approved = q.items.filter(item => item.status === 'approved');
       const current = approved.filter(item => !item.expired);
