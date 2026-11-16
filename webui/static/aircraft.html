@@ -138,7 +138,7 @@
     <div class="fleet-toolbar"><h2 id="fleetTitle">Aircraft</h2><span class="fleet-count" id="fleetCount"></span>
       <input id="q" type="search" placeholder="Search name, serial, alias, person, project…" aria-label="Search aircraft">
       <select id="statusFilter" aria-label="Status"><option value="">All statuses</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select>
-      <label title="Only the aircraft you are the responsible person (manager) of, also those without logs"><input type="checkbox" id="mineOnly"> My aircraft</label>
+      <label id="mineLabel" hidden title="Only the aircraft you are the responsible person (manager) of, also those without logs"><input type="checkbox" id="mineOnly"> My aircraft</label>
       <label title="Aircraft marked Discard stay hidden until this is ticked"><input type="checkbox" id="showDiscarded"> Discarded</label>
       <label title="Aircraft without uploaded logs or paper records stay hidden until this is ticked"><input type="checkbox" id="showWithoutLogs"> Without logs</label>
       <span class="col-menu" id="colMenu"><button type="button" class="sec" id="colButton" aria-expanded="false" aria-controls="colForm">Columns</button>
@@ -328,6 +328,8 @@ function render() {
   const q = ($('q').value || '').trim().toLowerCase();
   const status = $('statusFilter').value;
   const editing = editOn();
+  // My aircraft only for people who are the responsible person of an aircraft (kept while ticked, so it can be cleared)
+  $('mineLabel').hidden = !$('mineOnly').checked && !(me && data.drones.some(d => d.manager_id === me.id));
   $('ambiguousCard').hidden = !editing;
   $('ambiguousNames').innerHTML = (data.ambiguous || []).map((item, i) => ambiguousHTML(item, i)).join('')
     || '<p class="mute">No shared names marked ambiguous.</p>';
