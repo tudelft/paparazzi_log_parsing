@@ -122,6 +122,7 @@
   <div id="page" hidden>
     <section class="card detail-header">
       <div class="hero"><h2 id="name"></h2><span id="chips"></span></div>
+      <button type="button" class="sec" id="viewAsBtn" hidden title="See and use the site as this person until you stop (administrators)">View as</button>
         <details class="page-help"><summary>Help</summary><p id="scope"></p>
         <p>Statistics, map, charts and tables follow the shared flight filters. Qualification dates appear on hover; qualifications with evidence open the file when you have access. Past qualifications and account details can be expanded.</p></details>
       <div class="profile-line" id="profileLine" hidden></div>
@@ -348,9 +349,18 @@ function renderHead() {
     return `<span class="chip${cls}">${esc(t)}</span>`;
   }).join(' ');
   $('scope').textContent = D.all ? '' : 'Only flights and log files you have access to are counted.';
+  $('viewAsBtn').hidden = !(KIND === 'people' && it.can_view_as);
   $('mapTitle').textContent = KIND === 'locations' ? 'Area and takeoff points' : 'Takeoff locations';
   renderInfo();
 }
+
+$('viewAsBtn').onclick = async () => {
+  $('viewAsBtn').disabled = true;
+  const r = await fetch(`/api/view-as/${ITEM_ID}`, {method: 'POST'});
+  if (r.ok) { location.href = '/'; return; }
+  $('viewAsBtn').disabled = false;
+  $('err').textContent = (await r.json().catch(() => ({}))).error || `Could not view as this person (${r.status}).`;
+};
 
 function chipSection(title, items) {
   return `<h3 class="detail-label">${esc(title)} <span class="detail-count">· ${items.length}</span></h3>

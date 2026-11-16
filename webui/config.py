@@ -28,6 +28,8 @@ SETTINGS = {
         "BOOKINGS": ("0", "1 shows Agenda: a week agenda of bookable items that administrators set up in Edit mode"),
         "DOCUMENTS": ("0", "1 shows Documents: shared documents that administrators upload in Edit mode, and each "
                            "person's own current qualifications"),
+        "VIEW_AS": ("0", "1 lets administrators view and use the site as another user, from that person's page "
+                         "(passwords, API keys and script sign-ins stay blocked; start and stop are logged)"),
         "PERSON_PROFILE": ("0", "1 asks everyone who signs in for their role, department, supervisors, expected end "
                                 "date and student/employee number (again once the end date has passed)"),
     },
