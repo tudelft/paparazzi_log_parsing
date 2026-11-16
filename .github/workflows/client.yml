@@ -66,7 +66,8 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/p/mavlab-logbook-client
-    # At most one run waits for approval; a newer master run replaces an older waiting one
+    # One publish job at a time: a run waiting for approval keeps its place, and of the runs queued behind it only the
+    # newest is kept (it ends quietly if the version was released meanwhile)
     concurrency:
       group: pypi-publish
       cancel-in-progress: false
@@ -77,24 +78,31 @@ jobs:
       TAG: client-v${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Check again after approval
+      - id: again
+        name: Check again after approval
         run: |
           set -eu
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
-            echo "::error::$TAG was released while this run waited"; exit 1
+            echo "::notice::$TAG was released while this run waited; nothing to publish"
+            echo "released=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/setup-python@v5
+      - if: steps.again.outputs.released != 'true'
+        uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - name: Build
+        if: steps.again.outputs.released != 'true'
         run: |
           python -m pip install build
           python -m build python/mavlab-logbook-client
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - if: steps.again.outputs.released != 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: python/mavlab-logbook-client/dist
           skip-existing: true   # a re-run after a failed tag push only adds the tag
       - name: Tag the release
+        if: steps.again.outputs.released != 'true'
+        # needs GitHub Actions in the bypass list of the tag ruleset "only maintainers can push client version tags"
         run: |
           set -eu
           git config user.name "github-actions[bot]"
