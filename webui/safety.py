@@ -1,22 +1,17 @@
-"""Safety: occurrence reporting, safety board meetings and safety promotion. Off unless LOGDB_SAFETY=1.
+"""Reporting: danger, incident and accident reports (occurrence reporting). Off unless LOGDB_SAFETY=1.
 
-The page (/safety) has three tabs:
-  - Reporting (everyone signed in): a danger, incident or accident report with the fields of a paper registration
-    form (pilot in command, aircraft, location, date and time, conditions, flight phase, description, optional
-    sketch as PDF/JPEG/PNG). People see their own reports and their status; administrators see all of them, set the
-    status, a reference to where the investigation is kept (for example a repository with restricted access) and an
-    internal note, and get a notice of each new report (mail kind "safety", immediate by default, separate from
-    the other administrator notices). The reporter can ask to leave their name out of that notification email
-    (leave_name_out); administrators still see who reported (open reporting culture). The reporter's name is
-    stored at filing time, so a report keeps it when the account is deleted. The reporter gets a mail when the
-    status changes (kind "safety_status"). Reports cannot be deleted.
-  - Safety board (administrators): a schedule of safety board meetings with an attendance list per meeting, a text
-    and a link to where the meeting documents are kept.
-  - Safety promotion (administrators): the safety promotion programme (a text) and the safety meetings held, with
-    their attendance lists.
-Texts and the documents link are set by administrators in Edit mode and stored in safety_settings, so nothing about
-one organisation is in the code. Attendance lists hold logbook people (by id, with their name at the time) and
-names of people without an account. Every route needs a browser session; API keys get 403.
+The page lives at /safety (the Operations Manual links that path) and is called Reporting in the menu. Everyone signed
+in files a report with the fields of a paper registration form (pilot in command, aircraft, location, date and time,
+conditions, flight phase, description, optional sketch as PDF/JPEG/PNG). People see their own reports and their
+status; administrators see all of them, set the status, a reference to where the investigation is kept (for example a
+repository with restricted access) and an internal note, and get a notice of each new report (mail kind "safety",
+immediate by default, separate from the other administrator notices). The reporter can ask to leave their name out of
+that notification email (leave_name_out); administrators still see who reported (open reporting culture). The
+reporter's name is stored at filing time, so a report keeps it when the account is deleted. The reporter gets a mail
+when the status changes (kind "safety_status"). Reports cannot be deleted.
+The text above the form (who to contact, where else to report) is set by administrators in Edit mode and stored in
+safety_settings, so nothing about one organisation is in the code. Every route needs a browser session; API keys get
+403.
 """
 import datetime
 import gzip
@@ -36,14 +31,12 @@ from config import env_bool
 MAX_SKETCH_BYTES = 20 * 2**20
 MAX_TEXT = 5000
 MAX_FIELD = 200
-MAX_ATTENDEES = 200
 KINDS = ("danger", "incident", "accident")
 STATUSES = ("new", "investigating", "closed")
 STATUS_LABELS = {"new": "New", "investigating": "Investigating", "closed": "Closed"}
-MEETING_KINDS = ("board", "promotion")
 SKETCH_TYPES = {".pdf": ("application/pdf", b"%PDF-"), ".jpg": ("image/jpeg", b"\xff\xd8\xff"),
                 ".jpeg": ("image/jpeg", b"\xff\xd8\xff"), ".png": ("image/png", b"\x89PNG\r\n\x1a\n")}
-SETTINGS = ("reporting_text", "board_text", "board_link", "promotion_text")
+SETTINGS = ("reporting_text",)
 NAME_SQL = "COALESCE(NULLIF(display_name,''), username)"
 
 
@@ -90,18 +83,6 @@ def choice(raw, allowed, label):
     return value
 
 
-def date_value(raw, label, required=True):
-    value = str(raw or "").strip()
-    if not value:
-        if required:
-            raise SafetyError(f"{label} is required.")
-        return None
-    try:
-        return datetime.date.fromisoformat(value).isoformat()
-    except ValueError:
-        raise SafetyError(f"{label} must be a date (YYYY-MM-DD).") from None
-
-
 def datetime_value(raw, label):
     """YYYY-MM-DDTHH:MM (local time, as a datetime-local field sends it) or a date alone; not in the future. The
     browser's time zone is unknown, so a date up to the latest date anywhere on earth now (UTC+14) is accepted."""
@@ -121,23 +102,6 @@ def datetime_value(raw, label):
     return value
 
 
-def time_value(raw, label):
-    value = str(raw or "").strip()
-    if not value:
-        return ""
-    try:
-        return datetime.time.fromisoformat(value).strftime("%H:%M")
-    except ValueError:
-        raise SafetyError(f"{label} must be a time (HH:MM).") from None
-
-
-def link_value(raw):
-    value = text(raw, "The documents link", 500)
-    if value and not value.lower().startswith(("https://", "http://")):
-        raise SafetyError("The documents link must start with https:// or http://.")
-    return value
-
-
 def settings(cid):
     row = cid.execute("SELECT * FROM safety_settings WHERE id=1").fetchone()
     return {key: (row[key] if row else "") for key in SETTINGS}
@@ -154,42 +118,6 @@ def report_json(row, admin):
                    reporter_deleted=row["reporter_id"] is None, reference=row["reference"],
                    admin_note=row["admin_note"])
     return out
-
-
-def meeting_json(cid, row):
-    attendees = [{"user_id": a["user_id"], "name": a["name"]} for a in cid.execute(
-        "SELECT user_id, name FROM safety_meeting_attendees WHERE meeting_id=? ORDER BY id", (row["id"],))]
-    out = {key: row[key] for key in ("id", "kind", "held_on", "start_time", "location", "title", "notes")}
-    out["attendees"] = attendees
-    return out
-
-
-def attendee_rows(cid, raw):
-    """[(user_id or None, name)] from [{user_id} | {name}]; logbook people keep their current name."""
-    if not isinstance(raw, list):
-        raise SafetyError("Attendees must be a list.")
-    if len(raw) > MAX_ATTENDEES:
-        raise SafetyError(f"At most {MAX_ATTENDEES} attendees.")
-    rows, seen = [], set()
-    for item in raw:
-        if not isinstance(item, dict):
-            raise SafetyError("Each attendee is a person or a name.")
-        if item.get("user_id") not in (None, ""):
-            try:
-                user_id = int(item["user_id"])
-            except (TypeError, ValueError):
-                raise SafetyError("No such person.") from None
-            person = cid.execute(f"SELECT {NAME_SQL} AS name FROM users WHERE id=?", (user_id,)).fetchone()
-            if person is None:
-                raise SafetyError("No such person.")
-            key, entry = ("user", user_id), (user_id, person["name"])
-        else:
-            name = text(item.get("name"), "An attendee's name", 120, required=True)
-            key, entry = ("name", name.casefold()), (None, name)
-        if key not in seen:
-            seen.add(key)
-            rows.append(entry)
-    return rows
 
 
 def register(app, connection, root, pages_dir, require_session):
@@ -215,12 +143,6 @@ def register(app, connection, root, pages_dir, require_session):
             raise SafetyError("No such report.", 404)
         return row
 
-    def meeting_row(cid, meeting_id):
-        row = cid.execute("SELECT * FROM safety_meetings WHERE id=?", (meeting_id,)).fetchone()
-        if row is None:
-            raise SafetyError("No such meeting.", 404)
-        return row
-
     @app.get("/safety")
     def safety_page():
         if not enabled():
@@ -236,8 +158,6 @@ def register(app, connection, root, pages_dir, require_session):
         out = {"reporting_text": current["reporting_text"], "is_admin": is_admin, "kinds": list(KINDS),
                "statuses": list(STATUSES), "max_sketch_bytes": MAX_SKETCH_BYTES,
                "me": cid.execute(f"SELECT {NAME_SQL} FROM users WHERE id=?", (g.user["id"],)).fetchone()[0]}
-        if is_admin:
-            out.update({key: current[key] for key in ("board_text", "board_link", "promotion_text")})
         return jsonify(out)
 
     @app.put("/api/admin/safety/settings")
@@ -250,11 +170,10 @@ def register(app, connection, root, pages_dir, require_session):
             values = settings(cid)
             for key in SETTINGS:
                 if key in body:
-                    values[key] = link_value(body[key]) if key == "board_link" else text(body[key], "The text", MAX_TEXT, multiline=True)
-            cid.execute("INSERT INTO safety_settings(id,reporting_text,board_text,board_link,promotion_text)"
-                        " VALUES (1,?,?,?,?) ON CONFLICT(id) DO UPDATE SET reporting_text=excluded.reporting_text,"
-                        " board_text=excluded.board_text, board_link=excluded.board_link,"
-                        " promotion_text=excluded.promotion_text", tuple(values[k] for k in SETTINGS))
+                    values[key] = text(body[key], "The text", MAX_TEXT, multiline=True)
+            cid.execute("INSERT INTO safety_settings(id,reporting_text) VALUES (1,?)"
+                        " ON CONFLICT(id) DO UPDATE SET reporting_text=excluded.reporting_text",
+                        (values["reporting_text"],))
         return jsonify(ok=True)
 
     # --- reports -----------------------------------------------------------------------------------------------
@@ -324,7 +243,7 @@ def register(app, connection, root, pages_dir, require_session):
                 who = "a reporter who asked to leave their name out" if leave_name_out else name
                 mail.notify_admins(cid, f"Safety report: {fields['kind']} at {fields['location']}",
                                    f"A new {fields['kind']} report ({fields['occurred_at'].replace('T', ' ')}, "
-                                   f"{fields['location']}) was filed by {who}.", "/safety?tab=reporting",
+                                   f"{fields['location']}) was filed by {who}.", "/safety",
                                    kind="safety")
         except Exception:
             if stored:
@@ -370,76 +289,7 @@ def register(app, connection, root, pages_dir, require_session):
                 mail.notify(cid, row["reporter_id"], "safety_status",
                             f"Your safety report: {STATUS_LABELS[status].lower()}",
                             f"The status of your {row['kind']} report ({row['occurred_at'].replace('T', ' ')}, "
-                            f"{row['location']}) is now {STATUS_LABELS[status]}.", "/safety?tab=reporting")
-        return jsonify(ok=True)
-
-    # --- meetings ----------------------------------------------------------------------------------------------
-    @app.get("/api/admin/safety/meetings")
-    def list_meetings():
-        admin()
-        cid = connection()
-        meetings = [meeting_json(cid, r) for r in cid.execute(
-            "SELECT * FROM safety_meetings ORDER BY held_on DESC, start_time DESC, id DESC")]
-        people = [dict(r) for r in cid.execute(
-            f"SELECT id, {NAME_SQL} AS name FROM users WHERE is_active=1 ORDER BY {NAME_SQL} COLLATE NOCASE")]
-        return jsonify(meetings=meetings, people=people, today=datetime.date.today().isoformat())
-
-    def meeting_fields(cid, body, row=None):
-        get = (lambda k: body[k] if k in body else (row[k] if row is not None else None))
-        fields = dict(
-            kind=choice(get("kind"), MEETING_KINDS, "Meeting type"),
-            held_on=date_value(get("held_on"), "Date"),
-            start_time=time_value(get("start_time"), "Time"),
-            location=text(get("location"), "Location"),
-            title=text(get("title"), "Topic"),
-            notes=text(get("notes"), "Notes", MAX_TEXT, multiline=True),
-        )
-        attendees = attendee_rows(cid, body["attendees"]) if "attendees" in body else None
-        return fields, attendees
-
-    def save_attendees(cid, meeting_id, attendees):
-        if attendees is None:
-            return
-        cid.execute("DELETE FROM safety_meeting_attendees WHERE meeting_id=?", (meeting_id,))
-        cid.executemany("INSERT INTO safety_meeting_attendees(meeting_id,user_id,name) VALUES (?,?,?)",
-                        [(meeting_id, user_id, name) for user_id, name in attendees])
-
-    @app.post("/api/admin/safety/meetings")
-    def create_meeting():
-        admin()
-        body = request.get_json(silent=True) or {}
-        cid = connection()
-        with db.write_lock, cid:
-            cid.execute("BEGIN IMMEDIATE")
-            fields, attendees = meeting_fields(cid, body)
-            mid = cid.execute("INSERT INTO safety_meetings(kind,held_on,start_time,location,title,notes,created_by,"
-                              "created_at) VALUES (?,?,?,?,?,?,?,?)",
-                              (*fields.values(), g.user["id"], utc_now())).lastrowid
-            save_attendees(cid, mid, attendees)
-        return jsonify(ok=True, id=mid), 201
-
-    @app.put("/api/admin/safety/meetings/<int:meeting_id>")
-    def update_meeting(meeting_id):
-        admin()
-        body = request.get_json(silent=True) or {}
-        cid = connection()
-        with db.write_lock, cid:
-            cid.execute("BEGIN IMMEDIATE")
-            row = meeting_row(cid, meeting_id)
-            fields, attendees = meeting_fields(cid, body, row)
-            cid.execute("UPDATE safety_meetings SET kind=?, held_on=?, start_time=?, location=?, title=?, notes=?"
-                        " WHERE id=?", (*fields.values(), meeting_id))
-            save_attendees(cid, meeting_id, attendees)
-        return jsonify(ok=True)
-
-    @app.delete("/api/admin/safety/meetings/<int:meeting_id>")
-    def delete_meeting(meeting_id):
-        admin()
-        cid = connection()
-        with db.write_lock, cid:
-            cid.execute("BEGIN IMMEDIATE")
-            meeting_row(cid, meeting_id)
-            cid.execute("DELETE FROM safety_meetings WHERE id=?", (meeting_id,))
+                            f"{row['location']}) is now {STATUS_LABELS[status]}.", "/safety")
         return jsonify(ok=True)
 
     @app.errorhandler(SafetyError)

@@ -550,12 +550,9 @@ CREATE TABLE IF NOT EXISTS document_profile_roles (  -- profile roles that may s
     role_id INTEGER NOT NULL REFERENCES profile_roles(id) ON DELETE CASCADE,
     PRIMARY KEY (document_id, role_id)
 );
-CREATE TABLE IF NOT EXISTS safety_settings (  -- Safety page (safety.py): texts and the meeting documents link
+CREATE TABLE IF NOT EXISTS safety_settings (  -- Reporting page (safety.py): the text above the report form
     id INTEGER PRIMARY KEY CHECK(id=1),
-    reporting_text TEXT NOT NULL DEFAULT '',
-    board_text TEXT NOT NULL DEFAULT '',
-    board_link TEXT NOT NULL DEFAULT '',
-    promotion_text TEXT NOT NULL DEFAULT ''
+    reporting_text TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS safety_reports (  -- danger, incident and accident reports; never deleted
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -580,23 +577,6 @@ CREATE TABLE IF NOT EXISTS safety_reports (  -- danger, incident and accident re
     sketch_bytes INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS safety_meetings (  -- safety board meetings and safety promotion meetings
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind TEXT NOT NULL CHECK(kind IN ('board','promotion')),
-    held_on TEXT NOT NULL,             -- YYYY-MM-DD (planned or held)
-    start_time TEXT NOT NULL DEFAULT '',
-    location TEXT NOT NULL DEFAULT '',
-    title TEXT NOT NULL DEFAULT '',
-    notes TEXT NOT NULL DEFAULT '',
-    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS safety_meeting_attendees (  -- no unique key: account merges move user_id freely
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    meeting_id INTEGER NOT NULL REFERENCES safety_meetings(id) ON DELETE CASCADE,
-    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- NULL: someone without an account
-    name TEXT NOT NULL                 -- the name at the time
 );
 CREATE TABLE IF NOT EXISTS trainings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -976,7 +956,7 @@ LOGBOOK_UNRELATED = {
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
     "training_progress", "training_briefers", "booking_things", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
     "document_settings", "document_groups", "documents", "document_profile_roles", "document_qualification_types",
-    "safety_settings", "safety_reports", "safety_meetings", "safety_meeting_attendees",
+    "safety_settings", "safety_reports",
     "mail_outbox", "mail_prefs", "mail_sent_keys",
     "profile_roles", "profile_departments", "user_profiles", "user_supervisors", "logbook_version",
 }

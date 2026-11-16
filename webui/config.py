@@ -28,7 +28,7 @@ SETTINGS = {
         "BOOKINGS": ("0", "1 shows Agenda: a week agenda of bookable items that administrators set up in Edit mode"),
         "DOCUMENTS": ("0", "1 shows Documents: shared documents that administrators upload in Edit mode, and each "
                            "person's own current qualifications"),
-        "SAFETY": ("0", "1 shows Safety: danger/incident/accident reports, safety board meetings and safety promotion. "
+        "SAFETY": ("0", "1 shows Reporting (/safety): danger, incident and accident reports. "
                         "The Operations Manual links /safety: keep it on in production"),
         "PERSON_PROFILE": ("0", "1 asks everyone who signs in for their role, department, supervisors, expected end "
                                 "date and student/employee number (again once the end date has passed)"),

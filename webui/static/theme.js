@@ -505,7 +505,7 @@ window.timingEvidenceHTML = function (timing) {
     paintEdit();
     window.dispatchEvent(new Event('editchange'));
   };
-  // Menu: Logbook · Agenda · Training · Documents · Safety (each when enabled) · Directory ▾ (People … Logs, Statistics); Upload logs, Edit and the name menu on the right
+  // Menu: Logbook · Agenda · Training · Documents · Reporting (/safety) (each when enabled) · Directory ▾ (People … Logs, Statistics); Upload logs, Edit and the name menu on the right
   const DIRECTORY = [['/people', 'People'], ['/aircraft', 'Aircraft'], ['/projects', 'Projects'], ['/locations', 'Locations'],
     null, ['/logs', 'Logs'], ['/stats', 'Statistics']];
 
@@ -593,7 +593,7 @@ window.timingEvidenceHTML = function (timing) {
       + (cachedBookings() ? tab('/agenda', 'Agenda') : '')
       + (cachedTraining() ? tab('/training', 'Training') : '')
       + (cachedDocuments() ? tab('/documents', 'Documents') : '')
-      + (cachedSafety() ? tab('/safety', 'Safety' + (cachedSafetyNew()
+      + (cachedSafety() ? tab('/safety', 'Reporting' + (cachedSafetyNew()
         ? ` <span class="nav-count" title="${cachedSafetyNew()} new safety report${cachedSafetyNew() === 1 ? '' : 's'}">${cachedSafetyNew()}</span>` : '')) : '')
       + `<button type="button" class="nav-drop${inDirectory ? ' cur' : ''}" id="directoryBtn">Directory ▾</button>`;
     let panel = document.getElementById('directoryMenu');

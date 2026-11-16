@@ -11,7 +11,7 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 64
 
 
 class SafetyTests(AppTests):
-    """Safety page: reports for everyone, safety board and safety promotion meetings for admins.
+    """Reporting page (/safety): danger, incident and accident reports for everyone.
     Users: 1 Admin, 2 Pilot, 3 Viewer, 4 Outsider."""
 
     def setUp(self):
@@ -39,7 +39,7 @@ class SafetyTests(AppTests):
         self.assertTrue(self.client.get("/api/me").json["safety"])
         r = self.client.get("/safety")  # the Operations Manual links this path without a query string
         self.assertEqual(r.status_code, 200)
-        self.assertIn(b"<title>Safety</title>", r.data)
+        self.assertIn(b"<title>Reporting</title>", r.data)
         r.close()
 
     def test_report_is_private_to_reporter_and_admins(self):
@@ -98,39 +98,15 @@ class SafetyTests(AppTests):
         self.assertEqual(list(Path(self.app.config["SAFETY_DIR"]).glob("*")) if Path(self.app.config["SAFETY_DIR"]).exists()
                          else [], [])
 
-    def test_settings_and_meetings_are_for_admins(self):
-        self.assertNotIn("board_link", self.client.get("/api/safety").json)
-        self.assertEqual(self.client.get("/api/admin/safety/meetings").status_code, 403)
+    def test_reporting_text_is_set_by_admins(self):
         self.assertEqual(self.client.put("/api/admin/safety/settings", json={"reporting_text": "x"}).status_code, 403)
+        self.assertEqual(self.client.get("/api/admin/safety/meetings").status_code, 404)  # board and promotion: removed
         self.sign_in(1)
-        r = self.client.put("/api/admin/safety/settings", json={"board_link": "ftp://nope"})
-        self.assertEqual(r.status_code, 400)
-        r = self.client.put("/api/admin/safety/settings", json={"reporting_text": "Call the safety manager.",
-                                                                "board_link": "https://docs.example/safety-board"})
+        r = self.client.put("/api/admin/safety/settings", json={"reporting_text": "Call the safety manager.\nThen the board."})
         self.assertEqual(r.status_code, 200, r.json)
         d = self.client.get("/api/safety").json
-        self.assertEqual((d["reporting_text"], d["board_link"], d["promotion_text"]),
-                         ("Call the safety manager.", "https://docs.example/safety-board", ""))
-        r = self.client.post("/api/admin/safety/meetings", json={
-            "kind": "board", "held_on": "2026-12-02", "start_time": "10:00", "title": "Yearly review",
-            "attendees": [{"user_id": 2}, {"name": "Guest Expert"}, {"user_id": 2}, {"name": "guest expert"}]})
-        self.assertEqual(r.status_code, 201, r.json)
-        mid = r.json["id"]
-        listing = self.client.get("/api/admin/safety/meetings").json
-        self.assertEqual([(m["id"], m["kind"], m["start_time"]) for m in listing["meetings"]], [(mid, "board", "10:00")])
-        self.assertEqual(listing["meetings"][0]["attendees"],
-                         [{"user_id": 2, "name": "Pilot"}, {"user_id": None, "name": "Guest Expert"}])
-        self.assertIn({"id": 3, "name": "Viewer"}, listing["people"])
-        r = self.client.put(f"/api/admin/safety/meetings/{mid}", json={"kind": "promotion", "attendees": [{"user_id": 3}]})
-        self.assertEqual(r.status_code, 200, r.json)
-        m = self.client.get("/api/admin/safety/meetings").json["meetings"][0]
-        self.assertEqual((m["kind"], m["title"], [a["name"] for a in m["attendees"]]), ("promotion", "Yearly review", ["Viewer"]))
-        for body in ({"kind": "party", "held_on": "2026-12-02"}, {"kind": "board", "held_on": "soon"},
-                     {"kind": "board", "held_on": "2026-12-02", "attendees": [{"user_id": 99}]}):
-            self.assertEqual(self.client.post("/api/admin/safety/meetings", json=body).status_code, 400, body)
-        self.assertEqual(self.client.delete(f"/api/admin/safety/meetings/{mid}").status_code, 200)
-        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM safety_meeting_attendees").fetchone()[0], 0)
-        self.assertEqual(self.client.delete(f"/api/admin/safety/meetings/{mid}").status_code, 404)
+        self.assertEqual(d["reporting_text"], "Call the safety manager.\nThen the board.")
+        self.assertEqual(set(d), {"reporting_text", "is_admin", "kinds", "statuses", "max_sketch_bytes", "me"})
 
     def test_sketch_with_a_non_latin_1_name(self):
         name = "Screenshot 2026-11-14 at 10.00.00\u202fAM \u2019wing\u2019 \U0001F681.png"
@@ -195,5 +171,5 @@ class SafetyTests(AppTests):
                          (hashlib.sha256(token.encode()).hexdigest(), "test"))
         self.con.commit()
         client = self.app.test_client()
-        for url in ("/api/safety", "/api/safety/reports", "/api/admin/safety/meetings"):
+        for url in ("/api/safety", "/api/safety/reports"):
             self.assertEqual(client.get(url, headers={"Authorization": "Bearer " + token}).status_code, 403, url)
