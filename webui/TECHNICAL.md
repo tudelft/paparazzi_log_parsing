@@ -722,6 +722,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `SAML_ENABLED` | `1` | `0` hides *Sign in with TU Delft* |
 | `SAML_METADATA_URL` | TU Delft IdP | Identity provider metadata |
 | `SAML_ENTITY_ID` | `<PUBLIC_URL>/saml/metadata` | This service's SAML entity ID |
+| `SAML_PASSIVE` | `1` | Silent check on the login page: sign in without a click with an existing TU Delft session |
 | `THREADS` | `8` | Gunicorn threads (always one gunicorn process: the parse queue lives in it) |
 | `WORKERS` | `1` | Logs parsed in parallel; increase only with sufficient RAM and temporary disk |
 | `INGEST_WORKERS` | `1` | Threads that hash, deduplicate and unzip uploads |
@@ -847,6 +848,13 @@ SAML identity mapping accepts both `uid` / `UID` and `displayName` / `Displaynam
 the supported standard OID/URN names. NameID remains the preferred subject identifier; `mail` supplies email.
 A login is matched, in order, to the account holding that TU Delft ID, an active account with the same email, or a
 unique display name/username/alias; otherwise a new account is made. The first match stores the ID on the account.
+
+**Silent check.** With `SAML_PASSIVE=1` (default) the first visit to `/login` in a browser session first asks TU Delft,
+without showing anything, whether the person is already signed in there (SAML `IsPassive`). If so they are signed in
+here without a click and return to the page they asked for; if not, TU Delft answers at once and the normal login page
+shows (`/login?sso=none`). It is tried once per browser session, and never right after signing out, so signing out is not
+undone. `/login?local=1` skips it (local accounts). The check depends on `login.tudelft.nl`: while TU Delft sign-in
+itself is broken (an error page there), set `SAML_PASSIVE=0` so the login page shows directly.
 
 **Accounts: merge and move a TU Delft sign-in.** In Edit mode on the People Account tab, admins can fix a wrong
 match. **Merge into…** (`GET`/`POST /api/admin/users/<id>/merge`, `into`) moves everything of an account to another

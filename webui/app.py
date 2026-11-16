@@ -980,7 +980,10 @@ def require_login():
     uid = session.get("uid")
     user = conn().execute("SELECT * FROM users WHERE id=? AND is_active=1 AND is_external=0", (uid,)).fetchone() if uid else None
     if user is None:
+        checked = session.get(SSO_CHECKED)
         session.clear()
+        if checked:
+            session[SSO_CHECKED] = checked
         if request.path.startswith("/api/"):
             return jsonify(error="login required"), 401
         if request.method == "GET" and request.path != "/":
@@ -1002,8 +1005,25 @@ def safe_next(target):
     return target
 
 
+# Silent TU Delft check (SAML IsPassive): the first visit to /login in a browser session goes to TU Delft without
+# showing anything. With a TU Delft session the person is signed in without a click; without one TU Delft answers
+# NoPassive at once and the normal login page shows (?sso=none). The session flag keeps it to one try, and signing
+# out sets it so a sign-out is not undone by the next visit to /login.
+SSO_CHECKED = "sso_checked"
+PASSIVE_RELAY = "passive:"  # RelayState prefix: the session cookie (SameSite=Lax) is not sent with TU Delft's POST
+
+
+def passive_fallback(target):
+    """The login page after a silent check that did not sign anyone in."""
+    return "/login?" + urlencode({"sso": "none", **({"next": target} if target != "/" else {})})
+
+
 @app.get("/login")
 def login_page():
+    if (saml.passive_enabled() and not session.get("uid") and not session.get(SSO_CHECKED)
+            and not any(k in request.args for k in ("local", "ready", "error", "sso"))):
+        session[SSO_CHECKED] = True
+        return redirect("/login/tudelft?" + urlencode({"passive": "1", "next": safe_next(request.args.get("next"))}))
     return send_from_directory(PAGES_DIR, "login.html")
 
 
@@ -1074,12 +1094,14 @@ def login_saml_identity(ident):
 def saml_login():
     if not saml.saml_enabled():
         return redirect("/login")
+    passive = request.args.get("passive") == "1"
+    target = safe_next(request.args.get("next"))
     try:
         auth = saml.auth_for(request, DATA_DIR)
-        url = auth.login(return_to=safe_next(request.args.get("next")))
+        url = auth.login(return_to=PASSIVE_RELAY + target if passive else target, is_passive=passive)
     except Exception:
         app.logger.exception("SAML login start failed (metadata %s)", saml.metadata_url())
-        return redirect("/login?error=sso")
+        return redirect(passive_fallback(target) if passive else "/login?error=sso")
     return redirect(url)
 
 
@@ -1087,24 +1109,32 @@ def saml_login():
 def saml_acs():
     if not saml.saml_enabled():
         return redirect("/login")
+    relay = request.form.get("RelayState") or ""
+    passive = relay.startswith(PASSIVE_RELAY)
+    target = safe_next(relay[len(PASSIVE_RELAY):] if passive else relay)
+    # a silent check that does not sign anyone in shows the login page without an error
+    fail = passive_fallback(target) if passive else "/login?error=sso"
     try:
         auth = saml.auth_for(request, DATA_DIR)
         auth.process_response()
         errors = auth.get_errors()
         if errors or not auth.is_authenticated():
-            app.logger.warning("SAML response rejected: errors=%s reason=%s url=%s secure=%s host=%s",
-                               errors, auth.get_last_error_reason(), request.url, request.is_secure, request.host)
-            return redirect("/login?error=sso")
+            # NoPassive (no TU Delft session) is the normal answer to a silent check, so not a warning
+            (app.logger.info if passive else app.logger.warning)(
+                "SAML response rejected%s: errors=%s reason=%s url=%s secure=%s host=%s",
+                " (silent check)" if passive else "", errors, auth.get_last_error_reason(), request.url,
+                request.is_secure, request.host)
+            return redirect(fail)
         ident = saml.identity_from_auth(auth)
         user, err = login_saml_identity(ident)
     except Exception:
         app.logger.exception("SAML response handling failed")
-        return redirect("/login?error=sso")
+        return redirect(fail)
     if err or user is None:
         app.logger.warning("SAML login refused for subject=%r email=%r: %s",
                            ident.get("subject"), ident.get("email"), err)
-        return redirect("/login?error=sso")
-    return redirect(safe_next(request.form.get("RelayState")))
+        return redirect(fail)
+    return redirect(target)
 
 
 @app.get("/saml/metadata")
@@ -1120,6 +1150,7 @@ def saml_metadata():
 @app.get("/saml/sls")
 def saml_sls():
     session.clear()
+    session[SSO_CHECKED] = True  # signed out: no silent sign-in on the next visit to /login
     return redirect("/login")
 
 
@@ -1150,6 +1181,7 @@ def login():
 @app.post("/logout")
 def logout():
     session.clear()
+    session[SSO_CHECKED] = True  # signed out: no silent sign-in on the next visit to /login
     return jsonify(ok=True)
 
 

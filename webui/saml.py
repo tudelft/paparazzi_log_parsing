@@ -33,6 +33,11 @@ def saml_enabled():
     return env_bool("SAML_ENABLED") and bool(metadata_url())
 
 
+def passive_enabled():
+    """Silent check on the login page: sign in without a click when TU Delft already has a session."""
+    return saml_enabled() and env_bool("SAML_PASSIVE")
+
+
 def _load_idp(url):
     now = time.time()
     if _idp_cache["data"] and _idp_cache["url"] == url and now - _idp_cache["at"] < _CACHE_S:
