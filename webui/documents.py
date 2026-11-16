@@ -212,9 +212,9 @@ def register(app, connection, root, pages_dir):
         signed_in()
         row = document_row(connection(), doc_id)
         path = folder() / row["stored_path"]
-        if not path.is_file():
-            app.logger.error("Missing document file for document %s", doc_id)
-            raise DocumentError("The file is unavailable. Contact an administrator.", 503)
+        if problem := storage.stored_file_problem(path):
+            app.logger.error("Missing document file for document %s (%s): %s", doc_id, path, problem)
+            raise DocumentError(storage.UNAVAILABLE, 503)
         mimetype = storage.view_type(row["filename"]) if inline else "application/octet-stream"
         if not mimetype:
             raise DocumentError("This file type cannot be viewed in the browser; download it instead.", 415)

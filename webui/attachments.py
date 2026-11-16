@@ -393,8 +393,9 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
         if not mimetype:
             raise Error("This file type cannot be viewed in the browser; download it instead.", 415)
         path = root / row["path"]
-        if not path.is_file():
-            raise Error("Attachment is missing from storage; contact an administrator.", 410)
+        if problem := storage.stored_file_problem(path):
+            app.logger.error("Missing attachment %s (%s): %s", row["id"], path, problem)
+            raise Error(storage.UNAVAILABLE, 503)
         disposition = "inline" if inline else "attachment"
         response = storage.send_stored(path, row["compressed"], mimetype)
         response.headers["Content-Disposition"] = dump_options_header(
@@ -409,8 +410,9 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
 
     def send_converted(row):
         path = root / row["path"]
-        if not path.is_file():
-            raise Error("Attachment is missing from storage; contact an administrator.", 410)
+        if problem := storage.stored_file_problem(path):
+            app.logger.error("Missing attachment %s (%s): %s", row["id"], path, problem)
+            raise Error(storage.UNAVAILABLE, 503)
         preview = root / PREVIEWS / f"{row['sha256']}.pdf"
         with _convert_lock:
             if not preview.is_file() and not convert(path, row["compressed"], Path(row["filename"]).suffix.lower(),

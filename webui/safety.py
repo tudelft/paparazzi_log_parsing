@@ -241,9 +241,9 @@ def register(app, connection, root, pages_dir, require_session):
         if not row["sketch_path"]:
             raise SafetyError("This report has no sketch.", 404)
         path = folder() / row["sketch_path"]
-        if not path.is_file():
-            app.logger.error("Missing sketch file for safety report %s", report_id)
-            raise SafetyError("The file is unavailable. Contact an administrator.", 503)
+        if problem := storage.stored_file_problem(path):
+            app.logger.error("Missing sketch file for safety report %s (%s): %s", report_id, path, problem)
+            raise SafetyError(storage.UNAVAILABLE, 503)
         name = row["sketch_name"]  # as attachments.py: an ASCII fallback, and the full name in filename*
         disposition = dump_options_header("inline", {"filename": name.encode("ascii", "ignore").decode() or "sketch"}) \
             + "; filename*=UTF-8''" + quote(name, safe="")

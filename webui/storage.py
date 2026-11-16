@@ -4,11 +4,36 @@ import gzip
 import hashlib
 import os
 import shutil
+import stat
 import tempfile
+import time
 from pathlib import Path
 
 
 CHUNK = 1 << 20
+
+# Pauses (seconds) before looking up a stored file again that seemed absent. A network share mounted "soft" can
+# briefly report a stored file as absent, or fail the lookup, and find it again a moment later.
+STORED_FILE_RETRIES = (0.5, 1.5)
+UNAVAILABLE = "The file could not be read from storage just now. Try again in a minute; " \
+              "if it keeps failing, contact an administrator."
+
+
+def stored_file_problem(path):
+    """None when the stored file at path is there; else why not, for the log: "not found" or the error of the
+    lookup (e.g. a timeout of the share). A file that seems absent is looked up again after STORED_FILE_RETRIES."""
+    problem = None
+    for pause in (0, *STORED_FILE_RETRIES):
+        time.sleep(pause)
+        try:
+            if stat.S_ISREG(os.stat(path).st_mode):
+                return None
+            problem = "not a regular file"
+        except FileNotFoundError:
+            problem = "not found"
+        except OSError as exc:
+            problem = f"{type(exc).__name__}: {exc}"
+    return problem
 
 
 def ensure_space(folder, required=0, minimum_free=0):

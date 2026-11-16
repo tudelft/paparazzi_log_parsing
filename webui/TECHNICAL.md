@@ -632,6 +632,9 @@ so a file server that is not reachable at boot does not leave the service failed
 starts, and reading a log fails until the share is back; no restart needed). Avoid `noauto`: the share is then
 only mounted when the service starts, and a failure at boot is not retried. After changing `/etc/fstab`, run
 `sudo systemctl daemon-reload`; the automount takes over at the next boot (or after unmounting the share).
+A soft-mounted share can briefly report a stored file as absent. Before qualification evidence, documents,
+safety sketches or attachments are reported unavailable (503, "try again in a minute"), the file is looked up again
+after short pauses (`storage.STORED_FILE_RETRIES`), and the log names the path and the actual error.
 
 with `LOGDB_LOG_DIR=/mnt/flight-logs/logs` and `LOGDB_BACKUP_DIR=/mnt/flight-logs/backup`. The credentials file has
 `username=` and `password=` lines (mode 600).
