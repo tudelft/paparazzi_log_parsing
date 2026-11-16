@@ -758,13 +758,33 @@ window.timingEvidenceHTML = function (timing) {
     footer.replaceChildren(...(brand.childElementCount ? [brand] : []), credit);
   }
 
+  // A logo at a whole-pixel width (its CSS height times the file's aspect ratio, rounded): a fractional width blurs the
+  // edges of a small logo on a standard-resolution screen.
   function logoImg(name, cls) {
     const img = document.createElement('img');
-    img.src = `/logos/${encodeURIComponent(name)}.svg`;
     img.alt = '';
     if (cls) img.className = cls;
+    img.addEventListener('load', () => {
+      const height = parseFloat(getComputedStyle(img).height);
+      if (height && img.naturalWidth && img.naturalHeight)
+        img.style.width = Math.round(height * img.naturalWidth / img.naturalHeight) + 'px';
+      snapLogos();
+    });
+    img.src = `/logos/${encodeURIComponent(name)}.svg`;
     return img;
   }
+
+  // Centring can still put the footer logos half a pixel off; shift them onto the screen's pixel grid.
+  function snapLogos() {
+    const brand = document.querySelector('#webuiVersion .brand');
+    if (!brand) return;
+    brand.style.transform = '';
+    const dpr = window.devicePixelRatio || 1;
+    const left = brand.firstElementChild ? brand.firstElementChild.getBoundingClientRect().left * dpr : 0;
+    const shift = (Math.round(left) - left) / dpr;
+    if (Math.abs(shift) > 0.01) brand.style.transform = `translateX(${shift}px)`;
+  }
+  window.addEventListener('resize', snapLogos);
 
   // The site logo (LOGDB_SITE_LOGO), else its name, at the left of the header; it leads to the Logbook. The page's own
   // <h1> stays for screen readers and for pages that change it. The sign-in pages show the logo in their card and add

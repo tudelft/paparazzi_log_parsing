@@ -26,11 +26,11 @@ main a { color:var(--acc); }
 #webuiVersion a { color:var(--mute); text-decoration:none; overflow-wrap:anywhere; }
 #webuiVersion a:hover, #webuiVersion a:focus-visible { color:var(--acc); text-decoration:underline; }
 #webuiVersion .brand { display:flex; justify-content:center; align-items:center; gap:28px; margin-bottom:8px; }
-#webuiVersion .brand img { display:block; height:30px; width:auto; }
-#webuiVersion .brand .logo-tudelft img { height:58px; margin:-14px 0; }  /* the TU Delft file has its clear space built in */
+#webuiVersion .brand img { display:block; height:34px; width:auto; }
+#webuiVersion .brand .logo-tudelft img { height:66px; margin:-16px 0; }  /* the TU Delft file has its clear space built in */
 #webuiVersion .brand .night, html.night #webuiVersion .brand .day { display:none; }
 body > header .site-brand span { overflow:hidden; text-overflow:ellipsis; }
-body > header .site-brand img { display:block; height:22px; max-width:100%; }
+body > header .site-brand img { display:block; height:26px; max-width:100%; object-fit:contain; }
 .site-logo { text-align:center; }
 .site-logo img { height:40px; max-width:100%; }
 .site-logo .night, html.night .site-logo .day { display:none; }

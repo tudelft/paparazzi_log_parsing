@@ -3264,20 +3264,19 @@ def board_payload(con, drone_id):
         " FROM drone_boards b WHERE b.drone_id IS ? ORDER BY b.created_at", (drone_id,))]
 
 
-def fleet_payload(con, include_unlinked=False, project_ids=None):
+def fleet_payload(con, include_unlinked=False, project_ids=None, manager_id=None):
     """Fleet list. Unlinked log names and the project menu are only filled when include_unlinked is true.
-    project_ids, if given, keeps only aircraft whose default or timeline project is in that set."""
+    project_ids, if given, keeps only aircraft whose default or timeline project is in that set, plus the ones
+    manager_id is the responsible person of (issue 225: everyone sees the drones they are responsible for)."""
     drones, names = drone_name_map(con)
     if project_ids is None:
         rows = con.execute("SELECT * FROM drones ORDER BY name")
-    elif not project_ids:
-        rows = []
     else:
         q = ",".join("?" * len(project_ids))
         rows = con.execute(
-            f"SELECT * FROM drones WHERE default_project_id IN ({q})"
+            f"SELECT * FROM drones WHERE manager_id=? OR default_project_id IN ({q})"
             f" OR id IN (SELECT drone_id FROM drone_projects WHERE project_id IN ({q})) ORDER BY name",
-            (*project_ids, *project_ids))
+            (manager_id, *project_ids, *project_ids))
     fleet = []
     for d in rows:
         item = drone_payload(con, d)
@@ -3338,7 +3337,7 @@ def fleet_payload(con, include_unlinked=False, project_ids=None):
 
 @app.get("/api/drones")
 def list_drones():
-    """Fleet aircraft. Non-admins only see aircraft whose default project they belong to."""
+    """Fleet aircraft. Non-admins see aircraft of the projects they belong to and those they are responsible for."""
     con = conn()
     admin = bool(g.user["is_admin"])
     pids = None
@@ -3349,7 +3348,7 @@ def list_drones():
         "SELECT project_id, role FROM project_members WHERE user_id=?", (g.user["id"],))}
     request_projects = [] if admin else [dict(id=r["id"], name=r["name"]) for r in con.execute(
         "SELECT id, name FROM projects ORDER BY name") if roles.get(r["id"]) in ADD_ROLES]
-    return jsonify(**fleet_payload(con, include_unlinked=admin, project_ids=pids),
+    return jsonify(**fleet_payload(con, include_unlinked=admin, project_ids=pids, manager_id=g.user["id"]),
                    hide_unlinked_aircraft=env_bool("HIDE_UNLINKED_AIRCRAFT"), next_serial=next_serial(con) if admin else None,
                    requests=drone_requests_payload(con), request_projects=request_projects)
 
@@ -6634,6 +6633,22 @@ def detail_person(con, uid, admin, mine):
     if qualifications.can_see_quals(con, g.user, uid):
         out["qualifications"] = qualifications.current_payload(con, g.user, uid)
         out["names"] = names
+    out["responsible_for"] = responsible_for(con, uid, admin, mine)
+    return out
+
+
+def responsible_for(con, uid, admin, mine):
+    """The drones uid is the responsible person (manager) of, as far as the viewer may see them: all for admins
+    and for the person themself, otherwise those of the viewer's projects (default or timeline project)."""
+    rows = con.execute("SELECT id, name, unique_id, status, default_project_id FROM drones WHERE manager_id=?"
+                       " ORDER BY name COLLATE NOCASE", (uid,)).fetchall()
+    out = []
+    for d in rows:
+        if not (admin or uid == g.user["id"]):
+            pids = {r[0] for r in con.execute("SELECT project_id FROM drone_projects WHERE drone_id=?", (d["id"],))}
+            if not ({d["default_project_id"], *pids} & mine):
+                continue
+        out.append(dict(id=d["id"], name=d["name"], unique_id=d["unique_id"], status=d["status"]))
     return out
 
 
@@ -6709,8 +6724,8 @@ def detail(kind, item_id):
     current user may see (same rules as the logbook), from which the page builds the totals.
 
     Non-admins get 404 for items they have no access to: projects they are not in, and people, aircraft and
-    locations that do not appear on any flight they can see (people sharing a project and aircraft whose default
-    project they are in are also allowed)."""
+    locations that do not appear on any flight they can see (people sharing a project, aircraft whose default
+    project they are in, and aircraft they are the responsible person of are also allowed)."""
     if kind not in DETAIL_KINDS:
         abort(404)
     con = conn()
@@ -6735,7 +6750,7 @@ def detail(kind, item_id):
             drone_pids = {p["project_id"] for p in item.get("projects") or []}
             if item.get("default_project_id"):
                 drone_pids.add(item["default_project_id"])
-            allowed = bool(drone_pids & mine) or bool(logs)
+            allowed = bool(drone_pids & mine) or bool(logs) or item.get("manager_id") == g.user["id"]
         if not allowed:
             abort(404)
     out = []
