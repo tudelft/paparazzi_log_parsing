@@ -1078,6 +1078,7 @@ def saml_login():
         auth = saml.auth_for(request, DATA_DIR)
         url = auth.login(return_to=safe_next(request.args.get("next")))
     except Exception:
+        app.logger.exception("SAML login start failed (metadata %s)", saml.metadata_url())
         return redirect("/login?error=sso")
     return redirect(url)
 
@@ -1091,12 +1092,17 @@ def saml_acs():
         auth.process_response()
         errors = auth.get_errors()
         if errors or not auth.is_authenticated():
+            app.logger.warning("SAML response rejected: errors=%s reason=%s url=%s secure=%s host=%s",
+                               errors, auth.get_last_error_reason(), request.url, request.is_secure, request.host)
             return redirect("/login?error=sso")
         ident = saml.identity_from_auth(auth)
         user, err = login_saml_identity(ident)
     except Exception:
+        app.logger.exception("SAML response handling failed")
         return redirect("/login?error=sso")
     if err or user is None:
+        app.logger.warning("SAML login refused for subject=%r email=%r: %s",
+                           ident.get("subject"), ident.get("email"), err)
         return redirect("/login?error=sso")
     return redirect(safe_next(request.form.get("RelayState")))
 
