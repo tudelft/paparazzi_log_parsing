@@ -1028,7 +1028,13 @@ writing; the page shows that first. Replacing a drawn polygon by a circle is fla
 ### Training questionnaires
 
 Off unless `LOGDB_TRAINING=1`. The Training page is session-only (API keys get 403). Admins create
-questionnaires in Edit mode: single choice, multiple choice and ranking, each with optional JPEG/PNG. Questions
+questionnaires in Edit mode: single choice, multiple choice and ranking, each with optional JPEG/PNG. **Add training**
+asks only for a name and description; the training page then has the tabs **Details** (all settings, one Save),
+**Questions** (a filterable list on the left, flagging questions without a correct answer; the selected question is
+edited on the right and saved on its own) and **Passes**. The admin's own pass is shown only outside Edit mode.
+**Qualification valid for (days)** sets the end date of the qualification a pass grants; the pass counts as current
+while that qualification is valid, so its expiry (or a reset) reopens the training. Without a qualification the field
+is disabled and a pass does not expire. Questions
 are reordered by dragging their handle (or the arrow keys on it; `PUT /api/admin/trainings/<id>/question-order`).
 Answer options are shuffled per attempt. A training may also **shuffle the questions** and draw a number of
 **questions per attempt** at random (`shuffle_questions`, `question_count`); the attempt (questions, their order
@@ -1052,8 +1058,8 @@ each entry's size before reading (JSON ≤ 1 MiB, images ≤ 2 MiB) and only loa
 **Export** (`GET /api/admin/trainings/<id>/export`) returns the same JSON, or a ZIP when images are
 present.
 **Reading material**: a training may carry plain text (`reading`, at most 20 000 characters; also editable in the
-Edit dialog) and one PDF (`reading_file`, the name of a PDF in the import ZIP, at most 20 MiB, checked for the PDF
-signature and stored next to the question images). In the Edit dialog the PDF of a saved training can be
+Details tab) and one PDF (`reading_file`, the name of a PDF in the import ZIP, at most 20 MiB, checked for the PDF
+signature and stored next to the question images). On the Details tab the PDF of a saved training can be
 uploaded, replaced or removed on its own (`POST`/`DELETE /api/admin/trainings/<id>/reading-file`, same checks; the
 old file is removed). Replace-import sets both from the file, so an import without them removes them; export
 writes them back. When either is present, opening the test shows the material in a
@@ -1083,7 +1089,7 @@ it in the People approval queue. Qualification views link that note to `/trainin
 `pass_user` so the Passes list opens on that person with their answers). Images live under
 `WEB_DATA/training-images`, not the log share.
 
-**Access request mail** (Edit dialog, collapsed section; needs email to be set up): a training may name one or more
+**Access request mail** (Details tab, collapsed section; needs email to be set up): a training may name one or more
 addresses (`access_mail_to`, e.g. a secretary who arranges room access) and a mail text (`access_mail_text`, in which
 tags filled in: `{name}`, `{email}`, `{username}`, `{number}` (student or employee number), `{department}`, `{role}`,
 `{supervisor}`, `{end_date}` (expected end, or `indefinite`), `{training}`, `{date}` (the pass), `{valid_until}` (pass date
