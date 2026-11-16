@@ -1,6 +1,9 @@
-# Tests the Python package mavlab-logbook-client (python/mavlab-logbook-client/) on Linux, macOS and Windows. Pushing a tag "client-v<version>"
-# (equal to mavlab_logbook_client.__version__, on a master commit) publishes that version to PyPI by trusted publishing;
-# nothing else publishes. Published versions and tags are never changed: a change to the package needs a new version.
+# Tests the Python package mavlab-logbook-client (python/mavlab-logbook-client/) on Linux, macOS and Windows.
+# Publishing: when master has a mavlab_logbook_client.__version__ without a tag "client-v<version>", the publish job
+# waits for a maintainer to approve the "pypi" environment, uploads that version to PyPI by trusted publishing and
+# then creates the tag. Nothing else publishes; to release, bump __version__ in a reviewed pull request and approve
+# the run after merging. A rejected or expired run is retried by re-running it (or starting this workflow on master).
+# Published versions and tags are never changed: a change to the package needs a new version.
 # PyPI: the project's trusted publisher is this repository, workflow client.yml, environment "pypi".
 name: Python client
 
@@ -8,7 +11,6 @@ on:
   push:
     branches: [master]
     paths: ["python/mavlab-logbook-client/**", ".github/workflows/client.yml"]
-    tags: ["client-v*"]
   pull_request:
     paths: ["python/mavlab-logbook-client/**", ".github/workflows/client.yml"]
   workflow_dispatch:
@@ -35,29 +37,51 @@ jobs:
       - name: Test
         run: python -m unittest discover -s python/mavlab-logbook-client/tests -v
 
-  publish:
+  # Decides without an approval request whether there is anything to publish
+  check:
     needs: test
-    if: startsWith(github.ref, 'refs/tags/client-v')
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      new: ${{ steps.version.outputs.new }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Is the package version new?
+        run: |
+          set -eu
+          version=$(python3 -c "import ast; t = ast.parse(open('python/mavlab-logbook-client/mavlab_logbook_client/__init__.py').read()); print(next(n.value.value for n in t.body if isinstance(n, ast.Assign) and n.targets[0].id == '__version__'))")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/client-v$version" >/dev/null; then
+            echo "client-v$version already released"; echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "client-v$version is new"; echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    needs: check
+    if: needs.check.outputs.new == 'true'
     runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/p/mavlab-logbook-client
+    # At most one run waits for approval; a newer master run replaces an older waiting one
+    concurrency:
+      group: pypi-publish
+      cancel-in-progress: false
     permissions:
-      contents: read
+      contents: write   # create the client-v<version> tag
       id-token: write   # PyPI trusted publishing
+    env:
+      TAG: client-v${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Check the tag
+      - name: Check again after approval
         run: |
           set -eu
-          version=$(python3 -c "import ast; t = ast.parse(open('python/mavlab-logbook-client/mavlab_logbook_client/__init__.py').read()); print(next(n.value.value for n in t.body if isinstance(n, ast.Assign) and n.targets[0].id == '__version__'))")
-          if [ "$GITHUB_REF_NAME" != "client-v$version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match the package version $version"; exit 1
-          fi
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
-            echo "::error::$GITHUB_REF_NAME is not on master"; exit 1
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "::error::$TAG was released while this run waited"; exit 1
           fi
       - uses: actions/setup-python@v5
         with:
@@ -69,3 +93,11 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: python/mavlab-logbook-client/dist
+          skip-existing: true   # a re-run after a failed tag push only adds the tag
+      - name: Tag the release
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Python client ${TAG#client-v}" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
