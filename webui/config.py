@@ -325,6 +325,10 @@ def check():
                         "address; bind to 127.0.0.1 or set LOGDB_PROXIES=0")
     if not behind_proxy and host.startswith(("127.", "localhost", "[::1]")) and url:
         warnings.append("gunicorn listens on localhost only; if a proxy is in front, set LOGDB_PROXIES=1")
+    for switch, path in (("DOCUMENTS", "/documents"), ("TRAINING", "/training"), ("SAFETY", "/safety")):
+        if not env_bool(switch):  # see AGENTS.md: the Operations Manual links these pages
+            warnings.append(f"LOGDB_{switch} is off: {path}, linked from the Operations Manual, returns 404; "
+                            "set it to 1 in production")
     if env_bool("SAML_ENABLED") and not url:
         warnings.append("TU Delft login is enabled: set LOGDB_PUBLIC_URL so the SAML metadata has the right URLs")
 

@@ -80,7 +80,7 @@
   <div id="err"></div>
   <section class="card">
     <div class="section-heading"><h2>Safety</h2>
-    <details><summary>Help</summary><p>Reporting: report a danger, incident or accident with the registration form, or print a blank copy. You see your own reports and their status; administrators see all reports, get a notice of each new one and keep the investigation where the organisation stores it (the reference on a report). Tick Confidential to leave your name out of the notice. Safety board and Safety promotion are for administrators: the schedule of safety board meetings, the safety promotion programme and the safety meetings held, each with its attendance list. Administrators change the texts and the documents link in Edit mode.</p></details></div>
+    <details><summary>Help</summary><p>Reporting: report a danger, incident or accident with the registration form, or print a blank copy. You see your own reports and their status, and get an email when the status changes; administrators see all reports and who filed them, get an email for each new one and keep the investigation where the organisation stores it (the reference on a report). Tick "Leave my name out of the notification email" to keep your name out of that email; administrators still see it on the report. Safety board and Safety promotion are for administrators: the schedule of safety board meetings, the safety promotion programme and the safety meetings held, each with its attendance list. In Edit mode administrators follow up reports, add and edit meetings and change the texts and the documents link.</p></details></div>
     <div class="page-tabs" id="tabs" aria-label="Safety sections" hidden></div>
     <div id="content"><span class="mute">Loading…</span></div>
   </section>
@@ -101,7 +101,8 @@
     <label class="field">Conditions (weather, light, surroundings)<input name="conditions" maxlength="1000"></label>
     <label class="field">Description: what happened, what was done, what could prevent it<textarea name="description" required rows="6" maxlength="5000"></textarea></label>
     <label class="field">Situation sketch or photo (optional; PDF, JPEG or PNG, up to 20 MiB)<input name="sketch" type="file" accept=".pdf,.jpg,.jpeg,.png"></label>
-    <label class="check"><input name="confidential" type="checkbox"> Confidential: leave my name out of the notice to administrators</label>
+    <label class="check"><input name="leave_name_out" type="checkbox"> Leave my name out of the notification email</label>
+    <p class="mute" style="font-size:12px;margin:0 0 6px 22px">Administrators still see on the report who filed it.</p>
     <p class="dialog-error" id="reportError" role="alert"></p>
     <div class="row"><button type="submit">Submit report</button> <button type="button" class="sec" onclick="$('reportDialog').close()">Cancel</button></div>
   </form>
@@ -154,7 +155,8 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let me = null, info = null, reports = [], meetings = null, editingId = null, attendees = [], meetingKind = 'board';
-let tab = 'reporting';
+let tab = 'reporting', statusFilter = '', page = 0;
+const PAGE_SIZE = 20;
 const editing = () => !!(me && me.is_admin && window.editMode && window.editMode());
 const KIND = {danger: 'Danger', incident: 'Incident', accident: 'Accident'};
 const STATUS = {new: 'New', investigating: 'Investigating', closed: 'Closed'};
@@ -162,7 +164,8 @@ const today = () => new Date().toLocaleDateString('sv');
 const when = s => esc(String(s || '').replace('T', ' '));
 
 function tabList() {
-  const tabs = [['reporting', 'Reporting', null]];
+  const fresh = info.is_admin ? reports.filter(r => r.status === 'new').length : 0;
+  const tabs = [['reporting', 'Reporting', fresh || null]];
   if (info.is_admin) tabs.push(['board', 'Safety board', null], ['promotion', 'Safety promotion', null]);
   return tabs;
 }
@@ -171,7 +174,8 @@ function textBlock(value, key, label) {
     + `<div class="actions edit-only"><button type="button" class="sec" onclick="editText('${key}')">${label}</button></div>`;
 }
 function reportHTML(r) {
-  const who = info.is_admin ? (r.reporter ? esc(r.reporter) : 'former user') + (r.confidential ? ' <span class="tag" title="Keep the name out of shared records">confidential</span>' : '') : '';
+  const who = info.is_admin ? (r.reporter ? esc(r.reporter) : 'unknown') + (r.reporter_deleted ? ' <span class="mute">(account deleted)</span>' : '')
+    + (r.leave_name_out ? ' <span class="tag" title="The reporter asked to leave their name out of the notification email">name left out of the email</span>' : '') : '';
   const parts = [r.pic ? 'PIC ' + esc(r.pic) : '', r.rpas ? esc(r.rpas) : '', r.flight_phase ? esc(r.flight_phase) : '',
     r.conditions ? esc(r.conditions) : ''].filter(Boolean).join(' · ');
   const ref = info.is_admin && r.reference ? (/^https?:\/\//i.test(r.reference)
@@ -180,7 +184,7 @@ function reportHTML(r) {
     .filter(Boolean).join(' · ');
   return `<div class="item ${r.kind}"><span class="top"><b>${KIND[r.kind]}</b> <span>${when(r.occurred_at)} · ${esc(r.location)}</span>`
     + ` <span class="tag ${r.status}">${STATUS[r.status]}</span>`
-    + (info.is_admin ? `<span class="tools"><button type="button" class="sec" onclick="review(${r.id})">Follow up</button></span>` : '') + '</span>'
+    + (info.is_admin ? `<span class="tools edit-only"><button type="button" class="sec" onclick="review(${r.id})">Follow up</button></span>` : '') + '</span>'
     + (parts ? `<span class="sub">${parts}</span>` : '')
     + `<span class="text" style="margin:0">${esc(r.description)}</span>`
     + (info.is_admin && r.admin_note ? `<span class="sub">Note: ${esc(r.admin_note)}</span>` : '')
@@ -188,20 +192,31 @@ function reportHTML(r) {
 }
 function reportingHTML() {
   return textBlock(info.reporting_text, 'reporting_text', 'Edit reporting text')
-    + `<dl class="defs"><dt>Danger</dt><dd>Something that affects or could affect the safety of an operation (no harm done).</dd>`
-    + `<dt>Incident</dt><dd>Safety was compromised: injury, damage to others' property, people or infrastructure put at risk, or unexpected damage to the aircraft.</dd>`
-    + `<dt>Accident</dt><dd>Injury needing medical help or damage to critical infrastructure. Call the emergency services first.</dd></dl>`
+    + `<dl class="defs"><dt>Danger</dt><dd>An occurrence, other than an accident, associated with the operation of an aircraft that affects or could affect the safety of the operation.</dd>`
+    + `<dt>Incident</dt><dd>An occurrence, other than an accident, where physical injury, damage to third-party or private property, the safety of people or critical infrastructure was compromised, or unanticipated damage to the aircraft.</dd>`
+    + `<dt>Accident</dt><dd>Damage to critical infrastructure, or physical injury requiring medical assistance. Call the emergency services first.</dd></dl>`
     + `<div class="actions"><button type="button" onclick="newReport()">Report a danger, incident or accident</button>`
     + ` <button type="button" class="sec" onclick="printReportForm()">Print blank form</button></div>`
-    + `<h3>${info.is_admin ? 'All reports' : 'My reports'}</h3>`
-    + (reports.length ? reports.map(reportHTML).join('') : '<p class="none">No reports yet.</p>');
+    + `<div class="row" style="margin-top:16px"><h3 style="margin:0">${info.is_admin ? 'All reports' : 'My reports'}</h3>`
+    + `<select id="statusFilter" aria-label="Status" onchange="filterStatus(this.value)">`
+    + `<option value="">All statuses</option>${Object.entries(STATUS).map(([k, v]) => `<option value="${k}"${k === statusFilter ? ' selected' : ''}>${v}</option>`).join('')}</select></div>`
+    + reportList();
 }
+function shownReports() { return reports.filter(r => !statusFilter || r.status === statusFilter); }
+function reportList() {
+  const list = shownReports();
+  if (!list.length) return `<p class="none">${reports.length ? 'No reports with this status.' : 'No reports yet.'}</p>`;
+  const pages = Math.ceil(list.length / PAGE_SIZE);
+  page = Math.min(page, pages - 1);
+  return list.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map(reportHTML).join('') + '<div id="reportPages"></div>';
+}
+function filterStatus(value) { statusFilter = value; page = 0; window.viewState.save(true); paint(); }
 function meetingHTML(m) {
   const past = m.held_on < meetings.today;
   const names = m.attendees.map(a => esc(a.name) + (a.user_id ? '' : ' <span class="mute">(no account)</span>')).join(', ');
   return `<div class="item${past ? ' past' : ''}"><span class="top"><b>${esc(m.held_on)}${m.start_time ? ' ' + esc(m.start_time) : ''}</b>`
     + `<span>${[esc(m.title), esc(m.location)].filter(Boolean).join(' · ')}</span>`
-    + `<span class="tools"><button type="button" class="sec" onclick="editMeeting(${m.id})">${past ? 'Edit' : 'Edit or record attendance'}</button></span></span>`
+    + `<span class="tools edit-only"><button type="button" class="sec" onclick="editMeeting(${m.id})">${past ? 'Edit' : 'Edit or record attendance'}</button></span></span>`
     + `<span class="sub">${m.attendees.length ? `Attended (${m.attendees.length}): ${names}` : (past ? 'No attendance recorded.' : 'Planned.')}</span>`
     + (m.notes ? `<span class="text" style="margin:0">${esc(m.notes)}</span>` : '') + '</div>';
 }
@@ -216,7 +231,7 @@ function boardHTML() {
   const link = info.board_link ? `<a class="button" href="${esc(info.board_link)}" target="_blank" rel="noopener">Meeting documents ↗</a>`
     : '<span class="mute">No documents link set (Edit mode).</span>';
   return textBlock(info.board_text, 'board', 'Edit text and documents link')
-    + `<div class="actions"><button type="button" onclick="editMeeting(null, 'board')">Add meeting</button>`
+    + `<div class="actions"><button type="button" class="edit-only" onclick="editMeeting(null, 'board')">Add meeting</button>`
     + ` <button type="button" class="sec" onclick="printBoardForm()">Print meeting form</button> ${link}</div>`
     + meetingList('board', 'Schedule', 'Held');
 }
@@ -224,7 +239,7 @@ function promotionHTML() {
   return '<h3 style="margin-top:0">Safety promotion programme</h3>'
     + (info.promotion_text ? '' : '<p class="none">No programme written yet (Edit mode).</p>')
     + textBlock(info.promotion_text, 'promotion_text', 'Edit programme')
-    + `<div class="actions"><button type="button" onclick="editMeeting(null, 'promotion')">Add safety meeting</button></div>`
+    + `<div class="actions edit-only"><button type="button" onclick="editMeeting(null, 'promotion')">Add safety meeting</button></div>`
     + meetingList('promotion', 'Planned safety meetings', 'Safety meetings held');
 }
 function paint() {
@@ -234,6 +249,8 @@ function paint() {
   window.pageTabs($('tabs'), tabs, tab, choose);
   if (tab !== 'reporting' && !meetings) { $('content').innerHTML = '<span class="mute">Loading…</span>'; return; }
   $('content').innerHTML = tab === 'board' ? boardHTML() : tab === 'promotion' ? promotionHTML() : reportingHTML();
+  if ($('reportPages')) window.viewState.pager($('reportPages'), page, PAGE_SIZE, shownReports().length,
+    n => { page = n; window.viewState.save(true); paint(); });
 }
 function choose(key) {
   tab = key;
@@ -250,6 +267,7 @@ async function load() {
   info = await getJSON('/api/safety');
   reports = (await getJSON('/api/safety/reports')).reports;
   meetings = info.is_admin ? await getJSON('/api/admin/safety/meetings') : null;
+  if (info.is_admin && window.setSafetyNew) window.setSafetyNew(reports.filter(r => r.status === 'new').length);
   paint();
 }
 async function send(url, method, body, errorBox) {
@@ -266,7 +284,7 @@ async function send(url, method, body, errorBox) {
 function newReport() {
   const f = $('reportForm');
   f.reset();
-  f.pic.value = info.me || '';
+  f.pic.value = info.me || '';  // left empty when the reporter asks to leave their name out
   const now = new Date(); now.setSeconds(0, 0);
   f.occurred_at.value = new Date(now - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   $('reportError').textContent = '';
@@ -276,9 +294,15 @@ $('reportForm').onsubmit = async e => {
   e.preventDefault();
   const f = $('reportForm');
   const form = new FormData(f);
-  form.set('confidential', f.confidential.checked ? '1' : '0');
+  form.set('leave_name_out', f.leave_name_out.checked ? '1' : '0');
   if (!f.sketch.files.length) form.delete('sketch');
   if (await send('/api/safety/reports', 'POST', form, 'reportError')) $('reportDialog').close();
+};
+// Leaving the name out of the email also empties Pilot in command when it still holds the reporter's own name.
+$('reportForm').leave_name_out.onchange = e => {
+  const pic = $('reportForm').pic;
+  if (e.target.checked && pic.value === (info.me || '')) pic.value = '';
+  else if (!e.target.checked && !pic.value) pic.value = info.me || '';
 };
 function review(id) {
   const r = reports.find(x => x.id === id);
@@ -380,15 +404,22 @@ function printReportForm() {
 }
 function printBoardForm() {
   $('print').innerHTML = '<h1>Safety board meeting</h1><ul>'
-    + ['Attendees', 'Previous action points', 'New danger and incident reports: mitigation measures and manual updates',
-      'Analyse mitigation measures and changes', 'Analyse new types or classes of operations', 'Safety of upcoming events', 'Action points']
+    + ['Attendees', 'Previous action points', 'Overview of danger and incident reports: how to avoid them in the future?',
+      'Effectiveness of the mitigation measures (SORA, local operating procedures): do they work as intended, do they still have the intended effect on the hazard, is the risk still at the same level, have they introduced new hazards?',
+      'New types or classes of operations', 'Planning of extra training or promotion', 'Safety organisation of events and demonstrations', 'Action points']
       .map(x => `<li>${x}</li>`).join('') + '</ul>'
     + line('Attendees') + line('') + line('Location') + line('Date and time') + line('Notes') + line('') + line('') + line('') + line('') + line('') + line('');
   window.print();
 }
 
-window.viewState.setup(p => { tab = p.get('tab') || 'reporting'; }, p => {
+window.viewState.setup(p => {
+  tab = p.get('tab') || 'reporting';
+  statusFilter = Object.keys(STATUS).includes(p.get('status')) ? p.get('status') : '';
+  page = window.viewState.integer(p.get('page'), 1) - 1;
+}, p => {
   window.viewState.set(p, 'tab', tab === 'reporting' ? '' : tab, '');
+  window.viewState.set(p, 'status', tab === 'reporting' ? statusFilter : '');
+  window.viewState.set(p, 'page', tab === 'reporting' ? page + 1 : 1, 1);
 }, () => { if (info) paint(); });
 window.addEventListener('editchange', () => { if (info) paint(); });
 fetch('/api/me').then(r => r.json()).then(d => {

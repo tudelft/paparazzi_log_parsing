@@ -100,6 +100,8 @@ body > header #nav a.cur {
   border-bottom-color: #58a6ff;
 }
 header .meta a { color:#9fb0c3; text-decoration:none; }
+body > header #nav .nav-count { display:inline-block; min-width:18px; margin-left:4px; padding:0 5px; border-radius:9px;
+  background:var(--err, #cf222e); color:#fff; font-size:11px; line-height:18px; text-align:center; font-weight:600; }
 header .meta a:hover { color:#fff; }
 body > header > .meta:last-child { flex: 0 0 auto; white-space: nowrap; }
 html.night header button {

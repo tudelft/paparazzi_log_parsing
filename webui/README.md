@@ -252,12 +252,14 @@ them in **My account** (see below). **Import ZIP** (Edit mode) adds or replaces 
 **Safety** (optional) is where you report a danger, incident or accident: **Report a danger, incident or accident**
 opens the registration form (pilot in command, aircraft, location, date and time, conditions, flight phase,
 description and an optional sketch or photo); **Print blank form** prints a paper copy. You see your own reports and
-their status (New, Investigating, Closed). Tick **Confidential** to leave your name out of the notice to
-administrators. Administrators see all reports, **Follow up** each one (status, a reference to where the
-investigation is kept, an internal note) and have two more tabs: **Safety board** (the schedule of safety board
-meetings with attendance lists, a printable meeting form and a link to the meeting documents) and **Safety
-promotion** (the promotion programme and the safety meetings held, with who attended). The texts and the documents
-link are set in Edit mode. Rules: [technical guide](TECHNICAL.md#safety).
+their status (New, Investigating, Closed), filter them by status, and get an email when the status changes. Tick
+**Leave my name out of the notification email** to keep your name out of the email administrators get; they still see
+on the report who filed it. Administrators get an email for each new report (**Safety reports** under My account →
+Email, separate from the other notices), see the number of new reports on the Safety tab, and in Edit mode **Follow
+up** each report (status, a reference to where the investigation is kept, an internal note). They have two more tabs:
+**Safety board** (the schedule of safety board meetings with attendance lists, a printable meeting form and a link to
+the meeting documents) and **Safety promotion** (the promotion programme and the safety meetings held, with who
+attended). Meetings, attendance, the texts and the documents link are changed in Edit mode. Rules: [technical guide](TECHNICAL.md#safety).
 
 ## Email
 

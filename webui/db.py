@@ -567,8 +567,9 @@ CREATE TABLE IF NOT EXISTS safety_reports (  -- danger, incident and accident re
     conditions TEXT NOT NULL DEFAULT '',
     flight_phase TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL,
-    confidential INTEGER NOT NULL DEFAULT 0 CHECK(confidential IN (0,1)),  -- reporter left out of notices
+    leave_name_out INTEGER NOT NULL DEFAULT 0 CHECK(leave_name_out IN (0,1)),  -- name left out of the notice mail
     reporter_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    reporter_name TEXT NOT NULL DEFAULT '',  -- the reporter's name at filing time (kept when the account goes)
     status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','investigating','closed')),
     reference TEXT NOT NULL DEFAULT '',   -- admins: where the investigation is kept
     admin_note TEXT NOT NULL DEFAULT '',  -- admins only

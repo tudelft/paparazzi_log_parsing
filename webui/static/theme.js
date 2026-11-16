@@ -495,6 +495,7 @@ window.timingEvidenceHTML = function (timing) {
   const BOOKINGS_KEY = 'logdbBookings';
   const DOCUMENTS_KEY = 'logdbDocuments';
   const SAFETY_KEY = 'logdbSafety';
+  const SAFETY_NEW_KEY = 'logdbSafetyNew';  // administrators: reports with status New, shown on the Safety tab
   const UPLOAD_KEY = 'logdbCanUpload';
   window.editMode = function () {
     try { return localStorage.getItem(EDIT_KEY) === '1'; } catch (e) { return false; }
@@ -528,6 +529,9 @@ window.timingEvidenceHTML = function (timing) {
   }
   function cachedSafety() {
     try { return localStorage.getItem(SAFETY_KEY) === '1'; } catch (e) { return false; }
+  }
+  function cachedSafetyNew() {
+    try { return +(localStorage.getItem(SAFETY_NEW_KEY) || 0); } catch (e) { return 0; }
   }
   function currentTab() {
     const p = location.pathname;
@@ -574,6 +578,10 @@ window.timingEvidenceHTML = function (timing) {
   });
   window.addEventListener('resize', closeMenu);
 
+  window.setSafetyNew = n => {  // the Safety page updates the count after a follow-up
+    try { localStorage.setItem(SAFETY_NEW_KEY, String(n || 0)); } catch (e) {}
+    paintNav();
+  };
   function paintNav() {
     const nav = document.getElementById('nav');
     if (!nav) return;
@@ -585,7 +593,8 @@ window.timingEvidenceHTML = function (timing) {
       + (cachedBookings() ? tab('/agenda', 'Agenda') : '')
       + (cachedTraining() ? tab('/training', 'Training') : '')
       + (cachedDocuments() ? tab('/documents', 'Documents') : '')
-      + (cachedSafety() ? tab('/safety', 'Safety') : '')
+      + (cachedSafety() ? tab('/safety', 'Safety' + (cachedSafetyNew()
+        ? ` <span class="nav-count" title="${cachedSafetyNew()} new safety report${cachedSafetyNew() === 1 ? '' : 's'}">${cachedSafetyNew()}</span>` : '')) : '')
       + `<button type="button" class="nav-drop${inDirectory ? ' cur' : ''}" id="directoryBtn">Directory ▾</button>`;
     let panel = document.getElementById('directoryMenu');
     if (!panel) {
@@ -831,7 +840,7 @@ window.timingEvidenceHTML = function (timing) {
   if (!/^\/(login|setup|cli-login|profile)/.test(location.pathname)) {
     fetch('/api/me').then(async r => {
       if (r.status === 401) {
-        try { localStorage.removeItem(ADMIN_KEY); localStorage.removeItem(TRAINING_KEY); localStorage.removeItem(BOOKINGS_KEY); localStorage.removeItem(DOCUMENTS_KEY); localStorage.removeItem(SAFETY_KEY); } catch (e) {}
+        try { localStorage.removeItem(ADMIN_KEY); localStorage.removeItem(TRAINING_KEY); localStorage.removeItem(BOOKINGS_KEY); localStorage.removeItem(DOCUMENTS_KEY); localStorage.removeItem(SAFETY_KEY); localStorage.removeItem(SAFETY_NEW_KEY); } catch (e) {}
         return;
       }
       if (!r.ok) throw new Error(`Could not load account and Web UI version (${r.status})`);
@@ -842,7 +851,7 @@ window.timingEvidenceHTML = function (timing) {
       setCachedTraining(!!d.training);
       try { localStorage.setItem(BOOKINGS_KEY, d.bookings ? '1' : '0'); } catch (e) {}
       try { localStorage.setItem(DOCUMENTS_KEY, d.documents ? '1' : '0'); } catch (e) {}
-      try { localStorage.setItem(SAFETY_KEY, d.safety ? '1' : '0'); } catch (e) {}
+      try { localStorage.setItem(SAFETY_KEY, d.safety ? '1' : '0'); localStorage.setItem(SAFETY_NEW_KEY, String(d.safety_new || 0)); } catch (e) {}
       try { localStorage.setItem(UPLOAD_KEY, d.can_upload === false ? '0' : '1'); } catch (e) {}
       paintUpload();
       paintNav();

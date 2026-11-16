@@ -1500,6 +1500,7 @@ def account_email_test():
 def me():
     return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION, training=env_bool("TRAINING"), bookings=env_bool("BOOKINGS"),
                    documents=env_bool("DOCUMENTS"), safety=env_bool("SAFETY"),
+                   safety_new=safety.new_count(conn()) if env_bool("SAFETY") and g.user["is_admin"] else 0,
                    can_upload=can_upload_any(conn()), person_profile=profiles.enabled(), email=mail.enabled())
 
 

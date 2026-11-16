@@ -714,7 +714,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `TRAINING` | `0` | `1` shows Training: in-app questionnaires that can grant a qualification on a pass |
 | `BOOKINGS` | `0` | `1` shows the [Agenda](#booking-agenda) of bookable items |
 | `DOCUMENTS` | `0` | `1` shows [Documents](#documents): shared documents and each person's own qualifications |
-| `SAFETY` | `0` | `1` shows [Safety](#safety): reports, safety board and safety promotion. The Operations Manual links `/safety`: keep it on in production |
+| `SAFETY` | `0` | `1` shows [Safety](#safety): reports, safety board and safety promotion. The Operations Manual links `/safety`: keep it on in production (`check-config` warns when it is off) |
 | `PERSON_PROFILE` | `0` | `1` asks everyone who signs in for a [person profile](#person-profiles) |
 | `SITE_NAME` | `Flight logbook` | Name in tab titles, on the sign-in page, in email subjects and the sender name |
 | `SITE_LOGO` | (empty) | Logo in the header and on the sign-in page: `NAME` of `static/logos/NAME.svg` (`NAME-white.svg` on dark backgrounds when present); without it the header shows `SITE_NAME` |
@@ -1572,21 +1572,33 @@ does not erase retained backups or snapshots.
 ### Safety
 
 Off unless `LOGDB_SAFETY=1` (`safety.py`, `static/safety.html`). The Operations Manual links `/safety` (see
-`AGENTS.md`), so the page works without a query string (it opens on Reporting) and the switch stays on in production.
-Every route needs a browser session (API keys get 403). Tabs are kept in the URL (`?tab=reporting|board|promotion`);
-non-admins only have Reporting, and an admin tab in the URL falls back to it.
+`AGENTS.md`), so the page works without a query string (it opens on Reporting) and the switch stays on in production;
+`app.py check-config` (also run by `install.sh`) warns when it, `LOGDB_DOCUMENTS` or `LOGDB_TRAINING` is off.
+Every route needs a browser session (API keys get 403). Tabs are kept in the URL (`?tab=reporting|board|promotion`;
+on Reporting also `status` and `page`, 20 reports per page); non-admins only have Reporting, and an admin tab in the
+URL falls back to it. Follow up, adding meetings and recording attendance are Edit-mode actions, like the texts.
 
 **Reports** (`safety_reports`) have the fields of the paper danger/incident registration form: `kind` (`danger`,
-`incident`, `accident`), `pic`, `rpas`, `location` (required), `occurred_at` (`YYYY-MM-DDTHH:MM` local time, or a date),
+`incident`, `accident`; the definitions on the page follow the Operations Manual), `pic`, `rpas`, `location`
+(required), `occurred_at` (`YYYY-MM-DDTHH:MM` local time, or a date; not in the future, with a margin for time zones),
 `conditions`, `flight_phase`, `description` (required) and an optional sketch (PDF, JPEG or PNG with matching
-content, at most 20 MiB, stored under `<LOG_DIR>/safety`, mode 0700, gzip when it saves at least 5%). `POST
-/api/safety/reports` (multipart) files one and queues an administrator notice (`mail.notify_admins`, link to
-`/safety?tab=reporting`); with `confidential` the notice says "a confidential reporter" instead of the name (the
-reporter is still stored, admins see it marked). `GET /api/safety/reports` lists the person's own reports, admins get
-all with `reporter`, `reference` and `admin_note`; `GET /api/safety/reports/<id>/sketch` serves the sketch to the
-reporter and admins. `PUT /api/admin/safety/reports/<id>` sets `status` (`new`, `investigating`, `closed`),
-`reference` (where the investigation and findings are kept, for example a repository with restricted access) and
-`admin_note`. Reports are never deleted. The page prints blank report and safety board meeting forms (browser print).
+content, at most 20 MiB, stored under `<LOG_DIR>/safety`, mode 0700, gzip when it saves at least 5%). Single-line
+fields refuse control characters and line breaks, so a value cannot add lines to a mail subject. `POST
+/api/safety/reports` (multipart) files one, stores the reporter's name at that moment (`reporter_name`, kept when the
+account is deleted) and mails the administrators (`mail.notify_admins` with mail kind `safety`: separate from the other
+administrator notices, immediate by default; to `LOGDB_MAIL_ADMIN_TO` when set), link `/safety?tab=reporting`. With
+`leave_name_out` ("Leave my name out of the notification email") the mail says "a reporter who asked to leave their
+name out"; administrators still see the reporter on the report (an open reporting culture), marked, and the form no
+longer fills in Pilot in command with the reporter's name. `GET /api/safety/reports` lists the person's own reports,
+admins get all with `reporter` (the account's current name, else the name at filing time with `reporter_deleted`),
+`reference` and `admin_note`; `GET /api/safety/reports/<id>/sketch` serves the sketch to the reporter and admins, with
+an ASCII `filename` and the full name in `filename*` (as attachments), so any file name works. `PUT
+/api/admin/safety/reports/<id>` sets `status` (`new`, `investigating`, `closed`), `reference` (where the investigation
+and findings are kept, for example a repository with restricted access) and `admin_note`; a status change mails the
+reporter (kind `safety_status`, which they can turn off). `GET /api/me` returns `safety_new` (reports with status New)
+to administrators, shown as a count on the Safety menu tab and the Reporting tab. Reports are never deleted. The page
+prints blank report and safety board meeting forms (browser print); the board agenda follows the Operations Manual's
+safety meeting.
 
 **Meetings** (admins only): `safety_meetings` (`kind` `board` or `promotion`, `held_on`, optional `start_time`,
 `location`, `title`, `notes`) with `safety_meeting_attendees` (a logbook person by `user_id` with their name at the

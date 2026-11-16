@@ -20,7 +20,7 @@ from email.utils import formataddr, make_msgid
 
 import branding
 import db
-from config import env, env_int
+from config import env, env_bool, env_int
 
 # kind: (label, help, modes offered, default mode, administrators only)
 KINDS = {
@@ -33,8 +33,12 @@ KINDS = {
                  "requests to decide.", ("immediate", "daily", "off"), "immediate", False),
     "expiry_all": ("Others' expiry reminders", "A copy of everyone's expiry reminders (30 and 7 days before).",
                    ("off", "immediate", "daily"), "off", True),
-    "admin": ("Administrator notices", "Qualifications waiting for approval, new safety reports and logs that failed to parse.",
+    "admin": ("Administrator notices", "Qualifications waiting for approval and logs that failed to parse.",
               ("immediate", "daily", "off"), "immediate", True),
+    "safety": ("Safety reports", "Each new danger, incident or accident report on Safety.",
+               ("immediate", "daily", "off"), "immediate", True),
+    "safety_status": ("Your safety reports", "When the status of a safety report you filed changes.",
+                      ("immediate", "daily", "off"), "immediate", False),
     "access_copy": ("Training access requests", "A copy of the access request mails sent after a training pass.",
                     ("off", "immediate", "daily"), "off", True),
 }
@@ -65,9 +69,11 @@ def shared_admin_box():
 
 
 def kinds_for(user):
-    """Kinds this person can choose; admin notices only when they do not go to the shared mailbox."""
+    """Kinds this person can choose; admin notices and safety reports only when they do not go to the shared mailbox,
+    and the safety kinds only when Safety is on (LOGDB_SAFETY)."""
     return [k for k, v in KINDS.items()
-            if not v[4] or (user["is_admin"] and not (k == "admin" and shared_admin_box()))]
+            if (not k.startswith("safety") or env_bool("SAFETY"))
+            and (not v[4] or (user["is_admin"] and not (k in SHARED_KINDS and shared_admin_box())))]
 
 
 def preferences(con, user):
@@ -115,17 +121,21 @@ def notify(con, user_id, kind, subject, text, path=None, key=None):
     return True
 
 
-def notify_admins(con, subject, text, path=None, key=None, skip=None):
-    """To the shared mailbox (LOGDB_MAIL_ADMIN_TO) when set, else to each administrator as they chose."""
+SHARED_KINDS = ("admin", "safety")  # sent to LOGDB_MAIL_ADMIN_TO when it is set
+
+
+def notify_admins(con, subject, text, path=None, key=None, skip=None, kind="admin"):
+    """To the shared mailbox (LOGDB_MAIL_ADMIN_TO) when set, else to each administrator as they chose for kind
+    ("admin", or "safety" for safety reports, so muting the other notices never mutes those)."""
     if shared_admin_box():
         if not enabled() or (key and con.execute("INSERT OR IGNORE INTO mail_sent_keys(key, created_at) VALUES (?,?)",
                                                  (f"shared:{key}", now())).rowcount == 0):
             return 0
         con.execute("INSERT INTO mail_outbox(user_id, to_addr, kind, subject, body, created_at) VALUES (NULL,?,?,?,?,?)",
-                    (shared_admin_box(), "admin", subject, text + (f"\n\n{link(path)}" if path else ""), now()))
+                    (shared_admin_box(), kind, subject, text + (f"\n\n{link(path)}" if path else ""), now()))
         _wake.set()
         return 1
-    return sum(notify(con, r["id"], "admin", subject, text, path, key)
+    return sum(notify(con, r["id"], kind, subject, text, path, key)
                for r in con.execute("SELECT id FROM users WHERE is_admin=1 AND is_active=1") if r["id"] != skip)
 
 
