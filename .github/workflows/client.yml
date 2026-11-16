@@ -1,7 +1,7 @@
 # Tests the Python package mavlab-logbook-client (python/mavlab-logbook-client/) on Linux, macOS and Windows.
-# Publishing: when master has a mavlab_logbook_client.__version__ without a tag "client-v<version>", the publish job
-# waits for a maintainer to approve the "pypi" environment, uploads that version to PyPI by trusted publishing and
-# then creates the tag. Nothing else publishes; to release, bump __version__ in a reviewed pull request and approve
+# Publishing: when master has a mavlab_logbook_client.__version__ that is not on PyPI yet, the publish job waits for a
+# maintainer to approve the "pypi" environment, uploads that version to PyPI by trusted publishing and then creates
+# the tag "client-v<version>" (a published version without its tag only gets the tag). Nothing else publishes; to release, bump __version__ in a reviewed pull request and approve
 # the run after merging. A rejected or expired run is retried by re-running it (or starting this workflow on master).
 # Published versions and tags are never changed: a change to the package needs a new version.
 # PyPI: the project's trusted publisher is this repository, workflow client.yml, environment "pypi".
@@ -37,14 +37,15 @@ jobs:
       - name: Test
         run: python -m unittest discover -s python/mavlab-logbook-client/tests -v
 
-  # Decides without an approval request whether there is anything to publish
+  # Decides without an approval request whether there is anything to do: a version not on PyPI yet, or (after a failed
+  # tag push) a published version without its tag. PyPI decides, so a tag pushed by hand cannot skip a publish.
   check:
     needs: test
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
-      new: ${{ steps.version.outputs.new }}
+      todo: ${{ steps.version.outputs.todo }}
     steps:
       - uses: actions/checkout@v4
       - id: version
@@ -53,15 +54,16 @@ jobs:
           set -eu
           version=$(python3 -c "import ast; t = ast.parse(open('python/mavlab-logbook-client/mavlab_logbook_client/__init__.py').read()); print(next(n.value.value for n in t.body if isinstance(n, ast.Assign) and n.targets[0].id == '__version__'))")
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          if git ls-remote --exit-code --tags origin "refs/tags/client-v$version" >/dev/null; then
-            echo "client-v$version already released"; echo "new=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "client-v$version is new"; echo "new=true" >> "$GITHUB_OUTPUT"
-          fi
+          code=$(curl -sS -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/mavlab-logbook-client/$version/json")
+          case "$code" in 200) on_pypi=true ;; 404) on_pypi=false ;; *) echo "::error::PyPI answered $code"; exit 1 ;; esac
+          tagged=false
+          if git ls-remote --exit-code --tags origin "refs/tags/client-v$version" >/dev/null; then tagged=true; fi
+          echo "$version: on PyPI $on_pypi, tagged $tagged"
+          if [ "$on_pypi" = true ] && [ "$tagged" = true ]; then echo "todo=false"; else echo "todo=true"; fi >> "$GITHUB_OUTPUT"
 
   publish:
     needs: check
-    if: needs.check.outputs.new == 'true'
+    if: needs.check.outputs.todo == 'true'
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -75,6 +77,7 @@ jobs:
       contents: write   # create the client-v<version> tag
       id-token: write   # PyPI trusted publishing
     env:
+      VERSION: ${{ needs.check.outputs.version }}
       TAG: client-v${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
@@ -82,29 +85,30 @@ jobs:
         name: Check again after approval
         run: |
           set -eu
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
-            echo "::notice::$TAG was released while this run waited; nothing to publish"
-            echo "released=true" >> "$GITHUB_OUTPUT"
-          fi
-      - if: steps.again.outputs.released != 'true'
+          code=$(curl -sS -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/mavlab-logbook-client/$VERSION/json")
+          case "$code" in 200) echo "on_pypi=true" ;; 404) echo "on_pypi=false" ;; *) echo "::error::PyPI answered $code"; exit 1 ;; esac >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then echo "tagged=true" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.again.outputs.on_pypi != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - name: Build
-        if: steps.again.outputs.released != 'true'
+        if: steps.again.outputs.on_pypi != 'true'
         run: |
           python -m pip install build
           python -m build python/mavlab-logbook-client
-      - if: steps.again.outputs.released != 'true'
+      - if: steps.again.outputs.on_pypi != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: python/mavlab-logbook-client/dist
-          skip-existing: true   # a re-run after a failed tag push only adds the tag
+          skip-existing: true   # released by another run in the meantime
       - name: Tag the release
-        if: steps.again.outputs.released != 'true'
+        if: steps.again.outputs.tagged != 'true'
         run: |
           set -eu
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Python client ${TAG#client-v}" "$GITHUB_SHA"
+          git tag -a "$TAG" -m "Python client $VERSION" "$GITHUB_SHA"
           git push origin "refs/tags/$TAG"
+      - if: steps.again.outputs.on_pypi == 'true' && steps.again.outputs.tagged == 'true'
+        run: echo "::notice::$TAG was released while this run waited; nothing to do"

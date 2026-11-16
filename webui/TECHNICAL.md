@@ -1718,10 +1718,10 @@ log files through `GET /api/flights/<id>/files` (the flight's log, the SHA-256 o
 Both clients keep the login and the cache in the same per-user folders (see the
 [package README](../python/mavlab-logbook-client/README.md#where-files-are-kept)); `python/mavlab-logbook-client/mavlab_logbook_client/settings.py` and
 `matlab/+pprz/config.m` must keep the same rules. The package is tested and released to PyPI by
-`.github/workflows/client.yml`: when master has a `mavlab_logbook_client.__version__` without a tag `client-v<version>`,
-the publish job waits for a maintainer to approve the `pypi` environment, publishes that version by trusted publishing
-(PyPI publisher: this repository, `client.yml`, environment `pypi`) and then creates the tag (a tag ruleset keeps `client-v*`
-tags from being moved or deleted; creating one by hand publishes nothing). Merging without a version
+`.github/workflows/client.yml`: when master has a `mavlab_logbook_client.__version__` that is not on PyPI yet, the
+publish job waits for a maintainer to approve the `pypi` environment, publishes that version by trusted publishing
+(PyPI publisher: this repository, `client.yml`, environment `pypi`) and then creates the tag `client-v<version>`
+(a tag ruleset keeps these tags from being moved or deleted; a tag pushed by hand neither publishes nor skips a release). Merging without a version
 bump publishes nothing; a rejected or expired run is retried by re-running it. Client tags are separate from Web UI
 and parser tags.
 Run its tests with `python -m unittest discover -s python/mavlab-logbook-client/tests`.

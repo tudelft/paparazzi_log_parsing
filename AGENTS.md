@@ -17,7 +17,7 @@
 - `webui/qualifications.py`, `training.py`, `attachments.py`, `weather.py`, `storage.py`, `saml.py`: feature-specific helpers.
 - `python/mavlab-logbook-client/`: Python package `mavlab-logbook-client` (PyPI; browser login, cached downloads, uploads), sharing its
   login and cache with `matlab/` (`+pprz/config.m`); released to PyPI only when a merged pull request raises
-  `__version__`: `.github/workflows/client.yml` then waits for maintainer approval of the `pypi` environment, publishes
+  `__version__` to one not on PyPI: `.github/workflows/client.yml` then waits for maintainer approval of the `pypi` environment, publishes
   and creates the `client-v<version>` tag itself. Never push `client-v*` tags by hand.
 - `matlab/`: tools for the MATLAB export (`pprz_*.m`, `+pprz/`, `plotters/`); the format is in `matlab/README.md`.
 - `webui/static/`: plain HTML/JavaScript pages; shared navigation in `theme.js`, styling in `theme.css`.
