@@ -715,6 +715,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `BOOKINGS` | `0` | `1` shows the [Agenda](#booking-agenda) of bookable items |
 | `DOCUMENTS` | `0` | `1` shows [Documents](#documents): shared documents and each person's own qualifications |
 | `SAFETY` | `0` | `1` shows [Reporting](#reporting-safety) (`/safety`): danger, incident and accident reports. The Operations Manual links `/safety`: keep it on in production (`check-config` warns when it is off) |
+| `VIEW_AS` | `0` | `1` lets administrators [view as another user](#view-as-another-user) |
 | `PERSON_PROFILE` | `0` | `1` asks everyone who signs in for a [person profile](#person-profiles) |
 | `SITE_NAME` | `Flight logbook` | Name in tab titles, on the sign-in page, in email subjects and the sender name |
 | `SITE_LOGO` | (empty) | Logo in the header and on the sign-in page: `NAME` of `static/logos/NAME.svg` (`NAME-white.svg` on dark backgrounds when present); without it the header shows `SITE_NAME` |
@@ -785,6 +786,17 @@ Secrets and hashes are never returned; full secrets cannot be recovered.
 Both role changes (`PUT /api/admin/users/<id>/admin`) and key-detail access
 (`GET /api/admin/users/<id>/keys`) or revocation (`DELETE /api/admin/users/<id>/keys/<key_id>`)
 require an administrator browser session, not an API key.
+
+### View as another user
+
+Off by default; `LOGDB_VIEW_AS=1` enables it. An administrator opens a person's page and clicks **View as** (shown
+only for other active accounts that can sign in). Until **Stop viewing as** in the band above the header, every page,
+list and change uses that person's access and is recorded in their name, including their private qualification
+evidence and My account. Changing the password, managing API keys and approving script sign-ins are refused, and
+the profile prompt is skipped. Start and stop are written to the server log (administrator and person). It only
+works in the administrator's browser session (`POST /api/view-as/<id>`, `POST /api/view-as/stop`), never with an
+API key, and ends when the setting is switched off, the administrator loses admin rights, the person can no
+longer sign in, or the administrator signs out.
 
 The Projects overview uses searchable, equal-height responsive cards with contrasting backgrounds,
 accent borders, top-right log/member counts and a member list clipped to three lines with an ellipsis.

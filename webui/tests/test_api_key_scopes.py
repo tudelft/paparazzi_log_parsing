@@ -113,6 +113,7 @@ class ApiKeyScopeTests(AppTests):
                    "admin_add_user", "admin_new_setup_link", "admin_update_user", "admin_remove_password",
                    "admin_set_admin", "admin_rename_user", "admin_merge_users", "admin_move_sso", "admin_set_external",
                    "admin_set_user_operator", "admin_add_external", "admin_narrow_user_key", "admin_revoke_user_key",
+                   "start_view_as", "stop_view_as",
                    # other administration that needs a browser session (also for old full keys)
                    "admin_ambiguous_drone_name", "admin_log_aircraft_link", "document_import_preview",
                    "document_import_commit", "add_booking_thing", "edit_booking_thing", "delete_booking_thing",
