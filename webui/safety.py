@@ -1,9 +1,10 @@
-"""Reporting: danger, incident and accident reports (occurrence reporting). Off unless LOGDB_SAFETY=1.
+"""Safety: danger, incident and accident reports (occurrence reporting). Off unless LOGDB_SAFETY=1.
 
-The page lives at /safety (the Operations Manual links that path) and is called Reporting in the menu. It shows the
-text set by administrators (who to contact, where else to report), the definitions and a button that opens the report
-form with the fields of a paper registration form (pilot in command, aircraft, location, date and time, conditions,
-flight phase, description, optional sketch as PDF/JPEG/PNG). There is no list of reports on the page: each report
+The page lives at /safety (the Operations Manual links that path) and is called Safety in the menu. It shows the
+text set by administrators (who to contact, where else to report; a general default until they do) and a prominent
+Report incident button that opens the report form with the fields of a paper registration form: type (the definitions
+are behind a ? next to it), date and time and description, and optionally pilot in command, aircraft, location,
+conditions, flight phase and a sketch as PDF/JPEG/PNG. There is no list of reports on the page: each report
 is stored (never deleted) and mailed in full to the administrators (mail kind "safety", immediate by default,
 separate from the other administrator notices; to LOGDB_MAIL_ADMIN_TO when set), with a link to the sketch. The
 reporter can ask to leave their name out of that email (leave_name_out); the name is still stored with the report,
@@ -31,6 +32,10 @@ KINDS = ("danger", "incident", "accident")
 SKETCH_TYPES = {".pdf": ("application/pdf", b"%PDF-"), ".jpg": ("image/jpeg", b"\xff\xd8\xff"),
                 ".jpeg": ("image/jpeg", b"\xff\xd8\xff"), ".png": ("image/png", b"\x89PNG\r\n\x1a\n")}
 SETTINGS = ("reporting_text",)
+# Shown above Report incident until administrators set their own text (an empty setting means this one).
+DEFAULT_REPORTING_TEXT = ("Seen something unsafe, or had a near miss, incident or accident? Report it here, also when "
+                          "nothing went wrong in the end: every report helps prevent the next one. In an emergency, "
+                          "call the emergency services first.")
 NAME_SQL = "COALESCE(NULLIF(display_name,''), username)"
 
 
@@ -148,7 +153,7 @@ def register(app, connection, root, pages_dir, require_session):
         cid = connection()
         current = settings(cid)
         is_admin = bool(g.user["is_admin"])
-        out = {"reporting_text": current["reporting_text"], "is_admin": is_admin, "kinds": list(KINDS),
+        out = {"reporting_text": current["reporting_text"] or DEFAULT_REPORTING_TEXT, "is_admin": is_admin, "kinds": list(KINDS),
                "max_sketch_bytes": MAX_SKETCH_BYTES,
                "me": cid.execute(f"SELECT {NAME_SQL} FROM users WHERE id=?", (g.user["id"],)).fetchone()[0]}
         return jsonify(out)
@@ -164,6 +169,8 @@ def register(app, connection, root, pages_dir, require_session):
             for key in SETTINGS:
                 if key in body:
                     values[key] = text(body[key], "The text", MAX_TEXT, multiline=True)
+            if values["reporting_text"] == DEFAULT_REPORTING_TEXT:  # kept empty, so a later default applies
+                values["reporting_text"] = ""
             cid.execute("INSERT INTO safety_settings(id,reporting_text) VALUES (1,?)"
                         " ON CONFLICT(id) DO UPDATE SET reporting_text=excluded.reporting_text",
                         (values["reporting_text"],))
@@ -177,7 +184,7 @@ def register(app, connection, root, pages_dir, require_session):
             kind=choice(form.get("kind"), KINDS, "Type"),
             pic=text(form.get("pic"), "Pilot in command"),
             rpas=text(form.get("rpas"), "Aircraft"),
-            location=text(form.get("location"), "Location", required=True),
+            location=text(form.get("location"), "Location"),
             occurred_at=datetime_value(form.get("occurred_at"), "Date and time"),
             conditions=text(form.get("conditions"), "Conditions", 1000),
             flight_phase=text(form.get("flight_phase"), "Flight phase"),
@@ -217,7 +224,8 @@ def register(app, connection, root, pages_dir, require_session):
                     "sketch_compressed,sketch_bytes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (*fields.values(), int(leave_name_out), g.user["id"], name, sketch_name, sketch_mime,
                      stored.name if stored else "", int(compressed), size, now)).lastrowid
-                mail.notify_admins(cid, f"Safety report: {fields['kind']} at {fields['location']}",
+                at = f" at {fields['location']}" if fields["location"] else ""  # the location is optional
+                mail.notify_admins(cid, f"Safety report: {fields['kind']}{at}",
                                    notice_text(rid, fields, None if leave_name_out else name, sketch_name),
                                    f"/api/safety/reports/{rid}/sketch" if sketch_name else None, kind="safety")
         except Exception:

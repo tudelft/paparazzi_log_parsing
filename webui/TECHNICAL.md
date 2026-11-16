@@ -714,7 +714,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `TRAINING` | `0` | `1` shows Training: in-app questionnaires that can grant a qualification on a pass |
 | `BOOKINGS` | `0` | `1` shows the [Agenda](#booking-agenda) of bookable items |
 | `DOCUMENTS` | `0` | `1` shows [Documents](#documents): shared documents and each person's own qualifications |
-| `SAFETY` | `0` | `1` shows [Reporting](#reporting-safety) (`/safety`): danger, incident and accident reports. The Operations Manual links `/safety`: keep it on in production (`check-config` warns when it is off) |
+| `SAFETY` | `0` | `1` shows [Safety](#safety) (`/safety`): danger, incident and accident reports. The Operations Manual links `/safety`: keep it on in production (`check-config` warns when it is off) |
 | `VIEW_AS` | `0` | `1` lets administrators [view as another user](#view-as-another-user) |
 | `PERSON_PROFILE` | `0` | `1` asks everyone who signs in for a [person profile](#person-profiles) |
 | `SITE_NAME` | `Flight logbook` | Name in tab titles, on the sign-in page, in email subjects and the sender name |
@@ -924,7 +924,7 @@ selected in Edit mode stays listed. Non-admins only count qualifications they ma
 Logbook has no top-level project filter and no longer applies a previously saved project filter.
 Project reassignment controls in Edit mode remain available.
 The menu (`theme.js`) has Logbook (`/`), Agenda (`/agenda`, when `LOGDB_BOOKINGS=1`), Training (`/training`, when
-`LOGDB_TRAINING=1`), Documents (`/documents`, when `LOGDB_DOCUMENTS=1`), Reporting (`/safety`, when `LOGDB_SAFETY=1`) and **Directory ▾** (People, Aircraft, Projects, Locations, then Logs at `/logs` and Statistics at
+`LOGDB_TRAINING=1`), Documents (`/documents`, when `LOGDB_DOCUMENTS=1`), Safety (`/safety`, when `LOGDB_SAFETY=1`) and **Directory ▾** (People, Aircraft, Projects, Locations, then Logs at `/logs` and Statistics at
 `/stats`), then the flight filters. On the right: **⬆ Upload
 logs** (for admins and members with add or full access on a project, `can_upload` in `/api/me`), Edit (pages that
 have it) and the name menu (My account, Night mode, Sign out). Menus close on a click elsewhere or Escape.
@@ -1581,21 +1581,24 @@ operators. Back up this folder along with the logs and the SQLite database; the 
 the database and keys, **not evidence files**. Backups contain sensitive information, and deleting live records
 does not erase retained backups or snapshots.
 
-### Reporting (safety)
+### Safety
 
-Off unless `LOGDB_SAFETY=1` (`safety.py`, `static/safety.html`). The page is **Reporting** in the menu and lives at
+Off unless `LOGDB_SAFETY=1` (`safety.py`, `static/safety.html`). The page is **Safety** in the menu and lives at
 `/safety`: the Operations Manual links that path (see `AGENTS.md`), so it works without a query string and the switch
 stays on in production; `app.py check-config` (also run by `install.sh`) warns when it, `LOGDB_DOCUMENTS` or
 `LOGDB_TRAINING` is off. Every route needs a browser session (API keys get 403).
 
-The page shows the text above the form (`reporting_text` in `safety_settings`, from `GET /api/safety`, set with `PUT
-/api/admin/safety/settings` in Edit mode: who to contact, where else to report, so organisation details live only in
-that setting), the danger/incident/accident definitions (following the Operations Manual) and the report button. There
-is no list of reports. **Reports** (`safety_reports`, never deleted) have the fields of the paper registration form:
-`kind` (`danger`, `incident`, `accident`), `pic`, `rpas`, `location` (required), `occurred_at` (`YYYY-MM-DDTHH:MM`
+The page shows the text above a prominent **Report incident** button (`reporting_text` in `safety_settings`, from `GET
+/api/safety`, edited in place on the page in Edit mode and saved with `PUT /api/admin/safety/settings`: who to contact,
+where else to report, so organisation details live only in that setting; while it is empty,
+`safety.DEFAULT_REPORTING_TEXT`, general wording, is returned, and saving an empty or the default text stores it empty
+again). The danger/incident/accident definitions (following the Operations Manual) are in the form, behind a ? next to
+Type. There is no list of reports. **Reports** (`safety_reports`, never deleted) have the fields of the paper registration form:
+`kind` (`danger`, `incident`, `accident`), `pic`, `rpas`, `location`, `occurred_at` (required; `YYYY-MM-DDTHH:MM`
 local time, or a date; not in the future, with a margin for time zones), `conditions`, `flight_phase`, `description`
 (required) and an optional sketch (PDF, JPEG or PNG with matching content, at most 20 MiB, stored under
-`<LOG_DIR>/safety`, mode 0700, gzip when it saves at least 5%). Single-line fields refuse control characters and line
+`<LOG_DIR>/safety`, mode 0700, gzip when it saves at least 5%). Only `kind`, `occurred_at` and `description` are
+required; the mail leaves out empty fields (also the location in its subject). Single-line fields refuse control characters and line
 breaks, so a value cannot add lines to a mail subject. `POST /api/safety/reports` (multipart) stores one with the
 reporter (`reporter_id`, and `reporter_name` as it was then, kept when the account is deleted) and mails the whole
 report to the administrators (`mail.notify_admins` with mail kind `safety`: separate from the other administrator

@@ -47,7 +47,7 @@ aviation authority, so every one of these links must keep working in every relea
 | `/people` | People (personnel and qualifications) |
 | `/aircraft` | Aircraft (fleet) |
 | `/training` | Training |
-| `/safety` | Reporting: danger, incident and accident reports (called Reporting in the menu; the OM links it from its next release) |
+| `/safety` | Safety: danger, incident and accident reports (the OM links it from its next release) |
 
 - Never rename, move or remove these paths, and never let them fail for a signed-in user. They must work
   without a query string (filters stay optional). The feature switches behind three of them

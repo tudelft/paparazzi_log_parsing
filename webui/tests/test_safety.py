@@ -11,7 +11,7 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 64
 
 
 class SafetyTests(AppTests):
-    """Reporting page (/safety): danger, incident and accident reports for everyone.
+    """Safety page (/safety): danger, incident and accident reports for everyone.
     Users: 1 Admin, 2 Pilot, 3 Viewer, 4 Outsider."""
 
     def setUp(self):
@@ -39,7 +39,7 @@ class SafetyTests(AppTests):
         self.assertTrue(self.client.get("/api/me").json["safety"])
         r = self.client.get("/safety")  # the Operations Manual links this path without a query string
         self.assertEqual(r.status_code, 200)
-        self.assertIn(b"<title>Reporting</title>", r.data)
+        self.assertIn(b"<title>Safety</title>", r.data)
         r.close()
 
     def test_report_is_stored_and_the_sketch_private(self):
@@ -82,7 +82,7 @@ class SafetyTests(AppTests):
         self.assertNotIn("Sketch", second)
 
     def test_report_validation(self):
-        for fields, error in (({"kind": "rumour"}, "Type must be one of"), ({"location": ""}, "Location is required"),
+        for fields, error in (({"kind": "rumour"}, "Type must be one of"),
                               ({"description": " "}, "Description is required"),
                               ({"occurred_at": "yesterday"}, "Date and time must be"),
                               ({"occurred_at": "2999-01-01T10:00"}, "Date and time cannot be in the future"),
@@ -101,11 +101,15 @@ class SafetyTests(AppTests):
         self.assertEqual(self.client.put("/api/admin/safety/settings", json={"reporting_text": "x"}).status_code, 403)
         self.assertEqual(self.client.get("/api/admin/safety/meetings").status_code, 404)  # board and promotion: removed
         self.sign_in(1)
+        import safety
+        self.assertEqual(self.client.get("/api/safety").json["reporting_text"], safety.DEFAULT_REPORTING_TEXT)
         r = self.client.put("/api/admin/safety/settings", json={"reporting_text": "Call the safety manager.\nThen the board."})
         self.assertEqual(r.status_code, 200, r.json)
         d = self.client.get("/api/safety").json
         self.assertEqual(d["reporting_text"], "Call the safety manager.\nThen the board.")
         self.assertEqual(set(d), {"reporting_text", "is_admin", "kinds", "max_sketch_bytes", "me"})
+        self.assertEqual(self.client.put("/api/admin/safety/settings", json={"reporting_text": ""}).status_code, 200)
+        self.assertEqual(self.client.get("/api/safety").json["reporting_text"], safety.DEFAULT_REPORTING_TEXT)
 
     def test_sketch_with_a_non_latin_1_name(self):
         name = "Screenshot 2026-11-14 at 10.00.00\u202fAM \u2019wing\u2019 \U0001F681.png"
@@ -148,3 +152,15 @@ class SafetyTests(AppTests):
         client = self.app.test_client()
         for url in ("/api/safety", "/api/safety/reports/1/sketch"):
             self.assertEqual(client.get(url, headers={"Authorization": "Bearer " + token}).status_code, 403, url)
+
+    def test_only_type_date_and_description_are_required(self):
+        self.con.execute("UPDATE users SET email='admin@example.org', is_active=1 WHERE id=1")
+        self.con.commit()
+        with patch.dict(os.environ, {"LOGDB_SMTP_HOST": "relay.example.org"}):
+            r = self.report(location="")
+        self.assertEqual(r.status_code, 201, r.json)
+        row = self.con.execute("SELECT pic, rpas, location, conditions, flight_phase FROM safety_reports").fetchone()
+        self.assertEqual(tuple(row), ("", "", "", "", ""))
+        subject, body = self.con.execute("SELECT subject, body FROM mail_outbox WHERE kind='safety'").fetchone()
+        self.assertEqual(subject, "Safety report: incident")
+        self.assertNotIn("Location:", body)

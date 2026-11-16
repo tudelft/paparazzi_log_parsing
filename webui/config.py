@@ -28,7 +28,7 @@ SETTINGS = {
         "BOOKINGS": ("0", "1 shows Agenda: a week agenda of bookable items that administrators set up in Edit mode"),
         "DOCUMENTS": ("0", "1 shows Documents: shared documents that administrators upload in Edit mode, and each "
                            "person's own current qualifications"),
-        "SAFETY": ("0", "1 shows Reporting (/safety): danger, incident and accident reports. "
+        "SAFETY": ("0", "1 shows Safety (/safety): danger, incident and accident reports. "
                         "The Operations Manual links /safety: keep it on in production"),
         "VIEW_AS": ("0", "1 lets administrators view and use the site as another user, from that person's page "
                          "(passwords, API keys and script sign-ins stay blocked; start and stop are logged)"),

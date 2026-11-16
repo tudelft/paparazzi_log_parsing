@@ -550,7 +550,7 @@ CREATE TABLE IF NOT EXISTS document_profile_roles (  -- profile roles that may s
     role_id INTEGER NOT NULL REFERENCES profile_roles(id) ON DELETE CASCADE,
     PRIMARY KEY (document_id, role_id)
 );
-CREATE TABLE IF NOT EXISTS safety_settings (  -- Reporting page (safety.py): the text above the report form
+CREATE TABLE IF NOT EXISTS safety_settings (  -- Safety page (safety.py): the text above Report incident
     id INTEGER PRIMARY KEY CHECK(id=1),
     reporting_text TEXT NOT NULL DEFAULT ''
 );
