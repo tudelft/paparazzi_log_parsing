@@ -109,8 +109,9 @@ def send_stored(path, compressed, mimetype):
     return response
 
 
-def save_attachment(stream, folder, limit):
-    """Stage a bounded upload, retaining gzip only when it saves at least 5%."""
+def save_attachment(stream, folder, limit, compress=True):
+    """Stage a bounded upload, retaining gzip only when it saves at least 5% (never with compress=False: video and
+    audio stay as they are, so browsers can seek in them with range requests)."""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(dir=folder, prefix=".upload-")
@@ -132,7 +133,7 @@ def save_attachment(stream, folder, limit):
             raise ValueError("Empty attachments are not supported.")
         with open(raw_path, "rb") as src:
             sample = src.read(CHUNK)
-        compressed = len(gzip.compress(sample, compresslevel=1)) < len(sample) * 0.95
+        compressed = compress and len(gzip.compress(sample, compresslevel=1)) < len(sample) * 0.95
         if compressed:
             gzip_file(raw_path, gz_path)
             compressed = gz_path.stat().st_size < size * 0.95
@@ -149,9 +150,13 @@ def save_attachment(stream, folder, limit):
 # Types the browser may show inline, chosen by extension only. HTML, SVG, XML and other active
 # content are deliberately absent: they stay downloads so a stored file can never run script here.
 # Flask adds "charset=utf-8" to text/plain.
+# Video and audio play in the browser's own player. MOV (QuickTime) goes out as video/mp4: Chrome and Firefox download
+# video/quicktime but play the same file as MP4 (H.264 MOVs from phones and cameras); Safari plays either.
 VIEWABLE = {".pdf": "application/pdf", ".txt": "text/plain", ".csv": "text/plain",
             ".md": "text/plain", ".log": "text/plain", ".png": "image/png",
-            ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+            ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
+            ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/mp4", ".webm": "video/webm",
+            ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav", ".ogg": "audio/ogg"}
 
 
 def view_type(filename):
