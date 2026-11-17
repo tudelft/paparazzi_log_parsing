@@ -515,6 +515,19 @@ current again; other targets are unaffected. At startup, attachments stored more
 content (for example an upload retried after a restart) are merged into the oldest copy and the extra stored files
 removed.
 
+**Categories.** Each file has one optional category (`attachments.category`, NULL = uncategorised), the same on every
+flight/log it is linked to. The list is `LOGDB_ATTACHMENT_CATEGORIES` (comma-separated, in display order; default
+*Preparation & permits, Notes, Media, Data, Analysis, Archive*). Uploads take `category` in `X-Attachment-Metadata`;
+it must be a listed name (any case is stored as listed), otherwise 400. A duplicate upload keeps an existing category
+and fills in a missing one; a new version without a category takes the one of the version it replaces.
+`GET /api/attachments` returns `category` per file, `can_edit` and the `categories` list.
+`PATCH /api/attachments/<id>` (browser session) with `category` (null clears it) and/or `description` changes the
+file for all its links; full access to one linked flight/log is enough. A category removed from the setting stays on
+its files and is shown after the listed ones, but cannot be chosen again. The pages group files by category
+(uncategorised last, empty groups hidden), and the manage page (`/attachments`) has a category filter (`?category=`).
+`python3 app.py attachment-categories [--dry-run] [--map OLD=NEW ...]` moves a `[Category] ` prefix at the start of
+uncategorised descriptions into the category and strips it; `--map Photos=Media` accepts other prefix names.
+
 Each file is limited to **10 GiB** by default (`LOGDB_ATTACHMENT_MAX_BYTES`).
 Uploads and downloads stream in bounded chunks; files upload sequentially with progress and errors.
 Keep your reverse proxy's body-size limits and timeouts large enough for your recordings.
@@ -737,6 +750,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `INGEST_WORKERS` | `1` | Threads that hash, deduplicate and unzip uploads |
 | `PATH_RATE` | `5` | Flight path points per second (`0`: no map path) |
 | `ATTACHMENT_MAX_BYTES` | `10737418240` | Maximum original bytes per attachment (10 GiB) |
+| `ATTACHMENT_CATEGORIES` | `Preparation & permits, Notes, Media, Data, Analysis, Archive` | Attachment categories, comma-separated, in display order |
 | `BULK_MAX_PENDING` | `8` | Shared pending-job budget for bulk scripts |
 | `BULK_MAX_BYTES` | `17179869184` | Shared estimated-byte budget for bulk scripts (16 GiB) |
 | `LOCAL_MIN_FREE_BYTES` | `2147483648` | Local staging/decompression headroom (2 GiB; parser output needs extra space) |

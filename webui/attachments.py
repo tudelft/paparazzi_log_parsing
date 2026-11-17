@@ -1,6 +1,7 @@
 """Shared files linked to telemetry flights, uploaded logs, and paper records."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -26,6 +27,76 @@ CONVERT_TIMEOUT_S = 90
 PREVIEWS = "previews"
 Error = historical.RecordError
 _convert_lock = threading.Lock()  # one LibreOffice at a time: it is heavy and shares nothing between runs
+DEFAULT_CATEGORIES = ["Preparation & permits", "Notes", "Media", "Data", "Analysis", "Archive"]
+PREFIX = re.compile(r"\[([^\]\n]{1,40})\][ \t]*")
+
+
+def category_value(value, categories):
+    """The listed category matching `value` (any case), None for no category; anything else is refused."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        for name in categories:
+            if value.strip().casefold() == name.casefold():
+                return name
+    raise Error("Unknown category; choose one of: " + ", ".join(categories) + ".")
+
+
+def description_value(value):
+    if not isinstance(value, str) or len(value) > 1000:
+        raise Error("Description must be at most 1000 characters.")
+    return value.strip()
+
+
+def inherit_category(con, attachment_id, replaced):
+    """A new version without a category takes the category of the version it replaces."""
+    ids = [r["id"] for r in replaced]
+    if ids:
+        con.execute(f"UPDATE attachments SET category=(SELECT category FROM attachments WHERE id IN"
+                    f" ({','.join('?' * len(ids))}) AND category IS NOT NULL ORDER BY id DESC LIMIT 1)"
+                    f" WHERE id=? AND category IS NULL", (*ids, attachment_id))
+
+
+def parse_mapping(pairs, categories):
+    """--map OLD=NEW pairs: {old prefix casefolded: listed category}."""
+    mapping = {}
+    for pair in pairs:
+        old, sep, new = pair.partition("=")
+        if not sep or not old.strip():
+            raise ValueError(f"--map needs OLD=NEW, not {pair!r}")
+        try:
+            mapping[old.strip().casefold()] = category_value(new, categories)
+        except Error as exc:
+            raise ValueError(f"--map {pair}: {exc}") from exc
+        if mapping[old.strip().casefold()] is None:
+            raise ValueError(f"--map {pair}: name a category")
+    return mapping
+
+
+def backfill_categories(con, categories, mapping=None, apply=True):
+    """Move a '[Category] ' prefix of uncategorised attachments into the category column and strip it.
+    Returns ([(id, category, new description)], {unknown prefix: count})."""
+    mapping = dict(mapping or {})
+    changes, skipped = [], {}
+    for row in con.execute("SELECT id, description FROM attachments WHERE category IS NULL AND description LIKE '[%'"
+                           " ORDER BY id").fetchall():
+        match = PREFIX.match(row["description"])
+        if not match:
+            continue
+        prefix = match.group(1).strip()
+        category = mapping.get(prefix.casefold())
+        if category is None:
+            try:
+                category = category_value(prefix, categories)
+            except Error:
+                skipped[prefix] = skipped.get(prefix, 0) + 1
+                continue
+        description = row["description"][match.end():].strip()
+        changes.append((row["id"], category, description))
+        if apply:
+            con.execute("UPDATE attachments SET category=?, description=? WHERE id=?",
+                        (category, description, row["id"]))
+    return changes, skipped
 
 
 def office_binary(setting):
@@ -173,7 +244,7 @@ def merge_duplicates(con, root):
         with db.write_lock, con:
             con.execute("BEGIN IMMEDIATE")
             keep = group["keep"]
-            copies = con.execute("SELECT id,path,description FROM attachments WHERE sha256=? AND size_bytes=?"
+            copies = con.execute("SELECT id,path,description,category FROM attachments WHERE sha256=? AND size_bytes=?"
                                  " AND filename=? AND id<>?",
                                  (group["sha256"], group["size_bytes"], group["filename"], keep)).fetchall()
             for copy in copies:
@@ -185,6 +256,8 @@ def merge_duplicates(con, root):
                 con.execute("UPDATE attachment_links SET superseded_by=? WHERE superseded_by=?", (keep, copy["id"]))
                 con.execute("UPDATE attachments SET description=? WHERE id=? AND description=''",
                             (copy["description"], keep))
+                con.execute("UPDATE attachments SET category=? WHERE id=? AND category IS NULL",
+                            (copy["category"], keep))
                 con.execute("DELETE FROM attachments WHERE id=?", (copy["id"],))
                 removed += 1
             con.execute("UPDATE attachment_links SET superseded_by=NULL,superseded_at=NULL"
@@ -223,9 +296,10 @@ def restore(con, log_id, saved):
             dict(kind="flight", id=match["id"]) if match else dict(kind="log", id=log_id)])
 
 
-def register(app, connection, root, require_session, timestamp, max_bytes, office=None):
+def register(app, connection, root, require_session, timestamp, max_bytes, office=None, categories=None):
     root = Path(root)
     app.config["ATTACHMENT_OFFICE"] = office_binary(office)
+    app.config["ATTACHMENT_CATEGORIES"] = list(categories or DEFAULT_CATEGORIES)
     if max_bytes <= 0:
         raise ValueError("LOGDB_ATTACHMENT_MAX_BYTES must be positive")
     app.config["ATTACHMENT_MAX_BYTES"] = max_bytes
@@ -309,7 +383,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
         result = []
         for aid in sorted(ids, reverse=True):
             row, links = visible(con, g.user, aid)
-            item = {k: row[k] for k in ("id", "filename", "description", "size_bytes", "stored_bytes",
+            item = {k: row[k] for k in ("id", "filename", "description", "category", "size_bytes", "stored_bytes",
                                         "compressed", "uploaded_at", "sha256")}
             item["links"] = links
             item["superseded"] = superseded.get(aid)  # an earlier version on this target
@@ -317,8 +391,10 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
                 row, app.config["ATTACHMENT_OFFICE"])
             item["can_share"] = all(x["can_edit"] for x in links) and len(links) == con.execute(
                 "SELECT COUNT(*) FROM attachment_links WHERE attachment_id=?", (aid,)).fetchone()[0]
+            item["can_edit"] = any(x["can_edit"] for x in links)
             result.append(item)
-        return jsonify(files=result, target=t, max_bytes=app.config["ATTACHMENT_MAX_BYTES"])
+        return jsonify(files=result, target=t, max_bytes=app.config["ATTACHMENT_MAX_BYTES"],
+                       categories=app.config["ATTACHMENT_CATEGORIES"])
 
     @app.post("/api/attachments")
     def upload_attachment():
@@ -332,12 +408,11 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
         if not isinstance(metadata, dict):
             raise Error("Invalid attachment metadata.")
         filename = metadata.get("filename")
-        description = metadata.get("description", "")
         if (not isinstance(filename, str) or not 1 <= len(filename) <= 255
                 or any(ord(c) < 32 or c in "/\\" for c in filename) or filename in (".", "..")):
             raise Error("Supply a filename without directories (at most 255 characters).")
-        if not isinstance(description, str) or len(description) > 1000:
-            raise Error("Description must be at most 1000 characters.")
+        description = description_value(metadata.get("description", ""))
+        category = category_value(metadata.get("category"), app.config["ATTACHMENT_CATEGORIES"])
         con = connection()
         checked_targets(con, g.user, metadata.get("targets"))
         staged = final = None
@@ -366,15 +441,21 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
                         con.execute(f"UPDATE attachment_links SET superseded_by=NULL,superseded_at=NULL"
                                     f" WHERE attachment_id=? AND {COLUMNS[t['kind']]}=?", (same["id"], t["id"]))
                     replaced = supersede(con, same["id"], filename, targets, stamp)
+                    # an existing category stays; a missing one is filled in
+                    con.execute("UPDATE attachments SET category=? WHERE id=? AND category IS NULL",
+                                (category, same["id"]))
+                    inherit_category(con, same["id"], replaced)
                     final = None
                     return jsonify(id=same["id"], duplicate=True, replaces=replaced), 200
                 os.replace(staged, final)
                 cur = con.execute(
                     "INSERT INTO attachments(filename,description,path,compressed,size_bytes,stored_bytes,sha256,"
-                    " uploaded_by,uploaded_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                    (filename, description.strip(), relative, int(compressed), size, stored, sha, g.user["id"], stamp))
+                    " uploaded_by,uploaded_at,category) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (filename, description, relative, int(compressed), size, stored, sha, g.user["id"], stamp,
+                     category))
                 add_links(con, cur.lastrowid, targets)
                 replaced = supersede(con, cur.lastrowid, filename, targets, stamp)
+                inherit_category(con, cur.lastrowid, replaced)
             final = None
             return jsonify(id=cur.lastrowid, duplicate=False, replaces=replaced), 201
         except RequestEntityTooLarge:
@@ -426,6 +507,29 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Cache-Control"] = "private, no-store"
         return response
+
+    @app.patch("/api/attachments/<int:attachment_id>")
+    def edit_attachment(attachment_id):
+        """Change the category and/or description. The file is shared by all its links, so the change shows on
+        every flight/log it is linked to; full access to one of them is enough (as uploading it there)."""
+        require_session()
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict) or not {"category", "description"} & body.keys():
+            raise Error("Send {\"category\": ..., \"description\": ...}.")
+        changes = {}
+        if "category" in body:
+            changes["category"] = category_value(body["category"], app.config["ATTACHMENT_CATEGORIES"])
+        if "description" in body:
+            changes["description"] = description_value(body["description"])
+        con = connection()
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            _, links = visible(con, g.user, attachment_id)
+            if not any(link["can_edit"] for link in links):
+                raise Error("Full access to a flight/log this file is linked to is required.", 403)
+            con.execute(f"UPDATE attachments SET {', '.join(f'{k}=?' for k in changes)} WHERE id=?",
+                        (*changes.values(), attachment_id))
+        return jsonify(ok=True, **changes)
 
     @app.get("/api/attachments/<int:attachment_id>/download")
     def download_attachment(attachment_id):

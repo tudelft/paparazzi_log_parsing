@@ -371,6 +371,8 @@ dialog.entry-dialog label.field input, dialog.entry-dialog label.field select { 
 .file-list td.file-name { white-space:normal; width:100%; overflow-wrap:anywhere; }
 .earlier-versions { margin-top:6px; } .earlier-versions summary { cursor:pointer; font-size:.9em; }
 .file-list .file-desc { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60ch; }
+.file-group { margin:12px 0 2px; font-size:13px; font-weight:600; color:var(--mute); }
+.file-group:first-child { margin-top:0; }
 
 /* MATLAB export menu (matlab.js) */
 .matlab-pop { position:absolute; z-index:1000; min-width:280px; max-width:min(420px, calc(100vw - 16px)); padding:8px;

@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS attachments (
     stored_bytes INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
     uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    uploaded_at TEXT NOT NULL
+    uploaded_at TEXT NOT NULL,
+    category TEXT                      -- LOGDB_ATTACHMENT_CATEGORIES; NULL = uncategorised
 );
 CREATE TABLE IF NOT EXISTS attachment_links (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -711,6 +712,8 @@ def init(path):
     if "internal" not in type_cols:
         con.execute("ALTER TABLE qualification_types ADD COLUMN internal"
                     " INTEGER NOT NULL DEFAULT 0 CHECK(internal IN (0,1))")
+    if "category" not in {r["name"] for r in con.execute("PRAGMA table_info(attachments)")}:
+        con.execute("ALTER TABLE attachments ADD COLUMN category TEXT")
     link_cols = {r["name"] for r in con.execute("PRAGMA table_info(attachment_links)")}
     if "superseded_by" not in link_cols:
         con.execute("ALTER TABLE attachment_links ADD COLUMN superseded_by INTEGER"

@@ -105,7 +105,7 @@ class ApiKeyScopeTests(AppTests):
                    "narrow_key", "new_calendar_link", "reject_drone_request", "remove_calendar_link", "request_drone",
                    "request_matlab_bulk", "review_qualification", "save_own_profile", "save_person_profile",
                    "setup_password", "submit_qualification", "read_qualification_evidence", "submit_training",
-                   "unlink_attachment",
+                   "unlink_attachment", "edit_attachment",
                    "update_logbook_records",
                    # Safety (safety.py): reports and the reporting text need a browser session
                    "create_report", "save_safety_settings",

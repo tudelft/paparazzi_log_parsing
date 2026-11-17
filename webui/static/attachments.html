@@ -22,6 +22,8 @@
   #results { max-height:280px; overflow:auto; } #selected { max-height:240px; overflow:auto; }
   #status { white-space:pre-wrap; overflow-wrap:anywhere; } progress { width:100%; max-width:500px; }
   #search { width:100%; max-width:500px; } textarea { width:100%; }
+  select { font:inherit; padding:7px; border:1px solid var(--line); border-radius:5px; background:var(--field); color:var(--txt); }
+  .list-head { display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; } .list-head h2 { margin-right:auto; }
   @media(max-width:600px) {
     main { padding:10px; }
     body > header { flex-wrap:wrap; gap:8px; padding:10px; }
@@ -61,6 +63,7 @@
     <form id="uploadForm">
       <fieldset id="uploadFields" disabled>
         <label>Files <input id="files" type="file" multiple required></label>
+        <label>Category (optional, applies to these files) <select id="category"><option value="">Uncategorised</option></select></label>
         <label>Description (optional, applies to these files)<textarea id="description" maxlength="1000" rows="2"></textarea></label>
         <p id="limit" class="mute"></p>
         <button type="submit">Upload to selected flights / logs</button>
@@ -69,15 +72,30 @@
     <progress id="progress" hidden max="100" value="0" aria-label="File upload progress"></progress>
     <p id="status" role="status" aria-live="polite"></p>
   </section>
-  <section class="card"><h2>Files on this flight / log</h2><div id="fileList">Loading...</div></section>
+  <section class="card"><div class="list-head"><h2>Files on this flight / log</h2>
+    <label>Category <select id="categoryFilter"><option value="">All</option></select></label></div>
+    <div id="fileList">Loading...</div></section>
 </main>
+<dialog class="entry-dialog" id="editDialog" aria-labelledby="editTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="editTitle">Edit file</h2><button type="button" onclick="$('editDialog').close()" aria-label="Close Edit file">Close</button></div>
+  <p class="mute" id="editName" style="overflow-wrap:anywhere"></p>
+  <p class="dialog-error" id="editError" role="alert"></p>
+  <form id="editForm">
+    <label>Category <select id="editCategory"></select></label>
+    <label>Description<textarea id="editDescription" maxlength="1000" rows="3"></textarea></label>
+    <p class="mute">The file is shared: this changes it on every flight / log it is linked to.</p>
+    <button type="submit">Save</button>
+  </form>
+</dialog>
 <script>
 const $ = id => document.getElementById(id);
 const {api,size,render} = AttachmentFiles;
 const params = new URLSearchParams(location.search);
 const kind = params.get('kind'), id = params.get('id');
 const targets = new Map();
-let maxBytes = 0, busy = false, current = [];
+let maxBytes = 0, busy = false, current = [], categories = [], editing = null;
+const UNCATEGORISED = '-';  // filter value for files without a category
+const option = (value, text) => Object.assign(document.createElement('option'), {value, textContent: text});
 const key = target => `${target.kind}:${target.id}`;
 function chosen() {
   return [...$('selected').querySelectorAll('input:checked')].map(input => targets.get(input.value));
@@ -96,10 +114,50 @@ function addTarget(target) {
   $('selected').append(label);
   syncUpload();
 }
+// The category filter lists the configured categories and any other category a file here still has; kept in the URL.
+function fillFilter(files) {
+  const wanted = $('categoryFilter').value || params.get('category') || '';
+  const extra = [...new Set(files.map(file => file.category).filter(name => name && !categories.includes(name)))].sort();
+  $('categoryFilter').replaceChildren(option('', 'All'), ...[...categories, ...extra].map(name => option(name, name)),
+    option(UNCATEGORISED, 'Uncategorised'));
+  $('categoryFilter').value = [...$('categoryFilter').options].some(o => o.value === wanted) ? wanted : '';
+}
+$('categoryFilter').onchange = () => {
+  const url = new URL(location);
+  $('categoryFilter').value ? url.searchParams.set('category', $('categoryFilter').value) : url.searchParams.delete('category');
+  history.replaceState(null, '', url);
+  reload().catch(error => { $('status').textContent = error.message; });
+};
+function openEdit(file) {
+  editing = file;
+  $('editName').textContent = file.filename;
+  $('editError').textContent = '';
+  const names = file.category && !categories.includes(file.category) ? [...categories, file.category] : categories;
+  $('editCategory').replaceChildren(option('', 'Uncategorised'), ...names.map(name =>
+    option(name, categories.includes(name) ? name : `${name} (no longer listed)`)));
+  $('editCategory').value = file.category || '';
+  $('editDescription').value = file.description || '';
+  $('editDialog').showModal();
+}
+$('editForm').onsubmit = async event => {
+  event.preventDefault();
+  const body = {description: $('editDescription').value};
+  if ($('editCategory').value !== (editing.category || '')) body.category = $('editCategory').value || null;
+  try {
+    await api(`/api/attachments/${editing.id}`, {method:'PATCH', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)});
+    $('editDialog').close();
+    await reload();
+  } catch (error) { $('editError').textContent = error.message; }
+};
 async function reload() {
   const data = await api(`/api/attachments?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`);
   current = data.files.filter(file => !file.superseded);
-  render($('fileList'), data.files, reload, async attachmentId => {
+  categories = data.categories || [];
+  fillFilter(data.files);
+  const filter = $('categoryFilter').value;
+  const shown = filter ? data.files.filter(file => (file.category || UNCATEGORISED) === filter) : data.files;
+  render($('fileList'), shown, reload, async attachmentId => {
     const selected = chosen();
     if (!selected.length) { $('status').textContent = 'Select at least one flight/log first.'; return; }
     if (!confirm('Share this file with every selected flight/log? Their project members will be able to download it.')) return;
@@ -109,7 +167,8 @@ async function reload() {
       $('status').textContent = 'File linked. No extra copy was stored.';
       await reload();
     } catch (error) { $('status').textContent = error.message; }
-  });
+  }, {categories, onedit: openEdit});
+  if (filter && !shown.length) $('fileList').innerHTML = '<p class="mute">No files in this category.</p>';
   return data;
 }
 $('searchForm').onsubmit = async event => {
@@ -133,7 +192,7 @@ function upload(file, selected) {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/attachments');
     const metadata = encodeURIComponent(JSON.stringify({filename:file.name, description:$('description').value,
-      targets:selected.map(t => ({kind:t.kind,id:t.id}))}));
+      category:$('category').value || null, targets:selected.map(t => ({kind:t.kind,id:t.id}))}));
     if (metadata.length > 7000) { reject(Error('Upload metadata is too long; shorten the description or select fewer entries.')); return; }
     xhr.setRequestHeader('X-Attachment-Metadata', metadata);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
@@ -187,6 +246,7 @@ $('uploadForm').onsubmit = async event => {
     const [me,data] = await Promise.all([api('/api/me'), reload()]);
     $('who').textContent = me.user.display_name;
     maxBytes = data.max_bytes;
+    $('category').append(...categories.map(name => option(name, name)));
     $('limit').textContent = `Maximum ${size(maxBytes)} per file. Files upload one at a time, without loading them into browser memory.`;
     const back = document.createElement('a');
     back.href = data.target.url; back.textContent = `Back to ${data.target.label}`;

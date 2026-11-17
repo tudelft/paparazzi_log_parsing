@@ -4,6 +4,7 @@ import io
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import unittest
@@ -50,7 +51,7 @@ class AttachmentTests(test_historical.AppTests):
         super().tearDown()
 
     def upload_file(self, targets, content=b"wind speed,temperature\n1,20\n" * 1000, name="wind.csv", **extra):
-        metadata = dict(filename=name, description="Wind tunnel", targets=targets, **extra)
+        metadata = {"filename": name, "description": "Wind tunnel", "targets": targets, **extra}
         return self.client.post("/api/attachments", data=content, content_type="application/octet-stream",
                                 headers={"X-Attachment-Metadata": quote(json.dumps(metadata))})
 
@@ -119,6 +120,106 @@ class AttachmentTests(test_historical.AppTests):
         self.assertEqual(self.client.delete(f'/api/attachments/{newer.json["id"]}/links/{link}').status_code, 200)
         files = self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json["files"]
         self.assertEqual([(f["id"], f["superseded"]) for f in files], [(first.json["id"], None)])
+
+    def test_category_on_upload_listing_and_duplicates(self):
+        _, flight = self.log()
+        named = self.upload_file([flight], name="notam.pdf", category="preparation & PERMITS")
+        self.assertEqual(named.status_code, 201, named.json)
+        plain = self.upload_file([flight], name="plain.csv")
+        bad = self.upload_file([flight], name="bad.csv", category="Photos")
+        self.assertEqual(bad.status_code, 400)
+        self.assertIn("Preparation & permits", bad.json["error"])
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachments").fetchone()[0], 2)  # nothing stored
+        data = self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json
+        self.assertEqual(data["categories"], attachments.DEFAULT_CATEGORIES)
+        files = {f["id"]: f for f in data["files"]}
+        self.assertEqual(files[named.json["id"]]["category"], "Preparation & permits")
+        self.assertIsNone(files[plain.json["id"]]["category"])
+        self.assertTrue(files[plain.json["id"]]["can_edit"])
+        # the same file again: an existing category stays, a missing one is filled in
+        self.upload_file([flight], name="notam.pdf", category="Archive")
+        self.upload_file([flight], name="plain.csv", category="Data")
+        got = dict(self.con.execute("SELECT filename, category FROM attachments").fetchall())
+        self.assertEqual(got, {"notam.pdf": "Preparation & permits", "plain.csv": "Data"})
+
+    def test_new_version_inherits_the_category(self):
+        _, flight = self.log()
+        self.upload_file([flight], name="plan.pdf", category="Notes")
+        newer = self.upload_file([flight], b"revised", "PLAN.pdf")
+        self.assertEqual(newer.json["replaces"][0]["filename"], "plan.pdf")
+        own = self.upload_file([flight], b"third", "plan.pdf", category="Archive")
+        self.assertEqual([r[0] for r in self.con.execute("SELECT category FROM attachments ORDER BY id")],
+                         ["Notes", "Notes", "Archive"])
+        self.assertEqual(own.status_code, 201)
+
+    def test_edit_category_and_description(self):
+        paper = self.paper()
+        aid = self.upload_file([paper]).json["id"]
+        r = self.client.patch(f"/api/attachments/{aid}", json={"category": "media", "description": "  Photos  "})
+        self.assertEqual((r.status_code, r.json["category"], r.json["description"]), (200, "Media", "Photos"))
+        self.assertEqual(self.client.patch(f"/api/attachments/{aid}", json={"category": "Photos"}).status_code, 400)
+        self.assertEqual(self.client.patch(f"/api/attachments/{aid}", json={"description": "x" * 1001}).status_code, 400)
+        self.assertEqual(self.client.patch(f"/api/attachments/{aid}", json={}).status_code, 400)
+        self.assertEqual(self.client.patch(f"/api/attachments/{aid}", json={"category": None}).status_code, 200)
+        self.assertEqual(tuple(self.con.execute("SELECT category, description FROM attachments").fetchone()),
+                         (None, "Photos"))
+        self.sign_in(3)  # can see the record, but has view access only
+        self.assertEqual(self.client.patch(f"/api/attachments/{aid}", json={"category": "Data"}).status_code, 403)
+        self.sign_in(4)  # cannot see it at all
+        self.assertEqual(self.client.patch(f"/api/attachments/{aid}", json={"category": "Data"}).status_code, 404)
+
+    def test_categories_setting_order_and_removed_category(self):
+        _, flight = self.log()
+        aid = self.upload_file([flight], category="Archive").json["id"]
+        with patch.dict(self.app.config, ATTACHMENT_CATEGORIES=["Permits", "Photos"]):
+            data = self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json
+            self.assertEqual(data["categories"], ["Permits", "Photos"])
+            self.assertEqual(data["files"][0]["category"], "Archive")  # kept although no longer listed
+            self.assertEqual(self.upload_file([flight], name="p.jpg", category="photos").status_code, 201)
+            self.assertEqual(self.client.patch(f"/api/attachments/{aid}", json={"category": "Archive"}).status_code, 400)
+        config = __import__("config")
+        self.assertEqual(config.parse_categories(" A , B ,"), ["A", "B"])
+        for value in ("", " , ", "A, a", "x" * 41):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                config.parse_categories(value)
+
+    def test_backfill_moves_description_prefix(self):
+        _, flight = self.log()
+        for name, description in (("a.pdf", "[Preparation & permits] NOTAM"), ("b.jpg", "[Photos]  Field"),
+                                  ("c.txt", "No prefix"), ("d.txt", "[Unknown] x")):
+            self.upload_file([flight], name=name, description=description)
+        self.upload_file([flight], name="e.txt", description="[Notes] kept", category="Data")
+        categories = attachments.DEFAULT_CATEGORIES
+        changes, skipped = attachments.backfill_categories(self.con, categories, apply=False)
+        self.assertEqual([c[1:] for c in changes], [("Preparation & permits", "NOTAM")])
+        self.assertEqual(skipped, {"Photos": 1, "Unknown": 1})
+        self.assertIsNone(self.con.execute("SELECT category FROM attachments WHERE filename='a.pdf'").fetchone()[0])
+        mapping = attachments.parse_mapping(["Photos=media"], categories)
+        changes, skipped = attachments.backfill_categories(self.con, categories, mapping)
+        self.assertEqual(len(changes), 2)
+        got = {r[0]: (r[1], r[2]) for r in self.con.execute("SELECT filename, category, description FROM attachments")}
+        self.assertEqual(got, {"a.pdf": ("Preparation & permits", "NOTAM"), "b.jpg": ("Media", "Field"),
+                               "c.txt": (None, "No prefix"), "d.txt": (None, "[Unknown] x"),
+                               "e.txt": ("Data", "[Notes] kept")})
+        self.assertEqual(attachments.backfill_categories(self.con, categories)[0], [])  # idempotent
+        with self.assertRaises(ValueError):
+            attachments.parse_mapping(["Photos=Pictures"], categories)
+
+    def test_migration_adds_the_category_column(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / "logs.db")
+            con = sqlite3.connect(path)
+            con.execute("CREATE TABLE attachments (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL,"
+                        " description TEXT NOT NULL DEFAULT '', path TEXT NOT NULL UNIQUE, compressed INTEGER NOT NULL,"
+                        " size_bytes INTEGER NOT NULL, stored_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL,"
+                        " uploaded_by INTEGER, uploaded_at TEXT NOT NULL)")
+            con.commit()
+            con.close()
+            for _ in range(2):  # idempotent
+                db.init(path)
+            con = sqlite3.connect(path)
+            self.assertIn("category", {r[1] for r in con.execute("PRAGMA table_info(attachments)")})
+            con.close()
 
     def test_startup_merges_existing_duplicates(self):
         _, flight = self.log()

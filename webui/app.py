@@ -68,7 +68,7 @@ import mail
 import weather
 import mav_parse
 import firmware
-from config import env, env_bool, env_float, env_int, env_path
+from config import env, env_bool, env_float, env_int, env_path, parse_categories
 
 HERE = Path(__file__).resolve().parent
 DATA_DIR = env_path("WEB_DATA")
@@ -1753,6 +1753,11 @@ def cli(argv):
     ac.add_argument("username")
     sub.add_parser("backup", help="back up the database and keys to dated folders, retaining the latest 14")
     sub.add_parser("backfill-gps-positions", help="populate legacy GPS summaries without reparsing logs")
+    ac2 = sub.add_parser("attachment-categories",
+                         help="move a '[Category] ' prefix at the start of attachment descriptions into the category")
+    ac2.add_argument("--dry-run", action="store_true", help="only show what would change")
+    ac2.add_argument("--map", action="append", default=[], metavar="OLD=NEW",
+                     help="also accept prefix OLD and store it as category NEW (repeatable), e.g. Photos=Media")
     a = p.parse_args(argv)
 
     if a.cmd == "backup":
@@ -1763,6 +1768,21 @@ def cli(argv):
 
     if a.cmd == "backfill-gps-positions":
         backfill_gps_positions(con)
+        return
+    if a.cmd == "attachment-categories":
+        categories = parse_categories(env("ATTACHMENT_CATEGORIES"))
+        try:
+            mapping = attachments.parse_mapping(a.map, categories)
+        except ValueError as exc:
+            sys.exit(str(exc))
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            changes, skipped = attachments.backfill_categories(con, categories, mapping, apply=not a.dry_run)
+        for aid, category, description in changes:
+            print(f"{aid:6} {category:<24} {description[:60]!r}")
+        for prefix, count in sorted(skipped.items()):
+            print(f"skipped {count} with unknown prefix [{prefix}] (add --map {prefix}=<category>)")
+        print(f"{len(changes)} attachment(s) {'would be ' if a.dry_run else ''}categorised")
         return
 
     def ask_password():
@@ -7639,7 +7659,7 @@ def delete_log(log_id):
 
 
 attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, env_int("ATTACHMENT_MAX_BYTES"),
-                     office=env("OFFICE"))
+                     office=env("OFFICE"), categories=parse_categories(env("ATTACHMENT_CATEGORIES")))
 qualifications.register(app, lambda: conn(), STORAGE_DIR, session_required)
 training.register(app, lambda: conn(), DATA_DIR, session_required)
 profiles.register(app, lambda: conn(), session_required, now, PAGES_DIR)

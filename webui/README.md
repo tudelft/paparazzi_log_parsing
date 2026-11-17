@@ -310,6 +310,8 @@ Other files download from the name. Word files (`.docx`) open as PDF when LibreO
 Qualification evidence works the same way.
 Uploading a file that is already stored only links it; a file with the name of an existing one replaces it
 on that flight/log, and the old file stays under **Show earlier versions**.
+Files can have a category (for example *Preparation & permits* for NOTAMs and landowner permission), chosen at upload
+or later with **Edit** on the manage page; the Files tab groups them by category.
 **Anyone able to read any linked flight/log can download the file. Linking across projects shares
 its contents. Never put private qualification evidence here.**
 
