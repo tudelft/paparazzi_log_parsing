@@ -68,20 +68,26 @@
     <select id="afScope"></select>
     <p class="mute af-note" id="afScopeNote"></p>
     <div id="afExtra"></div>
-    <p class="mute af-note" id="afNoTarget" hidden>You have read-only access here. Find a flight / log where you have full access.</p>
-    <form id="afFind" class="search-row"><input id="afFindQuery" type="search" required aria-label="Find more flights / logs"
-      placeholder="Find more: aircraft, 2026-10-21, log filename or ID"><button type="submit">Search</button></form>
-    <div id="afFindResults" class="af-results"></div>
+    <p class="mute af-note" id="afNoTarget" hidden>You have read-only access here. Add a flight / log where you have full access.</p>
+    <details class="af-more" id="afMore"><summary class="mute">Add other flights / logs</summary>
+      <form id="afFind" class="search-row"><input id="afFindQuery" type="search" required aria-label="Find flights / logs"
+        placeholder="Aircraft, 2026-10-21, log filename or ID"><button type="submit">Search</button></form>
+      <div id="afFindResults" class="af-results"></div></details>
   </fieldset>
   <form id="afUploadForm">
     <fieldset id="afUploadFields" disabled>
-      <label class="field">Files<input id="afFiles" type="file" multiple required></label>
-      <label class="field">Category<select id="afCategory"></select></label>
-      <p class="mute af-note" id="afGuess" hidden>Guessed from the file name; change it if it does not fit.</p>
-      <label class="field">Description (optional, applies to these files)<textarea id="afDescription" maxlength="1000" rows="2"></textarea></label>
-      <p class="mute af-note" id="afLimit"></p>
-      <button type="submit">Upload</button>
+      <div class="af-pair">
+        <label class="field">Files<input id="afFiles" type="file" multiple required></label>
+        <label class="field">Category<select id="afCategory"></select></label>
+      </div>
+      <label class="field">Description (optional)<textarea id="afDescription" maxlength="1000" rows="1"></textarea></label>
     </fieldset>
+    <div class="af-actions"><details class="af-help"><summary class="mute">Help</summary>
+      <p id="afLimit"></p>
+      <p>A file with the name of a current file there replaces it; the old one stays under "Show earlier versions".
+        A file that is already stored is linked, not stored again.</p>
+      <p><strong>Sharing:</strong> everyone with access to any linked flight / log can download the file.</p></details>
+      <button type="submit" id="afSubmit" disabled>Upload</button></div>
   </form>
   <progress id="afProgress" hidden max="100" value="0" aria-label="File upload progress"></progress>
   <p id="afStatus" class="af-status" role="status" aria-live="polite"></p>
@@ -92,19 +98,18 @@
   <p class="dialog-error" id="afEditError" role="alert"></p>
   <form id="afEditForm">
     <label class="field">Category<select id="afEditCategory"></select></label>
-    <label class="field">Description<textarea id="afEditDescription" maxlength="1000" rows="3"></textarea></label>
-    <p class="mute af-note">The file is shared: this changes it on every flight / log it is linked to.</p>
-    <button type="submit">Save</button>
+    <label class="field">Description<textarea id="afEditDescription" maxlength="1000" rows="2"></textarea></label>
+    <div class="af-actions"><details class="af-help"><summary class="mute">Help</summary>
+      <p>The file is stored once and shared by all its links: a change shows on every flight / log it is linked to.
+        Only links you can access are listed; removing the last link deletes the stored file.</p></details>
+      <button type="submit">Save</button></div>
   </form>
-  <h3 class="af-sub">Linked flights / logs</h3>
+  <h3 class="af-sub">Linked to</h3>
   <ul id="afLinks" class="af-links"></ul>
-  <p class="mute af-note">Only links you can access are shown. Removing the last link deletes the stored file.</p>
-  <div id="afLinkMore">
-    <h3 class="af-sub">Link to more flights / logs</h3>
+  <details class="af-more" id="afLinkMore"><summary class="mute">Link to more flights / logs</summary>
     <form id="afLinkFind" class="search-row"><input id="afLinkQuery" type="search" required aria-label="Find flights / logs to link"
       placeholder="Aircraft, 2026-10-21, log filename or ID"><button type="submit">Search</button></form>
-    <div id="afLinkResults" class="af-results"></div>
-  </div>
+    <div id="afLinkResults" class="af-results"></div></details>
 </dialog>`);
     byId('afUploadClose').onclick = () => { if (!busy) byId('afUpload').close(); };
     byId('afUpload').addEventListener('cancel', event => { if (busy) event.preventDefault(); });
@@ -115,7 +120,7 @@
       findTargets(byId('afFindQuery').value, byId('afFindResults'), 'Add', t => addExtra(t));
     };
     byId('afUploadForm').onsubmit = uploadAll;
-    byId('afCategory').onchange = () => { chosenCategory = true; byId('afGuess').hidden = true; };
+    byId('afCategory').onchange = () => { chosenCategory = true; };
     byId('afFiles').onchange = guessCategory;
     byId('afEditForm').onsubmit = saveEdit;
     byId('afLinkFind').onsubmit = linkSearch;
@@ -162,7 +167,6 @@
     const guess = guesses.size === 1 ? [...guesses][0] : null;
     const listed = guess && active.categories.find(name => name.toLowerCase() === guess.toLowerCase());
     byId('afCategory').value = listed || '';
-    byId('afGuess').hidden = !listed;
   }
   function chosen() {
     const scope = scopes.find(s => s.value === byId('afScope').value);
@@ -170,7 +174,7 @@
       ...[...byId('afExtra').querySelectorAll('input:checked')].map(input => extras.get(input.value))];
     return [...new Map(all.map(t => [tkey(t), t])).values()];
   }
-  function syncUpload() { byId('afUploadFields').disabled = busy || !chosen().length; }
+  function syncUpload() { byId('afUploadFields').disabled = byId('afSubmit').disabled = busy || !chosen().length; }
   function addExtra(t) {
     const existing = [...byId('afExtra').querySelectorAll('input')].find(input => input.value === tkey(t));
     if (existing) { existing.checked = true; syncUpload(); return; }
@@ -214,8 +218,9 @@
     extras.clear(); byId('afExtra').replaceChildren(); byId('afFindResults').replaceChildren(); byId('afFindQuery').value = '';
     byId('afCategory').replaceChildren(option('', 'Uncategorised'), ...m.categories.map(name => option(name, name)));
     byId('afDescription').value = ''; byId('afFiles').value = ''; byId('afStatus').textContent = '';
-    chosenCategory = false; byId('afGuess').hidden = true;
-    byId('afLimit').textContent = `Maximum ${size(m.data.max_bytes)} per file. Files upload one at a time; keep this dialog open until they are done.`;
+    chosenCategory = false;
+    byId('afLimit').textContent = `At most ${size(m.data.max_bytes)} per file. Files upload one at a time: keep this dialog open until they are done.`;
+    byId('afMore').open = false;
     syncScope();
     byId('afUpload').showModal();
   }
@@ -300,7 +305,7 @@
       } catch (error) { byId('afEditError').textContent = error.message; button.disabled = false; }
     };
     byId('afLinkMore').hidden = !file.can_share;  // sharing further needs full access to every current link
-    byId('afLinkQuery').value = ''; byId('afLinkResults').replaceChildren();
+    byId('afLinkQuery').value = ''; byId('afLinkResults').replaceChildren(); byId('afLinkMore').open = false;
     byId('afEdit').showModal();
   }
   async function saveEdit(event) {

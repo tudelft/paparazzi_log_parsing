@@ -386,7 +386,14 @@ dialog.af-dialog fieldset { border:0; padding:0; margin:0 0 12px; min-width:0; d
 dialog.af-dialog select, dialog.af-dialog textarea { width:100%; font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:5px; background:var(--field); color:var(--txt); }
 dialog.af-dialog progress { width:100%; }
 dialog.entry-dialog form.search-row { grid-template-columns:1fr auto; gap:6px; } .search-row input { min-width:0; }
-.af-note { margin:2px 0; font-size:12px; overflow-wrap:anywhere; } .af-sub { margin:14px 0 4px; font-size:14px; }
+.af-note { margin:2px 0; font-size:12px; overflow-wrap:anywhere; } .af-sub { margin:10px 0 2px; font-size:13px; }
+dialog.af-dialog fieldset { gap:8px; } dialog.af-dialog form { gap:8px; }
+.af-pair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; align-items:end; }
+.af-more > summary, .af-help > summary { cursor:pointer; font-size:13px; } .af-more[open] > summary { margin-bottom:6px; }
+.af-actions { display:flex; gap:10px; align-items:flex-start; justify-content:space-between; }
+.af-actions > button { flex:none; } .af-help { flex:1; min-width:0; } .af-help p { margin:6px 0; font-size:12px; color:var(--mute); }
+dialog.af-dialog textarea { resize:vertical; min-height:2.4em; }
+@media(max-width:600px) { .af-pair { grid-template-columns:1fr; } }
 .af-results { max-height:200px; overflow:auto; } #afExtra label { display:block; margin:4px 0; font-size:13px; }
 .target-line { display:flex; gap:8px; align-items:baseline; margin:4px 0; } .target-line span { overflow-wrap:anywhere; }
 .target-line button, .af-links button { font-size:12px; padding:3px 9px; flex:none; }
