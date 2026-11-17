@@ -235,6 +235,31 @@ class AttachmentTests(test_historical.AppTests):
                          [{"flight": None, "how": None, "flights": None, "day": None}])
         self.assertEqual(self.client.post("/api/attachments/match", json={"times": "x"}).status_code, 400)
 
+    def test_upload_role_adds_files_but_only_full_access_removes(self):
+        _, flight = self.log()
+        other_log, other = self.log(name="other.data")
+        theirs = self.upload_file([flight], name="theirs.pdf").json["id"]  # by user 2 (full access)
+        self.sign_in(5)  # Upload ("add") on project 1
+        mine = self.upload_file([flight], b"mine", "mine.pdf")
+        self.assertEqual(mine.status_code, 201, mine.json)
+        mine = mine.json["id"]
+        files = {f["id"]: f for f in self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json["files"]}
+        self.assertTrue(files[mine]["can_edit"])        # own file: may change category / description
+        self.assertFalse(files[theirs]["can_edit"])     # someone else's: not
+        self.assertTrue(files[mine]["can_share"])
+        self.assertFalse(files[mine]["links"][0]["can_edit"])  # removing a link still needs Delete
+        self.assertEqual(self.client.patch(f"/api/attachments/{mine}", json={"category": "Notes"}).status_code, 200)
+        self.assertEqual(self.client.patch(f"/api/attachments/{theirs}", json={"category": "Notes"}).status_code, 403)
+        self.assertEqual(self.client.post(f"/api/attachments/{mine}/links", json={"targets": [other]}).status_code, 200)
+        link = files[mine]["links"][0]["link_id"]
+        self.assertEqual(self.client.delete(f"/api/attachments/{mine}/links/{link}").status_code, 403)
+        match = self.client.post("/api/attachments/match", json={"times": ["2010-01-01T00:00:12Z"]}).json["matches"][0]
+        self.assertIn(flight["id"], [f["id"] for f in match["day"]["flights"]])
+        found = self.client.get("/api/attachments/targets?q=other.data").json["targets"]  # search offers Upload targets
+        self.assertIn(("log", other_log["id"]), [(t["kind"], t["id"]) for t in found])
+        self.sign_in(3)  # See only: still nothing
+        self.assertEqual(self.upload_file([flight], b"view", "view.pdf").status_code, 403)
+
     def test_new_version_inherits_the_category(self):
         _, flight = self.log()
         self.upload_file([flight], name="plan.pdf", category="Notes")

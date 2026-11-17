@@ -143,7 +143,12 @@ def convert(source, compressed, suffix, office, target):
         return True
 
 
-def target(con, user, kind, identity, edit=False):
+ADD_ROLES = ("add", "full", "manager")  # project roles that may add files ("Upload"); removing needs full/manager
+
+
+def target(con, user, kind, identity, edit=False, add=False):
+    """A flight, log or paper record the user may see, with can_add (may add files: Upload or more) and can_edit (may
+    remove links: Delete or Manager). edit/add require that right (403)."""
     if not isinstance(kind, str) or kind not in COLUMNS:
         raise Error("Unknown attachment target.")
     identity = historical.integer(identity, "Target ID")
@@ -172,10 +177,23 @@ def target(con, user, kind, identity, edit=False):
                     "SELECT 1 FROM project_members WHERE user_id=? AND project_id=?",
                     (user["id"], project)).fetchone()):
             raise Error("No such flight or log.", 404)
-    editable = historical.can_edit(con, user, project) or project is None and uploader == user["id"]
+    own = project is None and uploader is not None and uploader == user["id"]
+    editable = bool(historical.can_edit(con, user, project) or own)
+    addable = bool(editable or con.execute(
+        f"SELECT 1 FROM project_members WHERE user_id=? AND project_id=? AND role IN ({','.join('?' * len(ADD_ROLES))})",
+        (user["id"], project, *ADD_ROLES)).fetchone())
     if edit and not editable:
         raise Error("Full access to every selected flight/log is required.", 403)
-    return dict(kind=kind, id=identity, label=label, url=url, can_edit=bool(editable))
+    if add and not addable:
+        raise Error("Upload access to every selected flight/log is required.", 403)
+    return dict(kind=kind, id=identity, label=label, url=url, can_edit=editable, can_add=addable)
+
+
+def can_change(con, user, row, links):
+    """May change a file's category and description: Delete/Manager on one of its flights/logs, or Upload on one for a
+    file the user uploaded."""
+    return any(link["can_edit"] for link in links) or (
+        row["uploaded_by"] == user["id"] and any(link["can_add"] for link in links))
 
 
 def link_targets(con, user, attachment_id):
@@ -207,7 +225,7 @@ def checked_targets(con, user, values):
     for item in values:
         if not isinstance(item, dict):
             raise Error("Invalid attachment target.")
-        t = target(con, user, item.get("kind"), item.get("id"), edit=True)
+        t = target(con, user, item.get("kind"), item.get("id"), add=True)
         result[(t["kind"], t["id"])] = t
     return list(result.values())
 
@@ -347,10 +365,10 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
                 params = (f"%{query}%", f"%{query}%", f"%{query}%", query)
             else:
                 params = (f"%{query}%", f"%{query}%", query)
-            sql += (f" AND (? OR {project} IN (SELECT project_id FROM project_members WHERE user_id=? AND role IN ('full','manager'))"
+            sql += (f" AND (? OR {project} IN (SELECT project_id FROM project_members WHERE user_id=? AND role IN ('add','full','manager'))"
                     f" OR ({project} IS NULL AND {uploader}=?)) ORDER BY {order} DESC LIMIT 100")
             for r in con.execute(sql, (*params, g.user["is_admin"], g.user["id"], g.user["id"])):
-                found.append(target(con, g.user, category, r["id"], edit=True))
+                found.append(target(con, g.user, category, r["id"], add=True))
         return jsonify(targets=found[:100])
 
     @app.get("/api/attachments")
@@ -389,9 +407,9 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
             item["superseded"] = superseded.get(aid)  # an earlier version on this target
             item["viewable"] = view_type(row["filename"]) is not None or convertible(
                 row, app.config["ATTACHMENT_OFFICE"])
-            item["can_share"] = all(x["can_edit"] for x in links) and len(links) == con.execute(
+            item["can_share"] = all(x["can_add"] for x in links) and len(links) == con.execute(
                 "SELECT COUNT(*) FROM attachment_links WHERE attachment_id=?", (aid,)).fetchone()[0]
-            item["can_edit"] = any(x["can_edit"] for x in links)
+            item["can_edit"] = can_change(con, g.user, row, links)
             result.append(item)
         return jsonify(files=result, target=t, parent=parent, max_bytes=app.config["ATTACHMENT_MAX_BYTES"],
                        categories=app.config["ATTACHMENT_CATEGORIES"],
@@ -413,7 +431,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
                 if exc.status != 404:
                     raise
                 continue
-            if item["can_edit"]:
+            if item["can_add"]:
                 flights.append(item)
         if not any(f["id"] != t["id"] for f in flights):
             return None
@@ -547,9 +565,9 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
         con = connection()
         with db.write_lock, con:
             con.execute("BEGIN IMMEDIATE")
-            _, links = visible(con, g.user, attachment_id)
-            if not any(link["can_edit"] for link in links):
-                raise Error("Full access to a flight/log this file is linked to is required.", 403)
+            row, links = visible(con, g.user, attachment_id)
+            if not can_change(con, g.user, row, links):
+                raise Error("Full access to a flight/log this file is linked to, or uploading it yourself, is required.", 403)
             con.execute(f"UPDATE attachments SET {', '.join(f'{k}=?' for k in changes)} WHERE id=?",
                         (*changes.values(), attachment_id))
         return jsonify(ok=True, **changes)
@@ -591,7 +609,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
                     if exc.status != 404:
                         raise
                     item = None
-                editable[fid] = item if item and item["can_edit"] else None
+                editable[fid] = item if item and item["can_add"] else None
             return editable[fid]
 
         def overlap(span, w):
@@ -640,7 +658,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
             visible(con, g.user, attachment_id)
             for row in con.execute("SELECT * FROM attachment_links WHERE attachment_id=?", (attachment_id,)):
                 kind = next(k for k, column in COLUMNS.items() if row[column] is not None)
-                target(con, g.user, kind, row[COLUMNS[kind]], edit=True)
+                target(con, g.user, kind, row[COLUMNS[kind]], add=True)
             add_links(con, attachment_id, checked_targets(con, g.user, body.get("targets")))
         return jsonify(ok=True)
 
