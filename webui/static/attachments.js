@@ -48,6 +48,22 @@
     if (onedit) for (const button of element.querySelectorAll('[data-edit]')) button.onclick = () =>
       onedit(files.find(file => file.id === +button.dataset.edit));
   }
+  // One line per category with the file names (description on hover), for the logbook's opened row. `url(category)`
+  // gives the page with all files (filtered to that category for "+N").
+  function summary(element, files, categories, url) {
+    const current = files.filter(file => !file.superseded);
+    if (!current.length) { element.replaceChildren(); return; }
+    const name = file => `<a href="/api/attachments/${file.id}/${file.viewable ? 'view' : 'download'}"${file.viewable
+      ? ' target="_blank" rel="noopener"' : ''} title="${esc(file.description || file.filename)}">${esc(file.filename)}</a>`;
+    element.innerHTML = `<h4>Files <span class="mute files-count">· ${current.length}</span>${url
+      ? `<a class="files-all" href="${esc(url(''))}">Files tab →</a>` : ''}</h4>` + groups(current, categories).map(group => {
+      const shown = group.files.slice(0, 4), more = group.files.length - shown.length;
+      return `<div class="files-line"><span class="mute" title="${esc(group.name || 'Uncategorised')}">${
+        esc(group.name || 'Uncategorised')} (${group.files.length})</span><span class="files-names">${shown.map(name).join(' · ')}</span>${
+        more && url ? `<a class="files-more" href="${esc(url(group.name || UNCATEGORISED))}">+${more} more</a>` : ''}</div>`;
+    }).join('');
+  }
+
   // ---- File manager on the flight, paper record and logs pages: the grouped list with search, a category filter and
   // Upload files / Edit dialogs. The dialogs are made once per page and serve the manager that opened them.
   const UNCATEGORISED = '-';  // filter value for files without a category
@@ -390,5 +406,5 @@
     m.ready = m.reload().catch(error => { m.list.textContent = `Unable to load files: ${error.message}`; return null; });
     return m;
   }
-  window.AttachmentFiles = {api, size, list, manage, groups, esc};
+  window.AttachmentFiles = {api, size, list, manage, groups, esc, summary};
 })();

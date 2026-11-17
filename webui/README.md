@@ -312,6 +312,7 @@ Uploading a file that is already stored only links it; a file with the name of a
 on that flight/log, and the old file stays under **Show earlier versions**.
 Files can have a category (for example *Preparation & permits* for NOTAMs and landowner permission), chosen at upload
 or later with **Edit** beside the file; the list groups them by category and has a search box and category filter.
+In the logbook, opening an entry shows its files by category below the comment, so you can open them from there.
 On a flight, **Upload files** → **Upload to** chooses *This flight only*, *All flights of this
 log* (default), all flights of the aircraft that day, or all flights that day (for example a NOTAM or weather briefing).
 **Anyone able to read any linked flight/log can download the file. Linking across projects shares

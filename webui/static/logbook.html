@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/theme.js"></script>
 <script src="/matlab.js"></script>
+<script src="/attachments.js"></script>
 <link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -451,6 +452,7 @@ function detail(f) {
       : f.record_kind === 'daily' ? 'Takeoff is the first takeoff of the session.' : ''}</p>
     ${f.reference ? `<p>Reference: ${esc(f.reference)}</p>` : ''}
     ${f.comment ? `<p class="note">${esc(f.comment)}</p>` : ''}
+    <div class="lb-files" data-paper="${f.manual_id}"></div>
     <p class="mute">No telemetry, flight path, distance or software version recorded.</p>
     ${(f.possible_duplicates || []).length ? `<h4>Possible duplicate</h4><p class="mute">Logged flights of this aircraft near this takeoff time. If one is the same flight, link it: it then counts once, as the log.</p><ul>
       ${f.possible_duplicates.map(d => `<li>${esc(fmtTime(d.takeoff_utc))} · ${fmtDur(d.duration_s)} · ${esc(d.aircraft)} <a href="/flight/${d.flight_ids[0]}">open</a>
@@ -460,6 +462,7 @@ function detail(f) {
   return `<div class="flight-detail">
     <div class="minimap" data-fid="${f.flight_id}" role="status">Loading path...</div>
     <div class="detail-info"><h4>Comment</h4>${f.comment ? `<div class="note">${esc(f.comment)}</div>` : '<span class="mute">No comment</span>'}
+      <div class="lb-files" data-flights="${[...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)].filter(id => id != null))].join(',')}"></div>
       ${linkedInfo(f)}${sourcesInfo(f)}${classInfo(f)}
       <div class="actions"><a class="btn" href="/flight/${f.flight_id}">Open flight page</a>
         ${logDownloadButtons(f.sources)}${MatlabExport.button(f.sources)}</div>
@@ -519,6 +522,27 @@ document.addEventListener('click', async e => {
   if (!r.ok) { alert((await r.json().catch(() => ({}))).error || 'Could not save the link.'); b.disabled = false; return; }
   loadFlights();
 });
+
+// Files of an opened row, read-only (AttachmentFiles.summary): of every recording merged into the entry, or of the
+// paper record. Loaded when the row opens, once per page load.
+const filesCache = new Map();
+function initFiles() { document.querySelectorAll('.lb-files').forEach(loadFiles); }
+function loadFiles(el) {
+  const targets = el.dataset.paper ? [['paper', el.dataset.paper]] : (el.dataset.flights || '').split(',').filter(Boolean).map(id => ['flight', id]);
+  if (!targets.length) return;
+  const cacheKey = targets.map(t => t.join(':')).join(',');
+  if (!filesCache.has(cacheKey)) filesCache.set(cacheKey, Promise.all(targets.map(([kind, id]) =>
+    AttachmentFiles.api(`/api/attachments?kind=${kind}&id=${id}`).catch(() => null))));
+  filesCache.get(cacheKey).then(all => {
+    const found = all.filter(Boolean);
+    if (!found.length || !el.isConnected) return;
+    const files = [...new Map(found.flatMap(d => d.files).map(file => [file.id, file])).values()];
+    const [kind, id] = targets[0];
+    const url = kind === 'paper' ? () => `/historical/${id}`
+      : category => `/flight/${id}${category ? '?' + new URLSearchParams({files_category: category}) : ''}#files`;
+    AttachmentFiles.summary(el, files, found[0].categories, url);
+  });
+}
 
 const pathCache = new Map(), miniMaps = [];
 function initMiniMaps() {
@@ -735,6 +759,7 @@ function render() {
   const dist = shown.some(f => f.distance_m != null) ? shown.reduce((s, f) => s + (f.distance_m || 0), 0) : null;
   $('summary').textContent = `${shown.reduce((s, f) => s + (f.flight_count || 1), 0)} flights` + ($('combine').checked ? ` · ${entries.length} rows` : '') + ` · ${fmtDur(total)} · ${dist == null ? 'No recorded distance' : fmtDist(dist) + ' recorded distance'}`;
   initMiniMaps();
+  initFiles();
   window.viewState.ready();
   return shown;
 }
