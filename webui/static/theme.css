@@ -399,7 +399,6 @@ dialog.af-dialog.af-wide { width:min(860px,calc(100% - 32px)); }
 .af-chips li { display:flex; align-items:center; gap:8px; font-size:13px; padding:2px 0 2px 8px; border-bottom:1px solid var(--line); }
 .af-chips li > span:first-child { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .af-size { font-size:12px; white-space:nowrap; }
-}
 /* File manager (attachments.js): tools beside the heading, Upload files and Edit dialogs */
 .files-tools { display:inline-flex; gap:6px; align-items:center; flex-wrap:wrap; margin-left:auto; }
 .files-tools .af-search { width:180px; }
@@ -445,6 +444,7 @@ dialog.af-dialog textarea { resize:vertical; min-height:2.4em; }
   .af-review { max-height:none; overflow:visible; }
   .af-row { grid-template-columns:minmax(0,1fr) auto; } .af-row-pick { grid-column:1 / -1; grid-row:2; }
   .af-drop { padding:16px 10px; }
+}
 
 /* MATLAB export menu (matlab.js) */
 .matlab-pop { position:absolute; z-index:1000; min-width:280px; max-width:min(420px, calc(100vw - 16px)); padding:8px;
