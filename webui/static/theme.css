@@ -420,7 +420,7 @@ dialog.af-dialog fieldset { gap:8px; } dialog.af-dialog form { gap:8px; }
 .af-pair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; align-items:end; }
 .af-more > summary, .af-help > summary { cursor:pointer; font-size:13px; } .af-more[open] > summary { margin-bottom:6px; }
 .af-actions { display:flex; gap:10px; align-items:flex-start; justify-content:space-between; }
-.af-actions > button { flex:none; } .af-help { flex:1; min-width:0; } .af-help p { margin:6px 0; font-size:12px; color:var(--mute); }
+.af-actions > button, .af-buttons { flex:none; } .af-buttons { display:flex; gap:8px; } .af-help { flex:1; min-width:0; } .af-help p { margin:6px 0; font-size:12px; color:var(--mute); }
 dialog.af-dialog textarea { resize:vertical; min-height:2.4em; }
 @media(max-width:600px) { .af-pair { grid-template-columns:1fr; } }
 .af-results { max-height:200px; overflow:auto; } #afExtra label { display:block; margin:4px 0; font-size:13px; }
