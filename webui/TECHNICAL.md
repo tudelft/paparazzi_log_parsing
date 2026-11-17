@@ -431,7 +431,7 @@ and Operation groups, the comment and a small non-interactive path map (it opens
 and landing times follow one Date row; battery and logged wind are takeoff → landing rows, coordinates are on
 hover over the place name, and INS values are under Log sources; log sources, upload details
 and raw-data links are folded away. Project, crew and comment controls appear only in Edit mode (and only
-with permission); the Files tab lists files compactly and shows **Add / manage files** in Edit mode. Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
+with permission); the Files tab lists files compactly and shows **Add / manage files** to anyone with full access (also outside Edit mode). Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
 and warnings for local (dirty) changes. Multiple reported builds remain visible; raw version messages
 can be expanded. Commit links use `paparazzi/paparazzi` and may not resolve for private forks.
 When the aircraft did not send `AUTOPILOT_VERSION`, the GCS `runtime paparazzi_version` comment at
@@ -514,6 +514,26 @@ fold it under "Show earlier versions". Removing the newer file's link on that ta
 current again; other targets are unaffected. At startup, attachments stored more than once with the same name and
 content (for example an upload retried after a restart) are merged into the oldest copy and the extra stored files
 removed.
+
+**Categories.** Each file has one optional category (`attachments.category`, NULL = uncategorised), the same on every
+flight/log it is linked to. The list is `LOGDB_ATTACHMENT_CATEGORIES` (comma-separated, in display order; default
+*Preparation & permits, Notes, Media, Data, Analysis, Archive*). Uploads take `category` in `X-Attachment-Metadata`;
+it must be a listed name (any case is stored as listed), otherwise 400. A duplicate upload keeps an existing category
+and fills in a missing one; a new version without a category takes the one of the version it replaces.
+`GET /api/attachments` returns `category` per file, `can_edit` and the `categories` list; for a flight also
+`parent`, its log as a target (null if not visible); `day`, the flights of its fleet aircraft on the same date; and
+`day_all`, all flights on that date, whatever the aircraft. Days use the logbook date (takeoff UTC date after the log's
+date correction), leave out hidden flights, list at most 100 flights the user may add files to, and are null when no
+other flight qualifies (`day` also without a fleet aircraft). The upload dialog's **Upload to** offers *This flight only*,
+*All flights of this log* (the default on a flight), *All flights of <aircraft> on <date>* and *All flights on <date>*;
+flights / logs added with *Find more* are uploaded to as well.
+`PATCH /api/attachments/<id>` (browser session) with `category` (null clears it) and/or `description` changes the
+file for all its links; full access to one linked flight/log is enough. A category removed from the setting stays on
+its files and is shown after the listed ones, but cannot be chosen again. The pages group files by category
+(uncategorised last, empty groups hidden). The manage page (`/attachments`) is one compact list with search (`?q=`)
+and a category filter (`?category=`); uploading and linking to more flights/logs happen in dialogs.
+`python3 app.py attachment-categories [--dry-run] [--map OLD=NEW ...]` moves a `[Category] ` prefix at the start of
+uncategorised descriptions into the category and strips it; `--map Photos=Media` accepts other prefix names.
 
 Each file is limited to **10 GiB** by default (`LOGDB_ATTACHMENT_MAX_BYTES`).
 Uploads and downloads stream in bounded chunks; files upload sequentially with progress and errors.
@@ -737,6 +757,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `INGEST_WORKERS` | `1` | Threads that hash, deduplicate and unzip uploads |
 | `PATH_RATE` | `5` | Flight path points per second (`0`: no map path) |
 | `ATTACHMENT_MAX_BYTES` | `10737418240` | Maximum original bytes per attachment (10 GiB) |
+| `ATTACHMENT_CATEGORIES` | `Preparation & permits, Notes, Media, Data, Analysis, Archive` | Attachment categories, comma-separated, in display order |
 | `BULK_MAX_PENDING` | `8` | Shared pending-job budget for bulk scripts |
 | `BULK_MAX_BYTES` | `17179869184` | Shared estimated-byte budget for bulk scripts (16 GiB) |
 | `LOCAL_MIN_FREE_BYTES` | `2147483648` | Local staging/decompression headroom (2 GiB; parser output needs extra space) |

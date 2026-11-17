@@ -4,6 +4,7 @@ import io
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import unittest
@@ -50,7 +51,7 @@ class AttachmentTests(test_historical.AppTests):
         super().tearDown()
 
     def upload_file(self, targets, content=b"wind speed,temperature\n1,20\n" * 1000, name="wind.csv", **extra):
-        metadata = dict(filename=name, description="Wind tunnel", targets=targets, **extra)
+        metadata = {"filename": name, "description": "Wind tunnel", "targets": targets, **extra}
         return self.client.post("/api/attachments", data=content, content_type="application/octet-stream",
                                 headers={"X-Attachment-Metadata": quote(json.dumps(metadata))})
 
@@ -119,6 +120,153 @@ class AttachmentTests(test_historical.AppTests):
         self.assertEqual(self.client.delete(f'/api/attachments/{newer.json["id"]}/links/{link}').status_code, 200)
         files = self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json["files"]
         self.assertEqual([(f["id"], f["superseded"]) for f in files], [(first.json["id"], None)])
+
+    def test_category_on_upload_listing_and_duplicates(self):
+        _, flight = self.log()
+        named = self.upload_file([flight], name="notam.pdf", category="preparation & PERMITS")
+        self.assertEqual(named.status_code, 201, named.json)
+        plain = self.upload_file([flight], name="plain.csv")
+        bad = self.upload_file([flight], name="bad.csv", category="Photos")
+        self.assertEqual(bad.status_code, 400)
+        self.assertIn("Preparation & permits", bad.json["error"])
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM attachments").fetchone()[0], 2)  # nothing stored
+        data = self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json
+        self.assertEqual(data["categories"], attachments.DEFAULT_CATEGORIES)
+        files = {f["id"]: f for f in data["files"]}
+        self.assertEqual(files[named.json["id"]]["category"], "Preparation & permits")
+        self.assertIsNone(files[plain.json["id"]]["category"])
+        self.assertTrue(files[plain.json["id"]]["can_edit"])
+        # the same file again: an existing category stays, a missing one is filled in
+        self.upload_file([flight], name="notam.pdf", category="Archive")
+        self.upload_file([flight], name="plain.csv", category="Data")
+        got = dict(self.con.execute("SELECT filename, category FROM attachments").fetchall())
+        self.assertEqual(got, {"notam.pdf": "Preparation & permits", "plain.csv": "Data"})
+
+    def test_flight_listing_names_its_log_for_uploads_to_all_flights(self):
+        log, flight = self.log()
+        data = self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json
+        self.assertEqual((data["parent"]["kind"], data["parent"]["id"], data["parent"]["can_edit"]), ("log", log["id"], True))
+        self.assertIsNone(self.client.get(f'/api/attachments?kind=log&id={log["id"]}').json["parent"])
+        self.sign_in(3)  # view access: the log is named, but not editable
+        self.assertFalse(self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json["parent"]["can_edit"])
+
+    def test_flight_listing_offers_the_aircrafts_flights_that_day(self):
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (2,'Other','UID2','now')")
+
+        def flight(drone, takeoff, hidden=0, start=None, override=None, project=1):
+            log = self.con.execute(
+                "INSERT INTO logs(name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,start_utc,date_override)"
+                " VALUES ('x.data',?,'x.data.gz','done','now',2,?,?,?)",
+                (os.urandom(16).hex(), project, start or takeoff, override)).lastrowid
+            aircraft = self.con.execute("INSERT INTO aircraft(log_id,ac_id,name,drone_id) VALUES (?,7,'Drone',?)",
+                                        (log, drone)).lastrowid
+            return self.con.execute("INSERT INTO flights(aircraft_id,idx,takeoff_utc,hidden,project_id) VALUES (?,0,?,?,?)",
+                                    (aircraft, takeoff, hidden, project)).lastrowid
+        morning = flight(1, "2026-11-10T08:00:00Z")
+        afternoon = flight(1, "2026-11-10T14:00:00Z")
+        flight(1, "2026-11-10T15:00:00Z", hidden=1)
+        flight(1, "2026-11-11T08:00:00Z")
+        corrected = flight(1, "2000-01-01T12:00:00Z", start="2000-01-01T11:00:00Z", override="2026-11-10")  # bad clock
+        other = flight(2, "2026-11-10T09:00:00Z")
+        unlinked = flight(None, "2026-11-10T10:00:00Z")  # not linked to a fleet aircraft
+        private = flight(1, "2026-11-10T16:00:00Z", project=2)
+        self.con.commit()
+        day = self.client.get(f"/api/attachments?kind=flight&id={morning}").json["day"]
+        self.assertEqual((day["aircraft"], day["date"]), ("Drone", "2026-11-10"))
+        self.assertEqual([f["id"] for f in day["flights"]], [morning, corrected, afternoon])  # not hidden/private/other
+        self.assertTrue(all(f["can_edit"] for f in day["flights"]))
+        every = self.client.get(f"/api/attachments?kind=flight&id={morning}").json["day_all"]
+        self.assertEqual([f["id"] for f in every["flights"]], [morning, other, unlinked, corrected, afternoon])
+        data = self.client.get(f"/api/attachments?kind=flight&id={unlinked}").json
+        self.assertIsNone(data["day"])  # no fleet aircraft
+        self.assertEqual(len(data["day_all"]["flights"]), 5)
+        lonely = flight(2, "2026-11-12T09:00:00Z")
+        self.con.commit()
+        data = self.client.get(f"/api/attachments?kind=flight&id={lonely}").json
+        self.assertEqual((data["day"], data["day_all"]), (None, None))  # only itself
+        self.assertNotIn(private, [f["id"] for f in day["flights"]])
+        self.sign_in(3)  # view access only: nothing to upload to
+        data = self.client.get(f"/api/attachments?kind=flight&id={morning}").json
+        self.assertEqual((data["day"], data["day_all"]), (None, None))
+
+    def test_new_version_inherits_the_category(self):
+        _, flight = self.log()
+        self.upload_file([flight], name="plan.pdf", category="Notes")
+        newer = self.upload_file([flight], b"revised", "PLAN.pdf")
+        self.assertEqual(newer.json["replaces"][0]["filename"], "plan.pdf")
+        own = self.upload_file([flight], b"third", "plan.pdf", category="Archive")
+        self.assertEqual([r[0] for r in self.con.execute("SELECT category FROM attachments ORDER BY id")],
+                         ["Notes", "Notes", "Archive"])
+        self.assertEqual(own.status_code, 201)
+
+    def test_edit_category_and_description(self):
+        paper = self.paper()
+        aid = self.upload_file([paper]).json["id"]
+        r = self.client.patch(f"/api/attachments/{aid}", json={"category": "media", "description": "  Photos  "})
+        self.assertEqual((r.status_code, r.json["category"], r.json["description"]), (200, "Media", "Photos"))
+        self.assertEqual(self.client.patch(f"/api/attachments/{aid}", json={"category": "Photos"}).status_code, 400)
+        self.assertEqual(self.client.patch(f"/api/attachments/{aid}", json={"description": "x" * 1001}).status_code, 400)
+        self.assertEqual(self.client.patch(f"/api/attachments/{aid}", json={}).status_code, 400)
+        self.assertEqual(self.client.patch(f"/api/attachments/{aid}", json={"category": None}).status_code, 200)
+        self.assertEqual(tuple(self.con.execute("SELECT category, description FROM attachments").fetchone()),
+                         (None, "Photos"))
+        self.sign_in(3)  # can see the record, but has view access only
+        self.assertEqual(self.client.patch(f"/api/attachments/{aid}", json={"category": "Data"}).status_code, 403)
+        self.sign_in(4)  # cannot see it at all
+        self.assertEqual(self.client.patch(f"/api/attachments/{aid}", json={"category": "Data"}).status_code, 404)
+
+    def test_categories_setting_order_and_removed_category(self):
+        _, flight = self.log()
+        aid = self.upload_file([flight], category="Archive").json["id"]
+        with patch.dict(self.app.config, ATTACHMENT_CATEGORIES=["Permits", "Photos"]):
+            data = self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json
+            self.assertEqual(data["categories"], ["Permits", "Photos"])
+            self.assertEqual(data["files"][0]["category"], "Archive")  # kept although no longer listed
+            self.assertEqual(self.upload_file([flight], name="p.jpg", category="photos").status_code, 201)
+            self.assertEqual(self.client.patch(f"/api/attachments/{aid}", json={"category": "Archive"}).status_code, 400)
+        config = __import__("config")
+        self.assertEqual(config.parse_categories(" A , B ,"), ["A", "B"])
+        for value in ("", " , ", "A, a", "x" * 41):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                config.parse_categories(value)
+
+    def test_backfill_moves_description_prefix(self):
+        _, flight = self.log()
+        for name, description in (("a.pdf", "[Preparation & permits] NOTAM"), ("b.jpg", "[Photos]  Field"),
+                                  ("c.txt", "No prefix"), ("d.txt", "[Unknown] x")):
+            self.upload_file([flight], name=name, description=description)
+        self.upload_file([flight], name="e.txt", description="[Notes] kept", category="Data")
+        categories = attachments.DEFAULT_CATEGORIES
+        changes, skipped = attachments.backfill_categories(self.con, categories, apply=False)
+        self.assertEqual([c[1:] for c in changes], [("Preparation & permits", "NOTAM")])
+        self.assertEqual(skipped, {"Photos": 1, "Unknown": 1})
+        self.assertIsNone(self.con.execute("SELECT category FROM attachments WHERE filename='a.pdf'").fetchone()[0])
+        mapping = attachments.parse_mapping(["Photos=media"], categories)
+        changes, skipped = attachments.backfill_categories(self.con, categories, mapping)
+        self.assertEqual(len(changes), 2)
+        got = {r[0]: (r[1], r[2]) for r in self.con.execute("SELECT filename, category, description FROM attachments")}
+        self.assertEqual(got, {"a.pdf": ("Preparation & permits", "NOTAM"), "b.jpg": ("Media", "Field"),
+                               "c.txt": (None, "No prefix"), "d.txt": (None, "[Unknown] x"),
+                               "e.txt": ("Data", "[Notes] kept")})
+        self.assertEqual(attachments.backfill_categories(self.con, categories)[0], [])  # idempotent
+        with self.assertRaises(ValueError):
+            attachments.parse_mapping(["Photos=Pictures"], categories)
+
+    def test_migration_adds_the_category_column(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / "logs.db")
+            con = sqlite3.connect(path)
+            con.execute("CREATE TABLE attachments (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL,"
+                        " description TEXT NOT NULL DEFAULT '', path TEXT NOT NULL UNIQUE, compressed INTEGER NOT NULL,"
+                        " size_bytes INTEGER NOT NULL, stored_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL,"
+                        " uploaded_by INTEGER, uploaded_at TEXT NOT NULL)")
+            con.commit()
+            con.close()
+            for _ in range(2):  # idempotent
+                db.init(path)
+            con = sqlite3.connect(path)
+            self.assertIn("category", {r[1] for r in con.execute("PRAGMA table_info(attachments)")})
+            con.close()
 
     def test_startup_merges_existing_duplicates(self):
         _, flight = self.log()

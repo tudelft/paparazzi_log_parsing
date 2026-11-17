@@ -72,6 +72,8 @@ SETTINGS = {
                                 "(default: 2 GiB; additional space is needed for parser output)"),
         "PATH_RATE": ("5", "Flight path points stored per second (0 disables the map path)"),
         "ATTACHMENT_MAX_BYTES": ("10737418240", "Maximum original size per attachment in bytes (default: 10 GiB)"),
+        "ATTACHMENT_CATEGORIES": ("Preparation & permits, Notes, Media, Data, Analysis, Archive", "Categories of attachments, comma-separated, "
+                                  "in display order; files keep a category removed from this list"),
         "OFFICE": ("auto", "LibreOffice binary that converts .docx attachments to PDF for viewing in the browser: "
                            "'auto' uses soffice from PATH if installed, 'off' disables, or a full path"),
         "BULK_MAX_PENDING": ("8", "Global job budget for cooperating bulk upload scripts"),
@@ -180,6 +182,19 @@ def env_bool(name):
     return str(env(name)).strip().lower() in ("1", "true", "yes", "on")
 
 
+def parse_categories(value):
+    """LOGDB_ATTACHMENT_CATEGORIES: comma-separated names in display order (case-insensitively unique)."""
+    names = [n.strip() for n in str(value or "").split(",") if n.strip()]
+    if not names:
+        raise ValueError("name at least one category")
+    folded = [n.casefold() for n in names]
+    if len(set(folded)) != len(folded):
+        raise ValueError("a category is listed twice")
+    if any(len(n) > 40 for n in names):
+        raise ValueError("category names are at most 40 characters")
+    return names
+
+
 def env_path(name):
     """A path setting; relative paths are relative to this directory."""
     return (HERE / os.path.expanduser(env(name))).resolve()
@@ -254,6 +269,10 @@ def check():
         errors.append(f"LOGDB_FIRMWARE_GITHUB_REPOS: {exc}")
     if env_int("ATTACHMENT_MAX_BYTES") <= 0:
         errors.append("LOGDB_ATTACHMENT_MAX_BYTES must be positive")
+    try:
+        parse_categories(env("ATTACHMENT_CATEGORIES"))
+    except ValueError as exc:
+        errors.append(f"LOGDB_ATTACHMENT_CATEGORIES: {exc}")
     for setting in ("BULK_MAX_PENDING", "BULK_MAX_BYTES", "LOCAL_MIN_FREE_BYTES"):
         if env_int(setting) <= 0:
             errors.append(f"LOGDB_{setting} must be positive")

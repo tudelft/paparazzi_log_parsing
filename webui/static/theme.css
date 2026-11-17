@@ -368,9 +368,14 @@ dialog.entry-dialog label.field input, dialog.entry-dialog label.field select { 
 .file-dl:hover, .file-dl:focus-visible { color:var(--acc); border-color:var(--acc); }
 .file-list { width:100%; border-collapse:collapse; }
 .file-list td { padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; white-space:nowrap; }
-.file-list td.file-name { white-space:normal; width:100%; overflow-wrap:anywhere; }
+.file-list td.file-name { white-space:normal; width:100%; max-width:0; overflow-wrap:anywhere; }  /* max-width:0 lets long descriptions shrink to an ellipsis */
 .earlier-versions { margin-top:6px; } .earlier-versions summary { cursor:pointer; font-size:.9em; }
-.file-list .file-desc { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60ch; }
+.file-list .file-desc { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.file-group { margin:12px 0 2px; font-size:13px; font-weight:600; color:var(--mute); }
+.file-group:first-child { margin-top:0; }
+.file-list td.file-actions { width:1%; padding-right:0; }
+.file-list td.file-actions button { font-size:12px; padding:3px 9px; border-radius:6px; }
+@media(max-width:600px) { .file-list td.file-links { display:none; } }
 
 /* MATLAB export menu (matlab.js) */
 .matlab-pop { position:absolute; z-index:1000; min-width:280px; max-width:min(420px, calc(100vw - 16px)); padding:8px;

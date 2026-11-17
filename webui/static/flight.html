@@ -223,9 +223,10 @@ let D, map, planLayer, marker, trail, chartGeom;
 const flightId = +location.pathname.split('/').pop();
 let filesTarget = null;
 const editing = can => !!can && window.editMode();
+// Adding files is part of normal use, so the button shows whenever the user may add files here, also outside Edit mode.
 function syncFilesHead() {
   $('manageFiles').href = `/attachments?kind=flight&id=${flightId}`;
-  $('manageFiles').hidden = !editing(filesTarget?.can_edit);
+  $('manageFiles').hidden = !filesTarget?.can_edit;
 }
 AttachmentFiles.mount($('additionalFiles'), 'flight', flightId).then(d => {
   if (!d) return;

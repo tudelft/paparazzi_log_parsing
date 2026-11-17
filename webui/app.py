@@ -68,7 +68,7 @@ import mail
 import weather
 import mav_parse
 import firmware
-from config import env, env_bool, env_float, env_int, env_path
+from config import env, env_bool, env_float, env_int, env_path, parse_categories
 
 HERE = Path(__file__).resolve().parent
 DATA_DIR = env_path("WEB_DATA")
@@ -1753,6 +1753,11 @@ def cli(argv):
     ac.add_argument("username")
     sub.add_parser("backup", help="back up the database and keys to dated folders, retaining the latest 14")
     sub.add_parser("backfill-gps-positions", help="populate legacy GPS summaries without reparsing logs")
+    ac2 = sub.add_parser("attachment-categories",
+                         help="move a '[Category] ' prefix at the start of attachment descriptions into the category")
+    ac2.add_argument("--dry-run", action="store_true", help="only show what would change")
+    ac2.add_argument("--map", action="append", default=[], metavar="OLD=NEW",
+                     help="also accept prefix OLD and store it as category NEW (repeatable), e.g. Photos=Media")
     a = p.parse_args(argv)
 
     if a.cmd == "backup":
@@ -1763,6 +1768,21 @@ def cli(argv):
 
     if a.cmd == "backfill-gps-positions":
         backfill_gps_positions(con)
+        return
+    if a.cmd == "attachment-categories":
+        categories = parse_categories(env("ATTACHMENT_CATEGORIES"))
+        try:
+            mapping = attachments.parse_mapping(a.map, categories)
+        except ValueError as exc:
+            sys.exit(str(exc))
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            changes, skipped = attachments.backfill_categories(con, categories, mapping, apply=not a.dry_run)
+        for aid, category, description in changes:
+            print(f"{aid:6} {category:<24} {description[:60]!r}")
+        for prefix, count in sorted(skipped.items()):
+            print(f"skipped {count} with unknown prefix [{prefix}] (add --map {prefix}=<category>)")
+        print(f"{len(changes)} attachment(s) {'would be ' if a.dry_run else ''}categorised")
         return
 
     def ask_password():
@@ -5407,6 +5427,31 @@ def clock_shift_days(start_utc, date_override):
     return (target - start_date).days
 
 
+def same_day_flights(con, flight_id, any_aircraft=False):
+    """Visible (not hidden) flights on the same date as this flight, as the logbook shows it (takeoff UTC date after the
+    log's date correction), in takeoff order: (aircraft name, date, [flight ids]). Only flights of its fleet aircraft,
+    or with any_aircraft every flight that day. None when the flight has no date (or, per aircraft, no fleet aircraft)."""
+    def takeoff(row):
+        return shift_iso(row["takeoff_utc"], clock_shift_days(row["start_utc"], row["date_override"])) or ""
+
+    def day(row):
+        return takeoff(row)[:10] or None
+    row = con.execute("SELECT a.drone_id, d.name, f.takeoff_utc, l.start_utc, l.date_override FROM flights f"
+                      " JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id"
+                      " LEFT JOIN drones d ON d.id=a.drone_id WHERE f.id=?", (flight_id,)).fetchone()
+    date = day(row) if row else None
+    if not date or not (any_aircraft or row["drone_id"]):
+        return None
+    # candidates by SQL (same raw date, or a corrected log near that date), the exact date in Python
+    rows = con.execute(
+        "SELECT f.id, f.takeoff_utc, l.start_utc, l.date_override FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+        " JOIN logs l ON l.id=a.log_id WHERE (? OR a.drone_id=?) AND f.hidden=0 AND f.takeoff_utc IS NOT NULL"
+        " AND ((l.date_override IS NULL AND f.takeoff_utc LIKE ? || '%')"
+        "  OR l.date_override BETWEEN date(?, '-1 day') AND date(?, '+1 day'))"
+        " ORDER BY f.id", (int(any_aircraft), row["drone_id"], date, date, date)).fetchall()
+    return row["name"], date, [r["id"] for r in sorted(rows, key=takeoff) if day(r) == date]
+
+
 def shift_iso(iso, days):
     if not iso or not days:
         return iso
@@ -7639,7 +7684,8 @@ def delete_log(log_id):
 
 
 attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, env_int("ATTACHMENT_MAX_BYTES"),
-                     office=env("OFFICE"))
+                     office=env("OFFICE"), categories=parse_categories(env("ATTACHMENT_CATEGORIES")),
+                     same_day=same_day_flights)
 qualifications.register(app, lambda: conn(), STORAGE_DIR, session_required)
 training.register(app, lambda: conn(), DATA_DIR, session_required)
 profiles.register(app, lambda: conn(), session_required, now, PAGES_DIR)
