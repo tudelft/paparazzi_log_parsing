@@ -6289,10 +6289,18 @@ def storage_overview():
     scan = storage_usage.scanned(STORAGE_DIR, refresh=request.args.get("refresh") == "1")
     con = conn()
     original = con.execute("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS b FROM logs").fetchone()
+    # attachments per category from the database (exact and current): stored and original bytes, in the order of
+    # LOGDB_ATTACHMENT_CATEGORIES, other (no longer listed) categories after them and uncategorised last
+    order = app.config.get("ATTACHMENT_CATEGORIES", [])
+    attachments = sorted((dict(r) for r in con.execute(
+        "SELECT category, COUNT(*) AS files, COALESCE(SUM(stored_bytes),0) AS stored_bytes,"
+        " COALESCE(SUM(size_bytes),0) AS size_bytes FROM attachments GROUP BY category")),
+        key=lambda r: (r["category"] is None, r["category"] not in order,
+                       order.index(r["category"]) if r["category"] in order else 0, r["category"] or ""))
     return jsonify(
         scan={k: {"bytes": v[0], "files": v[1]} for k, v in (scan["result"] or {}).items()},
         measured_at=scan["measured_at"], measuring=scan["running"], scan_seconds=scan.get("seconds"),
-        error=scan["error"], logs=original["n"], original_bytes=original["b"],
+        error=scan["error"], logs=original["n"], original_bytes=original["b"], attachments=attachments,
         database_bytes=storage_usage.file_size(DB_PATH, DB_PATH + "-wal"),
         free={"logs": storage_usage.disk(STORAGE_DIR), "database": storage_usage.disk(DATA_DIR)})
 

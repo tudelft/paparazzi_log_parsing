@@ -147,7 +147,7 @@
     <div class="section-heading"><h2>Storage</h2><span style="float:left;display:flex;gap:10px;align-items:baseline">
       <span class="mute" id="storageWhen" role="status" style="font-size:12px"></span>
       <button type="button" class="sec" id="storageRefresh" onclick="loadStorage(true)">Measure now</button></span>
-      <details><summary>Help</summary><p>What the stored files take on disk (compressed), for administrators. The log storage is measured in the background at most every few hours, because walking a network share takes a while; <em>Measure now</em> starts a new measurement. Logs are the stored .data and .log files of every upload, compared with the original size of the .data files. Flight paths are the paths drawn on maps. Attachments include their PDF previews. The database size and the free space are current.</p></details>
+      <details><summary>Help</summary><p>What the stored files take on disk (compressed), for administrators. The log storage is measured in the background at most every few hours, because walking a network share takes a while; <em>Measure now</em> starts a new measurement. Logs are the stored .data and .log files of every upload, compared with the original size of the .data files. Flight paths are the paths drawn on maps. Attachments include their PDF previews; hover the tile for the size per category. The database size and the free space are current.</p></details>
     </div>
     <div class="totals" id="storageTotals"></div>
   </section>
@@ -236,8 +236,20 @@ $('mailRows').onclick = async e => {
 
 // Disk use (admins): the latest background scan of the log storage, polled while a measurement runs.
 const bytesText = n => n == null ? '—' : n >= 1e12 ? (n / 1e12).toFixed(2) + ' TB' : n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB'
-  : n >= 1e6 ? (n / 1e6).toFixed(0) + ' MB' : (n / 1e3).toFixed(0) + ' kB';
+  : n >= 1e6 ? (n / 1e6).toFixed(0) + ' MB' : n >= 1e3 ? (n / 1e3).toFixed(0) + ' kB' : n + ' B';
 let storageTimer = 0;
+// Attachments: on disk from the scan (with PDF previews); on hover per category from the database, the previews and
+// the original size.
+function attachmentsTile(d, scan) {
+  const rows = d.attachments || [], stored = rows.reduce((s, r) => s + r.stored_bytes, 0);
+  const original = rows.reduce((s, r) => s + r.size_bytes, 0), count = rows.reduce((s, r) => s + r.files, 0);
+  const onDisk = scan.attachments ? scan.attachments.bytes : d.measured_at ? 0 : stored;
+  const lines = rows.map(r => `${r.category || 'Uncategorised'}: ${bytesText(r.stored_bytes)} · ${r.files.toLocaleString()} file${r.files === 1 ? '' : 's'}`);
+  if (scan.attachments && scan.attachments.bytes > stored) lines.push(`PDF previews and other: ${bytesText(scan.attachments.bytes - stored)}`);
+  if (original) lines.push(`Original ${bytesText(original)} for ${count.toLocaleString()} files` +
+    (Math.round(100 * (1 - stored / original)) >= 1 ? `; compression saved ${Math.round(100 * (1 - stored / original))}%` : ''));
+  return `<div class="tile-attachments" title="${esc(lines.join('\n') || 'No attachments')}"><strong>${bytesText(onDisk)}</strong><span>Attachments</span></div>`;
+}
 async function loadStorage(refresh = false) {
   clearTimeout(storageTimer);
   let d;
@@ -256,7 +268,7 @@ async function loadStorage(refresh = false) {
     tile(bytesText(size('logs')), 'Logs on disk', `${d.logs.toLocaleString()} logs · ${files('logs')}${ratio}`),
     tile(bytesText(d.original_bytes), 'Logs, original', 'Original size of the uploaded .data files'),
     tile(bytesText(size('paths')), 'Flight paths', files('paths')),
-    tile(bytesText(size('attachments')), 'Attachments', files('attachments') + ', with PDF previews'),
+    attachmentsTile(d, scan),
     tile(bytesText(size('evidence')), 'Qualification evidence', files('evidence')),
     ...(size('documents') ? [tile(bytesText(size('documents')), 'Documents', files('documents') + ', shared on the Documents page')] : []),
     tile(bytesText(d.database_bytes), 'Database', 'The SQLite database file, current'),
