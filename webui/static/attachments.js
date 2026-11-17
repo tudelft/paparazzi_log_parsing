@@ -77,6 +77,7 @@
     <fieldset id="afUploadFields" disabled>
       <label class="field">Files<input id="afFiles" type="file" multiple required></label>
       <label class="field">Category<select id="afCategory"></select></label>
+      <p class="mute af-note" id="afGuess" hidden>Guessed from the file name; change it if it does not fit.</p>
       <label class="field">Description (optional, applies to these files)<textarea id="afDescription" maxlength="1000" rows="2"></textarea></label>
       <p class="mute af-note" id="afLimit"></p>
       <button type="submit">Upload</button>
@@ -114,6 +115,8 @@
       findTargets(byId('afFindQuery').value, byId('afFindResults'), 'Add', t => addExtra(t));
     };
     byId('afUploadForm').onsubmit = uploadAll;
+    byId('afCategory').onchange = () => { chosenCategory = true; byId('afGuess').hidden = true; };
+    byId('afFiles').onchange = guessCategory;
     byId('afEditForm').onsubmit = saveEdit;
     byId('afLinkFind').onsubmit = linkSearch;
   }
@@ -137,6 +140,30 @@
   }
 
   // ---- Upload dialog
+  // A category suggested from the selected files' names, until the user picks one: only when every file points to the
+  // same category and that category is in the configured list.
+  let chosenCategory = false;
+  const GUESSES = [
+    [/notam|permit|permission|approval|toestemming|vergunning|risk|sora|briefing|flight[ _-]?plan|\.(kml|kmz|gpx)$/i, 'Preparation & permits'],
+    [/report|analysis|analyse|plot/i, 'Analysis'],
+    [/\.(jpe?g|png|gif|heic|webp|tiff?|mp4|mov|avi|mkv|m4v|insv|360)$/i, 'Media'],
+    [/\.(csv|tsv|mat|h5|hdf5|ulg|tlog|bin|bfl|bbl|log|data|json|npz|parquet)$/i, 'Data'],
+    [/\.(txt|md|rtf)$/i, 'Notes'],
+    [/\.(zip|7z|tar|gz|tgz|rar)$/i, 'Archive'],
+  ];
+  function guessFor(name) {
+    const hit = GUESSES.find(([pattern]) => pattern.test(name));
+    return hit ? hit[1] : null;
+  }
+  function guessCategory() {
+    if (chosenCategory) return;
+    const names = [...byId('afFiles').files].map(file => file.name);
+    const guesses = new Set(names.map(guessFor));
+    const guess = guesses.size === 1 ? [...guesses][0] : null;
+    const listed = guess && active.categories.find(name => name.toLowerCase() === guess.toLowerCase());
+    byId('afCategory').value = listed || '';
+    byId('afGuess').hidden = !listed;
+  }
   function chosen() {
     const scope = scopes.find(s => s.value === byId('afScope').value);
     const all = [...(scope ? scope.targets : []),
@@ -187,6 +214,7 @@
     extras.clear(); byId('afExtra').replaceChildren(); byId('afFindResults').replaceChildren(); byId('afFindQuery').value = '';
     byId('afCategory').replaceChildren(option('', 'Uncategorised'), ...m.categories.map(name => option(name, name)));
     byId('afDescription').value = ''; byId('afFiles').value = ''; byId('afStatus').textContent = '';
+    chosenCategory = false; byId('afGuess').hidden = true;
     byId('afLimit').textContent = `Maximum ${size(m.data.max_bytes)} per file. Files upload one at a time; keep this dialog open until they are done.`;
     syncScope();
     byId('afUpload').showModal();

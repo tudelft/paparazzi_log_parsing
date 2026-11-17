@@ -534,7 +534,9 @@ its files and is shown after the listed ones, but cannot be chosen again. The pa
 a flight's Files tab, a paper record and a log (the Logs page opens it in a dialog): the compact list with search and a
 category filter (on pages in the URL as `files_q` / `files_category`), **Upload files** (only with something to upload
 to) and **Edit** per file the user may change; uploading and linking to more flights/logs happen in dialogs. There is
-no separate attachments page.
+no separate attachments page. When files are chosen, the Upload dialog suggests a category from their names (for
+example photos and video *Media*, `.csv`/`.ulg`/`.data` *Data*, NOTAM/permit/approval/risk *Preparation & permits*,
+report/plot *Analysis*), only if all files agree, the category is listed and the user has not picked one.
 `python3 app.py attachment-categories [--dry-run] [--map OLD=NEW ...]` moves a `[Category] ` prefix at the start of
 uncategorised descriptions into the category and strips it; `--map Photos=Media` accepts other prefix names.
 

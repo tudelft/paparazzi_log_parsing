@@ -383,7 +383,7 @@ dialog.entry-dialog label.field input, dialog.entry-dialog label.field select { 
 .af-status:empty { display:none; } .af-status { margin:4px 0 8px; font-size:13px; white-space:pre-wrap; overflow-wrap:anywhere; }
 dialog.af-dialog { width:min(600px,calc(100% - 32px)); }
 dialog.af-dialog fieldset { border:0; padding:0; margin:0 0 12px; min-width:0; display:grid; gap:6px; }
-dialog.af-dialog select, dialog.af-dialog textarea { width:100%; }
+dialog.af-dialog select, dialog.af-dialog textarea { width:100%; font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:5px; background:var(--field); color:var(--txt); }
 dialog.af-dialog progress { width:100%; }
 dialog.entry-dialog form.search-row { grid-template-columns:1fr auto; gap:6px; } .search-row input { min-width:0; }
 .af-note { margin:2px 0; font-size:12px; overflow-wrap:anywhere; } .af-sub { margin:14px 0 4px; font-size:14px; }
