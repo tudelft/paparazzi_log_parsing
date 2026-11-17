@@ -538,9 +538,11 @@ no separate attachments page.
 
 **Matching files to flights.** The general **Upload** (header, or files dropped on a page) sends logs as before;
 other files (not hidden ones) open a review (`AttachmentFiles.review`). The browser reads when each file was made:
-the photo's EXIF capture time (with its offset, when present), a video's MP4/MOV `mvhd` creation time and duration
-(shifted by the time zone when the file's modified time shows the camera wrote local time), else a date and time in
-the name, else the file's modified time; times without a zone use the browser's. `POST /api/attachments/match`
+the photo's EXIF capture time (with its offset, when present; in a JPEG's APP1 segment, or for HEIC/HEIF, PNG, WebP and
+RAW the `Exif\0\0` block in the first or last megabyte); for a video (MP4/MOV, reading the first 4 MB and last 16 MB)
+the duration from `mvhd` and the start from the metadata creation date with its time zone
+(`com.apple.quicktime.creationdate` or `©day`), else from `mvhd` (shifted by the time zone when the file's modified
+time shows the camera wrote local time); else a date and time in the name, else the file's modified time; times without a zone use the browser's. `POST /api/attachments/match`
 (`{"times": [ISO time | {"start", "end"}]}`, at most 1000; a read-only POST, allowed with the read scope) returns per
 item `flight` (the flight it overlaps most, else the nearest within 15 min before takeoff to 30 min after landing),
 `flights` (every flight a video overlaps, when several), `how`, and `day` (all flights of that UTC day), only flights the
