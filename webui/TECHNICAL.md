@@ -431,7 +431,7 @@ and Operation groups, the comment and a small non-interactive path map (it opens
 and landing times follow one Date row; battery and logged wind are takeoff → landing rows, coordinates are on
 hover over the place name, and INS values are under Log sources; log sources, upload details
 and raw-data links are folded away. Project, crew and comment controls appear only in Edit mode (and only
-with permission); the Files tab lists files compactly and shows **Add / manage files** to anyone with full access (also outside Edit mode). Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
+with permission); the Files tab is the file manager described under attachments (compact list, search, category filter, **Upload files**, **Edit**). Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
 and warnings for local (dirty) changes. Multiple reported builds remain visible; raw version messages
 can be expanded. Commit links use `paparazzi/paparazzi` and may not resolve for private forks.
 When the aircraft did not send `AUTOPILOT_VERSION`, the GCS `runtime paparazzi_version` comment at
@@ -530,8 +530,17 @@ flights / logs added with *Find more* are uploaded to as well.
 `PATCH /api/attachments/<id>` (browser session) with `category` (null clears it) and/or `description` changes the
 file for all its links; full access to one linked flight/log is enough. A category removed from the setting stays on
 its files and is shown after the listed ones, but cannot be chosen again. The pages group files by category
-(uncategorised last, empty groups hidden). The manage page (`/attachments`) is one compact list with search (`?q=`)
-and a category filter (`?category=`); uploading and linking to more flights/logs happen in dialogs.
+(uncategorised last, empty groups hidden). The file manager (`AttachmentFiles.manage` in `attachments.js`) is the same on
+a flight's Files tab, a paper record and a log (the Logs page opens it in a dialog): the compact list with search and a
+category filter (on pages in the URL as `files_q` / `files_category`), **Upload files** (only with something to upload
+to) and **Edit** per file the user may change; uploading and linking to more flights/logs happen in dialogs. There is
+no separate attachments page. The Upload dialog starts with a drop zone (drop files or choose them); files dropped
+on a file list open the Upload dialog with them. The logbook shows an opened entry's files read-only (`AttachmentFiles.summary`): one line
+per category with up to four names, "+N more" and *Files tab →* linking to the flight's Files tab (filtered with
+`files_category`); for an entry merged from several recordings, the files of all of them. They load when the row opens.
+When files are chosen, the Upload dialog suggests a category from their names (for
+example photos and video *Media*, `.csv`/`.ulg`/`.data` *Data*, NOTAM/permit/approval/risk *Preparation & permits*,
+report/plot *Analysis*), only if all files agree, the category is listed and the user has not picked one.
 `python3 app.py attachment-categories [--dry-run] [--map OLD=NEW ...]` moves a `[Category] ` prefix at the start of
 uncategorised descriptions into the category and strips it; `--map Photos=Media` accepts other prefix names.
 

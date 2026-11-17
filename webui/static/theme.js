@@ -531,7 +531,7 @@ window.timingEvidenceHTML = function (timing) {
   }
   function currentTab() {
     const p = location.pathname;
-    if (p === '/logbook' || p === '/attachments' || p === '/review' || p.startsWith('/flight/') || p.startsWith('/historical/')) return '/';
+    if (p === '/logbook' || p === '/review' || p.startsWith('/flight/') || p.startsWith('/historical/')) return '/';
     if (p === '/training' || p.startsWith('/training/')) return '/training';
     if (p === '/agenda') return '/agenda';
     if (p === '/documents') return '/documents';

@@ -5,6 +5,7 @@
 <title>Logs</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/theme.js"></script>
+<script src="/attachments.js"></script>
 <link rel="stylesheet" href="/theme.css">
 <style>
   :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --ok:#1a7f37; --err:#cf222e; --warn:#9a6700; }
@@ -95,6 +96,11 @@
     </div>
   </section>
 </main>
+<dialog class="entry-dialog" id="logFilesDialog" aria-labelledby="logFilesTitle" style="width:min(900px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="logFilesTitle">Additional files</h2><button type="button" onclick="$('logFilesDialog').close()" aria-label="Close Additional files">Close</button></div>
+  <p class="mute" id="logFilesName" style="margin:4px 0 8px;overflow-wrap:anywhere"></p>
+  <div id="logFiles"></div>
+</dialog>
 <dialog class="entry-dialog" id="suggestDialog" aria-labelledby="suggestTitle" style="width:min(760px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <div class="dialog-header"><h2 id="suggestTitle">Date suggestions</h2><button type="button" onclick="$('suggestDialog').close()">Close</button></div>
   <p class="mute" style="margin:0 0 8px; font-size:13px">Tick the dates to use. Each becomes the log's date override with the reason as its note, and can be changed or cleared later on the log. Unticked ones stay suggestions.</p>
@@ -110,6 +116,15 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const downloadLabel = window.logLabel;  // theme.js
+// Files of a whole log (they also show on each of its flights): the file manager of attachments.js in a dialog.
+function openLogFiles(id) {
+  $('logFilesName').textContent = `Log ${id}: shown on every flight of this log.`;
+  AttachmentFiles.manage($('logFiles'), 'log', id, {url: false, onload: (d, count) => {
+    $('logFilesTitle').textContent = count ? `Additional files · ${count}` : 'Additional files';
+    $('logFilesName').textContent = `${d.target.label}: shown on every flight of this log.`;
+  }});
+  $('logFilesDialog').showModal();
+}
 const fmtDur = s => s == null ? '' : s >= 3600 ? `${Math.floor(s/3600)}h ${String(Math.floor(s%3600/60)).padStart(2,'0')}m`
   : `${Math.floor(s/60)}m ${String(Math.round(s%60)).padStart(2,'0')}s`;
 const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km` : `${Math.round(m)} m`;
@@ -344,7 +359,7 @@ async function loadDetail(id) {
     h += `<div class="actions"><a href="/api/aircraft/${a.id}/config" target="_blank" onclick="event.stopPropagation()">Flight plan / settings / airframe JSON</a></div>`;
   }
   h += `<div class="actions">
-    <a class="btn sec" href="/attachments?kind=log&id=${id}" onclick="event.stopPropagation()">Additional files</a>
+    <button type="button" class="sec" onclick="event.stopPropagation(); openLogFiles(${id})">Additional files</button>
     <a class="btn sec" href="/api/logs/${id}/download" onclick="event.stopPropagation()">Download ${downloadLabel(l.log_type)}</a>
     ${editing() ? `<button class="sec" onclick="event.stopPropagation(); reparse(${id})">Re-parse</button>
     ${l.can_delete ? `<button class="danger" onclick="event.stopPropagation(); del(${id})">Delete</button>` : ''}` : ''}</div>`;
