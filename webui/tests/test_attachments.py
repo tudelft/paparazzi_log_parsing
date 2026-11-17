@@ -189,6 +189,52 @@ class AttachmentTests(test_historical.AppTests):
         data = self.client.get(f"/api/attachments?kind=flight&id={morning}").json
         self.assertEqual((data["day"], data["day_all"]), (None, None))
 
+    def test_match_files_to_flights_by_time(self):
+        def flight(takeoff, landing, project=1, hidden=0, start=None, override=None):
+            log = self.con.execute(
+                "INSERT INTO logs(name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,start_utc,date_override)"
+                " VALUES ('x.data',?,'x.data.gz','done','now',2,?,?,?)",
+                (os.urandom(16).hex(), project, start or takeoff, override)).lastrowid
+            aircraft = self.con.execute("INSERT INTO aircraft(log_id,ac_id,name,drone_id) VALUES (?,7,'Drone',1)",
+                                        (log,)).lastrowid
+            return self.con.execute("INSERT INTO flights(aircraft_id,idx,takeoff_utc,landing_utc,hidden,project_id)"
+                                    " VALUES (?,0,?,?,?,?)", (aircraft, takeoff, landing, hidden, project)).lastrowid
+        morning = flight("2026-11-10T09:00:00Z", "2026-11-10T09:20:00Z")
+        noon = flight("2026-11-10T12:00:00Z", "2026-11-10T12:10:00Z")
+        flight("2026-11-10T15:00:00Z", "2026-11-10T15:10:00Z", hidden=1)
+        private = flight("2026-11-10T17:00:00Z", "2026-11-10T17:10:00Z", project=2)
+        fixed = flight("2000-01-01T07:00:00Z", "2000-01-01T07:05:00Z", start="2000-01-01T06:59:00Z", override="2026-11-11")
+        self.con.commit()
+        times = ["2026-11-10T09:10:00Z",       # during the morning flight
+                 "2026-11-10T10:45:00+01:00",  # 09:45 UTC: 25 min after landing
+                 "2026-11-10T11:50:00Z",       # 10 min before noon takeoff
+                 "2026-11-10T14:00:00Z",       # no flight near: that day only
+                 "2026-11-10T17:05:00Z",       # the private flight: not offered
+                 "2026-11-11T07:02:00Z",       # the log with a corrected date
+                 "2026-11-20T10:00:00Z", "2026-11-10T10:00:00", "nonsense"]
+        r = self.client.post("/api/attachments/match", json={"times": times})
+        self.assertEqual(r.status_code, 200, r.json)
+        got = [(m["flight"]["id"] if m and m["flight"] else None, m and m["how"],
+                [f["id"] for f in m["day"]["flights"]] if m and m["day"] else None) for m in r.json["matches"]]
+        day = [morning, noon]
+        self.assertEqual(got, [(morning, "during", day), (morning, "after landing", day), (noon, "before takeoff", day),
+                               (None, None, day), (None, None, day), (fixed, "during", [fixed]), (None, None, None),
+                               (None, None, None), (None, None, None)])  # no time zone or not a time: no match
+        self.assertNotIn(private, [f["id"] for m in r.json["matches"] if m and m["day"] for f in m["day"]["flights"]])
+        # videos: a range matches the flight it overlaps most; over several flights it lists them all
+        ranges = [{"start": "2026-11-10T08:55:00Z", "end": "2026-11-10T09:05:00Z"},    # starts before takeoff
+                  {"start": "2026-11-10T09:15:00Z", "end": "2026-11-10T12:08:00Z"},    # over both flights
+                  {"start": "2026-11-10T13:00:00Z", "end": "2026-11-10T12:00:00Z"}]    # end before start: a moment
+        m = self.client.post("/api/attachments/match", json={"times": ranges}).json["matches"]
+        self.assertEqual((m[0]["flight"]["id"], m[0]["how"], m[0]["flights"]), (morning, "overlaps", None))
+        self.assertEqual((m[1]["flight"]["id"], m[1]["how"], [f["id"] for f in m[1]["flights"]]),
+                         (noon, "overlaps", [morning, noon]))  # 5 min of the morning flight, 8 of noon
+        self.assertEqual((m[2]["flight"], m[2]["day"]["date"]), (None, "2026-11-10"))
+        self.sign_in(3)  # view access: nothing to add files to
+        self.assertEqual(self.client.post("/api/attachments/match", json={"times": times[:1]}).json["matches"],
+                         [{"flight": None, "how": None, "flights": None, "day": None}])
+        self.assertEqual(self.client.post("/api/attachments/match", json={"times": "x"}).status_code, 400)
+
     def test_new_version_inherits_the_category(self):
         _, flight = self.log()
         self.upload_file([flight], name="plan.pdf", category="Notes")

@@ -382,6 +382,14 @@ dialog.entry-dialog label.field input, dialog.entry-dialog label.field select { 
 .files-names { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .files-more { flex:none; } .files-count { font-weight:normal; }
 .files-all { font-weight:normal; font-size:13px; margin-left:8px; }
+/* Review of files matched to flights (AttachmentFiles.review) */
+dialog.af-dialog.af-wide { width:min(860px,calc(100% - 32px)); }
+.af-review { max-height:50vh; overflow:auto; margin:6px 0; }
+.af-review td.file-name { width:52%; }
+.af-review td.af-review-pick { white-space:normal; width:48%; min-width:260px; }
+.af-review td.af-review-pick select { width:100%; margin:2px 0; font-size:13px; padding:4px 6px; }
+.af-review tr.af-done td { opacity:.55; }
+@media(max-width:600px) { .af-review tr { display:grid; } .af-review td.file-name, .af-review td.af-review-pick { width:auto; max-width:none; min-width:0; } }
 /* File manager (attachments.js): tools beside the heading, Upload files and Edit dialogs */
 .files-tools { display:inline-flex; gap:6px; align-items:center; flex-wrap:wrap; margin-left:auto; }
 .files-tools .af-search { width:180px; }

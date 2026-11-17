@@ -612,7 +612,7 @@ window.timingEvidenceHTML = function (timing) {
     actions.id = 'headerActions';
     actions.className = 'header-actions';
     actions.innerHTML = `<button type="button" id="downloadBtn" title="Download logs by flight number from Python or MATLAB">⬇<span class="upload-label"> Download logs</span></button>
-      <button type="button" id="uploadBtn" title="Upload log files, zips or folders (or drop them on the page)">⬆<span class="upload-label"> Upload logs</span></button>
+      <button type="button" id="uploadBtn" title="Upload logs, zips or folders, and photos, videos or documents for your flights (or drop them on the page)">⬆<span class="upload-label"> Upload</span></button>
       <button type="button" id="userMenuBtn"></button>`;
     const nameButton = actions.querySelector('#userMenuBtn');
     if (who) { who.style.cssText = ''; who.onclick = null; nameButton.append(who); }

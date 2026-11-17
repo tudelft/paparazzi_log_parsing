@@ -1,6 +1,7 @@
-// Upload dialog, opened by "Upload logs" in the header (theme.js) or by dropping files on a page. Logs are sent in
+// Upload dialog, opened by "Upload" in the header (theme.js) or by dropping files on a page. Logs are sent in
 // batches to /api/upload; fingerprinting and parsing then run on the server. "Your recent uploads" follows their
 // parsing. When a batch is sent, a 'logsuploaded' event lets the open page refresh (the Logs list, the Logbook).
+// Other files (photos, videos, documents) go to AttachmentFiles.review (attachments.js), which matches them to flights.
 (function () {
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   const MAV_SINGLE = /\.(ulg|bin|tlog|bfl|bbl)$/i;
@@ -15,13 +16,14 @@
     back.className = 'upload-back';
     back.hidden = true;
     back.innerHTML = `<div class="upload-dialog" role="dialog" aria-modal="true" aria-labelledby="uploadTitle">
-      <div class="dialog-header"><h2 id="uploadTitle">Upload logs</h2><button type="button" id="uploadClose">Close</button></div>
+      <div class="dialog-header"><h2 id="uploadTitle">Upload</h2><button type="button" id="uploadClose">Close</button></div>
       <div class="upload-zone" id="uploadZone">
         <strong>Drop log files, zips or folders here</strong>
-        Paparazzi .data + .log, PX4 .ulg, ArduPilot .bin / .log, MAVLink .tlog, Betaflight/INDIFlight .bfl / .bbl
+        Paparazzi .data + .log, PX4 .ulg, ArduPilot .bin / .log, MAVLink .tlog, Betaflight/INDIFlight .bfl / .bbl.
+        Photos, videos and documents are matched to your flights by when they were made.
         <div class="upload-buttons"><button type="button" class="primary" id="uploadPickFiles">Select files</button>
           <button type="button" id="uploadPickDir">Select folder</button></div>
-        <input id="uploadFiles" type="file" multiple hidden accept=".data,.log,.zip,.ulg,.bin,.tlog,.bfl,.bbl">
+        <input id="uploadFiles" type="file" multiple hidden>
         <input id="uploadDir" type="file" webkitdirectory hidden>
       </div>
       <details><summary>Help</summary>
@@ -121,7 +123,7 @@
       const lower = rel.toLowerCase();
       if (lower.endsWith('.zip') || MAV_SINGLE.test(lower)) { groups.set(rel, [{file, rel}]); continue; }
       const m = rel.match(/^(.*)\.(data|log)$/i);
-      if (!m) { skipped.push(rel); continue; }
+      if (!m) { skipped.push({file, rel}); continue; }
       if (!groups.has(m[1])) groups.set(m[1], []);
       groups.get(m[1]).push({file, rel});
     }
@@ -217,8 +219,16 @@
     paintPrepare(items.length, items.length);
     await yieldToUi();
     const {groups, skipped} = groupFiles(items);
-    if (skipped.length)
-      note(`<div class="mute">${skipped.length} ignored (not a recognised log or zip)</div>`);
+    // other files are matched to flights in a review step; hidden and system files are left out
+    const others = skipped.filter(x => !/(^|\/)(\.|Thumbs\.db$|desktop\.ini$)/i.test(x.rel)).map(x => x.file);
+    if (others.length) {
+      const what = `${others.length} other file${others.length === 1 ? '' : 's'} (photos, videos, documents)`;
+      if (!groups.length) { close(); reviewFiles(others); }
+      else {  // with logs: match once those are parsed, so their flights can be found
+        note(`<div class="mute">${what}: matched to your flights once these logs are parsed</div>`);
+        afterParsing().then(() => reviewFiles(others));
+      }
+    }
     const jobs = [];
     let incomplete = 0;
     for (const g of groups) {
@@ -276,6 +286,31 @@
   }
 
   // Dropped files: read the entries first (the browser drops them after this event)
+  // Resolves when everything sent is in and none of your recent logs is queued or parsing (twice in a row), or after
+  // 15 minutes.
+  async function afterParsing() {
+    const until = Date.now() + 15 * 60000;
+    let quiet = 0;
+    while (Date.now() < until && quiet < 2) {
+      await new Promise(r => setTimeout(r, 3000));
+      if (sendActive) { quiet = 0; continue; }
+      try {
+        const r = await fetch('/api/logs?mine=1&limit=50');
+        const rows = r.ok ? (await r.json()).logs || [] : [];
+        quiet = rows.some(l => l.status === 'queued' || l.status === 'parsing') ? 0 : quiet + 1;
+      } catch (e) { quiet = 0; }
+    }
+  }
+
+  function reviewFiles(files) {
+    const go = () => window.AttachmentFiles.review(files);
+    if (window.AttachmentFiles?.review) { go(); return; }
+    const tag = document.createElement('script');
+    tag.src = '/attachments.js';
+    tag.onload = go;
+    document.head.appendChild(tag);
+  }
+
   async function fromDrop(e) {
     const entries = [...(e.dataTransfer?.items || [])].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
     const plain = entries.length ? [] : [...(e.dataTransfer?.files || [])];

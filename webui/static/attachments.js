@@ -274,19 +274,19 @@
     syncScope();
     byId('afUpload').showModal();
   }
-  function uploadOne(file, selected) {
+  function uploadOne(file, selected, {category, description} = {}, progress = byId('afProgress'), statusEl = byId('afStatus')) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/attachments');
-      const metadata = encodeURIComponent(JSON.stringify({filename: file.name, description: byId('afDescription').value,
-        category: byId('afCategory').value || null, targets: selected.map(t => ({kind: t.kind, id: t.id}))}));
+      const metadata = encodeURIComponent(JSON.stringify({filename: file.name, description: description || '',
+        category: category || null, targets: selected.map(t => ({kind: t.kind, id: t.id}))}));
       if (metadata.length > 7000) { reject(Error('Upload metadata is too long; shorten the description or select fewer entries.')); return; }
       xhr.setRequestHeader('X-Attachment-Metadata', metadata);
       xhr.setRequestHeader('Content-Type', 'application/octet-stream');
       xhr.upload.onprogress = event => {
         if (event.lengthComputable) {
-          byId('afProgress').value = 100 * event.loaded / event.total;
-          byId('afStatus').textContent = `${file.name}: ${Math.round(byId('afProgress').value)}% uploaded; saving/compressing...`;
+          progress.value = 100 * event.loaded / event.total;
+          statusEl.textContent = `${file.name}: ${Math.round(progress.value)}% uploaded; saving/compressing...`;
         }
       };
       xhr.onerror = () => reject(Error('Network error. Upload may have completed; refresh the file list before retrying.'));
@@ -318,7 +318,8 @@
     try {
       for (const file of files) {
         byId('afProgress').value = 0; status.textContent = `Uploading ${file.name}...`;
-        if ((await uploadOne(file, selected)).duplicate) linked++; else completed++;
+        const meta = {category: byId('afCategory').value, description: byId('afDescription').value};
+        if ((await uploadOne(file, selected, meta)).duplicate) linked++; else completed++;
       }
       byId('afFiles').value = ''; setPicked([]);
       status.textContent = `${completed} file(s) saved and linked.` +
@@ -438,8 +439,181 @@
       show();
       return m.data;
     };
+    document.addEventListener('attachmentsuploaded', () => { if (element.isConnected) m.reload().catch(() => {}); });
     m.ready = m.reload().catch(error => { m.list.textContent = `Unable to load files: ${error.message}`; return null; });
     return m;
   }
-  window.AttachmentFiles = {api, size, list, manage, groups, esc, summary};
+  // ---- When was a file made? Photos: EXIF capture time; videos (MP4/MOV): creation time and duration; else a date and
+  // time in the name; else the file's modified time. Times without a zone are taken in the browser's time zone.
+  const localIso = (y, mo, d, h, mi, s) => new Date(+y, +mo - 1, +d, +h, +mi, +s).toISOString();
+  async function exifTime(file) {
+    const view = new DataView(await file.slice(0, 256 * 1024).arrayBuffer());
+    if (view.byteLength < 12 || view.getUint16(0) !== 0xFFD8) return null;
+    for (let p = 2; p + 10 < view.byteLength;) {
+      if (view.getUint8(p) !== 0xFF) return null;
+      const marker = view.getUint8(p + 1), length = view.getUint16(p + 2);
+      if (marker === 0xE1 && view.getUint32(p + 4) === 0x45786966) return tiffTime(view, p + 10);
+      if (marker === 0xDA) return null;
+      p += 2 + length;
+    }
+    return null;
+  }
+  function tiffTime(view, base) {
+    try {
+      const le = view.getUint16(base) === 0x4949;
+      const u16 = at => view.getUint16(base + at, le), u32 = at => view.getUint32(base + at, le);
+      const text = (at, count) => { let out = ''; for (let i = 0; i < count; i++) { const c = view.getUint8(base + at + i); if (!c) break; out += String.fromCharCode(c); } return out; };
+      const tags = ifd => {
+        const found = {};
+        for (let i = 0, n = u16(ifd); i < n; i++) {
+          const entry = ifd + 2 + i * 12, count = u32(entry + 4);
+          found[u16(entry)] = {count, at: count > 4 ? u32(entry + 8) : entry + 8, value: u32(entry + 8)};
+        }
+        return found;
+      };
+      const ifd0 = tags(u32(4)), exif = ifd0[0x8769] ? tags(ifd0[0x8769].value) : {};
+      const tag = exif[0x9003] || exif[0x9004] || ifd0[0x0132];  // DateTimeOriginal, DateTimeDigitized, DateTime
+      const m = tag && text(tag.at, tag.count).match(/^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/);
+      if (!m || +m[1] < 2000) return null;
+      const zone = exif[0x9011] ? text(exif[0x9011].at, exif[0x9011].count) : '';  // OffsetTimeOriginal, "+01:00"
+      const start = /^[+-]\d\d:\d\d$/.test(zone) ? new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${zone}`).toISOString()
+        : localIso(m[1], m[2], m[3], m[4], m[5], m[6]);
+      return {start, source: 'photo time'};
+    } catch (error) { return null; }
+  }
+  async function videoTime(file) {
+    if (!/\.(mp4|mov|m4v|insv|lrv|3gp)$/i.test(file.name)) return null;
+    const MB = 1 << 20;
+    for (const [from, to] of [[0, Math.min(file.size, 4 * MB)], [Math.max(0, file.size - 16 * MB), file.size]]) {
+      const bytes = new Uint8Array(await file.slice(from, to).arrayBuffer());
+      for (let i = 4; i + 40 < bytes.length; i++) {
+        if (bytes[i] !== 0x6d || bytes[i + 1] !== 0x76 || bytes[i + 2] !== 0x68 || bytes[i + 3] !== 0x64) continue;  // 'mvhd'
+        const v = new DataView(bytes.buffer, bytes.byteOffset + i + 4);
+        const wide = v.getUint8(0) === 1;
+        const created = wide ? Number(v.getBigUint64(4)) : v.getUint32(4);
+        const scale = wide ? v.getUint32(20) : v.getUint32(12);
+        const length = wide ? Number(v.getBigUint64(24)) : v.getUint32(16);
+        let start = (created - 2082844800) * 1000;  // seconds since 1904, UTC
+        if (!created || !scale || start < Date.UTC(2000, 0, 1)) return null;
+        const duration = length / scale * 1000;
+        // Some cameras write local time as if it were UTC: the file's modified time (the end of recording) then
+        // differs from the end by the time zone offset.
+        const shift = new Date(start).getTimezoneOffset() * 60000;
+        if (shift && Math.abs(file.lastModified - (start + duration + shift)) < 120000) start += shift;
+        return {start: new Date(start).toISOString(), end: new Date(start + duration).toISOString(), source: 'video time'};
+      }
+    }
+    return null;
+  }
+  function nameTime(name) {
+    const m = name.match(/(20\d\d)[-_.]?(\d\d)[-_.]?(\d\d)[ T_-]{0,2}(\d\d)[-_.:h]?(\d\d)[-_.:m]?(\d\d)/)
+      || name.match(/(?:^|\D)(\d\d)_(\d\d)_(\d\d)__(\d\d)_(\d\d)_(\d\d)/);
+    if (!m) return null;
+    const year = m[1].length === 2 ? '20' + m[1] : m[1];
+    if (+m[2] > 12 || +m[3] > 31 || +m[4] > 23 || +m[5] > 59 || +m[6] > 59) return null;
+    return {start: localIso(year, m[2], m[3], m[4], m[5], m[6]), source: 'time in the name'};
+  }
+  async function fileTime(file) {
+    try {
+      return await exifTime(file) || await videoTime(file) || nameTime(file.name)
+        || {start: new Date(file.lastModified).toISOString(), source: 'file date'};
+    } catch (error) { return {start: new Date(file.lastModified).toISOString(), source: 'file date'}; }
+  }
+
+  // ---- Review: files dropped on the general Upload (not logs) are matched to flights by the time they were made.
+  // Each row proposes a target (overlapping flights, the flight, all flights that day, or nothing) to check first.
+  let reviewing = [];
+  function reviewDialog() {
+    if (byId('afReview')) return;
+    document.body.insertAdjacentHTML('beforeend', `
+<dialog class="entry-dialog af-dialog af-wide" id="afReview" aria-labelledby="afReviewTitle">
+  <div class="dialog-header"><h2 id="afReviewTitle">Upload files</h2><button type="button" id="afReviewClose" aria-label="Close Upload files">Close</button></div>
+  <p class="mute af-note">Matched to your flights by the time each file was made. Check the flight per file; nothing is
+    uploaded before you press Upload.</p>
+  <div id="afReviewList" class="af-review"></div>
+  <label class="field">Description (optional, for all these files)<textarea id="afReviewDescription" maxlength="1000" rows="1"></textarea></label>
+  <div class="af-actions"><details class="af-help"><summary class="mute">Help</summary>
+    <p>The time comes from the photo (EXIF) or video (start and length), else from a date and time in the file name, else
+      from the file's date, which copying can change. Times without a time zone are taken in this browser's time zone.
+      A file matches the flight it overlaps, or one up to 15 minutes before takeoff or 30 minutes after landing; a video
+      over several flights goes to all of them. Only flights you may add files to are offered.</p>
+    <p><strong>Sharing:</strong> everyone with access to any linked flight / log can download the file.</p></details>
+    <button type="button" id="afReviewUpload" disabled>Upload</button></div>
+  <progress id="afReviewProgress" hidden max="100" value="0" aria-label="File upload progress"></progress>
+  <p id="afReviewStatus" class="af-status" role="status" aria-live="polite"></p>
+</dialog>`);
+    byId('afReviewClose').onclick = () => { if (!busy) byId('afReview').close(); };
+    byId('afReview').addEventListener('cancel', event => { if (busy) event.preventDefault(); });
+    byId('afReviewUpload').onclick = uploadReviewed;
+  }
+  const when = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'}); };
+  async function review(files) {
+    reviewDialog();
+    const status = byId('afReviewStatus'), list = byId('afReviewList');
+    byId('afReviewTitle').textContent = `Upload ${files.length} file${files.length === 1 ? '' : 's'}`;
+    byId('afReviewDescription').value = ''; byId('afReviewUpload').disabled = true; status.textContent = '';
+    list.innerHTML = '<p class="mute">Reading when the files were made…</p>';
+    if (!byId('afReview').open) byId('afReview').showModal();
+    const times = [];
+    for (const file of files) times.push(await fileTime(file));
+    let data;
+    try {
+      data = await api('/api/attachments/match', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({times: times.map(t => t.end ? {start: t.start, end: t.end} : t.start)})});
+    } catch (error) { list.innerHTML = `<p class="dialog-error">${esc(error.message)}</p>`; return; }
+    const categories = data.categories || [];
+    reviewing = files.map((file, i) => {
+      const match = data.matches[i] || {}, options = [];
+      if (match.flights) options.push({value: 'flights', text: `${match.flights.length} flights it overlaps`, targets: match.flights});
+      if (match.flight) options.push({value: 'flight', text: `Flight: ${match.flight.label}`, targets: [match.flight]});
+      if (match.day) options.push({value: 'day', text: `All flights on ${match.day.date} (${match.day.flights.length})`, targets: match.day.flights});
+      options.push({value: '', text: match.day ? 'Do not upload' : 'No flight found: not uploaded', targets: []});
+      const guess = guessFor(file.name), category = guess && categories.find(name => name.toLowerCase() === guess.toLowerCase());
+      return {file, time: times[i], match, options, category: category || '', tooBig: !file.size || file.size > data.max_bytes};
+    });
+    const how = {during: 'during the flight', overlaps: 'overlaps the flight', 'before takeoff': 'before takeoff', 'after landing': 'after landing'};
+    list.innerHTML = `<table class="file-list"><tbody>${reviewing.map((row, i) => `<tr>
+      <td class="file-name"><span title="${esc(row.file.name)}">${esc(row.file.name)}</span>
+        <div class="mute file-desc" title="${esc(row.time.source)}">${esc(when(row.time.start))}${row.time.end ? ' – ' + esc(new Date(row.time.end).toLocaleTimeString(undefined, {timeStyle: 'short'})) : ''} · ${
+          esc(row.time.source)}${row.match.how ? ' · ' + esc(how[row.match.how]) : ''}${row.tooBig ? ' · <strong>too large or empty</strong>' : ''}</div></td>
+      <td class="af-review-pick"><select data-target="${i}" aria-label="Upload ${esc(row.file.name)} to">${row.options.map(o =>
+        `<option value="${o.value}" title="${esc(o.targets.map(t => t.label).join('\n'))}">${esc(o.text)}</option>`).join('')}</select>
+        <select data-category="${i}" aria-label="Category of ${esc(row.file.name)}"><option value="">Uncategorised</option>${
+        categories.map(name => `<option${name === row.category ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table>`;
+    for (const select of list.querySelectorAll('[data-target]')) {
+      const row = reviewing[+select.dataset.target];
+      select.value = row.tooBig ? '' : row.options[0].value;  // the closest match first; no match: not uploaded
+      select.disabled = row.tooBig;
+      select.onchange = syncReview;
+    }
+    syncReview();
+  }
+  function syncReview() {
+    const count = [...byId('afReviewList').querySelectorAll('[data-target]')].filter(select => select.value).length;
+    byId('afReviewUpload').disabled = busy || !count;
+    byId('afReviewUpload').textContent = count ? `Upload ${count} file${count === 1 ? '' : 's'}` : 'Upload';
+  }
+  async function uploadReviewed() {
+    const status = byId('afReviewStatus'), progress = byId('afReviewProgress'), list = byId('afReviewList');
+    const description = byId('afReviewDescription').value;
+    const jobs = reviewing.map((row, i) => ({row, pick: list.querySelector(`[data-target="${i}"]`),
+      category: list.querySelector(`[data-category="${i}"]`).value})).filter(job => job.pick.value);
+    busy = true; syncReview(); byId('afReviewClose').disabled = true; progress.hidden = false;
+    let completed = 0, linked = 0, failed = 0;
+    for (const job of jobs) {
+      const targets = job.row.options.find(o => o.value === job.pick.value).targets;
+      progress.value = 0; status.textContent = `Uploading ${job.row.file.name}…`;
+      try {
+        if ((await uploadOne(job.row.file, targets, {category: job.category, description}, progress, status)).duplicate) linked++;
+        else completed++;
+        job.pick.closest('tr').classList.add('af-done'); job.pick.disabled = true;
+      } catch (error) { failed++; job.pick.closest('tr').querySelector('.file-desc').textContent += ` · failed: ${error.message}`; }
+    }
+    busy = false; byId('afReviewClose').disabled = false; progress.hidden = true; syncReview();
+    status.textContent = `${completed} file(s) saved and linked.` + (linked ? ` ${linked} identical file(s) were already stored and are now linked.` : '')
+      + (failed ? ` ${failed} failed.` : '');
+    document.dispatchEvent(new CustomEvent('attachmentsuploaded'));
+  }
+
+  window.AttachmentFiles = {api, size, list, manage, groups, esc, summary, review};
 })();
