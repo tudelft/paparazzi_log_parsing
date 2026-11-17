@@ -79,6 +79,17 @@
     document.body.insertAdjacentHTML('beforeend', `
 <dialog class="entry-dialog af-dialog" id="afUpload" aria-labelledby="afUploadTitle">
   <div class="dialog-header"><h2 id="afUploadTitle">Upload files</h2><button type="button" id="afUploadClose" aria-label="Close Upload files">Close</button></div>
+  <div class="af-drop" id="afDrop" role="button" tabindex="0" aria-describedby="afPicked">
+    <input id="afFiles" type="file" multiple hidden>
+    <strong>Drop files here</strong> <span class="mute">or</span> <span class="af-pick">choose files</span>
+    <span class="af-picked" id="afPicked"></span>
+  </div>
+  <fieldset id="afUploadFields">
+    <div class="af-pair">
+      <label class="field">Category<select id="afCategory"></select></label>
+      <label class="field">Description (optional)<textarea id="afDescription" maxlength="1000" rows="1"></textarea></label>
+    </div>
+  </fieldset>
   <fieldset id="afSelection">
     <label class="field" for="afScope">Upload to</label>
     <select id="afScope"></select>
@@ -90,21 +101,12 @@
         placeholder="Aircraft, 2026-10-21, log filename or ID"><button type="submit">Search</button></form>
       <div id="afFindResults" class="af-results"></div></details>
   </fieldset>
-  <form id="afUploadForm">
-    <fieldset id="afUploadFields" disabled>
-      <div class="af-pair">
-        <label class="field">Files<input id="afFiles" type="file" multiple required></label>
-        <label class="field">Category<select id="afCategory"></select></label>
-      </div>
-      <label class="field">Description (optional)<textarea id="afDescription" maxlength="1000" rows="1"></textarea></label>
-    </fieldset>
-    <div class="af-actions"><details class="af-help"><summary class="mute">Help</summary>
-      <p id="afLimit"></p>
-      <p>A file with the name of a current file there replaces it; the old one stays under "Show earlier versions".
-        A file that is already stored is linked, not stored again.</p>
-      <p><strong>Sharing:</strong> everyone with access to any linked flight / log can download the file.</p></details>
-      <button type="submit" id="afSubmit" disabled>Upload</button></div>
-  </form>
+  <div class="af-actions"><details class="af-help"><summary class="mute">Help</summary>
+    <p id="afLimit"></p>
+    <p>A file with the name of a current file there replaces it; the old one stays under "Show earlier versions".
+      A file that is already stored is linked, not stored again. Files can also be dropped on the file list.</p>
+    <p><strong>Sharing:</strong> everyone with access to any linked flight / log can download the file.</p></details>
+    <button type="button" id="afSubmit" disabled>Upload</button></div>
   <progress id="afProgress" hidden max="100" value="0" aria-label="File upload progress"></progress>
   <p id="afStatus" class="af-status" role="status" aria-live="polite"></p>
 </dialog>
@@ -135,9 +137,14 @@
       event.preventDefault();
       findTargets(byId('afFindQuery').value, byId('afFindResults'), 'Add', t => addExtra(t));
     };
-    byId('afUploadForm').onsubmit = uploadAll;
+    byId('afSubmit').onclick = uploadAll;
+    const drop = byId('afDrop'), input = byId('afFiles');
+    drop.onclick = () => { if (!busy) input.click(); };
+    drop.onkeydown = event => { if ((event.key === 'Enter' || event.key === ' ') && !busy) { event.preventDefault(); input.click(); } };
+    input.onchange = () => setPicked([...input.files]);
+    dropTarget(byId('afUpload'), files => { if (!busy) setPicked(files); }, drop);
     byId('afCategory').onchange = () => { chosenCategory = true; };
-    byId('afFiles').onchange = guessCategory;
+
     byId('afEditForm').onsubmit = saveEdit;
     byId('afLinkFind').onsubmit = linkSearch;
   }
@@ -163,7 +170,30 @@
   // ---- Upload dialog
   // A category suggested from the selected files' names, until the user picks one: only when every file points to the
   // same category and that category is in the configured list.
-  let chosenCategory = false;
+  let chosenCategory = false, picked = [];
+  // Files dragged onto `element` (highlighting `mark` while over it) are passed to `onfiles`.
+  function dropTarget(element, onfiles, mark = element) {
+    let depth = 0;
+    const hasFiles = event => [...(event.dataTransfer?.types || [])].includes('Files');
+    element.addEventListener('dragenter', event => { if (hasFiles(event)) { depth++; mark.classList.add('af-over'); } });
+    element.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; mark.classList.remove('af-over'); } });
+    element.addEventListener('dragover', event => { if (hasFiles(event)) event.preventDefault(); });
+    element.addEventListener('drop', event => {
+      if (!hasFiles(event)) return;
+      event.preventDefault(); depth = 0; mark.classList.remove('af-over');
+      if (event.dataTransfer.files.length) onfiles([...event.dataTransfer.files]);
+    });
+  }
+  function setPicked(files) {
+    picked = files;
+    const names = files.map(file => file.name);
+    byId('afPicked').textContent = !files.length ? '' : files.length === 1 ? `${names[0]} (${size(files[0].size)})`
+      : `${files.length} files: ${names.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}`;
+    byId('afPicked').title = names.join('\n');
+    byId('afDrop').classList.toggle('af-has', files.length > 0);
+    guessCategory();
+    syncUpload();
+  }
   const GUESSES = [
     [/notam|permit|permission|approval|toestemming|vergunning|risk|sora|briefing|flight[ _-]?plan|\.(kml|kmz|gpx)$/i, 'Preparation & permits'],
     [/report|analysis|analyse|plot/i, 'Analysis'],
@@ -178,7 +208,7 @@
   }
   function guessCategory() {
     if (chosenCategory) return;
-    const names = [...byId('afFiles').files].map(file => file.name);
+    const names = picked.map(file => file.name);
     const guesses = new Set(names.map(guessFor));
     const guess = guesses.size === 1 ? [...guesses][0] : null;
     const listed = guess && active.categories.find(name => name.toLowerCase() === guess.toLowerCase());
@@ -190,7 +220,10 @@
       ...[...byId('afExtra').querySelectorAll('input:checked')].map(input => extras.get(input.value))];
     return [...new Map(all.map(t => [tkey(t), t])).values()];
   }
-  function syncUpload() { byId('afUploadFields').disabled = byId('afSubmit').disabled = busy || !chosen().length; }
+  function syncUpload() {
+    byId('afUploadFields').disabled = busy;
+    byId('afSubmit').disabled = busy || !chosen().length || !picked.length;
+  }
   function addExtra(t) {
     const existing = [...byId('afExtra').querySelectorAll('input')].find(input => input.value === tkey(t));
     if (existing) { existing.checked = true; syncUpload(); return; }
@@ -223,7 +256,7 @@
     byId('afScopeNote').title = scope ? scope.targets.map(t => t.label).join('\n') : '';
     syncUpload();
   }
-  function openUpload(m) {
+  function openUpload(m, files) {
     dialogs();
     if (busy) { byId('afUpload').showModal(); return; }
     active = m;
@@ -234,6 +267,7 @@
     extras.clear(); byId('afExtra').replaceChildren(); byId('afFindResults').replaceChildren(); byId('afFindQuery').value = '';
     byId('afCategory').replaceChildren(option('', 'Uncategorised'), ...m.categories.map(name => option(name, name)));
     byId('afDescription').value = ''; byId('afFiles').value = ''; byId('afStatus').textContent = '';
+    picked = []; setPicked(files || []);
     chosenCategory = false;
     byId('afLimit').textContent = `At most ${size(m.data.max_bytes)} per file. Files upload one at a time: keep this dialog open until they are done.`;
     byId('afMore').open = false;
@@ -266,9 +300,8 @@
       xhr.send(file);
     });
   }
-  async function uploadAll(event) {
-    event.preventDefault();
-    const m = active, selected = chosen(), files = [...byId('afFiles').files], status = byId('afStatus');
+  async function uploadAll() {
+    const m = active, selected = chosen(), files = picked, status = byId('afStatus');
     if (!selected.length || selected.length > 100) { status.textContent = 'Select between 1 and 100 entries.'; return; }
     if (files.some(file => !file.size || file.size > m.data.max_bytes)) {
       status.textContent = `Files must be nonempty and at most ${size(m.data.max_bytes)} each.`; return;
@@ -287,7 +320,7 @@
         byId('afProgress').value = 0; status.textContent = `Uploading ${file.name}...`;
         if ((await uploadOne(file, selected)).duplicate) linked++; else completed++;
       }
-      byId('afFiles').value = '';
+      byId('afFiles').value = ''; setPicked([]);
       status.textContent = `${completed} file(s) saved and linked.` +
         (linked ? ` ${linked} identical file(s) were already stored and are now linked.` : '');
     } catch (error) { status.textContent = `${completed} file(s) saved. ${error.message}`; }
@@ -389,6 +422,8 @@
     search.oninput = () => { keep('files_q', search.value.trim()); show(); };
     filter.onchange = () => { keep('files_category', filter.value); show(); };
     upload.onclick = () => openUpload(m);
+    dialogs();
+    dropTarget(element, files => { if (!upload.hidden) openUpload(m, files); });
     m.reload = async () => {
       m.data = await api(`/api/attachments?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`);
       m.categories = m.data.categories || [];

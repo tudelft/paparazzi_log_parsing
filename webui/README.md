@@ -303,7 +303,7 @@ Dates are entered manually, and existing records keep an unknown start date. His
 eligibility is not checked. The read-only People list shows only approved, non-expired qualifications,
 without an approval-status label; management still shows pending, expired and previous submissions.
 
-**Additional files:** use **Upload files** in a flight's Files tab, a paper record's Additional files section or a
+**Additional files:** drop files on the file list, or use **Upload files** in a flight's Files tab, a paper record's Additional files section or a
 log's **Additional files** on the Logs page to attach photos, video or other recordings (default limit **10 GiB** per file).
 Clicking the name of a PDF, text file or image opens it in a new tab; the small arrow beside it downloads it.
 Other files download from the name. Word files (`.docx`) open as PDF when LibreOffice is installed on the server.

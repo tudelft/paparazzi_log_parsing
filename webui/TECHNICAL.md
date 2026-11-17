@@ -534,7 +534,8 @@ its files and is shown after the listed ones, but cannot be chosen again. The pa
 a flight's Files tab, a paper record and a log (the Logs page opens it in a dialog): the compact list with search and a
 category filter (on pages in the URL as `files_q` / `files_category`), **Upload files** (only with something to upload
 to) and **Edit** per file the user may change; uploading and linking to more flights/logs happen in dialogs. There is
-no separate attachments page. The logbook shows an opened entry's files read-only (`AttachmentFiles.summary`): one line
+no separate attachments page. The Upload dialog starts with a drop zone (drop files or choose them); files dropped
+on a file list open the Upload dialog with them. The logbook shows an opened entry's files read-only (`AttachmentFiles.summary`): one line
 per category with up to four names, "+N more" and *Files tab →* linking to the flight's Files tab (filtered with
 `files_category`); for an entry merged from several recordings, the files of all of them. They load when the row opens.
 When files are chosen, the Upload dialog suggests a category from their names (for

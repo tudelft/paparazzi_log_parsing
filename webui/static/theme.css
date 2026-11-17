@@ -394,6 +394,14 @@ dialog.af-dialog progress { width:100%; }
 dialog.entry-dialog form.search-row { grid-template-columns:1fr auto; gap:6px; } .search-row input { min-width:0; }
 .af-note { margin:2px 0; font-size:12px; overflow-wrap:anywhere; } .af-sub { margin:10px 0 2px; font-size:13px; }
 dialog.af-dialog fieldset { gap:8px; } dialog.af-dialog form { gap:8px; }
+.af-drop { display:flex; flex-wrap:wrap; justify-content:center; align-items:baseline; gap:4px 6px; padding:22px 12px;
+  border:2px dashed var(--line); border-radius:8px; text-align:center; cursor:pointer; background:var(--card); margin-bottom:4px; }
+.af-drop:hover, .af-drop:focus-visible, .af-drop.af-over { border-color:var(--acc); background:color-mix(in srgb, var(--acc) 7%, var(--card)); }
+.af-drop.af-has { padding:14px 12px; border-style:solid; }
+.af-pick { color:var(--acc); text-decoration:underline; }
+.af-picked { flex-basis:100%; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.af-picked:empty { display:none; }
+.af-over:not(.af-drop) { outline:2px dashed var(--acc); outline-offset:4px; border-radius:6px; }
 .af-pair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; align-items:end; }
 .af-more > summary, .af-help > summary { cursor:pointer; font-size:13px; } .af-more[open] > summary { margin-bottom:6px; }
 .af-actions { display:flex; gap:10px; align-items:flex-start; justify-content:space-between; }
