@@ -360,13 +360,13 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
         t = target(con, g.user, kind, request.args.get("id"))
         column = COLUMNS[kind]
         ids = {r[0] for r in con.execute(f"SELECT attachment_id FROM attachment_links WHERE {column}=?", (t["id"],))}
-        inherited = None
+        inherited = parent = None
         if kind == "flight":
             log = con.execute("SELECT a.log_id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE f.id=?",
                               (t["id"],)).fetchone()
             # Parent-log files are inherited only when the user can also see that log.
             try:
-                target(con, g.user, "log", log["log_id"])
+                parent = target(con, g.user, "log", log["log_id"])  # files linked here show on all its flights
             except Error as exc:
                 if exc.status != 404:
                     raise
@@ -393,7 +393,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
                 "SELECT COUNT(*) FROM attachment_links WHERE attachment_id=?", (aid,)).fetchone()[0]
             item["can_edit"] = any(x["can_edit"] for x in links)
             result.append(item)
-        return jsonify(files=result, target=t, max_bytes=app.config["ATTACHMENT_MAX_BYTES"],
+        return jsonify(files=result, target=t, parent=parent, max_bytes=app.config["ATTACHMENT_MAX_BYTES"],
                        categories=app.config["ATTACHMENT_CATEGORIES"])
 
     @app.post("/api/attachments")

@@ -19,16 +19,22 @@
   a { color:var(--acc); } .mute { color:var(--mute); }
   label { display:block; margin:8px 0; overflow-wrap:anywhere; }
   [hidden] { display:none !important; } fieldset { border:0; padding:0; margin:0; min-width:0; }
-  #results { max-height:280px; overflow:auto; } #selected { max-height:240px; overflow:auto; }
-  #status { white-space:pre-wrap; overflow-wrap:anywhere; } progress { width:100%; max-width:500px; }
-  #search { width:100%; max-width:500px; } textarea { width:100%; }
+  #results, #linkResults { max-height:200px; overflow:auto; } #selected { max-height:160px; overflow:auto; }
+  #status, #pageStatus { white-space:pre-wrap; overflow-wrap:anywhere; } progress { width:100%; }
+  textarea { width:100%; }
+  dialog.entry-dialog form.search-row { grid-template-columns:1fr auto; gap:6px; } .search-row input { min-width:0; }
+  #uploadDialog { width:min(600px,calc(100% - 32px)); } #uploadDialog h3, #editDialog h3 { margin:14px 0 4px; font-size:14px; }
+  .target-line { display:flex; gap:8px; align-items:baseline; margin:4px 0; } .target-line span { overflow-wrap:anywhere; }
+  .target-line button { font-size:12px; padding:3px 9px; flex:none; }
+  #pageStatus:empty { display:none; }
   select { font:inherit; padding:7px; border:1px solid var(--line); border-radius:5px; background:var(--field); color:var(--txt); }
   .list-head { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
   .list-head h2 { margin:0 auto 0 0; } .list-head label { margin:0; } #fileSearch { width:220px; }
   #editLinks { list-style:none; padding:0; margin:4px 0; max-height:200px; overflow:auto; }
   #editLinks li { display:flex; gap:8px; align-items:baseline; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--line); }
   #editLinks li a { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  #editLinks button, #editShare { font-size:12px; padding:3px 9px; }
+  #editLinks button { font-size:12px; padding:3px 9px; }
+  .list-help { margin:-4px 0 8px; font-size:13px; } .list-help p { margin:6px 0; }
   @media(max-width:600px) {
     main { padding:10px; }
     body > header { flex-wrap:wrap; gap:8px; padding:10px; }
@@ -46,42 +52,41 @@
   <p id="context"></p>
   <section class="card"><div class="list-head"><h2>Files on this flight / log <span class="mute" id="fileCount"></span></h2>
     <input id="fileSearch" type="search" placeholder="Search name or description" aria-label="Search files">
-    <select id="categoryFilter" aria-label="Category"><option value="">All categories</option></select></div>
+    <select id="categoryFilter" aria-label="Category"><option value="">All categories</option></select>
+    <button type="button" id="openUpload">Upload files</button></div>
+    <details class="list-help"><summary class="mute">Help</summary>
+      <p>Files are stored once and can be linked to multiple flights, paper records or whole logs.
+        A file linked to a log also appears on its flights. Text and other compressible files use lossless
+        compression; photos, videos and archives stay in their original form when compression would not help.
+        Downloads always restore the exact original bytes. A file with the name of an existing one replaces it
+        on that flight/log; the old file stays under "Show earlier versions".</p>
+      <p><strong>Sharing:</strong> everyone with access to <em>any</em> linked flight/log can download the file.
+        Linking across projects deliberately shares its contents with those projects.</p></details>
+    <p id="pageStatus" role="status" aria-live="polite"></p>
     <div id="fileList">Loading...</div></section>
-  <section class="card"><div class="section-heading"><h2>Photos, videos and other recordings</h2>
-    <details><summary>Help</summary>
-    <p>Files are stored once and can be linked to multiple flights, paper records or whole logs.
-      A file linked to a log also appears on its flights. Text and other compressible files use lossless
-      compression; photos, videos and archives stay in their original form when compression would not help.
-      Downloads always restore the exact original bytes.</p></details></div>
-    <p><strong>Sharing:</strong> everyone with access to <em>any</em> linked flight/log can download the file.
-      Linking across projects deliberately shares its contents with those projects.</p>
-  </section>
-  <section class="card"><h2>Selected flights / logs</h2>
-    <fieldset id="selection">
-      <p class="mute">Upload new files or link an existing file below to all checked entries. Full access is required.
-        Search by aircraft, date, log filename or numeric ID.</p>
-      <div id="selected"></div>
-      <form id="searchForm"><label for="search">Find more flights / logs</label>
-        <input id="search" type="search" required placeholder="Aircraft name, 2026-10-21, log filename...">
-        <button type="submit">Search</button></form>
-      <div id="results"></div>
-    </fieldset>
-  </section>
-  <section class="card"><h2>Upload additional files</h2>
-    <form id="uploadForm">
-      <fieldset id="uploadFields" disabled>
-        <label>Files <input id="files" type="file" multiple required></label>
-        <label>Category (optional, applies to these files) <select id="category"><option value="">Uncategorised</option></select></label>
-        <label>Description (optional, applies to these files)<textarea id="description" maxlength="1000" rows="2"></textarea></label>
-        <p id="limit" class="mute"></p>
-        <button type="submit">Upload to selected flights / logs</button>
-      </fieldset>
-    </form>
-    <progress id="progress" hidden max="100" value="0" aria-label="File upload progress"></progress>
-    <p id="status" role="status" aria-live="polite"></p>
-  </section>
 </main>
+<dialog class="entry-dialog" id="uploadDialog" aria-labelledby="uploadTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();if(!busy)this.close();}">
+  <div class="dialog-header"><h2 id="uploadTitle">Upload files</h2><button type="button" id="closeUpload" onclick="$('uploadDialog').close()" aria-label="Close Upload files">Close</button></div>
+  <fieldset id="selection">
+    <h3>Upload to</h3>
+    <div id="selected"></div>
+    <p class="mute" id="noTarget" hidden>You have read-only access here. Find a flight / log where you have full access.</p>
+    <form id="searchForm" class="search-row"><input id="search" type="search" required aria-label="Find more flights / logs"
+      placeholder="Find more: aircraft, 2026-10-21, log filename or ID"><button type="submit">Search</button></form>
+    <div id="results"></div>
+  </fieldset>
+  <form id="uploadForm">
+    <fieldset id="uploadFields" disabled>
+      <label>Files <input id="files" type="file" multiple required></label>
+      <label>Category <select id="category"><option value="">Uncategorised</option></select></label>
+      <label>Description (optional, applies to these files)<textarea id="description" maxlength="1000" rows="2"></textarea></label>
+      <p id="limit" class="mute"></p>
+      <button type="submit">Upload</button>
+    </fieldset>
+  </form>
+  <progress id="progress" hidden max="100" value="0" aria-label="File upload progress"></progress>
+  <p id="status" role="status" aria-live="polite"></p>
+</dialog>
 <dialog class="entry-dialog" id="editDialog" aria-labelledby="editTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <div class="dialog-header"><h2 id="editTitle">Edit file</h2><button type="button" onclick="$('editDialog').close()" aria-label="Close Edit file">Close</button></div>
   <p class="mute" id="editName" style="overflow-wrap:anywhere"></p>
@@ -92,10 +97,15 @@
     <p class="mute">The file is shared: this changes it on every flight / log it is linked to.</p>
     <button type="submit">Save</button>
   </form>
-  <h3 style="margin:16px 0 4px;font-size:14px">Linked flights / logs</h3>
+  <h3>Linked flights / logs</h3>
   <ul id="editLinks"></ul>
   <small class="mute">Only links you can access are shown. Removing the last link deletes the stored file.</small>
-  <p><button type="button" id="editShare">Link to selected flights / logs</button></p>
+  <div id="linkMore">
+    <h3>Link to more flights / logs</h3>
+    <form id="linkSearchForm" class="search-row"><input id="linkSearch" type="search" required aria-label="Find flights / logs to link"
+      placeholder="Aircraft, 2026-10-21, log filename or ID"><button type="submit">Search</button></form>
+    <div id="linkResults"></div>
+  </div>
 </dialog>
 <script>
 const $ = id => document.getElementById(id);
@@ -111,18 +121,28 @@ function chosen() {
   return [...$('selected').querySelectorAll('input:checked')].map(input => targets.get(input.value));
 }
 function syncUpload() { $('uploadFields').disabled = busy || !chosen().length; }
-function addTarget(target) {
+function addTarget(target, {checked = true, text, onchange} = {}) {
   if (targets.has(key(target))) {
     const input = [...$('selected').querySelectorAll('input')].find(input => input.value === key(target));
     input.checked = true;
     syncUpload(); return;
   }
   targets.set(key(target), target);
+  $('noTarget').hidden = true;
   const label = document.createElement('label'), input = document.createElement('input');
-  input.type = 'checkbox'; input.value = key(target); input.checked = true; input.onchange = syncUpload;
-  label.append(input, ` ${target.kind}: ${target.label}`);
+  input.type = 'checkbox'; input.value = key(target); input.checked = checked;
+  input.onchange = () => { if (onchange) onchange(input.checked); syncUpload(); };
+  label.append(input, ` ${text || `${target.kind}: ${target.label}`}`);
   $('selected').append(label);
   syncUpload();
+}
+// On a flight, its log is offered too: a file on the log shows on every flight of that log, so it replaces this flight.
+function offerParent(flight, log) {
+  const box = value => [...$('selected').querySelectorAll('input')].find(input => input.value === value);
+  addTarget(log, {checked: false, text: `All flights of this log (${log.label})`, onchange: on => {
+    const own = box(key(flight));
+    if (on && own) own.checked = false;
+  }});
 }
 // The category filter lists the configured categories and any other category a file here still has; kept in the URL.
 function fillFilter(files) {
@@ -171,20 +191,42 @@ function openEdit(file) {
       await reload();
     } catch (error) { $('editError').textContent = error.message; button.disabled = false; }
   };
-  $('editShare').hidden = !file.can_share;
+  $('linkMore').hidden = !file.can_share;  // sharing further needs full access to every current link
+  $('linkSearch').value = ''; $('linkResults').replaceChildren();
   $('editDialog').showModal();
 }
-$('editShare').onclick = async () => {
-  const selected = chosen();
-  if (!selected.length) { $('editError').textContent = 'Select at least one flight/log on the page first.'; return; }
-  if (!confirm('Share this file with every selected flight/log? Their project members will be able to download it.')) return;
+// Flights / logs with full access matching the search, each as a line with one action button.
+async function findTargets(query, element, action, onpick) {
+  element.textContent = 'Searching...';
   try {
-    await api(`/api/attachments/${editing.id}/links`, {method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({targets:selected.map(t => ({kind:t.kind,id:t.id}))})});
-    $('status').textContent = 'File linked. No extra copy was stored.';
-    $('editDialog').close();
-    await reload();
-  } catch (error) { $('editError').textContent = error.message; }
+    const data = await api('/api/attachments/targets?q=' + encodeURIComponent(query));
+    element.replaceChildren();
+    if (!data.targets.length) element.textContent = 'No matching entries with full access.';
+    for (const t of data.targets) {
+      const line = document.createElement('div'), button = document.createElement('button'), text = document.createElement('span');
+      line.className = 'target-line';
+      button.type = 'button'; button.textContent = action; button.onclick = () => onpick(t, button);
+      text.textContent = `${t.kind}: ${t.label}`;
+      line.append(button, text);
+      element.append(line);
+    }
+  } catch (error) { element.textContent = error.message; }
+}
+$('linkSearchForm').onsubmit = event => {
+  event.preventDefault();
+  const linked = new Set(editing.links.map(link => `${link.kind}:${link.id}`));
+  findTargets($('linkSearch').value, $('linkResults'), 'Link', async (t, button) => {
+    if (linked.has(key(t))) { $('editError').textContent = 'This file is already linked there.'; return; }
+    if (!confirm(`Link this file to ${t.kind} ${t.label}? Its project members will be able to download it.`)) return;
+    button.disabled = true;
+    try {
+      await api(`/api/attachments/${editing.id}/links`, {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({targets:[{kind:t.kind,id:t.id}]})});
+      $('pageStatus').textContent = `${editing.filename} linked to ${t.kind} ${t.label}. No extra copy was stored.`;
+      $('editDialog').close();
+      await reload();
+    } catch (error) { $('editError').textContent = error.message; button.disabled = false; }
+  });
 };
 $('editForm').onsubmit = async event => {
   event.preventDefault();
@@ -206,22 +248,12 @@ async function reload() {
   show();
   return data;
 }
-$('searchForm').onsubmit = async event => {
+$('searchForm').onsubmit = event => {
   event.preventDefault();
-  $('results').textContent = 'Searching...';
-  try {
-    const data = await api('/api/attachments/targets?q=' + encodeURIComponent($('search').value));
-    $('results').replaceChildren();
-    if (!data.targets.length) $('results').textContent = 'No matching entries with full access.';
-    for (const t of data.targets) {
-      const line = document.createElement('div'), button = document.createElement('button');
-      button.type = 'button'; button.textContent = 'Add'; button.onclick = () => addTarget(t);
-      line.style.margin = '6px 0';
-      line.append(button, ` ${t.kind}: ${t.label}`);
-      $('results').append(line);
-    }
-  } catch (error) { $('results').textContent = error.message; }
+  findTargets($('search').value, $('results'), 'Add', t => addTarget(t));
 };
+$('uploadDialog').addEventListener('cancel', event => { if (busy) event.preventDefault(); });
+$('openUpload').onclick = () => { if (!busy) $('status').textContent = ''; $('uploadDialog').showModal(); };
 function upload(file, selected) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -260,7 +292,7 @@ $('uploadForm').onsubmit = async event => {
     .map(old => `${old.filename} uploaded on ${old.uploaded_at.slice(0, 10)}`);
   if (replaces.length && !confirm(`This replaces:\n${replaces.join('\n')}\n\nThe old file stays available under` +
     ' "Show earlier versions". Identical files are linked, not stored again.')) return;
-  busy = true; syncUpload(); $('selection').disabled = true; $('progress').hidden = false;
+  busy = true; syncUpload(); $('selection').disabled = true; $('progress').hidden = false; $('closeUpload').disabled = true;
   let completed = 0, linked = 0;
   try {
     for (const file of files) {
@@ -272,7 +304,7 @@ $('uploadForm').onsubmit = async event => {
       (linked ? ` ${linked} identical file(s) were already stored and are now linked.` : '');
   } catch (error) { $('status').textContent = `${completed} file(s) saved. ${error.message}`; }
   finally {
-    busy = false; syncUpload(); $('selection').disabled = false; $('progress').hidden = true;
+    busy = false; syncUpload(); $('selection').disabled = false; $('progress').hidden = true; $('closeUpload').disabled = false;
     try { await reload(); } catch (error) { $('status').textContent += ` Unable to refresh: ${error.message}`; }
   }
 };
@@ -282,13 +314,14 @@ $('uploadForm').onsubmit = async event => {
     $('who').textContent = me.user.display_name;
     maxBytes = data.max_bytes;
     $('category').append(...categories.map(name => option(name, name)));
-    $('limit').textContent = `Maximum ${size(maxBytes)} per file. Files upload one at a time, without loading them into browser memory.`;
+    $('limit').textContent = `Maximum ${size(maxBytes)} per file. Files upload one at a time; keep this dialog open until they are done.`;
     const back = document.createElement('a');
     back.href = data.target.url; back.textContent = `Back to ${data.target.label}`;
     $('context').append(back);
     if (data.target.can_edit) addTarget(data.target);
-    else $('status').textContent = 'Read-only here. Search for an entry where you have full access to upload files there.';
-  } catch (error) { $('status').textContent = error.message; $('fileList').textContent = 'Unable to load files.'; }
+    if (data.parent?.can_edit) offerParent(data.target, data.parent);
+    if (!data.target.can_edit && !data.parent?.can_edit) $('noTarget').hidden = false;
+  } catch (error) { $('pageStatus').textContent = error.message; $('fileList').textContent = 'Unable to load files.'; }
 })();
 </script>
 </body>

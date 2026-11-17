@@ -142,6 +142,14 @@ class AttachmentTests(test_historical.AppTests):
         got = dict(self.con.execute("SELECT filename, category FROM attachments").fetchall())
         self.assertEqual(got, {"notam.pdf": "Preparation & permits", "plain.csv": "Data"})
 
+    def test_flight_listing_names_its_log_for_uploads_to_all_flights(self):
+        log, flight = self.log()
+        data = self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json
+        self.assertEqual((data["parent"]["kind"], data["parent"]["id"], data["parent"]["can_edit"]), ("log", log["id"], True))
+        self.assertIsNone(self.client.get(f'/api/attachments?kind=log&id={log["id"]}').json["parent"])
+        self.sign_in(3)  # view access: the log is named, but not editable
+        self.assertFalse(self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json["parent"]["can_edit"])
+
     def test_new_version_inherits_the_category(self):
         _, flight = self.log()
         self.upload_file([flight], name="plan.pdf", category="Notes")
