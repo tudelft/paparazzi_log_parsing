@@ -68,7 +68,9 @@
 <dialog class="entry-dialog" id="uploadDialog" aria-labelledby="uploadTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();if(!busy)this.close();}">
   <div class="dialog-header"><h2 id="uploadTitle">Upload files</h2><button type="button" id="closeUpload" onclick="$('uploadDialog').close()" aria-label="Close Upload files">Close</button></div>
   <fieldset id="selection">
-    <h3>Upload to</h3>
+    <h3><label for="scope" style="margin:0">Upload to</label></h3>
+    <select id="scope" style="width:100%"></select>
+    <p class="mute" id="scopeNote" style="margin:4px 0 0;font-size:12px"></p>
     <div id="selected"></div>
     <p class="mute" id="noTarget" hidden>You have read-only access here. Find a flight / log where you have full access.</p>
     <form id="searchForm" class="search-row"><input id="search" type="search" required aria-label="Find more flights / logs"
@@ -117,13 +119,42 @@ let maxBytes = 0, busy = false, current = [], categories = [], editing = null;
 const UNCATEGORISED = '-';  // filter value for files without a category
 const option = (value, text) => Object.assign(document.createElement('option'), {value, textContent: text});
 const key = target => `${target.kind}:${target.id}`;
-// Checked upload targets; a group (all flights of an aircraft that day) stands for each of its flights.
+// Upload targets: the choice in "Upload to" plus any flights / logs added with Find more (each once).
+let scopes = [];
 function chosen() {
-  const all = [...$('selected').querySelectorAll('input:checked')].flatMap(input => [].concat(targets.get(input.value)));
+  const scope = scopes.find(s => s.value === $('scope').value);
+  const all = [...(scope ? scope.targets : []),
+    ...[...$('selected').querySelectorAll('input:checked')].map(input => targets.get(input.value))];
   return [...new Map(all.map(t => [key(t), t])).values()];
 }
+// On a flight: this flight, its log (default; files on a log show on every flight of that log), the flights of its
+// aircraft that day, and all flights that day. Elsewhere only the flight / log / paper record itself.
+function buildScopes(data) {
+  const t = data.target, word = {flight: 'This flight only', log: 'This log only', paper: 'This paper record only'}[t.kind];
+  scopes = [];
+  if (t.can_edit) scopes.push({value: 'self', text: word, note: t.label, targets: [t]});
+  if (data.parent?.can_edit) scopes.push({value: 'log', text: 'All flights of this log', note: data.parent.label,
+    targets: [data.parent]});
+  if (data.day) scopes.push({value: 'aircraft-day', text: `All flights of ${data.day.aircraft} on ${data.day.date} (${
+    data.day.flights.length})`, targets: data.day.flights});
+  if (data.day_all) scopes.push({value: 'day', text: `All flights on ${data.day_all.date} (${data.day_all.flights.length})`,
+    targets: data.day_all.flights});
+  $('scope').replaceChildren(...scopes.map(s => option(s.value, s.text)), option('', 'Only the flights / logs below'));
+  $('scope').value = scopes.some(s => s.value === 'log') ? 'log' : scopes[0]?.value || '';
+  $('noTarget').hidden = scopes.length > 0;
+  syncScope();
+}
+// The note under the choice names what it covers; hover it for every flight.
+function syncScope() {
+  const scope = scopes.find(s => s.value === $('scope').value);
+  $('scopeNote').textContent = !scope ? 'Add flights / logs with Find more.' : scope.note ||
+    scope.targets.map(t => t.label.replace(/ - flight /, ' #')).slice(0, 3).join(' · ') + (scope.targets.length > 3 ? ' · …' : '');
+  $('scopeNote').title = scope ? scope.targets.map(t => t.label).join('\n') : '';
+  syncUpload();
+}
+$('scope').onchange = syncScope;
 function syncUpload() { $('uploadFields').disabled = busy || !chosen().length; }
-function addTarget(target, {checked = true, text, onchange} = {}) {
+function addTarget(target) {
   if (targets.has(key(target))) {
     const input = [...$('selected').querySelectorAll('input')].find(input => input.value === key(target));
     input.checked = true;
@@ -132,29 +163,10 @@ function addTarget(target, {checked = true, text, onchange} = {}) {
   targets.set(key(target), target);
   $('noTarget').hidden = true;
   const label = document.createElement('label'), input = document.createElement('input');
-  input.type = 'checkbox'; input.value = key(target); input.checked = checked;
-  input.onchange = () => { if (onchange) onchange(input.checked); syncUpload(); };
-  label.append(input, ` ${text || `${target.kind}: ${target.label}`}`);
+  input.type = 'checkbox'; input.value = key(target); input.checked = true; input.onchange = syncUpload;
+  label.append(input, ` ${target.kind}: ${target.label}`);
   $('selected').append(label);
   syncUpload();
-}
-// On a flight, its log and the aircraft's other flights that day are offered too. Both include this flight (a file on
-// the log shows on every flight of that log), so checking one of them unchecks the flight itself.
-const box = value => [...$('selected').querySelectorAll('input')].find(input => input.value === value);
-function offerParent(flight, log) {
-  addTarget(log, {checked: false, text: `All flights of this log (${log.label})`, onchange: on => {
-    const own = box(key(flight));
-    if (on && own) own.checked = false;
-  }});
-}
-function offerDay(flight, day) {
-  const label = document.createElement('label'), input = document.createElement('input');
-  targets.set('day', day.flights);
-  input.type = 'checkbox'; input.value = 'day';
-  input.onchange = () => { const own = box(key(flight)); if (input.checked && own) own.checked = false; syncUpload(); };
-  label.title = day.flights.map(f => f.label).join('\n');
-  label.append(input, ` All flights of ${day.aircraft} on ${day.date} (${day.flights.length})`);
-  $('selected').append(label);
 }
 // The category filter lists the configured categories and any other category a file here still has; kept in the URL.
 function fillFilter(files) {
@@ -330,10 +342,7 @@ $('uploadForm').onsubmit = async event => {
     const back = document.createElement('a');
     back.href = data.target.url; back.textContent = `Back to ${data.target.label}`;
     $('context').append(back);
-    if (data.target.can_edit) addTarget(data.target);
-    if (data.parent?.can_edit) offerParent(data.target, data.parent);
-    if (data.day) offerDay(data.target, data.day);
-    if (!data.target.can_edit && !data.parent?.can_edit && !data.day) $('noTarget').hidden = false;
+    buildScopes(data);
   } catch (error) { $('pageStatus').textContent = error.message; $('fileList').textContent = 'Unable to load files.'; }
 })();
 </script>

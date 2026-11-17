@@ -5427,10 +5427,10 @@ def clock_shift_days(start_utc, date_override):
     return (target - start_date).days
 
 
-def same_day_flights(con, flight_id):
-    """Visible (not hidden) flights of this flight's fleet aircraft on the same date as the logbook shows it (takeoff
-    UTC date after the log's date correction), in takeoff order: (aircraft name, date, [flight ids]); None when the
-    flight has no fleet aircraft or no date."""
+def same_day_flights(con, flight_id, any_aircraft=False):
+    """Visible (not hidden) flights on the same date as this flight, as the logbook shows it (takeoff UTC date after the
+    log's date correction), in takeoff order: (aircraft name, date, [flight ids]). Only flights of its fleet aircraft,
+    or with any_aircraft every flight that day. None when the flight has no date (or, per aircraft, no fleet aircraft)."""
     def takeoff(row):
         return shift_iso(row["takeoff_utc"], clock_shift_days(row["start_utc"], row["date_override"])) or ""
 
@@ -5438,17 +5438,17 @@ def same_day_flights(con, flight_id):
         return takeoff(row)[:10] or None
     row = con.execute("SELECT a.drone_id, d.name, f.takeoff_utc, l.start_utc, l.date_override FROM flights f"
                       " JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id"
-                      " JOIN drones d ON d.id=a.drone_id WHERE f.id=?", (flight_id,)).fetchone()
+                      " LEFT JOIN drones d ON d.id=a.drone_id WHERE f.id=?", (flight_id,)).fetchone()
     date = day(row) if row else None
-    if not date:
+    if not date or not (any_aircraft or row["drone_id"]):
         return None
     # candidates by SQL (same raw date, or a corrected log near that date), the exact date in Python
     rows = con.execute(
         "SELECT f.id, f.takeoff_utc, l.start_utc, l.date_override FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
-        " JOIN logs l ON l.id=a.log_id WHERE a.drone_id=? AND f.hidden=0 AND f.takeoff_utc IS NOT NULL"
+        " JOIN logs l ON l.id=a.log_id WHERE (? OR a.drone_id=?) AND f.hidden=0 AND f.takeoff_utc IS NOT NULL"
         " AND ((l.date_override IS NULL AND f.takeoff_utc LIKE ? || '%')"
         "  OR l.date_override BETWEEN date(?, '-1 day') AND date(?, '+1 day'))"
-        " ORDER BY f.id", (row["drone_id"], date, date, date)).fetchall()
+        " ORDER BY f.id", (int(any_aircraft), row["drone_id"], date, date, date)).fetchall()
     return row["name"], date, [r["id"] for r in sorted(rows, key=takeoff) if day(r) == date]
 
 

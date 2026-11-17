@@ -167,19 +167,27 @@ class AttachmentTests(test_historical.AppTests):
         flight(1, "2026-11-10T15:00:00Z", hidden=1)
         flight(1, "2026-11-11T08:00:00Z")
         corrected = flight(1, "2000-01-01T12:00:00Z", start="2000-01-01T11:00:00Z", override="2026-11-10")  # bad clock
-        flight(2, "2026-11-10T09:00:00Z")
+        other = flight(2, "2026-11-10T09:00:00Z")
+        unlinked = flight(None, "2026-11-10T10:00:00Z")  # not linked to a fleet aircraft
         private = flight(1, "2026-11-10T16:00:00Z", project=2)
         self.con.commit()
         day = self.client.get(f"/api/attachments?kind=flight&id={morning}").json["day"]
         self.assertEqual((day["aircraft"], day["date"]), ("Drone", "2026-11-10"))
         self.assertEqual([f["id"] for f in day["flights"]], [morning, corrected, afternoon])  # not hidden/private/other
         self.assertTrue(all(f["can_edit"] for f in day["flights"]))
+        every = self.client.get(f"/api/attachments?kind=flight&id={morning}").json["day_all"]
+        self.assertEqual([f["id"] for f in every["flights"]], [morning, other, unlinked, corrected, afternoon])
+        data = self.client.get(f"/api/attachments?kind=flight&id={unlinked}").json
+        self.assertIsNone(data["day"])  # no fleet aircraft
+        self.assertEqual(len(data["day_all"]["flights"]), 5)
         lonely = flight(2, "2026-11-12T09:00:00Z")
         self.con.commit()
-        self.assertIsNone(self.client.get(f"/api/attachments?kind=flight&id={lonely}").json["day"])  # only itself
+        data = self.client.get(f"/api/attachments?kind=flight&id={lonely}").json
+        self.assertEqual((data["day"], data["day_all"]), (None, None))  # only itself
         self.assertNotIn(private, [f["id"] for f in day["flights"]])
         self.sign_in(3)  # view access only: nothing to upload to
-        self.assertIsNone(self.client.get(f"/api/attachments?kind=flight&id={morning}").json["day"])
+        data = self.client.get(f"/api/attachments?kind=flight&id={morning}").json
+        self.assertEqual((data["day"], data["day_all"]), (None, None))
 
     def test_new_version_inherits_the_category(self):
         _, flight = self.log()

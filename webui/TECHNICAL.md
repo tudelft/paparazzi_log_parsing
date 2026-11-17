@@ -521,10 +521,12 @@ flight/log it is linked to. The list is `LOGDB_ATTACHMENT_CATEGORIES` (comma-sep
 it must be a listed name (any case is stored as listed), otherwise 400. A duplicate upload keeps an existing category
 and fills in a missing one; a new version without a category takes the one of the version it replaces.
 `GET /api/attachments` returns `category` per file, `can_edit` and the `categories` list; for a flight also
-`parent`, its log as a target (null if not visible), which the upload dialog offers as *All flights of this log*,
-and `day`: the other flights of its fleet aircraft on the same date (the logbook date: takeoff UTC date after the
-log's date correction; hidden flights left out; at most 100) that the user may add files to, offered as *All flights of
-<aircraft> on <date>* (null when there are none, or the flight has no fleet aircraft).
+`parent`, its log as a target (null if not visible); `day`, the flights of its fleet aircraft on the same date; and
+`day_all`, all flights on that date, whatever the aircraft. Days use the logbook date (takeoff UTC date after the log's
+date correction), leave out hidden flights, list at most 100 flights the user may add files to, and are null when no
+other flight qualifies (`day` also without a fleet aircraft). The upload dialog's **Upload to** offers *This flight only*,
+*All flights of this log* (the default on a flight), *All flights of <aircraft> on <date>* and *All flights on <date>*;
+flights / logs added with *Find more* are uploaded to as well.
 `PATCH /api/attachments/<id>` (browser session) with `category` (null clears it) and/or `description` changes the
 file for all its links; full access to one linked flight/log is enough. A category removed from the setting stays on
 its files and is shown after the listed ones, but cannot be chosen again. The pages group files by category
