@@ -982,6 +982,9 @@ where PAC and GCS are equal or empty on one side (two different names never grou
 person), with the same simulation and estimated-date state. Logged flights share a place at the same named
 location, otherwise within 1 km of the day's first takeoff; flights without GPS or a known date stay separate.
 Paper flight records group only with each other, at the same named location; paper daily totals never group.
+A row of several flights is tinted with a bar on the left (its flights keep a lighter bar when opened) and shows the
+count (`4×`) in the number column, with a copy button for the flight numbers, space-separated as `pprz_fetch([...])`
+takes them (paper records have none).
 Only rows with several flights show the expand arrow (far-left column); their takeoff/landing times list each
 flight on hover. A row with flights in different projects shows the most common project with "+N"; the split
 is on hover. Import CSV and Review appear in Edit mode; the bulk-edit controls appear once a row is ticked.

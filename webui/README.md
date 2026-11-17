@@ -127,7 +127,8 @@ to gain descriptions and previously omitted crew entries.
   (`1, 3, 4`) to paste into a Python or MATLAB array. Search for `#1234` to find a flight by number; with SD
   and GCS recordings of one flight, hover over the number for both.
 - SD and GCS recordings of the same flight are merged. **Group by day** (on by default) shows one row per
-  aircraft, crew and takeoff place per day, like a paper daily log; click a row with ▸ to see its flights.
+  aircraft, crew and takeoff place per day, like a paper daily log; such a row is tinted, shows its number of flights
+  (for example **4×**) with a button that copies their flight numbers, and opens with ▸ to show its flights.
   It does not change stored flights. With something ticked in Edit mode, the selection bar offers the changes.
 - Hover over an aircraft name in the logbook for its TUD/serial number; it is also on the aircraft detail page.
 - Turn on **Edit** to show permitted editing controls. It stays enabled across pages until turned off.

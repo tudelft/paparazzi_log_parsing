@@ -45,6 +45,12 @@
   tr.flight, tr.group { cursor:pointer; } tr.flight:hover, tr.group:hover { background:var(--hover); }
   tr.group { font-weight:600; }
   tr.sub td:nth-child(3) { padding-left:24px; }
+  /* a day group: tinted with a bar on the left; its flights keep a lighter bar when it is open */
+  tr.group { background:color-mix(in srgb, var(--acc) 6%, transparent); box-shadow:inset 3px 0 0 var(--acc); }
+  tr.group:hover { background:color-mix(in srgb, var(--acc) 11%, transparent); }
+  tr.sub { box-shadow:inset 3px 0 0 color-mix(in srgb, var(--acc) 45%, transparent); }
+  .grp-count { display:inline-block; min-width:2.2em; padding:1px 7px; border-radius:10px; font-size:12px; font-weight:600;
+    background:color-mix(in srgb, var(--acc) 16%, transparent); color:var(--acc); text-align:center; white-space:nowrap; }
   .detail { background:var(--detail); padding:12px 16px; }
   .detail h4 { margin:12px 0 6px; }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
@@ -670,8 +676,15 @@ async function setLogDate(logId, value) {
 const timesTip = o => o.times ? ` class="times" title="${esc(o.times)}"` : '';
 // Flight number (as in /flight/<number> and pprz_fetch): the recording the flight page opens; the other recordings
 // of the same flight (SD and GCS log) in the tooltip. Empty for paper records and for a day with several flights.
+// A day group shows its number of flights ("4×") where a flight shows its number, with a button that copies the
+// flight numbers of the group (space-separated, as pprz_fetch([...]) takes them).
 function numberTd(f, o) {
-  if (f.flight_id == null || (o.group && o.count > 1)) return '<td class="num"></td>';
+  if (o.group && o.count > 1) {
+    const numbers = o.flightIds.join(' ');
+    return `<td class="num"><span class="grp-count" title="${o.count} flights in this row${numbers ? ': ' + esc(numbers) : ''}">${
+      o.count}×</span>${numbers ? window.copyButton(numbers, `the ${o.flightIds.length} flight numbers of this row`) : ''}</td>`;
+  }
+  if (f.flight_id == null) return '<td class="num"></td>';
   const ids = [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)])];
   const tip = ids.length > 1 ? ` title="Recordings: ${esc((f.sources || []).map(s => `${s.flight_id} (${TYPE_LABEL[s.log_type] || s.log_type})`).join(', '))}"` : '';
   return `<td class="num mono"><span${tip}>${f.flight_id}</span>${window.copyButton(f.flight_id, `flight number ${f.flight_id}`)}</td>`;
@@ -698,7 +711,8 @@ function groupRows(g) {
   }
   const times = g.flights.map(f => `${fmtHm(f.takeoff_utc)}–${fmtHm(f.landing_utc) || '?'}`).join(', ');
   const ids = [...new Set(g.flights.flatMap(crewIds))];
-  return `<tr class="group" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: groupProject(g, first), ids, canEdit: editOn() ? g.flights.every(f => f.can_edit_crew) : g.flights.some(selectable)}, g.landing_place_id)}</tr>`
+  const flightIds = g.flights.map(f => f.flight_id).filter(id => id != null);
+  return `<tr class="group" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, flightIds, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: groupProject(g, first), ids, canEdit: editOn() ? g.flights.every(f => f.can_edit_crew) : g.flights.some(selectable)}, g.landing_place_id)}</tr>`
     + (isOpen ? g.flights.map(f => flightRows(f, 'sub')).join('') : '');
 }
 
