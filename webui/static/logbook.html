@@ -100,8 +100,9 @@
   <div id="parseNotice" class="parse-notice" role="status" hidden></div>
   <section class="card">
     <div class="bar">
-      <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date, reference, #number…)">
+      <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date, reference, file name, #number…)">
       <label title="One row per aircraft, crew, day and takeoff location, like a paper daily log. Expand a row for its flights."><input type="checkbox" id="combine" checked> Group by day</label>
+      <select id="filesFilter" aria-label="Files" title="Only flights with additional files (of a category)"><option value="">All flights</option><option value="any">With files</option></select>
       <span class="col-menu"><button type="button" id="colButton" aria-expanded="false" aria-controls="colForm">Columns</button>
         <form id="colForm" hidden aria-label="Shown columns"></form></span>
       <button type="button" class="sec" id="selectBtn" title="Tick flights to copy their numbers or export them for MATLAB">Select</button>
@@ -194,6 +195,7 @@ async function loadFlights() {
   const generation = ++loadGeneration;
   pathCache.clear();
   try {
+    loadLogbookFiles();
     const r = await fetch('/api/logbook?compact=1' + ($('hiddenRecords').checked ? '&hidden=1' : ''));
     const d = await r.json();
     if (generation !== loadGeneration) return;
@@ -406,7 +408,36 @@ function chk(ids, can) {
   const all = ids.length > 0 && ids.every(id => selected.has(id));
   return `<td class="chk"><input type="checkbox" ${all ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel(${esc(JSON.stringify(ids))}, this.checked)"></td>`;
 }
-const text = f => [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)])].filter(id => id != null).map(id => '#' + id).join(' ') + ' ' + [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_estimated ? 'estimated date' : '', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, f.operator_name, f.operator_registration, categoryText(f), f.authorisation_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
+// Files of the flights and paper records (GET /api/logbook/files, loaded next to the logbook): their names are
+// searched, and the Files filter keeps entries with files (of one category). An entry merged from several recordings
+// has the files of all of them.
+let files = {flights: {}, paper: {}, categories: []}, wantedFiles = '';
+const filesOf = f => f.manual_id ? (files.paper[f.manual_id] || [])
+  : [...new Map([f.flight_id, ...(f.sources || []).map(s => s.flight_id)].filter(id => id != null)
+    .flatMap(id => files.flights[id] || []).map(file => [file[0], file])).values()];
+function filesMatch(f) {
+  const want = $('filesFilter').value;
+  if (!want) return true;
+  const mine = filesOf(f);
+  return want === 'any' ? mine.length > 0 : mine.some(file => (file[1] || '') === want.slice(4));
+}
+async function loadLogbookFiles() {
+  try {
+    const r = await fetch('/api/logbook/files');
+    if (!r.ok) return;
+    files = await r.json();
+  } catch (e) { return; }
+  const want = $('filesFilter').value || wantedFiles;
+  const used = new Set(Object.values(files.flights).concat(Object.values(files.paper)).flat().map(file => file[1] || ''));
+  const names = [...files.categories, ...[...used].filter(name => name && !files.categories.includes(name)).sort()];
+  $('filesFilter').replaceChildren(...[['', 'All flights'], ['any', 'With files'],
+    ...names.map(name => ['cat:' + name, 'With ' + name]), ...(used.has('') ? [['cat:', 'With uncategorised files']] : [])]
+    .map(([value, label]) => Object.assign(document.createElement('option'), {value, textContent: label})));
+  $('filesFilter').value = [...$('filesFilter').options].some(o => o.value === want) ? want : '';
+  wantedFiles = '';
+  if (flights.length) render();
+}
+const text = f => filesOf(f).map(file => file[0]).join(' ').toLowerCase() + ' ' + [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)])].filter(id => id != null).map(id => '#' + id).join(' ') + ' ' + [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_estimated ? 'estimated date' : '', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, f.operator_name, f.operator_registration, categoryText(f), f.authorisation_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
 
 function projectOptions(selected) {
   const addable = projects.filter(p => me && (me.is_admin || p.can_add || p.id === selected));
@@ -742,7 +773,7 @@ function groupRows(g) {
 
 function render() {
   const q = $('q').value.trim().toLowerCase();
-  const shown = flights.filter(f => window.flightFilters.includes(f) && (!q || q.split(/\s+/).every(w => text(f).includes(w))));
+  const shown = flights.filter(f => window.flightFilters.includes(f) && filesMatch(f) && (!q || q.split(/\s+/).every(w => text(f).includes(w))));
   const entries = $('combine').checked ? combine(shown) : shown.map(f => ({flights: [f], id: f.record_key}));
   const pages = Math.max(1, Math.ceil(entries.length / pageSize));
   page = Math.min(page, pages - 1);
@@ -814,6 +845,8 @@ $('selCopy').onclick = async () => {
 $('selClear').onclick = () => { selected.clear(); selecting = false; render(); };
 $('q').oninput = () => { page = 0; window.viewState.save(); render(); };
 $('combine').onchange = () => { page = 0; window.viewState.save(true); render(); };
+$('filesFilter').onchange = () => { selected.clear(); page = 0; window.viewState.save(true); render(); };
+document.addEventListener('attachmentsuploaded', loadLogbookFiles);  // the general Upload added files
 window.addEventListener('flightfilterschange', () => { selected.clear(); page = 0; window.viewState.save(true); render(); });
 window.addEventListener('editchange', toggleEdit);
 window.addEventListener('pageshow', event => {
@@ -828,6 +861,8 @@ window.viewState.setup((p, extra) => {
   $('q').value = p.get('q') || '';
   $('combine').checked = p.get('group') !== 'none';
   $('hiddenRecords').checked = p.get('hidden') === '1';
+  wantedFiles = p.get('files') || '';  // applied once the categories are loaded
+  if ([...$('filesFilter').options].some(o => o.value === wantedFiles)) $('filesFilter').value = wantedFiles;
   selected.clear();
   open_.clear(); (extra.open || []).forEach(id => open_.add(id));
   openGroups.clear(); (extra.groups || []).forEach(id => openGroups.add(id));
@@ -836,6 +871,7 @@ window.viewState.setup((p, extra) => {
   set(p,'page',page+1,1); set(p,'size',pageSize,15); set(p,'q',$('q').value);
   set(p,'group',$('combine').checked ? 'day' : 'none','day');
   set(p,'hidden',$('hiddenRecords').checked ? '1' : '');
+  set(p,'files',$('filesFilter').value || wantedFiles);
   return {open:[...open_], groups:[...openGroups]};
 }, loadFlights);
 </script>
