@@ -6297,6 +6297,30 @@ def storage_overview():
         free={"logs": storage_usage.disk(STORAGE_DIR), "database": storage_usage.disk(DATA_DIR)})
 
 
+@app.get("/api/logbook/files")
+def logbook_files():
+    """The current files (no earlier versions) of the flights (linked to the flight or to its log) and paper records
+    this user may see, for the logbook's search and Files filter: {"flights": {flight id: [[name, category], ...]},
+    "paper": {record id: [...]}, "categories": [...]}. Separate from /api/logbook, whose cache ignores attachments."""
+    con = conn()
+    where, params = flight_own_clause()
+    flights, paper = {}, {}
+    for r in con.execute(
+            "SELECT DISTINCT f.id AS fid, a.id AS aid, a.filename, a.category FROM flights f"
+            " JOIN aircraft ac ON ac.id=f.aircraft_id JOIN logs l ON l.id=ac.log_id"
+            " JOIN attachment_links x ON (x.flight_id=f.id OR x.log_id=l.id) AND x.superseded_by IS NULL"
+            f" JOIN attachments a ON a.id=x.attachment_id WHERE {where} ORDER BY f.id, a.filename", params):
+        flights.setdefault(r["fid"], []).append([r["filename"], r["category"]])
+    mine, mine_params = ("1=1", ()) if g.user["is_admin"] else (
+        "r.project_id IN (SELECT project_id FROM project_members WHERE user_id=?)", (g.user["id"],))
+    for r in con.execute(
+            "SELECT DISTINCT r.id AS rid, a.id AS aid, a.filename, a.category FROM flight_records r"
+            " JOIN attachment_links x ON x.record_id=r.id AND x.superseded_by IS NULL"
+            f" JOIN attachments a ON a.id=x.attachment_id WHERE {mine} ORDER BY r.id, a.filename", mine_params):
+        paper.setdefault(r["rid"], []).append([r["filename"], r["category"]])
+    return jsonify(flights=flights, paper=paper, categories=app.config.get("ATTACHMENT_CATEGORIES", []))
+
+
 @app.get("/api/stats")
 def stats():
     """Flight hours by aircraft, project, PIC and PAC.

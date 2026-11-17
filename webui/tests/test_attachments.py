@@ -263,6 +263,31 @@ class AttachmentTests(test_historical.AppTests):
         self.sign_in(3)  # See only: still nothing
         self.assertEqual(self.upload_file([flight], b"view", "view.pdf").status_code, 403)
 
+    def test_logbook_files_for_search_and_filter(self):
+        log, flight = self.log()
+        private_log, private = self.log(project=2, name="private.data")
+        paper = self.paper()
+        self.upload_file([flight], b"one", "takeoff.jpg", category="Media")
+        self.upload_file([log], b"two", "briefing.pdf", category="Preparation & permits")  # via the log
+        self.upload_file([flight], b"old", "plan.pdf")
+        self.upload_file([flight], b"new", "plan.pdf")  # the old one becomes an earlier version: left out
+        self.upload_file([paper], b"three", "scan.pdf")
+        self.sign_in(1)
+        self.upload_file([private], b"secret", "secret.jpg", category="Media")
+        d = self.client.get("/api/logbook/files").json
+        self.assertEqual(d["flights"][str(flight["id"])], [["briefing.pdf", "Preparation & permits"], ["plan.pdf", None],
+                                                           ["takeoff.jpg", "Media"]])
+        self.assertEqual(d["paper"][str(paper["id"])], [["scan.pdf", None]])
+        self.assertIn(str(private["id"]), d["flights"])  # admin sees everything
+        self.assertEqual(d["categories"], attachments.DEFAULT_CATEGORIES)
+        self.sign_in(3)  # member of project 1 only: no names from project 2
+        d = self.client.get("/api/logbook/files").json
+        self.assertIn(str(flight["id"]), d["flights"])
+        self.assertNotIn(str(private["id"]), d["flights"])
+        self.sign_in(4)  # no projects
+        d = self.client.get("/api/logbook/files").json
+        self.assertEqual((d["flights"], d["paper"]), ({}, {}))
+
     def test_new_version_inherits_the_category(self):
         _, flight = self.log()
         self.upload_file([flight], name="plan.pdf", category="Notes")

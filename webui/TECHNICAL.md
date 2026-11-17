@@ -557,6 +557,10 @@ The Upload dialog starts with a drop zone (drop files or choose them); files dro
 on a file list open the Upload dialog with them. The logbook shows an opened entry's files read-only (`AttachmentFiles.summary`): one line
 per category with up to four names, "+N more" and *Files tab →* linking to the flight's Files tab (filtered with
 `files_category`); for an entry merged from several recordings, the files of all of them. They load when the row opens.
+`GET /api/logbook/files` gives the logbook the names and categories of the current files (no earlier versions) of the
+flights (linked to the flight or its log) and paper records the user may see, separate from `/api/logbook` so its
+cache is not involved; the logbook filter searches those names, and **Files** (`?files=any` or `?files=cat:<name>`,
+`cat:` for uncategorised) keeps entries with files (of that category).
 When files are chosen, the Upload dialog suggests a category from their names (for
 example photos and video *Media*, `.csv`/`.ulg`/`.data` *Data*, NOTAM/permit/approval/risk *Preparation & permits*,
 report/plot *Analysis*), only if all files agree, the category is listed and the user has not picked one.
