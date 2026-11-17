@@ -303,16 +303,16 @@ Dates are entered manually, and existing records keep an unknown start date. His
 eligibility is not checked. The read-only People list shows only approved, non-expired qualifications,
 without an approval-status label; management still shows pending, expired and previous submissions.
 
-**Additional files:** use a flight's Files tab, a paper record's Additional files section or an
-expanded upload to attach photos, video or other recordings (default limit **10 GiB** per file).
+**Additional files:** use **Upload files** in a flight's Files tab, a paper record's Additional files section or a
+log's **Additional files** on the Logs page to attach photos, video or other recordings (default limit **10 GiB** per file).
 Clicking the name of a PDF, text file or image opens it in a new tab; the small arrow beside it downloads it.
 Other files download from the name. Word files (`.docx`) open as PDF when LibreOffice is installed on the server.
 Qualification evidence works the same way.
 Uploading a file that is already stored only links it; a file with the name of an existing one replaces it
 on that flight/log, and the old file stays under **Show earlier versions**.
 Files can have a category (for example *Preparation & permits* for NOTAMs and landowner permission), chosen at upload
-or later with **Edit** on the manage page; the Files tab groups them by category.
-On a flight, **Add / manage files** → **Upload files** → **Upload to** chooses *This flight only*, *All flights of this
+or later with **Edit** beside the file; the list groups them by category and has a search box and category filter.
+On a flight, **Upload files** → **Upload to** chooses *This flight only*, *All flights of this
 log* (default), all flights of the aircraft that day, or all flights that day (for example a NOTAM or weather briefing).
 **Anyone able to read any linked flight/log can download the file. Linking across projects shares
 its contents. Never put private qualification evidence here.**

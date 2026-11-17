@@ -309,10 +309,6 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
     def attachment_error(exc):
         return jsonify(error=str(exc)), exc.status
 
-    @app.get("/attachments")
-    def attachments_page():
-        return send_from_directory(Path(__file__).parent / "static", "attachments.html")
-
     @app.get("/attachments.js")
     def attachments_script():
         return send_from_directory(Path(__file__).parent / "static", "attachments.js")
