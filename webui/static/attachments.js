@@ -443,18 +443,38 @@
     m.ready = m.reload().catch(error => { m.list.textContent = `Unable to load files: ${error.message}`; return null; });
     return m;
   }
-  // ---- When was a file made? Photos: EXIF capture time; videos (MP4/MOV): creation time and duration; else a date and
+  // ---- When was a file made? Photos: EXIF capture time (JPEG, HEIC, ...); videos (MP4/MOV): the metadata creation date
+  // with its time zone, else the header's creation time, and the duration; else a date and
   // time in the name; else the file's modified time. Times without a zone are taken in the browser's time zone.
   const localIso = (y, mo, d, h, mi, s) => new Date(+y, +mo - 1, +d, +h, +mi, +s).toISOString();
+  // EXIF: in a JPEG its APP1 segment; in other formats (HEIC/HEIF from phones, PNG, WebP, most RAW) the block
+  // "Exif\0\0" + TIFF header, looked for in the first and last megabyte.
   async function exifTime(file) {
     const view = new DataView(await file.slice(0, 256 * 1024).arrayBuffer());
-    if (view.byteLength < 12 || view.getUint16(0) !== 0xFFD8) return null;
-    for (let p = 2; p + 10 < view.byteLength;) {
-      if (view.getUint8(p) !== 0xFF) return null;
-      const marker = view.getUint8(p + 1), length = view.getUint16(p + 2);
-      if (marker === 0xE1 && view.getUint32(p + 4) === 0x45786966) return tiffTime(view, p + 10);
-      if (marker === 0xDA) return null;
-      p += 2 + length;
+    if (view.byteLength >= 12 && view.getUint16(0) === 0xFFD8) {
+      for (let p = 2; p + 10 < view.byteLength;) {
+        if (view.getUint8(p) !== 0xFF) return null;
+        const marker = view.getUint8(p + 1), length = view.getUint16(p + 2);
+        if (marker === 0xE1 && view.getUint32(p + 4) === 0x45786966) return tiffTime(view, p + 10);
+        if (marker === 0xDA) return null;
+        p += 2 + length;
+      }
+      return null;
+    }
+    if (/\.(mp4|mov|m4v|insv|lrv|3gp|avi|mkv)$/i.test(file.name)) return null;
+    const MB = 1 << 20;
+    for (const [from, to] of [[0, Math.min(file.size, MB)], [Math.max(MB, file.size - MB), file.size]]) {
+      if (to <= from) continue;
+      const bytes = new Uint8Array(await file.slice(from, to).arrayBuffer());
+      for (let i = 0; i + 14 < bytes.length; i++) {
+        if (bytes[i] !== 0x45 || bytes[i + 1] !== 0x78 || bytes[i + 2] !== 0x69 || bytes[i + 3] !== 0x66
+            || bytes[i + 4] !== 0 || bytes[i + 5] !== 0) continue;  // "Exif\0\0"
+        const tiff = (bytes[i + 6] === 0x4D && bytes[i + 7] === 0x4D && bytes[i + 9] === 0x2A)
+          || (bytes[i + 6] === 0x49 && bytes[i + 7] === 0x49 && bytes[i + 8] === 0x2A);
+        if (!tiff) continue;
+        const found = tiffTime(new DataView(bytes.buffer, bytes.byteOffset), i + 6);
+        if (found) return found;
+      }
     }
     return null;
   }
@@ -481,6 +501,7 @@
       return {start, source: 'photo time'};
     } catch (error) { return null; }
   }
+  const latin1 = bytes => { let out = ''; for (let i = 0; i < bytes.length; i += 32768) out += String.fromCharCode(...bytes.subarray(i, i + 32768)); return out; };
   async function videoTime(file) {
     if (!/\.(mp4|mov|m4v|insv|lrv|3gp)$/i.test(file.name)) return null;
     const MB = 1 << 20;
@@ -496,8 +517,18 @@
         let start = (created - 2082844800) * 1000;  // seconds since 1904, UTC
         if (!created || !scale || start < Date.UTC(2000, 0, 1)) return null;
         const duration = length / scale * 1000;
-        // Some cameras write local time as if it were UTC: the file's modified time (the end of recording) then
-        // differs from the end by the time zone offset.
+        // A creation date with a time zone in the metadata (com.apple.quicktime.creationdate, ©day) is the most
+        // reliable; it sits in the same 'moov' box as 'mvhd', so near it.
+        const near = latin1(bytes.subarray(Math.max(0, i - 4 * 1024 * 1024), Math.min(bytes.length, i + 4 * 1024 * 1024)));
+        const tagged = (near.includes('com.apple.quicktime.creationdate') || near.includes('\u00a9day'))
+          && near.match(/(20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?)(Z|[+-]\d\d:?\d\d)/);
+        if (tagged) {
+          const when = Date.parse(tagged[1] + (tagged[2] === 'Z' ? 'Z' : tagged[2].replace(/^([+-]\d\d)(\d\d)$/, '$1:$2')));
+          if (!isNaN(when)) return {start: new Date(when).toISOString(), end: new Date(when + duration).toISOString(),
+            source: 'video time'};
+        }
+        // Otherwise the header time. Some cameras write local time as if it were UTC: the file's modified time (the
+        // end of recording) then differs from the end by the time zone offset.
         const shift = new Date(start).getTimezoneOffset() * 60000;
         if (shift && Math.abs(file.lastModified - (start + duration + shift)) < 120000) start += shift;
         return {start: new Date(start).toISOString(), end: new Date(start + duration).toISOString(), source: 'video time'};
