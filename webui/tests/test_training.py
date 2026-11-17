@@ -319,6 +319,20 @@ class TrainingTests(AppTests):
         self.assertEqual((result["practice"], result["passed"], result["score"]), (True, False, 0))
         self.assertEqual(dict(self.con.execute("SELECT * FROM training_progress WHERE user_id=2").fetchone()), before)
 
+    def test_admin_can_practise_after_a_pass(self):
+        tid = self.add_training()
+        self.add_question(tid)
+        self.sign_in(1)  # an admin gets the editor's questions (with the answers) when not practising
+        quiz = self.client.get(f"/api/trainings/{tid}").json
+        right = {str(q["id"]): next(c["id"] for c in q["choices"] if c["correct"]) for q in quiz["questions"]}
+        self.assertTrue(self.client.post(f"/api/trainings/{tid}/submit", json={"answers": right}).json["passed"])
+        practice = self.client.get(f"/api/trainings/{tid}?practice=1").json
+        self.assertTrue(practice.get("practice"))  # used to be the editor's view: Practice again did nothing
+        self.assertEqual(len(practice["questions"]), 1)
+        self.assertNotIn("correct", practice["questions"][0]["choices"][0])  # no answers in a practice draw
+        self.assertIn("access_mail_to", practice)  # admin settings stay
+        self.assertIn("correct", self.client.get(f"/api/trainings/{tid}").json["questions"][0]["choices"][0])
+
     def test_question_order(self):
         tid = self.add_training()
         a, b, c = (self.add_question(tid, prompt=p) for p in ("A", "B", "C"))

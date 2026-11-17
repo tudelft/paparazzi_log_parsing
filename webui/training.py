@@ -864,17 +864,19 @@ def register(app, connection, root, require_session):
                                      (row["type_id"],)).fetchone()["name"] if row["type_id"] else None,
             "access_question": access_question(row),
         }
+        practising = (out["passed_at"] or awaiting) and request.args.get("practice") == "1" and questions
         if g.user["is_admin"]:
             out.update(access_mail_to=row["access_mail_to"], access_mail_text=row["access_mail_text"],
                        access_question_text=row["access_question"], access_mail_cc=bool(row["access_mail_cc"]),
                        mail_enabled=mail.enabled())
+        if g.user["is_admin"] and not practising:  # the editor's view, with the answers; admins practise as anyone
             out["questions"] = [{
                 "id": q["id"], "prompt": q["prompt"], "kind": q["kind"], "points": q["points"],
                 "image": bool(q["image_path"]),
                 "choices": [{"id": c["id"], "label": c["label"], "correct": bool(c["correct"]),
                              "sort_order": c["sort_order"]} for c in choices.get(q["id"], [])],
             } for q in questions]
-        elif (out["passed_at"] or awaiting) and request.args.get("practice") == "1" and questions:
+        elif practising:
             # practice after a pass: a fresh draw each time, not stored; the result changes nothing
             draw = new_draw(row, questions, choices)
             out["questions"], out["practice"] = public_questions(questions, choices, draw), True
