@@ -40,3 +40,18 @@ class StorageUsageTests(AppTests):
             self.assertEqual(later["scan"]["logs"], {"bytes": 50, "files": 1})
             self.assertIsNotNone(later["measured_at"])
             self.assertFalse(later["measuring"])  # no new scan within SCAN_HOURS
+
+    def test_attachments_per_category(self):
+        rows = [("a.jpg", "Media", 900, 1000), ("b.mp4", "Media", 5000, 5000), ("c.pdf", "Preparation & permits", 70, 100),
+                ("d.txt", None, 10, 40), ("e.bin", "Old category", 3, 3)]
+        for i, (name, category, stored, size) in enumerate(rows):
+            self.con.execute("INSERT INTO attachments(filename,path,compressed,size_bytes,stored_bytes,sha256,uploaded_at,category)"
+                             " VALUES (?,?,?,?,?,?,?,?)", (name, f"attachments/{i}.bin", 0, size, stored, str(i), "now", category))
+        self.con.commit()
+        self.sign_in(1)
+        with patch.dict(storage_usage._state, {"result": {}, "measured_at": "now", "running": False, "error": None,
+                                               "finished": time.time()}):
+            got = self.client.get("/api/admin/storage").json["attachments"]
+        self.assertEqual([(r["category"], r["files"], r["stored_bytes"], r["size_bytes"]) for r in got],
+                         [("Preparation & permits", 1, 70, 100), ("Media", 2, 5900, 6000), ("Old category", 1, 3, 3),
+                          (None, 1, 10, 40)])  # listed order, then no longer listed, uncategorised last
