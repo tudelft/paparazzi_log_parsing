@@ -534,7 +534,21 @@ its files and is shown after the listed ones, but cannot be chosen again. The pa
 a flight's Files tab, a paper record and a log (the Logs page opens it in a dialog): the compact list with search and a
 category filter (on pages in the URL as `files_q` / `files_category`), **Upload files** (only with something to upload
 to) and **Edit** per file the user may change; uploading and linking to more flights/logs happen in dialogs. There is
-no separate attachments page. The Upload dialog starts with a drop zone (drop files or choose them); files dropped
+no separate attachments page.
+
+**Matching files to flights.** The general **Upload** (header, or files dropped on a page) sends logs as before;
+other files (not hidden ones) open a review (`AttachmentFiles.review`). The browser reads when each file was made:
+the photo's EXIF capture time (with its offset, when present), a video's MP4/MOV `mvhd` creation time and duration
+(shifted by the time zone when the file's modified time shows the camera wrote local time), else a date and time in
+the name, else the file's modified time; times without a zone use the browser's. `POST /api/attachments/match`
+(`{"times": [ISO time | {"start", "end"}]}`, at most 1000; a read-only POST, allowed with the read scope) returns per
+item `flight` (the flight it overlaps most, else the nearest within 15 min before takeoff to 30 min after landing),
+`flights` (every flight a video overlaps, when several), `how`, and `day` (all flights of that UTC day), only flights the
+user may add files to, using the logbook date (after a log's date correction). The review proposes, in that order,
+the overlapped flights, the flight, all flights that day, or nothing; the user can change each before uploading. When
+logs are in the same upload, matching waits until they are parsed (at most 15 minutes).
+
+The Upload dialog starts with a drop zone (drop files or choose them); files dropped
 on a file list open the Upload dialog with them. The logbook shows an opened entry's files read-only (`AttachmentFiles.summary`): one line
 per category with up to four names, "+N more" and *Files tab →* linking to the flight's Files tab (filtered with
 `files_category`); for an entry merged from several recordings, the files of all of them. They load when the row opens.

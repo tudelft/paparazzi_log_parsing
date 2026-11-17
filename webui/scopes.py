@@ -1,7 +1,7 @@
 """API key scopes (issue 235): what a key may do, on top of what its user may do. Scopes only narrow.
 
 A key has a space-separated list of scopes in api_keys.scopes:
-  read              every GET (and HEAD), plus the read-only POSTs in READ_POSTS (MATLAB export requests)
+  read              every GET (and HEAD), plus the read-only POSTs in READ_POSTS (MATLAB export requests, matching files to flights)
   logs:upload       log upload and reservations, logs/check, attachments (upload, share), paper records (single, CSV)
   logs:edit         project, date, crew and comment of logs and flights, date suggestions, conflicts, reparse
   documents:upload  add a document and replace its file
@@ -19,7 +19,8 @@ rights, except managing documents (browser session only since issue 235). It can
 SCOPES = ("read", "logs:upload", "logs:edit", "documents:upload", "documents:manage", "admin")
 ADMIN_SCOPES = ("documents:upload", "documents:manage", "admin")  # useless without administrator rights
 LOGIN_SCOPES = ("read", "logs:upload", "logs:edit")  # keys from a browser login (Python package, MATLAB)
-READ_POSTS = {"request_matlab_export", "request_flight_matlab_export", "request_flights_matlab_export"}
+READ_POSTS = {"request_matlab_export", "request_flight_matlab_export", "request_flights_matlab_export",
+              "match_attachments"}
 # a key with any scope beyond read may revoke its user's browser-login keys (the Python and MATLAB sign-out)
 WRITE_ANY = {"revoke_all_keys"}
 

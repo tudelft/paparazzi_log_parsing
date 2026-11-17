@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -26,6 +27,8 @@ CONVERT_MAX_BYTES = 50 * 2**20
 CONVERT_TIMEOUT_S = 90
 PREVIEWS = "previews"
 Error = historical.RecordError
+MATCH_BEFORE_S = 15 * 60  # a file made this long before takeoff belongs to the flight
+MATCH_AFTER_S = 30 * 60   # ... and this long after landing
 _convert_lock = threading.Lock()  # one LibreOffice at a time: it is heavy and shares nothing between runs
 DEFAULT_CATEGORIES = ["Preparation & permits", "Notes", "Media", "Data", "Analysis", "Archive"]
 PREFIX = re.compile(r"\[([^\]\n]{1,40})\][ \t]*")
@@ -297,7 +300,7 @@ def restore(con, log_id, saved):
 
 
 def register(app, connection, root, require_session, timestamp, max_bytes, office=None, categories=None,
-             same_day=None):
+             same_day=None, flights_on=None):
     root = Path(root)
     app.config["ATTACHMENT_OFFICE"] = office_binary(office)
     app.config["ATTACHMENT_CATEGORIES"] = list(categories or DEFAULT_CATEGORIES)
@@ -550,6 +553,72 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
             con.execute(f"UPDATE attachments SET {', '.join(f'{k}=?' for k in changes)} WHERE id=?",
                         (*changes.values(), attachment_id))
         return jsonify(ok=True, **changes)
+
+    @app.post("/api/attachments/match")
+    def match_attachments():
+        """Flights for files by when they were made: a moment (photo capture time, a time in the name, ...) or a
+        range {start, end} (a video). Per item: `flight`, the flight it overlaps most, else the nearest one within 15
+        min before takeoff to 30 min after landing; `flights`, every flight a range overlaps (when several); `how`;
+        and `day`, all flights of that UTC day. Only flights the user may add files to. Reads only."""
+        body = request.get_json(silent=True)
+        items = body.get("times") if isinstance(body, dict) else None
+        if not isinstance(items, list) or len(items) > 1000:
+            raise Error("Send {\"times\": [ISO time with a time zone, or {\"start\": ..., \"end\": ...}]} (at most 1000).")
+
+        def stamp(value):
+            try:
+                moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            except ValueError:
+                return None
+            return moment.timestamp() if moment.tzinfo else None
+        spans = []
+        for item in items:
+            first, last = (stamp(item.get("start")), stamp(item.get("end"))) if isinstance(item, dict) else (stamp(item),) * 2
+            if first is not None and (last is None or last < first or last - first > 86400):
+                last = first  # no usable end: a moment
+            spans.append((first, last) if first is not None else None)
+        days = {datetime.fromtimestamp(ts + shift, timezone.utc).date().isoformat()
+                for span in spans if span for ts in span for shift in (-86400, 0, 86400)}
+        con = connection()
+        windows = flights_on(con, days) if flights_on and days else []
+        editable = {}
+
+        def allowed(fid):
+            if fid not in editable:
+                try:
+                    item = target(con, g.user, "flight", fid)
+                except Error as exc:
+                    if exc.status != 404:
+                        raise
+                    item = None
+                editable[fid] = item if item and item["can_edit"] else None
+            return editable[fid]
+
+        def overlap(span, w):
+            return max(0.0, min(span[1], w[2]) - max(span[0], w[1]))
+
+        def gap(span, w):
+            return 0 if span[0] <= w[2] and span[1] >= w[1] else min(abs(span[0] - w[2]), abs(span[1] - w[1]))
+        matches = []
+        for span in spans:
+            if span is None:
+                matches.append(None)
+                continue
+            mine = [w for w in windows if allowed(w[0])]
+            hits = [w for w in mine if span[0] <= w[2] and span[1] >= w[1]]  # the file's time touches the flight
+            near = hits or [w for w in mine if w[1] - MATCH_BEFORE_S <= span[1] and span[0] <= w[2] + MATCH_AFTER_S]
+            best = max(near, key=lambda w: (overlap(span, w), -gap(span, w), -w[1])) if near else None
+            how = None
+            if best:
+                how = ("during" if best[1] <= span[0] and span[1] <= best[2] else "overlaps" if hits
+                       else "before takeoff" if span[1] < best[1] else "after landing")
+            date = datetime.fromtimestamp(span[0], timezone.utc).date().isoformat()
+            that_day = [allowed(w[0]) for w in mine if w[3] == date][:100]
+            matches.append(dict(flight=allowed(best[0]) if best else None, how=how,
+                                flights=[allowed(w[0]) for w in hits][:100] if len(hits) > 1 else None,
+                                day=dict(date=date, flights=that_day) if that_day else None))
+        return jsonify(matches=matches, categories=app.config["ATTACHMENT_CATEGORIES"],
+                       max_bytes=app.config["ATTACHMENT_MAX_BYTES"])
 
     @app.get("/api/attachments/<int:attachment_id>/download")
     def download_attachment(attachment_id):

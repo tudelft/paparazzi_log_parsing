@@ -5452,6 +5452,27 @@ def same_day_flights(con, flight_id, any_aircraft=False):
     return row["name"], date, [r["id"] for r in sorted(rows, key=takeoff) if day(r) == date]
 
 
+def flights_on_dates(con, dates):
+    """Not hidden flights whose logbook date (takeoff UTC date after the log's date correction) is one of `dates`:
+    [(flight id, takeoff timestamp, landing timestamp, date)] in takeoff order. Used to match files to flights."""
+    found = {}
+    for date in sorted(set(dates)):
+        for r in con.execute(
+                "SELECT f.id, f.takeoff_utc, f.landing_utc, f.duration_s, l.start_utc, l.date_override FROM flights f"
+                " JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id WHERE f.hidden=0"
+                " AND f.takeoff_utc IS NOT NULL AND ((l.date_override IS NULL AND f.takeoff_utc LIKE ? || '%')"
+                "  OR l.date_override BETWEEN date(?, '-1 day') AND date(?, '+1 day'))", (date, date, date)):
+            days = clock_shift_days(r["start_utc"], r["date_override"])
+            takeoff = shift_iso(r["takeoff_utc"], days)
+            begin, landing = parse_iso_utc(takeoff), parse_iso_utc(shift_iso(r["landing_utc"], days))
+            if begin is None or takeoff[:10] != date:
+                continue
+            start = begin.timestamp()
+            end = landing.timestamp() if landing else start + (r["duration_s"] or 0)
+            found[r["id"]] = (r["id"], start, max(end, start), date)
+    return sorted(found.values(), key=lambda w: (w[1], w[0]))
+
+
 def shift_iso(iso, days):
     if not iso or not days:
         return iso
@@ -7685,7 +7706,7 @@ def delete_log(log_id):
 
 attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, env_int("ATTACHMENT_MAX_BYTES"),
                      office=env("OFFICE"), categories=parse_categories(env("ATTACHMENT_CATEGORIES")),
-                     same_day=same_day_flights)
+                     same_day=same_day_flights, flights_on=flights_on_dates)
 qualifications.register(app, lambda: conn(), STORAGE_DIR, session_required)
 training.register(app, lambda: conn(), DATA_DIR, session_required)
 profiles.register(app, lambda: conn(), session_required, now, PAGES_DIR)
