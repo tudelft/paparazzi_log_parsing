@@ -102,6 +102,8 @@ SETTINGS = {
         "SAML_ENABLED": ("1", "0 hides the 'Sign in with TU Delft' button"),
         "SAML_METADATA_URL": ("https://login.tudelft.nl/sso/saml2/idp/metadata.php", "Identity provider metadata"),
         "SAML_ENTITY_ID": (None, "This service's SAML entity ID (default: <PUBLIC_URL>/saml/metadata)"),
+        "SAML_PASSIVE": ("1", "1 signs people in without a click when they already have a TU Delft session "
+                              "(silent check on the login page); 0 always shows the login page"),
     },
 }
 ALL = {name: v for group in SETTINGS.values() for name, v in group.items()}
