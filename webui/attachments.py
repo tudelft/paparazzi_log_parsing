@@ -34,6 +34,11 @@ DEFAULT_CATEGORIES = ["Preparation & permits", "Notes", "Media", "Data", "Analys
 PREFIX = re.compile(r"\[([^\]\n]{1,40})\][ \t]*")
 
 
+def playable(filename):
+    """Video or audio the browser plays itself."""
+    return (view_type(filename) or "").startswith(("video/", "audio/"))
+
+
 def category_value(value, categories):
     """The listed category matching `value` (any case), None for no category; anything else is refused."""
     if value is None or value == "":
@@ -460,7 +465,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
         try:
             try:
                 staged, compressed, size, stored, sha = storage.save_attachment(
-                    request.stream, root / ".incoming-attachments", limit)
+                    request.stream, root / ".incoming-attachments", limit, compress=not playable(filename))
             except ValueError as exc:
                 raise Error(str(exc), 413 if "exceeds" in str(exc) else 400) from exc
             relative = f"attachments/{uuid.uuid4().hex}" + (".gz" if compressed else ".bin")
@@ -526,8 +531,10 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Cache-Control"] = "private, no-store"
         if inline and mimetype != "application/pdf":
-            # Defense in depth for text and images; browsers' built-in PDF viewers break under a sandbox.
-            response.headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src 'self'"
+            # Defense in depth. Browsers' built-in PDF viewers break under a sandbox, and so does their video/audio
+            # player: those get no sandbox but may load nothing except the media itself (no script either way).
+            response.headers["Content-Security-Policy"] = ("default-src 'none'; media-src 'self'" if playable(row["filename"])
+                                                           else "sandbox; default-src 'none'; img-src 'self'")
         return response
 
     def send_converted(row):

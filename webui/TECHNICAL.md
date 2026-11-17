@@ -572,11 +572,14 @@ lossy conversion is done; downloads reproduce the original filename and exact by
 
 `GET /api/attachments/<id>/view` serves the same bytes with `Content-Disposition: inline`, with the same
 access checks as the download. The type comes only from an extension allowlist (`VIEWABLE` in
-`storage.py`, shared with qualification evidence at `/api/qualification-submissions/<id>/evidence/view`): PDF, `.txt`/`.csv`/`.md`/`.log` as `text/plain`, and PNG/JPEG/GIF/WebP. Any other
+`storage.py`, shared with qualification evidence at `/api/qualification-submissions/<id>/evidence/view`): PDF, `.txt`/`.csv`/`.md`/`.log` as `text/plain`, PNG/JPEG/GIF/WebP,
+video (`.mp4`/`.m4v`/`.webm`, and `.mov` served as `video/mp4`, which Chrome and Firefox then play) and audio
+(`.mp3`/`.m4a`/`.wav`/`.ogg`), which play in the browser's own player. Any other
 file (HTML, SVG, XML, other Office documents, no extension) gets 415 and stays a download, so stored files
 never run script in the site's origin. `nosniff` and `Cache-Control: private, no-store` apply to both
 routes; inline text and images also get `Content-Security-Policy: sandbox` (not PDF, whose built-in
-browser viewers break under a sandbox).
+browser viewers break under a sandbox). Video and audio get `default-src 'none'; media-src 'self'` instead: a sandbox
+stops the browser's player. Video and audio are stored uncompressed, so range requests (seeking) always work.
 
 **Word documents.** When LibreOffice is available (`LOGDB_OFFICE`, default `auto`: `soffice` on PATH;
 `off` disables), `.docx` attachments up to 50 MB are viewable too: `/view` converts the file to PDF

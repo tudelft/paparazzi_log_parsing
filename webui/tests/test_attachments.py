@@ -379,8 +379,11 @@ class AttachmentTests(test_historical.AppTests):
         pdf = self.upload_file([paper], b"%PDF-1.4\n" + os.urandom(4096), "Flight request.PDF").json["id"]
         text = self.upload_file([paper], b"wind,temperature\n1,20\n" * 1000, "wind.csv").json["id"]
         image = self.upload_file([paper], os.urandom(2048), "photo.jpeg").json["id"]
+        video = self.upload_file([paper], b"\0" * 8192, "clip.MOV").json["id"]  # MOV plays as MP4; not compressed
+        sound = self.upload_file([paper], os.urandom(2048), "radio.mp3").json["id"]
         listing = {f["id"]: f for f in self.client.get(f'/api/attachments?kind=paper&id={paper["id"]}').json["files"]}
-        for aid, mimetype in ((pdf, "application/pdf"), (text, "text/plain; charset=utf-8"), (image, "image/jpeg")):
+        for aid, mimetype in ((pdf, "application/pdf"), (text, "text/plain; charset=utf-8"), (image, "image/jpeg"),
+                              (video, "video/mp4"), (sound, "audio/mpeg")):
             self.assertTrue(listing[aid]["viewable"])
             response = self.client.get(f"/api/attachments/{aid}/view")
             self.assertEqual(response.status_code, 200)
@@ -394,6 +397,12 @@ class AttachmentTests(test_historical.AppTests):
             download.close()
         self.assertNotIn("Content-Security-Policy", self.client.get(f"/api/attachments/{pdf}/view").headers)
         self.assertIn("sandbox", self.client.get(f"/api/attachments/{text}/view").headers["Content-Security-Policy"])
+        policy = self.client.get(f"/api/attachments/{video}/view").headers["Content-Security-Policy"]
+        self.assertEqual(policy, "default-src 'none'; media-src 'self'")  # a sandbox stops the browser's player
+        self.assertFalse(self.con.execute("SELECT compressed FROM attachments WHERE id=?", (video,)).fetchone()[0])
+        ranged = self.client.get(f"/api/attachments/{video}/view", headers={"Range": "bytes=0-99"})  # seeking
+        self.assertEqual((ranged.status_code, len(ranged.data)), (206, 100))
+        ranged.close()
         for name in ("page.html", "drawing.svg", "data.xml", "report.docx", "noextension"):
             aid = self.upload_file([paper], b"<script>alert(1)</script>" * 100, name).json["id"]
             self.assertEqual(self.client.get(f"/api/attachments/{aid}/view").status_code, 415, name)
