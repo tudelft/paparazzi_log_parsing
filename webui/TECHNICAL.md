@@ -1828,6 +1828,10 @@ upload supplies a `.log` the log lacked).
 - **Scripts.** `/api/logs/check` reports `mine` per known hash. `upload_logs.py` skips only files the user
   already uploaded; others are uploaded once more, which proves possession (a hash alone does not) and adds the
   co-uploader. The file is still stored once.
+  For logs the user may see (the rule of `GET /api/logs/<id>`), each entry also has the log's `id`, `name` and
+  `status`, and its `flights` (`id`, `idx`, `takeoff_utc`, `duration_s`, `hidden`, `comment`; in takeoff order,
+  hidden flights included; `[]` until `status` is `done`). A script that knows a file only by its hash uses them to
+  attach files to the log or comment on its flights. Other logs keep only `has_log` and `mine`.
 
 **Logbook.** The parser tells onboard SD logs from ground station logs. The logbook (`/logbook`) has one row per
 flight and merges the SD and GCS recordings of the same flight: flight data from the SD log, PIC/PAC/GCS operator and

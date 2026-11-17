@@ -1528,19 +1528,35 @@ def delete_key(key_id):
 
 @app.post("/api/logs/check")
 def check_logs():
-    """Which of these .data hashes are already stored, and uploaded by this user? Lets a client skip uploading them."""
+    """Which of these .data hashes are already stored, and uploaded by this user? Lets a client skip uploading them.
+    For logs the user may see (as GET /api/logs/<id>), also the log id, name, status and its flights, so a client that
+    knows a file only by its hash can attach files to the log or comment on its flights."""
     hashes = (request.get_json(silent=True) or {}).get("sha256")
     if not isinstance(hashes, list) or len(hashes) > 5000:
         return jsonify(error="send {\"sha256\": [up to 5000 hashes]}"), 400
     wanted = [h.lower() for h in hashes if isinstance(h, str) and len(h) == 64]
     con = conn()
+    where, params = own_clause()
     known = {}
     for i in range(0, len(wanted), 500):
         chunk = wanted[i:i + 500]
-        for r in con.execute("SELECT id, sha256, uploaded_by, log_path IS NOT NULL AS has_log FROM logs"
-                             " WHERE sha256 IN (%s)" % ",".join("?" * len(chunk)), chunk):
+        done = {}
+        marks = ",".join("?" * len(chunk))
+        for r in con.execute(f"SELECT id, sha256, name, status, uploaded_by, log_path IS NOT NULL AS has_log,"
+                             f" ({where}) AS visible FROM logs WHERE sha256 IN ({marks})", (*params, *chunk)):
             # mine=False: a client uploads the file anyway, which proves it has it and adds a co-uploader.
-            known[r["sha256"]] = {"has_log": bool(r["has_log"]), "mine": is_uploader(con, r["id"], r["uploaded_by"])}
+            entry = {"has_log": bool(r["has_log"]), "mine": is_uploader(con, r["id"], r["uploaded_by"])}
+            if r["visible"]:
+                entry.update(id=r["id"], name=r["name"], status=r["status"], flights=[])
+                if r["status"] == "done":
+                    done[r["id"]] = entry
+            known[r["sha256"]] = entry
+        if done:
+            for f in con.execute(
+                    "SELECT f.id, f.idx, f.takeoff_utc, f.duration_s, f.hidden, f.comment, a.log_id FROM flights f"
+                    f" JOIN aircraft a ON a.id=f.aircraft_id WHERE a.log_id IN ({','.join('?' * len(done))})"
+                    " ORDER BY a.log_id, f.takeoff_time_s IS NULL, f.takeoff_time_s, a.ac_id, f.idx", list(done)):
+                done[f["log_id"]]["flights"].append({k: f[k] for k in f.keys() if k != "log_id"})
     return jsonify(known=known)
 
 
