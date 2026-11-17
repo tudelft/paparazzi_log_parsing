@@ -152,6 +152,7 @@ def target(con, user, kind, identity, edit=False, add=False):
     if not isinstance(kind, str) or kind not in COLUMNS:
         raise Error("Unknown attachment target.")
     identity = historical.integer(identity, "Target ID")
+    short = {}  # flights: aircraft and takeoff, for short labels (the upload review)
     if kind == "paper":
         row = historical.visible(con, user, identity)
         project, uploader = row["project_id"], None
@@ -169,6 +170,7 @@ def target(con, user, kind, identity, edit=False, add=False):
                 " JOIN logs l ON l.id=a.log_id WHERE f.id=?", (identity,)).fetchone()
             label = f'{row["name"]} - flight {row["idx"]} - {row["takeoff_utc"] or "unknown time"}' if row else ""
             url = f"/flight/{identity}"
+            short = dict(aircraft=row["name"], takeoff_utc=row["takeoff_utc"]) if row else {}
         if row is None:
             raise Error("No such flight or log.", 404)
         project, uploader = row["project_id"], row["uploaded_by"]
@@ -186,7 +188,7 @@ def target(con, user, kind, identity, edit=False, add=False):
         raise Error("Full access to every selected flight/log is required.", 403)
     if add and not addable:
         raise Error("Upload access to every selected flight/log is required.", 403)
-    return dict(kind=kind, id=identity, label=label, url=url, can_edit=editable, can_add=addable)
+    return dict(kind=kind, id=identity, label=label, url=url, can_edit=editable, can_add=addable, **short)
 
 
 def can_change(con, user, row, links):
