@@ -208,6 +208,8 @@ class AttachmentTests(test_historical.AppTests):
         times = ["2026-11-10T09:10:00Z",       # during the morning flight
                  "2026-11-10T10:45:00+01:00",  # 09:45 UTC: 25 min after landing
                  "2026-11-10T11:50:00Z",       # 10 min before noon takeoff
+                 "2026-11-10T10:10:00Z",       # 50 min after the morning landing: within the hour
+                 "2026-11-10T11:05:00Z",       # 55 min before noon takeoff, 1h45 after the morning one: noon
                  "2026-11-10T14:00:00Z",       # no flight near: that day only
                  "2026-11-10T17:05:00Z",       # the private flight: not offered
                  "2026-11-11T07:02:00Z",       # the log with a corrected date
@@ -218,13 +220,13 @@ class AttachmentTests(test_historical.AppTests):
                 [f["id"] for f in m["day"]["flights"]] if m and m["day"] else None) for m in r.json["matches"]]
         day = [morning, noon]
         self.assertEqual(got, [(morning, "during", day), (morning, "after landing", day), (noon, "before takeoff", day),
-                               (None, None, day), (None, None, day), (fixed, "during", [fixed]), (None, None, None),
+                               (morning, "after landing", day), (noon, "before takeoff", day), (None, None, day), (None, None, day), (fixed, "during", [fixed]), (None, None, None),
                                (None, None, None), (None, None, None)])  # no time zone or not a time: no match
         self.assertNotIn(private, [f["id"] for m in r.json["matches"] if m and m["day"] for f in m["day"]["flights"]])
         # videos: a range matches the flight it overlaps most; over several flights it lists them all
         ranges = [{"start": "2026-11-10T08:55:00Z", "end": "2026-11-10T09:05:00Z"},    # starts before takeoff
                   {"start": "2026-11-10T09:15:00Z", "end": "2026-11-10T12:08:00Z"},    # over both flights
-                  {"start": "2026-11-10T13:00:00Z", "end": "2026-11-10T12:00:00Z"}]    # end before start: a moment
+                  {"start": "2026-11-10T13:30:00Z", "end": "2026-11-10T12:00:00Z"}]    # end before start: a moment (1h20 after noon)
         m = self.client.post("/api/attachments/match", json={"times": ranges}).json["matches"]
         self.assertEqual((m[0]["flight"]["id"], m[0]["how"], m[0]["flights"]), (morning, "overlaps", None))
         self.assertEqual((m[0]["flight"]["aircraft"], m[0]["flight"]["takeoff_utc"]), ("Drone", "2026-11-10T09:00:00Z"))

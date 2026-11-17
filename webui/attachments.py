@@ -27,8 +27,8 @@ CONVERT_MAX_BYTES = 50 * 2**20
 CONVERT_TIMEOUT_S = 90
 PREVIEWS = "previews"
 Error = historical.RecordError
-MATCH_BEFORE_S = 15 * 60  # a file made this long before takeoff belongs to the flight
-MATCH_AFTER_S = 30 * 60   # ... and this long after landing
+MATCH_BEFORE_S = 60 * 60  # a file made up to an hour before takeoff (preparation, setup) belongs to the flight
+MATCH_AFTER_S = 60 * 60   # ... and up to an hour after landing; the nearest flight wins
 _convert_lock = threading.Lock()  # one LibreOffice at a time: it is heavy and shares nothing between runs
 DEFAULT_CATEGORIES = ["Preparation & permits", "Notes", "Media", "Data", "Analysis", "Archive"]
 PREFIX = re.compile(r"\[([^\]\n]{1,40})\][ \t]*")
@@ -584,8 +584,8 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
     @app.post("/api/attachments/match")
     def match_attachments():
         """Flights for files by when they were made: a moment (photo capture time, a time in the name, ...) or a
-        range {start, end} (a video). Per item: `flight`, the flight it overlaps most, else the nearest one within 15
-        min before takeoff to 30 min after landing; `flights`, every flight a range overlaps (when several); `how`;
+        range {start, end} (a video). Per item: `flight`, the flight it overlaps most, else the nearest one within 1 hour
+        before takeoff to 1 hour after landing; `flights`, every flight a range overlaps (when several); `how`;
         and `day`, all flights of that UTC day. Only flights the user may add files to. Reads only."""
         body = request.get_json(silent=True)
         items = body.get("times") if isinstance(body, dict) else None

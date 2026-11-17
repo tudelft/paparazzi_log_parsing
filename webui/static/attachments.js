@@ -108,7 +108,8 @@
     <p>A file with the name of a current file there replaces it; the old one stays under "Show earlier versions".
       A file that is already stored is linked, not stored again. Files can also be dropped on the file list.</p>
     <p><strong>Sharing:</strong> everyone with access to any linked flight / log can download the file.</p></details>
-    <button type="button" id="afSubmit" disabled>Upload</button></div>
+    <span class="af-buttons"><button type="button" id="afCancel" hidden>Cancel upload</button>
+      <button type="button" id="afSubmit" disabled>Upload</button><button type="button" id="afDone" hidden>Done</button></span></div>
 </dialog>
 <dialog class="entry-dialog af-dialog" id="afEdit" aria-labelledby="afEditTitle">
   <div class="dialog-header"><h2 id="afEditTitle">Edit file</h2><button type="button" id="afEditClose" aria-label="Close Edit file">Close</button></div>
@@ -138,6 +139,8 @@
       findTargets(byId('afFindQuery').value, byId('afFindResults'), 'Add', t => addExtra(t));
     };
     byId('afSubmit').onclick = uploadAll;
+    byId('afCancel').onclick = cancelUpload;
+    byId('afDone').onclick = () => byId('afUpload').close();
     const drop = byId('afDrop'), input = byId('afFiles');
     drop.onclick = () => { if (!busy) input.click(); };
     drop.onkeydown = event => { if ((event.key === 'Enter' || event.key === ' ') && !busy) { event.preventDefault(); input.click(); } };
@@ -171,6 +174,13 @@
   // A category suggested from the selected files' names, until the user picks one: only when every file points to the
   // same category and that category is in the configured list.
   let chosenCategory = false, picked = [];
+  // The upload in progress can be cancelled: the running request is aborted and no further file is sent. After a run
+  // with nothing left to send, "Done" replaces "Upload".
+  let currentXhr = null, cancelled = false, finished = false;
+  function cancelUpload() {
+    cancelled = true;
+    if (currentXhr) currentXhr.abort();
+  }
   // Files dragged onto `element` (highlighting `mark` while over it) are passed to `onfiles`.
   function dropTarget(element, onfiles, mark = element) {
     let depth = 0;
@@ -186,6 +196,7 @@
   }
   function setPicked(files) {
     picked = files;
+    if (files.length) finished = false;
     const names = files.map(file => file.name);
     byId('afPicked').innerHTML = files.map((file, i) => `<li><span title="${esc(file.name)}">${esc(file.name)}</span>
       <span class="mute af-size">${size(file.size)}</span><button type="button" class="af-x" data-unpick="${i}"
@@ -226,6 +237,9 @@
   function syncUpload() {
     byId('afUploadFields').disabled = busy;
     byId('afSubmit').disabled = busy || !chosen().length || !picked.length;
+    byId('afSubmit').hidden = busy || (finished && !picked.length);
+    byId('afCancel').hidden = !busy;
+    byId('afDone').hidden = busy || !finished || picked.length > 0;
   }
   function addExtra(t) {
     const existing = [...byId('afExtra').querySelectorAll('input')].find(input => input.value === tkey(t));
@@ -270,7 +284,7 @@
     extras.clear(); byId('afExtra').replaceChildren(); byId('afFindResults').replaceChildren(); byId('afFindQuery').value = '';
     byId('afCategory').replaceChildren(option('', 'Uncategorised'), ...m.categories.map(name => option(name, name)));
     byId('afDescription').value = ''; byId('afFiles').value = ''; byId('afStatus').textContent = '';
-    picked = []; setPicked(files || []);
+    picked = []; finished = false; cancelled = false; setPicked(files || []);
     chosenCategory = false;
     byId('afLimit').textContent = `At most ${size(m.data.max_bytes)} per file. Files upload one at a time: keep this dialog open until they are done.`;
     byId('afMore').open = false;
@@ -293,6 +307,9 @@
         }
       };
       xhr.onerror = () => reject(Error('Network error. Upload may have completed; refresh the file list before retrying.'));
+      xhr.onabort = () => reject(Object.assign(Error('Cancelled.'), {cancelled: true}));
+      xhr.onloadend = () => { if (currentXhr === xhr) currentXhr = null; };
+      currentXhr = xhr;
       xhr.onload = () => {
         let data;
         try { data = JSON.parse(xhr.responseText); }
@@ -315,21 +332,28 @@
       .map(old => `${old.filename} uploaded on ${old.uploaded_at.slice(0, 10)}`);
     if (replaces.length && !confirm(`This replaces:\n${replaces.join('\n')}\n\nThe old file stays available under` +
       ' "Show earlier versions". Identical files are linked, not stored again.')) return;
-    busy = true; syncUpload(); byId('afSelection').disabled = true; byId('afProgress').hidden = false;
+    busy = true; cancelled = false; syncUpload(); byId('afSelection').disabled = true; byId('afProgress').hidden = false;
     byId('afUploadClose').disabled = true;
     let completed = 0, linked = 0;
+    const left = [...files];  // what was not sent yet stays chosen after a cancel or error
     try {
       for (const file of files) {
+        if (cancelled) throw Object.assign(Error('Cancelled.'), {cancelled: true});
         byId('afProgress').value = 0; status.textContent = `Uploading ${file.name}...`;
         const meta = {category: byId('afCategory').value, description: byId('afDescription').value};
         if ((await uploadOne(file, selected, meta)).duplicate) linked++; else completed++;
+        left.shift();
       }
-      byId('afFiles').value = ''; setPicked([]);
+      byId('afFiles').value = '';
       status.textContent = `${completed} file(s) saved and linked.` +
         (linked ? ` ${linked} identical file(s) were already stored and are now linked.` : '');
-    } catch (error) { status.textContent = `${completed} file(s) saved. ${error.message}`; }
+    } catch (error) {
+      status.textContent = `${completed + linked} file(s) saved. ` + (error.cancelled
+        ? `Cancelled: ${left.length} not uploaded; press Upload to send ${left.length === 1 ? 'it' : 'them'}.` : error.message);
+    }
     finally {
-      busy = false; syncUpload(); byId('afSelection').disabled = false; byId('afProgress').hidden = true;
+      busy = false; finished = true; setPicked(left);  // files left (cancel, error) keep Upload available
+      syncUpload(); byId('afSelection').disabled = false; byId('afProgress').hidden = true;
       byId('afUploadClose').disabled = false;
       try { await m.reload(); } catch (error) { status.textContent += ` Unable to refresh: ${error.message}`; }
     }
@@ -571,14 +595,17 @@
   <div class="af-actions"><details class="af-help"><summary class="mute">Help</summary>
     <p>The time comes from the photo (EXIF) or video (start and length), else from a date and time in the file name, else
       from the file's date, which copying can change. Times without a time zone are taken in this browser's time zone.
-      A file matches the flight it overlaps, or one up to 15 minutes before takeoff or 30 minutes after landing; a video
+      A file matches the flight it overlaps, else the nearest flight up to 1 hour before takeoff or after landing; a video
       over several flights goes to all of them. Only flights you may add files to are offered.</p>
     <p><strong>Sharing:</strong> everyone with access to any linked flight / log can download the file.</p></details>
-    <button type="button" id="afReviewUpload" disabled>Upload</button></div>
+    <span class="af-buttons"><button type="button" id="afReviewCancel" hidden>Cancel upload</button>
+      <button type="button" id="afReviewUpload" disabled>Upload</button><button type="button" id="afReviewDone" hidden>Done</button></span></div>
 </dialog>`);
     byId('afReviewClose').onclick = () => { if (!busy) byId('afReview').close(); };
     byId('afReview').addEventListener('cancel', event => { if (busy) event.preventDefault(); });
     byId('afReviewUpload').onclick = uploadReviewed;
+    byId('afReviewCancel').onclick = cancelUpload;
+    byId('afReviewDone').onclick = () => byId('afReview').close();
   }
   const when = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'}); };
   // Short names for the review's choices: per aircraft its takeoff times in local time, then the flight numbers,
@@ -602,6 +629,7 @@
     const status = byId('afReviewStatus'), list = byId('afReviewList');
     byId('afReviewTitle').textContent = `Upload ${files.length} file${files.length === 1 ? '' : 's'}`;
     byId('afReviewDescription').value = ''; byId('afReviewUpload').disabled = true; status.textContent = '';
+    finished = false; cancelled = false;
     list.innerHTML = '<p class="mute">Reading when the files were made…</p>';
     if (!byId('afReview').open) byId('afReview').showModal();
     const times = [];
@@ -649,9 +677,13 @@
   function syncReview() {
     const rows = byId('afReviewList').querySelectorAll('.af-row:not(.af-done)');
     const count = [...rows].filter(row => row.querySelector('[data-target]').value).length;
-    byId('afReviewTitle').textContent = `Upload ${rows.length} file${rows.length === 1 ? '' : 's'}`;
+    byId('afReviewTitle').textContent = rows.length ? `Upload ${rows.length} file${rows.length === 1 ? '' : 's'}`
+      : finished ? 'Files uploaded' : 'Upload files';
     if (!byId('afReviewList').querySelector('.af-row')) byId('afReviewList').innerHTML = '<p class="mute">No files left.</p>';
     byId('afReviewUpload').disabled = busy || !count;
+    byId('afReviewUpload').hidden = busy || (finished && !count);
+    byId('afReviewCancel').hidden = !busy;
+    byId('afReviewDone').hidden = busy || !finished || count > 0;
     byId('afReviewUpload').textContent = count ? `Upload ${count} file${count === 1 ? '' : 's'}` : 'Upload';
   }
   async function uploadReviewed() {
@@ -659,20 +691,25 @@
     const description = byId('afReviewDescription').value;
     const jobs = [...list.querySelectorAll('.af-row:not(.af-done)')].map(card => ({card, row: reviewing[+card.dataset.row],
       pick: card.querySelector('[data-target]'), category: card.querySelector('[data-category]').value})).filter(job => job.pick.value);
-    busy = true; syncReview(); byId('afReviewClose').disabled = true; progress.hidden = false;
-    let completed = 0, linked = 0, failed = 0;
+    busy = true; cancelled = false; syncReview(); byId('afReviewClose').disabled = true; progress.hidden = false;
+    let completed = 0, linked = 0, failed = 0, stopped = 0;
     for (const job of jobs) {
+      if (cancelled) { stopped++; continue; }
       const targets = job.row.options.find(o => o.value === job.pick.value).targets;
       progress.value = 0; status.textContent = `Uploading ${job.row.file.name}…`;
       try {
         if ((await uploadOne(job.row.file, targets, {category: job.category, description}, progress, status)).duplicate) linked++;
         else completed++;
         job.card.classList.add('af-done'); job.pick.disabled = true;
-      } catch (error) { failed++; job.card.querySelector('.af-row-time').textContent += ` · failed: ${error.message}`; }
+        job.card.querySelector('[data-category]').disabled = true;
+      } catch (error) {
+        if (error.cancelled) stopped++;
+        else { failed++; job.card.querySelector('.af-row-time').textContent += ` · failed: ${error.message}`; }
+      }
     }
-    busy = false; byId('afReviewClose').disabled = false; progress.hidden = true; syncReview();
+    busy = false; finished = true; byId('afReviewClose').disabled = false; progress.hidden = true; syncReview();
     status.textContent = `${completed} file(s) saved and linked.` + (linked ? ` ${linked} identical file(s) were already stored and are now linked.` : '')
-      + (failed ? ` ${failed} failed.` : '');
+      + (failed ? ` ${failed} failed.` : '') + (stopped ? ` Cancelled: ${stopped} not uploaded; press Upload to send ${stopped === 1 ? 'it' : 'them'}.` : '');
     document.dispatchEvent(new CustomEvent('attachmentsuploaded'));
   }
 
