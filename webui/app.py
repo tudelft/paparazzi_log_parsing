@@ -5427,6 +5427,31 @@ def clock_shift_days(start_utc, date_override):
     return (target - start_date).days
 
 
+def same_day_flights(con, flight_id):
+    """Visible (not hidden) flights of this flight's fleet aircraft on the same date as the logbook shows it (takeoff
+    UTC date after the log's date correction), in takeoff order: (aircraft name, date, [flight ids]); None when the
+    flight has no fleet aircraft or no date."""
+    def takeoff(row):
+        return shift_iso(row["takeoff_utc"], clock_shift_days(row["start_utc"], row["date_override"])) or ""
+
+    def day(row):
+        return takeoff(row)[:10] or None
+    row = con.execute("SELECT a.drone_id, d.name, f.takeoff_utc, l.start_utc, l.date_override FROM flights f"
+                      " JOIN aircraft a ON a.id=f.aircraft_id JOIN logs l ON l.id=a.log_id"
+                      " JOIN drones d ON d.id=a.drone_id WHERE f.id=?", (flight_id,)).fetchone()
+    date = day(row) if row else None
+    if not date:
+        return None
+    # candidates by SQL (same raw date, or a corrected log near that date), the exact date in Python
+    rows = con.execute(
+        "SELECT f.id, f.takeoff_utc, l.start_utc, l.date_override FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+        " JOIN logs l ON l.id=a.log_id WHERE a.drone_id=? AND f.hidden=0 AND f.takeoff_utc IS NOT NULL"
+        " AND ((l.date_override IS NULL AND f.takeoff_utc LIKE ? || '%')"
+        "  OR l.date_override BETWEEN date(?, '-1 day') AND date(?, '+1 day'))"
+        " ORDER BY f.id", (row["drone_id"], date, date, date)).fetchall()
+    return row["name"], date, [r["id"] for r in sorted(rows, key=takeoff) if day(r) == date]
+
+
 def shift_iso(iso, days):
     if not iso or not days:
         return iso
@@ -7659,7 +7684,8 @@ def delete_log(log_id):
 
 
 attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, env_int("ATTACHMENT_MAX_BYTES"),
-                     office=env("OFFICE"), categories=parse_categories(env("ATTACHMENT_CATEGORIES")))
+                     office=env("OFFICE"), categories=parse_categories(env("ATTACHMENT_CATEGORIES")),
+                     same_day=same_day_flights)
 qualifications.register(app, lambda: conn(), STORAGE_DIR, session_required)
 training.register(app, lambda: conn(), DATA_DIR, session_required)
 profiles.register(app, lambda: conn(), session_required, now, PAGES_DIR)

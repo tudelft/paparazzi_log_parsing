@@ -296,7 +296,8 @@ def restore(con, log_id, saved):
             dict(kind="flight", id=match["id"]) if match else dict(kind="log", id=log_id)])
 
 
-def register(app, connection, root, require_session, timestamp, max_bytes, office=None, categories=None):
+def register(app, connection, root, require_session, timestamp, max_bytes, office=None, categories=None,
+             same_day=None):
     root = Path(root)
     app.config["ATTACHMENT_OFFICE"] = office_binary(office)
     app.config["ATTACHMENT_CATEGORIES"] = list(categories or DEFAULT_CATEGORIES)
@@ -393,8 +394,29 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
                 "SELECT COUNT(*) FROM attachment_links WHERE attachment_id=?", (aid,)).fetchone()[0]
             item["can_edit"] = any(x["can_edit"] for x in links)
             result.append(item)
-        return jsonify(files=result, target=t, parent=parent, max_bytes=app.config["ATTACHMENT_MAX_BYTES"],
-                       categories=app.config["ATTACHMENT_CATEGORIES"])
+        return jsonify(files=result, target=t, parent=parent, day=day_targets(con, kind, t) if same_day else None,
+                       max_bytes=app.config["ATTACHMENT_MAX_BYTES"], categories=app.config["ATTACHMENT_CATEGORIES"])
+
+    def day_targets(con, kind, t):
+        """For a flight: the other flights of its aircraft that day the user may add files to (the upload dialog
+        offers them together); None when there are none."""
+        found = same_day(con, t["id"]) if kind == "flight" else None
+        if not found:
+            return None
+        name, date, ids = found
+        flights = []
+        for fid in ids[:100]:  # an upload goes to at most 100 targets
+            try:
+                item = target(con, g.user, "flight", fid)
+            except Error as exc:
+                if exc.status != 404:
+                    raise
+                continue
+            if item["can_edit"]:
+                flights.append(item)
+        if not any(f["id"] != t["id"] for f in flights):
+            return None
+        return dict(aircraft=name, date=date, flights=flights)
 
     @app.post("/api/attachments")
     def upload_attachment():

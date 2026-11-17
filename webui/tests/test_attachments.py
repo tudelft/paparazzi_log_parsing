@@ -150,6 +150,37 @@ class AttachmentTests(test_historical.AppTests):
         self.sign_in(3)  # view access: the log is named, but not editable
         self.assertFalse(self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json["parent"]["can_edit"])
 
+    def test_flight_listing_offers_the_aircrafts_flights_that_day(self):
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (2,'Other','UID2','now')")
+
+        def flight(drone, takeoff, hidden=0, start=None, override=None, project=1):
+            log = self.con.execute(
+                "INSERT INTO logs(name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,start_utc,date_override)"
+                " VALUES ('x.data',?,'x.data.gz','done','now',2,?,?,?)",
+                (os.urandom(16).hex(), project, start or takeoff, override)).lastrowid
+            aircraft = self.con.execute("INSERT INTO aircraft(log_id,ac_id,name,drone_id) VALUES (?,7,'Drone',?)",
+                                        (log, drone)).lastrowid
+            return self.con.execute("INSERT INTO flights(aircraft_id,idx,takeoff_utc,hidden,project_id) VALUES (?,0,?,?,?)",
+                                    (aircraft, takeoff, hidden, project)).lastrowid
+        morning = flight(1, "2026-11-10T08:00:00Z")
+        afternoon = flight(1, "2026-11-10T14:00:00Z")
+        flight(1, "2026-11-10T15:00:00Z", hidden=1)
+        flight(1, "2026-11-11T08:00:00Z")
+        corrected = flight(1, "2000-01-01T12:00:00Z", start="2000-01-01T11:00:00Z", override="2026-11-10")  # bad clock
+        flight(2, "2026-11-10T09:00:00Z")
+        private = flight(1, "2026-11-10T16:00:00Z", project=2)
+        self.con.commit()
+        day = self.client.get(f"/api/attachments?kind=flight&id={morning}").json["day"]
+        self.assertEqual((day["aircraft"], day["date"]), ("Drone", "2026-11-10"))
+        self.assertEqual([f["id"] for f in day["flights"]], [morning, corrected, afternoon])  # not hidden/private/other
+        self.assertTrue(all(f["can_edit"] for f in day["flights"]))
+        lonely = flight(2, "2026-11-12T09:00:00Z")
+        self.con.commit()
+        self.assertIsNone(self.client.get(f"/api/attachments?kind=flight&id={lonely}").json["day"])  # only itself
+        self.assertNotIn(private, [f["id"] for f in day["flights"]])
+        self.sign_in(3)  # view access only: nothing to upload to
+        self.assertIsNone(self.client.get(f"/api/attachments?kind=flight&id={morning}").json["day"])
+
     def test_new_version_inherits_the_category(self):
         _, flight = self.log()
         self.upload_file([flight], name="plan.pdf", category="Notes")

@@ -117,8 +117,10 @@ let maxBytes = 0, busy = false, current = [], categories = [], editing = null;
 const UNCATEGORISED = '-';  // filter value for files without a category
 const option = (value, text) => Object.assign(document.createElement('option'), {value, textContent: text});
 const key = target => `${target.kind}:${target.id}`;
+// Checked upload targets; a group (all flights of an aircraft that day) stands for each of its flights.
 function chosen() {
-  return [...$('selected').querySelectorAll('input:checked')].map(input => targets.get(input.value));
+  const all = [...$('selected').querySelectorAll('input:checked')].flatMap(input => [].concat(targets.get(input.value)));
+  return [...new Map(all.map(t => [key(t), t])).values()];
 }
 function syncUpload() { $('uploadFields').disabled = busy || !chosen().length; }
 function addTarget(target, {checked = true, text, onchange} = {}) {
@@ -136,13 +138,23 @@ function addTarget(target, {checked = true, text, onchange} = {}) {
   $('selected').append(label);
   syncUpload();
 }
-// On a flight, its log is offered too: a file on the log shows on every flight of that log, so it replaces this flight.
+// On a flight, its log and the aircraft's other flights that day are offered too. Both include this flight (a file on
+// the log shows on every flight of that log), so checking one of them unchecks the flight itself.
+const box = value => [...$('selected').querySelectorAll('input')].find(input => input.value === value);
 function offerParent(flight, log) {
-  const box = value => [...$('selected').querySelectorAll('input')].find(input => input.value === value);
   addTarget(log, {checked: false, text: `All flights of this log (${log.label})`, onchange: on => {
     const own = box(key(flight));
     if (on && own) own.checked = false;
   }});
+}
+function offerDay(flight, day) {
+  const label = document.createElement('label'), input = document.createElement('input');
+  targets.set('day', day.flights);
+  input.type = 'checkbox'; input.value = 'day';
+  input.onchange = () => { const own = box(key(flight)); if (input.checked && own) own.checked = false; syncUpload(); };
+  label.title = day.flights.map(f => f.label).join('\n');
+  label.append(input, ` All flights of ${day.aircraft} on ${day.date} (${day.flights.length})`);
+  $('selected').append(label);
 }
 // The category filter lists the configured categories and any other category a file here still has; kept in the URL.
 function fillFilter(files) {
@@ -320,7 +332,8 @@ $('uploadForm').onsubmit = async event => {
     $('context').append(back);
     if (data.target.can_edit) addTarget(data.target);
     if (data.parent?.can_edit) offerParent(data.target, data.parent);
-    if (!data.target.can_edit && !data.parent?.can_edit) $('noTarget').hidden = false;
+    if (data.day) offerDay(data.target, data.day);
+    if (!data.target.can_edit && !data.parent?.can_edit && !data.day) $('noTarget').hidden = false;
   } catch (error) { $('pageStatus').textContent = error.message; $('fileList').textContent = 'Unable to load files.'; }
 })();
 </script>
