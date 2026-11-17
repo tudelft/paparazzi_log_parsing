@@ -382,14 +382,24 @@ dialog.entry-dialog label.field input, dialog.entry-dialog label.field select { 
 .files-names { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .files-more { flex:none; } .files-count { font-weight:normal; }
 .files-all { font-weight:normal; font-size:13px; margin-left:8px; }
-/* Review of files matched to flights (AttachmentFiles.review) */
+/* Review of files matched to flights (AttachmentFiles.review): one card per file */
 dialog.af-dialog.af-wide { width:min(860px,calc(100% - 32px)); }
 .af-review { max-height:50vh; overflow:auto; margin:6px 0; }
-.af-review td.file-name { width:52%; }
-.af-review td.af-review-pick { white-space:normal; width:48%; min-width:260px; }
-.af-review td.af-review-pick select { width:100%; margin:2px 0; font-size:13px; padding:4px 6px; }
-.af-review tr.af-done td { opacity:.55; }
-@media(max-width:600px) { .af-review tr { display:grid; } .af-review td.file-name, .af-review td.af-review-pick { width:auto; max-width:none; min-width:0; } }
+.af-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(220px,44%) auto; gap:6px 10px; align-items:start;
+  padding:8px 0; border-bottom:1px solid var(--line); }
+.af-row-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.af-row-time { font-size:12px; overflow-wrap:anywhere; }
+.af-row-pick { display:grid; gap:4px; min-width:0; }
+.af-row-pick select { width:100%; font-size:13px; padding:4px 6px; }
+.af-row.af-done { opacity:.55; } .af-row.af-done .af-x { visibility:hidden; }
+.af-x { border:0; background:none; color:var(--mute); font-size:20px; line-height:1; padding:2px 8px; cursor:pointer; border-radius:6px; }
+.af-x:hover, .af-x:focus-visible { background:var(--hover); color:var(--txt); }
+.af-chips { list-style:none; padding:0; margin:0 0 4px; max-height:180px; overflow:auto; }
+.af-chips:empty { display:none; }
+.af-chips li { display:flex; align-items:center; gap:8px; font-size:13px; padding:2px 0 2px 8px; border-bottom:1px solid var(--line); }
+.af-chips li > span:first-child { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.af-size { font-size:12px; white-space:nowrap; }
+}
 /* File manager (attachments.js): tools beside the heading, Upload files and Edit dialogs */
 .files-tools { display:inline-flex; gap:6px; align-items:center; flex-wrap:wrap; margin-left:auto; }
 .files-tools .af-search { width:180px; }
@@ -407,8 +417,6 @@ dialog.af-dialog fieldset { gap:8px; } dialog.af-dialog form { gap:8px; }
 .af-drop:hover, .af-drop:focus-visible, .af-drop.af-over { border-color:var(--acc); background:color-mix(in srgb, var(--acc) 7%, var(--card)); }
 .af-drop.af-has { padding:14px 12px; border-style:solid; }
 .af-pick { color:var(--acc); text-decoration:underline; }
-.af-picked { flex-basis:100%; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.af-picked:empty { display:none; }
 .af-over:not(.af-drop) { outline:2px dashed var(--acc); outline-offset:4px; border-radius:6px; }
 .af-pair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; align-items:end; }
 .af-more > summary, .af-help > summary { cursor:pointer; font-size:13px; } .af-more[open] > summary { margin-bottom:6px; }
@@ -423,6 +431,20 @@ dialog.af-dialog textarea { resize:vertical; min-height:2.4em; }
 .af-links li { display:flex; gap:8px; align-items:baseline; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--line); }
 .af-links li a { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 @media(max-width:600px) { .files-tools { margin-left:0; width:100%; } .files-tools .af-search { flex:1; width:auto; } }
+/* Phones: the dialogs fill the screen; heading and buttons stay in view; fields big enough to tap, 16px text so iOS
+   does not zoom in. */
+@media(max-width:600px) {
+  dialog.af-dialog, dialog.af-dialog.af-wide { width:100%; max-width:100%; height:100dvh; max-height:100dvh; margin:0;
+    border:0; border-radius:0; padding:0 14px; }
+  dialog.af-dialog .dialog-header { position:sticky; top:0; z-index:1; background:var(--card); padding:12px 0 8px; margin:0; }
+  dialog.af-dialog .af-actions { position:sticky; bottom:0; z-index:1; background:var(--card); border-top:1px solid var(--line);
+    padding:10px 0 calc(10px + env(safe-area-inset-bottom)); margin-top:8px; }
+  dialog.af-dialog input, dialog.af-dialog select, dialog.af-dialog textarea, .af-row-pick select { font-size:16px; min-height:42px; }
+  dialog.af-dialog button { min-height:42px; } .af-x { min-width:42px; }
+  .af-pair { grid-template-columns:1fr; }
+  .af-review { max-height:none; overflow:visible; }
+  .af-row { grid-template-columns:minmax(0,1fr) auto; } .af-row-pick { grid-column:1 / -1; grid-row:2; }
+  .af-drop { padding:16px 10px; }
 
 /* MATLAB export menu (matlab.js) */
 .matlab-pop { position:absolute; z-index:1000; min-width:280px; max-width:min(420px, calc(100vw - 16px)); padding:8px;
