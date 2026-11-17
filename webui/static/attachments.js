@@ -79,11 +79,11 @@
     document.body.insertAdjacentHTML('beforeend', `
 <dialog class="entry-dialog af-dialog" id="afUpload" aria-labelledby="afUploadTitle">
   <div class="dialog-header"><h2 id="afUploadTitle">Upload files</h2><button type="button" id="afUploadClose" aria-label="Close Upload files">Close</button></div>
-  <div class="af-drop" id="afDrop" role="button" tabindex="0" aria-describedby="afPicked">
+  <div class="af-drop" id="afDrop" role="button" tabindex="0">
     <input id="afFiles" type="file" multiple hidden>
     <strong>Drop files here</strong> <span class="mute">or</span> <span class="af-pick">choose files</span>
-    <span class="af-picked" id="afPicked"></span>
   </div>
+  <ul class="af-chips" id="afPicked" aria-label="Chosen files"></ul>
   <fieldset id="afUploadFields">
     <div class="af-pair">
       <label class="field">Category<select id="afCategory"></select></label>
@@ -101,14 +101,14 @@
         placeholder="Aircraft, 2026-10-21, log filename or ID"><button type="submit">Search</button></form>
       <div id="afFindResults" class="af-results"></div></details>
   </fieldset>
+  <progress id="afProgress" hidden max="100" value="0" aria-label="File upload progress"></progress>
+  <p id="afStatus" class="af-status" role="status" aria-live="polite"></p>
   <div class="af-actions"><details class="af-help"><summary class="mute">Help</summary>
     <p id="afLimit"></p>
     <p>A file with the name of a current file there replaces it; the old one stays under "Show earlier versions".
       A file that is already stored is linked, not stored again. Files can also be dropped on the file list.</p>
     <p><strong>Sharing:</strong> everyone with access to any linked flight / log can download the file.</p></details>
     <button type="button" id="afSubmit" disabled>Upload</button></div>
-  <progress id="afProgress" hidden max="100" value="0" aria-label="File upload progress"></progress>
-  <p id="afStatus" class="af-status" role="status" aria-live="polite"></p>
 </dialog>
 <dialog class="entry-dialog af-dialog" id="afEdit" aria-labelledby="afEditTitle">
   <div class="dialog-header"><h2 id="afEditTitle">Edit file</h2><button type="button" id="afEditClose" aria-label="Close Edit file">Close</button></div>
@@ -187,9 +187,12 @@
   function setPicked(files) {
     picked = files;
     const names = files.map(file => file.name);
-    byId('afPicked').textContent = !files.length ? '' : files.length === 1 ? `${names[0]} (${size(files[0].size)})`
-      : `${files.length} files: ${names.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}`;
-    byId('afPicked').title = names.join('\n');
+    byId('afPicked').innerHTML = files.map((file, i) => `<li><span title="${esc(file.name)}">${esc(file.name)}</span>
+      <span class="mute af-size">${size(file.size)}</span><button type="button" class="af-x" data-unpick="${i}"
+      aria-label="Remove ${esc(file.name)}" title="Remove">×</button></li>`).join('');
+    for (const button of byId('afPicked').querySelectorAll('[data-unpick]')) button.onclick = () => {
+      if (!busy) setPicked(picked.filter((_, i) => i !== +button.dataset.unpick));
+    };
     byId('afDrop').classList.toggle('af-has', files.length > 0);
     guessCategory();
     syncUpload();
@@ -563,6 +566,8 @@
     uploaded before you press Upload.</p>
   <div id="afReviewList" class="af-review"></div>
   <label class="field">Description (optional, for all these files)<textarea id="afReviewDescription" maxlength="1000" rows="1"></textarea></label>
+  <progress id="afReviewProgress" hidden max="100" value="0" aria-label="File upload progress"></progress>
+  <p id="afReviewStatus" class="af-status" role="status" aria-live="polite"></p>
   <div class="af-actions"><details class="af-help"><summary class="mute">Help</summary>
     <p>The time comes from the photo (EXIF) or video (start and length), else from a date and time in the file name, else
       from the file's date, which copying can change. Times without a time zone are taken in this browser's time zone.
@@ -570,8 +575,6 @@
       over several flights goes to all of them. Only flights you may add files to are offered.</p>
     <p><strong>Sharing:</strong> everyone with access to any linked flight / log can download the file.</p></details>
     <button type="button" id="afReviewUpload" disabled>Upload</button></div>
-  <progress id="afReviewProgress" hidden max="100" value="0" aria-label="File upload progress"></progress>
-  <p id="afReviewStatus" class="af-status" role="status" aria-live="polite"></p>
 </dialog>`);
     byId('afReviewClose').onclick = () => { if (!busy) byId('afReview').close(); };
     byId('afReview').addEventListener('cancel', event => { if (busy) event.preventDefault(); });
@@ -603,32 +606,42 @@
       return {file, time: times[i], match, options, category: category || '', tooBig: !file.size || file.size > data.max_bytes};
     });
     const how = {during: 'during the flight', overlaps: 'overlaps the flight', 'before takeoff': 'before takeoff', 'after landing': 'after landing'};
-    list.innerHTML = `<table class="file-list"><tbody>${reviewing.map((row, i) => `<tr>
-      <td class="file-name"><span title="${esc(row.file.name)}">${esc(row.file.name)}</span>
-        <div class="mute file-desc" title="${esc(row.time.source)}">${esc(when(row.time.start))}${row.time.end ? ' – ' + esc(new Date(row.time.end).toLocaleTimeString(undefined, {timeStyle: 'short'})) : ''} · ${
-          esc(row.time.source)}${row.match.how ? ' · ' + esc(how[row.match.how]) : ''}${row.tooBig ? ' · <strong>too large or empty</strong>' : ''}</div></td>
-      <td class="af-review-pick"><select data-target="${i}" aria-label="Upload ${esc(row.file.name)} to">${row.options.map(o =>
+    list.innerHTML = reviewing.map((row, i) => `<div class="af-row" data-row="${i}">
+      <div class="af-row-info"><div class="af-row-name" title="${esc(row.file.name)}">${esc(row.file.name)}</div>
+        <div class="mute af-row-time" title="${esc(row.time.source)}">${esc(when(row.time.start))}${row.time.end ? ' – ' + esc(new Date(row.time.end).toLocaleTimeString(undefined, {timeStyle: 'short'})) : ''} · ${
+          esc(row.time.source)}${row.match.how ? ' · ' + esc(how[row.match.how]) : ''}${row.tooBig ? ' · <strong>too large or empty</strong>' : ''}</div></div>
+      <div class="af-row-pick"><select data-target="${i}" aria-label="Upload ${esc(row.file.name)} to">${row.options.map(o =>
         `<option value="${o.value}" title="${esc(o.targets.map(t => t.label).join('\n'))}">${esc(o.text)}</option>`).join('')}</select>
         <select data-category="${i}" aria-label="Category of ${esc(row.file.name)}"><option value="">Uncategorised</option>${
-        categories.map(name => `<option${name === row.category ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table>`;
+        categories.map(name => `<option${name === row.category ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select></div>
+      <button type="button" class="af-x" data-remove="${i}" aria-label="Remove ${esc(row.file.name)}" title="Remove">×</button>
+    </div>`).join('');
     for (const select of list.querySelectorAll('[data-target]')) {
       const row = reviewing[+select.dataset.target];
       select.value = row.tooBig ? '' : row.options[0].value;  // the closest match first; no match: not uploaded
       select.disabled = row.tooBig;
       select.onchange = syncReview;
     }
+    for (const button of list.querySelectorAll('[data-remove]')) button.onclick = () => {
+      if (busy) return;
+      button.closest('.af-row').remove();
+      syncReview();
+    };
     syncReview();
   }
   function syncReview() {
-    const count = [...byId('afReviewList').querySelectorAll('[data-target]')].filter(select => select.value).length;
+    const rows = byId('afReviewList').querySelectorAll('.af-row:not(.af-done)');
+    const count = [...rows].filter(row => row.querySelector('[data-target]').value).length;
+    byId('afReviewTitle').textContent = `Upload ${rows.length} file${rows.length === 1 ? '' : 's'}`;
+    if (!byId('afReviewList').querySelector('.af-row')) byId('afReviewList').innerHTML = '<p class="mute">No files left.</p>';
     byId('afReviewUpload').disabled = busy || !count;
     byId('afReviewUpload').textContent = count ? `Upload ${count} file${count === 1 ? '' : 's'}` : 'Upload';
   }
   async function uploadReviewed() {
     const status = byId('afReviewStatus'), progress = byId('afReviewProgress'), list = byId('afReviewList');
     const description = byId('afReviewDescription').value;
-    const jobs = reviewing.map((row, i) => ({row, pick: list.querySelector(`[data-target="${i}"]`),
-      category: list.querySelector(`[data-category="${i}"]`).value})).filter(job => job.pick.value);
+    const jobs = [...list.querySelectorAll('.af-row:not(.af-done)')].map(card => ({card, row: reviewing[+card.dataset.row],
+      pick: card.querySelector('[data-target]'), category: card.querySelector('[data-category]').value})).filter(job => job.pick.value);
     busy = true; syncReview(); byId('afReviewClose').disabled = true; progress.hidden = false;
     let completed = 0, linked = 0, failed = 0;
     for (const job of jobs) {
@@ -637,8 +650,8 @@
       try {
         if ((await uploadOne(job.row.file, targets, {category: job.category, description}, progress, status)).duplicate) linked++;
         else completed++;
-        job.pick.closest('tr').classList.add('af-done'); job.pick.disabled = true;
-      } catch (error) { failed++; job.pick.closest('tr').querySelector('.file-desc').textContent += ` · failed: ${error.message}`; }
+        job.card.classList.add('af-done'); job.pick.disabled = true;
+      } catch (error) { failed++; job.card.querySelector('.af-row-time').textContent += ` · failed: ${error.message}`; }
     }
     busy = false; byId('afReviewClose').disabled = false; progress.hidden = true; syncReview();
     status.textContent = `${completed} file(s) saved and linked.` + (linked ? ` ${linked} identical file(s) were already stored and are now linked.` : '')

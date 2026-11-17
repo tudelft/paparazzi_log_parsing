@@ -547,7 +547,9 @@ time shows the camera wrote local time); else a date and time in the name, else 
 item `flight` (the flight it overlaps most, else the nearest within 15 min before takeoff to 30 min after landing),
 `flights` (every flight a video overlaps, when several), `how`, and `day` (all flights of that UTC day), only flights the
 user may add files to, using the logbook date (after a log's date correction). The review proposes, in that order,
-the overlapped flights, the flight, all flights that day, or nothing; the user can change each before uploading. When
+the overlapped flights, the flight, all flights that day, or nothing; the user can change each, or drop a file with ×,
+before uploading. In the Upload dialog the chosen files are listed with × as well. On phones both dialogs fill the
+screen with the heading and buttons kept in view. When
 logs are in the same upload, matching waits until they are parsed (at most 15 minutes).
 
 The Upload dialog starts with a drop zone (drop files or choose them); files dropped
