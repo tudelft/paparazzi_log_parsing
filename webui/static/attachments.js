@@ -240,8 +240,8 @@
   function scopesFor(data) {
     const t = data.target, word = {flight: 'This flight only', log: 'This log only', paper: 'This paper record only'}[t.kind];
     const found = [];
-    if (t.can_edit) found.push({value: 'self', text: word, note: t.label, targets: [t]});
-    if (data.parent?.can_edit) found.push({value: 'log', text: 'All flights of this log', note: data.parent.label,
+    if (t.can_add) found.push({value: 'self', text: word, note: t.label, targets: [t]});
+    if (data.parent?.can_add) found.push({value: 'log', text: 'All flights of this log', note: data.parent.label,
       targets: [data.parent]});
     if (data.day) found.push({value: 'aircraft-day', text: `All flights of ${data.day.aircraft} on ${data.day.date} (${
       data.day.flights.length})`, targets: data.day.flights});
@@ -354,7 +354,7 @@
         await m.reload();
       } catch (error) { byId('afEditError').textContent = error.message; button.disabled = false; }
     };
-    byId('afLinkMore').hidden = !file.can_share;  // sharing further needs full access to every current link
+    byId('afLinkMore').hidden = !file.can_share;  // sharing further needs upload access to every current link
     byId('afLinkQuery').value = ''; byId('afLinkResults').replaceChildren(); byId('afLinkMore').open = false;
     byId('afEdit').showModal();
   }

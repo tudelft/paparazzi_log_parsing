@@ -467,13 +467,13 @@ or **Additional files** in an expanded upload. Photos, videos, wind-tunnel measu
 computer logs and other files can be uploaded there. Search by aircraft, date, filename or numeric
 ID to select up to 100 flights/logs (including paper records); one uploaded file is stored once
 and linked to every selected entry. Files linked to a whole log also appear on its flights, provided
-the user can see that log. The management page lists existing files and lets you link them to more entries.
-
-Admins and users with full access to each selected target can upload/link files. Anyone who can
+the user can see that log.
+Admins and project members with **Upload** (add), Delete (full) or Manager on each selected target can upload and
+link files (`can_add` per target), like adding logs; for a log without a project, its uploader. Anyone who can
 read **any** linked target can download the file: linking across projects deliberately shares its
 contents. Inaccessible link names/IDs are not disclosed. Sharing an existing file further requires
-full access to all its existing links as well as the new targets. A user with full access can remove
-an individual link without affecting other links; the stored file is removed only after its last link
+upload access to all its existing links as well as the new targets. Removing a link needs **Delete** (full) or
+Manager on that target (`can_edit`); it does not affect other links; the stored file is removed only after its last link
 is removed. Deleting a flight's parent log or a paper record removes the corresponding links.
 Re-parsing retains links to flights with the same aircraft ID, flight index and takeoff time; if that
 flight no longer exists, its file links move to the parent log instead of losing the file.
@@ -528,7 +528,8 @@ other flight qualifies (`day` also without a fleet aircraft). The upload dialog'
 *All flights of this log* (the default on a flight), *All flights of <aircraft> on <date>* and *All flights on <date>*;
 flights / logs added with *Find more* are uploaded to as well.
 `PATCH /api/attachments/<id>` (browser session) with `category` (null clears it) and/or `description` changes the
-file for all its links; full access to one linked flight/log is enough. A category removed from the setting stays on
+file for all its links; Delete or Manager on one linked flight/log is enough, or Upload on one for a file the user
+uploaded. A category removed from the setting stays on
 its files and is shown after the listed ones, but cannot be chosen again. The pages group files by category
 (uncategorised last, empty groups hidden). The file manager (`AttachmentFiles.manage` in `attachments.js`) is the same on
 a flight's Files tab, a paper record and a log (the Logs page opens it in a dialog): the compact list with search and a
@@ -982,8 +983,7 @@ Logbook has no top-level project filter and no longer applies a previously saved
 Project reassignment controls in Edit mode remain available.
 The menu (`theme.js`) has Logbook (`/`), Agenda (`/agenda`, when `LOGDB_BOOKINGS=1`), Training (`/training`, when
 `LOGDB_TRAINING=1`), Documents (`/documents`, when `LOGDB_DOCUMENTS=1`), Safety (`/safety`, when `LOGDB_SAFETY=1`) and **Directory ▾** (People, Aircraft, Projects, Locations, then Logs at `/logs` and Statistics at
-`/stats`), then the flight filters. On the right: **⬆ Upload
-logs** (for admins and members with add or full access on a project, `can_upload` in `/api/me`), Edit (pages that
+`/stats`), then the flight filters. On the right: **⬆ Upload** (for admins and members with add or full access on a project, `can_upload` in `/api/me`), Edit (pages that
 have it) and the name menu (My account, Night mode, Sign out). Menus close on a click elsewhere or Escape.
 The upload dialog (`upload.js`, loaded on first use) takes files, zips and folders, also dropped anywhere on a page,
 sends them in batches to `/api/upload` and lists **Your recent uploads** (`/api/logs?mine=1`) with their parsing
