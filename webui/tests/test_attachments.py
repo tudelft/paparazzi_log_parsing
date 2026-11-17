@@ -227,6 +227,7 @@ class AttachmentTests(test_historical.AppTests):
                   {"start": "2026-11-10T13:00:00Z", "end": "2026-11-10T12:00:00Z"}]    # end before start: a moment
         m = self.client.post("/api/attachments/match", json={"times": ranges}).json["matches"]
         self.assertEqual((m[0]["flight"]["id"], m[0]["how"], m[0]["flights"]), (morning, "overlaps", None))
+        self.assertEqual((m[0]["flight"]["aircraft"], m[0]["flight"]["takeoff_utc"]), ("Drone", "2026-11-10T09:00:00Z"))
         self.assertEqual((m[1]["flight"]["id"], m[1]["how"], [f["id"] for f in m[1]["flights"]]),
                          (noon, "overlaps", [morning, noon]))  # 5 min of the morning flight, 8 of noon
         self.assertEqual((m[2]["flight"], m[2]["day"]["date"]), (None, "2026-11-10"))

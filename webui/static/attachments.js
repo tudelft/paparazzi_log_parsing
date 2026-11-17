@@ -581,6 +581,22 @@
     byId('afReviewUpload').onclick = uploadReviewed;
   }
   const when = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'}); };
+  // Short names for the review's choices: per aircraft its takeoff times in local time, then the flight numbers,
+  // e.g. "Nederdrone 15:05 + 15:30 (#11, #12)"; more than three times: "+ 2 more".
+  const hm = iso => { const d = new Date(iso || ''); return isNaN(d) ? '?' : d.toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'}); };
+  function flightsText(flights) {
+    const byAircraft = new Map();
+    for (const f of flights) {
+      const name = f.aircraft || 'Flight';
+      if (!byAircraft.has(name)) byAircraft.set(name, []);
+      byAircraft.get(name).push(hm(f.takeoff_utc));
+    }
+    const parts = [...byAircraft].map(([name, times]) =>
+      `${name} ${times.slice(0, 3).join(' + ')}${times.length > 3 ? ` + ${times.length - 3} more` : ''}`);
+    const numbers = flights.slice(0, 3).map(f => '#' + f.id).join(', ') + (flights.length > 3 ? ', …' : '');
+    return `${parts.join(', ')} (${numbers})`;
+  }
+  const dayText = date => new Date(date + 'T12:00:00Z').toLocaleDateString(undefined, {day: 'numeric', month: 'short'});
   async function review(files) {
     reviewDialog();
     const status = byId('afReviewStatus'), list = byId('afReviewList');
@@ -598,10 +614,11 @@
     const categories = data.categories || [];
     reviewing = files.map((file, i) => {
       const match = data.matches[i] || {}, options = [];
-      if (match.flights) options.push({value: 'flights', text: `${match.flights.length} flights it overlaps`, targets: match.flights});
-      if (match.flight) options.push({value: 'flight', text: `Flight: ${match.flight.label}`, targets: [match.flight]});
-      if (match.day) options.push({value: 'day', text: `All flights on ${match.day.date} (${match.day.flights.length})`, targets: match.day.flights});
-      options.push({value: '', text: match.day ? 'Do not upload' : 'No flight found: not uploaded', targets: []});
+      if (match.flights) options.push({value: 'flights', text: flightsText(match.flights), targets: match.flights});
+      if (match.flight) options.push({value: 'flight', text: flightsText([match.flight]), targets: [match.flight]});
+      if (match.day) options.push({value: 'day', text: `All ${match.day.flights.length} flight${match.day.flights.length === 1 ? '' : 's'} on ${
+        dayText(match.day.date)}`, targets: match.day.flights});
+      options.push({value: '', text: match.day ? 'Do not upload' : 'Not uploaded (no flight found)', targets: []});
       const guess = guessFor(file.name), category = guess && categories.find(name => name.toLowerCase() === guess.toLowerCase());
       return {file, time: times[i], match, options, category: category || '', tooBig: !file.size || file.size > data.max_bytes};
     });
