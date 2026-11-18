@@ -1183,6 +1183,7 @@ Number: <student or employee number, or ->
 Department: <department, or ->
 Role: <role, or ->
 Supervisor: <names, comma-separated, or ->
+Supervisor email: <addresses of the supervisors with an account, comma-separated, or ->
 Until: <expected end yyyy-mm-dd, indefinite, or ->
 Training: <training>
 Passed: <yyyy-mm-dd>
