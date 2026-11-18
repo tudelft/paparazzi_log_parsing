@@ -354,14 +354,46 @@ say "Checking the settings"
 app_cmd check-config || die "fix the settings in $ENV_FILE and run this script again"
 
 # ---------------------------------------------------------------- services
+# What the service waits for, per folder (log storage, backup). A folder on a share that /etc/fstab mounts with
+# x-systemd.automount gets Wants/After on that automount: the share is mounted on first use, so a file server that is
+# not reachable yet at boot does not keep the service down (RequiresMountsFor would demand the mount itself at boot,
+# and a failed mount then stops the service with "dependency failed"). Other folders keep RequiresMountsFor, so the
+# service never writes into an empty mount point while a plain mount is missing.
+mount_dependencies() {
+    REQUIRES_MOUNTS="" AUTOMOUNT_UNITS=""
+    local dir spec mp fstype opts rest best best_opts unit
+    for dir in "$@"; do
+        [ -n "$dir" ] || continue
+        dir="${dir%/}"
+        best="" best_opts=""
+        while read -r spec mp fstype opts rest; do
+            [ -n "$mp" ] || continue
+            mp="$(printf '%b' "${mp//\\040/ }")"  # fstab writes a space as \040
+            [ "$mp" = / ] || mp="${mp%/}"
+            if [ "$mp" = / ] || [ "$dir" = "$mp" ] || [ "${dir#"$mp"/}" != "$dir" ]; then
+                if [ ${#mp} -gt ${#best} ]; then best="$mp" best_opts="$opts"; fi
+            fi
+        done < <(grep -v '^[[:space:]]*\(#\|$\)' "${FSTAB:-/etc/fstab}" 2>/dev/null)
+        if [ -n "$best" ] && [ "$best" != / ] && [[ ",$best_opts," == *,x-systemd.automount,* ]]; then
+            unit="$(systemd-escape --path --suffix=automount "$best")"
+            [[ " $AUTOMOUNT_UNITS " == *" $unit "* ]] || AUTOMOUNT_UNITS="${AUTOMOUNT_UNITS:+$AUTOMOUNT_UNITS }$unit"
+        else
+            REQUIRES_MOUNTS="${REQUIRES_MOUNTS:+$REQUIRES_MOUNTS }$dir"
+        fi
+    done
+}
+# end mount_dependencies
+
 say "Installing the services"
+mount_dependencies "$LOG_DIR" "$BACKUP_DIR"
+[ -n "$AUTOMOUNT_UNITS" ] && echo "Waits for the automounted share(s) $AUTOMOUNT_UNITS (mounted on first use)"
 MOUNTS="$LOG_DIR${BACKUP_DIR:+ $BACKUP_DIR}"
 cat >/etc/systemd/system/flight-logs.service <<EOF
 [Unit]
 Description=Flight log database
-After=network-online.target remote-fs.target
-Wants=network-online.target
-RequiresMountsFor=$MOUNTS
+After=network-online.target remote-fs.target${AUTOMOUNT_UNITS:+ $AUTOMOUNT_UNITS}
+Wants=network-online.target${AUTOMOUNT_UNITS:+ $AUTOMOUNT_UNITS}
+${REQUIRES_MOUNTS:+RequiresMountsFor=$REQUIRES_MOUNTS}
 
 [Service]
 User=$SVC_USER

@@ -187,6 +187,35 @@ as_user() {
                     else:
                         self.assertNotIn("BACKUP ", result.stdout)
 
+    def test_installer_waits_for_automounted_shares_instead_of_requiring_the_mount(self):
+        """A share with x-systemd.automount must not become RequiresMountsFor: a file server that is slow at boot
+        then stopped the service with "dependency failed" (2026-11-18). Plain mounts and local disks keep it."""
+        script = (Path(__file__).resolve().parents[1] / "install.sh").read_text()
+        function = script[script.index("mount_dependencies() {"):script.index("# end mount_dependencies")]
+        fstab = ("# a comment /mnt/x\n"
+                 "UUID=1 / ext4 defaults 0 1\n"
+                 "//server/logs /mnt/MAVLabFlightLogs cifs credentials=/etc/c,_netdev,nofail,x-systemd.automount,"
+                 "x-systemd.mount-timeout=30 0 0\n"
+                 "//server/backup /mnt/backup cifs credentials=/etc/c,_netdev 0 0\n"
+                 "//server/space /mnt/with\\040space cifs x-systemd.automount 0 0\n")
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "fstab").write_text(fstab)
+
+            def deps(*dirs):
+                out = subprocess.run(["bash", "-c", function + '\nmount_dependencies "$@"\n'
+                                      'printf "%s|%s" "$REQUIRES_MOUNTS" "$AUTOMOUNT_UNITS"', "fixture", *dirs],
+                                     env={**os.environ, "FSTAB": str(Path(folder) / "fstab")},
+                                     check=True, capture_output=True, text=True).stdout
+                return tuple(out.split("|"))
+
+            self.assertEqual(deps("/mnt/MAVLabFlightLogs/logs", "/mnt/MAVLabFlightLogs/backup"),
+                             ("", "mnt-MAVLabFlightLogs.automount"))  # once, for both folders
+            self.assertEqual(deps("/mnt/MAVLabFlightLogs/logs", "/mnt/backup/db"),
+                             ("/mnt/backup/db", "mnt-MAVLabFlightLogs.automount"))  # a plain mount keeps it
+            self.assertEqual(deps("/var/lib/flight-logs/logs", ""), ("/var/lib/flight-logs/logs", ""))  # local disk
+            self.assertEqual(deps("/mnt/MAVLabFlightLogsOther/logs"), ("/mnt/MAVLabFlightLogsOther/logs", ""))  # no prefix match
+            self.assertEqual(deps("/mnt/with space/logs"), ("", "mnt-with\\x20space.automount"))
+
     def test_installer_selects_newest_complete_set_or_legacy_backup(self):
         script = (Path(__file__).resolve().parents[1] / "install.sh").read_text()
         selection = script.split('# ---------------------------------------------------------------- restore\n', 1)[1]
