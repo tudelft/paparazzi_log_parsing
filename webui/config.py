@@ -210,14 +210,6 @@ def _writable(path):
 
 
 def bind_address():
-    if env("SMTP_HOST"):
-        if "@" not in env("MAIL_FROM"):
-            errors.append("LOGDB_MAIL_FROM must be the sender address when LOGDB_SMTP_HOST is set")
-        for name in ("SMTP_PORT", "MAIL_DAILY_HOUR"):
-            if not env(name).isdigit():
-                errors.append(f"LOGDB_{name} must be a whole number, not {env(name)!r}")
-        if not env("PUBLIC_URL"):
-            warnings.append("LOGDB_PUBLIC_URL is not set: emails cannot contain links to pages")
     host, _, port = env("BIND").rpartition(":")
     if not host or not port.isdigit():
         sys.exit(f"LOGDB_BIND must look like 127.0.0.1:8000, not {env('BIND')!r}")
@@ -334,6 +326,14 @@ def check():
     else:
         warnings.append("LOGDB_BACKUP_DIR is not set: the database is not backed up by `app.py backup`")
 
+    if env("SMTP_HOST"):
+        if "@" not in env("MAIL_FROM"):
+            errors.append("LOGDB_MAIL_FROM must be the sender address when LOGDB_SMTP_HOST is set")
+        for name in ("SMTP_PORT", "MAIL_DAILY_HOUR"):
+            if not env(name).isdigit():
+                errors.append(f"LOGDB_{name} must be a whole number, not {env(name)!r}")
+        if not env("PUBLIC_URL"):
+            warnings.append("LOGDB_PUBLIC_URL is not set: emails cannot contain links to pages")
     url = env("PUBLIC_URL") or ""
     secure = env_bool("COOKIE_SECURE")
     if url and not url.startswith(("http://", "https://")):

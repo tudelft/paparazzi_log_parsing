@@ -144,6 +144,18 @@ class SafetyTests(AppTests):
         lines = " ".join(str(c.args[0]) for c in printed.call_args_list if c.args)
         self.assertIn("LOGDB_SAFETY is off: /safety, linked from the Operations Manual, returns 404", lines)
 
+    def test_incomplete_mail_settings_are_reported_not_a_startup_crash(self):
+        import config
+        mail = {"LOGDB_SMTP_HOST": "relay.example.org", "LOGDB_MAIL_FROM": "", "LOGDB_PUBLIC_URL": "",
+                "LOGDB_BIND": "127.0.0.1:8000"}
+        with patch.dict(os.environ, mail):
+            self.assertEqual(config.bind_address(), ("127.0.0.1", 8000))
+            with patch("builtins.print") as printed:
+                config.check()
+        lines = " ".join(str(c.args[0]) for c in printed.call_args_list if c.args)
+        self.assertIn("ERROR: LOGDB_MAIL_FROM must be the sender address", lines)
+        self.assertIn("warning: LOGDB_PUBLIC_URL is not set: emails cannot contain links", lines)
+
     def test_config_check_warns_when_reports_reach_nobody(self):
         import config
 
