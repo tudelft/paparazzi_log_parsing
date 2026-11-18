@@ -2327,6 +2327,16 @@ dots (including unnamed-dot review), without changing place access or hiding acc
 location boundaries. Omitting the date arguments retains all-time API behavior; omitting
 `indoor` retains the API's existing inclusion of indoor records.
 
+**Goal and aircraft on the flight page.** In Edit mode, whoever may edit the flight (as for the comment) can:
+- type the **flight goal** (`PUT /api/flights/<id>/goal`, at most 300 characters, saved on every recording of the
+  flight): stored in `flights.goal_override`, kept across a re-parse; empty returns to the logged goal
+  (`aircraft.goal`, given as `goal_logged`, while `goal` in the logbook rows is the override or else the logged one);
+- link the opened recording to a **fleet aircraft** (`PUT /api/flights/<id>/aircraft` with `drone_id`, or `null` for
+  automatic by name): the same per-log assignment as Aircraft Edit mode (`log_aircraft_links`), for every flight of
+  that recording and kept across a re-parse. Non-admins choose from the aircraft whose timeline or default project
+  is one they may upload to (`GET /api/flights/<id>/aircraft-choices`, `drone_choices`), so a recording cannot be
+  moved into someone else's project; admins choose from all.
+
 **Real flight or not.** The autopilot's in-flight flag also toggles on the ground (arming, motor tests, carrying).
 The parser scores each takeoff/landing on duration, climb, distance, speed, tilt and acceleration and gives a verdict
 `flight`, `uncertain` or `ground` with the reasons. **Hide non-flights** leaves out the last two. Whoever may edit

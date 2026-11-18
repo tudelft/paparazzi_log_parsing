@@ -2306,7 +2306,7 @@ def snapshot_flight_edits(con, log_id):
     with the aircraft rows)."""
     return {(r["ac_id"], r["idx"]): dict(r) for r in con.execute(
         "SELECT a.ac_id, f.idx, f.project_id, f.project_source, f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment, f.hidden,"
-        " f.operator_id, f.category, f.authorisation_id, f.verdict_override"
+        " f.operator_id, f.category, f.authorisation_id, f.verdict_override, f.goal_override"
         " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id=?", (log_id,))}
 
 
@@ -2563,10 +2563,11 @@ def assign_log_flights(con, log_id, kept=None):
         restore = kept.get((f["ac_id"], f["idx"])) or {}
         if restore:
             con.execute("UPDATE flights SET pic_user_id=?, pac_user_id=?, gcs_user_id=?, comment=?, hidden=?, operator_id=?,"
-                        " category=?, authorisation_id=?, verdict_override=? WHERE id=?",
+                        " category=?, authorisation_id=?, verdict_override=?, goal_override=? WHERE id=?",
                         (restore.get("pic_user_id"), restore.get("pac_user_id"), restore.get("gcs_user_id"),
                          restore.get("comment"), restore.get("hidden", 0), restore.get("operator_id"),
                          restore.get("category"), restore.get("authorisation_id"), restore.get("verdict_override"),
+                         restore.get("goal_override"),
                          f["id"]))
         saved = restore.get("project_id")
         source = restore.get("project_source") if restore else f["project_source"]
@@ -4624,6 +4625,84 @@ def set_flight_comment(flight_id):
     return jsonify(ok=True, comment=comment)
 
 
+GOAL_MAX = 300
+
+
+@app.put("/api/flights/<int:flight_id>/goal")
+def set_flight_goal(flight_id):
+    """Type the flight goal when the logged one is missing or wrong; empty returns to the logged goal. Same rights
+    as the comment; kept across a re-parse."""
+    con = conn()
+    _, err = visible_editable_flight(con, flight_id)
+    if err == "missing":
+        abort(404)
+    if err == "forbidden":
+        return jsonify(error="you cannot change the goal of this flight"), 403
+    raw = (request.get_json(silent=True) or {}).get("goal")
+    if raw is not None and not isinstance(raw, str):
+        return jsonify(error="goal must be text"), 400
+    goal = " ".join((raw or "").split()) or None
+    if goal and len(goal) > GOAL_MAX:
+        return jsonify(error=f"goal is too long (max {GOAL_MAX} characters)"), 400
+    con.execute("UPDATE flights SET goal_override=? WHERE id=?", (goal, flight_id))
+    con.commit()
+    return jsonify(ok=True, goal=goal)
+
+
+def drone_choices(con):
+    """Fleet aircraft this user may link a recording to: all for admins, else those whose timeline or default project
+    is one where the user may upload (so a recording is not moved into someone else's project)."""
+    rows = con.execute("SELECT id, name, unique_id, default_project_id FROM drones ORDER BY name COLLATE NOCASE").fetchall()
+    if g.user["is_admin"]:
+        return [dict(id=r["id"], name=r["name"], unique_id=r["unique_id"]) for r in rows]
+    mine = {r[0] for r in con.execute("SELECT project_id FROM project_members WHERE user_id=? AND role IN ("
+                                      + ",".join("?" * len(ADD_ROLES)) + ")", (g.user["id"], *ADD_ROLES))}
+    periods = {}
+    for r in con.execute("SELECT drone_id, project_id FROM drone_projects"):
+        periods.setdefault(r[0], set()).add(r[1])
+    return [dict(id=r["id"], name=r["name"], unique_id=r["unique_id"]) for r in rows
+            if (periods.get(r["id"], set()) | {r["default_project_id"]}) & mine]
+
+
+@app.get("/api/flights/<int:flight_id>/aircraft-choices")
+def flight_aircraft_choices(flight_id):
+    con = conn()
+    _, err = visible_editable_flight(con, flight_id)
+    if err:
+        abort(404 if err == "missing" else 403)
+    return jsonify(drones=drone_choices(con))
+
+
+@app.put("/api/flights/<int:flight_id>/aircraft")
+def set_flight_aircraft(flight_id):
+    """Link the recording this flight is in (the log's aircraft) to a fleet aircraft, or clear that manual link
+    (null) so the name decides again: the same per-log assignment as Aircraft Edit mode, for people who may edit
+    the flight. It applies to every flight of that recording and survives a re-parse."""
+    session_required()
+    con = conn()
+    row, err = visible_editable_flight(con, flight_id)
+    if err == "missing":
+        abort(404)
+    if err == "forbidden":
+        return jsonify(error="you cannot change the aircraft of this flight"), 403
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or "drone_id" not in body:
+        return jsonify(error="send drone_id (or null to clear the manual assignment)"), 400
+    drone_id = body["drone_id"]
+    if drone_id is not None and (type(drone_id) is not int
+                                 or drone_id not in {d["id"] for d in drone_choices(con)}):
+        return jsonify(error="choose a fleet aircraft of a project you may upload to"), 400
+    ac_id = con.execute("SELECT a.ac_id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE f.id=?",
+                        (flight_id,)).fetchone()["ac_id"]
+    with con:
+        con.execute("DELETE FROM log_aircraft_links WHERE log_id=? AND ac_id=?", (row["log_id"], ac_id))
+        if drone_id is not None:
+            con.execute("INSERT INTO log_aircraft_links(log_id,ac_id,drone_id) VALUES(?,?,?)",
+                        (row["log_id"], ac_id, drone_id))
+        link_log_aircraft(con, row["log_id"], ac_id=ac_id)
+    return jsonify(ok=True)
+
+
 def issue_setup_token(con, user_id):
     """Invalidate any unused setup links for this user and return a new one-time token."""
     con.execute("UPDATE password_setup_tokens SET used_at=? WHERE user_id=? AND used_at IS NULL", (now(), user_id))
@@ -6487,7 +6566,8 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
         " f.takeoff_lat, f.takeoff_lon, f.landing_lat, f.landing_lon, f.project_id, f.project_source,"
         " f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment, f.operator_id, f.category, f.authorisation_id,"
         " a.id AS aircraft_pk, a.ac_id, a.simulation, COALESCE(d.name, a.name) AS aircraft, a.name AS aircraft_logged,"
-        " d.unique_id AS aircraft_uid, a.drone_id, a.pic, a.pac, a.gcs, a.goal,"
+        " d.unique_id AS aircraft_uid, a.drone_id, a.pic, a.pac, a.gcs, COALESCE(f.goal_override, a.goal) AS goal,"
+        " a.goal AS goal_logged,"
         " EXISTS(SELECT 1 FROM ambiguous_drone_names n WHERE n.name=TRIM(a.name) COLLATE NOCASE) AS aircraft_ambiguous,"
         " COALESCE(f.verdict_override, f.verdict) AS verdict, f.verdict AS verdict_auto, f.verdict_override,"
         " f.assessment_json, f.takeoff_voltage_v, f.landing_voltage_v, f.num_points, f.takeoff_json, f.landing_json,"
