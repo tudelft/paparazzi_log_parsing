@@ -869,14 +869,19 @@ keyboard focus remains visible. Permissions are only shown in Edit.
 In Edit mode, select one project from the searchable list to
 rename it, change current members' permissions or delete it. The member list contains only existing
 members; search by name, username or alias to add an enabled, non-external person with See access,
-then adjust Upload/Delete as needed. Removing all permissions removes membership. Existing API
+then adjust Upload/Edit/Delete as needed. Removing all permissions removes membership. Existing API
 authorization and project visibility rules apply unchanged.
 
-**Project roles and managers.** `project_members.role` is `view` < `add` < `full` < `manager` (`ACCESS_ROLES`,
-`PROJECT_ROLE_RANK` in `app.py`); a manager has everything `full` has. There is no global manager role.
+**Project roles and managers.** `project_members.role` is `view` < `add` < `edit` < `full` < `manager`
+(`ACCESS_ROLES`, `PROJECT_ROLE_RANK` in `app.py`; ticks See, Upload, Edit, Delete, Manager); each includes the ones
+before it and a manager has everything `full` has. There is no global manager role. `add` (Upload) adds logs and
+files; `edit` also changes the project's flights, logs and paper records like `full` does (comments, crew, hidden
+flights, log dates, flight projects, links between records, file category and description; `EDIT_ROLES`,
+`historical.can_edit`) but deletes nothing: deleting logs and paper records and removing file links stay `full`
+(`FULL_ROLES`, `historical.can_delete`, `can_remove` of an attachment link).
 Admins tick **Manager** in the members editor (or use `manager` in the project CSV). In Edit mode a manager sees the
 members editor for the projects they manage, without rename, operator, category or delete: they add and remove
-members and set See/Upload/Delete (`PUT /api/projects/<id>/members`, the same handler as
+members and set See/Upload/Edit/Delete (`PUT /api/projects/<id>/members`, the same handler as
 `/api/admin/projects/<id>/members`). Only admins appoint managers or change a manager's row, also the manager's
 own (403). Creating, deleting and renaming projects, operators, categories, authorisations and the CSV import stay
 admin-only.
@@ -893,7 +898,7 @@ Managers of a project the aircraft is in today (a timeline period covering today
 manager may change only status, current user, comments and manager (`PUT /api/drones/<id>`; other fields 403).
 Name, serial, project history, aliases, import and delete stay admin-only.
 
-**Aircraft requests.** A non-admin with `add`, `full` or `manager` on a project sees **Request aircraft** (also
+**Aircraft requests.** A non-admin with `add`, `edit`, `full` or `manager` on a project sees **Request aircraft** (also
 outside Edit mode): project, name and optional details, no serial (`POST /api/drone-requests`, browser session only).
 Requests are stored in `drone_requests`, not in `drones`, so a pending request reserves no name and is never used
 for log matching (`drone_name_map`, folder matching, relinking). The Aircraft page lists pending requests, greyed with

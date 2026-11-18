@@ -3056,10 +3056,11 @@ def aircraft_page():
     return send_from_directory(PAGES_DIR, "aircraft.html")
 
 
-ACCESS_ROLES = {"view": "See logs", "add": "Add logs", "full": "See, add and delete",
+ACCESS_ROLES = {"view": "See logs", "add": "Add logs", "edit": "See, add and edit", "full": "See, add, edit and delete",
                 "manager": "Full, plus members and aircraft requests"}
-MEMBER_ROLES = ("view", "add", "full")  # what a project manager may give; only admins appoint managers
-ADD_ROLES = ("add", "full", "manager")
+MEMBER_ROLES = ("view", "add", "edit", "full")  # what a project manager may give; only admins appoint managers
+ADD_ROLES = ("add", "edit", "full", "manager")
+EDIT_ROLES = ("edit", "full", "manager")  # change flights, logs and paper records of the project, but not delete them
 FULL_ROLES = ("full", "manager")
 
 
@@ -3082,7 +3083,8 @@ def list_projects():
                        "SELECT m.user_id, m.role, u.username, u.display_name FROM project_members m"
                        " JOIN users u ON u.id = m.user_id WHERE m.project_id=? ORDER BY u.username", (r["id"],))]
         out.append({"id": r["id"], "name": r["name"], "role": r["role"], "log_count": n,
-                    "can_add": r["role"] in ADD_ROLES, "can_delete": r["role"] in FULL_ROLES or bool(g.user["is_admin"]),
+                    "can_add": r["role"] in ADD_ROLES,
+                    "can_edit": r["role"] in EDIT_ROLES or bool(g.user["is_admin"]), "can_delete": r["role"] in FULL_ROLES or bool(g.user["is_admin"]),
                     "can_manage": bool(g.user["is_admin"]) or r["role"] == "manager", "members": members})
     return jsonify(out)
 
@@ -4427,7 +4429,7 @@ def decide_flight_link():
             con.execute("BEGIN IMMEDIATE")
             row = historical.visible(con, g.user, record_id)
             if not historical.can_edit(con, g.user, row["project_id"]):
-                raise historical.RecordError("Full project access is required to change this record.", 403)
+                raise historical.RecordError("Edit access to the project is required to change this record.", 403)
             for flight_id in flight_ids:
                 _, err = visible_editable_flight(con, flight_id)
                 if err:
@@ -4453,7 +4455,7 @@ def forget_flight_link():
             con.execute("BEGIN IMMEDIATE")
             row = historical.visible(con, g.user, record_id)
             if not historical.can_edit(con, g.user, row["project_id"]):
-                raise historical.RecordError("Full project access is required to change this record.", 403)
+                raise historical.RecordError("Edit access to the project is required to change this record.", 403)
             for flight_id in flight_ids:
                 _, err = visible_editable_flight(con, flight_id)
                 if err:
@@ -4558,7 +4560,7 @@ def accept_conflict():
             con.execute("BEGIN IMMEDIATE")
             row = historical.visible(con, g.user, record_id)
             if not historical.can_edit(con, g.user, row["project_id"]):
-                raise historical.RecordError("Full project access is required to change this record.", 403)
+                raise historical.RecordError("Edit access to the project is required to change this record.", 403)
             con.execute("INSERT OR REPLACE INTO conflict_reviews(record_id, field, paper, log, reviewed_by, reviewed_at)"
                         " VALUES (?,?,?,?,?,?)", (record_id, field, str(paper), str(log), g.user["id"], now()))
         return jsonify(ok=True)
@@ -4928,7 +4930,7 @@ def admin_delete_user(user_id):
 
 # Merging accounts and moving a TU Delft sign-in (admins, People page Account tab). A merge moves everything of
 # one account to another and removes the first; its names become aliases. Both are recorded in the audit log.
-PROJECT_ROLE_RANK = {"view": 0, "add": 1, "full": 2, "manager": 3}
+PROJECT_ROLE_RANK = {"view": 0, "add": 1, "edit": 2, "full": 3, "manager": 4}
 
 
 def user_reference_columns(con):
@@ -5637,7 +5639,7 @@ def can_upload_any(con):
     if g.user["is_admin"]:
         return True
     return con.execute(
-        "SELECT 1 FROM project_members WHERE user_id=? AND role IN ('add','full','manager') LIMIT 1",
+        "SELECT 1 FROM project_members WHERE user_id=? AND role IN ('add','edit','full','manager') LIMIT 1",
         (g.user["id"],)).fetchone() is not None
 
 
@@ -5650,8 +5652,10 @@ def can_delete_log(con, row):
 
 
 def can_edit_log_date(con, row):
-    """Admin, full on the log's project, or the uploader when the log has no project."""
-    return can_delete_log(con, row)
+    """Admin, Edit or more on the log's project, or the uploader when the log has no project."""
+    if g.user["is_admin"] or row["project_id"] is None:
+        return can_delete_log(con, row)
+    return role_on(con, row["project_id"]) in EDIT_ROLES
 
 
 def can_set_log_date(con, log_row):
@@ -5680,7 +5684,7 @@ def can_edit_flight_project(con, row):
     if pid is None:
         return is_uploader(con, row["log_id"], row["uploaded_by"]) if "log_id" in row.keys() \
             else row["uploaded_by"] == g.user["id"]
-    return role_on(con, pid) in FULL_ROLES
+    return role_on(con, pid) in EDIT_ROLES
 
 
 def visible_log(con, log_id, columns="*"):
@@ -6157,7 +6161,9 @@ def historical_record(record_id):
                 con.execute("BEGIN IMMEDIATE")
                 row = historical.visible(con, g.user, record_id)
                 if not historical.can_edit(con, g.user, row["project_id"]):
-                    raise historical.RecordError("Full project access is required to change this record.", 403)
+                    raise historical.RecordError("Edit access to the project is required to change this record.", 403)
+                if request.method == "DELETE" and not historical.can_delete(con, g.user, row["project_id"]):
+                    raise historical.RecordError("Full project access is required to delete this record.", 403)
                 values = historical.validate(con, g.user, request.get_json(silent=True)) if request.method == "PUT" else None
                 if request.method == "DELETE":
                     con.execute("DELETE FROM flight_records WHERE id=?", (record_id,))

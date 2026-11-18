@@ -387,7 +387,7 @@ function syncEditUi() {
   $('hiddenFilter').hidden = !me?.is_admin;
   $('hideSelected').hidden = !me?.is_admin || $('hiddenRecords').checked;
   $('restoreSelected').hidden = !me?.is_admin || !$('hiddenRecords').checked;
-  $('addHistorical').hidden = !editOn() || !(me && (me.is_admin || projects.some(p => p.role === 'full' || p.role === 'manager')));
+  $('addHistorical').hidden = !editOn() || !(me && (me.is_admin || projects.some(p => ['edit', 'full', 'manager'].includes(p.role))));
   $('addHistorical').textContent = me?.is_admin ? 'Import CSV' : 'Add paper record';
   $('reviewLink').hidden = !editOn();
 }

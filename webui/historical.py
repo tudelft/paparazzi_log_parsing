@@ -28,10 +28,15 @@ class RecordError(ValueError):
         self.status = status
 
 
-def can_edit(con, user, project_id):
+def can_edit(con, user, project_id, roles=("edit", "full", "manager")):
+    """Admin, or a member of the project with one of `roles` (by default Edit or more)."""
     return bool(user["is_admin"] or con.execute(
-        "SELECT 1 FROM project_members WHERE user_id=? AND project_id=? AND role IN ('full','manager')",
-        (user["id"], project_id)).fetchone())
+        f"SELECT 1 FROM project_members WHERE user_id=? AND project_id=? AND role IN ({','.join('?' * len(roles))})",
+        (user["id"], project_id, *roles)).fetchone())
+
+
+def can_delete(con, user, project_id):
+    return can_edit(con, user, project_id, ("full", "manager"))
 
 
 def visible(con, user, record_id):
@@ -67,7 +72,7 @@ def validate(con, user, body):
             raise RecordError(f"Unknown {field}.")
         out[field] = value
     if not can_edit(con, user, out["project_id"]):
-        raise RecordError("Full project access is required to enter historical records.", 403)
+        raise RecordError("Edit access to the project is required to enter historical records.", 403)
     try:
         day = date.fromisoformat(body.get("date", ""))
         if day.isoformat() != body["date"] or day > datetime.now(timezone.utc).date():

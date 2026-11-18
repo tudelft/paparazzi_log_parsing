@@ -148,12 +148,13 @@ def convert(source, compressed, suffix, office, target):
         return True
 
 
-ADD_ROLES = ("add", "full", "manager")  # project roles that may add files ("Upload"); removing needs full/manager
+ADD_ROLES = ("add", "edit", "full", "manager")  # project roles that may add files ("Upload"); removing needs full/manager
 
 
-def target(con, user, kind, identity, edit=False, add=False):
-    """A flight, log or paper record the user may see, with can_add (may add files: Upload or more) and can_edit (may
-    remove links: Delete or Manager). edit/add require that right (403)."""
+def target(con, user, kind, identity, edit=False, add=False, remove=False):
+    """A flight, log or paper record the user may see, with can_add (may add files: Upload or more), can_edit (may
+    change files linked there: Edit or more) and can_remove (may remove links: Delete or Manager). edit/add/remove
+    require that right (403)."""
     if not isinstance(kind, str) or kind not in COLUMNS:
         raise Error("Unknown attachment target.")
     identity = historical.integer(identity, "Target ID")
@@ -186,18 +187,22 @@ def target(con, user, kind, identity, edit=False, add=False):
             raise Error("No such flight or log.", 404)
     own = project is None and uploader is not None and uploader == user["id"]
     editable = bool(historical.can_edit(con, user, project) or own)
+    removable = bool(historical.can_delete(con, user, project) or own)
     addable = bool(editable or con.execute(
         f"SELECT 1 FROM project_members WHERE user_id=? AND project_id=? AND role IN ({','.join('?' * len(ADD_ROLES))})",
         (user["id"], project, *ADD_ROLES)).fetchone())
     if edit and not editable:
+        raise Error("Edit access to every selected flight/log is required.", 403)
+    if remove and not removable:
         raise Error("Full access to every selected flight/log is required.", 403)
     if add and not addable:
         raise Error("Upload access to every selected flight/log is required.", 403)
-    return dict(kind=kind, id=identity, label=label, url=url, can_edit=editable, can_add=addable, **short)
+    return dict(kind=kind, id=identity, label=label, url=url, can_edit=editable, can_remove=removable, can_add=addable,
+                **short)
 
 
 def can_change(con, user, row, links):
-    """May change a file's category and description: Delete/Manager on one of its flights/logs, or Upload on one for a
+    """May change a file's category and description: Edit or more on one of its flights/logs, or Upload on one for a
     file the user uploaded."""
     return any(link["can_edit"] for link in links) or (
         row["uploaded_by"] == user["id"] and any(link["can_add"] for link in links))
@@ -372,7 +377,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
                 params = (f"%{query}%", f"%{query}%", f"%{query}%", query)
             else:
                 params = (f"%{query}%", f"%{query}%", query)
-            sql += (f" AND (? OR {project} IN (SELECT project_id FROM project_members WHERE user_id=? AND role IN ('add','full','manager'))"
+            sql += (f" AND (? OR {project} IN (SELECT project_id FROM project_members WHERE user_id=? AND role IN ('add','edit','full','manager'))"
                     f" OR ({project} IS NULL AND {uploader}=?)) ORDER BY {order} DESC LIMIT 100")
             for r in con.execute(sql, (*params, g.user["is_admin"], g.user["id"], g.user["id"])):
                 found.append(target(con, g.user, category, r["id"], add=True))
@@ -576,7 +581,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
             con.execute("BEGIN IMMEDIATE")
             row, links = visible(con, g.user, attachment_id)
             if not can_change(con, g.user, row, links):
-                raise Error("Full access to a flight/log this file is linked to, or uploading it yourself, is required.", 403)
+                raise Error("Edit access to a flight/log this file is linked to, or uploading it yourself, is required.", 403)
             con.execute(f"UPDATE attachments SET {', '.join(f'{k}=?' for k in changes)} WHERE id=?",
                         (*changes.values(), attachment_id))
         return jsonify(ok=True, **changes)
@@ -683,7 +688,7 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
                 if row is None:
                     raise Error("No such attachment link.", 404)
                 kind = next(k for k, column in COLUMNS.items() if row[column] is not None)
-                target(con, g.user, kind, row[COLUMNS[kind]], edit=True)
+                target(con, g.user, kind, row[COLUMNS[kind]], remove=True)
                 con.execute("DELETE FROM attachment_links WHERE id=?", (link_id,))
                 # removing the newest version on a target makes the version it replaced current again
                 con.execute(f"UPDATE attachment_links SET superseded_by=NULL,superseded_at=NULL"

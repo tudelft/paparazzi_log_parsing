@@ -250,7 +250,7 @@ class AttachmentTests(test_historical.AppTests):
         self.assertTrue(files[mine]["can_edit"])        # own file: may change category / description
         self.assertFalse(files[theirs]["can_edit"])     # someone else's: not
         self.assertTrue(files[mine]["can_share"])
-        self.assertFalse(files[mine]["links"][0]["can_edit"])  # removing a link still needs Delete
+        self.assertFalse(files[mine]["links"][0]["can_remove"])  # removing a link still needs Delete
         self.assertEqual(self.client.patch(f"/api/attachments/{mine}", json={"category": "Notes"}).status_code, 200)
         self.assertEqual(self.client.patch(f"/api/attachments/{theirs}", json={"category": "Notes"}).status_code, 403)
         self.assertEqual(self.client.post(f"/api/attachments/{mine}/links", json={"targets": [other]}).status_code, 200)
@@ -262,6 +262,41 @@ class AttachmentTests(test_historical.AppTests):
         self.assertIn(("log", other_log["id"]), [(t["kind"], t["id"]) for t in found])
         self.sign_in(3)  # See only: still nothing
         self.assertEqual(self.upload_file([flight], b"view", "view.pdf").status_code, 403)
+
+    def set_member_role(self, role):
+        self.con.execute("UPDATE project_members SET role=? WHERE project_id=1 AND user_id=5", (role,))
+        self.con.commit()
+
+    def test_edit_role_changes_but_does_not_delete(self):
+        log, flight = self.log()  # uploaded by user 2
+        theirs = self.upload_file([flight], name="theirs.pdf").json["id"]
+        paper = self.create().json["id"]
+        comment = f"/api/flights/{flight['id']}/comment"
+        self.sign_in(5)
+        self.assertEqual(self.client.put(comment, json={"comment": "x"}).status_code, 403)  # Upload ("add") only
+        self.set_member_role("edit")
+        self.assertTrue(next(p for p in self.client.get("/api/projects").json if p["id"] == 1)["can_edit"])
+        r = self.client.put(comment, json={"comment": "Gusty, landed early"})
+        self.assertEqual((r.status_code, r.json["comment"]), (200, "Gusty, landed early"))
+        self.assertEqual(self.client.put(f"/api/historical/{paper}", json=self.body).status_code, 200)
+        self.assertEqual(self.create(date="2010-01-03").status_code, 201)
+        self.assertEqual(self.client.patch(f"/api/attachments/{theirs}", json={"category": "Notes"}).status_code, 200)
+        file, = self.client.get(f'/api/attachments?kind=flight&id={flight["id"]}').json["files"]
+        self.assertEqual((file["can_edit"], file["links"][0]["can_edit"], file["links"][0]["can_remove"]),
+                         (True, True, False))
+        self.assertEqual(self.client.delete(f"/api/attachments/{theirs}/links/{file['links'][0]['link_id']}").status_code, 403)
+        self.assertEqual(self.client.delete(f"/api/historical/{paper}").status_code, 403)
+        self.assertEqual(self.client.delete(f"/api/logs/{log['id']}").status_code, 403)
+        self.set_member_role("full")
+        self.assertEqual(self.client.delete(f"/api/historical/{paper}").status_code, 200)
+
+    def test_managers_may_give_the_edit_role(self):
+        self.con.execute("UPDATE project_members SET role='manager' WHERE project_id=1 AND user_id=2")
+        self.con.commit()
+        r = self.client.put("/api/projects/1/members", json={"user_id": 5, "role": "edit"})
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertEqual(self.con.execute("SELECT role FROM project_members WHERE user_id=5").fetchone()[0], "edit")
+
 
     def test_logbook_files_for_search_and_filter(self):
         log, flight = self.log()
