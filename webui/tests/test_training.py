@@ -582,7 +582,7 @@ class TrainingTests(AppTests):
         self.assertTrue(row["subject"].startswith("Access request: "), row["subject"])
         self.assertIn("(pic@example.org) passed Safety on ", row["body"])
         self.assertRegex(row["body"], r"\n\nRequest details:\nPerson: Pilot\nEmail: pic@example.org\nUsername: pic\n"
-                                      r"Number: -\nDepartment: -\nRole: -\nSupervisor: -\nUntil: -\nTraining: Safety\n"
+                                      r"Number: -\nDepartment: -\nRole: -\nSupervisor: -\nSupervisor email: -\nUntil: -\nTraining: Safety\n"
                                       r"Passed: \d{4}-\d\d-\d\d\nValid until: (\d{4}-\d\d-\d\d|-)\nBriefed by: -\n"
                                       r"Reference: T\d+-U2-\d{4}-\d\d-\d\d$")
         sent = []
@@ -605,14 +605,14 @@ class TrainingTests(AppTests):
         self.con.execute("INSERT INTO user_supervisors (user_id, supervisor_id) VALUES (2, 1)")
         self.con.execute("INSERT INTO user_supervisors (user_id, external_name) VALUES (2, 'Ext Supervisor')")
         row = self.con.execute("SELECT * FROM trainings WHERE id=?", (tid,)).fetchone()
-        admin = self.con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=1").fetchone()[0]
+        admin, admin_email = self.con.execute("SELECT COALESCE(display_name, username), email FROM users WHERE id=1").fetchone()
         with patch.dict(os.environ, LOGDB_PERSON_PROFILE="1"):
             self.assertTrue(training.queue_access_mail(self.con, 2, row, None, "2026-11-14T10:00:00Z", "Briefer B"))
         body = self.access_mails()[-1]["body"]
         self.assertTrue(body.startswith(f"Pilot pic S1234567 Control and Simulation Visiting Student {admin}, Ext Supervisor"
                                         " 2027-08-31 Safety 2026-11-14 2027-11-14 Briefer B\n\n"), body)
         self.assertIn(f"\nNumber: S1234567\nDepartment: Control and Simulation\nRole: Visiting Student\n"
-                      f"Supervisor: {admin}, Ext Supervisor\nUntil: 2027-08-31\nTraining: Safety\nPassed: 2026-11-14\n"
+                      f"Supervisor: {admin}, Ext Supervisor\nSupervisor email: {admin_email}\nUntil: 2027-08-31\nTraining: Safety\nPassed: 2026-11-14\n"
                       "Valid until: 2027-11-14\nBriefed by: Briefer B\n", body)
         with patch.dict(os.environ, LOGDB_PERSON_PROFILE="0"):  # profiles off: the stored profile is not used
             training.queue_access_mail(self.con, 2, row, None, "2026-11-14T10:00:00Z")

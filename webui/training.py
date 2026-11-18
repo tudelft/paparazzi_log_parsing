@@ -485,15 +485,18 @@ def person_details(con, user_id):
     if person is None:
         return None
     out = {"name": person["name"], "username": person["username"] or "-", "email": person["email"] or "",
-           "number": "-", "department": "-", "role": "-", "supervisor": "-", "end_date": "-"}
+           "number": "-", "department": "-", "role": "-", "supervisor": "-", "supervisor_email": "-",
+           "end_date": "-"}
     profile = con.execute(
         "SELECT p.number, p.end_date, p.indefinite, COALESCE(d.name, p.department_text) AS department, r.name AS role"
         " FROM user_profiles p LEFT JOIN profile_departments d ON d.id=p.department_id"
         " LEFT JOIN profile_roles r ON r.id=p.role_id WHERE p.user_id=?", (user_id,)).fetchone()
     if profiles.enabled() and profile is not None:
-        supervisors = [r[0] for r in con.execute(
-            "SELECT COALESCE(u.display_name, u.username, s.external_name) FROM user_supervisors s"
-            " LEFT JOIN users u ON u.id=s.supervisor_id WHERE s.user_id=? ORDER BY s.id", (user_id,))]
+        rows = con.execute("SELECT COALESCE(u.display_name, u.username, s.external_name), u.email FROM user_supervisors s"
+                           " LEFT JOIN users u ON u.id=s.supervisor_id WHERE s.user_id=? ORDER BY s.id",
+                           (user_id,)).fetchall()
+        supervisors = [r[0] for r in rows]
+        out["supervisor_email"] = ", ".join(r[1] for r in rows if r[1]) or "-"
         out.update(number=profile["number"] or "-", department=profile["department"] or "-",
                    role=profile["role"] or "-", supervisor=", ".join(n for n in supervisors if n) or "-",
                    end_date="indefinite" if profile["indefinite"] else profile["end_date"] or "-")
@@ -505,7 +508,8 @@ def access_details(person, row, day, valid_until, briefed_by, reference):
     can copy the request into a list; the reference is the same for a repeated mail of one pass."""
     lines = ["Request details:", f"Person: {person['name']}", f"Email: {person['email'] or '-'}",
              f"Username: {person['username']}", f"Number: {person['number']}", f"Department: {person['department']}",
-             f"Role: {person['role']}", f"Supervisor: {person['supervisor']}", f"Until: {person['end_date']}",
+             f"Role: {person['role']}", f"Supervisor: {person['supervisor']}",
+             f"Supervisor email: {person['supervisor_email']}", f"Until: {person['end_date']}",
              f"Training: {row['name']}", f"Passed: {day}", f"Valid until: {valid_until}", f"Briefed by: {briefed_by}",
              f"Reference: {reference}"]
     return "\n".join(" ".join(line.split()) for line in lines)
