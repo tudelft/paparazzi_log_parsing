@@ -258,6 +258,7 @@ CREATE TABLE IF NOT EXISTS flights (
     link_json TEXT,                    -- datalink summary from the parser (ping, longest gap, errors, signal); NULL = none
     verdict TEXT,                      -- parser estimate: flight | uncertain | ground
     verdict_override TEXT CHECK(verdict_override IN ('flight','ground')),  -- set by hand in Edit mode; NULL: the parser's
+    goal_override TEXT,                -- flight goal typed on the flight page; NULL: the logged goal (aircraft.goal)
     assessment_json TEXT,              -- score, reasons and metrics behind the verdict
     project_id INTEGER,                -- projects.id; auto from aircraft / uploader / GCS / PIC, then editable
     project_source TEXT,               -- timeline | timeline_undated (only project, no date) | manual; NULL: legacy
@@ -829,6 +830,8 @@ def init(path):
         con.execute("ALTER TABLE flights ADD COLUMN comment TEXT")
     if "verdict_override" not in {r[1] for r in con.execute("PRAGMA table_info(flights)")}:
         con.execute("ALTER TABLE flights ADD COLUMN verdict_override TEXT CHECK(verdict_override IN ('flight','ground'))")
+    if "goal_override" not in {r[1] for r in con.execute("PRAGMA table_info(flights)")}:
+        con.execute("ALTER TABLE flights ADD COLUMN goal_override TEXT")
     fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
     if "distance_m" not in fcols:
         con.execute("ALTER TABLE flights ADD COLUMN distance_m REAL")

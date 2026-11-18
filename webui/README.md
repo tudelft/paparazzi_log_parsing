@@ -126,6 +126,8 @@ to gain descriptions and previously omitted crew entries.
   flight page) copies it; in **Select** mode, **Copy numbers** copies the ticked flights' numbers
   (`1, 3, 4`) to paste into a Python or MATLAB array. Search for `#1234` to find a flight by number; with SD
   and GCS recordings of one flight, hover over the number for both.
+- In Edit mode the flight page lets you type the **flight goal** and link the recording to the right **fleet aircraft**
+  when the log got them wrong.
 - SD and GCS recordings of the same flight are merged. **Group by day** (on by default) shows one row per
   aircraft, crew and takeoff place per day, like a paper daily log; such a row is tinted, shows its number of flights
   (for example **4×**) with a button that copies their flight numbers, and opens with ▸ to show its flights.
