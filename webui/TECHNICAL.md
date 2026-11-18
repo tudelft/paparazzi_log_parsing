@@ -1083,6 +1083,13 @@ cleared and assigned again when the log's date is set (by hand or from a suggest
 saved, so a second project or an end date sends them back to the dated timeline or to no project. Setting a date
 also fills that log's unassigned flights from the timeline right away.
 
+A log without a project takes the project of its flights when they are all in one project (flights without a
+project do not count; `db.LOG_PROJECT_FROM_FLIGHTS`): after automatic assignment and when someone sets a flight's
+project by hand, so project members see the log on Logs and can open and download it, not only its flights in the
+logbook. A log that already has a project keeps it. Logs left without a project by hand edits before this rule are
+fixed once at startup (`data_migrations` records such one-time fixes, so an administrator can clear a log's project
+afterwards without a restart undoing it).
+
 Successfully parsed logs with no flight records inherit a project from their linked aircraft's
 timeline on the recording date (including a corrected date). Every aircraft in the log must resolve
 to the same project; missing dates, unlinked aircraft and timeline gaps leave the log unassigned.

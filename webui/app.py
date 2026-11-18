@@ -4232,6 +4232,8 @@ def apply_flight_project(con, flight_id, project_id):
     if project_id is not None and not can_upload(con, project_id) and not g.user["is_admin"]:
         return "you cannot put flights in this project", 403
     con.execute("UPDATE flights SET project_id=?, project_source='manual' WHERE id=?", (project_id, flight_id))
+    # a log without a project follows its flights when they are all in one project, so project members see the log
+    con.execute(db.LOG_PROJECT_FROM_FLIGHTS + " AND id=?", (row["log_id"],))
     return None, None
 
 
