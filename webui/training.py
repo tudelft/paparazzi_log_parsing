@@ -515,13 +515,12 @@ def access_details(person, row, day, valid_until, briefed_by, reference):
     return "\n".join(" ".join(line.split()) for line in lines)
 
 
-def queue_access_mail(con, user_id, row, answer, when=None, briefed_by=None):
-    """Queue the training's access request for a granted pass: always without a question, else only after "No"."""
-    if not row["access_mail_to"] or (row["access_question"] and answer != "no"):
-        return False
+def access_mail(con, user_id, row, when=None, briefed_by=None, test=False):
+    """(subject, body, person email) of the training's access request for `user_id`, or None without that person.
+    A test mail has the same subject and body, only its reference ends in -test."""
     person = person_details(con, user_id)
     if person is None:
-        return False
+        return None
     email = person["email"]
     day = (when or utc_now())[:10]
     valid_until = ((datetime.date.fromisoformat(day) + datetime.timedelta(days=row["valid_days"])).isoformat()
@@ -531,9 +530,21 @@ def queue_access_mail(con, user_id, row, answer, when=None, briefed_by=None):
               "{number}": person["number"], "{department}": person["department"], "{role}": person["role"],
               "{supervisor}": person["supervisor"], "{end_date}": person["end_date"], "{training}": row["name"],
               "{date}": day, "{valid_until}": valid_until, "{briefed_by}": briefed_by}
-    return mail.queue_access(con, row["access_mail_to"], f"Access request: {person['name']} passed {row['name']}",
-                             fill_access(row["access_mail_text"], values) + "\n\n" + access_details(
-                                 person, row, day, valid_until, briefed_by, f"T{row['id']}-U{user_id}-{day}"),
+    reference = f"T{row['id']}-U{user_id}-{day}" + ("-test" if test else "")
+    return (f"Access request: {person['name']} passed {row['name']}",
+            fill_access(row["access_mail_text"], values) + "\n\n" + access_details(
+                person, row, day, valid_until, briefed_by, reference), email)
+
+
+def queue_access_mail(con, user_id, row, answer, when=None, briefed_by=None):
+    """Queue the training's access request for a granted pass: always without a question, else only after "No"."""
+    if not row["access_mail_to"] or (row["access_question"] and answer != "no"):
+        return False
+    built = access_mail(con, user_id, row, when, briefed_by)
+    if built is None:
+        return False
+    subject, body, email = built
+    return mail.queue_access(con, row["access_mail_to"], subject, body,
                              cc_addr=email if row["access_mail_cc"] and email else None, reply_to=email or None)
 
 
@@ -1115,6 +1126,36 @@ def register(app, connection, root, require_session):
             except sqlite3.IntegrityError as exc:
                 raise TrainingError("A training with that name already exists.", 409) from exc
         return jsonify(ok=True)
+
+    @app.post("/api/admin/trainings/<int:training_id>/test-access-mail")
+    def test_access_mail(training_id):
+        """Send the access mail as if `user_id` passed today, with the mail text and To of the form (saved or not),
+        to the To addresses (a mail flow handles it like a real request) or only to the administrator. No copy to
+        the person or to administrators."""
+        admin()
+        body = request.get_json(silent=True) or {}
+        to, text, _, _ = access_fields({**body, "access_mail_cc": False})
+        if not mail.enabled():
+            raise TrainingError("Email is not set up on this server.")
+        if body.get("send_to") == "me":
+            to = g.user["email"]
+            if not to:
+                raise TrainingError("Your account has no email address.")
+        elif body.get("send_to") != "to":
+            raise TrainingError("Send to must be to or me.")
+        if not to or not text:
+            raise TrainingError("Fill in the To addresses and the mail first.")
+        user_id = body.get("user_id")
+        cid = con()
+        person = cid.execute("SELECT id FROM users WHERE id=? AND is_active=1",
+                             (user_id if type(user_id) is int else -1,)).fetchone()
+        if person is None:
+            raise TrainingError("Choose an active person.")
+        row = {**dict(training_row(cid, training_id)), "access_mail_text": text}
+        subject, text, email = access_mail(cid, user_id, row, test=True)
+        with db.write_lock, cid:
+            mail.queue_access(cid, to, subject, text, reply_to=email or None, copies=False)
+        return jsonify(ok=True, to=to)
 
     @app.delete("/api/admin/trainings/<int:training_id>")
     def delete_training(training_id):

@@ -618,6 +618,26 @@ class TrainingTests(AppTests):
             training.queue_access_mail(self.con, 2, row, None, "2026-11-14T10:00:00Z")
         self.assertIn("\nNumber: -\nDepartment: -\n", self.access_mails()[-1]["body"])
 
+    def test_test_access_mail(self):
+        tid, _ = self.access_setup(access_mail_cc=True)
+        url = f"/api/admin/trainings/{tid}/test-access-mail"
+        form = {"user_id": 2, "access_mail_to": "flow@example.org", "access_mail_text": "Unsaved {name}."}
+        queued = self.con.execute("SELECT COUNT(*) FROM mail_outbox").fetchone()[0]
+        r = self.client.post(url, json={**form, "send_to": "to"})
+        self.assertEqual((r.status_code, r.json["to"]), (200, "flow@example.org"))
+        row = self.access_mails()[-1]
+        self.assertEqual((row["to_addr"], row["cc_addr"], row["reply_to"]), ("flow@example.org", None, "pic@example.org"))
+        self.assertTrue(row["subject"].startswith("Access request: Pilot passed "), row["subject"])
+        self.assertTrue(row["body"].startswith("Unsaved Pilot.\n\nRequest details:\n"), row["body"])
+        self.assertRegex(row["body"], r"\nReference: T\d+-U2-\d{4}-\d\d-\d\d-test$")
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM mail_outbox").fetchone()[0], queued + 1)  # no copies
+        me = self.con.execute("SELECT email FROM users WHERE id=1").fetchone()[0]
+        self.assertEqual(self.client.post(url, json={**form, "send_to": "me"}).json["to"], me)
+        for bad in ({"user_id": 999}, {"send_to": "x"}, {"access_mail_text": ""}):
+            self.assertEqual(self.client.post(url, json={**form, "send_to": "to", **bad}).status_code, 400, bad)
+        self.sign_in(2)
+        self.assertEqual(self.client.post(url, json={**form, "send_to": "to"}).status_code, 403)
+
     def test_access_mail_waits_for_approval(self):
         tid, answers = self.access_setup(needs_approval=True)
         self.sign_in(2)

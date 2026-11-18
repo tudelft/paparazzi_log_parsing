@@ -160,14 +160,14 @@ def notify_security(con, subject, text, path=None, skip=None):
     return len(admins)
 
 
-def queue_access(con, to_addr, subject, body, cc_addr=None, reply_to=None):
-    """Queue a training access request to fixed addresses (not an account), and a copy to administrators who
-    asked for one ("access_copy"). Returns True when queued."""
+def queue_access(con, to_addr, subject, body, cc_addr=None, reply_to=None, copies=True):
+    """Queue a training access request to fixed addresses (not an account), and (with `copies`) a copy to
+    administrators who asked for one ("access_copy"). Returns True when queued."""
     if not enabled() or not to_addr:
         return False
     con.execute("INSERT INTO mail_outbox(user_id, to_addr, cc_addr, reply_to, kind, subject, body, created_at)"
                 " VALUES (NULL,?,?,?,'access',?,?,?)", (to_addr, cc_addr, reply_to, subject, body, now()))
-    for admin in con.execute("SELECT id FROM users WHERE is_admin=1 AND is_active=1").fetchall():
+    for admin in con.execute("SELECT id FROM users WHERE is_admin=1 AND is_active=1").fetchall() if copies else ():
         notify(con, admin["id"], "access_copy", subject, f"Sent to {to_addr}" + (f", copy to {cc_addr}" if cc_addr else "")
                + f":\n\n{body}")
     _wake.set()

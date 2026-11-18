@@ -1194,6 +1194,12 @@ Reference: T<training id>-U<user id>-<yyyy-mm-dd>
 
 The reference is the same when one pass is mailed again, so a flow can skip duplicates.
 
+**Send test mail…** (admins, below the access mail settings; `POST /api/admin/trainings/<id>/test-access-mail` with
+`user_id`, `send_to` = `me` or `to`, `access_mail_to` and `access_mail_text`) queues the mail as if that active person
+passed today, using the form's To and text even when not saved yet. `me` sends it only to the administrator's own
+address; `to` sends it to the To addresses, where a mail flow treats it as a real request. The subject and block
+are the same, only the reference ends in `-test`; there is no Cc to the person and no administrator copy.
+
 #### Access requests into a SharePoint list (Power Automate)
 
 Set the training's **To** to a shared mailbox and let a Power Automate cloud flow (premium licence not needed for
