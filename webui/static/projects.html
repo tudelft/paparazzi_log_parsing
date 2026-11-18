@@ -174,34 +174,23 @@ window.fetch = async (...args) => {
 let projects = [], users = [], me = null, operators = [], authorisations = [], countries = [];
 let selectedProject = null;
 let memberQuery = '';
-// Project roles: view < add < full < manager. Only admins see the Manager box (they appoint managers).
-const ticksOf = role => ({see: !!role, upload: ['add', 'full', 'manager'].includes(role), del: ['full', 'manager'].includes(role),
-  manage: role === 'manager'});
-function roleFromBoxes(see, upload, del, manage) {
-  if (manage) return 'manager';
-  if (del) return 'full';
-  if (upload) return 'add';
-  if (see) return 'view';
-  return '';
-}
+// Project roles: view < add < edit < full < manager. Only admins see the Manager box (they appoint managers).
+// Each box includes the ones before it: See, Upload, Edit (change flights, logs and paper records), Delete, Manager.
+const TICK_ROLES = ['view', 'add', 'edit', 'full', 'manager'], TICK_IDS = ['see', 'up', 'edit', 'del', 'man'];
+const ticksOf = role => TICK_ROLES.indexOf(role);
 function tickBoxes(prefix, role, onchange) {
-  const t = ticksOf(role);
-  return `<span class="ticks">
-    <label><input type="checkbox" id="${prefix}see" ${t.see ? 'checked' : ''} onchange="${onchange}"> See</label>
-    <label><input type="checkbox" id="${prefix}up" ${t.upload ? 'checked' : ''} onchange="${onchange}"> Upload</label>
-    <label><input type="checkbox" id="${prefix}del" ${t.del ? 'checked' : ''} onchange="${onchange}"> Delete</label>
-    ${me && me.is_admin ? `<label title="Manages the members (See, Upload, Delete) and decides on aircraft requests of this project, and edits the details of its aircraft"><input type="checkbox" id="${prefix}man" ${t.manage ? 'checked' : ''} onchange="${onchange}"> Manager</label>` : ''}
+  const level = ticksOf(role), box = (i, label, title) => `<label${title ? ` title="${title}"` : ''}><input type="checkbox" id="${prefix}${TICK_IDS[i]}" ${level >= i ? 'checked' : ''} onchange="${onchange}"> ${label}</label>`;
+  return `<span class="ticks">${box(0, 'See')}${box(1, 'Upload')}${box(2, 'Edit', 'Change comments, crew and other details of the flights, logs and paper records of this project; deleting needs Delete')}${box(3, 'Delete')}
+    ${me && me.is_admin ? box(4, 'Manager', 'Manages the members (See, Upload, Edit, Delete) and decides on aircraft requests of this project, and edits the details of its aircraft') : ''}
   </span>`;
 }
+// The highest ticked box sets the role and ticks every box before it.
 function applyTicks(prefix) {
-  const see = $(prefix + 'see'), up = $(prefix + 'up'), del = $(prefix + 'del'), man = $(prefix + 'man') || {checked: false};
-  if (man.checked) { see.checked = up.checked = del.checked = true; }
-  if (del.checked) { see.checked = true; up.checked = true; }
-  else if (up.checked) see.checked = true;
-  if (!see.checked) { up.checked = false; del.checked = false; }
-  if (!up.checked) del.checked = false;
-  if (!del.checked) man.checked = false;
-  return roleFromBoxes(see.checked, up.checked, del.checked, man.checked);
+  const boxes = TICK_IDS.map(id => $(prefix + id) || {checked: false});
+  let level = -1;
+  boxes.forEach((b, i) => { if (b.checked) level = i; });
+  boxes.forEach((b, i) => { b.checked = i <= level; });
+  return level < 0 ? '' : TICK_ROLES[level];
 }
 
 const editing = () => !!(me && me.is_admin && window.editMode());

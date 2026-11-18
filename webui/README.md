@@ -214,7 +214,7 @@ and inspect, narrow or revoke their API keys (not retrieve secret values). You c
 - Crew names in logs do not create user profiles. Admins can link multiple names to one person using
   aliases, or use Add user if a new profile is needed. Previously generated profiles are kept.
 - Admins manage project access on **Projects** and named takeoff areas on **Locations**. Admins can make a member
-  **Manager** of a project; a manager adds and removes its members and sets See/Upload/Delete in Edit mode, but
+  **Manager** of a project; a manager adds and removes its members and sets See/Upload/Edit/Delete in Edit mode, but
   only admins appoint managers ([details](TECHNICAL.md#accounts-and-tu-delft-login)).
   In Edit mode, Projects supports CSV import with `project,person,role`; blank roles mean view/upload.
   Reimports replace all members of included projects. For initial setup, import qualifications first,

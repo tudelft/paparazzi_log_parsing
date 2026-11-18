@@ -371,7 +371,7 @@
     byId('afEditCategory').value = file.category || '';
     byId('afEditDescription').value = file.description || '';
     byId('afLinks').innerHTML = file.links.map(link => `<li><a href="${esc(link.url)}" title="${esc(link.label)}">${esc(link.label)}</a>${
-      link.can_edit ? `<button type="button" data-unlink="${link.link_id}">Remove link</button>` : ''}</li>`).join('');
+      link.can_remove ? `<button type="button" data-unlink="${link.link_id}">Remove link</button>` : ''}</li>`).join('');
     for (const button of byId('afLinks').querySelectorAll('[data-unlink]')) button.onclick = async () => {
       if (!confirm('Remove this link? Other links stay intact. If this is the last link, the stored file is deleted.')) return;
       button.disabled = true;
