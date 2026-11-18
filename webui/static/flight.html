@@ -110,6 +110,9 @@
     .kv { grid-template-columns:minmax(90px, max-content) minmax(0, 1fr); overflow-wrap:anywhere; }
     #map { height:360px; }
   }
+  .tabs-end-items { display:flex; gap:6px; align-items:center; }
+  .flight-nav { display:flex; gap:2px; }
+  .flight-nav button { padding:2px 10px; }
 </style>
 </head>
 <body data-edit="all">
@@ -127,7 +130,8 @@
     <button type="button" id="tab-messages" role="tab" aria-selected="false" aria-controls="panel-messages" tabindex="-1" data-tab="messages">Messages<span class="n" id="messagesBadge"></span></button>
     <button type="button" id="tab-checks" role="tab" aria-selected="false" aria-controls="panel-checks" tabindex="-1" data-tab="checks">Checklist<span class="n" id="checksBadge"></span></button>
     <button type="button" id="tab-files" role="tab" aria-selected="false" aria-controls="panel-files" tabindex="-1" data-tab="files">Files</button>
-    <span id="matlabMenu" class="tabs-end"></span>
+    <span class="tabs-end"><span id="matlabMenu" class="tabs-end-items"></span>
+      <span class="flight-nav" id="flightNav"><button type="button" class="sec" id="prevFlight" disabled aria-label="Previous flight" onclick="goFlight(D.previous_flight_id)">&larr;</button><button type="button" class="sec" id="nextFlight" disabled aria-label="Next flight" onclick="goFlight(D.next_flight_id)">&rarr;</button></span></span>
   </div>
   <div id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
   <section class="card" id="summary"></section>
@@ -229,6 +233,26 @@ AttachmentFiles.manage($('additionalFiles'), 'flight', flightId, {toolbar: $('fi
   $('tab-files').textContent = count ? `Files (${count})` : 'Files';
 }});
 addEventListener('editchange', () => { if (D) renderSummary(); });
+
+// Previous/next flight in the same project (server order: takeoff, log name, flight number); the keys ← and → too,
+// except while typing, in the tab list (its own arrow keys), on the map or the time slider.
+function goFlight(id) { if (id) location.href = '/flight/' + id + location.hash; }
+function paintFlightNav() {
+  const noProject = D.entry.project_id == null;
+  for (const [button, id, label] of [[$('prevFlight'), D.previous_flight_id, 'Previous'], [$('nextFlight'), D.next_flight_id, 'Next']]) {
+    button.disabled = !id;
+    button.title = noProject ? 'This flight has no project: no previous or next flight'
+      : id ? `${label} flight in ${D.entry.project_name || 'this project'} (${label === 'Previous' ? '←' : '→'})`
+      : `No ${label.toLowerCase()} flight in ${D.entry.project_name || 'this project'}`;
+  }
+}
+addEventListener('keydown', event => {
+  if (!D || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+  if (event.target.closest('input, select, textarea, [contenteditable], [role=tablist], .leaflet-container, dialog[open]')) return;
+  const id = event.key === 'ArrowLeft' ? D.previous_flight_id : D.next_flight_id;
+  if (id) { event.preventDefault(); goFlight(id); }
+});
 
 let activeTab = 'overview';
 function selectTab(name) {
@@ -1088,7 +1112,7 @@ fetch(`/api/flights/${flightId}/detail`).then(r => r.ok ? r.json() : Promise.rej
     }
   }
   $('matlabMenu').innerHTML = logDownloadButtons(D.entry.sources) + MatlabExport.button(D.entry.sources);
-  setAvailableSeries(); renderSummary(); renderLists(); renderMisc(); loadWeather(); selectTab(activeTab);
+  setAvailableSeries(); renderSummary(); renderLists(); renderMisc(); loadWeather(); selectTab(activeTab); paintFlightNav();
   $('allChanges').onchange = () => { listPages.changes = 0; renderLists(); };
   $('allMsgs').onchange = () => { listPages.msgs = 0; renderLists(); };
 }).catch(err => { console.error(err); $('summary').textContent = typeof err === 'number' ? 'Flight not found (or not yours).' : 'Error: ' + err; });

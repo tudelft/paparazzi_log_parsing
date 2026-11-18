@@ -2352,6 +2352,11 @@ alone does not decide it (parser 1.12.3; `lidar_rise_m` in the metrics).
 **Flight page** (`/flight/<id>`). Path on a map with the flight plan waypoints, a time slider, charts,
 takeoff/landing details, setting changes, messages, checklist and autopilot version; switch between the SD
 and GCS log when both exist. Missing `AUTOPILOT_VERSION` falls back to the GCS `.log` header.
+**← / →** next to the MATLAB menu (and the arrow keys, except while typing, on the tabs, the map or the slider) open the
+previous/next flight in the same project among the flights the viewer may see, by takeoff time (else the set date or
+the log's start), then log file name in natural order and flight number (`neighbour_flights`; `previous_flight_id`
+and `next_flight_id` in `/api/flights/<id>/detail`). Without a project both are greyed out. The open tab is kept.
+*Open flight page* in an expanded Logbook row opens a new tab.
 Logs the MATLAB export does not cover (PX4, ArduPilot, MAVLink, Betaflight/INDIFlight) get a **Download <type> log**
 button next to the MATLAB menu, on the flight page and in an expanded Logbook row (`/api/logs/<id>/download`, the
 original file).

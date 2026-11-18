@@ -6732,13 +6732,37 @@ def combine_other_logs(con, own, path, messages, changes, flight_ids, max_gap_s=
     return path, messages, changes, added
 
 
+def flight_order_key(entry):
+    """Takeoff time (else the set date, else the log's start), then the log file name in natural order and the flight
+    number in the log: the order of the previous/next flight on the flight page, as in the logbook."""
+    when = entry.get("takeoff_utc") or (entry["date_override"] + "T00:00:00Z" if entry.get("date_override") else "") \
+        or entry.get("log_start_utc") or ""
+    name = [int(part) if part.isdigit() else part.casefold() for part in re.split(r"(\d+)", entry.get("log_name") or "")]
+    return when, [(isinstance(part, int), part) for part in name], entry.get("idx") or 0, entry["flight_id"]
+
+
+def neighbour_flights(rows, entry):
+    """(previous, next) flight id in the entry's project among the logbook rows the user may see; (None, None)
+    without a project. Paper records are not flight pages."""
+    if entry.get("project_id") is None:
+        return None, None
+    same = sorted((r for r in rows if r.get("project_id") == entry["project_id"] and not r.get("manual_id")
+                   and r.get("flight_id") is not None), key=flight_order_key)
+    at = next((i for i, r in enumerate(same) if r["flight_id"] == entry["flight_id"]), None)
+    if at is None:
+        return None, None
+    return (same[at - 1]["flight_id"] if at > 0 else None), (same[at + 1]["flight_id"] if at + 1 < len(same) else None)
+
+
 @app.get("/api/flights/<int:flight_id>/detail")
 def flight_detail(flight_id):
     """Everything for the flight page: the logbook entry (merged sources), this log's path, flight plan,
     setting changes and messages."""
-    entry = next((r for r in logbook_rows() if any(s["flight_id"] == flight_id for s in r["sources"])), None)
+    rows = logbook_rows()
+    entry = next((r for r in rows if any(s["flight_id"] == flight_id for s in r["sources"])), None)
     if entry is None:
         abort(404)
+    previous_flight_id, next_flight_id = neighbour_flights(rows, entry)
     con = conn()
     row = con.execute(
         "SELECT f.takeoff_time_s, f.landing_time_s, f.takeoff_utc, f.path_idx, l.paths_file, a.id AS aircraft_pk, a.name, a.ac_id,"
@@ -6765,6 +6789,7 @@ def flight_detail(flight_id):
     versions, from_gcs = with_gcs_autopilot_fallback(json.loads(row["autopilot_versions"] or "[]"), row["log_path"])
     return gzip_json(jsonify(
         entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
+        previous_flight_id=previous_flight_id, next_flight_id=next_flight_id,
         aircraft_pk=row["aircraft_pk"],
         timing=log_timing(row),
         takeoff_time_s=row["takeoff_time_s"], landing_time_s=row["landing_time_s"],

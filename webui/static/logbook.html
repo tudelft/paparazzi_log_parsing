@@ -501,7 +501,7 @@ function detail(f) {
     <div class="detail-info"><h4>Comment</h4>${f.comment ? `<div class="note">${esc(f.comment)}</div>` : '<span class="mute">No comment</span>'}
       <div class="lb-files" data-flights="${[...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)].filter(id => id != null))].join(',')}"></div>
       ${linkedInfo(f)}${sourcesInfo(f)}${classInfo(f)}
-      <div class="actions"><a class="btn" href="/flight/${f.flight_id}">Open flight page</a>
+      <div class="actions"><a class="btn" href="/flight/${f.flight_id}" target="_blank" rel="noopener">Open flight page</a>
         ${logDownloadButtons(f.sources)}${MatlabExport.button(f.sources)}</div>
     </div>
   </div>`;
