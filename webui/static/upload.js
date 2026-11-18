@@ -245,6 +245,8 @@
     if (incomplete)
       note(`<div><span class="badge error">rejected</span> <span class="mute">${incomplete} skipped — Paparazzi logs need both a .data and a matching .log file</span></div>`);
     if (!jobs.length) { paintBatch(); return; }
+    // in name order (LOG00015 before LOG00018), so the logs and their flights are numbered roughly in that order
+    jobs.sort((a, b) => a[0].rel.localeCompare(b[0].rel, undefined, {numeric: true, sensitivity: 'base'}));
     const packs = packJobs(jobs);
     sendTotal += jobs.length;
     paintBatch();
