@@ -663,6 +663,11 @@ const km = (a, b) => {
 const DAY_GROUP_KM = 1;
 // Flights with a set date but no time (date_override only) sort and group by that date, as the server orders them.
 const when = f => f.takeoff_utc || (f.date_override ? f.date_override + 'T00:00:00Z' : '');
+// Flights without a takeoff time (e.g. Blackbox logs with only a date) share a time: then the log file name in natural
+// order (LOG00015 before LOG00018) and the flight number in the log decide, not the order the logs were parsed in.
+const byName = (a, b) => (a.log_name || '').localeCompare(b.log_name || '', undefined, {numeric: true, sensitivity: 'base'})
+  || (a.idx ?? 0) - (b.idx ?? 0);
+const inOrder = (a, b) => when(a).localeCompare(when(b)) || byName(a, b);
 const crewName = (f, r) => f[r + '_user'] ? 'u' + f[r + '_user'].id : f[r] ? 'n' + f[r].toLowerCase() : '';
 const groupable = f => f.date_ok && (f.manual_id ? f.record_kind !== 'daily' && f.takeoff_place_id != null : true);
 const hasPosition = f => f.takeoff_lat != null && f.takeoff_lon != null;
@@ -676,7 +681,7 @@ const crewFits = (g, f) => crewName(f, 'pic') === g.crew.pic
   && ['pac', 'gcs'].every(r => !g.crew[r] || !crewName(f, r) || g.crew[r] === crewName(f, r));
 function combine(list) {
   const groups = [];
-  for (const f of [...list].sort((a, b) => when(a).localeCompare(when(b)))) {
+  for (const f of [...list].sort(inOrder)) {
     const key = [f.manual_id ? 'paper' : 'log', f.drone_id ?? f.aircraft, fmtDate(when(f)), !!f.simulation?.detected, !!f.date_estimated].join('|');
     const g = groupable(f) && groups.find(g => g.key === key && groupable(g.flights[0]) && samePlace(g.flights[0], f) && crewFits(g, f));
     if (g) {
@@ -697,7 +702,7 @@ function combine(list) {
     g.goals = uniq('goal');
     g.comments = uniq('comment');
   }
-  return groups.sort((a, b) => when(b.flights[0]).localeCompare(when(a.flights[0])));
+  return groups.sort((a, b) => inOrder(b.flights[0], a.flights[0]));
 }
 
 const TYPE_LABEL = {onboard_sd: 'SD', gcs: 'GCS', px4_ulog: 'PX4', ardupilot: 'ArduPilot', mavlink_tlog: 'tlog',
@@ -774,7 +779,10 @@ function groupRows(g) {
 function render() {
   const q = $('q').value.trim().toLowerCase();
   const shown = flights.filter(f => window.flightFilters.includes(f) && filesMatch(f) && (!q || q.split(/\s+/).every(w => text(f).includes(w))));
-  const entries = $('combine').checked ? combine(shown) : shown.map(f => ({flights: [f], id: f.record_key}));
+  // newest first as the server sends them (by takeoff, else the log's start); equal times by log name and number
+  const latest = f => f.takeoff_utc || f.log_start_utc || '';
+  const entries = $('combine').checked ? combine(shown)
+    : [...shown].sort((a, b) => latest(b).localeCompare(latest(a)) || byName(b, a)).map(f => ({flights: [f], id: f.record_key}));
   const pages = Math.max(1, Math.ceil(entries.length / pageSize));
   page = Math.min(page, pages - 1);
   const visible = entries.slice(page * pageSize, (page + 1) * pageSize);

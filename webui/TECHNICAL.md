@@ -1019,6 +1019,12 @@ Add aircraft fills the serial with the lowest free `TUDxxxxx` number from TUD004
 up to TUD00400 may belong to old aircraft that are no longer listed, so they are never handed out again);
 it can be overwritten, and `POST /api/admin/drones` without `unique_id` assigns it too. Admins get it as
 `next_serial` from `GET /api/drones` and `GET /api/admin/drones`.
+**Order.** The logbook lists the newest first (inside a day row the flights run oldest first). Flights with the
+same time, typically logs without a takeoff time that only have a date (Blackbox, INDIFlight), are ordered by
+log file name in natural order (`LOG00015` before `LOG00018`), then by flight number in the log, not by the
+order they were parsed in. Upload sends the selected or dropped logs in that name order too, so flight numbers
+mostly follow the file names; parsing runs in parallel, so this is not guaranteed, hence the ordering above.
+
 **Group by day** is display-only. A row holds flights of one fleet aircraft on one UTC day with the same PIC,
 where PAC and GCS are equal or empty on one side (two different names never group; the row shows the named
 person), with the same simulation and estimated-date state. Logged flights share a place at the same named
