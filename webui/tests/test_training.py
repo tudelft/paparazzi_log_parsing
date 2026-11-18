@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import tempfile
 import unittest
 import zipfile
@@ -592,6 +593,11 @@ class TrainingTests(AppTests):
         self.assertEqual((msg["To"], msg["Cc"], msg["Reply-To"]),
                          ("desk@example.org, keys@example.org", "pic@example.org", "pic@example.org"))
         self.assertIn(mail.ACCESS_NOTE, msg.get_body(("plain",)).get_content())
+        page = msg.get_body(("html",)).get_content()
+        self.assertIn("max-width:960px", page)
+        self.assertIn('background:#f5f6f8;border:1px solid #dfe3e8;border-radius:6px', page)  # the details box
+        text = re.sub(r"<[^>]+>", "", re.sub(r"</div>|<br>", "\n", page[page.index("Request details:"):]))
+        self.assertIn("Request details:\nPerson: Pilot\nEmail: pic@example.org\nUsername: pic\n", text)  # same lines as text
 
     def test_access_mail_tags_from_the_person_profile(self):
         tid, _ = self.access_setup()

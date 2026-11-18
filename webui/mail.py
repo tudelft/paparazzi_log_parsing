@@ -201,12 +201,31 @@ def button_label(url):
     return "Set your password" if "/setup/" in url else "Open in the flight logbook"
 
 
+DETAILS = "Request details:"  # the fixed block at the end of an access mail (training.access_details)
+
+
+def details_html(block):
+    """The Request details block of an access mail as a grey box with aligned labels. Each "Label: value" stays on
+    one line of text (no table), so a mail flow that reads the mail as text sees the same lines."""
+    rows = []
+    for line in block.split("\n")[1:]:
+        label, _, value = line.partition(": ")
+        rows.append(f'<div><span style="color:#6b7785;display:inline-block;min-width:130px">{html.escape(label)}:</span> '
+                    f'{html.escape(value)}</div>')
+    return ('<div style="margin:4px 0 0;padding:12px 14px;background:#f5f6f8;border:1px solid #dfe3e8;border-radius:6px;'
+            f'font-size:13px;line-height:1.6"><div style="font-weight:600;margin:0 0 4px">{DETAILS}</div>'
+            + "".join(rows) + "</div>")
+
+
 def html_body(name, body, shared):
     """The same mail as simple HTML with inline styles (what mail programs support): a header with the sender name,
     the text, a button for a link on its own line and a small footer with the email settings link."""
     paragraphs = []
     for block in (b.strip() for b in body.split("\n\n")):
         if not block:
+            continue
+        if shared == "access" and block.startswith(DETAILS + "\n"):
+            paragraphs.append(details_html(block))
             continue
         if URL.fullmatch(block):
             url = html.escape(block, quote=True)
@@ -223,7 +242,7 @@ def html_body(name, body, shared):
     hello = f'<p style="margin:0 0 14px">Hello {html.escape(name)},</p>' if name else ""
     return f"""<!doctype html><html><body style="margin:0;background:#f5f6f8">
 <div style="background:#f5f6f8;padding:24px 12px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
-<div style="max-width:580px;margin:0 auto;background:#ffffff;border:1px solid #dfe3e8;border-radius:8px;overflow:hidden">
+<div style="max-width:960px;margin:0 auto;background:#ffffff;border:1px solid #dfe3e8;border-radius:8px;overflow:hidden">
 <div style="background:#16202c;color:#ffffff;padding:14px 22px;font-size:16px;font-weight:600">{html.escape(sender_name())}</div>
 <div style="padding:22px;color:#1d2733;font-size:15px;line-height:1.5">{hello}{''.join(paragraphs)}</div>
 <div style="padding:14px 22px;border-top:1px solid #dfe3e8;color:#6b7785;font-size:12px;line-height:1.5">{sign}<br>{end}</div>
