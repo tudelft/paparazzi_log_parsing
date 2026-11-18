@@ -306,7 +306,8 @@ function dateField(l) {
     <button type="button" class="sec" onclick="event.stopPropagation(); acceptLogDateSuggestion(${l.id})">Use this date</button>
     ${sg.folder_count > 1 ? `<button type="button" class="sec" title="Use the suggested date of each of the ${sg.folder_count} logs with a suggestion in this folder" onclick="event.stopPropagation(); acceptLogDateSuggestion(${l.id}, true)">Use for all in this folder (${sg.folder_count})</button>` : ''}` : '';
   const setBy = l.date_override && l.date_override_by_name
-    ? `<br><span class="mute">Set by ${esc(l.date_override_by_name)}${l.date_override_note ? ': ' + esc(l.date_override_note) : ''}</span>` : '';
+    ? `<br><span class="mute">Set by ${esc(l.date_override_by_name)}${l.date_override_note ? ': ' + esc(l.date_override_note) : ''}</span>`
+    : l.date_override && l.date_override_note ? `<br><span class="mute">Set ${esc(l.date_override_note)}</span>` : '';
   if (!l.can_edit_date || !editing())
     return `<span class="mute">Calendar date</span><span>${l.date_override ? esc(l.date_override) + ' · ' : ''}<span class="mute">${esc(hint)}</span>${setBy}</span>`;
   return `<span class="mute">Calendar date</span><span onclick="event.stopPropagation()">

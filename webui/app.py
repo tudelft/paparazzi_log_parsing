@@ -287,6 +287,7 @@ def parse_log(log_id):
                 attachments.restore(con, log_id, kept_files)
                 con.execute("UPDATE logs SET status='done', error=NULL, parsed_at=?, parse_seconds=? WHERE id=?",
                             (now(), round(seconds, 3), log_id))
+                date_from_name(con, log_id)
                 links.auto_link(con, now())
                 con.commit()
 
@@ -4081,6 +4082,27 @@ def set_log_date(log_id):
 
 def date_suggestions(con):
     return date_suggest.suggestions(con, clock_implausible)
+
+
+def date_from_name(con, log_id):
+    """A log whose clock gives no date (unset, 1980, far future) takes a date written in its file name or upload
+    folder (date_suggest.date_in_name: 2026-11-18, 20261118, 26_11_18, from the file name up), as if that suggestion
+    were accepted, with the reason as the note. Only that: a GCS match or dated neighbours stay suggestions, a log
+    with a date override or an estimated date is left alone. Returns the date set, or None."""
+    row = con.execute("SELECT name, start_utc, date_override FROM logs WHERE id=?", (log_id,)).fetchone()
+    if row is None or row["date_override"] or not clock_implausible(row["start_utc"]):
+        return None
+    found = date_suggest.date_in_name(row["name"], clock_implausible)
+    if not found:
+        return None
+    day, part = found
+    file = (row["name"] or "").replace("\\", "/").rpartition("/")[2]
+    where = "file name" if part == file else f"folder name {part}"
+    con.execute("UPDATE logs SET date_override=?, date_override_by=NULL, date_override_note=? WHERE id=?",
+                (day, f"automatically from the date in the {where}", log_id))
+    redo_undated_projects(con, log_id=log_id)
+    assign_log_flights(con, log_id)
+    return day
 
 
 def accept_date_suggestion(con, log_id, suggestion):
