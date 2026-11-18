@@ -1163,7 +1163,8 @@ withdrawing a pending one. Immediate and queued passes both store a `note` such 
 `Training "Flight safety briefing" passed 9/10 on 2026-11-11 · briefed by …` (`filename` stays for
 uploaded files). With `needs_approval` (off by default; requires a linked type) the pass inserts a
 **pending** submission (`training-pass-queued`) instead of an approved one; admins approve or reject
-it in the People approval queue. Qualification views link that note to `/training?id=…` (admins get
+it in the People approval queue (`/people?tab=approvals`); for admins the Trainings list shows
+**N passes to approve** (pending submissions linked to a training pass) linking there. Qualification views link that note to `/training?id=…` (admins get
 `pass_user` so the Passes list opens on that person with their answers). Images live under
 `WEB_DATA/training-images`, not the log share.
 
@@ -1408,8 +1409,8 @@ activity or qualification validity. The Account tab groups profile, sign-in, acc
 with explanations under Help. API key details and revocation load only in the API keys tab.
 Enable Edit to change account settings, manage aliases,
 upload evidence for that person, or review/delete submissions. The people list is searchable, without
-an additional Show filter. The approval queue on People opens the relevant person's
-Qualifications tab, enabling Edit if needed. The queue is hidden when empty; type settings are
+an additional Show filter. **Review submission** in the approval queue switches to the People tab (Back
+returns to the queue) and opens the relevant person's Qualifications tab, enabling Edit if needed. The queue is hidden when empty; type settings are
 in a separate People section visible in Edit mode.
 Admins can edit username, display name, email and default project together with **Save account** in the Account tab.
 All four fields are saved atomically; previous unambiguous display names are preserved as log aliases. Display names are optional

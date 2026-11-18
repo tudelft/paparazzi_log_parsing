@@ -694,6 +694,13 @@ function selectPerson(id, tab = 'account') {
   selectedPerson = id;
   selectedTab = tab;
   $('setupBox').hidden = true;
+  if (pageTab !== 'people') {  // e.g. Review submission in the Approval queue tab: the person panel is on People
+    pageTab = 'people';
+    const url = new URL(location.href);
+    url.searchParams.delete('tab');
+    history.pushState(history.state, '', url);  // Back returns to the queue
+    if (window.editMode()) render();
+  }
   if (!window.editMode()) window.toggleEditMode();
   renderPeopleList();
   renderPersonPanel();
