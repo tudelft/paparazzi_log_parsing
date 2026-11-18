@@ -503,6 +503,10 @@ CREATE TABLE IF NOT EXISTS mail_prefs (    -- per person and kind: immediate | d
     mode TEXT NOT NULL CHECK(mode IN ('immediate','daily','off')),
     PRIMARY KEY (user_id, kind)
 );
+CREATE TABLE IF NOT EXISTS data_migrations (  -- one-time data fixes already done (db.init), by name
+    name TEXT PRIMARY KEY,
+    done_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS mail_sent_keys (  -- once-only mails already queued, e.g. "12:expiry:q34:2026-12-01:30"
     key TEXT PRIMARY KEY,
     created_at TEXT NOT NULL
@@ -689,6 +693,25 @@ def user_by_name(con, name):
         "SELECT id FROM users WHERE is_active=1 AND is_external=0"
         " AND (display_name=? COLLATE NOCASE OR username=? COLLATE NOCASE)", (name, name))}
     return ids.pop() if len(ids) == 1 else None
+
+
+# A log without a project takes the project of its flights when they are all in one project (flights without a
+# project do not count), as the automatic assignment does (app.assign_log_flights). Append " AND id=?" for one log.
+LOG_PROJECT_FROM_FLIGHTS = (
+    "UPDATE logs SET project_id=(SELECT MIN(f.project_id) FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+    " WHERE a.log_id=logs.id) WHERE project_id IS NULL"
+    " AND (SELECT COUNT(DISTINCT f.project_id) FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+    " WHERE a.log_id=logs.id)=1")
+
+
+def run_once(con, name, sql, params=()):
+    """Run a data fix once per database: an administrator may undo its result afterwards (e.g. clear a log's
+    project), and a later start must not redo it."""
+    if con.execute("SELECT 1 FROM data_migrations WHERE name=?", (name,)).fetchone():
+        return 0
+    changed = con.execute(sql, params).rowcount
+    con.execute("INSERT INTO data_migrations(name, done_at) VALUES (?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))", (name,))
+    return changed
 
 
 def init(path):
@@ -943,6 +966,9 @@ def init(path):
     upcols = {r["name"] for r in con.execute("PRAGMA table_info(user_profiles)")}
     if upcols and "to_confirm" not in upcols:
         con.execute("ALTER TABLE user_profiles ADD COLUMN to_confirm INTEGER NOT NULL DEFAULT 0 CHECK(to_confirm IN (0,1))")
+    # flights put in a project by hand used to leave their log without one (only the uploader saw the log); now the
+    # log follows (app.apply_flight_project); this fixes the logs from before that
+    run_once(con, "log_project_from_flights", LOG_PROJECT_FROM_FLIGHTS)
     logbook_version_triggers(con)
     con.commit()
 
