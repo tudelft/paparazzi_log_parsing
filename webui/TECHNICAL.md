@@ -400,8 +400,12 @@ that you may date have one (`POST /api/logs/<id>/date/suggestion` with `{"folder
 suggestions (N)** on the Logs page: a dialog listing them by folder with checkboxes (`GET /api/admin/date-suggestions`;
 `POST` accepts all, or `{"log_ids": [...]}`). Accepting sets the normal date override and records who set it and
 why (`date_override_by`, `date_override_note` = "suggested: " + reason); a date typed by hand records the person
-only. Nothing is changed without a person accepting it; an unaccepted suggestion simply stays, and is recomputed,
-so it disappears once the log has a date.
+only. One exception: a log whose clock gives no date at all takes the date in its file or folder name by itself
+when it is parsed (`date_from_name`, the same rule as the `name` suggestion above; `date_override_by` empty,
+`date_override_note` "automatically from the date in the folder name …", shown on Logs as *Set automatically
+from …*), unless it already has a date override. A GCS match, dated neighbours and estimated dates stay
+suggestions: nothing else is changed without a person accepting it. An unaccepted suggestion simply stays, and is
+recomputed, so it disappears once the log has a date.
 
 Until a date is set, a flight taking off on an unset clock (before 1990) is never merged with other
 recordings by time: those times are meaningless across logs, and back-to-back 1980 logs used to chain. A person
