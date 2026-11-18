@@ -178,6 +178,18 @@
   <div class="scroll" id="importPreview"></div>
   <p><button type="button" id="importConfirm" hidden onclick="importTraining(false)"></button> <span id="importMsg" class="mute"></span></p>
 </dialog>
+<dialog class="entry-dialog" id="testMailDialog" aria-labelledby="testMailTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="testMailForm">
+    <div class="dialog-header"><h2 id="testMailTitle">Send test mail</h2><button type="button" class="sec" onclick="$('testMailDialog').close()">Close</button></div>
+    <p class="mute">The access mail as if this person passed today, with the text above (also when not saved yet). Its reference ends in <code>-test</code>; no copy to the person.</p>
+    <label class="field">Person<select name="user_id" required><option value="">Choose a person…</option></select></label>
+    <label class="field"><span><input type="radio" name="send_to" value="me" checked> Only to me <span class="mute">(your account's address)</span></span></label>
+    <label class="field"><span><input type="radio" name="send_to" value="to"> To the To addresses <span class="mute" id="testMailTo"></span></span></label>
+    <p class="mute" id="testMailFlow" hidden>A mail flow on these addresses handles it as a real request.</p>
+    <p class="dialog-error" id="testMailError" role="alert"></p>
+    <div class="row"><button type="submit">Send</button> <button type="button" class="sec" onclick="$('testMailDialog').close()">Cancel</button> <span class="mute" id="testMailMsg" role="status"></span></div>
+  </form>
+</dialog>
 <dialog class="entry-dialog" id="trainingDialog" aria-labelledby="trainingTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <form id="newTrainingForm">
     <div class="dialog-header"><h2 id="trainingTitle">New training</h2><button type="button" class="sec" onclick="$('trainingDialog').close()">Close</button></div>
@@ -230,6 +242,7 @@
           <p class="mute" style="margin:2px 0 0;font-size:12px" title="Number, department, role, supervisor and end date come from the person profile (- when person profiles are off or the field is empty). Valid until: the pass date plus the training's validity. All of them are also in the Request details block at the end of every mail.">Tags: {name} {email} {username} {number} {department} {role} {supervisor} {end_date} {training} {date} {valid_until} {briefed_by}</p>
           <label class="field"><span><input name="access_mail_cc" type="checkbox"> Copy to the person</span></label>
           <p class="mute">Sent when the pass is granted (after approval when it needs one). Replies go to the person.</p>
+          <button type="button" class="sec" id="testMailButton" onclick="openTestMail()" title="Send this mail as if a person passed today, to check how it looks or to test a mail flow">Send test mail…</button>
         </details>
       </div>
     </div>
@@ -1004,6 +1017,34 @@ function fillDetails(t) {
   setDetailsDirty(false);
   if (!people.length) api('/api/people').then(d => { people = d; paintBrieferChips(); }).catch(() => {});
 }
+// Test access mail: the form's current To and text, sent as if the chosen person passed today.
+async function openTestMail() {
+  const f = $('testMailForm'), d = $('detailsForm');
+  if (!people.length) people = await api('/api/people').catch(() => []);
+  const keep = f.user_id.value;
+  f.user_id.innerHTML = '<option value="">Choose a person…</option>' + people
+    .map(p => `<option value="${p.id}">${esc(p.display_name)}${p.display_name !== p.username ? ' (' + esc(p.username) + ')' : ''}</option>`).join('');
+  f.user_id.value = keep;
+  $('testMailTo').textContent = d.access_mail_to.value.trim() ? '(' + d.access_mail_to.value.trim() + ')' : '(none set)';
+  $('testMailError').textContent = $('testMailMsg').textContent = '';
+  syncTestMail();
+  $('testMailDialog').showModal();
+}
+function syncTestMail() {
+  $('testMailFlow').hidden = $('testMailForm').send_to.value !== 'to';
+}
+$('testMailForm').addEventListener('change', syncTestMail);
+$('testMailForm').onsubmit = async event => {
+  event.preventDefault();
+  const f = $('testMailForm'), d = $('detailsForm');
+  $('testMailError').textContent = $('testMailMsg').textContent = '';
+  try {
+    const r = await api(`/api/admin/trainings/${editingId}/test-access-mail`, {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user_id: +f.user_id.value,
+        send_to: f.send_to.value, access_mail_to: d.access_mail_to.value, access_mail_text: d.access_mail_text.value})});
+    $('testMailMsg').textContent = 'Queued to ' + r.to;
+  } catch (e) { $('testMailError').textContent = e.message; }
+};
 $('detailsForm').addEventListener('input', event => { if (event.target.type !== 'file') setDetailsDirty(true); });
 $('detailsForm').addEventListener('change', event => { if (event.target.type !== 'file') setDetailsDirty(true); });
 $('detailsForm').onsubmit = async event => {
