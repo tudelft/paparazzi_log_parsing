@@ -129,6 +129,8 @@
   .chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .chip button { background:none; color:var(--err); padding:0 4px; }
   #briefersField { display:flex; flex-direction:column; gap:6px; }
+  #approvalsLink { font-size:12px; padding:2px 10px; border-radius:10px; background:var(--chip); color:var(--acc); text-decoration:none; white-space:nowrap; }
+  #approvalsLink:hover, #approvalsLink:focus-visible { text-decoration:underline; }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -145,6 +147,7 @@
       <h2>Trainings</h2>
       <span class="mute" id="count" role="status"></span>
       <input type="search" id="search" aria-label="Search trainings" placeholder="Search" oninput="onSearch()">
+      <a id="approvalsLink" href="/people?tab=approvals" hidden title="Training passes that need an administrator's approval: open the approval queue"></a>
       <button type="button" id="addBtn" hidden onclick="openNewTraining()">Add training</button>
       <button type="button" id="importBtn" class="sec" hidden onclick="openImport()">Import</button>
       <details><summary>Help</summary><p>Complete a questionnaire until you pass. Only the passing answers and the number of attempts are kept. Each submission shows your score and you may retry without limit, so answers can be found by trial and error. A pass writes the linked qualification immediately; administrators do not review it. After a pass expires (or an administrator resets it), you can take the questionnaire again.</p></details>
@@ -296,6 +299,13 @@ function statusLine(t) {
   if (t.expired_pass) return `Expired · retake available · ${t.attempts} attempt${t.attempts === 1 ? '' : 's'}`;
   if (t.attempts) return `${t.attempts} attempt${t.attempts === 1 ? '' : 's'}`;
   return t.type_name ? 'Grants ' + t.type_name : 'No qualification';
+}
+// Admins: how many training passes wait for approval, linking to the queue on People.
+async function loadApprovals() {
+  const pending = await api('/api/admin/qualification-pending').catch(() => null);
+  const n = pending ? (pending.submissions || []).filter(s => s.training_id).length : 0;
+  $('approvalsLink').textContent = n ? `${n} pass${n === 1 ? '' : 'es'} to approve` : '';
+  $('approvalsLink').hidden = !n;
 }
 function renderList() {
   const items = filtered();
@@ -1223,6 +1233,7 @@ fetch('/api/me').then(r => r.json()).then(async d => {
   await load();
   show();
   if (selected && me.is_admin && window.editMode()) loadResults();
+  if (me.is_admin) loadApprovals();
 }).catch(e => { $('err').textContent = e.message; });
 window.addEventListener('beforeunload', event => { if (detailsDirty || questionDirty) { event.preventDefault(); event.returnValue = ''; } });
 window.addEventListener('editchange', () => {

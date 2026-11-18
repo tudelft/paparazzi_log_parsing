@@ -274,7 +274,7 @@ reading material, it opens first; confirm that you have read and understood it t
 at a time (Next / Previous), then submit; answers (and, when the training is set up so, the questions) come in a new
 random order each attempt. After passing, **Practice again** lets you answer the questions again without changing your pass. Retry until you pass; only the passing answers and the attempt count
 are kept. A pass can grant the linked qualification immediately, or wait in the People approval queue when the
-training has **A pass needs approval** on. After that qualification expires, a queued pass is rejected, or an
+training has **A pass needs approval** on; admins see **N passes to approve** above the trainings. After that qualification expires, a queued pass is rejected, or an
 administrator resets the pass, you can take it again. Admins create questionnaires in Edit mode (single choice,
 multiple choice, ranking, optional image) or import a JSON/ZIP file kept outside the repository, and can ask who
 delivered the briefing from a short list of people. A training can also mail an access request (for example to a secretary, for room access)
