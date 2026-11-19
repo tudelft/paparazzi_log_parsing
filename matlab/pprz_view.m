@@ -320,9 +320,19 @@ function fig = pprz_view(logs)
     function sync_ticks()
         % After tabs were closed or undocked elsewhere: tick exactly the open plots (no callback runs).
         open = open_plots();
-        nodes = findall(tree, 'Type', 'uitreenode');
-        keep = arrayfun(@(n) ischar(n.NodeData) && any(strcmp(open, n.NodeData)), nodes);
-        tree.CheckedNodes = nodes(keep);
+        ticked = [];
+        for group = reshape(tree.Children, 1, [])  % the plot nodes are the children of the group nodes
+            for node = reshape(group.Children, 1, [])
+                if ischar(node.NodeData) && any(strcmp(open, node.NodeData))
+                    ticked = [ticked; node]; %#ok<AGROW>
+                end
+            end
+        end
+        if isempty(ticked)
+            tree.CheckedNodes = [];  % an empty list of nodes is not accepted, [] clears every tick
+        else
+            tree.CheckedNodes = ticked;
+        end
         count_ticked();
     end
 
