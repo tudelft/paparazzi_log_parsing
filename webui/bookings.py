@@ -307,8 +307,8 @@ def register(app, connection, require_session, pages_dir):
         if booking and not item["active"]:
             raise BookingError(f"{item['name']} is not open for bookings.", 409)
         if (booking and not can_book) or not can_view:
-            verb = "Booking" if booking and can_view else "Viewing the agenda of"
-            raise BookingError(f"{verb} {item['name']} needs a current {item['type_name']}.", 403,
+            verb = "book" if booking and can_view else "see the agenda of"
+            raise BookingError(f"To {verb} {item['name']} you need the qualification “{item['type_name']}”.", 403,
                                thing_id=item["id"], qualification=item["type_name"],
                                training_id=granting_training(cid, item["type_id"]))
 
