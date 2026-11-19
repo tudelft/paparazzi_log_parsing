@@ -945,7 +945,11 @@ linking by email is unavailable; password setup/reset links can still be shared 
 
 **Sign in with TU Delft** uses SAML 2.0 against `https://login.tudelft.nl/sso/saml2/idp/metadata.php`. Register
 `<PUBLIC_URL>/saml/metadata` with TU Delft ICT (the contact listed in the IdP metadata) once; the service's signing keys are
-generated in `<WEB_DATA>/saml/` and are part of the backup (losing them means registering again). A first SSO login
+generated in `<WEB_DATA>/saml/` and are part of the backup (losing them means registering again). The metadata is
+valid until the certificate ends (`validUntil`, `saml.metadata_valid_until`; 10 years for a generated one): python3-saml's
+default of two days made TU Delft's imported copy expire, after which login.tudelft.nl showed *Oops – Something went
+wrong* until ICT imported the metadata again. Before that fix a copy holds the old two-day date, so it has to be
+imported once more. A first SSO login
 creates a non-admin account, linked to an existing local account with the same email. Give people access to projects
 on the Projects page.
 SAML identity mapping accepts both `uid` / `UID` and `displayName` / `Displayname`, alongside
