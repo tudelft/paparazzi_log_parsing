@@ -416,6 +416,9 @@ class MatlabExportRouteTests(MatlabRouteFixture):
         self.jobs.finish(queued.json["id"], b"mat")
         ready = self.client.post("/api/flights/10/matlab", json={"check": True}, headers=headers).json
         self.assertEqual((ready["status"], ready["download"]), ("ready", f"/api/matlab-exports/{queued.json['id']}/download"))
+        # the same keys whatever the status (download None until ready): MATLAB makes a struct array of them
+        self.assertIsNone(queued.json["download"])
+        self.assertEqual(set(queued.json), set(ready))
         self.assertEqual(self.client.get(ready["download"], headers=headers).data, b"mat")
         self.assertEqual(self.client.post("/api/flights/99/matlab", json={}, headers=headers).status_code, 404)
         self.assertEqual(self.client.post("/api/matlab-bulk", json={"entries": [[10]]}, headers=headers).status_code,
