@@ -273,11 +273,17 @@ function fig = pprz_view(logs)
     end
 
     function apply_window()
+        % Per tab the top time axis only: its linked axes follow. Setting every axis one by one made each change
+        % ripple through the links and redraw the event markers once per axis (slow with many plots).
         range = time_window();
         show_window(range);
-        axs = pprz.time_axes(tabs);
-        if ~isempty(axs)
-            set(axs, 'XLim', range);
+        for tab = reshape(tabs.Children, 1, [])
+            axs = pprz.time_axes(tab);
+            for k = 1:numel(axs)  % normally only k = 1 is set; axes that are not linked are set too
+                if ~isequal(get(axs(k), 'XLim'), range)
+                    set(axs(k), 'XLim', range);
+                end
+            end
         end
     end
 
@@ -293,11 +299,14 @@ function fig = pprz_view(logs)
         status.Text = 'Plotting…';
         drawnow;
         made = pprz_plot(f, names{:}, 'modes', shade.Value, 'visible', false);
+        new = gobjects(1, numel(made));
         for k = 1:numel(made)
-            tab = adopt(made(k), f);
-            pprz.markers(f, tab, event_kinds());
+            new(k) = adopt(made(k), f);
         end
-        apply_window();
+        apply_window();  % first the window, then the markers: drawn once, for the shown range
+        for k = 1:numel(new)
+            pprz.markers(f, new(k), event_kinds());
+        end
         cursor.attach(fig);
         status.Text = sprintf('%d plot(s) added.', numel(made));
         if numel(made) < numel(names)
