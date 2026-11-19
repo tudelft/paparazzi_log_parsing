@@ -90,7 +90,7 @@ function fig = pprz_view(logs)
     sg = uigridlayout(side, [1 2], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', 'fit'});
     search = uieditfield(sg, 'text', 'Placeholder', 'Search plots…', 'ValueChangingFcn', @(~, evt) fill_tree(evt.Value));
     logged_only = uicheckbox(sg, 'Text', 'Logged only', 'Value', false, 'ValueChangedFcn', @(~, ~) fill_tree());
-    tree = uitree(side, 'checkbox', 'CheckedNodesChangedFcn', @(~, ~) ticks_changed());
+    tree = uitree(side, 'checkbox', 'CheckedNodesChangedFcn', @(~, evt) ticks_changed(evt));
     pg = uigridlayout(side, [1 2], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', '1x'});
     plot_button = uibutton(pg, 'Text', 'Same plots', 'ButtonPushedFcn', @(~, ~) same_plots(), ...
         'Tooltip', 'Open, for this flight, the plots that were open for the previously selected flight');
@@ -268,10 +268,14 @@ function fig = pprz_view(logs)
         names = names(~cellfun(@isempty, names));
     end
 
-    function ticks_changed()
+    function ticks_changed(evt)
         % A tick opens the plot, unticking closes it (a group tick opens its logged plots).
         want = checked_plots();
         have = open_plots();
+        % A group whose logged plots are all open still shows half ticked (its unlogged plots cannot be open);
+        % clicking it ticks everything, which adds nothing: the click means untick, so close the group.
+        group = clicked_full_group(evt, want, have);
+        want = want(~ismember(want, group));  % sync_ticks below then unticks the group
         for tab = reshape(tabs.Children, 1, [])
             name = getappdata(tab, 'pprz_view_plot');
             if strcmp(getappdata(tab, 'pprz_view_key'), fkey) && ~isempty(name) && ~any(strcmp(want, name))
@@ -286,6 +290,31 @@ function fig = pprz_view(logs)
             show_values(cursor.time);
         end
         sync_ticks();  % also unticks plots that were not logged (nothing opened)
+    end
+
+    function names = clicked_full_group(evt, want, have)
+        % The logged plots of the group(s) whose box was clicked when all of them were already open; {} otherwise.
+        names = {};
+        try
+            newly = evt.CheckedNodes(~ismember(evt.CheckedNodes, evt.PreviousCheckedNodes));
+        catch
+            return  % older MATLAB without the previous ticks in the event
+        end
+        if isempty(newly) || ~all(ismember(want, have)) || any(arrayfun(@(n) is_logged(n.NodeData), newly))
+            return  % something new to open: a normal tick
+        end
+        for g = reshape(newly, 1, [])
+            if ~ischar(g.NodeData)  % a group box (plots have their name as NodeData): not a single greyed plot
+                names = [names, arrayfun(@(c) c.NodeData, g.Children(:)', 'UniformOutput', false)]; %#ok<AGROW>
+            end
+        end
+        names = names(cellfun(@ischar, names));
+        names = unique(names(ismember(names, have)), 'stable');
+    end
+
+    function ok = is_logged(name)
+        j = find(strcmp({list.name}, name), 1);
+        ok = ischar(name) && ~isempty(j) && (isempty(list(j).needs) || any(cellfun(@(m) pprz.has(f.data, m), list(j).needs)));
     end
 
     function sync_ticks()
