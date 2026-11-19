@@ -184,10 +184,11 @@
 <dialog class="entry-dialog" id="testMailDialog" aria-labelledby="testMailTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <form id="testMailForm">
     <div class="dialog-header"><h2 id="testMailTitle">Send test mail</h2><button type="button" class="sec" onclick="$('testMailDialog').close()">Close</button></div>
-    <p class="mute">The access mail as if this person passed today, with the text above (also when not saved yet). Its reference ends in <code>-test</code>; no copy to the person or the Cc.</p>
+    <p class="mute">The access mail as if this person passed today, with the text above (also when not saved yet). Its reference ends in <code>-test</code>; no copy to the person.</p>
     <label class="field">Person<select name="user_id" required><option value="">Choose a person…</option></select></label>
     <label class="field"><span><input type="radio" name="send_to" value="me" checked> Only to me <span class="mute">(your account's address)</span></span></label>
     <label class="field"><span><input type="radio" name="send_to" value="to"> To the To addresses <span class="mute" id="testMailTo"></span></span></label>
+    <label class="field" id="testMailCcRow"><span><input type="checkbox" name="include_cc"> Also to the Cc <span class="mute" id="testMailCc"></span></span></label>
     <p class="mute" id="testMailFlow" hidden>A mail flow on these addresses handles it as a real request.</p>
     <p class="dialog-error" id="testMailError" role="alert"></p>
     <div class="row"><button type="submit">Send</button> <button type="button" class="sec" onclick="$('testMailDialog').close()">Cancel</button> <span class="mute" id="testMailMsg" role="status"></span></div>
@@ -1038,12 +1039,16 @@ async function openTestMail() {
     .map(p => `<option value="${p.id}">${esc(p.display_name)}${p.display_name !== p.username ? ' (' + esc(p.username) + ')' : ''}</option>`).join('');
   f.user_id.value = keep;
   $('testMailTo').textContent = d.access_mail_to.value.trim() ? '(' + d.access_mail_to.value.trim() + ')' : '(none set)';
+  $('testMailCc').textContent = '(' + d.access_mail_cc_to.value.trim() + ')';
+  $('testMailCcRow').hidden = !d.access_mail_cc_to.value.trim();
   $('testMailError').textContent = $('testMailMsg').textContent = '';
   syncTestMail();
   $('testMailDialog').showModal();
 }
 function syncTestMail() {
-  $('testMailFlow').hidden = $('testMailForm').send_to.value !== 'to';
+  const f = $('testMailForm');
+  $('testMailFlow').hidden = f.send_to.value !== 'to';
+  f.include_cc.disabled = f.send_to.value !== 'to';
 }
 $('testMailForm').addEventListener('change', syncTestMail);
 $('testMailForm').onsubmit = async event => {
@@ -1053,8 +1058,10 @@ $('testMailForm').onsubmit = async event => {
   try {
     const r = await api(`/api/admin/trainings/${editingId}/test-access-mail`, {method: 'POST',
       headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user_id: +f.user_id.value,
-        send_to: f.send_to.value, access_mail_to: d.access_mail_to.value, access_mail_text: d.access_mail_text.value})});
-    $('testMailMsg').textContent = 'Queued to ' + r.to;
+        send_to: f.send_to.value, include_cc: f.send_to.value === 'to' && f.include_cc.checked,
+        access_mail_to: d.access_mail_to.value, access_mail_cc_to: d.access_mail_cc_to.value,
+        access_mail_text: d.access_mail_text.value})});
+    $('testMailMsg').textContent = 'Queued to ' + r.to + (r.cc ? ', Cc ' + r.cc : '');
   } catch (e) { $('testMailError').textContent = e.message; }
 };
 $('detailsForm').addEventListener('input', event => { if (event.target.type !== 'file') setDetailsDirty(true); });

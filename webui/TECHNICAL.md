@@ -1210,7 +1210,7 @@ or when an admin approves a queued pass (`needs_approval`). With an optional Yes
 (`access_answer` in the submit body, required then; stored in `training_progress.access_answer`) and only **No**
 sends the mail. Its Reply-To is the person; **Cc** (`access_mail_cc_to`, optional addresses, e.g. a secretary while
 To is the mailbox a mail flow reads) and **Copy to the person** (`access_mail_cc`) add copies. A test mail goes
-without either. The subject is
+without the copy to the person (the Cc only on request, below). The subject is
 `Access request: <name> passed <training>`. JSON export/import does not carry these settings.
 The text may use a little markup in the HTML part (the plain-text part keeps it as typed): `**bold**`, lines
 starting with `- ` as bullets and lines starting with two spaces (or a tab) indented.
@@ -1240,9 +1240,10 @@ Reference: T<training id>-U<user id>-<yyyy-mm-dd>
 The reference is the same when one pass is mailed again, so a flow can skip duplicates.
 
 **Send test mail…** (admins, below the access mail settings; `POST /api/admin/trainings/<id>/test-access-mail` with
-`user_id`, `send_to` = `me` or `to`, `access_mail_to` and `access_mail_text`) queues the mail as if that active person
+`user_id`, `send_to` = `me` or `to`, `include_cc`, `access_mail_to`, `access_mail_cc_to` and `access_mail_text`) queues the mail as if that active person
 passed today, using the form's To and text even when not saved yet. `me` sends it only to the administrator's own
-address; `to` sends it to the To addresses, where a mail flow treats it as a real request. The subject and block
+address; `to` sends it to the To addresses, where a mail flow treats it as a real request, and with
+`include_cc` (**Also to the Cc**) also to the form's Cc addresses. The subject and block
 are the same, only the reference ends in `-test`; there is no Cc to the person and no administrator copy.
 
 #### Access requests into a SharePoint list (Power Automate)
