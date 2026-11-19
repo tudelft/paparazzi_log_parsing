@@ -7523,6 +7523,10 @@ def submit_log_export(matlab_export, con, row, scope, flights, all_flights, limi
 
 @app.post("/api/logs/<int:log_id>/matlab")
 def request_matlab_export(log_id):
+    """Export a log: one flight, its flights or the whole log (``scope`` flight, flights or log; a log without
+    flights only has the whole log). ``{"check": true}`` (or form/query ``check=1``) only reports the job id and
+    status, as for flights, so MATLAB's pprz_fetch('log', n) and ml.fetch(log=n) keep a local copy until it would
+    change."""
     matlab_export = matlab_module()
     con = conn()
     row = visible_log(con, log_id, MATLAB_LOG_COLUMNS)
@@ -7541,11 +7545,12 @@ def request_matlab_export(log_id):
         flights = [f for f in flights if f["verdict"] != "ground"]
         if not flights:
             return jsonify(error="This log has no detected flights to export."), 409
+    check = body.get("check") is True or request.values.get("check") == "1"
     try:
-        job = submit_log_export(matlab_export, con, row, scope, flights, all_flights)
+        job = submit_log_export(matlab_export, con, row, scope, flights, all_flights, check=check)
     except matlab_export.ExportError as error:
         return jsonify(error=str(error)), 503
-    return jsonify(matlab_job_json(job)), 202
+    return jsonify(dict(matlab_job_json(job), log_id=log_id)), 200 if check else 202
 
 
 @app.post("/api/flights/<int:flight_id>/matlab")

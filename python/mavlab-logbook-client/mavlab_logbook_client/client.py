@@ -66,13 +66,14 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-def _flight_ids(flights):
+def _flight_ids(flights, kind="flight"):
     if isinstance(flights, (int, str)):
         flights = [flights]
     ids = []
     for f in flights:
         if isinstance(f, bool) or not (isinstance(f, int) or (isinstance(f, str) and f.strip().isdigit())):
-            raise ValueError(f"a flight number is a positive integer (the number in /flight/<number>): {f!r}")
+            where = "the number in /flight/<number>" if kind == "flight" else "No. on the Logs page"
+            raise ValueError(f"a {kind} number is a positive integer ({where}): {f!r}")
         ids.append(int(f))
     return ids
 
@@ -340,9 +341,10 @@ class Client:
         """The cached copies stand in when the server cannot be reached or fails (HTTP 5xx), not for other errors."""
         return not isinstance(exc, HTTPError) or exc.status >= 500
 
-    def fetch(self, flights, scope="selected", force=False):
+    def fetch(self, flights=None, scope="selected", force=False, log=None):
         """Download the MATLAB exports (.mat) of flights by number (the number in /flight/<number>), as MATLAB's
-        pprz_fetch, and return their paths.
+        pprz_fetch, and return their paths. fetch(log=4824) (or a list) downloads whole logs by their log number
+        (No. on the Logs page) instead, also logs without flights: one file per log, as scope="log".
 
         scope: "selected" (default) the given flights of each log (10 s before takeoff to 10 s after landing),
         "all" every flight of those logs, "log" the whole log of each (also the time between flights), each one
@@ -353,14 +355,38 @@ class Client:
         (HTTP 5xx), the cached copies are returned with a warning."""
         if scope not in SCOPES:
             raise ValueError(f"scope must be one of {', '.join(SCOPES)}: {scope!r}")
-        ids = list(dict.fromkeys(_flight_ids(flights)))
         folder = settings.cache_dir() / "mat" / settings.server_tag(self.server)
+        if (flights is None) == (log is None):
+            raise ValueError("give flight numbers or log=<log number>, not both")
+        if log is not None:
+            return [self._mat_log(i, folder, force) for i in dict.fromkeys(_flight_ids(log, "log"))]
+        ids = list(dict.fromkeys(_flight_ids(flights)))
         if scope != "flight":
             return self._mat_logs(ids, scope, folder, force)
         paths = []
         for i in ids:
             paths.append(self._mat_flight(i, folder, force))
         return paths
+
+    def _mat_log(self, log_id, folder, force):
+        """The whole log by its log number: the same cache file as fetch(flights, scope="log")."""
+        old = sorted(folder.glob(f"log_{log_id}_log_*.mat"), key=lambda p: p.stat().st_mtime)
+        path = f"/api/logs/{log_id}/matlab"
+        try:
+            job = self._json("POST", path, {"scope": "log", "check": True})
+        except (OSError, http.client.HTTPException, HTTPError) as exc:
+            if not self._server_down(exc) or not old:
+                raise
+            warnings.warn(f"Log {log_id}: server unreachable or failing, using the cached copy ({exc})", stacklevel=3)
+            return old[-1]
+        target = folder / f"log_{log_id}_log_{job['id'][:16]}.mat"
+        if target.is_file() and not force:
+            return target
+        if job["status"] != "ready":
+            job = self._json("POST", path, {"scope": "log", "check": False})
+        self._export(job, target, f"Log {log_id}")
+        _remove_others(old, target)
+        return target
 
     def _mat_flight(self, flight_id, folder, force):
         old = sorted(folder.glob(f"flight_{flight_id}_*.mat"), key=lambda p: p.stat().st_mtime)

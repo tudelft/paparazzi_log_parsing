@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/theme.js"></script>
 <script src="/attachments.js"></script>
+<script src="/matlab.js"></script>
 <link rel="stylesheet" href="/theme.css">
 <style>
   :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --ok:#1a7f37; --err:#cf222e; --warn:#9a6700; }
@@ -164,8 +165,8 @@ function showAllLogs() { onlyLog = null; history.replaceState(history.state, '',
 function fillProjects() {}
 const editing = () => window.editMode();
 // Columns of the log list; admins also see who uploaded each log and when.
-const logColumns = () => [['Date (UTC)', '12%'], ['Log', '22%'], ['Aircraft', '14%'], ['Project', '13%'],
-  ['Flights', '6%', 'num'], ['Flight time', '8%', 'num'], ...(me?.is_admin ? [['Uploaded', '17%']] : []), ['Status', '8%']];
+const logColumns = () => [['No.', '7%'], ['Date (UTC)', '12%'], ['Log', '19%'], ['Aircraft', '13%'], ['Project', '12%'],
+  ['Flights', '6%', 'num'], ['Flight time', '8%', 'num'], ...(me?.is_admin ? [['Uploaded', '15%']] : []), ['Status', '8%']];
 function syncEditUi() {
   const admin = !!me?.is_admin;
   $('reparseAll').hidden = $('reparseUnknownDates').hidden = !(admin && editing());
@@ -266,13 +267,15 @@ async function refresh() {
     const outdated = l.outdated ? `<span class="badge outdated" title="Parsed with ${esc(l.parser_name || 'parser')} ${esc(l.parser_version || '?')}; re-parse to update">outdated</span>` : '';
     const noLog = !l.has_log && (!l.log_type || l.log_type === 'onboard_sd' || l.log_type === 'gcs') ? ' · no .log' : '';
     const uploaded = me?.is_admin ? `<td title="${esc([`Uploaded ${l.uploaded_at || ''}`, l.uploaded_by_name ? `by ${l.uploaded_by_name}` : '', l.co_uploaders ? `also by ${l.co_uploaders}` : ''].filter(Boolean).join(' '))}"><span class="mute">${esc((l.uploaded_at || '').slice(0, 10))}</span> ${esc(l.uploaded_by_name || '—')}</td>` : '';
-    tr.innerHTML = `<td>${dateLabel}${estimatedDateBadge(l)}</td>
+    // the log number: pprz_fetch('log', n) in MATLAB, ml.fetch(log=n) in Python
+    tr.innerHTML = `<td class="mono" title="Log number ${l.id}">${l.id}${window.copyButton(l.id, `log number ${l.id}`)}</td>
+      <td>${dateLabel}${estimatedDateBadge(l)}</td>
       <td title="${esc(l.name)} · log ${l.id} · ${esc(l.sha256.slice(0, 12))}…${noLog}">${esc(l.name)}<span class="size">${fmtSize(l.size_bytes)}${noLog}</span></td>
       <td title="${esc(l.aircraft_names || '')}">${esc((l.aircraft_names || '').replace(/,/g, ', ')) || '<span class="mute">—</span>'}</td>
       <td onclick="event.stopPropagation()">${projectCell}</td>
       <td class="num">${flights}</td><td class="num">${l.flight_time_s ? fmtDur(l.flight_time_s) : '<span class="mute">—</span>'}</td>
       ${uploaded}<td>${status}${outdated}</td>`;
-    tr.onclick = () => toggle(l.id);
+    tr.onclick = e => { if (!e.target.closest('a, button, select, input')) toggle(l.id); };  // ⧉ copies, it does not open
     tb.appendChild(tr);
     if (expanded.has(l.id)) {
       const d = document.createElement('tr');
@@ -362,6 +365,8 @@ async function loadDetail(id) {
   h += `<div class="actions">
     <button type="button" class="sec" onclick="event.stopPropagation(); openLogFiles(${id})">Additional files</button>
     <a class="btn sec" href="/api/logs/${id}/download" onclick="event.stopPropagation()">Download ${downloadLabel(l.log_type)}</a>
+    ${l.has_log ? window.MatlabExport.button([{log_id: id, log_type: l.log_type, log_name: l.name,
+      flights: l.aircraft.reduce((n, a) => n + a.flights.length, 0)}], 'sec') : ''}
     ${editing() ? `<button class="sec" onclick="event.stopPropagation(); reparse(${id})">Re-parse</button>
     ${l.can_delete ? `<button class="danger" onclick="event.stopPropagation(); del(${id})">Delete</button>` : ''}` : ''}</div>`;
   const el = $('d' + id);

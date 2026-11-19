@@ -18,6 +18,7 @@ rows = ml.logbook()                                # the flights you may see, ne
 numbers = [r["flight"] for r in rows if "Hex" in r["aircraft"]]
 mats = ml.fetch([1234, 1240])                      # flight numbers, as in /flight/1234: MATLAB exports, one per log
 mats = ml.fetch([1234, 1240], scope="flight")      # one .mat per number instead (as pprz_fetch)
+mats = ml.fetch(log=4824)                          # a whole log by its log number (Logs page), also without flights
 logs = ml.fetch_raw([1234, 1240])                  # the original logs, untouched: one path per log
 logs[0]                      # e.g. ~/.cache/mavlab-logbook-client/logs/<sha256>/24_10_30__16_27_37_SD.data (.log next to it)
 receipts = ml.upload(["flight.data", "LOG00030.BFL"], wait=True)

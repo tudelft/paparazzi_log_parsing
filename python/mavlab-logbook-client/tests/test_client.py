@@ -149,6 +149,10 @@ class Stub(BaseHTTPRequestHandler):
                 exports.append(dict(self.submit(name, body["check"]), log_id=log, flight_ids=wanted,
                                     scope=body["scope"]))
             self.reply(200 if body["check"] else 202, {"exports": exports})
+        elif self.path.startswith("/api/logs/") and self.path.endswith("/matlab"):
+            log, body = int(self.path.split("/")[3]), self.body()
+            s["log_exports"].append(body)
+            self.reply(200, dict(self.submit(f"log{log}_log", body["check"]), log_id=log))
         elif self.path.startswith("/api/flights/") and self.path.endswith("/matlab"):
             flight = int(self.path.split("/")[3])
             self.reply(200, dict(self.submit(f"flight{flight}", self.body()["check"]), flight_id=flight))
@@ -292,6 +296,25 @@ class ClientTests(unittest.TestCase):
                 client.fetch(7)
         with self.assertRaises(ValueError):
             client.fetch(7, scope="nope")
+
+    def test_fetch_whole_logs_by_log_number(self):
+        client = self.client(key="logdb_old")
+        Stub.state["log_exports"] = []
+        with patch("time.sleep"):
+            first = client.fetch(log=3)
+            self.assertEqual((len(first), first[0].name[:10], first[0].read_bytes()), (1, "log_3_log_", MAT))
+            self.assertEqual(client.fetch(log=[3]), first)  # cached: only a check, no second download
+            self.assertTrue(all(b["scope"] == "log" for b in Stub.state["log_exports"]))
+            self.assertEqual(sum(not b["check"] for b in Stub.state["log_exports"]), 1)
+            Stub.state["fail"] = 503
+            with self.assertWarnsRegex(UserWarning, "Log 3: .*cached copy"):
+                self.assertEqual(client.fetch(log=3), first)
+        with self.assertRaises(ValueError):
+            client.fetch()  # neither flights nor log
+        with self.assertRaises(ValueError):
+            client.fetch(7, log=3)
+        with self.assertRaisesRegex(ValueError, "log number"):
+            client.fetch(log="x")
 
     def test_fetch_raw_caches_by_sha256_and_works_offline(self):
         client = self.client(key="logdb_old")
