@@ -1,24 +1,37 @@
 function plot_esc(ac_data, idx)
-%PLOT_ESC ESC telemetry per motor: rpm, current, motor voltage and temperature. Motors that never report
-%   rpm or current are left out; plot_esc(f.data, ids) shows only these motor ids.
-    m = ac_data.ESC;
-    ids = unique(m.motor_id);
+%PLOT_ESC ESC telemetry per motor: speed, current, voltage, temperatures and output. Old (ESC) and new
+%   (ESC_TELEMETRY) logs alike, see pprz.esc. Motors that never report rpm or current are left out, and so are
+%   panels without data; plot_esc(f.data, ids) shows only these actuator indexes.
+    e = pprz.esc(ac_data);
+    ids = unique(e.id);
     if nargin > 1
         ids = intersect(ids, idx);
     end
-    alive = arrayfun(@(i) any(m.rpm(m.motor_id == i) ~= 0 | m.amps(m.motor_id == i) ~= 0), ids);
+    alive = arrayfun(@(i) any(nonzero(e.rpm(e.id == i)) | nonzero(e.current(e.id == i))), ids);
     ids = ids(alive);
-    panels = {'rpm', 'Speed [rpm]'; 'amps', 'Current [A]'; 'motor_volts', 'Motor voltage [V]'; ...
-        'temperature', 'Temperature [°C]'; 'temperature_dev', 'Device temperature [°C]'};
-    used = cellfun(@(fld) isfield(m, fld) && any(m.(fld)(ismember(m.motor_id, ids)) ~= 0), panels(:, 1));
+    panels = {'rpm', 'Speed [rpm]'; 'current', 'Current [A]'; 'voltage', 'ESC voltage [V]'; ...
+        'supply_voltage', 'Supply voltage [V]'; 'temperature', 'ESC temperature [°C]'; ...
+        'motor_temperature', 'Motor temperature [°C]'; 'device_temperature', 'Device temperature [°C]'; ...
+        'output', 'Output [%]'; 'power', 'Power [W]'};
+    rows = ismember(e.id, ids);
+    used = cellfun(@(fld) any(nonzero(e.(fld)(rows))), panels(:, 1));
     panels = panels(used, :);
-    axs = pprz.tiles(size(panels, 1), 'ESC');
+    if isempty(panels)
+        panels = {'rpm', 'Speed [rpm]'};  % nothing reported: one empty panel instead of none
+    end
+    axs = pprz.tiles(size(panels, 1), ['ESC (' e.source ')']);
     for p = 1:size(panels, 1)
         for i = reshape(ids, 1, [])
-            rows = m.motor_id == i;
-            plot(axs(p), m.t(rows), double(m.(panels{p, 1})(rows)), 'DisplayName', sprintf('Motor %d', i));
+            in = e.id == i;
+            plot(axs(p), e.t(in), e.(panels{p, 1})(in), 'DisplayName', sprintf('Motor %d', i));
         end
         ylabel(axs(p), panels{p, 2});
     end
-    legend(axs(1), 'Location', 'eastoutside');
+    if ~isempty(ids)
+        legend(axs(1), 'Location', 'eastoutside');
+    end
+end
+
+function ok = nonzero(v)
+    ok = ~isnan(v) & v ~= 0;
 end

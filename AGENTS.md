@@ -29,6 +29,9 @@
   Private qualification evidence is separate from shared flight/log attachments.
 - Preserve the distinction between uploaded-log `aircraft` rows and fleet `drones` identities.
   Paper records contribute counts/time without fabricated telemetry or automatic merging with digital logs.
+- Old logs stay in use next to new ones: parser, MATLAB export and MATLAB tools must keep reading every older
+  pprzlink message version when messages or fields are added, renamed, replaced or removed (check fields before use,
+  one helper for both forms). Rules and the old/new-format check: [MATLAB README](matlab/README.md#plots).
 - Keep SQLite on local disk; log/evidence storage may be on a share. See the technical guide before changing storage.
 - Follow shared Edit-mode, Help, day/night and entity-detail navigation patterns when changing UI.
   Check both read-only and editing behavior and the relevant user/admin visibility.
