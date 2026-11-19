@@ -581,6 +581,7 @@ window.timingEvidenceHTML = function (timing) {
   };
   // Menu: Home · Logbook · Agenda · Training · Documents · Safety (each when enabled) · Directory ▾ (People … Logs, Statistics); Upload logs, Edit and the name menu on the right
   const DIRECTORY = [['/people', 'People'], ['/aircraft', 'Aircraft'], ['/projects', 'Projects'], ['/locations', 'Locations'],
+    ['/documents', 'Documents'],  // only when LOGDB_DOCUMENTS is on (see paintNav)
     null, ['/logs', 'Logs'], ['/stats', 'Statistics']];
 
   function cachedAdmin() {
@@ -656,11 +657,10 @@ window.timingEvidenceHTML = function (timing) {
     const here = currentTab();
     const tab = (href, label) => `<a href="${href}"${href === here ? ' class="cur" aria-current="page"' : ''}>${label}</a>`;
     const inDirectory = DIRECTORY.some(item => item && item[0] === here);
-    // what people use daily first; the reference lists, Logs and Statistics under Directory
+    // what people use daily first; the reference lists, Documents, Logs and Statistics under Directory
     nav.innerHTML = tab('/home', 'Home') + tab('/', 'Logbook')
       + (cachedBookings() ? tab('/agenda', 'Agenda') : '')
       + (cachedTraining() ? tab('/training', 'Training') : '')
-      + (cachedDocuments() ? tab('/documents', 'Documents') : '')
       + (cachedSafety() ? tab('/safety', 'Safety') : '')
       + `<button type="button" class="nav-drop${inDirectory ? ' cur' : ''}" id="directoryBtn">Directory ▾</button>`;
     let panel = document.getElementById('directoryMenu');
@@ -672,7 +672,7 @@ window.timingEvidenceHTML = function (timing) {
       panel.hidden = true;
       document.body.appendChild(panel);
     }
-    panel.innerHTML = DIRECTORY.map(item => item
+    panel.innerHTML = DIRECTORY.filter(item => !item || item[0] !== '/documents' || cachedDocuments()).map(item => item
       ? `<a href="${item[0]}" role="menuitem"${item[0] === here ? ' class="cur" aria-current="page"' : ''}>${item[1]}</a>` : '<hr>').join('');
     bindMenu(document.getElementById('directoryBtn'), panel, false);
   }
