@@ -4859,7 +4859,7 @@ def admin_remove_password(user_id):
             return jsonify(error="This account does not use local password sign-in."), 400
         if row["is_admin"] and not con.execute(
                 "SELECT 1 FROM users WHERE id!=? AND is_admin=1 AND is_active=1"
-                " AND (provider='saml' OR (provider='local' AND password_hash IS NOT NULL)) LIMIT 1",
+                " AND (subject IS NOT NULL OR password_hash IS NOT NULL) LIMIT 1",  # SSO linked or a password
                 (user_id,)).fetchone():
             return jsonify(error="Cannot remove the last administrator's login method."), 400
         con.execute("UPDATE users SET password_hash=NULL WHERE id=?", (user_id,))
