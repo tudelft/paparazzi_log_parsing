@@ -244,6 +244,12 @@ qualification, for example an arena safety briefing, to book or even to see its 
 so and links to the training that grants it. You can change or delete your own bookings; administrators can
 book for someone else (**Booked for**), change any and set up the items in Edit mode (**Add item**, **Edit item**).
 
+An item can need approval (**Bookings need approval**, with optional approvers besides the administrators). Your
+booking then shows as **Pending** (striped) and holds its time until an administrator or approver opens it and
+clicks **Approve** or **Reject** (with an optional reason); you get a mail either way. Moving it asks again.
+Administrators and approvers book such an item without approval; administrators also find the requests in the
+People **Approval queue** (**Bookings**).
+
 ## Documents
 
 **Documents** (optional) holds shared documents, for example the ones to show when you are asked for them in the field

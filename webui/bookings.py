@@ -10,6 +10,11 @@ Each item has an optional list of booking flags (label, optional colour, and whe
 Bookings of the same item may overlap only when both set a common non-blocking flag and neither sets a
 blocking flag, so an item without flags never overlaps. Bookings of different items never conflict.
 Times are local wall-clock times (YYYY-MM-DDTHH:MM). The booker and administrators change or delete a booking.
+
+An item may need approval (needs_approval): a booking by anyone but an administrator or one of the item's approvers
+(booking_approvers) starts as pending. A pending booking shows in the agenda and holds its slot like an approved
+one; an administrator or approver approves or rejects it (with an optional reason), and a rejected booking frees
+the slot (only its booker still sees it). When the booker moves a booking of such an item it is pending again.
 """
 import datetime
 import re
@@ -124,8 +129,9 @@ def check_overlap(con, item, start, end, flags, ignore_id=None):
     labels = {f["id"]: f["label"] for f in all_flags}
     mine = set(flags)
     for row in con.execute(
-            "SELECT b.id, b.starts_at, b.ends_at, COALESCE(u.display_name,u.username) AS person FROM bookings b"
-            " JOIN users u ON u.id=b.user_id WHERE b.thing_id=? AND b.starts_at<? AND b.ends_at>? AND b.id IS NOT ?",
+            "SELECT b.id, b.starts_at, b.ends_at, b.status, COALESCE(u.display_name,u.username) AS person FROM bookings b"
+            " JOIN users u ON u.id=b.user_id WHERE b.thing_id=? AND b.starts_at<? AND b.ends_at>? AND b.id IS NOT ?"
+            " AND b.status!='rejected'",
             (item["id"], end, start, ignore_id)):
         theirs = booking_flags(con, row["id"])
         if not (mine & blocking or theirs & blocking) and (mine & theirs) - blocking:
@@ -136,7 +142,8 @@ def check_overlap(con, item, start, end, flags, ignore_id=None):
             reason = "yours is marked " + ", ".join(labels[f] for f in sorted(mine & blocking))
         else:
             reason = "not shared"
-        raise BookingError(f"{row['person']} has booked {item['name']} from {row['starts_at'].replace('T', ' ')}"
+        raise BookingError(f"{row['person']} has {'asked to book' if row['status'] == 'pending' else 'booked'}"
+                           f" {item['name']} from {row['starts_at'].replace('T', ' ')}"
                            f" to {row['ends_at'].replace('T', ' ')} ({reason}).", 409)
 
 
@@ -154,13 +161,45 @@ def mail_overlaps(con, item, start, end, booking_id, actor_id, owner_id):
     """Tell the people whose (shared) booking of this item overlaps the new or moved one."""
     who = person_name(con, owner_id)
     for row in con.execute("SELECT id, user_id, starts_at, ends_at FROM bookings WHERE thing_id=? AND starts_at<?"
-                           " AND ends_at>? AND id!=?", (item["id"], end, start, booking_id)).fetchall():
+                           " AND ends_at>? AND id!=? AND status!='rejected'",
+                           (item["id"], end, start, booking_id)).fetchall():
         if row["user_id"] in (actor_id, owner_id):
             continue
         mail.notify(con, row["user_id"], "bookings", f"{item['name']}: {who} booked during your booking",
                     f"{who} booked {item['name']} for {when(start, end)}, which overlaps your booking of "
                     f"{when(row['starts_at'], row['ends_at'])}.", f"/agenda?week={start[:10]}",
                     key=f"overlap:{row['id']}:{booking_id}:{start}:{end}")
+
+
+def approver_ids(con, thing_id):
+    return {r[0] for r in con.execute("SELECT user_id FROM booking_approvers WHERE thing_id=?", (thing_id,))}
+
+
+def can_approve(con, item, user):
+    """Administrators, and the item's approvers, decide its pending bookings (and book it without approval)."""
+    return bool(user["is_admin"]) or user["id"] in approver_ids(con, item["id"])
+
+
+def deciders(con, item):
+    """Active accounts that approve bookings of this item: administrators and its approvers."""
+    return [(r[0], r[1]) for r in con.execute(
+        "SELECT id, is_admin FROM users WHERE is_active=1 AND is_external=0 AND (is_admin=1 OR id IN"
+        " (SELECT user_id FROM booking_approvers WHERE thing_id=?)) ORDER BY id", (item["id"],))]
+
+
+def mail_request(con, item, booking_id, owner_id, start, end, description, moved=False):
+    """Ask the administrators and the item's approvers to decide a pending booking."""
+    who = person_name(con, owner_id)
+    text = (f"{who} {'moved their booking of' if moved else 'asks to book'} {item['name']} "
+            f"{'to' if moved else 'for'} {when(start, end)}" + (f": {description}" if description else "")
+            + ". It holds the time until it is approved or rejected.")
+    for uid, is_admin in deciders(con, item):
+        if uid == owner_id:
+            continue
+        mail.notify(con, uid, "booking_requests", f"Booking to approve: {item['name']}, {when(start, end)}", text,
+                    "/people?tab=approvals&kind=booking" if is_admin
+                    else f"/agenda?item={item['id']}&week={start[:10]}",
+                    key=f"booking-request:{booking_id}:{start}:{end}:{uid}")
 
 
 def item_json(con, item, user):
@@ -172,18 +211,27 @@ def item_json(con, item, user):
         "type_id": item["type_id"], "type_name": item["type_name"], "qualification_for": item["qualification_for"],
         "flags": [{**f, "blocks_overlap": bool(f["blocks_overlap"])} for f in load_flags(con, item["id"])],
         "can_view": can_view, "can_book": can_book,
+        "needs_approval": bool(item["needs_approval"]), "can_approve": can_approve(con, item, user),
     }
+    if user["is_admin"]:
+        out["approver_ids"] = sorted(approver_ids(con, item["id"]))
     if item["type_id"] and not has_qualification(con, user["id"], item["type_id"]):
         out["training_id"] = granting_training(con, item["type_id"])
     return out
 
 
-def booking_json(row, flags, user):
-    return {
+def booking_json(row, flags, user, decide=False):
+    """decide: the user approves bookings of this item (a pending one gets Approve and Reject)."""
+    out = {
         "id": row["id"], "thing_id": row["thing_id"], "user_id": row["user_id"], "person": row["person"],
         "description": row["description"], "start": row["starts_at"], "end": row["ends_at"], "flags": sorted(flags),
         "can_edit": row["user_id"] == user["id"] or bool(user["is_admin"]),
+        "status": row["status"], "created_at": row["created_at"],
+        "can_decide": bool(decide) and row["status"] == "pending",
     }
+    if row["status"] == "rejected":
+        out["review_note"] = row["review_note"] or ""
+    return out
 
 
 def ics_text(value):
@@ -217,14 +265,16 @@ def ics_feed(con, user, thing_id, host):
     if things:
         rows = con.execute(
             "SELECT b.*, COALESCE(u.display_name,u.username) AS person FROM bookings b JOIN users u ON u.id=b.user_id"
-            f" WHERE b.thing_id IN ({','.join('?' * len(things))}) AND b.ends_at>? AND b.starts_at<? ORDER BY b.starts_at",
+            f" WHERE b.thing_id IN ({','.join('?' * len(things))}) AND b.ends_at>? AND b.starts_at<?"
+            " AND b.status!='rejected' ORDER BY b.starts_at",
             (*things, first, last)).fetchall()
         for r in rows:
             t = things[r["thing_id"]]
             labels = [f["label"] for f in load_flags(con, t["id"]) if f["id"] in booking_flags(con, r["id"])]
             lines += ["BEGIN:VEVENT", f"UID:booking-{r['id']}@{host}", "DTSTAMP:" + stamp,
                       "DTSTART:" + fmt(r["starts_at"]), "DTEND:" + fmt(r["ends_at"]),
-                      "SUMMARY:" + ics_text((f"{t['name']}: " if thing_id is None else "") + r["description"]),
+                      "SUMMARY:" + ics_text(("Pending: " if r["status"] == "pending" else "")
+                                            + (f"{t['name']}: " if thing_id is None else "") + r["description"]),
                       "DESCRIPTION:" + ics_text(" · ".join([f"Booked by {r['person']}", *labels])),
                       "LOCATION:" + ics_text(t["name"]), "END:VEVENT"]
     lines.append("END:VCALENDAR")
@@ -314,9 +364,12 @@ def register(app, connection, require_session, pages_dir):
         rows = cid.execute(
             "SELECT b.*, COALESCE(u.display_name,u.username) AS person FROM bookings b JOIN users u ON u.id=b.user_id"
             f" WHERE b.thing_id IN ({','.join('?' * len(visible))}) AND b.starts_at<? AND b.ends_at>?"
-            " ORDER BY b.starts_at, b.id",
-            (*visible, (last + datetime.timedelta(days=1)).isoformat(), first.isoformat())).fetchall() if visible else []
-        out = {"things": items, "bookings": [booking_json(r, booking_flags(cid, r["id"]), g.user) for r in rows]}
+            " AND (b.status!='rejected' OR b.user_id=?) ORDER BY b.starts_at, b.id",
+            (*visible, (last + datetime.timedelta(days=1)).isoformat(), first.isoformat(), g.user["id"])).fetchall() \
+            if visible else []
+        decide = {t["id"] for t in items if t["can_approve"]}
+        out = {"things": items, "bookings": [booking_json(r, booking_flags(cid, r["id"]), g.user, r["thing_id"] in decide)
+                                             for r in rows]}
         if g.user["is_admin"]:
             out["types"] = [dict(r) for r in cid.execute(
                 "SELECT id, name FROM qualification_types WHERE active=1 ORDER BY sort_order, name")]
@@ -344,16 +397,24 @@ def register(app, connection, require_session, pages_dir):
                 raise BookingError(f"{item['name']} is not open for bookings.", 409)
             check_flags(cid, item["id"], flags)
             check_overlap(cid, item, start, end, flags)
+            status = "pending" if item["needs_approval"] and not can_approve(cid, item, g.user) else "approved"
             bid = cid.execute(
-                "INSERT INTO bookings(thing_id,user_id,description,starts_at,ends_at,created_at) VALUES (?,?,?,?,?,?)",
-                (item["id"], owner, description, start, end, utc_now())).lastrowid
+                "INSERT INTO bookings(thing_id,user_id,description,starts_at,ends_at,created_at,status)"
+                " VALUES (?,?,?,?,?,?,?)", (item["id"], owner, description, start, end, utc_now(), status)).lastrowid
             save_flags(cid, bid, flags)
             who = "You" if owner == g.user["id"] else person_name(cid, g.user["id"])
-            mail.notify(cid, owner, "bookings", f"Booked: {item['name']}, {when(start, end)}",
-                        f"{who} booked {item['name']} for {'' if owner == g.user['id'] else 'you for '}{when(start, end)}"
-                        + (f": {description}" if description else "") + ".", f"/agenda?week={start[:10]}")
+            pending = status == "pending"
+            mail.notify(cid, owner, "bookings",
+                        f"{'Requested' if pending else 'Booked'}: {item['name']}, {when(start, end)}",
+                        f"{who} {'asked to book' if pending else 'booked'} {item['name']} for "
+                        f"{'' if owner == g.user['id'] else 'you for '}{when(start, end)}"
+                        + (f": {description}" if description else "") + "."
+                        + (" It needs approval; you get a mail when it is decided." if pending else ""),
+                        f"/agenda?week={start[:10]}")
+            if pending:
+                mail_request(cid, item, bid, owner, start, end, description)
             mail_overlaps(cid, item, start, end, bid, g.user["id"], owner)
-        return jsonify(ok=True, id=bid), 201
+        return jsonify(ok=True, id=bid, status=status), 201
 
     @app.put("/api/bookings/<int:booking_id>")
     def edit_booking(booking_id):
@@ -370,8 +431,19 @@ def register(app, connection, require_session, pages_dir):
                 require(cid, item, booking=True)
             check_flags(cid, item["id"], flags)
             check_overlap(cid, item, start, end, flags, ignore_id=booking_id)
-            cid.execute("UPDATE bookings SET user_id=?, description=?, starts_at=?, ends_at=? WHERE id=?",
-                        (owner, description, start, end, booking_id))
+            moved = (start, end) != (row["starts_at"], row["ends_at"])
+            status = row["status"]
+            # the booker moving (or asking again for) a booking of an item that needs approval: pending again
+            if item["needs_approval"] and not can_approve(cid, item, g.user) and (moved or status == "rejected"):
+                status = "pending"
+            reset = status == "pending"
+            cid.execute("UPDATE bookings SET user_id=?, description=?, starts_at=?, ends_at=?, status=?,"
+                        " decided_by=CASE WHEN ? THEN NULL ELSE decided_by END,"
+                        " decided_at=CASE WHEN ? THEN NULL ELSE decided_at END,"
+                        " review_note=CASE WHEN ? THEN NULL ELSE review_note END WHERE id=?",
+                        (owner, description, start, end, status, reset, reset, reset, booking_id))
+            if status == "pending" and (moved or row["status"] != "pending"):
+                mail_request(cid, item, booking_id, owner, start, end, description, moved=row["status"] != "rejected")
             save_flags(cid, booking_id, flags)
             actor = person_name(cid, g.user["id"])
             if row["user_id"] != g.user["id"]:
@@ -386,7 +458,60 @@ def register(app, connection, require_session, pages_dir):
                             + (f": {description}" if description else "") + ".", f"/agenda?week={start[:10]}")
             if (start, end) != (row["starts_at"], row["ends_at"]):
                 mail_overlaps(cid, item, start, end, booking_id, g.user["id"], owner)
+        return jsonify(ok=True, status=status)
+
+    @app.post("/api/bookings/<int:booking_id>/review")
+    def review_booking(booking_id):
+        """Approve or reject a pending booking: administrators and the item's approvers. {action, reason}"""
+        signed_in()
+        body = request.get_json(silent=True) or {}
+        action = body.get("action")
+        if action not in ("approve", "reject"):
+            raise BookingError("Choose approve or reject.")
+        reason = body.get("reason") or ""
+        if not isinstance(reason, str) or len(reason.strip()) > MAX_DESCRIPTION:
+            raise BookingError(f"The reason can be at most {MAX_DESCRIPTION} characters.")
+        cid = connection()
+        with db.write_lock, cid:
+            cid.execute("BEGIN IMMEDIATE")
+            row = cid.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+            if row is None:
+                raise BookingError("No such booking.", 404)
+            item = cid.execute(ITEM_SQL + " WHERE t.id=?", (row["thing_id"],)).fetchone()
+            if not can_approve(cid, item, g.user):
+                raise BookingError("Only administrators and the approvers of this item decide its bookings.", 403)
+            if row["status"] != "pending":
+                raise BookingError("Only a booking waiting for approval can be approved or rejected.", 409)
+            note = reason.strip() if action == "reject" else None
+            cid.execute("UPDATE bookings SET status=?, decided_by=?, decided_at=?, review_note=? WHERE id=?",
+                        ("approved" if action == "approve" else "rejected", g.user["id"], utc_now(), note, booking_id))
+            if row["user_id"] != g.user["id"]:
+                span = when(row["starts_at"], row["ends_at"])
+                mail.notify(cid, row["user_id"], "booking_requests",
+                            f"{'Approved' if action == 'approve' else 'Not approved'}: {item['name']}, {span}",
+                            f"{person_name(cid, g.user['id'])} "
+                            + (f"approved your booking of {item['name']} for {span}." if action == "approve" else
+                               f"did not approve your booking of {item['name']} for {span}; the time is free again."
+                               + (f"\n\nReason: {note}" if note else "")),
+                            f"/agenda?item={item['id']}&week={row['starts_at'][:10]}")
         return jsonify(ok=True)
+
+    @app.get("/api/admin/booking-pending")
+    def pending_bookings():
+        """Bookings waiting for approval, oldest request first, for the approval queue."""
+        admin()
+        cid = connection()
+        out = []
+        for r in cid.execute(
+                "SELECT b.*, COALESCE(u.display_name,u.username) AS person, t.name AS thing FROM bookings b"
+                " JOIN users u ON u.id=b.user_id JOIN booking_things t ON t.id=b.thing_id"
+                " WHERE b.status='pending' ORDER BY b.created_at, b.id"):
+            labels = {f["id"]: f["label"] for f in load_flags(cid, r["thing_id"])}
+            out.append(dict(id=r["id"], thing_id=r["thing_id"], thing=r["thing"], user_id=r["user_id"],
+                            person=r["person"], description=r["description"], start=r["starts_at"], end=r["ends_at"],
+                            flags=[labels[f] for f in sorted(booking_flags(cid, r["id"])) if f in labels],
+                            submitted_at=r["created_at"]))
+        return jsonify(bookings=out)
 
     @app.delete("/api/bookings/<int:booking_id>")
     def delete_booking(booking_id):
@@ -429,7 +554,26 @@ def register(app, connection, require_session, pages_dir):
                 raise BookingError("Unknown flag.")
             parsed.append((f.get("id"), clip(f.get("label"), 40, "A flag label"), parse_colour(f.get("colour")),
                            f.get("blocks_overlap", False)))
-        return (name, description, place_id, type_id, mode, parse_colour(body.get("colour")), int(active), order), parsed
+        needs = body.get("needs_approval", False)
+        if type(needs) is not bool:
+            raise BookingError("needs_approval must be true or false.")
+        ids = body.get("approver_ids", [])
+        if not isinstance(ids, list) or any(type(i) is not int for i in ids) or len(ids) > 50:
+            raise BookingError("approver_ids must be a list of at most 50 account ids.")
+        ids = sorted(set(ids))
+        if ids and len(ids) != cid.execute(
+                f"SELECT COUNT(*) FROM users WHERE is_active=1 AND is_external=0 AND id IN ({','.join('?' * len(ids))})",
+                ids).fetchone()[0]:
+            raise BookingError("Approvers must be active accounts.")
+        return ((name, description, place_id, type_id, mode, parse_colour(body.get("colour")), int(active), order,
+                 int(needs)), parsed, ids)
+
+    def save_approvers(cid, item_id, ids, needs):
+        cid.execute("DELETE FROM booking_approvers WHERE thing_id=?", (item_id,))
+        cid.executemany("INSERT INTO booking_approvers(thing_id,user_id) VALUES (?,?)", [(item_id, i) for i in ids])
+        if not needs:  # approval switched off: what was waiting is booked
+            cid.execute("UPDATE bookings SET status='approved', decided_at=? WHERE thing_id=? AND status='pending'",
+                        (utc_now(), item_id))
 
     def save_item_flags(cid, item_id, flags):
         existing = {f["id"] for f in load_flags(cid, item_id)}
@@ -450,14 +594,15 @@ def register(app, connection, require_session, pages_dir):
     def add_booking_thing():
         admin()
         cid = connection()
-        fields, flags = item_fields(cid, request.get_json(silent=True) or {})
+        fields, flags, approvers = item_fields(cid, request.get_json(silent=True) or {})
         try:
             with db.write_lock, cid:
                 cid.execute("BEGIN IMMEDIATE")
                 tid = cid.execute(
                     "INSERT INTO booking_things(name,description,place_id,type_id,qualification_for,colour,active,"
-                    "sort_order) VALUES (?,?,?,?,?,?,?,?)", fields).lastrowid
+                    "sort_order,needs_approval) VALUES (?,?,?,?,?,?,?,?,?)", fields).lastrowid
                 save_item_flags(cid, tid, flags)
+                save_approvers(cid, tid, approvers, fields[-1])
         except sqlite3.IntegrityError as exc:
             raise BookingError("A bookable item with that name already exists.", 409) from exc
         return jsonify(ok=True, id=tid), 201
@@ -466,14 +611,16 @@ def register(app, connection, require_session, pages_dir):
     def edit_booking_thing(thing_id):
         admin()
         cid = connection()
-        fields, flags = item_fields(cid, request.get_json(silent=True) or {})
+        fields, flags, approvers = item_fields(cid, request.get_json(silent=True) or {})
         try:
             with db.write_lock, cid:
                 cid.execute("BEGIN IMMEDIATE")
                 item_row(cid, thing_id)
                 cid.execute("UPDATE booking_things SET name=?, description=?, place_id=?, type_id=?,"
-                            " qualification_for=?, colour=?, active=?, sort_order=? WHERE id=?", (*fields, thing_id))
+                            " qualification_for=?, colour=?, active=?, sort_order=?, needs_approval=? WHERE id=?",
+                            (*fields, thing_id))
                 save_item_flags(cid, thing_id, flags)
+                save_approvers(cid, thing_id, approvers, fields[-1])
         except sqlite3.IntegrityError as exc:
             raise BookingError("A bookable item with that name already exists.", 409) from exc
         return jsonify(ok=True)

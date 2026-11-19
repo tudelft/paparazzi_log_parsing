@@ -29,6 +29,9 @@ KINDS = {
                ("immediate", "daily", "off"), "immediate", False),
     "bookings": ("Bookings", "When you book, when someone else changes or removes your booking, and when a new "
                  "booking overlaps one of yours.", ("immediate", "daily", "off"), "immediate", False),
+    "booking_requests": ("Booking approvals", "Agendas that need approval: whether your booking is approved or not "
+                         "(with the reason), and (administrators and approvers) new requests to decide.",
+                         ("immediate", "daily", "off"), "immediate", False),
     "reviews": ("Qualification reviews", "When an administrator does not approve your qualification or training pass, "
                 "with the reason.", ("immediate", "daily", "off"), "immediate", False),
     "requests": ("Aircraft requests", "When your aircraft request is approved or rejected, and (project managers) new "

@@ -175,6 +175,7 @@
   .aq-person { font-weight:600; }
   .aq-kind { font-size:11px; border-radius:9px; padding:1px 7px; margin-right:4px; background:var(--chip); color:var(--mute); }
   .aq-kind.training { background:color-mix(in srgb, var(--acc) 15%, transparent); color:var(--acc); }
+  .aq-kind.booking { background:color-mix(in srgb, var(--ok) 15%, transparent); color:var(--ok); }
   .aq-small { font-size:12px; color:var(--mute); }
   .aq-warn { font-size:12px; color:var(--warn); }
   .aq-err { font-size:12px; color:var(--err); }
@@ -317,7 +318,7 @@
       <span class="aq-spacer"></span>
       <span class="mute" id="aqSelected"></span>
       <button type="button" id="aqApproveSelected" hidden onclick="aqApprove([...aqSelection])">Approve selected</button>
-      <details><summary>Help</summary><p>Approve or reject each submission here; ▸ opens its evidence and details. Approve shows Undo for a few seconds before it is saved (leaving the page saves it at once). Reject asks for an optional reason, which is mailed to the person. A submission that cannot be approved yet says why; Edit opens it in that person's Qualifications tab.</p></details>
+      <details><summary>Help</summary><p>Approve or reject each training pass, qualification or booking (agendas that need approval) here; ▸ opens its evidence and details. Approve shows Undo for a few seconds before it is saved (leaving the page saves it at once). Reject asks for an optional reason, which is mailed to the person. A submission that cannot be approved yet says why; Edit opens it in that person's Qualifications tab.</p></details>
     </div>
     <div id="approvalQueue"></div>
     <p class="aq-keys" id="aqKeys">Keyboard: <kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Space</kbd> select · <kbd>Enter</kbd> open · <kbd>A</kbd> approve · <kbd>R</kbd> reject</p>
@@ -491,10 +492,9 @@ async function load() {
     if (!r.ok) { $('err').textContent = 'Could not load people.'; return; }
     people = await r.json();
     try {
-      const [types, queue] = await Promise.all([
-        adminApi('/api/admin/qualification-types'), adminApi('/api/admin/qualification-pending')]);
+      const [types, queue] = await Promise.all([adminApi('/api/admin/qualification-types'), aqLoad()]);
       qualificationTypes = types.types;
-      pendingQualifications = queue.submissions;
+      pendingQualifications = queue;
     } catch (error) { $('err').textContent = error.message; return; }
   } else {
     const d = await fetch('/api/people-directory').then(r => r.json());
@@ -548,7 +548,7 @@ function paintPageTabs(open) {
 window.addEventListener('popstate', () => {
   const p = new URLSearchParams(location.search);
   pageTab = p.get('tab') || 'people';
-  aqKind = ['training', 'qualification'].includes(p.get('kind')) ? p.get('kind') : '';
+  aqKind = AQ_KINDS.includes(p.get('kind')) ? p.get('kind') : '';
   aqQuery = p.get('q') || ''; aqOpen = +p.get('open') || 0;
   render();
 });
@@ -657,15 +657,33 @@ async function adminApi(url, options) {
   return data;
 }
 
-// Approval queue: training passes and qualifications waiting for an administrator, decided in place. Approve is held
-// for a few seconds with Undo and then sent (at once when the page is left); Reject asks for an optional reason.
+// Approval queue: training passes, qualifications and bookings (agendas that need approval) waiting for an
+// administrator, decided in place. Approve is held for a few seconds with Undo and then sent (at once when the page is
+// left); Reject asks for an optional reason. Bookings get negative ids (-booking id) so they share the queue's code.
+const AQ_KINDS = ['training', 'qualification', 'booking'];
 const aqParams = new URLSearchParams(location.search);
-let aqKind = ['training', 'qualification'].includes(aqParams.get('kind')) ? aqParams.get('kind') : '';
+let aqKind = AQ_KINDS.includes(aqParams.get('kind')) ? aqParams.get('kind') : '';
 let aqQuery = aqParams.get('q') || '', aqOpen = +aqParams.get('open') || 0;
 const aqSelection = new Set(), aqHeld = new Map(), aqErrors = new Map();
 let aqTimer = null, aqFocus = 0, aqRejecting = null;
 const aqIsTraining = s => !!s.training_id;
+const aqIsBooking = s => s.kind === 'booking';
+const aqKindOf = s => aqIsBooking(s) ? 'booking' : aqIsTraining(s) ? 'training' : 'qualification';
 const aqWhat = s => aqIsTraining(s) ? (s.training || s.category) : s.category;
+const aqReviewUrl = s => aqIsBooking(s) ? `/api/bookings/${s.booking_id}/review` : `/api/qualification-submissions/${s.id}/review`;
+// "Tue 7 Jan 10:00–12:00" for a booking (local wall-clock times)
+function aqSpan(b) {
+  const d = new Date(b.start.slice(0, 10) + 'T00:00');
+  const day = d.toLocaleDateString('en-GB', {weekday: 'short', day: 'numeric', month: 'short'});
+  return `${day} ${b.start.slice(11)}–${b.end.slice(0, 10) === b.start.slice(0, 10) ? '' : b.end.slice(0, 10) + ' '}${b.end.slice(11)}`;
+}
+// The qualification submissions and, when agendas are on, the bookings waiting for approval.
+async function aqLoad() {
+  const [queue, bookings] = await Promise.all([adminApi('/api/admin/qualification-pending'),
+    fetch('/api/admin/booking-pending').then(r => r.ok ? r.json() : {bookings: []}).catch(() => ({bookings: []}))]);
+  return [...queue.submissions, ...bookings.bookings.map(b => ({...b, id: -b.id, booking_id: b.id, kind: 'booking',
+    category: b.thing, can_approve: true}))];
+}
 function aqWhen(t) {
   if (!t) return '';
   const d = new Date(t), days = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 864e5);
@@ -673,6 +691,10 @@ function aqWhen(t) {
   return days <= 0 ? 'Today ' + time : days === 1 ? 'Yesterday' : days < 30 ? days + ' days ago' : d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'});
 }
 function aqDetails(s) {
+  if (aqIsBooking(s)) {
+    const text = [aqSpan(s), s.description, ...s.flags].filter(Boolean).join(' · ');
+    return `<span class="aq-ell aq-small" title="${esc(text)}">${esc(text)}</span>`;
+  }
   if (!s.can_approve) return `<span class="aq-ell aq-warn" title="${esc(s.blocked_reason)}">⚠ ${esc(s.blocked_reason)}</span>`;
   const bits = aqIsTraining(s)
     ? [s.score ? 'Score ' + s.score : '', s.briefed_by ? 'briefed by ' + s.briefed_by : '', s.access_answer ? 'Already has access: ' + (s.access_answer === 'yes' ? 'Yes' : 'No') : '']
@@ -683,14 +705,23 @@ function aqDetails(s) {
 function aqVisible() {
   const q = aqQuery.trim().toLowerCase();
   return pendingQualifications.filter(s => !aqHeld.has(s.id)
-    && (!aqKind || (aqKind === 'training') === aqIsTraining(s))
-    && (!q || [s.person, s.category, s.training, s.number, s.briefed_by].some(v => v && v.toLowerCase().includes(q))));
+    && (!aqKind || aqKind === aqKindOf(s))
+    && (!q || [s.person, s.category, s.training, s.number, s.briefed_by, s.description].some(v => v && v.toLowerCase().includes(q))));
 }
 function aqPanel(s) {
   const rows = [];
   const dd = (k, v) => v ? rows.push(`<dt>${k}</dt><dd>${v}</dd>`) : null;
   const view = `/api/qualification-submissions/${s.id}/evidence/view`;
   let preview = '';
+  if (aqIsBooking(s)) {
+    dd('Agenda', `<a href="/agenda?item=${s.thing_id}&amp;week=${esc(s.start.slice(0, 10))}">${esc(s.thing)}</a>`);
+    dd('When', esc(aqSpan(s)));
+    dd('Description', esc(s.description));
+    dd('Options', esc(s.flags.join(', ')));
+    dd('Person', `<a href="/people/${s.user_id}">${esc(s.person)}</a>`);
+    dd('Requested', esc(String(s.submitted_at || '').replace('T', ' ').replace(/Z$/, ' UTC')));
+    return `<div class="aq-open no-preview" id="aqOpen${s.id}"><dl class="aq-kv">${rows.join('')}</dl></div>`;
+  }
   if (aqIsTraining(s)) {
     dd('Training', `<a href="/training?id=${s.training_id}&amp;pass_user=${s.user_id}">${esc(s.training || s.category)}</a>`);
     dd('Grants', esc(s.category));
@@ -717,9 +748,11 @@ function aqPanel(s) {
 function renderQueue() {
   const all = pendingQualifications.filter(s => !aqHeld.has(s.id)), items = aqVisible();
   for (const id of [...aqSelection]) if (!items.some(s => s.id === id && s.can_approve)) aqSelection.delete(id);
-  const training = all.filter(aqIsTraining).length;
+  const count = k => all.filter(s => aqKindOf(s) === k).length, bookings = count('booking');
   $('aqCount').textContent = all.length ? all.length + ' waiting' : '';
-  $('aqKinds').innerHTML = [['', 'All', ''], ['training', 'Training passes', training], ['qualification', 'Qualifications', all.length - training]]
+  $('aqKinds').innerHTML = [['', 'All', ''], ['training', 'Training passes', count('training')],
+    ['qualification', 'Qualifications', count('qualification')],
+    ...(bookings || aqKind === 'booking' ? [['booking', 'Bookings', bookings]] : [])]
     .map(([k, label, n]) => `<button type="button" aria-pressed="${aqKind === k}" onclick="aqSetKind('${k}')">${label}${n === '' ? '' : ' ' + n}</button>`).join('');
   if ($('aqSearch').value !== aqQuery) $('aqSearch').value = aqQuery;
   $('aqSelected').textContent = aqSelection.size ? aqSelection.size + ' selected' : '';
@@ -735,14 +768,14 @@ function renderQueue() {
         <span><input type="checkbox" aria-label="Select ${esc(s.person)}" ${sel ? 'checked' : ''} ${s.can_approve ? '' : `disabled title="${esc(s.blocked_reason)}"`} onchange="aqToggle(${s.id}, this.checked)"></span>
         <button type="button" class="aq-caret" aria-expanded="${open}" aria-controls="aqOpen${s.id}" aria-label="${open ? 'Close' : 'Open'} details" onclick="aqToggleOpen(${s.id})">${open ? '▾' : '▸'}</button>
         <span class="aq-ell aq-person" title="${esc(s.person)}">${esc(s.person)}</span>
-        <span class="aq-ell aq-what" title="${esc(aqWhat(s))}"><span class="aq-kind${aqIsTraining(s) ? ' training' : ''}">${aqIsTraining(s) ? 'Training' : 'Certificate'}</span>${esc(aqWhat(s))}</span>
+        <span class="aq-ell aq-what" title="${esc(aqWhat(s))}"><span class="aq-kind${aqIsTraining(s) ? ' training' : aqIsBooking(s) ? ' booking' : ''}">${aqIsTraining(s) ? 'Training' : aqIsBooking(s) ? 'Booking' : 'Certificate'}</span>${esc(aqWhat(s))}</span>
         ${err ? `<span class="aq-ell aq-err" title="${esc(err)}">${esc(err)}</span>` : aqDetails(s)}
         <span class="aq-small" title="${esc(String(s.submitted_at || '').replace('T', ' ').replace(/Z$/, ' UTC'))}">${esc(aqWhen(s.submitted_at))}</span>
         <span class="aq-acts">${s.can_approve ? `<button type="button" onclick="aqApprove([${s.id}])">Approve</button>`
           : `<button type="button" class="sec" onclick="selectPerson(${s.user_id},'qualifications')">Edit</button>`}<button type="button" class="aq-reject" onclick="aqReject(${s.id})">Reject</button></span>
       </div>${open ? aqPanel(s) : ''}`;
     }).join('')}</div>`
-    : `<p class="mute">${all.length ? 'No matching submissions.' : 'No submissions awaiting approval.'}</p>`;
+    : `<p class="mute">${all.length ? 'Nothing matches.' : 'Nothing is waiting for approval.'}</p>`;
 }
 function aqUrl(push) {
   const url = new URL(location.href);
@@ -773,7 +806,7 @@ function aqApprove(ids) {
   for (const id of ids) { aqHeld.set(id, pendingQualifications.find(s => s.id === id)); aqSelection.delete(id); aqErrors.delete(id); }
   aqFocus = next ? next.id : 0;
   const one = aqHeld.get(ids[0]);
-  $('aqToastText').textContent = ids.length === 1 ? `Approved ${one.person} · ${aqWhat(one)}` : `Approved ${ids.length} submissions`;
+  $('aqToastText').textContent = ids.length === 1 ? `Approved ${one.person} · ${aqWhat(one)}` : `Approved ${ids.length}`;
   $('aqToast').hidden = false;
   clearTimeout(aqTimer);
   aqTimer = setTimeout(aqSend, 5000);
@@ -793,7 +826,7 @@ async function aqSend(leaving = false) {
   $('aqToast').hidden = true;
   const batch = [...aqHeld.keys()];
   if (!batch.length) return;
-  const post = id => fetch(`/api/qualification-submissions/${id}/review`, {method: 'POST', keepalive: true,
+  const post = id => fetch(aqReviewUrl(aqHeld.get(id)), {method: 'POST', keepalive: true,
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'approve'})});
   if (leaving) { batch.forEach(post); aqHeld.clear(); return; }  // the page is going away: fire them all
   let failed = 0;
@@ -811,9 +844,9 @@ async function aqSend(leaving = false) {
 // Re-read the people list and the queue after a decision (approvals still waiting for their Undo stay hidden).
 async function aqRefresh() {
   try {
-    const [list, queue] = await Promise.all([adminApi('/api/admin/people'), adminApi('/api/admin/qualification-pending')]);
+    const [list, queue] = await Promise.all([adminApi('/api/admin/people'), aqLoad()]);
     people = list;
-    pendingQualifications = queue.submissions;
+    pendingQualifications = queue;
   } catch (e) { $('err').textContent = e.message; }
   render();
 }
@@ -824,7 +857,8 @@ function aqReject(id) {
   if (!s) return;
   aqRejecting = id; aqFocus = id;
   $('aqRejectTitle').textContent = 'Reject · ' + aqWhat(s);
-  $('aqRejectWhat').textContent = `${s.person} · ${aqIsTraining(s) ? 'training pass' : s.category}. Evidence is kept; they can submit again.`;
+  $('aqRejectWhat').textContent = aqIsBooking(s) ? `${s.person} · ${s.thing}, ${aqSpan(s)}. The time is free again; they can ask again.`
+    : `${s.person} · ${aqIsTraining(s) ? 'training pass' : s.category}. Evidence is kept; they can submit again.`;
   $('aqRejectReason').value = '';
   $('aqRejectError').textContent = '';
   $('aqRejectDialog').showModal();
@@ -832,8 +866,9 @@ function aqReject(id) {
 }
 async function aqRejectSend() {
   const id = aqRejecting, reason = $('aqRejectReason').value.trim();
+  const s = pendingQualifications.find(x => x.id === id);
   try {
-    await adminApi(`/api/qualification-submissions/${id}/review`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+    await adminApi(aqReviewUrl(s), {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(reason ? {action: 'reject', reason} : {action: 'reject'})});
   } catch (e) { $('aqRejectError').textContent = e.message; return; }
   $('aqRejectDialog').close();
@@ -960,7 +995,7 @@ function renderPeopleList() {
   const rows = matchingPeople($('peopleSearch').value);
   $('peopleCount').textContent = `${rows.length} of ${people.users.length} people`;
   $('peopleList').innerHTML = rows.map(u => `<button type="button" class="person-button" aria-pressed="${u.id === selectedPerson}"
-    title="${esc(u.username)}${pendingQualifications.some(s => s.user_id === u.id) ? ' · Qualification review pending' : ''}"
+    title="${esc(u.username)}${pendingQualifications.some(s => s.user_id === u.id && !aqIsBooking(s)) ? ' · Qualification review pending' : ''}"
     onclick="selectPerson(${u.id})"><span>${esc(u.display_name || u.username)}</span>
     <span class="person-status">${u.is_external ? '<span>External</span>'
       : activeAccountLabel(u) ? `<span class="active">${esc(activeAccountLabel(u))}</span>` : ''}

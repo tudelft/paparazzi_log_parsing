@@ -175,6 +175,9 @@ async function paintTodo() {
   if (data.logs.failed) add('', data.logs.failed, plural(data.logs.failed, 'log') + ' could not be read', 'Your uploads · see the error', '/logs?status=errors');
   if (data.logs.undated) add('info', data.logs.undated, plural(data.logs.undated, 'log') + ' without a date', 'Your uploads · set the date', '/logs?status=date_unknown');
   if (data.review) add('info', data.review, plural(data.review, 'case') + ' to review', 'Paper records next to logs', '/review');
+  const ask = data.bookings.to_approve || {count: 0};  // admins decide them in the approval queue, approvers in the agenda
+  if (ask.count) add('info', ask.count, plural(ask.count, 'booking') + ' to approve', me.is_admin ? 'Admin · approval queue' : 'Agenda · as approver',
+    me.is_admin ? '/people?tab=approvals&kind=booking' : `/agenda?item=${ask.thing_id}&week=${ask.week}`);
   if (me.is_admin) {
     const pending = await api('/api/admin/qualification-pending').catch(() => null);
     const subs = pending?.submissions || [];
@@ -217,7 +220,7 @@ function paintComing() {
     const when = `${x.start.slice(11, 16)}–${endDay === day ? x.end.slice(11, 16) : endDay + ' ' + x.end.slice(11, 16)}`;
     const detail = [when, x.place, x.description].filter(Boolean).join(' · ');
     return `<li>${dateBox(x.start)}<span class="grow"><div class="ellipsis" title="${esc(x.thing)}"><a href="/agenda?week=${esc(day)}&amp;item=${x.thing_id}">${esc(x.thing)}</a></div>
-      <div class="d ellipsis" title="${esc(detail)}">${esc(detail)}</div></span>${x.flags.map(f => `<span class="chip" title="${esc(f)}">${esc(f)}</span>`).join('')}</li>`;
+      <div class="d ellipsis" title="${esc(detail)}">${esc(detail)}</div></span>${x.pending ? '<span class="chip" title="Waiting for approval; it holds the time">Pending</span>' : ''}${x.flags.map(f => `<span class="chip" title="${esc(f)}">${esc(f)}</span>`).join('')}</li>`;
   }).join('')}</ul>` : '<p class="empty">No bookings in the next two weeks.</p>';
 }
 

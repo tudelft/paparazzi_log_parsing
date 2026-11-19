@@ -1374,6 +1374,23 @@ bookings of the items the person may view. Times are local wall-clock time (`YYY
 per booking. The item tab (`item=`) and week (`week=`, the Monday) are kept in the URL. An item with bookings
 cannot be deleted; make it inactive instead.
 
+**Approval.** An item with `needs_approval` (item dialog: **Bookings need approval**) has optional approvers
+(`booking_approvers`, `approver_ids` in the item body, active non-external accounts) besides the administrators.
+A booking by anyone else gets `bookings.status='pending'` (`POST`/`PUT /api/bookings` answer `status`); a pending
+booking holds its time like an approved one (it counts in the overlap check) and is shown striped as Pending to
+everyone who sees the agenda. `POST /api/bookings/<id>/review` (`action` approve or reject, optional `reason` of at
+most 500 characters; browser session; administrators and that item's approvers, 403 otherwise; 409 unless pending)
+sets `approved` or `rejected` with `decided_by`, `decided_at` and `review_note`. A rejected booking frees the time:
+it is left out of the overlap check, the calendar feeds and Home, and only its booker still sees it in the agenda
+(faded, with the reason) to ask again (Save) or delete it. When the booker (not an administrator or approver) moves a
+booking of such an item, or saves a rejected one, it is pending again. Turning approval off for an item approves what
+waits. `GET /api/bookings` adds `needs_approval`, `can_approve` (and `approver_ids` for administrators) per item and
+`status`, `can_decide` (and `review_note` when rejected) per booking. Administrators find all pending bookings in
+the [Approval queue](#people-approval-queue) (`GET /api/admin/booking-pending`, filter **Bookings**); Home shows
+administrators and approvers "N bookings to approve". Mails (kind `booking_requests`, Booking approvals): a new or
+moved request to the administrators and the item's approvers, and approved/not approved (with the reason) to the
+booker; the booker's own booking mail says it waits for approval.
+
 Bookings are drawn in the item's colour; the options a booking ticks show as tags in their own colour, and in the
 booking dialog as toggle chips (exclusive ones marked). Dragging in an empty part of a day picks the start and end in
 quarter hours; a click books an hour. Dragging a booking that may be changed (mouse or pen) shifts it by days and
@@ -1488,8 +1505,10 @@ Enable Edit to change account settings, manage aliases,
 upload evidence for that person, or review/delete submissions. The people list is searchable, without
 an additional Show filter. Type settings are in a separate People section visible in Edit mode.
 
-**Approval queue** (`/people?tab=approvals`, admins; hidden when empty unless open) lists pending submissions from
-`GET /api/admin/qualification-pending`: training passes (score and briefer parsed from the pass note, the access
+<a id="people-approval-queue"></a>**Approval queue** (`/people?tab=approvals`, admins; hidden when empty unless open) lists
+pending submissions from `GET /api/admin/qualification-pending` and, when the agenda is on, pending bookings from
+`GET /api/admin/booking-pending` (shown with negative ids, posted to `/api/bookings/<id>/review`, filter **Bookings**,
+`kind=booking`; see [Booking agenda](#booking-agenda)): training passes (score and briefer parsed from the pass note, the access
 answer) and certificates (number, dates, evidence name and type, the approved submission of that type it would
 replace, profile role and department when profiles are on). `can_approve`/`blocked_reason` come from
 `qualifications.approval_problem`, the same rules the review endpoint enforces (type active, required dates, number
@@ -1502,7 +1521,7 @@ the same for several rows; a blocked row has no checkbox and Edit (the person's 
 Approve. Reject opens a dialog with an optional reason: `POST /api/qualification-submissions/<id>/review` takes
 `reason` (≤ 500 characters, rejections only) stored in `qualification_submissions.review_note`, shown after the
 rejected item in the person's qualifications and in the audit entry, and mailed to the person as kind `reviews`
-(**Qualification reviews**, on by default) when email is set up. The filter (`kind=training|qualification`), search
+(**Qualification reviews**, on by default) when email is set up. The filter (`kind=training|qualification|booking`), search
 (`q=`) and open row (`open=`) are in the URL; the Trainings badge links to `kind=training`. Keys while a row has focus:
 ↑/↓ move, Space selects, Enter opens, A approves, R rejects.
 Admins can edit username, display name, email and default project together with **Save account** in the Account tab.

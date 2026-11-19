@@ -50,6 +50,19 @@
   .bk .tag { display:inline-block; max-width:100%; color:var(--txt); overflow:hidden; text-overflow:ellipsis; }
   .tag i { display:inline-block; width:7px; height:7px; margin-right:3px; border-radius:50%; background:var(--c, var(--mute)); }
   .bk.movable { cursor:grab; user-select:none; }
+  /* waiting for approval: striped; rejected (only its booker sees it): faded and struck through */
+  .bk.pending { background:repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 22%, var(--card)) 0 7px,
+    var(--card) 7px 13px); border-left-style:dashed; }
+  .bk.rejected { opacity:.55; background:var(--card); border-left-color:var(--mute); }
+  .bk.rejected b { text-decoration:line-through; }
+  .bk .state { display:inline-block; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.03em;
+    color:var(--warn); margin-right:4px; }
+  .bk.rejected .state { color:var(--err); }
+  #bookingState { margin:0; padding:6px 10px; border-radius:6px; font-size:13px; background:var(--warnbg); color:var(--txt); }
+  #bookingState.rejected { background:var(--errbg); }
+  #decideActions button.ok { background:var(--ok); }
+  .people-picks { display:flex; flex-wrap:wrap; gap:6px; max-height:150px; overflow:auto; padding:2px; }
+  .people-picks .flag-chip { font-size:12px; }
   .bk.moving { opacity:.45; }
   .ghost { position:absolute; left:2px; right:2px; border-radius:5px; background:color-mix(in srgb, var(--acc) 25%, transparent);
     border:1px dashed var(--acc); font-size:11px; padding:1px 4px; pointer-events:none; color:var(--txt); }
@@ -94,7 +107,7 @@
       <button type="button" id="newBtn" onclick="openBooking()">New booking</button>
       <span class="legend" id="legend"></span>
       <button type="button" class="sec" onclick="openCalendar()" title="Show this agenda in your own calendar app">Subscribe</button>
-      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day to book that time (a click books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's. With one item there are no tabs. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item overlap only when both set a shared option (for example "Others allowed") and neither sets a blocking one (for example "Demo"); an item without options never overlaps. Some items need a current qualification to book, or to see their agenda at all. You can change or delete your own bookings; administrators can book for someone else, change any booking and set up the items in Edit mode. Times are local.</p></details>
+      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day to book that time (a click books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's. With one item there are no tabs. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item overlap only when both set a shared option (for example "Others allowed") and neither sets a blocking one (for example "Demo"); an item without options never overlaps. Some items need a current qualification to book, or to see their agenda at all. Some need approval: your booking then shows as Pending (striped) and holds its time until an administrator or approver approves or rejects it; moving it asks again. You can change or delete your own bookings; administrators can book for someone else, change any booking and set up the items in Edit mode. Times are local.</p></details>
     </div>
     <div class="page-tabs" id="tabs" aria-label="Bookable items"></div>
     <p id="about"></p>
@@ -111,16 +124,29 @@
     <div class="dialog-header"><h2 id="bookingTitle">New booking</h2><button type="button" class="sec" onclick="$('bookingDialog').close()">Close</button></div>
     <p class="mute" id="bookedBy"></p>
     <p class="mute" id="moveNote" hidden></p>
+    <p id="bookingState" hidden></p>
+    <div class="row" id="decideActions" hidden><button type="button" class="ok" onclick="decide('approve')">Approve</button>
+      <button type="button" class="danger" onclick="openReject()">Reject</button></div>
     <label class="field" id="ownerField" hidden>Booked for<select name="user_id"></select></label>
-    <label class="field">Item<select name="thing_id" onchange="paintFlagChecks([])"></select></label>
+    <label class="field">Item<select name="thing_id" onchange="paintFlagChecks([]); paintApprovalNote()"></select></label>
     <label class="field">Description<textarea name="description" required maxlength="500"></textarea></label>
     <div class="two">
       <label class="field">Start<input name="start" type="datetime-local" required></label>
       <label class="field">End<input name="end" type="datetime-local" required></label>
     </div>
     <div class="field" id="flagField"><span class="mute" style="font-size:12px">Options</span><div id="flagChecks" class="flag-chips"></div></div>
+    <p class="mute" id="approvalNote" hidden></p>
     <p class="dialog-error" id="bookingError" role="alert"></p>
     <div class="row" id="bookingActions"><button type="submit">Save</button> <button type="button" class="danger" id="deleteBtn" onclick="removeBooking()">Delete</button> <button type="button" class="sec" onclick="$('bookingDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="rejectDialog" aria-labelledby="rejectTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="rejectForm">
+    <div class="dialog-header"><h2 id="rejectTitle">Reject booking</h2><button type="button" class="sec" onclick="$('rejectDialog').close()">Close</button></div>
+    <p class="mute" id="rejectWhat"></p>
+    <label class="field">Reason (optional, mailed to them)<textarea name="reason" maxlength="500"></textarea></label>
+    <p class="dialog-error" id="rejectError" role="alert"></p>
+    <div class="row"><button type="submit" class="danger">Reject</button> <button type="button" class="sec" onclick="$('rejectDialog').close()">Cancel</button></div>
   </form>
 </dialog>
 <dialog class="entry-dialog" id="calendarDialog" aria-labelledby="calendarTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
@@ -148,6 +174,10 @@
       <input name="colour" type="color" value="#4493f8" aria-label="Colour">
       <label class="check" title="Off: hidden for everyone but administrators and not bookable; existing bookings stay"><input name="active" type="checkbox" checked> Open for bookings</label>
     </div>
+    <label class="check" title="A booking waits for an administrator or an approver below (it holds its time meanwhile); theirs are approved at once. Off: what waits is booked."><input name="needs_approval" type="checkbox" onchange="syncItemForm()"> Bookings need approval</label>
+    <div class="field" id="approverField" style="display:flex;flex-direction:column;gap:4px"><span class="mute" style="font-size:12px">Approvers besides administrators (optional)</span>
+      <input type="search" id="approverSearch" placeholder="Find a person" aria-label="Find an approver" oninput="paintApprovers()">
+      <div class="people-picks" id="approverPicks"></div></div>
     <span class="mute">Booking options (a booking may tick them; with a colour they show as a coloured tag)</span>
     <div id="flagRows"></div>
     <div><button type="button" class="sec" onclick="addFlagRow()">Add option</button></div>
@@ -255,6 +285,8 @@ function paintAbout() {
     if (t.description) parts.push(esc(t.description));
     if (t.type_id && !t.can_book && t.active)
       parts.push(`Booking needs a current ${esc(t.type_name)}. <a href="${t.training_id ? '/training?id=' + t.training_id : '/training'}">Go to the training</a>`);
+    if (t.needs_approval) parts.push(t.can_approve ? 'Bookings need approval: you approve them (yours are approved at once).'
+      : 'Bookings need approval by an administrator or approver; a request holds its time until then.');
   }
   $('about').innerHTML = parts.join(' · ');
   const legend = t ? [] : single() ? [] : data.things.filter(x => x.can_view && x.colour).map(x => [x.colour, x.name]);
@@ -308,12 +340,15 @@ function paint(scroll) {
       const ticked = t.flags.filter(f => p.b.flags.includes(f.id));
       const flags = ticked.map(f => f.label);
       const when = `${p.b.start.slice(11)}–${p.b.end.slice(11)}`;
-      const tip = [tab === 'all' ? t.name : '', p.b.description, p.b.person, `${p.b.start.replace('T', ' ')} – ${p.b.end.replace('T', ' ')}`, ...flags]
+      const state = p.b.status === 'pending' ? `Waiting for approval (requested by ${p.b.person})`
+        : p.b.status === 'rejected' ? 'Not approved' + (p.b.review_note ? ': ' + p.b.review_note : '') : '';
+      const tip = [state, tab === 'all' ? t.name : '', p.b.description, p.b.person, `${p.b.start.replace('T', ' ')} – ${p.b.end.replace('T', ' ')}`, ...flags]
         .filter(Boolean).join(' · ');
-      return `<div role="button" tabindex="0" class="bk${p.b.can_edit ? ' movable' : ''}" data-id="${p.b.id}" data-piece="${pieces.indexOf(p)}" title="${esc(tip)}"
+      const label = p.b.status === 'pending' ? '<span class="state">Pending</span>' : p.b.status === 'rejected' ? '<span class="state">Rejected</span>' : '';
+      return `<div role="button" tabindex="0" class="bk${p.b.can_edit ? ' movable' : ''}${p.b.status !== 'approved' ? ' ' + p.b.status : ''}" data-id="${p.b.id}" data-piece="${pieces.indexOf(p)}" title="${esc(tip)}"
         style="--c:${esc(colourOf(p.b))};top:${(p.s - first) * HOUR}px;height:${Math.max((p.e - p.s) * HOUR - 2, 18)}px;
         left:calc(${p.lane / p.n * 100}% + 2px);width:calc(${100 / p.n}% - 4px)">
-        <b>${esc(tab === 'all' ? t.name + ': ' + p.b.description : p.b.description)}</b><span>${esc(p.b.person)} · ${when}</span>
+        <b>${label}${esc(tab === 'all' ? t.name + ': ' + p.b.description : p.b.description)}</b><span>${esc(p.b.person)} · ${when}</span>
         ${ticked.length ? `<span class="tags">${ticked.map(f => `<span class="tag"${f.colour ? ` style="--c:${esc(f.colour)}"` : ''}>${f.colour ? '<i></i>' : ''}${esc(f.label)}</span>`).join('')}</span>` : ''}</div>`;
     }).join('') + '</div>';
   });
@@ -461,6 +496,12 @@ function openBooking(start, id, end, moved) {
   $('bookedBy').textContent = 'Booked by ' + (b ? b.person : me.display_name);
   $('moveNote').hidden = !moved;
   if (moved) $('moveNote').textContent = `Was ${b.start.replace('T', ' ')} – ${b.end.replace('T', ' ')}. Save to move it.`;
+  const st = b ? b.status : 'approved';
+  $('bookingState').hidden = st === 'approved';
+  $('bookingState').className = st;
+  $('bookingState').textContent = st === 'pending' ? 'Waiting for approval. It holds this time until it is approved or rejected.'
+    : st === 'rejected' ? 'Not approved' + (b.review_note ? `: ${b.review_note}` : '') + '. Only you see it; Save asks again, Delete removes it.' : '';
+  $('decideActions').hidden = !(b && b.can_decide && !moved);
   let from;
   if (start) from = new Date(start);
   else {
@@ -477,11 +518,44 @@ function openBooking(start, id, end, moved) {
   f.end.value = moved ? moved.end : b ? b.end : local(to);
   [f.description, f.start, f.end].forEach(el => { el.disabled = !canEdit; });
   paintFlagChecks(b ? b.flags : []);
+  paintApprovalNote();
   $('bookingActions').hidden = !canEdit;
   $('deleteBtn').hidden = !b;
   $('bookingError').textContent = '';
   $('bookingDialog').showModal();
 }
+// On an item that needs approval, say whether Save books it or asks for approval.
+function paintApprovalNote() {
+  const f = $('bookingForm'), t = item(+f.thing_id.value), b = editing;
+  const asks = t && t.needs_approval && !t.can_approve && (!b || b.can_edit);
+  $('approvalNote').hidden = !asks;
+  $('approvalNote').textContent = !b ? 'This item needs approval: Save sends a request, which holds the time until an administrator or approver decides.'
+    : 'This item needs approval: moving it (or asking again) sends a new request.';
+}
+// Approvers (and administrators) decide a pending booking in the agenda; Reject asks for an optional reason.
+async function decide(action, reason) {
+  try {
+    await api(`/api/bookings/${editing.id}/review`, json('POST', reason ? {action, reason} : {action}));
+    $('bookingDialog').close();
+    load();
+  } catch (e) { $('bookingError').textContent = e.message; }
+}
+function openReject() {
+  $('rejectWhat').textContent = `${editing.person} · ${item(editing.thing_id).name}, ${editing.start.replace('T', ' ')} – ${editing.end.slice(11)}. The time is free again; they can ask again.`;
+  $('rejectForm').reason.value = '';
+  $('rejectError').textContent = '';
+  $('rejectDialog').showModal();
+}
+$('rejectForm').onsubmit = async event => {
+  event.preventDefault();
+  const reason = event.target.reason.value.trim();
+  try {
+    await api(`/api/bookings/${editing.id}/review`, json('POST', reason ? {action: 'reject', reason} : {action: 'reject'}));
+    $('rejectDialog').close();
+    $('bookingDialog').close();
+    load();
+  } catch (e) { $('rejectError').textContent = e.message; }
+};
 $('bookingForm').onsubmit = async event => {
   event.preventDefault();
   const f = event.target;
@@ -509,6 +583,17 @@ function syncItemForm() {
   const f = $('itemForm');
   $('modeField').hidden = !f.type_id.value;
   f.colour.disabled = !f.use_colour.checked;
+  $('approverField').hidden = !f.needs_approval.checked;
+}
+// Approvers: ticked people first, the rest filtered by the search (administrators always approve; not listed).
+let approverIds = new Set();
+function paintApprovers() {
+  const q = $('approverSearch').value.trim().toLowerCase();
+  const all = data.people || [];
+  const shown = all.filter(x => approverIds.has(x.id) || (q && x.name.toLowerCase().includes(q))).slice(0, 40);
+  $('approverPicks').innerHTML = shown.map(x => `<label class="flag-chip"><input type="checkbox" value="${x.id}"${approverIds.has(x.id) ? ' checked' : ''}
+    onchange="if (this.checked) approverIds.add(${x.id}); else approverIds.delete(${x.id})">${esc(x.name)}</label>`).join('')
+    || `<span class="mute" style="font-size:12px">${q ? 'Nobody found.' : 'None: only administrators approve. Search to add someone.'}</span>`;
 }
 function addFlagRow(flag = {}) {
   const row = document.createElement('div');
@@ -535,6 +620,10 @@ function openItem(id) {
   f.use_colour.checked = !!t.colour;
   f.colour.value = t.colour || '#4493f8';
   f.active.checked = t.active;
+  f.needs_approval.checked = !!t.needs_approval;
+  approverIds = new Set(t.approver_ids || []);
+  $('approverSearch').value = '';
+  paintApprovers();
   $('flagRows').innerHTML = '';
   t.flags.forEach(addFlagRow);
   $('itemDeleteBtn').hidden = !id;
@@ -549,6 +638,7 @@ $('itemForm').onsubmit = async event => {
     type_id: f.type_id.value ? +f.type_id.value : null,
     qualification_for: f.qualification_for.value, colour: f.use_colour.checked ? f.colour.value : null,
     active: f.active.checked, sort_order: editingItem ? item(editingItem).sort_order : data.things.length,
+    needs_approval: f.needs_approval.checked, approver_ids: f.needs_approval.checked ? [...approverIds] : [],
     flags: [...$('flagRows').children].map(row => ({id: row.dataset.id ? +row.dataset.id : null,
       label: row.querySelector('input[type=text]').value,
       colour: row.querySelector('.use').checked ? row.querySelector('input[type=color]').value : null,

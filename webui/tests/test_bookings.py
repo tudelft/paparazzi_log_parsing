@@ -9,7 +9,7 @@ class BookingTests(AppTests):
     """Users: 1 Admin, 2 Pilot and 3 Viewer hold the briefing; 4 Outsider does not (fixtures in AppTests)."""
 
     def setUp(self):
-        super().setUp()
+        AppTests.setUp(self)  # also BookingApprovalTests' setup
         settings = patch.dict(os.environ, LOGDB_BOOKINGS="1")
         settings.start()
         self.addCleanup(settings.stop)
@@ -179,3 +179,135 @@ class BookingTests(AppTests):
         self.assertEqual(self.client.put(url, json={"ids": [self.room]}).status_code, 400)
         self.assertEqual(self.client.put(url, json={"ids": [self.room, self.arena]}).status_code, 200)
         self.assertEqual([t["id"] for t in self.week().json["things"]], [self.room, self.arena])
+
+
+class BookingApprovalTests(AppTests):
+    """The meeting room needs approval; 3 Viewer approves it. 1 Admin, 2 Pilot (books), 4 Outsider."""
+    MAIL = {"LOGDB_SMTP_HOST": "relay.example.org", "LOGDB_MAIL_FROM": "logbook@example.org",
+            "LOGDB_PUBLIC_URL": "https://logs.example.org"}
+    add_item, week, item, book = BookingTests.add_item, BookingTests.week, BookingTests.item, BookingTests.book
+
+    def setUp(self):
+        BookingTests.setUp(self)
+        settings = patch.dict(os.environ, self.MAIL)
+        settings.start()
+        self.addCleanup(settings.stop)
+        self.con.execute("UPDATE users SET email=lower(username)||'@example.org'")
+        self.con.commit()
+        self.sign_in(1)
+        r = self.client.put(f"/api/admin/booking-things/{self.room}",
+                            json={"name": "Meeting room", "needs_approval": True, "approver_ids": [3]})
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertEqual(self.client.put(f"/api/admin/booking-things/{self.room}", json={
+            "name": "Meeting room", "needs_approval": True, "approver_ids": [999]}).status_code, 400)
+        self.sign_in(2)
+
+    def mails(self, subject):
+        return sorted(r[0] for r in self.con.execute(
+            "SELECT u.username FROM mail_outbox m JOIN users u ON u.id=m.user_id WHERE m.subject LIKE ?",
+            (subject + "%",)))
+
+    def status(self, booking_id):
+        return self.con.execute("SELECT status FROM bookings WHERE id=?", (booking_id,)).fetchone()[0]
+
+    def test_who_needs_approval(self):
+        r = self.book(self.room)
+        self.assertEqual((r.status_code, r.json["status"]), (201, "pending"))
+        self.assertEqual(self.mails("Booking to approve"), ["admin", "viewer"])  # admins and the approver
+        item = self.item(self.room)
+        self.assertTrue(item["needs_approval"])
+        self.assertFalse(item["can_approve"])
+        self.assertNotIn("approver_ids", item)
+        self.sign_in(3)  # the approver books without approval
+        self.assertEqual(self.book(self.room, start="2030-01-08T10:00", end="2030-01-08T11:00").json["status"],
+                         "approved")
+        self.assertTrue(self.item(self.room)["can_approve"])
+        self.sign_in(1)
+        self.assertEqual(self.book(self.room, start="2030-01-09T10:00", end="2030-01-09T11:00").json["status"],
+                         "approved")
+        self.assertEqual(self.item(self.room)["approver_ids"], [3])
+        self.sign_in(2)  # items without approval are unchanged
+        self.assertEqual(self.book(self.arena, flags=[self.shared]).json["status"], "approved")
+
+    def test_pending_holds_the_slot_and_reject_frees_it(self):
+        bid = self.book(self.room).json["id"]
+        self.sign_in(4)
+        r = self.book(self.room, start="2030-01-07T11:00", end="2030-01-07T13:00")
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("asked to book", r.json["error"])
+        theirs = [b for b in self.week().json["bookings"] if b["id"] == bid][0]
+        self.assertEqual((theirs["status"], theirs["can_decide"]), ("pending", False))
+        self.sign_in(3)
+        self.assertTrue([b for b in self.week().json["bookings"] if b["id"] == bid][0]["can_decide"])
+        url = f"/api/bookings/{bid}/review"
+        self.assertEqual(self.client.post(url, json={"action": "reject", "reason": "x" * 501}).status_code, 400)
+        self.assertEqual(self.client.post(url, json={"action": "reject", "reason": "Lab closed"}).status_code, 200)
+        self.assertEqual(self.client.post(url, json={"action": "approve"}).status_code, 409)  # only pending
+        self.assertEqual(self.mails("Not approved"), ["pic"])
+        body = self.con.execute("SELECT body FROM mail_outbox WHERE subject LIKE 'Not approved%'").fetchone()[0]
+        self.assertIn("Reason: Lab closed", body)
+        self.assertNotIn(bid, [b["id"] for b in self.week().json["bookings"]])  # gone for others
+        self.sign_in(4)
+        self.assertEqual(self.book(self.room, start="2030-01-07T11:00", end="2030-01-07T13:00").status_code, 201)
+        self.sign_in(2)
+        mine = [b for b in self.week().json["bookings"] if b["id"] == bid][0]  # the booker still sees it
+        self.assertEqual((mine["status"], mine["review_note"]), ("rejected", "Lab closed"))
+
+    def test_approver_scope_and_approve(self):
+        pending = self.book(self.room).json["id"]
+        self.sign_in(1)  # the arena needs approval too, without approvers: only administrators
+        self.client.put(f"/api/admin/booking-things/{self.arena}", json={
+            "name": "Indoor arena", "type_id": 7, "qualification_for": "viewing", "needs_approval": True,
+            "flags": self.item(self.arena)["flags"]})
+        self.sign_in(2)
+        other = self.book(self.arena, start="2030-01-08T10:00", end="2030-01-08T11:00").json["id"]
+        self.sign_in(3)
+        self.assertEqual(self.client.post(f"/api/bookings/{other}/review", json={"action": "approve"}).status_code, 403)
+        self.assertEqual(self.client.get("/api/admin/booking-pending").status_code, 403)
+        self.assertEqual(self.client.post(f"/api/bookings/{pending}/review", json={"action": "approve"}).status_code,
+                         200)
+        self.assertEqual(self.status(pending), "approved")
+        self.assertEqual(self.mails("Approved"), ["pic"])
+        self.sign_in(2)
+        self.assertEqual(self.client.post(f"/api/bookings/{other}/review", json={"action": "approve"}).status_code, 403)
+        self.sign_in(1)
+        rows = self.client.get("/api/admin/booking-pending").json["bookings"]
+        self.assertEqual([(b["id"], b["thing"], b["person"]) for b in rows], [(other, "Indoor arena", "Pilot")])
+        self.assertEqual(self.client.post(f"/api/bookings/{other}/review", json={"action": "approve"}).status_code, 200)
+        self.assertEqual(self.client.get("/api/admin/booking-pending").json["bookings"], [])
+
+    def test_moving_needs_approval_again(self):
+        bid = self.book(self.room).json["id"]
+        self.sign_in(3)
+        self.client.post(f"/api/bookings/{bid}/review", json={"action": "approve"})
+        self.sign_in(2)
+        body = {"description": "Hover test", "start": "2030-01-07T10:00", "end": "2030-01-07T12:00", "flags": []}
+        self.assertEqual(self.client.put(f"/api/bookings/{bid}", json={**body, "description": "Renamed"}).json["status"],
+                         "approved")  # same time
+        self.con.execute("DELETE FROM mail_outbox")
+        self.con.commit()
+        r = self.client.put(f"/api/bookings/{bid}", json={**body, "start": "2030-01-07T13:00", "end": "2030-01-07T14:00"})
+        self.assertEqual(r.json["status"], "pending")
+        self.assertEqual(self.mails("Booking to approve"), ["admin", "viewer"])
+        self.sign_in(1)  # an administrator moving it keeps the status; switching approval off books what waits
+        r = self.client.put(f"/api/bookings/{bid}", json={**body, "start": "2030-01-07T15:00", "end": "2030-01-07T16:00"})
+        self.assertEqual(r.json["status"], "pending")
+        self.client.put(f"/api/admin/booking-things/{self.room}", json={"name": "Meeting room"})
+        self.assertEqual(self.status(bid), "approved")
+
+    def test_rejected_booking_asked_again(self):
+        bid = self.book(self.room).json["id"]
+        self.sign_in(1)
+        self.client.post(f"/api/bookings/{bid}/review", json={"action": "reject"})
+        self.sign_in(2)
+        body = {"description": "Hover test", "start": "2030-01-07T10:00", "end": "2030-01-07T12:00", "flags": []}
+        self.assertEqual(self.client.put(f"/api/bookings/{bid}", json=body).json["status"], "pending")
+        self.assertIsNone(self.con.execute("SELECT review_note FROM bookings WHERE id=?", (bid,)).fetchone()[0])
+
+    def test_home_counts_bookings_to_approve(self):
+        self.book(self.room)
+        self.assertEqual(self.client.get("/api/home").json["bookings"]["to_approve"]["count"], 0)
+        for uid in (1, 3):  # an administrator, and the room's approver
+            self.sign_in(uid)
+            ask = self.client.get("/api/home").json["bookings"]["to_approve"]
+            self.assertEqual((ask["count"], ask["thing_id"], ask["week"]), (1, self.room, "2030-01-07"))
