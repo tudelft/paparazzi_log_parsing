@@ -99,6 +99,9 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | `pprz.Cursor(figs)` | The linked cursor for your own figures: `c.move(t)`, `c.values()`, `c.listen(@(t) ...)`; arrow keys step it. |
 | `pprz.crop(d, t0, t1)` | Rows of every message between t0 and t1. |
 | `pprz.actuators(d)` | `ACTUATORS` as an N×k matrix with names, whether exported by name or as `values`. |
+| `pprz.esc(d)` | ESC telemetry as one row per sample per motor, the same for `ESC_TELEMETRY` (newer logs) and `ESC` (older): rpm, current, voltages, temperatures, output; stale values (age 255) NaN. |
+| `pprz.servo(d)` | Servo telemetry (`SERVO_TELEMETRY`) the same way: position, speed, load, current, voltage, temperature. |
+| `pprz.counter_steps(c, wrap)` | Increase per sample of a wrapping counter (e.g. errors in `DATALINK_REPORT`, `LINK_STATS`). |
 | `pprz.enum(f, msg, field, v)` | Names of enum values, e.g. autopilot modes. |
 | `pprz.modes(f, fig, 'ap')` | Shade autopilot (`ap`) or RC (`rc`) mode regions in a figure. |
 | `pprz.events(f)` | What happened in a flight: mode changes, setting changes, checklist items and `INFO_MSG`, with times from takeoff. |
@@ -109,6 +112,8 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | `pprz.has(d, msg, ...)` | True when the messages were logged. |
 | `pprz.track(f, by)` | The flown path (lat/lon and local east/north) with a value per point to colour by, and the flight plan waypoints. |
 
+## Plots
+
 Plots live in `plotters/` as `plot_xxx(f.data)` and are listed in `pprz_plots.m` (name, group, title and the
 messages they need); add a plot by writing the function and one line there. `pprz.tiles(n, title)` makes the
 stacked, linked time axes and `pprz.series(ax, t, Y, names)` plots named columns, so every line has a name in
@@ -116,7 +121,17 @@ the cursor table. `pprz_plot()` prints the list: overview, maps coloured by heig
 flight plan waypoints, navigation circles/segments and moved waypoints; `plot_map(f, by, basemap)` for other
 backgrounds), status, setting changes, navigation (flight plan block and stage), attitude, guidance and its
 reference, wind, navigation sensors and GPS satellites, IMU and AHRS bias, actuators, commands, control
-allocation (WLS), power, effectiveness, rotating wing, RC, bus errors and datalink.
+allocation (WLS), ESC and servo telemetry, barometers, power, effectiveness, rotating wing, RC, bus errors,
+datalink and link statistics per node.
+
+**Old and new logs.** Every plot and helper must work on logs from every pprzlink version, because old logs are
+analysed next to new ones. A message or field can be missing, renamed or replaced in either direction (e.g. `ESC`
+became `ESC_TELEMETRY`, `INS_EKF2_EXT` swapped its vibration metrics for EKF status, `BARO_RAW` became one message
+per sensor). So: check fields with `isfield` before use and leave out panels without data; read a replaced message
+through one helper that gives the same fields for both versions (`pprz.esc`); register a plot with every message
+name that can feed it (`needs` in `pprz_plots.m`). `tests/check_message_versions.m` runs the plotters on synthetic
+old- and new-format messages without drawing (MATLAB: `check_message_versions` in `tests/`; Octave:
+`octave-cli --eval check_message_versions` there); extend it when a message changes.
 
 Analysis scripts in `tools/` (altitude tuning, airspeed sensor scale, takeoff distance, servo model,
 rotating-wing flight envelope) work on `ac_data = f.data`. The C2C and Dronetag tools read their own file

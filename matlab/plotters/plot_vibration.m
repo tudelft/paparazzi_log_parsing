@@ -61,16 +61,19 @@ end
 
 function [t, speed, label, rpm] = rotor_speed(d)
     [t, speed, label, rpm] = deal([], [], '', false);
-    if pprz.has(d, 'ESC') && any(d.ESC.rpm > 0)
-        ids = unique(d.ESC.motor_id);
-        first = d.ESC.motor_id == ids(1);
-        t = unique(d.ESC.t(first));
+    e = pprz.esc(d);  % ESC_TELEMETRY or the older ESC
+    if any(e.rpm > 0)
+        ids = unique(e.id(e.rpm > 0));
+        first = e.id == ids(1);
+        t = unique(e.t(first));
         all_ = zeros(numel(t), numel(ids));
         for k = 1:numel(ids)
-            rows = d.ESC.motor_id == ids(k);
-            [tk, kk] = unique(d.ESC.t(rows));
-            v = double(d.ESC.rpm(rows));
-            all_(:, k) = interp1(tk, v(kk), t, 'linear', 'extrap');
+            rows = e.id == ids(k) & ~isnan(e.rpm);
+            [tk, kk] = unique(e.t(rows));
+            v = e.rpm(rows);
+            if numel(tk) > 1
+                all_(:, k) = interp1(tk, v(kk), t, 'linear', 'extrap');
+            end
         end
         all_ = all_(:, any(all_ > 100, 1));  % ESCs that never spin
         all_(all_ < 100) = NaN;             % stopped rotors do not count

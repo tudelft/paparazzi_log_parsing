@@ -20,12 +20,13 @@ function [r, fig] = pprz_effectiveness(f, varargin)
     if numel(tr) < 20
         error('pprz_effectiveness:rates', 'No body rates logged (IMU_GYRO or BODY_RATES_ACCEL).');
     end
-    use_rpm = strcmp(opts.input, 'rpm') || strcmp(opts.input, 'auto') && pprz.has(d, 'ESC');
+    esc = pprz.esc(d);  % ESC_TELEMETRY or the older ESC
+    use_rpm = strcmp(opts.input, 'rpm') || strcmp(opts.input, 'auto') && any(esc.rpm > 0);
     if use_rpm
-        if ~pprz.has(d, 'ESC')
-            error('pprz_effectiveness:input', 'ESC was not logged.');
+        if ~any(esc.rpm > 0)
+            error('pprz_effectiveness:input', 'No ESC rpm was logged (ESC_TELEMETRY or ESC).');
         end
-        [tu, u, names] = esc_rpm(d.ESC);
+        [tu, u, names] = esc_rpm(esc);
     else
         if ~pprz.has(d, 'ACTUATORS')
             error('pprz_effectiveness:input', 'ACTUATORS was not logged.');
@@ -64,18 +65,20 @@ function [r, fig] = pprz_effectiveness(f, varargin)
     end
 end
 
-function [t, u, names] = esc_rpm(m)
-    % One column per motor_id, on the times of the first motor.
-    ids = unique(m.motor_id);
-    first = m.motor_id == ids(1);
-    t = m.t(first);
+function [t, u, names] = esc_rpm(e)
+    % One column per motor (actuator index), on the times of the first motor; e from pprz.esc.
+    ids = unique(e.id(~isnan(e.rpm)));
+    first = e.id == ids(1) & ~isnan(e.rpm);
+    t = unique(e.t(first));
     u = zeros(numel(t), numel(ids));
     names = cell(1, numel(ids));
     for k = 1:numel(ids)
-        rows = m.motor_id == ids(k);  % motors that never spin are dropped by the fit
-        [tk, keep] = unique(m.t(rows));
-        v = double(m.rpm(rows));
-        u(:, k) = interp1(tk, v(keep), t, 'linear', 'extrap');
+        rows = e.id == ids(k) & ~isnan(e.rpm);  % motors that never spin are dropped by the fit
+        [tk, keep] = unique(e.t(rows));
+        v = e.rpm(rows);
+        if numel(tk) > 1
+            u(:, k) = interp1(tk, v(keep), t, 'linear', 'extrap');
+        end
         names{k} = sprintf('rpm %d', ids(k));
     end
 end
