@@ -89,7 +89,8 @@ function fig = pprz_view(logs)
     plots_label = heading(side, 'Plots');
     sg = uigridlayout(side, [1 2], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', 'fit'});
     search = uieditfield(sg, 'text', 'Placeholder', 'Search plots…', 'ValueChangingFcn', @(~, evt) fill_tree(evt.Value));
-    logged_only = uicheckbox(sg, 'Text', 'Logged only', 'Value', false, 'ValueChangedFcn', @(~, ~) fill_tree());
+    logged_only = uicheckbox(sg, 'Text', 'Logged only', 'Value', true, 'ValueChangedFcn', @(~, ~) fill_tree(), ...
+        'Tooltip', 'Only plots whose messages are in this flight (untick to see every plot, greyed out when not logged)');
     tree = uitree(side, 'checkbox', 'CheckedNodesChangedFcn', @(~, evt) ticks_changed(evt));
     pg = uigridlayout(side, [1 2], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', '1x'});
     plot_button = uibutton(pg, 'Text', 'Same plots', 'ButtonPushedFcn', @(~, ~) same_plots(), ...
