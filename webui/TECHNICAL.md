@@ -1497,8 +1497,9 @@ expandable. Membership permission labels are omitted, and creation dates sit und
 Location type remains a title badge; circle/polygon information is under collapsed Area details.
 Enable Edit, then select someone to open their
 **Account**, **API keys**, **Aliases** or **Qualifications** tab. The editor shows **Active · TU Delft SSO**
-for enabled SSO accounts and **Active · Local** for enabled local accounts with a password; external,
-disabled and passwordless local accounts have no Active badge. This is sign-in capability, not recent
+for enabled accounts linked to TU Delft SSO (also a local account that has since signed in with SSO), **Active · Local**
+for enabled accounts with a password, and **Active · TU Delft SSO + Local** for both; external, disabled and accounts
+without either have no Active badge. This is sign-in capability, not recent
 activity or qualification validity. The Account tab groups profile, sign-in, access and removal actions,
 with explanations under Help. API key details and revocation load only in the API keys tab.
 Enable Edit to change account settings, manage aliases,

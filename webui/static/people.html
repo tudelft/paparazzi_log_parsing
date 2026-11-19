@@ -507,10 +507,12 @@ async function load() {
 const hasLicence = u => ((u.qualifications && u.qualifications.items) || []).some(item => item.status === 'approved');
 const shownPeople = () => people.users.filter(u => (!u.is_external || $('showExternal').checked)
   && (u.has_logs || hasLicence(u) || $('showWithoutLogs').checked || (window.editMode() && u.id === selectedPerson)));
+// "Active" when the account can sign in: TU Delft SSO linked (also a local account that later signed in with SSO)
+// and/or a local password.
 function activeAccountLabel(u) {
   if (!u.is_active || u.is_external) return '';
-  return u.provider === 'saml' ? 'Active · TU Delft SSO'
-    : u.provider === 'local' && u.has_password ? 'Active · Local' : '';
+  const ways = [u.has_sso ? 'TU Delft SSO' : '', u.has_password ? 'Local' : ''].filter(Boolean);
+  return ways.length ? 'Active · ' + ways.join(' + ') : '';
 }
 function qualBits(q) {
   if (!q) return '';

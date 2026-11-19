@@ -114,5 +114,14 @@ class PasswordTests(unittest.TestCase):
         self.assertEqual(self.client.delete("/api/admin/users/1/password").status_code, 200)
 
 
+    def test_linked_sso_counts_as_a_login_method(self):
+        # another admin that is a local account without a password but has since signed in with SSO
+        self.admin = True
+        self.con.execute("UPDATE users SET is_admin=1 WHERE id=1")
+        self.con.execute("UPDATE users SET is_admin=1, provider='local', password_hash=NULL, subject='sso-2' WHERE id=2")
+        self.con.commit()
+        self.assertEqual(self.client.delete("/api/admin/users/1/password").status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main()
