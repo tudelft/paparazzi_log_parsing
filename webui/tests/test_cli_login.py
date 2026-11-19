@@ -134,7 +134,8 @@ class CliLoginTests(AppTests):
         safe = self.ns["safe_next"]
         self.assertEqual(safe("/cli-login?code=BCDF-GHJK"), "/cli-login?code=BCDF-GHJK")
         for bad in (None, "", "https://example.org", "//example.org", "/\\example.org", "/x\nLocation: y"):
-            self.assertEqual(safe(bad), "/")
+            self.assertEqual(safe(bad), "/home")  # the Home page when there is no page of this site to return to
+        self.assertEqual(safe("/"), "/")  # the logbook (linked from the Operations Manual) stays reachable
 
     def test_flight_files_lists_the_original_files_of_a_visible_log(self):
         self.con.execute("INSERT INTO logs(id,name,sha256,data_path,log_path,status,uploaded_at,uploaded_by,project_id,"

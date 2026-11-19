@@ -504,7 +504,7 @@ window.timingEvidenceHTML = function (timing) {
     paintEdit();
     window.dispatchEvent(new Event('editchange'));
   };
-  // Menu: Logbook · Agenda · Training · Documents · Safety (each when enabled) · Directory ▾ (People … Logs, Statistics); Upload logs, Edit and the name menu on the right
+  // Menu: Home · Logbook · Agenda · Training · Documents · Safety (each when enabled) · Directory ▾ (People … Logs, Statistics); Upload logs, Edit and the name menu on the right
   const DIRECTORY = [['/people', 'People'], ['/aircraft', 'Aircraft'], ['/projects', 'Projects'], ['/locations', 'Locations'],
     null, ['/logs', 'Logs'], ['/stats', 'Statistics']];
 
@@ -532,6 +532,7 @@ window.timingEvidenceHTML = function (timing) {
   function currentTab() {
     const p = location.pathname;
     if (p === '/logbook' || p === '/review' || p.startsWith('/flight/') || p.startsWith('/historical/')) return '/';
+    if (p === '/home') return '/home';
     if (p === '/training' || p.startsWith('/training/')) return '/training';
     if (p === '/agenda') return '/agenda';
     if (p === '/documents') return '/documents';
@@ -581,7 +582,7 @@ window.timingEvidenceHTML = function (timing) {
     const tab = (href, label) => `<a href="${href}"${href === here ? ' class="cur" aria-current="page"' : ''}>${label}</a>`;
     const inDirectory = DIRECTORY.some(item => item && item[0] === here);
     // what people use daily first; the reference lists, Logs and Statistics under Directory
-    nav.innerHTML = tab('/', 'Logbook')
+    nav.innerHTML = tab('/home', 'Home') + tab('/', 'Logbook')
       + (cachedBookings() ? tab('/agenda', 'Agenda') : '')
       + (cachedTraining() ? tab('/training', 'Training') : '')
       + (cachedDocuments() ? tab('/documents', 'Documents') : '')
@@ -800,7 +801,7 @@ window.timingEvidenceHTML = function (timing) {
     document.body.prepend(bar);
   }
 
-  // The site logo (LOGDB_SITE_LOGO), else its name, at the left of the header; it leads to the Logbook. The page's own
+  // The site logo (LOGDB_SITE_LOGO), else its name, at the left of the header; it leads to the Home page. The page's own
   // <h1> stays for screen readers and for pages that change it. The sign-in pages show the logo in their card and add
   // the site name to the tab title.
   function paintBrand() {
@@ -809,8 +810,8 @@ window.timingEvidenceHTML = function (timing) {
     if (h1 && !header.querySelector('.site-brand')) {
       const a = document.createElement('a');
       a.className = 'site-brand';
-      a.href = '/';
-      a.title = `${SITE.name} · Logbook`;
+      a.href = '/home';
+      a.title = `${SITE.name} · Home`;
       if (SITE.logo) {
         const img = logoImg(SITE.logo.night);  // the header is dark in day and night mode
         img.alt = SITE.name;

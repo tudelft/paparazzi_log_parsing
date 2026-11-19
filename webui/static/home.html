@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Home</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
+  main { width:100%; max-width:1500px; margin:0 auto; padding:14px 12px 20px; }
+  #err { color:var(--err); margin-bottom:8px; }
+  #err:empty { display:none; }
+  button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  button.sec { background:var(--sec); color:var(--txt); }
+  select { font:inherit; padding:2px 6px; border:1px solid var(--fieldline); border-radius:6px; background:var(--field); color:var(--txt); max-width:100%; }
+  a { color:var(--acc); text-decoration:none; }
+  a:hover, a:focus-visible { text-decoration:underline; }
+  .mute { color:var(--mute); }
+  .hello { display:flex; align-items:baseline; gap:4px 12px; flex-wrap:wrap; margin:2px 0 12px; }
+  .hello h2 { margin:0; font-size:20px; }
+  .hello .mute { font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .grid { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:12px; align-items:stretch; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; min-width:0; }
+  .card[hidden] { display:none; }
+  .card h3 { display:flex; align-items:center; gap:8px; margin:0 0 10px; font-size:14px; min-width:0; }
+  .card h3 .count { font-size:12px; font-weight:500; color:var(--mute); white-space:nowrap; }
+  .card h3 .end { margin-left:auto; display:flex; align-items:center; gap:8px; font-size:12px; font-weight:500; min-width:0; }
+  .s12 { grid-column:span 12; } .s6 { grid-column:span 6; } .s4 { grid-column:span 4; }
+  @media (max-width: 1100px) { .s4 { grid-column:span 6; } .s4.wide { grid-column:span 12; } }
+  @media (max-width: 760px) { .s4, .s6 { grid-column:span 12; } }
+  .empty { color:var(--mute); font-size:13px; }
+  .ellipsis { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+
+  /* needs attention */
+  .todo { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr)); gap:8px; }
+  .todo a { display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:8px; background:var(--detail);
+    border:1px solid var(--line); border-left:4px solid var(--warn); color:var(--txt); min-width:0; text-decoration:none; }
+  .todo a.err { border-left-color:var(--err); } .todo a.info { border-left-color:var(--acc); }
+  .todo a:hover .t, .todo a:focus-visible .t { text-decoration:underline; }
+  .todo .n { font-weight:700; font-size:18px; min-width:22px; text-align:center; }
+  .todo .tx { min-width:0; flex:1; }
+  .todo .t { font-weight:600; }
+  .todo .d { font-size:12px; color:var(--mute); }
+
+  /* your flying */
+  .tiles { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .tile { background:var(--detail); border:1px solid var(--line); border-radius:8px; padding:7px 10px; min-width:0; }
+  .tile .v { font-size:21px; font-weight:700; line-height:1.2; }
+  .tile .l { font-size:12px; color:var(--mute); }
+  .spark { margin-top:10px; }
+  .spark .l { font-size:12px; color:var(--mute); display:flex; justify-content:space-between; }
+  .bars { display:flex; align-items:flex-end; gap:3px; height:44px; margin-top:4px; border-bottom:1px solid var(--line); }
+  .bars span { flex:1; background:color-mix(in srgb, var(--acc) 65%, transparent); border-radius:2px 2px 0 0; min-height:1px; }
+  .bars span.now { background:var(--acc); }
+  .bars span.zero { background:transparent; }
+
+  /* lists */
+  ul.rows { list-style:none; margin:0; padding:0; }
+  ul.rows li { display:flex; align-items:center; gap:10px; padding:6px 0; border-top:1px solid var(--line); min-width:0; }
+  ul.rows li:first-child { border-top:0; padding-top:0; }
+  .date { flex:0 0 44px; text-align:center; border-radius:6px; background:var(--chip); padding:2px 0; line-height:1.15; }
+  .date b { display:block; font-size:16px; } .date small { font-size:11px; color:var(--mute); text-transform:uppercase; }
+  .grow { flex:1; min-width:0; }
+  .grow .d { font-size:12px; color:var(--mute); }
+  .chip { font-size:11px; padding:1px 7px; border-radius:10px; background:var(--chip); color:var(--mute); white-space:nowrap; max-width:40%; overflow:hidden; text-overflow:ellipsis; }
+
+  table.flights { width:100%; border-collapse:collapse; table-layout:fixed; font-size:13px; }
+  table.flights th { text-align:left; font-size:12px; font-weight:600; color:var(--mute); padding:0 6px 6px; border-bottom:1px solid var(--line); }
+  table.flights td { padding:6px; border-bottom:1px solid var(--line); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  table.flights tr:last-child td { border-bottom:0; }
+  @media (max-width: 560px) { table.flights .opt { display:none; } }
+
+  /* weather */
+  .wx { display:flex; align-items:center; gap:12px; min-width:0; }
+  .wx .icon { font-size:34px; line-height:1; }
+  .wx .temp { font-size:28px; font-weight:700; }
+  .wx .det { font-size:12px; color:var(--mute); }
+  .hours { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); gap:4px; margin-top:10px; text-align:center; font-size:11px; }
+  .hours div { background:var(--detail); border:1px solid var(--line); border-radius:6px; padding:3px 0; min-width:0; }
+  .hours b { display:block; font-size:13px; }
+  .hours .g { color:var(--mute); }
+  @media (max-width: 420px) { .hours { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+  .today { font-size:12px; color:var(--mute); margin-top:8px; }
+
+  /* media */
+  .media { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,150px),1fr)); gap:8px; }
+  .media a { position:relative; display:block; aspect-ratio:16/10; border-radius:8px; overflow:hidden; background:var(--chip);
+    color:#fff; text-decoration:none; }
+  .media img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  .media .plain { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--mute); font-size:28px; }
+  .media .cap { position:absolute; left:0; right:0; bottom:0; padding:14px 8px 5px; font-size:11px;
+    background:linear-gradient(transparent, rgba(0,0,0,.72)); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .media .play { position:absolute; top:50%; left:50%; width:32px; height:32px; margin:-16px 0 0 -16px; border-radius:50%;
+    background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; }
+  .media a:hover .cap, .media a:focus-visible .cap { text-decoration:underline; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Home</h1>
+  <span class="meta" id="nav"></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <div id="err"></div>
+  <div class="hello"><h2 id="hello">Welcome</h2><span class="mute" id="helloSub"></span></div>
+  <div class="grid">
+    <section class="card s12" id="todoCard" hidden>
+      <h3>Needs your attention <span class="count" id="todoCount"></span></h3>
+      <div class="todo" id="todo"></div>
+    </section>
+    <section class="card s4" id="flyingCard">
+      <h3>Your flying <span class="end"><a href="/stats">Statistics</a></span></h3>
+      <div id="flying"><span class="empty">Loading…</span></div>
+    </section>
+    <section class="card s4" id="comingCard" hidden>
+      <h3>Coming up <span class="end"><a href="/agenda">Agenda</a></span></h3>
+      <div id="coming"></div>
+    </section>
+    <section class="card s4" id="weatherCard" hidden>
+      <h3><span class="ellipsis">Today</span> <span class="end"><select id="placeSelect" aria-label="Weather location"></select></span></h3>
+      <div id="weather"></div>
+      <div class="today" id="flyingToday" hidden></div>
+    </section>
+    <section class="card s6" id="recentCard" hidden>
+      <h3>Recent flights <span class="count">your projects</span><span class="end"><a href="/">Logbook</a></span></h3>
+      <div id="recent"></div>
+    </section>
+    <section class="card s6" id="mediaCard" hidden>
+      <h3>Latest media <span class="count">your projects</span></h3>
+      <div class="media" id="media"></div>
+    </section>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+let me = null, flags = {}, data = null, place = null;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const plural = (n, word, many) => `${n} ${n === 1 ? word : many || word + 's'}`;
+function hm(seconds) {
+  const m = Math.round((seconds || 0) / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`;
+}
+function mmss(seconds) {
+  const s = Math.round(seconds || 0);
+  return s >= 3600 ? hm(s) : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+async function api(url, options) {
+  const r = await fetch(url, options);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  return d;
+}
+
+// ---- Needs your attention: built from /api/home plus the trainings and (admins) the approval queue ----
+async function paintTodo() {
+  const items = [];
+  const add = (kind, n, title, detail, href) => items.push({kind, n, title, detail, href});
+  for (const q of data.qualifications) {
+    if (q.days < 0) add('err', 1, `${q.name} expired`, `Valid until ${q.valid_until} · upload the renewal`, '/account?tab=qualifications');
+    else add('', 1, `${q.name} expires in ${plural(q.days, 'day')}`, `Valid until ${q.valid_until} · upload the renewal`, '/account?tab=qualifications');
+  }
+  if (flags.training) {
+    const t = await api('/api/trainings').catch(() => null);
+    for (const x of (t?.trainings || []).filter(x => x.expired_pass && !x.passed_at && !x.awaiting_approval))
+      add('err', 1, `Training expired: ${x.name}`, 'Take it again to renew the qualification', `/training?id=${x.id}`);
+  }
+  if (data.logs.failed) add('', data.logs.failed, plural(data.logs.failed, 'log') + ' could not be read', 'Your uploads · see the error', '/logs?status=errors');
+  if (data.logs.undated) add('info', data.logs.undated, plural(data.logs.undated, 'log') + ' without a date', 'Your uploads · set the date', '/logs?status=date_unknown');
+  if (data.review) add('info', data.review, plural(data.review, 'case') + ' to review', 'Paper records next to logs', '/review');
+  if (me.is_admin) {
+    const pending = await api('/api/admin/qualification-pending').catch(() => null);
+    const subs = pending?.submissions || [];
+    const passes = subs.filter(s => s.training_id).length, other = subs.length - passes;
+    if (passes) add('info', passes, plural(passes, 'training pass', 'training passes') + ' to approve', 'Admin · approval queue', '/people?tab=approvals');
+    if (other) add('info', other, plural(other, 'qualification') + ' to review', 'Admin · approval queue', '/people?tab=approvals');
+  }
+  $('todoCard').hidden = !items.length;
+  $('todoCount').textContent = items.length || '';
+  $('todo').innerHTML = items.map(i => `<a class="${i.kind}" href="${esc(i.href)}" title="${esc(i.title + ' · ' + i.detail)}">
+    <span class="n">${i.n}</span><span class="tx"><div class="t ellipsis">${esc(i.title)}</div><div class="d ellipsis">${esc(i.detail)}</div></span></a>`).join('');
+}
+
+function paintFlying() {
+  const f = data.flying;
+  const since = f.last_day == null ? '–' : f.days_since === 0 ? 'Today' : plural(f.days_since, 'day');
+  const max = Math.max(1, ...f.months.map(m => m.flights));
+  const label = m => `${MONTHS[+m.month.slice(5) - 1]} ${m.month.slice(0, 4)}: ${plural(m.flights, 'flight')}`;
+  const first = f.months[0].month, last = f.months[f.months.length - 1].month;
+  $('flying').innerHTML = `<div class="tiles">
+      <div class="tile" title="${f.last_day ? 'Last flight as PIC: ' + esc(f.last_day) : 'No flights as PIC yet'}"><div class="v">${since}</div><div class="l">since your last flight</div></div>
+      <div class="tile"><div class="v">${f.flights_90d}</div><div class="l">flights in the last 90 days</div></div>
+      <div class="tile"><div class="v">${f.flights_year}</div><div class="l">flights in ${new Date().getUTCFullYear()}</div></div>
+      <div class="tile"><div class="v">${hm(f.seconds_year)}</div><div class="l">flight time in ${new Date().getUTCFullYear()}</div></div>
+    </div>
+    <div class="spark"><div class="l"><span>Flights per month as PIC</span><span>${MONTHS[+first.slice(5) - 1]} – ${MONTHS[+last.slice(5) - 1]}</span></div>
+      <div class="bars">${f.months.map((m, i) => `<span class="${m.flights ? '' : 'zero'}${i === f.months.length - 1 ? ' now' : ''}" style="height:${Math.round(100 * m.flights / max)}%" title="${esc(label(m))}"></span>`).join('')}</div></div>`;
+}
+
+function dateBox(text) {
+  const d = new Date(text.slice(0, 10) + 'T12:00:00');
+  return `<span class="date"><small>${DAYS[d.getDay()]}</small><b>${d.getDate()}</b></span>`;
+}
+function paintComing() {
+  const b = data.bookings;
+  $('comingCard').hidden = !b.enabled;
+  if (!b.enabled) return;
+  $('coming').innerHTML = b.upcoming.length ? `<ul class="rows">${b.upcoming.map(x => {
+    const day = x.start.slice(0, 10), endDay = x.end.slice(0, 10);
+    const when = `${x.start.slice(11, 16)}–${endDay === day ? x.end.slice(11, 16) : endDay + ' ' + x.end.slice(11, 16)}`;
+    const detail = [when, x.place, x.description].filter(Boolean).join(' · ');
+    return `<li>${dateBox(x.start)}<span class="grow"><div class="ellipsis" title="${esc(x.thing)}"><a href="/agenda?week=${esc(day)}&amp;item=${x.thing_id}">${esc(x.thing)}</a></div>
+      <div class="d ellipsis" title="${esc(detail)}">${esc(detail)}</div></span>${x.flags.map(f => `<span class="chip" title="${esc(f)}">${esc(f)}</span>`).join('')}</li>`;
+  }).join('')}</ul>` : '<p class="empty">No bookings in the next two weeks.</p>';
+}
+
+// ---- Today: weather at the chosen place (?place= in the URL; the default comes from My account) ----
+const WMO = [[0, '☀️', 'Clear'], [2, '⛅', 'Partly cloudy'], [3, '☁️', 'Overcast'], [48, '🌫️', 'Fog'], [57, '🌦️', 'Drizzle'],
+  [67, '🌧️', 'Rain'], [77, '🌨️', 'Snow'], [82, '🌧️', 'Showers'], [86, '🌨️', 'Snow showers'], [99, '⛈️', 'Thunderstorm']];
+const sky = code => WMO.find(([max]) => code <= max) || [0, '', ''];
+const compass = deg => deg == null ? '' : ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(deg / 45) % 8];
+const round = v => v == null ? '–' : Math.round(v);
+async function paintWeather() {
+  $('weatherCard').hidden = !data.places.length;
+  if (!data.places.length) return;
+  $('placeSelect').innerHTML = data.places.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  $('placeSelect').value = String(place);
+  $('placeSelect').title = 'Weather location; the default is set in My account';
+  $('weather').innerHTML = '<span class="empty">Loading the forecast…</span>';
+  const asked = place;
+  try {
+    const w = await api('/api/home/weather?place=' + place);
+    if (asked !== place) return;
+    const now = w.hours[0];
+    if (!now) throw new Error('No forecast for the coming hours.');
+    const [, icon, text] = sky(now.weather_code);
+    $('weather').innerHTML = `<div class="wx"><span class="icon" aria-hidden="true">${icon}</span>
+        <div class="grow"><div class="temp">${round(now.temperature_c)}°</div>
+        <div class="det ellipsis" title="${esc(text)} · wind ${compass(now.wind_from_deg)} ${round(now.wind_speed_ms)} m/s, gusts ${round(now.wind_gusts_ms)} · ${now.precipitation_mm ?? 0} mm">${esc(text)} · wind ${compass(now.wind_from_deg)} ${round(now.wind_speed_ms)} m/s, gusts ${round(now.wind_gusts_ms)}</div></div></div>
+      <div class="hours">${w.hours.map(h => `<div title="${esc(h.time.slice(11, 16))}: ${esc(sky(h.weather_code)[2])}, ${round(h.temperature_c)}°, wind ${compass(h.wind_from_deg)} ${round(h.wind_speed_ms)} m/s, gusts ${round(h.wind_gusts_ms)} m/s, ${h.precipitation_mm ?? 0} mm">
+        ${esc(h.time.slice(11, 13))}<b>${round(h.wind_speed_ms)}</b><span class="g">${round(h.wind_gusts_ms)} m/s</span></div>`).join('')}</div>
+      <div class="today">Hourly wind and gusts (m/s), forecast by Open-Meteo</div>`;
+  } catch (e) {
+    if (asked === place) $('weather').innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+  }
+}
+function paintToday() {
+  const today = data.bookings.today || [];
+  $('flyingToday').hidden = !today.length;
+  const text = 'Booked today: ' + today.map(b => `${b.thing} (${b.start.slice(11, 16)}, ${b.person})`).join(', ');
+  $('flyingToday').innerHTML = `<div class="ellipsis" title="${esc(text)}">${esc(text)}</div>`;
+}
+$('placeSelect').onchange = () => {
+  place = +$('placeSelect').value;
+  const p = new URLSearchParams(location.search);
+  if (place === data.place_id) p.delete('place'); else p.set('place', place);
+  history.replaceState(history.state, '', location.pathname + (p.size ? '?' + p : ''));
+  paintWeather();
+};
+
+function paintRecent() {
+  $('recentCard').hidden = !data.recent.length;
+  $('recent').innerHTML = `<table class="flights"><colgroup><col style="width:19%"><col style="width:22%"><col><col class="opt" style="width:20%"><col style="width:13%"></colgroup>
+    <thead><tr><th>Date</th><th>Aircraft</th><th>Goal</th><th class="opt">PIC</th><th>Time</th></tr></thead><tbody>${data.recent.map(r => {
+      // telemetry: a UTC time shown in local time; paper records: the date and the time as written
+      const t = !r.paper && r.takeoff_utc && r.takeoff_utc.length > 10 ? new Date(r.takeoff_utc) : null;
+      const clock = t && !isNaN(t) ? `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`
+        : (r.takeoff_utc || '').slice(11, 16);
+      const date = t && !isNaN(t) ? `${t.getDate()} ${MONTHS[t.getMonth()]}` : `${+r.day.slice(8)} ${MONTHS[+r.day.slice(5, 7) - 1]}`;
+      const when = (date + ' ' + clock).trim();
+      const detail = [r.place, r.project, r.paper ? 'paper record' + (r.flight_count > 1 ? `, ${r.flight_count} flights` : '') : ''].filter(Boolean).join(' · ');
+      return `<tr><td title="${esc(detail)}">${esc(when)}</td><td title="${esc(r.aircraft)}"><a href="${esc(r.url)}">${esc(r.aircraft || 'Flight')}</a></td>
+        <td title="${esc(r.goal)}">${esc(r.goal || '')}</td><td class="opt" title="${esc(r.pic)}">${esc(r.pic || '')}</td><td>${r.duration_s ? mmss(r.duration_s) : ''}</td></tr>`;
+    }).join('')}</tbody></table>`;
+}
+
+function paintMedia() {
+  $('mediaCard').hidden = !data.media.length;
+  const play = '<span class="play"><svg width="14" height="14" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg></span>';
+  $('media').innerHTML = data.media.map(m => {
+    const day = m.uploaded_at ? `${+m.uploaded_at.slice(8, 10)} ${MONTHS[+m.uploaded_at.slice(5, 7) - 1]}` : '';
+    const cap = [m.description || m.filename, day].filter(Boolean).join(' · ');
+    const thumb = data.thumbnails ? `<img src="/api/attachments/${m.id}/thumb" alt="" loading="lazy" onerror="this.remove()">` : '';
+    return `<a href="${esc(m.url)}" title="${esc(m.filename + ' · ' + m.label)}"><span class="plain" aria-hidden="true">${m.kind === 'video' ? '' : '🖼'}</span>${thumb}
+      ${m.kind === 'video' ? play : ''}<span class="cap">${esc(cap)}</span></a>`;
+  }).join('');
+}
+
+async function load() {
+  try {
+    data = await api('/api/home');
+  } catch (e) { $('err').textContent = e.message; return; }
+  const hour = new Date().getHours();
+  $('hello').textContent = `${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}, ${data.user.display_name.split(' ')[0]}`;
+  const sub = new Date().toLocaleDateString('en-GB', {weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'})
+    + (data.projects.length ? ' · Projects: ' + data.projects.join(', ') : '');
+  $('helloSub').textContent = sub;
+  $('helloSub').title = sub;
+  const wanted = +new URLSearchParams(location.search).get('place');
+  place = data.places.some(p => p.id === wanted) ? wanted : data.place_id;
+  paintFlying();
+  paintComing();
+  paintRecent();
+  paintMedia();
+  paintToday();
+  paintWeather();
+  paintTodo().catch(e => { $('err').textContent = e.message; });
+}
+window.addEventListener('popstate', () => {
+  if (!data) return;
+  const wanted = +new URLSearchParams(location.search).get('place');
+  place = data.places.some(p => p.id === wanted) ? wanted : data.place_id;
+  paintWeather();
+});
+fetch('/api/me').then(r => r.json()).then(d => {
+  me = d.user;
+  flags = d;
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  load();
+}).catch(e => { $('err').textContent = e.message; });
+</script>
+</body>
+</html>
