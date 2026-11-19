@@ -11,6 +11,7 @@ import re
 import subprocess
 import time
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 from config import env, env_bool
@@ -66,6 +67,28 @@ def ensure_sp_certs(data_dir: Path):
     return key.read_text(), cert.read_text()
 
 
+_valid_until = {}  # certificate path -> (mtime, validUntil text)
+
+
+def metadata_valid_until(data_dir: Path):
+    """validUntil of our SP metadata: the end date of our SP certificate (UTC, as python3-saml writes it).
+
+    python3-saml's default is two days after the metadata was generated. An identity provider that imported a copy
+    (TU Delft) stops accepting this service once that date has passed, so sign-in fails until the metadata is
+    imported again. The certificate end date is when the metadata really has to change."""
+    cert = Path(data_dir) / "saml" / "sp-cert.pem"
+    mtime = cert.stat().st_mtime
+    cached = _valid_until.get(str(cert))
+    if cached and cached[0] == mtime:
+        return cached[1]
+    out = subprocess.run(["openssl", "x509", "-enddate", "-noout", "-in", str(cert)],
+                         check=True, capture_output=True, text=True).stdout  # notAfter=Oct 25 14:48:49 2036 GMT
+    end = datetime.strptime(" ".join(out.split("=", 1)[1].split()), "%b %d %H:%M:%S %Y %Z")
+    value = end.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _valid_until[str(cert)] = (mtime, value)
+    return value
+
+
 def _strip_pem(pem):
     return re.sub(r"-----[^-]+-----", "", pem).replace("\n", "").replace("\r", "").strip()
 
@@ -111,6 +134,7 @@ def settings_for(request, data_dir: Path):
             "signatureAlgorithm": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
             "digestAlgorithm": "http://www.w3.org/2001/04/xmlenc#sha256",
             "allowRepeatAttributeName": True,
+            "metadataValidUntil": metadata_valid_until(data_dir),  # not two days: see metadata_valid_until
         },
     }
 
