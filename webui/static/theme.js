@@ -68,13 +68,88 @@ window.logDownloadButtons = function (sources, extraClass = '') {
 
 // A stored file: its name opens it in the browser when it can be viewed there (else downloads it), with a
 // small download button beside a viewable one. `attrs` adds attributes such as a class or title to the name.
-window.fileLink = function ({name, view, download, viewable, attrs = ''}) {
+// Photos, videos and sound (by `filename`) open in the media viewer on the page instead of a new tab.
+window.fileLink = function ({name, view, download, viewable, attrs = '', filename = ''}) {
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   if (!viewable) return `<a ${attrs} href="${esc(download)}" title="Download">${name}</a>`;
-  return `<a ${attrs} href="${esc(view)}" target="_blank" rel="noopener" title="View in a new tab">${name}</a>`
+  const media = viewable && window.mediaKind(filename);
+  return (media
+    ? `<a ${attrs} href="${esc(view)}" ${window.mediaAttrs({filename, download})} title="Open ${esc(filename)}">${name}</a>`
+    : `<a ${attrs} href="${esc(view)}" target="_blank" rel="noopener" title="View in a new tab">${name}</a>`)
     + `<a class="file-dl" href="${esc(download)}" title="Download" aria-label="Download">`
     + '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 2v8m-3.5-3.5L8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a>';
 };
+
+// ---- Media viewer: a link with data-media (see mediaAttrs) opens its photo, video or sound in an overlay on the page;
+// the arrows (or ← →) step through the other media links in the same [data-media-group] (else the same parent).
+const MEDIA_KINDS = {jpg: 'image', jpeg: 'image', png: 'image', gif: 'image', webp: 'image', mp4: 'video', m4v: 'video',
+  mov: 'video', webm: 'video', mp3: 'audio', m4a: 'audio', wav: 'audio', ogg: 'audio'};
+window.mediaKind = name => MEDIA_KINDS[String(name || '').split('.').pop().toLowerCase()] || '';
+window.mediaAttrs = function ({filename, download = '', open = '', openLabel = ''}) {
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  return `data-media="${window.mediaKind(filename)}" data-name="${esc(filename)}"`
+    + (download ? ` data-download="${esc(download)}"` : '') + (open ? ` data-open="${esc(open)}" data-open-label="${esc(openLabel)}"` : '');
+};
+(function () {
+  let dialog, items = [], index = 0;
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  function make() {
+    dialog = document.createElement('dialog');
+    dialog.className = 'media-viewer';
+    dialog.setAttribute('aria-label', 'Media viewer');
+    dialog.innerHTML = `<div class="mv-bar"><span class="mv-title"></span><span class="mv-count"></span><span class="mv-links"></span>
+      <button type="button" class="mv-close" aria-label="Close">Close</button></div>
+      <div class="mv-stage"></div>
+      <button type="button" class="mv-nav mv-prev" aria-label="Previous">‹</button><button type="button" class="mv-nav mv-next" aria-label="Next">›</button>`;
+    document.body.appendChild(dialog);
+    dialog.querySelector('.mv-close').onclick = () => dialog.close();
+    dialog.querySelector('.mv-prev').onclick = () => show(index - 1);
+    dialog.querySelector('.mv-next').onclick = () => show(index + 1);
+    dialog.addEventListener('click', event => { if (event.target === dialog || event.target.classList.contains('mv-stage')) dialog.close(); });
+    dialog.addEventListener('keydown', event => {
+      if (event.key === 'ArrowLeft') { event.preventDefault(); show(index - 1); }
+      if (event.key === 'ArrowRight') { event.preventDefault(); show(index + 1); }
+    });
+    dialog.addEventListener('close', () => { dialog.querySelector('.mv-stage').replaceChildren(); });
+  }
+  function show(i) {
+    if (i < 0 || i >= items.length) return;
+    index = i;
+    const a = items[i], kind = a.dataset.media, src = a.getAttribute('href'), name = a.dataset.name || a.textContent.trim();
+    const stage = dialog.querySelector('.mv-stage');
+    stage.innerHTML = kind === 'image' ? `<img src="${esc(src)}" alt="${esc(name)}">`
+      : kind === 'video' ? `<video src="${esc(src)}" controls autoplay playsinline></video>`
+      : `<audio src="${esc(src)}" controls autoplay></audio>`;
+    const title = dialog.querySelector('.mv-title');
+    title.textContent = name;
+    title.title = a.title && a.title !== 'Open ' + name ? a.title : name;
+    dialog.querySelector('.mv-count').textContent = items.length > 1 ? `${i + 1} / ${items.length}` : '';
+    dialog.querySelector('.mv-links').innerHTML = (a.dataset.open
+      ? `<a href="${esc(a.dataset.open)}">${esc(a.dataset.openLabel ? 'Open ' + a.dataset.openLabel : 'Open')}</a>` : '')
+      + (a.dataset.download ? `<a href="${esc(a.dataset.download)}">Download</a>` : '');
+    dialog.querySelector('.mv-prev').hidden = i === 0;
+    dialog.querySelector('.mv-next').hidden = i === items.length - 1;
+  }
+  window.openMedia = function (link) {
+    if (!dialog) make();
+    const group = link.closest('[data-media-group]') || link.parentElement;
+    const seen = new Set();
+    items = [...group.querySelectorAll('a[data-media]')].filter(a => {
+      const key = a.getAttribute('href');
+      return !seen.has(key) && seen.add(key);
+    });
+    if (!items.includes(link)) items = [link];
+    if (!dialog.open) dialog.showModal();
+    show(items.findIndex(a => a.getAttribute('href') === link.getAttribute('href')));
+    dialog.querySelector('.mv-close').focus();
+  };
+  document.addEventListener('click', event => {
+    const link = event.target.closest && event.target.closest('a[data-media]');
+    if (!link || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    window.openMedia(link);
+  });
+})();
 
 // Anyone who flies can add the operator of a new partner; resolves to the new operator, or null when cancelled.
 window.newOperatorDialog = function () {

@@ -1016,8 +1016,10 @@ their own qualifications, logs and bookings. Trainings (`/api/trainings`) and, f
   `PUT /api/account/home`, null for the most-flown place; cleared when the place is deleted), else the most flown. A
   different place picked on the card goes into the URL (`?place=`) only. No go/no-go colours: there are no agreed limits.
 - **Recent flights:** the 5 newest real flights the user can see, linked to their flight or paper record.
-- **Latest media:** the 8 newest image and video attachments the user may see (of the newest 400), linked to their
-  flight, log or record. Thumbnails come from `GET /api/attachments/<id>/thumb` (the same access check as viewing):
+- **Latest media:** the 8 image and video attachments the user may see with the newest flight (of the newest 400): ordered
+  by the date of the flight, log or paper record they are on (a log's typed-in date first; the latest when on several),
+  else the upload time; earlier versions of a replaced file are left out. A tile opens the media viewer (below) with a
+  link to that flight, log or record. Thumbnails come from `GET /api/attachments/<id>/thumb` (the same access check as viewing):
   ffmpeg (`LOGDB_FFMPEG`, default `auto`: `ffmpeg` on PATH; `off` disables) makes a JPEG up to 360 px wide on first
   request, of a video the frame at 1 s (else the first). It reads local files only (`-protocol_whitelist file`), two at
   a time, under a 30 s timeout; a gzip-stored file over 200 MB is skipped. Thumbnails are cached as
@@ -2429,6 +2431,10 @@ previous/next flight in the same project among the flights the viewer may see, b
 the log's start), then log file name in natural order and flight number (`neighbour_flights`; `previous_flight_id`
 and `next_flight_id` in `/api/flights/<id>/detail`). Without a project both are greyed out. The open tab is kept.
 *Open flight page* in an expanded Logbook row opens a new tab.
+Photos, videos and sound files (by extension) open in a media viewer over the page instead of a new tab, wherever a file
+name is shown (Files lists, the Logbook row, Home): `theme.js` `openMedia` for any link with `data-media` (`mediaAttrs`);
+← / → step through the media links in the same list (`data-media-group`), a video starts playing at once and stops when
+the viewer closes. Ctrl/Cmd-click still opens the file in a new tab; PDFs and text files still open in a new tab.
 Logs the MATLAB export does not cover (PX4, ArduPilot, MAVLink, Betaflight/INDIFlight) get a **Download <type> log**
 button next to the MATLAB menu, on the flight page and in an expanded Logbook row (`/api/logs/<id>/download`, the
 original file).

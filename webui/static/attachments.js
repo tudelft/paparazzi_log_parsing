@@ -11,7 +11,7 @@
     if (!response.ok) throw Error(data.error || `HTTP ${response.status}`);
     return data;
   }
-  const link = (file, attrs) => fileLink({name: esc(file.filename), attrs, viewable: file.viewable,
+  const link = (file, attrs) => fileLink({name: esc(file.filename), attrs, viewable: file.viewable, filename: file.filename,
     view: `/api/attachments/${file.id}/view`, download: `/api/attachments/${file.id}/download`});
   const stored = file => `Stored ${size(file.stored_bytes)}` + (file.compressed
     ? ` (${Math.round(100 * (1 - file.stored_bytes / file.size_bytes))}% saved)` : ', uncompressed');
@@ -36,6 +36,7 @@
   // Compact list: one row per file under its category; links and storage on hover. Read-only on the flight / paper
   // record pages; on the manage page (onedit) each file the user may change has an Edit button.
   function list(element, files, categories, onedit) {
+    element.dataset.mediaGroup = "";  // the media viewer steps through this list
     element.innerHTML = files.length ? versions(files, rows => rows.length ? `<table class="file-list"><tbody>${rows.map(file => {
       const others = file.links.map(l => l.label).join('\n');
       return `<tr><td class="file-name">${link(file, '')}${file.description
@@ -54,7 +55,9 @@
     const current = files.filter(file => !file.superseded);
     if (!current.length) { element.replaceChildren(); return; }
     const name = file => `<a href="/api/attachments/${file.id}/${file.viewable ? 'view' : 'download'}"${file.viewable
-      ? ' target="_blank" rel="noopener"' : ''} title="${esc(file.description || file.filename)}">${esc(file.filename)}</a>`;
+      ? (mediaKind(file.filename) ? ' ' + mediaAttrs({filename: file.filename, download: `/api/attachments/${file.id}/download`})
+        : ' target="_blank" rel="noopener"') : ''} title="${esc(file.description || file.filename)}">${esc(file.filename)}</a>`;
+    element.dataset.mediaGroup = "";
     element.innerHTML = `<h4>Files <span class="mute files-count">· ${current.length}</span>${url
       ? `<a class="files-all" href="${esc(url(''))}">Files tab →</a>` : ''}</h4>` + groups(current, categories).map(group => {
       const shown = group.files.slice(0, 4), more = group.files.length - shown.length;
