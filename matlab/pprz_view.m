@@ -299,10 +299,12 @@ function fig = pprz_view(logs)
         end
         status.Text = 'Plotting…';
         drawnow;
-        made = pprz_plot(f, names{:}, 'modes', shade.Value, 'visible', false);
+        % linked here, after the move into a tab: linkaxes on hidden figures then moved costs seconds per plot
+        made = pprz_plot(f, names{:}, 'modes', shade.Value, 'visible', false, 'link', false);
         new = gobjects(1, numel(made));
         for k = 1:numel(made)
             new(k) = adopt(made(k), f);
+            pprz.link_x(pprz.time_axes(new(k)));
         end
         apply_window();  % first the window, then the markers: drawn once, for the shown range
         for k = 1:numel(new)
