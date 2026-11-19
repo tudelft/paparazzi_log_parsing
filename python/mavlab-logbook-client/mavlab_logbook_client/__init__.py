@@ -12,7 +12,7 @@ See connect() and Client for the details; the command line tool is ``mavlab-logb
 from .client import AuthError, Client, Error, HTTPError, ProcessingFailed
 from .settings import cache_dir, set_cache_dir
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 __all__ = ["Client", "connect", "logbook", "fetch", "fetch_raw", "upload", "revoke_all", "cache_dir", "set_cache_dir",
            "Error", "AuthError", "HTTPError", "ProcessingFailed"]
 
@@ -50,9 +50,10 @@ def logbook(all=False):
     return _connected().logbook(all=all)
 
 
-def fetch(flights, scope="selected", force=False):
-    """Local paths of the MATLAB exports (.mat) of flights by number, as MATLAB's pprz_fetch; see Client.fetch."""
-    return _connected().fetch(flights, scope=scope, force=force)
+def fetch(flights=None, scope="selected", force=False, log=None):
+    """Local paths of the MATLAB exports (.mat) of flights by number, or of whole logs with log=<log number>, as
+    MATLAB's pprz_fetch; see Client.fetch."""
+    return _connected().fetch(flights, scope=scope, force=force, log=log)
 
 
 def fetch_raw(flights, force=False):

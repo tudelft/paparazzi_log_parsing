@@ -621,10 +621,12 @@ are shown and can be retried. Flights need valid coordinates and a correct date 
 at least six days old. No API key is required; the free service is
 [non-commercial only](https://open-meteo.com/en/terms), with attribution under CC BY 4.0.
 
-**MATLAB export.** The **MATLAB ▾** menu (`static/matlab.js`) at the top right of a flight page and in an
-expanded Logbook row offers, per Paparazzi source log (`onboard_sd`/`gcs` with its `.log`), **This flight**,
+**MATLAB export.** The **MATLAB ▾** menu (`static/matlab.js`) at the top right of a flight page, in an
+expanded Logbook row and in a log's details on Logs offers, per Paparazzi source log (`onboard_sd`/`gcs` with its `.log`), **This flight**,
 **All flights** and **Whole log**, with progress and the download inside the menu. `POST /api/logs/<id>/matlab`
-(`scope` = `flight` with `flight_id`, `flights` or `log`) queues a job; `GET /api/matlab-exports/<job>` reports
+(`scope` = `flight` with `flight_id`, `flights` or `log`) queues a job (a source without a flight, on Logs, offers
+only **Whole log**, and **All flights** when the log has flights); with `{"check": true}` it only returns the job id,
+status and `log_id`, for `pprz_fetch('log', n)` and `ml.fetch(log=n)`, which download whole logs by log number; `GET /api/matlab-exports/<job>` reports
 queued/running/ready/failed with progress and `/download` returns the file.
 `POST /api/flights/<id>/matlab` exports one flight by its logbook number from that recording's own log (the same job
 as **This flight**); with `{"check": true}` or form field `check=1` it only returns the job id and status

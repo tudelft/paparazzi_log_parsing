@@ -399,6 +399,19 @@ class MatlabExportRouteTests(MatlabRouteFixture):
         self.ns["user_for_key"] = lambda token: user
         return {"Authorization": "Bearer test-only"}
 
+    def test_whole_log_by_log_number_also_without_flights(self):
+        headers = self.key(2, True)
+        check = self.client.post("/api/logs/1/matlab", json={"scope": "log", "check": True}, headers=headers)
+        self.assertEqual((check.status_code, check.json["status"], check.json["log_id"]), (200, "missing", 1))
+        self.assertEqual(self.jobs.jobs, {})  # a check queues nothing
+        self.assertIsNone(check.json["download"])
+        self.con.execute("DELETE FROM flights")  # a log without flights: only the whole log
+        self.con.commit()
+        self.assertEqual(self.client.post("/api/logs/1/matlab", json={"scope": "flights"}, headers=headers).status_code, 409)
+        queued = self.client.post("/api/logs/1/matlab", json={"scope": "log"}, headers=headers)
+        self.assertEqual((queued.status_code, queued.json["log_id"]), (202, 1))
+        self.assertIn(queued.json["id"], self.jobs.jobs)
+
     def test_flight_export_by_logbook_number_with_a_read_only_key(self):
         headers = self.key(2, True)
         check = self.client.post("/api/flights/10/matlab", json={"check": True}, headers=headers)

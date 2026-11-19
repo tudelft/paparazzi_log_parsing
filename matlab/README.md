@@ -12,6 +12,8 @@ Tools to load, plot and analyse Paparazzi flights exported by the flight logbook
                                              % date is NaT when the log's clock was not set)
   logs = pprz_fetch([1234 1240]);            % or pprz_view([1234 1240]), or From logbook… in pprz_view
   logs = pprz_fetch([1234 1240], 'scope', 'log');   % the whole logs instead
+  logs = pprz_fetch('log', 4824);            % a whole log by its log number (Logs page), also without flights;
+                                             % pprz_view('log', 4824) opens it (e.g. calibration data)
   f = pprz_flight(logs, 'number', 1240);     % one flight by its logbook number
   r = pprz_upload({'a.data', 'LOG00030.BFL'}, 'wait', true);   % upload; r(1).flight_ids for pprz_fetch
   ```

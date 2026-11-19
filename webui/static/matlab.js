@@ -1,6 +1,7 @@
-// MATLAB export menu (flight page and logbook). MatlabExport.button(sources) returns a "MATLAB ▾" button for the
-// SD/GCS recordings of a flight; the menu starts an export per recording (this flight, all flights of that log or
-// the whole log), polls its progress and offers the download when ready. MatlabExport.bulkButton(entries) exports
+// MATLAB export menu (flight page, logbook and Logs). MatlabExport.button(sources) returns a "MATLAB ▾" button for
+// the SD/GCS recordings of a flight; the menu starts an export per recording (this flight, all flights of that log or
+// the whole log). A source without flight_id is a whole log (Logs page): its menu leaves out "This flight", and
+// "All flights" when the log has none (flights: 0), polls its progress and offers the download when ready. MatlabExport.bulkButton(entries) exports
 // selected logbook entries as a .zip with one .mat per log; entries() returns, per entry, its recordings' flight ids.
 // See TECHNICAL.md, "MATLAB export".
 (() => {
@@ -67,8 +68,10 @@
     }
     const sources = JSON.parse(anchor.dataset.matlabSources);
     const help = helpTip('');
+    const scopes = source => SCOPES.filter(([scope]) => source.flight_id != null || scope === 'log'
+      || scope === 'flights' && source.flights !== 0);
     menu.innerHTML = sources.map((source, i) => `<div class="matlab-group"><div class="matlab-head">${TYPES[source.log_type]}
-        <span class="mute">${esc(source.log_name || '')}</span>${i === 0 ? help : ''}</div>${SCOPES.map(s => item(source, s)).join('')}</div>`).join('');
+        <span class="mute">${esc(source.log_name || '')}</span>${i === 0 ? help : ''}</div>${scopes(source).map(s => item(source, s)).join('')}</div>`).join('');
   }
 
   function close() {
@@ -102,7 +105,7 @@
   }
 
   async function start(button) {
-    const source = {log_id: +button.dataset.log, flight_id: +button.dataset.flight};
+    const source = {log_id: +button.dataset.log, flight_id: button.dataset.flight === 'undefined' ? undefined : +button.dataset.flight};
     const scope = button.dataset.matlabStart, k = key(source, scope);
     jobs[k] = {status: 'queued', progress: 0};
     render();
@@ -146,7 +149,8 @@
   window.MatlabExport = {
     available: sources => usable(sources).length > 0,
     button(sources, extraClass = '') {
-      const list = usable(sources).map(s => ({log_id: s.log_id, flight_id: s.flight_id, log_type: s.log_type, log_name: s.log_name}));
+      const list = usable(sources).map(s => ({log_id: s.log_id, flight_id: s.flight_id, log_type: s.log_type, log_name: s.log_name,
+        flights: s.flights}));
       if (!list.length) return '';
       return `<button type="button" class="matlab-button ${extraClass}" aria-haspopup="menu" aria-expanded="false"
         title="Export this flight or its log for MATLAB (.mat)" data-matlab-sources="${esc(JSON.stringify(list))}">MATLAB ▾</button>`;

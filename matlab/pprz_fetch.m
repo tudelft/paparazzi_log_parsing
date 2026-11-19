@@ -8,6 +8,8 @@ function logs = pprz_fetch(ids, varargin)
 %       'log'                 the whole log of each (also the time between flights)
 %       'flight'              one file per flight number
 %   logs = pprz_fetch(ids, 'force', true)    download again even when a current copy is cached
+%   logs = pprz_fetch('log', 4824)           whole logs by their log number (Logs page, No.), also logs without
+%                                            flights; 'force' works the same
 %   T = pprz_flights(logs); f = pprz_flight(logs, 'number', 1234)   ready to plot
 %   Each flight has flights(k).logbook: the comment, crew and project as the logbook shows them, its recordings
 %   (e.g. the GCS log next to the SD log, to fetch by its number) and the setting changes and messages of those
@@ -15,6 +17,14 @@ function logs = pprz_fetch(ids, varargin)
 %   the log, parser or logbook data fetches them again. Without a connection, or when the server fails (HTTP 5xx),
 %   the cached copies are used with a warning.
 %   Connect first with pprz_connect.
+    by_log = (ischar(ids) || isstring(ids)) && strcmpi(ids, 'log');
+    if by_log
+        if isempty(varargin) || ~isnumeric(varargin{1})
+            error('pprz_fetch:log', 'Give the log numbers: pprz_fetch(''log'', [4824 4832])');
+        end
+        ids = varargin{1};
+        varargin(1) = [];
+    end
     opt = struct('force', false, 'scope', 'selected');
     for k = 1:2:numel(varargin)
         opt.(lower(varargin{k})) = varargin{k + 1};
@@ -26,12 +36,41 @@ function logs = pprz_fetch(ids, varargin)
     ids = unique(double(ids(:)'), 'stable');
     cfg = pprz.connection();
     folder = fullfile(cfg.cache, 'mat', pprz.config('tag', cfg.server));
-    if strcmp(scope, 'flight')
+    if by_log
+        files = arrayfun(@(id) fetch_log(id, folder, opt.force), ids, 'UniformOutput', false);
+    elseif strcmp(scope, 'flight')
         files = arrayfun(@(id) fetch_flight(id, folder, opt.force), ids, 'UniformOutput', false);
     else
         files = fetch_logs(ids, scope, folder, opt.force);
     end
     logs = pprz_load(files{:});
+end
+
+function file = fetch_log(id, folder, force)
+    % The whole log by its log number ("Whole log" in the MATLAB menu), with or without flights. The same cache
+    % file as pprz_fetch(flights, 'scope', 'log').
+    old = dir(fullfile(folder, sprintf('log_%d_log_*.mat', id)));
+    path = sprintf('/api/logs/%d/matlab', id);
+    try
+        job = pprz.api('POST', path, struct('scope', 'log', 'check', true));
+    catch err
+        if ~use_cache(err) || isempty(old)
+            rethrow(err);
+        end
+        [~, newest] = max([old.datenum]);
+        file = fullfile(folder, old(newest).name);
+        warning('pprz_fetch:offline', 'Log %d: using the cached copy (%s)', id, err.message);
+        return
+    end
+    file = fullfile(folder, sprintf('log_%d_log_%s.mat', id, job.id(1:16)));
+    if isfile(file) && ~force
+        return
+    end
+    if ~strcmp(job.status, 'ready')
+        job = pprz.api('POST', path, struct('scope', 'log', 'check', false));
+    end
+    download(job, file, sprintf('Log %d', id));
+    remove_others(old, file);
 end
 
 function file = fetch_flight(id, folder, force)

@@ -1,9 +1,10 @@
-function fig = pprz_view(logs)
+function fig = pprz_view(logs, numbers)
 %PPRZ_VIEW Interactive viewer for logbook MATLAB exports, in one window.
 %   pprz_view               pick .mat / .zip files in a dialog
 %   pprz_view(path)         a .mat file, a folder or a bulk .zip
 %   pprz_view(logs)         exports loaded with pprz_load
 %   pprz_view([1234 1240])  flights from the logbook server by number (pprz_fetch, after pprz_connect)
+%   pprz_view('log', 4824)  whole logs by log number (Logs page), also logs without flights
 %   Left: pick a flight, the time window (applied live to every plot), shading and event markers, and tick plots
 %   (search; unlogged plots are greyed out): a tick opens the plot as a tab on the right, unticking closes it, so
 %   the ticks show what is open for the selected flight. Same plots opens, for another flight, the plots that were
@@ -15,6 +16,8 @@ function fig = pprz_view(logs)
 %   to drive the window from code: plot(names), select(row), close_all().
     if nargin < 1
         logs = pprz_load();
+    elseif nargin > 1 && (ischar(logs) || isstring(logs)) && strcmpi(logs, 'log')
+        logs = pprz_fetch('log', numbers);
     elseif ischar(logs) || isstring(logs)
         logs = pprz_load(logs);
     elseif isnumeric(logs)

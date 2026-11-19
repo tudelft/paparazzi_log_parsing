@@ -123,7 +123,8 @@ to gain descriptions and previously omitted crew entries.
   **Export CSV** always contains every column.
 - **No.** is the flight number, the number in `/flight/<number>` and on the flight page, which Python's `ml.fetch` and
   MATLAB's `pprz_fetch` use (**Download logs**). **⧉** next to a number (Logbook, the flights of a log under Logs, the
-  flight page) copies it; in **Select** mode, **Copy numbers** copies the ticked flights' numbers
+  flight page) copies it; under Logs, **No.** is the log number with its own **⧉**, for `pprz_fetch('log', n)` and
+  `ml.fetch(log=n)` (the whole log, also without flights); in **Select** mode, **Copy numbers** copies the ticked flights' numbers
   (`1, 3, 4`) to paste into a Python or MATLAB array. Search for `#1234` to find a flight by number; with SD
   and GCS recordings of one flight, hover over the number for both.
 - In Edit mode the flight page lets you type the **flight goal** and link the recording to the right **fleet aircraft**
@@ -142,7 +143,8 @@ to gain descriptions and previously omitted crew entries.
   Comments are read-only there; edit them on the flight page.
   Distance from takeoff and maximum range are shown only on the flight page, not in overview tables or statistics.
   If the aircraft did not send a version, the Paparazzi version from the GCS `.log` header is shown instead.
-- **MATLAB ▾** (top right of a flight page, and in an expanded Logbook row) exports a Paparazzi SD or GCS log:
+- **MATLAB ▾** (top right of a flight page, in an expanded Logbook row, and in a log's details under Logs, also for a
+  log without flights) exports a Paparazzi SD or GCS log:
   **This flight** or **All flights** (10 s before takeoff to 10 s after landing, that aircraft, time 0 at takeoff)
   or the **Whole log**, as `s.aircraft(i).flights(k).data.<MSG>` with values in their converted unit (e.g.
   degrees). It includes settings by name, the checklist, crew, configuration, waypoints and named actuators
