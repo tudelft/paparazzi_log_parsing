@@ -117,9 +117,23 @@ function text = numbers(ids)
 end
 
 function e = as_array(e)
-    if iscell(e)
-        e = [e{:}];
+    % jsondecode gives a cell array when the entries differ in fields (older servers left out download until an
+    % export was ready): give every entry every field, empty when missing, so they form one struct array.
+    if ~iscell(e)
+        return
     end
+    names = {};
+    for k = 1:numel(e)
+        names = union(names, fieldnames(e{k})', 'stable');
+    end
+    for k = 1:numel(e)
+        missing = setdiff(names, fieldnames(e{k}));
+        for f = reshape(missing, 1, [])
+            e{k}.(f{1}) = [];
+        end
+        e{k} = orderfields(e{k}, names);
+    end
+    e = [e{:}];
 end
 
 function download(job, file, label)

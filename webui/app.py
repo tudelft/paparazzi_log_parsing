@@ -7367,8 +7367,9 @@ def matlab_job_json(job):
     out = {k: job.get(k) for k in ("id", "status", "progress", "error", "size_bytes", "filename")}
     if job.get("bundle"):  # a .zip of several exports: how many of its logs are ready
         out.update(parts=job["parts"], ready=job["ready"])
-    if job["status"] == "ready":
-        out["download"] = f"/api/matlab-exports/{job['id']}/download"
+    # always the same keys (download None until ready): MATLAB turns a list of exports into a struct array, which
+    # needs every entry to have the same fields
+    out["download"] = f"/api/matlab-exports/{job['id']}/download" if job["status"] == "ready" else None
     return out
 
 
