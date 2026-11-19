@@ -431,7 +431,8 @@ CREATE TABLE IF NOT EXISTS qualification_submissions (
     compressed INTEGER NOT NULL DEFAULT 0,
     size_bytes INTEGER NOT NULL DEFAULT 0,
     evidence_deleted_at TEXT,
-    qr_json TEXT                       -- QR codes read from the evidence (licence_qr.py); NULL = not read yet
+    qr_json TEXT,                      -- QR codes read from the evidence (licence_qr.py); NULL = not read yet
+    review_note TEXT                   -- the administrator's reason when rejecting
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ix_qualification_pending ON qualification_submissions(user_id,type_id) WHERE status='pending';
 CREATE UNIQUE INDEX IF NOT EXISTS ix_qualification_approved ON qualification_submissions(user_id,type_id) WHERE status='approved';
@@ -971,6 +972,8 @@ def init(path):
     qcols = {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}
     if qcols and "note" not in qcols:
         con.execute("ALTER TABLE qualification_submissions ADD COLUMN note TEXT")
+    if qcols and "review_note" not in qcols:
+        con.execute("ALTER TABLE qualification_submissions ADD COLUMN review_note TEXT")
     upcols = {r["name"] for r in con.execute("PRAGMA table_info(user_profiles)")}
     if upcols and "to_confirm" not in upcols:
         con.execute("ALTER TABLE user_profiles ADD COLUMN to_confirm INTEGER NOT NULL DEFAULT 0 CHECK(to_confirm IN (0,1))")

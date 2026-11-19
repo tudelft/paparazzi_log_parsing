@@ -88,7 +88,7 @@ window.QualificationManager = class {
           : more.length ? `<details class="qual-more"><summary class="small sec" aria-label="More actions" title="More actions">⋯</summary>
             <div class="qual-menu">${more.join('')}</div></details>` : '');
       return `<div class="qual-item"><div class="qual-main">
-      <div><span title="${esc(dates.join(' · '))}">${item.has_evidence ? fileLink({name, viewable: item.viewable, view: `/api/qualification-submissions/${item.id}/evidence/view`, download: `/api/qualification-submissions/${item.id}/evidence`}) : name}</span>${number} · ${esc(item.status === 'superseded' ? 'archived' : item.status)}${item.internal ? ' · Internal' : ''}${item.expired ? ' (expired)' : ''}
+      <div><span title="${esc(dates.join(' · '))}">${item.has_evidence ? fileLink({name, viewable: item.viewable, view: `/api/qualification-submissions/${item.id}/evidence/view`, download: `/api/qualification-submissions/${item.id}/evidence`}) : name}</span>${number} · ${esc(item.status === 'superseded' ? 'archived' : item.status)}${item.review_note ? ` <span class="mute" title="${esc(item.review_note)}">(${esc(item.review_note.length > 60 ? item.review_note.slice(0, 57) + '…' : item.review_note)})</span>` : ''}${item.internal ? ' · Internal' : ''}${item.expired ? ' (expired)' : ''}
       <span class="info-tip"><button type="button" aria-label="Submission details">i</button><span class="tip" role="tooltip">${tip}</span></span></div>
       ${this.qrLine(item)}<div>${item.has_evidence ? `<span class="mute">${esc(item.filename || 'Evidence')}</span>`
         : item.note ? (item.training_id
@@ -359,10 +359,15 @@ window.QualificationManager = class {
     } finally { buttons.forEach(b => { b.disabled = false; }); }
   }
   review(id, action) {
-    if (!confirm(action === 'approve' ? 'Approve this exact submission after checking its evidence (if required)?'
-      : action === 'reject' ? 'Reject this submission? Evidence is retained.' : 'Withdraw this pending submission?')) return;
+    let reason = '';
+    if (action === 'reject') {
+      // the optional reason is mailed to the person and shown next to the rejected item
+      reason = prompt('Reject this submission? Evidence is retained.\nOptional reason for the person:', '');
+      if (reason === null) return;
+    } else if (!confirm(action === 'approve' ? 'Approve this exact submission after checking its evidence (if required)?'
+      : 'Withdraw this pending submission?')) return;
     return this.mutate(`/api/qualification-submissions/${id}/review`,
-      {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action})});
+      {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(reason ? {action, reason} : {action})});
   }
   // Small dialog with the dates and the number; an empty field clears it (the type may require it).
   editDates(item) {
