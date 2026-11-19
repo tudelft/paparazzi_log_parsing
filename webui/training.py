@@ -435,26 +435,37 @@ PLACEHOLDERS = ("{name}", "{email}", "{username}", "{number}", "{department}", "
                 "{training}", "{date}", "{valid_until}", "{briefed_by}")
 
 
-def access_fields(body):
-    """The access request mail settings of a training: (to, text, question, cc). Several addresses are separated by
-    commas or semicolons; without an address the mail is off."""
-    raw_to = body.get("access_mail_to") or ""
-    text, question = body.get("access_mail_text") or "", body.get("access_question") or ""
-    if not all(isinstance(v, str) for v in (raw_to, text, question)):
+def addresses_field(raw):
+    """Several addresses separated by commas, semicolons or spaces, as one "a, b" text; checked."""
+    if not isinstance(raw, str):
         raise TrainingError("The access mail fields must be text.")
-    addresses = [a for a in re.split(r"[,;\s]+", raw_to) if a]
+    addresses = [a for a in re.split(r"[,;\s]+", raw) if a]
     bad = [a for a in addresses if not ADDRESS.fullmatch(a)]
     if bad:
         raise TrainingError(f"Not an email address: {bad[0][:80]}")
-    to = ", ".join(addresses)
+    return ", ".join(addresses)
+
+
+def access_fields(body):
+    """The access request mail settings of a training: (to, text, question, cc, cc_to). Several addresses are
+    separated by commas or semicolons; without a To address the mail is off. cc is a copy to the person, cc_to
+    fixed addresses in copy (e.g. a secretary, while To is a mailbox a mail flow reads)."""
+    text, question = body.get("access_mail_text") or "", body.get("access_question") or ""
+    if not all(isinstance(v, str) for v in (text, question)):
+        raise TrainingError("The access mail fields must be text.")
+    to = addresses_field(body.get("access_mail_to") or "")
+    cc_to = addresses_field(body.get("access_mail_cc_to") or "")
     text, question = text.strip(), " ".join(question.split())
-    if len(to) > 300 or len(text) > 5000 or len(question) > 200:
-        raise TrainingError("The access mail has at most 300 characters of addresses, 5000 of text and 200 of question.")
+    if len(to) > 300 or len(cc_to) > 300 or len(text) > 5000 or len(question) > 200:
+        raise TrainingError("The access mail has at most 300 characters of addresses (To and Cc each), 5000 of text "
+                            "and 200 of question.")
     if to and not text:
         raise TrainingError("Type the access mail, or remove its address.")
+    if cc_to and not to:
+        raise TrainingError("Add a To address for the access mail, or remove its Cc.")
     if type(body.get("access_mail_cc", False)) is not bool:
         raise TrainingError("Copy to the person must be true or false.")
-    return to, text, question, int(body.get("access_mail_cc", False))
+    return to, text, question, int(body.get("access_mail_cc", False)), cc_to
 
 
 def access_question(row):
@@ -544,8 +555,9 @@ def queue_access_mail(con, user_id, row, answer, when=None, briefed_by=None):
     if built is None:
         return False
     subject, body, email = built
-    return mail.queue_access(con, row["access_mail_to"], subject, body,
-                             cc_addr=email if row["access_mail_cc"] and email else None, reply_to=email or None)
+    cc = [a for a in (row["access_mail_cc_to"], email if row["access_mail_cc"] else "") if a]
+    return mail.queue_access(con, row["access_mail_to"], subject, body, cc_addr=", ".join(cc) or None,
+                             reply_to=email or None)
 
 
 def queue_access_after_approval(con, submission_id):
@@ -883,6 +895,7 @@ def register(app, connection, root, require_session):
         if g.user["is_admin"]:
             out.update(access_mail_to=row["access_mail_to"], access_mail_text=row["access_mail_text"],
                        access_question_text=row["access_question"], access_mail_cc=bool(row["access_mail_cc"]),
+                       access_mail_cc_to=row["access_mail_cc_to"],
                        mail_enabled=mail.enabled())
         if g.user["is_admin"] and not practising:  # the editor's view, with the answers; admins practise as anyone
             out["questions"] = [{
@@ -1095,7 +1108,7 @@ def register(app, connection, root, require_session):
                 tid = cid.execute(
                     "INSERT INTO trainings(name,description,type_id,pass_score,valid_days,ask_briefed_by,"
                     "needs_approval,sort_order,shuffle_questions,question_count,reading,access_mail_to,access_mail_text,"
-                    "access_question,access_mail_cc) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "access_question,access_mail_cc,access_mail_cc_to) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (name, description, type_id, pass_score, valid_days, int(ask_briefed_by),
                      int(needs_approval), nxt, *draw)).lastrowid
                 save_briefers(cid, tid, briefers)
@@ -1118,7 +1131,7 @@ def register(app, connection, root, require_session):
             try:
                 cid.execute("UPDATE trainings SET name=?,description=?,type_id=?,pass_score=?,valid_days=?,"
                             "ask_briefed_by=?,needs_approval=?,active=?,shuffle_questions=?,question_count=?,reading=?,"
-                            "access_mail_to=?,access_mail_text=?,access_question=?,access_mail_cc=? WHERE id=?",
+                            "access_mail_to=?,access_mail_text=?,access_question=?,access_mail_cc=?,access_mail_cc_to=? WHERE id=?",
                             (name, description, type_id, pass_score, valid_days, int(ask_briefed_by),
                              int(needs_approval), body.get("active", True), *draw, training_id))
                 cid.execute("UPDATE training_progress SET draw_json=NULL WHERE training_id=?", (training_id,))
@@ -1134,7 +1147,7 @@ def register(app, connection, root, require_session):
         the person or to administrators."""
         admin()
         body = request.get_json(silent=True) or {}
-        to, text, _, _ = access_fields({**body, "access_mail_cc": False})
+        to, text, _, _, _ = access_fields({**body, "access_mail_cc": False, "access_mail_cc_to": ""})
         if not mail.enabled():
             raise TrainingError("Email is not set up on this server.")
         if body.get("send_to") == "me":

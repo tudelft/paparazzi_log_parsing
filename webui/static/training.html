@@ -184,7 +184,7 @@
 <dialog class="entry-dialog" id="testMailDialog" aria-labelledby="testMailTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <form id="testMailForm">
     <div class="dialog-header"><h2 id="testMailTitle">Send test mail</h2><button type="button" class="sec" onclick="$('testMailDialog').close()">Close</button></div>
-    <p class="mute">The access mail as if this person passed today, with the text above (also when not saved yet). Its reference ends in <code>-test</code>; no copy to the person.</p>
+    <p class="mute">The access mail as if this person passed today, with the text above (also when not saved yet). Its reference ends in <code>-test</code>; no copy to the person or the Cc.</p>
     <label class="field">Person<select name="user_id" required><option value="">Choose a person…</option></select></label>
     <label class="field"><span><input type="radio" name="send_to" value="me" checked> Only to me <span class="mute">(your account's address)</span></span></label>
     <label class="field"><span><input type="radio" name="send_to" value="to"> To the To addresses <span class="mute" id="testMailTo"></span></span></label>
@@ -240,6 +240,7 @@
         <details id="accessField"><summary>Access request mail <span class="mute" id="accessState"></span></summary>
           <p class="mute" id="accessMailOff" hidden>Email is not set up on this server, so nothing is sent.</p>
           <label class="field" title="Several addresses separated by commas. Empty: no mail.">To<input name="access_mail_to" maxlength="300" placeholder="e.g. secretary@example.org"></label>
+          <label class="field" title="Optional: these addresses get a copy (e.g. a secretary, when To is a mailbox a mail flow reads). Several separated by commas.">Cc<input name="access_mail_cc_to" maxlength="300" placeholder="optional"></label>
           <label class="field" title="Optional. The person answers Yes or No at the end of the test; only No sends the mail. Empty: always sent.">Ask first (Yes/No)<input name="access_question" maxlength="200" placeholder="e.g. Do you already have access to the flight lab?"></label>
           <label class="field" title="The tags below are filled in. Replies go to the person.">Mail<textarea name="access_mail_text" maxlength="5000" rows="5" placeholder="e.g. {name} ({email}) passed {training} on {date}. Please give access to the flight lab."></textarea></label>
           <p class="mute" style="margin:2px 0 0;font-size:12px" title="Number, department, role, supervisor and end date come from the person profile (- when person profiles are off or the field is empty). Valid until: the pass date plus the training's validity. All of them are also in the Request details block at the end of every mail.">Tags: {name} {email} {username} {number} {department} {role} {supervisor} {end_date} {training} {date} {valid_until} {briefed_by}</p>
@@ -1018,6 +1019,7 @@ function fillDetails(t) {
   f.access_question.value = t.access_question_text || '';
   f.access_mail_text.value = t.access_mail_text || '';
   f.access_mail_cc.checked = !!t.access_mail_cc;
+  f.access_mail_cc_to.value = t.access_mail_cc_to || '';
   $('accessState').textContent = t.access_mail_to ? '· on' : '';
   $('accessMailOff').hidden = t.mail_enabled !== false;
   brieferIds = (t.briefers || []).map(b => b.id);
@@ -1071,6 +1073,7 @@ $('detailsForm').onsubmit = async event => {
     briefers: f.ask_briefed_by.checked ? brieferIds : [],
     access_mail_to: f.access_mail_to.value, access_question: f.access_question.value,
     access_mail_text: f.access_mail_text.value, access_mail_cc: f.access_mail_cc.checked,
+    access_mail_cc_to: f.access_mail_cc_to.value,
     active: f.active.checked};
   $('trainingError').textContent = '';
   try {
