@@ -598,6 +598,7 @@ CREATE TABLE IF NOT EXISTS trainings (
     access_mail_text TEXT NOT NULL DEFAULT '',   -- that mail; {name} {email} {training} {date} are filled in
     access_question TEXT NOT NULL DEFAULT '',    -- optional Yes/No question; only "No" sends the mail
     access_mail_cc INTEGER NOT NULL DEFAULT 0 CHECK(access_mail_cc IN (0,1)),  -- copy to the person
+    access_mail_cc_to TEXT NOT NULL DEFAULT '',  -- copy to these addresses as well (e.g. a secretary)
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
     sort_order INTEGER NOT NULL DEFAULT 0
 );
@@ -960,7 +961,8 @@ def init(path):
     for column, ddl in (("reading", "TEXT NOT NULL DEFAULT ''"), ("reading_path", "TEXT"), ("reading_name", "TEXT"),
                         ("access_mail_to", "TEXT NOT NULL DEFAULT ''"), ("access_mail_text", "TEXT NOT NULL DEFAULT ''"),
                         ("access_question", "TEXT NOT NULL DEFAULT ''"),
-                        ("access_mail_cc", "INTEGER NOT NULL DEFAULT 0 CHECK(access_mail_cc IN (0,1))")):
+                        ("access_mail_cc", "INTEGER NOT NULL DEFAULT 0 CHECK(access_mail_cc IN (0,1))"),
+                        ("access_mail_cc_to", "TEXT NOT NULL DEFAULT ''")):
         if tcols and column not in tcols:
             con.execute(f"ALTER TABLE trainings ADD COLUMN {column} {ddl}")
     qcols = {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}

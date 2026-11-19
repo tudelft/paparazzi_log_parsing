@@ -1208,7 +1208,9 @@ plus the training's validity) and `{briefed_by}`; the profile tags are `-` when 
 or when an admin approves a queued pass (`needs_approval`). With an optional Yes/No question (`access_question`, e.g.
 "Do you already have access to the flight lab?") the person answers it on a last step after the questions (together with who delivered the briefing, when asked)
 (`access_answer` in the submit body, required then; stored in `training_progress.access_answer`) and only **No**
-sends the mail. Its Reply-To is the person; **Copy to the person** (`access_mail_cc`) adds them as Cc. The subject is
+sends the mail. Its Reply-To is the person; **Cc** (`access_mail_cc_to`, optional addresses, e.g. a secretary while
+To is the mailbox a mail flow reads) and **Copy to the person** (`access_mail_cc`) add copies. A test mail goes
+without either. The subject is
 `Access request: <name> passed <training>`. JSON export/import does not carry these settings.
 Below the typed text every access mail ends with a fixed block, one value per line, for mail flows:
 

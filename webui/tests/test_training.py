@@ -624,6 +624,20 @@ class TrainingTests(AppTests):
             training.queue_access_mail(self.con, 2, row, None, "2026-11-14T10:00:00Z")
         self.assertIn("\nNumber: -\nDepartment: -\n", self.access_mails()[-1]["body"])
 
+    def test_access_mail_cc_addresses(self):
+        tid, answers = self.access_setup(access_mail_cc=True, access_mail_cc_to="secretary@example.org; desk2@example.org")
+        quiz = self.client.get(f"/api/trainings/{tid}").json
+        self.assertEqual(quiz["access_mail_cc_to"], "secretary@example.org, desk2@example.org")
+        for bad in ({"access_mail_cc_to": "not-an-address"}, {"access_mail_to": "", "access_mail_text": "",
+                                                              "access_mail_cc_to": "a@example.org"}):
+            body = {"name": "Safety", "type_id": self.type_id, "valid_days": 365, "access_mail_to": "desk@example.org",
+                    "access_mail_text": "x", **bad}
+            self.assertEqual(self.client.put(f"/api/admin/trainings/{tid}", json=body).status_code, 400, bad)
+        self.sign_in(2)
+        self.assertTrue(self.client.post(f"/api/trainings/{tid}/submit", json=answers).json["passed"])
+        row, = self.access_mails()
+        self.assertEqual(row["cc_addr"], "secretary@example.org, desk2@example.org, pic@example.org")
+
     def test_test_access_mail(self):
         tid, _ = self.access_setup(access_mail_cc=True)
         url = f"/api/admin/trainings/{tid}/test-access-mail"
