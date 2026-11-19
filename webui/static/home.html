@@ -133,7 +133,7 @@
     </section>
     <section class="card s6" id="mediaCard" hidden>
       <h3>Latest media <span class="count">your projects</span></h3>
-      <div class="media" id="media"></div>
+      <div class="media" id="media" data-media-group></div>
     </section>
   </div>
 </main>
@@ -285,10 +285,11 @@ function paintMedia() {
   $('mediaCard').hidden = !data.media.length;
   const play = '<span class="play"><svg width="14" height="14" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg></span>';
   $('media').innerHTML = data.media.map(m => {
-    const day = m.uploaded_at ? `${+m.uploaded_at.slice(8, 10)} ${MONTHS[+m.uploaded_at.slice(5, 7) - 1]}` : '';
+    const when = m.flown || m.uploaded_at || '';  // the flight's date, else the upload's
+    const day = when ? `${+when.slice(8, 10)} ${MONTHS[+when.slice(5, 7) - 1]}${when.slice(0, 4) !== String(new Date().getFullYear()) ? ' ' + when.slice(0, 4) : ''}` : '';
     const cap = [m.description || m.filename, day].filter(Boolean).join(' · ');
     const thumb = data.thumbnails ? `<img src="/api/attachments/${m.id}/thumb" alt="" loading="lazy" onerror="this.remove()">` : '';
-    return `<a href="${esc(m.url)}" title="${esc(m.filename + ' · ' + m.label)}"><span class="plain" aria-hidden="true">${m.kind === 'video' ? '' : '🖼'}</span>${thumb}
+    return `<a href="/api/attachments/${m.id}/view" ${mediaAttrs({filename: m.filename, download: `/api/attachments/${m.id}/download`, open: m.url, openLabel: m.label})} title="${esc(m.filename + ' · ' + m.label)}"><span class="plain" aria-hidden="true">${m.kind === 'video' ? '' : '🖼'}</span>${thumb}
       ${m.kind === 'video' ? play : ''}<span class="cap">${esc(cap)}</span></a>`;
   }).join('');
 }

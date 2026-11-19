@@ -5,7 +5,7 @@ import json
 from collections import Counter
 
 import bookings
-from storage import view_type
+from storage import VIEWABLE, view_type
 
 RECENT_FLIGHTS = 5
 MEDIA_ITEMS = 8
@@ -187,12 +187,27 @@ def thing(con, cache, thing_id, user):
     return cache[thing_id]
 
 
+MEDIA_EXTENSIONS = sorted(ext for ext, mime in VIEWABLE.items() if mime.split("/")[0] in ("image", "video"))
+# When the media was taken: the date of the flight, log or paper record it is attached to (the latest when on several;
+# a log's typed-in date before its file clock), else the upload time. Earlier versions of a replaced file are skipped.
+MEDIA_SQL = (
+    "SELECT a.id, a.filename, MAX(CASE"
+    " WHEN k.flight_id IS NOT NULL THEN COALESCE(lf.date_override, f.takeoff_utc, lf.start_utc)"
+    " WHEN k.log_id IS NOT NULL THEN COALESCE(l.date_override, l.start_utc)"
+    " ELSE r.date || COALESCE('T' || r.takeoff_time, '') END) AS flown"
+    " FROM attachments a JOIN attachment_links k ON k.attachment_id=a.id AND k.superseded_by IS NULL"
+    " LEFT JOIN flights f ON f.id=k.flight_id LEFT JOIN aircraft ac ON ac.id=f.aircraft_id"
+    " LEFT JOIN logs lf ON lf.id=ac.log_id LEFT JOIN logs l ON l.id=k.log_id"
+    " LEFT JOIN flight_records r ON r.id=k.record_id"
+    " WHERE (" + " OR ".join(f"lower(a.filename) LIKE '%{ext}'" for ext in MEDIA_EXTENSIONS) + ")"
+    " GROUP BY a.id ORDER BY COALESCE(flown, a.uploaded_at) DESC, a.uploaded_at DESC, a.id DESC LIMIT ?")
+
+
 def media(con, user, visible, n=MEDIA_ITEMS):
-    """The newest image and video attachments the user may see (visible(con, user, id) -> (row, links), raising
+    """The image and video attachments the user may see, newest flight first (visible(con, user, id) -> (row, links), raising
     for files they may not), each with where it is linked."""
     out = []
-    for r in con.execute("SELECT id, filename FROM attachments ORDER BY uploaded_at DESC, id DESC LIMIT ?",
-                         (MEDIA_SCAN,)):
+    for r in con.execute(MEDIA_SQL, (MEDIA_SCAN,)):
         kind = (view_type(r["filename"]) or "").split("/")[0]
         if kind not in ("image", "video"):
             continue
@@ -204,7 +219,7 @@ def media(con, user, visible, n=MEDIA_ITEMS):
             raise
         link = next((x for kind_ in ("flight", "log", "paper") for x in links if x["kind"] == kind_), links[0])
         out.append(dict(id=row["id"], filename=row["filename"], description=row["description"], kind=kind,
-                        uploaded_at=row["uploaded_at"], url=link["url"], label=link["label"]))
+                        uploaded_at=row["uploaded_at"], flown=r["flown"], url=link["url"], label=link["label"]))
         if len(out) == n:
             break
     return out

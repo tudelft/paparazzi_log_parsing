@@ -120,6 +120,16 @@ class HomeTests(AppTests):
         self.assertEqual((w["place"], len(w["hours"]), w["hours"][0]["time"]), ("Field", 8, times[2]))
         self.assertEqual(self.client.get("/api/home/weather?place=2").status_code, 404)
 
+    def test_media_newest_flight_first(self):
+        old, new = self.flight(1, days_ago(30), goal="Old"), self.flight(1, days_ago(2), goal="New")
+        self.sign_in(1)
+        for fid, name in ((new, "new.jpg"), (old, "old.mp4")):  # the old flight's video is uploaded last
+            self.assertEqual(self.upload_file([dict(kind="flight", id=fid)], content=b"x" * 100, name=name).status_code,
+                             201)
+        media = self.client.get("/api/home").json["media"]
+        self.assertEqual([m["filename"] for m in media], ["new.jpg", "old.mp4"])
+        self.assertEqual(media[1]["flown"][:10], days_ago(30)[:10])
+
     def test_thumbnail_made_once_and_only_for_visible_media(self):
         fid = self.flight(1, days_ago(1))
         private = self.flight(2, days_ago(1))
