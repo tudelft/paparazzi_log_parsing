@@ -345,6 +345,16 @@ class TrainingTests(AppTests):
         self.sign_in(2)
         self.assertEqual(self.client.put(url, json={"question_ids": [a, b, c]}).status_code, 403)
 
+    def test_training_order(self):
+        a, b, c = (self.add_training(name=n) for n in ("A", "B", "C"))
+        url = "/api/admin/trainings/order"
+        self.assertEqual(self.client.put(url, json={"training_ids": [c, a, b]}).status_code, 200)
+        self.assertEqual([t["name"] for t in self.client.get("/api/trainings").json["trainings"]], ["C", "A", "B"])
+        for bad in ([c, a], [c, a, a], [c, a, b, 999], ["x"]):  # every training exactly once
+            self.assertEqual(self.client.put(url, json={"training_ids": bad}).status_code, 400)
+        self.sign_in(2)
+        self.assertEqual(self.client.put(url, json={"training_ids": [a, b, c]}).status_code, 403)
+
     def test_deleting_a_question_cannot_leave_pass_score_unreachable(self):
         tid = self.add_training(pass_score=2)
         self.add_question(tid)

@@ -25,6 +25,11 @@
   a.item { display:block; height:104px; min-width:0; padding:8px 10px; border:1px solid var(--fieldline); border-left:4px solid var(--acc);
     border-radius:8px; background:var(--detail); color:var(--txt); text-decoration:none; box-shadow:0 2px 4px #0002; }
   a.item.passed { border-left-color:var(--ok); }
+  a.item { position:relative; }
+  a.item.dragging { opacity:.85; box-shadow:0 4px 12px #0004; }
+  a.item .t-handle { position:absolute; top:6px; right:6px; color:var(--mute); letter-spacing:-2px; user-select:none; cursor:grab; touch-action:none; padding:2px 4px; background:none; border:0; font:inherit; }
+  a.item .t-handle:active { cursor:grabbing; }
+  a.item.sortable h3 { padding-right:24px; }
   a.item:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
   a.item h3 { margin:0; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   a.item p { margin:6px 0 0; font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -311,19 +316,81 @@ async function loadApprovals() {
 }
 function renderList() {
   const items = filtered();
+  // admins in Edit mode drag the cards (or use the arrow keys on a handle) to set the order everyone sees
+  const sortable = me && me.is_admin && window.editMode() && !query.trim() && items.length > 1;
   $('count').textContent = items.length ? items.length + ' training' + (items.length === 1 ? '' : 's') : '';
   $('grid').innerHTML = items.map(t =>
-    `<a class="item${t.passed_at ? ' passed' : ''}" href="/training?id=${t.id}" data-id="${t.id}" title="${esc(t.name)}"><h3>${esc(t.name)}</h3>
+    `<a class="item${t.passed_at ? ' passed' : ''}${sortable ? ' sortable' : ''}" href="/training?id=${t.id}" data-id="${t.id}" title="${esc(t.name)}"><h3>${esc(t.name)}</h3>
+     ${sortable ? '<button type="button" class="t-handle" aria-label="Drag to reorder, or use the arrow keys" title="Drag to reorder (or focus and use the arrow keys)">⋮⋮</button>' : ''}
      <p class="${t.passed_at ? 'ok' : 'mute'}" title="${esc(statusLine(t))}">${esc(statusLine(t))}</p>
      <p title="${esc(t.description || '')}">${esc(t.description || '')}</p></a>`).join('')
     || '<p class="mute">No trainings yet.</p>';
   $('grid').querySelectorAll('a.item').forEach(a => a.onclick = event => {
     event.preventDefault();
+    if (event.target.closest('.t-handle')) return;
     selected = +a.dataset.id;
     window.viewState.save(true);
     show();
   });
 }
+// Drag a training card by its handle within the grid (or focus the handle and use the arrow keys); saved at once.
+function bindTrainingOrder(grid) {
+  let drag = null, before = '';
+  const cards = () => [...grid.querySelectorAll('a.item[data-id]')];
+  const order = () => cards().map(c => +c.dataset.id);
+  const save = async () => {
+    const ids = order();
+    if (ids.join() === before) return;
+    try {
+      await api('/api/admin/trainings/order', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({training_ids: ids})});
+      const byId = new Map(trainings.map(t => [t.id, t]));
+      trainings = ids.map(id => byId.get(id));
+    } catch (e) { $('err').textContent = e.message; await load(); renderList(); }
+  };
+  grid.addEventListener('keydown', event => {
+    const handle = event.target.closest('.t-handle'), card = handle && handle.closest('a.item');
+    if (!card || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    event.preventDefault();
+    before = order().join();
+    const prev = card.previousElementSibling, next = card.nextElementSibling;
+    if (['ArrowUp', 'ArrowLeft'].includes(event.key) && prev) grid.insertBefore(card, prev);
+    else if (['ArrowDown', 'ArrowRight'].includes(event.key) && next) grid.insertBefore(card, next.nextElementSibling);
+    handle.focus();
+    save();
+  });
+  grid.addEventListener('pointerdown', event => {
+    const handle = event.target.closest('.t-handle');
+    if (!handle || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    event.preventDefault();
+    drag = handle.closest('a.item');
+    before = order().join();
+    drag.classList.add('dragging');
+    grid.setPointerCapture(event.pointerId);
+  });
+  grid.addEventListener('pointermove', event => {
+    if (!drag) return;
+    const over = cards().find(c => {
+      if (c === drag) return false;
+      const box = c.getBoundingClientRect();
+      return event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
+    });
+    if (!over) return;
+    const box = over.getBoundingClientRect();
+    const target = event.clientX < box.left + box.width / 2 ? over : over.nextElementSibling;
+    if (target !== drag && target !== drag.nextElementSibling) grid.insertBefore(drag, target);
+  });
+  const end = event => {
+    if (!drag) return;
+    drag.classList.remove('dragging');
+    drag = null;
+    try { grid.releasePointerCapture(event.pointerId); } catch (_) {}
+    save();
+  };
+  grid.addEventListener('pointerup', end);
+  grid.addEventListener('pointercancel', end);
+}
+bindTrainingOrder($('grid'));
 function show() {
   $('err').textContent = '';
   if (!selected) { lastResult = null; quizStep = 0; practice = false; }
@@ -1249,6 +1316,7 @@ window.addEventListener('beforeunload', event => { if (detailsDirty || questionD
 window.addEventListener('editchange', () => {
   syncAdminButtons();
   if (selected) { paintDetail(); if (me.is_admin && window.editMode()) loadResults(); }
+  else renderList();
 });
 </script>
 </body>
