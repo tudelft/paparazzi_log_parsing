@@ -495,6 +495,9 @@ struct LogHeader {
   std::map<int, std::string> names;  // ac_id -> name
   std::string default_name;          // airframe without ac_id
   double start_epoch = -1;  // unix time (UTC) of log time 0, -1 if unknown
+  // sd2log without a GPS fix writes the time of the conversion as time_of_day and names the log *_no_GPS: that
+  // time says nothing about when the log was recorded, so it is kept here and not used as start_epoch
+  double conversion_epoch = -1;
   bool has_aircraft_tag = false;   // <aircraft ac_id=...> entries are written by the ground station only
   bool has_logged_with = false;    // "<!-- logged with ... -->" comment, also only written by the ground station
 };
@@ -615,6 +618,14 @@ bool nps_message(std::string_view name)
 }
 
 // Read aircraft names, configuration and start time from the .log file
+// sd2log names a log *_no_GPS[.data] when it found no GPS date and used the time of the conversion instead
+bool is_conversion_time_name(const std::string &name)
+{
+  const size_t slash = name.find_last_of("/\\");
+  const std::string base = slash == std::string::npos ? name : name.substr(slash + 1);
+  return base.find("_no_GPS") != std::string::npos;
+}
+
 LogHeader read_log_header(const std::string &log_file)
 {
   LogHeader h;
@@ -629,11 +640,13 @@ LogHeader read_log_header(const std::string &log_file)
   while (std::getline(f, line)) {
     size_t ind = line.find_first_not_of(' ');
     if (ind == std::string::npos) { continue; }
-    if (h.start_epoch < 0) {
+    if (h.start_epoch < 0 && h.conversion_epoch < 0) {
       const std::string timestamp = xml_attr(line, 0, "time_of_day");
       if (!timestamp.empty()) {
         const double epoch = atof(timestamp.c_str());
-        if (std::isfinite(epoch)) { h.start_epoch = epoch; }
+        if (std::isfinite(epoch)) {
+          (is_conversion_time_name(xml_attr(line, 0, "data_file")) ? h.conversion_epoch : h.start_epoch) = epoch;
+        }
       }
     }
     const char *l = line.c_str() + ind;
@@ -1261,7 +1274,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.13.0";
+constexpr const char *PARSER_VERSION = "1.14.0";
 
 struct GpsClock {
   size_t count = 0;
@@ -1349,10 +1362,11 @@ ClockDecision choose_clock(double companion, const std::map<int, GpsClock> &cloc
 }
 
 std::string timing_evidence(const ClockDecision &clock, double companion,
-                            const std::map<int, GpsClock> &clocks)
+                            const std::map<int, GpsClock> &clocks, bool conversion_time = false)
 {
   std::set<std::string> reasons;
-  if (companion < 0) { reasons.insert("header_missing"); }
+  if (conversion_time) { reasons.insert("header_conversion_time"); }
+  else if (companion < 0) { reasons.insert("header_missing"); }
   else if (companion < 631152000 || companion > std::time(nullptr) + 86400.0) {
     reasons.insert("header_implausible");
   }
@@ -1651,7 +1665,11 @@ int main(int argc, char *argv[])
     std::cerr << " - Cannot open LOG file " << log_file << "\n";
     return 1;
   }
-  const LogHeader hdr = read_log_header(log_file);
+  LogHeader hdr = read_log_header(log_file);
+  if (hdr.start_epoch >= 0 && is_conversion_time_name(data_file)) {  // header without data_file, renamed .log
+    hdr.conversion_epoch = hdr.start_epoch;
+    hdr.start_epoch = -1;
+  }
   enum { FP_PHI, FP_THETA, FP_PSI };
   const MsgFields fp_f = resolve_fields(hdr, "ROTORCRAFT_FP", {"phi", "theta", "psi"});
   enum { NAV_BLOCK, NAV_STAGE };
@@ -2475,7 +2493,11 @@ int main(int argc, char *argv[])
     std::cerr << " - aircraft " << entry.first << ": ignored " << entry.second
               << " navigation positions without a recent GPS-validated UTM reference or plausible movement\n";
   }
-  const ClockDecision clock = choose_clock(hdr.start_epoch, gps_clocks);
+  ClockDecision clock = choose_clock(hdr.start_epoch, gps_clocks);
+  if (hdr.conversion_epoch >= 0 && clock.start < 0) {
+    clock.warning = "Converted by sd2log without a GPS date (*_no_GPS): the time in the .log header is when the log "
+                    "was converted, not when it was recorded, so the date is unknown.";
+  }
   auto utc = [&](double t) { return utc_iso(clock.start < 0 ? -1 : clock.start + t); };
   const double t0 = first_time < 0 ? 0 : first_time;
 
@@ -2546,7 +2568,7 @@ int main(int argc, char *argv[])
       log_type = "gcs"; type_basis = ".log header";
     } else if (ground_msgs > 0) {
       log_type = "gcs"; type_basis = "ground-only messages";
-    } else if (hdr.start_epoch >= 0 || !hdr.default_name.empty()) {
+    } else if (hdr.start_epoch >= 0 || hdr.conversion_epoch >= 0 || !hdr.default_name.empty()) {
       log_type = "onboard_sd"; type_basis = ".log header";
     }
   }
@@ -2566,7 +2588,7 @@ int main(int argc, char *argv[])
     << ", \"effective_start_utc\": " << utc(0)
     << ", \"correction_s\": " << (hdr.start_epoch < 0 || clock.start < 0 ? "null" : num(clock.start - hdr.start_epoch))
     << ", \"warning\": " << json_escape(clock.warning)
-    << timing_evidence(clock, hdr.start_epoch, gps_clocks)
+    << timing_evidence(clock, hdr.start_epoch, gps_clocks, hdr.conversion_epoch >= 0)
     << ", \"firmware\": [";
   bool first_firmware = true;
   for (const auto &entry : acs) {

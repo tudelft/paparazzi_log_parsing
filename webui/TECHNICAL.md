@@ -378,6 +378,15 @@ scope as **Re-parse outdated**, not the displayed page or date filters. Reposito
 do not mark logs outdated. Cached misses/errors still respect their retry delays when configuration
 has not changed. No bulk reparse is started automatically.
 
+**sd2log without a GPS date (parser 1.14.0).** When sd2log finds no GPS fix in an SD log (e.g. indoor), it writes
+the time of the *conversion* as `time_of_day` in the `.log` header and names the log `…_no_GPS…`. That time says
+nothing about the flight, so the parser does not use it: such a log (by the header's `data_file` or the file name)
+gets no start time (`timing.source` `unknown`, reason `header_conversion_time`, a warning) and counts as date
+unknown, so the date suggestions below or a date set by hand apply; it stays an onboard log. The date in a
+`_no_GPS` file name is not used as a suggestion either (a folder name still is). Logs parsed before are re-parsed
+once at startup when parser 1.14.0 or newer is installed (`requeue_no_gps_logs`, recorded in `data_migrations`),
+so not every log the version change marks outdated.
+
 **Dates from a matching ground station log.** An onboard log whose clock was never set (date before 1990,
 no date entered) usually keeps the right time of day. The same check runs for logs whose date is only
 estimated from firmware: estimated dates never merge with other recordings, so a matching GCS log confirms
