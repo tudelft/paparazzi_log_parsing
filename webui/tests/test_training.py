@@ -687,3 +687,23 @@ class ScoreTests(unittest.TestCase):
         earned, total = training.score_answers(
             [{"id": 10, "kind": "single", "points": 2}], {10: choices}, {10: 1})
         self.assertEqual((earned, total), (2, 2))
+
+
+class AccessRoleConditionTests(unittest.TestCase):
+    TEXT = ("Please add {name} to:\n{if role: PhD Student, PostDoc, Staff}\n  **062 Employee**\n"
+            "{elif role: Extern}\n  Guest\n{else}\n  **061 Student**\n{end}\nThanks")
+
+    def fill(self, role):
+        values = {key: "-" for key in training.PLACEHOLDERS}
+        values.update({"{name}": "Jan", "{role}": role})
+        return training.fill_access(self.TEXT, values)
+
+    def test_part_per_role(self):
+        self.assertEqual(self.fill("phd student"), "Please add Jan to:\n  **062 Employee**\nThanks")
+        self.assertEqual(self.fill("Extern"), "Please add Jan to:\n  Guest\nThanks")
+        self.assertEqual(self.fill("-"), "Please add Jan to:\n  **061 Student**\nThanks")
+
+    def test_unbalanced_conditions_refused(self):
+        for text in ("{if role: Staff}\na", "{else}\na\n{end}", "{if role: A}\n{if role: B}\n{end}", "{if role:}\n{end}"):
+            with self.assertRaises(training.TrainingError):
+                training.access_fields({"access_mail_to": "a@example.org", "access_mail_text": text})
