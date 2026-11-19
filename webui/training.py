@@ -1409,6 +1409,22 @@ def register(app, connection, root, require_session):
             (image_dir() / row["image_path"]).unlink(missing_ok=True)
         return jsonify(ok=True)
 
+    @app.put("/api/admin/trainings/order")
+    def training_order():
+        """The order of the training list (everyone sees the same order); every training exactly once."""
+        admin()
+        ids = (request.get_json(silent=True) or {}).get("training_ids")
+        if not isinstance(ids, list) or any(type(i) is not int for i in ids):
+            raise TrainingError("training_ids must be a list of training ids.")
+        cid = con()
+        with db.write_lock, cid:
+            cid.execute("BEGIN IMMEDIATE")
+            existing = {r[0] for r in cid.execute("SELECT id FROM trainings")}
+            if len(ids) != len(existing) or set(ids) != existing:
+                raise TrainingError("Give every training exactly once (reload the page if someone added one).")
+            cid.executemany("UPDATE trainings SET sort_order=? WHERE id=?", [(i, tid) for i, tid in enumerate(ids, 1)])
+        return jsonify(ok=True)
+
     @app.put("/api/admin/trainings/<int:training_id>/question-order")
     def order_questions(training_id):
         """Set the order of a training's questions: {"question_ids": [...]} with every question once."""

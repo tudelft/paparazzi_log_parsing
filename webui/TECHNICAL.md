@@ -1146,6 +1146,8 @@ edited on the right and saved on its own) and **Passes**. The admin's own pass i
 while that qualification is valid, so its expiry (or a reset) reopens the training. Without a qualification the field
 is disabled and a pass does not expire. Questions
 are reordered by dragging their handle (or the arrow keys on it; `PUT /api/admin/trainings/<id>/question-order`).
+The training list is ordered the same way in Edit mode (the handle on each card, not while searching; `PUT
+/api/admin/trainings/order` with every training once); everyone sees that order.
 Answer options are shuffled per attempt. A training may also **shuffle the questions** and draw a number of
 **questions per attempt** at random (`shuffle_questions`, `question_count`); the attempt (questions, their order
 and the answer order) is kept in `training_progress.draw_json` until it is submitted, so Previous/Next and a reload
