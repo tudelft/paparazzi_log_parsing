@@ -486,3 +486,16 @@ dialog.media-viewer[open] { display:flex; flex-direction:column; }
 .media-viewer .mv-nav:hover { background:rgba(255,255,255,.16); }
 .media-viewer .mv-prev { left:6px; } .media-viewer .mv-next { right:6px; }
 @media (max-width: 600px) { .media-viewer .mv-stage { padding:0 4px 8px; } .media-viewer .mv-nav { top:auto; bottom:12px; transform:none; } .media-viewer .mv-bar { flex-wrap:wrap; } }
+/* theme.js fits the header: compact when the menu would scroll, the menu on its own row when even that does not fit */
+body > header.header-compact .site-brand, body > header.header-compact h1:not(.sr-only) { flex-basis:7em; width:7em; min-width:7em; }
+body > header.header-compact #nav a, body > header.header-compact #nav .nav-drop { padding-left:8px; padding-right:8px; }
+body > header.header-compact #uploadBtn .upload-label, body > header.header-compact #downloadBtn .upload-label,
+body > header.header-compact #downloadBtn small, body > header.header-compact #flightFiltersButton .filter-label { display:none; }
+body > header.header-compact #flightFiltersButton { padding:6px 8px; }
+body > header.header-wrap { flex-wrap:wrap; gap:8px; padding-top:10px; padding-bottom:0; }
+body > header.header-wrap #nav { order:3; flex-basis:100%; }
+body > header.header-wrap #nav a, body > header.header-wrap #nav .nav-drop { padding-top:8px; padding-bottom:8px; }
+body > header.header-wrap #flightFiltersMenu { order:1; margin-left:auto; }
+body > header.header-wrap > .meta:not(#nav) { order:2; }
+body > header.header-wrap > .meta:not(#nav):last-child { margin-left:auto; }
+body > header.header-wrap #flightFiltersMenu ~ .meta:not(#nav) { margin-left:0 !important; }

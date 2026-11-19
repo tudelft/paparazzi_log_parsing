@@ -1010,3 +1010,31 @@ window.profileHTML = function (p) {
   rows.push(['Last confirmed', `<span class="mute">${esc((p.updated_at || '').slice(0, 10))}</span>`]);
   return rows.map(([k, v]) => `<span class="mute">${k}</span><span>${v}</span>`).join('');
 };
+
+// Fit the header to the window: when the menu would have to scroll (it hides items such as Directory), first make the
+// header compact (shorter site name, icon-only filter/Download/Upload), and if that is not enough give the menu its own
+// row. Measured, not fixed breakpoints, because the menu depends on the features that are on and on the user.
+function fitHeader() {
+  const header = document.querySelector('body > header');
+  if (!header) return;
+  const fits = () => {
+    const nav = document.getElementById('nav');
+    return (!nav || nav.scrollWidth <= nav.clientWidth + 1) && header.scrollWidth <= header.clientWidth + 1;
+  };
+  let queued = false;
+  function fit() {
+    queued = false;
+    header.classList.remove('header-compact', 'header-wrap');
+    if (fits()) return;
+    header.classList.add('header-compact');
+    if (!fits()) header.classList.add('header-wrap');
+  }
+  const later = () => { if (!queued) { queued = true; requestAnimationFrame(fit); } };
+  window.addEventListener('resize', later);
+  // the menu, buttons and user name arrive after /api/me; watch for them (not for our own class changes)
+  new MutationObserver(later).observe(header, {childList: true, subtree: true, characterData: true});
+  if (document.fonts) document.fonts.ready.then(later);
+  later();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fitHeader);
+else fitHeader();
