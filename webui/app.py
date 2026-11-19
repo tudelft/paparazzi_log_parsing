@@ -327,6 +327,20 @@ def worker():
             jobs.task_done()
 
 
+def version_tuple(text):
+    return tuple(int(part) for part in re.findall(r"\d+", text or "")[:3])
+
+
+def requeue_no_gps_logs(con):
+    """Once, with parser 1.14.0 or newer installed: re-parse the logs sd2log named *_no_GPS. Older parsers took the
+    time of the conversion in their .log header as the flight time; now they get no date, so the date suggestions
+    (or a date set by hand) apply. Only these logs, not every log the version change marks outdated."""
+    if version_tuple(parser_version()) < (1, 14, 0):
+        return 0
+    return db.run_once(con, "reparse_no_gps_logs", "UPDATE logs SET status='queued'"
+                       " WHERE status='done' AND instr(name, '_no_GPS') > 0")
+
+
 def start_workers():
     global HAVE_PATH_GZ
     STORAGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -345,6 +359,7 @@ def start_workers():
     links.auto_link(con, now())
     if merged := attachments.merge_duplicates(con, STORAGE_DIR):
         app.logger.warning("merged %d duplicate attachment(s)", merged)
+    requeue_no_gps_logs(con)
     con.execute("UPDATE logs SET status='queued' WHERE status IN ('queued', 'parsing')")
     con.execute("UPDATE ingest SET status='accepted' WHERE status='hashing'")
     con.commit()

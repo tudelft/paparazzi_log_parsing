@@ -68,6 +68,8 @@ def date_in_name(name, undated):
     """(YYYY-MM-DD, the part of the path it was read from) for the first plausible date in the file name, then in
     the folders from the deepest up; None if there is none."""
     parts = [p for p in re.split(r"[\\/]", name or "") if p]
+    if parts and "_no_GPS" in parts[-1]:
+        parts.pop()  # sd2log without a GPS date names the log after the time of the conversion, not of the flight
     for part in reversed(parts):
         for pattern, century in ((_YMD, ""), (_YY_MM_DD, "20")):
             # Paparazzi names are YY_MM_DD__HH_MM_SS: only the first short group is a date, the time after it is not
