@@ -9,8 +9,8 @@ tests and API/storage architecture, use the [technical guide](TECHNICAL.md).
 Upload flight logs and browse flights, crew, projects, aircraft and locations in one logbook.
 All pages require sign-in; the records you can see depend on your access. Where TU Delft sign-in is set up, the
 sign-in page shows only that; **Sign in with a local account** opens the username/password form (`/login?local=1`).
-The home page (`/`) opens the logbook. The menu has Logbook, Agenda and Training (when enabled) and
-**Directory ▾** (People, Aircraft, Projects, Locations, then Logs and Statistics). **⬇ Download logs** at the top right shows how to fetch logs from Python or MATLAB, **⬆ Upload** opens the upload dialog; your
+After signing in you land on **Home**; the logbook stays at `/`. The menu has Home, Logbook, Agenda, Training and
+Safety (when enabled) and **Directory ▾** (People, Aircraft, Projects, Locations, Documents, then Logs and Statistics). **⬇ Download logs** at the top right shows how to fetch logs from Python or MATLAB, **⬆ Upload** opens the upload dialog; your
 name opens My account, Night mode and Sign out. Existing `/logbook` links still work.
 
 ## Everyday use
