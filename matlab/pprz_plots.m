@@ -2,6 +2,12 @@ function list = pprz_plots()
 %PPRZ_PLOTS The plots pprz_plot and pprz_view offer, as a struct array with
 %   name (for pprz_plot), group, title, needs (messages; any one is enough) and fn (called as fn(f.data, f)).
 %   Add a plot by writing plotters/plot_xxx.m and a line here.
+%   The plotters/ folder next to this file is put on the path when it is not, so pprz_plot and pprz_view work
+%   whether or not the path was set with addpath(genpath(...)).
+    plotters = fullfile(fileparts(mfilename('fullpath')), 'plotters');
+    if ~any(strcmp(plotters, strsplit(path, pathsep)))
+        addpath(plotters);
+    end
     p = @(name, group, title, needs, fn) struct('name', name, 'group', group, 'title', title, ...
         'needs', {needs}, 'fn', fn);
     list = [

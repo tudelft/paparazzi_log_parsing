@@ -3,12 +3,15 @@ function failures = check_message_versions()
 %   failures = check_message_versions()   in MATLAB or Octave (octave-cli --eval check_message_versions)
 %   Logs from every pprzlink version are analysed side by side, so a plot must work whether a message is in its
 %   old form, its new form or missing. Drawing functions are replaced by stand-ins (tests/stubs) that check what
-%   is passed and draw nothing, so this runs without a display. Add the old and new form here when a message changes.
+%   is passed and draw nothing, so this runs without a display. The stand-ins are written to a temporary folder for
+%   the run only and the path is restored afterwards. Add the old and new form here when a message changes.
     here = fileparts(mfilename('fullpath'));
     root = fileparts(here);
-    added = {root, fullfile(root, 'plotters'), fullfile(here, 'stubs')};
-    addpath(added{:});  % stubs last added, so first on the path
-    cleanup = onCleanup(@() rmpath(added{:}));
+    saved = path;
+    stubs = write_stubs();  % in a temporary folder: never on the path outside this test (genpath('matlab'))
+    cleanup = onCleanup(@() restore(saved, stubs));
+    addpath(root, fullfile(root, 'plotters'));
+    addpath(stubs);  % first on the path, before MATLAB's own plot, figure, ...
     global PPRZ_TEST_LINES %#ok<GVMIS>
     failures = 0;
     n = 50;
@@ -138,4 +141,195 @@ function esc_fields(old, new, n)
     assert(numel(e.t) == n && all(e.rpm == 1000));
     s = pprz.servo(old);
     assert(isempty(s.t));
+end
+
+function folder = write_stubs()
+    % Drawing stand-ins: check what a plotter passes (record_line), draw nothing.
+    files.axis = {
+        'function varargout = axis(varargin)'
+        '%AXIS Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.caxis = {
+        'function varargout = caxis(varargin)'
+        '%CAXIS Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.clim = {
+        'function varargout = clim(varargin)'
+        '%CLIM Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.close = {
+        'function varargout = close(varargin)'
+        '%CLOSE Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.colorbar = {
+        'function varargout = colorbar(varargin)'
+        '%COLORBAR Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.colormap = {
+        'function varargout = colormap(varargin)'
+        '%COLORMAP Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.figure = {
+        'function varargout = figure(varargin)'
+        '%FIGURE Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.gobjects = {
+        'function g = gobjects(varargin)'
+        '%GOBJECTS Test stand-in (Octave has none).'
+        '    g = zeros(varargin{:});'
+        'end'
+        };
+    files.grid = {
+        'function varargout = grid(varargin)'
+        '%GRID Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.hold = {
+        'function varargout = hold(varargin)'
+        '%HOLD Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.imagesc = {
+        'function varargout = imagesc(varargin)'
+        '%IMAGESC Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.legend = {
+        'function varargout = legend(varargin)'
+        '%LEGEND Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.linkaxes = {
+        'function varargout = linkaxes(varargin)'
+        '%LINKAXES Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.parula = {
+        'function c = parula(n)'
+        '%PARULA Test stand-in (Octave has none).'
+        '    if nargin < 1'
+        '        n = 64;'
+        '    end'
+        '    c = zeros(n, 3);'
+        'end'
+        };
+    files.plot = {
+        'function h = plot(varargin)'
+        '%PLOT Test stand-in (tests/check_message_versions): checks the series a plotter passes, draws nothing.'
+        '    h = record_line(''plot'', varargin{:});'
+        'end'
+        };
+    files.record_line = {
+        'function h = record_line(fn, ax, x, y, varargin)'
+        '%RECORD_LINE Test stand-in helper: check one line (fn(ax, t, values, ...)) and remember its name.'
+        '    global PPRZ_TEST_LINES'
+        '    if nargin < 4 || ischar(y)'
+        '        error(''%s: expected %s(ax, t, values, ...)'', fn, fn);'
+        '    end'
+        '    if ~(isnumeric(y) || islogical(y))'
+        '        error(''%s: values are %s'', fn, class(y));'
+        '    end'
+        '    if numel(x) ~= size(y, 1) && numel(x) ~= numel(y)'
+        '        error(''%s: %d times but %d values'', fn, numel(x), numel(y));'
+        '    end'
+        '    name = ''-'';'
+        '    k = find(strcmp(varargin, ''DisplayName''), 1);'
+        '    if ~isempty(k)'
+        '        name = varargin{k + 1};'
+        '    end'
+        '    PPRZ_TEST_LINES{end + 1} = name;'
+        '    h = 1;'
+        'end'
+        };
+    files.semilogy = {
+        'function h = semilogy(varargin)'
+        '%SEMILOGY Test stand-in (tests/check_message_versions): checks the series a plotter passes, draws nothing.'
+        '    h = record_line(''semilogy'', varargin{:});'
+        'end'
+        };
+    files.set = {
+        'function varargout = set(varargin)'
+        '%SET Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.stairs = {
+        'function h = stairs(varargin)'
+        '%STAIRS Test stand-in (tests/check_message_versions): checks the series a plotter passes, draws nothing.'
+        '    h = record_line(''stairs'', varargin{:});'
+        'end'
+        };
+    files.subplot = {
+        'function ax = subplot(varargin)'
+        '%SUBPLOT Test stand-in: an axes number, draws nothing.'
+        '    ax = varargin{end}(1);'
+        'end'
+        };
+    files.tiledlayout = {
+        'function varargout = tiledlayout(varargin) %#ok<STOUT>'
+        '%TILEDLAYOUT Test stand-in: fail, so pprz.tiles uses subplot.'
+        '    error(''no tiledlayout in the tests'');'
+        'end'
+        };
+    files.title = {
+        'function varargout = title(varargin)'
+        '%TITLE Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.xlabel = {
+        'function varargout = xlabel(varargin)'
+        '%XLABEL Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.xlim = {
+        'function varargout = xlim(varargin)'
+        '%XLIM Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.ylabel = {
+        'function varargout = ylabel(varargin)'
+        '%YLABEL Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.ylim = {
+        'function varargout = ylim(varargin)'
+        '%YLIM Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    folder = tempname;
+    mkdir(folder);
+    for name = fieldnames(files)'
+        fid = fopen(fullfile(folder, [name{1} '.m']), 'w');
+        fprintf(fid, '%s\n', files.(name{1}){:});
+        fclose(fid);
+    end
+end
+
+function restore(saved, stubs)
+    path(saved);
+    rmdir(stubs, 's');
 end

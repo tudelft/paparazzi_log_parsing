@@ -130,7 +130,8 @@ became `ESC_TELEMETRY`, `INS_EKF2_EXT` swapped its vibration metrics for EKF sta
 per sensor). So: check fields with `isfield` before use and leave out panels without data; read a replaced message
 through one helper that gives the same fields for both versions (`pprz.esc`); register a plot with every message
 name that can feed it (`needs` in `pprz_plots.m`). `tests/check_message_versions.m` runs the plotters on synthetic
-old- and new-format messages without drawing (MATLAB: `check_message_versions` in `tests/`; Octave:
+old- and new-format messages without drawing (stand-ins in a temporary folder for the run only, the path is
+restored; MATLAB: `check_message_versions` in `tests/`; Octave:
 `octave-cli --eval check_message_versions` there); extend it when a message changes.
 
 Analysis scripts in `tools/` (altitude tuning, airspeed sensor scale, takeoff distance, servo model,
