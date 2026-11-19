@@ -56,6 +56,10 @@
   <div id="err"></div>
   <nav class="page-tabs" id="accountTabs" aria-label="My account"></nav>
   <section class="card" data-pane="account"><div class="kv" id="info"></div></section>
+  <section class="card" id="homeCard" data-pane="account" hidden>
+    <div style="display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap"><h2 style="margin:0">Home page</h2>
+      <label>Weather location <select id="homePlace"></select></label><span class="mute" id="homeSaved" role="status"></span></div>
+  </section>
   <section class="card" id="profileCard" data-pane="profile" hidden>
     <div style="display:flex;align-items:baseline;gap:12px"><h2>My profile</h2><a href="/profile" style="margin-left:auto">Edit</a></div>
     <div class="kv" id="profile"></div>
@@ -211,7 +215,25 @@ $('passwordForm').onsubmit = async ev => {
   } catch (e) { $('passwordStatus').textContent = e.message; }
   finally { button.disabled = false; }
 };
+// The Home page's weather place: one of the outdoor places on your flights; "Most flown" follows where you fly.
+async function loadHomePlace() {
+  const d = await api('/api/home');
+  $('homeCard').hidden = !d.places.length;
+  const most = d.places[0];
+  $('homePlace').innerHTML = `<option value="">Most flown${most ? ' (now ' + esc(most.name) + ')' : ''}</option>`
+    + d.places.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  $('homePlace').value = d.place_saved == null ? '' : String(d.place_saved);
+}
+$('homePlace').onchange = async () => {
+  $('homeSaved').textContent = '';
+  try {
+    await api('/api/account/home', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({place_id: $('homePlace').value ? +$('homePlace').value : null})});
+    $('homeSaved').textContent = 'Saved';
+  } catch (e) { $('homeSaved').textContent = e.message; }
+};
 api('/api/me').then(d => {
+  loadHomePlace().catch(() => {});
   new QualificationManager($('myQualifications'), d.user.id, false).load();
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   isAdmin = !!d.user.is_admin;

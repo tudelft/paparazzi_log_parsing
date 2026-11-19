@@ -142,13 +142,16 @@ class SamlPassiveTests(unittest.TestCase):
     def test_relay_state_cannot_redirect_elsewhere(self):
         for relay in ("passive://evil.example", "//evil.example", "https://evil.example"):
             with self.subTest(relay=relay):
-                self.assertEqual(self.location(self.client.post("/saml/acs", data={"RelayState": relay})), "/")
+                self.assertEqual(self.location(self.client.post("/saml/acs", data={"RelayState": relay})), "/home")
 
     def test_failed_start_of_silent_check_shows_the_page(self):
         self.start_fails = True
         with self.assertLogs(self.app.logger, "ERROR"):
+            loc = self.location(self.client.get("/login/tudelft?passive=1"))
+        self.assertEqual(loc, "/login?sso=none")  # no page to return to: the Home page after signing in
+        with self.assertLogs(self.app.logger, "ERROR"):
             loc = self.location(self.client.get("/login/tudelft?passive=1&next=/"))
-        self.assertEqual(loc, "/login?sso=none")
+        self.assertEqual(loc, "/login?sso=none&next=%2F")  # the logbook, e.g. from the Operations Manual
 
     def test_sign_out_is_not_undone_by_a_silent_check(self):
         with self.client.session_transaction() as s:

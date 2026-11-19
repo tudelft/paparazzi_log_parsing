@@ -76,6 +76,8 @@ SETTINGS = {
                                   "in display order; files keep a category removed from this list"),
         "OFFICE": ("auto", "LibreOffice binary that converts .docx attachments to PDF for viewing in the browser: "
                            "'auto' uses soffice from PATH if installed, 'off' disables, or a full path"),
+        "FFMPEG": ("auto", "ffmpeg binary that makes thumbnails of image and video attachments for the Home page: "
+                           "'auto' uses ffmpeg from PATH if installed, 'off' disables, or a full path"),
         "BULK_MAX_PENDING": ("8", "Global job budget for cooperating bulk upload scripts"),
         "BULK_MAX_BYTES": ("17179869184", "Estimated pending byte budget for bulk uploads (16 GiB)"),
     },

@@ -148,6 +148,53 @@ def convert(source, compressed, suffix, office, target):
         return True
 
 
+# Small JPEG thumbnails of images and videos (the Home page's latest media), made by ffmpeg on first request and
+# cached per file content under WEB_DATA/thumbs; a failed attempt leaves a .none marker so it is not retried.
+THUMB_WIDTH = 360
+THUMB_TIMEOUT_S = 30
+THUMB_MAX_COMPRESSED = 200 * 2**20  # a gzip-stored file is unpacked to a temporary copy first; skip bigger ones
+_thumb_slots = threading.BoundedSemaphore(2)
+THUMBS = {"dir": None}  # set by register; prune removes the thumbnail of content that is gone
+
+
+def ffmpeg_binary(setting):
+    if setting in (None, "", "off", "0"):
+        return None
+    return shutil.which("ffmpeg") if setting == "auto" else setting
+
+
+def thumbnail(source, compressed, size_bytes, video, ffmpeg, target):
+    """Write a JPEG thumbnail of one stored image or video (a frame about 1 s in) to `target`; False on any failure.
+    ffmpeg reads only local files (no network protocols) under a timeout."""
+    with tempfile.TemporaryDirectory(prefix="logdb-thumb-") as tmp:
+        if compressed:
+            if size_bytes > THUMB_MAX_COMPRESSED:
+                return False
+            copy = Path(tmp) / "source"
+            with open(copy, "wb") as out:
+                for chunk in storage.chunks(source, compressed=True):
+                    out.write(chunk)
+            source = copy
+        result = Path(tmp) / "thumb.jpg"
+        for seek in (["-ss", "1"], []) if video else ([],):
+            try:
+                subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-protocol_whitelist", "file", *seek,
+                                "-i", str(source), "-frames:v", "1", "-an",
+                                "-vf", f"scale='min({THUMB_WIDTH},iw)':-2", "-q:v", "5", "-f", "image2", "-y",
+                                str(result)],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=THUMB_TIMEOUT_S, check=True)
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if result.is_file() and result.stat().st_size > 0:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                staged = target.with_name(f".{uuid.uuid4().hex}.tmp")
+                shutil.copyfile(result, staged)
+                os.replace(staged, target)
+                return True
+        return False
+
+
 ADD_ROLES = ("add", "edit", "full", "manager")  # project roles that may add files ("Upload"); removing needs full/manager
 
 
@@ -311,6 +358,9 @@ def prune(con, root):
             con.execute("DELETE FROM attachments WHERE id=?", (row["id"],))
             if not con.execute("SELECT 1 FROM attachments WHERE sha256=?", (row["sha256"],)).fetchone():
                 (root / PREVIEWS / f"{row['sha256']}.pdf").unlink(missing_ok=True)
+                if THUMBS["dir"] is not None:
+                    for suffix in (".jpg", ".none"):
+                        (THUMBS["dir"] / f"{row['sha256']}{suffix}").unlink(missing_ok=True)
 
 
 def snapshot(con, log_id):
@@ -330,9 +380,12 @@ def restore(con, log_id, saved):
 
 
 def register(app, connection, root, require_session, timestamp, max_bytes, office=None, categories=None,
-             same_day=None, flights_on=None):
+             same_day=None, flights_on=None, thumbs=None, ffmpeg=None):
     root = Path(root)
     app.config["ATTACHMENT_OFFICE"] = office_binary(office)
+    app.config["ATTACHMENT_FFMPEG"] = ffmpeg_binary(ffmpeg)
+    app.config["ATTACHMENT_THUMBS"] = Path(thumbs) if thumbs else None
+    THUMBS["dir"] = app.config["ATTACHMENT_THUMBS"]
     app.config["ATTACHMENT_CATEGORIES"] = list(categories or DEFAULT_CATEGORIES)
     if max_bytes <= 0:
         raise ValueError("LOGDB_ATTACHMENT_MAX_BYTES must be positive")
@@ -659,6 +712,31 @@ def register(app, connection, root, require_session, timestamp, max_bytes, offic
     @app.get("/api/attachments/<int:attachment_id>/view")
     def view_attachment(attachment_id):
         return send(attachment_id, inline=True)
+
+    @app.get("/api/attachments/<int:attachment_id>/thumb")
+    def thumb_attachment(attachment_id):
+        """A small JPEG of an image or video the user may see; 404 when there is none (other types, ffmpeg off or
+        missing, or the file could not be read), so the page shows a plain tile instead."""
+        row, _ = visible(connection(), g.user, attachment_id)
+        kind = (view_type(row["filename"]) or "").split("/")[0]
+        ffmpeg, folder = app.config["ATTACHMENT_FFMPEG"], app.config["ATTACHMENT_THUMBS"]
+        if kind not in ("image", "video") or not ffmpeg or folder is None:
+            raise Error("No thumbnail for this file.", 404)
+        thumb, failed = folder / f"{row['sha256']}.jpg", folder / f"{row['sha256']}.none"
+        if not thumb.is_file():
+            path = root / row["path"]
+            if failed.is_file() or storage.stored_file_problem(path):
+                raise Error("No thumbnail for this file.", 404)
+            with _thumb_slots:
+                if not thumb.is_file() and not thumbnail(path, row["compressed"], row["size_bytes"], kind == "video",
+                                                         ffmpeg, thumb):
+                    folder.mkdir(parents=True, exist_ok=True)
+                    failed.touch()
+                    raise Error("No thumbnail for this file.", 404)
+        response = send_file(thumb, mimetype="image/jpeg", conditional=True)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Cache-Control"] = "private, max-age=86400"
+        return response
 
     @app.post("/api/attachments/<int:attachment_id>/links")
     def share_attachment(attachment_id):

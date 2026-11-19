@@ -107,3 +107,69 @@ def lookup(con, entry, fetch=False):
         return result
     finally:
         _lock.release()
+
+
+# Forecast for the Home page: the next hours at one place, cached in memory per rounded position.
+FORECAST_FIELDS = {
+    "temperature_2m": "temperature_c",
+    "precipitation": "precipitation_mm",
+    "cloud_cover": "cloud_cover_percent",
+    "wind_speed_10m": "wind_speed_ms",
+    "wind_direction_10m": "wind_from_deg",
+    "wind_gusts_10m": "wind_gusts_ms",
+    "weather_code": "weather_code",
+}
+FORECAST_TTL_S = 30 * 60
+FORECAST_HOURS = 8
+_forecast_lock = threading.Lock()
+_forecasts = {}  # "lat,lon" -> (fetched monotonic, result)
+
+
+def _number(value):
+    return value is None or (not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value))
+
+
+def forecast(lat, lon, now=None):
+    """{timezone, fetched_at, hours: [{time (local), <FORECAST_FIELDS labels>}]} for the next FORECAST_HOURS
+    hours from Open-Meteo, the same provider as the historical weather. Cached for FORECAST_TTL_S."""
+    if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (lat, lon)) \
+            or not -90 <= lat <= 90 or not -180 <= lon <= 180:
+        raise WeatherError("The place has no valid position.", 400)
+    key = f"{lat:.2f},{lon:.2f}"
+    with _forecast_lock:
+        hit = _forecasts.get(key)
+        if hit and time.monotonic() - hit[0] < FORECAST_TTL_S:
+            return hit[1]
+        params = urlencode({
+            "latitude": f"{lat:.4f}", "longitude": f"{lon:.4f}", "hourly": ",".join(FORECAST_FIELDS),
+            "timezone": "auto", "wind_speed_unit": "ms", "forecast_days": 2,
+        })
+        try:
+            with urlopen("https://api.open-meteo.com/v1/forecast?" + params, timeout=15) as response:
+                raw = response.read(1_000_001)
+            if len(raw) > 1_000_000:
+                raise WeatherError("Weather service returned an oversized response.")
+            data = json.loads(raw)
+        except HTTPError as exc:
+            raise WeatherError(f"Weather service returned HTTP {exc.code}. Please try again later.") from exc
+        except (URLError, TimeoutError, OSError) as exc:
+            raise WeatherError("Could not reach the weather service. Please try again later.") from exc
+        except (ValueError, UnicodeError) as exc:
+            raise WeatherError("Weather service returned invalid JSON.") from exc
+        try:
+            hourly, offset = data["hourly"], int(data.get("utc_offset_seconds") or 0)
+            local_now = (now or datetime.now(timezone.utc)) + timedelta(seconds=offset)
+            current = local_now.strftime("%Y-%m-%dT%H:00")
+            start = next(i for i, t in enumerate(hourly["time"]) if t >= current)
+            hours = []
+            for i in range(start, min(start + FORECAST_HOURS, len(hourly["time"]))):
+                values = {label: hourly[field][i] for field, label in FORECAST_FIELDS.items()}
+                if not all(_number(v) for v in values.values()):
+                    raise ValueError("Invalid weather values")
+                hours.append({"time": hourly["time"][i], **values})
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError, StopIteration) as exc:
+            raise WeatherError("Weather service returned incomplete or invalid forecast data.") from exc
+        result = {"timezone": data.get("timezone"), "latitude": lat, "longitude": lon,
+                  "fetched_at": datetime.now(timezone.utc).isoformat(), "hours": hours}
+        _forecasts[key] = (time.monotonic(), result)
+        return result

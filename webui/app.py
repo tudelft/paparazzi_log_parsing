@@ -48,6 +48,7 @@ import db
 import attachments
 import branding
 import historical
+import home
 import links
 import date_suggest
 import operators
@@ -1008,7 +1009,7 @@ def require_login():
             session[SSO_CHECKED] = checked
         if request.path.startswith("/api/"):
             return jsonify(error="login required"), 401
-        if request.method == "GET" and request.path != "/":
+        if request.method == "GET":  # also "/": the Operations Manual links the logbook there, not the Home page
             return redirect("/login?" + urlencode({"next": request.full_path.rstrip("?")}))
         return redirect("/login")
     g.user = user
@@ -1029,10 +1030,11 @@ def require_login():
 
 
 def safe_next(target):
-    """A page of this site to return to after signing in; anything else (other sites, //host) goes to /."""
+    """A page of this site to return to after signing in; nothing or anything else (other sites, //host) goes to
+    the Home page (/home)."""
     target = target or ""
     if not target.startswith("/") or target.startswith("//") or "\\" in target or any(ord(c) < 32 for c in target):
-        return "/"
+        return "/home"
     return target
 
 
@@ -1046,7 +1048,7 @@ PASSIVE_RELAY = "passive:"  # RelayState prefix: the session cookie (SameSite=La
 
 def passive_fallback(target):
     """The login page after a silent check that did not sign anyone in."""
-    return "/login?" + urlencode({"sso": "none", **({"next": target} if target != "/" else {})})
+    return "/login?" + urlencode({"sso": "none", **({"next": target} if target != "/home" else {})})
 
 
 @app.get("/login")
@@ -2852,6 +2854,7 @@ def admin_delete_place(place_id):
     con = conn()
     if con.execute("SELECT 1 FROM flight_records WHERE place_id=?", (place_id,)).fetchone():
         return jsonify(error="This location has historical records. Reassign or remove those records first."), 409
+    con.execute("UPDATE users SET home_place_id=NULL WHERE home_place_id=?", (place_id,))  # also for older databases
     con.execute("DELETE FROM places WHERE id=?", (place_id,))
     con.commit()
     return jsonify(ok=True)
@@ -5825,6 +5828,90 @@ def logbook_page():
     return send_from_directory(PAGES_DIR, "logbook.html")
 
 
+@app.get("/home")
+def home_page():
+    return send_from_directory(PAGES_DIR, "home.html")
+
+
+def home_place_choices(con, rows):
+    today = datetime.now(timezone.utc).date()
+    choices = home.places(con, rows, g.user, today)
+    stored = con.execute("SELECT home_place_id FROM users WHERE id=?", (g.user["id"],)).fetchone()[0]
+    return choices, stored
+
+
+@app.get("/api/home")
+def home_data():
+    """The Home page's read model for the current user; everything comes from what they can already see (the
+    logbook rows, visible attachments, their own qualifications, logs and bookings). Trainings and admin queues
+    are read by the page from their own endpoints."""
+    con = conn()
+    today = datetime.now(timezone.utc).date()
+    rows = logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT"))
+    choices, stored = home_place_choices(con, rows)
+    where, params = list_clause("l.")
+    mine, mine_params = uploader_clause("l.")
+    undated = con.execute(
+        f"SELECT COUNT(*) FROM logs l WHERE {where} AND {mine} AND l.status='done' AND l.date_override IS NULL"
+        " AND (l.start_utc IS NULL OR l.start_utc < ?)", (*params, *mine_params, f"{CLOCK_MIN_YEAR:04d}-01-01")).fetchone()[0]
+    failed = con.execute(f"SELECT COUNT(*) FROM logs l WHERE {where} AND {mine} AND l.status='error'",
+                         (*params, *mine_params)).fetchone()[0]
+    now_local = datetime.now()  # bookings are local wall-clock times
+    on = bookings.enabled()
+    return jsonify(
+        user=dict(id=g.user["id"], display_name=g.user["display_name"] or g.user["username"],
+                  is_admin=bool(g.user["is_admin"])),
+        projects=[r["name"] for r in con.execute(
+            "SELECT p.name FROM projects p JOIN project_members m ON m.project_id=p.id WHERE m.user_id=?"
+            " ORDER BY p.name COLLATE NOCASE", (g.user["id"],))],
+        flying=home.flying(rows, g.user["id"], today),
+        recent=home.recent(rows),
+        media=home.media(con, g.user, attachments.visible),
+        qualifications=home.qualification_alerts(con, g.user["id"], today),
+        logs=dict(undated=undated, failed=failed),
+        review=len(review_queue().get_json()["cases"]),
+        bookings=dict(enabled=on, upcoming=home.upcoming_bookings(con, g.user, now_local) if on else [],
+                      today=home.bookings_today(con, g.user, now_local) if on else []),
+        places=[dict(id=p["id"], name=p["name"]) for p in choices],
+        place_id=home.default_place(choices, stored), place_saved=stored if stored in {p["id"] for p in choices} else None,
+        thumbnails=bool(app.config.get("ATTACHMENT_FFMPEG")))
+
+
+@app.get("/api/home/weather")
+def home_weather():
+    """Forecast for the next hours at a place the user can pick on the Home page (browser session only: it may
+    call the weather service)."""
+    session_required()
+    con = conn()
+    place_id = request.args.get("place", "")
+    choices, _ = home_place_choices(con, logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT")))
+    if not place_id.isdigit() or int(place_id) not in {p["id"] for p in choices}:
+        return jsonify(error="Choose one of your places."), 404
+    row = con.execute("SELECT name, shape FROM places WHERE id=?", (int(place_id),)).fetchone()
+    try:
+        lat, lon = home.place_centre(row["shape"])
+        return jsonify(place=row["name"], **weather.forecast(lat, lon))
+    except weather.WeatherError as exc:
+        return jsonify(error=str(exc)), exc.status
+    except (KeyError, IndexError, TypeError, ValueError):
+        return jsonify(error="The place has no usable position."), 400
+
+
+@app.put("/api/account/home")
+def set_home_place():
+    """The Home page's weather place for the current user; null goes back to the most-flown place."""
+    session_required()
+    con = conn()
+    value = (request.get_json(silent=True) or {}).get("place_id")
+    if value is not None:
+        choices, _ = home_place_choices(con, logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT")))
+        if type(value) is not int or value not in {p["id"] for p in choices}:
+            return jsonify(error="Choose one of your outdoor places."), 400
+    con.execute("UPDATE users SET home_place_id=? WHERE id=?", (value, g.user["id"]))
+    con.commit()
+    return jsonify(ok=True, place_id=value)
+
+
 @app.get("/stats")
 def stats_page():
     return send_from_directory(PAGES_DIR, "stats.html")
@@ -7894,7 +7981,8 @@ def delete_log(log_id):
 
 attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, env_int("ATTACHMENT_MAX_BYTES"),
                      office=env("OFFICE"), categories=parse_categories(env("ATTACHMENT_CATEGORIES")),
-                     same_day=same_day_flights, flights_on=flights_on_dates)
+                     same_day=same_day_flights, flights_on=flights_on_dates, thumbs=DATA_DIR / "thumbs",
+                     ffmpeg=env("FFMPEG"))
 qualifications.register(app, lambda: conn(), STORAGE_DIR, session_required)
 training.register(app, lambda: conn(), DATA_DIR, session_required)
 profiles.register(app, lambda: conn(), session_required, now, PAGES_DIR)

@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS users (
     default_project_id INTEGER,        -- used when a flight has no aircraft default
     is_external INTEGER NOT NULL DEFAULT 0 CHECK(is_external IN (0,1)),  -- crew from another operator; cannot sign in
     operator_id INTEGER,               -- operators.id this person flies for (external crew); NULL = our own
+    home_place_id INTEGER REFERENCES places(id) ON DELETE SET NULL,  -- Home page weather; NULL: most-flown place
     UNIQUE (provider, subject)
 );
 CREATE TABLE IF NOT EXISTS logs (
@@ -823,6 +824,8 @@ def init(path):
     ucols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
     if "default_project_id" not in ucols:
         con.execute("ALTER TABLE users ADD COLUMN default_project_id INTEGER")
+    if "home_place_id" not in ucols:  # the place of the Home page's weather; NULL: the most-flown outdoor place
+        con.execute("ALTER TABLE users ADD COLUMN home_place_id INTEGER REFERENCES places(id) ON DELETE SET NULL")
     fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
     for col in ("pic_user_id", "pac_user_id", "gcs_user_id"):
         if col not in fcols:

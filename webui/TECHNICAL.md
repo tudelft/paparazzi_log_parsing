@@ -992,6 +992,39 @@ The tests write large temporary files: if `/tmp` is small, point `TMPDIR` at an 
 space, for example `TMPDIR=/path/to/tmp python -m unittest discover -s tests -t .`.
 App tests use temporary storage and in-memory databases, without starting ingestion workers or using real logs.
 
+### Home page
+
+`/home` is the start page after signing in (`safe_next` sends a missing or foreign `next` there); `/` stays the
+Logbook for the Operations Manual, and a signed-out visit to `/` returns there after signing in (`next=/`). The menu
+lists **Home** first and the site logo links to it. The page reads `GET /api/home`, built only from what the user
+can already see: the logbook read model (flights and paper records), visible attachments (`attachments.visible`),
+their own qualifications, logs and bookings. Trainings (`/api/trainings`) and, for admins, the approval queue
+(`/api/admin/qualification-pending`) come from their own endpoints. Empty cards are hidden.
+
+- **Needs your attention:** expired training passes; own approved qualification types (not internal ones) whose newest
+  validity ends within 30 days or ended at most 60 days ago; own uploads that failed or have no date; open review cases;
+  for admins, training passes and qualifications to approve.
+- **Your flying:** real flights (no detected simulation, not judged ground/uncertain) where the user is PIC, including
+  paper records (their flight count and time): days since the last one, flights in 90 days, flights and time this year
+  (UTC dates) and flights per month for 12 months.
+- **Coming up:** the user's bookings in the next 14 days (at most 5), when `LOGDB_BOOKINGS` is on; **Booked today**
+  lists today's bookings on things the user may view.
+- **Today:** an Open-Meteo forecast (`GET /api/home/weather?place=<id>`, browser session only) for the next 8 hours at
+  the middle of a place (circle centre or polygon bounds), cached in memory per position for 30 minutes and fetched
+  only when the card asks. The places offered are outdoor places on flights the user can see (admins: all), the most
+  flown in the last 365 days first. The default is the user's choice under **My account** (`users.home_place_id`,
+  `PUT /api/account/home`, null for the most-flown place; cleared when the place is deleted), else the most flown. A
+  different place picked on the card goes into the URL (`?place=`) only. No go/no-go colours: there are no agreed limits.
+- **Recent flights:** the 5 newest real flights the user can see, linked to their flight or paper record.
+- **Latest media:** the 8 newest image and video attachments the user may see (of the newest 400), linked to their
+  flight, log or record. Thumbnails come from `GET /api/attachments/<id>/thumb` (the same access check as viewing):
+  ffmpeg (`LOGDB_FFMPEG`, default `auto`: `ffmpeg` on PATH; `off` disables) makes a JPEG up to 360 px wide on first
+  request, of a video the frame at 1 s (else the first). It reads local files only (`-protocol_whitelist file`), two at
+  a time, under a 30 s timeout; a gzip-stored file over 200 MB is skipped. Thumbnails are cached as
+  `WEB_DATA/thumbs/<sha256>.jpg` and removed with the last attachment of that content; a failure leaves
+  `<sha256>.none` so it is not retried. Without ffmpeg (or on a failure) the endpoint answers 404 and the page shows a
+  plain tile with a play icon for videos. `install.sh` installs it (a manual setup: `sudo apt install ffmpeg`).
+
 ### Interface layout
 
 Pages use a compact heading hierarchy with regular-weight supporting text. Longer instructions are
