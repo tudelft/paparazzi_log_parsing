@@ -1023,7 +1023,7 @@ their own qualifications, logs and bookings. Trainings (`/api/trainings`) and, f
   a time, under a 30 s timeout; a gzip-stored file over 200 MB is skipped. Thumbnails are cached as
   `WEB_DATA/thumbs/<sha256>.jpg` and removed with the last attachment of that content; a failure leaves
   `<sha256>.none` so it is not retried. Without ffmpeg (or on a failure) the endpoint answers 404 and the page shows a
-  plain tile with a play icon for videos. On Debian/Ubuntu: `sudo apt install --no-install-recommends ffmpeg`.
+  plain tile with a play icon for videos. `install.sh` installs it (a manual setup: `sudo apt install ffmpeg`).
 
 ### Interface layout
 

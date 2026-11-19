@@ -220,7 +220,8 @@ say "Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 PKGS=(git build-essential cmake python3 python3-venv python3-pip sqlite3 openssl ca-certificates sudo curl
-      tesseract-ocr poppler-utils zbar-tools)  # OCR and QR codes of licences (Fill numbers, Check QR codes)
+      tesseract-ocr poppler-utils zbar-tools  # OCR and QR codes of licences (Fill numbers, Check QR codes)
+      ffmpeg)  # photo and video thumbnails on the Home page
 case $PROXY in
     2|3) PKGS+=(nginx) ;;
 esac
