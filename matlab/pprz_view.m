@@ -70,8 +70,8 @@ function fig = pprz_view(logs)
     end
 
     heading(side, 'Display');
-    dg = uigridlayout(side, [3 3], 'Padding', [0 0 0 0], 'RowSpacing', 2, 'ColumnWidth', {58, 'fit', 'fit'}, ...
-        'RowHeight', {'fit', 'fit', 'fit'});
+    dg = uigridlayout(side, [4 3], 'Padding', [0 0 0 0], 'RowSpacing', 2, 'ColumnWidth', {58, 'fit', 'fit'}, ...
+        'RowHeight', {'fit', 'fit', 'fit', 'fit'});
     uilabel(dg, 'Text', 'Shading', 'FontColor', grey);
     shade = uidropdown(dg, 'Items', {'None', 'Autopilot mode', 'RC mode'}, 'ItemsData', {'none', 'ap', 'rc'}, ...
         'Tooltip', 'Shade mode regions in new plots');
@@ -85,6 +85,10 @@ function fig = pprz_view(logs)
         events(i) = uicheckbox(dg, 'Text', kinds{i, 2}, 'Value', kinds{i, 3}, ...
             'ValueChangedFcn', @(~, ~) update_markers());
     end
+    uilabel(dg, 'Text', 'Filter', 'FontColor', grey);
+    event_filter = uieditfield(dg, 'text', 'Placeholder', 'e.g. kill, ekf2', 'ValueChangedFcn', @(~, ~) update_markers(), ...
+        'Tooltip', 'Only events whose text contains one of these words (separate with commas); empty: all');
+    event_filter.Layout.Column = [2 3];
 
     plots_label = heading(side, 'Plots');
     sg = uigridlayout(side, [1 2], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', 'fit'});
@@ -412,7 +416,7 @@ function fig = pprz_view(logs)
         end
         apply_window();  % first the window, then the markers: drawn once, for the shown range
         for k = 1:numel(new)
-            pprz.markers(f, new(k), event_kinds());
+            pprz.markers(f, new(k), event_kinds(), event_filter.Value);
         end
         cursor.attach(fig);
         status.Text = sprintf('%d plot(s) added.', numel(new));
@@ -466,7 +470,7 @@ function fig = pprz_view(logs)
         flight = getappdata(tab, 'pprz_view_flight');
         delete(tab);
         if ~isempty(flight)
-            pprz.markers(flight, out, event_kinds());
+            pprz.markers(flight, out, event_kinds(), event_filter.Value);
         end
         cursor.attach(out);
         refresh_tabs();
@@ -517,7 +521,7 @@ function fig = pprz_view(logs)
         for tab = reshape(tabs.Children, 1, [])
             flight = getappdata(tab, 'pprz_view_flight');
             if ~isempty(flight)
-                pprz.markers(flight, tab, event_kinds());
+                pprz.markers(flight, tab, event_kinds(), event_filter.Value);
             end
         end
         show_values(cursor.time);
@@ -541,7 +545,7 @@ function fig = pprz_view(logs)
             v = v(contains(lower(strcat({v.plot}, ' ', {v.signal})), lower(strtrim(query))));
         end
         values.Data = [{v.plot}', {v.signal}', num2cell([v.value]')];
-        ev = pprz.events(f, event_kinds());
+        ev = pprz.events(f, event_kinds(), event_filter.Value);
         nearby = ev;
         if ~isempty(ev)
             [~, order] = sort(abs([ev.t] - t));

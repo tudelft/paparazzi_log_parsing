@@ -1,11 +1,16 @@
-function ev = events(f, kinds)
+function ev = events(f, kinds, filter)
 %EVENTS What happened during a flight, with times from takeoff (or log time for a whole log).
 %   ev = pprz.events(f)                       all kinds
 %   ev = pprz.events(f, {'mode', 'setting'})  only these kinds
+%   ev = pprz.events(f, kinds, 'kill, ekf2')  only events whose label or text contains one of these words
+%                                             (case-insensitive, separated by commas; empty: all)
 %   Kinds: 'mode' (autopilot mode changes), 'setting' (setting changes), 'checklist' (checklist items) and
 %   'message' (INFO_MSG). ev is a struct array, sorted by time, with t, kind, label (short) and text (full).
     if nargin < 2
         kinds = {'mode', 'setting', 'checklist', 'message'};
+    end
+    if nargin < 3
+        filter = '';
     end
     ev = struct('t', {}, 'kind', {}, 'label', {}, 'text', {});
     offset = 0;  % settings and checklist are in log time; flight data starts at takeoff
@@ -70,6 +75,16 @@ function ev = events(f, kinds)
             in = [ev.t] >= f.time.start_s - offset & [ev.t] <= f.time.end_s - offset;
             ev = ev(in);
         end
+    end
+    words = lower(strtrim(strsplit(char(filter), {',', ';'})));
+    words = words(~cellfun(@isempty, words));
+    if ~isempty(ev) && ~isempty(words)
+        texts = lower(strcat({ev.label}, {' '}, {ev.text}));
+        keep = false(size(ev));
+        for k = 1:numel(words)
+            keep = keep | ~cellfun(@isempty, strfind(texts, words{k}));
+        end
+        ev = ev(keep);
     end
 end
 

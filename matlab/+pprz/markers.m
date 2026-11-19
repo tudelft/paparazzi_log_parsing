@@ -1,13 +1,16 @@
-function markers(f, figs, kinds)
+function markers(f, figs, kinds, filter)
 %MARKERS Draw flight events as labelled vertical lines on every time plot of the figures.
 %   pprz.markers(f, figs)                      mode changes, setting changes, checklist items, INFO_MSG
 %   pprz.markers(f, figs, {'setting'})         only these kinds (see pprz.events); {} removes the markers
+%   pprz.markers(f, figs, kinds, 'kill, ekf2') only events containing one of these words (see pprz.events)
 %   Labels are written on the top plot of each figure; click a marker to show its full text, click it
 %   again to hide it. Calling it again replaces the markers; zooming or panning lays the labels out again.
     if nargin < 3
         ev = pprz.events(f);
-    else
+    elseif nargin < 4
         ev = pprz.events(f, kinds);
+    else
+        ev = pprz.events(f, kinds, filter);
     end
     for fig = reshape(figs, 1, [])
         old = getappdata(fig, 'pprz_event_listener');
