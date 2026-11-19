@@ -4,13 +4,15 @@ function e = telemetry_rows(m, map, names)
 %   e = pprz.telemetry_rows(m, map, names)
 %     m      the message struct (t, idx, ... as exported)
 %     map    {message field, output field; ...}
-%     names  every output field; those not in map (or not logged) are NaN
+%     names  every output field; those not in map (or not logged, including empty arrays) are NaN
 %   Gives e.t and e.id (actuator index), sorted by time then index. A value whose age is 255 (older than 2.54 s,
 %   stored converted as 2.55 s) is NaN: the actuator stopped reporting.
     t = double(m.t(:));
     idx = shape(m.idx, numel(t));
     [r, c] = find(~isnan(idx));
-    id = idx(sub2ind(size(idx), r, c));
+    r = r(:);
+    c = c(:);
+    id = reshape(idx(sub2ind(size(idx), r, c)), [], 1);
     [~, order] = sortrows([t(r), id]);
     r = r(order);
     c = c(order);
@@ -42,12 +44,12 @@ end
 
 function v = pick(M, n, r, c)
     M = shape(M, n);
-    if isempty(r)
-        v = zeros(0, 1);
+    if isempty(M) || isempty(r)
+        v = nan(size(r));
         return
     end
     if size(M, 2) < max(c)  % a shorter array than idx: missing values
         M(:, end + 1:max(c)) = NaN;
     end
-    v = M(sub2ind(size(M), r, c));
+    v = reshape(M(sub2ind(size(M), r, c)), [], 1);
 end

@@ -1,6 +1,7 @@
 function f = pprz_flight(logs, varargin)
 %PPRZ_FLIGHT One flight (or whole log) ready for plotting.
 %   f = pprz_flight(logs, n)          row n of pprz_flights(logs)
+%   f = pprz_flight(logs, 'whole')    the first aircraft's whole log with data, even if flights were detected
 %   f = pprz_flight(logs, 'number', 1234)   the flight with that logbook number (see pprz_fetch)
 %   f = pprz_flight(logs, l, a, k)    log l, aircraft a, flight k (k = 0: the aircraft's whole log)
 %   f = pprz_flight(s)                the first flight with data, else the whole log
@@ -15,6 +16,14 @@ function f = pprz_flight(logs, varargin)
             error('pprz_flight:number', 'No flight with logbook number %d in these logs', varargin{2});
         end
         [l, a, k] = deal(r.log(1), r.aircraft(1), r.flight(1));
+    elseif nargin == 2 && strcmpi(varargin{1}, 'whole')
+        T = pprz_flights(logs);
+        r = T(find(T.has_data & T.flight == 0, 1), :);
+        if isempty(r)
+            error('pprz_flight:nowholelog', ['No whole-log data in these exports. Load a whole-log export ' ...
+                'or fetch it with pprz_fetch(..., ''scope'', ''log'').']);
+        end
+        [l, a, k] = deal(r.log, r.aircraft, r.flight);
     elseif nargin == 2
         T = pprz_flights(logs);
         r = T(varargin{1}, :);

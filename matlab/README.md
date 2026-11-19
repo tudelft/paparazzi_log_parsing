@@ -72,12 +72,20 @@ helpers, analysis); run it one section at a time.
 addpath(genpath('matlab'))                      % from the repository root; +pprz is found automatically
 pprz_view                                       % pick files, a flight and plots in a window
 logs = pprz_load('selection.zip');              % a .mat, a folder or a bulk .zip
-pprz_flights(logs)                              % table of the flights
-f = pprz_flight(logs, 3);                       % row 3 of that table
+pprz_flights(logs)                              % table of the flights; flight 0 is the whole log
+f = pprz_flight(logs);                          % first flight with data; whole log if no flights
+% f = pprz_flight(logs, 'whole');               % the whole recording, even when flights were detected
+% f = pprz_flight(logs, 3);                     % or row 3 of that table
 pprz_plot(f, 'overview', 'euler', 'actuators', 'modes', 'ap')
 pprz_plot()                                     % list every plot
 plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 ```
+
+Whole-log selection requires a whole-log export (local conversions already include it; for server downloads
+use `pprz_fetch(..., 'scope', 'log')` or `pprz_fetch('log', log_number)`). It keeps every message at its original
+log time, so it also works on ground tests and calibration logs with no flights. With several logs or aircraft,
+`pprz_flight(logs, 'whole')` picks the first whole log available; `pprz_flight(logs, l, a, 0)` picks log `l`,
+aircraft `a` explicitly.
 
 | Function | Use |
 |---|---|
@@ -90,7 +98,7 @@ plot(f.data.ROTORCRAFT_FP.t, f.data.ROTORCRAFT_FP.up)
 | `pprz_upload(files)` | Upload logs (a `.data` with its `.log`); `'wait', true` returns the parsed log's `flight_ids` for `pprz_fetch`. |
 | `pprz_logbook` | Table of the logbook flights the key may see, to pick numbers for `pprz_fetch` (`'all', true` adds uncertain and ground records). |
 | `pprz_flights` | Table of all flights (row numbers for `pprz_flight`), with the logbook `number`; flight 0 is a whole-log export. |
-| `pprz_flight` | One flight ready to plot (row of `pprz_flights`, or `'number', n`): `f.data`, `f.time`, `f.summary`, `f.logbook`, `f.aircraft`, `f.messages`, `f.title`. A flight in a whole-log export is cut from the log. |
+| `pprz_flight` | One flight ready to plot (row of `pprz_flights`, or `'number', n`), or `'whole'` for the full recording: `f.data`, `f.time`, `f.summary`, `f.logbook`, `f.aircraft`, `f.messages`, `f.title`. A flight in a whole-log export is cut from the log. |
 | `pprz_plot` | Make plots by name, or every plot whose messages were logged; options `modes` (`ap`/`rc`), `range` [t0 t1], `docked`, `events` (markers: `true` or kinds such as `{'mode', 'message'}`). |
 | `pprz_view` | One window: pick a flight, the time window (a range slider applied live to every plot), shading and event markers (modes, settings, checklist, messages; a text *Filter* such as `kill, ekf2` keeps only the matching ones), then tick plots (search; only the logged ones unless *Logged only* is off, then the others greyed out): a tick opens the plot as a tab, unticking closes it, so the ticks show what is open for the selected flight; *Same plots* opens for another flight the plots of the previous one. Tabs: Undock, Save PNG, Close. Click or drag in any time plot to move a linked cursor on all of them; below the plots are the values at the cursor and the events near it (click one to jump there). Analysis buttons: 3-D replay (follows the cursor), System ID and Effectiveness; *Compare flights…* overlays the ticked plots of several flights. |
 | `pprz_compare(flights, names...)` | Overlay the same plots (by name) or signals (`'MSG.field'`) of several flights, one colour per flight. Align at takeoff (default), `'align', {'setting', name}` (first change), `{'mode', 'NAV'}` (first switch) or given times; `'range'` [t0 t1]. Also *Compare…* in `pprz_view`. |
@@ -184,7 +192,8 @@ s
 
 `data.<MSG>` holds the time `t` [s] and one column per field. A field with `alt_unit_coef` is stored converted
 (e.g. deg, double) under its own name; the logged value is `value / s.messages.<MSG>.coef(k)` in `raw_units`.
-Other types: `uint*` uint32, `int*` int32, float double, arrays N×k double padded with NaN, text cellstr. Enum
+Other types: `uint*` uint32, `int*` int32, float double, arrays N×k double padded with NaN (empty when never
+reported), text cellstr. Enum
 fields stay numeric (`s.messages.<MSG>.enums.<field>{v + 1}` names value v). `ACTUATORS` stores each actuator as its
 own column (`ACTUATORS.FRONT_MOT`) when the airframe lists as many servos, else `values` (N×k). MATLAB keywords
 get a trailing `_`. Rows that do not match the protocol are in `unparsed` and counted in `s.log.warnings`.

@@ -51,6 +51,18 @@ function failures = check_message_versions()
         'temperature', 30 * ones(n, 2), 'errors', zeros(n, 2));
     failures = failures + check('plot_servo', @() plot_servo(sv), 10);
 
+    % Unreported measurements are exported as 0-by-0 arrays, even with valid idx and position samples.
+    sv_empty = sv;
+    for fld = {'age', 'speed', 'force', 'current', 'voltage', 'temperature', 'errors'}
+        sv_empty.SERVO_TELEMETRY.(fld{1}) = [];
+    end
+    new_empty = new;
+    new_empty.ESC_TELEMETRY.current = [];
+    failures = failures + check('empty telemetry arrays', @() empty_telemetry_fields(sv_empty, new_empty, n));
+    failures = failures + check('plot_servo empty arrays', @() plot_servo(sv_empty), 2);
+    failures = failures + check('plot_servo single sample', @() plot_servo(pprz.crop(sv_empty, 0, 0)), 2);
+    failures = failures + check('plot_esc empty arrays', @() plot_esc(new_empty), 10);
+
     % INS_EKF2_EXT: vibration metrics (older) or EKF2 status (newer)
     ek.INS_EKF2 = struct('t', t, 'innov_mag', rand(n, 1), 'innov_vel', rand(n, 1));
     ekold = ek;
@@ -141,6 +153,26 @@ function esc_fields(old, new, n)
     assert(numel(e.t) == n && all(e.rpm == 1000));
     s = pprz.servo(old);
     assert(isempty(s.t));
+end
+
+function empty_telemetry_fields(sv, esc, n)
+    s = pprz.servo(sv);
+    assert(numel(s.t) == 2 * n && all(s.position == 0.1));
+    assert(isequal(s.t, repelem(sv.SERVO_TELEMETRY.t, 2)));
+    assert(isequal(s.id, repmat([4; 5], n, 1)));
+    for fld = {'speed', 'force', 'current', 'voltage', 'temperature', 'errors'}
+        assert(all(isnan(s.(fld{1}))), 'unreported values must be NaN');
+    end
+    s = pprz.servo(pprz.crop(sv, 0, 0));
+    assert(isequal(s.id, [4; 5]) && isequal(s.t, [0; 0]));
+    assert(isequal(s.position, [0.1; 0.1]));
+    assert(isequaln(s.current, [NaN; NaN]));
+    e = pprz.esc(esc);
+    assert(numel(e.t) == 3 * n && all(isnan(e.current)));
+    assert(isequal(e.rpm(e.id == 0), esc.ESC_TELEMETRY.rpm(:, 1)));
+    assert(all(isnan(e.rpm(e.id == 2))), 'stale values must still be NaN');
+    e = pprz.esc(pprz.crop(esc, 0, 0));
+    assert(isequal(e.id, [0; 1; 2]) && isnan(e.rpm(3)));
 end
 
 function folder = write_stubs()
