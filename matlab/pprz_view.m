@@ -4,9 +4,10 @@ function fig = pprz_view(logs)
 %   pprz_view(path)         a .mat file, a folder or a bulk .zip
 %   pprz_view(logs)         exports loaded with pprz_load
 %   pprz_view([1234 1240])  flights from the logbook server by number (pprz_fetch, after pprz_connect)
-%   Left: pick a flight, the time window (applied live to every plot), shading and event markers, tick plots
-%   (search; unlogged plots are greyed out) and press Plot. Plots open as tabs on the right; Undock moves one
-%   to its own figure. Click or drag in any time plot to move the cursor on all of them (arrow keys step it);
+%   Left: pick a flight, the time window (applied live to every plot), shading and event markers, and tick plots
+%   (search; unlogged plots are greyed out): a tick opens the plot as a tab on the right, unticking closes it, so
+%   the ticks show what is open for the selected flight. Same plots opens, for another flight, the plots that were
+%   open for the previous one. Undock moves a plot to its own figure. Click or drag in any time plot to move the cursor on all of them (arrow keys step it);
 %   below the plots are the values at the cursor and the events near it (click one to jump there).
 %   Analysis: 3-D replay (follows the cursor), system identification and control effectiveness.
 %   Compare flights… overlays the ticked plots of several flights (pprz_compare).
@@ -32,6 +33,8 @@ function fig = pprz_view(logs)
     f = [];
     span = [0 1];
     nearby = struct('t', {}, 'kind', {}, 'label', {}, 'text', {});
+    fkey = '';           % the selected flight (log/aircraft/flight): tabs remember theirs
+    previous = {};       % the plots open for the previously selected flight (Same plots)
     kinds = {'mode', 'Modes', true; 'setting', 'Settings', false; 'checklist', 'Checklist', false; ...
         'message', 'Messages', true};
 
@@ -67,8 +70,8 @@ function fig = pprz_view(logs)
     end
 
     heading(side, 'Display');
-    dg = uigridlayout(side, [3 3], 'Padding', [0 0 0 0], 'RowSpacing', 2, 'ColumnWidth', {58, 'fit', 'fit'}, ...
-        'RowHeight', {'fit', 'fit', 'fit'});
+    dg = uigridlayout(side, [4 3], 'Padding', [0 0 0 0], 'RowSpacing', 2, 'ColumnWidth', {58, 'fit', 'fit'}, ...
+        'RowHeight', {'fit', 'fit', 'fit', 'fit'});
     uilabel(dg, 'Text', 'Shading', 'FontColor', grey);
     shade = uidropdown(dg, 'Items', {'None', 'Autopilot mode', 'RC mode'}, 'ItemsData', {'none', 'ap', 'rc'}, ...
         'Tooltip', 'Shade mode regions in new plots');
@@ -82,14 +85,20 @@ function fig = pprz_view(logs)
         events(i) = uicheckbox(dg, 'Text', kinds{i, 2}, 'Value', kinds{i, 3}, ...
             'ValueChangedFcn', @(~, ~) update_markers());
     end
+    uilabel(dg, 'Text', 'Filter', 'FontColor', grey);
+    event_filter = uieditfield(dg, 'text', 'Placeholder', 'e.g. kill, ekf2', 'ValueChangedFcn', @(~, ~) update_markers(), ...
+        'Tooltip', 'Only events whose text contains one of these words (separate with commas); empty: all');
+    event_filter.Layout.Column = [2 3];
 
     plots_label = heading(side, 'Plots');
     sg = uigridlayout(side, [1 2], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', 'fit'});
     search = uieditfield(sg, 'text', 'Placeholder', 'Search plots…', 'ValueChangingFcn', @(~, evt) fill_tree(evt.Value));
-    logged_only = uicheckbox(sg, 'Text', 'Logged only', 'Value', false, 'ValueChangedFcn', @(~, ~) fill_tree());
-    tree = uitree(side, 'checkbox', 'CheckedNodesChangedFcn', @(~, ~) count_ticked());
+    logged_only = uicheckbox(sg, 'Text', 'Logged only', 'Value', true, 'ValueChangedFcn', @(~, ~) fill_tree(), ...
+        'Tooltip', 'Only plots whose messages are in this flight (untick to see every plot, greyed out when not logged)');
+    tree = uitree(side, 'checkbox', 'CheckedNodesChangedFcn', @(~, evt) ticks_changed(evt));
     pg = uigridlayout(side, [1 2], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', '1x'});
-    plot_button = uibutton(pg, 'Text', 'Plot', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~, ~) draw());
+    plot_button = uibutton(pg, 'Text', 'Same plots', 'ButtonPushedFcn', @(~, ~) same_plots(), ...
+        'Tooltip', 'Open, for this flight, the plots that were open for the previously selected flight');
     uibutton(pg, 'Text', 'Compare flights…', 'ButtonPushedFcn', @(~, ~) compare(), ...
         'Tooltip', 'Overlay the ticked plots of several flights (pprz_compare)');
 
@@ -168,6 +177,11 @@ function fig = pprz_view(logs)
 
     function select()
         r = T(pick.Value, :);
+        key = sprintf('%d/%d/%d', r.log, r.aircraft, r.flight);
+        if ~strcmp(key, fkey) && ~isempty(open_plots())
+            previous = open_plots();
+        end
+        fkey = key;
         f = pprz_flight(logs, r.log, r.aircraft, r.flight);
         crew = f.aircraft.crew;
         text = sprintf('PIC %s · PAC %s · GCS %s', blank(crew.pic), blank(crew.pac), blank(crew.gcs));
@@ -194,12 +208,7 @@ function fig = pprz_view(logs)
         if nargin < 1
             query = search.Value;
         end
-        checked = {};
-        if ~isempty(tree.CheckedNodes)
-            checked = {tree.CheckedNodes.NodeData};
-        elseif isempty(tree.Children)
-            checked = {'overview'};
-        end
+        checked = open_plots();  % the ticks are the plots open for this flight
         delete(tree.Children);
         words = lower(strtrim(query));
         logged = arrayfun(@(p) isempty(p.needs) || any(cellfun(@(m) pprz.has(f.data, m), p.needs)), list);
@@ -250,11 +259,104 @@ function fig = pprz_view(logs)
         end
     end
 
+    function names = open_plots()
+        % The plots open as tabs for the selected flight, in tab order.
+        names = {};
+        if isempty(tabs) || ~isvalid(tabs)
+            return
+        end
+        for tab = reshape(tabs.Children, 1, [])
+            if strcmp(getappdata(tab, 'pprz_view_key'), fkey)
+                names{end + 1} = getappdata(tab, 'pprz_view_plot'); %#ok<AGROW>
+            end
+        end
+        names = names(~cellfun(@isempty, names));
+    end
+
+    function ticks_changed(evt)
+        % A tick opens the plot, unticking closes it (a group tick opens its logged plots).
+        want = checked_plots();
+        have = open_plots();
+        % A group whose logged plots are all open still shows half ticked (its unlogged plots cannot be open);
+        % clicking it ticks everything, which adds nothing: the click means untick, so close the group.
+        group = clicked_full_group(evt, want, have);
+        want = want(~ismember(want, group));  % sync_ticks below then unticks the group
+        for tab = reshape(tabs.Children, 1, [])
+            name = getappdata(tab, 'pprz_view_plot');
+            if strcmp(getappdata(tab, 'pprz_view_key'), fkey) && ~isempty(name) && ~any(strcmp(want, name))
+                delete(tab);
+            end
+        end
+        add = want(~ismember(want, have));
+        if ~isempty(add)
+            draw(add);
+        else
+            refresh_tabs();
+            show_values(cursor.time);
+        end
+        sync_ticks();  % also unticks plots that were not logged (nothing opened)
+    end
+
+    function names = clicked_full_group(evt, want, have)
+        % The logged plots of the group(s) whose box was clicked when all of them were already open; {} otherwise.
+        names = {};
+        try
+            newly = evt.CheckedNodes(~ismember(evt.CheckedNodes, evt.PreviousCheckedNodes));
+        catch
+            return  % older MATLAB without the previous ticks in the event
+        end
+        if isempty(newly) || ~all(ismember(want, have)) || any(arrayfun(@(n) is_logged(n.NodeData), newly))
+            return  % something new to open: a normal tick
+        end
+        for g = reshape(newly, 1, [])
+            if ~ischar(g.NodeData)  % a group box (plots have their name as NodeData): not a single greyed plot
+                names = [names, arrayfun(@(c) c.NodeData, g.Children(:)', 'UniformOutput', false)]; %#ok<AGROW>
+            end
+        end
+        names = names(cellfun(@ischar, names));
+        names = unique(names(ismember(names, have)), 'stable');
+    end
+
+    function ok = is_logged(name)
+        j = find(strcmp({list.name}, name), 1);
+        ok = ischar(name) && ~isempty(j) && (isempty(list(j).needs) || any(cellfun(@(m) pprz.has(f.data, m), list(j).needs)));
+    end
+
+    function sync_ticks()
+        % After tabs were closed or undocked elsewhere: tick exactly the open plots (no callback runs).
+        open = open_plots();
+        ticked = [];
+        for group = reshape(tree.Children, 1, [])  % the plot nodes are the children of the group nodes
+            for node = reshape(group.Children, 1, [])
+                if ischar(node.NodeData) && any(strcmp(open, node.NodeData))
+                    ticked = [ticked; node]; %#ok<AGROW>
+                end
+            end
+        end
+        if isempty(ticked)
+            tree.CheckedNodes = [];  % an empty list of nodes is not accepted, [] clears every tick
+        else
+            tree.CheckedNodes = ticked;
+        end
+        count_ticked();
+    end
+
+    function same_plots()
+        names = previous(~ismember(previous, open_plots()));
+        if isempty(names)
+            status.Text = 'They are open already.';
+            return
+        end
+        draw(names);
+        sync_ticks();
+    end
+
     function count_ticked()
-        n = numel(checked_plots());
-        plot_button.Text = sprintf('▶ Plot %d', n);
-        plot_button.Enable = n > 0;
-        plots_label.Text = sprintf('PLOTS · %d TICKED', n);
+        n = numel(open_plots());
+        add = previous(~ismember(previous, open_plots()));
+        plot_button.Text = sprintf('Same plots (%d)', numel(add));
+        plot_button.Enable = ~isempty(add);
+        plots_label.Text = sprintf('PLOTS · %d OPEN', n);
     end
 
     % ---- time window: applied to every time axis, no replotting
@@ -299,20 +401,27 @@ function fig = pprz_view(logs)
         end
         status.Text = 'Plotting…';
         drawnow;
-        % linked here, after the move into a tab: linkaxes on hidden figures then moved costs seconds per plot
-        made = pprz_plot(f, names{:}, 'modes', shade.Value, 'visible', false, 'link', false);
-        new = gobjects(1, numel(made));
-        for k = 1:numel(made)
-            new(k) = adopt(made(k), f);
-            pprz.link_x(pprz.time_axes(new(k)));
+        names = names(~ismember(names, open_plots()));  % never the same plot twice for a flight
+        new = gobjects(1, 0);
+        for k = 1:numel(names)
+            % linked here, after the move into a tab: linkaxes on hidden figures then moved costs seconds per plot
+            made = pprz_plot(f, names{k}, 'modes', shade.Value, 'visible', false, 'link', false);
+            for m = reshape(made, 1, [])
+                tab = adopt(m, f);
+                setappdata(tab, 'pprz_view_plot', names{k});
+                setappdata(tab, 'pprz_view_key', fkey);
+                pprz.link_x(pprz.time_axes(tab));
+                new(end + 1) = tab; %#ok<AGROW>
+            end
         end
         apply_window();  % first the window, then the markers: drawn once, for the shown range
         for k = 1:numel(new)
-            pprz.markers(f, new(k), event_kinds());
+            pprz.markers(f, new(k), event_kinds(), event_filter.Value);
         end
         cursor.attach(fig);
-        status.Text = sprintf('%d plot(s) added.', numel(made));
-        if numel(made) < numel(names)
+        status.Text = sprintf('%d plot(s) added.', numel(new));
+        sync_ticks();
+        if numel(new) < numel(names)
             status.Text = [status.Text ' Some plots failed: see the MATLAB command window.'];
         end
     end
@@ -361,10 +470,11 @@ function fig = pprz_view(logs)
         flight = getappdata(tab, 'pprz_view_flight');
         delete(tab);
         if ~isempty(flight)
-            pprz.markers(flight, out, event_kinds());
+            pprz.markers(flight, out, event_kinds(), event_filter.Value);
         end
         cursor.attach(out);
         refresh_tabs();
+        sync_ticks();
     end
 
     function close_tab(tab)
@@ -372,12 +482,14 @@ function fig = pprz_view(logs)
             delete(tab);
         end
         refresh_tabs();
+        sync_ticks();
         show_values(cursor.time);
     end
 
     function close_all()
         delete(tabs.Children);
         refresh_tabs();
+        sync_ticks();
         show_values(cursor.time);
     end
 
@@ -409,7 +521,7 @@ function fig = pprz_view(logs)
         for tab = reshape(tabs.Children, 1, [])
             flight = getappdata(tab, 'pprz_view_flight');
             if ~isempty(flight)
-                pprz.markers(flight, tab, event_kinds());
+                pprz.markers(flight, tab, event_kinds(), event_filter.Value);
             end
         end
         show_values(cursor.time);
@@ -433,7 +545,7 @@ function fig = pprz_view(logs)
             v = v(contains(lower(strcat({v.plot}, ' ', {v.signal})), lower(strtrim(query))));
         end
         values.Data = [{v.plot}', {v.signal}', num2cell([v.value]')];
-        ev = pprz.events(f, event_kinds());
+        ev = pprz.events(f, event_kinds(), event_filter.Value);
         nearby = ev;
         if ~isempty(ev)
             [~, order] = sort(abs([ev.t] - t));
