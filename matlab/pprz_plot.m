@@ -6,14 +6,15 @@ function figs = pprz_plot(f, varargin)
 %   Options after the names: 'modes' ('ap' autopilot mode, 'rc' RC mode, 'none'), 'range' [t0 t1] in s,
 %   'docked' (true: figures as tabs in one window), 'events' (true: mode/setting/checklist/message markers,
 %   or a list of those kinds such as {'mode', 'message'}; see pprz.markers), 'visible' (false: draw the figures
-%   hidden, e.g. to move their contents elsewhere). Returns the figures.
+%   hidden, e.g. to move their contents elsewhere), 'link' (false: leave the time axes unlinked, for a caller
+%   that links them itself, see pprz.link_x). Returns the figures.
     list = pprz_plots();
     if nargin == 0
         disp(struct2table(rmfield(list, 'fn')));
         return
     end
     names = {};
-    opts = struct('modes', 'none', 'range', [], 'docked', false, 'events', false, 'visible', true);
+    opts = struct('modes', 'none', 'range', [], 'docked', false, 'events', false, 'visible', true, 'link', true);
     k = 1;
     while k <= numel(varargin)
         key = lower(char(varargin{k}));
@@ -54,7 +55,7 @@ function figs = pprz_plot(f, varargin)
         try
             list(i).fn(f.data, f);
             link = pprz.time_axes(fig);
-            if numel(link) > 1
+            if numel(link) > 1 && opts.link
                 linkaxes(link, 'x');
             end
             if ~strcmp(opts.modes, 'none')

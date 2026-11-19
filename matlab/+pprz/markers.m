@@ -10,29 +10,39 @@ function markers(f, figs, kinds)
         ev = pprz.events(f, kinds);
     end
     for fig = reshape(figs, 1, [])
-        draw(ev, fig);
         old = getappdata(fig, 'pprz_event_listener');
         if ~isempty(old) && isvalid(old)
             delete(old);
         end
-        axs = pprz.time_axes(fig);
+        axs = pprz.time_axes(fig);  % once: the axes of a figure or tab do not change afterwards
+        setappdata(fig, 'pprz_event_xlim', []);
+        draw(ev, fig, axs);
         if ~isempty(ev) && ~isempty(axs)
             try  % MATLAB only; the time axes are linked, so the top one is enough
                 setappdata(fig, 'pprz_event_listener', ...
-                    addlistener(axs(1), 'XLim', 'PostSet', @(~, ~) draw(ev, fig)));
+                    addlistener(axs(1), 'XLim', 'PostSet', @(~, ~) draw(ev, fig, axs)));
             catch
             end
         end
     end
 end
 
-function draw(ev, fig)
+function draw(ev, fig, axs)
     colors = struct('mode', [0.2 0.4 0.8], 'setting', [0.85 0.4 0], 'checklist', [0.1 0.55 0.3], ...
         'message', [0.45 0.45 0.45]);
     if ~isgraphics(fig)
         return
     end
-    axs = pprz.time_axes(fig);
+    axs = axs(isgraphics(axs));
+    if isempty(axs)
+        return
+    end
+    % One redraw per change of the shown range: linked axes report the same change several times.
+    x = get(axs(1), 'XLim');
+    if isequal(getappdata(fig, 'pprz_event_xlim'), x)
+        return
+    end
+    setappdata(fig, 'pprz_event_xlim', x);
     for a = 1:numel(axs)
         ax = axs(a);
         delete(findall(ax, 'Tag', 'pprz_event'));
@@ -44,8 +54,10 @@ function draw(ev, fig)
         y = get(ax, 'YLim');
         x = get(ax, 'XLim');
         last = -Inf;
-        px = getpixelposition(ax);
-        fit = max(6, floor(0.85 * px(4) / (8 * 0.7)));  % characters of 8 pt text that fit the axes height
+        if a == 1  % labels only on the top plot: only its height is needed (getpixelposition is slow)
+            px = getpixelposition(ax);
+            fit = max(6, floor(0.85 * px(4) / (8 * 0.7)));  % characters of 8 pt text that fit the axes height
+        end
         for k = 1:numel(ev)
             e = ev(k);
             if e.t < x(1) || e.t > x(2)

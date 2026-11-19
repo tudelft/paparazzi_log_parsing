@@ -37,6 +37,7 @@ function fig = pprz_view(logs)
 
     cursor = pprz.Cursor();
     fig = uifigure('Name', 'pprz_view', 'Position', [60 60 1320 840]);
+    grey = muted(fig);  % secondary text, readable in the light and the dark theme
     main = uigridlayout(fig, [1 2], 'ColumnWidth', {350, '1x'}, 'Padding', [0 0 0 0], 'ColumnSpacing', 0);
 
     % ---- left: controls
@@ -49,7 +50,7 @@ function fig = pprz_view(logs)
     uibutton(fg, 'Text', 'From logbook…', 'Tooltip', ...
         'Add flights from the logbook server by number (pprz_fetch, after pprz_connect)', ...
         'ButtonPushedFcn', @(~, ~) add_from_logbook());
-    info = uilabel(side, 'Text', '', 'WordWrap', 'on', 'FontColor', [0.4 0.4 0.4], 'FontSize', 11);
+    info = uilabel(side, 'Text', '', 'WordWrap', 'on', 'FontColor', grey, 'FontSize', 11);
 
     window_label = heading(side, 'Time window');
     try  % range slider (R2023b and later)
@@ -68,14 +69,14 @@ function fig = pprz_view(logs)
     heading(side, 'Display');
     dg = uigridlayout(side, [3 3], 'Padding', [0 0 0 0], 'RowSpacing', 2, 'ColumnWidth', {58, 'fit', 'fit'}, ...
         'RowHeight', {'fit', 'fit', 'fit'});
-    uilabel(dg, 'Text', 'Shading', 'FontColor', [0.4 0.4 0.4]);
+    uilabel(dg, 'Text', 'Shading', 'FontColor', grey);
     shade = uidropdown(dg, 'Items', {'None', 'Autopilot mode', 'RC mode'}, 'ItemsData', {'none', 'ap', 'rc'}, ...
         'Tooltip', 'Shade mode regions in new plots');
     shade.Layout.Column = [2 3];
     events = gobjects(1, size(kinds, 1));
     for i = 1:size(kinds, 1)
         if i == 1 || i == 3
-            uilabel(dg, 'Text', ifelse(i == 1, 'Events', ''), 'FontColor', [0.4 0.4 0.4], 'Tooltip', ...
+            uilabel(dg, 'Text', ifelse(i == 1, 'Events', ''), 'FontColor', grey, 'Tooltip', ...
                 'Event markers on the plots; click a marker to read its full text');
         end
         events(i) = uicheckbox(dg, 'Text', kinds{i, 2}, 'Value', kinds{i, 3}, ...
@@ -100,12 +101,12 @@ function fig = pprz_view(logs)
         'Tooltip', 'Doublets, chirps, setting and RC stick steps (pprz_sysid)');
     uibutton(ag, 'Text', 'Effectiveness', 'ButtonPushedFcn', @(~, ~) effectiveness(), ...
         'Tooltip', 'Control effectiveness in the time window (pprz_effectiveness)');
-    status = uilabel(side, 'Text', '', 'WordWrap', 'on', 'FontColor', [0.4 0.4 0.4], 'FontSize', 11);
+    status = uilabel(side, 'Text', '', 'WordWrap', 'on', 'FontColor', grey, 'FontSize', 11);
 
     % ---- right: plot tabs, cursor values and nearby events
     right = uigridlayout(main, [3 1], 'RowHeight', {'fit', '1x', 170}, 'RowSpacing', 4);
     tg = uigridlayout(right, [1 5], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', 'fit', 'fit', 'fit', 'fit'});
-    open_label = uilabel(tg, 'Text', 'No plots open', 'FontColor', [0.4 0.4 0.4]);
+    open_label = uilabel(tg, 'Text', 'No plots open', 'FontColor', grey);
     uibutton(tg, 'Text', 'Undock', 'Tooltip', 'Move this plot to its own figure', 'ButtonPushedFcn', @(~, ~) undock());
     uibutton(tg, 'Text', 'Save PNG…', 'ButtonPushedFcn', @(~, ~) save_png());
     uibutton(tg, 'Text', 'Close', 'ButtonPushedFcn', @(~, ~) close_tab(tabs.SelectedTab));
@@ -113,7 +114,7 @@ function fig = pprz_view(logs)
     tabs = uitabgroup(right);
     bottom = uigridlayout(right, [1 2], 'Padding', [0 0 0 0], 'ColumnWidth', {'1x', 320});
     cg = uigridlayout(bottom, [2 4], 'Padding', [4 4 4 4], 'RowHeight', {'fit', '1x'}, ...
-        'ColumnWidth', {'1x', 160, 'fit', 'fit'}, 'BackgroundColor', [1 1 1]);
+        'ColumnWidth', {'1x', 160, 'fit', 'fit'});
     at = uilabel(cg, 'Text', 'Cursor: click or drag in a time plot', 'FontWeight', 'bold');
     signal_filter = uieditfield(cg, 'text', 'Placeholder', 'Filter signals…', ...
         'ValueChangingFcn', @(~, evt) show_values(cursor.time, evt.Value));
@@ -123,7 +124,7 @@ function fig = pprz_view(logs)
     values = uitable(cg, 'ColumnName', {'Plot', 'Signal', 'Value'}, 'RowName', {}, ...
         'ColumnWidth', {'1x', '1x', 80}, 'Data', cell(0, 3));
     values.Layout.Column = [1 4];
-    eg = uigridlayout(bottom, [2 1], 'Padding', [4 4 4 4], 'RowHeight', {'fit', '1x'}, 'BackgroundColor', [1 1 1]);
+    eg = uigridlayout(bottom, [2 1], 'Padding', [4 4 4 4], 'RowHeight', {'fit', '1x'});
     uilabel(eg, 'Text', 'Events near the cursor', 'FontWeight', 'bold');
     near = uilistbox(eg, 'Items', {}, 'ValueChangedFcn', @(~, ~) jump_to_event(), ...
         'Tooltip', 'Click an event to move the cursor there');
@@ -273,11 +274,17 @@ function fig = pprz_view(logs)
     end
 
     function apply_window()
+        % Per tab the top time axis only: its linked axes follow. Setting every axis one by one made each change
+        % ripple through the links and redraw the event markers once per axis (slow with many plots).
         range = time_window();
         show_window(range);
-        axs = pprz.time_axes(tabs);
-        if ~isempty(axs)
-            set(axs, 'XLim', range);
+        for tab = reshape(tabs.Children, 1, [])
+            axs = pprz.time_axes(tab);
+            for k = 1:numel(axs)  % normally only k = 1 is set; axes that are not linked are set too
+                if ~isequal(get(axs(k), 'XLim'), range)
+                    set(axs(k), 'XLim', range);
+                end
+            end
         end
     end
 
@@ -292,12 +299,17 @@ function fig = pprz_view(logs)
         end
         status.Text = 'Plotting…';
         drawnow;
-        made = pprz_plot(f, names{:}, 'modes', shade.Value, 'visible', false);
+        % linked here, after the move into a tab: linkaxes on hidden figures then moved costs seconds per plot
+        made = pprz_plot(f, names{:}, 'modes', shade.Value, 'visible', false, 'link', false);
+        new = gobjects(1, numel(made));
         for k = 1:numel(made)
-            tab = adopt(made(k), f);
-            pprz.markers(f, tab, event_kinds());
+            new(k) = adopt(made(k), f);
+            pprz.link_x(pprz.time_axes(new(k)));
         end
-        apply_window();
+        apply_window();  % first the window, then the markers: drawn once, for the shown range
+        for k = 1:numel(new)
+            pprz.markers(f, new(k), event_kinds());
+        end
         cursor.attach(fig);
         status.Text = sprintf('%d plot(s) added.', numel(made));
         if numel(made) < numel(names)
@@ -313,7 +325,7 @@ function fig = pprz_view(logs)
         if ~isempty(flight) && isfield(flight, 'index')
             name = sprintf('%s · %s', name, ifelse(flight.index > 0, sprintf('flight %d', flight.index), 'log'));
         end
-        tab = uitab(tabs, 'Title', name, 'BackgroundColor', [1 1 1], 'Tooltip', get(src, 'Name'));
+        tab = uitab(tabs, 'Title', name, 'Tooltip', get(src, 'Name'));  % background from the MATLAB theme
         setappdata(tab, 'pprz_view_flight', flight);
         delete(findall(src, 'Type', 'subplottext'));  % sgtitle stays with its figure; the tab names the plot
         kids = allchild(src);
@@ -543,7 +555,24 @@ end
 
 function label = heading(parent, text)
     label = uilabel(parent, 'Text', upper(text), 'FontWeight', 'bold', 'FontSize', 11, ...
-        'FontColor', [0.35 0.35 0.35]);
+        'FontColor', muted(parent, 0.35));
+end
+
+function c = muted(h, level)
+    % A grey for secondary text: level (default 0.4) in the light theme, as far from the background in the dark
+    % theme (MATLAB R2025a and later; older releases have only the light theme).
+    if nargin < 2
+        level = 0.4;
+    end
+    dark = false;
+    try
+        dark = strcmpi(ancestor(h, 'figure').Theme.BaseColorStyle, 'dark');
+    catch
+    end
+    c = level * [1 1 1];
+    if dark
+        c = (1 - level) * [1 1 1];
+    end
 end
 
 function span = data_span(f)
