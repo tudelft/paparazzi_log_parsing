@@ -152,7 +152,7 @@
       <h2>Trainings</h2>
       <span class="mute" id="count" role="status"></span>
       <input type="search" id="search" aria-label="Search trainings" placeholder="Search" oninput="onSearch()">
-      <a id="approvalsLink" href="/people?tab=approvals" hidden title="Training passes that need an administrator's approval: open the approval queue"></a>
+      <a id="approvalsLink" href="/people?tab=approvals&amp;kind=training" hidden title="Training passes that need an administrator's approval: open the approval queue"></a>
       <button type="button" id="addBtn" hidden onclick="openNewTraining()">Add training</button>
       <button type="button" id="importBtn" class="sec" hidden onclick="openImport()">Import</button>
       <details><summary>Help</summary><p>Complete a questionnaire until you pass. Only the passing answers and the number of attempts are kept. Each submission shows your score and you may retry without limit, so answers can be found by trial and error. A pass writes the linked qualification immediately; administrators do not review it. After a pass expires (or an administrator resets it), you can take the questionnaire again.</p></details>

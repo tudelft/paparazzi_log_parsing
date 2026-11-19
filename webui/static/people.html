@@ -152,6 +152,63 @@
   .drag-handle[hidden] { visibility:hidden; }
   @media (max-width:760px) { .people-layout { grid-template-columns:1fr; } .people-list { max-height:32vh; } }
   [hidden] { display:none !important; }
+  /* Approval queue: one row per submission, decided in place */
+  .aq-tools { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .aq-tools h2 { margin:0; }
+  .aq-tools input[type=search] { width:min(100%,220px); }
+  .aq-seg { display:inline-flex; border:1px solid var(--fieldline); border-radius:6px; overflow:hidden; }
+  .aq-seg button { border:0; border-radius:0; padding:4px 10px; font-size:13px; background:var(--field); color:var(--txt); }
+  .aq-seg button[aria-pressed="true"] { background:var(--acc); color:#fff; }
+  .aq-tools .aq-spacer { flex:1; }
+  .aq-tools details { margin-left:4px; }
+  .aq-tools details > summary { font-size:13px; color:var(--mute); cursor:pointer; }
+  .aq-tools details p { margin:6px 0 0; font-size:13px; color:var(--mute); max-width:520px; }
+  .aq { border:1px solid var(--line); border-radius:8px; }
+  .aq-row { display:grid; grid-template-columns:26px 20px minmax(110px,1fr) minmax(150px,1.4fr) minmax(120px,1.3fr) 96px 158px; align-items:center; gap:8px; padding:6px 10px; border-top:1px solid var(--line); min-width:0; }
+  .aq-row:first-child { border-top:0; }
+  .aq-row.aq-head { background:var(--band); font-size:12px; color:var(--mute); font-weight:600; }
+  .aq-row.selected { background:color-mix(in srgb, var(--acc) 9%, transparent); }
+  .aq-row:focus-visible { outline:2px solid var(--acc); outline-offset:-2px; }
+  .aq-row.blocked .aq-person, .aq-row.blocked .aq-what { color:var(--mute); }
+  .aq-row > * { min-width:0; }
+  .aq-ell { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .aq-person { font-weight:600; }
+  .aq-kind { font-size:11px; border-radius:9px; padding:1px 7px; margin-right:4px; background:var(--chip); color:var(--mute); }
+  .aq-kind.training { background:color-mix(in srgb, var(--acc) 15%, transparent); color:var(--acc); }
+  .aq-small { font-size:12px; color:var(--mute); }
+  .aq-warn { font-size:12px; color:var(--warn); }
+  .aq-err { font-size:12px; color:var(--err); }
+  .aq-caret { background:none; border:0; padding:0; color:var(--mute); font-size:12px; cursor:pointer; width:20px; }
+  .aq-acts { display:flex; gap:6px; justify-content:flex-end; }
+  .aq-acts button { font-size:13px; padding:3px 11px; }
+  button.aq-reject { background:none; color:var(--err); border:1px solid color-mix(in srgb, var(--err) 45%, transparent); }
+  .aq-open { background:var(--detail); border-top:1px solid var(--line); padding:10px 14px 12px 64px; display:grid; grid-template-columns:minmax(0,260px) minmax(0,1fr); gap:16px; }
+  .aq-open.no-preview { grid-template-columns:minmax(0,1fr); }
+  .aq-preview { border:1px solid var(--line); border-radius:6px; background:#fff; overflow:hidden; height:170px; display:flex; align-items:center; justify-content:center; }
+  .aq-preview img { max-width:100%; max-height:100%; object-fit:contain; }
+  .aq-preview iframe { width:100%; height:100%; border:0; }
+  .aq-kv { display:grid; grid-template-columns:110px minmax(0,1fr); gap:3px 10px; margin:0; font-size:13px; align-content:start; }
+  .aq-kv dt { color:var(--mute); }
+  .aq-kv dd { margin:0; overflow-wrap:anywhere; }
+  .aq-kv a, .aq-row a { color:var(--acc); text-decoration:none; }
+  .aq-kv a:hover, .aq-row a:hover { text-decoration:underline; }
+  .aq-keys { font-size:12px; color:var(--mute); margin-top:8px; }
+  .aq-keys kbd { font:11px ui-monospace,monospace; border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:0 4px; background:var(--card); }
+  .aq-toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:50; max-width:calc(100% - 32px); background:#1b2733; color:#fff; border-radius:8px; padding:8px 14px; display:flex; gap:14px; align-items:center; box-shadow:0 4px 14px #0005; font-size:13px; }
+  .aq-toast[hidden] { display:none; }
+  .aq-toast span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .aq-toast button { background:none; border:0; color:#6cb6ff; font-weight:600; padding:0; }
+  #aqRejectReason { width:100%; min-height:80px; font:inherit; }
+  @media (max-width: 860px) {
+    .aq-row { grid-template-columns:26px 20px minmax(0,1fr) auto; grid-template-areas:"check caret person acts" ". . what what" ". . details details"; row-gap:2px; }
+    .aq-row.aq-head { display:none; }
+    .aq-row > :nth-child(1) { grid-area:check; } .aq-row > :nth-child(2) { grid-area:caret; }
+    .aq-row > :nth-child(3) { grid-area:person; } .aq-row > :nth-child(4) { grid-area:what; }
+    .aq-row > :nth-child(5) { grid-area:details; } .aq-row > :nth-child(6) { display:none; }
+    .aq-row > :nth-child(7) { grid-area:acts; }
+    .aq-open { grid-template-columns:minmax(0,1fr); padding-left:14px; }
+    .aq-keys { display:none; }
+  }
 </style>
 </head>
 <body data-edit="admin">
@@ -253,10 +310,28 @@
     </div>
   </section>
   <section class="card" id="approvalSection" hidden>
-    <div class="section-heading"><h2>Qualification approval queue</h2>
-    <details><summary>Help</summary><p>Select a submission to review its evidence in that person's Qualifications tab.</p></details></div>
+    <div class="aq-tools">
+      <h2>Approval queue</h2><span class="mute" id="aqCount"></span>
+      <input type="search" id="aqSearch" aria-label="Search the approval queue" placeholder="Search" oninput="aqSearch(this.value)">
+      <span class="aq-seg" id="aqKinds" role="group" aria-label="Show"></span>
+      <span class="aq-spacer"></span>
+      <span class="mute" id="aqSelected"></span>
+      <button type="button" id="aqApproveSelected" hidden onclick="aqApprove([...aqSelection])">Approve selected</button>
+      <details><summary>Help</summary><p>Approve or reject each submission here; ▸ opens its evidence and details. Approve shows Undo for a few seconds before it is saved (leaving the page saves it at once). Reject asks for an optional reason, which is mailed to the person. A submission that cannot be approved yet says why; Edit opens it in that person's Qualifications tab.</p></details>
+    </div>
     <div id="approvalQueue"></div>
+    <p class="aq-keys" id="aqKeys">Keyboard: <kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Space</kbd> select · <kbd>Enter</kbd> open · <kbd>A</kbd> approve · <kbd>R</kbd> reject</p>
   </section>
+  <div class="aq-toast" id="aqToast" role="status" hidden><span id="aqToastText"></span><button type="button" onclick="aqUndo()">Undo</button></div>
+  <dialog class="entry-dialog" id="aqRejectDialog" aria-labelledby="aqRejectTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="aqRejectTitle">Reject</h2><button type="button" onclick="$('aqRejectDialog').close()">Close</button></div>
+    <p class="mute" id="aqRejectWhat"></p>
+    <form onsubmit="event.preventDefault();aqRejectSend()">
+      <label class="field">Reason for the person <span class="mute">(optional, mailed to them)</span><textarea id="aqRejectReason" maxlength="500"></textarea></label>
+      <p class="dialog-error" id="aqRejectError" role="alert"></p>
+      <div class="panel-row"><button type="submit" class="danger">Reject</button> <button type="button" class="sec" onclick="$('aqRejectDialog').close()">Cancel</button></div>
+    </form>
+  </dialog>
   <section class="card" id="typesSection" hidden>
     <div class="people-title-row"><h2>Qualification types</h2><span class="mute" id="typeCount"></span>
       <span class="type-tools editOnly" hidden><button type="button" onclick="editType(null)">Add type</button>
@@ -457,7 +532,7 @@ function qualBits(q) {
 let pageTab = new URLSearchParams(location.search).get('tab') || 'people';
 function paintPageTabs(open) {
   const sections = [['people', 'People', $('peopleCard')], ['unlinked', 'Unlinked crew names', $('unlinkedCard'), open],
-    ['approvals', 'Approval queue', $('approvalSection'), pendingQualifications.length],
+    ['approvals', 'Approval queue', $('approvalSection'), pendingQualifications.filter(s => !aqHeld.has(s.id)).length],
     ['types', 'Qualification types', $('typesSection')], ['profile-options', 'Profile options', $('profileOptionsSection')],
     ['profiles', 'Profiles', $('profilesSection'), profileList.filter(x => !x.self || me.is_admin).length], ['supervision', 'Supervision', $('supervisionSection'), supervisionGroups().length]].filter(([, , el]) => el === $('peopleCard') || !el.hidden);
   if (!sections.some(t => t[0] === pageTab)) pageTab = 'people';
@@ -470,7 +545,13 @@ function paintPageTabs(open) {
   });
   if (sections.length > 1) for (const [key, , el] of sections) el.hidden = key !== pageTab;
 }
-window.addEventListener('popstate', () => { pageTab = new URLSearchParams(location.search).get('tab') || 'people'; render(); });
+window.addEventListener('popstate', () => {
+  const p = new URLSearchParams(location.search);
+  pageTab = p.get('tab') || 'people';
+  aqKind = ['training', 'qualification'].includes(p.get('kind')) ? p.get('kind') : '';
+  aqQuery = p.get('q') || ''; aqOpen = +p.get('open') || 0;
+  render();
+});
 function render() {
   const admin = !!(me && me.is_admin);
   const editing = admin && window.editMode();
@@ -478,7 +559,8 @@ function render() {
   $('directoryTable').hidden = editing;
   $('directorySearchLabel').hidden = editing;
   $('directoryCount').hidden = editing;
-  $('approvalSection').hidden = !admin || pendingQualifications.length === 0;
+  // the tab stays while it is open (the last decision does not jump to People)
+  $('approvalSection').hidden = !admin || (!pendingQualifications.length && pageTab !== 'approvals');
   $('typesSection').hidden = !editing;
   $('profileOptionsSection').hidden = !editing || !profileOn;
   // Profiles and Supervision: admins see everyone, a supervisor the people they supervise
@@ -575,24 +657,220 @@ async function adminApi(url, options) {
   return data;
 }
 
+// Approval queue: training passes and qualifications waiting for an administrator, decided in place. Approve is held
+// for a few seconds with Undo and then sent (at once when the page is left); Reject asks for an optional reason.
+const aqParams = new URLSearchParams(location.search);
+let aqKind = ['training', 'qualification'].includes(aqParams.get('kind')) ? aqParams.get('kind') : '';
+let aqQuery = aqParams.get('q') || '', aqOpen = +aqParams.get('open') || 0;
+const aqSelection = new Set(), aqHeld = new Map(), aqErrors = new Map();
+let aqTimer = null, aqFocus = 0, aqRejecting = null;
+const aqIsTraining = s => !!s.training_id;
+const aqWhat = s => aqIsTraining(s) ? (s.training || s.category) : s.category;
+function aqWhen(t) {
+  if (!t) return '';
+  const d = new Date(t), days = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 864e5);
+  const time = d.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'});
+  return days <= 0 ? 'Today ' + time : days === 1 ? 'Yesterday' : days < 30 ? days + ' days ago' : d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'});
+}
+function aqDetails(s) {
+  if (!s.can_approve) return `<span class="aq-ell aq-warn" title="${esc(s.blocked_reason)}">⚠ ${esc(s.blocked_reason)}</span>`;
+  const bits = aqIsTraining(s)
+    ? [s.score ? 'Score ' + s.score : '', s.briefed_by ? 'briefed by ' + s.briefed_by : '', s.access_answer ? 'Already has access: ' + (s.access_answer === 'yes' ? 'Yes' : 'No') : '']
+    : [s.number ? 'No. ' + s.number : '', s.valid_until ? 'until ' + s.valid_until : '', s.has_evidence ? '' : (s.evidence_label || '')];
+  const text = bits.filter(Boolean).join(' · ');
+  return `<span class="aq-ell aq-small" title="${esc(text)}">${esc(text)}</span>`;
+}
+function aqVisible() {
+  const q = aqQuery.trim().toLowerCase();
+  return pendingQualifications.filter(s => !aqHeld.has(s.id)
+    && (!aqKind || (aqKind === 'training') === aqIsTraining(s))
+    && (!q || [s.person, s.category, s.training, s.number, s.briefed_by].some(v => v && v.toLowerCase().includes(q))));
+}
+function aqPanel(s) {
+  const rows = [];
+  const dd = (k, v) => v ? rows.push(`<dt>${k}</dt><dd>${v}</dd>`) : null;
+  const view = `/api/qualification-submissions/${s.id}/evidence/view`;
+  let preview = '';
+  if (aqIsTraining(s)) {
+    dd('Training', `<a href="/training?id=${s.training_id}&amp;pass_user=${s.user_id}">${esc(s.training || s.category)}</a>`);
+    dd('Grants', esc(s.category));
+    dd('Score', esc(s.score));
+    dd('Briefed by', esc(s.briefed_by));
+    dd('Access answer', s.access_answer ? (s.access_answer === 'yes' ? 'Yes, already has access' : 'No') : '');
+  } else {
+    dd('Type', esc(s.category));
+    dd('Number', esc(s.number));
+    if (s.has_evidence) {
+      dd('Evidence', `<a href="${view}" target="_blank" rel="noopener">${esc(s.evidence_name || 'Evidence')}</a> · opens full size`);
+      preview = /^image\//.test(s.evidence_mime || '') ? `<img src="${view}" alt="Evidence of ${esc(s.person)}">`
+        : s.evidence_mime === 'application/pdf' ? `<iframe src="${view}#toolbar=0&amp;view=FitH" title="Evidence of ${esc(s.person)}"></iframe>` : '';
+    } else dd('Evidence', esc(s.evidence_label) || '<span class="mute">None</span>');
+  }
+  dd('Valid from', esc(s.valid_from));
+  dd('Valid until', esc(s.valid_until));
+  if (s.replaces) dd('Replaces', 'the approved one' + (s.replaces.valid_until ? ', valid until ' + esc(s.replaces.valid_until) : '') + (s.replaces.number ? ' · No. ' + esc(s.replaces.number) : ''));
+  dd('Person', `<a href="/people/${s.user_id}">${esc(s.person)}</a>${[s.role, s.department].filter(Boolean).map(v => ' · ' + esc(v)).join('')}`);
+  dd('Submitted', esc(String(s.submitted_at || '').replace('T', ' ').replace(/Z$/, ' UTC')));
+  if (!s.can_approve) dd('Cannot approve', `<span class="aq-warn">${esc(s.blocked_reason)}</span>`);
+  return `<div class="aq-open${preview ? '' : ' no-preview'}" id="aqOpen${s.id}">${preview ? `<div class="aq-preview">${preview}</div>` : ''}<dl class="aq-kv">${rows.join('')}</dl></div>`;
+}
+function renderQueue() {
+  const all = pendingQualifications.filter(s => !aqHeld.has(s.id)), items = aqVisible();
+  for (const id of [...aqSelection]) if (!items.some(s => s.id === id && s.can_approve)) aqSelection.delete(id);
+  const training = all.filter(aqIsTraining).length;
+  $('aqCount').textContent = all.length ? all.length + ' waiting' : '';
+  $('aqKinds').innerHTML = [['', 'All', ''], ['training', 'Training passes', training], ['qualification', 'Qualifications', all.length - training]]
+    .map(([k, label, n]) => `<button type="button" aria-pressed="${aqKind === k}" onclick="aqSetKind('${k}')">${label}${n === '' ? '' : ' ' + n}</button>`).join('');
+  if ($('aqSearch').value !== aqQuery) $('aqSearch').value = aqQuery;
+  $('aqSelected').textContent = aqSelection.size ? aqSelection.size + ' selected' : '';
+  $('aqApproveSelected').hidden = !aqSelection.size;
+  const selectable = items.filter(s => s.can_approve);
+  const allSelected = selectable.length && selectable.every(s => aqSelection.has(s.id));
+  $('aqKeys').hidden = !items.length;
+  $('approvalQueue').innerHTML = items.length ? `<div class="aq" id="aqTable" role="list">
+    <div class="aq-row aq-head"><span><input type="checkbox" aria-label="Select all that can be approved" ${allSelected ? 'checked' : ''} ${selectable.length ? '' : 'disabled'} onchange="aqSelectAll(this.checked)"></span><span></span><span>Person</span><span>What</span><span>Details</span><span>Submitted</span><span></span></div>
+    ${items.map(s => {
+      const open = aqOpen === s.id, sel = aqSelection.has(s.id), err = aqErrors.get(s.id);
+      return `<div class="aq-row${sel ? ' selected' : ''}${s.can_approve ? '' : ' blocked'}" role="listitem" tabindex="${(aqFocus || items[0].id) === s.id ? 0 : -1}" data-id="${s.id}">
+        <span><input type="checkbox" aria-label="Select ${esc(s.person)}" ${sel ? 'checked' : ''} ${s.can_approve ? '' : `disabled title="${esc(s.blocked_reason)}"`} onchange="aqToggle(${s.id}, this.checked)"></span>
+        <button type="button" class="aq-caret" aria-expanded="${open}" aria-controls="aqOpen${s.id}" aria-label="${open ? 'Close' : 'Open'} details" onclick="aqToggleOpen(${s.id})">${open ? '▾' : '▸'}</button>
+        <span class="aq-ell aq-person" title="${esc(s.person)}">${esc(s.person)}</span>
+        <span class="aq-ell aq-what" title="${esc(aqWhat(s))}"><span class="aq-kind${aqIsTraining(s) ? ' training' : ''}">${aqIsTraining(s) ? 'Training' : 'Certificate'}</span>${esc(aqWhat(s))}</span>
+        ${err ? `<span class="aq-ell aq-err" title="${esc(err)}">${esc(err)}</span>` : aqDetails(s)}
+        <span class="aq-small" title="${esc(String(s.submitted_at || '').replace('T', ' ').replace(/Z$/, ' UTC'))}">${esc(aqWhen(s.submitted_at))}</span>
+        <span class="aq-acts">${s.can_approve ? `<button type="button" onclick="aqApprove([${s.id}])">Approve</button>`
+          : `<button type="button" class="sec" onclick="selectPerson(${s.user_id},'qualifications')">Edit</button>`}<button type="button" class="aq-reject" onclick="aqReject(${s.id})">Reject</button></span>
+      </div>${open ? aqPanel(s) : ''}`;
+    }).join('')}</div>`
+    : `<p class="mute">${all.length ? 'No matching submissions.' : 'No submissions awaiting approval.'}</p>`;
+}
+function aqUrl(push) {
+  const url = new URL(location.href);
+  for (const [k, v] of [['kind', aqKind], ['q', aqQuery.trim()], ['open', aqOpen || '']]) {
+    if (v) url.searchParams.set(k, v); else url.searchParams.delete(k);
+  }
+  if (url.href !== location.href) history[push ? 'pushState' : 'replaceState'](history.state, '', url);
+}
+function aqSetKind(k) { aqKind = k; aqUrl(true); renderQueue(); }
+function aqSearch(v) { aqQuery = v; aqUrl(false); renderQueue(); }
+function aqToggleOpen(id) { aqOpen = aqOpen === id ? 0 : id; aqFocus = id; aqUrl(true); renderQueue(); aqFocusRow(); }
+function aqToggle(id, on) { if (on) aqSelection.add(id); else aqSelection.delete(id); aqFocus = id; renderQueue(); }
+function aqSelectAll(on) {
+  aqSelection.clear();
+  if (on) aqVisible().filter(s => s.can_approve).forEach(s => aqSelection.add(s.id));
+  renderQueue();
+}
+function aqFocusRow() {
+  const row = document.querySelector(`#aqTable .aq-row[data-id="${aqFocus}"]`);
+  if (row) row.focus();
+}
+// Approve: hide the rows, show Undo, send when the toast ends. A new approval sends the previous batch first.
+function aqApprove(ids) {
+  ids = ids.filter(id => pendingQualifications.some(s => s.id === id && s.can_approve));
+  if (!ids.length) return;
+  if (aqHeld.size) aqSend();
+  const items = aqVisible(), next = items.find((s, i) => i > items.findIndex(x => x.id === ids[ids.length - 1]) && !ids.includes(s.id));
+  for (const id of ids) { aqHeld.set(id, pendingQualifications.find(s => s.id === id)); aqSelection.delete(id); aqErrors.delete(id); }
+  aqFocus = next ? next.id : 0;
+  const one = aqHeld.get(ids[0]);
+  $('aqToastText').textContent = ids.length === 1 ? `Approved ${one.person} · ${aqWhat(one)}` : `Approved ${ids.length} submissions`;
+  $('aqToast').hidden = false;
+  clearTimeout(aqTimer);
+  aqTimer = setTimeout(aqSend, 5000);
+  render();  // also the tab count
+  aqFocusRow();
+}
+function aqUndo() {
+  clearTimeout(aqTimer);
+  aqFocus = [...aqHeld.keys()][0] || aqFocus;
+  aqHeld.clear();
+  $('aqToast').hidden = true;
+  render();
+  aqFocusRow();
+}
+async function aqSend(leaving = false) {
+  clearTimeout(aqTimer);
+  $('aqToast').hidden = true;
+  const batch = [...aqHeld.keys()];
+  if (!batch.length) return;
+  const post = id => fetch(`/api/qualification-submissions/${id}/review`, {method: 'POST', keepalive: true,
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'approve'})});
+  if (leaving) { batch.forEach(post); aqHeld.clear(); return; }  // the page is going away: fire them all
+  let failed = 0;
+  for (const id of batch) {  // one after the other; a failure keeps that row with its error
+    try {
+      const r = await post(id);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Approval failed.');
+      pendingQualifications = pendingQualifications.filter(s => s.id !== id);
+    } catch (e) { failed++; aqErrors.set(id, e.message || 'Approval failed.'); }
+    aqHeld.delete(id);
+  }
+  if (failed) $('err').textContent = `${failed} approval${failed === 1 ? '' : 's'} failed; see the queue.`;
+  aqRefresh();
+}
+// Re-read the people list and the queue after a decision (approvals still waiting for their Undo stay hidden).
+async function aqRefresh() {
+  try {
+    const [list, queue] = await Promise.all([adminApi('/api/admin/people'), adminApi('/api/admin/qualification-pending')]);
+    people = list;
+    pendingQualifications = queue.submissions;
+  } catch (e) { $('err').textContent = e.message; }
+  render();
+}
+window.addEventListener('pagehide', () => aqSend(true));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') aqSend(true); });
+function aqReject(id) {
+  const s = pendingQualifications.find(x => x.id === id);
+  if (!s) return;
+  aqRejecting = id; aqFocus = id;
+  $('aqRejectTitle').textContent = 'Reject · ' + aqWhat(s);
+  $('aqRejectWhat').textContent = `${s.person} · ${aqIsTraining(s) ? 'training pass' : s.category}. Evidence is kept; they can submit again.`;
+  $('aqRejectReason').value = '';
+  $('aqRejectError').textContent = '';
+  $('aqRejectDialog').showModal();
+  $('aqRejectReason').focus();
+}
+async function aqRejectSend() {
+  const id = aqRejecting, reason = $('aqRejectReason').value.trim();
+  try {
+    await adminApi(`/api/qualification-submissions/${id}/review`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(reason ? {action: 'reject', reason} : {action: 'reject'})});
+  } catch (e) { $('aqRejectError').textContent = e.message; return; }
+  $('aqRejectDialog').close();
+  const items = aqVisible(), i = items.findIndex(s => s.id === id);
+  aqFocus = (items[i + 1] || items[i - 1] || {}).id || 0;
+  pendingQualifications = pendingQualifications.filter(s => s.id !== id);
+  aqSelection.delete(id);
+  renderQueue();
+  aqFocusRow();
+  aqRefresh();
+}
+$('approvalQueue').addEventListener('keydown', event => {
+  const row = event.target.closest('.aq-row[data-id]');
+  if (!row || event.target.matches('input[type=search], textarea, select') || event.altKey || event.ctrlKey || event.metaKey) return;
+  const onRow = event.target === row, id = +row.dataset.id;
+  const rows = [...document.querySelectorAll('#aqTable .aq-row[data-id]')], i = rows.indexOf(row);
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  if (key === 'ArrowDown' || key === 'ArrowUp') {
+    const to = rows[i + (key === 'ArrowDown' ? 1 : -1)];
+    if (to) { event.preventDefault(); rows.forEach(r => { r.tabIndex = -1; }); to.tabIndex = 0; aqFocus = +to.dataset.id; to.focus(); }
+  } else if (key === ' ' && onRow) {
+    event.preventDefault();
+    const s = pendingQualifications.find(x => x.id === id);
+    if (s && s.can_approve) { aqToggle(id, !aqSelection.has(id)); aqFocusRow(); }
+  } else if (key === 'Enter' && onRow) { event.preventDefault(); aqToggleOpen(id); }
+  else if (key === 'a') { event.preventDefault(); aqApprove([id]); }
+  else if (key === 'r') { event.preventDefault(); aqReject(id); }
+});
+$('approvalQueue').addEventListener('focusin', event => {
+  const row = event.target.closest('.aq-row[data-id]');
+  if (row) aqFocus = +row.dataset.id;
+});
+
 function renderAdminPeople() {
   renderPeopleList();
   renderPersonPanel();
-  $('approvalQueue').innerHTML = pendingQualifications.map(s => {
-    const dates = [];
-    if (s.valid_from) dates.push(`Valid from ${esc(s.valid_from)}`);
-    if (s.valid_until) dates.push(`Valid until ${esc(s.valid_until)}`);
-    const evidenceText = s.evidence_label || (s.has_evidence ? 'Uploaded evidence' : '');
-    const evidence = evidenceText
-      ? (s.training_id
-        ? `<a href="/training?id=${s.training_id}&pass_user=${s.user_id}">${esc(evidenceText)}</a>`
-        : esc(evidenceText))
-      : '';
-    return `<div class="panel-row"><strong>${esc(s.person)}</strong> ${esc(s.category)}${evidence ? ' · ' + evidence : ''}${dates.length ? ' · ' + dates.join(' · ') : ''}
-      <span class="info-tip"><button type="button" aria-label="Submission details">i</button>
-      <span class="tip" role="tooltip">Submitted ${esc(String(s.submitted_at || '').replace('T', ' ').replace(/Z$/, ' UTC'))}</span></span>
-      <button type="button" onclick="selectPerson(${s.user_id},'qualifications')">Review submission</button></div>`;
-  }).join('') || '<p class="mute">No submissions awaiting approval.</p>';
+  renderQueue();
   renderTypes();
 }
 

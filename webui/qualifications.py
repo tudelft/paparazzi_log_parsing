@@ -90,7 +90,7 @@ def qualifications_payload(con, viewer, user_id):
         item = {key: row[key] for key in (
             "id", "type_id", "category", "status", "valid_from", "valid_until", "submitted_at",
             "reviewed_at", "reviewer", "evidence_deleted_at", "filename", "note", "requires_evidence",
-            "requires_start", "requires_expiry", "requires_number", "number")}
+            "requires_start", "requires_expiry", "requires_number", "number", "review_note")}
         item["internal"] = bool(row["internal"])
         item["has_evidence"] = bool(row["evidence_path"])
         item["viewable"] = item["has_evidence"] and storage.view_type(row["filename"] or "") is not None
@@ -362,6 +362,23 @@ def integer(raw):
 def private_subject(con, user, uid):
     if not can_see_quals(con, user, uid) or not con.execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone():
         raise QualificationError("No such person.", 404)
+
+
+def approval_problem(row, root):
+    """Why a pending submission (with its type's requires_* and active columns) cannot be approved now, or None.
+    One rule set for the review endpoint and the approval queue."""
+    if not row["active"]:
+        return "This qualification type is disabled."
+    if row["requires_expiry"] and not row["valid_until"]:
+        return "An expiry date is required before approval. Add it with Edit, or reject it."
+    if row["requires_start"] and not row["valid_from"]:
+        return "A Valid from date is required before approval. Add it with Edit, or reject it."
+    if row["requires_number"] and not row["number"]:
+        return "A number is required before approval. Add it with Edit."
+    if row["requires_evidence"] and (
+            not row["evidence_path"] or storage.stored_file_problem(root / row["evidence_path"])):
+        return "Evidence must be available before approval."
+    return None
 
 
 def visible_submission(con, user, sid):
@@ -708,26 +725,50 @@ def register(app, connection, root, require_session):
 
     @app.get("/api/admin/qualification-pending")
     def qualification_pending():
+        """Submissions waiting for approval, with what the queue shows: whether approval is possible now (and
+        why not), the training pass details, the approved one it would replace and the person's profile."""
         admin()
-        rows = connection().execute(
-            "SELECT q.id,q.user_id,q.type_id,t.name AS category,t.requires_start,t.requires_expiry,"
-            " q.valid_from,q.valid_until,q.submitted_at,q.note,q.evidence_path,"
-            " COALESCE(u.display_name,u.username) AS person FROM qualification_submissions q"
+        con = connection()
+        rows = con.execute(
+            "SELECT q.*,t.name AS category,t.requires_evidence,t.requires_expiry,t.requires_start,t.requires_number,"
+            " t.active,COALESCE(u.display_name,u.username) AS person FROM qualification_submissions q"
             " JOIN users u ON u.id=q.user_id JOIN qualification_types t ON t.id=q.type_id"
             " WHERE q.status='pending' ORDER BY q.id").fetchall()
+        import profiles
         out = []
         for r in rows:
-            link = connection().execute(
-                "SELECT training_id FROM training_progress WHERE submission_id=?",
-                (r["id"],)).fetchone()
+            link = con.execute(
+                "SELECT p.training_id,t.name AS training,p.access_answer,"
+                " COALESCE(b.display_name,b.username) AS briefed_by FROM training_progress p"
+                " JOIN trainings t ON t.id=p.training_id LEFT JOIN users b ON b.id=p.briefed_by"
+                " WHERE p.submission_id=?", (r["id"],)).fetchone()
+            current = con.execute(
+                "SELECT id,valid_from,valid_until,number FROM qualification_submissions"
+                " WHERE user_id=? AND type_id=? AND status='approved'", (r["user_id"], r["type_id"])).fetchone()
+            profile = con.execute(
+                "SELECT COALESCE(d.name,p.department_text) AS department,ro.name AS role FROM user_profiles p"
+                " LEFT JOIN profile_departments d ON d.id=p.department_id LEFT JOIN profile_roles ro ON ro.id=p.role_id"
+                " WHERE p.user_id=?", (r["user_id"],)).fetchone() if profiles.enabled() else None
+            score = re.search(r"passed (\d+)/(\d+)", r["note"] or "") if link else None
+            problem = approval_problem(r, evidence_root())
             out.append({
                 "id": r["id"], "user_id": r["user_id"], "type_id": r["type_id"],
                 "category": r["category"], "requires_start": r["requires_start"],
                 "requires_expiry": r["requires_expiry"], "valid_from": r["valid_from"],
-                "valid_until": r["valid_until"], "submitted_at": r["submitted_at"],
+                "valid_until": r["valid_until"], "number": r["number"], "submitted_at": r["submitted_at"],
                 "person": r["person"], "has_evidence": bool(r["evidence_path"]),
+                "evidence_name": r["filename"] if r["evidence_path"] else None,
+                "evidence_mime": r["mime"] if r["evidence_path"] else None,
                 "evidence_label": r["note"] or None,
                 "training_id": link["training_id"] if link else None,
+                "training": link["training"] if link else None,
+                "score": f"{score[1]} / {score[2]}" if score else None,
+                "briefed_by": link["briefed_by"] if link else None,
+                "access_answer": link["access_answer"] if link else None,
+                "replaces": dict(current) if current else None,
+                "role": profile["role"] if profile else None,
+                "department": profile["department"] if profile else None,
+                "can_approve": problem is None, "blocked_reason": problem,
             })
         return jsonify(submissions=out)
 
@@ -1028,10 +1069,14 @@ def register(app, connection, root, require_session):
     @app.post("/api/qualification-submissions/<int:sid>/review")
     def review_qualification(sid):
         require_session()
-        body = json_body(("action",))
+        body = json_body(("action", "reason"))
         action = body.get("action")
         if action not in ("approve", "reject", "withdraw"):
             raise QualificationError("Choose approve, reject or withdraw.")
+        reason = body.get("reason") or ""
+        if not isinstance(reason, str) or len(reason.strip()) > 500:
+            raise QualificationError("The reason is text of at most 500 characters.")
+        reason = reason.strip() if action == "reject" else ""
         con = connection()
         with db.write_lock, con:
             con.execute("BEGIN IMMEDIATE")
@@ -1041,22 +1086,19 @@ def register(app, connection, root, require_session):
             if row["status"] != "pending":
                 raise QualificationError("Only pending submissions can be reviewed or withdrawn.", 409)
             if action == "approve":
-                if not row["active"]:
-                    raise QualificationError("This qualification type is disabled.")
-                if row["requires_expiry"] and not row["valid_until"]:
-                    raise QualificationError("An expiry date is required before approval. Withdraw and resubmit with an expiry date.")
-                if row["requires_start"] and not row["valid_from"]:
-                    raise QualificationError("A Valid from date is required before approval. Withdraw and resubmit with a Valid from date.")
-                if row["requires_number"] and not row["number"]:
-                    raise QualificationError("A number is required before approval. Add it with Edit.")
-                if row["requires_evidence"] and (
-                        not row["evidence_path"] or storage.stored_file_problem(evidence_root() / row["evidence_path"])):
-                    raise QualificationError("Evidence must be available before approval.")
+                problem = approval_problem(row, evidence_root())
+                if problem:
+                    raise QualificationError(problem)
                 con.execute("UPDATE qualification_submissions SET status='superseded'"
                             " WHERE user_id=? AND type_id=? AND status='approved'", (row["user_id"], row["type_id"]))
             state = {"approve": "approved", "reject": "rejected", "withdraw": "withdrawn"}[action]
-            con.execute("UPDATE qualification_submissions SET status=?,reviewed_by=?,reviewed_at=? WHERE id=?",
-                        (state, g.user["id"], _utc_now(), sid))
+            con.execute("UPDATE qualification_submissions SET status=?,reviewed_by=?,reviewed_at=?,review_note=? WHERE id=?",
+                        (state, g.user["id"], _utc_now(), reason or None, sid))
+            if action == "reject":
+                mail.notify(con, row["user_id"], "reviews", f"Not approved: {row['category']}",
+                            f"An administrator did not approve your {row['category']}."
+                            + (f"\n\nReason: {reason}" if reason else "")
+                            + "\n\nYou can submit it again from your qualifications.", "/account")
             if action in ("reject", "withdraw"):
                 from training import clear_progress_for_submission
                 clear_progress_for_submission(con, sid)
@@ -1064,7 +1106,8 @@ def register(app, connection, root, require_session):
                 from training import queue_access_after_approval
                 queue_access_after_approval(con, sid)
             audit(con, row["user_id"], g.user["id"], state,
-                  dict(id=sid, category=row["category"], valid_from=row["valid_from"], valid_until=row["valid_until"]))
+                  dict(id=sid, category=row["category"], valid_from=row["valid_from"], valid_until=row["valid_until"],
+                       **({"reason": reason} if reason else {})))
         return jsonify(ok=True)
 
     @app.put("/api/qualification-submissions/<int:sid>")

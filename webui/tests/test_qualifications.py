@@ -423,6 +423,48 @@ class QualificationTests(AppTests):
         self.review(sid)
         self.assertEqual(self.client.get("/api/admin/qualification-pending").json["submissions"], [])
 
+    def test_pending_queue_says_what_blocks_approval(self):
+        sid = self.submit().json["id"]
+        item, = self.client.get("/api/admin/qualification-pending").json["submissions"]
+        self.assertEqual((item["can_approve"], item["blocked_reason"]), (True, None))
+        self.assertEqual((item["evidence_name"], item["evidence_mime"], item["replaces"]), ("evidence.pdf", "application/pdf", None))
+        self.con.execute("UPDATE qualification_types SET requires_number=1 WHERE id=?", (self.tid,))
+        self.con.commit()
+        item, = self.client.get("/api/admin/qualification-pending").json["submissions"]
+        self.assertFalse(item["can_approve"])
+        self.assertIn("number is required", item["blocked_reason"])
+        r = self.review(sid)  # the endpoint uses the same rule
+        self.assertEqual((r.status_code, r.json["error"]), (400, item["blocked_reason"]))
+
+    def test_reject_with_reason_is_stored_shown_and_mailed(self):
+        import os
+        sid = self.submit().json["id"]
+        url = f"/api/qualification-submissions/{sid}/review"
+        self.assertEqual(self.client.post(url, json={"action": "reject", "reason": "x" * 501}).status_code, 400)
+        self.assertEqual(self.client.post(url, json={"action": "reject", "reason": 5}).status_code, 400)
+        self.sign_in(3)
+        self.assertEqual(self.client.post(url, json={"action": "reject", "reason": "no"}).status_code, 404)
+        self.sign_in(2)  # the owner may only withdraw
+        self.assertEqual(self.client.post(url, json={"action": "reject", "reason": "no"}).status_code, 403)
+        self.sign_in(1)
+        self.con.execute("UPDATE users SET email='pilot@example.org' WHERE id=2")
+        self.con.commit()
+        with patch.dict(os.environ, {"LOGDB_SMTP_HOST": "relay.example.org", "LOGDB_MAIL_FROM": "logbook@example.org",
+                                     "LOGDB_PUBLIC_URL": "https://logs.example.org"}):
+            r = self.client.post(url, json={"action": "reject", "reason": "  The scan is unreadable.  "})
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertEqual(self.row(sid)["review_note"], "The scan is unreadable.")
+        item = next(i for i in self.listing().json["items"] if i["id"] == sid)
+        self.assertEqual((item["status"], item["review_note"]), ("rejected", "The scan is unreadable."))
+        mail_row = self.con.execute("SELECT * FROM mail_outbox WHERE kind='reviews'").fetchone()
+        self.assertEqual(mail_row["user_id"], 2)
+        self.assertIn("Not approved: A1/A3", mail_row["subject"])
+        self.assertIn("Reason: The scan is unreadable.", mail_row["body"])
+        approved = self.submit().json["id"]  # a reason on approve is ignored
+        self.assertEqual(self.client.post(f"/api/qualification-submissions/{approved}/review",
+                                          json={"action": "approve", "reason": "fine"}).status_code, 200)
+        self.assertIsNone(self.row(approved)["review_note"])
+
     def test_qualification_history_is_admin_only_even_for_record_owner(self):
         self.submit()
         for uid in (2, 3, 4, 5):

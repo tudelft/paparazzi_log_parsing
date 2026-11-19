@@ -1451,9 +1451,25 @@ activity or qualification validity. The Account tab groups profile, sign-in, acc
 with explanations under Help. API key details and revocation load only in the API keys tab.
 Enable Edit to change account settings, manage aliases,
 upload evidence for that person, or review/delete submissions. The people list is searchable, without
-an additional Show filter. **Review submission** in the approval queue switches to the People tab (Back
-returns to the queue) and opens the relevant person's Qualifications tab, enabling Edit if needed. The queue is hidden when empty; type settings are
-in a separate People section visible in Edit mode.
+an additional Show filter. Type settings are in a separate People section visible in Edit mode.
+
+**Approval queue** (`/people?tab=approvals`, admins; hidden when empty unless open) lists pending submissions from
+`GET /api/admin/qualification-pending`: training passes (score and briefer parsed from the pass note, the access
+answer) and certificates (number, dates, evidence name and type, the approved submission of that type it would
+replace, profile role and department when profiles are on). `can_approve`/`blocked_reason` come from
+`qualifications.approval_problem`, the same rules the review endpoint enforces (type active, required dates, number
+and stored evidence). Each row has Approve and Reject; ▸ opens the evidence (image inline, PDF in a small frame, via
+the evidence view endpoint) and details in place. Approve sends nothing at first: the rows disappear and an Undo bar
+shows for 5 s, after which the approvals are posted one by one (failures stay in the queue with their error). A new
+approval sends the previous batch at once, and `pagehide`/hidden visibility posts any held approvals with
+`fetch(..., {keepalive: true})`, so leaving the page does not lose them. Checkboxes and **Approve selected** do
+the same for several rows; a blocked row has no checkbox and Edit (the person's Qualifications tab) instead of
+Approve. Reject opens a dialog with an optional reason: `POST /api/qualification-submissions/<id>/review` takes
+`reason` (≤ 500 characters, rejections only) stored in `qualification_submissions.review_note`, shown after the
+rejected item in the person's qualifications and in the audit entry, and mailed to the person as kind `reviews`
+(**Qualification reviews**, on by default) when email is set up. The filter (`kind=training|qualification`), search
+(`q=`) and open row (`open=`) are in the URL; the Trainings badge links to `kind=training`. Keys while a row has focus:
+↑/↓ move, Space selects, Enter opens, A approves, R rejects.
 Admins can edit username, display name, email and default project together with **Save account** in the Account tab.
 All four fields are saved atomically; previous unambiguous display names are preserved as log aliases. Display names are optional
 and at most 80 characters. Usernames must be unique (case-insensitive),
