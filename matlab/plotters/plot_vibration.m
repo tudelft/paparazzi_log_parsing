@@ -55,7 +55,7 @@ function plot_vibration(f)
         time_axes(end + 1) = ax;
     end
     if numel(time_axes) > 1
-        linkaxes(time_axes, 'x');
+        pprz.link_x(time_axes);
     end
 end
 

@@ -45,7 +45,7 @@ function plot_overview(ac_data, f)
         end
     end
     xlabel(axs(end), 'Time [s]');
-    linkaxes(axs, 'x');
+    pprz.link_x(axs);  % also when called directly; cheaper than linkaxes in pprz_view
     if nargin > 1
         sgtitle(strrep(f.title, '_', '\_'));
     end
