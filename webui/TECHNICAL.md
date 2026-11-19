@@ -1212,6 +1212,11 @@ sends the mail. Its Reply-To is the person; **Cc** (`access_mail_cc_to`, optiona
 To is the mailbox a mail flow reads) and **Copy to the person** (`access_mail_cc`) add copies. A test mail goes
 without either. The subject is
 `Access request: <name> passed <training>`. JSON export/import does not carry these settings.
+The text may use a little markup in the HTML part (the plain-text part keeps it as typed): `**bold**`, lines
+starting with `- ` as bullets and lines starting with two spaces (or a tab) indented.
+Lines `{if role: PhD Student, PostDoc, Staff}`, `{elif role: ...}`, `{else}` and `{end}` (each on its own line, not
+nested) keep only the part matching the person's profile role (names as in the role list, any case; `{else}` also
+covers people without a role), e.g. a different access group for employees and students. Saving refuses unpaired ones.
 Below the typed text every access mail ends with a fixed block, one value per line, for mail flows:
 
 ```text

@@ -217,15 +217,57 @@ def details_html(block):
             + "".join(rows) + "</div>")
 
 
+BOLD = re.compile(r"\*\*(.+?)\*\*")
+
+
+def formatted_html(block):
+    """A paragraph of an access mail's own text with a little markup, for mails people copy from: **bold**, lines
+    starting with "- " as bullets, lines starting with two spaces (or a tab) indented. The plain-text part keeps the
+    text as typed."""
+    def inline(text):
+        text = URL.sub(lambda m: f'<a href="{m[0]}" style="color:#1f6feb">{m[0]}</a>', html.escape(text, quote=False))
+        return BOLD.sub(r"<strong>\1</strong>", text)
+
+    out, bullets, line_run = [], [], []
+
+    def flush():
+        if line_run:
+            out.append('<p style="margin:0 0 14px">' + "<br>".join(line_run) + "</p>")
+            line_run.clear()
+        if bullets:
+            out.append('<ul style="margin:0 0 14px;padding-left:22px">'
+                       + "".join(f'<li style="margin:0 0 4px">{b}</li>' for b in bullets) + "</ul>")
+            bullets.clear()
+
+    for line in block.split("\n"):
+        if line.lstrip().startswith("- "):
+            if line_run:
+                flush()
+            bullets.append(inline(line.lstrip()[2:].strip()))
+        elif line.startswith(("  ", "\t")) and line.strip():
+            flush()
+            out.append(f'<div style="margin:0 0 6px 24px">{inline(line.strip())}</div>')
+        else:
+            if bullets:
+                flush()
+            line_run.append(inline(line.strip()))
+    flush()
+    return "".join(out)
+
+
 def html_body(name, body, shared):
     """The same mail as simple HTML with inline styles (what mail programs support): a header with the sender name,
     the text, a button for a link on its own line and a small footer with the email settings link."""
     paragraphs = []
-    for block in (b.strip() for b in body.split("\n\n")):
-        if not block:
+    # access mails keep leading spaces (indented lines); other mails are trimmed as before
+    for block in (b.strip("\n").rstrip() if shared == "access" else b.strip() for b in body.split("\n\n")):
+        if not block.strip():
             continue
         if shared == "access" and block.startswith(DETAILS + "\n"):
             paragraphs.append(details_html(block))
+            continue
+        if shared == "access":
+            paragraphs.append(formatted_html(block))
             continue
         if URL.fullmatch(block):
             url = html.escape(block, quote=True)

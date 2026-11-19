@@ -461,6 +461,7 @@ def access_fields(body):
                             "and 200 of question.")
     if to and not text:
         raise TrainingError("Type the access mail, or remove its address.")
+    role_blocks(text)
     if cc_to and not to:
         raise TrainingError("Add a To address for the access mail, or remove its Cc.")
     if type(body.get("access_mail_cc", False)) is not bool:
@@ -482,7 +483,52 @@ def parse_access_answer(row, body):
     return answer
 
 
+CONDITION = re.compile(r"^[ \t]*\{(if role:[^}\n]*|elif role:[^}\n]*|else|end)\}[ \t]*$", re.M | re.I)
+
+
+def role_blocks(text):
+    """The text split on its role conditions, one line each: {if role: A, B}, {elif role: C}, {else}, {end} (not
+    nested). Gives [(roles or None for else, part) ...] per condition chain between plain text; TrainingError when
+    the conditions do not pair up."""
+    out, chain, pos = [], None, 0
+    for m in CONDITION.finditer(text):
+        word = m[1].split()[0].lower()
+        part = text[pos:m.start()]
+        if chain is None:
+            if word != "if":
+                raise TrainingError(f"{{{m[1].strip()}}} in the access mail has no {{if role: ...}} before it.")
+            out.append(part)
+        elif word == "if":
+            raise TrainingError("Close each {if role: ...} in the access mail with {end} before the next one.")
+        else:
+            chain[-1][1] = part
+        if word in ("if", "elif"):
+            roles = {r.strip().lower() for r in m[1].split(":", 1)[1].split(",") if r.strip()}
+            if not roles:
+                raise TrainingError("Name one or more roles in {if role: ...}, e.g. {if role: PhD Student, Staff}.")
+            chain = (chain or []) + [[roles, ""]]
+        elif word == "else":
+            chain.append([None, ""])
+        else:
+            out.append(chain)
+            chain = None
+        pos = m.end() + (1 if text[m.end():m.end() + 1] == "\n" else 0)
+    if chain is not None:
+        raise TrainingError("Close each {if role: ...} in the access mail with {end}.")
+    out.append(text[pos:])
+    return out
+
+
 def fill_access(text, values):
+    """The mail text for one person: the part of each role condition that matches their profile role, then tags."""
+    role = values["{role}"].strip().lower()
+    parts = []
+    for block in role_blocks(text):
+        if isinstance(block, str):
+            parts.append(block)
+        else:
+            parts.append(next((part for roles, part in block if roles is None or role in roles), ""))
+    text = "".join(parts)
     for key in PLACEHOLDERS:
         text = text.replace(key, values[key])
     return text

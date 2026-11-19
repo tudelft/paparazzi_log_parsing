@@ -1,4 +1,5 @@
 import os
+import unittest
 from unittest.mock import patch
 
 import mail
@@ -221,3 +222,15 @@ class MailTests(AppTests):
         self.con.commit()
         body = self.client.get(f"/api/admin/mail/{log['mails'][0]['id']}").json["body"]
         self.assertNotIn("secret", body)
+
+
+class AccessMarkupTests(unittest.TestCase):
+    def test_bold_bullets_and_indent_only_in_access_mails(self):
+        body = ("Please request:\n  **062-MAVLab <PhD>**\n  Rooms: L0.44\n\n- one\n- **two**\n\n"
+                + mail.DETAILS + "\nPerson: Jan")
+        page = mail.html_body("MAVLab", body, "access")
+        self.assertIn('<div style="margin:0 0 6px 24px"><strong>062-MAVLab &lt;PhD&gt;</strong></div>', page)
+        self.assertIn("<li style=\"margin:0 0 4px\"><strong>two</strong></li>", page)
+        self.assertIn("Person:", page)
+        self.assertNotIn("**", page)
+        self.assertIn("**", mail.html_body("MAVLab", "a **b**", "bookings"))
