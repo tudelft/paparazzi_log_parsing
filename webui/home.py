@@ -150,14 +150,14 @@ def upcoming_bookings(con, user, now_local):
     items = {}
     out = []
     for b in con.execute(
-            "SELECT b.* FROM bookings b WHERE b.user_id=? AND b.ends_at>? AND b.starts_at<?"
+            "SELECT b.* FROM bookings b WHERE b.user_id=? AND b.ends_at>? AND b.starts_at<? AND b.status!='rejected'"
             " ORDER BY b.starts_at, b.id", (user["id"], now_local.strftime("%Y-%m-%dT%H:%M"), end)):
         item = thing(con, items, b["thing_id"], user)
         if item is None:
             continue
         flags = bookings.booking_flags(con, b["id"])
         out.append(dict(id=b["id"], thing_id=b["thing_id"], thing=item["name"], place=item["place_name"], description=b["description"],
-                        start=b["starts_at"], end=b["ends_at"],
+                        start=b["starts_at"], end=b["ends_at"], pending=b["status"] == "pending",
                         flags=[f["label"] for f in item["flags"] if f["id"] in flags]))
         if len(out) == BOOKINGS_SHOWN:
             break
@@ -171,12 +171,23 @@ def bookings_today(con, user, now_local):
     items, out = {}, []
     for b in con.execute(
             "SELECT b.*, COALESCE(u.display_name, u.username) AS person FROM bookings b JOIN users u ON u.id=b.user_id"
-            " WHERE b.starts_at<? AND b.ends_at>? ORDER BY b.starts_at, b.id", (nxt, day)):
+            " WHERE b.starts_at<? AND b.ends_at>? AND b.status!='rejected' ORDER BY b.starts_at, b.id", (nxt, day)):
         item = thing(con, items, b["thing_id"], user)
         if item is not None:
             out.append(dict(thing=item["name"], place=item["place_name"], person=b["person"],
                             start=b["starts_at"], end=b["ends_at"]))
     return out[:10]
+
+
+def bookings_to_approve(con, user):
+    """Pending bookings this person decides (administrators: all; approvers: their items): the count and where the
+    first one is, for the Needs your attention card."""
+    rows = con.execute(
+        "SELECT b.thing_id, b.starts_at FROM bookings b WHERE b.status='pending'"
+        + ("" if user["is_admin"] else " AND b.thing_id IN (SELECT thing_id FROM booking_approvers WHERE user_id=?)")
+        + " ORDER BY b.starts_at", () if user["is_admin"] else (user["id"],)).fetchall()
+    return dict(count=len(rows), thing_id=rows[0]["thing_id"] if rows else None,
+                week=rows[0]["starts_at"][:10] if rows else None)
 
 
 def thing(con, cache, thing_id, user):

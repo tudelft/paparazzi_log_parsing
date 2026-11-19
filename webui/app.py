@@ -5871,7 +5871,8 @@ def home_data():
         logs=dict(undated=undated, failed=failed),
         review=len(review_queue().get_json()["cases"]),
         bookings=dict(enabled=on, upcoming=home.upcoming_bookings(con, g.user, now_local) if on else [],
-                      today=home.bookings_today(con, g.user, now_local) if on else []),
+                      today=home.bookings_today(con, g.user, now_local) if on else [],
+                      to_approve=home.bookings_to_approve(con, g.user) if on else dict(count=0)),
         places=[dict(id=p["id"], name=p["name"]) for p in choices],
         place_id=home.default_place(choices, stored), place_saved=stored if stored in {p["id"] for p in choices} else None,
         thumbnails=bool(app.config.get("ATTACHMENT_FFMPEG")))

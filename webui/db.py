@@ -458,7 +458,13 @@ CREATE TABLE IF NOT EXISTS booking_things (
     qualification_for TEXT NOT NULL DEFAULT 'booking' CHECK(qualification_for IN ('booking','viewing')),
     colour TEXT,                       -- #rrggbb for its bookings in the All view
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
-    sort_order INTEGER NOT NULL DEFAULT 0
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    needs_approval INTEGER NOT NULL DEFAULT 0 CHECK(needs_approval IN (0,1))  -- bookings wait for an approver
+);
+CREATE TABLE IF NOT EXISTS booking_approvers (  -- besides administrators: who approves bookings of an item
+    thing_id INTEGER NOT NULL REFERENCES booking_things(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (thing_id, user_id)
 );
 CREATE TABLE IF NOT EXISTS booking_flags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -476,6 +482,10 @@ CREATE TABLE IF NOT EXISTS bookings (
     starts_at TEXT NOT NULL,           -- local wall-clock time, YYYY-MM-DDTHH:MM
     ends_at TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'approved' CHECK(status IN ('approved','pending','rejected')),  -- needs_approval items
+    decided_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    decided_at TEXT,
+    review_note TEXT,                  -- the approver's reason when rejecting
     CHECK(ends_at > starts_at)
 );
 CREATE INDEX IF NOT EXISTS ix_bookings_time ON bookings(thing_id, starts_at, ends_at);
@@ -974,6 +984,16 @@ def init(path):
         con.execute("ALTER TABLE qualification_submissions ADD COLUMN note TEXT")
     if qcols and "review_note" not in qcols:
         con.execute("ALTER TABLE qualification_submissions ADD COLUMN review_note TEXT")
+    bcols = {r["name"] for r in con.execute("PRAGMA table_info(booking_things)")}
+    if bcols and "needs_approval" not in bcols:
+        con.execute("ALTER TABLE booking_things ADD COLUMN needs_approval INTEGER NOT NULL DEFAULT 0"
+                    " CHECK(needs_approval IN (0,1))")
+    bcols = {r["name"] for r in con.execute("PRAGMA table_info(bookings)")}
+    for column, ddl in (("status", "TEXT NOT NULL DEFAULT 'approved' CHECK(status IN ('approved','pending','rejected'))"),
+                        ("decided_by", "INTEGER REFERENCES users(id) ON DELETE SET NULL"), ("decided_at", "TEXT"),
+                        ("review_note", "TEXT")):
+        if bcols and column not in bcols:
+            con.execute(f"ALTER TABLE bookings ADD COLUMN {column} {ddl}")
     upcols = {r["name"] for r in con.execute("PRAGMA table_info(user_profiles)")}
     if upcols and "to_confirm" not in upcols:
         con.execute("ALTER TABLE user_profiles ADD COLUMN to_confirm INTEGER NOT NULL DEFAULT 0 CHECK(to_confirm IN (0,1))")
