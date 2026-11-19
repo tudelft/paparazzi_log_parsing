@@ -1189,11 +1189,13 @@ def register(app, connection, root, require_session):
     @app.post("/api/admin/trainings/<int:training_id>/test-access-mail")
     def test_access_mail(training_id):
         """Send the access mail as if `user_id` passed today, with the mail text and To of the form (saved or not),
-        to the To addresses (a mail flow handles it like a real request) or only to the administrator. No copy to
-        the person or to administrators."""
+        to the To addresses (a mail flow handles it like a real request), with the form's Cc addresses when
+        include_cc, or only to the administrator. No copy to the person or to administrators."""
         admin()
         body = request.get_json(silent=True) or {}
-        to, text, _, _, _ = access_fields({**body, "access_mail_cc": False, "access_mail_cc_to": ""})
+        to, text, _, _, cc_to = access_fields({**body, "access_mail_cc": False})
+        if type(body.get("include_cc", False)) is not bool:
+            raise TrainingError("Include Cc must be true or false.")
         if not mail.enabled():
             raise TrainingError("Email is not set up on this server.")
         if body.get("send_to") == "me":
@@ -1202,6 +1204,7 @@ def register(app, connection, root, require_session):
                 raise TrainingError("Your account has no email address.")
         elif body.get("send_to") != "to":
             raise TrainingError("Send to must be to or me.")
+        cc = cc_to if body.get("send_to") == "to" and body.get("include_cc") else ""
         if not to or not text:
             raise TrainingError("Fill in the To addresses and the mail first.")
         user_id = body.get("user_id")
@@ -1213,8 +1216,8 @@ def register(app, connection, root, require_session):
         row = {**dict(training_row(cid, training_id)), "access_mail_text": text}
         subject, text, email = access_mail(cid, user_id, row, test=True)
         with db.write_lock, cid:
-            mail.queue_access(cid, to, subject, text, reply_to=email or None, copies=False)
-        return jsonify(ok=True, to=to)
+            mail.queue_access(cid, to, subject, text, cc_addr=cc or None, reply_to=email or None, copies=False)
+        return jsonify(ok=True, to=to, cc=cc or None)
 
     @app.delete("/api/admin/trainings/<int:training_id>")
     def delete_training(training_id):

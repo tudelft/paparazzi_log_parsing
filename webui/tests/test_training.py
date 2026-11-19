@@ -651,8 +651,13 @@ class TrainingTests(AppTests):
         self.assertTrue(row["body"].startswith("Unsaved Pilot.\n\nRequest details:\n"), row["body"])
         self.assertRegex(row["body"], r"\nReference: T\d+-U2-\d{4}-\d\d-\d\d-test$")
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM mail_outbox").fetchone()[0], queued + 1)  # no copies
+        form["access_mail_cc_to"] = "secretary@example.org"
+        self.assertIsNone(self.client.post(url, json={**form, "send_to": "to"}).json["cc"])
+        r = self.client.post(url, json={**form, "send_to": "to", "include_cc": True})
+        self.assertEqual((r.json["cc"], self.access_mails()[-1]["cc_addr"]), ("secretary@example.org",) * 2)
         me = self.con.execute("SELECT email FROM users WHERE id=1").fetchone()[0]
-        self.assertEqual(self.client.post(url, json={**form, "send_to": "me"}).json["to"], me)
+        r = self.client.post(url, json={**form, "send_to": "me", "include_cc": True})
+        self.assertEqual((r.json["to"], r.json["cc"]), (me, None))
         for bad in ({"user_id": 999}, {"send_to": "x"}, {"access_mail_text": ""}):
             self.assertEqual(self.client.post(url, json={**form, "send_to": "to", **bad}).status_code, 400, bad)
         self.sign_in(2)
