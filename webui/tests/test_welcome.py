@@ -21,7 +21,9 @@ class WelcomeTests(AppTests):
         self.assertEqual(page.headers["Location"], "/welcome?next=%2Flogbook%3Fx%3D1")
         self.assertEqual(self.client.get("/welcome").status_code, 200)
         self.assertEqual(self.client.get("/api/me").status_code, 200)  # the API keeps working
-        self.assertEqual(self.client.get("/api/welcome").json["message"]["body"], "Hello lab.\n\nRead /training first.")
+        self.assertEqual(self.client.get("/api/welcome").json["message"]["html"],
+                         '<p>Hello lab.</p><p>Read <a href="/training">/training</a> first.</p>')
+        self.assertNotIn("text", self.client.get("/api/welcome").json)  # the raw text: admins only
         self.assertNotIn("seen", self.client.get("/api/welcome").json)  # admins only
         self.assertEqual(self.client.post("/api/welcome/seen").status_code, 200)
         self.assertEqual(self.client.get("/logbook").status_code, 200)
@@ -55,6 +57,26 @@ class WelcomeTests(AppTests):
         self.sign_in(4)
         self.assertEqual(self.client.get("/logbook").status_code, 200)
         self.assertIsNone(self.client.get("/api/welcome").json["message"])
+
+    def test_tags_roles_and_markup_like_the_access_mail(self):
+        settings = patch.dict(os.environ, LOGDB_PERSON_PROFILE="1")
+        settings.start()
+        self.addCleanup(settings.stop)
+        self.ns["profiles"].seed(self.con)
+        role = {r["name"]: r["id"] for r in self.con.execute("SELECT id, name FROM profile_roles")}
+        self.con.execute("INSERT INTO user_profiles (user_id, role_id, indefinite) VALUES (3, ?, 1)", (role["Staff"],))
+        self.con.commit()
+        text = ("Hello **{name}** ({role}), {training} <b>\n{if role: Staff}\n- staff line\n  indented\n{else}\n"
+                "student line\n{end}\nSee https://example.org.")
+        self.assertEqual(self.write(text).status_code, 200)
+        self.sign_in(3)
+        self.assertEqual(self.client.get("/api/welcome").json["message"]["html"],
+                         "<p>Hello <strong>Viewer</strong> (Staff), {training} &lt;b&gt;</p><ul><li>staff line</li></ul>"
+                         '<div class="indent">indented</div><p>See <a href="https://example.org" target="_blank"'
+                         ' rel="noopener">https://example.org</a>.</p>')
+        self.sign_in(1)
+        self.assertEqual(self.client.get("/api/welcome").json["text"], text)
+        self.assertIn("{end}", self.write("{if role: Staff}\nx").json["error"])
 
     def test_only_admins_write_it(self):
         self.sign_in(3)

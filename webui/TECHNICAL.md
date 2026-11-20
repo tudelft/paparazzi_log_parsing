@@ -1364,8 +1364,12 @@ version they saw (`POST /api/welcome/seen`, table `welcome_seen`) and opens the 
 profile, the API and API keys are never blocked.
 
 Admins open `/welcome` (People in Edit mode → **Profile options** → *Welcome message*) and use **Edit**
-(`PUT /api/admin/welcome` with `title`, `body`, `show_again`). The text is plain: an empty line starts a paragraph,
-and `https://` addresses and site paths (`/training`) become links. Saving a changed text keeps its version, so a
+(`PUT /api/admin/welcome` with `title`, `body`, `show_again`). The text is written like a training's access mail and
+filled in per person on the server: the tags `{name} {email} {username} {department} {role} {supervisor} {end_date}`
+(from the account and profile, `-` when unknown; other tags stay as typed), blocks per profile role
+(`{if role: A, B}` … `{elif role: C}` … `{else}` … `{end}`, each on its own line, checked when saving) and the same
+markup: `**bold**`, `- ` bullets, two leading spaces indent, an empty line starts a paragraph, and `https://`
+addresses and site paths (`/training`) become links. Everything typed is escaped. Saving a changed text keeps its version, so a
 fixed typo is not shown again; *Show it again to everyone* raises the version. The first message, or one written
 after it was emptied, is new to everybody, including people who signed in before; an empty text means no message.
 An account merge keeps the newest version either account saw.

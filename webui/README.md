@@ -303,8 +303,8 @@ date and student/employee number after signing in, and again once that end date 
 page, and on People in the **Profiles** and **Supervision** tabs, which show supervisors the people they supervise.
 
 **Welcome message:** when admins have written one, you see it once after signing in (after the profile), before
-your page. Admins write it on People in Edit mode under **Profile options** → *Welcome message*
-([details](TECHNICAL.md#welcome-message)).
+your page. Admins write it on People in Edit mode under **Profile options** → *Welcome message*, like a
+training's access mail: tags such as `{name}`, a little markup and parts per role ([details](TECHNICAL.md#welcome-message)).
 
 **Qualifications:** submit your own evidence under **My account**; admins review it on **People**.
 Each type determines whether evidence, expiry and a licence number are required (the number and validity

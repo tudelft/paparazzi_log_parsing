@@ -14,7 +14,11 @@
   .small { font-size:12px; }
   a { color:var(--acc); text-decoration:none; overflow-wrap:anywhere; }
   a:hover { text-decoration:underline; }
-  #text p { margin:0 0 10px; overflow-wrap:anywhere; }
+  #text p, #text ul { margin:0 0 10px; overflow-wrap:anywhere; }
+  #text ul { padding-left:22px; }
+  #text li { margin:0 0 4px; }
+  #text .indent { margin:0 0 6px 24px; }
+  .hint { margin:4px 0 0; font-size:12px; color:var(--mute); }
   label.f { display:block; margin-top:12px; font-size:12px; color:var(--mute); }
   label.f > input, label.f > textarea { margin-top:4px; }
   input, textarea { box-sizing:border-box; width:100%; padding:7px 8px; font:inherit; border:1px solid var(--fieldline); border-radius:6px; background:var(--field); color:var(--txt); }
@@ -47,10 +51,10 @@
 <form class="box" id="form" hidden novalidate>
   <h1>Welcome message</h1>
   <p class="mute small" style="margin:0">Shown once to everyone who signs in, after their profile and before their page
-    (not to external users). Plain text: an empty line starts a new paragraph, and web addresses
-    (https://…) and pages of this site (/training) become links. Leave the message empty for no welcome message.</p>
+    (not to external users). Written like a training's access mail. Leave the message empty for no welcome message.</p>
   <label class="f">Title<input id="fTitle" maxlength="120" placeholder="Welcome"></label>
   <label class="f">Message<textarea id="fBody" maxlength="10000"></textarea></label>
+  <p class="hint" title="The tags are filled in for each person from their account and profile (- when unknown). The role is the role in their profile.">Tags: <span id="tags"></span> · Markup: **bold**, "- " bullets, two leading spaces indent, an empty line starts a paragraph, https://… and /pages become links · Per role, each on its own line: {if role: PhD Student, Staff} … {else} … {end}</p>
   <label class="check"><input type="checkbox" id="fAgain"> Show it again to everyone who has already seen it</label>
   <div id="fErr" style="color:var(--err);margin-top:12px"></div>
   <div class="buttons">
@@ -72,35 +76,11 @@ async function api(url, opt) {
 function safeNext() {
   return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/welcome') ? next : '/home';
 }
-// Paragraphs (empty lines), line breaks, and links for https:// addresses and /pages of this site; built as DOM
-// nodes, so the text can never add markup.
-const LINK = /(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]']|(?<![\w/])\/[a-z][\w\-/]*(?:\?[^\s<>"]*[^\s<>".,;:!?)\]'])?)/gi;
-function render(body) {
-  const box = $('text');
-  box.replaceChildren();
-  for (const para of body.split(/\n\s*\n/)) {
-    const p = document.createElement('p');
-    para.split('\n').forEach((line, i) => {
-      if (i) p.append(document.createElement('br'));
-      let at = 0;
-      for (const m of line.matchAll(LINK)) {
-        p.append(line.slice(at, m.index));
-        const a = document.createElement('a');
-        a.href = a.textContent = m[0];
-        if (m[0].startsWith('http')) { a.target = '_blank'; a.rel = 'noopener'; }
-        p.append(a);
-        at = m.index + m[0].length;
-      }
-      p.append(line.slice(at));
-    });
-    box.append(p);
-  }
-}
 function show() {
   const msg = data.message;
   $('title').textContent = msg ? (msg.title || 'Welcome') : 'Welcome message';
   document.title = $('title').textContent;
-  if (msg) render(msg.body); else $('text').replaceChildren();
+  $('text').innerHTML = msg ? msg.html : '';  // built and escaped by the server, filled in for this person
   $('empty').hidden = !!msg;
   $('edit').hidden = !data.can_edit;
   $('seen').hidden = !(data.can_edit && msg);
@@ -120,9 +100,9 @@ $('continue').onclick = async () => {
   }
 };
 $('edit').onclick = () => {
-  const msg = data.message || {};
-  $('fTitle').value = msg.title || '';
-  $('fBody').value = msg.body || '';
+  $('fTitle').value = (data.message && data.message.title) || '';
+  $('fBody').value = data.text || '';
+  $('tags').textContent = (data.tags || []).join(' ');
   $('fAgain').checked = false;
   $('fErr').textContent = '';
   $('view').hidden = true;
