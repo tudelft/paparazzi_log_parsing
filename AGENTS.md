@@ -74,6 +74,11 @@ aviation authority, so every one of these links must keep working in every relea
   and leave the result pages open at the end so they can be reviewed.
 - For UI changes, open the pull request with screenshots but do not merge or tag it until the maintainer
   has reviewed the result and agrees; ask first, even when the change was requested.
+- Host pull request screenshots on the single orphan branch `pr-screenshots`: add one commit per pull request
+  with the images in a folder named after the feature branch, push it, and link the images in the pull
+  request by commit SHA (`https://raw.githubusercontent.com/<owner>/<repo>/<sha>/<branch>/<image>.png`).
+  Never create a separate branch per pull request for screenshots, and never merge `pr-screenshots`.
+  Blur personal details (names, email addresses) in screenshots.
 - The service runs in production with a live database: schema changes need idempotent migrations.
   Do not add silent legacy fallbacks unless asked.
 - The repository is public. Keep personal names, internal hostnames, server details and other private
