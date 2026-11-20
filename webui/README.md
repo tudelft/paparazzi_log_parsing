@@ -314,7 +314,7 @@ Admins can make either date optional per type; both date switches start checked 
 In Edit mode, admins can correct the dates of any submission with **Edit dates**, for example to end a licence that has expired.
 An Internal switch marks in-house qualifications. Drag types to set their order, then use one Save.
 In Edit mode, **Import ZIP** on People loads a `manifest.csv` plus evidence PDFs: preview, then import
-and approve in one step. Older licence periods go to the **Archive** tab of each person's qualifications.
+and approve in one step. Older licence periods are under **Show older** in each person's qualifications.
 Names not yet on People are added as new users (shown as **New user** in the preview).
 Dates are entered manually, and existing records keep an unknown start date. Historical flight
 eligibility is not checked. The read-only People list shows only approved, non-expired qualifications,

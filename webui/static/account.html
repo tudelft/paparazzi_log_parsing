@@ -67,7 +67,6 @@
       <table><thead><tr><th>Name</th><th>Role</th><th>Department</th><th>Expected end</th></tr></thead><tbody id="students"></tbody></table></div>
   </section>
   <section class="card" data-pane="qualifications" hidden>
-    <h2>My qualifications</h2>
     <div id="myQualifications">Loading qualifications...</div>
   </section>
   <section class="card" id="email" data-pane="email" hidden>
@@ -234,7 +233,7 @@ $('homePlace').onchange = async () => {
 };
 api('/api/me').then(d => {
   loadHomePlace().catch(() => {});
-  new QualificationManager($('myQualifications'), d.user.id, false).load();
+  Object.assign(new QualificationManager($('myQualifications'), d.user.id, false), {title: 'My qualifications'}).load();
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   isAdmin = !!d.user.is_admin;
   $('scopeChoice').innerHTML = scopeBoxes(['read']);

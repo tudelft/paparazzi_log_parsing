@@ -1064,6 +1064,7 @@ function renderPersonPanel() {
       if (generation === panelGeneration) return load();
     });
     qualificationManager.editing = editing;
+    qualificationManager.name = user.display_name || user.username;  // the add dialog says for whom
     qualificationManager.load();
   } else if (selectedTab === 'aliases') {
     $('personContent').innerHTML = `<p class="mute">Aliases link PIC/PAC/GCS names in logs to this person. Unique display names match automatically; usernames match only if explicitly added as aliases. Review existing aliases if a short name is ambiguous.</p>
