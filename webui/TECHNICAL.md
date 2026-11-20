@@ -1606,7 +1606,7 @@ the person, admins and `/api/pilots`.
 
 **QR codes** (`licence_qr.py`, issue 189). The QR code the issuing authority prints on a certificate is a better
 source than the text, which can hide a sample number. After an upload a background thread reads the codes of the
-evidence: the first two pages of a PDF rendered at 300 dpi with `pdftoppm`, or the image itself, decoded with
+evidence: the first two pages of a PDF rendered with `pdftoppm` at 150 dpi (and at 300 dpi when that finds no code), or the image itself, decoded with
 `zbarimg` (packages `poppler-utils` and `zbar-tools`, installed by `install.sh`; without them nothing is read).
 The codes are stored in `qualification_submissions.qr_json` (cleared when the evidence is deleted) and the
 recognised parts are compared at display time with what was entered: a certificate number (same patterns as
@@ -1634,7 +1634,11 @@ for is still missing and the PDF text gave no number (so there is no text layer 
 (turned upright first) or a JPEG/PNG as it is. It returns what it found per field with its source (`qr`, `text`, `ocr`;
 that order of preference), the dates seen and where the document differs from the typed values; people who are not
 administrators get only the QR check's status, authority and issues, not the decoded codes. The PDF is decompressed
-once per read, with one budget for all its streams together (`PDF_TEXT_BUDGET`, 80 MiB).
+once per read, with one budget for all its streams together (`PDF_TEXT_BUDGET`, 80 MiB). Dates and their labels come
+from `pdftotext` (poppler-utils) when installed, which also decodes subset fonts; else from the built-in PDF reader.
+Labels are recognised in English, Dutch, French, German, Spanish, Italian, Portuguese, Polish, Swedish, Danish,
+Norwegian, Czech and Finnish (`DATE_LABELS`, `MONTHS`). A complete read is kept in memory for 30 minutes per person
+and file (SHA-256) and used on submit of that same file instead of reading it again (then OCR results count too).
 
 The whole read has one time limit (`QUALIFICATION_READ_SECONDS`, default `READ_SECONDS`, 25 s), shared by the QR code
 and OCR: every `pdftoppm`, `zbarimg` and `tesseract` call gets at most the time left. When it runs out, what was found so
