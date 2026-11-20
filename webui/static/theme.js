@@ -341,7 +341,7 @@ window.timingEvidenceHTML = function (timing) {
   }
   function mount() {
     const nav = document.getElementById('nav');
-    if (!nav || /^\/(login|setup|cli-login|profile)/.test(location.pathname)) return;
+    if (!nav || /^\/(login|setup|cli-login|profile|welcome)/.test(location.pathname)) return;
     const wrapper = document.createElement('div');
     wrapper.id = 'flightFiltersMenu';
     wrapper.innerHTML = `<button type="button" id="flightFiltersButton" aria-expanded="false" aria-controls="flightFiltersPanel"></button>
@@ -904,7 +904,7 @@ window.timingEvidenceHTML = function (timing) {
       } else heading.textContent = SITE.name;
     }
     document.querySelectorAll('[data-site-name]').forEach(el => { el.textContent = SITE.name; });
-    if (/^\/(login|setup|cli-login|profile)/.test(location.pathname) && !document.title.endsWith(SITE.name))
+    if (/^\/(login|setup|cli-login|profile|welcome)/.test(location.pathname) && !document.title.endsWith(SITE.name))
       document.title += ' - ' + SITE.name;
   }
 
@@ -940,14 +940,14 @@ window.timingEvidenceHTML = function (timing) {
   ready(() => {
     paintBrand();
     paintNav();
-    if (!/^\/(login|setup|cli-login|profile)/.test(location.pathname)) {
+    if (!/^\/(login|setup|cli-login|profile|welcome)/.test(location.pathname)) {
       paintActions();
       paintVersion(null);
     }
     paintEdit();
   });
 
-  if (!/^\/(login|setup|cli-login|profile)/.test(location.pathname)) {
+  if (!/^\/(login|setup|cli-login|profile|welcome)/.test(location.pathname)) {
     fetch('/api/me').then(async r => {
       if (r.status === 401) {
         try { localStorage.removeItem(ADMIN_KEY); localStorage.removeItem(TRAINING_KEY); localStorage.removeItem(BOOKINGS_KEY); localStorage.removeItem(DOCUMENTS_KEY); localStorage.removeItem(SAFETY_KEY); } catch (e) {}

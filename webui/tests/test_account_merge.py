@@ -77,6 +77,13 @@ class AccountMergeTests(AppTests):
         self.assertEqual(self.client.post("/api/admin/users/5/merge", json=dict(into=2)).status_code, 200)
         self.assertEqual(self.con.execute("SELECT number FROM user_profiles WHERE user_id=2").fetchone()[0], "moved")
 
+    def test_merge_keeps_the_newest_seen_welcome_message(self):
+        self.con.executemany("INSERT INTO welcome_seen (user_id, version, seen_at) VALUES (?, ?, 'now')",
+                             [(2, 1), (5, 3)])
+        self.con.commit()
+        self.assertEqual(self.client.post("/api/admin/users/5/merge", json=dict(into=2)).status_code, 200)
+        self.assertEqual([tuple(r) for r in self.con.execute("SELECT user_id, version FROM welcome_seen")], [(2, 3)])
+
     def test_merge_refusals(self):
         self.assertEqual(self.preview(2, 2).status_code, 400)
         self.assertEqual(self.preview(1, 2).status_code, 400)  # your own account cannot be merged away

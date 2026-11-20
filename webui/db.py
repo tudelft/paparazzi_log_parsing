@@ -529,6 +529,19 @@ CREATE TABLE IF NOT EXISTS calendar_tokens (  -- private calendar feed links (bo
     token TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS welcome_message (  -- welcome.py: shown once to everyone after the profile, written by admins
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    title TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL DEFAULT '',     -- empty: no welcome message
+    version INTEGER NOT NULL DEFAULT 0, -- raised to show it again to everyone who saw it
+    updated_at TEXT,
+    updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS welcome_seen (  -- the version of the welcome message each person has seen
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    seen_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS document_settings (  -- Documents page (documents.py): the text at the top
     id INTEGER PRIMARY KEY CHECK(id=1),
     intro TEXT NOT NULL DEFAULT ''
@@ -1011,7 +1024,7 @@ LOGBOOK_UNRELATED = {
     "api_keys", "cli_logins", "drone_requests", "password_setup_tokens", "ingest", "bulk_reservations", "weather_cache",
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
     "training_progress", "training_briefers", "booking_things", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
-    "document_settings", "document_groups", "documents", "document_profile_roles", "document_qualification_types",
+    "welcome_message", "welcome_seen", "document_settings", "document_groups", "documents", "document_profile_roles", "document_qualification_types",
     "safety_settings", "safety_reports",
     "mail_outbox", "mail_prefs", "mail_sent_keys",
     "profile_roles", "profile_departments", "user_profiles", "user_supervisors", "logbook_version",

@@ -302,6 +302,10 @@ date and student/employee number after signing in, and again once that end date 
 **My account**. Only you, admins and your supervisors see it (supervisors without your number): on your person
 page, and on People in the **Profiles** and **Supervision** tabs, which show supervisors the people they supervise.
 
+**Welcome message:** when admins have written one, you see it once after signing in (after the profile), before
+your page. Admins write it on People in Edit mode under **Profile options** → *Welcome message*, like a
+training's access mail: tags such as `{name}`, a little markup and parts per role ([details](TECHNICAL.md#welcome-message)).
+
 **Qualifications:** submit your own evidence under **My account**; admins review it on **People**.
 Each type determines whether evidence, expiry and a licence number are required (the number and validity
 dates are read from the evidence when you choose the file; empty fields are filled, typed values are kept). Evidence is one PDF, JPEG or PNG,

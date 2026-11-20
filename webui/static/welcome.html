@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Welcome</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); font:14px/1.5 system-ui, sans-serif; color:var(--txt); }
+  .box { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:24px 28px; width:560px; max-width:calc(100vw - 32px); box-sizing:border-box; margin:16px 0; }
+  h1 { font-size:20px; margin:0 0 12px; }
+  .mute { color:var(--mute); }
+  .small { font-size:12px; }
+  a { color:var(--acc); text-decoration:none; overflow-wrap:anywhere; }
+  a:hover { text-decoration:underline; }
+  #text p, #text ul { margin:0 0 10px; overflow-wrap:anywhere; }
+  #text ul { padding-left:22px; }
+  #text li { margin:0 0 4px; }
+  #text .indent { margin:0 0 6px 24px; }
+  .hint { margin:4px 0 0; font-size:12px; color:var(--mute); }
+  label.f { display:block; margin-top:12px; font-size:12px; color:var(--mute); }
+  label.f > input, label.f > textarea { margin-top:4px; }
+  input, textarea { box-sizing:border-box; width:100%; padding:7px 8px; font:inherit; border:1px solid var(--fieldline); border-radius:6px; background:var(--field); color:var(--txt); }
+  textarea { resize:vertical; min-height:220px; }
+  label.check { display:flex; gap:6px; align-items:center; margin-top:10px; font-size:13px; }
+  label.check input { width:auto; }
+  button { padding:7px 14px; font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; cursor:pointer; }
+  button.secondary { background:none; color:var(--txt); border:1px solid var(--fieldline); }
+  .buttons { display:flex; justify-content:flex-end; align-items:center; gap:12px; margin-top:18px; }
+  .buttons .left { margin-right:auto; }
+  #err { color:var(--err); margin-top:12px; }
+  #err:empty { display:none; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button>
+<div class="box" id="view" hidden>
+  <h1 id="title">Welcome</h1>
+  <div id="text"></div>
+  <p class="mute" id="empty" hidden>There is no welcome message: people go straight to their page after the profile.
+    Write one with Edit.</p>
+  <div id="err"></div>
+  <div class="buttons">
+    <span class="left mute small" id="seen" hidden></span>
+    <button type="button" class="secondary" id="edit" hidden>Edit</button>
+    <button type="button" id="continue">Continue</button>
+  </div>
+</div>
+<form class="box" id="form" hidden novalidate>
+  <h1>Welcome message</h1>
+  <p class="mute small" style="margin:0">Shown once to everyone who signs in, after their profile and before their page
+    (not to external users). Written like a training's access mail. Leave the message empty for no welcome message.</p>
+  <label class="f">Title<input id="fTitle" maxlength="120" placeholder="Welcome"></label>
+  <label class="f">Message<textarea id="fBody" maxlength="10000"></textarea></label>
+  <p class="hint" title="The tags are filled in for each person from their account and profile (- when unknown). The role is the role in their profile.">Tags: <span id="tags"></span> · Markup: **bold**, "- " bullets, two leading spaces indent, an empty line starts a paragraph, https://… and /pages become links · Per role, each on its own line: {if role: PhD Student, Staff} … {else} … {end}</p>
+  <label class="check"><input type="checkbox" id="fAgain"> Show it again to everyone who has already seen it</label>
+  <div id="fErr" style="color:var(--err);margin-top:12px"></div>
+  <div class="buttons">
+    <button type="button" class="secondary" id="cancel">Cancel</button>
+    <button type="submit" id="save">Save</button>
+  </div>
+</form>
+<script>
+const $ = id => document.getElementById(id);
+const next = new URLSearchParams(location.search).get('next');
+let data = null;
+
+async function api(url, opt) {
+  const r = await fetch(url, opt);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || r.statusText);
+  return d;
+}
+function safeNext() {
+  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/welcome') ? next : '/home';
+}
+function show() {
+  const msg = data.message;
+  $('title').textContent = msg ? (msg.title || 'Welcome') : 'Welcome message';
+  document.title = $('title').textContent;
+  $('text').innerHTML = msg ? msg.html : '';  // built and escaped by the server, filled in for this person
+  $('empty').hidden = !!msg;
+  $('edit').hidden = !data.can_edit;
+  $('seen').hidden = !(data.can_edit && msg);
+  $('seen').textContent = `Seen by ${data.seen} ${data.seen === 1 ? 'person' : 'people'}`;
+  $('continue').textContent = next ? 'Continue' : 'Close';
+  $('form').hidden = true;
+  $('view').hidden = false;
+}
+$('continue').onclick = async () => {
+  $('continue').disabled = true;
+  try {
+    if (data.message) await api('/api/welcome/seen', {method: 'POST'});
+    location.href = safeNext();
+  } catch (err) {
+    $('err').textContent = err.message;
+    $('continue').disabled = false;
+  }
+};
+$('edit').onclick = () => {
+  $('fTitle').value = (data.message && data.message.title) || '';
+  $('fBody').value = data.text || '';
+  $('tags').textContent = (data.tags || []).join(' ');
+  $('fAgain').checked = false;
+  $('fErr').textContent = '';
+  $('view').hidden = true;
+  $('form').hidden = false;
+  $('fBody').focus();
+};
+$('cancel').onclick = show;
+$('form').onsubmit = async e => {
+  e.preventDefault();
+  $('save').disabled = true;
+  try {
+    await api('/api/admin/welcome', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({title: $('fTitle').value, body: $('fBody').value, show_again: $('fAgain').checked})});
+    data = await api('/api/welcome');
+    show();
+  } catch (err) {
+    $('fErr').textContent = err.message;
+  } finally {
+    $('save').disabled = false;
+  }
+};
+
+(async () => {
+  try {
+    data = await api('/api/welcome');
+  } catch (err) {
+    $('err').textContent = err.message;
+    $('view').hidden = false;
+    return;
+  }
+  if (!data.message && !data.can_edit) { location.replace(safeNext()); return; }
+  show();
+})();
+</script>
+</body>
+</html>

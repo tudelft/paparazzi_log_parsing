@@ -55,6 +55,7 @@ import operators
 import categories
 import countries
 import profiles
+import welcome
 import storage
 import storage_usage
 import saml
@@ -1022,10 +1023,13 @@ def require_login():
             if request.endpoint in VIEW_AS_BLOCKED:
                 return jsonify(error="Not possible while viewing as another user: stop viewing as them first."), 403
             return None  # no profile prompt: that is the person's own step
-    if (request.method == "GET" and not request.path.startswith("/api/") and request.path != "/profile"
-            and "." not in request.path.rsplit("/", 1)[-1] and profiles.needs_profile(conn(), user)):
+    page = (request.method == "GET" and not request.path.startswith("/api/")
+            and "." not in request.path.rsplit("/", 1)[-1] and request.path not in ("/profile", "/welcome"))
+    if page and profiles.needs_profile(conn(), user):
         # pages wait for a complete profile; the API (and scripts) keep working
         return redirect("/profile?" + urlencode({"next": request.full_path.rstrip("?")}))
+    if page and welcome.needs_welcome(conn(), user):  # then the welcome message, once
+        return redirect("/welcome?" + urlencode({"next": request.full_path.rstrip("?")}))
     return None
 
 
@@ -5137,6 +5141,11 @@ def merge_accounts(con, plan):
     # one person profile per person: the kept account's profile wins, the other one is only moved when it has none
     con.execute("DELETE FROM user_profiles WHERE user_id=? AND EXISTS (SELECT 1 FROM user_profiles WHERE user_id=?)",
                 (source_id, target_id))
+    # the welcome message counts as seen when either account saw it
+    con.execute("UPDATE welcome_seen SET version=MAX(version, (SELECT version FROM welcome_seen WHERE user_id=?))"
+                " WHERE user_id=? AND EXISTS (SELECT 1 FROM welcome_seen WHERE user_id=?)", (source_id, target_id, source_id))
+    con.execute("DELETE FROM welcome_seen WHERE user_id=? AND EXISTS (SELECT 1 FROM welcome_seen WHERE user_id=?)",
+                (source_id, target_id))
     for table, column in user_reference_columns(con):
         con.execute(f"UPDATE {table} SET {column}=? WHERE {column}=?", (target_id, source_id))
     # supervisors after the move: nobody supervises themselves, and each supervisor is listed once
@@ -7987,6 +7996,7 @@ attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, en
 qualifications.register(app, lambda: conn(), STORAGE_DIR, session_required)
 training.register(app, lambda: conn(), DATA_DIR, session_required)
 profiles.register(app, lambda: conn(), session_required, now, PAGES_DIR)
+welcome.register(app, lambda: conn(), session_required, now, PAGES_DIR)
 bookings.register(app, lambda: conn(), session_required, PAGES_DIR)
 documents.register(app, lambda: conn(), STORAGE_DIR, PAGES_DIR)
 safety.register(app, lambda: conn(), STORAGE_DIR, PAGES_DIR, session_required)
