@@ -310,6 +310,8 @@ Expired approvals are marked; approval alone does not establish operational elig
 Evidence and submission history are private to you and admins; audit history is admin-only.
 Pilot pages show approved summaries, not evidence.
 Use **Valid from** and **Valid until** to record the licence period, including past qualifications.
+When one certificate covers several qualifications (e.g. A1/A3, A2 and STS under one number), add them under
+**Also covers** in the same dialog: each becomes its own record with the same file, number and dates, approved one by one.
 Admins can make either date optional per type; both date switches start checked for new types.
 In Edit mode, admins can correct the dates of any submission with **Edit dates**, for example to end a licence that has expired.
 An Internal switch marks in-house qualifications. Drag types to set their order, then use one Save.
