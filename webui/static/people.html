@@ -371,7 +371,8 @@
         <button type="button" class="sec" onclick="$('deptCsv').click()" title="A CSV file with one department per line: name,group (a header line is skipped). Adds the ones not yet listed; Save to keep them.">Import CSV</button>
         <input type="file" id="deptCsv" accept=".csv,text/csv,text/plain" hidden onchange="importDepartments(this)"></div>
     </div>
-    <p><button type="button" onclick="saveProfileOptions()">Save</button> <span id="profileOptionsStatus" class="mute" role="status"></span></p>
+    <p><button type="button" onclick="saveProfileOptions()">Save</button> <span id="profileOptionsStatus" class="mute" role="status"></span>
+      <a href="/welcome?next=%2Fpeople%3Ftab%3Dprofile-options" style="float:right" title="The message everyone sees once after the profile">Welcome message</a></p>
   </section>
   <section class="card" id="profilesSection" hidden>
     <div class="people-title-row"><h2>Profiles</h2><span class="mute" id="profilesCount" role="status"></span>

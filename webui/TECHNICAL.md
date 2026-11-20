@@ -1354,6 +1354,22 @@ check them at the next sign-in (even when complete), and saving their own form c
 keeps the mark and the person's "last confirmed" date.
 
 
+### Welcome message
+
+`welcome.py`, `/welcome`. Only the mechanism is in this repository: administrators write the text in the site,
+and it is stored in the database (`welcome_message`), so each installation has its own. While there is a message
+that a signed-in browser user has not seen, every page they open redirects to `/welcome?next=…`, after the profile
+(`/profile` comes first) and never for external users or while an admin views as someone. **Continue** records the
+version they saw (`POST /api/welcome/seen`, table `welcome_seen`) and opens the page they asked for. As with the
+profile, the API and API keys are never blocked.
+
+Admins open `/welcome` (People in Edit mode → **Profile options** → *Welcome message*) and use **Edit**
+(`PUT /api/admin/welcome` with `title`, `body`, `show_again`). The text is plain: an empty line starts a paragraph,
+and `https://` addresses and site paths (`/training`) become links. Saving a changed text keeps its version, so a
+fixed typo is not shown again; *Show it again to everyone* raises the version. The first message, or one written
+after it was emptied, is new to everybody, including people who signed in before; an empty text means no message.
+An account merge keeps the newest version either account saw.
+
 ### Booking agenda
 
 Off unless `LOGDB_BOOKINGS=1`; session-only (`bookings.py`, `static/agenda.html`). Administrators set up the
