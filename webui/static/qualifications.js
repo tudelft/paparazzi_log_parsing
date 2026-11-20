@@ -224,7 +224,12 @@ window.QualificationManager = class {
         const body = new FormData(form);
         const claims = this.readClaims(form);  // values the dialog filled from the evidence, still unchanged
         if (Object.keys(claims).length) body.append('read_from', JSON.stringify(claims));
-        this.mutate(`/api/users/${this.userId}/qualifications`, {method:'POST', body});
+        // uploading and checking the evidence can take a while: say so on the button
+        const button = form.querySelector('button[type="submit"], button:not([type])');
+        const label = button && button.textContent;
+        if (button) button.textContent = file ? 'Uploading and checking…' : 'Submitting…';
+        this.mutate(`/api/users/${this.userId}/qualifications`, {method:'POST', body})
+          .finally(() => { if (button && button.isConnected) button.textContent = label; });
       };
     }
     const history = this.element.querySelector('[data-history]');

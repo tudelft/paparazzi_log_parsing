@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 PAGES = 2          # certificates carry the code on the first page(s)
-DPI = 300          # small codes need a sharp render
+DPIS = (150, 300)  # a quick render first (most codes are large); small codes need a sharp one
 SECONDS = 60       # per call of pdftoppm or zbarimg
 MAX_TEXT = 2000    # per code, as stored
 NUMBER = re.compile(r"[A-Z]{3}-RP-[A-Za-z0-9]{12}|\b[A-Z]{2}\.(?:66|FCL|ATCO|147)\.[A-Z0-9]+(?:\.[A-Z0-9]+)*")
@@ -96,10 +96,13 @@ def read_codes(path, compressed, mime, deadline=None):
                 shutil.copyfileobj(source, out)
         except OSError:
             return []
-        images = [src]
-        if suffix == ".pdf":
+        if suffix != ".pdf":
+            return _decode([src], deadline)
+        codes = []
+        for dpi in DPIS:
+            prefix = Path(tmp) / f"p{dpi}"
             try:
-                subprocess.run(["pdftoppm", "-r", str(DPI), "-l", str(PAGES), "-png", str(src), str(Path(tmp) / "p")],
+                subprocess.run(["pdftoppm", "-r", str(dpi), "-l", str(PAGES), "-png", str(src), str(prefix)],
                                capture_output=True, timeout=_seconds(deadline))
             except TimeoutError:
                 return None
@@ -109,14 +112,21 @@ def read_codes(path, compressed, mime, deadline=None):
                 return []
             except (OSError, subprocess.SubprocessError):
                 return []
-            images = sorted(Path(tmp).glob("p*.png"))
-        codes = []
-        try:
-            for image in images:
-                codes += [c for c in _zbar(image, deadline) if c not in codes]
-        except TimeoutError:
-            return None
+            codes = _decode(sorted(Path(tmp).glob(f"p{dpi}-*.png")), deadline)
+            if codes:  # None (out of time) or codes found: done
+                return codes
         return codes
+
+
+def _decode(images, deadline):
+    """The distinct QR texts in the images; None when the deadline passes."""
+    codes = []
+    try:
+        for image in images:
+            codes += [c for c in _zbar(image, deadline) if c not in codes]
+    except TimeoutError:
+        return None
+    return codes
 
 
 def _date(groups, order):

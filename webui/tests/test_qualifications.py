@@ -1090,6 +1090,24 @@ class ReadEvidenceTests(AppTests):
         self.assertEqual(r.json["found"]["number"], {"value": "NL.66.12345", "source": "ocr"})
         self.assertEqual(r.json["notes"], [])
 
+    def test_submit_reuses_the_dialog_read_of_the_same_file(self):
+        qualifications._read_cache.clear()
+        self.addCleanup(qualifications._read_cache.clear)
+        with patch("licence_qr.available", return_value=False):
+            self.assertEqual(self.read(dated_pdf(), type_id=str(self.tid)).status_code, 200)
+            with patch("qualifications.read_evidence") as reading:
+                r = self.submit(dated_pdf())
+            reading.assert_not_called()  # the dialog's read was used
+            self.assertEqual(r.status_code, 201, r.json)
+            row = self.row(r.json["id"])
+            self.assertEqual((row["number"], row["valid_from"], row["valid_until"]),
+                             ("NLD-RP-0123456789ab", "2024-03-12", "2029-03-11"))
+            self.client.post(f"/api/qualification-submissions/{r.json['id']}/review", json={"action": "withdraw"})
+            with patch("qualifications.read_evidence", wraps=qualifications.read_evidence) as reading:
+                r = self.submit(dated_pdf() + b"\n%another file\n")  # another file: read on submit as before
+            self.assertEqual(r.status_code, 201, r.json)
+            reading.assert_called_once()
+
     def test_submit_does_not_run_ocr(self):
         with patch("licence_qr.available", return_value=False), patch("qualifications.pdf_texts", return_value=[]), \
                 patch("qualifications.ocr_available", return_value=True), patch("qualifications.ocr_read") as ocr:
@@ -1291,6 +1309,17 @@ class ReadEvidenceTests(AppTests):
                          [("2029-03-11", "valid_until"), ("2024-05-02", None)])
         self.assertEqual(dates("gültig bis 12. März 2026; geldig tot 12 mrt 2027"),
                          [("2026-03-12", "valid_until"), ("2027-03-12", "valid_until")])
+        # the Dutch RDW certificate (pdftotext): labels first, then the values
+        self.assertEqual(dates("Registratienummer (Identification number)\nDatum geldig t/m (Expiration date)\nFreek\n"
+                               "NLD-RP-asn5j5gak852\nvan Tienen\n20.11.2031"), [("2031-11-20", "valid_until")])
+        self.assertEqual(dates("geldig tot en met 01-02-2030"), [("2030-02-01", "valid_until")])
+        # other languages
+        self.assertEqual(dates("Válido hasta: 1 de mayo de 2030"), [("2030-05-01", "valid_until")])
+        self.assertEqual(dates("Data di rilascio 03.04.2025 Valido fino al 03.04.2030"),
+                         [("2025-04-03", "valid_from"), ("2030-04-03", "valid_until")])
+        self.assertEqual(dates("Ważny do 12 października 2031"), [("2031-10-12", "valid_until")])
+        self.assertEqual(dates("Giltig t.o.m. 2030-01-31; gyldig til 31.12.2028"),
+                         [("2030-01-31", "valid_until"), ("2028-12-31", "valid_until")])
 
     def test_many_dates_are_read_in_linear_time(self):
         # a small PDF whose one stream repeats a dated text many times: reading it must stay fast
