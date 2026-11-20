@@ -77,7 +77,10 @@
   .supervision-group td.projects .chip { display:inline-block; max-width:calc(100% - 28px); overflow:hidden; text-overflow:ellipsis;
     vertical-align:middle; margin:0 3px 0 0; }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:4px 14px; }
-  .profile-options { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:8px 24px; }
+  .profile-options { display:flex; flex-wrap:wrap; gap:8px 24px; }
+  .profile-options > div { flex:2 1 300px; min-width:0; }
+  .profile-options > div:first-child { flex:3 1 440px; }  /* roles: more columns */
+  .profile-options td:first-child input { min-width:9em; }
   .profile-options h3 { margin:6px 0; font-size:13px; }
   .profile-options table { width:100%; border-collapse:collapse; margin-bottom:6px; }
   .profile-options th { font-size:12px; color:var(--mute); text-align:left; font-weight:500; }
@@ -362,9 +365,9 @@
   </section>
   <section class="card" id="profileOptionsSection" hidden>
     <div class="section-heading"><h2>Profile options</h2>
-    <details><summary>Help</summary><p>The choices of the profile everyone fills in after signing in. <em>Supervises</em> offers people with that role as supervisors; <em>Needs supervisor</em> makes naming one required. A department's group is shown next to it; people can also type a department that is not listed. The department list starts empty: add your departments or sections, or <em>Import CSV</em> with one per line as <span class="mono">name,group</span>. Removing an entry leaves that field empty in the profiles that used it, so those people are asked again. One Save writes both lists.</p></details></div>
+    <details><summary>Help</summary><p>The choices of the profile everyone fills in after signing in. <em>Supervises</em> offers people with that role as supervisors; <em>Needs supervisor</em> makes naming one required. <em>Max years</em> limits how far ahead the expected end date may be (empty: no limit), and only roles with <em>Indefinite</em> may tick Indefinite instead of a date; profiles outside these limits are asked again at the next sign-in. A department's group is shown next to it; people can also type a department that is not listed. The department list starts empty: add your departments or sections, or <em>Import CSV</em> with one per line as <span class="mono">name,group</span>. Removing an entry leaves that field empty in the profiles that used it, so those people are asked again. One Save writes both lists.</p></details></div>
     <div class="profile-options">
-      <div><h3>Roles</h3><table class="compact"><thead><tr><th>Name</th><th title="Offered as a supervisor">Supervises</th><th title="Must name a supervisor">Needs supervisor</th><th></th></tr></thead><tbody id="roleRows"></tbody></table>
+      <div><h3>Roles</h3><table class="compact"><thead><tr><th>Name</th><th title="Offered as a supervisor">Supervises</th><th title="Must name a supervisor">Needs supervisor</th><th title="The expected end date is at most this many years ahead (empty: no limit)">Max years</th><th title="May tick Indefinite instead of an end date">Indefinite</th><th></th></tr></thead><tbody id="roleRows"></tbody></table>
         <button type="button" class="sec" onclick="addOptionRow('role')">Add role</button></div>
       <div><h3>Departments</h3><table class="compact"><thead><tr><th>Section</th><th>Department</th><th></th></tr></thead><tbody id="deptRows"></tbody></table>
         <button type="button" class="sec" onclick="addOptionRow('dept')">Add department</button>
@@ -1478,7 +1481,9 @@ function optionRow(kind, item = {}) {
   const remove = '<td><button type="button" class="danger" aria-label="Remove" onclick="this.closest(\'tr\').remove()">×</button></td>';
   if (kind === 'role') return `<tr data-id="${item.id || ''}"><td><input name="name" maxlength="120" value="${esc(item.name || '')}"></td>
     <td><input type="checkbox" name="can_supervise"${item.can_supervise ? ' checked' : ''}></td>
-    <td><input type="checkbox" name="needs_supervisor"${item.needs_supervisor ? ' checked' : ''}></td>${remove}</tr>`;
+    <td><input type="checkbox" name="needs_supervisor"${item.needs_supervisor ? ' checked' : ''}></td>
+    <td><input type="number" name="max_years" min="1" max="50" step="1" style="width:4.5em" value="${item.max_years ?? ''}" aria-label="Max years"></td>
+    <td><input type="checkbox" name="allow_indefinite"${item.allow_indefinite ?? !item.id ? ' checked' : ''}></td>${remove}</tr>`;
   return `<tr data-id="${item.id || ''}"><td><input name="name" maxlength="120" value="${esc(item.name || '')}"></td>
     <td><input name="grp" maxlength="120" value="${esc(item.grp || '')}"></td>${remove}</tr>`;
 }

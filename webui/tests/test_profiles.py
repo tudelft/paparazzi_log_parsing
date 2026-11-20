@@ -18,6 +18,7 @@ class ProfileTests(AppTests):
         self.role = {r["name"]: r["id"] for r in self.con.execute("SELECT id, name FROM profile_roles")}
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM profile_departments").fetchone()[0], 0)  # site-specific
         self.dept = self.con.execute("INSERT INTO profile_departments (name, grp) VALUES ('Flight Lab', 'Robotics')").lastrowid
+        self.soon = self.profiles.latest_end(1)  # within the end date limit of every student role
 
     def form(self, **changes):
         return {"role_id": self.role["Staff"], "department_id": self.dept, "end_date": None, "indefinite": True,
@@ -58,7 +59,7 @@ class ProfileTests(AppTests):
 
     def test_supervisors_see_their_students_without_the_number(self):
         self.save(5)  # Staff: can supervise
-        saved = self.save(2, role_id=self.role["Master Student"], indefinite=False, end_date="2099-01-01",
+        saved = self.save(2, role_id=self.role["Master Student"], indefinite=False, end_date=self.soon,
                           supervisors=[{"id": 5}, {"name": "Dr. Partner"}])
         self.assertEqual(saved.status_code, 200, saved.json)
         self.assertEqual(saved.json["missing"], [])
@@ -92,6 +93,58 @@ class ProfileTests(AppTests):
         duplicate = self.client.put("/api/admin/profile-options", json={"roles": [{"name": "A"}, {"name": "a"}]})
         self.assertEqual(duplicate.status_code, 400)
 
+    def test_end_date_limits_per_role(self):
+        latest = self.profiles.latest_end
+        self.assertEqual(latest(4, "2024-02-29"), "2028-02-29")
+        self.assertEqual(latest(1, "2024-02-29"), "2025-02-28")
+        phd = dict(role_id=self.role["PhD Student"], supervisors=[{"name": "Dr. Partner"}])
+        self.assertIn("cannot be indefinite", self.save(2, **phd).json["error"])
+        self.assertIn("at most 5 years", self.save(2, **phd, indefinite=False, end_date="2999-01-01").json["error"])
+        self.assertEqual(self.save(2, **phd, indefinite=False, end_date=latest(5)).status_code, 200)
+        self.assertEqual(self.save(2, indefinite=True).status_code, 200)  # Staff may be indefinite
+        roles = {r["name"]: r for r in self.client.get("/api/profile").json["options"]["roles"]}
+        self.assertEqual((roles["Bachelor Student"]["latest_end"], roles["Master Student"]["latest_end"]),
+                         (latest(4), latest(2)))
+        self.assertEqual([n for n, r in roles.items() if r["allow_indefinite"]], ["Staff"])
+        # admins are held to the limits too
+        self.sign_in(1)
+        refused = self.client.put("/api/users/2/profile", json=self.form(role_id=self.role["Master Student"],
+                                                                        supervisors=[{"name": "Dr. Partner"}]))
+        self.assertIn("cannot be indefinite", refused.json["error"])
+        # a profile outside new limits is asked again
+        self.assertEqual(self.profiles.missing(self.con, 2), [])
+        self.con.execute("UPDATE profile_roles SET allow_indefinite=0 WHERE name='Staff'")
+        self.assertEqual(self.profiles.missing(self.con, 2), ["end_date"])
+
+    def test_admins_set_the_limits(self):
+        self.sign_in(1)
+        roles = self.client.get("/api/profile").json["options"]["roles"]
+        for r in roles:
+            r.update(max_years="3" if r["name"] == "Extern" else r["max_years"], allow_indefinite=r["allow_indefinite"])
+        saved = self.client.put("/api/admin/profile-options", json={"roles": roles})
+        self.assertEqual(saved.status_code, 200, saved.json)
+        extern = next(r for r in saved.json["roles"] if r["name"] == "Extern")
+        self.assertEqual((extern["max_years"], extern["allow_indefinite"]), (3, False))
+        for bad in ("0", "1.5", "x", 51, True):
+            roles[0]["max_years"] = bad
+            self.assertIn("whole number", self.client.put("/api/admin/profile-options", json={"roles": roles}).json["error"])
+
+    def test_migration_adds_the_limits_to_the_default_roles(self):
+        db = self.ns["db"]
+        for table in ("document_profile_roles", "user_supervisors", "user_profiles", "profile_roles"):
+            self.con.execute(f"DROP TABLE {table}")
+        self.con.execute("CREATE TABLE profile_roles (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE,"
+                         " can_supervise INTEGER NOT NULL DEFAULT 0, needs_supervisor INTEGER NOT NULL DEFAULT 0,"
+                         " sort_order INTEGER NOT NULL DEFAULT 0)")
+        self.con.executemany("INSERT INTO profile_roles (name) VALUES (?)", [("master student",), ("Staff",), ("Visitor",)])
+        with patch.object(db, "connect", return_value=self.con):
+            db.init("unused")
+            self.con.execute("UPDATE profile_roles SET max_years=9 WHERE name='Staff'")
+            db.init("unused")  # only once: admins' changes stay
+        self.assertEqual([tuple(r) for r in self.con.execute(
+            "SELECT name, max_years, allow_indefinite FROM profile_roles ORDER BY id")],
+            [("master student", 2, 0), ("Staff", 9, 1), ("Visitor", None, 1)])
+
     def test_github_check(self):
         self.sign_in(2)
         self.assertEqual(self.client.get("/api/profile/github?name=-x").json["status"], "invalid")
@@ -113,7 +166,7 @@ class ProfileTests(AppTests):
 
     def test_lists_follow_the_visibility_rules(self):
         self.save(5)  # Staff: supervises user 2
-        self.save(2, role_id=self.role["Master Student"], indefinite=False, end_date="2099-01-01",
+        self.save(2, role_id=self.role["Master Student"], indefinite=False, end_date=self.soon,
                   supervisors=[{"id": 5}])
         # user 2 is in projects 1 (Research) and, here, 2 (Private); user 5 only in Research
         self.con.execute("INSERT INTO project_members(project_id,user_id,role) VALUES (2,2,'view')")
@@ -137,7 +190,7 @@ class ProfileTests(AppTests):
         self.assertEqual(self.client.get("/api/users/5/profile").status_code, 404)
 
     def test_admins_edit_someone_elses_profile(self):
-        body = self.form(role_id=self.role["Master Student"], indefinite=False, end_date="2099-01-01",
+        body = self.form(role_id=self.role["Master Student"], indefinite=False, end_date=self.soon,
                          supervisors=[{"name": "Dr. Partner"}], number="777")
         self.sign_in(2)
         self.assertEqual(self.client.put("/api/users/3/profile", json=body).status_code, 403)
@@ -162,7 +215,7 @@ class ProfileTests(AppTests):
         self.save(5)  # Uploader: Staff, can supervise; number 123
         self.sign_in(1)
         csv_text = ("username,role,department,supervisors,end_date,number,github\n"
-                    "viewer,Master Student,Other lab,uploader;Dr. Partner,2099-01-01,555,\n"
+                    f"viewer,Master Student,Other lab,uploader;Dr. Partner,{self.soon},555,\n"
                     "uploader,PhD Student,,,,999,octocat\n"
                     "outsider,,,,,,\n")
         preview = self.client.post("/api/admin/profiles/import", json={"csv": csv_text}).json
@@ -185,7 +238,7 @@ class ProfileTests(AppTests):
         self.sign_in(3)
         self.assertEqual(self.client.get("/logbook").status_code, 302)
         self.assertEqual(self.client.put("/api/profile", json=self.form(
-            role_id=self.role["Master Student"], indefinite=False, end_date="2099-01-01", number="555",
+            role_id=self.role["Master Student"], indefinite=False, end_date=self.soon, number="555",
             supervisors=[{"id": 5}])).status_code, 200)
         self.assertEqual(self.client.get("/logbook").status_code, 200)
 
