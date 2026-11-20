@@ -6,7 +6,14 @@ window.QualificationManager = class {
     this.admin = admin;
     this.changed = changed;
     this.editing = true;
-    this.view = 'current';
+  }
+  // "Show older" is kept in the URL (qual_older=1) so Back returns to the same view.
+  showOlder(on) {
+    const p = new URLSearchParams(location.search);
+    if (on === undefined) return p.get('qual_older') === '1';
+    if (on) p.set('qual_older', '1'); else p.delete('qual_older');
+    history.replaceState(history.state, '', location.pathname + (p.toString() ? '?' + p : '') + location.hash);
+    return on;
   }
   esc(value) {
     return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -65,15 +72,37 @@ window.QualificationManager = class {
     }
     return lines;
   }
+  // One line per qualification: name (opens the evidence), number and end date in muted text, a status chip and the
+  // actions; valid from, file name, submission and QR details in tooltips (the QR details also unfold on a click).
+  qrChip(item) {
+    const q = item.qr;
+    // nothing to say about a missing or unread code on a certificate that carries no number (e.g. first aid)
+    if (!q || (['none', 'pending'].includes(q.status) && !item.requires_number && !item.number)) return '';
+    const text = {pending: 'QR not read yet', match: 'QR matches', differs: 'QR differs', none: 'No QR code',
+      link: 'QR link', generic: 'QR: website', read: 'QR read'}[q.status] || 'QR';
+    const tone = q.status === 'differs' ? 'bad' : ['match', 'link'].includes(q.status) ? 'ok'
+      : ['none', 'generic'].includes(q.status) ? 'warn' : '';
+    const tip = [text, ...(q.issues || [])].join(' · ') + ' (click for details)';
+    return `<button type="button" class="qual-chip qr ${tone}" data-qr="${item.id}" title="${this.esc(tip)}">${this.esc(text)}</button>`;
+  }
   render() {
     const q = this.data, esc = v => this.esc(v);
+    const statusChip = item => {
+      const label = item.status === 'superseded' ? 'archived' : item.status === 'approved' && item.expired ? 'expired' : item.status;
+      const tone = {approved: 'ok', pending: 'warn', rejected: 'bad', expired: 'bad'}[label] || '';
+      return `<span class="qual-chip ${tone}"${item.review_note ? ` title="${esc(item.review_note)}"` : ''}>${esc(label)}</span>`;
+    };
     const claim = item => {
       const dates = this.dateBits(item);
-      const tip = [...dates, ...this.metaTip(item)].map(line => this.esc(line)).join('<br>');
-      const name = `<strong${item.type_description ? ` title="${esc(item.type_description)}"` : ''}>${esc(item.category)}</strong>`;
-      const number = item.number ? ` · <span class="mute">${esc(item.number)}</span>`
-        : (item.requires_number && ['pending','approved'].includes(item.status) ? ' · <span class="mute">number missing</span>' : '');
-      // Review actions on the right: Approve and Reject for a pending one; the rest in a small menu.
+      const tip = [...dates, item.has_evidence ? `File: ${item.filename || 'evidence'}` : '', ...this.metaTip(item),
+        item.review_note ? `Reason: ${item.review_note}` : '', item.internal ? 'Internal' : ''].filter(Boolean).join('\n');
+      const name = `<strong>${esc(item.category)}</strong>`;
+      const meta = [item.number || (item.requires_number && ['pending','approved'].includes(item.status) ? 'number missing' : ''),
+        item.valid_until ? `until ${item.valid_until}` : ''].filter(Boolean).join(' · ');
+      const note = !item.has_evidence && item.note ? (item.training_id
+        ? `<a class="mute" href="/training?id=${item.training_id}${this.admin && item.training_user_id ? `&pass_user=${item.training_user_id}` : ''}">${esc(item.note)}</a>`
+        : esc(item.note)) : '';
+      // Review actions: Approve and Reject for a pending one; the rest in a small menu.
       const pending = this.editing && item.status === 'pending';
       const more = [];
       if (pending) more.push(`<button type="button" data-review="withdraw" data-id="${item.id}">Withdraw</button>`);
@@ -87,39 +116,39 @@ window.QualificationManager = class {
         + (more.length === 1 && !this.admin ? more[0].replace('type="button"', 'type="button" class="small sec"')
           : more.length ? `<details class="qual-more"><summary class="small sec" aria-label="More actions" title="More actions">⋯</summary>
             <div class="qual-menu">${more.join('')}</div></details>` : '');
-      return `<div class="qual-item"><div class="qual-main">
-      <div><span title="${esc(dates.join(' · '))}">${item.has_evidence ? fileLink({name, viewable: item.viewable, view: `/api/qualification-submissions/${item.id}/evidence/view`, download: `/api/qualification-submissions/${item.id}/evidence`}) : name}</span>${number} · ${esc(item.status === 'superseded' ? 'archived' : item.status)}${item.review_note ? ` <span class="mute" title="${esc(item.review_note)}">(${esc(item.review_note.length > 60 ? item.review_note.slice(0, 57) + '…' : item.review_note)})</span>` : ''}${item.internal ? ' · Internal' : ''}${item.expired ? ' (expired)' : ''}
-      <span class="info-tip"><button type="button" aria-label="Submission details">i</button><span class="tip" role="tooltip">${tip}</span></span></div>
-      ${this.qrLine(item)}<div>${item.has_evidence ? `<span class="mute">${esc(item.filename || 'Evidence')}</span>`
-        : item.note ? (item.training_id
-          ? `<a class="mute" href="/training?id=${item.training_id}${this.admin && item.training_user_id ? `&pass_user=${item.training_user_id}` : ''}">${esc(item.note)}</a>`
-          : `<span class="mute">${esc(item.note)}</span>`)
-        : `<span class="mute">${item.evidence_deleted_at ? 'Evidence deleted by admin' : 'No evidence attached'}</span>`}</div></div>
-      ${actions ? `<div class="qual-actions">${actions}</div>` : ''}</div>`;
+      const search = [item.category, item.number || '', item.filename || ''].join(' ').toLowerCase();
+      return `<div class="qual-row" data-row data-search="${esc(search)}" title="${esc(tip)}">
+        <span class="qual-name">${item.has_evidence ? fileLink({name, viewable: item.viewable, filename: item.filename || '',
+          view: `/api/qualification-submissions/${item.id}/evidence/view`, download: `/api/qualification-submissions/${item.id}/evidence`}) : name}</span>
+        <span class="qual-meta mute">${esc(meta)}${note ? (meta ? ' · ' : '') + note : ''}${!item.has_evidence && !note && !meta ? 'no evidence' : ''}</span>
+        ${this.qrChip(item)}${statusChip(item)}
+        <span class="qual-actions">${actions}</span>
+        ${item.qr ? `<div class="qual-qr" data-qr-detail="${item.id}" hidden>${this.qrLine(item)}</div>` : ''}</div>`;
     };
-    const archived = i => i.status === 'superseded' || (i.status === 'approved' && i.expired);
-    const current = q.items.filter(i => ['pending','approved'].includes(i.status) && !archived(i));
-    const archive = q.items.filter(archived)
-      .sort((a, b) => String(b.valid_until || '9999').localeCompare(String(a.valid_until || '9999')));
-    const previous = q.items.filter(i => ['rejected','withdrawn'].includes(i.status));
+    const old = i => i.status === 'superseded' || (i.status === 'approved' && i.expired) || ['rejected','withdrawn'].includes(i.status);
+    const current = q.items.filter(i => !old(i));
+    const older = q.items.filter(old)
+      .sort((a, b) => String(b.valid_until || b.submitted_at || '').localeCompare(String(a.valid_until || a.submitted_at || '')));
     const types = q.types.filter(t => t.active);
-    const uploadTitle = this.admin ? 'Upload for this person' : 'Submit a qualification';
-    const tab = (view, label) => `<button type="button" role="tab" data-view="${view}"
-      aria-selected="${this.view === view}" tabindex="${this.view === view ? 0 : -1}">${label}</button>`;
+    const forOther = this.admin && this.editing && this.name;
+    const uploadTitle = forOther ? `Add qualification for ${this.name}` : 'Add qualification';
+    const showOld = this.showOlder();
+    const canAdd = this.editing && types.length;
     this.element.innerHTML = `<div data-error role="alert" style="color:var(--err);overflow-wrap:anywhere"></div>
-      <div class="section-heading"><h3>Qualifications</h3>
-      <details><summary>Help</summary><p>Current shows valid approvals and pending submissions.
-      Archive shows expired and earlier licences, newest first, so past flights can be checked.
-      Only the linked person and administrators can see these records and files.
-      Hover over a qualification for recorded validity dates, or open Submission details.
-      Click its name to download available evidence.</p></details></div>
-      <div class="seg-tabs" role="tablist" aria-label="Qualification views">${tab('current', 'Current')}${tab('archive', `Archive (${archive.length})`)}</div>
-      ${this.view === 'archive'
-        ? archive.map(claim).join('') || '<p class="mute">No archived licences.</p>'
-        : `${current.map(claim).join('') || '<p class="mute">None recorded.</p>'}
-      ${previous.length ? `<details class="help-text"><summary>${previous.length} rejected or withdrawn submissions</summary>${previous.map(claim).join('')}</details>` : ''}`}
-      ${this.editing ? (types.length ? `<p><button type="button" data-open-upload>${uploadTitle}</button></p>
-      <dialog class="entry-dialog" data-upload-dialog aria-labelledby="uploadTitle-${this.userId}">
+      <div class="qual-head"><h3>${this.title || 'Qualifications'} <span class="count">${current.length}</span></h3>
+        ${q.items.length > 6 ? `<input type="search" data-qual-search placeholder="Search" aria-label="Search qualifications" value="${esc(this.query || '')}">` : ''}
+        <span class="qual-head-fill"></span>
+        ${canAdd ? `<button type="button" data-open-upload>Add qualification</button>` : ''}
+        <details class="qual-help"><summary>Help</summary><p>Current approvals and pending submissions come first;
+        expired, earlier, rejected and withdrawn ones are under Show older, newest first, so past flights can be checked.
+        Only the linked person and administrators can see these records and files.
+        Hover over a qualification for its dates, file and review; click its name to open the evidence.</p></details></div>
+      <div class="qual-list" data-list>${current.map(claim).join('') || '<p class="mute">None recorded.</p>'}</div>
+      ${older.length ? `<button type="button" class="link-button" data-older>${showOld ? 'Hide' : 'Show'} ${older.length} older</button>
+        <div class="qual-list" data-list data-older-list${showOld ? '' : ' hidden'}>${older.map(claim).join('')}</div>` : ''}
+      ${this.editing && !types.length ? '<p class="mute">An admin must first add a qualification type on People.</p>' : ''}
+      ${!this.editing ? '<p class="mute">Turn on Edit to upload, review or delete qualifications for this person.</p>' : ''}
+      ${canAdd ? `<dialog class="entry-dialog" data-upload-dialog aria-labelledby="uploadTitle-${this.userId}">
         <div class="dialog-header"><h2 id="uploadTitle-${this.userId}">${uploadTitle}</h2>
           <button type="button" data-close-upload aria-label="Close">Close</button></div>
         <p class="dialog-error" data-dialog-error hidden role="alert"></p>
@@ -137,8 +166,7 @@ window.QualificationManager = class {
           <div data-read-result style="font-size:12px" hidden aria-live="polite"></div>
           <button type="submit">Submit for approval</button>
         </form>
-      </dialog>` : '<p class="mute">An admin must first add a qualification type on People.</p>')
-        : '<p class="mute">Turn on Edit to upload, review or delete qualifications for this person.</p>'}
+      </dialog>` : ''}
       ${this.admin && this.editing ? `<dialog class="entry-dialog" data-dates-dialog aria-labelledby="datesTitle-${this.userId}">
         <div class="dialog-header"><h2 id="datesTitle-${this.userId}">Edit</h2>
           <button type="button" data-close-dates aria-label="Close">Close</button></div>
@@ -154,9 +182,21 @@ window.QualificationManager = class {
         <p class="mute">An audit of submission, review, date correction and deletion actions, separate from the records and files above.</p>
         <button type="button" data-history>Show latest 100 events</button>
         <pre data-events style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>` : ''}`;
-    this.element.querySelectorAll('[data-view]').forEach(button => {
-      button.onclick = () => { this.view = button.dataset.view; this.render(); };
+    const olderButton = this.element.querySelector('[data-older]');
+    if (olderButton) olderButton.onclick = () => { this.showOlder(!this.showOlder()); this.render(); };
+    this.element.querySelectorAll('[data-qr]').forEach(button => {
+      button.onclick = () => { const d = this.element.querySelector(`[data-qr-detail="${button.dataset.qr}"]`); d.hidden = !d.hidden; };
     });
+    const search = this.element.querySelector('[data-qual-search]');
+    const filter = () => {
+      const words = (this.query || '').toLowerCase().split(/\s+/).filter(Boolean);
+      this.element.querySelectorAll('[data-row]').forEach(row => {
+        row.hidden = !words.every(w => row.dataset.search.includes(w));
+      });
+      if (words.length) this.element.querySelectorAll('[data-older-list]').forEach(list => { list.hidden = false; });
+    };
+    if (search) search.oninput = () => { this.query = search.value; filter(); };
+    filter();
     this.element.querySelectorAll('[data-review]').forEach(button => {
       button.onclick = () => this.review(+button.dataset.id, button.dataset.review);
     });

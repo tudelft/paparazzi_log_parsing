@@ -1757,8 +1757,10 @@ alias or username is added (username = name without spaces, no password, email o
 active, external, no start date required, and evidence or Valid until required only if every row of that
 type in the file has them; adjust them afterwards under Qualification types. A row with only a person
 (no type, dates or file) adds that person without a qualification, e.g. project members without a
-licence, so initial setup needs no manual Add user step. Ambiguous names block the import. The qualifications panel splits Current (pending and non-expired approvals) from
-Archive (expired approvals and superseded records); rejected and withdrawn submissions stay under Current.
+licence, so initial setup needs no manual Add user step. Ambiguous names block the import. The qualifications panel (`qualifications.js`) has a header row (title, count, a search
+box from 7 records on, **Add qualification**) and one line per record (name opening the evidence, number and end date,
+QR and status chips, actions; dates, file and review in the tooltip). Pending and non-expired approvals come first;
+expired approvals, superseded, rejected and withdrawn records are under **Show N older** (`qual_older=1` in the URL).
 API keys cannot import. The original ZIP is not stored as a shared attachment.
 Attach one PDF, JPEG or PNG per submission, up to **20 MiB**. Required-evidence types cannot be submitted
 or approved without a file. Optional-evidence types still require approval. An expiry date is required only when configured for the type;
