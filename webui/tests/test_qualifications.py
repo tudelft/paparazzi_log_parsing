@@ -1089,6 +1089,98 @@ class ReadEvidenceTests(AppTests):
         self.assertEqual(r.json["found"]["number"], {"value": "NL.66.12345", "source": "ocr"})
         self.assertEqual(r.json["notes"], [])
 
+    def covered_type(self, name, **flags):
+        body = {"name": name, "requires_evidence": False, "requires_start": False, "requires_expiry": False,
+                "requires_number": False, **flags}
+        return self.client.post("/api/qualification-types", json=body).json["id"]
+
+    def test_type_tokens_and_text_suggestions(self):
+        tokens = qualifications.type_tokens
+        self.assertEqual(tokens("STS theoretical knowledge"), ["STS"])
+        self.assertEqual(tokens("EU A1/A3 open category"), ["A1/A3"])
+        self.assertEqual(tokens("STS-01 practical skill"), ["STS-01"])
+        self.assertEqual(tokens("First aid"), [])
+        sts = self.covered_type("STS theoretical knowledge")
+        practical = self.covered_type("STS-01 practical skill")
+        aid = self.covered_type("First aid")
+        text = "REMOTE PILOT CERTIFICATE OF THEORETICAL KNOWLEDGE FOR STS\nFirst name"
+        found = qualifications.covered_suggestions(self.con, text, None, self.tid)
+        self.assertEqual(found, [{"type_id": sts, "reason": "text"}])  # not STS-01, not First aid, not the chosen type
+        self.assertNotIn(practical, [x["type_id"] for x in found])
+        self.assertNotIn(aid, [x["type_id"] for x in found])
+
+    def test_read_suggests_types_with_the_same_number(self):
+        other = self.covered_type("EU A1/A3 open category", requires_number=True)
+        self.con.execute("INSERT INTO qualification_submissions(user_id,type_id,number,status,submitted_by,submitted_at)"
+                         " VALUES (3,?,'NLD-RP-0123456789ab','approved',1,'2025-01-01T00:00:00Z')", (other,))
+        self.con.commit()
+        with patch("licence_qr.available", return_value=False):
+            r = self.read(dated_pdf(), type_id=str(self.tid))
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertIn({"type_id": other, "reason": "number"}, r.json["suggestions"])
+        self.assertNotIn(self.tid, [x["type_id"] for x in r.json["suggestions"]])  # the chosen type is never suggested
+
+    def submit_also(self, also, content=None, number="", filename="evidence.pdf"):
+        data = {"type_id": str(self.tid), "valid_from": "", "valid_until": "", "number": number,
+                "also_type_ids": json.dumps(also), "evidence": (io.BytesIO(content or dated_pdf()), filename)}
+        r = self.client.post("/api/users/2/qualifications", data=data)
+        r.request.input_stream.close()
+        return r
+
+    def test_one_certificate_makes_a_record_per_type_with_its_own_file(self):
+        a13 = self.covered_type("EU A1/A3 open category", requires_number=True, requires_evidence=True)
+        sts = self.covered_type("STS theoretical knowledge", requires_expiry=True)
+        with patch("licence_qr.available", return_value=False):
+            r = self.submit_also([a13, sts, a13, self.tid])  # repeats and the chosen type are dropped
+        self.assertEqual(r.status_code, 201, r.json)
+        self.assertEqual(len(r.json["ids"]), 3)
+        rows = [self.row(i) for i in r.json["ids"]]
+        self.assertEqual([x["type_id"] for x in rows], [self.tid, a13, sts])
+        for x in rows:  # the values read from the certificate go to every record
+            self.assertEqual((x["number"], x["valid_from"], x["valid_until"], x["status"]),
+                             ("NLD-RP-0123456789ab", "2024-03-12", "2029-03-11", "pending"))
+        folder = self.app.config["QUALIFICATION_EVIDENCE_DIR"]
+        paths = [folder / x["evidence_path"] for x in rows]
+        self.assertEqual(len({p.name for p in paths}), 3)
+        self.assertTrue(all(p.is_file() for p in paths))
+        self.assertEqual(len({p.read_bytes() for p in paths}), 1)  # three copies of the same file
+        # withdrawing (and deleting) one keeps the others' files
+        self.assertEqual(self.client.post(f"/api/qualification-submissions/{rows[1]['id']}/review",
+                                          json={"action": "withdraw"}).status_code, 200)
+        self.assertEqual(self.client.delete(f"/api/qualification-submissions/{rows[1]['id']}").status_code, 200)
+        self.assertFalse(paths[1].exists())
+        self.assertTrue(paths[0].is_file() and paths[2].is_file())
+        audits = self.con.execute("SELECT details_json FROM qualification_audit WHERE action='submitted'").fetchall()
+        self.assertEqual(len(audits), 3)
+        self.assertEqual(json.loads(audits[0][0])["certificate_covers"],
+                         ["A2", "EU A1/A3 open category", "STS theoretical knowledge"])
+
+    def test_covered_types_are_checked_like_the_chosen_one(self):
+        before = len(list(self.app.config["QUALIFICATION_EVIDENCE_DIR"].iterdir()))
+        inactive = self.covered_type("Old type")
+        self.client.put(f"/api/qualification-types/{inactive}", json={"name": "Old type", "active": False,
+                                                                     "requires_evidence": False})
+        numbered = self.covered_type("Radio licence", requires_number=True)
+        with patch("licence_qr.available", return_value=False):
+            r = self.submit_also([inactive])
+            self.assertEqual(r.status_code, 400, r.json)
+            self.assertIn("not active", r.json["error"])
+            r = self.submit_also([numbered], content=dated_pdf(number=None))  # nothing gives a number
+            self.assertEqual(r.status_code, 400, r.json)
+            self.assertIn("Radio licence", r.json["error"])
+            self.assertEqual(self.submit_also(["x"]).status_code, 400)
+            self.assertEqual(self.submit_also(list(range(1000, 1030))).status_code, 400)  # too many
+            sid = self.submit_also([]).json["id"]  # a pending one of the chosen type ...
+            other = self.covered_type("Night flying")
+            self.assertEqual(self.submit_also([other]).status_code, 409)  # ... blocks the whole certificate
+            self.client.post(f"/api/qualification-submissions/{sid}/review", json={"action": "withdraw"})
+            self.assertEqual(self.submit_also([other]).status_code, 201)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM qualification_submissions WHERE type_id=?",
+                                          (other,)).fetchone()[0], 1)  # nothing half-made by the refused ones
+        self.assertEqual(len(list(self.app.config["QUALIFICATION_EVIDENCE_DIR"].iterdir())), before + 3)
+        self.sign_in(3)  # someone else's record: as before
+        self.assertEqual(self.submit_also([other]).status_code, 404)
+
     def test_submit_reuses_the_dialog_read_of_the_same_file(self):
         qualifications._read_cache.clear()
         self.addCleanup(qualifications._read_cache.clear)

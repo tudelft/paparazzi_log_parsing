@@ -164,7 +164,13 @@ window.QualificationManager = class {
           <label class="field" data-field="evidence">Evidence <input name="evidence" type="file" accept=".pdf,.jpg,.jpeg,.png"></label>
           <p class="mute" data-proof-hint></p>
           <div data-read-result style="font-size:12px" hidden aria-live="polite"></div>
-          <button type="submit">Submit for approval</button>
+          <div class="field covers" data-covers>Also covers <span class="mute" style="font-size:12px">(optional: one record per type, same file, number and dates)</span>
+            <div class="covers-chips" data-covers-chips></div>
+            <div class="covers-combo"><input type="search" data-covers-search placeholder="Add another qualification…" aria-label="Find a qualification this certificate also covers" autocomplete="off">
+              <div class="covers-pop" data-covers-pop hidden role="listbox"></div></div>
+            <p class="mute" data-covers-note style="margin:4px 0 0;font-size:12px" hidden>Suggested from the certificate's text and from types issued under the same number.</p>
+          </div>
+          <button type="submit" data-submit-button>Submit for approval</button>
         </form>
       </dialog>` : ''}
       ${this.admin && this.editing ? `<dialog class="entry-dialog" data-dates-dialog aria-labelledby="datesTitle-${this.userId}">
@@ -250,7 +256,16 @@ window.QualificationManager = class {
         form.elements.valid_from.required = !!type.requires_start && !file;
         form.elements.valid_until.required = !!type.requires_expiry && !file;
       };
-      form.elements.type_id.onchange = () => { hint(); required(); };
+      form.alsoTypes = new Set();  // other type ids this certificate covers (one record each)
+      form.suggested = [];        // [{type_id, reason}] from the read
+      form.elements.type_id.onchange = () => { hint(); required(); form.alsoTypes.delete(+form.elements.type_id.value); this.paintCovers(form); };
+      const coverSearch = form.querySelector('[data-covers-search]'), pop = form.querySelector('[data-covers-pop]');
+      coverSearch.oninput = coverSearch.onfocus = () => this.paintCovers(form, true);
+      coverSearch.onkeydown = event => { if (event.key === 'Escape' && !pop.hidden) { event.preventDefault(); event.stopPropagation(); pop.hidden = true; } };
+      form.addEventListener('focusout', () => setTimeout(() => {
+        if (!form.querySelector('.covers-combo').contains(document.activeElement)) pop.hidden = true;
+      }, 0));
+      this.paintCovers(form);
       form.elements.evidence.onchange = () => { required(); this.readEvidence(form); };
       form.elements.valid_from.onchange = () => { form.elements.valid_until.min = form.elements.valid_from.value; };
       form.elements.valid_until.onchange = () => { form.elements.valid_from.max = form.elements.valid_until.value; };
@@ -264,6 +279,7 @@ window.QualificationManager = class {
         const body = new FormData(form);
         const claims = this.readClaims(form);  // values the dialog filled from the evidence, still unchanged
         if (Object.keys(claims).length) body.append('read_from', JSON.stringify(claims));
+        if (form.alsoTypes.size) body.append('also_type_ids', JSON.stringify([...form.alsoTypes]));
         // uploading and checking the evidence can take a while: say so on the button
         const button = form.querySelector('button[type="submit"], button:not([type])');
         const label = button && button.textContent;
@@ -306,6 +322,35 @@ window.QualificationManager = class {
       .map(([name, hit]) => [name, hit.source]));
   }
   // Clear the values the dialog filled from an earlier file, unless the person changed them since.
+  // "Also covers": chips for the added types (✕ removes), one-click suggestions, and a search over all other active
+  // types with checkboxes. The submit button counts the records it makes.
+  paintCovers(form, open = false) {
+    const types = this.data.types.filter(t => t.active), main = +form.elements.type_id.value;
+    const byId = new Map(types.map(t => [t.id, t]));
+    const needs = t => [t.requires_evidence ? 'needs evidence' : '', t.requires_number ? 'needs a number' : '']
+      .filter(Boolean).join(', ');
+    const chips = [...form.alsoTypes].filter(id => byId.has(id)).map(id =>
+      `<span class="covers-chip">${this.esc(byId.get(id).name)}<button type="button" data-covers-remove="${id}" aria-label="Remove ${this.esc(byId.get(id).name)}">✕</button></span>`);
+    const suggested = (form.suggested || []).filter(s => byId.has(s.type_id) && s.type_id !== main && !form.alsoTypes.has(s.type_id));
+    const sugs = suggested.map(s => `<button type="button" class="covers-sug" data-covers-add="${s.type_id}"
+      title="${s.reason === 'number' ? 'Records of this type carry the same certificate number' : 'Mentioned in the certificate'}">+ ${this.esc(byId.get(s.type_id).name)}</button>`);
+    form.querySelector('[data-covers-chips]').innerHTML = chips.join('') + sugs.join('');
+    form.querySelector('[data-covers-note]').hidden = !suggested.length;
+    const search = form.querySelector('[data-covers-search]'), pop = form.querySelector('[data-covers-pop]');
+    const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const shown = types.filter(t => t.id !== main && words.every(w => t.name.toLowerCase().includes(w)))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    pop.innerHTML = shown.map(t => `<label class="covers-opt"><input type="checkbox" data-covers-toggle="${t.id}"${form.alsoTypes.has(t.id) ? ' checked' : ''}>
+      <span>${this.esc(t.name)}</span><small>${form.alsoTypes.has(t.id) ? 'added' : this.esc(needs(t))}</small></label>`).join('')
+      || '<p class="mute" style="margin:6px 10px">No other qualification matches.</p>';
+    if (open) pop.hidden = false;
+    const button = form.querySelector('[data-submit-button]');
+    if (button && !button.disabled) button.textContent = form.alsoTypes.size ? `Submit ${form.alsoTypes.size + 1} for approval` : 'Submit for approval';
+    const change = (id, on) => { if (on) form.alsoTypes.add(id); else form.alsoTypes.delete(id); this.paintCovers(form, !pop.hidden); };
+    form.querySelectorAll('[data-covers-remove]').forEach(b => { b.onclick = () => change(+b.dataset.coversRemove, false); });
+    form.querySelectorAll('[data-covers-add]').forEach(b => { b.onclick = () => change(+b.dataset.coversAdd, true); });
+    pop.querySelectorAll('[data-covers-toggle]').forEach(box => { box.onchange = () => change(+box.dataset.coversToggle, box.checked); });
+  }
   clearFilled(form) {
     const filled = form.readFilled || {};
     for (const [name, hit] of Object.entries(filled)) {
@@ -375,6 +420,8 @@ window.QualificationManager = class {
     for (const name of ['valid_from', 'valid_until']) {  // keep the date pickers' min/max in step with the values
       if (form.elements[name].onchange) form.elements[name].onchange();
     }
+    form.suggested = r.suggestions || [];
+    this.paintCovers(form);
     const q = r.qr;
     const who = q && q.authority ? ` · QR code of ${this.esc(q.authority.name)}` : q && q.status === 'none' ? ' · no QR code found' : '';
     box.innerHTML = (bits.length ? 'Read: ' + bits.join(' · ') : '<span class="mute">Nothing recognised in the evidence; fill in the fields.</span>')

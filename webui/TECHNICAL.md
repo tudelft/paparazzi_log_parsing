@@ -1640,6 +1640,18 @@ Labels are recognised in English, Dutch, French, German, Spanish, Italian, Portu
 Norwegian, Czech and Finnish (`DATE_LABELS`, `MONTHS`). A complete read is kept in memory for 30 minutes per person
 and file (SHA-256) and used on submit of that same file instead of reading it again (then OCR results count too).
 
+**Also covers** (issue 255, part 1). The read also returns `suggestions`, `[{type_id, reason}]` of other active types the
+certificate probably covers: `number` when records of that type (anyone's: pending, approved or archived) carry the same
+certificate number, `text` when a distinctive part of the type name (`type_tokens`: a token with a digit and a letter
+such as A2, A1/A3, STS-01, or capitals only of three letters or more such as STS) appears as a whole word in the read text
+(QR code, `pdftotext`/PDF text, OCR). Plain names (First aid) are never suggested from text; only type ids are returned.
+The dialog shows them as one-click chips next to the added ones and a search over all other active types. On submit
+`also_type_ids` (JSON list, at most `ALSO_TYPES_MAX` 20; the chosen type and repeats are dropped) makes one pending record
+per type in one transaction, with the same number, dates and `read_from`, each with its own copy of the evidence (so
+deleting one record's file keeps the others') and its own audit entry (`certificate_covers` lists the types). Every
+covered type is checked like the chosen one (active, required evidence, dates and number, no pending one of that type);
+one failing refuses the whole certificate and names the type. The response adds `ids`; admins get one notice.
+
 The whole read has one time limit (`QUALIFICATION_READ_SECONDS`, default `READ_SECONDS`, 25 s), shared by the QR code
 and OCR: every `pdftoppm`, `zbarimg` and `tesseract` call gets at most the time left. When it runs out, what was found so
 far is returned with a note in `notes` (*Reading the QR code took too long* or *OCR took too long; fill in the
