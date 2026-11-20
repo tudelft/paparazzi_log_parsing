@@ -637,7 +637,7 @@ class QualificationTests(AppTests):
             self.assertIn("no-store", response.headers["Cache-Control"])
             script = response.get_data(as_text=True)
             self.assertIn("data-open-upload", script)
-            self.assertIn("info-tip", script)
+            self.assertIn("data-older", script)  # older records folded away
             self.assertNotIn("not recorded", script)
         with self.client.get("/people") as response:
             people = response.get_data(as_text=True)
@@ -663,8 +663,7 @@ class QualificationTests(AppTests):
         self.assertNotIn('saveQualificationType', pilot)
         self.assertIn("Import ZIP", people)
         self.assertIn("previewQualImport", people)
-        self.assertIn("data-view", script)
-        self.assertIn("Archive (", script)
+        self.assertIn("qual_older", script)  # Show older is kept in the URL
         self.assertIn("/api/admin/qualifications/import", people)
 
     def number_type(self):
