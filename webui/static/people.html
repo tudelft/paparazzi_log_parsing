@@ -139,6 +139,7 @@
   .type-body .type-desc { font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .type-chips { display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
   .type-chips .chip { font-size:11px; margin:0; }
+  .type-group-head { padding:10px 0 2px; font-size:11px; font-weight:600; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; border-bottom:1px solid var(--line); }
   .type-tools { display:inline-flex; gap:6px; flex-wrap:wrap; }
   .type-checks { display:grid; gap:6px; }
   fieldset.type-checks { border:1px solid var(--line); border-radius:6px; padding:6px 10px 8px; margin:0; }
@@ -340,13 +341,15 @@
         <button type="button" class="sec" onclick="openCheckQr()">Check QR codes…</button>
         <button type="button" class="sec" onclick="$('qualImportDialog').showModal()">Import ZIP</button></span>
       <span class="mute" id="typeStatus" role="status"></span>
-    <details><summary>Help</summary><p>The kinds of licences and qualifications people can add, in this order. The labels show what someone must fill in when adding one: Evidence (a file), Valid from, Valid until (expiry reminders are sent 30 and 7 days before) and Number (the licence or certificate number, read from a PDF certificate when left empty; <em>Fill numbers from PDFs…</em> does this for approved ones). Internal marks an in-house qualification such as FI or CTR rather than an external licence. The description is shown where people add or see the type. In Edit mode, <em>Edit</em> changes a type and the handle drags it to another place. An inactive type can no longer be added; existing ones stay. <em>Import ZIP</em> takes a <span class="mono">manifest.csv</span> (<a href="/api/admin/qualifications/import/template">CSV template</a>) and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
+    <details><summary>Help</summary><p>The kinds of licences and qualifications people can add, in this order. The labels show what someone must fill in when adding one: Evidence (a file), Valid from, Valid until (expiry reminders are sent 30 and 7 days before) and Number (the licence or certificate number, read from a PDF certificate when left empty; <em>Fill numbers from PDFs…</em> does this for approved ones). Internal marks an in-house qualification such as FI or CTR rather than an external licence. The description is shown where people add or see the type. The group puts types under a heading wherever they are listed (adding a qualification, Also covers, Documents, agendas, trainings); groups follow the order of their first type, so dragging the first type of a group moves the whole group, and types without a group come last under Other. Change a type's group with <em>Edit</em>; it then moves to the end of that group. In Edit mode, <em>Edit</em> changes a type and the handle drags it to another place. An inactive type can no longer be added; existing ones stay. <em>Import ZIP</em> takes a <span class="mono">manifest.csv</span> (<a href="/api/admin/qualifications/import/template">CSV template</a>) and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
     <div id="typeSettings"></div>
     <dialog class="entry-dialog" id="typeDialog" aria-labelledby="typeTitle" style="width:min(460px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
       <div class="dialog-header"><h2 id="typeTitle">Qualification type</h2><button type="button" onclick="$('typeDialog').close()">Close</button></div>
       <form id="typeForm" onsubmit="saveType(event)">
         <label class="field">Name<input name="name" required maxlength="80" placeholder="e.g. A1/A3, A2, RT licence"></label>
         <label class="field">Description (shown where people add or see it)<textarea name="description" rows="2" maxlength="300"></textarea></label>
+        <label class="field">Group (heading in the type lists; empty: Other)<input name="grp" maxlength="60" list="typeGroupList" placeholder="e.g. Drone pilot certificates"></label>
+        <datalist id="typeGroupList"></datalist>
         <fieldset class="type-checks"><legend>When someone adds it</legend>
           <label><input type="checkbox" name="requires_evidence"><span>Evidence file required<small>A scan or PDF of the certificate</small></span></label>
           <label><input type="checkbox" name="requires_start"><span>Valid from required</span></label>
@@ -917,13 +920,18 @@ const TYPE_FLAGS = [['requires_evidence', 'Evidence'], ['requires_start', 'Valid
 function renderTypes() {
   const editing = window.editMode();
   $('typeCount').textContent = `${qualificationTypes.length} type${qualificationTypes.length === 1 ? '' : 's'}`;
-  $('typeSettings').innerHTML = `<div id="typeList">${qualificationTypes.map(t => `<div class="type-row${t.active ? '' : ' off'}" data-type-row data-id="${t.id}">
+  // under their group headings once types have groups (the order of the rows is the order a drag saves)
+  const grouped = qualificationTypes.some(t => (t.grp || '').trim());
+  const typeRow = t => `<div class="type-row${t.active ? '' : ' off'}" data-type-row data-id="${t.id}">
       ${editing ? '<button type="button" class="drag-handle" aria-label="Drag to reorder">↕</button>' : '<span></span>'}
       <div class="type-body"><strong>${esc(t.name)}</strong>${t.active ? '' : ' <span class="chip warn">inactive</span>'}
         <div class="type-desc" title="${esc(t.description || '')}">${t.description ? esc(t.description) : '<i>no description</i>'}</div></div>
       <div class="type-chips">${TYPE_FLAGS.filter(([k]) => t[k]).map(([, label]) => `<span class="chip">${label}</span>`).join('')}</div>
       ${editing ? `<button type="button" class="sec" onclick="editType(${t.id})">Edit</button>` : '<span></span>'}
-    </div>`).join('') || '<p class="mute">No qualification types yet.</p>'}</div>`;
+    </div>`;
+  $('typeSettings').innerHTML = `<div id="typeList">${(grouped
+    ? window.typeGroups(qualificationTypes).map(g => `<div class="type-group-head">${esc(g.name)}</div>${g.types.map(typeRow).join('')}`).join('')
+    : qualificationTypes.map(typeRow).join('')) || '<p class="mute">No qualification types yet.</p>'}</div>`;
   if (editing) bindTypeDrag();
 }
 let editingTypeId = null;
@@ -932,7 +940,8 @@ function editType(id) {
     || {name: '', description: '', requires_evidence: 1, requires_start: 1, requires_expiry: 1, requires_number: 0, internal: 0, active: 1};
   editingTypeId = id;
   const f = $('typeForm');
-  f.name.value = t.name; f.description.value = t.description || '';
+  f.name.value = t.name; f.description.value = t.description || ''; f.grp.value = t.grp || '';
+  $('typeGroupList').innerHTML = [...new Set(qualificationTypes.map(x => x.grp).filter(Boolean))].map(g => `<option value="${esc(g)}">`).join('');
   for (const k of ['requires_evidence', 'requires_start', 'requires_expiry', 'requires_number', 'internal', 'active']) f[k].checked = !!t[k];
   $('typeTitle').textContent = id ? 'Edit qualification type' : 'Add qualification type';
   $('typeError').textContent = '';
@@ -942,7 +951,7 @@ function editType(id) {
 async function saveType(event) {
   event.preventDefault();
   const f = $('typeForm');
-  const body = {name: f.name.value, description: f.description.value};
+  const body = {name: f.name.value, description: f.description.value, grp: f.grp.value};
   for (const k of ['requires_evidence', 'requires_start', 'requires_expiry', 'requires_number', 'internal', 'active']) body[k] = f[k].checked;
   try {
     await adminApi(editingTypeId ? `/api/qualification-types/${editingTypeId}` : '/api/qualification-types',

@@ -738,6 +738,7 @@ def compare_read(read, entered):
 
 
 TYPE_DESCRIPTION_MAX = 300
+TYPE_GROUP_MAX = 60
 
 
 def type_description(body):
@@ -747,6 +748,31 @@ def type_description(body):
     if not isinstance(body["description"], str) or len(body["description"].strip()) > TYPE_DESCRIPTION_MAX:
         raise QualificationError(f"The description can be at most {TYPE_DESCRIPTION_MAX} characters.")
     return " ".join(body["description"].split())
+
+
+def type_group(body):
+    """The type's group from a request body; None when it was not sent (keep the stored one), '' for no group."""
+    if "grp" not in body or body["grp"] is None:
+        return None
+    if not isinstance(body["grp"], str) or len(" ".join(body["grp"].split())) > TYPE_GROUP_MAX:
+        raise QualificationError(f"The group can be at most {TYPE_GROUP_MAX} characters.")
+    return " ".join(body["grp"].split())
+
+
+def place_in_group(con, type_id, grp):
+    """Move a type that joined a group (a new type, or an edited one whose group changed) to the end of that group,
+    so the groups keep their order (groups follow the order of their first type). Nothing moves for no group or a
+    group with no other types."""
+    if not grp:
+        return
+    rows = con.execute("SELECT id, grp FROM qualification_types ORDER BY sort_order, name").fetchall()
+    others = [i for i, r in enumerate(rows) if r["grp"] == grp and r["id"] != type_id]
+    if not others:
+        return
+    ids = [r["id"] for r in rows if r["id"] != type_id]
+    last = rows[others[-1]]["id"]
+    ids.insert(ids.index(last) + 1, type_id)
+    con.executemany("UPDATE qualification_types SET sort_order=? WHERE id=?", [(n, i) for n, i in enumerate(ids, 1)])
 
 
 def register(app, connection, root, require_session):
@@ -769,7 +795,7 @@ def register(app, connection, root, require_session):
         admin()
         body = request.get_json(silent=True)
         allowed = {"id", "name", "requires_evidence", "requires_expiry", "requires_start", "requires_number",
-                   "internal", "active", "description"}
+                   "internal", "active", "description", "grp"}
         if not isinstance(body, dict) or set(body) - {"types"} or not isinstance(body.get("types"), list):
             raise QualificationError("Invalid qualification request.")
         parsed = []
@@ -803,6 +829,7 @@ def register(app, connection, root, require_session):
                     "Evidence requirement, date requirements, internal and active must be true or false.")
             parsed.append(dict(
                 id=tid, name=name, requires_evidence=raw["requires_evidence"], description=type_description(raw),
+                grp=type_group(raw),
                 requires_expiry=raw.get("requires_expiry", True), requires_start=raw.get("requires_start", True),
                 requires_number=raw.get("requires_number", False),
                 internal=raw.get("internal", False), active=raw.get("active", True)))
@@ -817,21 +844,24 @@ def register(app, connection, root, require_session):
                 for item in parsed:
                     if item["description"] is None:  # not sent: keep it
                         item["description"] = existing[item["id"]]["description"] if item["id"] else ""
+                    if item["grp"] is None:
+                        item["grp"] = existing[item["id"]]["grp"] if item["id"] else ""
                 for order, item in enumerate(parsed, 1):
                     if item["id"] is None:
                         item["id"] = con.execute(
                             "INSERT INTO qualification_types(name,requires_evidence,requires_expiry,requires_start,"
-                            "requires_number,internal,sort_order,active,description) VALUES (?,?,?,?,?,?,?,?,?)",
+                            "requires_number,internal,sort_order,active,description,grp) VALUES (?,?,?,?,?,?,?,?,?,?)",
                             (item["name"], item["requires_evidence"], item["requires_expiry"], item["requires_start"],
                              item["requires_number"], item["internal"], order, item["active"],
-                             item["description"])).lastrowid
+                             item["description"], item["grp"])).lastrowid
                     else:
                         con.execute(
                             "UPDATE qualification_types SET name=?,requires_evidence=?,requires_expiry=?,"
-                            "requires_start=?,requires_number=?,internal=?,sort_order=?,active=?,description=? WHERE id=?",
+                            "requires_start=?,requires_number=?,internal=?,sort_order=?,active=?,description=?,grp=?"
+                            " WHERE id=?",
                             (item["name"], item["requires_evidence"], item["requires_expiry"], item["requires_start"],
                              item["requires_number"], item["internal"], order, item["active"], item["description"],
-                             item["id"]))
+                             item["grp"], item["id"]))
                 leftover = [rid for rid in existing if rid not in {item["id"] for item in parsed}]
                 leftover.sort(key=lambda rid: (existing[rid]["sort_order"], existing[rid]["name"].casefold()))
                 for offset, rid in enumerate(leftover, len(parsed) + 1):
@@ -839,7 +869,7 @@ def register(app, connection, root, require_session):
                 audit(con, None, g.user["id"], "types-updated", dict(types=[
                     {key: item[key] for key in (
                         "id", "name", "requires_evidence", "requires_expiry", "requires_start", "requires_number",
-                        "internal", "active", "description")}
+                        "internal", "active", "description", "grp")}
                     for item in parsed]))
         except sqlite3.IntegrityError as exc:
             if "qualification_types.name" not in str(exc):
@@ -947,8 +977,9 @@ def register(app, connection, root, require_session):
     def save_qualification_type(type_id=None):
         admin()
         body = json_body(("name", "requires_evidence", "requires_expiry", "requires_start", "requires_number",
-                          "internal", "active", "description"))
+                          "internal", "active", "description", "grp"))
         description = type_description(body)
+        grp = type_group(body)
         name = body.get("name")
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
             raise QualificationError("Type name must be 1-80 characters.")
@@ -973,10 +1004,14 @@ def register(app, connection, root, require_session):
                     requires_number = body.get("requires_number", bool(existing["requires_number"]))
                     if description is None:
                         description = existing["description"]
+                    if grp is None:
+                        grp = existing["grp"]
                     con.execute("UPDATE qualification_types SET name=?,requires_evidence=?,requires_expiry=?,"
-                                "requires_start=?,requires_number=?,internal=?,active=?,description=? WHERE id=?",
+                                "requires_start=?,requires_number=?,internal=?,active=?,description=?,grp=? WHERE id=?",
                                 (name.strip(), body["requires_evidence"], requires_expiry, requires_start,
-                                 requires_number, internal, body.get("active", True), description, type_id))
+                                 requires_number, internal, body.get("active", True), description, grp, type_id))
+                    if grp != existing["grp"]:
+                        place_in_group(con, type_id, grp)
                 else:
                     requires_expiry = body.get("requires_expiry", True)
                     requires_start = body.get("requires_start", True)
@@ -985,14 +1020,15 @@ def register(app, connection, root, require_session):
                     nxt = con.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM qualification_types").fetchone()[0]
                     type_id = con.execute(
                         "INSERT INTO qualification_types(name,requires_evidence,requires_expiry,requires_start,"
-                        "requires_number,internal,sort_order,active,description) VALUES (?,?,?,?,?,?,?,?,?)",
+                        "requires_number,internal,sort_order,active,description,grp) VALUES (?,?,?,?,?,?,?,?,?,?)",
                         (name.strip(), body["requires_evidence"], requires_expiry, requires_start, requires_number,
-                         internal, nxt, body.get("active", True), description or "")).lastrowid
+                         internal, nxt, body.get("active", True), description or "", grp or "")).lastrowid
+                    place_in_group(con, type_id, grp or "")
                 audit(con, None, g.user["id"], "type-updated",
                       dict(type_id=type_id, name=name.strip(), requires_evidence=body["requires_evidence"],
                            requires_expiry=requires_expiry, requires_start=requires_start,
                            requires_number=requires_number, internal=internal,
-                           active=body.get("active", True), description=description))
+                           active=body.get("active", True), description=description, grp=grp))
         except sqlite3.IntegrityError as exc:
             if "qualification_types.name" not in str(exc):
                 raise

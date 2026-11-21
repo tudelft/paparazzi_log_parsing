@@ -1575,7 +1575,15 @@ and **Edit** open a dialog (`POST /api/qualification-types`, `PUT /api/qualifica
 Qualification chips in the People overview and current account qualification lists follow the saved
 type order, not submission order; multiple submissions of one type are newest first.
 Types keep a `sort_order`; dragging a type's handle saves the new order at once
-(`PUT /api/admin/qualification-types`, which keeps a description that is not sent). Types can be disabled.
+(`PUT /api/admin/qualification-types`, which keeps a description and group that are not sent). Types can be disabled.
+A type can have a **group** (`grp`, at most 60 characters, typed or picked from the existing groups in the type
+dialog; empty: none). Wherever types are listed (the type choice and *Also covers* when adding a qualification, the
+qualification limits of Documents, the qualification of an agenda item and of a training), they are shown under
+their group, in `<optgroup>`s or headings (`typeGroups` and `typeOptions` in `theme.js`). Groups follow the order of
+their first type, so dragging the first type of a group moves the group; types without a group come last under
+*Other*. A type that joins a group (a new type, or one whose group is changed with **Edit**) moves to the end of that
+group, so the groups keep their order. While no
+type has a group, the lists look as before. The group names are site data in the database, not part of the code.
 Types have no hard-coded proof rules. Disabling a type stops submissions and approvals, without erasing
 previous approvals. Changing either requirement also applies to pending submissions at approval time.
 Types also have a **Valid from** requirement (`requires_start`); submissions store `valid_from`

@@ -410,7 +410,8 @@ CREATE TABLE IF NOT EXISTS qualification_types (
     requires_number INTEGER NOT NULL DEFAULT 0 CHECK(requires_number IN (0,1)),
     sort_order INTEGER NOT NULL DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
-    description TEXT NOT NULL DEFAULT ''  -- short text shown where people add or see this type
+    description TEXT NOT NULL DEFAULT '',  -- short text shown where people add or see this type
+    grp TEXT NOT NULL DEFAULT ''  -- group heading in type lists (empty: Other); groups follow their first type's order
 );
 CREATE TABLE IF NOT EXISTS qualification_submissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -765,6 +766,8 @@ def init(path):
         con.execute("ALTER TABLE qualification_submissions ADD COLUMN qr_json TEXT")
     if "description" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_types)")}:
         con.execute("ALTER TABLE qualification_types ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+    if "grp" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_types)")}:
+        con.execute("ALTER TABLE qualification_types ADD COLUMN grp TEXT NOT NULL DEFAULT ''")
     if "number" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}:
         con.execute("ALTER TABLE qualification_submissions ADD COLUMN number TEXT")
     if "read_only" not in {r["name"] for r in con.execute("PRAGMA table_info(api_keys)")}:

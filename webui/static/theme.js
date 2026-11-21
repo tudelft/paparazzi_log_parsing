@@ -49,6 +49,23 @@ window.categoryChoice = value => value.startsWith('auth:') ? {category: null, au
   : {category: value.startsWith('cat:') ? value.slice(4) : null, authorisation_id: null};
 window.categoryText = f => (f.category === 'national' ? 'National rules' : window.CATEGORY_LABELS[f.category] || 'Unknown') + (f.authorisation_name ? ' · ' + f.authorisation_name : '');
 
+// Qualification types in groups (the type's group, set on People): groups in the order of their first type, types
+// without a group last under "Other". typeOptions gives <option>s, in <optgroup>s once any type has a group.
+window.typeGroups = types => {
+  const groups = new Map();
+  for (const t of types) {
+    const name = (t.grp || '').trim();
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(t);
+  }
+  return [...groups].sort(([a], [b]) => (a === '') - (b === '')).map(([name, list]) => ({name: name || 'Other', types: list}));
+};
+window.typeOptions = (types, option) => {
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  if (!types.some(t => (t.grp || '').trim())) return types.map(option).join('');
+  return window.typeGroups(types).map(g => `<optgroup label="${esc(g.name)}">${g.types.map(option).join('')}</optgroup>`).join('');
+};
+
 // Short name of an uploaded log by type; its download always contains every file of that log (.data + .log).
 window.logLabel = t => ({onboard_sd: 'SD log', gcs: 'GCS log', px4_ulog: 'PX4 log', ardupilot: 'ArduPilot log',
   mavlink_tlog: 'MAVLink log', betaflight: 'Betaflight log', indiflight: 'INDIFlight log',

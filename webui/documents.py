@@ -202,7 +202,7 @@ def register(app, connection, root, pages_dir):
         if g.user["is_admin"]:
             # inactive types too: a document may still be limited to one, and its edit dialog must keep that
             out["types"] = [dict(r) for r in cid.execute(
-                "SELECT id, name, active FROM qualification_types ORDER BY sort_order, name")]
+                "SELECT id, name, active, grp FROM qualification_types ORDER BY sort_order, name")]
             out["profiles"] = profiles.enabled()
             out["roles"] = [dict(r) for r in cid.execute("SELECT id, name FROM profile_roles ORDER BY sort_order, name")]
             out["max_bytes"] = MAX_BYTES
