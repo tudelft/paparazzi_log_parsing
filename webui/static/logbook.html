@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/theme.js"></script>
 <script src="/matlab.js"></script>
+<script src="/indiflight.js"></script>
 <script src="/attachments.js"></script>
 <link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -502,7 +503,7 @@ function detail(f) {
       <div class="lb-files" data-flights="${[...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)].filter(id => id != null))].join(',')}"></div>
       ${linkedInfo(f)}${sourcesInfo(f)}${classInfo(f)}
       <div class="actions"><a class="btn" href="/flight/${f.flight_id}" target="_blank" rel="noopener">Open flight page</a>
-        ${logDownloadButtons(f.sources)}${MatlabExport.button(f.sources)}</div>
+        ${logDownloadButtons(f.sources)}${IndiflightOpen.button(f.sources)}${MatlabExport.button(f.sources)}</div>
     </div>
   </div>`;
 }

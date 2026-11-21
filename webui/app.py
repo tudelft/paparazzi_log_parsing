@@ -899,7 +899,7 @@ def no_cache_pages(resp):
             "/api/detail/people/", "/api/users/", "/api/qualification-", "/api/admin/qualification-", "/api/admin/users/")):
         resp.headers["Cache-Control"] = "private, no-store"
     if resp.mimetype == "text/html" or request.path in ("/theme.css", "/theme.js", "/attachments.js",
-                                                        "/qualifications.js", "/matlab.js", "/upload.js", "/download.js"):
+                                                        "/qualifications.js", "/matlab.js", "/indiflight.js", "/upload.js", "/download.js"):
         resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -921,6 +921,11 @@ def theme_js():
 @app.get("/matlab.js")
 def matlab_js():
     return send_from_directory(PAGES_DIR, "matlab.js")
+
+
+@app.get("/indiflight.js")
+def indiflight_js():
+    return send_from_directory(PAGES_DIR, "indiflight.js")
 
 
 @app.get("/upload.js")

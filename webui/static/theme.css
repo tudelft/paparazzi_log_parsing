@@ -488,6 +488,13 @@ dialog.af-dialog textarea { resize:vertical; min-height:2.4em; }
   .af-drop { padding:16px 10px; }
 }
 
+.ext-split { display:inline-flex; white-space:nowrap; }
+.ext-split > .btn:first-child { border-top-right-radius:0; border-bottom-right-radius:0; }
+.ext-split > .ext-caret { border-top-left-radius:0; border-bottom-left-radius:0; border-left-width:0; box-shadow:inset 1px 0 0 var(--line); padding-left:7px; padding-right:7px; }
+.ext-icon { vertical-align:-1px; margin-left:2px; }
+.ext-pop { min-width:0; }
+.ext-pop .matlab-item { justify-content:flex-start; gap:6px; white-space:nowrap; }
+
 /* MATLAB export menu (matlab.js) */
 .matlab-pop { position:absolute; z-index:1000; min-width:280px; max-width:min(420px, calc(100vw - 16px)); padding:8px;
   background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,.18); }
