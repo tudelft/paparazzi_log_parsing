@@ -1463,3 +1463,68 @@ class QualificationTypeDescriptionTests(AppTests):
     def test_migration_adds_the_column(self):
         import db
         self.assertIn("description", {r[1] for r in self.con.execute("PRAGMA table_info(qualification_types)")})
+
+
+class QualificationTypeGroupTests(AppTests):
+    """The group of a qualification type: a heading wherever types are listed, set by admins."""
+
+    def groups(self):
+        return {t["name"]: t["grp"] for t in self.client.get("/api/admin/qualification-types").json["types"]}
+
+    def test_group_is_saved_kept_and_listed(self):
+        self.sign_in(1)
+        a2 = self.client.post("/api/qualification-types", json={
+            "name": "A2", "requires_evidence": True, "grp": "  Drone pilot   certificates "}).json["id"]
+        self.client.post("/api/qualification-types", json={"name": "Cyberzoo", "requires_evidence": False})
+        self.assertEqual(self.groups(), {"A2": "Drone pilot certificates", "Cyberzoo": ""})
+        # the order save (People, drag) sends no group: it is kept
+        types = self.client.get("/api/admin/qualification-types").json["types"]
+        order = [dict(id=t["id"], name=t["name"], requires_evidence=bool(t["requires_evidence"])) for t in types[::-1]]
+        self.assertEqual(self.client.put("/api/admin/qualification-types", json={"types": order}).status_code, 200)
+        self.assertEqual(self.groups()["A2"], "Drone pilot certificates")
+        # editing without a group keeps it; an empty group clears it; the bulk save can set it
+        self.client.put(f"/api/qualification-types/{a2}", json={"name": "A2", "requires_evidence": True})
+        self.assertEqual(self.groups()["A2"], "Drone pilot certificates")
+        self.client.put(f"/api/qualification-types/{a2}", json={"name": "A2", "requires_evidence": True, "grp": ""})
+        self.assertEqual(self.groups()["A2"], "")
+        order[-1]["grp"] = "Drone pilot certificates (current)"
+        self.client.put("/api/admin/qualification-types", json={"types": order})
+        self.assertEqual(self.groups()["A2"], "Drone pilot certificates (current)")
+        for bad in ("x" * 61, 5):
+            self.assertEqual(self.client.put(f"/api/qualification-types/{a2}", json={
+                "name": "A2", "requires_evidence": True, "grp": bad}).status_code, 400)
+        # every list of types carries the group
+        self.assertEqual({t["name"]: t["grp"] for t in self.client.get("/api/users/2/qualifications").json["types"]}["A2"],
+                         "Drone pilot certificates (current)")
+
+    def test_a_type_joining_a_group_goes_to_its_end(self):
+        self.sign_in(1)
+        new = lambda name, grp="": self.client.post("/api/qualification-types", json={
+            "name": name, "requires_evidence": True, "grp": grp}).json["id"]
+        new("A1/A3", "Current"); uk = new("UK Flyer ID", "Current"); new("PPL", "Manned"); new("RPA-L", "Archive")
+        new("A2", "Current")  # a new type in an existing group: at the end of that group, not of the list
+        order = lambda: [t["name"] for t in self.client.get("/api/admin/qualification-types").json["types"]]
+        self.assertEqual(order(), ["A1/A3", "UK Flyer ID", "A2", "PPL", "RPA-L"])
+        self.client.put(f"/api/qualification-types/{uk}", json={"name": "UK Flyer ID", "requires_evidence": True,
+                                                                  "grp": "Archive"})
+        self.assertEqual(order(), ["A1/A3", "A2", "PPL", "RPA-L", "UK Flyer ID"])  # the Archive group stays last
+
+    def test_a_group_in_another_case_joins_the_existing_one(self):
+        self.sign_in(1)
+        new = lambda name, grp: self.client.post("/api/qualification-types", json={
+            "name": name, "requires_evidence": True, "grp": grp}).json["id"]
+        new("A2", "Drone pilots")
+        sts = new("STS", "drone PILOTS")
+        self.assertEqual(self.groups()["STS"], "Drone pilots")
+        solo = new("PPL", "manned")  # the only type of its group may change the group's spelling
+        self.client.put(f"/api/qualification-types/{solo}", json={"name": "PPL", "requires_evidence": True,
+                                                                    "grp": "Manned"})
+        self.assertEqual((self.groups()["PPL"], self.groups()["STS"]), ("Manned", "Drone pilots"))
+        self.assertTrue(sts)
+
+    def test_migration_adds_the_column(self):
+        db = self.ns["db"]
+        self.con.execute("ALTER TABLE qualification_types DROP COLUMN grp")
+        with patch.object(db, "connect", return_value=self.con):
+            db.init("unused")
+        self.assertIn("grp", {r[1] for r in self.con.execute("PRAGMA table_info(qualification_types)")})

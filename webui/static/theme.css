@@ -358,6 +358,7 @@ button.qual-chip { cursor:pointer; }
 .covers-opt { display:flex; align-items:center; gap:8px; padding:5px 10px; color:var(--txt); font-size:13px; cursor:pointer; }
 .covers-opt:hover { background:var(--hover); }
 .covers-opt input { width:auto; margin:0; }
+
 .covers-opt span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .covers-opt small { color:var(--mute); white-space:nowrap; }
 .link-button { background:none; border:0; padding:6px 0; color:var(--acc); font:inherit; font-size:13px; cursor:pointer; }
@@ -548,3 +549,7 @@ body > header.header-wrap #flightFiltersMenu { order:1; margin-left:auto; }
 body > header.header-wrap > .meta:not(#nav) { order:2; }
 body > header.header-wrap > .meta:not(#nav):last-child { margin-left:auto; }
 body > header.header-wrap #flightFiltersMenu ~ .meta:not(#nav) { margin-left:0 !important; }
+
+/* A group heading in a list of qualification types (theme.js typeGroups): People, Documents, Also covers */
+.type-group-head { font-size:11px; font-weight:600; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
+.covers-pop .type-group-head { padding:8px 10px 2px; }

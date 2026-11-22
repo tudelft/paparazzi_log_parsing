@@ -1024,8 +1024,8 @@ async function importTraining(preview) {
   } catch (e) { $('importError').textContent = 'Import failed: ' + e.message; }
 }
 function fillTypes(select, current) {
-  select.innerHTML = '<option value="">None</option>' + types.map(t =>
-    `<option value="${t.id}"${t.id === current ? ' selected' : ''}>${esc(t.name)}</option>`).join('');
+  select.innerHTML = '<option value="">None</option>' + window.typeOptions(types, t =>
+    `<option value="${t.id}"${t.id === current ? ' selected' : ''}>${esc(t.name)}</option>`);
 }
 function personName(id) {
   const fromBriefers = (detail && detail.briefers || []).find(p => p.id === id);

@@ -651,9 +651,9 @@ def register(app, connection, root, require_session):
         return row
 
     def linkable_types(cid):
-        return [{"id": r["id"], "name": r["name"], "requires_expiry": bool(r["requires_expiry"])}
+        return [{"id": r["id"], "name": r["name"], "grp": r["grp"], "requires_expiry": bool(r["requires_expiry"])}
                 for r in cid.execute(
-                    "SELECT id, name, requires_expiry FROM qualification_types"
+                    "SELECT id, name, grp, requires_expiry FROM qualification_types"
                     " WHERE active=1 AND requires_evidence=0 ORDER BY sort_order, name")]
 
     def resolve_type(cid, type_id, valid_days):

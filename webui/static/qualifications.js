@@ -155,8 +155,8 @@ window.QualificationManager = class {
         <p class="mute">Every submission needs admin approval. Your current approval remains active during renewal review.
         Only the fields required by the chosen type are shown. Past validity periods can be recorded; flight eligibility is not checked.</p>
         <form data-submit>
-          <label class="field">Qualification <select name="type_id" required>${types.map(t =>
-            `<option value="${t.id}">${esc(t.name)}${t.internal ? ' (internal)' : ''}</option>`).join('')}</select></label>
+          <label class="field">Qualification <select name="type_id" required>${window.typeOptions(types, t =>
+            `<option value="${t.id}">${esc(t.name)}${t.internal ? ' (internal)' : ''}</option>`)}</select></label>
           <p class="mute" data-type-desc style="margin:-4px 0 0;font-size:12px"></p>
           <label class="field" data-field="valid_from">Valid from <input type="date" name="valid_from"></label>
           <label class="field" data-field="valid_until">Valid until <input type="date" name="valid_until"></label>
@@ -338,10 +338,15 @@ window.QualificationManager = class {
     form.querySelector('[data-covers-note]').hidden = !suggested.length;
     const search = form.querySelector('[data-covers-search]'), pop = form.querySelector('[data-covers-pop]');
     const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const shown = types.filter(t => t.id !== main && words.every(w => t.name.toLowerCase().includes(w)))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    pop.innerHTML = shown.map(t => `<label class="covers-opt"><input type="checkbox" data-covers-toggle="${t.id}"${form.alsoTypes.has(t.id) ? ' checked' : ''}>
-      <span>${this.esc(t.name)}</span><small>${form.alsoTypes.has(t.id) ? 'added' : this.esc(needs(t))}</small></label>`).join('')
+    // a word matches the type's name or its group ("drone" lists the whole Drone group)
+    const shown = types.filter(t => t.id !== main && words.every(w => `${t.name} ${t.grp || ''}`.toLowerCase().includes(w)));
+    const option = t => `<label class="covers-opt"><input type="checkbox" data-covers-toggle="${t.id}"${form.alsoTypes.has(t.id) ? ' checked' : ''}>
+      <span>${this.esc(t.name)}</span><small>${form.alsoTypes.has(t.id) ? 'added' : this.esc(needs(t))}</small></label>`;
+    // in the type groups (alphabetical inside each) once types have groups; otherwise one alphabetical list
+    const grouped = shown.some(t => (t.grp || '').trim());
+    pop.innerHTML = (grouped ? window.typeGroups(shown).map(g => `<div class="type-group-head">${this.esc(g.name)}</div>`
+      + [...g.types].sort((a, b) => a.name.localeCompare(b.name)).map(option).join('')).join('')
+      : [...shown].sort((a, b) => a.name.localeCompare(b.name)).map(option).join(''))
       || '<p class="mute" style="margin:6px 10px">No other qualification matches.</p>';
     if (open) pop.hidden = false;
     const button = form.querySelector('[data-submit-button]');

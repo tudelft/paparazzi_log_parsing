@@ -372,7 +372,7 @@ def register(app, connection, require_session, pages_dir):
                                              for r in rows]}
         if g.user["is_admin"]:
             out["types"] = [dict(r) for r in cid.execute(
-                "SELECT id, name FROM qualification_types WHERE active=1 ORDER BY sort_order, name")]
+                "SELECT id, name, grp FROM qualification_types WHERE active=1 ORDER BY sort_order, name")]
             out["places"] = [dict(r) for r in cid.execute("SELECT id, name FROM places ORDER BY name")]
             out["people"] = [dict(r) for r in cid.execute(
                 "SELECT id, COALESCE(display_name, username) AS name FROM users WHERE is_active=1 AND is_external=0"

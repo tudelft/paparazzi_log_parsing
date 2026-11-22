@@ -614,8 +614,8 @@ function openItem(id) {
   $('itemTitle').textContent = id ? 'Edit bookable item' : 'New bookable item';
   f.name.value = t.name || '';
   f.description.value = t.description || '';
-  f.type_id.innerHTML = '<option value="">None</option>' + (data.types || []).map(q =>
-    `<option value="${q.id}"${q.id === t.type_id ? ' selected' : ''}>${esc(q.name)}</option>`).join('');
+  f.type_id.innerHTML = '<option value="">None</option>' + window.typeOptions(data.types || [], q =>
+    `<option value="${q.id}"${q.id === t.type_id ? ' selected' : ''}>${esc(q.name)}</option>`);
   f.qualification_for.value = t.qualification_for;
   f.use_colour.checked = !!t.colour;
   f.colour.value = t.colour || '#4493f8';
