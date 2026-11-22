@@ -1028,13 +1028,11 @@ def require_login():
             if request.endpoint in VIEW_AS_BLOCKED:
                 return jsonify(error="Not possible while viewing as another user: stop viewing as them first."), 403
             return None  # no profile prompt: that is the person's own step
-    page = (request.method == "GET" and not request.path.startswith("/api/")
-            and "." not in request.path.rsplit("/", 1)[-1] and request.path not in ("/profile", "/welcome"))
-    if page and profiles.needs_profile(conn(), user):
-        # pages wait for a complete profile; the API (and scripts) keep working
+    if (request.method == "GET" and not request.path.startswith("/api/") and request.path != "/profile"
+            and "." not in request.path.rsplit("/", 1)[-1] and profiles.needs_profile(conn(), user)):
+        # pages wait for a complete profile; the API (and scripts) keep working. (The welcome message is a card on
+        # the Home page, never a redirect.)
         return redirect("/profile?" + urlencode({"next": request.full_path.rstrip("?")}))
-    if page and welcome.needs_welcome(conn(), user):  # then the welcome message, once
-        return redirect("/welcome?" + urlencode({"next": request.full_path.rstrip("?")}))
     return None
 
 
@@ -1233,7 +1231,8 @@ def logout():
 # An administrator's browser session can stand in for another active account: g.user becomes that person (so every
 # page, list and change follows their access and is recorded in their name) and g.real_user is the administrator.
 # Credentials stay out of reach: changing the password, managing API keys and approving script sign-ins are refused.
-VIEW_AS_BLOCKED = {"change_password", "create_key", "narrow_key", "revoke_all_keys", "delete_key", "cli_login_decide"}
+VIEW_AS_BLOCKED = {"change_password", "create_key", "narrow_key", "revoke_all_keys", "delete_key", "cli_login_decide",
+                   "dismiss_home_message"}  # dismissing a Home message is the person's own step
 
 
 def view_as_target(con, admin, uid):
@@ -5151,6 +5150,12 @@ def merge_accounts(con, plan):
                 " WHERE user_id=? AND EXISTS (SELECT 1 FROM welcome_seen WHERE user_id=?)", (source_id, target_id, source_id))
     con.execute("DELETE FROM welcome_seen WHERE user_id=? AND EXISTS (SELECT 1 FROM welcome_seen WHERE user_id=?)",
                 (source_id, target_id))
+    # notices dismissed by either account stay dismissed (the newest version of the two)
+    con.execute("UPDATE notice_dismissals SET version=MAX(version, (SELECT d.version FROM notice_dismissals d"
+                " WHERE d.user_id=? AND d.notice_id=notice_dismissals.notice_id)) WHERE user_id=? AND notice_id IN"
+                " (SELECT notice_id FROM notice_dismissals WHERE user_id=?)", (source_id, target_id, source_id))
+    con.execute("DELETE FROM notice_dismissals WHERE user_id=? AND notice_id IN"
+                " (SELECT notice_id FROM notice_dismissals WHERE user_id=?)", (source_id, target_id))
     for table, column in user_reference_columns(con):
         con.execute(f"UPDATE {table} SET {column}=? WHERE {column}=?", (target_id, source_id))
     # supervisors after the move: nobody supervises themselves, and each supervisor is listed once
@@ -5881,6 +5886,7 @@ def home_data():
         flying=home.flying(rows, g.user["id"], today),
         recent=home.recent(rows),
         media=home.media(con, g.user, attachments.visible),
+        messages=welcome.home_messages(con, g.user),
         qualifications=home.qualification_alerts(con, g.user["id"], today),
         logs=dict(undated=undated, failed=failed),
         review=len(review_queue().get_json()["cases"]),

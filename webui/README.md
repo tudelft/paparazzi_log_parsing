@@ -307,8 +307,9 @@ indefinite. Change it under
 **My account**. Only you, admins and your supervisors see it (supervisors without your number): on your person
 page, and on People in the **Profiles** and **Supervision** tabs, which show supervisors the people they supervise.
 
-**Welcome message:** when admins have written one, you see it once after signing in (after the profile), before
-your page. Admins write it on People in Edit mode under **Profile options** → *Welcome message*, like a
+**Welcome message and notices:** when admins have written a welcome message or notices for you, they are at the top
+of your Home page until you dismiss them (some notices cannot be closed and stay until their end date). Admins write
+them on People in Edit mode under **Profile options** → *Welcome message and notices*, like a
 training's access mail: tags such as `{name}`, a little markup and parts per role ([details](TECHNICAL.md#welcome-message)).
 
 **Qualifications:** submit your own evidence under **My account**; admins review it on **People**.

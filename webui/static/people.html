@@ -81,6 +81,7 @@
   .profile-options > div { flex:2 1 300px; min-width:0; }
   .profile-options > div:first-child { flex:3 1 440px; }  /* roles: more columns */
   .profile-options td:first-child input { min-width:9em; }
+  .welcome-link { float:right; }
   .profile-options h3 { margin:6px 0; font-size:13px; }
   .profile-options table { width:100%; border-collapse:collapse; margin-bottom:6px; }
   .profile-options th { font-size:12px; color:var(--mute); text-align:left; font-weight:500; }
@@ -401,7 +402,7 @@
         <input type="file" id="deptCsv" accept=".csv,text/csv,text/plain" hidden onchange="importDepartments(this)"></div>
     </div>
     <p><button type="button" onclick="saveProfileOptions()">Save</button> <span id="profileOptionsStatus" class="mute" role="status"></span>
-      <a href="/welcome?next=%2Fpeople%3Ftab%3Dprofile-options" style="float:right" title="The message everyone sees once after the profile">Welcome message</a></p>
+      <a class="welcome-link" href="/welcome" title="The welcome message and notices at the top of the Home page">Welcome message and notices</a></p>
   </section>
   <section class="card" id="profilesSection" hidden>
     <div class="people-title-row"><h2>Profiles</h2><span class="mute" id="profilesCount" role="status"></span>

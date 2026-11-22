@@ -2,12 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Welcome</title>
+<title>Welcome message and notices</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/theme.js"></script>
 <link rel="stylesheet" href="/theme.css">
 <style>
-  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); font:14px/1.5 system-ui, sans-serif; color:var(--txt); }
+  body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:24px 0; box-sizing:border-box;
+    background:var(--bg); font:14px/1.5 system-ui, sans-serif; color:var(--txt); }
   .box { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:24px 28px; width:560px; max-width:calc(100vw - 32px); box-sizing:border-box; margin:16px 0; }
   h1 { font-size:20px; margin:0 0 12px; }
   .mute { color:var(--mute); }
@@ -26,12 +27,37 @@
   label.check { display:flex; gap:6px; align-items:center; margin-top:10px; font-size:13px; }
   label.check input { width:auto; }
   button { padding:7px 14px; font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; cursor:pointer; }
+  a.button { display:inline-block; padding:7px 14px; background:var(--btn); color:#fff; border-radius:6px; text-decoration:none; }
+  a.button:hover { text-decoration:none; filter:brightness(1.08); }
   button.secondary { background:none; color:var(--txt); border:1px solid var(--fieldline); }
   .buttons { display:flex; justify-content:flex-end; align-items:center; gap:12px; margin-top:18px; }
   .buttons .left { margin-right:auto; }
   #err { color:var(--err); margin-top:12px; }
   #err:empty { display:none; }
   [hidden] { display:none !important; }
+  /* notices */
+  .head { display:flex; align-items:center; gap:10px; margin:0 0 8px; }
+  .head h2 { font-size:17px; margin:0; } .head .grow { flex:1; }
+  .notice { display:flex; align-items:center; gap:8px; padding:7px 0; border-top:1px solid var(--line); min-width:0; }
+  .notice:first-child { border-top:0; }
+  .notice .t { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .notice .t b { font-weight:600; }
+  .chip { font-size:11px; border-radius:9px; padding:1px 7px; background:var(--chip); color:var(--mute); white-space:nowrap; }
+  .chip.warn { background:var(--warnbg); color:var(--warn); }
+  .notice button { padding:3px 10px; font-size:13px; }
+  button.danger { background:none; color:var(--err); border:1px solid var(--err); }
+  dialog { width:min(520px, calc(100vw - 32px)); border:1px solid var(--line); border-radius:10px; background:var(--card);
+    color:var(--txt); padding:20px; box-sizing:border-box; }
+  dialog::backdrop { background:rgba(0,0,0,.45); }
+  dialog h2 { font-size:18px; margin:0 0 4px; }
+  dialog textarea { min-height:140px; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .roles { display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:6px; font-size:13px; }
+  .roles label { display:flex; gap:5px; align-items:center; }
+  .roles input, .radio input { width:auto; }
+  div.f { display:block; margin-top:12px; font-size:12px; color:var(--mute); }
+  div.f .radio, div.f .roles { color:var(--txt); }
+  .radio { display:flex; gap:14px; margin-top:6px; font-size:13px; } .radio label { display:flex; gap:5px; align-items:center; }
 </style>
 </head>
 <body>
@@ -39,32 +65,61 @@
 <div class="box" id="view" hidden>
   <h1 id="title">Welcome</h1>
   <div id="text"></div>
-  <p class="mute" id="empty" hidden>There is no welcome message: people go straight to their page after the profile.
-    Write one with Edit.</p>
+  <p class="mute" id="empty" hidden>There is no welcome message. Write one with Edit: it is shown at the top of
+    everyone's Home page until they dismiss it.</p>
   <div id="err"></div>
   <div class="buttons">
     <span class="left mute small" id="seen" hidden></span>
     <button type="button" class="secondary" id="edit" hidden>Edit</button>
-    <button type="button" id="continue">Continue</button>
+    <a class="button" id="done" href="/people?tab=profile-options">Done</a>
   </div>
 </div>
 <form class="box" id="form" hidden novalidate>
   <h1>Welcome message</h1>
-  <p class="mute small" style="margin:0">Shown once to everyone who signs in, after their profile and before their page
-    (not to external users). Written like a training's access mail. Leave the message empty for no welcome message.</p>
+  <p class="mute small" style="margin:0">Shown at the top of everyone's Home page until they dismiss it (no page is
+    redirected for it). Written like a training's access mail. Leave the message empty for no welcome message.</p>
   <label class="f">Title<input id="fTitle" maxlength="120" placeholder="Welcome"></label>
   <label class="f">Message<textarea id="fBody" maxlength="10000"></textarea></label>
   <p class="hint" title="The tags are filled in for each person from their account and profile (- when unknown). The role is the role in their profile.">Tags: <span id="tags"></span> · Markup: **bold**, "- " bullets, two leading spaces indent, an empty line starts a paragraph, https://… and /pages become links · Per role, each on its own line: {if role: PhD Student, Staff} … {else} … {end}</p>
-  <label class="check"><input type="checkbox" id="fAgain"> Show it again to everyone who has already seen it</label>
+  <label class="check"><input type="checkbox" id="fAgain"> Show it again to everyone who has already dismissed it</label>
   <div id="fErr" style="color:var(--err);margin-top:12px"></div>
   <div class="buttons">
     <button type="button" class="secondary" id="cancel">Cancel</button>
     <button type="submit" id="save">Save</button>
   </div>
 </form>
+<section class="box" id="noticesBox" hidden>
+  <div class="head"><h2>Notices</h2><span class="mute small" id="noticeCount"></span><span class="grow"></span>
+    <button type="button" id="addNotice">Add notice</button></div>
+  <p class="mute small" style="margin:0 0 8px">Shown at the top of the Home page of everyone, or of people with the
+    chosen profile roles, until their date; people dismiss them unless they cannot be closed.</p>
+  <div id="notices"></div>
+</section>
+<dialog id="noticeDialog" aria-labelledby="noticeTitle">
+  <form id="noticeForm" novalidate>
+    <h2 id="noticeTitle">Add notice</h2>
+    <label class="f">Title<input id="nTitle" maxlength="120" required></label>
+    <label class="f">Text<textarea id="nBody" maxlength="10000" required></textarea></label>
+    <p class="hint">Written like the welcome message (tags, **bold**, "- " bullets, links, {if role: …} blocks).
+      Changing the title or text shows it again to who dismissed it.</p>
+    <div class="f">For
+      <div class="radio"><label><input type="radio" name="aud" value="all" checked> Everyone</label>
+        <label><input type="radio" name="aud" value="roles"> Only these profile roles</label></div>
+      <div class="roles" id="nRoles" hidden></div>
+      <p class="hint" id="nNoProfiles" hidden>Person profiles are off: only notices for everyone are shown.</p></div>
+    <div class="row2">
+      <label class="f">Show until <span class="mute">(optional, inclusive)</span><input type="date" id="nUntil"></label>
+      <label class="check" style="align-self:end" title="No Dismiss: it stays until its date or until it is deleted"><input type="checkbox" id="nFixed"> Can't be closed</label>
+    </div>
+    <div id="nErr" style="color:var(--err);margin-top:12px"></div>
+    <div class="buttons">
+      <button type="button" class="secondary" id="nCancel">Cancel</button>
+      <button type="submit" id="nSave">Save</button>
+    </div>
+  </form>
+</dialog>
 <script>
 const $ = id => document.getElementById(id);
-const next = new URLSearchParams(location.search).get('next');
 let data = null;
 
 async function api(url, opt) {
@@ -72,9 +127,6 @@ async function api(url, opt) {
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || r.statusText);
   return d;
-}
-function safeNext() {
-  return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/welcome') ? next : '/home';
 }
 function show() {
   const msg = data.message;
@@ -84,21 +136,10 @@ function show() {
   $('empty').hidden = !!msg;
   $('edit').hidden = !data.can_edit;
   $('seen').hidden = !(data.can_edit && msg);
-  $('seen').textContent = `Seen by ${data.seen} ${data.seen === 1 ? 'person' : 'people'}`;
-  $('continue').textContent = next ? 'Continue' : 'Close';
+  $('seen').textContent = `Dismissed by ${data.seen} ${data.seen === 1 ? 'person' : 'people'}`;
   $('form').hidden = true;
   $('view').hidden = false;
 }
-$('continue').onclick = async () => {
-  $('continue').disabled = true;
-  try {
-    if (data.message) await api('/api/welcome/seen', {method: 'POST'});
-    location.href = safeNext();
-  } catch (err) {
-    $('err').textContent = err.message;
-    $('continue').disabled = false;
-  }
-};
 $('edit').onclick = () => {
   $('fTitle').value = (data.message && data.message.title) || '';
   $('fBody').value = data.text || '';
@@ -125,6 +166,69 @@ $('form').onsubmit = async e => {
   }
 };
 
+// ---- Notices: a compact list with Edit and Delete, Add notice and a small dialog
+let notices = {notices: [], roles: []}, editingNotice = null;
+const escHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+async function loadNotices() {
+  notices = await api('/api/admin/notices');
+  $('noticesBox').hidden = false;
+  $('noticeCount').textContent = notices.notices.length || '';
+  $('notices').innerHTML = notices.notices.map(n => {
+    const who = n.audience === 'all' ? 'Everyone' : n.roles.join(', ');
+    const tip = [`For ${who}`, n.until ? `until ${n.until}` : 'no end date', n.closable ? `dismissed by ${n.dismissed}` : "can't be closed",
+      `added ${String(n.created_at || '').slice(0, 10)}${n.created_by ? ' by ' + n.created_by : ''}`,
+      n.updated_at ? `changed ${String(n.updated_at).slice(0, 10)}${n.updated_by ? ' by ' + n.updated_by : ''}` : ''].filter(Boolean).join(' · ');
+    return `<div class="notice" title="${escHtml(tip)}"><span class="t"><b>${escHtml(n.title)}</b> <span class="mute small">· ${escHtml(who)}</span></span>
+      ${n.expired ? '<span class="chip">ended</span>' : n.until ? `<span class="chip">until ${escHtml(n.until)}</span>` : ''}
+      ${n.closable ? `<span class="chip" title="Active accounts that dismissed this version">${n.dismissed} dismissed</span>` : '<span class="chip warn">can\'t be closed</span>'}
+      <button type="button" class="secondary" data-edit="${n.id}">Edit</button><button type="button" class="danger" data-delete="${n.id}">Delete</button></div>`;
+  }).join('') || '<p class="mute small" style="margin:0">No notices.</p>';
+}
+function syncAudience() { $('nRoles').hidden = $('noticeForm').aud.value !== 'roles'; }
+function openNotice(n) {
+  editingNotice = n ? n.id : null;
+  $('noticeTitle').textContent = n ? 'Edit notice' : 'Add notice';
+  $('nTitle').value = n ? n.title : '';
+  $('nBody').value = n ? n.body : '';
+  $('noticeForm').aud.value = n ? n.audience : 'all';
+  $('nRoles').innerHTML = notices.roles.map(r => `<label><input type="checkbox" value="${r.id}"${n && n.role_ids.includes(r.id) ? ' checked' : ''}> ${escHtml(r.name)}</label>`).join('');
+  $('nNoProfiles').hidden = !!notices.profiles;
+  $('nUntil').value = n && n.until ? n.until : '';
+  $('nFixed').checked = !!(n && !n.closable);
+  $('nErr').textContent = '';
+  syncAudience();
+  $('noticeDialog').showModal();
+  $('nTitle').focus();
+}
+$('noticeForm').addEventListener('change', syncAudience);
+$('addNotice').onclick = () => openNotice(null);
+$('nCancel').onclick = () => $('noticeDialog').close();
+$('notices').onclick = async e => {
+  const edit = e.target.closest('[data-edit]'), del = e.target.closest('[data-delete]');
+  if (edit) openNotice(notices.notices.find(n => n.id === +edit.dataset.edit));
+  if (del && confirm('Delete this notice? It disappears from everyone\'s Home page.')) {
+    try { await api(`/api/admin/notices/${del.dataset.delete}`, {method: 'DELETE'}); await loadNotices(); }
+    catch (err) { $('err').textContent = err.message; }
+  }
+};
+$('noticeForm').onsubmit = async e => {
+  e.preventDefault();
+  $('nSave').disabled = true;
+  const body = {title: $('nTitle').value, body: $('nBody').value, audience: $('noticeForm').aud.value,
+    role_ids: [...$('nRoles').querySelectorAll('input:checked')].map(i => +i.value), until: $('nUntil').value || null,
+    closable: !$('nFixed').checked};
+  try {
+    await api(editingNotice ? `/api/admin/notices/${editingNotice}` : '/api/admin/notices',
+      {method: editingNotice ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    $('noticeDialog').close();
+    await loadNotices();
+  } catch (err) {
+    $('nErr').textContent = err.message;
+  } finally {
+    $('nSave').disabled = false;
+  }
+};
+
 (async () => {
   try {
     data = await api('/api/welcome');
@@ -133,8 +237,9 @@ $('form').onsubmit = async e => {
     $('view').hidden = false;
     return;
   }
-  if (!data.message && !data.can_edit) { location.replace(safeNext()); return; }
+  if (!data.can_edit) { location.replace('/home'); return; }  // the server sends others to Home already
   show();
+  loadNotices().catch(err => { $('err').textContent = err.message; });
 })();
 </script>
 </body>

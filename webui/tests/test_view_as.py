@@ -53,3 +53,17 @@ class ViewAsTests(AppTests):
         with patch.dict(os.environ, LOGDB_VIEW_AS="0"):  # switched off: back to the admin's own session
             self.assertEqual(self.client.get("/api/me").json["user"]["id"], 1)
         self.assertIsNone(self.client.get("/api/me").json["viewing_as_by"])
+
+
+class ViewAsWelcomeTests(AppTests):
+    enable = ViewAsTests.enable
+
+    def test_dismissing_a_home_message_is_the_persons_own_step(self):
+        self.enable()
+        self.sign_in(1)
+        self.client.put("/api/admin/welcome", json={"title": "Hi", "body": "Hello lab."})
+        self.client.post("/api/view-as/3")
+        self.assertEqual([m["id"] for m in self.client.get("/api/home").json["messages"]], ["welcome"])
+        r = self.client.post("/api/home/messages/dismiss", json={"id": "welcome", "version": 1})
+        self.assertEqual(r.status_code, 403)
+        self.assertIsNone(self.con.execute("SELECT 1 FROM welcome_seen WHERE user_id=3").fetchone())

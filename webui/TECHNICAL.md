@@ -1376,14 +1376,31 @@ keeps the mark and the person's "last confirmed" date.
 
 ### Welcome message
 
-`welcome.py`, `/welcome`. Only the mechanism is in this repository: administrators write the text in the site,
-and it is stored in the database (`welcome_message`), so each installation has its own. While there is a message
-that a signed-in browser user has not seen, every page they open redirects to `/welcome?next=…`, after the profile
-(`/profile` comes first) and never for external users or while an admin views as someone. **Continue** records the
-version they saw (`POST /api/welcome/seen`, table `welcome_seen`) and opens the page they asked for. As with the
-profile, the API and API keys are never blocked.
+`welcome.py`. Only the mechanism is in this repository: administrators write the text in the site, and it is
+stored in the database (`welcome_message`), so each installation has its own. It is shown as a card at the top of the
+Home page (`/home`) until the person dismisses it (**Dismiss** or ✕); no page is ever redirected for it, so the
+Operations Manual links and the profile prompt work as before. Dismissing records the version
+(`POST /api/home/messages/dismiss` with `{id, version}`, table `welcome_seen`); a new version shows again. Dismissing is
+blocked while an admin views as someone (`VIEW_AS_BLOCKED`) and needs a browser session (API keys get 403).
 
-Admins open `/welcome` (People in Edit mode → **Profile options** → *Welcome message*) and use **Edit**
+**Home messages** are one list: `/api/home` returns `messages`, each `{id, kind, version, title, html, dismissible,
+until}` with `html` built and escaped on the server (`welcome.home_messages`). Notices that cannot be closed come
+first, then the welcome message (`id` `welcome`), then the other notices (`notice-<id>`), newest first. Dismissing is
+per `id` and `version`; another kind of message only needs adding to that list.
+
+**Notices** (tables `notices`, `notice_roles`, `notice_dismissals`): admins add, edit and delete them on the same page
+as the welcome message (`/welcome`; `GET`/`POST /api/admin/notices`, `PUT`/`DELETE /api/admin/notices/<id>`, admins
+with a browser session). Each has a title and text written like the welcome message, an audience (`all`, or `roles`
+with one or more profile roles: only people whose profile has one of them; people without a role, or all people when
+person profiles are off, see only notices for everyone), an optional *Show until* date (shown up to and including that
+day, then gone by itself) and *Can't be closed* (`closable` false: no Dismiss, and dismissing gives 409; it stays until
+its date or until it is deleted). Changing the title or text raises the version, so it shows again to who dismissed
+it; changing only the audience, date or closing leaves dismissals as they are. The list shows each notice's audience,
+date, and how many active accounts dismissed the current version. An account merge keeps the newest dismissal of either
+account.
+
+Admins open the editor at `/welcome` (People in Edit mode → **Profile options** → *Welcome message*; others are sent
+to `/home`), which shows the message as it reads for them, how many active accounts dismissed it, and **Edit**
 (`PUT /api/admin/welcome` with `title`, `body`, `show_again`). The text is written like a training's access mail and
 filled in per person on the server: the tags `{name} {email} {username} {department} {role} {supervisor} {end_date}`
 (from the account and profile, `-` when unknown; other tags stay as typed), blocks per profile role
