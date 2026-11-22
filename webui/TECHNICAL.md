@@ -1323,11 +1323,14 @@ Off unless `LOGDB_PERSON_PROFILE=1` (`profiles.py`). A profile holds role, depar
 or typed), supervisors (people whose role can supervise, or an external name), expected end date or Indefinite,
 student/employee number and an optional GitHub username. Each role limits the end date: `max_years` (the date is at
 most that many years ahead; empty: no limit) and `allow_indefinite` (may tick Indefinite). The default roles start
-with Bachelor Student 4, Master Student 2 and PhD Student 5 years, and only Staff may be indefinite; a database made
-before these settings gets the same values once for those role names. The profile form caps the date and hides
-Indefinite accordingly, and saving (also by an admin) refuses what is outside the limits. While role, department,
+with Bachelor Student 1, Master Student 2 and PhD Student 5 years, and only Staff and Extern may be indefinite; a
+database made before these settings gets the same values once for those role names. The profile form caps the date and
+hides Indefinite accordingly, and the person's save refuses what is outside the limits. An admin (People editor or
+profile CSV import) may set an end date outside them for odd cases: `user_profiles.end_date_by_admin` then marks it,
+the person is not asked to correct it and may save the rest of the form while it stays unchanged; when the person
+changes the date, the limits hold again. The import preview flags such dates (*Outside the role's limits*). While role, department,
 end date or number is missing, a required supervisor is missing, the end date has passed or is outside its role's
-limits, every page a signed-in browser opens redirects to
+limits (unless an admin set it), every page a signed-in browser opens redirects to
 `/profile?next=…`. The API and API keys keep working, so uploads and scripts are never blocked. The GitHub name is
 only checked to exist (`GET /api/profile/github`, GitHub's public users API, cached an hour; `FIRMWARE_GITHUB_TOKEN`
 is used when set).

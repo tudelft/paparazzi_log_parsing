@@ -1341,7 +1341,8 @@ async function previewProfileImport(apply = false) {
       <th>Fills in</th></tr></thead><tbody>${d.rows.map(r => `<tr><td>${r.line}</td>
       <td title="${esc(r.username)}">${esc(r.name || r.username || '—')}</td>
       <td>${r.error ? `<span class="chip warn">${esc(r.error)}</span>` : esc(label[r.status])}</td>
-      <td>${esc((r.changes || []).join(', '))}${(r.still_missing || []).length
+      <td>${esc((r.changes || []).join(', '))}${r.outside_limits
+        ? `<div><span class="chip warn" title="Kept as an administrator's choice; the person is not asked to change it">Outside the role's limits</span> <span class="mute">${esc(r.outside_limits)}</span></div>` : ''}${(r.still_missing || []).length
         ? `<div class="mute">still empty: ${esc(r.still_missing.join(', '))}</div>` : ''}</td></tr>`).join('')}</tbody></table>`;
     $('profileImportCommit').hidden = d.applied || d.errors > 0 || !d.changed;
     $('profileImportStatus').textContent = d.applied ? `Imported: ${d.changed} profile${d.changed === 1 ? '' : 's'} filled in.`

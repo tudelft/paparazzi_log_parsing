@@ -21,9 +21,9 @@ from flask import abort, g, jsonify, request, send_from_directory
 from config import env, env_bool
 
 ROLES = (  # name, can supervise, needs a supervisor, end date at most this many years ahead, may be indefinite
-    ("Bachelor Student", 0, 1, 4, 0), ("Master Student", 0, 1, 2, 0), ("PhD Student", 1, 1, 5, 0),
+    ("Bachelor Student", 0, 1, 1, 0), ("Master Student", 0, 1, 2, 0), ("PhD Student", 1, 1, 5, 0),
     ("PostDoc", 1, 0, None, 0), ("Teaching Assistant", 0, 1, None, 0), ("Staff", 1, 0, None, 1),
-    ("Extern", 0, 0, None, 0))
+    ("Extern", 0, 0, None, 1))
 MAX_YEARS = 50
 GITHUB_NAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -113,6 +113,7 @@ def profile(con, user_id, with_number=True):
                department=row["department"] or row["department_text"], department_group=row["department_group"],
                department_text=row["department_text"], end_date=row["end_date"], indefinite=bool(row["indefinite"]),
                github=row["github"], updated_at=row["updated_at"], to_confirm=bool(row["to_confirm"]),
+               end_date_by_admin=bool(row["end_date_by_admin"]),
                supervisors=sups)
     if with_number:
         out["number"] = row["number"]
@@ -164,9 +165,9 @@ def missing(con, user_id):
         out.append("role")
     if not p["department"]:
         out.append("department")
-    if (not p["indefinite"] and not (p["end_date"] and p["end_date"] >= today())) or end_date_problem(
-            con, p["role_id"], p["end_date"], p["indefinite"]):
-        out.append("end_date")  # missing, passed, or outside the limits of the role
+    if (not p["indefinite"] and not (p["end_date"] and p["end_date"] >= today())) or (
+            not p["end_date_by_admin"] and end_date_problem(con, p["role_id"], p["end_date"], p["indefinite"])):
+        out.append("end_date")  # missing, passed, or outside the limits of the role (unless an admin set it)
     if not (p["number"] or "").strip():
         out.append("number")
     needs = con.execute("SELECT needs_supervisor FROM profile_roles WHERE id=?", (p["role_id"],)).fetchone()
@@ -277,17 +278,29 @@ def save(con, user_id, body, stamp, by_admin=False):
     needs = con.execute("SELECT needs_supervisor FROM profile_roles WHERE id=?", (role_id,)).fetchone()
     if needs and needs[0] and not rows and not by_admin:
         raise ProfileError("Name at least one supervisor.")
-    if problem := end_date_problem(con, role_id, end_date, indefinite):
-        raise ProfileError(problem)
+    # The role's end date limits hold for the person. An admin may set a date outside them (odd cases); such a
+    # date stays as long as it is unchanged, and the person is not asked to correct it.
+    old = con.execute("SELECT end_date, indefinite, end_date_by_admin FROM user_profiles WHERE user_id=?",
+                      (user_id,)).fetchone()
+    unchanged = old is not None and old["end_date"] == end_date and bool(old["indefinite"]) == indefinite
+    if by_admin:
+        set_by_admin = old["end_date_by_admin"] if unchanged else int(bool(end_date or indefinite))
+    elif unchanged and old["end_date_by_admin"]:
+        set_by_admin = 1
+    else:
+        if problem := end_date_problem(con, role_id, end_date, indefinite):
+            raise ProfileError(problem)
+        set_by_admin = 0
     con.execute(
         "INSERT INTO user_profiles (user_id, role_id, department_id, department_text, end_date, indefinite, number,"
-        " github, updated_at, to_confirm) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET"
-        " role_id=excluded.role_id, department_id=excluded.department_id, department_text=excluded.department_text,"
-        " end_date=excluded.end_date, indefinite=excluded.indefinite, number=excluded.number, github=excluded.github,"
+        " github, updated_at, to_confirm, end_date_by_admin) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id)"
+        " DO UPDATE SET role_id=excluded.role_id, department_id=excluded.department_id,"
+        " department_text=excluded.department_text, end_date=excluded.end_date, indefinite=excluded.indefinite,"
+        " number=excluded.number, github=excluded.github, end_date_by_admin=excluded.end_date_by_admin,"
         + (" to_confirm=to_confirm" if by_admin else " updated_at=excluded.updated_at, to_confirm=0"),
         # an admin's change keeps "last confirmed" and, for a new profile, asks the person to check it
         (user_id, role_id, department_id, department_text, end_date, int(indefinite), number, github,
-         None if by_admin else stamp, int(by_admin)))
+         None if by_admin else stamp, int(by_admin), set_by_admin))
     con.execute("DELETE FROM user_supervisors WHERE user_id=?", (user_id,))
     con.executemany("INSERT INTO user_supervisors (user_id, supervisor_id, external_name) VALUES (?,?,?)",
                     [(user_id, sid, name) for sid, name in rows])
@@ -389,7 +402,7 @@ def import_profiles(con, text, apply=False):
         out["name"], out["user_id"] = user["name"], user["id"]
         old = con.execute("SELECT * FROM user_profiles WHERE user_id=?", (user["id"],)).fetchone()
         new = dict(old) if old else {"role_id": None, "department_id": None, "department_text": None, "end_date": None,
-                                      "indefinite": 0, "number": None, "github": None}
+                                      "indefinite": 0, "number": None, "github": None, "end_date_by_admin": 0}
         try:
             if cell.get("role") and not new["role_id"]:
                 if cell["role"].casefold() not in roles:
@@ -436,6 +449,10 @@ def import_profiles(con, text, apply=False):
         except ProfileError as exc:
             out["error"] = str(exc)
             continue
+        if "end date" in out["changes"]:
+            # an import is an admin's change: a date outside the role's limits is kept, but said here
+            out["outside_limits"] = end_date_problem(con, new["role_id"], new["end_date"], bool(new["indefinite"]))
+            new["end_date_by_admin"] = 1
         out["status"] = "unchanged" if not out["changes"] else "update" if old else "new"
         out["sups"], out["new"] = sups, new
         out["still_missing"] = [m for m in (
@@ -450,12 +467,13 @@ def import_profiles(con, text, apply=False):
             n = r["new"]
             con.execute(
                 "INSERT INTO user_profiles (user_id, role_id, department_id, department_text, end_date, indefinite,"
-                " number, github, to_confirm) VALUES (?,?,?,?,?,?,?,?,1) ON CONFLICT(user_id) DO UPDATE SET"
-                " role_id=excluded.role_id, department_id=excluded.department_id, department_text=excluded.department_text,"
-                " end_date=excluded.end_date, indefinite=excluded.indefinite, number=excluded.number,"
-                " github=excluded.github, to_confirm=1",
+                " number, github, to_confirm, end_date_by_admin) VALUES (?,?,?,?,?,?,?,?,1,?) ON CONFLICT(user_id)"
+                " DO UPDATE SET role_id=excluded.role_id, department_id=excluded.department_id,"
+                " department_text=excluded.department_text, end_date=excluded.end_date, indefinite=excluded.indefinite,"
+                " number=excluded.number, github=excluded.github, to_confirm=1,"
+                " end_date_by_admin=excluded.end_date_by_admin",
                 (r["user_id"], n["role_id"], n["department_id"], n["department_text"], n["end_date"], n["indefinite"],
-                 n["number"], n["github"]))
+                 n["number"], n["github"], n["end_date_by_admin"]))
             con.executemany("INSERT INTO user_supervisors (user_id, supervisor_id, external_name) VALUES (?,?,?)",
                             [(r["user_id"], sid, name) for sid, name in r["sups"]])
     for r in rows:
@@ -504,7 +522,7 @@ def register(app, connection, require_session, now, pages_dir):
         signed_in()
         c = con()
         return jsonify(profile=profile(c, g.user["id"]), missing=missing(c, g.user["id"]), options=options(c),
-                       students=students(c, g.user["id"]))
+                       students=students(c, g.user["id"]), today=today())
 
     @app.put("/api/profile")
     def save_own_profile():

@@ -104,17 +104,31 @@ class ProfileTests(AppTests):
         self.assertEqual(self.save(2, indefinite=True).status_code, 200)  # Staff may be indefinite
         roles = {r["name"]: r for r in self.client.get("/api/profile").json["options"]["roles"]}
         self.assertEqual((roles["Bachelor Student"]["latest_end"], roles["Master Student"]["latest_end"]),
-                         (latest(4), latest(2)))
-        self.assertEqual([n for n, r in roles.items() if r["allow_indefinite"]], ["Staff"])
-        # admins are held to the limits too
-        self.sign_in(1)
-        refused = self.client.put("/api/users/2/profile", json=self.form(role_id=self.role["Master Student"],
-                                                                        supervisors=[{"name": "Dr. Partner"}]))
-        self.assertIn("cannot be indefinite", refused.json["error"])
+                         (latest(1), latest(2)))
+        self.assertEqual([n for n, r in roles.items() if r["allow_indefinite"]], ["Staff", "Extern"])
         # a profile outside new limits is asked again
         self.assertEqual(self.profiles.missing(self.con, 2), [])
         self.con.execute("UPDATE profile_roles SET allow_indefinite=0 WHERE name='Staff'")
         self.assertEqual(self.profiles.missing(self.con, 2), ["end_date"])
+
+    def test_admins_may_set_an_end_date_outside_the_limits(self):
+        master = dict(role_id=self.role["Master Student"], supervisors=[{"name": "Dr. Partner"}])
+        self.assertEqual(self.save(2, **master, indefinite=False, end_date=self.soon).status_code, 200)
+        self.sign_in(1)  # an odd case: the admin sets indefinite for a Master student
+        r = self.client.put("/api/users/2/profile", json=self.form(**master))
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertNotIn("end_date", self.profiles.missing(self.con, 2))  # the person is not asked to correct it
+        self.sign_in(2)
+        self.assertEqual(self.save(2, **master, number="999").status_code, 200)  # unchanged: may save other fields
+        self.assertTrue(self.profiles.profile(self.con, 2)["end_date_by_admin"])
+        far = self.profiles.latest_end(3)
+        self.assertIn("at most 2 years", self.save(2, **master, indefinite=False, end_date=far).json["error"])
+        self.assertEqual(self.save(2, **master, indefinite=False, end_date=self.soon).status_code, 200)
+        self.assertFalse(self.profiles.profile(self.con, 2)["end_date_by_admin"])  # their own date: limits hold again
+        self.sign_in(1)  # an admin changing only another field leaves the person's date to the limits
+        self.assertEqual(self.client.put("/api/users/2/profile", json=self.form(
+            **master, indefinite=False, end_date=self.soon, number="111")).status_code, 200)
+        self.assertFalse(self.profiles.profile(self.con, 2)["end_date_by_admin"])
 
     def test_admins_set_the_limits(self):
         self.sign_in(1)
@@ -124,7 +138,7 @@ class ProfileTests(AppTests):
         saved = self.client.put("/api/admin/profile-options", json={"roles": roles})
         self.assertEqual(saved.status_code, 200, saved.json)
         extern = next(r for r in saved.json["roles"] if r["name"] == "Extern")
-        self.assertEqual((extern["max_years"], extern["allow_indefinite"]), (3, False))
+        self.assertEqual((extern["max_years"], extern["allow_indefinite"]), (3, True))
         for bad in ("0", "1.5", "x", 51, True):
             roles[0]["max_years"] = bad
             self.assertIn("whole number", self.client.put("/api/admin/profile-options", json={"roles": roles}).json["error"])
@@ -241,6 +255,15 @@ class ProfileTests(AppTests):
             role_id=self.role["Master Student"], indefinite=False, end_date=self.soon, number="555",
             supervisors=[{"id": 5}])).status_code, 200)
         self.assertEqual(self.client.get("/logbook").status_code, 200)
+
+    def test_csv_import_flags_end_dates_outside_the_limits(self):
+        self.sign_in(1)
+        csv_text = f"username,role,end_date\nviewer,Master Student,indefinite\npic,Bachelor Student,{self.soon}\n"
+        rows = {r["username"]: r for r in self.client.post("/api/admin/profiles/import", json={"csv": csv_text}).json["rows"]}
+        self.assertIn("cannot be indefinite", rows["viewer"]["outside_limits"])
+        self.assertIsNone(rows["pic"]["outside_limits"])
+        self.assertTrue(self.client.post("/api/admin/profiles/import", json={"csv": csv_text, "apply": True}).json["applied"])
+        self.assertNotIn("end_date", self.profiles.missing(self.con, 3))  # an admin's import: kept, not asked again
 
     def test_csv_import_errors_block_the_whole_file(self):
         self.sign_in(1)
