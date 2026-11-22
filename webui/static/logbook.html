@@ -175,7 +175,7 @@
     <label class="field" title="The operator registration the flights were flown under">Operator<select id="bulkOperator" onchange="pickNewOperator(this, operators, fillBulkMenus, '__keep__')"></select></label>
     <label class="field" title="The rules the flights were flown under: OPEN, SPECIFIC with its authorisation, national rules before 2021">Category<select id="bulkCategory"></select></label>
     <p class="dialog-error" id="bulkError" role="alert"></p>
-    <div class="row"><button type="submit">Apply</button> <button type="button" class="sec" onclick="$('bulkDialog').close()">Cancel</button></div>
+    <div class="row"><button type="submit" class="primary">Apply</button> <button type="button" class="sec" onclick="$('bulkDialog').close()">Cancel</button></div>
   </form>
 </dialog>
 <dialog class="entry-dialog" id="actDialog" aria-labelledby="actTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
@@ -184,7 +184,7 @@
     <p class="mute" id="actWhat" style="margin:0"></p>
     <div id="actFields" class="dialog-fields"></div>
     <p class="dialog-error" id="actError" role="alert"></p>
-    <div class="row"><button type="submit" id="actSave">Save</button> <button type="button" class="sec" id="actExtra" hidden></button> <button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></div>
+    <div class="row"><button type="submit" class="primary" id="actSave">Save</button> <button type="button" class="sec" id="actExtra" hidden></button> <button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></div>
   </form>
 </dialog>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

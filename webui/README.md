@@ -69,7 +69,7 @@ to gain descriptions and previously omitted crew entries.
   **Hide non-flights**; other visibility filters still apply.
   Corrected and **estimated dates** follow the selected period normally, even with **Hide unknown dates**
   ticked. Estimated dates are labelled: the GPS time of day is known but the week is guessed from the
-  firmware commit. Confirm or correct the date with ✎ at **Date** on the flight page. Choose **Apply filters**;
+  firmware commit. Confirm or correct the date with **Edit flight** on the flight page. Choose **Apply filters**;
   the selection stays the same when moving between pages in this browser. **Reset** restores
   the defaults after applying. The filters cover Logbook, Statistics, Locations and individual
   person, aircraft, project and location overviews, including their totals, maps, charts and
@@ -90,7 +90,7 @@ to gain descriptions and previously omitted crew entries.
   Unknown dates are excluded from flying days and monthly activity, with an explanatory count on the chart.
   Aircraft, project and crew tables scroll independently, with column headings kept visible.
 - Detected simulations, uncertain flights (marked (?)) and ground records are non-flights: tick **Hide
-  non-flights** to leave them out of lists and totals. ✎ at **Classification** on the flight page
+  non-flights** to leave them out of lists and totals. **Classification** in **Edit flight** on the flight page
   (Automatic, Flight or Not a flight) corrects the estimate when it is wrong. Flight details show the evidence; reparse outdated Paparazzi
   uploads to assess older recordings.
 - A missing telemetry endpoint location uses the other endpoint's GPS position for display.
@@ -132,9 +132,9 @@ to gain descriptions and previously omitted crew entries.
   `ml.fetch(log=n)` (the whole log, also without flights); with flights ticked, **Copy numbers** in the selection bar copies their numbers
   (`1, 3, 4`) to paste into a Python or MATLAB array. Search for `#1234` to find a flight by number; with SD
   and GCS recordings of one flight, hover over the number for both.
-- On the flight page, a small **✎** after a value changes it (aircraft, goal, date, crew, project, operator, category,
-  classification, comment); you only see the ✎ where you may make the change. **⋯** next to MATLAB re-parses or
-  deletes the log.
+- On the flight page, **Edit flight** (shown when you may change the flight) opens one dialog with everything you may
+  change: aircraft, goal, date, crew, project, operator, category, classification and comment. Clicking such a value
+  opens it at that field. **⋯** next to it re-parses or deletes the log.
 - SD and GCS recordings of the same flight are merged. **Group by day** (on by default) shows one row per
   aircraft, crew and takeoff place per day, like a paper daily log; such a row is tinted, shows its number of flights
   (for example **4×**) with a button that copies their flight numbers, and opens with ▸ to show its flights.
