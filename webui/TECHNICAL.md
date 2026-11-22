@@ -621,6 +621,18 @@ are shown and can be retried. Flights need valid coordinates and a correct date 
 at least six days old. No API key is required; the free service is
 [non-commercial only](https://open-meteo.com/en/terms), with attribution under CC BY 4.0.
 
+<a id="open-in-flight-plotter"></a>**Open in Flight Plotter.** For Betaflight, INDIFlight and blackbox logs, the flight page and an expanded Logbook
+row show **Open in Flight Plotter ▾** (`static/indiflight.js`), with **Open in Blackbox Viewer** in its menu. It opens
+the external INDIFlight web app (`https://app.indiflight.org/?openlog=plotter` or `=viewer`) in a new tab. The app
+posts `{type: "indiflight-ready"}` to its opener, and the page replies with `{type: "indiflight-log", name, data}`:
+`data` is the original file from `/api/logs/<id>/download/data`, sent as a transferable `ArrayBuffer`, and `name` the
+file name of that download (its `Content-Disposition`, without the upload's folders; else `log-<id>`). Only messages
+from that tab and the app origin are accepted. The page stops waiting, and cancels the download, after two minutes
+(saying so when the tab is still open) or as soon as the app's tab is closed. The browser fetches the log with the
+user's session, so the app never contacts this server and the handoff also works when the server is only reachable
+over a VPN. For testing against another app instance, set `localStorage.logdbIndiflightApp` to its origin (for
+example `http://localhost:8080`) in the browser console.
+
 **MATLAB export.** The **MATLAB ▾** menu (`static/matlab.js`) at the top right of a flight page, in an
 expanded Logbook row and in a log's details on Logs offers, per Paparazzi source log (`onboard_sd`/`gcs` with its `.log`), **This flight**,
 **All flights** and **Whole log**, with progress and the download inside the menu. `POST /api/logs/<id>/matlab`

@@ -148,6 +148,9 @@ to gain descriptions and previously omitted crew entries.
   Comments are read-only there; edit them on the flight page.
   Distance from takeoff and maximum range are shown only on the flight page, not in overview tables or statistics.
   If the aircraft did not send a version, the Paparazzi version from the GCS `.log` header is shown instead.
+- **Open in Flight Plotter ▾** (Betaflight, INDIFlight and blackbox logs, on the flight page and in an expanded
+  Logbook row): opens the log in the INDIFlight Flight Plotter, or Blackbox Viewer from the menu, in a new tab. See
+  [Open in Flight Plotter](TECHNICAL.md#open-in-flight-plotter) for how the log is handed over.
 - **MATLAB ▾** (top right of a flight page, in an expanded Logbook row, and in a log's details under Logs, also for a
   log without flights) exports a Paparazzi SD or GCS log:
   **This flight** or **All flights** (10 s before takeoff to 10 s after landing, that aircraft, time 0 at takeoff)
