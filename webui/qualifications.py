@@ -759,6 +759,16 @@ def type_group(body):
     return " ".join(body["grp"].split())
 
 
+def group_spelling(con, grp, type_id=None):
+    """An existing group's spelling for a group typed in another case ("drone pilots" joins "Drone pilots"); the type
+    itself does not count, so the only type of a group can change its spelling."""
+    if not grp:
+        return grp
+    row = con.execute("SELECT grp FROM qualification_types WHERE grp=? COLLATE NOCASE AND grp<>'' AND id IS NOT ?"
+                      " ORDER BY sort_order LIMIT 1", (grp, type_id)).fetchone()
+    return row["grp"] if row else grp
+
+
 def place_in_group(con, type_id, grp):
     """Move a type that joined a group (a new type, or an edited one whose group changed) to the end of that group,
     so the groups keep their order (groups follow the order of their first type). Nothing moves for no group or a
@@ -994,6 +1004,7 @@ def register(app, connection, root, require_session):
         try:
             with db.write_lock, con:
                 con.execute("BEGIN IMMEDIATE")
+                grp = group_spelling(con, grp, type_id)
                 if type_id is not None:
                     existing = con.execute("SELECT * FROM qualification_types WHERE id=?", (type_id,)).fetchone()
                     if existing is None:

@@ -139,7 +139,8 @@
   .type-body .type-desc { font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .type-chips { display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
   .type-chips .chip { font-size:11px; margin:0; }
-  .type-group-head { padding:10px 0 2px; font-size:11px; font-weight:600; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; border-bottom:1px solid var(--line); }
+  #typeList .type-group-head { display:flex; align-items:center; gap:6px; padding:10px 0 2px; border-bottom:1px solid var(--line); }
+  #typeList .type-group.dragging { opacity:.6; }
   .type-tools { display:inline-flex; gap:6px; flex-wrap:wrap; }
   .type-checks { display:grid; gap:6px; }
   fieldset.type-checks { border:1px solid var(--line); border-radius:6px; padding:6px 10px 8px; margin:0; }
@@ -341,7 +342,7 @@
         <button type="button" class="sec" onclick="openCheckQr()">Check QR codes…</button>
         <button type="button" class="sec" onclick="$('qualImportDialog').showModal()">Import ZIP</button></span>
       <span class="mute" id="typeStatus" role="status"></span>
-    <details><summary>Help</summary><p>The kinds of licences and qualifications people can add, in this order. The labels show what someone must fill in when adding one: Evidence (a file), Valid from, Valid until (expiry reminders are sent 30 and 7 days before) and Number (the licence or certificate number, read from a PDF certificate when left empty; <em>Fill numbers from PDFs…</em> does this for approved ones). Internal marks an in-house qualification such as FI or CTR rather than an external licence. The description is shown where people add or see the type. The group puts types under a heading wherever they are listed (adding a qualification, Also covers, Documents, agendas, trainings); groups follow the order of their first type, so dragging the first type of a group moves the whole group, and types without a group come last under Other. Change a type's group with <em>Edit</em>; it then moves to the end of that group. In Edit mode, <em>Edit</em> changes a type and the handle drags it to another place. An inactive type can no longer be added; existing ones stay. <em>Import ZIP</em> takes a <span class="mono">manifest.csv</span> (<a href="/api/admin/qualifications/import/template">CSV template</a>) and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
+    <details><summary>Help</summary><p>The kinds of licences and qualifications people can add, in this order. The labels show what someone must fill in when adding one: Evidence (a file), Valid from, Valid until (expiry reminders are sent 30 and 7 days before) and Number (the licence or certificate number, read from a PDF certificate when left empty; <em>Fill numbers from PDFs…</em> does this for approved ones). Internal marks an in-house qualification such as FI or CTR rather than an external licence. The description is shown where people add or see the type. The group puts types under a heading wherever they are listed (adding a qualification, Also covers, Documents, agendas, trainings); types are dragged within their group, and a whole group by the handle on its heading; types without a group come last under Other. Change a type's group with <em>Edit</em> (an existing group in another case is joined); it then moves to the end of that group. In Edit mode, <em>Edit</em> changes a type and the handle drags it to another place. An inactive type can no longer be added; existing ones stay. <em>Import ZIP</em> takes a <span class="mono">manifest.csv</span> (<a href="/api/admin/qualifications/import/template">CSV template</a>) and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
     <div id="typeSettings"></div>
     <dialog class="entry-dialog" id="typeDialog" aria-labelledby="typeTitle" style="width:min(460px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
       <div class="dialog-header"><h2 id="typeTitle">Qualification type</h2><button type="button" onclick="$('typeDialog').close()">Close</button></div>
@@ -929,8 +930,10 @@ function renderTypes() {
       <div class="type-chips">${TYPE_FLAGS.filter(([k]) => t[k]).map(([, label]) => `<span class="chip">${label}</span>`).join('')}</div>
       ${editing ? `<button type="button" class="sec" onclick="editType(${t.id})">Edit</button>` : '<span></span>'}
     </div>`;
+  // each group in its own block: a type is dragged within its group, a group by the handle on its heading
   $('typeSettings').innerHTML = `<div id="typeList">${(grouped
-    ? window.typeGroups(qualificationTypes).map(g => `<div class="type-group-head">${esc(g.name)}</div>${g.types.map(typeRow).join('')}`).join('')
+    ? window.typeGroups(qualificationTypes).map(g => `<div class="type-group" data-type-group><div class="type-group-head">${editing && (g.types[0].grp || '').trim()  /* Other always comes last */
+      ? '<button type="button" class="drag-handle" aria-label="Drag to move the whole group" title="Drag to move the whole group">↕</button>' : ''}${esc(g.name)}</div>${g.types.map(typeRow).join('')}</div>`).join('')
     : qualificationTypes.map(typeRow).join('')) || '<p class="mute">No qualification types yet.</p>'}</div>`;
   if (editing) bindTypeDrag();
 }
@@ -974,30 +977,39 @@ async function saveTypeOrder() {
   } catch (error) { $('err').textContent = error.message; }
 }
 
+// Drag a type within its own group (dropping it among another group's types would not stick: the saved order is
+// shown grouped again), or a whole group by the handle on its heading among the other groups.
 function bindTypeDrag() {
   const list = $('typeList');
   if (!list) return;
   let dragged = null;
-  list.querySelectorAll('[data-type-row]').forEach(row => {
-    const handle = row.querySelector('.drag-handle');
-    handle.addEventListener('mousedown', () => { row.draggable = true; });
-    row.addEventListener('dragstart', event => {
-      dragged = row;
-      row.classList.add('dragging');
-      event.dataTransfer.setData('text/plain', row.dataset.id || '');
+  const items = [...list.querySelectorAll('[data-type-row]'), ...list.querySelectorAll('[data-type-group]')];
+  items.forEach(item => {
+    const handle = item.matches('[data-type-group]') ? item.querySelector('.type-group-head .drag-handle')
+      : item.querySelector('.drag-handle');
+    if (!handle) return;
+    handle.addEventListener('mousedown', () => { item.draggable = true; });
+    item.addEventListener('dragstart', event => {
+      event.stopPropagation();  // a type's drag is not also its group's
+      dragged = item;
+      item.classList.add('dragging');
+      event.dataTransfer.setData('text/plain', item.dataset.id || '');
       event.dataTransfer.effectAllowed = 'move';
     });
-    row.addEventListener('dragend', () => {
-      row.draggable = false;
-      row.classList.remove('dragging');
+    item.addEventListener('dragend', event => {
+      event.stopPropagation();
+      item.draggable = false;
+      item.classList.remove('dragging');
       dragged = null;
       saveTypeOrder();
     });
-    row.addEventListener('dragover', event => {
+    item.addEventListener('dragover', event => {
       event.preventDefault();
-      if (!dragged || dragged === row) return;
-      const mid = row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
-      list.insertBefore(dragged, event.clientY < mid ? row : row.nextSibling);
+      if (!dragged || dragged === item || dragged.parentElement !== item.parentElement
+          || dragged.matches('[data-type-group]') !== item.matches('[data-type-group]')) return;
+      event.stopPropagation();
+      const box = item.getBoundingClientRect();
+      item.parentElement.insertBefore(dragged, event.clientY < box.top + box.height / 2 ? item : item.nextSibling);
     });
   });
 }

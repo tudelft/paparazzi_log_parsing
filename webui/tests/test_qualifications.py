@@ -1509,6 +1509,19 @@ class QualificationTypeGroupTests(AppTests):
                                                                   "grp": "Archive"})
         self.assertEqual(order(), ["A1/A3", "A2", "PPL", "RPA-L", "UK Flyer ID"])  # the Archive group stays last
 
+    def test_a_group_in_another_case_joins_the_existing_one(self):
+        self.sign_in(1)
+        new = lambda name, grp: self.client.post("/api/qualification-types", json={
+            "name": name, "requires_evidence": True, "grp": grp}).json["id"]
+        new("A2", "Drone pilots")
+        sts = new("STS", "drone PILOTS")
+        self.assertEqual(self.groups()["STS"], "Drone pilots")
+        solo = new("PPL", "manned")  # the only type of its group may change the group's spelling
+        self.client.put(f"/api/qualification-types/{solo}", json={"name": "PPL", "requires_evidence": True,
+                                                                    "grp": "Manned"})
+        self.assertEqual((self.groups()["PPL"], self.groups()["STS"]), ("Manned", "Drone pilots"))
+        self.assertTrue(sts)
+
     def test_migration_adds_the_column(self):
         db = self.ns["db"]
         self.con.execute("ALTER TABLE qualification_types DROP COLUMN grp")

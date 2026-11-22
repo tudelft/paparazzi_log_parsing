@@ -69,7 +69,7 @@
   fieldset { border:1px solid var(--line); border-radius:6px; margin:8px 0; padding:6px 10px 8px; }
   fieldset legend { font-size:13px; color:var(--mute); padding:0 4px; }
   label.check { display:flex; gap:6px; align-items:center; font-size:13px; }
-  .type-group { flex-basis:100%; margin-top:4px; font-size:11px; font-weight:600; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
+  #typeList .type-group-head { flex-basis:100%; margin-top:4px; }
   .roles { display:flex; flex-wrap:wrap; gap:4px 12px; margin:4px 0 0 22px; }
   button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
   button.sec { background:var(--sec); color:var(--txt); }
@@ -373,7 +373,7 @@ function editDocument(id) {
   const typeCheck = t => `<label class="check"><input type="checkbox" value="${t.id}"${d.type_ids.includes(t.id) ? ' checked' : ''}> ${
     esc(t.name)}${t.active ? '' : ' (inactive)'}</label>`;
   $('typeList').innerHTML = shownTypes.some(t => (t.grp || '').trim())
-    ? window.typeGroups(shownTypes).map(g => `<div class="type-group">${esc(g.name)}</div>${g.types.map(typeCheck).join('')}`).join('')
+    ? window.typeGroups(shownTypes).map(g => `<div class="type-group-head">${esc(g.name)}</div>${g.types.map(typeCheck).join('')}`).join('')
     : shownTypes.map(typeCheck).join('');
   f.title.value = d.title; f.description.value = d.description; f.sort_order.value = d.sort_order;
   f.group_id.value = d.group_id ?? '';
