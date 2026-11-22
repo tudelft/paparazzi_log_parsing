@@ -896,6 +896,28 @@ def register(app, connection, root, require_session):
             })
         return jsonify(submissions=out)
 
+    @app.get("/api/admin/approval-history")
+    def approval_history_list():
+        """Decided approvals for the queue's Decided view: qualifications, training passes and bookings of agendas
+        that need approval, newest decision first, a page at a time (approval_history.py)."""
+        admin()
+        import approval_history
+        from config import env_bool
+        kind, period = request.args.get("kind", ""), request.args.get("period", "90d")
+        if kind and kind not in approval_history.KINDS:
+            raise QualificationError("kind must be training, qualification or booking.")
+        if period not in approval_history.PERIODS:
+            raise QualificationError("period must be 90d, year or all.")
+        try:
+            page = int(request.args.get("page") or 1)
+        except ValueError:
+            page = 0
+        if page < 1:
+            raise QualificationError("page must be a positive number.")
+        items, total = approval_history.history(connection(), kind, request.args.get("q", ""), period, page,
+                                                bookings=env_bool("BOOKINGS"))
+        return jsonify(items=items, total=total, page=page, page_size=approval_history.PAGE_SIZE)
+
     @app.get("/api/admin/qualifications/import/template")
     def qualification_import_template():
         admin()

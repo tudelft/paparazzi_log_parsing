@@ -1506,7 +1506,7 @@ Enable Edit to change account settings, manage aliases,
 upload evidence for that person, or review/delete submissions. The people list is searchable, without
 an additional Show filter. Type settings are in a separate People section visible in Edit mode.
 
-<a id="people-approval-queue"></a>**Approval queue** (`/people?tab=approvals`, admins; hidden when empty unless open) lists
+<a id="people-approval-queue"></a>**Approval queue** (`/people?tab=approvals`, admins; always there for admins) lists
 pending submissions from `GET /api/admin/qualification-pending` and, when the agenda is on, pending bookings from
 `GET /api/admin/booking-pending` (shown with negative ids, posted to `/api/bookings/<id>/review`, filter **Bookings**,
 `kind=booking`; see [Booking agenda](#booking-agenda)): training passes (score and briefer parsed from the pass note, the access
@@ -1525,6 +1525,18 @@ rejected item in the person's qualifications and in the audit entry, and mailed 
 (**Qualification reviews**, on by default) when email is set up. The filter (`kind=training|qualification|booking`), search
 (`q=`) and open row (`open=`) are in the URL; the Trainings badge links to `kind=training`. Keys while a row has focus:
 ↑/↓ move, Space selects, Enter opens, A approves, R rejects.
+**Waiting | Decided** switches to the history (`view=decided`): `GET /api/admin/approval-history` (`approval_history.py`;
+admins, browser session) with `kind` (`training`, `qualification`, `booking`), `q` (person, what, reason, decider,
+number, description), `period` (`90d`, the default; `year`; `all`) and `page` (50 per page), newest decision first,
+with `total`. It lists qualification submissions and training passes that were approved (also later superseded),
+rejected or withdrawn (`reviewed_at` set; a withdrawal by the person says *By the person*), and bookings of agendas that
+need approval that were approved or rejected (`decided_at` set). **Automatic** approvals are included and marked (for submissions as the audit log records them): a
+training pass granted without approval (decided by the person at the moment of the pass), an imported certificate (the
+importing administrator, *Imported*), a booking an administrator or approver made on such an agenda (approved by them
+when it was made: `decided_by`/`decided_at` are stored for it) and bookings approved when approval was switched off
+(no decider). Bookings deleted while pending, and submissions deleted by an administrator, leave no history. A row opens
+its details in place (evidence preview, dates, training pass, booking time and options, the full reason); the period,
+page and open row (`open=q<id>` or `b<id>`) are in the URL.
 Admins can edit username, display name, email and default project together with **Save account** in the Account tab.
 All four fields are saved atomically; previous unambiguous display names are preserved as log aliases. Display names are optional
 and at most 80 characters. Usernames must be unique (case-insensitive),

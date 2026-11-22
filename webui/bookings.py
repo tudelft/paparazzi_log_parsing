@@ -398,9 +398,13 @@ def register(app, connection, require_session, pages_dir):
             check_flags(cid, item["id"], flags)
             check_overlap(cid, item, start, end, flags)
             status = "pending" if item["needs_approval"] and not can_approve(cid, item, g.user) else "approved"
+            stamp = utc_now()
+            # on an agenda that needs approval, a booking by an administrator or approver is approved by them at once
+            decided = (g.user["id"], stamp) if item["needs_approval"] and status == "approved" else (None, None)
             bid = cid.execute(
-                "INSERT INTO bookings(thing_id,user_id,description,starts_at,ends_at,created_at,status)"
-                " VALUES (?,?,?,?,?,?,?)", (item["id"], owner, description, start, end, utc_now(), status)).lastrowid
+                "INSERT INTO bookings(thing_id,user_id,description,starts_at,ends_at,created_at,status,decided_by,"
+                "decided_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (item["id"], owner, description, start, end, stamp, status, *decided)).lastrowid
             save_flags(cid, bid, flags)
             who = "You" if owner == g.user["id"] else person_name(cid, g.user["id"])
             pending = status == "pending"
