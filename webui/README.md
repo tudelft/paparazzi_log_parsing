@@ -69,7 +69,7 @@ to gain descriptions and previously omitted crew entries.
   **Hide non-flights**; other visibility filters still apply.
   Corrected and **estimated dates** follow the selected period normally, even with **Hide unknown dates**
   ticked. Estimated dates are labelled: the GPS time of day is known but the week is guessed from the
-  firmware commit. Confirm or correct the date with **Date…** in the row's **⋯** menu. Choose **Apply filters**;
+  firmware commit. Confirm or correct the date with ✎ at **Date** on the flight page. Choose **Apply filters**;
   the selection stays the same when moving between pages in this browser. **Reset** restores
   the defaults after applying. The filters cover Logbook, Statistics, Locations and individual
   person, aircraft, project and location overviews, including their totals, maps, charts and
@@ -90,7 +90,7 @@ to gain descriptions and previously omitted crew entries.
   Unknown dates are excluded from flying days and monthly activity, with an explanatory count on the chart.
   Aircraft, project and crew tables scroll independently, with column headings kept visible.
 - Detected simulations, uncertain flights (marked (?)) and ground records are non-flights: tick **Hide
-  non-flights** to leave them out of lists and totals. **Classification…** in a logbook row's **⋯** menu
+  non-flights** to leave them out of lists and totals. ✎ at **Classification** on the flight page
   (Automatic, Flight or Not a flight) corrects the estimate when it is wrong. Flight details show the evidence; reparse outdated Paparazzi
   uploads to assess older recordings.
 - A missing telemetry endpoint location uses the other endpoint's GPS position for display.
@@ -132,17 +132,18 @@ to gain descriptions and previously omitted crew entries.
   `ml.fetch(log=n)` (the whole log, also without flights); with flights ticked, **Copy numbers** in the selection bar copies their numbers
   (`1, 3, 4`) to paste into a Python or MATLAB array. Search for `#1234` to find a flight by number; with SD
   and GCS recordings of one flight, hover over the number for both.
-- In Edit mode the flight page lets you type the **flight goal** and link the recording to the right **fleet aircraft**
-  when the log got them wrong.
+- On the flight page, a small **✎** after a value changes it (aircraft, goal, date, crew, project, operator, category,
+  classification, comment); you only see the ✎ where you may make the change. **⋯** next to MATLAB re-parses or
+  deletes the log.
 - SD and GCS recordings of the same flight are merged. **Group by day** (on by default) shows one row per
   aircraft, crew and takeoff place per day, like a paper daily log; such a row is tinted, shows its number of flights
   (for example **4×**) with a button that copies their flight numbers, and opens with ▸ to show its flights.
-  It does not change stored flights. Its **⋯** changes the project or crew of all its flights.
+  It does not change stored flights. Tick it and use **Change…** to change the project or crew of all its flights.
 - Hover over an aircraft name in the logbook for its TUD/serial number; it is also on the aircraft detail page.
 - Turn on **Edit** to show permitted editing controls. It stays enabled across pages until turned off.
   Turn it off for the simpler browsing view. Longer explanations are under **Help**.
 - Flight pages include the path, charts, weather, settings, messages, the pre-flight checklist and software version.
-  Turn on **Edit** there to change the project, crew or comment; the Overview shows a small path map.
+  The Overview shows a small path map.
   In Path & charts, hover over a chart for exact values; use **+ Add** and **+ Add chart** to choose what is plotted.
   Expanded Logbook rows show comments and buttons beside the map (stacked on small screens).
   Comments are read-only there; edit them on the flight page.
@@ -182,9 +183,10 @@ and inspect, narrow or revoke their API keys (not retrieve secret values). You c
   or use **Previous / Next** to visit each remaining dot on the map. In **Edit** mode,
   draw and name a boundary around it; covered positions leave the review list after saving.
 
-- The **Logbook** looks the same for everyone; what you may change is offered where it applies. A row's **⋯** menu
-  changes its project, crew, date or classification; tick rows for the **selection bar** at the bottom (copy numbers,
-  MATLAB, and, when you may change all ticked entries, **Change…** and **Same flight**). Admins can also **Hide**
+- The **Logbook** looks the same for everyone; what you may change is offered where it applies. Tick one or more
+  rows for the **selection bar** at the bottom: copy numbers, MATLAB, and, when you may change all ticked entries,
+  **Change…** (project, crew, operator, category) and **Same flight**. Click **date unknown** to set a missing date;
+  change an existing date or the classification on the flight page. Admins can also **Hide**
   entries from the logbook and totals without deleting files; **Manage ▾ → Hidden records only** shows them to
   **Restore**. Paper records must keep a PIC and project.
   Use **Add paper record…** (Logbook, **Manage ▾**) to enter historical flights without logs. Admins use **Import CSV**;

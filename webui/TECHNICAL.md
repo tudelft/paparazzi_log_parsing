@@ -443,8 +443,8 @@ in Web UI ingestion. Reparse outdated logs after updating and configuring any ad
 and Operation groups, the comment and a small non-interactive path map (it opens Path & charts). Takeoff
 and landing times follow one Date row; battery and logged wind are takeoff → landing rows, coordinates are on
 hover over the place name, and INS values are under Log sources; log sources, upload details
-and raw-data links are folded away. Project, crew and comment controls appear only in Edit mode (and only
-with permission); the Files tab is the file manager described under attachments (compact list, search, category filter, **Upload files**, **Edit**). Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
+and raw-data links are folded away. Changes are made with ✎ on the value ([below](#flight-page-changes));
+the Files tab is the file manager described under attachments (compact list, search, category filter, **Upload files**, **Edit**). Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
 and warnings for local (dirty) changes. Multiple reported builds remain visible; raw version messages
 can be expanded. Commit links use `paparazzi/paparazzi` and may not resolve for private forks.
 When the aircraft did not send `AUTOPILOT_VERSION`, the GCS `runtime paparazzi_version` comment at
@@ -2491,7 +2491,7 @@ flight filters (`category=all|national|open|specific|luc|indoor|unknown|check`) 
 **Edit mode.** The Edit button in the menu bar shows the forms and menus to change things on the pages that have them
 (Logs, People, Projects, Aircraft, Locations, Agenda, Training, Documents, …); it is one setting for all pages,
 so the button is on every page, and it stays on until you turn it off. Pages are moving to changes per item instead
-(below); such a page sets `<body data-edit="none">` and `theme.js` shows no Edit button there. With edit mode on, admins also see the names in the
+(the [Logbook](#logbook-changes) and the [flight page](#flight-page-changes)); such a page sets `<body data-edit="none">` and `theme.js` shows no Edit button there. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
 are left.
 
@@ -2499,12 +2499,10 @@ are left.
 only where the user may make it, from the flags the logbook API already sends per entry (`can_edit_project`,
 `can_edit_crew`, `can_edit_date`, `can_edit_record`) and the user's project roles; the server checks every change
 again as before.
-- A row's **⋯** menu (day rows: all their flights): **Project…** (`PUT /api/flights/<id>/project` for every
-  recording, paper records through `PUT /api/logbook/records`), **Crew…** (`PUT /api/logbook/records`, Keep per
-  role), **Date…**/**Set date…** (`PUT /api/logs/<id>/date`, also *Remove the set date*) and **Classification…**
-  (`verdict`), each in a small dialog. For who may set it, the *date unknown* chip of an undated log is itself the
-  button that opens the date dialog. The ⋯ sits right after the tick box and shows on row hover or focus (always on
-  touch screens and while its menu is open); its column keeps its width, so rows do not move.
+- Rows have no menu of their own: changes go through the selection bar (below), also for a single row or a day row
+  (all its flights). For who may set it (`can_edit_date`), the *date unknown* chip of an undated log is a button that
+  opens a small date dialog (`PUT /api/logs/<id>/date`). Changing an existing date and the classification are done
+  on the [flight page](#flight-page-changes).
 - Every row has a tick box, for everyone (paper records too); **Select** under **Columns** turns the column off (a
   per-browser column choice like the others), and then no selection bar appears. The **selection bar** at the
   bottom offers what applies to all ticked entries and disables the rest with the reason in its tooltip: Copy
@@ -2553,7 +2551,19 @@ dots (including unnamed-dot review), without changing place access or hiding acc
 location boundaries. Omitting the date arguments retains all-time API behavior; omitting
 `indoor` retains the API's existing inclusion of indoor records.
 
-**Goal and aircraft on the flight page.** In Edit mode, whoever may edit the flight (as for the comment) can:
+<a id="flight-page-changes"></a>**Changes on the flight page (no Edit mode).** The page reads the same for everyone
+(`<body data-edit="none">`). A small ✎ after a value opens a small dialog for that value, shown only to who may change
+it: aircraft, goal and comment (`can_edit_comment`), PIC/PAC/GCS operator (`can_edit_crew`, `PUT /api/flights/crew`),
+project (`can_edit_project`, `PUT /api/flights/<id>/project`), operator, category and classification (`can_edit_crew`,
+`PUT /api/logbook/records` with the entry's `log:<id>` keys) and the date of the shown recording's log (`can_edit_date`
+of `GET /api/logs/<id>`, `PUT /api/logs/<id>/date`, also *Remove the set date*; the page reloads because times move).
+Changes made on all recordings of the flight (goal, comment, crew, project, operator, category, classification) are
+saved for each recording. The ⋯ menu next to MATLAB holds what is not tied to one value, per log of the flight:
+**Re-parse** (admins and who may change the flight; the page waits for the parser and reloads, and flight numbers stay
+when the takeoff moved at most a minute) and **Delete** (`can_delete` of the log; afterwards the Logbook opens). The ⋯
+is hidden when neither applies. The server checks every change as before.
+
+**Goal and aircraft on the flight page.** Whoever may edit the flight (as for the comment) can:
 - type the **flight goal** (`PUT /api/flights/<id>/goal`, at most 300 characters, saved on every recording of the
   flight): stored in `flights.goal_override`, kept across a re-parse; empty returns to the logged goal
   (`aircraft.goal`, given as `goal_logged`, while `goal` in the logbook rows is the override or else the logged one);
@@ -2566,7 +2576,7 @@ location boundaries. Omitting the date arguments retains all-time API behavior; 
 **Real flight or not.** The autopilot's in-flight flag also toggles on the ground (arming, motor tests, carrying).
 The parser scores each takeoff/landing on duration, climb, distance, speed, tilt and acceleration and gives a verdict
 `flight`, `uncertain` or `ground` with the reasons. **Hide non-flights** leaves out the last two. Whoever may edit
-a flight's crew can set its classification in Edit mode (`verdict` `flight`, `ground` or `null` for automatic in
+a flight's crew can set its classification with ✎ on the flight page (`verdict` `flight`, `ground` or `null` for automatic in
 `PUT /api/logbook/records`, logged flights only): it is stored in `flights.verdict_override`, kept across a re-parse
 like the other flight edits, and counts everywhere instead of the parser's verdict (the logbook rows give `verdict`,
 `verdict_auto` and `verdict_override`). Blackbox logs without GPS are scored from the local NED position and velocity. When `ENERGY` reports current, a flight of at least two minutes that draws on average 1 A or more while

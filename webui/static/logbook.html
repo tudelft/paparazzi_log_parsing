@@ -44,14 +44,13 @@
   a.btn { display:inline-block; background:var(--btn); color:#fff; padding:6px 12px; border-radius:6px; text-decoration:none; }
   a.btn.sec { background:var(--sec); color:var(--txt); }
   a.btn[hidden] { display:none; }
-  /* every row paints its background from --row-bg, so the pinned ⋯ cell matches it (normal, day row, ticked,
-     opened, hover; night mode through the theme's colours) */
+  /* row backgrounds (normal, day row, ticked, opened, hover; night mode through the theme's colours) */
   tr.flight, tr.group { cursor:pointer; --row-bg:var(--card); background:var(--row-bg); }
   tr.flight.open { --row-bg:var(--detail); }
   tr.flight.ticked, tr.group.ticked { --row-bg:color-mix(in srgb, var(--acc) 9%, var(--card)); }
   tr.flight:hover { --row-bg:var(--hover); }
   tr.group { font-weight:600; }
-  tr.sub td:nth-child(4) { padding-left:24px; }
+  tr.sub td:nth-child(3) { padding-left:24px; }
   /* a day group: tinted with a bar on the left; its flights keep a lighter bar when it is open */
   tr.group { --row-bg:color-mix(in srgb, var(--acc) 6%, var(--card)); box-shadow:inset 3px 0 0 var(--acc); }
   tr.group.ticked { --row-bg:color-mix(in srgb, var(--acc) 12%, var(--card)); }
@@ -78,24 +77,6 @@
   .sel-bar .mute { color:#9fb0c3; }
   .sel-bar .x { margin-left:auto; }
   td.chk, th.chk { width:28px; padding-right:0; }
-  /* the ⋯ column stays at the right edge while the wide table scrolls sideways */
-  /* the row's ⋯ sits right after its tick box; the column keeps its width, so rows do not move when the button shows
-     (on row hover or focus; always on touch screens and while its menu is open) */
-  table.log td.act, table.log th.act { width:28px; min-width:28px; padding:4px 0; text-align:center; }
-  .row-act { background:none; color:var(--mute); padding:0 6px; font-size:16px; line-height:1; border-radius:4px; opacity:0; }
-  tr:hover .row-act, tr:focus-within .row-act, .row-act:focus-visible, .row-act[aria-expanded="true"] { opacity:1; }
-  @media (hover:none) { .row-act { opacity:1; } }
-  .row-act:hover, .row-act[aria-expanded="true"] { background:var(--sec); color:var(--txt); }
-  /* an undated log: the chip itself sets the date for those who may */
-  button.date-unknown { border:0; font:inherit; font-size:12px; cursor:pointer; }
-  button.date-unknown:hover, button.date-unknown:focus-visible { box-shadow:0 0 0 1px var(--warn); }
-  /* an active filter (Files, Hidden records only): a tinted chip with ✕ to clear it */
-  .filter-chip { display:inline-flex; align-items:center; gap:2px; padding:0 2px 0 10px; border-radius:999px;
-    background:color-mix(in srgb, var(--acc) 14%, var(--card)); color:var(--acc); white-space:nowrap; font-size:13px; }
-  .filter-chip[hidden] { display:none; }
-  .filter-chip button { background:none; color:inherit; padding:4px 7px; }
-  .filter-chip button:hover { background:color-mix(in srgb, var(--acc) 12%, transparent); }
-  #filesBtn.active { display:none; }
   .lb-menu .ext-item[aria-checked="true"] { font-weight:600; }
   .lb-menu .ext-item[aria-checked="true"]::before { content:"✓ "; }
   .lb-menu { position:absolute; z-index:1000; padding:6px; min-width:180px; }
@@ -157,7 +138,7 @@
     </div>
     <div class="scroll">
     <table class="log">
-      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"><input type="checkbox" id="selAll" title="Select all on this page" aria-label="Select all on this page"></th><th class="act" aria-label="Actions"></th><th title="Flight number: the number in /flight/&lt;number&gt;, used by ml.fetch in Python and pprz_fetch in MATLAB (⧉ copies it)">No.</th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
+      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"><input type="checkbox" id="selAll" title="Select all on this page" aria-label="Select all on this page"></th><th title="Flight number: the number in /flight/&lt;number&gt;, used by ml.fetch in Python and pprz_fetch in MATLAB (⧉ copies it)">No.</th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
         <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -183,7 +164,6 @@
     </div>
   </section>
 </main>
-<div id="rowMenu" class="ext-pop lb-menu" role="menu" hidden></div>
 <dialog class="entry-dialog" id="bulkDialog" aria-labelledby="bulkTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <div class="dialog-header"><h2 id="bulkTitle">Change the ticked entries</h2><button type="button" onclick="$('bulkDialog').close()">Close</button></div>
   <form id="bulkForm" onsubmit="event.preventDefault(); applyBulk()">
@@ -325,10 +305,10 @@ let hiddenColumns = new Set();
 try { hiddenColumns = new Set(JSON.parse(localStorage.getItem(COLUMNS_KEY) || '[]').filter(c => c === 'Select' || COLUMNS.includes(c))); } catch (e) {}
 const columnStyle = document.head.appendChild(document.createElement('style'));
 function applyColumns() {
-  // Column n+4 in each row: first the expand arrow, the tick box (Select, column 2) and the ⋯. Expanded detail rows span all columns.
+  // Column n+3 in each row: first the expand arrow, then the tick box (Select, column 2). Expanded detail rows span all columns.
   columnStyle.textContent = (hiddenColumns.has('Select') ? 'table.log tr > :nth-child(2):not(.detail) { display:none; }\n' : '')
     + COLUMNS.map((c, i) => hiddenColumns.has(c)
-    ? `table.log tr > :nth-child(${i + 4}):not(.detail) { display:none; }` : '').join('\n');
+    ? `table.log tr > :nth-child(${i + 3}):not(.detail) { display:none; }` : '').join('\n');
   if (hiddenColumns.has('Select') && selected.size) { selected.clear(); if (flights.length) render(); }
   $('colButton').textContent = hiddenColumns.size ? `Columns (${hiddenColumns.size} hidden)` : 'Columns';
   try { localStorage.setItem(COLUMNS_KEY, JSON.stringify([...hiddenColumns])); } catch (e) {}
@@ -505,11 +485,6 @@ async function loadLogbookFiles() {
 }
 const text = f => filesOf(f).map(file => file[0]).join(' ').toLowerCase() + ' ' + [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)])].filter(id => id != null).map(id => '#' + id).join(' ') + ' ' + [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_estimated ? 'estimated date' : '', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, f.operator_name, f.operator_registration, categoryText(f), f.authorisation_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
 
-function projectOptions(selected) {
-  const addable = projects.filter(p => me && (me.is_admin || p.can_add || p.id === selected));
-  return '<option value="">No project</option>' + addable.map(p =>
-    `<option value="${p.id}"${p.id === selected ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
-}
 // A day row shows its most common project; "+N" when its flights differ, with the split on hover.
 function groupProject(g, first) {
   const counts = new Map();
@@ -582,8 +557,8 @@ function linkedInfo(f) {
         ? ` <span class="mute">(log value accepted by ${esc(c.reviewed_by)})</span>` : ''}</li>`).join('')}</ul>
     ${f.conflicts.some(c => !c.reviewed_by) ? '<p><a href="/review">Resolve on the review page</a></p>' : ''}` : ''}`;
 }
-// Whether this is a real flight: the parser's estimate, or a classification set by hand (Classification… in the
-// row's ⋯ menu, all recordings of the entry). A hand-set one survives re-parsing and counts everywhere the estimate would.
+// Whether this is a real flight: the parser's estimate, or a classification set by hand (✎ at Classification on the
+// flight page, all recordings of the entry). A hand-set one survives re-parsing and counts everywhere the estimate would.
 const VERDICT_LABEL = {flight: 'Flight', uncertain: 'Uncertain', ground: 'Not a flight'};
 function classInfo(f) {
   const auto = VERDICT_LABEL[f.verdict_auto] || 'unknown';
@@ -772,7 +747,7 @@ const verdictMark = f => (f.simulation?.detected ? ' <span class="mute">(Simulat
 function dateTd(f) {
   // who may set the date clicks the chip itself; for others it stays a plain chip
   const warn = !f.date_ok && f.can_edit_date && !f.manual_id
-    ? `<button type="button" class="badge date-unknown" data-row-act="date" data-key="${esc(f.record_key)}" title="Click to set the date (this log has no usable calendar date, often GPS week 0, shown as 1980)">date unknown</button>`
+    ? `<button type="button" class="badge date-unknown" data-set-date="${esc(f.record_key)}" title="Click to set the date (this log has no usable calendar date, often GPS week 0, shown as 1980)">date unknown</button>`
     : '<span class="badge date-unknown" title="This log has no usable calendar date (often GPS week 0, shown as 1980)">date unknown</span>';
   const date = f.date_ok ? esc(fmtDate(f.takeoff_utc) || f.date_override || '') : warn;
   const explanation = 'Estimated from GPS time-of-week and firmware commit; calendar week uncertain.';
@@ -803,7 +778,7 @@ function numberTd(f, o) {
   const tip = ids.length > 1 ? ` title="Recordings: ${esc((f.sources || []).map(s => `${s.flight_id} (${TYPE_LABEL[s.log_type] || s.log_type})`).join(', '))}"` : '';
   return `<td class="num mono"><span${tip}>${f.flight_id}</span>${window.copyButton(f.flight_id, `flight number ${f.flight_id}`)}</td>`;
 }
-const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '▾' : '▸') : ''}</td>${chk(o.ids)}<td class="act">${o.actions || ''}</td>${numberTd(f, o)}${dateTd(f)}<td><span${timesTip(o)}>${esc(fmtHm(f.takeoff_utc))}</span></td><td><span${timesTip(o)}>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</span></td>
+const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '▾' : '▸') : ''}</td>${chk(o.ids)}${numberTd(f, o)}${dateTd(f)}<td><span${timesTip(o)}>${esc(fmtHm(f.takeoff_utc))}</span></td><td><span${timesTip(o)}>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</span></td>
     <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${o.sources}</td><td><span${f.aircraft_uid ? ` title="${esc(f.aircraft_uid)}"` : ''}>${entityLink('aircraft', f.drone_id, f.aircraft)}</span>${verdictMark(f)}</td>
     <td>${o.project}</td><td>${operatorCell(f)}</td><td>${categoryCell(f)}</td>
     <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place, f.takeoff_place_id)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place, landingPlaceId)}</td>
@@ -811,8 +786,8 @@ const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '
 
 function flightRows(f, cls = '') {
   const ids = crewIds(f);
-  return `<tr class="flight ${cls}${open_.has(f.record_key) ? ' open' : ''}${ticked(ids) ? ' ticked' : ''}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: selectable(f), actions: actionsButton('row', f.record_key, [f])}, f.landing_place_id)}</tr>`
-    + (open_.has(f.record_key) ? `<tr><td colspan="22" class="detail">${detail(f)}</td></tr>` : '');
+  return `<tr class="flight ${cls}${open_.has(f.record_key) ? ' open' : ''}${ticked(ids) ? ' ticked' : ''}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: selectable(f)}, f.landing_place_id)}</tr>`
+    + (open_.has(f.record_key) ? `<tr><td colspan="21" class="detail">${detail(f)}</td></tr>` : '');
 }
 
 function groupRows(g) {
@@ -826,7 +801,7 @@ function groupRows(g) {
   const times = g.flights.map(f => `${fmtHm(f.takeoff_utc)}–${fmtHm(f.landing_utc) || '?'}`).join(', ');
   const ids = [...new Set(g.flights.flatMap(crewIds))];
   const flightIds = g.flights.map(f => f.flight_id).filter(id => id != null);
-  return `<tr class="group${ticked(ids) ? ' ticked' : ''}" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, flightIds, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: groupProject(g, first), ids, canEdit: g.flights.some(selectable), actions: actionsButton('group', g.id, g.flights)}, g.landing_place_id)}</tr>`
+  return `<tr class="group${ticked(ids) ? ' ticked' : ''}" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, flightIds, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: groupProject(g, first), ids, canEdit: g.flights.some(selectable)}, g.landing_place_id)}</tr>`
     + (isOpen ? g.flights.map(f => flightRows(f, 'sub')).join('') : '');
 }
 
@@ -868,49 +843,14 @@ function renderSelBar() {
   $('restoreSelected').hidden = !me?.is_admin || !$('hiddenRecords').checked;
 }
 
-// Row ⋯ menu: the changes the user may make to one entry (or all entries of a day row). Each opens a small dialog.
-const allIds = list => [...new Set(list.flatMap(crewIds))];
-function rowActions(list) {
-  const one = list.length === 1 ? list[0] : null, acts = [];
-  if (list.every(f => f.can_edit_project)) acts.push(['project', 'Project…']);
-  if (list.every(f => f.can_edit_crew)) acts.push(['crew', 'Crew…']);
-  if (one && !one.manual_id && one.can_edit_date) acts.push(['date', one.date_ok ? 'Date…' : 'Set date…']);
-  if (one && !one.manual_id && one.can_edit_crew) acts.push(['verdict', 'Classification…']);
-  return acts;
-}
-const rowGroups = new Map();  // day rows on the page: id -> flights, for their ⋯ menu
-function actionsButton(kind, key, list) {
-  if (kind === 'group') rowGroups.set(key, list);
-  if (!rowActions(list).length) return '';
-  return `<button type="button" class="row-act" data-row-menu="${kind}" data-key="${esc(key)}" aria-haspopup="menu" aria-expanded="false"
-    aria-label="Change this ${kind === 'group' ? 'day row' : 'entry'}" title="Change this ${kind === 'group' ? 'day row (all its flights)' : 'entry'}">⋯</button>`;
-}
-const entriesOf = (kind, key) => kind === 'group' ? rowGroups.get(key) || [] : flights.filter(f => f.record_key === key);
-let menuAnchor = null;
 function closeMenus() {
-  $('rowMenu').hidden = true;
-  if (menuAnchor) menuAnchor.setAttribute('aria-expanded', 'false');
-  menuAnchor = null;
   $('manageMenu').hidden = true;
   $('manageBtn').setAttribute('aria-expanded', 'false');
   $('filesMenu').hidden = true;
   $('filesBtn').setAttribute('aria-expanded', 'false');
   $('filesChipLabel').setAttribute('aria-expanded', 'false');
 }
-function openRowMenu(button) {
-  const kind = button.dataset.rowMenu, key = button.dataset.key, list = entriesOf(kind, key);
-  closeMenus();
-  const menu = $('rowMenu');
-  menu.innerHTML = rowActions(list).map(([act, label]) =>
-    `<button type="button" class="ext-item" role="menuitem" data-row-act="${act}" data-kind="${kind}" data-key="${esc(key)}">${label}</button>`).join('');
-  menu.hidden = false;
-  placeRowMenu(button);
-  button.setAttribute('aria-expanded', 'true');
-  menuAnchor = button;
-  menu.querySelector('button')?.focus();
-}
-
-// One small dialog for the row actions: fields, then Save runs the action and reloads the logbook.
+// One small dialog (the date of an undated log): fields, then Save runs the action and reloads the logbook.
 function actDialog(title, what, fields, save, extra) {
   $('actTitle').textContent = title;
   $('actWhat').textContent = what;
@@ -933,57 +873,17 @@ function actDialog(title, what, fields, save, extra) {
 const describe = list => list.length === 1
   ? `${list[0].aircraft || 'Entry'}, ${fmtDate(when(list[0])) || 'date unknown'}${fmtHm(list[0].takeoff_utc) ? ' ' + fmtHm(list[0].takeoff_utc) : ''}`
   : `${list.length} flights of ${list[0].aircraft || 'this aircraft'} on ${fmtDate(when(list[0]))}`;
-function rowAction(act, kind, key) {
-  const list = entriesOf(kind, key);
-  if (!list.length) return;
-  const f = list[0];
-  if (act === 'project') {
-    const current = list.every(x => x.project_id === f.project_id) ? f.project_id : undefined;
-    let options = projectOptions(current);
-    if (list.some(x => x.manual_id)) options = options.replace('<option value="">No project</option>', '');  // paper records keep one
-    actDialog('Project', describe(list), `<label class="field">Project<select name="project">${options}</select></label>`,
-      out => setProjects(list, $('actFields').querySelector('[name=project]').value, out));
-  } else if (act === 'crew') {
-    const field = role => {
-      const u = f[role + '_user'], same = list.every(x => (x[role + '_user']?.id ?? null) === (u?.id ?? null) && x[role] === f[role]);
-      const now = same ? (u ? u.display_name : f[role] || '—') : 'differs';
-      const fromLog = list.some(x => x.manual_id) && role === 'pic' ? '' : '<option value="">From log / none</option>';
-      return `<label class="field">${role.toUpperCase()} <span class="mute">(now: ${esc(now)})</span><select name="${role}">
-        <option value="__keep__">Keep</option>${fromLog}${people.map(p => `<option value="${p.id}">${esc(p.display_name)}</option>`).join('')}</select></label>`;
-    };
-    actDialog('Crew', describe(list), ['pic', 'pac', 'gcs'].map(field).join(''), async out => {
-      const body = {};
-      for (const role of ['pic', 'pac', 'gcs']) {
-        const v = $('actFields').querySelector(`[name=${role}]`).value;
-        if (v !== '__keep__') body[role + '_user_id'] = v ? +v : null;
-      }
-      if (!Object.keys(body).length) { out.textContent = 'Choose a PIC, PAC or GCS.'; return false; }
-      return updateRecords(allIds(list), body, out);
-    });
-  } else if (act === 'date') {
-    actDialog(f.date_ok ? 'Date' : 'Set date', `${describe(list)} · ${f.date_ok ? 'the date this log was flown on' : 'this log has no usable calendar date'}`,
-      `<label class="field">Date flown<input type="date" name="date" value="${esc(f.date_override || '')}" required></label>`,
-      out => setLogDate(f.log_id, $('actFields').querySelector('[name=date]').value, out),
-      f.date_override ? ['Remove the set date', out => setLogDate(f.log_id, '', out)] : null);
-  } else if (act === 'verdict') {
-    const auto = (VERDICT_LABEL[f.verdict_auto] || 'unknown').toLowerCase();
-    actDialog('Classification', describe(list), `<label class="field">Is this a real flight?<select name="verdict">
-        <option value="">Automatic (${esc(auto)})</option>
-        <option value="flight"${f.verdict_override === 'flight' ? ' selected' : ''}>Flight</option>
-        <option value="ground"${f.verdict_override === 'ground' ? ' selected' : ''}>Not a flight</option></select></label>`,
-      out => updateRecords(crewIds(f), {verdict: $('actFields').querySelector('[name=verdict]').value || null}, out));
-  }
+// "date unknown" chip of an undated log: set the date it was flown on
+function setDateDialog(key) {
+  const f = flights.find(x => x.record_key === key);
+  if (!f) return;
+  actDialog('Set date', `${describe([f])} · this log has no usable calendar date`,
+    `<label class="field">Date flown<input type="date" name="date" value="${esc(f.date_override || '')}" required></label>`,
+    out => setLogDate(f.log_id, $('actFields').querySelector('[name=date]').value, out));
 }
 document.addEventListener('click', e => {
-  const menuButton = e.target.closest('[data-row-menu]');
-  if (menuButton) { e.stopPropagation(); menuButton === menuAnchor ? closeMenus() : openRowMenu(menuButton); return; }
-  const act = e.target.closest('[data-row-act]');
-  if (act) {
-    e.stopPropagation();
-    closeMenus();
-    rowAction(act.dataset.rowAct, act.dataset.kind || 'row', act.dataset.key);
-    return;
-  }
+  const dateChip = e.target.closest('[data-set-date]');
+  if (dateChip) { e.stopPropagation(); closeMenus(); setDateDialog(dateChip.dataset.setDate); return; }
   const filesOpen = e.target.closest('#filesBtn, #filesChipLabel');
   if (filesOpen) {
     const open = $('filesMenu').hidden;
@@ -1002,26 +902,16 @@ document.addEventListener('click', e => {
     $('manageBtn').setAttribute('aria-expanded', String(open));
     return;
   }
-  if (!e.target.closest('#rowMenu, #manageMenu, #filesMenu')) closeMenus();
+  if (!e.target.closest('#manageMenu, #filesMenu')) closeMenus();
 });
 document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape' || ($('rowMenu').hidden && $('manageMenu').hidden && $('filesMenu').hidden)) return;
-  const back = menuAnchor || (!$('manageMenu').hidden && $('manageBtn'))
+  if (e.key !== 'Escape' || ($('manageMenu').hidden && $('filesMenu').hidden)) return;
+  const back = (!$('manageMenu').hidden && $('manageBtn'))
     || (!$('filesMenu').hidden && ($('filesChip').hidden ? $('filesBtn') : $('filesChipLabel')));
   closeMenus();
   back?.focus();
 });
 addEventListener('resize', closeMenus);
-// The menu follows its ⋯ button when the page or the table scrolls (the table scrolls sideways on narrow screens),
-// and closes once the button is out of view.
-function placeRowMenu(button) {
-  const menu = $('rowMenu'), r = button.getBoundingClientRect();
-  if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) { closeMenus(); return; }
-  menu.style.top = `${r.bottom + window.scrollY + 4}px`;
-  menu.style.left = `${Math.max(8, Math.min(r.left + window.scrollX, window.scrollX + innerWidth - menu.offsetWidth - 8))}px`;
-}
-document.addEventListener('scroll', () => { if (menuAnchor && !$('rowMenu').hidden) placeRowMenu(menuAnchor); }, true);
-
 function render() {
   const q = $('q').value.trim().toLowerCase();
   const shown = flights.filter(f => window.flightFilters.includes(f) && filesMatch(f) && (!q || q.split(/\s+/).every(w => text(f).includes(w))));
@@ -1033,16 +923,7 @@ function render() {
   page = Math.min(page, pages - 1);
   const visible = entries.slice(page * pageSize, (page + 1) * pageSize);
   window.viewState.pager($('logbookPages'), page, pageSize, entries.length, n => { page = n; window.viewState.save(true); render(); });
-  rowGroups.clear();
-  // a redraw (e.g. when the file list or a parse status arrives) keeps an open ⋯ menu when its row is still shown
-  const openMenu = menuAnchor && {kind: menuAnchor.dataset.rowMenu, key: menuAnchor.dataset.key};
   $('rows').innerHTML = visible.map(groupRows).join('');
-  if (openMenu) {
-    menuAnchor = [...$('rows').querySelectorAll('[data-row-menu]')]
-      .find(b => b.dataset.rowMenu === openMenu.kind && b.dataset.key === openMenu.key) || null;
-    if (menuAnchor) menuAnchor.setAttribute('aria-expanded', 'true');
-    else closeMenus();
-  }
   const pageIds = [...new Set(visible.flatMap(e => (e.flights || []).filter(selectable).flatMap(crewIds)))];
   $('selAll').checked = pageIds.length > 0 && pageIds.every(id => selected.has(id));
   $('selAll').disabled = !pageIds.length;
