@@ -51,7 +51,7 @@
   tr.flight.ticked, tr.group.ticked { --row-bg:color-mix(in srgb, var(--acc) 9%, var(--card)); }
   tr.flight:hover { --row-bg:var(--hover); }
   tr.group { font-weight:600; }
-  tr.sub td:nth-child(3) { padding-left:24px; }
+  tr.sub td:nth-child(4) { padding-left:24px; }
   /* a day group: tinted with a bar on the left; its flights keep a lighter bar when it is open */
   tr.group { --row-bg:color-mix(in srgb, var(--acc) 6%, var(--card)); box-shadow:inset 3px 0 0 var(--acc); }
   tr.group.ticked { --row-bg:color-mix(in srgb, var(--acc) 12%, var(--card)); }
@@ -79,11 +79,9 @@
   .sel-bar .x { margin-left:auto; }
   td.chk, th.chk { width:28px; padding-right:0; }
   /* the ⋯ column stays at the right edge while the wide table scrolls sideways */
-  /* the ⋯ column stays at the right edge while the wide table scrolls sideways: opaque in the row's own colour,
-     with a thin divider; its button shows on hover or focus (always on touch screens and while its menu is open) */
-  table.log td.act, table.log th.act { width:36px; min-width:36px; max-width:none; padding:4px 3px; text-align:center;
-    position:sticky; right:0; z-index:1; background:var(--row-bg, var(--card)); overflow:visible;
-    box-shadow:inset 1px 0 0 var(--line), -6px 0 6px -6px #0002, 6px 0 0 var(--row-bg, var(--card)); }
+  /* the row's ⋯ sits right after its tick box; the column keeps its width, so rows do not move when the button shows
+     (on row hover or focus; always on touch screens and while its menu is open) */
+  table.log td.act, table.log th.act { width:28px; min-width:28px; padding:4px 0; text-align:center; }
   .row-act { background:none; color:var(--mute); padding:0 6px; font-size:16px; line-height:1; border-radius:4px; opacity:0; }
   tr:hover .row-act, tr:focus-within .row-act, .row-act:focus-visible, .row-act[aria-expanded="true"] { opacity:1; }
   @media (hover:none) { .row-act { opacity:1; } }
@@ -159,8 +157,8 @@
     </div>
     <div class="scroll">
     <table class="log">
-      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"><input type="checkbox" id="selAll" title="Select all on this page" aria-label="Select all on this page"></th><th title="Flight number: the number in /flight/&lt;number&gt;, used by ml.fetch in Python and pprz_fetch in MATLAB (⧉ copies it)">No.</th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
-        <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th><th class="act" aria-label="Actions"></th></tr></thead>
+      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"><input type="checkbox" id="selAll" title="Select all on this page" aria-label="Select all on this page"></th><th class="act" aria-label="Actions"></th><th title="Flight number: the number in /flight/&lt;number&gt;, used by ml.fetch in Python and pprz_fetch in MATLAB (⧉ copies it)">No.</th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
+        <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
     </div>
@@ -327,10 +325,10 @@ let hiddenColumns = new Set();
 try { hiddenColumns = new Set(JSON.parse(localStorage.getItem(COLUMNS_KEY) || '[]').filter(c => c === 'Select' || COLUMNS.includes(c))); } catch (e) {}
 const columnStyle = document.head.appendChild(document.createElement('style'));
 function applyColumns() {
-  // Column n+3 in each row: first the expand arrow, then the tick box (Select, column 2). Expanded detail rows span all columns.
+  // Column n+4 in each row: first the expand arrow, the tick box (Select, column 2) and the ⋯. Expanded detail rows span all columns.
   columnStyle.textContent = (hiddenColumns.has('Select') ? 'table.log tr > :nth-child(2):not(.detail) { display:none; }\n' : '')
     + COLUMNS.map((c, i) => hiddenColumns.has(c)
-    ? `table.log tr > :nth-child(${i + 3}):not(.detail) { display:none; }` : '').join('\n');
+    ? `table.log tr > :nth-child(${i + 4}):not(.detail) { display:none; }` : '').join('\n');
   if (hiddenColumns.has('Select') && selected.size) { selected.clear(); if (flights.length) render(); }
   $('colButton').textContent = hiddenColumns.size ? `Columns (${hiddenColumns.size} hidden)` : 'Columns';
   try { localStorage.setItem(COLUMNS_KEY, JSON.stringify([...hiddenColumns])); } catch (e) {}
@@ -805,11 +803,11 @@ function numberTd(f, o) {
   const tip = ids.length > 1 ? ` title="Recordings: ${esc((f.sources || []).map(s => `${s.flight_id} (${TYPE_LABEL[s.log_type] || s.log_type})`).join(', '))}"` : '';
   return `<td class="num mono"><span${tip}>${f.flight_id}</span>${window.copyButton(f.flight_id, `flight number ${f.flight_id}`)}</td>`;
 }
-const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '▾' : '▸') : ''}</td>${chk(o.ids)}${numberTd(f, o)}${dateTd(f)}<td><span${timesTip(o)}>${esc(fmtHm(f.takeoff_utc))}</span></td><td><span${timesTip(o)}>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</span></td>
+const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '▾' : '▸') : ''}</td>${chk(o.ids)}<td class="act">${o.actions || ''}</td>${numberTd(f, o)}${dateTd(f)}<td><span${timesTip(o)}>${esc(fmtHm(f.takeoff_utc))}</span></td><td><span${timesTip(o)}>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</span></td>
     <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${o.sources}</td><td><span${f.aircraft_uid ? ` title="${esc(f.aircraft_uid)}"` : ''}>${entityLink('aircraft', f.drone_id, f.aircraft)}</span>${verdictMark(f)}</td>
     <td>${o.project}</td><td>${operatorCell(f)}</td><td>${categoryCell(f)}</td>
     <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place, f.takeoff_place_id)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place, landingPlaceId)}</td>
-    <td>${person(f, 'pic')}</td><td>${person(f, 'pac')}</td><td>${person(f, 'gcs')}</td><td>${esc(o.goal)}</td><td>${esc(o.comment)}</td><td class="act">${o.actions || ''}</td>`;
+    <td>${person(f, 'pic')}</td><td>${person(f, 'pac')}</td><td>${person(f, 'gcs')}</td><td>${esc(o.goal)}</td><td>${esc(o.comment)}</td>`;
 
 function flightRows(f, cls = '') {
   const ids = crewIds(f);
@@ -1020,7 +1018,7 @@ function placeRowMenu(button) {
   const menu = $('rowMenu'), r = button.getBoundingClientRect();
   if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) { closeMenus(); return; }
   menu.style.top = `${r.bottom + window.scrollY + 4}px`;
-  menu.style.left = `${Math.max(8, Math.min(r.right + window.scrollX - menu.offsetWidth, window.scrollX + innerWidth - menu.offsetWidth - 8))}px`;
+  menu.style.left = `${Math.max(8, Math.min(r.left + window.scrollX, window.scrollX + innerWidth - menu.offsetWidth - 8))}px`;
 }
 document.addEventListener('scroll', () => { if (menuAnchor && !$('rowMenu').hidden) placeRowMenu(menuAnchor); }, true);
 

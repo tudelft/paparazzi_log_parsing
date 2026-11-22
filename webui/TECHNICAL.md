@@ -2503,8 +2503,8 @@ again as before.
   recording, paper records through `PUT /api/logbook/records`), **Crew…** (`PUT /api/logbook/records`, Keep per
   role), **Date…**/**Set date…** (`PUT /api/logs/<id>/date`, also *Remove the set date*) and **Classification…**
   (`verdict`), each in a small dialog. For who may set it, the *date unknown* chip of an undated log is itself the
-  button that opens the date dialog. The ⋯ column is pinned to the right edge of the table, in the row's colour;
-  its button shows on row hover or focus (always on touch screens).
+  button that opens the date dialog. The ⋯ sits right after the tick box and shows on row hover or focus (always on
+  touch screens and while its menu is open); its column keeps its width, so rows do not move.
 - Every row has a tick box, for everyone (paper records too); **Select** under **Columns** turns the column off (a
   per-browser column choice like the others), and then no selection bar appears. The **selection bar** at the
   bottom offers what applies to all ticked entries and disables the rest with the reason in its tooltip: Copy
