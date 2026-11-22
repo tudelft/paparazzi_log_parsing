@@ -32,6 +32,8 @@ CERTIFICATE_NUMBER = re.compile(
 OCR_PAGES = 4  # certificates have the number on the first pages
 OCR_SECONDS = 60  # per call of pdftoppm or tesseract
 READ_SECONDS = 25  # total for reading one chosen file in the upload dialog; OCR stops when it runs out
+READ_CACHE_SECONDS = 30 * 60  # a dialog read is reused when the same file is submitted within this time
+READ_CACHE_MAX = 200
 OCR_TOO_LONG = "OCR took too long; fill in the fields."
 QR_TOO_LONG = "Reading the QR code took too long; fill in the fields."
 
@@ -223,6 +225,30 @@ def pdf_texts(path, compressed, readable=False, chunks=None):
         texts += [glue.decode().join(decode_glyphs(s, cmap) for s in re.findall(rb"<([0-9A-Fa-f\s]+)>", block)).encode()
                   for chunk in content for block in re.findall(rb"BT(.*?)ET", chunk, re.S)]
     return texts
+
+
+PDFTOTEXT_PAGES = 2
+
+
+def pdftotext(path, compressed, deadline=None):
+    """The text of the first pages as pdftotext (poppler-utils) lays it out, or "" without it (or on failure).
+    It decodes subset fonts that the built-in reader (pdf_texts) cannot, so labels such as "Expiration date" stay
+    readable next to their dates."""
+    if not shutil.which("pdftotext"):
+        return ""
+    seconds = 15 if deadline is None else max(0.0, min(15, deadline - time.monotonic()))
+    if seconds <= 0:
+        return ""
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "evidence.pdf"
+            with (gzip.open(path, "rb") if compressed else open(path, "rb")) as source, open(src, "wb") as out:
+                shutil.copyfileobj(source, out)
+            done = subprocess.run(["pdftotext", "-l", str(PDFTOTEXT_PAGES), "-enc", "UTF-8", str(src), "-"],
+                                  capture_output=True, timeout=seconds)
+        return done.stdout.decode("utf-8", "replace")[:PDF_TEXT_BUDGET] if done.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
 
 
 def ocr_available(image=False):
@@ -428,11 +454,17 @@ def read_qr(con, row, root, actor_id=None):
     return dict(licence_qr.check(codes, row["number"], row["valid_from"], row["valid_until"]), filled=filled)
 
 
+# Month names: English, Dutch, French, German, Spanish, Italian, Portuguese, Polish (genitive), Scandinavian
 MONTHS = {name: n for n, names in enumerate((
-    "jan january januari janvier januar", "feb february februari fevrier février februar",
-    "mar march maart mrt mars märz marz maerz", "apr april avril", "may mei mai", "jun june juni juin",
-    "jul july juli juillet", "aug august augustus aout août", "sep sept september septembre",
-    "oct october oktober okt octobre", "nov november novembre", "dec december decembre décembre dezember dez"),
+    "jan january januari janvier januar ene enero gen gennaio janeiro stycznia styczeń",
+    "feb february februari fevrier février februar febrero febbraio fev fevereiro lutego luty",
+    "mar march maart mrt mars märz marz maerz marzo março marco marca marts", "apr april avril abr abril aprile "
+    "kwietnia", "may mei mai maj mayo mag maggio maio maja", "jun june juni juin junio giu giugno junho czerwca",
+    "jul july juli juillet julio lug luglio julho lipca", "aug august augustus aout août ago agosto augusti "
+    "sierpnia", "sep sept september septembre septiembre set settembre setembro września wrzesnia",
+    "oct october oktober okt octobre octubre ott ottobre out outubro października pazdziernika",
+    "nov november novembre noviembre novembro listopada", "dec december decembre décembre dezember dez dic "
+    "diciembre dicembre dezembro grudnia desember des"),
     1) for name in names.split()}
 # (pattern, order of year/month/day groups); month names are looked up in MONTHS. Numeric dates are day first
 # (European certificates): 03.12.2026 and 03-12-2026 are 3 December. With "/" both orders are common, so a date
@@ -441,15 +473,23 @@ SLASH_DATE = 1  # index of the d/m/y pattern
 TEXT_DATES = (
     (re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b"), (1, 2, 3)),
     (re.compile(r"\b(\d{1,2})([./-])(\d{1,2})\2(\d{4})\b"), (4, 3, 1)),
-    (re.compile(r"\b(\d{1,2})\.?\s+([^\W\d_]{3,9})\.?\s+(\d{4})\b"), (3, 2, 1)),
+    (re.compile(r"\b(\d{1,2})\.?\s+(?:de\s+)?([^\W\d_]{3,12})\.?\s+(?:de\s+)?(\d{4})\b"), (3, 2, 1)),  # 1 de mayo de 2030
 )
 # Labels before a date (closest one wins). Dates of birth are never a validity date.
 DATE_LABELS = (
-    ("birth", re.compile(r"birth|geboren|geboorte|naissance|geburt", re.I)),
-    ("valid_until", re.compile(r"valid\s*(?:until|till|to)|expir|geldig\s*tot|vervaldatum|verloopdatum"
-                               r"|date\s*of\s*expiry|valable\s*jusqu|gültig\s*bis|g.ltig\s*bis", re.I)),
-    ("valid_from", re.compile(r"valid\s*from|date\s*of\s*issue|issue\s*date|issued|afgifte|uitgegeven|geldig\s*vanaf"
-                              r"|date\s*de\s*d.livrance|ausstellungsdatum", re.I)),
+    ("birth", re.compile(r"birth|geboren|geboorte|naissance|geburt|nacimiento|nascita|nascimento|urodzenia"
+                         r"|född|fødsel|narození|syntymä", re.I)),
+    ("valid_until", re.compile(
+        r"valid\s*(?:until|till|to)|expir|geldig\s*(?:tot|t/m)|tot\s*en\s*met|vervaldatum|verloopdatum"
+        r"|date\s*of\s*expiry|valable\s*jusqu|date\s*d.expiration|g.ltig\s*bis|ablaufdatum"
+        r"|v.lid[oa]\s*hasta|caducidad|valid[oa]\s*fino|scadenza|v.lid[oa]\s*at.|data\s*de\s*validade"
+        r"|wa.n[ya]\s*do|data\s*wa.no.ci|giltig\s*t(?:ill|\.?\s*o\.?\s*m)|gyldig\s*(?:til|indtil)|udl.bs|utl.psdato"
+        r"|platnost\s*do|platn[ýy]\s*do|voimassa", re.I)),
+    ("valid_from", re.compile(
+        r"valid\s*from|date\s*of\s*issue|issue\s*date|issued|afgifte|uitgegeven|geldig\s*vanaf"
+        r"|date\s*de\s*d.livrance|ausstellungsdatum|g.ltig\s*ab|ausgestellt"
+        r"|fecha\s*de\s*(?:expedici.n|emisi.n)|v.lid[oa]\s*desde|data\s*di\s*rilascio|rilasciat|valid[oa]\s*dal"
+        r"|data\s*de\s*emiss.o|data\s*wydania|wydan|utf.rdad|udstedt|utstedt|datum\s*vyd.n|my.nnetty", re.I)),
 )
 LABEL_WINDOW = 80  # characters before a date searched for its label, back to the previous date at most
 TEXT_DATES_MAX = 500  # dates read per pattern at most (a certificate has a handful; bounds the work on crafted files)
@@ -527,6 +567,74 @@ def validity(dates):
 
 
 READ_FIELDS, READ_SOURCES = ("number", "valid_from", "valid_until"), ("qr", "text", "ocr")
+READ_TEXT_MAX = 50000  # characters of a read's text kept (and cached) for suggestions
+ALSO_TYPES_MAX = 20    # types one certificate may cover besides the chosen one
+
+
+def type_tokens(name):
+    """The distinctive parts of a type name that a certificate would print: with a digit and a letter (A2, A1/A3,
+    STS-01) or capitals only, at least three letters (STS, LUC). Plain words (First aid) give none: such a type is
+    never suggested from the text."""
+    return [t for t in re.split(r"[\s,;()]+", name or "") if len(t) >= 2
+            and ((re.search(r"\d", t) and re.search(r"[A-Za-z]", t)) or (len(t) >= 3 and t.isalpha() and t.isupper()))]
+
+
+def covered_suggestions(con, text, number, exclude):
+    """Types a certificate probably also covers: [{type_id, reason}], reason 'number' (records of that type, of
+    anyone, carry the same certificate number: that issuer combines them) or 'text' (a distinctive part of the type
+    name appears in the document). Only active types, never `exclude`; no personal data."""
+    out, seen = [], {exclude}
+    if number:
+        for (tid,) in con.execute("SELECT DISTINCT q.type_id FROM qualification_submissions q JOIN qualification_types t"
+                                  " ON t.id=q.type_id WHERE t.active=1 AND q.number=? COLLATE NOCASE"
+                                  " AND q.status IN ('pending','approved','superseded')", (number,)):
+            if tid not in seen:
+                seen.add(tid)
+                out.append(dict(type_id=tid, reason="number"))
+    if text:
+        for row in con.execute("SELECT id, name FROM qualification_types WHERE active=1 ORDER BY sort_order, name"):
+            if row["id"] not in seen and any(
+                    re.search(rf"(?<![\w/-]){re.escape(token)}(?![\w/-])", text, re.I) for token in type_tokens(row["name"])):
+                seen.add(row["id"])
+                out.append(dict(type_id=row["id"], reason="text"))
+    return out
+
+
+def also_type_ids(raw, main):
+    """The `also_type_ids` form field: a JSON list of other type ids (at most ALSO_TYPES_MAX; the chosen type and
+    repeats dropped)."""
+    if not raw:
+        return []
+    try:
+        ids = json.loads(raw)
+    except ValueError as exc:
+        raise QualificationError("also_type_ids must be a JSON list of qualification type ids.") from exc
+    if not isinstance(ids, list) or any(type(i) is not int for i in ids):
+        raise QualificationError("also_type_ids must be a JSON list of qualification type ids.")
+    ids = [i for i in dict.fromkeys(ids) if i != main]
+    if len(ids) > ALSO_TYPES_MAX:
+        raise QualificationError(f"One certificate can cover at most {ALSO_TYPES_MAX + 1} qualifications.")
+    return ids
+
+# What the upload dialog read from a file (QR code, PDF text, OCR), by (reader, file SHA-256, wanted fields), so
+# submitting the same file does not read it again: reading can take many seconds.
+_read_cache, _read_cache_lock = {}, threading.Lock()
+
+
+def remember_read(key, read):
+    with _read_cache_lock:
+        now = time.monotonic()
+        for k in [k for k, (t, _) in _read_cache.items() if now - t > READ_CACHE_SECONDS]:
+            del _read_cache[k]
+        if len(_read_cache) >= READ_CACHE_MAX:
+            del _read_cache[min(_read_cache, key=lambda k: _read_cache[k][0])]
+        _read_cache[key] = (now, read)
+
+
+def cached_read(key):
+    with _read_cache_lock:
+        hit = _read_cache.get(key)
+        return hit[1] if hit and time.monotonic() - hit[0] <= READ_CACHE_SECONDS else None
 
 
 def read_claims(raw, entered):
@@ -559,7 +667,7 @@ def read_evidence(path, compressed, mime, entered, wanted=("number", "valid_from
     codes (None: QR not read), qr (licence_qr.check against the entered values), issues: where the document
     differs from what was entered, notes: e.g. that OCR ran out of time). chunks: pdf_chunks, when already read."""
     deadline = time.monotonic() + seconds
-    found, dates, sources, notes = {}, [], {}, []
+    found, dates, sources, notes, texts = {}, [], {}, [], []
     seen = set()  # (date, label) already in dates
     codes = None  # None: not read (no tools, or out of time: then the background read after submit still runs)
     if licence_qr.available(mime == "application/pdf"):
@@ -581,6 +689,7 @@ def read_evidence(path, compressed, mime, entered, wanted=("number", "valid_from
         sources[source] = dict(number=number, valid_from=start, valid_until=until)
 
     if codes:
+        texts += codes
         facts = licence_qr.facts(codes)
         qr_dates = text_dates("\n".join(codes))
         qr_days = {x[0] for x in qr_dates}
@@ -591,26 +700,41 @@ def read_evidence(path, compressed, mime, entered, wanted=("number", "valid_from
         if chunks is None:
             chunks = pdf_chunks(path, compressed)
         text_number = pdf_number(path, compressed, chunks)
-        take("text", text_number, text_dates(b"\n".join(pdf_texts(path, compressed, readable=True, chunks=chunks))))
+        # pdftotext keeps labels readable also in subset fonts; without it (or no dates) the built-in reader
+        plain = pdftotext(path, compressed, deadline)
+        texts.append(plain)
+        found_dates = text_dates(plain) \
+            or text_dates(b"\n".join(pdf_texts(path, compressed, readable=True, chunks=chunks)))
+        take("text", text_number, found_dates)
     if ocr and not notes and not text_number and any(field not in found for field in wanted):
         number, text, complete = ocr_read(path, compressed, deadline, mime)
         if number or text:
+            texts.append(text.decode("utf-8", "replace") if isinstance(text, bytes) else text)
             take("ocr", number, text_dates(text))
         if not complete:
             notes.append(OCR_TOO_LONG)
+    read = dict(found=found, sources=sources, dates=dates, codes=codes, notes=notes,
+                text="\n".join(texts)[:READ_TEXT_MAX])  # for suggesting the types a certificate also covers
+    return dict(read, **compare_read(read, entered))
+
+
+def compare_read(read, entered):
+    """Where what was read differs from the entered values: dict(issues, qr) (qr: licence_qr.check, None when the
+    QR code was not read). Separate from reading, so a read of the same file can be compared again on submit."""
     issues = []
     labels = dict(number="Number", valid_from="Valid from", valid_until="Valid until")
     for field, label in labels.items():
         typed = entered.get(field)
-        for source, values in sources.items():
+        for source, values in read["sources"].items():
             if source != "qr" and typed and values[field] and not same_value(field, typed, values[field]):
                 issues.append(f"{label} in the document ({source.upper() if source == 'ocr' else source}) is "
                               f"{values[field]}, entered {typed}")
     qr = None
-    if codes is not None:
-        qr = licence_qr.check(codes, entered.get("number"), entered.get("valid_from"), entered.get("valid_until"))
+    if read["codes"] is not None:
+        qr = licence_qr.check(read["codes"], entered.get("number"), entered.get("valid_from"),
+                              entered.get("valid_until"))
         issues += [f"QR code: {issue}" for issue in qr["issues"]]
-    return dict(found=found, sources=sources, dates=dates, codes=codes, qr=qr, issues=issues, notes=notes)
+    return dict(issues=issues, qr=qr)
 
 
 TYPE_DESCRIPTION_MAX = 300
@@ -772,6 +896,28 @@ def register(app, connection, root, require_session):
             })
         return jsonify(submissions=out)
 
+    @app.get("/api/admin/approval-history")
+    def approval_history_list():
+        """Decided approvals for the queue's Decided view: qualifications, training passes and bookings of agendas
+        that need approval, newest decision first, a page at a time (approval_history.py)."""
+        admin()
+        import approval_history
+        from config import env_bool
+        kind, period = request.args.get("kind", ""), request.args.get("period", "90d")
+        if kind and kind not in approval_history.KINDS:
+            raise QualificationError("kind must be training, qualification or booking.")
+        if period not in approval_history.PERIODS:
+            raise QualificationError("period must be 90d, year or all.")
+        try:
+            page = int(request.args.get("page") or 1)
+        except ValueError:
+            page = 0
+        if page < 1:
+            raise QualificationError("page must be a positive number.")
+        items, total = approval_history.history(connection(), kind, request.args.get("q", ""), period, page,
+                                                bookings=env_bool("BOOKINGS"))
+        return jsonify(items=items, total=total, page=page, page_size=approval_history.PAGE_SIZE)
+
     @app.get("/api/admin/qualifications/import/template")
     def qualification_import_template():
         admin()
@@ -887,7 +1033,7 @@ def register(app, connection, root, require_session):
         con = connection()
         private_subject(con, g.user, user_id)
         request.max_content_length = MAX_EVIDENCE_BYTES + 1024 * 1024
-        if set(request.form) - {"type_id", "valid_from", "valid_until", "number", "read_from"} \
+        if set(request.form) - {"type_id", "valid_from", "valid_until", "number", "read_from", "also_type_ids"} \
                 or set(request.files) - {"evidence"}:
             raise QualificationError("Send only a type, validity dates, a number and optional evidence.")
         if len(request.files.getlist("evidence")) > 1:
@@ -898,8 +1044,10 @@ def register(app, connection, root, require_session):
         if start and until and start > until:
             raise QualificationError("Valid from must be on or before Valid until.")
         claims = read_claims(request.form.get("read_from"), dict(number=number, valid_from=start, valid_until=until))
+        also = also_type_ids(request.form.get("also_type_ids"), tid)  # the certificate covers these too
         uploaded = request.files.get("evidence")
         staged = destination = None
+        copies = []  # evidence copies for the other records: each record owns its file, so deleting one keeps the rest
         committed = False
         filename = mime = None
         compressed, size = False, 0
@@ -912,7 +1060,8 @@ def register(app, connection, root, require_session):
                 folder = evidence_root()
                 folder.mkdir(parents=True, exist_ok=True, mode=0o700)
                 try:
-                    staged, compressed, size, _, _ = storage.save_attachment(uploaded.stream, folder, MAX_EVIDENCE_BYTES)
+                    staged, compressed, size, _, sha256 = storage.save_attachment(uploaded.stream, folder,
+                                                                                    MAX_EVIDENCE_BYTES)
                 except ValueError as exc:
                     raise QualificationError("Evidence must be non-empty and at most 20 MiB.") from exc
                 mime = evidence_format(staged, compressed, filename)
@@ -922,20 +1071,27 @@ def register(app, connection, root, require_session):
                                                    ("valid_until", "requires_expiry")) if kind is not None and kind[key]]
                 entered = dict(number=number, valid_from=start, valid_until=until)
                 need_read = claims or any(entered[field] is None for field in wanted)
+                # the dialog already read this very file (with OCR): use that instead of reading it again
+                read = cached_read((g.user["id"], sha256, tuple(wanted))) if need_read else None
+                if read is not None:
+                    read = dict(read, **compare_read(read, entered))  # against the values submitted now
+                trusted = ("qr", "text", "ocr") if read else ("qr", "text")
                 guess_number = number is None and "number" not in wanted and mime == "application/pdf"
-                chunks = pdf_chunks(staged, compressed) if mime == "application/pdf" and (need_read or guess_number) \
-                    else None  # decompressed once for both
+                chunks = pdf_chunks(staged, compressed) if mime == "application/pdf" and (
+                    (need_read and read is None) or guess_number) else None  # decompressed once for both
                 if guess_number:
                     number = entered["number"] = pdf_number(staged, compressed, chunks)  # as before: from the text only
                 if need_read:
                     # No OCR here: the dialog already read the chosen file and filled its OCR results into the form.
                     # Values the dialog filled (claims) are checked against the QR code and PDF text read here.
-                    read = read_evidence(staged, compressed, mime, entered, wanted, ocr=False,
-                                         seconds=app.config.get("QUALIFICATION_READ_SECONDS", READ_SECONDS),
-                                         chunks=chunks)
+                    if read is None:
+                        read = read_evidence(staged, compressed, mime, entered, wanted, ocr=False,
+                                             seconds=app.config.get("QUALIFICATION_READ_SECONDS", READ_SECONDS),
+                                             chunks=chunks)
                     for field, source in claims.items():
-                        # confirmed by any source read here (claimed one first); OCR does not run on submit
-                        confirmed = next((s for s in dict.fromkeys((source, "qr", "text")) if s != "ocr"
+                        # confirmed by any source read on the server (claimed one first); OCR only from the dialog's
+                        # read of this same file (it does not run on submit)
+                        confirmed = next((s for s in dict.fromkeys((source, "qr", "text")) if s in trusted
                                           and read["sources"].get(s, {}).get(field)
                                           and same_value(field, entered[field], read["sources"][s][field])), None)
                         if confirmed:
@@ -956,44 +1112,67 @@ def register(app, connection, root, require_session):
             with db.write_lock, con:
                 con.execute("BEGIN IMMEDIATE")
                 private_subject(con, g.user, user_id)
-                kind = con.execute("SELECT * FROM qualification_types WHERE id=? AND active=1", (tid,)).fetchone()
-                if kind is None:
-                    raise QualificationError("Choose an active qualification type.")
-                if kind["requires_evidence"] and staged is None:
-                    raise QualificationError("This qualification requires evidence.")
-                if kind["requires_expiry"] and until is None:
-                    raise QualificationError("This qualification requires an expiry date.")
-                if kind["requires_start"] and start is None:
-                    raise QualificationError("This qualification requires a Valid from date.")
-                if con.execute("SELECT 1 FROM qualification_submissions WHERE user_id=? AND type_id=? AND status='pending'",
-                               (user_id, tid)).fetchone():
-                    raise QualificationError("There is already a pending submission for this type. Withdraw it first.", 409)
+                kinds = []
+                for index, type_id in enumerate([tid] + also):  # the chosen type, then the ones it also covers
+                    kind = con.execute("SELECT * FROM qualification_types WHERE id=? AND active=1", (type_id,)).fetchone()
+                    if kind is None:
+                        raise QualificationError("Choose an active qualification type." if index == 0
+                                                 else "A qualification the certificate also covers is not active.")
+                    of = f" ({kind['name']}, also covered)" if index else ""  # a covered type is named in the message
+                    if kind["requires_evidence"] and staged is None:
+                        raise QualificationError(f"This qualification requires evidence{of}.")
+                    if kind["requires_expiry"] and until is None:
+                        raise QualificationError(f"This qualification requires an expiry date{of}.")
+                    if kind["requires_start"] and start is None:
+                        raise QualificationError(f"This qualification requires a Valid from date{of}.")
+                    if index and kind["requires_number"] and not number:
+                        raise QualificationError(f"This qualification requires a number{of}.")
+                    if con.execute("SELECT 1 FROM qualification_submissions WHERE user_id=? AND type_id=?"
+                                   " AND status='pending'", (user_id, type_id)).fetchone():
+                        raise QualificationError("There is already a pending submission for this type"
+                                                 + (f" ({kind['name']})" if index else "") + ". Withdraw it first.", 409)
+                    kinds.append(kind)
                 if staged:
                     destination = evidence_root() / (uuid.uuid4().hex + (".gz" if compressed else ".bin"))
                     os.replace(staged, destination)
-                sid = con.execute(
-                    "INSERT INTO qualification_submissions(user_id,type_id,valid_from,valid_until,number,status,submitted_by,"
-                    " submitted_at,evidence_path,filename,mime,compressed,size_bytes) VALUES (?,?,?,?,?,'pending',?,?,?,?,?,?,?)",
-                    (user_id, tid, start, until, number, g.user["id"], _utc_now(),
-                     destination.name if destination else None, filename, mime, int(compressed), size)).lastrowid
-                if read and read["codes"] is not None:
-                    con.execute("UPDATE qualification_submissions SET qr_json=? WHERE id=?",
-                                (json.dumps({"codes": read["codes"], "checked_at": _utc_now()}), sid))
-                details = dict(id=sid, category=kind["name"], valid_from=start, valid_until=until, number=number,
-                               has_evidence=bool(destination))
-                if filled:
-                    details["read_from"] = filled  # field: 'qr' or 'text' that confirmed it or that it was read from on submit
-                if unchecked:
-                    details["read_unchecked"] = unchecked  # what the dialog reports it read, not confirmed on submit
-                if read and read["issues"]:
-                    details["differs"] = read["issues"]
-                audit(con, user_id, g.user["id"], "submitted", details)
+                    for _ in also:
+                        copy = evidence_root() / (uuid.uuid4().hex + (".gz" if compressed else ".bin"))
+                        copies.append(copy)
+                        shutil.copyfile(destination, copy)
+                files = [destination] + copies if destination else [None] * len(kinds)
+                sids = []
+                for kind, path in zip(kinds, files):
+                    one = con.execute(
+                        "INSERT INTO qualification_submissions(user_id,type_id,valid_from,valid_until,number,status,"
+                        " submitted_by,submitted_at,evidence_path,filename,mime,compressed,size_bytes)"
+                        " VALUES (?,?,?,?,?,'pending',?,?,?,?,?,?,?)",
+                        (user_id, kind["id"], start, until, number, g.user["id"], _utc_now(),
+                         path.name if path else None, filename, mime, int(compressed), size)).lastrowid
+                    sids.append(one)
+                    if read and read["codes"] is not None:
+                        con.execute("UPDATE qualification_submissions SET qr_json=? WHERE id=?",
+                                    (json.dumps({"codes": read["codes"], "checked_at": _utc_now()}), one))
+                    details = dict(id=one, category=kind["name"], valid_from=start, valid_until=until, number=number,
+                                   has_evidence=bool(path))
+                    if len(kinds) > 1:
+                        details["certificate_covers"] = [k["name"] for k in kinds]  # submitted together, one file each
+                    if filled:
+                        details["read_from"] = filled  # field: 'qr' or 'text' that confirmed it or that it was read from on submit
+                    if unchecked:
+                        details["read_unchecked"] = unchecked  # what the dialog reports it read, not confirmed on submit
+                    if read and read["issues"]:
+                        details["differs"] = read["issues"]
+                    audit(con, user_id, g.user["id"], "submitted", details)
+                sid = sids[0]
                 if not g.user["is_admin"]:
                     person = con.execute("SELECT COALESCE(display_name, username) FROM users WHERE id=?",
                                          (user_id,)).fetchone()[0]
-                    mail.notify_admins(con, f"Qualification to approve: {kind['name']} of {person}",
-                                       f"{person} submitted {kind['name']}"
-                                       + (f", valid until {until}" if until else "") + ". It waits for approval.",
+                    names = [k["name"] for k in kinds]
+                    listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+                    mail.notify_admins(con, f"Qualification to approve: {listed} of {person}",
+                                       f"{person} submitted {listed}" + (" (one certificate)" if len(names) > 1 else "")
+                                       + (f", valid until {until}" if until else "")
+                                       + (". They wait" if len(names) > 1 else ". It waits") + " for approval.",
                                        "/people?tab=approvals")
             committed = True
             if destination and not (read and read["codes"] is not None) \
@@ -1002,21 +1181,24 @@ def register(app, connection, root, require_session):
                 actor = g.user["id"]
 
                 def read_later():  # a few seconds per PDF: not while the person waits
-                    try:
-                        con2 = connection()
-                        row = con2.execute("SELECT * FROM qualification_submissions WHERE id=?", (sid,)).fetchone()
-                        if row:
-                            read_qr(con2, row, evidence_root(), actor)
-                    except Exception:  # noqa: BLE001 - the reviewer can still run Check QR codes
-                        logging.getLogger(__name__).exception("reading the QR code of submission %s failed", sid)
+                    for one in sids:  # one per record (each has its own copy of the file)
+                        try:
+                            con2 = connection()
+                            row = con2.execute("SELECT * FROM qualification_submissions WHERE id=?", (one,)).fetchone()
+                            if row:
+                                read_qr(con2, row, evidence_root(), actor)
+                        except Exception:  # noqa: BLE001 - the reviewer can still run Check QR codes
+                            logging.getLogger(__name__).exception("reading the QR code of submission %s failed", one)
                 threading.Thread(target=read_later, daemon=True, name="licence-qr").start()
-            return jsonify(ok=True, id=sid, number=number, valid_from=start, valid_until=until, read_from=filled,
-                           issues=read["issues"] if read else []), 201
+            return jsonify(ok=True, id=sid, ids=sids, number=number, valid_from=start, valid_until=until,
+                           read_from=filled, issues=read["issues"] if read else []), 201
         finally:
             if staged:
                 staged.unlink(missing_ok=True)
-            if destination and not committed:
-                destination.unlink(missing_ok=True)
+            if not committed:
+                for path in [destination] + copies:
+                    if path:
+                        path.unlink(missing_ok=True)
 
     @app.post("/api/users/<int:user_id>/qualifications/read")
     def read_qualification_evidence(user_id):
@@ -1044,7 +1226,7 @@ def register(app, connection, root, require_session):
         staged = None
         try:
             try:
-                staged, compressed, _, _, _ = storage.save_attachment(uploaded.stream, folder, MAX_EVIDENCE_BYTES)
+                staged, compressed, _, _, sha256 = storage.save_attachment(uploaded.stream, folder, MAX_EVIDENCE_BYTES)
             except ValueError as exc:
                 raise QualificationError("Evidence must be non-empty and at most 20 MiB.") from exc
             kind = None
@@ -1056,6 +1238,8 @@ def register(app, connection, root, require_session):
                                          ("valid_until", "requires_expiry")) if kind[key])
             read = read_evidence(staged, compressed, evidence_format(staged, compressed, filename), entered, wanted,
                                  seconds=app.config.get("QUALIFICATION_READ_SECONDS", READ_SECONDS))
+            if not read["notes"]:  # a complete read (not cut short by the time limit) is reused on submit
+                remember_read((g.user["id"], sha256, tuple(wanted)), read)
         finally:
             with reading_lock:
                 reading.discard(g.user["id"])
@@ -1064,7 +1248,10 @@ def register(app, connection, root, require_session):
         qr = read["qr"]
         if qr is not None and not g.user["is_admin"]:
             qr = {key: qr[key] for key in ("status", "authority", "issues")}
-        return jsonify(found=read["found"], dates=read["dates"], issues=read["issues"], notes=read["notes"], qr=qr)
+        number = entered["number"] or read["found"].get("number", {}).get("value")
+        suggestions = covered_suggestions(con, read.get("text", ""), number, kind["id"] if kind is not None else None)
+        return jsonify(found=read["found"], dates=read["dates"], issues=read["issues"], notes=read["notes"], qr=qr,
+                       suggestions=suggestions)
 
     @app.post("/api/qualification-submissions/<int:sid>/review")
     def review_qualification(sid):

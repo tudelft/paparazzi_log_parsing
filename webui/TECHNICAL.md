@@ -621,6 +621,18 @@ are shown and can be retried. Flights need valid coordinates and a correct date 
 at least six days old. No API key is required; the free service is
 [non-commercial only](https://open-meteo.com/en/terms), with attribution under CC BY 4.0.
 
+<a id="open-in-flight-plotter"></a>**Open in Flight Plotter.** For Betaflight, INDIFlight and blackbox logs, the flight page and an expanded Logbook
+row show **Open in Flight Plotter ▾** (`static/indiflight.js`), with **Open in Blackbox Viewer** in its menu. It opens
+the external INDIFlight web app (`https://app.indiflight.org/?openlog=plotter` or `=viewer`) in a new tab. The app
+posts `{type: "indiflight-ready"}` to its opener, and the page replies with `{type: "indiflight-log", name, data}`:
+`data` is the original file from `/api/logs/<id>/download/data`, sent as a transferable `ArrayBuffer`, and `name` the
+file name of that download (its `Content-Disposition`, without the upload's folders; else `log-<id>`). Only messages
+from that tab and the app origin are accepted. The page stops waiting, and cancels the download, after two minutes
+(saying so when the tab is still open) or as soon as the app's tab is closed. The browser fetches the log with the
+user's session, so the app never contacts this server and the handoff also works when the server is only reachable
+over a VPN. For testing against another app instance, set `localStorage.logdbIndiflightApp` to its origin (for
+example `http://localhost:8080`) in the browser console.
+
 **MATLAB export.** The **MATLAB ▾** menu (`static/matlab.js`) at the top right of a flight page, in an
 expanded Logbook row and in a log's details on Logs offers, per Paparazzi source log (`onboard_sd`/`gcs` with its `.log`), **This flight**,
 **All flights** and **Whole log**, with progress and the download inside the menu. `POST /api/logs/<id>/matlab`
@@ -1321,8 +1333,16 @@ flow, so change both together.
 
 Off unless `LOGDB_PERSON_PROFILE=1` (`profiles.py`). A profile holds role, department or section (from the list,
 or typed), supervisors (people whose role can supervise, or an external name), expected end date or Indefinite,
-student/employee number and an optional GitHub username. While role, department, end date or number is missing,
-a required supervisor is missing, or the end date has passed, every page a signed-in browser opens redirects to
+student/employee number and an optional GitHub username. Each role limits the end date: `max_years` (the date is at
+most that many years ahead; empty: no limit) and `allow_indefinite` (may tick Indefinite). The default roles start
+with Bachelor Student 1, Master Student 2 and PhD Student 5 years, and only Staff and Extern may be indefinite; a
+database made before these settings gets the same values once for those role names. The profile form caps the date and
+hides Indefinite accordingly, and the person's save refuses what is outside the limits. An admin (People editor or
+profile CSV import) may set an end date outside them for odd cases: `user_profiles.end_date_by_admin` then marks it,
+the person is not asked to correct it and may save the rest of the form while it stays unchanged; when the person
+changes the date, the limits hold again. The import preview flags such dates (*Outside the role's limits*). While role, department,
+end date or number is missing, a required supervisor is missing, the end date has passed or is outside its role's
+limits (unless an admin set it), every page a signed-in browser opens redirects to
 `/profile?next=…`. The API and API keys keep working, so uploads and scripts are never blocked. The GitHub name is
 only checked to exist (`GET /api/profile/github`, GitHub's public users API, cached an hour; `FIRMWARE_GITHUB_TOKEN`
 is used when set).
@@ -1339,7 +1359,7 @@ Where it shows:
 - People in Edit mode: the person **Profile** tab, where admins edit the profile in place (`PUT /api/users/<id>/profile`):
   like the import, they may fill in only what they know (empty fields are allowed, a past end date too), but what is
   filled in must be valid; the person is asked for the rest at the next sign-in, and **Profile options** to edit the role and department lists
-  (`PUT /api/admin/profile-options`). The role list is seeded once when the tables are created; the department list starts empty, because it is
+  (`PUT /api/admin/profile-options`; roles with *Max years* and *Indefinite*). The role list is seeded once when the tables are created; the department list starts empty, because it is
 site-specific: admins add departments there or **Import CSV** (`name,group` per line), and people can also type one. Removing a list
 entry empties that field in the profiles that used it, so those people are asked again.
 
@@ -1526,7 +1546,7 @@ Enable Edit to change account settings, manage aliases,
 upload evidence for that person, or review/delete submissions. The people list is searchable, without
 an additional Show filter. Type settings are in a separate People section visible in Edit mode.
 
-<a id="people-approval-queue"></a>**Approval queue** (`/people?tab=approvals`, admins; hidden when empty unless open) lists
+<a id="people-approval-queue"></a>**Approval queue** (`/people?tab=approvals`, admins; always there for admins) lists
 pending submissions from `GET /api/admin/qualification-pending` and, when the agenda is on, pending bookings from
 `GET /api/admin/booking-pending` (shown with negative ids, posted to `/api/bookings/<id>/review`, filter **Bookings**,
 `kind=booking`; see [Booking agenda](#booking-agenda)): training passes (score and briefer parsed from the pass note, the access
@@ -1545,6 +1565,18 @@ rejected item in the person's qualifications and in the audit entry, and mailed 
 (**Qualification reviews**, on by default) when email is set up. The filter (`kind=training|qualification|booking`), search
 (`q=`) and open row (`open=`) are in the URL; the Trainings badge links to `kind=training`. Keys while a row has focus:
 ↑/↓ move, Space selects, Enter opens, A approves, R rejects.
+**Waiting | Decided** switches to the history (`view=decided`): `GET /api/admin/approval-history` (`approval_history.py`;
+admins, browser session) with `kind` (`training`, `qualification`, `booking`), `q` (person, what, reason, decider,
+number, description), `period` (`90d`, the default; `year`; `all`) and `page` (50 per page), newest decision first,
+with `total`. It lists qualification submissions and training passes that were approved (also later superseded),
+rejected or withdrawn (`reviewed_at` set; a withdrawal by the person says *By the person*), and bookings of agendas that
+need approval that were approved or rejected (`decided_at` set). **Automatic** approvals are included and marked (for submissions as the audit log records them): a
+training pass granted without approval (decided by the person at the moment of the pass), an imported certificate (the
+importing administrator, *Imported*), a booking an administrator or approver made on such an agenda (approved by them
+when it was made: `decided_by`/`decided_at` are stored for it) and bookings approved when approval was switched off
+(no decider). Bookings deleted while pending, and submissions deleted by an administrator, leave no history. A row opens
+its details in place (evidence preview, dates, training pass, booking time and options, the full reason); the period,
+page and open row (`open=q<id>` or `b<id>`) are in the URL.
 Admins can edit username, display name, email and default project together with **Save account** in the Account tab.
 All four fields are saved atomically; previous unambiguous display names are preserved as log aliases. Display names are optional
 and at most 80 characters. Usernames must be unique (case-insensitive),
@@ -1626,7 +1658,7 @@ the person, admins and `/api/pilots`.
 
 **QR codes** (`licence_qr.py`, issue 189). The QR code the issuing authority prints on a certificate is a better
 source than the text, which can hide a sample number. After an upload a background thread reads the codes of the
-evidence: the first two pages of a PDF rendered at 300 dpi with `pdftoppm`, or the image itself, decoded with
+evidence: the first two pages of a PDF rendered with `pdftoppm` at 150 dpi (and at 300 dpi when that finds no code), or the image itself, decoded with
 `zbarimg` (packages `poppler-utils` and `zbar-tools`, installed by `install.sh`; without them nothing is read).
 The codes are stored in `qualification_submissions.qr_json` (cleared when the evidence is deleted) and the
 recognised parts are compared at display time with what was entered: a certificate number (same patterns as
@@ -1654,7 +1686,23 @@ for is still missing and the PDF text gave no number (so there is no text layer 
 (turned upright first) or a JPEG/PNG as it is. It returns what it found per field with its source (`qr`, `text`, `ocr`;
 that order of preference), the dates seen and where the document differs from the typed values; people who are not
 administrators get only the QR check's status, authority and issues, not the decoded codes. The PDF is decompressed
-once per read, with one budget for all its streams together (`PDF_TEXT_BUDGET`, 80 MiB).
+once per read, with one budget for all its streams together (`PDF_TEXT_BUDGET`, 80 MiB). Dates and their labels come
+from `pdftotext` (poppler-utils) when installed, which also decodes subset fonts; else from the built-in PDF reader.
+Labels are recognised in English, Dutch, French, German, Spanish, Italian, Portuguese, Polish, Swedish, Danish,
+Norwegian, Czech and Finnish (`DATE_LABELS`, `MONTHS`). A complete read is kept in memory for 30 minutes per person
+and file (SHA-256) and used on submit of that same file instead of reading it again (then OCR results count too).
+
+**Also covers** (issue 255, part 1). The read also returns `suggestions`, `[{type_id, reason}]` of other active types the
+certificate probably covers: `number` when records of that type (anyone's: pending, approved or archived) carry the same
+certificate number, `text` when a distinctive part of the type name (`type_tokens`: a token with a digit and a letter
+such as A2, A1/A3, STS-01, or capitals only of three letters or more such as STS) appears as a whole word in the read text
+(QR code, `pdftotext`/PDF text, OCR). Plain names (First aid) are never suggested from text; only type ids are returned.
+The dialog shows them as one-click chips next to the added ones and a search over all other active types. On submit
+`also_type_ids` (JSON list, at most `ALSO_TYPES_MAX` 20; the chosen type and repeats are dropped) makes one pending record
+per type in one transaction, with the same number, dates and `read_from`, each with its own copy of the evidence (so
+deleting one record's file keeps the others') and its own audit entry (`certificate_covers` lists the types). Every
+covered type is checked like the chosen one (active, required evidence, dates and number, no pending one of that type);
+one failing refuses the whole certificate and names the type. The response adds `ids`; admins get one notice.
 
 The whole read has one time limit (`QUALIFICATION_READ_SECONDS`, default `READ_SECONDS`, 25 s), shared by the QR code
 and OCR: every `pdftoppm`, `zbarimg` and `tesseract` call gets at most the time left. When it runs out, what was found so
@@ -1773,8 +1821,10 @@ alias or username is added (username = name without spaces, no password, email o
 active, external, no start date required, and evidence or Valid until required only if every row of that
 type in the file has them; adjust them afterwards under Qualification types. A row with only a person
 (no type, dates or file) adds that person without a qualification, e.g. project members without a
-licence, so initial setup needs no manual Add user step. Ambiguous names block the import. The qualifications panel splits Current (pending and non-expired approvals) from
-Archive (expired approvals and superseded records); rejected and withdrawn submissions stay under Current.
+licence, so initial setup needs no manual Add user step. Ambiguous names block the import. The qualifications panel (`qualifications.js`) has a header row (title, count, a search
+box from 7 records on, **Add qualification**) and one line per record (name opening the evidence, number and end date,
+QR and status chips, actions; dates, file and review in the tooltip). Pending and non-expired approvals come first;
+expired approvals, superseded, rejected and withdrawn records are under **Show N older** (`qual_older=1` in the URL).
 API keys cannot import. The original ZIP is not stored as a shared attachment.
 Attach one PDF, JPEG or PNG per submission, up to **20 MiB**. Required-evidence types cannot be submitted
 or approved without a file. Optional-evidence types still require approval. An expiry date is required only when configured for the type;

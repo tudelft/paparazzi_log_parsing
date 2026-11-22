@@ -1,5 +1,5 @@
 # Manually started release housekeeping: create an annotated Web UI release tag and/or
-# delete remote branches that are already fully merged into master.
+# delete remote branches that are already fully merged into master (or kept in pr-screenshots).
 name: Release
 
 on:
@@ -15,7 +15,7 @@ on:
         description: "Commit on master to tag (default: current master)"
         required: false
       delete_branches:
-        description: "Space-separated branches to delete; only deleted when fully merged into master"
+        description: "Space-separated branches to delete; only when fully merged into master (or into pr-screenshots)"
         required: false
 
 permissions:
@@ -55,19 +55,25 @@ jobs:
           echo "Tagged $target as $TAG"
 
       - name: Delete merged branches
+        # A screenshot branch of an earlier pull request may go once pr-screenshots contains its commit: the images
+        # that pull request links by commit SHA stay reachable from there.
         if: inputs.delete_branches != ''
         env:
           BRANCHES: ${{ inputs.delete_branches }}
         run: |
           set -eu
           for b in $BRANCHES; do
-            if [ "$b" = master ]; then echo "::warning::Skipping master"; continue; fi
+            if [ "$b" = master ] || [ "$b" = pr-screenshots ]; then echo "::warning::Skipping $b"; continue; fi
             if ! git rev-parse --verify -q "origin/$b" >/dev/null; then
               echo "::warning::$b does not exist"; continue
             fi
             if git merge-base --is-ancestor "origin/$b" origin/master; then
               git push origin --delete "$b"
               echo "Deleted $b"
+            elif git rev-parse --verify -q origin/pr-screenshots >/dev/null \
+                && git merge-base --is-ancestor "origin/$b" origin/pr-screenshots; then
+              git push origin --delete "$b"
+              echo "Deleted $b (kept in pr-screenshots)"
             else
               echo "::warning::$b is not fully merged into master; kept"
             fi

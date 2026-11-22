@@ -148,6 +148,9 @@ to gain descriptions and previously omitted crew entries.
   Comments are read-only there; edit them on the flight page.
   Distance from takeoff and maximum range are shown only on the flight page, not in overview tables or statistics.
   If the aircraft did not send a version, the Paparazzi version from the GCS `.log` header is shown instead.
+- **Open in Flight Plotter ▾** (Betaflight, INDIFlight and blackbox logs, on the flight page and in an expanded
+  Logbook row): opens the log in the INDIFlight Flight Plotter, or Blackbox Viewer from the menu, in a new tab. See
+  [Open in Flight Plotter](TECHNICAL.md#open-in-flight-plotter) for how the log is handed over.
 - **MATLAB ▾** (top right of a flight page, in an expanded Logbook row, and in a log's details under Logs, also for a
   log without flights) exports a Paparazzi SD or GCS log:
   **This flight** or **All flights** (10 s before takeoff to 10 s after landing, that aircraft, time 0 at takeoff)
@@ -290,7 +293,7 @@ at a time (Next / Previous), then submit; answers (and, when the training is set
 random order each attempt. After passing, **Practice again** lets you answer the questions again without changing your pass. Retry until you pass; only the passing answers and the attempt count
 are kept. A pass can grant the linked qualification immediately, or wait in the People approval queue when the
 training has **A pass needs approval** on; admins see **N passes to approve** above the trainings and approve or reject
-them (several at once, with Undo) right in that queue. After that qualification expires, a queued pass is rejected, or an
+them (several at once, with Undo) right in that queue; its **Decided** view lists what was approved, rejected or withdrawn. After that qualification expires, a queued pass is rejected, or an
 administrator resets the pass, you can take it again. Admins create questionnaires in Edit mode (single choice,
 multiple choice, ranking, optional image) or import a JSON/ZIP file kept outside the repository, and can ask who
 delivered the briefing from a short list of people. A training can also mail an access request (for example to a secretary, for room access)
@@ -298,7 +301,9 @@ once a pass is granted, optionally only when the person answers **No** to a ques
 access to the flight lab?"; admins can get a copy under **My account → Email**.
 
 **Profile** (optional): when the server turns it on, you fill in your role, department, supervisors, expected end
-date and student/employee number after signing in, and again once that end date has passed. Change it under
+date and student/employee number after signing in, and again once that end date has passed. Your role limits the
+end date (for example at most 2 years ahead for a Master student; admins set this per role) and whether it may be
+indefinite. Change it under
 **My account**. Only you, admins and your supervisors see it (supervisors without your number): on your person
 page, and on People in the **Profiles** and **Supervision** tabs, which show supervisors the people they supervise.
 
@@ -314,11 +319,13 @@ Expired approvals are marked; approval alone does not establish operational elig
 Evidence and submission history are private to you and admins; audit history is admin-only.
 Pilot pages show approved summaries, not evidence.
 Use **Valid from** and **Valid until** to record the licence period, including past qualifications.
+When one certificate covers several qualifications (e.g. A1/A3, A2 and STS under one number), add them under
+**Also covers** in the same dialog: each becomes its own record with the same file, number and dates, approved one by one.
 Admins can make either date optional per type; both date switches start checked for new types.
 In Edit mode, admins can correct the dates of any submission with **Edit dates**, for example to end a licence that has expired.
 An Internal switch marks in-house qualifications. Drag types to set their order, then use one Save.
 In Edit mode, **Import ZIP** on People loads a `manifest.csv` plus evidence PDFs: preview, then import
-and approve in one step. Older licence periods go to the **Archive** tab of each person's qualifications.
+and approve in one step. Older licence periods are under **Show older** in each person's qualifications.
 Names not yet on People are added as new users (shown as **New user** in the preview).
 Dates are entered manually, and existing records keep an unknown start date. Historical flight
 eligibility is not checked. The read-only People list shows only approved, non-expired qualifications,

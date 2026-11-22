@@ -77,7 +77,10 @@
   .supervision-group td.projects .chip { display:inline-block; max-width:calc(100% - 28px); overflow:hidden; text-overflow:ellipsis;
     vertical-align:middle; margin:0 3px 0 0; }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:4px 14px; }
-  .profile-options { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:8px 24px; }
+  .profile-options { display:flex; flex-wrap:wrap; gap:8px 24px; }
+  .profile-options > div { flex:2 1 300px; min-width:0; }
+  .profile-options > div:first-child { flex:3 1 440px; }  /* roles: more columns */
+  .profile-options td:first-child input { min-width:9em; }
   .profile-options h3 { margin:6px 0; font-size:13px; }
   .profile-options table { width:100%; border-collapse:collapse; margin-bottom:6px; }
   .profile-options th { font-size:12px; color:var(--mute); text-align:left; font-weight:500; }
@@ -195,6 +198,27 @@
   .aq-kv a:hover, .aq-row a:hover { text-decoration:underline; }
   .aq-keys { font-size:12px; color:var(--mute); margin-top:8px; }
   .aq-keys kbd { font:11px ui-monospace,monospace; border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:0 4px; background:var(--card); }
+  /* Decided view (approval history) */
+  .ah { border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .ah-row { display:grid; grid-template-columns:20px 104px minmax(110px,1fr) minmax(150px,1.5fr) 92px minmax(110px,1fr) minmax(130px,1.5fr); align-items:center; gap:8px; padding:6px 10px; border-top:1px solid var(--line); min-width:0; cursor:pointer; }
+  .ah-row:first-child { border-top:0; }
+  .ah-row.ah-head { background:var(--band); font-size:12px; color:var(--mute); font-weight:600; cursor:default; }
+  .ah-row > * { min-width:0; }
+  .ah-row:focus-visible { outline:2px solid var(--acc); outline-offset:-2px; }
+  .ah-out { font-size:12px; border-radius:9px; padding:1px 8px; white-space:nowrap; }
+  .ah-out.approved { background:var(--okbg); color:var(--ok); }
+  .ah-out.rejected { background:var(--errbg); color:var(--err); }
+  .ah-out.withdrawn { background:var(--chip); color:var(--mute); }
+  .ah-tools select { font:inherit; font-size:13px; padding:3px 6px; border:1px solid var(--fieldline); border-radius:6px; background:var(--field); color:var(--txt); }
+  .ah-pager { display:flex; justify-content:center; margin-top:10px; }
+  @media (max-width: 760px) {
+    .ah-row { grid-template-columns:20px minmax(0,1fr) auto; grid-template-areas:"caret person out" ". what what" ". when by" ". reason reason"; row-gap:2px; }
+    .ah-row.ah-head { display:none; }
+    .ah-row > :nth-child(1) { grid-area:caret; } .ah-row > :nth-child(2) { grid-area:when; }
+    .ah-row > :nth-child(3) { grid-area:person; } .ah-row > :nth-child(4) { grid-area:what; }
+    .ah-row > :nth-child(5) { grid-area:out; } .ah-row > :nth-child(6) { grid-area:by; }
+    .ah-row > :nth-child(7) { grid-area:reason; }
+  }
   .aq-toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:50; max-width:calc(100% - 32px); background:#1b2733; color:#fff; border-radius:8px; padding:8px 14px; display:flex; gap:14px; align-items:center; box-shadow:0 4px 14px #0005; font-size:13px; }
   .aq-toast[hidden] { display:none; }
   .aq-toast span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -312,15 +336,20 @@
   </section>
   <section class="card" id="approvalSection" hidden>
     <div class="aq-tools">
-      <h2>Approval queue</h2><span class="mute" id="aqCount"></span>
+      <h2>Approval queue</h2>
+      <span class="aq-seg" id="aqViews" role="group" aria-label="Waiting or decided"></span><span class="mute" id="aqCount"></span>
       <input type="search" id="aqSearch" aria-label="Search the approval queue" placeholder="Search" oninput="aqSearch(this.value)">
       <span class="aq-seg" id="aqKinds" role="group" aria-label="Show"></span>
+      <span class="ah-tools" id="ahPeriodWrap" hidden><select id="ahPeriod" aria-label="Period" onchange="ahSetPeriod(this.value)">
+        <option value="90d">Last 90 days</option><option value="year">This year</option><option value="all">All</option></select></span>
       <span class="aq-spacer"></span>
       <span class="mute" id="aqSelected"></span>
       <button type="button" id="aqApproveSelected" hidden onclick="aqApprove([...aqSelection])">Approve selected</button>
-      <details><summary>Help</summary><p>Approve or reject each training pass, qualification or booking (agendas that need approval) here; ▸ opens its evidence and details. Approve shows Undo for a few seconds before it is saved (leaving the page saves it at once). Reject asks for an optional reason, which is mailed to the person. A submission that cannot be approved yet says why; Edit opens it in that person's Qualifications tab.</p></details>
+      <details><summary>Help</summary><p>Approve or reject each training pass, qualification or booking (agendas that need approval) here; ▸ opens its evidence and details. Approve shows Undo for a few seconds before it is saved (leaving the page saves it at once). Reject asks for an optional reason, which is mailed to the person. A submission that cannot be approved yet says why; Edit opens it in that person's Qualifications tab. <strong>Decided</strong> lists what was approved, rejected or withdrawn, also what needed no approval (training passes without approval, imports, bookings by an administrator or approver); click a row for its details.</p></details>
     </div>
     <div id="approvalQueue"></div>
+    <div id="approvalHistory" hidden></div>
+    <div class="ah-pager"><div class="navigation-pages" id="ahPager"></div></div>
     <p class="aq-keys" id="aqKeys">Keyboard: <kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Space</kbd> select · <kbd>Enter</kbd> open · <kbd>A</kbd> approve · <kbd>R</kbd> reject</p>
   </section>
   <div class="aq-toast" id="aqToast" role="status" hidden><span id="aqToastText"></span><button type="button" onclick="aqUndo()">Undo</button></div>
@@ -362,9 +391,9 @@
   </section>
   <section class="card" id="profileOptionsSection" hidden>
     <div class="section-heading"><h2>Profile options</h2>
-    <details><summary>Help</summary><p>The choices of the profile everyone fills in after signing in. <em>Supervises</em> offers people with that role as supervisors; <em>Needs supervisor</em> makes naming one required. A department's group is shown next to it; people can also type a department that is not listed. The department list starts empty: add your departments or sections, or <em>Import CSV</em> with one per line as <span class="mono">name,group</span>. Removing an entry leaves that field empty in the profiles that used it, so those people are asked again. One Save writes both lists.</p></details></div>
+    <details><summary>Help</summary><p>The choices of the profile everyone fills in after signing in. <em>Supervises</em> offers people with that role as supervisors; <em>Needs supervisor</em> makes naming one required. <em>Max years</em> limits how far ahead the expected end date may be (empty: no limit), and only roles with <em>Indefinite</em> may tick Indefinite instead of a date; profiles outside these limits are asked again at the next sign-in. A department's group is shown next to it; people can also type a department that is not listed. The department list starts empty: add your departments or sections, or <em>Import CSV</em> with one per line as <span class="mono">name,group</span>. Removing an entry leaves that field empty in the profiles that used it, so those people are asked again. One Save writes both lists.</p></details></div>
     <div class="profile-options">
-      <div><h3>Roles</h3><table class="compact"><thead><tr><th>Name</th><th title="Offered as a supervisor">Supervises</th><th title="Must name a supervisor">Needs supervisor</th><th></th></tr></thead><tbody id="roleRows"></tbody></table>
+      <div><h3>Roles</h3><table class="compact"><thead><tr><th>Name</th><th title="Offered as a supervisor">Supervises</th><th title="Must name a supervisor">Needs supervisor</th><th title="The expected end date is at most this many years ahead (empty: no limit)">Max years</th><th title="May tick Indefinite instead of an end date">Indefinite</th><th></th></tr></thead><tbody id="roleRows"></tbody></table>
         <button type="button" class="sec" onclick="addOptionRow('role')">Add role</button></div>
       <div><h3>Departments</h3><table class="compact"><thead><tr><th>Section</th><th>Department</th><th></th></tr></thead><tbody id="deptRows"></tbody></table>
         <button type="button" class="sec" onclick="addOptionRow('dept')">Add department</button>
@@ -553,6 +582,7 @@ window.addEventListener('popstate', () => {
   pageTab = p.get('tab') || 'people';
   aqKind = AQ_KINDS.includes(p.get('kind')) ? p.get('kind') : '';
   aqQuery = p.get('q') || ''; aqOpen = +p.get('open') || 0;
+  ahReadUrl(p);
   render();
 });
 function render() {
@@ -563,7 +593,7 @@ function render() {
   $('directorySearchLabel').hidden = editing;
   $('directoryCount').hidden = editing;
   // the tab stays while it is open (the last decision does not jump to People)
-  $('approvalSection').hidden = !admin || (!pendingQualifications.length && pageTab !== 'approvals');
+  $('approvalSection').hidden = !admin;  // also with nothing waiting: Decided shows the history
   $('typesSection').hidden = !editing;
   $('profileOptionsSection').hidden = !editing || !profileOn;
   // Profiles and Supervision: admins see everyone, a supervisor the people they supervise
@@ -669,6 +699,15 @@ let aqKind = AQ_KINDS.includes(aqParams.get('kind')) ? aqParams.get('kind') : ''
 let aqQuery = aqParams.get('q') || '', aqOpen = +aqParams.get('open') || 0;
 const aqSelection = new Set(), aqHeld = new Map(), aqErrors = new Map();
 let aqTimer = null, aqFocus = 0, aqRejecting = null;
+// Decided (the history): view, period, page and opened row ("q12" a submission, "b3" a booking) in the URL
+let aqView = '', ahPeriod = '90d', ahPage = 0, ahOpen = '', ahData = null, ahSeq = 0, ahTimer = null;
+function ahReadUrl(p) {
+  aqView = p.get('view') === 'decided' ? 'decided' : '';
+  ahPeriod = ['year', 'all'].includes(p.get('period')) ? p.get('period') : '90d';
+  ahPage = Math.max(0, (parseInt(p.get('page'), 10) || 1) - 1);
+  ahOpen = /^[qb]\d+$/.test(p.get('open') || '') ? p.get('open') : '';
+}
+ahReadUrl(aqParams);
 const aqIsTraining = s => !!s.training_id;
 const aqIsBooking = s => s.kind === 'booking';
 const aqKindOf = s => aqIsBooking(s) ? 'booking' : aqIsTraining(s) ? 'training' : 'qualification';
@@ -750,9 +789,17 @@ function aqPanel(s) {
 }
 function renderQueue() {
   const all = pendingQualifications.filter(s => !aqHeld.has(s.id)), items = aqVisible();
+  const decided = aqView === 'decided';
+  $('aqViews').innerHTML = [['', 'Waiting' + (all.length ? ' ' + all.length : '')], ['decided', 'Decided']]
+    .map(([v, label]) => `<button type="button" aria-pressed="${aqView === v}" onclick="aqSetView('${v}')">${label}</button>`).join('');
+  $('approvalQueue').hidden = decided;
+  $('approvalHistory').hidden = !decided;
+  $('ahPeriodWrap').hidden = !decided;
+  if (decided) { $('aqSelected').textContent = ''; $('aqApproveSelected').hidden = true; $('aqKeys').hidden = true; return renderHistory(); }
+  $('ahPager').innerHTML = '';
   for (const id of [...aqSelection]) if (!items.some(s => s.id === id && s.can_approve)) aqSelection.delete(id);
   const count = k => all.filter(s => aqKindOf(s) === k).length, bookings = count('booking');
-  $('aqCount').textContent = all.length ? all.length + ' waiting' : '';
+  $('aqCount').textContent = '';
   $('aqKinds').innerHTML = [['', 'All', ''], ['training', 'Training passes', count('training')],
     ['qualification', 'Qualifications', count('qualification')],
     ...(bookings || aqKind === 'booking' ? [['booking', 'Bookings', bookings]] : [])]
@@ -781,14 +828,104 @@ function renderQueue() {
     : `<p class="mute">${all.length ? 'Nothing matches.' : 'Nothing is waiting for approval.'}</p>`;
 }
 function aqUrl(push) {
-  const url = new URL(location.href);
-  for (const [k, v] of [['kind', aqKind], ['q', aqQuery.trim()], ['open', aqOpen || '']]) {
+  const url = new URL(location.href), decided = aqView === 'decided';
+  for (const [k, v] of [['view', aqView], ['kind', aqKind], ['q', aqQuery.trim()], ['open', decided ? ahOpen : aqOpen || ''],
+    ['period', decided && ahPeriod !== '90d' ? ahPeriod : ''], ['page', decided && ahPage ? ahPage + 1 : '']]) {
     if (v) url.searchParams.set(k, v); else url.searchParams.delete(k);
   }
   if (url.href !== location.href) history[push ? 'pushState' : 'replaceState'](history.state, '', url);
 }
-function aqSetKind(k) { aqKind = k; aqUrl(true); renderQueue(); }
-function aqSearch(v) { aqQuery = v; aqUrl(false); renderQueue(); }
+function aqSetKind(k) { aqKind = k; ahPage = 0; ahOpen = ''; aqUrl(true); renderQueue(); }
+function aqSearch(v) {
+  aqQuery = v; ahPage = 0; aqUrl(false);
+  if (aqView !== 'decided') return renderQueue();
+  clearTimeout(ahTimer);  // the history is searched on the server: wait for a pause in typing
+  ahTimer = setTimeout(renderQueue, 300);
+}
+function aqSetView(v) { aqView = v; aqOpen = 0; ahOpen = ''; ahPage = 0; aqUrl(true); renderQueue(); }
+function ahSetPeriod(v) { ahPeriod = v; ahPage = 0; ahOpen = ''; aqUrl(true); renderQueue(); }
+function ahToggle(key) { ahOpen = ahOpen === key ? '' : key; aqUrl(true); renderQueue(); }
+
+// The Decided view: GET /api/admin/approval-history, a page at a time, newest decision first.
+async function renderHistory() {
+  const query = new URLSearchParams({kind: aqKind, q: aqQuery.trim(), period: ahPeriod, page: ahPage + 1}).toString();
+  if ($('aqSearch').value !== aqQuery) $('aqSearch').value = aqQuery;
+  $('ahPeriod').value = ahPeriod;
+  $('aqKinds').innerHTML = [['', 'All'], ['training', 'Training passes'], ['qualification', 'Qualifications'], ['booking', 'Bookings']]
+    .map(([k, label]) => `<button type="button" aria-pressed="${aqKind === k}" onclick="aqSetKind('${k}')">${label}</button>`).join('');
+  if (!ahData || ahData.query !== query) {
+    const seq = ++ahSeq;
+    try {
+      const data = await adminApi('/api/admin/approval-history?' + query);
+      if (seq !== ahSeq) return;
+      ahData = {...data, query};
+    } catch (e) {
+      $('approvalHistory').innerHTML = `<p class="dialog-error">${esc(e.message)}</p>`;
+      return;
+    }
+  }
+  if (aqView !== 'decided') return;
+  const {items, total, page_size: size} = ahData;
+  $('aqCount').textContent = total === 1 ? '1 decision' : total + ' decisions';
+  $('approvalHistory').innerHTML = items.length ? `<div class="ah" id="ahTable" role="list">
+    <div class="ah-row ah-head"><span></span><span>Decided</span><span>Person</span><span>What</span><span>Outcome</span><span>By</span><span>Reason / note</span></div>
+    ${items.map(h => {
+      const open = ahOpen === h.key, exact = t => String(t || '').replace('T', ' ').replace(/Z$/, ' UTC');
+      const by = h.by ? h.by + (h.by_approver ? ' (approver)' : '') : 'Automatic';
+      const note = h.rejection || h.reason || (h.replaced ? 'Replaced later by a newer one' : '');
+      return `<div class="ah-row" role="listitem" tabindex="0" data-key="${h.key}" aria-expanded="${open}" onclick="ahToggle('${h.key}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();ahToggle('${h.key}')}">
+        <span class="aq-caret" aria-hidden="true">${open ? '▾' : '▸'}</span>
+        <span class="aq-small aq-ell" title="Decided ${esc(exact(h.decided_at))} · ${h.kind === 'booking' ? 'requested' : 'submitted'} ${esc(exact(h.submitted_at))}">${esc(aqWhen(h.decided_at))}</span>
+        <span class="aq-ell aq-person" title="${esc(h.person)}">${esc(h.person)}</span>
+        <span class="aq-ell" title="${esc(ahWhat(h))}"><span class="aq-kind${h.kind === 'training' ? ' training' : h.kind === 'booking' ? ' booking' : ''}">${h.kind === 'training' ? 'Training' : h.kind === 'booking' ? 'Booking' : 'Certificate'}</span>${esc(ahWhat(h))}</span>
+        <span><span class="ah-out ${h.outcome}">${h.outcome === 'approved' ? 'Approved' : h.outcome === 'rejected' ? 'Rejected' : 'Withdrawn'}</span></span>
+        <span class="aq-ell aq-small" title="${esc(by)}">${esc(by)}</span>
+        <span class="aq-ell ${h.rejection ? '' : 'aq-small'}" title="${esc(note)}">${esc(note) || '<span class="mute">—</span>'}</span>
+      </div>${open ? ahPanel(h) : ''}`;
+    }).join('')}</div>`
+    : `<p class="mute">${aqQuery.trim() || aqKind ? 'Nothing matches.' : 'Nothing was decided in this period.'}</p>`;
+  if (total > size) window.viewState.pager($('ahPager'), ahPage, size, total, n => { ahPage = n; aqUrl(true); renderQueue(); });
+  else $('ahPager').innerHTML = '';
+}
+function ahWhat(h) {
+  if (h.kind === 'booking') return `${h.what} · ${aqSpan(h)}`;
+  return h.number ? `${h.what} · ${h.number}` : h.what;
+}
+function ahPanel(h) {
+  const rows = [], dd = (k, v) => v ? rows.push(`<dt>${k}</dt><dd>${v}</dd>`) : null;
+  const exact = t => esc(String(t || '').replace('T', ' ').replace(/Z$/, ' UTC'));
+  let preview = '';
+  if (h.kind === 'booking') {
+    dd('Agenda', `<a href="/agenda?item=${h.thing_id}&amp;week=${esc(h.start.slice(0, 10))}">${esc(h.what)}</a>`);
+    dd('When', esc(aqSpan(h)));
+    dd('Description', esc(h.description));
+    dd('Options', esc(h.flags.join(', ')));
+  } else if (h.kind === 'training') {
+    dd('Training', h.training_id ? `<a href="/training?id=${h.training_id}&amp;pass_user=${h.user_id}">${esc(h.what)}</a>` : esc(h.what));
+    dd('Grants', esc(h.category));
+    dd('Score', esc(h.score));
+    dd('Briefed by', esc(h.briefed_by));
+    dd('Access answer', h.access_answer ? (h.access_answer === 'yes' ? 'Yes, already has access' : 'No') : '');
+  } else {
+    const view = `/api/qualification-submissions/${h.id}/evidence/view`;
+    dd('Type', esc(h.category));
+    dd('Number', esc(h.number));
+    if (h.has_evidence) {
+      dd('Evidence', `<a href="${view}" target="_blank" rel="noopener">${esc(h.evidence_name || 'Evidence')}</a> · opens full size`);
+      preview = /^image\//.test(h.evidence_mime || '') ? `<img src="${view}" alt="Evidence of ${esc(h.person)}">`
+        : h.evidence_mime === 'application/pdf' ? `<iframe src="${view}#toolbar=0&amp;view=FitH" title="Evidence of ${esc(h.person)}"></iframe>` : '';
+    } else dd('Evidence', esc(h.evidence_label) || '<span class="mute">None</span>');
+    dd('Valid from', esc(h.valid_from));
+    dd('Valid until', esc(h.valid_until));
+  }
+  dd('Person', `<a href="/people/${h.user_id}">${esc(h.person)}</a>`);
+  dd(h.kind === 'booking' ? 'Requested' : 'Submitted', exact(h.submitted_at));
+  dd('Decided', exact(h.decided_at) + ' · ' + esc(h.by ? h.by + (h.by_approver ? ' (approver)' : '') : 'automatically'));
+  dd('Outcome', esc(h.outcome === 'approved' ? 'Approved' + (h.automatic ? ' (automatic)' : '') + (h.replaced ? ', replaced later by a newer one' : '')
+    : h.outcome === 'rejected' ? 'Rejected' : 'Withdrawn'));
+  dd(h.rejection ? 'Reason' : 'Note', esc(h.rejection || h.reason));
+  return `<div class="aq-open${preview ? '' : ' no-preview'}">${preview ? `<div class="aq-preview">${preview}</div>` : ''}<dl class="aq-kv">${rows.join('')}</dl></div>`;
+}
 function aqToggleOpen(id) { aqOpen = aqOpen === id ? 0 : id; aqFocus = id; aqUrl(true); renderQueue(); aqFocusRow(); }
 function aqToggle(id, on) { if (on) aqSelection.add(id); else aqSelection.delete(id); aqFocus = id; renderQueue(); }
 function aqSelectAll(on) {
@@ -1065,6 +1202,7 @@ function renderPersonPanel() {
       if (generation === panelGeneration) return load();
     });
     qualificationManager.editing = editing;
+    qualificationManager.name = user.display_name || user.username;  // the add dialog says for whom
     qualificationManager.load();
   } else if (selectedTab === 'aliases') {
     $('personContent').innerHTML = `<p class="mute">Aliases link PIC/PAC/GCS names in logs to this person. Unique display names match automatically; usernames match only if explicitly added as aliases. Review existing aliases if a short name is ambiguous.</p>
@@ -1338,7 +1476,8 @@ async function previewProfileImport(apply = false) {
       <th>Fills in</th></tr></thead><tbody>${d.rows.map(r => `<tr><td>${r.line}</td>
       <td title="${esc(r.username)}">${esc(r.name || r.username || '—')}</td>
       <td>${r.error ? `<span class="chip warn">${esc(r.error)}</span>` : esc(label[r.status])}</td>
-      <td>${esc((r.changes || []).join(', '))}${(r.still_missing || []).length
+      <td>${esc((r.changes || []).join(', '))}${r.outside_limits
+        ? `<div><span class="chip warn" title="Kept as an administrator's choice; the person is not asked to change it">Outside the role's limits</span> <span class="mute">${esc(r.outside_limits)}</span></div>` : ''}${(r.still_missing || []).length
         ? `<div class="mute">still empty: ${esc(r.still_missing.join(', '))}</div>` : ''}</td></tr>`).join('')}</tbody></table>`;
     $('profileImportCommit').hidden = d.applied || d.errors > 0 || !d.changed;
     $('profileImportStatus').textContent = d.applied ? `Imported: ${d.changed} profile${d.changed === 1 ? '' : 's'} filled in.`
@@ -1478,7 +1617,9 @@ function optionRow(kind, item = {}) {
   const remove = '<td><button type="button" class="danger" aria-label="Remove" onclick="this.closest(\'tr\').remove()">×</button></td>';
   if (kind === 'role') return `<tr data-id="${item.id || ''}"><td><input name="name" maxlength="120" value="${esc(item.name || '')}"></td>
     <td><input type="checkbox" name="can_supervise"${item.can_supervise ? ' checked' : ''}></td>
-    <td><input type="checkbox" name="needs_supervisor"${item.needs_supervisor ? ' checked' : ''}></td>${remove}</tr>`;
+    <td><input type="checkbox" name="needs_supervisor"${item.needs_supervisor ? ' checked' : ''}></td>
+    <td><input type="number" name="max_years" min="1" max="50" step="1" style="width:4.5em" value="${item.max_years ?? ''}" aria-label="Max years"></td>
+    <td><input type="checkbox" name="allow_indefinite"${item.allow_indefinite ?? !item.id ? ' checked' : ''}></td>${remove}</tr>`;
   return `<tr data-id="${item.id || ''}"><td><input name="name" maxlength="120" value="${esc(item.name || '')}"></td>
     <td><input name="grp" maxlength="120" value="${esc(item.grp || '')}"></td>${remove}</tr>`;
 }
