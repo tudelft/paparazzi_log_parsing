@@ -238,8 +238,9 @@ window.timingEvidenceHTML = function (timing) {
   const CATEGORIES = {all: 'All categories', national: 'National rules (ROC / ROC-light)', open: 'OPEN', specific: 'SPECIFIC',
     luc: 'LUC', indoor: 'Indoor', unknown: 'Unknown category', check: 'Category to check'};
   // indoor, nonflights and unknownDates mean "shown"; by default everything is shown (the panel offers Hide options).
-  // Saved selections keep their values, so a browser that hid them keeps hiding them.
-  const defaults = () => ({period: '3y', from: '', to: '', indoor: true, nonflights: true, unknownDates: true, operator: 'all', category: 'all'});
+  // Saved selections keep their values, so a browser that hid them keeps hiding them. noflightLogs (off by default)
+  // adds parsed logs that produced no flight to the Logbook.
+  const defaults = () => ({period: '3y', from: '', to: '', indoor: true, nonflights: true, unknownDates: true, operator: 'all', category: 'all', noflightLogs: false});
   let storageWarning = '';
   const validDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)
     && !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
@@ -253,6 +254,7 @@ window.timingEvidenceHTML = function (timing) {
           || !['from', 'to'].every(k => value[k] === '' || validDay(value[k]))
           || typeof value.indoor !== 'boolean' || typeof value.nonflights !== 'boolean'
           || (value.unknownDates !== undefined && typeof value.unknownDates !== 'boolean')
+          || (value.noflightLogs !== undefined && typeof value.noflightLogs !== 'boolean')
           || (value.operator !== undefined && !Object.hasOwn(OPERATORS, value.operator))
           || (value.category !== undefined && !Object.hasOwn(CATEGORIES, value.category))
           || (value.from && value.to && value.from > value.to)) {
@@ -260,7 +262,7 @@ window.timingEvidenceHTML = function (timing) {
       }
       return {period: value.period, from: value.from, to: value.to,
         indoor: value.indoor, nonflights: value.nonflights, unknownDates: value.unknownDates ?? true,
-        operator: value.operator ?? 'all', category: value.category ?? 'all'};
+        operator: value.operator ?? 'all', category: value.category ?? 'all', noflightLogs: value.noflightLogs ?? false};
     } catch (error) {
       console.warn('Could not restore flight filters:', error);
       storageWarning = 'Saved filters could not be restored. Using the default selection.';
@@ -277,7 +279,7 @@ window.timingEvidenceHTML = function (timing) {
           || !Object.hasOwn(OPERATORS, value.operator || 'all')
           || !Object.hasOwn(CATEGORIES, value.category || 'all')
           || (value.from && value.to && value.from > value.to)) return false;
-      state = {...value, operator: value.operator || 'all', category: value.category || 'all'};
+      state = {...value, operator: value.operator || 'all', category: value.category || 'all', noflightLogs: !!value.noflightLogs};
       paint();
       return true;
     },
@@ -336,7 +338,8 @@ window.timingEvidenceHTML = function (timing) {
   summary() {
     return `${this.periodLabel()} · Indoor/no-GPS ${state.indoor ? 'shown' : 'hidden'} · Non-flights ${state.nonflights ? 'shown' : 'hidden'} · Unknown dates ${state.unknownDates ? 'shown' : 'hidden'}`
       + (state.operator === 'all' ? '' : ` · ${OPERATORS[state.operator]}`)
-      + (state.category === 'all' ? '' : ` · ${CATEGORIES[state.category]}`);
+      + (state.category === 'all' ? '' : ` · ${CATEGORIES[state.category]}`)
+      + (state.noflightLogs ? ' · Logs without flights shown' : '');
   },
 };
 
@@ -347,7 +350,8 @@ window.timingEvidenceHTML = function (timing) {
   function paint() {
     const button = document.getElementById('flightFiltersButton');
     if (!button) return;
-    const extra = Number(!state.indoor) + Number(!state.nonflights) + Number(!state.unknownDates) + Number(state.operator !== 'all') + Number(state.category !== 'all');
+    const extra = Number(!state.indoor) + Number(!state.nonflights) + Number(!state.unknownDates) + Number(state.operator !== 'all') + Number(state.category !== 'all')
+      + Number(state.noflightLogs);
     // a funnel icon, then the period and how many other filters are changed (the full summary is the tooltip)
     button.innerHTML = '<svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
       + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>'
@@ -375,9 +379,11 @@ window.timingEvidenceHTML = function (timing) {
           <label><input type="checkbox" name="indoor"> Hide indoor / no-GPS flights</label>
           <label><input type="checkbox" name="nonflights"> Hide non-flights</label>
           <label><input type="checkbox" name="unknownDates"> Hide unknown dates</label>
+          <label><input type="checkbox" name="noflightLogs"> Show logs without flights (Logbook)</label>
         </div>
         <details class="filter-help"><summary>Help</summary>
-          <p>Non-flights are simulations, uncertain flights, ground records and zero-flight log files; uncertain flights are marked (?). In Edit mode a flight can be confirmed as a flight or not a flight.</p>
+          <p>Non-flights are simulations, uncertain flights, ground records and zero-flight log files; uncertain flights are marked (?). Edit flight on the flight page confirms a flight as a flight or not a flight.</p>
+          <p>Logs without flights: the Logbook also lists parsed logs that produced no flight (bench tests, ground checks), marked "no flight".</p>
           <p>Records without a known date are shown alongside the selected period unless Hide unknown dates is ticked. Other visibility filters still apply.</p>
           <p>Own operations are flights under our own operator registration: use them for operator reporting. Pilot experience counts all operators.</p>
           <p>Category: the rules a flight was flown under. Before 2021 that was national rules (ROC / ROC-light); since then OPEN or SPECIFIC under an operational authorisation. To check: SPECIFIC without an authorisation, or flown outside its validity.</p>
@@ -399,6 +405,7 @@ window.timingEvidenceHTML = function (timing) {
     function fill(value) {
       for (const key of ['period', 'from', 'to', 'operator', 'category']) fields[key].value = value[key];
       for (const key of ['indoor', 'nonflights', 'unknownDates']) fields[key].checked = !value[key];  // ticked = hidden
+      fields.noflightLogs.checked = !!value.noflightLogs;  // ticked = shown
       syncDates();
     }
     function close(focus = false) {
@@ -438,7 +445,7 @@ window.timingEvidenceHTML = function (timing) {
       }
       state = {period: fields.period.value, from: custom ? fields.from.value : '', to: custom ? fields.to.value : '',
         indoor: !fields.indoor.checked, nonflights: !fields.nonflights.checked, unknownDates: !fields.unknownDates.checked,
-        operator: fields.operator.value, category: fields.category.value};
+        operator: fields.operator.value, category: fields.category.value, noflightLogs: fields.noflightLogs.checked};
       try { localStorage.setItem(KEY, JSON.stringify(state)); storageWarning = ''; }
       catch (error) {
         console.warn('Could not save flight filters:', error);
@@ -462,7 +469,7 @@ window.timingEvidenceHTML = function (timing) {
 (function () {
   const filters = window.flightFilters;
   const filterKeys = {period:'period', from:'from', to:'to', indoor:'indoor',
-    nonflights:'nonflights', unknownDates:'unknown_dates', operator:'operator', category:'category'};
+    nonflights:'nonflights', unknownDates:'unknown_dates', operator:'operator', category:'category', noflightLogs:'noflight_logs'};
   const integer = (value, fallback, min = 1) => /^\d+$/.test(value || '')
     && Number.isSafeInteger(+value) && +value >= min ? +value : fallback;
   window.viewState = {

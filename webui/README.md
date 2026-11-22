@@ -63,7 +63,9 @@ to gain descriptions and previously omitted crew entries.
   revision, linking to that exact commit on GitHub.
   **(modified)** indicates local code changes; this is separate from the telemetry parser version.
 - Use **Flight filters** in the top menu to select a period (default: last three years), custom
-  UTC dates, **Hide indoor / no-GPS flights**, **Hide non-flights** and **Hide unknown dates**.
+  UTC dates, **Hide indoor / no-GPS flights**, **Hide non-flights** and **Hide unknown dates**. **Show logs without
+  flights** (off by default) adds parsed logs that produced no flight to the Logbook, marked **no flight**, with a link
+  to the log's details.
   By default everything is shown; ticked options stay saved in this browser. Unknown-date records are
   shown alongside the selected period unless **Hide unknown dates** is ticked, independently of
   **Hide non-flights**; other visibility filters still apply.

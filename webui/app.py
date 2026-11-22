@@ -7360,6 +7360,53 @@ def list_logs():
     return jsonify(logs=logs, total=total, limit=limit, offset=offset)
 
 
+@app.get("/api/logbook/logs-without-flights")
+def logs_without_flights():
+    """Parsed logs that produced no flight, for "Logs without flights" in the Logbook's flight filters: the logs this
+    user may see on the Logs page (and ?project=), parsed without error, with no flight. Optional from/to (YYYY-MM-DD,
+    on the log's date: the set date, else its start when that clock is plausible), unknown_dates=0 to leave out logs
+    without a usable date, and q (in the log name, aircraft names or project name)."""
+    dates = {}
+    for key in ("from", "to"):
+        value = request.args.get(key, "")
+        if value:
+            try:
+                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+                    raise ValueError
+                datetime.strptime(value, "%Y-%m-%d")
+            except ValueError:
+                return jsonify(error=f"Invalid {key} date; use YYYY-MM-DD."), 400
+        dates[key] = value
+    unknown_dates = request.args.get("unknown_dates") != "0"
+    search = request.args.get("q", "").strip().lower()
+    where, params = list_clause("l.")
+    con = conn()
+    rows = con.execute(
+        "SELECT l.*, p.name AS project_name,"
+        " (SELECT COALESCE(u.display_name, u.username) FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name,"
+        " (SELECT group_concat(DISTINCT COALESCE(d.name, a.name, '?')) FROM aircraft a"
+        "  LEFT JOIN drones d ON d.id = a.drone_id WHERE a.log_id = l.id) AS aircraft_names"
+        " FROM logs l LEFT JOIN projects p ON p.id = l.project_id WHERE (" + where + ") AND l.status='done'"
+        " AND NOT EXISTS (SELECT 1 FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id = l.id)"
+        " ORDER BY l.id DESC", params).fetchall()
+    out = []
+    for r in rows:
+        d = log_dict(r)
+        day = ((d.get("start_utc") or d.get("date_override") or "") if d["date_ok"] else "")[:10]
+        if day:
+            if (dates["from"] and day < dates["from"]) or (dates["to"] and day > dates["to"]):
+                continue
+        elif not unknown_dates:
+            continue
+        if search and search not in " ".join(str(d.get(k) or "") for k in ("name", "aircraft_names", "project_name")).lower():
+            continue
+        out.append({k: d.get(k) for k in (
+            "id", "name", "log_type", "project_id", "project_name", "start_utc", "end_utc", "duration_s", "date_ok",
+            "date_override", "date_estimated", "uploaded_at", "uploaded_by_name", "aircraft_names", "has_log")}
+            | {"can_edit_date": can_set_log_date(con, r), "can_edit_project": bool(g.user["is_admin"])})
+    return jsonify(logs=out)
+
+
 @app.get("/api/logs/<int:log_id>")
 def get_log(log_id):
     con = conn()

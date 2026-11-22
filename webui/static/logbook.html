@@ -91,6 +91,9 @@
   .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; }
   .warn { color:var(--err); }
   .date-unknown { background:var(--warnbg); color:var(--warn); font-weight:400; }
+  .no-flight { background:var(--chip, var(--sec)); color:var(--mute); margin-left:4px; }
+  tr.nolog { cursor:default; }
+  tr.nolog td { color:var(--mute); }
   .date-estimated { text-decoration:underline dotted var(--warn); text-underline-offset:3px; cursor:help; }
   .date-estimated .date-tip { display:none; position:fixed; left:16px; bottom:16px; z-index:1000;
     max-width:min(420px,calc(100vw - 32px)); padding:8px 12px; border:1px solid var(--line);
@@ -204,6 +207,23 @@ const exportable = f => MatlabExport.available(f.sources);
 const selectable = () => true;
 const selectOn = () => !hiddenColumns.has('Select');  // the tick-box column can be switched off under Columns
 const pickedFlights = () => flights.filter(f => crewIds(f).some(id => selected.has(id)));
+// Logs without flights (the flight filters' "Show logs without flights"): parsed logs that produced no flight, as
+// rows of their own (GET /api/logbook/logs-without-flights, the Logs page's scope); key "nolog:<log id>".
+let noFlightLogs = [], noFlightLoaded = false;
+const asLogRow = l => ({...l, nolog: true, record_key: 'nolog:' + l.id, log_id: l.id, aircraft: l.aircraft_names || l.name,
+  takeoff_utc: l.date_ok ? l.start_utc : null, log_start_utc: l.start_utc});
+async function loadNoFlightLogs() {
+  if (!window.flightFilters.state.noflightLogs) return;
+  try {
+    const r = await fetch('/api/logbook/logs-without-flights');
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Could not load the logs without flights');
+    noFlightLogs = d.logs.map(asLogRow);
+    noFlightLoaded = true;
+  } catch (error) { $('bulkMsg').textContent = error.message; }
+}
+const pickedLogs = () => noFlightLogs.filter(l => selected.has(l.record_key));
+const logSource = l => ({log_id: l.id, flight_id: null, log_type: l.log_type, log_name: l.name, flights: 0});
 // per ticked logbook entry the flight ids of its recordings; the server exports the SD one, else the GCS one
 const matlabEntries = () => pickedFlights().filter(exportable).map(f => f.sources.map(s => s.flight_id)).sort((a, b) => a[0] - b[0]);
 
@@ -232,12 +252,14 @@ async function loadFlights() {
   pathCache.clear();
   try {
     loadLogbookFiles();
+    const withoutFlights = loadNoFlightLogs();
     const r = await fetch('/api/logbook?compact=1' + ($('hiddenRecords').checked ? '&hidden=1' : ''));
     const d = await r.json();
+    await withoutFlights;
     if (generation !== loadGeneration) return;
     if (!r.ok) throw new Error(d.error || 'Could not load the logbook');
     flights = d;
-    const available = new Set(flights.flatMap(crewIds));
+    const available = new Set([...flights.flatMap(crewIds), ...noFlightLogs.map(l => l.record_key)]);
     for (const id of selected) if (!available.has(id)) selected.delete(id);
     syncEditUi();
     render();
@@ -381,14 +403,29 @@ async function setHidden(hidden) {
   $('bulkMsg').textContent = hidden ? 'Selected entries hidden.' : 'Selected entries restored.';
   loadFlights();
 }
+const logMode = () => pickedLogs().length > 0 && !pickedFlights().length;
 function openBulk() {
-  const n = pickedFlights().length;
-  $('bulkWhat').textContent = `${n} ticked ${n === 1 ? 'entry' : 'entries'}; fields left on Keep stay as they are.`;
+  const n = pickedFlights().length, logs = pickedLogs().length;
+  $('bulkWhat').textContent = logMode() ? `${logs} ticked ${logs === 1 ? 'log' : 'logs'} without flights: only the project applies.`
+    : `${n} ticked ${n === 1 ? 'entry' : 'entries'}; fields left on Keep stay as they are.`;
+  for (const id of ['bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory']) $(id).closest('label').style.display = logMode() ? 'none' : '';
   $('bulkError').textContent = '';
   ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory'].forEach(id => { $(id).value = '__keep__'; });
   $('bulkDialog').showModal();
 }
 async function applyBulk() {
+  if (logMode()) {  // a log's project (PUT /api/logs/<id>/project, administrators)
+    if ($('bulkProject').value === '__keep__') { $('bulkError').textContent = 'Choose a project.'; return; }
+    for (const l of pickedLogs()) {
+      const r = await fetch(`/api/logs/${l.id}/project`, {method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({project_id: $('bulkProject').value ? +$('bulkProject').value : null})});
+      if (!r.ok) { $('bulkError').textContent = ((await r.json().catch(() => ({}))).error) || 'Could not save the project'; return; }
+    }
+    $('bulkDialog').close();
+    $('bulkMsg').textContent = 'Saved.';
+    loadFlights();
+    return;
+  }
   const ids = [...selected];
   if (!ids.length) { $('bulkError').textContent = 'Tick the flights you want to change.'; return; }
   const body = {};
@@ -790,6 +827,22 @@ function flightRows(f, cls = '') {
     + (open_.has(f.record_key) ? `<tr><td colspan="21" class="detail">${detail(f)}</td></tr>` : '');
 }
 
+// A log without flights: its date (or the date chip), start and end, duration, type with a "no flight" chip, aircraft
+// and project; the log name links to its details on the Logs page.
+function logRow(l) {
+  const ids = [l.record_key];
+  const date = l.date_ok ? esc(fmtDate(l.start_utc) || l.date_override || '') : l.can_edit_date
+    ? `<button type="button" class="badge date-unknown" data-set-date="${esc(l.record_key)}" title="Click to set the date (this log has no usable calendar date, often GPS week 0, shown as 1980)">date unknown</button>`
+    : '<span class="badge date-unknown" title="This log has no usable calendar date (often GPS week 0, shown as 1980)">date unknown</span>';
+  return `<tr class="flight nolog${ticked(ids) ? ' ticked' : ''}" data-id="${esc(l.record_key)}"><td class="exp"></td>${chk(ids)}<td class="num"></td>
+    <td>${date}</td><td>${esc(fmtHm(l.start_utc))}</td><td>${esc(fmtHm(l.end_utc)) || '<span class="mute">–</span>'}</td><td>0</td>
+    <td>${fmtDur(l.duration_s)}</td><td></td>
+    <td>${esc(TYPE_LABEL[l.log_type] || l.log_type || 'Log')}<span class="badge no-flight" title="This log was parsed but produced no flight">no flight</span></td>
+    <td>${esc(l.aircraft_names || '')}</td><td>${l.project_id != null ? `<a href="/projects/${l.project_id}">${esc(l.project_name || '')}</a>` : ''}</td>
+    <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+    <td><a href="/logs#log${l.id}" title="Log details: ${esc(l.name)}">${esc(l.name)}</a></td></tr>`;
+}
+
 function groupRows(g) {
   if (g.flights.length === 1) return flightRows(g.flights[0]);
   const isOpen = openGroups.has(g.id);
@@ -808,7 +861,7 @@ function groupRows(g) {
 // The selection bar: what can be done with the ticked entries. Copy and MATLAB for everyone; Change… and Same flight
 // only when the user may change every ticked entry; Hide/Restore for admins (the server checks all of it again).
 function renderSelBar() {
-  const picked = pickedFlights(), count = picked.length;
+  const picked = pickedFlights(), logs = pickedLogs(), count = picked.length + logs.length;
   $('selBar').hidden = !count || !selectOn();
   if (!count) return;
   $('selCount').textContent = `${count} selected`;
@@ -819,12 +872,16 @@ function renderSelBar() {
     el.disabled = !!why;
     el.title = why || el.dataset.title;
   };
-  const noNumber = picked.filter(f => f.flight_id == null).length;
+  const noNumber = picked.filter(f => f.flight_id == null).length + logs.length;
   if (!copiedTimer) $('selCopy').textContent = 'Copy numbers';
   $('selCopy').dataset.title = `Copy the flight numbers (${selectedNumbers().join(', ')}), e.g. into ml.fetch([…]) in Python or pprz_fetch([…]) in MATLAB`;
-  allow($('selCopy'), noNumber ? `${plural(noNumber, 'ticked entry has', 'ticked entries have')} no flight number (paper records); untick ${noNumber === 1 ? 'it' : 'them'} to copy the numbers` : '');
-  const noLog = picked.filter(f => !exportable(f)).length;
-  if (noLog) {
+  allow($('selCopy'), noNumber ? `${plural(noNumber, 'ticked entry has', 'ticked entries have')} no flight number (paper records, logs without flights); untick ${noNumber === 1 ? 'it' : 'them'} to copy the numbers` : '');
+  const noLog = picked.filter(f => !exportable(f)).length + logs.filter(l => !MatlabExport.available([logSource(l)])).length;
+  if (logs.length && !noLog && (picked.length || logs.length > 1)) {
+    $('selMatlab').innerHTML = '<button type="button" disabled title="MATLAB of a log without flights: tick it on its own">MATLAB ▾</button>';
+  } else if (logs.length && !noLog) {
+    $('selMatlab').innerHTML = MatlabExport.button([logSource(logs[0])]);  // the whole log
+  } else if (noLog) {
     $('selMatlab').innerHTML = `<button type="button" disabled title="${esc(`${plural(noLog, 'ticked entry has', 'ticked entries have')} no Paparazzi log to export; untick ${noLog === 1 ? 'it' : 'them'} for MATLAB`)}">MATLAB ▾</button>`;
   } else {
     $('selMatlab').innerHTML = MatlabExport.bulkButton(matlabEntries, () => 0);
@@ -833,14 +890,18 @@ function renderSelBar() {
   // Change… and Same flight only for who may change entries at all; disabled when some ticked ones are not theirs
   const changer = !!me?.is_admin || flights.some(f => f.can_edit_crew);
   $('bulkChange').hidden = $('sameFlightBtn').hidden = !changer;
-  allow($('bulkChange'), locked ? `You may not change ${locked} of the ticked entries` : '');
+  allow($('bulkChange'), logs.length && picked.length ? 'Logs without flights only change their project: tick them on their own'
+    : logs.some(l => !l.can_edit_project) ? "Only administrators change a log's project"
+    : locked ? `You may not change ${locked} of the ticked entries` : '');
   const papers = picked.filter(f => f.manual_id).length;
-  allow($('sameFlightBtn'), locked ? `You may not change ${locked} of the ticked entries`
+  allow($('sameFlightBtn'), logs.length ? 'Logs without flights have no flight to join'
+    : locked ? `You may not change ${locked} of the ticked entries`
     : count < 2 ? 'Tick two or more entries of one flight'
     : papers > 1 ? 'At most one paper record can be part of one flight'
     : papers === count ? 'Tick at least one logged flight' : '');
   $('hideSelected').hidden = !me?.is_admin || $('hiddenRecords').checked;
   $('restoreSelected').hidden = !me?.is_admin || !$('hiddenRecords').checked;
+  allow($('hideSelected'), logs.length ? 'Hide applies to flights and paper records; untick the logs without flights' : '');
 }
 
 function closeMenus() {
@@ -875,7 +936,7 @@ const describe = list => list.length === 1
   : `${list.length} flights of ${list[0].aircraft || 'this aircraft'} on ${fmtDate(when(list[0]))}`;
 // "date unknown" chip of an undated log: set the date it was flown on
 function setDateDialog(key) {
-  const f = flights.find(x => x.record_key === key);
+  const f = flights.find(x => x.record_key === key) || noFlightLogs.find(x => x.record_key === key);
   if (!f) return;
   actDialog('Set date', `${describe([f])} · this log has no usable calendar date`,
     `<label class="field">Date flown<input type="date" name="date" value="${esc(f.date_override || '')}" required></label>`,
@@ -917,21 +978,31 @@ function render() {
   const shown = flights.filter(f => window.flightFilters.includes(f) && filesMatch(f) && (!q || q.split(/\s+/).every(w => text(f).includes(w))));
   // newest first as the server sends them (by takeoff, else the log's start); equal times by log name and number
   const latest = f => f.takeoff_utc || f.log_start_utc || '';
-  const entries = $('combine').checked ? combine(shown)
+  let entries = $('combine').checked ? combine(shown)
     : [...shown].sort((a, b) => latest(b).localeCompare(latest(a)) || byName(b, a)).map(f => ({flights: [f], id: f.record_key}));
+  // logs without flights: same period and search, not with a Files filter or among hidden records; by date with the rest
+  const logText = l => [l.name, l.aircraft_names, l.project_name, TYPE_LABEL[l.log_type] || l.log_type, 'no flight',
+    l.date_ok ? fmtDate(l.start_utc) : 'date unknown', l.date_override].join(' ').toLowerCase();
+  const shownLogs = window.flightFilters.state.noflightLogs && !$('filesFilter').value && !$('hiddenRecords').checked
+    ? noFlightLogs.filter(l => window.flightFilters.includesDate(l) && (!q || q.split(/\s+/).every(w => logText(l).includes(w)))) : [];
+  if (shownLogs.length) {
+    const key = e => e.log ? latest(e.log) : latest(e.flights[0]);
+    entries = [...entries, ...shownLogs.map(l => ({log: l, id: l.record_key}))].sort((a, b) => key(b).localeCompare(key(a)));
+  }
   const pages = Math.max(1, Math.ceil(entries.length / pageSize));
   page = Math.min(page, pages - 1);
   const visible = entries.slice(page * pageSize, (page + 1) * pageSize);
   window.viewState.pager($('logbookPages'), page, pageSize, entries.length, n => { page = n; window.viewState.save(true); render(); });
-  $('rows').innerHTML = visible.map(groupRows).join('');
-  const pageIds = [...new Set(visible.flatMap(e => (e.flights || []).filter(selectable).flatMap(crewIds)))];
+  $('rows').innerHTML = visible.map(e => e.log ? logRow(e.log) : groupRows(e)).join('');
+  const pageIds = [...new Set(visible.flatMap(e => e.log ? [e.log.record_key] : (e.flights || []).filter(selectable).flatMap(crewIds)))];
   $('selAll').checked = pageIds.length > 0 && pageIds.every(id => selected.has(id));
   $('selAll').disabled = !pageIds.length;
   renderSelBar();
   $('selAll').onchange = () => { toggleSel(pageIds, $('selAll').checked); };
   const total = shown.reduce((s, f) => s + (f.duration_s || 0), 0);
   const dist = shown.some(f => f.distance_m != null) ? shown.reduce((s, f) => s + (f.distance_m || 0), 0) : null;
-  $('summary').textContent = `${shown.reduce((s, f) => s + (f.flight_count || 1), 0)} flights` + ($('combine').checked ? ` · ${entries.length} rows` : '') + ` · ${fmtDur(total)} · ${dist == null ? 'No recorded distance' : fmtDist(dist) + ' recorded distance'}`;
+  $('summary').textContent = `${shown.reduce((s, f) => s + (f.flight_count || 1), 0)} flights` + ($('combine').checked ? ` · ${entries.length} rows` : '') + ` · ${fmtDur(total)} · ${dist == null ? 'No recorded distance' : fmtDist(dist) + ' recorded distance'}`
+    + (shownLogs.length ? ` · ${shownLogs.length} ${shownLogs.length === 1 ? 'log' : 'logs'} without flights` : '');
   initMiniMaps();
   initFiles();
   window.viewState.ready();
@@ -943,7 +1014,7 @@ $('rows').onclick = e => {
   const gr = e.target.closest('tr.group');
   if (gr) { const id = gr.dataset.gid; openGroups.has(id) ? openGroups.delete(id) : openGroups.add(id); render(); return; }
   const tr = e.target.closest('tr.flight');
-  if (!tr) return;
+  if (!tr || tr.classList.contains('nolog')) return;
   const id = tr.dataset.id;
   open_.has(id) ? open_.delete(id) : open_.add(id);
   render();
@@ -975,7 +1046,11 @@ $('q').oninput = () => { page = 0; window.viewState.save(); render(); };
 $('combine').onchange = () => { page = 0; window.viewState.save(true); render(); };
 
 document.addEventListener('attachmentsuploaded', loadLogbookFiles);  // the general Upload added files
-window.addEventListener('flightfilterschange', () => { selected.clear(); page = 0; window.viewState.save(true); render(); });
+window.addEventListener('flightfilterschange', async () => {
+  selected.clear(); page = 0; window.viewState.save(true);
+  if (window.flightFilters.state.noflightLogs && !noFlightLoaded) await loadNoFlightLogs();
+  render();
+});
 window.addEventListener('pageshow', event => {
   if (event.persisted) { selected.clear(); render(); }
 });

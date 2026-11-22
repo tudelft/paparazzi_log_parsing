@@ -2531,6 +2531,17 @@ again as before.
   numbers (all have a flight number), MATLAB ▾ (all have a Paparazzi log), **Change…** (project, PIC, PAC, GCS,
   operator, category; fields on Keep stay) and **Same flight** (shown to who may change entries; enabled when they
   may change every ticked one), and **Hide** or **Restore** for admins.
+- <a id="logs-without-flights"></a>**Logs without flights** (flight filters option *Show logs without flights*, off
+  by default, stored like the other options; URL `noflight_logs=1`): the Logbook loads
+  `GET /api/logbook/logs-without-flights` and shows parsed logs (status `done`) without any flight as rows of their own
+  with a *no flight* chip: date (set date, else the log start; *date unknown* chip otherwise), start and end, duration,
+  type, aircraft names, project and the log name linking to `/logs#log<id>`. Failed, queued and parsing logs are left to
+  the Logs page. The endpoint uses the Logs page's scope (`list_clause`: admins all; others their projects' logs and
+  logs they uploaded or co-uploaded; `?project=`) and takes optional `from`/`to`, `unknown_dates=0` and `q`; the Logbook
+  applies the period, unknown dates and search itself, sorts the rows by date with the flights and leaves them out with
+  a Files filter or Hidden records only. Ticked, they offer only what applies: MATLAB of the whole log (one log on its
+  own), the date chip for undated logs (`can_edit_date`), and **Change…** with only the project for administrators
+  (`PUT /api/logs/<id>/project`); Copy numbers, Same flight and Hide are disabled with the reason.
 - **Files ▾** filters entries with files (any, or one category); while on it shows as a chip (*Files: Photos*) with ✕.
   The URL parameter `files` is unchanged (`any` or `cat:<category>`).
 - **Manage ▾** (admins and members with edit, full or manager rights in a project): **Import CSV…**/**Add paper
