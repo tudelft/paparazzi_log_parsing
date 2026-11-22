@@ -36,6 +36,28 @@
   .empty { color:var(--mute); font-size:13px; }
   .ellipsis { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
 
+  /* messages from the site (the welcome message; other kinds later): dismissible, newest first */
+  .messages { display:grid; gap:10px; }
+  .messages:empty { display:none; }
+  .msg { position:relative; border-left:4px solid var(--acc); padding-right:44px; }
+  .msg h3 { margin-bottom:6px; }
+  .msg .body { font-size:14px; line-height:1.5; }
+  .msg .body p, .msg .body ul { margin:0 0 8px; overflow-wrap:anywhere; }
+  .msg .body ul { padding-left:22px; }
+  .msg .body li { margin:0 0 3px; }
+  .msg .body .indent { margin:0 0 6px 24px; }
+  .msg .body a { color:var(--acc); text-decoration:none; } .msg .body a:hover { text-decoration:underline; }
+  .msg .close { position:absolute; top:8px; right:8px; width:28px; height:28px; padding:0; border:0; border-radius:6px;
+    background:none; color:var(--mute); font-size:18px; line-height:1; cursor:pointer; }
+  .msg .close:hover, .msg .close:focus-visible { background:var(--hover); color:var(--txt); }
+  .msg.notice { border-left-color:var(--warn); }
+  .msg.fixed { padding-right:14px; }
+  .msg .tag { font-size:11px; font-weight:600; border-radius:9px; padding:1px 7px; background:var(--warnbg); color:var(--warn); }
+  .msg .until { font-size:12px; font-weight:400; color:var(--mute); margin-left:auto; white-space:nowrap; }
+  .msg .actions { display:flex; justify-content:flex-end; }
+  .msg .actions button { font:inherit; font-size:13px; padding:4px 12px; border-radius:6px; border:1px solid var(--fieldline);
+    background:var(--sec); color:var(--txt); cursor:pointer; }
+
   /* needs attention */
   .todo { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr)); gap:8px; }
   .todo a { display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:8px; background:var(--detail);
@@ -110,6 +132,7 @@
   <div id="err"></div>
   <div class="hello"><h2 id="hello">Welcome</h2><span class="mute" id="helloSub"></span></div>
   <div class="grid">
+    <div class="s12 messages" id="messages" aria-label="Messages"></div>
     <section class="card s12" id="todoCard" hidden>
       <h3>Needs your attention <span class="count" id="todoCount"></span></h3>
       <div class="todo" id="todo"></div>
@@ -158,6 +181,30 @@ async function api(url, options) {
   if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
   return d;
 }
+
+// ---- Messages from the site (data.messages: id, kind, version, title, html, dismissible, until): the welcome
+// message and admins' notices; html is built and escaped by the server. Dismissing is per message and version; a
+// new version shows again. A notice that cannot be closed has no Dismiss.
+function paintMessages() {
+  $('messages').innerHTML = (data.messages || []).map(m => `<section class="card msg ${esc(m.kind)}${m.dismissible ? '' : ' fixed'}" data-id="${esc(m.id)}" data-version="${m.version}">
+      <h3><span class="ellipsis" title="${esc(m.title)}">${esc(m.title)}</span>${m.dismissible ? ''
+        : ' <span class="tag" title="This notice stays until it ends or an administrator removes it">Notice</span>'}${m.until
+        ? `<span class="until" title="Shown up to and including this day">until ${esc(m.until)}</span>` : ''}</h3><div class="body">${m.html}</div>
+      ${m.dismissible ? `<button type="button" class="close" aria-label="Dismiss ${esc(m.title)}" title="Dismiss">✕</button>
+      <div class="actions"><button type="button" class="dismiss">Dismiss</button></div>` : ''}</section>`).join('');
+}
+$('messages').addEventListener('click', async event => {
+  const button = event.target.closest('.close, .dismiss');
+  if (!button) return;
+  const card = button.closest('.msg');
+  button.disabled = true;
+  try {
+    await api('/api/home/messages/dismiss', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: card.dataset.id, version: +card.dataset.version})});
+    data.messages = data.messages.filter(m => m.id !== card.dataset.id);
+    card.remove();
+  } catch (e) { $('err').textContent = e.message; button.disabled = false; }
+});
 
 // ---- Needs your attention: built from /api/home plus the trainings and (admins) the approval queue ----
 async function paintTodo() {
@@ -309,6 +356,7 @@ async function load() {
   $('helloSub').title = sub;
   const wanted = +new URLSearchParams(location.search).get('place');
   place = data.places.some(p => p.id === wanted) ? wanted : data.place_id;
+  paintMessages();
   paintFlying();
   paintComing();
   paintRecent();

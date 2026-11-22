@@ -534,6 +534,44 @@ CREATE TABLE IF NOT EXISTS calendar_tokens (  -- private calendar feed links (bo
     token TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS welcome_message (  -- welcome.py: shown once to everyone after the profile, written by admins
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    title TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL DEFAULT '',     -- empty: no welcome message
+    version INTEGER NOT NULL DEFAULT 0, -- raised to show it again to everyone who saw it
+    updated_at TEXT,
+    updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS notices (  -- welcome.py: admins' notices at the top of the Home page
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,  -- raised when the title or text changes: shown again to who dismissed it
+    audience TEXT NOT NULL DEFAULT 'all' CHECK(audience IN ('all','roles')),  -- roles: notice_roles
+    until TEXT,                          -- YYYY-MM-DD, shown up to and including that day; NULL: until deleted
+    closable INTEGER NOT NULL DEFAULT 1 CHECK(closable IN (0,1)),  -- 0: no Dismiss
+    created_at TEXT NOT NULL,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    updated_at TEXT,
+    updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS notice_roles (  -- the profile roles a notice with audience 'roles' is for
+    notice_id INTEGER NOT NULL REFERENCES notices(id) ON DELETE CASCADE,
+    role_id INTEGER NOT NULL REFERENCES profile_roles(id) ON DELETE CASCADE,
+    PRIMARY KEY (notice_id, role_id)
+);
+CREATE TABLE IF NOT EXISTS notice_dismissals (  -- the version of a notice each person dismissed
+    notice_id INTEGER NOT NULL REFERENCES notices(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    dismissed_at TEXT NOT NULL,
+    PRIMARY KEY (notice_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS welcome_seen (  -- the version of the welcome message each person has seen
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    seen_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS document_settings (  -- Documents page (documents.py): the text at the top
     id INTEGER PRIMARY KEY CHECK(id=1),
     intro TEXT NOT NULL DEFAULT ''
@@ -1029,7 +1067,7 @@ LOGBOOK_UNRELATED = {
     "api_keys", "cli_logins", "drone_requests", "password_setup_tokens", "ingest", "bulk_reservations", "weather_cache",
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
     "training_progress", "training_briefers", "booking_things", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
-    "document_settings", "document_groups", "documents", "document_profile_roles", "document_qualification_types",
+    "welcome_message", "welcome_seen", "notices", "notice_roles", "notice_dismissals", "document_settings", "document_groups", "documents", "document_profile_roles", "document_qualification_types",
     "safety_settings", "safety_reports",
     "mail_outbox", "mail_prefs", "mail_sent_keys",
     "profile_roles", "profile_departments", "user_profiles", "user_supervisors", "logbook_version",

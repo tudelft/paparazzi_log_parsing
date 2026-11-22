@@ -486,7 +486,7 @@ def parse_access_answer(row, body):
 CONDITION = re.compile(r"^[ \t]*\{(if role:[^}\n]*|elif role:[^}\n]*|else|end)\}[ \t]*$", re.M | re.I)
 
 
-def role_blocks(text):
+def role_blocks(text, what="the access mail"):
     """The text split on its role conditions, one line each: {if role: A, B}, {elif role: C}, {else}, {end} (not
     nested). Gives [(roles or None for else, part) ...] per condition chain between plain text; TrainingError when
     the conditions do not pair up."""
@@ -496,10 +496,10 @@ def role_blocks(text):
         part = text[pos:m.start()]
         if chain is None:
             if word != "if":
-                raise TrainingError(f"{{{m[1].strip()}}} in the access mail has no {{if role: ...}} before it.")
+                raise TrainingError(f"{{{m[1].strip()}}} in {what} has no {{if role: ...}} before it.")
             out.append(part)
         elif word == "if":
-            raise TrainingError("Close each {if role: ...} in the access mail with {end} before the next one.")
+            raise TrainingError(f"Close each {{if role: ...}} in {what} with {{end}} before the next one.")
         else:
             chain[-1][1] = part
         if word in ("if", "elif"):
@@ -514,7 +514,7 @@ def role_blocks(text):
             chain = None
         pos = m.end() + (1 if text[m.end():m.end() + 1] == "\n" else 0)
     if chain is not None:
-        raise TrainingError("Close each {if role: ...} in the access mail with {end}.")
+        raise TrainingError(f"Close each {{if role: ...}} in {what} with {{end}}.")
     out.append(text[pos:])
     return out
 
