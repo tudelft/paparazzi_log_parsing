@@ -44,12 +44,18 @@
   a.btn { display:inline-block; background:var(--btn); color:#fff; padding:6px 12px; border-radius:6px; text-decoration:none; }
   a.btn.sec { background:var(--sec); color:var(--txt); }
   a.btn[hidden] { display:none; }
-  tr.flight, tr.group { cursor:pointer; } tr.flight:hover, tr.group:hover { background:var(--hover); }
+  /* every row paints its background from --row-bg, so the pinned ⋯ cell matches it (normal, day row, ticked,
+     opened, hover; night mode through the theme's colours) */
+  tr.flight, tr.group { cursor:pointer; --row-bg:var(--card); background:var(--row-bg); }
+  tr.flight.open { --row-bg:var(--detail); }
+  tr.flight.ticked, tr.group.ticked { --row-bg:color-mix(in srgb, var(--acc) 9%, var(--card)); }
+  tr.flight:hover { --row-bg:var(--hover); }
   tr.group { font-weight:600; }
   tr.sub td:nth-child(3) { padding-left:24px; }
   /* a day group: tinted with a bar on the left; its flights keep a lighter bar when it is open */
-  tr.group { background:color-mix(in srgb, var(--acc) 6%, transparent); box-shadow:inset 3px 0 0 var(--acc); }
-  tr.group:hover { background:color-mix(in srgb, var(--acc) 11%, transparent); }
+  tr.group { --row-bg:color-mix(in srgb, var(--acc) 6%, var(--card)); box-shadow:inset 3px 0 0 var(--acc); }
+  tr.group.ticked { --row-bg:color-mix(in srgb, var(--acc) 12%, var(--card)); }
+  tr.group:hover { --row-bg:color-mix(in srgb, var(--acc) 11%, var(--card)); }
   tr.sub { box-shadow:inset 3px 0 0 color-mix(in srgb, var(--acc) 45%, transparent); }
   .grp-count { display:inline-block; min-width:2.2em; padding:1px 7px; border-radius:10px; font-size:12px; font-weight:600;
     background:color-mix(in srgb, var(--acc) 16%, transparent); color:var(--acc); text-align:center; white-space:nowrap; }
@@ -73,18 +79,27 @@
   .sel-bar .x { margin-left:auto; }
   td.chk, th.chk { width:28px; padding-right:0; }
   /* the ⋯ column stays at the right edge while the wide table scrolls sideways */
+  /* the ⋯ column stays at the right edge while the wide table scrolls sideways: opaque in the row's own colour,
+     with a thin divider; its button shows on hover or focus (always on touch screens and while its menu is open) */
   table.log td.act, table.log th.act { width:36px; min-width:36px; max-width:none; padding:4px 3px; text-align:center;
-    position:sticky; right:0; z-index:1; background:var(--card); box-shadow:-6px 0 6px -6px #0003, 6px 0 0 var(--card); overflow:visible; }
-  tr.group > td.act { background:color-mix(in srgb, var(--acc) 6%, var(--card));
-    box-shadow:-6px 0 6px -6px #0003, 6px 0 0 color-mix(in srgb, var(--acc) 6%, var(--card)); }
-  td.act:empty { box-shadow:none; }
-  .row-act { background:none; color:var(--mute); padding:0 6px; font-size:16px; line-height:1; border-radius:4px; }
-  .row-act:hover, .row-act[aria-expanded="true"] { background:var(--hover); color:var(--txt); }
-  .set-date { margin-left:6px; padding:1px 8px; font-size:12px; font-weight:400; }
-  .hidden-chip { display:inline-flex; align-items:center; gap:4px; padding:1px 4px 1px 10px; border-radius:999px;
-    background:var(--warnbg); color:var(--warn); white-space:nowrap; }
-  .hidden-chip[hidden] { display:none; }
-  .hidden-chip button { background:none; color:inherit; padding:0 6px; }
+    position:sticky; right:0; z-index:1; background:var(--row-bg, var(--card)); overflow:visible;
+    box-shadow:inset 1px 0 0 var(--line), -6px 0 6px -6px #0002, 6px 0 0 var(--row-bg, var(--card)); }
+  .row-act { background:none; color:var(--mute); padding:0 6px; font-size:16px; line-height:1; border-radius:4px; opacity:0; }
+  tr:hover .row-act, tr:focus-within .row-act, .row-act:focus-visible, .row-act[aria-expanded="true"] { opacity:1; }
+  @media (hover:none) { .row-act { opacity:1; } }
+  .row-act:hover, .row-act[aria-expanded="true"] { background:var(--sec); color:var(--txt); }
+  /* an undated log: the chip itself sets the date for those who may */
+  button.date-unknown { border:0; font:inherit; font-size:12px; cursor:pointer; }
+  button.date-unknown:hover, button.date-unknown:focus-visible { box-shadow:0 0 0 1px var(--warn); }
+  /* an active filter (Files, Hidden records only): a tinted chip with ✕ to clear it */
+  .filter-chip { display:inline-flex; align-items:center; gap:2px; padding:0 2px 0 10px; border-radius:999px;
+    background:color-mix(in srgb, var(--acc) 14%, var(--card)); color:var(--acc); white-space:nowrap; font-size:13px; }
+  .filter-chip[hidden] { display:none; }
+  .filter-chip button { background:none; color:inherit; padding:4px 7px; }
+  .filter-chip button:hover { background:color-mix(in srgb, var(--acc) 12%, transparent); }
+  #filesBtn.active { display:none; }
+  .lb-menu .ext-item[aria-checked="true"] { font-weight:600; }
+  .lb-menu .ext-item[aria-checked="true"]::before { content:"✓ "; }
   .lb-menu { position:absolute; z-index:1000; padding:6px; min-width:180px; }
   .lb-menu[hidden] { display:none; }
   .lb-menu .ext-item { color:var(--txt); }
@@ -124,11 +139,16 @@
     <div class="bar">
       <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date, reference, file name, #number…)">
       <label title="One row per aircraft, crew, day and takeoff location, like a paper daily log. Expand a row for its flights."><input type="checkbox" id="combine" checked> Group by day</label>
-      <select id="filesFilter" aria-label="Files" title="Only flights with additional files (of a category)"><option value="">All flights</option><option value="any">With files</option></select>
+      <input type="hidden" id="filesFilter" value="">
+      <span class="col-menu" id="filesWrap"><button type="button" id="filesBtn" aria-haspopup="menu" aria-expanded="false"
+          title="Only entries with additional files (of a category)">Files ▾</button>
+        <span id="filesChip" class="filter-chip" hidden><button type="button" id="filesChipLabel" aria-haspopup="menu" aria-expanded="false"
+            title="Change the files filter"></button><button type="button" aria-label="Clear the files filter" title="Show all entries" onclick="setFiles('')">✕</button></span>
+        <div id="filesMenu" class="ext-pop lb-menu" role="menu" hidden style="left:0;top:calc(100% + 6px)"></div></span>
       <span class="col-menu"><button type="button" id="colButton" aria-expanded="false" aria-controls="colForm">Columns</button>
         <form id="colForm" hidden aria-label="Shown columns"></form></span>
-      <span id="hiddenChip" class="hidden-chip" hidden title="Only hidden entries are shown; restore them with the selection bar">Hidden records only
-        <button type="button" aria-label="Show the logbook again" onclick="setHiddenOnly(false)">✕</button></span>
+      <span id="hiddenChip" class="filter-chip" hidden title="Only hidden entries are shown; restore them with the selection bar"><span style="padding:4px 0">Hidden records only</span>
+        <button type="button" aria-label="Show the logbook again" title="Show the logbook again" onclick="setHiddenOnly(false)">✕</button></span>
       <span id="bulkMsg" class="mute"></span>
       <span class="col-menu" id="manageWrap" style="margin-left:auto" hidden><button type="button" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
         <div id="manageMenu" class="ext-pop lb-menu" role="menu" hidden style="right:0;left:auto;top:calc(100% + 6px)">
@@ -202,9 +222,9 @@ let flights = [], page = 0, pageSize = 15, me = null, projects = [], people = []
 const selected = new Set();
 const openGroups = new Set();
 const exportable = f => MatlabExport.available(f.sources);
-// An entry can be ticked when the ticks are of use for it: a logbook number (copy, MATLAB), or something the user may
-// change in it (project, crew, operator, category; hide or restore for admins).
-const selectable = f => f.flight_id != null || !!f.can_edit_crew;
+// Every entry can be ticked (paper records too); the selection bar then offers what applies to all ticked entries.
+const selectable = () => true;
+const selectOn = () => !hiddenColumns.has('Select');  // the tick-box column can be switched off under Columns
 const pickedFlights = () => flights.filter(f => crewIds(f).some(id => selected.has(id)));
 // per ticked logbook entry the flight ids of its recordings; the server exports the SD one, else the GCS one
 const matlabEntries = () => pickedFlights().filter(exportable).map(f => f.sources.map(s => s.flight_id)).sort((a, b) => a[0] - b[0]);
@@ -304,17 +324,19 @@ const COLUMNS = ['No.', 'Date (UTC)', 'Takeoff', 'Landing', 'Flights', 'Duration
   'Operator', 'Category', 'Takeoff location', 'Landing location', 'PIC', 'PAC', 'GCS', 'Goal', 'Comment'];
 const COLUMNS_KEY = 'logbook.hiddenColumns';
 let hiddenColumns = new Set();
-try { hiddenColumns = new Set(JSON.parse(localStorage.getItem(COLUMNS_KEY) || '[]').filter(c => COLUMNS.includes(c))); } catch (e) {}
+try { hiddenColumns = new Set(JSON.parse(localStorage.getItem(COLUMNS_KEY) || '[]').filter(c => c === 'Select' || COLUMNS.includes(c))); } catch (e) {}
 const columnStyle = document.head.appendChild(document.createElement('style'));
 function applyColumns() {
-  // Column n+3 in each row: first the expand arrow, then the tick box. Expanded detail rows span all columns.
-  columnStyle.textContent = COLUMNS.map((c, i) => hiddenColumns.has(c)
+  // Column n+3 in each row: first the expand arrow, then the tick box (Select, column 2). Expanded detail rows span all columns.
+  columnStyle.textContent = (hiddenColumns.has('Select') ? 'table.log tr > :nth-child(2):not(.detail) { display:none; }\n' : '')
+    + COLUMNS.map((c, i) => hiddenColumns.has(c)
     ? `table.log tr > :nth-child(${i + 3}):not(.detail) { display:none; }` : '').join('\n');
+  if (hiddenColumns.has('Select') && selected.size) { selected.clear(); if (flights.length) render(); }
   $('colButton').textContent = hiddenColumns.size ? `Columns (${hiddenColumns.size} hidden)` : 'Columns';
   try { localStorage.setItem(COLUMNS_KEY, JSON.stringify([...hiddenColumns])); } catch (e) {}
 }
 function fillColumns() {
-  $('colForm').innerHTML = COLUMNS.map(c => `<label><input type="checkbox" value="${esc(c)}"${hiddenColumns.has(c) ? '' : ' checked'}${c === 'Date (UTC)' ? ' disabled' : ''}> ${esc(c)}</label>`).join('')
+  $('colForm').innerHTML = ['Select', ...COLUMNS].map(c => `<label${c === 'Select' ? ' title="The tick boxes and the selection bar"' : ''}><input type="checkbox" value="${esc(c)}"${hiddenColumns.has(c) ? '' : ' checked'}${c === 'Date (UTC)' ? ' disabled' : ''}> ${esc(c)}</label>`).join('')
     + '<div class="col-actions"><button type="button" id="colAll">Show all</button><button type="button" id="colClose">Close</button></div>';
 }
 $('colButton').onclick = () => {
@@ -432,10 +454,9 @@ function toggleSel(ids, on) {
   ids.forEach(id => on ? selected.add(id) : selected.delete(id));
   render();
 }
-function chk(ids, can) {
-  if (!can) return '<td class="chk"></td>';
-  const all = ids.length > 0 && ids.every(id => selected.has(id));
-  return `<td class="chk"><input type="checkbox" ${all ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel(${esc(JSON.stringify(ids))}, this.checked)"></td>`;
+const ticked = ids => ids.length > 0 && ids.every(id => selected.has(id));
+function chk(ids) {
+  return `<td class="chk"><input type="checkbox" aria-label="Select" ${ticked(ids) ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel(${esc(JSON.stringify(ids))}, this.checked)"></td>`;
 }
 // Files of the flights and paper records (GET /api/logbook/files, loaded next to the logbook): their names are
 // searched, and the Files filter keeps entries with files (of one category). An entry merged from several recordings
@@ -444,6 +465,24 @@ let files = {flights: {}, paper: {}, categories: []}, wantedFiles = '';
 const filesOf = f => f.manual_id ? (files.paper[f.manual_id] || [])
   : [...new Map([f.flight_id, ...(f.sources || []).map(s => s.flight_id)].filter(id => id != null)
     .flatMap(id => files.flights[id] || []).map(file => [file[0], file])).values()];
+// Files ▾: All, With files, or files of one category; while on it shows as a chip with ✕. The value (and the
+// URL parameter "files") is as before: '' all, 'any', or 'cat:<category>'.
+let filesChoices = [['', 'All entries'], ['any', 'With files']];
+const filesLabel = v => v === 'any' ? 'Files: any' : v.startsWith('cat:') ? `Files: ${v.slice(4) || 'uncategorised'}` : '';
+function syncFiles() {
+  const v = $('filesFilter').value;
+  $('filesBtn').classList.toggle('active', !!v);
+  $('filesChip').hidden = !v;
+  $('filesChipLabel').textContent = filesLabel(v) + ' ▾';
+  $('filesMenu').innerHTML = filesChoices.map(([value, label]) =>
+    `<button type="button" class="ext-item" role="menuitemradio" aria-checked="${value === v}" data-files="${esc(value)}">${esc(label)}</button>`).join('');
+}
+function setFiles(value) {
+  $('filesFilter').value = value;
+  closeMenus();
+  syncFiles();
+  selected.clear(); page = 0; window.viewState.save(true); render();
+}
 function filesMatch(f) {
   const want = $('filesFilter').value;
   if (!want) return true;
@@ -459,11 +498,11 @@ async function loadLogbookFiles() {
   const want = $('filesFilter').value || wantedFiles;
   const used = new Set(Object.values(files.flights).concat(Object.values(files.paper)).flat().map(file => file[1] || ''));
   const names = [...files.categories, ...[...used].filter(name => name && !files.categories.includes(name)).sort()];
-  $('filesFilter').replaceChildren(...[['', 'All flights'], ['any', 'With files'],
-    ...names.map(name => ['cat:' + name, 'With ' + name]), ...(used.has('') ? [['cat:', 'With uncategorised files']] : [])]
-    .map(([value, label]) => Object.assign(document.createElement('option'), {value, textContent: label})));
-  $('filesFilter').value = [...$('filesFilter').options].some(o => o.value === want) ? want : '';
+  filesChoices = [['', 'All entries'], ['any', 'With files'],
+    ...names.map(name => ['cat:' + name, 'With ' + name]), ...(used.has('') ? [['cat:', 'With uncategorised files']] : [])];
+  $('filesFilter').value = filesChoices.some(([value]) => value === want) ? want : '';
   wantedFiles = '';
+  syncFiles();
   if (flights.length) render();
 }
 const text = f => filesOf(f).map(file => file[0]).join(' ').toLowerCase() + ' ' + [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)])].filter(id => id != null).map(id => '#' + id).join(' ') + ' ' + [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_estimated ? 'estimated date' : '', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, f.operator_name, f.operator_registration, categoryText(f), f.authorisation_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack' : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
@@ -733,16 +772,15 @@ const verdictMark = f => (f.simulation?.detected ? ' <span class="mute">(Simulat
   + (f.optitrack ? ' <span class="mute" title="OptiTrack or motion-capture pose in this log">(OptiTrack)</span>' : '')
   + (f.indoor && !f.optitrack ? ' <span class="mute" title="Takeoff is inside a named indoor place">(indoor)</span>' : '');
 function dateTd(f) {
-  const warn = '<span class="badge date-unknown" title="This log has no usable calendar date (often GPS week 0, shown as 1980)">date unknown</span>';
+  // who may set the date clicks the chip itself; for others it stays a plain chip
+  const warn = !f.date_ok && f.can_edit_date && !f.manual_id
+    ? `<button type="button" class="badge date-unknown" data-row-act="date" data-key="${esc(f.record_key)}" title="Click to set the date (this log has no usable calendar date, often GPS week 0, shown as 1980)">date unknown</button>`
+    : '<span class="badge date-unknown" title="This log has no usable calendar date (often GPS week 0, shown as 1980)">date unknown</span>';
   const date = f.date_ok ? esc(fmtDate(f.takeoff_utc) || f.date_override || '') : warn;
   const explanation = 'Estimated from GPS time-of-week and firmware commit; calendar week uncertain.';
   const label = f.date_estimated && f.date_ok
     ? `<span class="date-estimated" tabindex="0" aria-label="${esc(fmtDate(f.takeoff_utc) || f.date_override || '')}: ${explanation}">${date}<span class="date-tip" aria-hidden="true">${explanation}</span></span>`
     : date;
-  // only a missing date asks for action in the row; a set or estimated one is changed from the ⋯ menu
-  if (!f.date_ok && f.can_edit_date && !f.manual_id) {
-    return `<td>${label}<button type="button" class="sec set-date" data-row-act="date" data-key="${esc(f.record_key)}">Set date</button></td>`;
-  }
   return `<td>${label}</td>`;
 }
 async function setLogDate(logId, value, out) {
@@ -767,7 +805,7 @@ function numberTd(f, o) {
   const tip = ids.length > 1 ? ` title="Recordings: ${esc((f.sources || []).map(s => `${s.flight_id} (${TYPE_LABEL[s.log_type] || s.log_type})`).join(', '))}"` : '';
   return `<td class="num mono"><span${tip}>${f.flight_id}</span>${window.copyButton(f.flight_id, `flight number ${f.flight_id}`)}</td>`;
 }
-const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '▾' : '▸') : ''}</td>${chk(o.ids, o.canEdit)}${numberTd(f, o)}${dateTd(f)}<td><span${timesTip(o)}>${esc(fmtHm(f.takeoff_utc))}</span></td><td><span${timesTip(o)}>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</span></td>
+const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '▾' : '▸') : ''}</td>${chk(o.ids)}${numberTd(f, o)}${dateTd(f)}<td><span${timesTip(o)}>${esc(fmtHm(f.takeoff_utc))}</span></td><td><span${timesTip(o)}>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</span></td>
     <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${o.sources}</td><td><span${f.aircraft_uid ? ` title="${esc(f.aircraft_uid)}"` : ''}>${entityLink('aircraft', f.drone_id, f.aircraft)}</span>${verdictMark(f)}</td>
     <td>${o.project}</td><td>${operatorCell(f)}</td><td>${categoryCell(f)}</td>
     <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place, f.takeoff_place_id)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place, landingPlaceId)}</td>
@@ -775,7 +813,7 @@ const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '
 
 function flightRows(f, cls = '') {
   const ids = crewIds(f);
-  return `<tr class="flight ${cls}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: selectable(f), actions: actionsButton('row', f.record_key, [f])}, f.landing_place_id)}</tr>`
+  return `<tr class="flight ${cls}${open_.has(f.record_key) ? ' open' : ''}${ticked(ids) ? ' ticked' : ''}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: selectable(f), actions: actionsButton('row', f.record_key, [f])}, f.landing_place_id)}</tr>`
     + (open_.has(f.record_key) ? `<tr><td colspan="22" class="detail">${detail(f)}</td></tr>` : '');
 }
 
@@ -790,7 +828,7 @@ function groupRows(g) {
   const times = g.flights.map(f => `${fmtHm(f.takeoff_utc)}–${fmtHm(f.landing_utc) || '?'}`).join(', ');
   const ids = [...new Set(g.flights.flatMap(crewIds))];
   const flightIds = g.flights.map(f => f.flight_id).filter(id => id != null);
-  return `<tr class="group" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, flightIds, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: groupProject(g, first), ids, canEdit: g.flights.some(selectable), actions: actionsButton('group', g.id, g.flights)}, g.landing_place_id)}</tr>`
+  return `<tr class="group${ticked(ids) ? ' ticked' : ''}" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, flightIds, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: groupProject(g, first), ids, canEdit: g.flights.some(selectable), actions: actionsButton('group', g.id, g.flights)}, g.landing_place_id)}</tr>`
     + (isOpen ? g.flights.map(f => flightRows(f, 'sub')).join('') : '');
 }
 
@@ -798,19 +836,36 @@ function groupRows(g) {
 // only when the user may change every ticked entry; Hide/Restore for admins (the server checks all of it again).
 function renderSelBar() {
   const picked = pickedFlights(), count = picked.length;
-  $('selBar').hidden = !count;
+  $('selBar').hidden = !count || !selectOn();
   if (!count) return;
   $('selCount').textContent = `${count} selected`;
-  // MATLAB stays usable; its menu says when ticked flights have no Paparazzi log and are left out
-  $('selMatlab').innerHTML = MatlabExport.bulkButton(matlabEntries, () => picked.filter(f => f.flight_id != null && !exportable(f)).length);
-  const numbers = selectedNumbers(), papers = count - numbers.length;
-  $('selCopy').hidden = !numbers.length;
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  // an action that does not apply to every ticked entry is disabled, with the reason in its tooltip
+  const allow = (el, why) => {
+    if (el.dataset.title === undefined) el.dataset.title = el.title;  // its own tooltip, back once it applies again
+    el.disabled = !!why;
+    el.title = why || el.dataset.title;
+  };
+  const noNumber = picked.filter(f => f.flight_id == null).length;
   if (!copiedTimer) $('selCopy').textContent = 'Copy numbers';
-  $('selCopy').title = `Copy the flight numbers (${numbers.join(', ')}), e.g. into ml.fetch([…]) in Python or pprz_fetch([…]) in MATLAB`
-    + (papers > 0 ? `; ${papers} paper record${papers === 1 ? ' has' : 's have'} no number` : '');
-  const changeable = picked.every(f => f.can_edit_crew);
-  $('bulkChange').hidden = !changeable;
-  $('sameFlightBtn').hidden = !changeable || count < 2;
+  $('selCopy').dataset.title = `Copy the flight numbers (${selectedNumbers().join(', ')}), e.g. into ml.fetch([…]) in Python or pprz_fetch([…]) in MATLAB`;
+  allow($('selCopy'), noNumber ? `${plural(noNumber, 'ticked entry has', 'ticked entries have')} no flight number (paper records); untick ${noNumber === 1 ? 'it' : 'them'} to copy the numbers` : '');
+  const noLog = picked.filter(f => !exportable(f)).length;
+  if (noLog) {
+    $('selMatlab').innerHTML = `<button type="button" disabled title="${esc(`${plural(noLog, 'ticked entry has', 'ticked entries have')} no Paparazzi log to export; untick ${noLog === 1 ? 'it' : 'them'} for MATLAB`)}">MATLAB ▾</button>`;
+  } else {
+    $('selMatlab').innerHTML = MatlabExport.bulkButton(matlabEntries, () => 0);
+  }
+  const locked = picked.filter(f => !f.can_edit_crew).length;
+  // Change… and Same flight only for who may change entries at all; disabled when some ticked ones are not theirs
+  const changer = !!me?.is_admin || flights.some(f => f.can_edit_crew);
+  $('bulkChange').hidden = $('sameFlightBtn').hidden = !changer;
+  allow($('bulkChange'), locked ? `You may not change ${locked} of the ticked entries` : '');
+  const papers = picked.filter(f => f.manual_id).length;
+  allow($('sameFlightBtn'), locked ? `You may not change ${locked} of the ticked entries`
+    : count < 2 ? 'Tick two or more entries of one flight'
+    : papers > 1 ? 'At most one paper record can be part of one flight'
+    : papers === count ? 'Tick at least one logged flight' : '');
   $('hideSelected').hidden = !me?.is_admin || $('hiddenRecords').checked;
   $('restoreSelected').hidden = !me?.is_admin || !$('hiddenRecords').checked;
 }
@@ -840,6 +895,9 @@ function closeMenus() {
   menuAnchor = null;
   $('manageMenu').hidden = true;
   $('manageBtn').setAttribute('aria-expanded', 'false');
+  $('filesMenu').hidden = true;
+  $('filesBtn').setAttribute('aria-expanded', 'false');
+  $('filesChipLabel').setAttribute('aria-expanded', 'false');
 }
 function openRowMenu(button) {
   const kind = button.dataset.rowMenu, key = button.dataset.key, list = entriesOf(kind, key);
@@ -928,6 +986,17 @@ document.addEventListener('click', e => {
     rowAction(act.dataset.rowAct, act.dataset.kind || 'row', act.dataset.key);
     return;
   }
+  const filesOpen = e.target.closest('#filesBtn, #filesChipLabel');
+  if (filesOpen) {
+    const open = $('filesMenu').hidden;
+    closeMenus();
+    $('filesMenu').hidden = !open;
+    filesOpen.setAttribute('aria-expanded', String(open));
+    if (open) $('filesMenu').querySelector('[aria-checked="true"]')?.focus();
+    return;
+  }
+  const choice = e.target.closest('[data-files]');
+  if (choice) { setFiles(choice.dataset.files); return; }
   if (e.target.closest('#manageBtn')) {
     const open = $('manageMenu').hidden;
     closeMenus();
@@ -935,11 +1004,12 @@ document.addEventListener('click', e => {
     $('manageBtn').setAttribute('aria-expanded', String(open));
     return;
   }
-  if (!e.target.closest('#rowMenu, #manageMenu')) closeMenus();
+  if (!e.target.closest('#rowMenu, #manageMenu, #filesMenu')) closeMenus();
 });
 document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape' || ($('rowMenu').hidden && $('manageMenu').hidden)) return;
-  const back = menuAnchor || (!$('manageMenu').hidden && $('manageBtn'));
+  if (e.key !== 'Escape' || ($('rowMenu').hidden && $('manageMenu').hidden && $('filesMenu').hidden)) return;
+  const back = menuAnchor || (!$('manageMenu').hidden && $('manageBtn'))
+    || (!$('filesMenu').hidden && ($('filesChip').hidden ? $('filesBtn') : $('filesChipLabel')));
   closeMenus();
   back?.focus();
 });
@@ -1024,7 +1094,7 @@ $('selCopy').onclick = async () => {
 $('selClear').onclick = () => { selected.clear(); $('bulkMsg').textContent = ''; render(); };
 $('q').oninput = () => { page = 0; window.viewState.save(); render(); };
 $('combine').onchange = () => { page = 0; window.viewState.save(true); render(); };
-$('filesFilter').onchange = () => { selected.clear(); page = 0; window.viewState.save(true); render(); };
+
 document.addEventListener('attachmentsuploaded', loadLogbookFiles);  // the general Upload added files
 window.addEventListener('flightfilterschange', () => { selected.clear(); page = 0; window.viewState.save(true); render(); });
 window.addEventListener('pageshow', event => {
@@ -1040,7 +1110,8 @@ window.viewState.setup((p, extra) => {
   $('combine').checked = p.get('group') !== 'none';
   $('hiddenRecords').checked = p.get('hidden') === '1';
   wantedFiles = p.get('files') || '';  // applied once the categories are loaded
-  if ([...$('filesFilter').options].some(o => o.value === wantedFiles)) $('filesFilter').value = wantedFiles;
+  $('filesFilter').value = filesChoices.some(([value]) => value === wantedFiles) ? wantedFiles : '';
+  syncFiles();
   selected.clear();
   open_.clear(); (extra.open || []).forEach(id => open_.add(id));
   openGroups.clear(); (extra.groups || []).forEach(id => openGroups.add(id));

@@ -2491,7 +2491,9 @@ flight filters (`category=all|national|open|specific|luc|indoor|unknown|check`) 
 **Edit mode.** The Edit button in the menu bar shows the forms and menus to change things on the pages that have them
 (Logs, People, Projects, Aircraft, Locations, Agenda, Training, Documents, …); it is one setting for all pages,
 so the button is on every page, and it stays on until you turn it off. Pages are moving to changes per item instead
-(below); such a page sets `<body data-edit="none">` and `theme.js` shows no Edit button there.
+(below); such a page sets `<body data-edit="none">` and `theme.js` shows no Edit button there. With edit mode on, admins also see the names in the
+logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
+are left.
 
 <a id="logbook-changes"></a>**Logbook changes (no Edit mode).** The Logbook looks the same for everyone and offers each change
 only where the user may make it, from the flags the logbook API already sends per entry (`can_edit_project`,
@@ -2500,17 +2502,21 @@ again as before.
 - A row's **⋯** menu (day rows: all their flights): **Project…** (`PUT /api/flights/<id>/project` for every
   recording, paper records through `PUT /api/logbook/records`), **Crew…** (`PUT /api/logbook/records`, Keep per
   role), **Date…**/**Set date…** (`PUT /api/logs/<id>/date`, also *Remove the set date*) and **Classification…**
-  (`verdict`), each in a small dialog. An undated log also shows **Set date** next to its *date unknown* chip.
-- Tick boxes are always there for entries with a flight number or something the user may change; the **selection
-  bar** at the bottom shows Copy numbers and MATLAB ▾ for everyone, **Change…** (project, PIC, PAC, GCS, operator,
-  category; fields on Keep stay) and **Same flight** when the user may change every ticked entry, and **Hide** or
-  **Restore** for admins.
+  (`verdict`), each in a small dialog. For who may set it, the *date unknown* chip of an undated log is itself the
+  button that opens the date dialog. The ⋯ column is pinned to the right edge of the table, in the row's colour;
+  its button shows on row hover or focus (always on touch screens).
+- Every row has a tick box, for everyone (paper records too); **Select** under **Columns** turns the column off (a
+  per-browser column choice like the others), and then no selection bar appears. The **selection bar** at the
+  bottom offers what applies to all ticked entries and disables the rest with the reason in its tooltip: Copy
+  numbers (all have a flight number), MATLAB ▾ (all have a Paparazzi log), **Change…** (project, PIC, PAC, GCS,
+  operator, category; fields on Keep stay) and **Same flight** (shown to who may change entries; enabled when they
+  may change every ticked one), and **Hide** or **Restore** for admins.
+- **Files ▾** filters entries with files (any, or one category); while on it shows as a chip (*Files: Photos*) with ✕.
+  The URL parameter `files` is unchanged (`any` or `cat:<category>`).
 - **Manage ▾** (admins and members with edit, full or manager rights in a project): **Import CSV…**/**Add paper
   record…**, **Review**, and for admins **Hidden records only** (shown as a chip with ✕ while on).
 - An opened entry shows **Unlink** (linked paper record) and **Not the same flight** (merged recordings) to those
-  who may change it. With edit mode on, admins also see the names in the
-logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
-are left.
+  who may change it.
 
 **Overview pages.** Every person, aircraft, project and location has its own page (`/people/<id>`, `/aircraft/<id>`,
 `/projects/<id>`, `/locations/<id>`; click a name anywhere). It shows totals (flights, flight time, distance, flying
