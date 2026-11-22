@@ -53,8 +53,8 @@
     </div>
     <datalist id="supList"></datalist>
   </div>
-  <label class="f">Expected end date<span class="row"><input type="date" id="end">
-    <label><input type="checkbox" id="indefinite"> Indefinite</label></span></label>
+  <label class="f">Expected end date <span id="endLimit"></span><span class="row"><input type="date" id="end">
+    <label id="indefiniteBox"><input type="checkbox" id="indefinite"> Indefinite</label></span></label>
   <label class="f">Student / employee number<input id="number" maxlength="40" autocomplete="off"></label>
   <label class="f">GitHub username <span>(optional)</span><span class="row"><input id="github" maxlength="39" autocomplete="off">
     <span class="gh" id="ghStatus"></span></span></label>
@@ -64,7 +64,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const next = new URLSearchParams(location.search).get('next');
-let opts = null, sups = [];
+let opts = null, sups = [], adminEnd = null;  // adminEnd: an end date an administrator set (may be outside the limits)
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 
 async function api(url, opt) {
@@ -82,6 +82,14 @@ function syncRole() {
   const r = role();
   const needs = !!(r && r.needs_supervisor);
   $('supNeed').textContent = needs ? '' : '(optional)';
+  // the role decides how far ahead the end date may be, and whether it may be indefinite
+  // (an end date an administrator set stays offered as it is, also outside these limits)
+  const indefiniteOk = !r || r.allow_indefinite || (adminEnd && adminEnd.indefinite);
+  $('indefiniteBox').hidden = !indefiniteOk;
+  if (!indefiniteOk && $('indefinite').checked) { $('indefinite').checked = false; syncEnd(); }
+  const latest = r && r.latest_end && !(adminEnd && adminEnd.end_date > r.latest_end) ? r.latest_end : '';
+  $('end').max = latest;
+  $('endLimit').textContent = latest ? `(at most ${latest})` : '';
 }
 function syncDept() { $('deptTextBox').hidden = $('dept').value !== 'other'; }
 function syncEnd() { $('end').disabled = $('indefinite').checked; }
@@ -158,8 +166,14 @@ function safeNext() {
   const p = d.profile || {};
   const complete = d.profile && !d.missing.length && !d.profile.to_confirm;  // to confirm: still asked once
   $('title').textContent = complete ? 'Your profile' : d.profile ? 'Update your profile' : 'Complete your profile';
-  if (d.profile && d.missing.includes('end_date') && d.missing.length === 1)
-    $('intro').textContent = 'Your expected end date has passed. Give a new one, or tick Indefinite.';
+  adminEnd = p.end_date_by_admin ? {end_date: p.end_date || '', indefinite: !!p.indefinite} : null;
+  if (d.profile && d.missing.includes('end_date') && d.missing.length === 1) {
+    const r = opts.roles.find(x => x.id === p.role_id);
+    const passed = !p.indefinite && p.end_date && p.end_date < (d.today || new Date().toISOString().slice(0, 10));
+    const why = p.indefinite ? 'it cannot be indefinite' : `it is too far ahead${r && r.latest_end ? ' (at most ' + r.latest_end + ')' : ''}`;
+    $('intro').textContent = passed ? `Your expected end date has passed. Give a new one${r && r.allow_indefinite ? ', or tick Indefinite' : ''}.`
+      : `Your expected end date does not fit your role${r ? ' (' + r.name + ')' : ''}: ${why}. Give a new one.`;
+  }
   else if (d.profile && d.profile.to_confirm)
     $('intro').textContent = 'An administrator filled in (part of) your profile. Check it, complete it where needed and save.';
   if (d.profile && d.profile.to_confirm) $('title').textContent = 'Check your profile';

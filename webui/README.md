@@ -298,7 +298,9 @@ once a pass is granted, optionally only when the person answers **No** to a ques
 access to the flight lab?"; admins can get a copy under **My account → Email**.
 
 **Profile** (optional): when the server turns it on, you fill in your role, department, supervisors, expected end
-date and student/employee number after signing in, and again once that end date has passed. Change it under
+date and student/employee number after signing in, and again once that end date has passed. Your role limits the
+end date (for example at most 2 years ahead for a Master student; admins set this per role) and whether it may be
+indefinite. Change it under
 **My account**. Only you, admins and your supervisors see it (supervisors without your number): on your person
 page, and on People in the **Profiles** and **Supervision** tabs, which show supervisors the people they supervise.
 

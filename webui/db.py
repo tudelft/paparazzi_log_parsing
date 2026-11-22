@@ -337,7 +337,9 @@ CREATE TABLE IF NOT EXISTS profile_roles (   -- person profile (profiles.py): wh
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
     can_supervise INTEGER NOT NULL DEFAULT 0 CHECK(can_supervise IN (0,1)),     -- offered as a supervisor
     needs_supervisor INTEGER NOT NULL DEFAULT 0 CHECK(needs_supervisor IN (0,1)),  -- must name a supervisor
-    sort_order INTEGER NOT NULL DEFAULT 0
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    max_years INTEGER CHECK(max_years > 0),  -- expected end date at most this many years ahead (NULL: no limit)
+    allow_indefinite INTEGER NOT NULL DEFAULT 1 CHECK(allow_indefinite IN (0,1))  -- may tick Indefinite
 );
 CREATE TABLE IF NOT EXISTS profile_departments (
     id INTEGER PRIMARY KEY,
@@ -355,7 +357,9 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     number TEXT,                       -- student or employee number (person and admins only)
     github TEXT,
     updated_at TEXT,                   -- when the person last saved it themselves
-    to_confirm INTEGER NOT NULL DEFAULT 0 CHECK(to_confirm IN (0,1))  -- filled in by an admin or import
+    to_confirm INTEGER NOT NULL DEFAULT 0 CHECK(to_confirm IN (0,1)),  -- filled in by an admin or import
+    end_date_by_admin INTEGER NOT NULL DEFAULT 0 CHECK(end_date_by_admin IN (0,1))  -- end date set by an admin or
+                                       -- import: may be outside the role's limits; the person is not asked about it
 );
 CREATE TABLE IF NOT EXISTS user_supervisors (
     id INTEGER PRIMARY KEY,
@@ -737,6 +741,17 @@ def init(path):
     if new_profile_lists:  # default lists once, when the tables are created; admins edit them afterwards
         import profiles
         profiles.seed(con)
+    rcols = {r["name"] for r in con.execute("PRAGMA table_info(profile_roles)")}
+    if "max_years" not in rcols:
+        con.execute("ALTER TABLE profile_roles ADD COLUMN max_years INTEGER CHECK(max_years > 0)")
+    if "allow_indefinite" not in rcols:  # end date limits per role: the default limits once, for the default roles
+        import profiles
+        con.execute("ALTER TABLE profile_roles ADD COLUMN allow_indefinite"
+                    " INTEGER NOT NULL DEFAULT 1 CHECK(allow_indefinite IN (0,1))")
+        profiles.default_limits(con)
+    if "end_date_by_admin" not in {r["name"] for r in con.execute("PRAGMA table_info(user_profiles)")}:
+        con.execute("ALTER TABLE user_profiles ADD COLUMN end_date_by_admin"
+                    " INTEGER NOT NULL DEFAULT 0 CHECK(end_date_by_admin IN (0,1))")
     if "requires_start" not in {r["name"] for r in con.execute("PRAGMA table_info(qualification_types)")}:
         con.execute("ALTER TABLE qualification_types ADD COLUMN requires_start"
                     " INTEGER NOT NULL DEFAULT 0 CHECK(requires_start IN (0,1))")
