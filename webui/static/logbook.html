@@ -64,12 +64,33 @@
   .detail-info { min-width:0; }
   .detail-info h4 { margin-top:0; }
   @media (max-width:760px) { .flight-detail { grid-template-columns:minmax(0,1fr); } }
-  table.log:not(.picking) .chk { display:none; }
-  .sel-pill { display:inline-flex; align-items:center; gap:6px; padding:1px 4px 1px 10px; border:1px solid var(--line);
-    border-radius:999px; white-space:nowrap; }
-  .sel-pill[hidden] { display:none; }
-  .sel-pill .x { border:0; background:none; padding:2px 6px; color:var(--mute); }
+  /* the selection bar: what can be done with the ticked entries, at the bottom of the screen while any are ticked */
+  .sel-bar { position:sticky; bottom:8px; z-index:20; display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+    margin:10px 0 0; padding:8px 12px; border-radius:8px; background:#1b2733; color:#e7eef6; box-shadow:0 4px 14px #0004; }
+  .sel-bar[hidden] { display:none; }
+  .sel-bar button, .sel-bar .btn { background:#2d3f55; color:#e7eef6; padding:4px 10px; }
+  .sel-bar .mute { color:#9fb0c3; }
+  .sel-bar .x { margin-left:auto; }
   td.chk, th.chk { width:28px; padding-right:0; }
+  /* the ⋯ column stays at the right edge while the wide table scrolls sideways */
+  table.log td.act, table.log th.act { width:36px; min-width:36px; max-width:none; padding:4px 3px; text-align:center;
+    position:sticky; right:0; z-index:1; background:var(--card); box-shadow:-6px 0 6px -6px #0003, 6px 0 0 var(--card); overflow:visible; }
+  tr.group > td.act { background:color-mix(in srgb, var(--acc) 6%, var(--card));
+    box-shadow:-6px 0 6px -6px #0003, 6px 0 0 color-mix(in srgb, var(--acc) 6%, var(--card)); }
+  td.act:empty { box-shadow:none; }
+  .row-act { background:none; color:var(--mute); padding:0 6px; font-size:16px; line-height:1; border-radius:4px; }
+  .row-act:hover, .row-act[aria-expanded="true"] { background:var(--hover); color:var(--txt); }
+  .set-date { margin-left:6px; padding:1px 8px; font-size:12px; font-weight:400; }
+  .hidden-chip { display:inline-flex; align-items:center; gap:4px; padding:1px 4px 1px 10px; border-radius:999px;
+    background:var(--warnbg); color:var(--warn); white-space:nowrap; }
+  .hidden-chip[hidden] { display:none; }
+  .hidden-chip button { background:none; color:inherit; padding:0 6px; }
+  .lb-menu { position:absolute; z-index:1000; padding:6px; min-width:180px; }
+  .lb-menu[hidden] { display:none; }
+  .lb-menu .ext-item { color:var(--txt); }
+  .lb-menu a.ext-item { text-decoration:none; }
+  .lb-menu label.ext-item { cursor:pointer; }
+  .lb-menu hr { border:0; border-top:1px solid var(--line); margin:4px 0; }
   td.exp, th.exp { width:18px; padding-right:0; color:var(--mute); }
   .times { text-decoration:underline dotted var(--mute); text-underline-offset:3px; cursor:help; }
   .note { white-space:pre-wrap; max-width:640px; overflow-wrap:anywhere; }
@@ -91,7 +112,7 @@
   .col-menu .col-actions { grid-column:1 / -1; display:flex; justify-content:space-between; margin-top:6px; }
 </style>
 </head>
-<body data-edit="all">
+<body data-edit="none">
 <header>
   <h1>Logbook</h1>
   <span class="meta" id="nav"></span>
@@ -106,37 +127,20 @@
       <select id="filesFilter" aria-label="Files" title="Only flights with additional files (of a category)"><option value="">All flights</option><option value="any">With files</option></select>
       <span class="col-menu"><button type="button" id="colButton" aria-expanded="false" aria-controls="colForm">Columns</button>
         <form id="colForm" hidden aria-label="Shown columns"></form></span>
-      <button type="button" class="sec" id="selectBtn" title="Tick flights to copy their numbers or export them for MATLAB">Select</button>
-      <span id="selPill" class="sel-pill" hidden><span id="selPillCount"></span><span class="mute">·</span><span id="selPillMatlab"></span>
-        <button type="button" class="sec" id="selCopy" style="padding:2px 8px">Copy numbers</button>
-        <button type="button" class="x" id="selClear" aria-label="Clear the selection" title="Clear the selection">✕</button></span>
-      <a class="btn sec" href="/historical/new" id="addHistorical" hidden>Import CSV</a>
-      <a class="btn sec" href="/review" id="reviewLink" hidden title="Paper records and logs that need a person to decide">Review</a>
-    </div>
-    <div id="bulkBar" class="bar" hidden>
-      <span id="selCount" class="mute"></span>
-      <label id="hiddenFilter" hidden><input type="checkbox" id="hiddenRecords" onchange="selected.clear(); page=0; window.viewState.save(true); loadFlights()"> Hidden records only</label>
-      <span id="bulkActions" class="bar" style="margin:0" hidden>
-      <span class="mute">Apply to selected</span>
-      <label>Project <select id="bulkProject"></select></label>
-      <label>PIC <select id="bulkPic"></select></label>
-      <label>PAC <select id="bulkPac"></select></label>
-      <label>GCS <select id="bulkGcs"></select></label>
-      <label title="The operator registration the flights were flown under">Operator <select id="bulkOperator" onchange="pickNewOperator(this, operators, fillBulkMenus, '__keep__')"></select></label>
-      <label title="The rules the flights were flown under: OPEN, SPECIFIC with its authorisation, national rules before 2021">Category <select id="bulkCategory"></select></label>
-      <button type="button" onclick="applyBulk()">Apply</button>
-      </span>
-      <span id="bulkMore" class="bar" style="margin:0" hidden>
-      <button type="button" id="hideSelected" hidden onclick="setHidden(true)">Hide selected</button>
-      <button type="button" id="restoreSelected" hidden onclick="setHidden(false)">Restore selected</button>
-      <button type="button" class="sec" onclick="sameFlight()" title="The ticked entries are recordings of one flight: logged flights, optionally with one paper record">Same flight</button>
-      </span>
+      <span id="hiddenChip" class="hidden-chip" hidden title="Only hidden entries are shown; restore them with the selection bar">Hidden records only
+        <button type="button" aria-label="Show the logbook again" onclick="setHiddenOnly(false)">✕</button></span>
       <span id="bulkMsg" class="mute"></span>
+      <span class="col-menu" id="manageWrap" style="margin-left:auto" hidden><button type="button" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
+        <div id="manageMenu" class="ext-pop lb-menu" role="menu" hidden style="right:0;left:auto;top:calc(100% + 6px)">
+          <a class="ext-item" role="menuitem" href="/historical/new" id="addHistorical" hidden>Import CSV</a>
+          <a class="ext-item" role="menuitem" href="/review" id="reviewLink" hidden title="Paper records and logs that need a person to decide">Review</a>
+          <label class="ext-item" role="menuitemcheckbox" id="hiddenFilter" hidden title="Entries hidden from the logbook and totals; tick them to restore them"><input type="checkbox" id="hiddenRecords" onchange="setHiddenOnly(this.checked)"> Hidden records only</label>
+        </div></span>
     </div>
     <div class="scroll">
     <table class="log">
       <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"><input type="checkbox" id="selAll" title="Select all on this page" aria-label="Select all on this page"></th><th title="Flight number: the number in /flight/&lt;number&gt;, used by ml.fetch in Python and pprz_fetch in MATLAB (⧉ copies it)">No.</th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
-        <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th></tr></thead>
+        <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th><th class="act" aria-label="Actions"></th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
     </div>
@@ -149,8 +153,42 @@
         <div id="logbookPages" class="navigation-pages"></div>
       </div>
     </div>
+    <div id="selBar" class="sel-bar" hidden role="region" aria-label="Selected entries">
+      <strong id="selCount"></strong>
+      <button type="button" id="selCopy">Copy numbers</button>
+      <span id="selMatlab"></span>
+      <button type="button" id="bulkChange" hidden onclick="openBulk()" title="Project, crew, operator or category of the ticked entries">Change…</button>
+      <button type="button" id="sameFlightBtn" hidden onclick="sameFlight()" title="The ticked entries are recordings of one flight: logged flights, optionally with one paper record">Same flight</button>
+      <button type="button" id="hideSelected" hidden onclick="setHidden(true)">Hide</button>
+      <button type="button" id="restoreSelected" hidden onclick="setHidden(false)">Restore</button>
+      <button type="button" class="x" id="selClear" title="Clear the selection">Clear</button>
+    </div>
   </section>
 </main>
+<div id="rowMenu" class="ext-pop lb-menu" role="menu" hidden></div>
+<dialog class="entry-dialog" id="bulkDialog" aria-labelledby="bulkTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="bulkTitle">Change the ticked entries</h2><button type="button" onclick="$('bulkDialog').close()">Close</button></div>
+  <form id="bulkForm" onsubmit="event.preventDefault(); applyBulk()">
+    <p class="mute" id="bulkWhat" style="margin:0"></p>
+    <label class="field">Project<select id="bulkProject"></select></label>
+    <label class="field">PIC<select id="bulkPic"></select></label>
+    <label class="field">PAC<select id="bulkPac"></select></label>
+    <label class="field">GCS<select id="bulkGcs"></select></label>
+    <label class="field" title="The operator registration the flights were flown under">Operator<select id="bulkOperator" onchange="pickNewOperator(this, operators, fillBulkMenus, '__keep__')"></select></label>
+    <label class="field" title="The rules the flights were flown under: OPEN, SPECIFIC with its authorisation, national rules before 2021">Category<select id="bulkCategory"></select></label>
+    <p class="dialog-error" id="bulkError" role="alert"></p>
+    <div class="row"><button type="submit">Apply</button> <button type="button" class="sec" onclick="$('bulkDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="actDialog" aria-labelledby="actTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="actTitle"></h2><button type="button" onclick="$('actDialog').close()">Close</button></div>
+  <form id="actForm">
+    <p class="mute" id="actWhat" style="margin:0"></p>
+    <div id="actFields" class="dialog-fields"></div>
+    <p class="dialog-error" id="actError" role="alert"></p>
+    <div class="row"><button type="submit" id="actSave">Save</button> <button type="button" class="sec" id="actExtra" hidden></button> <button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const $ = id => document.getElementById(id);
@@ -163,11 +201,10 @@ const fmtTime = t => (t || '').replace('T', ' ').slice(0, 19);
 let flights = [], page = 0, pageSize = 15, me = null, projects = [], people = [], operators = [], authorisations = [];
 const selected = new Set();
 const openGroups = new Set();
-let selecting = false;  // Select outside Edit mode: tick flights to copy their numbers or export them for MATLAB
-const picking = () => editOn() || selecting;
 const exportable = f => MatlabExport.available(f.sources);
-// Select mode: every flight with a logbook number (any log type); paper records have none
-const selectable = f => f.flight_id != null;
+// An entry can be ticked when the ticks are of use for it: a logbook number (copy, MATLAB), or something the user may
+// change in it (project, crew, operator, category; hide or restore for admins).
+const selectable = f => f.flight_id != null || !!f.can_edit_crew;
 const pickedFlights = () => flights.filter(f => crewIds(f).some(id => selected.has(id)));
 // per ticked logbook entry the flight ids of its recordings; the server exports the SD one, else the GCS one
 const matlabEntries = () => pickedFlights().filter(exportable).map(f => f.sources.map(s => s.flight_id)).sort((a, b) => a[0] - b[0]);
@@ -238,18 +275,7 @@ const person = (f, role) => {
   if (u) return entityLink('people', u.id, u.display_name);
   return raw ? esc(raw) : '';
 };
-const editOn = () => window.editMode();
 const crewIds = f => f.manual_id ? [`paper:${f.manual_id}`] : [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)].filter(id => id != null))].map(id => `log:${id}`);
-function crewSelect(f, role, ids) {
-  if (!editOn() || !f.can_edit_crew) return person(f, role);
-  const u = f[role + '_user'];
-  const selectedId = u && (f.manual_id || u.source === 'edit' || u.source === 'alias') ? u.id : '';
-  const logged = f[role] ? esc(f[role]) : u && !selectedId ? `${esc(u.display_name)} (uploader)` : '—';
-  return `<select onclick="event.stopPropagation()" onchange="setCrew(${esc(JSON.stringify(ids))}, '${role}', this.value)">
-    ${f.manual_id && role === 'pic' ? '' : `<option value="">${logged}</option>`}
-    ${people.map(p => `<option value="${p.id}"${p.id === selectedId ? ' selected' : ''}>${esc(p.display_name)}</option>`).join('')}
-  </select>`;
-}
 function fillBulkMenus() {
   const opts = '<option value="__keep__">Keep</option><option value="">From log / none</option>'
     + people.map(p => `<option value="${p.id}">${esc(p.display_name)}</option>`).join('');
@@ -281,7 +307,7 @@ let hiddenColumns = new Set();
 try { hiddenColumns = new Set(JSON.parse(localStorage.getItem(COLUMNS_KEY) || '[]').filter(c => COLUMNS.includes(c))); } catch (e) {}
 const columnStyle = document.head.appendChild(document.createElement('style'));
 function applyColumns() {
-  // Column n+3 in each row: first the expand arrow, then the Edit-mode checkbox. Expanded detail rows span all columns.
+  // Column n+3 in each row: first the expand arrow, then the tick box. Expanded detail rows span all columns.
   columnStyle.textContent = COLUMNS.map((c, i) => hiddenColumns.has(c)
     ? `table.log tr > :nth-child(${i + 3}):not(.detail) { display:none; }` : '').join('\n');
   $('colButton').textContent = hiddenColumns.size ? `Columns (${hiddenColumns.size} hidden)` : 'Columns';
@@ -315,18 +341,14 @@ function operatorCell(f) {
   const title = `${f.operator_registration ? f.operator_registration + ' · ' : ''}${OPERATOR_SOURCE[f.operator_source] || ''}`;
   return `<span${f.operator_source === 'flight' ? '' : ' class="mute"'} title="${esc(title)}">${esc(f.operator_name)}</span>${check}`;
 }
-async function setCrew(ids, role, value) {
-  if (!await updateRecords(ids, {[role + '_user_id']: value ? +value : null})) return;
-  loadFlights();
-}
-async function updateRecords(ids, changes) {
+async function updateRecords(ids, changes, out = $('bulkMsg')) {
   try {
     const r = await fetch('/api/logbook/records', {method: 'PUT', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({record_keys: ids, ...changes})});
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || 'Could not save');
     return true;
-  } catch (error) { $('bulkMsg').textContent = error.message; return false; }
+  } catch (error) { out.textContent = error.message; return false; }
 }
 // Ticked entries are one flight (#35): logged recordings are joined; one ticked paper record is linked to them.
 async function sameFlight() {
@@ -359,9 +381,16 @@ async function setHidden(hidden) {
   $('bulkMsg').textContent = hidden ? 'Selected entries hidden.' : 'Selected entries restored.';
   loadFlights();
 }
+function openBulk() {
+  const n = pickedFlights().length;
+  $('bulkWhat').textContent = `${n} ticked ${n === 1 ? 'entry' : 'entries'}; fields left on Keep stay as they are.`;
+  $('bulkError').textContent = '';
+  ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory'].forEach(id => { $(id).value = '__keep__'; });
+  $('bulkDialog').showModal();
+}
 async function applyBulk() {
   const ids = [...selected];
-  if (!ids.length) { $('bulkMsg').textContent = 'Tick the flights you want to change.'; return; }
+  if (!ids.length) { $('bulkError').textContent = 'Tick the flights you want to change.'; return; }
   const body = {};
   [['bulkPic', 'pic_user_id'], ['bulkPac', 'pac_user_id'], ['bulkGcs', 'gcs_user_id'], ['bulkOperator', 'operator_id']].forEach(([id, key]) => {
     const v = $(id).value;
@@ -371,41 +400,40 @@ async function applyBulk() {
   const projectV = $('bulkProject').value;
   const changeProject = projectV !== '__keep__';
   if (!Object.keys(body).length && !changeProject) {
-    $('bulkMsg').textContent = 'Choose a project, PIC, PAC, GCS, operator or category.';
+    $('bulkError').textContent = 'Choose a project, PIC, PAC, GCS, operator or category.';
     return;
   }
   if (changeProject) {
     body.project_id = projectV ? +projectV : null;
   }
-  if (!await updateRecords(ids, body)) return;
+  if (!await updateRecords(ids, body, $('bulkError'))) return;
+  $('bulkDialog').close();
   $('bulkMsg').textContent = 'Saved.';
   ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory'].forEach(id => { $(id).value = '__keep__'; });
   loadFlights();
 }
+// Manage ▾: the rarer tools, only for those who may use them (paper records and review need edit rights in a
+// project; hidden records are an admin's).
 function syncEditUi() {
-  $('bulkBar').hidden = !editOn();
-  $('selectBtn').hidden = editOn() || selecting;
+  const editor = !!(me && (me.is_admin || projects.some(p => ['edit', 'full', 'manager'].includes(p.role))));
   $('hiddenFilter').hidden = !me?.is_admin;
-  $('hideSelected').hidden = !me?.is_admin || $('hiddenRecords').checked;
-  $('restoreSelected').hidden = !me?.is_admin || !$('hiddenRecords').checked;
-  $('addHistorical').hidden = !editOn() || !(me && (me.is_admin || projects.some(p => ['edit', 'full', 'manager'].includes(p.role))));
-  $('addHistorical').textContent = me?.is_admin ? 'Import CSV' : 'Add paper record';
-  $('reviewLink').hidden = !editOn();
+  $('addHistorical').hidden = !editor;
+  $('addHistorical').textContent = me?.is_admin ? 'Import CSV…' : 'Add paper record…';
+  $('reviewLink').hidden = !editor;
+  $('manageWrap').hidden = !editor && !me?.is_admin;
+  $('hiddenChip').hidden = !$('hiddenRecords').checked;
 }
-function toggleEdit() {
-  syncEditUi();
-  if (!editOn()) {
-    selecting = false; selected.clear(); $('bulkMsg').textContent = '';
-    if ($('hiddenRecords').checked) { $('hiddenRecords').checked = false; loadFlights(); }
-  }
-  render();
+function setHiddenOnly(on) {
+  $('hiddenRecords').checked = on;
+  closeMenus();
+  selected.clear(); page = 0; window.viewState.save(true); syncEditUi(); loadFlights();
 }
 function toggleSel(ids, on) {
   ids.forEach(id => on ? selected.add(id) : selected.delete(id));
   render();
 }
 function chk(ids, can) {
-  if (!picking() || !can) return '<td class="chk"></td>';
+  if (!can) return '<td class="chk"></td>';
   const all = ids.length > 0 && ids.every(id => selected.has(id));
   return `<td class="chk"><input type="checkbox" ${all ? 'checked' : ''} onclick="event.stopPropagation(); toggleSel(${esc(JSON.stringify(ids))}, this.checked)"></td>`;
 }
@@ -447,7 +475,6 @@ function projectOptions(selected) {
 }
 // A day row shows its most common project; "+N" when its flights differ, with the split on hover.
 function groupProject(g, first) {
-  if (editOn()) return projectCell(first);
   const counts = new Map();
   for (const f of g.flights) {
     const key = f.project_id ?? '';
@@ -459,23 +486,22 @@ function groupProject(g, first) {
   const tip = ranked.map(r => `${r.f.project_name || 'No project'}: ${r.n} flight${r.n === 1 ? '' : 's'}`).join(' · ');
   return `${projectCell(main)} <span class="mute" title="${esc(tip)}">+${ranked.length - 1}</span>`;
 }
-function projectCell(f) {
-  if (!editOn() || !f.can_edit_project) return entityLink('projects', f.project_id, f.project_name || '');
-  if (f.manual_id) return `<select onclick="event.stopPropagation()" onchange="setPaperProject(${f.manual_id}, this.value)">${projectOptions(f.project_id).replace('<option value="">No project</option>', '')}</select>`;
-  const ids = (f.sources || []).map(s => s.flight_id).join(',');
-  return `<select onclick="event.stopPropagation()" onchange="setFlightProject(${f.flight_id}, this.value, [${ids}])">${projectOptions(f.project_id)}</select>`;
-}
-async function setPaperProject(id, value) {
-  if (await updateRecords([`paper:${id}`], {project_id: +value})) loadFlights();
-}
-async function setFlightProject(id, value, ids) {
-  const all = [...new Set([id, ...(ids || [])])];
-  for (const fid of all) {
-    const r = await fetch('/api/flights/' + fid + '/project', {method: 'PUT', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({project_id: value ? +value : null})});
-    if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the project'); break; }
+const projectCell = f => entityLink('projects', f.project_id, f.project_name || '');
+// The project of entries (a row or a day): a paper record through the records API, a logged flight (all its
+// recordings) through its own project route, as before. Stops at the first refusal and says why.
+async function setProjects(list, value, out) {
+  for (const f of list) {
+    if (f.manual_id) {
+      if (!await updateRecords([`paper:${f.manual_id}`], {project_id: +value}, out)) return false;
+      continue;
+    }
+    for (const fid of [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)])]) {
+      const r = await fetch('/api/flights/' + fid + '/project', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({project_id: value ? +value : null})});
+      if (!r.ok) { out.textContent = ((await r.json().catch(() => ({}))).error) || 'Could not save the project'; return false; }
+    }
   }
-  loadFlights();
+  return true;
 }
 
 const open_ = new Set();
@@ -513,34 +539,24 @@ function linkedInfo(f) {
   if (!(f.linked_records || []).length) return '';
   return `<h4>Paper record</h4><ul>${f.linked_records.map(r => `<li><a href="/historical/${r.id}">${esc(r.reference || 'Paper record ' + r.id)}</a>
       <span class="mute">${r.origin === 'auto' ? 'linked automatically' : 'linked by hand'}</span>
-      ${editOn() ? `<button type="button" class="sec" data-link="${r.id}" data-flights="${r.flight_ids.join(',')}" data-same="0">Unlink</button>` : ''}</li>`).join('')}</ul>
+      ${f.can_edit_crew ? `<button type="button" class="sec" data-link="${r.id}" data-flights="${r.flight_ids.join(',')}" data-same="0">Unlink</button>` : ''}</li>`).join('')}</ul>
     ${(f.conflicts || []).length ? `<p class="warn">The paper record differs from the log; the log value is shown:</p><ul>${f.conflicts.map(c =>
       `<li>${esc(c.field)}: log ${esc(c.log || '-')}, ${esc(c.record)} ${esc(c.paper || '-')}${c.reviewed_by
         ? ` <span class="mute">(log value accepted by ${esc(c.reviewed_by)})</span>` : ''}</li>`).join('')}</ul>
     ${f.conflicts.some(c => !c.reviewed_by) ? '<p><a href="/review">Resolve on the review page</a></p>' : ''}` : ''}`;
 }
-// Whether this is a real flight: the parser's estimate, or a classification set by hand in Edit mode (all recordings
-// of the entry). A hand-set one survives re-parsing and counts everywhere the estimate would.
+// Whether this is a real flight: the parser's estimate, or a classification set by hand (Classification… in the
+// row's ⋯ menu, all recordings of the entry). A hand-set one survives re-parsing and counts everywhere the estimate would.
 const VERDICT_LABEL = {flight: 'Flight', uncertain: 'Uncertain', ground: 'Not a flight'};
 function classInfo(f) {
   const auto = VERDICT_LABEL[f.verdict_auto] || 'unknown';
-  if (editOn() && f.can_edit_crew) return `<h4>Classification</h4><select data-verdict aria-label="Classification">
-      <option value="">Automatic (${esc(auto.toLowerCase())})</option>
-      <option value="flight"${f.verdict_override === 'flight' ? ' selected' : ''}>Flight</option>
-      <option value="ground"${f.verdict_override === 'ground' ? ' selected' : ''}>Not a flight</option></select>`;
   return f.verdict_override ? `<p class="mute">Classified as ${esc(VERDICT_LABEL[f.verdict_override].toLowerCase())} by hand (parser: ${esc(auto.toLowerCase())}).</p>` : '';
 }
-document.addEventListener('change', async e => {
-  const sel = e.target.closest('[data-verdict]');
-  if (!sel) return;
-  const f = flights.find(x => x.record_key === sel.closest('tr').previousElementSibling?.dataset.id);
-  if (f && await updateRecords(crewIds(f), {verdict: sel.value || null})) loadFlights();
-});
-// Recordings merged into this entry; in Edit mode one can be split off when the automatic merge is wrong.
+// Recordings merged into this entry; who may change the entry can split one off when the automatic merge is wrong.
 function sourcesInfo(f) {
-  if (!editOn() || (f.sources || []).length < 2) return '';
+  if ((f.sources || []).length < 2) return '';
   return `<h4>Recordings</h4><ul>${f.sources.map(s => `<li>${esc(TYPE_LABEL[s.log_type] || s.log_type)} <a href="/flight/${s.flight_id}">flight ${s.flight_id}</a>
-    <button type="button" class="sec" data-split="${[s.flight_id, ...f.sources.filter(o => o.flight_id !== s.flight_id).map(o => o.flight_id)].join(',')}">Not the same flight</button></li>`).join('')}</ul>`;
+    ${f.can_edit_crew ? `<button type="button" class="sec" data-split="${[s.flight_id, ...f.sources.filter(o => o.flight_id !== s.flight_id).map(o => o.flight_id)].join(',')}">Not the same flight</button>` : ''}</li>`).join('')}</ul>`;
 }
 document.addEventListener('click', async e => {
   const split = e.target.closest('[data-split]');
@@ -723,16 +739,17 @@ function dateTd(f) {
   const label = f.date_estimated && f.date_ok
     ? `<span class="date-estimated" tabindex="0" aria-label="${esc(fmtDate(f.takeoff_utc) || f.date_override || '')}: ${explanation}">${date}<span class="date-tip" aria-hidden="true">${explanation}</span></span>`
     : date;
-  if (editOn() && f.can_edit_date && (!f.date_ok || f.date_override || f.date_estimated)) {
-    return `<td onclick="event.stopPropagation()">${label}<div class="mute" style="font-weight:400;margin-top:4px">Set date <input type="date" value="${esc(f.date_override || '')}" onchange="setLogDate(${f.log_id}, this.value)"></div></td>`;
+  // only a missing date asks for action in the row; a set or estimated one is changed from the ⋯ menu
+  if (!f.date_ok && f.can_edit_date && !f.manual_id) {
+    return `<td>${label}<button type="button" class="sec set-date" data-row-act="date" data-key="${esc(f.record_key)}">Set date</button></td>`;
   }
   return `<td>${label}</td>`;
 }
-async function setLogDate(logId, value) {
+async function setLogDate(logId, value, out) {
   const r = await fetch('/api/logs/' + logId + '/date', {method: 'PUT', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({date_override: value || null})});
-  if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the date'); return; }
-  loadFlights();
+  if (!r.ok) { out.textContent = ((await r.json().catch(() => ({}))).error) || 'Could not save the date'; return false; }
+  return true;
 }
 const timesTip = o => o.times ? ` class="times" title="${esc(o.times)}"` : '';
 // Flight number (as in /flight/<number> and pprz_fetch): the recording the flight page opens; the other recordings
@@ -754,12 +771,12 @@ const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '
     <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${o.sources}</td><td><span${f.aircraft_uid ? ` title="${esc(f.aircraft_uid)}"` : ''}>${entityLink('aircraft', f.drone_id, f.aircraft)}</span>${verdictMark(f)}</td>
     <td>${o.project}</td><td>${operatorCell(f)}</td><td>${categoryCell(f)}</td>
     <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place, f.takeoff_place_id)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place, landingPlaceId)}</td>
-    <td>${crewSelect(f, 'pic', o.ids)}</td><td>${crewSelect(f, 'pac', o.ids)}</td><td>${crewSelect(f, 'gcs', o.ids)}</td><td>${esc(o.goal)}</td><td>${esc(o.comment)}</td>`;
+    <td>${person(f, 'pic')}</td><td>${person(f, 'pac')}</td><td>${person(f, 'gcs')}</td><td>${esc(o.goal)}</td><td>${esc(o.comment)}</td><td class="act">${o.actions || ''}</td>`;
 
 function flightRows(f, cls = '') {
   const ids = crewIds(f);
-  return `<tr class="flight ${cls}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: editOn() ? f.can_edit_crew : selectable(f)}, f.landing_place_id)}</tr>`
-    + (open_.has(f.record_key) ? `<tr><td colspan="21" class="detail">${detail(f)}</td></tr>` : '');
+  return `<tr class="flight ${cls}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: selectable(f), actions: actionsButton('row', f.record_key, [f])}, f.landing_place_id)}</tr>`
+    + (open_.has(f.record_key) ? `<tr><td colspan="22" class="detail">${detail(f)}</td></tr>` : '');
 }
 
 function groupRows(g) {
@@ -773,9 +790,169 @@ function groupRows(g) {
   const times = g.flights.map(f => `${fmtHm(f.takeoff_utc)}–${fmtHm(f.landing_utc) || '?'}`).join(', ');
   const ids = [...new Set(g.flights.flatMap(crewIds))];
   const flightIds = g.flights.map(f => f.flight_id).filter(id => id != null);
-  return `<tr class="group" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, flightIds, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: groupProject(g, first), ids, canEdit: editOn() ? g.flights.every(f => f.can_edit_crew) : g.flights.some(selectable)}, g.landing_place_id)}</tr>`
+  return `<tr class="group" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, flightIds, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: groupProject(g, first), ids, canEdit: g.flights.some(selectable), actions: actionsButton('group', g.id, g.flights)}, g.landing_place_id)}</tr>`
     + (isOpen ? g.flights.map(f => flightRows(f, 'sub')).join('') : '');
 }
+
+// The selection bar: what can be done with the ticked entries. Copy and MATLAB for everyone; Change… and Same flight
+// only when the user may change every ticked entry; Hide/Restore for admins (the server checks all of it again).
+function renderSelBar() {
+  const picked = pickedFlights(), count = picked.length;
+  $('selBar').hidden = !count;
+  if (!count) return;
+  $('selCount').textContent = `${count} selected`;
+  // MATLAB stays usable; its menu says when ticked flights have no Paparazzi log and are left out
+  $('selMatlab').innerHTML = MatlabExport.bulkButton(matlabEntries, () => picked.filter(f => f.flight_id != null && !exportable(f)).length);
+  const numbers = selectedNumbers(), papers = count - numbers.length;
+  $('selCopy').hidden = !numbers.length;
+  if (!copiedTimer) $('selCopy').textContent = 'Copy numbers';
+  $('selCopy').title = `Copy the flight numbers (${numbers.join(', ')}), e.g. into ml.fetch([…]) in Python or pprz_fetch([…]) in MATLAB`
+    + (papers > 0 ? `; ${papers} paper record${papers === 1 ? ' has' : 's have'} no number` : '');
+  const changeable = picked.every(f => f.can_edit_crew);
+  $('bulkChange').hidden = !changeable;
+  $('sameFlightBtn').hidden = !changeable || count < 2;
+  $('hideSelected').hidden = !me?.is_admin || $('hiddenRecords').checked;
+  $('restoreSelected').hidden = !me?.is_admin || !$('hiddenRecords').checked;
+}
+
+// Row ⋯ menu: the changes the user may make to one entry (or all entries of a day row). Each opens a small dialog.
+const allIds = list => [...new Set(list.flatMap(crewIds))];
+function rowActions(list) {
+  const one = list.length === 1 ? list[0] : null, acts = [];
+  if (list.every(f => f.can_edit_project)) acts.push(['project', 'Project…']);
+  if (list.every(f => f.can_edit_crew)) acts.push(['crew', 'Crew…']);
+  if (one && !one.manual_id && one.can_edit_date) acts.push(['date', one.date_ok ? 'Date…' : 'Set date…']);
+  if (one && !one.manual_id && one.can_edit_crew) acts.push(['verdict', 'Classification…']);
+  return acts;
+}
+const rowGroups = new Map();  // day rows on the page: id -> flights, for their ⋯ menu
+function actionsButton(kind, key, list) {
+  if (kind === 'group') rowGroups.set(key, list);
+  if (!rowActions(list).length) return '';
+  return `<button type="button" class="row-act" data-row-menu="${kind}" data-key="${esc(key)}" aria-haspopup="menu" aria-expanded="false"
+    aria-label="Change this ${kind === 'group' ? 'day row' : 'entry'}" title="Change this ${kind === 'group' ? 'day row (all its flights)' : 'entry'}">⋯</button>`;
+}
+const entriesOf = (kind, key) => kind === 'group' ? rowGroups.get(key) || [] : flights.filter(f => f.record_key === key);
+let menuAnchor = null;
+function closeMenus() {
+  $('rowMenu').hidden = true;
+  if (menuAnchor) menuAnchor.setAttribute('aria-expanded', 'false');
+  menuAnchor = null;
+  $('manageMenu').hidden = true;
+  $('manageBtn').setAttribute('aria-expanded', 'false');
+}
+function openRowMenu(button) {
+  const kind = button.dataset.rowMenu, key = button.dataset.key, list = entriesOf(kind, key);
+  closeMenus();
+  const menu = $('rowMenu');
+  menu.innerHTML = rowActions(list).map(([act, label]) =>
+    `<button type="button" class="ext-item" role="menuitem" data-row-act="${act}" data-kind="${kind}" data-key="${esc(key)}">${label}</button>`).join('');
+  menu.hidden = false;
+  placeRowMenu(button);
+  button.setAttribute('aria-expanded', 'true');
+  menuAnchor = button;
+  menu.querySelector('button')?.focus();
+}
+
+// One small dialog for the row actions: fields, then Save runs the action and reloads the logbook.
+function actDialog(title, what, fields, save, extra) {
+  $('actTitle').textContent = title;
+  $('actWhat').textContent = what;
+  $('actFields').innerHTML = fields;
+  $('actError').textContent = '';
+  $('actExtra').hidden = !extra;
+  if (extra) {
+    $('actExtra').textContent = extra[0];
+    $('actExtra').onclick = async () => { if (await extra[1]($('actError'))) { $('actDialog').close(); loadFlights(); } };
+  }
+  $('actForm').onsubmit = async event => {
+    event.preventDefault();
+    $('actSave').disabled = true;
+    try { if (await save($('actError'))) { $('actDialog').close(); loadFlights(); } }
+    finally { $('actSave').disabled = false; }
+  };
+  $('actDialog').showModal();
+  $('actFields').querySelector('select, input')?.focus();
+}
+const describe = list => list.length === 1
+  ? `${list[0].aircraft || 'Entry'}, ${fmtDate(when(list[0])) || 'date unknown'}${fmtHm(list[0].takeoff_utc) ? ' ' + fmtHm(list[0].takeoff_utc) : ''}`
+  : `${list.length} flights of ${list[0].aircraft || 'this aircraft'} on ${fmtDate(when(list[0]))}`;
+function rowAction(act, kind, key) {
+  const list = entriesOf(kind, key);
+  if (!list.length) return;
+  const f = list[0];
+  if (act === 'project') {
+    const current = list.every(x => x.project_id === f.project_id) ? f.project_id : undefined;
+    let options = projectOptions(current);
+    if (list.some(x => x.manual_id)) options = options.replace('<option value="">No project</option>', '');  // paper records keep one
+    actDialog('Project', describe(list), `<label class="field">Project<select name="project">${options}</select></label>`,
+      out => setProjects(list, $('actFields').querySelector('[name=project]').value, out));
+  } else if (act === 'crew') {
+    const field = role => {
+      const u = f[role + '_user'], same = list.every(x => (x[role + '_user']?.id ?? null) === (u?.id ?? null) && x[role] === f[role]);
+      const now = same ? (u ? u.display_name : f[role] || '—') : 'differs';
+      const fromLog = list.some(x => x.manual_id) && role === 'pic' ? '' : '<option value="">From log / none</option>';
+      return `<label class="field">${role.toUpperCase()} <span class="mute">(now: ${esc(now)})</span><select name="${role}">
+        <option value="__keep__">Keep</option>${fromLog}${people.map(p => `<option value="${p.id}">${esc(p.display_name)}</option>`).join('')}</select></label>`;
+    };
+    actDialog('Crew', describe(list), ['pic', 'pac', 'gcs'].map(field).join(''), async out => {
+      const body = {};
+      for (const role of ['pic', 'pac', 'gcs']) {
+        const v = $('actFields').querySelector(`[name=${role}]`).value;
+        if (v !== '__keep__') body[role + '_user_id'] = v ? +v : null;
+      }
+      if (!Object.keys(body).length) { out.textContent = 'Choose a PIC, PAC or GCS.'; return false; }
+      return updateRecords(allIds(list), body, out);
+    });
+  } else if (act === 'date') {
+    actDialog(f.date_ok ? 'Date' : 'Set date', `${describe(list)} · ${f.date_ok ? 'the date this log was flown on' : 'this log has no usable calendar date'}`,
+      `<label class="field">Date flown<input type="date" name="date" value="${esc(f.date_override || '')}" required></label>`,
+      out => setLogDate(f.log_id, $('actFields').querySelector('[name=date]').value, out),
+      f.date_override ? ['Remove the set date', out => setLogDate(f.log_id, '', out)] : null);
+  } else if (act === 'verdict') {
+    const auto = (VERDICT_LABEL[f.verdict_auto] || 'unknown').toLowerCase();
+    actDialog('Classification', describe(list), `<label class="field">Is this a real flight?<select name="verdict">
+        <option value="">Automatic (${esc(auto)})</option>
+        <option value="flight"${f.verdict_override === 'flight' ? ' selected' : ''}>Flight</option>
+        <option value="ground"${f.verdict_override === 'ground' ? ' selected' : ''}>Not a flight</option></select></label>`,
+      out => updateRecords(crewIds(f), {verdict: $('actFields').querySelector('[name=verdict]').value || null}, out));
+  }
+}
+document.addEventListener('click', e => {
+  const menuButton = e.target.closest('[data-row-menu]');
+  if (menuButton) { e.stopPropagation(); menuButton === menuAnchor ? closeMenus() : openRowMenu(menuButton); return; }
+  const act = e.target.closest('[data-row-act]');
+  if (act) {
+    e.stopPropagation();
+    closeMenus();
+    rowAction(act.dataset.rowAct, act.dataset.kind || 'row', act.dataset.key);
+    return;
+  }
+  if (e.target.closest('#manageBtn')) {
+    const open = $('manageMenu').hidden;
+    closeMenus();
+    $('manageMenu').hidden = !open;
+    $('manageBtn').setAttribute('aria-expanded', String(open));
+    return;
+  }
+  if (!e.target.closest('#rowMenu, #manageMenu')) closeMenus();
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || ($('rowMenu').hidden && $('manageMenu').hidden)) return;
+  const back = menuAnchor || (!$('manageMenu').hidden && $('manageBtn'));
+  closeMenus();
+  back?.focus();
+});
+addEventListener('resize', closeMenus);
+// The menu follows its ⋯ button when the page or the table scrolls (the table scrolls sideways on narrow screens),
+// and closes once the button is out of view.
+function placeRowMenu(button) {
+  const menu = $('rowMenu'), r = button.getBoundingClientRect();
+  if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) { closeMenus(); return; }
+  menu.style.top = `${r.bottom + window.scrollY + 4}px`;
+  menu.style.left = `${Math.max(8, Math.min(r.right + window.scrollX - menu.offsetWidth, window.scrollX + innerWidth - menu.offsetWidth - 8))}px`;
+}
+document.addEventListener('scroll', () => { if (menuAnchor && !$('rowMenu').hidden) placeRowMenu(menuAnchor); }, true);
 
 function render() {
   const q = $('q').value.trim().toLowerCase();
@@ -788,26 +965,20 @@ function render() {
   page = Math.min(page, pages - 1);
   const visible = entries.slice(page * pageSize, (page + 1) * pageSize);
   window.viewState.pager($('logbookPages'), page, pageSize, entries.length, n => { page = n; window.viewState.save(true); render(); });
+  rowGroups.clear();
+  // a redraw (e.g. when the file list or a parse status arrives) keeps an open ⋯ menu when its row is still shown
+  const openMenu = menuAnchor && {kind: menuAnchor.dataset.rowMenu, key: menuAnchor.dataset.key};
   $('rows').innerHTML = visible.map(groupRows).join('');
-  document.querySelector('table.log').classList.toggle('editing', editOn());
-  document.querySelector('table.log').classList.toggle('picking', picking());
-  const can = f => editOn() ? f.can_edit_crew : selectable(f);
-  const pageIds = [...new Set(visible.flatMap(e => (e.flights || []).filter(can).flatMap(crewIds)))];
+  if (openMenu) {
+    menuAnchor = [...$('rows').querySelectorAll('[data-row-menu]')]
+      .find(b => b.dataset.rowMenu === openMenu.kind && b.dataset.key === openMenu.key) || null;
+    if (menuAnchor) menuAnchor.setAttribute('aria-expanded', 'true');
+    else closeMenus();
+  }
+  const pageIds = [...new Set(visible.flatMap(e => (e.flights || []).filter(selectable).flatMap(crewIds)))];
   $('selAll').checked = pageIds.length > 0 && pageIds.every(id => selected.has(id));
-  $('bulkActions').hidden = $('bulkMore').hidden = !selected.size;
-  $('selCount').textContent = selected.size ? '' : 'Tick flights to change them';
-  const count = pickedFlights().length, matlab = matlabEntries().length;
-  $('selPill').hidden = !picking() || !(count || selecting);
-  $('selPillCount').textContent = `${count} selected`;
-  // MATLAB stays usable; its menu says when ticked flights have no Paparazzi log and are left out
-  $('selPillMatlab').innerHTML = count ? MatlabExport.bulkButton(matlabEntries, () => pickedFlights().filter(f => selectable(f) && !exportable(f)).length)
-    : '<span class="mute">MATLAB</span>';
-  const numbers = selectedNumbers(), papers = count - numbers.length;
-  $('selCopy').hidden = !numbers.length;
-  if (!copiedTimer) $('selCopy').textContent = 'Copy numbers';
-  $('selCopy').title = `Copy the flight numbers (${numbers.join(', ')}), e.g. into ml.fetch([…]) in Python or pprz_fetch([…]) in MATLAB`
-    + (papers > 0 ? `; ${papers} paper record${papers === 1 ? ' has' : 's have'} no number` : '');
-  $('selectBtn').hidden = editOn() || selecting;
+  $('selAll').disabled = !pageIds.length;
+  renderSelBar();
   $('selAll').onchange = () => { toggleSel(pageIds, $('selAll').checked); };
   const total = shown.reduce((s, f) => s + (f.duration_s || 0), 0);
   const dist = shown.some(f => f.distance_m != null) ? shown.reduce((s, f) => s + (f.distance_m || 0), 0) : null;
@@ -839,7 +1010,6 @@ function exportCsv() {
   a.click();
 }
 
-$('selectBtn').onclick = () => { selecting = true; render(); };
 // The ticked flights' numbers (the one each flight page opens), sorted and comma-separated, so they paste into both
 // MATLAB and Python arrays. Paper records have no number.
 const selectedNumbers = () => [...new Set(pickedFlights().map(f => f.flight_id).filter(id => id != null))].sort((a, b) => a - b);
@@ -851,13 +1021,12 @@ $('selCopy').onclick = async () => {
   clearTimeout(copiedTimer);
   copiedTimer = setTimeout(() => { copiedTimer = null; $('selCopy').textContent = 'Copy numbers'; }, 2000);
 };
-$('selClear').onclick = () => { selected.clear(); selecting = false; render(); };
+$('selClear').onclick = () => { selected.clear(); $('bulkMsg').textContent = ''; render(); };
 $('q').oninput = () => { page = 0; window.viewState.save(); render(); };
 $('combine').onchange = () => { page = 0; window.viewState.save(true); render(); };
 $('filesFilter').onchange = () => { selected.clear(); page = 0; window.viewState.save(true); render(); };
 document.addEventListener('attachmentsuploaded', loadLogbookFiles);  // the general Upload added files
 window.addEventListener('flightfilterschange', () => { selected.clear(); page = 0; window.viewState.save(true); render(); });
-window.addEventListener('editchange', toggleEdit);
 window.addEventListener('pageshow', event => {
   if (event.persisted) { selected.clear(); render(); }
 });

@@ -929,7 +929,8 @@ window.timingEvidenceHTML = function (timing) {
   // same place (pages without anything to edit simply show nothing extra).
   function paintEdit() {
     const anchor = document.getElementById('userMenuBtn');
-    if (!anchor) return;
+    // a page that offers its changes per item (<body data-edit="none">, e.g. the Logbook) has no Edit switch
+    if (!anchor || document.body.dataset.edit === 'none') return;
     let btn = document.getElementById('editBtn');
     if (!btn) {
       btn = document.createElement('button');

@@ -659,7 +659,7 @@ to `WEB_DATA/exports` (local disk) with a JSON side file and kept two weeks; abo
 compression threads) and at most 20 may wait. A restart drops queued/running jobs (the page asks again) and
 removes partial files.
 
-**Bulk MATLAB export.** In the Logbook, **Select** (or Edit mode) shows checkboxes; ticks survive paging and a
+**Bulk MATLAB export.** The Logbook always shows tick boxes; ticks survive paging and a
 "N selected · MATLAB ▾ · ✕" control in the toolbar exports them. `POST /api/matlab-bulk` takes `entries`, per
 logbook entry the flight ids of its recordings; the server keeps the ones in visible, finished logs, picks the SD
 recording when there is one and else the GCS one (entries without either are counted as `skipped`) and refuses
@@ -1101,7 +1101,7 @@ count (`4×`) in the number column, with a copy button for the flight numbers, s
 takes them (paper records have none).
 Only rows with several flights show the expand arrow (far-left column); their takeoff/landing times list each
 flight on hover. A row with flights in different projects shows the most common project with "+N"; the split
-is on hover. Import CSV and Review appear in Edit mode; the bulk-edit controls appear once a row is ticked.
+is on hover. The Logbook does not use Edit mode (see [Logbook changes](#logbook-changes)).
 The Category column shows only the category; the authorisation name and the category source are in its tooltip.
 The Columns menu hides table columns (Date always stays). The choice is stored per browser in `localStorage`
 (`logbook.hiddenColumns`), so it survives navigation, Back and new sessions; Export CSV stays complete.
@@ -2271,7 +2271,7 @@ Removing ambiguity resumes normal name/folder matching but does not restore a de
 really identifies one aircraft. These management actions require an admin browser session,
 not an API key. No raw-log reparse is needed to mark names or update assignments.
 
-**Paper flight records.** In the Logbook (Edit mode), choose **Import CSV** (admins) or **Add paper record**. Admins and members
+**Paper flight records.** In the Logbook, choose **Manage ▾ → Import CSV…** (admins) or **Add paper record…**. Admins and members
 with **full** access to the selected project can create, edit and delete these records; other project
 members can read them. Select an existing aircraft, PIC and project, then enter the date, total flight
 time in minutes and flight count. An individual flight has count 1 and an optional UTC takeoff time.
@@ -2361,7 +2361,7 @@ flight" (`same=0`), with `origin` `auto` or `manual`, who and when.
 
 ### Review page
 
-`/review` (Logbook in Edit mode → *Review*) walks through the paper ↔ log cases a person has to decide, one at a time,
+`/review` (Logbook → **Manage ▾** → *Review*) walks through the paper ↔ log cases a person has to decide, one at a time,
 from `GET /api/review` (same read model and visibility as the logbook):
 
 - **possible duplicate**: an unlinked paper record with logs of its aircraft nearby (`possible_duplicates`);
@@ -2398,11 +2398,11 @@ same stale check as `flight_links`) and passed to `merge_sources(rows, decisions
 - `POST /api/sources/links {flight_ids, same}`: with `same=true` all listed flights are one flight; with
   `same=false` the first is not the same flight as each of the others. The latest decision on a pair
   wins. Needs edit rights on every flight.
-- In the logbook (Edit mode), **Same flight** in the selection bar joins the ticked logged entries; with one
+- In the logbook, **Same flight** in the selection bar joins the ticked logged entries; with one
   ticked paper record it also links that record. An expanded merged entry lists its recordings with
   **Not the same flight**.
 
-Admins can select paper and telemetry records together in Logbook Edit mode and apply PIC, PAC,
+Admins can select paper and telemetry records together in the Logbook and apply (**Change…**) PIC, PAC,
 GCS and project changes in one transaction. Paper records still require a PIC and project:
 leave these fields on **Keep** or select a person/project rather than clearing them. Duplicate
 paper-record checks still apply, including hidden records; an invalid selection rolls back the whole change.
@@ -2410,8 +2410,8 @@ Paper crew/project cells also support individual inline edits for admins.
 
 **Hide selected** is reversible removal from the logbook and its statistics/entity totals, not file deletion.
 It hides all selected telemetry sources (including both SD/GCS sources of a merged row) or entire paper
-records/daily summaries. Unselected flights in the same uploaded log are unaffected. In Edit mode,
-admins can select **Hidden records only**, select entries and choose **Restore selected**.
+records/daily summaries. Unselected flights in the same uploaded log are unaffected. Admins choose
+**Manage ▾ → Hidden records only**, tick entries and choose **Restore** in the selection bar.
 Source logs, CSV attachments and record data stay on disk; uploaded-log views retain their source summaries.
 The hidden state is preserved across re-parsing using the same aircraft/flight-index matching as crew edits.
 Permanent deletion from existing record/upload detail pages remains a separate operation.
@@ -2489,8 +2489,26 @@ flight filters (`category=all|national|open|specific|luc|indoor|unknown|check`) 
   are not part of a record's fingerprint, and a CSV without them leaves existing records as they are.
 
 **Edit mode.** The Edit button in the menu bar shows the forms and menus to change things on the pages that have them
-(Logbook, Logs, People, Projects, Aircraft, Locations, Agenda, Training, Documents, …); it is one setting for all pages,
-so the button is on every page, and it stays on until you turn it off. With edit mode on, admins also see the names in the
+(Logs, People, Projects, Aircraft, Locations, Agenda, Training, Documents, …); it is one setting for all pages,
+so the button is on every page, and it stays on until you turn it off. Pages are moving to changes per item instead
+(below); such a page sets `<body data-edit="none">` and `theme.js` shows no Edit button there.
+
+<a id="logbook-changes"></a>**Logbook changes (no Edit mode).** The Logbook looks the same for everyone and offers each change
+only where the user may make it, from the flags the logbook API already sends per entry (`can_edit_project`,
+`can_edit_crew`, `can_edit_date`, `can_edit_record`) and the user's project roles; the server checks every change
+again as before.
+- A row's **⋯** menu (day rows: all their flights): **Project…** (`PUT /api/flights/<id>/project` for every
+  recording, paper records through `PUT /api/logbook/records`), **Crew…** (`PUT /api/logbook/records`, Keep per
+  role), **Date…**/**Set date…** (`PUT /api/logs/<id>/date`, also *Remove the set date*) and **Classification…**
+  (`verdict`), each in a small dialog. An undated log also shows **Set date** next to its *date unknown* chip.
+- Tick boxes are always there for entries with a flight number or something the user may change; the **selection
+  bar** at the bottom shows Copy numbers and MATLAB ▾ for everyone, **Change…** (project, PIC, PAC, GCS, operator,
+  category; fields on Keep stay) and **Same flight** when the user may change every ticked entry, and **Hide** or
+  **Restore** for admins.
+- **Manage ▾** (admins and members with edit, full or manager rights in a project): **Import CSV…**/**Add paper
+  record…**, **Review**, and for admins **Hidden records only** (shown as a chip with ✕ while on).
+- An opened entry shows **Unlink** (linked paper record) and **Not the same flight** (merged recordings) to those
+  who may change it. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
 are left.
 

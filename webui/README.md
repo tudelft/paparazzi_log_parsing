@@ -69,7 +69,7 @@ to gain descriptions and previously omitted crew entries.
   **Hide non-flights**; other visibility filters still apply.
   Corrected and **estimated dates** follow the selected period normally, even with **Hide unknown dates**
   ticked. Estimated dates are labelled: the GPS time of day is known but the week is guessed from the
-  firmware commit. Confirm or correct the date in Edit mode. Choose **Apply filters**;
+  firmware commit. Confirm or correct the date with **Date…** in the row's **⋯** menu. Choose **Apply filters**;
   the selection stays the same when moving between pages in this browser. **Reset** restores
   the defaults after applying. The filters cover Logbook, Statistics, Locations and individual
   person, aircraft, project and location overviews, including their totals, maps, charts and
@@ -90,8 +90,8 @@ to gain descriptions and previously omitted crew entries.
   Unknown dates are excluded from flying days and monthly activity, with an explanatory count on the chart.
   Aircraft, project and crew tables scroll independently, with column headings kept visible.
 - Detected simulations, uncertain flights (marked (?)) and ground records are non-flights: tick **Hide
-  non-flights** to leave them out of lists and totals. In Edit mode, an expanded logbook flight has a
-  **Classification** choice (Automatic, Flight or Not a flight) for when the estimate is wrong. Flight details show the evidence; reparse outdated Paparazzi
+  non-flights** to leave them out of lists and totals. **Classification…** in a logbook row's **⋯** menu
+  (Automatic, Flight or Not a flight) corrects the estimate when it is wrong. Flight details show the evidence; reparse outdated Paparazzi
   uploads to assess older recordings.
 - A missing telemetry endpoint location uses the other endpoint's GPS position for display.
   Flights with both endpoint locations unknown are included in indoor/no-GPS filtering, even if a partial
@@ -106,18 +106,18 @@ to gain descriptions and previously omitted crew entries.
   until then an undated log only gets its aircraft's project when the aircraft has just one, open-ended project.
 - Uploading a file that someone else already uploaded keeps one copy and makes you a **co-uploader**: you can then
   see that log and its flights, and the Logs page links to it.
-- **Review** (Logbook, Edit mode) walks through possible duplicates, paper records where only another aircraft
+- **Review** (Logbook, **Manage ▾**) walks through possible duplicates, paper records where only another aircraft
   flew, and conflicts, with the paper record next to the candidate logs; every decision can be undone there.
-- In Edit mode, tick the entries of one flight and press **Same flight** to join them (also when the automatic
+- Tick the entries of one flight and press **Same flight** in the selection bar to join them (also when the automatic
   SD/GCS merge missed it), or press **Not the same flight** next to a recording in an expanded entry to split it off.
 - Each flight shows the **operator** (operator registration) it was flown under: our own unless set on the flight
-  (Edit mode, **Operator** in the selection bar), its project, its takeoff location or the operator its PIC flies
+  (**Change…** in the selection bar), its project, its takeoff location or the operator its PIC flies
   for (external crew); inferred values are grey. Choose **Own operations only** in Flight filters for operator
   reporting; pilot experience counts all operators. The list of operators is on the **Operators** tab of the Projects page; anyone can add
   a new partner there or with **New operator…** in the Logbook, and admins set which operator external crew fly for.
 - Each flight also shows its **category**, the rules it was flown under: national rules (ROC / ROC-light) before
-  EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. It comes from the flight (Edit mode,
-  **Category** in the selection bar), indoor, its project, its takeoff location or the date; inferred values are
+  EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. It comes from the flight (**Change…**
+  in the selection bar), indoor, its project, its takeoff location or the date; inferred values are
   grey. By date, our own flights get national rules while a ROC was valid and OPEN when no authorisation of ours
   was valid; while an EU authorisation was valid they stay unknown until a project, location or flight says which.
   Admins keep the authorisations (number, category, validity) on the **Authorisations** tab of the Projects
@@ -129,7 +129,7 @@ to gain descriptions and previously omitted crew entries.
 - **No.** is the flight number, the number in `/flight/<number>` and on the flight page, which Python's `ml.fetch` and
   MATLAB's `pprz_fetch` use (**Download logs**). **⧉** next to a number (Logbook, the flights of a log under Logs, the
   flight page) copies it; under Logs, **No.** is the log number with its own **⧉**, for `pprz_fetch('log', n)` and
-  `ml.fetch(log=n)` (the whole log, also without flights); in **Select** mode, **Copy numbers** copies the ticked flights' numbers
+  `ml.fetch(log=n)` (the whole log, also without flights); with flights ticked, **Copy numbers** in the selection bar copies their numbers
   (`1, 3, 4`) to paste into a Python or MATLAB array. Search for `#1234` to find a flight by number; with SD
   and GCS recordings of one flight, hover over the number for both.
 - In Edit mode the flight page lets you type the **flight goal** and link the recording to the right **fleet aircraft**
@@ -137,7 +137,7 @@ to gain descriptions and previously omitted crew entries.
 - SD and GCS recordings of the same flight are merged. **Group by day** (on by default) shows one row per
   aircraft, crew and takeoff place per day, like a paper daily log; such a row is tinted, shows its number of flights
   (for example **4×**) with a button that copies their flight numbers, and opens with ▸ to show its flights.
-  It does not change stored flights. With something ticked in Edit mode, the selection bar offers the changes.
+  It does not change stored flights. Its **⋯** changes the project or crew of all its flights.
 - Hover over an aircraft name in the logbook for its TUD/serial number; it is also on the aircraft detail page.
 - Turn on **Edit** to show permitted editing controls. It stays enabled across pages until turned off.
   Turn it off for the simpler browsing view. Longer explanations are under **Help**.
@@ -158,8 +158,8 @@ to gain descriptions and previously omitted crew entries.
   degrees). It includes settings by name, the checklist, crew, configuration, waypoints and named actuators
   (`ACTUATORS.FRONT_MOT`). The file is prepared in the background and kept for two weeks; load it with
   `s = load('file.mat').s`.
-- To export several flights at once, press **Select** in the Logbook (or tick them in Edit mode), tick flights on
-  any page and use **MATLAB ▾** next to "N selected": a `.zip` with one `.mat` per log (each flight's SD log,
+- To export several flights at once, tick them in the Logbook (on any page) and use **MATLAB ▾** in the selection
+  bar: a `.zip` with one `.mat` per log (each flight's SD log,
   else GCS; at most 200 logs).
 
 ## Add or correct information
@@ -182,11 +182,12 @@ and inspect, narrow or revoke their API keys (not retrieve secret values). You c
   or use **Previous / Next** to visit each remaining dot on the map. In **Edit** mode,
   draw and name a boundary around it; covered positions leave the review list after saving.
 
-- In **Logbook**, Edit mode exposes crew/project corrections where permitted.
-  Admins can bulk-edit paper and telemetry records together, or **Hide selected** to remove entries
-  from the logbook and totals without deleting files. Use **Hidden records only** and **Restore selected**
-  to undo this. Paper records must keep a PIC and project.
-  Use **Add paper record** (Logbook, Edit mode) to enter historical flights without logs. Admins use **Import CSV**;
+- The **Logbook** looks the same for everyone; what you may change is offered where it applies. A row's **⋯** menu
+  changes its project, crew, date or classification; tick rows for the **selection bar** at the bottom (copy numbers,
+  MATLAB, and, when you may change all ticked entries, **Change…** and **Same flight**). Admins can also **Hide**
+  entries from the logbook and totals without deleting files; **Manage ▾ → Hidden records only** shows them to
+  **Restore**. Paper records must keep a PIC and project.
+  Use **Add paper record…** (Logbook, **Manage ▾**) to enter historical flights without logs. Admins use **Import CSV**;
   importing a corrected CSV again updates records matched by reference (e.g. flight number F00001)
   or by aircraft, date and takeoff time, after a preview of what each row will do.
   Paper records add flight counts and time, not telemetry; check for overlap with digital logs.
