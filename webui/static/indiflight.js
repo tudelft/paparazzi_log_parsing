@@ -16,15 +16,26 @@
   const ICON = '<svg class="ext-icon" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M9 2.5h4.5V7M13.5 2.5 7 9'
     + 'M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   let menu = null, anchor = null;
+  const base = name => String(name || '').split(/[\\/]/).pop();
+  // The file name the server gives the download (Content-Disposition), else log-<id>.
+  function downloadName(response, logId) {
+    const header = response.headers.get('Content-Disposition') || '';
+    const star = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header);
+    let name = '';
+    try { name = star ? decodeURIComponent(star[1]) : ((/filename\s*=\s*"?([^";]+)"?/i.exec(header) || [])[1] || ''); }
+    catch (e) { name = ''; }
+    return base(name) || `log-${logId}`;
+  }
 
   function button(sources) {
     const seen = new Set();
     const logs = (sources || []).filter(s => s.log_id && TYPES.includes(s.log_type) && !seen.has(s.log_id) && seen.add(s.log_id));
     return logs.map(s => {
-      const name = logs.length > 1 && s.log_name ? ` (${esc(s.log_name)})` : '';
-      const data = `data-log="${s.log_id}" data-name="${esc(s.log_name || '')}"`;
+      const file = base(s.log_name);  // the stored name may hold the upload's folders
+      const name = logs.length > 1 ? ` (${esc(file || 'log ' + s.log_id)})` : '';
+      const data = `data-log="${s.log_id}"`;
       return `<span class="ext-split"><button type="button" class="btn sec" data-indiflight-open="plotter" ${data}
-          title="Open ${esc(s.log_name || 'this log')} in the INDIFlight Flight Plotter (${esc(new URL(app()).host)}, opens in a new tab)">Open in Flight Plotter${name} ${ICON}</button><button
+          title="Open ${esc(file || 'this log')} in the INDIFlight Flight Plotter (${esc(new URL(app()).host)}, opens in a new tab)">Open in Flight Plotter${name} ${ICON}</button><button
           type="button" class="btn sec ext-caret" data-indiflight-menu ${data} aria-haspopup="menu" aria-expanded="false"
           aria-label="More ways to open this log">▾</button></span>`;
     }).join('');
@@ -41,10 +52,10 @@
     close();
     anchor = toggle;
     menu = document.createElement('div');
-    menu.className = 'matlab-pop ext-pop';
+    menu.className = 'ext-pop';
     menu.setAttribute('role', 'menu');
-    menu.innerHTML = `<button type="button" class="matlab-item" role="menuitem" data-indiflight-open="viewer"
-      data-log="${toggle.dataset.log}" data-name="${esc(toggle.dataset.name)}">Open in Blackbox Viewer ${ICON}</button>`;
+    menu.innerHTML = `<button type="button" class="ext-item" role="menuitem" data-indiflight-open="viewer"
+      data-log="${toggle.dataset.log}">Open in Blackbox Viewer ${ICON}</button>`;
     document.body.append(menu);
     const r = toggle.getBoundingClientRect();
     menu.style.top = `${r.bottom + window.scrollY + 6}px`;
@@ -54,19 +65,28 @@
 
   // The window is opened in the click itself (popup blockers), the log is fetched meanwhile and sent when the app
   // says it is ready. Only that window's messages from the app origin count.
-  function launch(tool, logId, name) {
+  function launch(tool, logId) {
     const origin = app();
     const win = window.open(`${origin}/?openlog=${tool}`, '_blank');
     if (!win) { alert('The browser blocked the new tab. Allow pop-ups for this site and try again.'); return; }
-    const log = fetch(`/api/logs/${logId}/download/data`).then(r => r.ok ? r.arrayBuffer()
+    // The download stops when the app does not answer in time or its tab is closed first.
+    const abort = new AbortController();
+    const log = fetch(`/api/logs/${logId}/download/data`, {signal: abort.signal}).then(r => r.ok
+      ? r.arrayBuffer().then(data => ({data, name: downloadName(r, logId)}))
       : Promise.reject(new Error(`Download failed (HTTP ${r.status}).`)));
     log.catch(() => {});
-    const done = () => { removeEventListener('message', onMessage); clearTimeout(timer); };
-    const timer = setTimeout(done, 120000);
+    const done = () => { removeEventListener('message', onMessage); clearTimeout(timer); clearInterval(watch); };
+    const giveUp = answered => {
+      done();
+      abort.abort();
+      if (!answered && !win.closed) alert(`${TOOLS[tool]} did not ask for the log. Reload it there, or try again.`);
+    };
+    const timer = setTimeout(() => giveUp(false), 120000);
+    const watch = setInterval(() => { if (win.closed) giveUp(true); }, 1000);
     function onMessage(event) {
       if (event.source !== win || event.origin !== origin || event.data?.type !== 'indiflight-ready') return;
       done();
-      log.then(data => win.postMessage({type: 'indiflight-log', name: name || `log-${logId}.bfl`, data}, origin, [data]),
+      log.then(({data, name}) => win.postMessage({type: 'indiflight-log', name, data}, origin, [data]),
         err => { win.close(); alert(`Could not open the log in ${TOOLS[tool]}: ${err.message}`); });
     }
     addEventListener('message', onMessage);
@@ -76,10 +96,12 @@
     const toggle = event.target.closest('[data-indiflight-menu]');
     if (toggle) { event.stopPropagation(); toggle === anchor ? close() : openMenu(toggle); return; }
     const go = event.target.closest('[data-indiflight-open]');
-    if (go) { event.stopPropagation(); close(); launch(go.dataset.indiflightOpen, go.dataset.log, go.dataset.name); return; }
+    if (go) { event.stopPropagation(); close(); launch(go.dataset.indiflightOpen, go.dataset.log); return; }
     if (menu && !menu.contains(event.target)) close();
   });
   document.addEventListener('keydown', event => { if (event.key === 'Escape' && menu) { const a = anchor; close(); a.focus(); } });
+  addEventListener('resize', close);
+  document.addEventListener('scroll', close, true);  // also a scrolling tab row: the menu would stay behind
 
   window.IndiflightOpen = {button};
 })();
