@@ -338,7 +338,7 @@ dialog.entry-dialog label.field input, dialog.entry-dialog label.field select { 
 .qual-head-fill { flex:1; }
 .qual-head .qual-help { flex-basis:100%; order:9; }
 .qual-head .qual-help:not([open]) { flex-basis:auto; order:0; }
-.qual-head .qual-help > summary { font-size:13px; color:var(--mute); cursor:pointer; }
+.qual-head .qual-help > summary { cursor:pointer; }  /* the same bold ▸ Help as in every title row */
 .qual-head .qual-help p { margin:6px 0 0; color:var(--mute); font-size:13px; }
 .qual-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-top:1px solid var(--line); min-width:0; flex-wrap:wrap; }
 .qual-list > .qual-row:first-child { border-top:0; }
