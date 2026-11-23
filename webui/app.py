@@ -5897,6 +5897,7 @@ def home_data():
         logs=dict(undated=undated, failed=failed),
         review=len(review_queue().get_json()["cases"]),
         bookings=dict(enabled=on, upcoming=home.upcoming_bookings(con, g.user, now_local) if on else [],
+                      upcoming_all=home.upcoming_bookings(con, g.user, now_local, everyone=True) if on else [],
                       today=home.bookings_today(con, g.user, now_local) if on else [],
                       to_approve=home.bookings_to_approve(con, g.user) if on else dict(count=0)),
         places=[dict(id=p["id"], name=p["name"]) for p in choices],

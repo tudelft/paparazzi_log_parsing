@@ -24,6 +24,8 @@
   .hello { display:flex; align-items:baseline; gap:4px 12px; flex-wrap:wrap; margin:2px 0 12px; }
   .hello h2 { margin:0; font-size:20px; }
   .hello .menu-wrap[hidden] { display:none; }
+  .only-mine { font-size:12px; font-weight:400; color:var(--mute); margin-right:8px; cursor:pointer; }
+  .only-mine input { vertical-align:-2px; margin:0 2px 0 0; }
   .hello .mute { font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .grid { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:12px; align-items:stretch; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; min-width:0; }
@@ -146,7 +148,7 @@
       <div id="flying"><span class="empty">Loading…</span></div>
     </section>
     <section class="card s4" id="comingCard" hidden>
-      <h3>Coming up <span class="end"><a href="/agenda">Agenda</a></span></h3>
+      <h3>Coming up <span class="end"><label class="only-mine" title="Only your own bookings"><input type="checkbox" id="onlyMine"> Only mine</label> <a href="/agenda">Agenda</a></span></h3>
       <div id="coming"></div>
     </section>
     <section class="card s4" id="weatherCard" hidden>
@@ -261,18 +263,28 @@ function dateBox(text) {
   const d = new Date(text.slice(0, 10) + 'T12:00:00');
   return `<span class="date"><small>${DAYS[d.getDay()]}</small><b>${d.getDate()}</b></span>`;
 }
+// Coming up: everyone's bookings on the items you can view (as in the agenda), or only yours (?coming=mine).
 function paintComing() {
   const b = data.bookings;
   $('comingCard').hidden = !b.enabled;
   if (!b.enabled) return;
-  $('coming').innerHTML = b.upcoming.length ? `<ul class="rows">${b.upcoming.map(x => {
+  const mine = new URLSearchParams(location.search).get('coming') === 'mine';
+  $('onlyMine').checked = mine;
+  const list = mine ? b.upcoming : (b.upcoming_all || b.upcoming);
+  $('coming').innerHTML = list.length ? `<ul class="rows">${list.map(x => {
     const day = x.start.slice(0, 10), endDay = x.end.slice(0, 10);
     const when = `${x.start.slice(11, 16)}–${endDay === day ? x.end.slice(11, 16) : endDay + ' ' + x.end.slice(11, 16)}`;
-    const detail = [when, x.place, x.description].filter(Boolean).join(' · ');
+    const detail = [when, mine || x.mine ? '' : x.person, x.place, x.description].filter(Boolean).join(' · ');
     return `<li>${dateBox(x.start)}<span class="grow"><div class="ellipsis" title="${esc(x.thing)}"><a href="/agenda?week=${esc(day)}&amp;item=${x.thing_id}">${esc(x.thing)}</a></div>
       <div class="d ellipsis" title="${esc(detail)}">${esc(detail)}</div></span>${x.pending ? '<span class="chip" title="Waiting for approval; it holds the time">Pending</span>' : ''}${x.flags.map(f => `<span class="chip" title="${esc(f)}">${esc(f)}</span>`).join('')}</li>`;
-  }).join('')}</ul>` : '<p class="empty">No bookings in the next two weeks.</p>';
+  }).join('')}</ul>` : `<p class="empty">${mine ? 'You have no bookings' : 'No bookings'} in the next two weeks.</p>`;
 }
+$('onlyMine').onchange = () => {
+  const p = new URLSearchParams(location.search);
+  if ($('onlyMine').checked) p.set('coming', 'mine'); else p.delete('coming');
+  history.replaceState(history.state, '', location.pathname + (p.size ? '?' + p : ''));
+  paintComing();
+};
 
 // ---- Today: weather at the chosen place (?place= in the URL; the default comes from My account) ----
 const WMO = [[0, '☀️', 'Clear'], [2, '⛅', 'Partly cloudy'], [3, '☁️', 'Overcast'], [48, '🌫️', 'Fog'], [57, '🌦️', 'Drizzle'],

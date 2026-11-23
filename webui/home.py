@@ -144,22 +144,25 @@ def qualification_alerts(con, user_id, today):
     return sorted(out, key=lambda q: q["valid_until"])
 
 
-def upcoming_bookings(con, user, now_local):
-    """The user's own bookings that have not ended, in the next BOOKING_DAYS days, on things they can still view."""
+def upcoming_bookings(con, user, now_local, everyone=False):
+    """Bookings that have not ended, in the next BOOKING_DAYS days, on things the user can view: their own, or
+    (everyone) everybody's, as the agenda shows them (with the person who booked)."""
     end = (now_local + datetime.timedelta(days=BOOKING_DAYS)).strftime("%Y-%m-%dT%H:%M")
     items = {}
     out = []
     for b in con.execute(
-            "SELECT b.* FROM bookings b WHERE b.user_id=? AND b.ends_at>? AND b.starts_at<? AND b.status!='rejected'"
-            " ORDER BY b.starts_at, b.id", (user["id"], now_local.strftime("%Y-%m-%dT%H:%M"), end)):
+            "SELECT b.*, COALESCE(u.display_name, u.username) AS person FROM bookings b JOIN users u ON u.id=b.user_id"
+            " WHERE (? OR b.user_id=?) AND b.ends_at>? AND b.starts_at<? AND b.status!='rejected'"
+            " ORDER BY b.starts_at, b.id", (bool(everyone), user["id"], now_local.strftime("%Y-%m-%dT%H:%M"), end)):
         item = thing(con, items, b["thing_id"], user)
         if item is None:
             continue
         flags = bookings.booking_flags(con, b["id"])
         out.append(dict(id=b["id"], thing_id=b["thing_id"], thing=item["name"], place=item["place_name"], description=b["description"],
                         start=b["starts_at"], end=b["ends_at"], pending=b["status"] == "pending",
+                        person=b["person"], mine=b["user_id"] == user["id"],
                         flags=[f["label"] for f in item["flags"] if f["id"] in flags]))
-        if len(out) == BOOKINGS_SHOWN:
+        if len(out) == BOOKINGS_SHOWN * (2 if everyone else 1):
             break
     return out
 

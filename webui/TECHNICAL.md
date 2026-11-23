@@ -1069,7 +1069,9 @@ their own qualifications, logs and bookings. Trainings (`/api/trainings`) and, f
 - **Your flying:** real flights (no detected simulation, not judged ground/uncertain) where the user is PIC, including
   paper records (their flight count and time): days since the last one, flights in 90 days, flights and time this year
   (UTC dates) and flights per month for 12 months.
-- **Coming up:** the user's bookings in the next 14 days (at most 5), when `LOGDB_BOOKINGS` is on; **Booked today**
+- **Coming up:** everyone's bookings in the next 14 days on the items the user can view, as the agenda shows them (at
+  most 10, `bookings.upcoming_all`, with who booked), or with **Only mine** (`?coming=mine`) only the user's own (at most 5,
+  `bookings.upcoming`), when `LOGDB_BOOKINGS` is on; **Booked today**
   lists today's bookings on things the user may view.
 - **Today:** an Open-Meteo forecast (`GET /api/home/weather?place=<id>`, browser session only) for the next 8 hours at
   the middle of a place (circle centre or polygon bounds), cached in memory per position for 30 minutes and fetched
