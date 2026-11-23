@@ -1105,16 +1105,18 @@ Discard; a single folder candidate is preselected). Pending requests show **Appr
 and **Withdraw** to the requester. Dialogs close with Cancel, Close or Escape.
 <a id="people-page"></a>**People page** ([UI rule](#ui-rule), `<body data-edit="none">`). A table like Aircraft, the
 same for everyone: Name (a link to the pilot page), Flights, Hours and Last flight as PIC within the flight filters
-(from `/api/people-pic-flights`), and for admins Current licences (approved, not expired) and Sign-in; others see
-licences on the pilot page. The profile (one per person, `user_profiles`; none yet for people who have not signed in
+(from `/api/people-pic-flights`), and for admins Current licences (approved, not expired), Sign-in and Last sign-in
+(`users.last_login`, returned only by `GET /api/admin/people`); others see licences on the pilot page. The profile (one per person, `user_profiles`; none yet for people who have not signed in
 since profiles were turned on, external crew and imported people) adds columns for viewers who see profiles (admins:
 everyone; a supervisor: the people they supervise, from `GET /api/profiles`, also those who share no project with
 them): Role and Department by default, and under Columns Supervisors, Expected end (with incomplete / ending soon /
-ended / to confirm), Number (admins), GitHub and Confirmed; plus the filters Role, Department and status (Incomplete,
-Ending soon: within 3 months, Ended), which also show people without flights. Manage ▾ → **Download profiles (CSV)**
+ended / to confirm), Number (admins), GitHub and Confirmed. One **Filters** pop-up next to Columns (its button shows
+how many are active) holds Role, Department and profile status (Incomplete, Ending soon: within 3 months, Ended) for
+viewers who see profiles, Qualification for admins (a current approved qualification of that type), Show external
+and Without flights; the profile and qualification filters also show people without flights. Manage ▾ → **Download profiles (CSV)**
 exports the profiles of the rows shown (supervisors get Manage ▾ with only this). This replaces the former Profiles
 tab (`?tab=profiles` now opens People). Headers sort; the Columns choice is per browser (`people.columns`); 50 rows
-per page with the pager at the bottom. Search, filters (`role`, `dept`, `status`), Show external, Without flights,
+per page with the pager at the bottom. Search, filters (`role`, `dept`, `status`, `qual`), Show external, Without flights,
 sort, page and rows per page are in the URL (`search`, `external`, `unused`, `sort`, `pg`, `size`). On a phone only
 Name, Flights and Last flight are shown. For non-admins a row opens the pilot page. For admins a row opens
 the person beside the table (`person=<id>`, `ptab=<tab>`; Role and Sign-in are then hidden) with the tabs Details,

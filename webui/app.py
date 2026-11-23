@@ -5274,7 +5274,7 @@ def admin_people():
             id=u["id"], username=u["username"], display_name=u["display_name"], email=u["email"],
             is_admin=bool(u["is_admin"]), is_external=bool(u["is_external"]), has_password=bool(u["password_hash"]),
             has_sso=bool(u["subject"]),
-            is_active=bool(u["is_active"]),
+            is_active=bool(u["is_active"]), last_login=u["last_login"],
             provider=prov, pending=prov == "log", has_logs=u["id"] in with_logs,
             default_project_id=u["default_project_id"], operator_id=u["operator_id"],
             aliases=[r["alias"] for r in con.execute(

@@ -34,9 +34,12 @@
   table.people td a { color:var(--txt); }
   table.people .missing { font-style:italic; opacity:.75; }
   table.people td .chip.warn, table.people td .chip.pending { font-size:11px; }
-  #peopleFilters { display:contents; }
-  #peopleFilters select { width:auto; max-width:10em; }
-  .people-title-row .directory-search { flex:0 1 220px; }
+  .filter-pop { min-width:240px !important; gap:8px !important; }
+  #peopleFilters { display:grid; gap:8px; }
+  #peopleFilters[hidden] { display:none; }
+  .filter-pop select { width:100%; }
+  #filterButton.active { background:var(--acc); color:#fff; }
+  #peopleCard { overflow:visible; }  /* the Filters and Columns pop-ups may reach below a short list */
   .people-foot { display:flex; justify-content:flex-end; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px; }
   .col-menu { position:relative; }
   .col-menu form { position:absolute; top:calc(100% + 6px); left:0; z-index:1000; min-width:180px; padding:10px 12px;
@@ -273,13 +276,18 @@
     <div class="people-title-row"><h2>People</h2>
     <span class="mute" id="directoryCount" role="status"></span>
     <label class="directory-search" id="directorySearchLabel"><input type="search" id="directorySearch" aria-label="Search people" placeholder="Search name, username, alias…" oninput="dirPage = 0; dirUrl(false); renderDirectory()"></label>
-    <span id="peopleFilters" hidden>
-      <select id="dirRole" data-filter="role" aria-label="Role" onchange="setDirFilter(this)"></select>
-      <select id="dirDept" data-filter="dept" aria-label="Department" onchange="setDirFilter(this)"></select>
-      <select id="dirStatus" data-filter="status" aria-label="Profile status" onchange="setDirFilter(this)">
-        <option value="">Any status</option><option value="missing">Incomplete</option><option value="soon" title="The expected end is within 3 months">Ending soon</option><option value="ended">Ended</option></select></span>
-    <label id="showExternalLabel" title="External people stay hidden until this is ticked" hidden><input type="checkbox" id="showExternal" onchange="dirPage = 0; dirUrl(true); render()"> Show external</label>
-    <label title="Include people without logs, paper records or approved qualifications"><input type="checkbox" id="showWithoutLogs" onchange="dirPage = 0; dirUrl(true); render()"> Without flights</label>
+    <span class="col-menu" id="filterMenu"><button type="button" class="sec" id="filterButton" aria-expanded="false" aria-controls="filterForm">Filters</button>
+      <form id="filterForm" class="filter-pop" hidden aria-label="Filters" onsubmit="event.preventDefault()">
+        <div id="peopleFilters" hidden>
+        <label class="field">Role<select id="dirRole" data-filter="role" onchange="setDirFilter(this)"></select></label>
+        <label class="field">Department<select id="dirDept" data-filter="dept" onchange="setDirFilter(this)"></select></label>
+        <label class="field">Profile<select id="dirStatus" data-filter="status" onchange="setDirFilter(this)">
+          <option value="">Any status</option><option value="missing">Incomplete</option><option value="soon" title="The expected end is within 3 months">Ending soon</option><option value="ended">Ended</option></select></label></div>
+        <label class="field" id="dirQualLabel" hidden>Qualification<select id="dirQual" data-filter="qual" onchange="setDirFilter(this)"></select></label>
+        <label id="showExternalLabel" title="External people stay hidden until this is ticked" hidden><input type="checkbox" id="showExternal" onchange="dirPage = 0; dirUrl(true); render()"> Show external</label>
+        <label title="Include people without logs, paper records or approved qualifications"><input type="checkbox" id="showWithoutLogs" onchange="dirPage = 0; dirUrl(true); render()"> Without flights</label>
+        <div class="col-actions"><button type="button" class="sec" id="filterClear">Clear</button><button type="button" class="sec" id="filterClose">Close</button></div>
+      </form></span>
     <span class="col-menu" id="colMenu"><button type="button" class="sec" id="colButton" aria-expanded="false" aria-controls="colForm">Columns</button>
       <form id="colForm" hidden aria-label="Shown columns"></form></span>
     <span class="toolbar-end">
@@ -556,7 +564,8 @@ const PEOPLE_COLUMNS = [
   {key: 'number', label: 'Number', panel: true, profile: true, admin: true, w: 10, title: 'Student / employee number'},
   {key: 'github', label: 'GitHub', panel: true, profile: true, w: 10},
   {key: 'confirmed', label: 'Confirmed', panel: true, profile: true, w: 10, title: 'When the person last confirmed the profile'},
-  {key: 'account', label: 'Sign-in', on: true, panel: true, admin: true, w: 13}];
+  {key: 'account', label: 'Sign-in', on: true, panel: true, admin: true, w: 13},
+  {key: 'login', label: 'Last sign-in', on: true, panel: true, admin: true, w: 11, title: 'When the person last signed in (password or TU Delft)'}];
 PEOPLE_COLUMNS.forEach(c => { c.sort = c.nosort ? null : c.key; });
 
 async function loadPicFlights() {
@@ -602,7 +611,8 @@ function directoryUsers() {
   return [...people.users, ...profileList.filter(x => !x.self && !ids.has(x.id))
     .map(x => ({id: x.id, username: x.username, display_name: x.name, has_logs: true, aliases: []}))];
 }
-const profileFiltered = () => !!(dirFilter.role || dirFilter.dept || dirFilter.status);
+const profileFiltered = () => !!(dirFilter.role || dirFilter.dept || dirFilter.status || dirFilter.qual);  // also shows people without flights
+const currentQuals = u => ((u.qualifications && u.qualifications.items) || []).filter(q => q.status === 'approved' && !q.expired);
 const shownPeople = () => directoryUsers().filter(u => (!u.is_external || $('showExternal').checked)
   && (u.has_logs || hasLicence(u) || $('showWithoutLogs').checked || profileFiltered() || u.id === selectedPerson
     || (!me?.is_admin && profileList.some(x => x.id === u.id && !x.self))));
@@ -632,14 +642,15 @@ function qualBits(q) {
 // screen at a time; the tab is kept in the URL (?tab=) so Back returns to it.
 let pageTab = new URLSearchParams(location.search).get('tab') || 'people';
 // The table's search, filters, sort, page and the open person (with its tab) are in the URL as well.
-let dirSort = 'name', dirDesc = false, dirPage = 0, dirSize = 50, dirFilter = {role: '', dept: '', status: ''};
+let dirSort = 'name', dirDesc = false, dirPage = 0, dirSize = 50, dirFilter = {role: '', dept: '', status: '', qual: ''};
 function readPersonUrl(p) {
   selectedPerson = +p.get('person') || null;
   selectedTab = ['qualifications', 'api', 'aliases'].includes(p.get('ptab')) ? p.get('ptab') : 'details';
   $('directorySearch').value = p.get('search') || '';
   $('showExternal').checked = p.get('external') === '1';
   $('showWithoutLogs').checked = p.get('unused') === '1';
-  dirFilter = {role: p.get('role') || '', dept: p.get('dept') || '', status: ['missing', 'soon', 'ended'].includes(p.get('status')) ? p.get('status') : ''};
+  dirFilter = {role: p.get('role') || '', dept: p.get('dept') || '', status: ['missing', 'soon', 'ended'].includes(p.get('status')) ? p.get('status') : '',
+    qual: p.get('qual') || ''};
   $('dirStatus').value = dirFilter.status;
   const [key, dir] = (p.get('sort') || 'name-asc').split('-');
   dirSort = PEOPLE_COLUMNS.some(c => c.sort === key) ? key : 'name';
@@ -653,7 +664,7 @@ function dirUrl(push) {
   const url = new URL(location.href);
   for (const [k, v] of [['search', $('directorySearch').value.trim()], ['external', $('showExternal').checked ? '1' : ''],
     ['unused', $('showWithoutLogs').checked ? '1' : ''], ['role', dirFilter.role], ['dept', dirFilter.dept],
-    ['status', dirFilter.status], ['sort', dirSort === 'name' && !dirDesc ? '' : `${dirSort}-${dirDesc ? 'desc' : 'asc'}`],
+    ['status', dirFilter.status], ['qual', dirFilter.qual], ['sort', dirSort === 'name' && !dirDesc ? '' : `${dirSort}-${dirDesc ? 'desc' : 'asc'}`],
     ['pg', dirPage ? dirPage + 1 : ''], ['size', dirSize === 50 ? '' : dirSize]]) {
     if (v) url.searchParams.set(k, v); else url.searchParams.delete(k);
   }
@@ -842,11 +853,30 @@ $('colForm').onclick = e => {
   if (e.target.id === 'colAll') { columnChoice = {}; saveColumns(); fillColumns(); renderDirectory(); }
   if (e.target.id === 'colClose') $('colButton').click();
 };
-document.addEventListener('click', e => { if (!$('colForm').hidden && !e.target.closest('.col-menu')) $('colButton').click(); });
+document.addEventListener('click', e => { if (!$('colForm').hidden && !e.target.closest('#colMenu')) $('colButton').click(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('colForm').hidden) { $('colButton').click(); $('colButton').focus(); } });
+$('filterButton').onclick = () => {
+  const open = $('filterForm').hidden;
+  $('filterForm').hidden = !open;
+  $('filterButton').setAttribute('aria-expanded', String(open));
+  if (open) $('filterForm').querySelector('select:not([hidden]), input')?.focus();
+};
+$('filterClose').onclick = () => $('filterButton').click();
+$('filterClear').onclick = () => {
+  dirFilter = {role: '', dept: '', status: '', qual: ''};
+  $('showExternal').checked = $('showWithoutLogs').checked = false;
+  dirPage = 0; dirUrl(true); render();
+};
+document.addEventListener('click', e => { if (!$('filterForm').hidden && !e.target.closest('#filterMenu')) $('filterButton').click(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('filterForm').hidden) { $('filterButton').click(); $('filterButton').focus(); } });
 // Role, Department and profile status: only for viewers who see profiles; the choices come from those profiles.
 function paintDirFilters() {
   $('peopleFilters').hidden = !showsRoles();
+  const active = [dirFilter.qual, dirFilter.role, dirFilter.dept, dirFilter.status && $('dirStatus').querySelector(`[value="${dirFilter.status}"]`)?.textContent,
+    $('showExternal').checked && 'Show external', $('showWithoutLogs').checked && 'Without flights'].filter(Boolean);
+  $('filterButton').textContent = active.length ? `Filters · ${active.length}` : 'Filters';
+  $('filterButton').classList.toggle('active', !!active.length);
+  $('filterButton').title = active.join(' · ') || 'Role, department, profile status, qualification, external people and people without flights';
   const opts = (sel, label, key, values) => {
     sel.innerHTML = `<option value="">${label}</option>` + [...new Set([...values.filter(Boolean), dirFilter[key]].filter(Boolean))].sort()
       .map(v => `<option>${esc(v)}</option>`).join('');
@@ -854,6 +884,9 @@ function paintDirFilters() {
   };
   opts($('dirRole'), 'All roles', 'role', profileList.map(x => x.profile?.role));
   opts($('dirDept'), 'All departments', 'dept', profileList.map(x => x.profile?.department));
+  // Qualification (admins, like the Current licences column): the types people hold now
+  $('dirQualLabel').hidden = !me?.is_admin;
+  opts($('dirQual'), 'Any qualification', 'qual', people.users.flatMap(u => currentQuals(u).map(q => q.category)));
   $('dirStatus').value = dirFilter.status;
   saveColumns();
 }
@@ -891,7 +924,8 @@ function renderDirectory() {
   const admin = !!me?.is_admin, cols = drawnColumns(), totals = picTotals();
   const all = directoryUsers();
   const rows = matchingPeople($('directorySearch').value).filter(u => {
-    if (!profileFiltered()) return true;
+    if (dirFilter.qual && !currentQuals(u).some(q => q.category === dirFilter.qual)) return false;
+    if (!(dirFilter.role || dirFilter.dept || dirFilter.status)) return true;
     const x = profileOf(u);
     if (!x) return false;
     return (!dirFilter.role || x.profile?.role === dirFilter.role) && (!dirFilter.dept || x.profile?.department === dirFilter.dept)
@@ -905,7 +939,7 @@ function renderDirectory() {
   const byName = (a, b) => name(a).localeCompare(name(b), undefined, {sensitivity: 'base'});
   const text = f => (a, b) => { const x = f(a), y = f(b); return x && y ? String(x).localeCompare(String(y)) : !x - !y; };  // empty last
   const compare = {
-    name: byName, account: text(signInText),
+    name: byName, account: text(signInText), login: text(u => u.last_login),
     flights: (a, b) => t(a).count - t(b).count, hours: (a, b) => t(a).seconds - t(b).seconds, last: (a, b) => t(a).last.localeCompare(t(b).last),
   }[dirSort] || text(u => profileValue(dirSort, u));
   const sorted = rows.sort((a, b) => (dirDesc ? compare(b, a) : compare(a, b)) || byName(a, b));
@@ -934,6 +968,8 @@ function renderDirectory() {
       case 'hours': return td(c, loading || (s.seconds ? (s.seconds / 3600).toFixed(1) : '<span class="mute">0</span>'));
       case 'last': return td(c, loading || (s.last ? esc(s.last) : none));
       case 'account': return td(c, `<span class="mute">${esc(signInText(u))}</span>`, signInText(u));
+      case 'login': return td(c, u.last_login ? `<span class="mute">${esc(u.last_login.slice(0, 10))}</span>` : '<span class="mute">never</span>',
+        u.last_login ? u.last_login.replace('T', ' ').replace('Z', ' UTC') : 'Never signed in');
     }
     // profile columns: one profile per person; none yet (not signed in since profiles were turned on, external crew)
     if (!p) return c.key === 'role' && x ? td(c, '<span class="mute missing">not filled in</span>') : td(c, '');
@@ -1549,6 +1585,7 @@ function renderPersonPanel() {
       ${editRow('operator', 'Flies for', esc(operatorLabelById(user.operator_id)))}
       ${editRow('is_admin', 'Access', user.is_admin ? 'Administrator' : user.is_external ? 'External crew' : 'Standard account')}
       ${plainRow('Sign-in', esc(signIn))}
+      ${plainRow('Last sign-in', user.last_login ? esc(user.last_login.replace('T', ' ').replace('Z', ' UTC')) : 'Never')}
       ${user.is_external ? '' : plainRow('Password', user.provider === 'saml' ? 'Managed by identity provider' : user.has_password ? 'Chosen' : 'Not set')}
       ${user.has_sso && user.provider !== 'saml' ? plainRow('TU Delft sign-in', 'Linked') : ''}
       </div>
