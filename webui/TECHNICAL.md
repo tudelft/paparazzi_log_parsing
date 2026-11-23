@@ -2531,8 +2531,8 @@ again as before.
   numbers (all have a flight number), MATLAB ▾ (all have a Paparazzi log), **Change…** (project, PIC, PAC, GCS,
   operator, category; fields on Keep stay) and **Same flight** (shown to who may change entries; enabled when they
   may change every ticked one), and **Hide** or **Restore** for admins.
-- <a id="logs-without-flights"></a>**Logs without flights** (flight filters option *Show logs without flights*, off
-  by default, stored like the other options; URL `noflight_logs=1`): the Logbook loads
+- <a id="logs-without-flights"></a>**Logs without flights** are non-flights: shown unless *Hide non-flights* is
+  ticked (URL `nonflights`), like ground runs, uncertain flights and simulations. The Logbook loads
   `GET /api/logbook/logs-without-flights` and shows parsed logs (status `done`) without any flight as rows of their own
   with a *no flight* chip: date (set date, else the log start; *date unknown* chip otherwise), start and end, duration,
   type, aircraft names, project and the log name linking to `/logs#log<id>`. Failed, queued and parsing logs are left to

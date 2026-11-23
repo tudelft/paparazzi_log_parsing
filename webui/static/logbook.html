@@ -207,13 +207,13 @@ const exportable = f => MatlabExport.available(f.sources);
 const selectable = () => true;
 const selectOn = () => !hiddenColumns.has('Select');  // the tick-box column can be switched off under Columns
 const pickedFlights = () => flights.filter(f => crewIds(f).some(id => selected.has(id)));
-// Logs without flights (the flight filters' "Show logs without flights"): parsed logs that produced no flight, as
+// Logs without flights (non-flights, shown unless "Hide non-flights"): parsed logs that produced no flight, as
 // rows of their own (GET /api/logbook/logs-without-flights, the Logs page's scope); key "nolog:<log id>".
 let noFlightLogs = [], noFlightLoaded = false;
 const asLogRow = l => ({...l, nolog: true, record_key: 'nolog:' + l.id, log_id: l.id, aircraft: l.aircraft_names || l.name,
   takeoff_utc: l.date_ok ? l.start_utc : null, log_start_utc: l.start_utc});
 async function loadNoFlightLogs() {
-  if (!window.flightFilters.state.noflightLogs) return;
+  if (!window.flightFilters.state.nonflights) return;
   try {
     const r = await fetch('/api/logbook/logs-without-flights');
     const d = await r.json();
@@ -983,7 +983,7 @@ function render() {
   // logs without flights: same period and search, not with a Files filter or among hidden records; by date with the rest
   const logText = l => [l.name, l.aircraft_names, l.project_name, TYPE_LABEL[l.log_type] || l.log_type, 'no flight',
     l.date_ok ? fmtDate(l.start_utc) : 'date unknown', l.date_override].join(' ').toLowerCase();
-  const shownLogs = window.flightFilters.state.noflightLogs && !$('filesFilter').value && !$('hiddenRecords').checked
+  const shownLogs = window.flightFilters.state.nonflights && !$('filesFilter').value && !$('hiddenRecords').checked
     ? noFlightLogs.filter(l => window.flightFilters.includesDate(l) && (!q || q.split(/\s+/).every(w => logText(l).includes(w)))) : [];
   if (shownLogs.length) {
     const key = e => e.log ? latest(e.log) : latest(e.flights[0]);
@@ -1048,7 +1048,7 @@ $('combine').onchange = () => { page = 0; window.viewState.save(true); render();
 document.addEventListener('attachmentsuploaded', loadLogbookFiles);  // the general Upload added files
 window.addEventListener('flightfilterschange', async () => {
   selected.clear(); page = 0; window.viewState.save(true);
-  if (window.flightFilters.state.noflightLogs && !noFlightLoaded) await loadNoFlightLogs();
+  if (window.flightFilters.state.nonflights && !noFlightLoaded) await loadNoFlightLogs();
   render();
 });
 window.addEventListener('pageshow', event => {
