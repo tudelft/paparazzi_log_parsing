@@ -23,6 +23,7 @@
   .mute { color:var(--mute); }
   .hello { display:flex; align-items:baseline; gap:4px 12px; flex-wrap:wrap; margin:2px 0 12px; }
   .hello h2 { margin:0; font-size:20px; }
+  .hello .menu-wrap[hidden] { display:none; }
   .hello .mute { font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .grid { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:12px; align-items:stretch; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; min-width:0; }
@@ -130,7 +131,11 @@
 </header>
 <main>
   <div id="err"></div>
-  <div class="hello"><h2 id="hello">Welcome</h2><span class="mute" id="helloSub"></span></div>
+  <div class="hello"><h2 id="hello">Welcome</h2><span class="mute" id="helloSub"></span>
+    <span class="menu-wrap" id="manageWrap" hidden style="margin-left:auto"><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
+      <div class="menu-pop" id="manageMenu" role="menu" hidden>
+        <a class="ext-item" role="menuitem" href="/welcome" title="The welcome message and notices shown at the top of this page">Welcome message and notices</a>
+      </div></span></div>
   <div class="grid">
     <div class="s12 messages" id="messages" aria-label="Messages"></div>
     <section class="card s12" id="todoCard" hidden>
@@ -375,8 +380,13 @@ fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
   flags = d;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  $('manageWrap').hidden = !d.user.is_admin;  // admins: the welcome message and notices of this page
   load();
 }).catch(e => { $('err').textContent = e.message; });
+// Manage ▾ (admins): opens on a click, closes on a click elsewhere or Escape.
+$('manageBtn').onclick = e => { e.stopPropagation(); const open = $('manageMenu').hidden; $('manageMenu').hidden = !open; $('manageBtn').setAttribute('aria-expanded', String(open)); };
+document.addEventListener('click', e => { if (!e.target.closest('#manageWrap')) { $('manageMenu').hidden = true; $('manageBtn').setAttribute('aria-expanded', 'false'); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('manageMenu').hidden = true; $('manageBtn').setAttribute('aria-expanded', 'false'); } });
 </script>
 </body>
 </html>

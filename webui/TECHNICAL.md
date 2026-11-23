@@ -1136,7 +1136,7 @@ its existing endpoint: `PUT /api/admin/users/<id>/profile`, `…/operator`, `…
 per-item actions and Add qualification; API keys use the selection bar. ⋯ (admins):
 Set/Reset password…, Remove password…, Move TU Delft sign-in…, Merge into…, Remove user…. Admins have **Add user** and
 **Manage ▾** (Import profiles (CSV)…, Import qualifications (ZIP)… and its template, Fill numbers from PDFs…, Check QR
-codes…, Welcome message and notices), and always the tabs Unlinked crew names (when any; tick names, then **Link to
+codes…), and always the tabs Unlinked crew names (when any; tick names, then **Link to
 person…** or **Add as external…**), Approval queue, Qualification types (a click on a type edits it, the handle
 reorders) and Profile options.
 
@@ -1502,7 +1502,7 @@ it; changing only the audience, date or closing leaves dismissals as they are. T
 date, and how many active accounts dismissed the current version. An account merge keeps the newest dismissal of either
 account.
 
-Admins open the editor at `/welcome` (People → **Manage ▾** → *Welcome message and notices*; others are sent
+Admins open the editor at `/welcome` (Home → **Manage ▾** → *Welcome message and notices*; **Done** returns to Home; others are sent
 to `/home`), which shows the message as it reads for them, how many active accounts dismissed it, and **Edit welcome
 message** (a dialog, also opened by a click on the text; `PUT /api/admin/welcome` with `title`, `body`, `show_again`,
 sent only when something changed). A click on a notice opens it in its dialog, with **Delete…** (a small confirmation). The text is written like a training's access mail and

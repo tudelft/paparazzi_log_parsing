@@ -329,7 +329,7 @@ they supervise.
 
 **Welcome message and notices:** when admins have written a welcome message or notices for you, they are at the top
 of your Home page until you dismiss them (some notices cannot be closed and stay until their end date). Admins write
-them on People, **Manage ▾** → *Welcome message and notices*, like a
+them on Home, **Manage ▾** → *Welcome message and notices*, like a
 training's access mail: tags such as `{name}`, a little markup and parts per role ([details](TECHNICAL.md#welcome-message)).
 
 **Qualifications:** submit your own evidence under **My account**; admins review it on **People**.

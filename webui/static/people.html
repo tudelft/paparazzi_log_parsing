@@ -89,7 +89,6 @@
   .profile-options > div { flex:2 1 300px; min-width:0; }
   .profile-options > div:first-child { flex:3 1 440px; }  /* roles: more columns */
   .profile-options td:first-child input { min-width:9em; }
-  .welcome-link { float:right; }
   .profile-options h3 { margin:6px 0; font-size:13px; }
   .profile-options table { width:100%; border-collapse:collapse; margin-bottom:6px; }
   .profile-options th { font-size:12px; color:var(--mute); text-align:left; font-weight:500; }
@@ -300,7 +299,6 @@
           <a class="ext-item admin-item" role="menuitem" href="/api/admin/qualifications/import/template">Qualifications ZIP: CSV template</a>
           <button type="button" class="ext-item admin-item" role="menuitem" onclick="openFillNumbers()">Fill numbers from PDFs…</button>
           <button type="button" class="ext-item admin-item" role="menuitem" onclick="openCheckQr()">Check QR codes…</button>
-          <a class="ext-item admin-item" role="menuitem" href="/welcome" title="The welcome message and notices at the top of the Home page">Welcome message and notices</a>
         </div></span>
       <details class="people-help"><summary>Help</summary>
       <p id="peopleHint">Accounts that can sign in. Names from the logs are matched to these accounts.</p>
@@ -404,8 +402,7 @@
         <button type="button" class="sec" onclick="$('deptCsv').click()" title="A CSV file with one department per line: name,group (a header line is skipped). Adds the ones not yet listed; Save to keep them.">Import CSV</button>
         <input type="file" id="deptCsv" accept=".csv,text/csv,text/plain" hidden onchange="importDepartments(this)"></div>
     </div>
-    <p><button type="button" onclick="saveProfileOptions()">Save</button> <span id="profileOptionsStatus" class="mute" role="status"></span>
-      <a class="welcome-link" href="/welcome" title="The welcome message and notices at the top of the Home page">Welcome message and notices</a></p>
+    <p><button type="button" onclick="saveProfileOptions()">Save</button> <span id="profileOptionsStatus" class="mute" role="status"></span></p>
   </section>
   <section class="card" id="supervisionSection" hidden>
     <div class="people-title-row"><h2>Supervision</h2><span class="mute" id="supervisionCount" role="status"></span>
