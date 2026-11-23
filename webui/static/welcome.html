@@ -40,6 +40,10 @@
   .head h2 { font-size:17px; margin:0; } .head .grow { flex:1; }
   .notice { display:flex; align-items:center; gap:8px; padding:7px 0; border-top:1px solid var(--line); min-width:0; }
   .notice:first-child { border-top:0; }
+  .notice { cursor:pointer; border-radius:4px; }
+  .notice:hover { background:var(--hover); }
+  #text { cursor:pointer; border-radius:4px; }
+  #text:hover { background:var(--hover); box-shadow:0 0 0 4px var(--hover); }
   .notice .t { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .notice .t b { font-weight:600; }
   .chip { font-size:11px; border-radius:9px; padding:1px 7px; background:var(--chip); color:var(--mute); white-space:nowrap; }
@@ -65,17 +69,18 @@
 <div class="box" id="view" hidden>
   <h1 id="title">Welcome</h1>
   <div id="text"></div>
-  <p class="mute" id="empty" hidden>There is no welcome message. Write one with Edit: it is shown at the top of
+  <p class="mute" id="empty" hidden>There is no welcome message. Write one with Edit welcome message: it is shown at the top of
     everyone's Home page until they dismiss it.</p>
   <div id="err"></div>
   <div class="buttons">
     <span class="left mute small" id="seen" hidden></span>
-    <button type="button" class="secondary" id="edit" hidden>Edit</button>
+    <button type="button" class="secondary" id="edit" hidden>Edit welcome message</button>
     <a class="button" id="done" href="/people?tab=profile-options">Done</a>
   </div>
 </div>
-<form class="box" id="form" hidden novalidate>
-  <h1>Welcome message</h1>
+<dialog id="welcomeDialog" aria-labelledby="welcomeDialogTitle">
+<form id="form" novalidate>
+  <h2 id="welcomeDialogTitle">Edit welcome message</h2>
   <p class="mute small" style="margin:0">Shown at the top of everyone's Home page until they dismiss it (no page is
     redirected for it). Written like a training's access mail. Leave the message empty for no welcome message.</p>
   <label class="f">Title<input id="fTitle" maxlength="120" placeholder="Welcome"></label>
@@ -88,11 +93,13 @@
     <button type="submit" id="save">Save</button>
   </div>
 </form>
+</dialog>
 <section class="box" id="noticesBox" hidden>
   <div class="head"><h2>Notices</h2><span class="mute small" id="noticeCount"></span><span class="grow"></span>
     <button type="button" id="addNotice">Add notice</button></div>
   <p class="mute small" style="margin:0 0 8px">Shown at the top of the Home page of everyone, or of people with the
-    chosen profile roles, until their date; people dismiss them unless they cannot be closed.</p>
+    chosen profile roles, until their date; people dismiss them unless they cannot be closed. Click a notice to change
+    or delete it.</p>
   <div id="notices"></div>
 </section>
 <dialog id="noticeDialog" aria-labelledby="noticeTitle">
@@ -113,10 +120,18 @@
     </div>
     <div id="nErr" style="color:var(--err);margin-top:12px"></div>
     <div class="buttons">
+      <button type="button" class="danger left" id="nDelete" hidden>Delete…</button>
       <button type="button" class="secondary" id="nCancel">Cancel</button>
       <button type="submit" id="nSave">Save</button>
     </div>
   </form>
+</dialog>
+<dialog id="askDialog" aria-labelledby="askTitle" style="width:min(420px, calc(100vw - 32px))">
+  <h2 id="askTitle">Delete notice</h2>
+  <p id="askText" style="margin:8px 0 0"></p>
+  <div id="askErr" style="color:var(--err);margin-top:8px"></div>
+  <div class="buttons"><button type="button" class="secondary" onclick="$('askDialog').close()">Cancel</button>
+    <button type="button" class="danger" id="askOk">Delete notice</button></div>
 </dialog>
 <script>
 const $ = id => document.getElementById(id);
@@ -137,7 +152,6 @@ function show() {
   $('edit').hidden = !data.can_edit;
   $('seen').hidden = !(data.can_edit && msg);
   $('seen').textContent = `Dismissed by ${data.seen} ${data.seen === 1 ? 'person' : 'people'}`;
-  $('form').hidden = true;
   $('view').hidden = false;
 }
 $('edit').onclick = () => {
@@ -146,18 +160,23 @@ $('edit').onclick = () => {
   $('tags').textContent = (data.tags || []).join(' ');
   $('fAgain').checked = false;
   $('fErr').textContent = '';
-  $('view').hidden = true;
-  $('form').hidden = false;
+  welcomeWas = [$('fTitle').value, $('fBody').value].join('\n');
+  $('welcomeDialog').showModal();
   $('fBody').focus();
 };
-$('cancel').onclick = show;
+let welcomeWas = '';
+$('text').onclick = e => { if (data && data.can_edit && !e.target.closest('a')) $('edit').click(); };
+$('text').title = 'Click to change';
+$('cancel').onclick = () => $('welcomeDialog').close();
 $('form').onsubmit = async e => {
   e.preventDefault();
+  if ([$('fTitle').value, $('fBody').value].join('\n') === welcomeWas && !$('fAgain').checked) { $('welcomeDialog').close(); return; }  // nothing changed
   $('save').disabled = true;
   try {
     await api('/api/admin/welcome', {method: 'PUT', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({title: $('fTitle').value, body: $('fBody').value, show_again: $('fAgain').checked})});
     data = await api('/api/welcome');
+    $('welcomeDialog').close();
     show();
   } catch (err) {
     $('fErr').textContent = err.message;
@@ -166,7 +185,7 @@ $('form').onsubmit = async e => {
   }
 };
 
-// ---- Notices: a compact list with Edit and Delete, Add notice and a small dialog
+// ---- Notices: a compact list; a click on a notice opens it (Delete… at the end of its dialog); Add notice
 let notices = {notices: [], roles: []}, editingNotice = null;
 const escHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 async function loadNotices() {
@@ -178,10 +197,10 @@ async function loadNotices() {
     const tip = [`For ${who}`, n.until ? `until ${n.until}` : 'no end date', n.closable ? `dismissed by ${n.dismissed}` : "can't be closed",
       `added ${String(n.created_at || '').slice(0, 10)}${n.created_by ? ' by ' + n.created_by : ''}`,
       n.updated_at ? `changed ${String(n.updated_at).slice(0, 10)}${n.updated_by ? ' by ' + n.updated_by : ''}` : ''].filter(Boolean).join(' · ');
-    return `<div class="notice" title="${escHtml(tip)}"><span class="t"><b>${escHtml(n.title)}</b> <span class="mute small">· ${escHtml(who)}</span></span>
+    return `<div class="notice" data-notice="${n.id}" title="${escHtml(tip + ' · click to change')}"><span class="t"><b>${escHtml(n.title)}</b> <span class="mute small">· ${escHtml(who)}</span></span>
       ${n.expired ? '<span class="chip">ended</span>' : n.until ? `<span class="chip">until ${escHtml(n.until)}</span>` : ''}
       ${n.closable ? `<span class="chip" title="Active accounts that dismissed this version">${n.dismissed} dismissed</span>` : '<span class="chip warn">can\'t be closed</span>'}
-      <button type="button" class="secondary" data-edit="${n.id}">Edit</button><button type="button" class="danger" data-delete="${n.id}">Delete</button></div>`;
+      </div>`;
   }).join('') || '<p class="mute small" style="margin:0">No notices.</p>';
 }
 function syncAudience() { $('nRoles').hidden = $('noticeForm').aud.value !== 'roles'; }
@@ -196,6 +215,7 @@ function openNotice(n) {
   $('nUntil').value = n && n.until ? n.until : '';
   $('nFixed').checked = !!(n && !n.closable);
   $('nErr').textContent = '';
+  $('nDelete').hidden = !n;
   syncAudience();
   $('noticeDialog').showModal();
   $('nTitle').focus();
@@ -203,13 +223,21 @@ function openNotice(n) {
 $('noticeForm').addEventListener('change', syncAudience);
 $('addNotice').onclick = () => openNotice(null);
 $('nCancel').onclick = () => $('noticeDialog').close();
-$('notices').onclick = async e => {
-  const edit = e.target.closest('[data-edit]'), del = e.target.closest('[data-delete]');
-  if (edit) openNotice(notices.notices.find(n => n.id === +edit.dataset.edit));
-  if (del && confirm('Delete this notice? It disappears from everyone\'s Home page.')) {
-    try { await api(`/api/admin/notices/${del.dataset.delete}`, {method: 'DELETE'}); await loadNotices(); }
-    catch (err) { $('err').textContent = err.message; }
-  }
+$('notices').onclick = e => {
+  const row = e.target.closest('[data-notice]');
+  if (row) openNotice(notices.notices.find(n => n.id === +row.dataset.notice));
+};
+$('nDelete').onclick = () => {
+  const n = notices.notices.find(x => x.id === editingNotice);
+  if (!n) return;
+  $('noticeDialog').close();
+  $('askText').textContent = `Delete the notice "${n.title}"? It disappears from everyone's Home page.`;
+  $('askErr').textContent = '';
+  $('askOk').onclick = async () => {
+    try { await api(`/api/admin/notices/${n.id}`, {method: 'DELETE'}); $('askDialog').close(); await loadNotices(); }
+    catch (err) { $('askErr').textContent = err.message; }
+  };
+  $('askDialog').showModal();
 };
 $('noticeForm').onsubmit = async e => {
   e.preventDefault();

@@ -48,7 +48,7 @@ Day-to-day:
     sudo systemctl start flight-logs-backup          # back up now
     sudo -u logdb /opt/flight-logs/app/webui/venv/bin/python /opt/flight-logs/app/webui/app.py check-config
 
-After an update that changes the parser version, click **Re-parse outdated** on the Logs page (in Edit mode).
+After an update that changes the parser version, use **Manage ▾ → Re-parse outdated…** on the Logs page (admins).
 Re-parsing keeps flight numbers (`flights.id`, used in `/flight/<number>`, `pprz_fetch` and the Python client): a flight
 with the same aircraft ID and flight index whose takeoff moved at most 60 s keeps its number (`db.store_parsed`). Other
 flights get a new number above every number of that log, so a dropped number never points at another flight.
@@ -1151,7 +1151,6 @@ qualification, stay hidden until **Show aircraft without logs** / **Show people 
 is ticked. A person counts as having logs as uploader or as linked PIC/PAC/GCS; the open aircraft or person
 stays listed. Non-admins only count qualifications they may see.
 Logbook has no top-level project filter and no longer applies a previously saved project filter.
-Project reassignment controls in Edit mode remain available.
 The menu (`theme.js`) has Home (`/home`), Logbook (`/`), Agenda (`/agenda`, when `LOGDB_BOOKINGS=1`), Training (`/training`, when
 `LOGDB_TRAINING=1`), Safety (`/safety`, when `LOGDB_SAFETY=1`) and **Directory ▾** (People, Aircraft, Projects, Locations,
 Documents at `/documents` when `LOGDB_DOCUMENTS=1`, then Logs at `/logs` and Statistics at `/stats`), then the flight filters. On the right: **⬆ Upload** (for admins and members with add or full access on a project, `can_upload` in `/api/me`), Edit (pages that
@@ -1164,10 +1163,17 @@ The Logs list has one line per log (date, log with its size, aircraft, project, 
 admins also see who uploaded it and when). A log with one flight links straight to its flight page; several open
 the log, where each flight links to its page. Status shows only what needs attention (queued, parsing, error,
 outdated); the **outdated** / **date unknown** badges filter the list (`/api/logs?status=outdated|date_unknown`).
-Edit mode shows the project menus (admins), Re-parse and Delete on an opened log, date editing, and the Re-parse
-outdated / unknown dates and Review date suggestions tools.
+<a id="logs-page"></a>The Logs page follows the [UI rule](#ui-rule) (`<body data-edit="none">`): an opened log has **Edit
+log** (one dialog: the project for admins, `PUT /api/logs/<id>/project`; the calendar date for who may set it on a log
+without a confirmed date, `PUT /api/logs/<id>/date`; only changes are sent; a click on the Project or Calendar date row
+opens it there) and **⋯** (Re-parse for anyone who can see the log, Delete log… with `can_delete`). Admins have
+**Manage ▾** with Re-parse outdated…, Re-parse unknown dates… and Review date suggestions (when there are any).
+Confirmations and messages are small dialogs. The list polls `/api/logs` every 3 s while logs are queued, parsed or
+fingerprinted and every 30 s otherwise (not while the tab is hidden, a dialog is open or the pointer is on an opened
+log); a poll that finds the same rows leaves the table alone, and an opened log keeps its details until changed ones
+arrive, so the page does not flicker.
 Linked aircraft, crew, projects and named locations in the logbook open their detail pages.
-Coordinates without a linked location still open the external map; Edit mode keeps its reassignment menus.
+Coordinates without a linked location still open the external map.
 Aircraft serial numbers in the logbook appear on hover over the aircraft name rather than inline.
 Add aircraft fills the serial with the lowest free `TUDxxxxx` number from TUD00401 on (gaps there first; numbers
 up to TUD00400 may belong to old aircraft that are no longer listed, so they are never handed out again);
@@ -1199,7 +1205,7 @@ Overview table links use the theme's blue accent colour, with an underline on ho
 
 For initial setup, import the qualification ZIP on People first (it can create accounts and types), then the
 project CSV on Projects, then the aircraft CSV on Aircraft. Both catalog imports are admin-only,
-available in Edit mode, with downloadable templates. Files are comma-separated UTF-8 (optional BOM);
+under **Manage ▾** on their page, with downloadable templates. Files are comma-separated UTF-8 (optional BOM);
 Latin-1 uploads are also accepted for older fleet spreadsheets. Limit: 1 MB / 5000 rows. All changes
 from one file are committed together; any invalid row leaves the database unchanged.
 
@@ -1497,8 +1503,9 @@ date, and how many active accounts dismissed the current version. An account mer
 account.
 
 Admins open the editor at `/welcome` (People → **Manage ▾** → *Welcome message and notices*; others are sent
-to `/home`), which shows the message as it reads for them, how many active accounts dismissed it, and **Edit**
-(`PUT /api/admin/welcome` with `title`, `body`, `show_again`). The text is written like a training's access mail and
+to `/home`), which shows the message as it reads for them, how many active accounts dismissed it, and **Edit welcome
+message** (a dialog, also opened by a click on the text; `PUT /api/admin/welcome` with `title`, `body`, `show_again`,
+sent only when something changed). A click on a notice opens it in its dialog, with **Delete…** (a small confirmation). The text is written like a training's access mail and
 filled in per person on the server: the tags `{name} {email} {username} {department} {role} {supervisor} {end_date}`
 (from the account and profile, `-` when unknown; other tags stay as typed), blocks per profile role
 (`{if role: A, B}` … `{elif role: C}` … `{else}` … `{end}`, each on its own line, checked when saving) and the same
@@ -2628,10 +2635,10 @@ Permissions and APIs stay as they are; the server checks every change. A page th
 `<body data-edit="none">` and `theme.js` shows no Edit button there.
 
 **Edit mode (being replaced).** The Edit button in the menu bar shows the forms and menus to change things on the pages
-that still have them (Logs, …); it is one setting
+that still have them (none left; the switch is removed in the next step); it is one setting
 for all pages, and it stays on until you turn it off. The [Logbook](#logbook-changes), the
 [flight page](#flight-page-changes), the [Aircraft page](#aircraft-page), the [People page](#people-page), the
-[Projects page](#projects-page), the [Locations page](#locations-page), [Training](#training-questionnaires), the [Safety page](#safety), the [Documents page](#documents-page) and the [Agenda](#booking-agenda) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
+[Projects page](#projects-page), the [Locations page](#locations-page), [Training](#training-questionnaires), the [Logs page](#logs-page), the [Safety page](#safety), the [Documents page](#documents-page) and the [Agenda](#booking-agenda) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
 are left.
 
