@@ -98,6 +98,8 @@ to gain descriptions and previously omitted crew entries.
 - A missing telemetry endpoint location uses the other endpoint's GPS position for display.
   Flights with both endpoint locations unknown are included in indoor/no-GPS filtering, even if a partial
   GPS path exists; the flight page labels this inference, which is not proof of indoor operation.
+  Endpoint locations use only good GPS fixes (no unconverged fix after power-up). A flight is indoor when it took off
+  or landed in an indoor place, or used motion capture (OptiTrack, ArduPilot/PX4 external navigation).
 - A paper record that clearly matches a logged flight (same aircraft, takeoff within 5 min) is linked to it
   and counts once, as the log; unclear cases show as *possible duplicate* to link or dismiss, and an expanded
   entry shows where the paper record differs from the log.

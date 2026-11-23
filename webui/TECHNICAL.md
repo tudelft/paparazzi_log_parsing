@@ -88,6 +88,48 @@ not the installed parser binary or a separately cached browser asset.
 configuration. XML comments and `<description>` text no longer count, so a note such as "can be used with
 Optitrack" does not mark outdoor flights. Re-parse outdated logs to update existing flights.
 
+**GPS quality of positions (Paparazzi parser 1.15.0, mav-log parser 1.1.0).** Takeoff/landing locations, the path,
+distances and ranges from takeoff use only good fixes. One rule for every log type, in `webui/gps_quality.py`
+(the C++ parser repeats the constants in `cpp/fastreader.cpp`, `GPS_MIN_*`/`GPS_MAX_*`):
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `MIN_FIX_TYPE` | 3 | 3D fix |
+| `MIN_SATELLITES` | 6 | satellites used |
+| `MAX_HDOP` | 2.5 | HDOP; PDOP where only that is logged (Paparazzi) |
+| `MAX_EPH_M` | 5 m | horizontal accuracy (PX4 `eph`) or Paparazzi `pacc`, only when no DOP is logged |
+| `ENDPOINT_WINDOW_S` | 30 s | how far from the takeoff/landing a fix may be |
+
+A field a log does not carry is not checked, so older logs fall back to the fix type alone. Sources: ArduPilot
+`GPS` (`Status`, `NSats`, `HDop`), MAVLink `GPS_RAW_INT` (`fix_type`, `satellites_visible`, `eph` = HDOP×100; a
+`GLOBAL_POSITION_INT` is not used while the latest raw fix is bad), PX4 `vehicle_gps_position` (`fix_type`,
+`satellites_used`, `hdop`, `eph`; the existing `eph`/`epv` limits stay) and `vehicle_global_position` (`eph`),
+Paparazzi `GPS_INT` (`fix`, `numsv`, `pdop`/100, `pacc`) and `GPS` (mode, with `numSV`/`PDOP` from a `GPS_SOL` of
+the last 5 s). A Paparazzi fix with 0 satellites is OptiTrack sent as GPS (`external`), a trusted position.
+Positions derived from GPS (Paparazzi INS frame, `NAVIGATION`) take the quality of the latest GPS message.
+Blackbox logs (satellite count only) keep their own rule (at least 5 satellites).
+
+The takeoff location is the position at takeoff (a fix at most 5 s old), else the first good fix within 30 s after
+takeoff, which is also the origin of the range from takeoff; the landing location is the last good fix in the 30 s
+before landing. Each endpoint stores the quality in `takeoff.gps` / `landing.gps` (`takeoff_json`/`landing_json`; no
+schema change): `fix_type`, `satellites`, `hdop` or `pdop`, `eph_m` or `pacc_m` when logged, `good`, `external`, and
+`selected`: `first`/`last` (the fix at the endpoint), `later`/`earlier` (a good fix after a bad one) or `raw` (no good
+fix in the window: then `location` is null and `gps` holds the raw sample's `lat`, `lon` and `alt_m`). The mav-log
+flights also carry `gps_quality` (`fixes`, `good_fixes`, `good_fraction`). The logbook read model passes every
+endpoint through `gps_quality.endpoint_position`: results without `gps` (older parses) keep their coordinates, a
+stored fix that no longer passes the rule is dropped, and a `raw` sample is used when it passes, so the constants can
+be tuned without re-parsing. A flight without any good endpoint fix is an indoor / no-GPS flight (see **Missing
+telemetry locations**). Re-parse outdated logs to apply the rule to existing flights.
+
+**External positioning (mav-log parser 1.1.0).** Like OptiTrack in Paparazzi logs, motion capture or external
+navigation found in other logs sets `assessment.external_positioning` (the source) and makes the flight indoor:
+ArduPilot `VISP`/`VISO`/`VISV` messages during the flight or `EK3_SRC1_POSXY`/`EK3_SRC1_VELXY` = 6 (ExternalNav)
+("ArduPilot ExternalNav"); MAVLink `VISION_POSITION_ESTIMATE`, `VISION_SPEED_ESTIMATE` or `ATT_POS_MOCAP` during the
+flight ("MAVLink external vision"); PX4 `vehicle_mocap_odometry` ("PX4 motion capture") or `vehicle_visual_odometry`
+samples during the flight, or `estimator_status_flags` with `cs_ev_pos` and without `cs_gps` ("PX4 external
+vision"). The read model reports it as `external_positioning` (Paparazzi OptiTrack: "OptiTrack") and `optitrack`
+true, shows it as the place when no named place applies, and the pages label it "motion capture (source)".
+
 **INS path (parser 1.13.0).** Each path point's `ins` also carries `lat`/`lon`: the INS NED position converted
 through the latest `INS_REF` origin. The flight page offers **GPS path** or **OptiTrack / INS path** when these
 exist, defaulting to the INS path for OptiTrack flights (indoors the GPS receiver wanders); the choice is kept in
@@ -295,7 +337,8 @@ valid coordinates after checking endpoints from every merged source, the entry i
 classified as indoors for display/filtering (labelled as inferred on the flight page). Valid positions
 exclude zero/zero, non-finite and out-of-range coordinates. This is a no-GPS heuristic, not proof of
 indoor operation; a partial GPS path does not override this endpoint-based classification and
-remains available on the map. Existing named-indoor-place and OptiTrack rules still apply. Paper records are
+remains available on the map. A flight is also indoor when its takeoff **or** landing position lies in a named
+indoor place, or with OptiTrack / external positioning. Paper records are
 unchanged. These fallbacks apply to existing records without reparsing.
 
 **Paparazzi clock validation.** Parser 1.5.0 checks `GPS` / `GPS_LLA` messages containing a full GPS

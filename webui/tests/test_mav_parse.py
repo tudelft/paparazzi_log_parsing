@@ -99,13 +99,14 @@ class PX4NavigationTests(unittest.TestCase):
             _navigation_ulog(path, **kwargs)
             return mav_parse.parse(path, path_rate=5)["aircraft"][0]["flights"]
 
-    def test_land_detector_boundaries_and_no_future_takeoff_fix(self):
+    def test_land_detector_boundaries_and_first_good_fix_after_takeoff(self):
         flight = self.parse(gps=[(4, 52, 4, 10, 3, 12, 1, 2),
                                  (8, 52.00001, 4, 10, 3, 12, 1, 2)])[0]
         self.assertEqual(flight["takeoff"]["time_s"], 2)
         self.assertEqual(flight["landing"]["time_s"], 8)
         self.assertEqual(flight["duration_s"], 6)
-        self.assertIsNone(flight["takeoff"]["location"])
+        self.assertEqual(flight["takeoff"]["location"]["lat"], 52)  # first good fix within 30 s of takeoff
+        self.assertEqual(flight["takeoff"]["gps"]["selected"], "later")
         self.assertIsNotNone(flight["landing"]["location"])
 
     def test_fresh_preceding_position_is_used_and_stale_landing_is_unknown(self):
@@ -132,8 +133,10 @@ class PX4NavigationTests(unittest.TestCase):
         positions = [p["position"]["lat"] for p in flight["path"] if p["position"]]
         self.assertIn(52, positions)
         self.assertNotIn(52.01, positions)
-        self.assertIsNone(flight["takeoff"]["location"])
-        self.assertIsNone(flight["landing"]["location"])
+        # the estimator positions at 3 s and 5 s are the first/last good ones within 30 s of takeoff/landing
+        self.assertEqual(flight["takeoff"]["location"]["lat"], 52)
+        self.assertEqual(flight["landing"]["location"]["lat"], 52)
+        self.assertEqual(flight["landing"]["gps"]["selected"], "earlier")
 
     def test_global_reset_does_not_add_distance(self):
         flight = self.parse(global_positions=[

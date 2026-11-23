@@ -45,6 +45,7 @@ if __name__ == "__main__" and sys.argv[1:2] == ["check-config"]:
     sys.exit(1 if config.check() else 0)
 
 import db
+import gps_quality
 import attachments
 import branding
 import historical
@@ -6303,7 +6304,7 @@ LOGBOOK_OVERVIEW_KEYS = (
     "distance_m", "from_takeoff_m", "max_from_takeoff_m", "aircraft", "aircraft_uid", "drone_id",
     "project_id", "project_name", "takeoff_place", "takeoff_place_id", "takeoff_lat", "takeoff_lon",
     "landing_place", "landing_place_id", "landing_lat", "landing_lon",
-    "pic", "pac", "gcs", "goal", "comment", "verdict", "verdict_auto", "verdict_override", "indoor", "optitrack", "link_warning",
+    "pic", "pac", "gcs", "goal", "comment", "verdict", "verdict_auto", "verdict_override", "indoor", "optitrack", "external_positioning", "link_warning",
     "date_ok", "date_override", "date_estimated", "hidden", "can_edit_record", "can_edit_crew",
     "source_selection_reason",
     "can_edit_project", "can_edit_date", "linked_records", "conflicts", "possible_duplicates",
@@ -6730,6 +6731,8 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
         d = dict(r)
         d["takeoff"] = json.loads(d.pop("takeoff_json") or "null")
         d["landing"] = json.loads(d.pop("landing_json") or "null")
+        for end in ("takeoff", "landing"):  # the GPS quality stored with each endpoint decides whether to use it
+            d[end + "_lat"], d[end + "_lon"] = gps_quality.endpoint_position(d[end], d[end + "_lat"], d[end + "_lon"])
         d["simulation"] = json.loads(d["simulation"]) if d["simulation"] is not None else None
         d["track_quality"] = json.loads(d["track_quality"]) if d["track_quality"] is not None else None
         d["link"] = json.loads(d.pop("link_json") or "null")
@@ -6752,10 +6755,13 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
                     for axis in ("lat", "lon"):
                         r[end + "_" + axis] = donor[end + "_" + axis]
         has_endpoint = endpoint_location_fallback(r)
-        r["takeoff_place"], r["indoor"], r["takeoff_place_id"] = place(r["takeoff_lat"], r["takeoff_lon"])
-        r["landing_place"], _, r["landing_place_id"] = place(r["landing_lat"], r["landing_lon"])
+        r["takeoff_place"], takeoff_indoor, r["takeoff_place_id"] = place(r["takeoff_lat"], r["takeoff_lon"])
+        r["landing_place"], landing_indoor, r["landing_place_id"] = place(r["landing_lat"], r["landing_lon"])
         r["assessment"] = json.loads(r.pop("assessment_json") or "null")
-        r["optitrack"] = bool((r["assessment"] or {}).get("optitrack"))
+        # motion capture: Paparazzi OptiTrack, or external navigation found in ArduPilot/PX4/MAVLink logs
+        r["external_positioning"] = ((r["assessment"] or {}).get("external_positioning")
+                                     or ("OptiTrack" if (r["assessment"] or {}).get("optitrack") else None))
+        r["optitrack"] = bool(r["external_positioning"])
         # the GCS log has the ground station's view of the link, the SD log the aircraft's: combine them
         r["link"] = merge_links([source_rows[s["flight_id"]]["link"] for s in r["sources"]])
         r["link_warning"] = link_warning(r["link"])
@@ -6764,9 +6770,9 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
         if not has_endpoint and not any(gps_summaries) and None in gps_summaries:
             abort(503, description="GPS summaries are incomplete; run app.py backfill-gps-positions.")
         r["indoor_no_gps"] = not has_endpoint
-        r["indoor"] = bool(r["indoor"] or r["optitrack"] or r["indoor_no_gps"])
+        r["indoor"] = bool(takeoff_indoor or landing_indoor or r["optitrack"] or r["indoor_no_gps"])
         if r["optitrack"] and not r["takeoff_place"]:
-            r["takeoff_place"] = "OptiTrack"
+            r["takeoff_place"] = r["external_positioning"]
         pid = effective_flight_project(r)
         r["project_id"] = pid
         r["project_name"] = names.get(pid)
