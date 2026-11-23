@@ -645,7 +645,7 @@ class QualificationTests(AppTests):
             account = response.get_data(as_text=True)
         with self.client.get("/people/2") as response:
             pilot = response.get_data(as_text=True)
-        self.assertIn('id="peopleSearch"', people)
+        self.assertIn('id="directorySearch"', people)  # the People table's search
         self.assertIn('id="personTabs"', people)
         self.assertIn('id="typeSettings"', people)
         self.assertIn('id="typeDialog"', people)  # one type is edited in a dialog; the order is saved after a drag
@@ -661,7 +661,7 @@ class QualificationTests(AppTests):
         self.assertNotIn('submitQualification', pilot)
         self.assertNotIn('qualificationHistory', pilot)
         self.assertNotIn('saveQualificationType', pilot)
-        self.assertIn("Import ZIP", people)
+        self.assertIn("Import qualifications (ZIP)", people)  # People, Manage ▾
         self.assertIn("previewQualImport", people)
         self.assertIn("qual_older", script)  # Show older is kept in the URL
         self.assertIn("/api/admin/qualifications/import", people)
