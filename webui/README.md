@@ -312,8 +312,9 @@ random order each attempt. After passing, **Practice again** lets you answer the
 are kept. A pass can grant the linked qualification immediately, or wait in the People approval queue when the
 training has **A pass needs approval** on; admins see **N passes to approve** above the trainings and approve or reject
 them (several at once, with Undo) right in that queue; its **Decided** view lists what was approved, rejected or withdrawn. After that qualification expires, a queued pass is rejected, or an
-administrator resets the pass, you can take it again. Admins create questionnaires in Edit mode (single choice,
-multiple choice, ranking, optional image) or import a JSON/ZIP file kept outside the repository, and can ask who
+administrator resets the pass, you can take it again. Admins create questionnaires with **Add training** (then **Edit training** and the
+**Questions** tab: single choice, multiple choice, ranking, optional image) or **Manage ▾ → Import** a JSON/ZIP file kept
+outside the repository, and can ask who
 delivered the briefing from a short list of people. A training can also mail an access request (for example to a secretary, for room access)
 once a pass is granted, optionally only when the person answers **No** to a question such as "Do you already have
 access to the flight lab?"; admins can get a copy under **My account → Email**.

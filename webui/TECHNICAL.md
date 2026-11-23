@@ -1273,15 +1273,21 @@ writing; the page shows that first. Replacing a drawn polygon by a circle is fla
 ### Training questionnaires
 
 Off unless `LOGDB_TRAINING=1`. The Training page is session-only (API keys get 403). Admins create
-questionnaires in Edit mode: single choice, multiple choice and ranking, each with optional JPEG/PNG. **Add training**
-asks only for a name and description; the training page then has the tabs **Details** (all settings, one Save),
-**Questions** (a filterable list on the left, flagging questions without a correct answer; the selected question is
-edited on the right and saved on its own) and **Passes**. The admin's own pass is shown only outside Edit mode.
+questionnaires ([UI rule](#ui-rule), `<body data-edit="none">`): single choice, multiple choice and ranking, each with
+optional JPEG/PNG. The list has **Add training** and **Manage ▾** (Import training…) for admins. **Add training** asks
+only for a name and description and then opens **Edit training**. On a training, admins have the tabs **Training**
+(the training as they take it themselves: reading, test, own pass), **Questions** (a filterable list on the left,
+flagging questions without a correct answer; the selected question is edited on the right and saved on its own) and
+**Passes** (Reset… per pass), always shown to them (`tab=questions|passes` in the URL). **Edit training** next to
+the title opens all settings (content, passing, access request mail) in one dialog; Save sends `PUT
+/api/admin/trainings/<id>` only when something changed (uploading or removing the reading PDF acts at once). **⋯** has
+Export and Delete training…. Every confirmation (unsaved question, delete question, reset a pass, remove the reading
+PDF, delete the training) is a small dialog.
 **Qualification valid for (days)** sets the end date of the qualification a pass grants; the pass counts as current
 while that qualification is valid, so its expiry (or a reset) reopens the training. Without a qualification the field
 is disabled and a pass does not expire. Questions
 are reordered by dragging their handle (or the arrow keys on it; `PUT /api/admin/trainings/<id>/question-order`).
-The training list is ordered the same way in Edit mode (the handle on each card, not while searching; `PUT
+Admins order the training list the same way (the handle on each card, not while searching; `PUT
 /api/admin/trainings/order` with every training once); everyone sees that order.
 Answer options are shuffled per attempt. A training may also **shuffle the questions** and draw a number of
 **questions per attempt** at random (`shuffle_questions`, `question_count`); the attempt (questions, their order
@@ -2618,10 +2624,10 @@ Permissions and APIs stay as they are; the server checks every change. A page th
 `<body data-edit="none">` and `theme.js` shows no Edit button there.
 
 **Edit mode (being replaced).** The Edit button in the menu bar shows the forms and menus to change things on the pages
-that still have them (Logs, Training, …); it is one setting
+that still have them (Logs, …); it is one setting
 for all pages, and it stays on until you turn it off. The [Logbook](#logbook-changes), the
 [flight page](#flight-page-changes), the [Aircraft page](#aircraft-page), the [People page](#people-page), the
-[Projects page](#projects-page), the [Locations page](#locations-page), the [Safety page](#safety), the [Documents page](#documents-page) and the [Agenda](#booking-agenda) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
+[Projects page](#projects-page), the [Locations page](#locations-page), [Training](#training-questionnaires), the [Safety page](#safety), the [Documents page](#documents-page) and the [Agenda](#booking-agenda) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
 are left.
 
