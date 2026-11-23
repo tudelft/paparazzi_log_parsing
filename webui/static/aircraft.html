@@ -20,12 +20,10 @@
   .st-Maintenance { background:var(--warnbg); color:var(--warn); }
   .st-Development { background:var(--chip); color:var(--acc); }
   .st-Discard { background:var(--errbg); color:var(--err); }
-  input.wide { width:140px; }
   .periods { display:flex; flex-direction:column; gap:4px; min-width:280px; }
   .period { display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
   .period input[type=date] { width:132px; }
   .period select { max-width:140px; }
-  textarea.note { width:180px; min-height:38px; font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; resize:vertical; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
   .scroll { overflow-x:auto; }
   h2 { margin:0 0 8px; font-size:15px; }
@@ -41,13 +39,6 @@
   .chip button.allow { color:var(--acc); font-size:13px; }
   button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
   button.sec { background:var(--sec); color:var(--txt); }
-  .pick-button { min-width:240px; max-width:320px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .pick-button::after { content:' ▾'; color:var(--mute); }
-  .pick-menu { position:fixed; z-index:20; width:380px; background:var(--card); border:1px solid var(--line); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.25); padding:6px; }
-  .pick-menu input { width:100%; box-sizing:border-box; margin-bottom:4px; }
-  .pick-list { max-height:280px; overflow-y:auto; }
-  .pick-list button { display:block; width:100%; text-align:left; background:none; color:var(--txt); border-radius:4px; padding:5px 8px; }
-  .pick-list button:hover, .pick-list button:focus, .pick-list button[aria-selected=true] { background:var(--hover); outline:none; }
   button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
   input, select { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
   #err { color:var(--err); min-height:1.2em; }
@@ -60,24 +51,12 @@
   .fleet-toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
   .fleet-toolbar h2 { margin:0; }
   .fleet-toolbar .field { flex-direction:row; align-items:center; gap:6px; }
-  .fleet-toolbar details { margin-left:auto; }
   .fleet-toolbar input, .fleet-toolbar select { max-width:100%; min-width:0; }
   #err:empty { display:none; }
-  .aircraft-layout { display:grid; grid-template-columns:minmax(220px,300px) minmax(0,1fr); gap:16px; align-items:start; }
-  .aircraft-list { max-height:65vh; overflow:auto; }
-  .aircraft-button { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; text-align:left; margin:3px 0; padding:7px 8px; background:var(--card); color:var(--txt); border:1px solid var(--line); overflow-wrap:anywhere; }
-  .aircraft-button[aria-pressed="true"] { border-color:var(--acc); border-left:5px solid var(--acc); background:var(--hover); }
-  .aircraft-button .badge { flex-shrink:0; max-width:55%; font-size:11px; }
-  #aircraftCount { margin:6px 0; }
   #aircraftPanel { border:1px solid var(--line); border-top:4px solid var(--acc); border-radius:8px; padding:16px; min-width:0; overflow-wrap:anywhere; }
   #aircraftHeading { font-size:20px; margin:0; }
   .panel-header { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center; }
-  .aircraft-button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
-  .detail-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-  .detail-fields .full { grid-column:1/-1; }
-  .detail-fields textarea { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; resize:vertical; }
   #aircraftContent input, #aircraftContent select, #aircraftContent textarea { max-width:100%; min-width:0; }
-  .management-section { margin:12px 0; }
   [hidden] { display:none !important; }
   /* read-only overview: one line per aircraft, details on hover */
   table.fleet { width:100%; table-layout:fixed; }
@@ -90,7 +69,6 @@
   table.fleet .num { text-align:right; padding-right:16px; }
   table.fleet .chip { padding:1px 8px; margin:0; font-size:12px; }
   .fleet-count { color:var(--mute); }
-  .unlinked-badge { font-size:12px; background:var(--chip); color:var(--warn, #9a6700); border-radius:10px; padding:2px 8px; }
   #requestsBox { margin:0 0 12px; }
   #requestsBox table { width:100%; table-layout:fixed; }
   #requestsBox td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:4px 8px; color:var(--mute); }
@@ -102,10 +80,33 @@
     border:1px solid var(--line); border-radius:6px; background:var(--card); box-shadow:0 2px 8px #0003; display:grid; gap:2px; }
   .col-menu label { white-space:nowrap; }
   .col-menu .col-actions { display:flex; justify-content:space-between; gap:12px; margin-top:6px; }
-  @media(max-width:760px) { .aircraft-layout { grid-template-columns:1fr; } .aircraft-list { max-height:32vh; } .detail-fields { grid-template-columns:1fr; } }
+  /* the open aircraft beside the list (UI rule): the table keeps its place, the panel takes the right part */
+  .fleet-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; align-items:start; }
+  .fleet-layout.with-panel { grid-template-columns:minmax(0,1fr) minmax(320px,36%); }
+  @media (max-width:900px) { .fleet-layout.with-panel { grid-template-columns:minmax(0,1fr); } #aircraftPanel { order:-1; } }
+  table.fleet tbody tr[data-id] { cursor:pointer; }
+  table.fleet tbody tr[data-id]:hover { background:var(--hover); }
+  table.fleet tbody tr.open { background:var(--hover); box-shadow:inset 3px 0 0 var(--acc); }
+  .panel-actions { display:flex; gap:6px; align-items:center; }
+  #aircraftPanel .kv { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 14px; margin-top:10px; }
+  #aircraftPanel .note { white-space:pre-wrap; }
+  ul.plain { margin:10px 0; padding-left:18px; }
+  .edit-val, .edit-key { cursor:pointer; border-radius:4px; }
+  .edit-val:hover, .edit-key:hover { background:var(--hover); box-shadow:0 0 0 3px var(--hover); }
+  .toolbar-end { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .edit-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; }
+  .edit-grid .wide { grid-column:1 / -1; }
+  .edit-grid div.field { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--mute); }
+  .edit-grid .periods { display:flex; flex-direction:column; gap:4px; }
+  .edit-grid textarea { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; resize:vertical; color:var(--txt); background:var(--field, var(--card)); }
+  #editDialog { width:min(680px, calc(100% - 32px)); }
+  .field-error { color:var(--err); font-size:12px; }
+  .field-error:empty, .dialog-error:empty { display:none; }
+  td.chk, th.chk { width:28px; padding-right:0; }
+  .shared-name summary .sec { margin-left:12px; font-size:12px; padding:2px 8px; }
 </style>
 </head>
-<body data-edit="admin">
+<body data-edit="none">
 <header>
   <h1>Aircraft</h1>
   <span class="meta" id="nav"></span>
@@ -114,26 +115,29 @@
 <main>
   <div id="err"></div>
   <div class="page-tabs" id="pageTabs" aria-label="Aircraft page sections" hidden></div>
-  <details class="card" id="unlinkedCard" hidden>
-    <summary>Unlinked aircraft names</summary>
-    <div class="section-heading"><input type="search" id="unlinkedQ" placeholder="Find name in log" aria-label="Find unlinked name" style="float:left">
-    <details><summary>Help</summary><p>Paparazzi logs usually already have the fleet name. PX4 and Blackbox logs do not: they show the airframe type plus the flight-controller id (for example <code>quad_x 00500040</code>) or a filename such as <code>LOG00030</code>. Link that once to the real aircraft; later logs from the same board attach automatically. The dropped folder name is a hint, including a parent folder above dated subfolders, and is never used when more than one aircraft could match.</p></details></div>
+  <section class="card" id="unlinkedCard" hidden>
+    <div class="fleet-toolbar"><h2>Unlinked names</h2><span class="fleet-count" id="unlinkedCount"></span>
+      <input type="search" id="unlinkedQ" placeholder="Find name in log" aria-label="Find unlinked name">
+      <details><summary>Help</summary><p>Paparazzi logs usually already have the fleet name. PX4 and Blackbox logs do not: they show the airframe type plus the flight-controller id (for example <code>quad_x 00500040</code>) or a filename such as <code>LOG00030</code>. Tick names and link them once to the real aircraft; later logs from the same board attach automatically. The dropped folder name is a hint, including a parent folder above dated subfolders, and is never used when more than one aircraft could match.</p></details></div>
     <div class="scroll"><table><thead id="unlinkedHead"></thead><tbody id="unlinked"></tbody></table></div>
-  </details>
-  <details class="card" id="ambiguousCard" hidden>
-    <summary>Ambiguous / shared aircraft names</summary>
-    <p class="mute">Shared airframe names do not identify a physical aircraft. SD recordings may inherit a uniquely matched GCS identity in the logbook. Choosing an aircraft for a board links every recording on that board; a recording without a board ID is assigned on its own. Both survive reparsing.</p>
-    <form class="row" onsubmit="event.preventDefault();markAmbiguous($('ambiguousName').value)">
-      <label class="field">Generic logged name<input id="ambiguousName" required maxlength="80"></label>
-      <button type="submit">Mark ambiguous</button>
-    </form>
+    <div id="unlinkedBar" class="sel-bar" hidden role="region" aria-label="Ticked names">
+      <strong id="unlinkedSelCount"></strong>
+      <button type="button" onclick="openLink('unlinked')">Link to aircraft…</button>
+      <button type="button" class="x" onclick="clearTicks('unlinked')">Clear</button>
+    </div>
+  </section>
+  <section class="card" id="sharedCard" hidden>
+    <div class="fleet-toolbar"><h2>Shared names</h2><span class="fleet-count" id="sharedCount"></span>
+      <button type="button" class="sec" onclick="openMarkShared()">Mark a name as shared…</button>
+      <details><summary>Help</summary><p>Shared airframe names do not identify a physical aircraft. SD recordings may inherit a uniquely matched GCS identity in the logbook. Tick boards or recordings and link them to an aircraft: a board links every recording on it, now and in later uploads; a recording without a board ID is assigned on its own. Both survive reparsing.</p></details></div>
     <div id="ambiguousNames"></div>
     <div id="excludedBoards"></div>
-  </details>
-  <div class="pick-menu" id="pickMenu" hidden>
-    <input type="search" id="pickSearch" placeholder="Search aircraft" aria-label="Search aircraft" autocomplete="off">
-    <div class="pick-list" id="pickList" role="listbox" aria-label="Aircraft"></div>
-  </div>
+    <div id="sharedBar" class="sel-bar" hidden role="region" aria-label="Ticked boards and recordings">
+      <strong id="sharedSelCount"></strong>
+      <button type="button" onclick="openLink('shared')">Link to aircraft…</button>
+      <button type="button" class="x" onclick="clearTicks('shared')">Clear</button>
+    </div>
+  </section>
   <section class="card" id="fleetCard">
     <div class="fleet-toolbar"><h2 id="fleetTitle">Aircraft</h2><span class="fleet-count" id="fleetCount"></span>
       <input id="q" type="search" placeholder="Search name, serial, alias, person, project…" aria-label="Search aircraft">
@@ -143,77 +147,106 @@
       <label title="Aircraft without uploaded logs or paper records stay hidden until this is ticked"><input type="checkbox" id="showWithoutLogs"> Without logs</label>
       <span class="col-menu" id="colMenu"><button type="button" class="sec" id="colButton" aria-expanded="false" aria-controls="colForm">Columns</button>
         <form id="colForm" hidden aria-label="Shown columns"></form></span>
-      <span class="unlinked-badge" id="pending" hidden></span>
-    <button id="addSection" type="button" hidden onclick="openAddAircraft()">Add aircraft</button>
-    <button id="importSection" type="button" class="sec" hidden onclick="$('importAircraftDialog').showModal()">Import aircraft from CSV</button>
-    <button id="requestSection" type="button" hidden onclick="openRequest()">Request aircraft</button>
-    <details><summary>Help</summary><p id="fleetHint">Each aircraft has a unique serial (TUDxxxxx) that stays with it if the name changes. Names in the logs that differ from the nice name are aliases.</p></details></div>
-    <dialog class="entry-dialog" id="addAircraftDialog" aria-labelledby="addAircraftTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
-    <div class="dialog-header"><h2 id="addAircraftTitle">Add aircraft</h2><button type="button" onclick="$('addAircraftDialog').close()" aria-label="Close Add aircraft">Close</button></div>
-    <p class="dialog-error" id="addAircraftError" role="alert"></p>
-    <form class="row" id="add" hidden onsubmit="addDrone(event)">
-      <label class="field">Name<input id="name" required maxlength="80" autocomplete="off"></label>
-      <label class="field">Serial<input id="uid" maxlength="40" autocomplete="off" placeholder="Next free TUD number" title="Filled with the lowest free TUD number from TUD00401 on; empty also gives the next free one"></label>
-      <label class="field">Status<select id="newStatus"><option value="">—</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select></label>
-      <label class="field">Manager<input id="newManager" list="managerNames" maxlength="80" autocomplete="off" required oninput="matchManager(this)" title="The responsible person: pick a registered person"></label>
-      <label class="field">Current user<input id="newCurrentUser" list="peopleNames" maxlength="80" autocomplete="off" onchange="matchPerson(this)" title="Pick a registered user, or type a name for someone without an account"></label>
-      <label class="field">Project<select id="newProject"></select></label>
-      <label class="field">Comments<input id="newComments" maxlength="400" autocomplete="off"></label>
-      <button type="submit">Add aircraft</button>
-    </form>
-    </dialog>
-    <datalist id="peopleNames"></datalist>
-    <datalist id="managerNames"></datalist>
-    <dialog class="entry-dialog" id="requestDialog" aria-labelledby="requestTitle" style="width:min(420px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
-    <div class="dialog-header"><h2 id="requestTitle">Request aircraft</h2><button type="button" onclick="$('requestDialog').close()" aria-label="Close Request aircraft">Close</button></div>
-    <p class="mute">A project manager or an administrator approves it; then it is added to the fleet with the next free serial and you as its manager.</p>
-    <p class="dialog-error" id="requestError" role="alert"></p>
-    <form id="requestForm" onsubmit="sendRequest(event)">
-      <label class="field">Project<select id="reqProject" required></select></label>
-      <label class="field">Name<input id="reqName" required maxlength="80" autocomplete="off" placeholder="Name as in the logs"></label>
-      <label class="field">Details (optional)<input id="reqComments" maxlength="400" autocomplete="off" placeholder="Type, purpose, …"></label>
-      <button type="submit">Send request</button>
-    </form>
-    </dialog>
-    <dialog class="entry-dialog" id="rejectDialog" aria-labelledby="rejectTitle" style="width:min(420px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
-    <div class="dialog-header"><h2 id="rejectTitle">Reject request</h2><button type="button" onclick="$('rejectDialog').close()" aria-label="Close Reject request">Close</button></div>
-    <form onsubmit="rejectRequest(event)">
-      <p id="rejectWhat"></p>
-      <label class="field">Reason (optional, mailed to the requester)<input id="rejectReason" maxlength="400" autocomplete="off"></label>
-      <button type="submit" class="danger">Reject</button>
-    </form>
-    </dialog>
-    <dialog class="entry-dialog" id="importAircraftDialog" aria-labelledby="importAircraftTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
-    <div class="dialog-header"><h2 id="importAircraftTitle">Import aircraft from CSV</h2><button type="button" onclick="$('importAircraftDialog').close()" aria-label="Close CSV import">Close</button></div>
-    <p>Reimport matches serials and updates aircraft details. Import projects first. A changed Project requires <code>project_effective_date</code> (YYYY-MM-DD); blank Project leaves its assignment unchanged.</p>
-    <p>The effective date starts a new project period until the next existing period. Known automatic flight assignments in that period are updated; manual and legacy assignments are preserved. Any invalid row rejects the whole file.</p>
-    <p><a href="/api/admin/drones/template">Download CSV template</a></p>
-    <p class="dialog-error" id="importAircraftError" role="alert"></p>
-    <div class="dialog-fields" id="importRow" hidden>
-      <label class="field">Import CSV<input id="csv" type="file" accept=".csv,text/csv"></label>
-      <button type="button" class="sec" onclick="importCsv()">Import</button>
-      <span id="importMsg" class="mute"></span>
-    </div>
-    </dialog>
+      <span class="toolbar-end">
+        <button id="requestSection" type="button" class="sec" hidden onclick="openRequest()">Request aircraft</button>
+        <button id="addSection" type="button" hidden onclick="openAddAircraft()">Add aircraft</button>
+        <span class="menu-wrap" id="manageWrap" hidden><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
+          <div class="menu-pop" id="manageMenu" role="menu" hidden>
+            <button type="button" class="ext-item" role="menuitem" onclick="openImport()">Import CSV…</button>
+            <a class="ext-item" role="menuitem" href="/api/admin/drones/template">Download CSV template</a>
+            <button type="button" class="ext-item" role="menuitem" onclick="openMarkShared()">Mark a name as shared…</button>
+          </div></span>
+        <details><summary>Help</summary><p id="fleetHint">Each aircraft has a unique serial (TUDxxxxx) that stays with it if the name changes. Names in the logs that differ from the nice name are aliases.</p></details>
+      </span></div>
     <div id="requestsBox" hidden><h3>Requested aircraft</h3><table><colgroup><col style="width:26%"><col style="width:18%"><col style="width:18%"><col style="width:20%"><col style="width:18%"></colgroup><tbody id="requestRows"></tbody></table></div>
-    <div id="aircraftManagement" class="aircraft-layout" hidden>
-      <div><p class="mute" id="aircraftCount" role="status"></p><div class="aircraft-list" id="aircraftList"></div></div>
-      <section id="aircraftPanel" aria-label="Selected aircraft">
-        <div class="panel-header"><h2 id="aircraftHeading">No aircraft selected</h2><a id="aircraftLink" hidden>View aircraft overview</a></div>
-        <p class="mute" id="aircraftIdentity">Select an aircraft from the list to manage its details, project history and aliases.</p>
-        <div class="seg-tabs" id="aircraftTabs" role="tablist" aria-label="Aircraft management" hidden>
-          <button type="button" role="tab" id="aircraft-tab-details" aria-controls="aircraftContent" onclick="selectAircraftTab('details')">Details</button>
-          <button type="button" role="tab" id="aircraft-tab-projects" aria-controls="aircraftContent" onclick="selectAircraftTab('projects')">Project history</button>
-          <button type="button" role="tab" id="aircraft-tab-aliases" aria-controls="aircraftContent" onclick="selectAircraftTab('aliases')">Aliases</button>
+    <div class="fleet-layout" id="fleetLayout">
+      <div id="aircraftOverview"><div class="scroll"><table class="fleet"><colgroup id="droneCols"></colgroup><thead id="droneHead"></thead><tbody id="drones"></tbody></table></div>
+        <div class="fleet-foot"><span class="mute">Rows per page</span>
+          <select id="size" aria-label="Rows per page"><option>25</option><option selected>50</option><option>100</option><option>200</option></select>
+          <div id="fleetPages" class="navigation-pages"></div></div></div>
+      <section id="aircraftPanel" aria-label="Selected aircraft" hidden>
+        <div class="panel-header"><h2 id="aircraftHeading"></h2>
+          <span class="panel-actions"><button type="button" class="sec" id="editAircraft" hidden>Edit aircraft</button>
+            <span class="menu-wrap" id="moreWrap" hidden><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
+              <div class="menu-pop" id="moreMenu" role="menu" hidden></div></span>
+            <button type="button" class="sec" id="closePanel" aria-label="Close the aircraft" title="Close">✕</button></span></div>
+        <p class="mute" id="aircraftIdentity"></p>
+        <div class="seg-tabs" id="aircraftTabs" role="tablist" aria-label="Aircraft">
+          <button type="button" role="tab" id="aircraft-tab-details" aria-controls="aircraftContent" data-atab="details">Details</button>
+          <button type="button" role="tab" id="aircraft-tab-projects" aria-controls="aircraftContent" data-atab="projects">Project history</button>
+          <button type="button" role="tab" id="aircraft-tab-aliases" aria-controls="aircraftContent" data-atab="aliases">Aliases</button>
         </div>
         <div id="aircraftContent" role="tabpanel"></div>
       </section>
     </div>
-    <div id="aircraftOverview"><div class="scroll"><table class="fleet"><colgroup id="droneCols"></colgroup><thead id="droneHead"></thead><tbody id="drones"></tbody></table></div>
-      <div class="fleet-foot"><span class="mute">Rows per page</span>
-        <select id="size" aria-label="Rows per page"><option>25</option><option selected>50</option><option>100</option><option>200</option></select>
-        <div id="fleetPages" class="navigation-pages"></div></div></div>
   </section>
+
+  <dialog class="entry-dialog" id="addAircraftDialog" aria-labelledby="addAircraftTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="addAircraftTitle">Add aircraft</h2><button type="button" onclick="$('addAircraftDialog').close()" aria-label="Close Add aircraft">Close</button></div>
+  <form id="add" class="dialog-fields" onsubmit="addDrone(event)">
+    <div class="edit-grid">
+    <label class="field">Name<input id="name" required maxlength="80" autocomplete="off"></label>
+    <label class="field">Serial<input id="uid" maxlength="40" autocomplete="off" placeholder="Next free TUD number" title="Filled with the lowest free TUD number from TUD00401 on; empty also gives the next free one"></label>
+    <label class="field">Status<select id="newStatus"><option value="">—</option><option>Ready</option><option>Maintenance</option><option>Development</option><option>Discard</option></select></label>
+    <label class="field">Project<select id="newProject"></select></label>
+    <label class="field">Manager<input id="newManager" list="managerNames" maxlength="80" autocomplete="off" required oninput="matchManager(this)" title="The responsible person: pick a registered person"></label>
+    <label class="field">Current user<input id="newCurrentUser" list="peopleNames" maxlength="80" autocomplete="off" onchange="matchPerson(this)" title="Pick a registered user, or type a name for someone without an account"></label>
+    <label class="field wide">Comments<input id="newComments" maxlength="400" autocomplete="off"></label>
+    </div>
+    <p class="dialog-error" id="addAircraftError" role="alert"></p>
+    <div class="row"><button type="submit" class="primary">Add aircraft</button> <button type="button" class="sec" onclick="$('addAircraftDialog').close()">Cancel</button></div>
+  </form>
+  </dialog>
+  <datalist id="peopleNames"></datalist>
+  <datalist id="managerNames"></datalist>
+  <dialog class="entry-dialog" id="editDialog" aria-labelledby="editTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="editTitle">Edit aircraft</h2><button type="button" onclick="$('editDialog').close()">Close</button></div>
+  <form id="editForm" class="dialog-fields" onsubmit="saveEdit(event)">
+    <p class="mute" id="editWhat" style="margin:0"></p>
+    <div id="editFields"></div>
+    <p class="dialog-error" id="editError" role="alert"></p>
+    <div class="row"><button type="submit" class="primary" id="editSave">Save</button> <button type="button" class="sec" onclick="$('editDialog').close()">Cancel</button></div>
+  </form>
+  </dialog>
+  <dialog class="entry-dialog" id="actDialog" aria-labelledby="actTitle" style="width:min(460px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="actTitle"></h2><button type="button" onclick="$('actDialog').close()">Close</button></div>
+  <form id="actForm" class="dialog-fields">
+    <div id="actBody"></div>
+    <p class="dialog-error" id="actError" role="alert"></p>
+    <div class="row"><button type="submit" class="primary" id="actOk">OK</button> <button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></div>
+  </form>
+  </dialog>
+  <dialog class="entry-dialog" id="requestDialog" aria-labelledby="requestTitle" style="width:min(420px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="requestTitle">Request aircraft</h2><button type="button" onclick="$('requestDialog').close()" aria-label="Close Request aircraft">Close</button></div>
+  <p class="mute">A project manager or an administrator approves it; then it is added to the fleet with the next free serial and you as its manager.</p>
+  <form id="requestForm" class="dialog-fields" onsubmit="sendRequest(event)">
+    <label class="field">Project<select id="reqProject" required></select></label>
+    <label class="field">Name<input id="reqName" required maxlength="80" autocomplete="off" placeholder="Name as in the logs"></label>
+    <label class="field">Details (optional)<input id="reqComments" maxlength="400" autocomplete="off" placeholder="Type, purpose, …"></label>
+    <p class="dialog-error" id="requestError" role="alert"></p>
+    <div class="row"><button type="submit" class="primary">Send request</button> <button type="button" class="sec" onclick="$('requestDialog').close()">Cancel</button></div>
+  </form>
+  </dialog>
+  <dialog class="entry-dialog" id="rejectDialog" aria-labelledby="rejectTitle" style="width:min(420px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="rejectTitle">Reject request</h2><button type="button" onclick="$('rejectDialog').close()" aria-label="Close Reject request">Close</button></div>
+  <form class="dialog-fields" onsubmit="rejectRequest(event)">
+    <p id="rejectWhat" style="margin:0"></p>
+    <label class="field">Reason (optional, mailed to the requester)<input id="rejectReason" maxlength="400" autocomplete="off"></label>
+    <div class="row"><button type="submit" class="primary">Reject</button> <button type="button" class="sec" onclick="$('rejectDialog').close()">Cancel</button></div>
+  </form>
+  </dialog>
+  <dialog class="entry-dialog" id="importAircraftDialog" aria-labelledby="importAircraftTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="importAircraftTitle">Import aircraft from CSV</h2><button type="button" onclick="$('importAircraftDialog').close()" aria-label="Close CSV import">Close</button></div>
+  <p>Reimport matches serials and updates aircraft details. Import projects first. A changed Project requires <code>project_effective_date</code> (YYYY-MM-DD); blank Project leaves its assignment unchanged.</p>
+  <p>The effective date starts a new project period until the next existing period. Known automatic flight assignments in that period are updated; manual and legacy assignments are preserved. Any invalid row rejects the whole file.</p>
+  <p><a href="/api/admin/drones/template">Download CSV template</a></p>
+  <div class="dialog-fields" id="importRow">
+    <label class="field">Import CSV<input id="csv" type="file" accept=".csv,text/csv"></label>
+    <p class="dialog-error" id="importAircraftError" role="alert"></p>
+    <span id="importMsg" class="mute"></span>
+    <div class="row"><button type="button" class="primary" onclick="importCsv()">Import</button> <button type="button" class="sec" onclick="$('importAircraftDialog').close()">Close</button></div>
+  </div>
+  </dialog>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -224,18 +257,15 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
+// No Edit mode (UI rule, TECHNICAL.md#ui-rule): the overview table is the same for everyone; a row opens the
+// aircraft beside it, with "Edit aircraft" (one dialog with the fields the user may change) and ⋯ for rare actions.
+// Administrators also have Add aircraft, Manage ▾ and the Unlinked names / Shared names tabs; people with a project
+// that takes requests have Request aircraft. The server checks every change as before.
 let data = {drones: [], unlinked: [], projects: []};
-let pickFor = null;
 let me = null;
 let selectedAircraft = null, selectedAircraftTab = 'details';
-const editOn = () => !!(me && me.is_admin && window.editMode());
-// Project managers and an aircraft's linked manager edit its details (not name, serial, projects or aliases).
-const manageOn = () => !!(me && window.editMode() && (me.is_admin || data.drones.some(d => d.can_edit)));
-function toggleEdit() {
-  $('add').hidden = !editOn();
-  $('importRow').hidden = !editOn();
-  render();
-}
+const isAdmin = () => !!me?.is_admin;
+const mayEdit = d => !!d && (isAdmin() || !!d.can_edit);  // project managers and its manager: the details only
 
 function projectOptions(selected) {
   return '<option value="">No project</option>' + data.projects.map(p =>
@@ -247,53 +277,26 @@ function periodText(p) {
   if (!p.end_date) return `${name} from ${p.start_date} (current)`;
   return `${name} ${p.start_date}–${p.end_date}`;
 }
-function projectCell(d, editing) {
-  const ps = d.projects || [];
-  if (!editing) {
-    if (ps.length) return ps.map(p => esc(periodText(p))).join('<br>');
-    return esc(d.default_project_name || d.inventory_project || '');
-  }
-  const rows = (ps.length ? ps : [{project_id: d.default_project_id, start_date: (d.bought_on || '').slice(0, 10), end_date: ''}]).map(p => periodRow(p)).join('');
-  return `<div class="periods" id="per${d.id}">${rows}</div>
-    <div class="pair" style="margin-top:4px"><button type="button" class="sec" onclick="addPeriod(${d.id})">Add period</button>
-    <button type="button" onclick="savePeriods(${d.id})">Save timeline</button></div>
-    ${d.inventory_project ? `<div class="mute">${esc(d.inventory_project)}</div>` : ''}`;
-}
 function periodRow(p) {
   return `<div class="period">
-    <select class="p-proj">${projectOptions(p.project_id)}</select>
-    <input type="date" class="p-from" value="${esc(p.start_date || '')}" title="From — leave empty on the first period for all earlier flights">
-    <input type="date" class="p-until" value="${esc(p.end_date || '')}" title="Until — leave empty if this is the current project">
-    <button type="button" class="danger" title="Remove" onclick="this.closest('.period').remove()">×</button>
+    <select class="p-proj" aria-label="Project">${projectOptions(p.project_id)}</select>
+    <input type="date" class="p-from" value="${esc(p.start_date || '')}" aria-label="From" title="From — leave empty on the first period for all earlier flights">
+    <input type="date" class="p-until" value="${esc(p.end_date || '')}" aria-label="Until" title="Until — leave empty if this is the current project">
+    <button type="button" class="sec" title="Remove this period" aria-label="Remove this period" onclick="this.closest('.period').remove()">×</button>
   </div>`;
 }
-function addPeriod(id) {
-  const box = $('per' + id);
-  if (!box) return;
-  box.insertAdjacentHTML('beforeend', periodRow({project_id: '', start_date: '', end_date: ''}));
-}
-async function savePeriods(id) {
-  const box = $('per' + id);
-  if (!box) return;
-  const periods = [...box.querySelectorAll('.period')].map(row => ({
-    project_id: row.querySelector('.p-proj').value ? +row.querySelector('.p-proj').value : null,
-    start_date: row.querySelector('.p-from').value || null,
-    end_date: row.querySelector('.p-until').value || null,
-  })).filter(p => p.project_id || p.start_date || p.end_date);
-  const r = await fetch('/api/admin/drones/' + id + '/projects', {
-    method: 'PUT', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({periods}),
-  });
-  const d = await r.json().catch(() => ({}));
-  $('err').textContent = r.ok ? '' : (d.error || 'Could not save the timeline');
-  if (r.ok) await load();
-}
+const readPeriods = box => [...box.querySelectorAll('.period')].map(row => ({
+  project_id: row.querySelector('.p-proj').value ? +row.querySelector('.p-proj').value : null,
+  start_date: row.querySelector('.p-from').value || null,
+  end_date: row.querySelector('.p-until').value || null,
+})).filter(p => p.project_id || p.start_date || p.end_date);
 
 function matches(d, q, status) {
   const mine = $('mineOnly').checked;
+  if (d.id === selectedAircraft) return true;  // the open aircraft stays in the list
   if (mine && !(me && d.manager_id === me.id)) return false;
   if ((d.status || '') === 'Discard' && !$('showDiscarded').checked && status !== 'Discard') return false;
-  if (!mine && !d.log_count && !d.record_count && !$('showWithoutLogs').checked && !(manageOn() && d.id === selectedAircraft)) return false;
+  if (!mine && !d.log_count && !d.record_count && !$('showWithoutLogs').checked) return false;
   if (status && (d.status || '') !== status) return false;
   if (!q) return true;
   const blob = [d.name, d.unique_id, d.manager, d.current_user, d.status,
@@ -302,85 +305,38 @@ function matches(d, q, status) {
     ...(d.aliases || [])].join(' ').toLowerCase();
   return blob.includes(q);
 }
-
 function statusOptions(selected) {
   return '<option value="">—</option>' + ['Ready', 'Maintenance', 'Development', 'Discard'].map(s =>
     `<option${s === selected ? ' selected' : ''}>${s}</option>`).join('');
 }
 
-// In Edit mode the long admin lists (Unlinked names, Shared names) are tabs next to the fleet, one on screen at a time.
+// Administrators: Unlinked names (when there are any) and Shared names are tabs next to the fleet, always shown.
 let pageTab = 'fleet';
 function paintPageTabs(open) {
   const tabs = [['fleet', 'Aircraft', data.drones.length]];
-  if (!$('unlinkedCard').hidden) tabs.push(['unlinked', 'Unlinked names', open]);
-  if (!$('ambiguousCard').hidden) tabs.push(['shared', 'Shared names', (data.ambiguous || []).length]);
+  if (isAdmin() && open) tabs.push(['unlinked', 'Unlinked names', open]);
+  if (isAdmin()) tabs.push(['shared', 'Shared names', (data.ambiguous || []).length]);
   if (!tabs.some(t => t[0] === pageTab)) pageTab = 'fleet';
-  const tabbed = tabs.length > 1;
   window.pageTabs($('pageTabs'), tabs, pageTab, key => { pageTab = key; window.viewState.save(true); render(); });
-  for (const [key, el] of [['unlinked', $('unlinkedCard')], ['shared', $('ambiguousCard')]]) {
-    el.classList.toggle('tabbed', tabbed);
-    if (tabbed) { el.open = true; if (key !== pageTab) el.hidden = true; }
-  }
-  $('fleetCard').hidden = tabbed && pageTab !== 'fleet';
+  $('fleetCard').hidden = pageTab !== 'fleet';
+  $('unlinkedCard').hidden = pageTab !== 'unlinked';
+  $('sharedCard').hidden = pageTab !== 'shared';
 }
 function render() {
-  closePick(false);
   const q = ($('q').value || '').trim().toLowerCase();
   const status = $('statusFilter').value;
-  const editing = editOn();
   // My aircraft only for people who are the responsible person of an aircraft (kept while ticked, so it can be cleared)
   $('mineLabel').hidden = !$('mineOnly').checked && !(me && data.drones.some(d => d.manager_id === me.id));
-  $('ambiguousCard').hidden = !editing;
-  $('ambiguousNames').innerHTML = (data.ambiguous || []).map((item, i) => ambiguousHTML(item, i)).join('')
-    || '<p class="mute">No shared names marked ambiguous.</p>';
-  $('excludedBoards').innerHTML = (data.excluded_boards || []).length ? `<h3>Boards not used for matching</h3>
-    ${data.excluded_boards.map(b => `<span class="chip"><span class="mono">${esc(b.mcu_uid)}</span> · ${b.log_count} log${b.log_count === 1 ? '' : 's'}<button type="button" data-board="${esc(b.mcu_uid)}" class="allow" onclick="boardMatching(this, 'POST')">Allow again</button></span>`).join('')}` : '';
-  $('addSection').hidden = $('importSection').hidden = !editing;
-  const managing = manageOn();
-  $('aircraftManagement').hidden = !managing;
-  $('aircraftOverview').hidden = managing;
-  if (!editing) { $('addAircraftDialog').close(); $('importAircraftDialog').close(); }
-  $('requestSection').hidden = !(data.request_projects || []).length;  // also outside Edit mode
+  $('addSection').hidden = $('manageWrap').hidden = !isAdmin();
+  $('requestSection').hidden = !(data.request_projects || []).length;
   if ($('requestSection').hidden) $('requestDialog').close();
   renderRequests();
-  const opts = data.drones.map(d => `<option value="${d.id}">${esc(d.name)}${d.unique_id ? ' (' + esc(d.unique_id) + ')' : ''}</option>`).join('');
-  const open = me && me.is_admin ? data.unlinked.length : 0;
-  $('unlinkedCard').hidden = !(editing && open);
-  $('pending').hidden = !!data.hide_unlinked_aircraft || !(open && !editing);
+  const open = isAdmin() ? data.unlinked.length : 0;  // also with HIDE_UNLINKED_AIRCRAFT: admins link them here
   paintPageTabs(open);
-  $('pending').textContent = `${open} unlinked log name${open === 1 ? '' : 's'}`;
-  $('pending').title = `Names in the logs that are not linked to an aircraft yet. Turn on Edit in the menu to link ${open === 1 ? 'it' : 'them'}.`;
-  const uq = ($('unlinkedQ').value || '').trim().toLowerCase();
-  const shownUnlinked = data.unlinked.filter(e => !uq || [e.name, ...(e.names || []), ...(e.board_ids || [])].join(' ').toLowerCase().includes(uq));
-  $('unlinkedHead').innerHTML = '<tr><th>Name in log</th><th>Board id</th><th>Seen</th><th>Upload folder</th><th>Link to aircraft</th></tr>';
-  $('unlinked').innerHTML = shownUnlinked.map(e => {
-    const idx = data.unlinked.indexOf(e);
-    const boards = (e.board_ids || []).join(', ');
-    const folders = (e.folders || []).join(', ');
-    const extra = (e.names || []).filter(n => n !== e.name);
-    const also = extra.length ? `<div class="mute">also ${extra.map(esc).join(', ')}</div>` : '';
-    const cand = e.candidates || [];
-    const hint = cand.length === 1
-      ? `<div class="mute">Folder matches ${esc(cand[0].name)}</div>`
-      : (cand.length > 1 ? `<div class="mute">Folder matches ${cand.map(c => esc(c.name)).join(', ')} — pick one</div>` : '');
-    const preferred = cand.length === 1 ? cand[0].id : null;
-    const first = data.drones.find(d => d.id === preferred);
-    const link = opts ? `<button type="button" class="sec pick-button" id="sel${idx}" data-value="${first ? first.id : ''}" aria-haspopup="listbox" onclick="openPick(${idx})">${first ? esc(droneLabel(first)) : 'Choose aircraft'}</button>
-      <button onclick="linkUnlinked(${idx})"${(e.board_ids || []).length ? ' title="Adds the names as aliases and links the board ID to this aircraft"' : ''}>${(e.board_ids || []).length ? 'Link names + board' : 'Link'}</button>${hint}` : '<span class="mute">Add an aircraft first</span>';
-    return `<tr><td>${esc(e.name)}${also}</td><td class="mono">${esc(boards)}</td><td>${e.count}×</td><td><span class="folder-list" title="${esc(folders)}">${esc(folders)}</span></td><td>${link}</td></tr>`;
-  }).join('') || '<tr><td colspan="5" class="mute">Nothing matches the filter.</td></tr>';
+  renderUnlinked();
+  renderShared();
   const shown = data.drones.filter(d => matches(d, q, status));
-  if (managing) {
-    $('colMenu').hidden = true;
-    $('drones').innerHTML = '';
-    $('aircraftCount').textContent = `${shown.length} of ${data.drones.length} aircraft`;
-    $('aircraftList').innerHTML = shown.map(d => `<button type="button" class="aircraft-button" aria-pressed="${d.id === selectedAircraft}" title="${esc(d.unique_id || 'No serial')}" onclick="selectAircraft(${d.id})">
-      <span>${esc(d.name)}</span><span class="badge${d.status ? ' st-' + esc(d.status) : ''}">${esc(d.status || 'No status')}</span></button>`).join('') || '<p class="mute">No matching aircraft.</p>';
-    renderAircraftPanel();
-    return;
-  }
   $('fleetCount').textContent = shown.length === data.drones.length ? String(shown.length) : `${shown.length} of ${data.drones.length}`;
-  $('colMenu').hidden = false;
   $('droneCols').innerHTML = FLEET_COLUMNS.map(c => `<col style="width:${c.width}">`).join('');
   $('droneHead').innerHTML = '<tr>' + FLEET_COLUMNS.map(c => {
     if (!c.sort) return `<th>${esc(c.label)}</th>`;
@@ -393,14 +349,13 @@ function render() {
   $('drones').innerHTML = sorted.slice(page * pageSize, (page + 1) * pageSize).map(d => {
     const st = d.status || '';
     const ps = d.projects || [];
-    const current = ps.find(p => !p.end_date) || ps[ps.length - 1];
-    const project = current ? current.project_name || '?' : d.default_project_name || d.inventory_project || '';
+    const project = currentProject(d);
     const history = ps.map(periodText).join('\n') || project || 'No project';
     const total = (d.log_count || 0) + (d.record_count || 0);
     const aliases = d.aliases || [];
-    return `<tr>
+    return `<tr data-id="${d.id}" class="${d.id === selectedAircraft ? 'open' : ''}" aria-selected="${d.id === selectedAircraft}" title="Open ${esc(d.name)} beside the list">
       <td class="serial" title="${esc(d.unique_id || '')}">${esc(d.unique_id || '')}</td>
-      <td><a href="/aircraft/${d.id}" title="${esc(d.name)}">${esc(d.name)}</a></td>
+      <td><a href="/aircraft/${d.id}" title="Overview of ${esc(d.name)}: flights, people, places">${esc(d.name)}</a></td>
       <td>${st ? `<span class="badge st-${esc(st)}">${esc(st)}</span>` : ''}</td>
       <td title="${esc(d.manager || '')}">${esc(d.manager || '')}</td>
       <td title="${esc(history)}">${project ? esc(project) : '<span class="mute">—</span>'}${ps.length > 1 ? ` <span class="mute">+${ps.length - 1}</span>` : ''}</td>
@@ -408,7 +363,8 @@ function render() {
       <td class="num" title="${d.log_count} uploaded log${d.log_count === 1 ? '' : 's'} · ${d.record_count || 0} paper record${d.record_count === 1 ? '' : 's'}">${total || '<span class="mute">0</span>'}</td>
       <td title="${esc(aliases.join(', '))}">${aliases.length ? `<span class="chip">${esc(aliases[0])}</span>${aliases.length > 1 ? ` <span class="mute">+${aliases.length - 1}</span>` : ''}` : ''}</td></tr>`;
   }).join('')
-    || `<tr><td colspan="${FLEET_COLUMNS.length}" class="mute">${data.drones.length ? 'Nothing matches the filter.' : (me && me.is_admin ? 'No aircraft yet.' : 'No aircraft on your projects yet.')}</td></tr>`;
+    || `<tr><td colspan="${FLEET_COLUMNS.length}" class="mute">${data.drones.length ? 'Nothing matches the filter.' : (isAdmin() ? 'No aircraft yet.' : 'No aircraft on your projects yet.')}</td></tr>`;
+  renderAircraftPanel();
   window.viewState.ready();
 }
 
@@ -448,6 +404,12 @@ $('droneHead').onclick = e => {
   window.viewState.save(true);
   render();
 };
+// A row opens the aircraft beside the list; its name stays a link to the aircraft's overview page.
+$('drones').onclick = e => {
+  const tr = e.target.closest('tr[data-id]');
+  if (!tr || e.target.closest('a, button, input, select')) return;
+  selectAircraft(+tr.dataset.id === selectedAircraft ? null : +tr.dataset.id);
+};
 // Hidden overview columns are a per-browser preference, like the logbook's.
 const COLUMNS_KEY = 'aircraft.hiddenColumns';
 let hiddenColumns = new Set();
@@ -478,73 +440,236 @@ document.addEventListener('click', e => { if (!$('colForm').hidden && !e.target.
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('colForm').hidden) { $('colButton').click(); $('colButton').focus(); } });
 applyColumns();
 
+// Manage ▾ and ⋯: small menus that close on a click elsewhere or Escape.
+function menu(button, pop) {
+  button.onclick = e => {
+    e.stopPropagation();
+    const open = pop.hidden;
+    closeMenus();
+    pop.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+    if (open) pop.querySelector('button, a')?.focus();
+  };
+  pop.onclick = e => { if (e.target.closest('.ext-item')) closeMenus(); };
+}
+function closeMenus() {
+  for (const [b, p] of [['manageBtn', 'manageMenu'], ['moreBtn', 'moreMenu']]) { $(p).hidden = true; $(b).setAttribute('aria-expanded', 'false'); }
+}
+menu($('manageBtn'), $('manageMenu'));
+menu($('moreBtn'), $('moreMenu'));
+document.addEventListener('click', e => { if (!e.target.closest('.menu-wrap')) closeMenus(); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const open = !$('manageMenu').hidden ? 'manageBtn' : !$('moreMenu').hidden ? 'moreBtn' : null;
+  if (open) { closeMenus(); $(open).focus(); }
+});
+
+// The open aircraft: read view for everyone; Edit aircraft and ⋯ only for who may use them.
 function selectAircraft(id) {
   selectedAircraft = id;
+  if (!id) selectedAircraftTab = 'details';
+  window.viewState.save(true);
   render();
-  $('aircraftPanel').scrollIntoView({block:'nearest'});
+  if (id) $('aircraftPanel').scrollIntoView({block: 'nearest'});
 }
 function selectAircraftTab(tab) {
   selectedAircraftTab = tab;
+  window.viewState.save();
   renderAircraftPanel();
 }
+for (const tab of document.querySelectorAll('[data-atab]')) tab.onclick = () => selectAircraftTab(tab.dataset.atab);
 $('aircraftTabs').addEventListener('keydown', event => {
   if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
   event.preventDefault();
   const tabs = ['details','projects','aliases'];
   const index = tabs.indexOf(selectedAircraftTab);
-  const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2
-    : (index + (event.key === 'ArrowRight' ? 1 : 2)) % 3;
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : 2)) % 3;
   selectAircraftTab(tabs[next]);
   $('aircraft-tab-' + selectedAircraftTab).focus();
 });
+$('closePanel').onclick = () => selectAircraft(null);
+$('editAircraft').onclick = () => openEdit();
+// A value the user may change: clicking it (not a link in it) opens Edit aircraft at that field.
+document.addEventListener('click', e => {
+  const value = e.target.closest('#aircraftContent [data-edit-field]');
+  if (value && !e.target.closest('a, button')) openEdit(value.dataset.editField);
+});
+function editableFields(d) {
+  const admin = isAdmin(), details = mayEdit(d);
+  return {name: admin, unique_id: admin, status: details, manager: details, current_user: details, comments: details,
+    aliases: admin, periods: admin};
+}
 function renderAircraftPanel() {
   const d = data.drones.find(d => d.id === selectedAircraft);
-  $('aircraftHeading').textContent = d ? d.name : 'No aircraft selected';
-  $('aircraftIdentity').textContent = d ? `${d.unique_id || 'No serial'} · ${d.log_count} logs`
-    : 'Select an aircraft from the list to manage its details, project history and aliases.';
-  $('aircraftLink').hidden = $('aircraftTabs').hidden = !d;
-  if (!d) { $('aircraftContent').innerHTML = ''; return; }
-  $('aircraftLink').href = '/aircraft/' + d.id;
-  const admin = editOn();
-  if (!admin) selectedAircraftTab = 'details';  // project history and aliases stay with administrators
-  for (const tab of ['projects', 'aliases']) $('aircraft-tab-' + tab).hidden = !admin;
+  $('fleetLayout').classList.toggle('with-panel', !!d);
+  $('aircraftPanel').hidden = !d;
+  if (!d) { closeMenus(); return; }
+  const may = editableFields(d);
+  $('aircraftHeading').textContent = d.name;
+  $('aircraftIdentity').textContent = `${d.unique_id || 'No serial'} · ${d.log_count} log${d.log_count === 1 ? '' : 's'}`
+    + (d.record_count ? ` · ${d.record_count} paper record${d.record_count === 1 ? '' : 's'}` : '');
+  $('editAircraft').hidden = !Object.values(may).some(Boolean);
+  paintMore(d);
   for (const tab of ['details','projects','aliases']) {
     $('aircraft-tab-' + tab).setAttribute('aria-selected', String(tab === selectedAircraftTab));
     $('aircraft-tab-' + tab).tabIndex = tab === selectedAircraftTab ? 0 : -1;
   }
   $('aircraftContent').setAttribute('aria-labelledby', 'aircraft-tab-' + selectedAircraftTab);
+  // label and value of one row; an editable one opens the Edit dialog at that field
+  const row = (key, label, value) => may[key]
+    ? `<span class="mute edit-key" data-edit-field="${key}" title="Click to change">${label}</span><span class="edit-val" data-edit-field="${key}" title="Click to change">${value || '<span class="mute">—</span>'}</span>`
+    : `<span class="mute">${label}</span><span>${value || '<span class="mute">—</span>'}</span>`;
   if (selectedAircraftTab === 'projects') {
-    $('aircraftContent').innerHTML = `<p class="mute">Assign projects by date. Save the timeline after changing periods.</p>${projectCell(d, true)}`;
+    const ps = d.projects || [];
+    $('aircraftContent').innerHTML = (ps.length ? `<ul class="plain${may.periods ? ' edit-val' : ''}"${may.periods ? ' data-edit-field="periods" title="Click to change"' : ''}>${ps.map(p => `<li>${esc(periodText(p))}</li>`).join('')}</ul>`
+      : `<p class="mute">No project periods${d.default_project_name ? `; default project ${esc(d.default_project_name)}` : ''}.</p>`)
+      + (d.inventory_project ? `<p class="mute">Inventory project: ${esc(d.inventory_project)}</p>` : '')
+      + '<p class="mute">Flights are assigned to the project of the period they fall in.</p>';
   } else if (selectedAircraftTab === 'aliases') {
-    $('aircraftContent').innerHTML = `<p class="mute">Aliases link aircraft names in logs to this aircraft.</p>
-      ${d.aliases.map(a => `<span class="chip">${esc(a)}<button type="button" data-name="${esc(a)}" onclick="markAmbiguous(this.dataset.name)">Mark ambiguous</button><button type="button" aria-label="Remove alias ${esc(a)}" data-alias="${esc(a)}" onclick="removeAlias(this)">×</button></span>`).join('') || '<p class="mute">No aliases.</p>'}
-      <form class="row" onsubmit="event.preventDefault();addAlias(${d.id})">
-      <label class="field">New alias<input id="new${d.id}" required maxlength="80"></label><button type="submit">Add alias</button></form>
-      ${(d.boards || []).length ? `<h3>Autopilot boards</h3>
+    $('aircraftContent').innerHTML = `<p class="mute" style="margin-top:0">Names in logs that link to this aircraft.</p>
+      <div${may.aliases ? ' class="edit-val" data-edit-field="aliases" title="Click to change"' : ''}>${(d.aliases || []).map(a => `<span class="chip">${esc(a)}</span>`).join('') || '<span class="mute">No aliases.</span>'}</div>
+      ${isAdmin() && (d.boards || []).length ? `<h3>Autopilot boards</h3>
       <p class="mute">Learned from logs whose name clearly matched this aircraft; a log with a shared or unknown name on the same board is linked here too.</p>
-      ${d.boards.map(b => `<span class="chip" title="${b.source === 'manual' ? 'From a hand assignment' : 'Learned automatically'} · ${b.log_count} log${b.log_count === 1 ? '' : 's'}${b.other_count ? ` · ${b.other_count} linked to another aircraft by name` : ''}"><span class="mono">${esc(b.mcu_uid)}</span>${b.other_count ? ' <span class="elsewhere">also on another aircraft</span>' : ''}<button type="button" aria-label="Stop matching board ${esc(b.mcu_uid)}" data-board="${esc(b.mcu_uid)}" onclick="boardMatching(this, 'DELETE')">×</button></span>`).join('')}` : ''}`;
-  } else if (!admin && !d.can_edit) {
-    $('aircraftContent').innerHTML = `<p class="mute">Only administrators, managers of its current project and its manager edit this aircraft.</p>`;
+      ${d.boards.map(b => `<span class="chip" title="${b.source === 'manual' ? 'From a hand assignment' : 'Learned automatically'} · ${b.log_count} log${b.log_count === 1 ? '' : 's'}${b.other_count ? ` · ${b.other_count} linked to another aircraft by name` : ''}"><span class="mono">${esc(b.mcu_uid)}</span>${b.other_count ? ' <span class="elsewhere">also on another aircraft</span>' : ''}</span>`).join('')}` : ''}`;
   } else {
-    $('aircraftContent').innerHTML = `<form id="aircraftDetails" onsubmit="saveAircraftDetails(event,${d.id})">
-      <div class="detail-fields">
-      ${admin ? `<label class="field">Name<input name="name" value="${esc(d.name)}" required maxlength="80"></label>
-      <label class="field">Serial<input name="unique_id" value="${esc(d.unique_id || '')}" required maxlength="40"></label>` : ''}
-      <label class="field">Status<select name="status">${statusOptions(d.status)}</select></label>
-      <label class="field">Manager<input name="manager" value="${esc(d.manager || '')}" data-pid="${d.manager_id || ''}" list="managerNames" maxlength="80" autocomplete="off"${d.manager_id ? ' required' : ''} oninput="matchManager(this)" title="The responsible person: pick a registered person"></label>
-      <label class="field">Current user<input name="current_user" value="${esc(d.current_user || '')}" list="peopleNames" maxlength="80" autocomplete="off" onchange="matchPerson(this)"></label>
-      <label class="field full">Comments<textarea name="comments" maxlength="400" rows="3">${esc(d.comments || '')}</textarea></label>
-      </div>${admin ? '<p class="mute">Renaming keeps the old name as an alias so existing logs still match.</p>' : ''}
-      <button type="submit">Save details</button></form>
-      ${admin ? `<p><button type="button" class="danger" onclick="removeDrone(${d.id})">Remove aircraft</button></p>` : ''}`;
+    const st = d.status ? `<span class="badge st-${esc(d.status)}">${esc(d.status)}</span>` : '';
+    $('aircraftContent').innerHTML = `<div class="kv">
+      ${row('name', 'Name', esc(d.name))}${row('unique_id', 'Serial', `<span class="mono">${esc(d.unique_id || '')}</span>`)}
+      ${row('status', 'Status', st)}${row('manager', 'Manager', esc(d.manager || ''))}${row('current_user', 'Current user', esc(d.current_user || ''))}
+      ${row('periods', 'Project', esc(currentProject(d)))}
+      ${row('comments', 'Comments', d.comments ? `<span class="note">${esc(d.comments)}</span>` : '')}
+      <span class="mute">Flights</span><span>${(d.log_count || 0) + (d.record_count || 0)} · <a href="/aircraft/${d.id}">Overview: flights, people, places</a></span>
+    </div>`;
   }
 }
-async function saveAircraftDetails(event, id) {
+
+// ⋯: Remove aircraft (administrators), mark one of its aliases as a shared name, stop matching one of its boards.
+function paintMore(d) {
+  const items = [];
+  if (isAdmin() && (d.aliases || []).length) items.push(['shared', 'Mark an alias as shared…']);
+  if (isAdmin() && (d.boards || []).length) items.push(['board', 'Stop matching a board…']);
+  if (isAdmin()) items.push(['remove', 'Remove aircraft…', true]);
+  $('moreMenu').innerHTML = items.map(([act, label, danger]) =>
+    `<button type="button" class="ext-item${danger ? ' danger-item' : ''}" role="menuitem" data-more="${act}">${label}</button>`).join('');
+  $('moreWrap').hidden = !items.length;
+}
+$('moreMenu').addEventListener('click', e => {
+  const item = e.target.closest('[data-more]');
+  const d = data.drones.find(x => x.id === selectedAircraft);
+  if (!item || !d) return;
+  if (item.dataset.more === 'remove') {
+    actDialog('Remove aircraft', `<p style="margin:0">Remove <b>${esc(d.name)}</b>? The logs stay; they are no longer linked to this aircraft.</p>`, 'Remove',
+      out => send('DELETE', '/api/admin/drones/' + d.id, null, out).then(ok => { if (ok) selectedAircraft = null; return ok; }));
+  } else if (item.dataset.more === 'shared') {
+    actDialog('Mark an alias as shared', `<label class="field">Alias<select name="alias">${d.aliases.map(a => `<option>${esc(a)}</option>`).join('')}</select></label>
+      <p class="mute" style="margin:0">A shared name does not identify one aircraft: its alias and automatic aircraft links are removed. Explicit per-log assignments stay.</p>`, 'Mark as shared',
+      out => send('POST', '/api/admin/ambiguous-drone-names', {name: $('actBody').querySelector('[name=alias]').value}, out));
+  } else if (item.dataset.more === 'board') {
+    actDialog('Stop matching a board', `<label class="field">Autopilot board<select name="board">${d.boards.map(b => `<option>${esc(b.mcu_uid)}</option>`).join('')}</select></label>
+      <p class="mute" style="margin:0">Logs linked only by this board become unlinked. The board can be allowed again under Shared names.</p>`, 'Stop matching',
+      out => send('DELETE', '/api/admin/drone-boards', {mcu_uid: $('actBody').querySelector('[name=board]').value}, out));
+  }
+});
+// One small dialog for the ⋯ and Manage ▾ actions; OK runs the action and reloads.
+function actDialog(title, body, okLabel, run) {
+  $('actTitle').textContent = title;
+  $('actBody').innerHTML = body;
+  $('actError').textContent = '';
+  $('actOk').textContent = okLabel;
+  $('actForm').onsubmit = async event => {
+    event.preventDefault();
+    $('actOk').disabled = true;
+    try { if (await run($('actError'))) $('actDialog').close(); } finally { $('actOk').disabled = false; }
+  };
+  $('actDialog').showModal();
+  $('actBody').querySelector('input, select')?.focus();
+}
+
+// Edit aircraft: one dialog with the fields this user may change; Save sends only what changed.
+let editStart = null;
+function openEdit(focus) {
+  const d = data.drones.find(x => x.id === selectedAircraft);
+  if (!mayEdit(d)) return;
+  const may = editableFields(d);
+  const field = (key, label, control, wide) => may[key]
+    ? `<label class="field${wide ? ' wide' : ''}">${label}${control}<span class="field-error" data-error="${key}"></span></label>` : '';
+  const periods = (d.projects || []).length ? d.projects : [{project_id: d.default_project_id, start_date: (d.bought_on || '').slice(0, 10), end_date: ''}];
+  $('editTitle').textContent = `Edit aircraft ${d.name}`;
+  $('editWhat').textContent = `${d.unique_id || 'No serial'} · ${d.log_count} log${d.log_count === 1 ? '' : 's'}`;
+  $('editFields').innerHTML = `<div class="edit-grid">
+    ${field('name', 'Name', `<input name="name" value="${esc(d.name)}" required maxlength="80" title="Renaming keeps the old name as an alias, so existing logs still match">`)}
+    ${field('unique_id', 'Serial', `<input name="unique_id" value="${esc(d.unique_id || '')}" required maxlength="40">`)}
+    ${field('status', 'Status', `<select name="status">${statusOptions(d.status)}</select>`)}
+    ${field('manager', 'Manager', `<input name="manager" value="${esc(d.manager || '')}" data-pid="${d.manager_id || ''}" list="managerNames" maxlength="80" autocomplete="off"${d.manager_id ? ' required' : ''} oninput="matchManager(this)" title="The responsible person: pick a registered person">`)}
+    ${field('current_user', 'Current user', `<input name="current_user" value="${esc(d.current_user || '')}" list="peopleNames" maxlength="80" autocomplete="off" onchange="matchPerson(this)">`)}
+    ${field('comments', 'Comments', `<textarea name="comments" maxlength="400" rows="2">${esc(d.comments || '')}</textarea>`, true)}
+    ${field('aliases', 'Aliases (names in logs, one per line)', `<textarea name="aliases" rows="3">${esc((d.aliases || []).join('\n'))}</textarea>`, true)}
+    ${may.periods ? `<div class="field wide" data-field="periods"><span>Project history (From empty on the first period: all earlier flights; Until empty: current)</span>
+      <div class="periods" id="editPeriods">${periods.map(periodRow).join('')}</div>
+      <div><button type="button" class="sec" onclick="$('editPeriods').insertAdjacentHTML('beforeend', periodRow({}))">Add period</button></div>
+      <span class="field-error" data-error="periods"></span></div>` : ''}
+  </div>`;
+  editStart = snapshot();
+  $('editError').textContent = '';
+  $('editDialog').showModal();
+  const target = focus === 'periods' ? $('editPeriods')?.querySelector('select') : $('editFields').querySelector(`[name=${focus}]`);
+  (target || $('editFields').querySelector('input, select, textarea'))?.focus();
+}
+function snapshot() {
+  const f = name => $('editFields').querySelector(`[name=${name}]`);
+  const out = {};
+  for (const key of ['name', 'unique_id', 'status', 'manager', 'current_user', 'comments']) if (f(key)) out[key] = f(key).value.trim();
+  if (f('aliases')) out.aliases = [...new Set(f('aliases').value.split('\n').map(a => a.trim()).filter(Boolean))];
+  if ($('editPeriods')) out.periods = JSON.stringify(readPeriods($('editPeriods')));
+  return out;
+}
+async function saveEdit(event) {
   event.preventDefault();
-  const form = event.currentTarget;
-  const body = Object.fromEntries(new FormData(form));
-  body.manager_id = form.elements.manager.dataset.pid ? +form.elements.manager.dataset.pid : null;
-  await send('PUT', '/api/drones/' + id, body);
+  const d = data.drones.find(x => x.id === selectedAircraft);
+  if (!d || !editStart) return;
+  const now = snapshot(), errors = $('editFields').querySelectorAll('[data-error]');
+  errors.forEach(el => { el.textContent = ''; });
+  $('editError').textContent = '';
+  const out = key => $('editFields').querySelector(`[data-error="${key}"]`) || $('editError');
+  const changed = key => JSON.stringify(now[key]) !== JSON.stringify(editStart[key]);
+  let failed = 0;
+  $('editSave').disabled = true;
+  try {
+    const details = {};
+    for (const key of ['name', 'unique_id', 'status', 'current_user', 'comments']) if (key in now && changed(key)) details[key] = now[key];
+    if ('manager' in now && changed('manager')) {
+      const input = $('editFields').querySelector('[name=manager]');
+      details.manager = now.manager;
+      details.manager_id = input.dataset.pid ? +input.dataset.pid : null;
+    }
+    if (Object.keys(details).length && !await send('PUT', '/api/drones/' + d.id, details, out(Object.keys(details)[0]), false)) failed++;
+    if ('aliases' in now && changed('aliases')) {
+      const was = new Set(editStart.aliases), is = new Set(now.aliases);
+      for (const alias of editStart.aliases.filter(a => !is.has(a)))
+        if (!await send('DELETE', '/api/admin/drone-aliases', {alias}, out('aliases'), false)) failed++;
+      for (const alias of now.aliases.filter(a => !was.has(a)))
+        if (!await send('POST', '/api/admin/drone-aliases', {drone_id: d.id, alias}, out('aliases'), false)) failed++;
+    }
+    if ('periods' in now && changed('periods')
+        && !await send('PUT', `/api/admin/drones/${d.id}/projects`, {periods: JSON.parse(now.periods)}, out('periods'), false)) failed++;
+  } finally { $('editSave').disabled = false; }
+  await load();
+  if (failed) { $('editError').textContent = `${failed} change${failed > 1 ? 's were' : ' was'} not saved; see above.`; editStart = null; openEditKeep(now); return; }
+  $('editDialog').close();
+}
+// After a partial failure the dialog stays open with what was typed; the saved parts are the new starting point.
+function openEditKeep(typed) {
+  const errors = [...$('editFields').querySelectorAll('[data-error]')].map(el => [el.dataset.error, el.textContent]);
+  const message = $('editError').textContent;
+  $('editDialog').close();
+  openEdit();
+  for (const [key, value] of Object.entries(typed)) {
+    const el = $('editFields').querySelector(`[name=${key}]`);
+    if (el && key !== 'aliases') el.value = value;
+    else if (el) el.value = value.join('\n');
+  }
+  for (const [key, text] of errors) { const el = $('editFields').querySelector(`[data-error="${key}"]`); if (el) el.textContent = text; }
+  $('editError').textContent = message;
 }
 
 async function load() {
@@ -552,13 +677,15 @@ async function load() {
   if (!r.ok) { $('err').textContent = 'Could not load aircraft.'; return; }
   data = await r.json();
   $('newProject').innerHTML = projectOptions(null);
+  if (selectedAircraft && !data.drones.some(d => d.id === selectedAircraft)) selectedAircraft = null;
   render();
 }
-
-async function send(method, url, body) {
+// A change: errors go to out (a field, a dialog) or the page; reload unless asked not to (the caller reloads).
+async function send(method, url, body, out = $('err'), reload = true) {
   const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
-  $('err').textContent = r.ok ? '' : (((await r.json().catch(() => ({}))).error) || 'failed');
-  if (r.ok) await load();
+  out.textContent = r.ok ? '' : (((await r.json().catch(() => ({}))).error) || 'failed');
+  if (r.ok && reload) await load();
+  return r.ok;
 }
 
 // Registered users for the Manager / Current user boxes. Current user may be free text; the manager is always an
@@ -589,18 +716,17 @@ function matchManager(input) {
   input.dataset.pid = hits.length === 1 ? hits[0].id : '';
   input.setCustomValidity(v && hits.length !== 1 ? 'Pick a registered person from the list.' : '');
 }
-// Pending aircraft requests: the requester's own, and those of projects this user manages (all for admins).
+// Pending aircraft requests: the requester's own, and those of projects this user manages (all for admins). Who
+// may decide approves or rejects; the requester may withdraw.
 function renderRequests() {
   const list = data.requests || [];
   $('requestsBox').hidden = !list.length;
-  const ed = window.editMode();
   $('requestRows').innerHTML = list.map(r => `<tr>
     <td title="${esc(r.name)}">${esc(r.name)} <span class="badge pending" title="Waiting for a project manager or an administrator">Pending</span></td>
     <td title="${esc(r.project_name)}">${esc(r.project_name)}</td>
     <td title="Requested by ${esc(r.requested_by_name)} on ${esc((r.created_at || '').slice(0, 10))}">${esc(r.requested_by_name)}</td>
     <td title="${esc(r.comments || '')}">${esc(r.comments || '')}</td>
-    <td class="actions">${!ed ? '<span class="mute" title="Turn on Edit to decide or withdraw">—</span>'
-      : r.can_decide ? `<button type="button" onclick="approveRequest(${r.id})">Approve</button> <button type="button" class="danger" onclick="openReject(${r.id})">Reject</button>`
+    <td class="actions">${r.can_decide ? `<button type="button" onclick="approveRequest(${r.id})">Approve</button> <button type="button" class="sec" onclick="openReject(${r.id})">Reject…</button>`
       : r.requested_by === me.id ? `<button type="button" class="sec" onclick="withdrawRequest(${r.id})">Withdraw</button>` : ''}</td></tr>`).join('');
 }
 function openRequest() {
@@ -620,7 +746,8 @@ async function sendRequest(event) {
 }
 function approveRequest(id) {
   const r = (data.requests || []).find(x => x.id === id);
-  if (r && confirm(`Add ${r.name} to the fleet in ${r.project_name}?`)) send('POST', `/api/drone-requests/${id}/approve`);
+  if (r) actDialog('Approve request', `<p style="margin:0">Add <b>${esc(r.name)}</b> to the fleet in ${esc(r.project_name)}?</p>`, 'Approve',
+    out => send('POST', `/api/drone-requests/${id}/approve`, null, out));
 }
 let rejecting = null;
 function openReject(id) {
@@ -638,12 +765,14 @@ async function rejectRequest(event) {
   await send('DELETE', '/api/drone-requests/' + rejecting, {reason: $('rejectReason').value});
 }
 function withdrawRequest(id) {
-  if (confirm('Withdraw this request?')) send('DELETE', '/api/drone-requests/' + id);
+  actDialog('Withdraw request', '<p style="margin:0">Withdraw this request?</p>', 'Withdraw', out => send('DELETE', '/api/drone-requests/' + id, null, out));
 }
 function openAddAircraft() {
   if (!$('uid').value && data?.next_serial) $('uid').value = data.next_serial;
   if (!$('newManager').value && me && !me.is_external) { $('newManager').value = me.display_name; $('newManager').dataset.pid = me.id; }
+  $('addAircraftError').textContent = '';
   $('addAircraftDialog').showModal();
+  $('name').focus();
 }
 async function addDrone(ev) {
   ev.preventDefault();
@@ -665,6 +794,10 @@ async function addDrone(ev) {
     await load();
   } catch (error) { $('addAircraftError').textContent = 'Could not add aircraft: ' + error.message; }
 }
+function openImport() {
+  $('importAircraftError').textContent = $('importMsg').textContent = '';
+  $('importAircraftDialog').showModal();
+}
 async function importCsv() {
   const f = $('csv').files[0];
   if (!f) { $('importMsg').textContent = 'Choose a CSV file first.'; return; }
@@ -673,73 +806,69 @@ async function importCsv() {
   $('importMsg').textContent = 'Importing…';
   $('importAircraftError').textContent = '';
   try {
-  const r = await fetch('/api/admin/drones/import', {method: 'POST', body: fd});
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) { $('importAircraftError').textContent = d.error || 'Import failed'; $('importMsg').textContent = ''; return; }
-  $('importAircraftError').textContent = (d.errors || []).join(' · ');
-  $('importMsg').textContent = `Added ${d.created}, updated ${d.updated}` + (d.skipped ? `, skipped ${d.skipped}` : '');
-  $('csv').value = '';
-  await load();
+    const r = await fetch('/api/admin/drones/import', {method: 'POST', body: fd});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { $('importAircraftError').textContent = d.error || 'Import failed'; $('importMsg').textContent = ''; return; }
+    $('importAircraftError').textContent = (d.errors || []).join(' · ');
+    $('importMsg').textContent = `Added ${d.created}, updated ${d.updated}` + (d.skipped ? `, skipped ${d.skipped}` : '');
+    $('csv').value = '';
+    await load();
   } catch (error) { $('importAircraftError').textContent = 'Import failed: ' + error.message; $('importMsg').textContent = ''; }
 }
 const droneLabel = d => d.name + (d.unique_id ? ' (' + d.unique_id + ')' : '');
-function openPick(i) {
-  if (pickFor === i) return closePick();
-  pickFor = i;
-  const r = $('sel' + i).getBoundingClientRect(), menu = $('pickMenu');
-  menu.hidden = false;
-  menu.style.left = Math.max(4, Math.min(r.left, document.documentElement.clientWidth - menu.offsetWidth - 4)) + 'px';
-  menu.style.top = (r.bottom + menu.offsetHeight + 4 > innerHeight ? Math.max(4, r.top - menu.offsetHeight - 4) : r.bottom + 4) + 'px';
-  $('pickSearch').value = '';
-  renderPick();
-  $('pickSearch').focus();
+
+// Unlinked names and Shared names (administrators): tick rows, then "Link to aircraft…" in the selection bar.
+const ticks = {unlinked: new Set(), shared: new Set()};
+function tick(kind, key, on) { on ? ticks[kind].add(key) : ticks[kind].delete(key); paintBars(); }
+function clearTicks(kind) { ticks[kind].clear(); render(); }
+function paintBars() {
+  for (const kind of ['unlinked', 'shared']) {
+    const n = ticks[kind].size;
+    $(kind + 'Bar').hidden = !n;
+    $(kind + 'SelCount').textContent = `${n} selected`;
+  }
 }
-function closePick(refocus = true) {
-  if (pickFor === null) return;
-  $('pickMenu').hidden = true;
-  const button = $('sel' + pickFor);
-  pickFor = null;
-  if (button && refocus) button.focus();
+const tickBox = (kind, key, label) => `<td class="chk"><input type="checkbox" aria-label="Select ${esc(label)}" ${ticks[kind].has(key) ? 'checked' : ''}
+  onchange="tick('${kind}', this.dataset.key, this.checked)" data-key="${esc(key)}"></td>`;
+function renderUnlinked() {
+  const uq = ($('unlinkedQ').value || '').trim().toLowerCase();
+  const shown = data.unlinked.filter(e => !uq || [e.name, ...(e.names || []), ...(e.board_ids || [])].join(' ').toLowerCase().includes(uq));
+  for (const key of [...ticks.unlinked]) if (!data.unlinked[+key]) ticks.unlinked.delete(key);
+  $('unlinkedCount').textContent = String(data.unlinked.length);
+  $('unlinkedHead').innerHTML = '<tr><th class="chk"></th><th>Name in log</th><th>Board id</th><th>Seen</th><th>Upload folder</th><th>Folder hint</th></tr>';
+  $('unlinked').innerHTML = shown.map(e => {
+    const idx = data.unlinked.indexOf(e);
+    const boards = (e.board_ids || []).join(', ');
+    const folders = (e.folders || []).join(', ');
+    const extra = (e.names || []).filter(n => n !== e.name);
+    const cand = e.candidates || [];
+    return `<tr>${tickBox('unlinked', String(idx), e.name)}<td>${esc(e.name)}${extra.length ? `<div class="mute">also ${extra.map(esc).join(', ')}</div>` : ''}</td>
+      <td class="mono">${esc(boards)}</td><td>${e.count}×</td><td><span class="folder-list" title="${esc(folders)}">${esc(folders)}</span></td>
+      <td class="mute">${cand.length ? esc(cand.map(c => c.name).join(', ')) + (cand.length > 1 ? ' — pick one' : '') : ''}</td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="mute">Nothing matches the filter.</td></tr>';
+  paintBars();
 }
-function renderPick() {
-  const q = $('pickSearch').value.trim().toLowerCase();
-  const current = +$('sel' + pickFor).dataset.value;
-  const starts = d => droneLabel(d).toLowerCase().startsWith(q);
-  const found = data.drones.filter(d => !q || droneLabel(d).toLowerCase().includes(q))
-    .sort((a, b) => starts(b) - starts(a));
-  $('pickList').innerHTML = found.map(d => `<button type="button" role="option" data-id="${d.id}" aria-selected="${d.id === current}">${esc(droneLabel(d))}${d.status === 'Discard' ? ' <span class="mute">· Discard</span>' : ''}</button>`).join('')
-    || '<p class="mute">No aircraft match</p>';
+// One table per shared name: a row per board (a choice links every recording on it) and per recording without one.
+function renderShared() {
+  $('sharedCount').textContent = String((data.ambiguous || []).length);
+  $('ambiguousNames').innerHTML = (data.ambiguous || []).map((item, i) => ambiguousHTML(item, i)).join('')
+    || '<p class="mute">No shared names marked ambiguous.</p>';
+  $('excludedBoards').innerHTML = (data.excluded_boards || []).length ? `<h3>Boards not used for matching</h3>
+    ${data.excluded_boards.map(b => `<span class="chip"><span class="mono">${esc(b.mcu_uid)}</span> · ${b.log_count} log${b.log_count === 1 ? '' : 's'}<button type="button" data-board="${esc(b.mcu_uid)}" class="allow" onclick="allowBoard(this.dataset.board)">Allow again</button></span>`).join('')}` : '';
+  paintBars();
 }
-function choosePick(id) {
-  const d = data.drones.find(x => x.id === id), button = $('sel' + pickFor);
-  button.dataset.value = d.id;
-  button.textContent = droneLabel(d);
-  closePick();
-}
-$('pickSearch').oninput = renderPick;
-$('pickList').onclick = e => { const b = e.target.closest('button[data-id]'); if (b) choosePick(+b.dataset.id); };
-$('pickMenu').onkeydown = e => {
-  const items = [...$('pickList').querySelectorAll('button[data-id]')], at = items.indexOf(document.activeElement);
-  if (e.key === 'Escape') { e.preventDefault(); closePick(); }
-  else if (e.key === 'Enter' && document.activeElement === $('pickSearch') && items.length) { e.preventDefault(); choosePick(+items[0].dataset.id); }
-  else if (e.key === 'ArrowDown' && items.length) { e.preventDefault(); items[Math.min(at + 1, items.length - 1)].focus(); }
-  else if (e.key === 'ArrowUp') { e.preventDefault(); (at > 0 ? items[at - 1] : $('pickSearch')).focus(); }
-};
-document.addEventListener('mousedown', e => {
-  if (pickFor !== null && !$('pickMenu').contains(e.target) && e.target !== $('sel' + pickFor)) closePick(false);
-});
-addEventListener('resize', () => closePick(false));
-document.addEventListener('scroll', e => { if (!$('pickMenu').contains(e.target)) closePick(false); }, true);
-// One row per board for a shared name: a choice there links every recording on that board. Recordings without a
-// board ID keep a row each (a hand assignment of that one log).
-function ambiguousHTML(item, i) {
+function sharedGroups(item) {
   const groups = [], byBoard = new Map();
   for (const r of item.recordings) {
     if (!r.mcu_uid) { groups.push({board: null, recs: [r]}); continue; }
     if (!byBoard.has(r.mcu_uid)) { const g = {board: r.mcu_uid, recs: []}; byBoard.set(r.mcu_uid, g); groups.push(g); }
     byBoard.get(r.mcu_uid).recs.push(r);
   }
-  const boards = byBoard.size;
+  return groups;
+}
+const groupKey = g => g.board ? 'b:' + g.board : `r:${g.recs[0].log_id}:${g.recs[0].ac_id}`;
+function ambiguousHTML(item, i) {
+  const groups = sharedGroups(item), boards = groups.filter(g => g.board).length;
   const name = id => { const d = data.drones.find(x => x.id === id); return d ? esc(d.name) : '?'; };
   const now = g => {
     const ids = [...new Set(g.recs.map(r => r.drone_id))];
@@ -750,113 +879,74 @@ function ambiguousHTML(item, i) {
     const how = g.recs.every(r => r.manual) ? 'by hand' : g.board && g.recs[0].board_drone_id === id ? 'by board' : '';
     return name(id) + (how ? ` <span class="mute">· ${how}</span>` : '');
   };
-  const choice = (g, j) => {
-    const r = g.recs[0];
-    if (!g.board && r.ac_id == null) return '<span class="mute">No board or autopilot ID; cannot be assigned</span>';
-    const current = g.board ? (r.board_drone_id ?? null) : (r.manual ? r.drone_id : null);
-    const id = `manual-${i}-${j}`;
-    return `<select id="${id}" aria-label="Aircraft for ${g.board ? 'board ' + esc(g.board) : esc(r.log_name)}">
-      <option value="">${g.board ? 'Choose aircraft' : 'Automatic / unresolved'}</option>${data.drones.map(d => `<option value="${d.id}"${current === d.id ? ' selected' : ''}>${esc(droneLabel(d))}</option>`).join('')}</select>
-      <button type="button" onclick="${g.board ? `saveBoardAircraft('${esc(g.board)}','${id}')` : `saveManualAircraft(${r.log_id},${r.ac_id},'${id}')`}">Save</button>`;
-  };
   const recs = g => {
     const r = g.recs[0];
     const more = g.recs.slice(1).map(x => x.log_name).join(', ');
     return `${g.recs.length} · <a href="/logs#log${r.log_id}">${esc(r.log_name.replace(/\.data$/, ''))}</a>${more ? ` <span class="mute" title="${esc(more)}">+${g.recs.length - 1}</span>` : ''}${!g.board && r.ac_id != null ? ` <span class="mute">(autopilot ${esc(r.ac_id)})</span>` : ''}`;
   };
-  return `<details>
-    <summary>${esc(item.name)} — ambiguous (${item.recordings.length} recording${item.recordings.length === 1 ? '' : 's'}${boards ? ` on ${boards} board${boards === 1 ? '' : 's'}` : ''})</summary>
-    <button type="button" data-name="${esc(item.name)}" onclick="clearAmbiguous(this.dataset.name)">Remove ambiguous status</button>
-    <div class="scroll"><table><thead><tr><th>Board</th><th>Recordings</th><th>Aircraft now</th><th>Link to</th></tr></thead><tbody>
-    ${groups.map((g, j) => `<tr><td>${g.board ? `<span class="mono" title="${esc(g.board)}">${esc(g.board.slice(0, 8))}…</span>` : '<span class="mute">No board ID</span>'}</td>
-      <td>${recs(g)}</td><td>${now(g)}</td><td>${choice(g, j)}</td></tr>`).join('')}
-    </tbody></table></div>${boards ? '<p class="mute">Saving a board links every recording on it, now and in later uploads. Recordings without a board ID are linked one by one.</p>' : ''}</details>`;
+  const linkable = g => g.board || g.recs[0].ac_id != null;
+  return `<details class="shared-name">
+    <summary>${esc(item.name)} — ambiguous (${item.recordings.length} recording${item.recordings.length === 1 ? '' : 's'}${boards ? ` on ${boards} board${boards === 1 ? '' : 's'}` : ''})
+      <button type="button" class="sec" data-name="${esc(item.name)}" onclick="event.preventDefault(); clearAmbiguous(this.dataset.name)">Remove ambiguous status…</button></summary>
+    <div class="scroll"><table><thead><tr><th class="chk"></th><th>Board</th><th>Recordings</th><th>Aircraft now</th></tr></thead><tbody>
+    ${groups.map(g => `<tr>${linkable(g) ? tickBox('shared', groupKey(g), g.board || g.recs[0].log_name) : '<td class="chk"></td>'}
+      <td>${g.board ? `<span class="mono" title="${esc(g.board)}">${esc(g.board.slice(0, 8))}…</span>` : '<span class="mute">No board ID</span>'}</td>
+      <td>${recs(g)}</td><td>${linkable(g) ? now(g) : '<span class="mute">No board or autopilot ID; cannot be assigned</span>'}</td></tr>`).join('')}
+    </tbody></table></div></details>`;
 }
-function saveBoardAircraft(board, selectId) {
-  const value = $(selectId).value;
-  if (!value) { $('err').textContent = 'Pick an aircraft for this board.'; return; }
-  send('PUT', '/api/admin/drone-boards', {mcu_uid: board, drone_id: +value});
-}
-async function linkUnlinked(i) {
-  const sel = $('sel' + i);
-  if (!sel || !sel.dataset.value) { $('err').textContent = data.drones.length ? 'Pick an aircraft to link.' : 'Add an aircraft first.'; return; }
-  const e = data.unlinked[i];
-  const names = (e.names && e.names.length) ? e.names : [e.name];
-  for (const alias of names) {
-    const r = await fetch('/api/admin/drone-aliases', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({drone_id: +sel.dataset.value, alias}),
-    });
-    $('err').textContent = r.ok ? '' : (((await r.json().catch(() => ({}))).error) || 'failed');
-    if (!r.ok) return;
+// Link to aircraft…: the ticked unlinked names (aliases + their boards) or shared-name boards/recordings.
+function openLink(kind) {
+  const keys = [...ticks[kind]];
+  if (!keys.length) return;
+  let preferred = '';
+  if (kind === 'unlinked') {
+    const cands = keys.map(k => (data.unlinked[+k].candidates || []).map(c => c.id).join(','));
+    if (cands.every(c => c && c === cands[0] && !c.includes(','))) preferred = +cands[0];
   }
-  // The board IDs too, so the link holds even if a name is later marked ambiguous.
-  for (const board of e.board_ids || []) {
-    const r = await fetch('/api/admin/drone-boards', {
-      method: 'PUT', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({mcu_uid: board, drone_id: +sel.dataset.value}),
-    });
-    if (!r.ok) { $('err').textContent = ((await r.json().catch(() => ({}))).error) || 'failed'; return; }
-  }
-  load();
+  const boardsOnly = kind === 'shared' && keys.every(k => k.startsWith('b:'));
+  const options = (kind === 'shared' && !boardsOnly ? '<option value="">Automatic / unresolved (recordings without a board)</option>' : '<option value="">Choose aircraft</option>')
+    + [...data.drones].sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true})).map(d =>
+      `<option value="${d.id}"${d.id === preferred ? ' selected' : ''}>${esc(droneLabel(d))}${d.status === 'Discard' ? ' · Discard' : ''}</option>`).join('');
+  actDialog('Link to aircraft', `<p style="margin:0">${keys.length} ticked ${kind === 'unlinked' ? (keys.length === 1 ? 'name' : 'names') : (keys.length === 1 ? 'row' : 'rows')}.
+    ${kind === 'unlinked' ? 'The names become aliases; their board IDs link to the aircraft too.' : 'A board links every recording on it, now and in later uploads.'}</p>
+    <label class="field">Aircraft<select name="drone">${options}</select></label>`, 'Link', async out => {
+    const value = $('actBody').querySelector('[name=drone]').value;
+    if (!value && (kind === 'unlinked' || keys.some(k => k.startsWith('b:')))) { out.textContent = 'Choose an aircraft.'; return false; }
+    for (const key of keys) {
+      if (kind === 'unlinked') {
+        const e = data.unlinked[+key];
+        for (const alias of (e.names && e.names.length) ? e.names : [e.name])
+          if (!await send('POST', '/api/admin/drone-aliases', {drone_id: +value, alias}, out, false)) return finish(false);
+        for (const board of e.board_ids || [])  // so the link holds even if a name is later marked ambiguous
+          if (!await send('PUT', '/api/admin/drone-boards', {mcu_uid: board, drone_id: +value}, out, false)) return finish(false);
+      } else if (key.startsWith('b:')) {
+        if (!await send('PUT', '/api/admin/drone-boards', {mcu_uid: key.slice(2), drone_id: +value}, out, false)) return finish(false);
+      } else {
+        const [, logId, acId] = key.split(':');
+        if (!await send('PUT', `/api/admin/logs/${logId}/aircraft/${acId}`, {drone_id: value ? +value : null}, out, false)) return finish(false);
+      }
+    }
+    ticks[kind].clear();
+    return finish(true);
+  });
+  async function finish(ok) { await load(); return ok; }
 }
-function addAlias(id) {
-  const v = $('new' + id).value.trim();
-  if (v) send('POST', '/api/admin/drone-aliases', {drone_id: id, alias: v});
-}
-// Stop matching logs by an autopilot board ID (e.g. a board moved to another airframe or a shared test board),
-// or let it be learned again.
-async function boardMatching(button, method) {
-  if (method === 'DELETE' && !confirm(`Stop linking logs by board ${button.dataset.board}? Logs linked only by this board become unlinked.`)) return;
-  button.disabled = true;
-  const r = await fetch(method === 'DELETE' ? '/api/admin/drone-boards' : '/api/admin/drone-boards/allow', {
-    method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mcu_uid: button.dataset.board})});
-  $('err').textContent = r.ok ? '' : ((await r.json().catch(() => ({}))).error || 'Could not change the board.');
-  await load();
-}
-async function removeAlias(button) {
-  if (button.disabled) return;
-  button.disabled = true;
-  button.textContent = 'Removing...';
-  $('err').textContent = '';
-  try {
-    const r = await fetch('/api/admin/drone-aliases', {
-      method: 'DELETE', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({alias: button.dataset.alias}),
-    });
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not remove alias.');
-    button.closest('.chip').remove();
-    await load();
-  } catch (error) {
-    $('err').textContent = error.message || 'Could not remove alias.';
-  } finally {
-    button.disabled = false;
-    button.textContent = '×';
-  }
-}
-function markAmbiguous(name) {
-  name = name.trim();
-  if (name && confirm(`Mark "${name}" as shared/ambiguous? Its global alias and automatic aircraft links will be removed. Explicit per-log assignments stay.`))
-    send('POST', '/api/admin/ambiguous-drone-names', {name});
+function openMarkShared() {
+  actDialog('Mark a name as shared', `<label class="field">Generic logged name<input name="name" required maxlength="80" autocomplete="off"></label>
+    <p class="mute" style="margin:0">A shared name does not identify one aircraft: its alias and automatic aircraft links are removed. Explicit per-log assignments stay.</p>`,
+    'Mark as shared', out => send('POST', '/api/admin/ambiguous-drone-names', {name: $('actBody').querySelector('[name=name]').value.trim()}, out));
 }
 function clearAmbiguous(name) {
-  if (confirm(`Remove ambiguous status from "${name}"? Normal name/folder matching will resume, but no deleted global alias will be restored.`))
-    send('DELETE', '/api/admin/ambiguous-drone-names', {name});
+  actDialog('Remove ambiguous status', `<p style="margin:0">Remove the ambiguous status of <b>${esc(name)}</b>? Normal name and folder matching resumes; a deleted alias is not restored.</p>`,
+    'Remove status', out => send('DELETE', '/api/admin/ambiguous-drone-names', {name}, out));
 }
-function saveManualAircraft(logId, acId, selectId) {
-  const value = $(selectId).value;
-  send('PUT', `/api/admin/logs/${logId}/aircraft/${acId}`, {drone_id: value ? +value : null});
-}
-function removeDrone(id) {
-  const d = data.drones.find(x => x.id === id);
-  if (confirm('Remove ' + (d ? d.name : 'this aircraft') + '? The logs stay. They will no longer be linked to this aircraft.'))
-    send('DELETE', '/api/admin/drones/' + id);
-}
+function allowBoard(board) { send('POST', '/api/admin/drone-boards/allow', {mcu_uid: board}); }
+
 $('q').oninput = () => { page = 0; window.viewState.save(); render(); };
 $('unlinkedQ').oninput = () => { window.viewState.save(); render(); };
 $('statusFilter').onchange = $('mineOnly').onchange = $('showDiscarded').onchange = $('showWithoutLogs').onchange = () => { page = 0; window.viewState.save(true); render(); };
 $('size').onchange = () => { pageSize = +$('size').value; page = 0; window.viewState.save(true); render(); };
-// Search, filters and sort live in the URL, so Back returns to the same view.
+// Search, filters, sort, page tab and the open aircraft (with its tab) live in the URL, so Back returns to the same view.
 window.viewState.setup(p => {
   $('q').value = p.get('q') || '';
   $('statusFilter').value = p.get('status') || '';
@@ -871,6 +961,8 @@ window.viewState.setup(p => {
   $('unlinkedQ').value = p.get('uq') || '';
   const size = [...$('size').options].some(o => o.value === p.get('size')) ? p.get('size') : '50';
   $('size').value = size; pageSize = +size;
+  selectedAircraft = window.viewState.integer(p.get('open'), null);
+  selectedAircraftTab = ['projects', 'aliases'].includes(p.get('atab')) ? p.get('atab') : 'details';
 }, p => {
   const set = window.viewState.set;
   set(p, 'q', $('q').value); set(p, 'status', $('statusFilter').value);
@@ -879,16 +971,14 @@ window.viewState.setup(p => {
   set(p, 'sort', `${sortKey}-${sortDesc ? 'desc' : 'asc'}`, 'serial-desc');
   set(p, 'page', page + 1, 1); set(p, 'size', pageSize, 50);
   set(p, 'tab', pageTab, 'fleet'); set(p, 'uq', $('unlinkedQ').value);
+  set(p, 'open', selectedAircraft || ''); set(p, 'atab', selectedAircraft ? selectedAircraftTab : 'details', 'details');
 }, () => render());
-window.addEventListener('editchange', toggleEdit);
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   $('fleetHint').textContent = d.user.is_admin
-    ? 'Each aircraft has a unique serial (TUDxxxxx) that stays with it if you rename it. Import the organisation CSV to add the fleet; the Project column becomes the current period on that aircraft (from Date Bought, no end date). Add more periods only for airframes that moved project. Names in the logs that differ from the nice name are aliases. Removing an aircraft keeps the logs.'
-    : 'Aircraft on a project you belong to, and the ones you are the responsible person of (My aircraft). Each aircraft has a unique serial (TUDxxxxx). Names in the logs that differ from the nice name are aliases.';
-  $('add').hidden = !editOn();
-  $('importRow').hidden = !editOn();
+    ? 'Each aircraft has a unique serial (TUDxxxxx) that stays with it if you rename it. Click a row to open the aircraft beside the list; Edit aircraft changes its details, aliases and project history, ⋯ has the rare actions. Manage ▾ → Import CSV adds the fleet from the organisation CSV; the Project column becomes the current period on that aircraft (from Date Bought, no end date). Add more periods only for airframes that moved project. Removing an aircraft keeps the logs.'
+    : 'Aircraft on a project you belong to, and the ones you are the responsible person of (My aircraft). Click a row to open the aircraft beside the list. Each aircraft has a unique serial (TUDxxxxx). Names in the logs that differ from the nice name are aliases.';
   loadPeople();
   load();
 });

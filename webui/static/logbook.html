@@ -69,13 +69,6 @@
   .detail-info { min-width:0; }
   .detail-info h4 { margin-top:0; }
   @media (max-width:760px) { .flight-detail { grid-template-columns:minmax(0,1fr); } }
-  /* the selection bar: what can be done with the ticked entries, at the bottom of the screen while any are ticked */
-  .sel-bar { position:sticky; bottom:8px; z-index:20; display:flex; flex-wrap:wrap; align-items:center; gap:8px;
-    margin:10px 0 0; padding:8px 12px; border-radius:8px; background:#1b2733; color:#e7eef6; box-shadow:0 4px 14px #0004; }
-  .sel-bar[hidden] { display:none; }
-  .sel-bar button, .sel-bar .btn { background:#2d3f55; color:#e7eef6; padding:4px 10px; }
-  .sel-bar .mute { color:#9fb0c3; }
-  .sel-bar .x { margin-left:auto; }
   td.chk, th.chk { width:28px; padding-right:0; }
   .lb-menu .ext-item[aria-checked="true"] { font-weight:600; }
   .lb-menu .ext-item[aria-checked="true"]::before { content:"✓ "; }

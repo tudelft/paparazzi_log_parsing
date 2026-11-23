@@ -313,6 +313,21 @@ main .help-text { margin:8px 0 12px; }
 dialog.entry-dialog { width:min(540px,calc(100% - 32px)); max-height:85vh; padding:20px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--txt); overflow:auto; }
 dialog.entry-dialog::backdrop { background:rgba(0,0,0,.45); }
 dialog.entry-dialog button.primary { background:var(--btn); color:#fff; border-color:var(--btn); }
+/* the selection bar (UI rule): what can be done with the ticked rows, at the bottom of the screen while any are ticked */
+.sel-bar { position:sticky; bottom:8px; z-index:20; display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+  margin:10px 0 0; padding:8px 12px; border-radius:8px; background:#1b2733; color:#e7eef6; box-shadow:0 4px 14px #0004; }
+.sel-bar[hidden] { display:none; }
+.sel-bar button, .sel-bar .btn { background:#2d3f55; color:#e7eef6; border:0; border-radius:6px; padding:4px 10px; }
+.sel-bar button:disabled { opacity:.5; cursor:default; }
+.sel-bar .mute { color:#9fb0c3; }
+.sel-bar .x { margin-left:auto; }
+/* Manage ▾ and ⋯ menus (UI rule) */
+.menu-wrap { position:relative; display:inline-flex; }
+.menu-pop { position:absolute; z-index:1000; top:calc(100% + 6px); right:0; min-width:200px; padding:6px; background:var(--card);
+  border:1px solid var(--line); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.2); }
+.menu-pop[hidden] { display:none; }
+.menu-pop .ext-item { color:var(--txt); background:none; text-decoration:none; }
+.menu-pop .ext-item.danger-item { color:var(--err); }
 dialog.entry-dialog h2 { font-size:18px; margin:0; }
 .dialog-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
 .dialog-header button { background:var(--sec); color:var(--txt); }

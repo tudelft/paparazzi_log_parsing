@@ -338,8 +338,8 @@ linked to a fleet aircraft by a clear name or by hand, an unknown board ID is re
 (`drone_boards`); a recording whose name is ambiguous or unknown is then linked by its board, and earlier
 unplaced recordings of that board follow. A clear name or a hand assignment always wins over the board; a
 board that also appears under another aircraft is marked on the Aircraft page (Aliases tab). Admins can stop
-matching by a board (a board moved to another airframe, a shared test board) and allow it again in Edit mode
-under shared names. Simulated recordings never match by board (their ID is the PC's machine ID). The
+matching by a board (a board moved to another airframe, a shared test board: ⋯ → *Stop matching a board…* of the
+open aircraft) and allow it again under **Shared names**. Simulated recordings never match by board (their ID is the PC's machine ID). The
 migration fills board IDs of logs already parsed with parser 1.9.0.
 Admins can also link a board directly (`PUT /api/admin/drone-boards` with `mcu_uid` and `drone_id`, stored as
 `manual`): every recording on that board follows it and hand assignments of single recordings on the board are
@@ -798,7 +798,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `COOKIE_SECURE` | `0` | `1` when served over https |
 | `PROXIES` | `0` | `1` behind nginx/Caddy (trust its `X-Forwarded-*` headers) |
 | `BIND` | `127.0.0.1:8000` | Address gunicorn listens on |
-| `HIDE_UNLINKED_AIRCRAFT` | `0` | `1` excludes unlinked telemetry flights from Logbook, Statistics, person details and Locations, and hides the Aircraft notice outside Edit mode |
+| `HIDE_UNLINKED_AIRCRAFT` | `0` | `1` excludes unlinked telemetry flights from Logbook, Statistics, person details and Locations; admins still link the names under **Unlinked names** on Aircraft |
 | `TRAINING` | `0` | `1` shows Training: in-app questionnaires that can grant a qualification on a pass |
 | `BOOKINGS` | `0` | `1` shows the [Agenda](#booking-agenda) of bookable items |
 | `DOCUMENTS` | `0` | `1` shows [Documents](#documents): shared documents and each person's own qualifications |
@@ -842,8 +842,8 @@ Set `LOGDB_HIDE_UNLINKED_AIRCRAFT=1` and restart the server to hide telemetry fl
 merged aircraft identity has no fleet link. Lists, counts, flight time, charts and location
 map hints use only the remaining flights, for all users including admins. A merged SD/GCS flight
 stays visible if either source is linked. Paper records are unchanged (they already require a
-fleet aircraft). The Aircraft page keeps unlinked names available to admins in Edit mode for
-linking, but hides its read-only unlinked-name notice. Direct flight/upload details remain
+fleet aircraft). The Aircraft page keeps unlinked names available to admins (Unlinked names tab) for
+linking. Direct flight/upload details remain
 accessible under the existing permissions; this is a display setting, not an access restriction.
 Person detail flight lists, charts and role totals use the same filter as Statistics, so PIC/PAC
 totals agree when the indoor/non-flight filters match. Person headline flight time includes
@@ -925,8 +925,7 @@ Managers of a project the aircraft is in today (a timeline period covering today
 manager may change only status, current user, comments and manager (`PUT /api/drones/<id>`; other fields 403).
 Name, serial, project history, aliases, import and delete stay admin-only.
 
-**Aircraft requests.** A non-admin with `add`, `edit`, `full` or `manager` on a project sees **Request aircraft** (also
-outside Edit mode): project, name and optional details, no serial (`POST /api/drone-requests`, browser session only).
+**Aircraft requests.** A non-admin with `add`, `edit`, `full` or `manager` on a project sees **Request aircraft**: project, name and optional details, no serial (`POST /api/drone-requests`, browser session only).
 Requests are stored in `drone_requests`, not in `drones`, so a pending request reserves no name and is never used
 for log matching (`drone_name_map`, folder matching, relinking). The Aircraft page lists pending requests, greyed with
 **Pending**, to the requester, the project's managers and admins (`requests` in `GET /api/drones`). Admins and the
@@ -1045,18 +1044,26 @@ Pages use a compact heading hierarchy with regular-weight supporting text. Longe
 available through expandable **Help** disclosures; field requirements, errors and sharing warnings
 remain visible alongside the relevant controls.
 
-Aircraft keeps its overview table with Edit off. In Edit mode, use the filtered aircraft list and
-the selected aircraft's **Details**, **Project history** and **Aliases** tabs. Add aircraft and CSV import
-open compact dialogs; unlinked aircraft names remain collapsible. Their link menu always lists every
-aircraft, including Discard (Show discarded only filters the list); its search box at the top of the
-menu filters the list below, names starting with the typed text first (Enter picks the first match). Add user also opens a dialog.
-Dialogs can be closed with Close or Escape. Details are saved together; project
-periods keep their separate Save timeline action.
-Outside Edit mode the Aircraft overview has one line per aircraft: a Serial column first, the current project
+<a id="aircraft-page"></a>**Aircraft page** ([UI rule](#ui-rule), `<body data-edit="none">`). The overview table is
+the same for everyone; clicking a row (not the name, which links to the aircraft's overview page) opens the
+aircraft beside the table (`open=<id>` and its tab `atab` in the URL; ✕ or the row again closes it), with
+**Details**, **Project history** and **Aliases** (autopilot boards for admins). **Edit aircraft** is shown to admins
+and to whom `can_edit` allows the details (project managers of its current project and its manager): one dialog
+with name and serial (admins), status, manager, current user and comments, and for admins its aliases (one per line;
+removed and added ones go through `DELETE`/`POST /api/admin/drone-aliases`) and project periods
+(`PUT /api/admin/drones/<id>/projects`); the details are one `PUT /api/drones/<id>` with only the changed fields.
+A failed part shows its error at the field and the dialog stays open. Clicking an editable value or its label opens
+the dialog at that field. ⋯ (admins): *Mark an alias as shared…*, *Stop matching a board…*, *Remove aircraft…*.
+Admins have **Add aircraft** and **Manage ▾** (Import CSV…, Download CSV template, Mark a name as shared…), and the
+tabs **Unlinked names** (when there are any, also with `HIDE_UNLINKED_AIRCRAFT`) and **Shared names**: tick names,
+boards or recordings and use **Link to aircraft…** in the selection bar (the dialog lists every aircraft, including
+Discard; a single folder candidate is preselected). Pending requests show **Approve**/**Reject…** to who may decide
+and **Withdraw** to the requester. Dialogs close with Cancel, Close or Escape.
+The Aircraft overview has one line per aircraft: a Serial column first, the current project
 (full history and "+N" earlier periods on hover), total flights (uploaded logs and paper records on hover), the first
 alias with "+N", and long text cut off with the full value on hover. It is sorted by serial, newest TUD number first
 and other serials after by name; the headers sort too. Search, status, filters and sort are kept in the URL; hidden
-columns (Columns menu) are a per-browser preference. Unlinked log names show as a badge in the toolbar. It is
+columns (Columns menu) are a per-browser preference. It is
 paginated at the bottom like the logbook (50 rows by default; page and rows per page in the URL).
 Aircraft without uploaded logs or paper records, and people without any log, paper record or approved
 qualification, stay hidden until **Show aircraft without logs** / **Show people without logs or licences**
@@ -2211,8 +2218,9 @@ An entire source log counts when any of its flights qualifies; this is not a byt
 just that flight interval. Unknown sizes are explicitly reported, and paper records contribute
 no log bytes. Period/filter changes require no file reads or additional Statistics API requests.
 
-**Shared aircraft names.** In Aircraft Edit mode, mark a generic log name as ambiguous using
-the Aliases tab or **Ambiguous / shared aircraft names**. For example, an SD airframe name
+**Shared aircraft names.** On the Aircraft page, admins mark a generic log name as ambiguous with ⋯ →
+*Mark an alias as shared…* of an aircraft or **Manage ▾ → Mark a name as shared…**, and link its boards and
+recordings under **Shared names**. For example, an SD airframe name
 such as `RotatingWing25Kg` can be shared by several physical aircraft even though GCS
 configuration names are specific. Ambiguity is explicit, case-insensitive and applies to that
 exact trimmed logged name; it is not guessed from spelling or automatically enabled for
@@ -2511,9 +2519,9 @@ Permissions and APIs stay as they are; the server checks every change. A page th
 `<body data-edit="none">` and `theme.js` shows no Edit button there.
 
 **Edit mode (being replaced).** The Edit button in the menu bar shows the forms and menus to change things on the pages
-that still have them (Logs, People, Projects, Aircraft, Locations, Agenda, Training, Documents, …); it is one setting
-for all pages, and it stays on until you turn it off. The [Logbook](#logbook-changes) and the
-[flight page](#flight-page-changes) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
+that still have them (Logs, People, Projects, Locations, Agenda, Training, Documents, …); it is one setting
+for all pages, and it stays on until you turn it off. The [Logbook](#logbook-changes), the
+[flight page](#flight-page-changes) and the [Aircraft page](#aircraft-page) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
 are left.
 
@@ -2604,7 +2612,7 @@ is hidden when neither applies. The server checks every change as before.
   flight): stored in `flights.goal_override`, kept across a re-parse; empty returns to the logged goal
   (`aircraft.goal`, given as `goal_logged`, while `goal` in the logbook rows is the override or else the logged one);
 - link the opened recording to a **fleet aircraft** (`PUT /api/flights/<id>/aircraft` with `drone_id`, or `null` for
-  automatic by name): the same per-log assignment as Aircraft Edit mode (`log_aircraft_links`), for every flight of
+  automatic by name): the same per-log assignment as **Shared names** on the Aircraft page (`log_aircraft_links`), for every flight of
   that recording and kept across a re-parse. Non-admins choose from the aircraft whose timeline or default project
   is one they may upload to (`GET /api/flights/<id>/aircraft-choices`, `drone_choices`), so a recording cannot be
   moved into someone else's project; admins choose from all.

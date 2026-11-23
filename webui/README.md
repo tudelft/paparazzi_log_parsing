@@ -215,17 +215,18 @@ and inspect, narrow or revoke their API keys (not retrieve secret values). You c
   people without an account). **Manager** is always a registered person and is required for a new aircraft; it
   starts as you.
 - Project members who may add logs can **Request aircraft** for their project (Aircraft). A project manager or an
-  admin approves or rejects it in Edit mode; the serial is assigned on approval and the requester becomes its manager.
+  admin approves or rejects it in the list of requested aircraft; the serial is assigned on approval and the requester becomes its manager.
   Until then it is listed as **Pending** and reserves nothing.
   Project managers also edit the status, current user, comments and manager of their project's aircraft, and the
   linked manager of an aircraft can do the same.
-  Link unrecognised log names to an existing aircraft/person in Edit mode. There, Aircraft shows tabs
-  (Aircraft · Unlinked names · Shared names) and People shows tabs (People · Unlinked crew names · Approval queue ·
-  Qualification types), so one list is on screen at a time; the tab is kept in the URL.
+  On Aircraft, click a row to open the aircraft beside the list; **Edit aircraft** changes what you may change, ⋯ has
+  the rare actions. Admins link unrecognised log names under the **Unlinked names** tab (tick names, then **Link to
+  aircraft…**) and shared names under **Shared names**. Link unrecognised crew names in Edit mode: People shows
+  tabs (People · Unlinked crew names · Approval queue · Qualification types), so one list is on screen at a time; the tab is kept in the URL.
   Logs with an autopilot board ID (newer firmware) also match the aircraft that board was seen on.
   Servers can hide unlinked aircraft flights from Logbook, Statistics, person details and Locations until linked;
-  admins can still find the names in Aircraft Edit mode (see the [settings](TECHNICAL.md#settings)).
-  Mark generic airframe names as **ambiguous** in Edit mode instead of linking every recording
+  admins can still find the names under Unlinked names on Aircraft (see the [settings](TECHNICAL.md#settings)).
+  Mark generic airframe names as **ambiguous** (Aircraft, **Manage ▾**) instead of linking every recording
   to one aircraft. A uniquely matching GCS recording can identify its SD source; use the
   shared-name panel for explicit per-log assignments when needed.
 - Crew names in logs do not create user profiles. Admins can link multiple names to one person using
