@@ -19,6 +19,11 @@
   .toolbar h2 { margin:0; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #search { flex:0 1 280px; min-width:0; }
   .toolbar details { margin-left:auto; }
+  .toolbar-end { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .toolbar-end details { margin-left:0; }
+  #detailsDialog { width:min(960px, calc(100% - 32px)); }
+  #confirmDialog { width:min(440px, calc(100% - 32px)); }
+  .dialog-row { display:flex; gap:8px; margin-top:14px; }
   #err { color:var(--err); margin-bottom:8px; }
   #err:empty { display:none; }
   .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr)); gap:10px; }
@@ -34,13 +39,14 @@
   a.item h3 { margin:0; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   a.item p { margin:6px 0 0; font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ok { color:var(--ok); }
-  /* Training header (not editing): a status chip on the title row; details in its tooltip */
-  .t-badge { display:inline-flex; align-items:center; gap:5px; padding:2px 10px 2px 7px; border-radius:999px; font-size:13px; font-weight:600;
-    white-space:nowrap; background:var(--sec); color:var(--mute); cursor:default; }
-  .t-badge svg { width:14px; height:14px; }
-  .t-badge.passed { background:var(--okbg); color:var(--ok); }
-  .t-badge.waiting { background:var(--warnbg); color:var(--warn); }
-  .t-desc { margin:0 0 6px; overflow-wrap:anywhere; }
+  .t-desc { margin:6px 0 14px; overflow-wrap:anywhere; color:var(--mute); }
+  .t-result { display:flex; gap:12px; align-items:center; padding:12px 14px; border-radius:8px; background:var(--sec); color:var(--mute); }
+  .t-result svg { width:22px; height:22px; flex-shrink:0; }
+  .t-result.passed { background:var(--okbg); color:var(--ok); }
+  .t-result.waiting { background:var(--warnbg); color:var(--warn); }
+  .t-result .t-sub { font-size:13px; }
+  .t-kv { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 14px; margin:14px 0 0; }
+  .t-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
   /* Editor (Edit mode): Details form, Questions list + editor, Passes */
   label.field input, label.field select, label.field textarea { font-size:14px; color:var(--txt); }
   .form-cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr)); gap:12px 28px; align-items:start; }
@@ -139,7 +145,7 @@
   [hidden] { display:none !important; }
 </style>
 </head>
-<body data-edit="admin">
+<body>
 <header>
   <h1>Training</h1>
   <span class="meta" id="nav"></span>
@@ -153,9 +159,13 @@
       <span class="mute" id="count" role="status"></span>
       <input type="search" id="search" aria-label="Search trainings" placeholder="Search" oninput="onSearch()">
       <a id="approvalsLink" href="/people?tab=approvals&amp;kind=training" hidden title="Training passes that need an administrator's approval: open the approval queue"></a>
+      <span class="toolbar-end">
       <button type="button" id="addBtn" hidden onclick="openNewTraining()">Add training</button>
-      <button type="button" id="importBtn" class="sec" hidden onclick="openImport()">Import</button>
-      <details><summary>Help</summary><p>Complete a questionnaire until you pass. Only the passing answers and the number of attempts are kept. Each submission shows your score and you may retry without limit, so answers can be found by trial and error. A pass writes the linked qualification immediately; administrators do not review it. After a pass expires (or an administrator resets it), you can take the questionnaire again.</p></details>
+      <span class="menu-wrap" id="manageWrap" hidden><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
+        <div class="menu-pop" id="manageMenu" role="menu" hidden>
+          <button type="button" class="ext-item" role="menuitem" onclick="openImport()">Import training (JSON or ZIP)…</button>
+        </div></span>
+      <details><summary>Help</summary><p><span id="adminListHelp" hidden>Administrators drag a card by its handle ⋮⋮ (or focus the handle and use the arrow keys) to set the order everyone sees; this works while the search is empty. </span>Complete a questionnaire until you pass. Only the passing answers and the number of attempts are kept. Each submission shows your score and you may retry without limit, so answers can be found by trial and error. A pass writes the linked qualification immediately; administrators do not review it. After a pass expires (or an administrator resets it), you can take the questionnaire again.</p></details></span>
     </div>
     <div class="grid" id="grid"></div>
   </section>
@@ -209,6 +219,16 @@
     <div class="row"><button type="submit">Create</button> <button type="button" class="sec" onclick="$('trainingDialog').close()">Cancel</button></div>
   </form>
 </dialog>
+<dialog class="entry-dialog" id="detailsDialog" aria-labelledby="detailsTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="detailsTitle">Edit training</h2><button type="button" onclick="$('detailsDialog').close()">Close</button></div>
+  <div id="detailsHost"></div>
+</dialog>
+<dialog class="entry-dialog" id="confirmDialog" aria-labelledby="confirmTitle">
+  <div class="dialog-header"><h2 id="confirmTitle"></h2><button type="button" onclick="$('confirmDialog').close('no')">Close</button></div>
+  <p id="confirmText" style="margin:0"></p>
+  <div class="dialog-row"><button type="button" id="confirmOk" onclick="$('confirmDialog').close('yes')"></button>
+    <button type="button" class="sec" onclick="$('confirmDialog').close('no')">Cancel</button></div>
+</dialog>
 <div id="park" hidden>
   <form id="detailsForm">
     <div class="form-cols">
@@ -257,8 +277,8 @@
       </div>
     </div>
     <p class="dialog-error" id="trainingError" role="alert"></p>
-    <div class="form-foot"><button type="submit">Save</button>
-      <button type="button" class="sec" onclick="fillDetails(detail)">Discard changes</button>
+    <div class="form-foot"><button type="submit" class="primary">Save</button>
+      <button type="button" class="sec" onclick="$('detailsDialog').close()">Cancel</button>
       <span class="dirty" id="detailsDirty" hidden>Unsaved changes</span><span class="mute" id="detailsMsg" role="status"></span></div>
   </form>
   <form id="questionForm">
@@ -275,16 +295,27 @@
     <div class="form-foot"><button type="submit" id="questionSave">Save question</button>
       <button type="button" class="sec" id="questionReset" onclick="resetQuestion()">Discard changes</button>
       <span class="dirty" id="questionDirty" hidden>Unsaved changes</span><span class="mute" id="questionMsg" role="status"></span>
-      <span class="spacer"></span><button type="button" class="danger" id="questionDelete" onclick="removeQuestion(editQ)">Delete question</button></div>
+      <span class="spacer"></span><button type="button" class="danger" id="questionDelete" onclick="removeQuestion(editQ)">Delete question…</button></div>
   </form>
 </div>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => t ? t.replace('T', ' ').replace('Z', ' UTC') : '';
-let me, trainings = [], types = [], people = [], brieferIds = [], query = '', selected = 0, detail, editingId = null, lastResult = null, quizStep = 0, passUser = 0, editTab = 'questions', passCount = null, passCountFor = 0, practice = false;
+let me, trainings = [], types = [], people = [], brieferIds = [], query = '', selected = 0, detail, editingId = null, lastResult = null, quizStep = 0, passUser = 0, editTab = 'training', passCount = null, passCountFor = 0, practice = false;
 // Editor state: the selected question (-1: a new one), the question filter, and which training/question the forms hold.
 let editQ = 0, qFilter = '', detailsFor = 0, questionFor = null, detailsDirty = false, questionDirty = false, imageStamp = Date.now();
+// A small confirmation dialog instead of the browser's confirm(): resolves true on OK.
+function askConfirm(title, text, okLabel, danger = true) {
+  $('confirmTitle').textContent = title;
+  $('confirmText').textContent = text;
+  $('confirmOk').textContent = okLabel;
+  $('confirmOk').className = danger ? 'danger' : 'primary';
+  $('confirmDialog').returnValue = '';
+  $('confirmDialog').showModal();
+  $('confirmOk').focus();
+  return new Promise(resolve => $('confirmDialog').addEventListener('close', () => resolve($('confirmDialog').returnValue === 'yes'), {once: true}));
+}
 async function api(url, opt) {
   const r = await fetch(url, opt);
   const d = await r.json().catch(() => ({}));
@@ -316,9 +347,9 @@ async function loadApprovals() {
 }
 function renderList() {
   const items = filtered();
-  // admins in Edit mode drag the cards (or use the arrow keys on a handle) to set the order everyone sees
-  const sortable = me && me.is_admin && window.editMode() && !query.trim() && items.length > 1;
-  $('count').textContent = items.length ? items.length + ' training' + (items.length === 1 ? '' : 's') : '';
+  // admins drag the cards (or use the arrow keys on a handle) to set the order everyone sees
+  const sortable = me && me.is_admin && !query.trim() && items.length > 1;
+  $('count').textContent = items.length === trainings.length ? String(items.length) : `${items.length} of ${trainings.length}`;
   $('grid').innerHTML = items.map(t =>
     `<a class="item${t.passed_at ? ' passed' : ''}${sortable ? ' sortable' : ''}" href="/training?id=${t.id}" data-id="${t.id}" title="${esc(t.name)}"><h3>${esc(t.name)}</h3>
      ${sortable ? '<button type="button" class="t-handle" aria-label="Drag to reorder, or use the arrow keys" title="Drag to reorder (or focus and use the arrow keys)">⋮⋮</button>' : ''}
@@ -423,52 +454,64 @@ function ago(t) {
   return Math.round(d / 365.25) + ' years ago';
 }
 function attemptsText(n) { return n === 1 ? 'first attempt' : n + ' attempts'; }
-// The training as a person sees it when not taking the test: a status chip on the title row (details in its tooltip),
-// actions at the right, then only the description and any result that needs reading.
-function headParts(t, questions) {
-  const tip = [];
-  if (t.type_name) tip.push('Grants ' + t.type_name + (t.valid_days ? ' for ' + t.valid_days + ' days' : ''));
-  let kind = '', icon = ICON.info, label, note = '';
+// The training as a person sees it when not taking the test: the same centred card as the test, with the result
+// (passed / waiting for approval / not passed) in a coloured block, what the pass grants, and the actions.
+function resultCard(t, questions) {
+  let kind = '', icon = ICON.info, label, sub = '', note = '';
+  const score = t.pass_score_text ? 'score ' + t.pass_score_text.replace('/', ' / ') : '';
   if (t.passed_at) {
-    kind = 'passed'; icon = ICON.check; label = 'Passed ' + day(t.passed_at);
-    tip.unshift(`Passed ${fmt(t.passed_at)} (${ago(t.passed_at)})`, attemptsText(t.attempts) + (t.briefed_by_name ? ' · briefed by ' + t.briefed_by_name : ''));
+    kind = 'passed'; icon = ICON.check; label = 'Passed on ' + day(t.passed_at);
+    sub = [attemptsText(t.attempts), score].filter(Boolean).join(' · ');
     if (lastResult && lastResult.practice) note = `Practice: ${lastResult.score} / ${lastResult.total}${lastResult.passed ? ' · enough to pass' : ` · ${lastResult.needed} needed to pass`}. Your pass is unchanged.`;
   } else if (t.awaiting_approval) {
     kind = 'waiting'; icon = ICON.clock; label = 'Waiting for approval';
-    const score = t.pass_score_text || (lastResult ? `${lastResult.score} / ${lastResult.needed}` : '');
     const sent = t.submitted_at || (lastResult && lastResult.passed_at) || '';
-    tip.unshift([sent ? 'Submitted ' + fmt(sent) : '', score ? 'score ' + score : '', t.briefed_by_name ? 'briefed by ' + t.briefed_by_name : ''].filter(Boolean).join(' · '));
-    note = `You passed. The qualification${t.type_name ? ' ' + esc(t.type_name) : ''} is added once an admin approves it.`;
+    sub = [sent ? 'submitted ' + day(sent) : '', score || (lastResult ? `score ${lastResult.score} / ${lastResult.needed}` : '')].filter(Boolean).join(' · ');
+    note = `You passed. ${t.type_name ? 'The qualification ' + esc(t.type_name) + ' is' : 'It is'} added once an administrator approves it.`;
   } else {
     label = t.expired_pass ? 'Pass expired' : 'Not passed yet';
-    if (t.attempts) tip.unshift(attemptsText(t.attempts) + ' so far');
+    sub = t.attempts ? attemptsText(t.attempts) + ' so far' : '';
     if (lastResult && !lastResult.passed) note = `Not passed (${lastResult.score} / ${lastResult.needed}). Try again.`;
     else if (!questions.length) note = 'No questions yet.';
   }
+  const rows = [];
+  if (t.type_name) rows.push(['Qualification', esc(t.type_name)]);
+  if (t.passed_at && t.type_name) rows.push(['Valid until', t.valid_until ? `${esc(day(t.valid_until))} <span class="mute">(the training opens again after that)</span>` : 'No end date']);
+  else if (t.type_name && t.valid_days) rows.push(['Valid for', `${t.valid_days} days after a pass`]);
+  if (t.briefed_by_name) rows.push(['Briefed by', esc(t.briefed_by_name)]);
   const actions = [hasReading(t) ? '<button type="button" class="sec" onclick="openReading(false)">Reading material</button>' : '',
     t.passed_at && (questions.length || t.total_points) ? '<button type="button" class="sec" onclick="startPractice()" title="Answer the questions again; the result changes nothing">Practice again</button>' : ''].join('');
-  return {
-    badge: `<span class="t-badge ${kind}" title="${esc(tip.filter(Boolean).join('\n'))}">${icon}${esc(label)}</span>`,
-    actions,
-    body: (t.description ? `<p class="t-desc">${esc(t.description)}</p>` : '') + (note ? `<p class="mute" role="status">${note}</p>` : ''),
-  };
+  return `<div class="quiz-shell"><div class="quiz-card">
+    <div class="quiz-head"><h2 title="${esc(t.name)}">${esc(t.name)}</h2></div>
+    ${t.description ? `<p class="t-desc">${esc(t.description)}</p>` : ''}
+    <div class="t-result ${kind}" title="${t.passed_at ? esc('Passed ' + fmt(t.passed_at) + ' (' + ago(t.passed_at) + ')') : ''}">${icon}<div><strong>${esc(label)}</strong>${sub ? `<div class="t-sub">${esc(sub)}</div>` : ''}</div></div>
+    ${note ? `<p class="mute" role="status" style="margin:10px 0 0">${note}</p>` : ''}
+    ${rows.length ? `<div class="t-kv">${rows.map(([k, v]) => `<span class="mute">${k}</span><span>${v}</span>`).join('')}</div>` : ''}
+    ${actions ? `<div class="t-actions">${actions}</div>` : ''}</div></div>`;
 }
+// A training: what the person sees (Training tab: reading, test, result); administrators also get the tabs Questions
+// and Passes, Edit training (the details in one dialog) and ⋯ (Export, Delete training…).
 function paintDetail() {
-  const t = detail;
-  const edit = me.is_admin && window.editMode();
+  const t = detail, admin = !!me.is_admin;
+  if (!admin) editTab = 'training';
+  const edit = admin && editTab !== 'training';
   const questions = t.questions || [];
   const taking = !edit && (t.practice || (!t.passed_at && !t.awaiting_approval)) && questions.length;
   parkForms();
-  const head = !taking && !edit ? headParts(t, questions) : null;
+  const result = !taking && !edit;
   let html = `<div class="toolbar">
     <button type="button" class="sec" onclick="goBack()">Back</button>
-    ${taking ? '' : `<h2 title="${esc(t.name)}">${esc(t.name)}</h2>`}${head ? head.badge + '<span style="flex:1"></span>' + head.actions : ''}
-    ${edit ? `<span style="flex:1"></span>
-      <a class="sec" href="/api/admin/trainings/${t.id}/export" style="display:inline-block;padding:4px 10px;border-radius:6px;background:var(--sec);color:var(--txt);text-decoration:none">Export</a>
-      <button type="button" class="danger" onclick="removeTraining(${t.id})">Delete</button>` : ''}
-    <details><summary>Help</summary>${edit
-      ? '<p><strong>Details</strong>: name, reading material and pass rules; Save applies them. <strong>Questions</strong>: pick a question on the left to edit it on the right, and save it there; drag a handle (or focus it and use the arrow keys) to reorder, which is saved at once. <strong>Passes</strong>: everyone who passed; Reset lets a person take it again. Your own pass is shown when Edit mode is off.</p>'
-      : '<p>If the training has reading material, read it and confirm that you have read and understood it; the test opens after that. Answer one question at a time, then submit. Retry until you pass; failed answers are not stored. A pass may grant the qualification immediately or wait for admin approval, depending on the training. Some trainings end with a question, for example whether you already have access to a room; answering No sends an access request on your behalf when the pass is granted. When that qualification expires, a queued pass is rejected, or an administrator resets your pass, you can take it again.</p>'}</details></div>`;
+    ${admin ? `<h2 title="${esc(t.name)}">${esc(t.name)}</h2>` : ''}<span style="flex:1"></span>
+    ${admin ? `<button type="button" class="sec" onclick="openDetails()">Edit training</button>
+      <span class="menu-wrap"><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
+        <div class="menu-pop" id="moreMenu" role="menu" hidden>
+          <a class="ext-item" role="menuitem" href="/api/admin/trainings/${t.id}/export">Export (JSON or ZIP)</a>
+          <button type="button" class="ext-item danger-item" role="menuitem" onclick="removeTraining(${t.id})">Delete training…</button>
+        </div></span>` : ''}
+    <details><summary>Help</summary>${admin
+      ? '<p><strong>Training</strong> is the training as you take it yourself. <strong>Edit training</strong> changes its name, reading material and pass rules (and the access mail) in one dialog. <strong>Questions</strong>: pick a question on the left to edit it on the right, and save it there; drag a handle (or focus it and use the arrow keys) to reorder, which is saved at once. <strong>Passes</strong>: everyone who passed; Reset lets a person take it again. ⋯ exports or deletes the training.</p>'
+      : '<p>If the training has reading material, read it and confirm that you have read and understood it; the test opens after that. Answer one question at a time, then submit. Retry until you pass; failed answers are not stored. A pass may grant the qualification immediately or wait for admin approval, depending on the training. Some trainings end with a question, for example whether you already have access to a room; answering No sends an access request on your behalf when the pass is granted. When that qualification expires, a queued pass is rejected, or an administrator resets your pass, you can take it again.</p>'}</details></div>
+    ${admin ? '<div class="page-tabs" id="editTabs" aria-label="Training sections"></div>' : ''}`;
   const gate = taking && !t.practice && t.must_read;
   if (gate) {
     html += `<div class="quiz-shell"><div class="quiz-card"><div class="quiz-head"><h2 title="${esc(t.name)}">${esc(t.name)}</h2></div>
@@ -478,20 +521,46 @@ function paintDetail() {
     html += quizHTML(questions);
   } else if (edit) {
     html += editorHTML();
-  } else {
-    html += head.body;
+  } else if (result) {
+    html += resultCard(t, questions);
   }
   $('detailCard').innerHTML = html;
   if (gate) { if (readingShownFor !== t.id) { readingShownFor = t.id; openReading(true); } }
   else if (taking) bindQuiz();
-  if (edit) { paintEditTabs(); mountEditor(); loadResults(); }
+  if (admin) { paintEditTabs(); bindMore(); }
+  if (edit) { mountEditor(); loadResults(); }
+  else if (admin && passCount === null) loadResults();
 }
-function goBack() {
+// ⋯ of the training: closes on a click elsewhere or Escape.
+function bindMore() {
+  const b = $('moreBtn'), pop = $('moreMenu');
+  if (!b) return;
+  b.onclick = e => { e.stopPropagation(); const open = pop.hidden; closeMenus(); pop.hidden = !open; b.setAttribute('aria-expanded', String(open)); if (open) pop.querySelector('a, button')?.focus(); };
+  pop.onclick = e => { if (e.target.closest('.ext-item')) closeMenus(); };
+}
+function closeMenus() {
+  for (const [b, p] of [['manageBtn', 'manageMenu'], ['moreBtn', 'moreMenu']]) if ($(p)) { $(p).hidden = true; $(b).setAttribute('aria-expanded', 'false'); }
+}
+$('manageBtn').onclick = e => { e.stopPropagation(); const open = $('manageMenu').hidden; closeMenus(); $('manageMenu').hidden = !open; $('manageBtn').setAttribute('aria-expanded', String(open)); };
+$('manageMenu').onclick = e => { if (e.target.closest('.ext-item')) closeMenus(); };
+document.addEventListener('click', e => { if (!e.target.closest('.menu-wrap')) closeMenus(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
+// Edit training: the details form in one dialog; Save sends it only when something changed.
+function openDetails() {
+  if (detailsFor !== detail.id || !detailsDirty) fillDetails(detail);
+  $('detailsTitle').textContent = 'Edit training ' + detail.name;
+  $('detailsHost').append($('detailsForm'));
+  $('detailsMsg').textContent = '';
+  $('detailsDialog').showModal();
+  $('detailsForm').name.focus();
+}
+$('detailsDialog').addEventListener('close', () => { $('park').append($('detailsForm')); if (detailsDirty) setDetailsDirty(false); detailsFor = 0; });
+async function goBack() {
   if (practice) { practice = false; quizStep = 0; loadDetail(); return; }
-  if ((detailsDirty || questionDirty) && !confirm('Leave without saving your changes?')) return;
+  if (questionDirty && !await askConfirm('Unsaved question', 'Leave without saving the changes to this question?', 'Leave', false)) return;
   setDetailsDirty(false); setQuestionDirty(false);
   detailsFor = 0; questionFor = null; editQ = 0; qFilter = '';
-  selected = 0; editTab = 'questions'; passCount = null;
+  selected = 0; editTab = 'training'; passCount = null;
   window.viewState.save(true);
   show();
 }
@@ -726,7 +795,7 @@ async function uploadReadingFile() {
   $('readingFileInput').value = '';
 }
 async function removeReadingFile() {
-  if (!confirm('Remove the reading PDF of this training?')) return;
+  if (!await askConfirm('Remove reading PDF', 'Remove the reading PDF of this training? The reading text stays.', 'Remove PDF')) return;
   $('trainingError').textContent = '';
   try {
     await api('/api/admin/trainings/' + editingId + '/reading-file', {method: 'DELETE'});
@@ -757,25 +826,21 @@ function retryQuiz() {
 }
 function leaveQuiz() {
   $('failDialog').close();
-  selected = 0; editTab = 'questions'; passCount = null;
+  selected = 0; editTab = 'training'; passCount = null;
   window.viewState.save(true);
   show();
 }
-// Edit mode: Details (one form), Questions (list left, the selected question right) and Passes. The two forms live in
-// #park and are moved into the panels on each paint, so unsaved input survives a repaint.
+// Administrators: Questions (list left, the selected question right) and Passes. The forms live in #park and are moved
+// into place on each paint, so unsaved input survives a repaint.
 function editorHTML() {
-  return `<div class="page-tabs" id="editTabs" aria-label="Training sections"></div>
-    <div id="detailsPanel"${editTab === 'details' ? '' : ' hidden'}></div>
-    <div id="questionsPanel"${editTab === 'questions' ? '' : ' hidden'}><div class="q-split">
+  return `<div id="questionsPanel"${editTab === 'questions' ? '' : ' hidden'}><div class="q-split">
       <div class="q-side"><input type="search" id="qFilter" aria-label="Filter questions" placeholder="Filter questions" value="${esc(qFilter)}">
         <div class="q-list" id="qList"></div></div>
       <div class="q-main" id="qMain"></div></div></div>
     <div id="passesPanel"${editTab === 'passes' ? '' : ' hidden'}><div id="results">Loading…</div></div>`;
 }
-function parkForms() { $('park').append($('detailsForm'), $('questionForm')); }
+function parkForms() { $('park').append($('questionForm')); if (!$('detailsDialog').open) $('park').append($('detailsForm')); }
 function mountEditor() {
-  if (detailsFor !== detail.id || !detailsDirty) fillDetails(detail);
-  $('detailsPanel').append($('detailsForm'));
   $('qFilter').oninput = () => { qFilter = $('qFilter').value; paintQuestionList(); };
   const qs = detail.questions || [];
   if (editQ !== -1 && !qs.some(q => q.id === editQ)) editQ = qs.length ? qs[0].id : -1;
@@ -809,9 +874,10 @@ function paintQuestionMain() {
   if (questionFor !== editQ || !questionDirty) fillQuestion();
   paintQuestionImage();
 }
-function pickQuestion(id) {
+const discardQuestion = () => askConfirm('Unsaved question', 'Discard the unsaved changes to this question?', 'Discard changes', false);
+async function pickQuestion(id) {
   if (id === editQ) return;
-  if (questionDirty && !confirm('Discard the unsaved changes to this question?')) return;
+  if (questionDirty && !await discardQuestion()) return;
   editQ = id;
   setQuestionDirty(false);
   window.viewState.save();
@@ -823,8 +889,8 @@ function stepQuestion(step) {
   const next = qs[i + step];
   if (next) pickQuestion(next.id);
 }
-function newQuestion() {
-  if (editQ !== -1 && questionDirty && !confirm('Discard the unsaved changes to this question?')) return;
+async function newQuestion() {
+  if (editQ !== -1 && questionDirty && !await discardQuestion()) return;
   if (editQ !== -1) { editQ = -1; setQuestionDirty(false); }
   window.viewState.save();
   paintQuestionList();
@@ -906,10 +972,12 @@ function bindQuestionOrder(panel) {
 function paintEditTabs() {
   const el = $('editTabs');
   if (!el) return;
-  window.pageTabs(el, [['details', 'Details'], ['questions', 'Questions', (detail.questions || []).length], ['passes', 'Passes', passCount]], editTab, key => {
+  window.pageTabs(el, [['training', 'Training'], ['questions', 'Questions', (detail.questions || []).length], ['passes', 'Passes', passCount]], editTab, async key => {
+    if (editTab === 'questions' && questionDirty && !await discardQuestion()) return paintEditTabs();
+    const repaint = (editTab === 'training') !== (key === 'training');
     editTab = key;
     window.viewState.save();
-    $('detailsPanel').hidden = key !== 'details';
+    if (repaint) return paintDetail();
     $('questionsPanel').hidden = key !== 'questions';
     $('passesPanel').hidden = key !== 'passes';
     paintEditTabs();
@@ -934,10 +1002,10 @@ function formatPassAnswers(answers) {
   }).join('');
 }
 async function loadResults() {
-  const box = $('results');
-  if (!box) return;
+  const box = $('results');  // absent on the Training tab: then only the count on the Passes tab is updated
   try {
     const d = await api('/api/admin/trainings/' + selected + '/results');
+    if (!box || !box.isConnected) { passCount = d.results.length; paintEditTabs(); return; }
     const showBriefer = detail.ask_briefed_by || d.results.some(r => r.briefed_by_name);
     const cols = 4 + (showBriefer ? 1 : 0);
     passCount = d.results.length;
@@ -959,10 +1027,10 @@ async function loadResults() {
       const row = document.getElementById('pass-user-' + passUser);
       if (row) row.scrollIntoView({block: 'nearest'});
     }
-  } catch (e) { box.textContent = e.message; }
+  } catch (e) { if (box) box.textContent = e.message; }
 }
 async function resetProgress(userId) {
-  if (!confirm('Clear this pass so the person can retake? The linked qualification is withdrawn.')) return;
+  if (!await askConfirm('Reset pass', 'Clear this pass so the person can take the training again? The linked qualification is withdrawn.', 'Reset pass')) return;
   try {
     await api(`/api/admin/trainings/${selected}/progress/${userId}`, {method: 'DELETE'});
     await loadDetail();
@@ -1136,6 +1204,7 @@ $('detailsForm').addEventListener('change', event => { if (event.target.type !==
 $('detailsForm').onsubmit = async event => {
   event.preventDefault();
   const f = event.target;
+  if (!detailsDirty) { $('detailsDialog').close(); return; }  // nothing changed: nothing is sent
   const body = {name: f.name.value, description: f.description.value, reading: f.reading.value,
     type_id: f.type_id.value ? +f.type_id.value : null,
     valid_days: f.type_id.value && f.valid_days.value ? +f.valid_days.value : null,
@@ -1153,10 +1222,9 @@ $('detailsForm').onsubmit = async event => {
   try {
     await api('/api/admin/trainings/' + editingId, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     setDetailsDirty(false);
-    detailsFor = 0;
+    $('detailsDialog').close();
     await load();
     await loadDetail();
-    $('detailsMsg').textContent = 'Saved.';
   } catch (e) { $('trainingError').textContent = e.message; }
 };
 // Add training: a small dialog for the name; everything else is set on the training's own page.
@@ -1174,11 +1242,12 @@ $('newTrainingForm').onsubmit = async event => {
       body: JSON.stringify({name: f.name.value, description: f.description.value})});
     $('trainingDialog').close();
     selected = d.id;
-    editTab = 'details';
+    editTab = 'training';
     editQ = 0;
     window.viewState.save(true);
     await load();
     show();
+    setTimeout(() => { if (detail && detail.id === d.id) openDetails(); }, 300);  // the rest is set in Edit training
   } catch (e) { $('newTrainingError').textContent = e.message; }
 };
 function addChoiceRow(label = '', correct = false) {
@@ -1253,7 +1322,7 @@ async function attachImage(id) {
   input.click();
 }
 async function removeQuestion(id) {
-  if (!confirm('Delete this question?')) return;
+  if (!await askConfirm('Delete question', 'Delete this question? Passes already granted stay.', 'Delete question')) return;
   try {
     await api(`/api/admin/trainings/${selected}/questions/${id}`, {method: 'DELETE'});
     const qs = detail.questions || [], i = qs.findIndex(q => q.id === id);
@@ -1266,7 +1335,7 @@ async function removeQuestion(id) {
   } catch (e) { $('questionError').textContent = e.message; }
 }
 async function removeTraining(id) {
-  if (!confirm('Delete this training and its questions? Passes already granted stay on the person.')) return;
+  if (!await askConfirm('Delete training', 'Delete this training and its questions? Passes already granted stay on the person.', 'Delete training')) return;
   try {
     await api('/api/admin/trainings/' + id, {method: 'DELETE'});
     selected = 0;
@@ -1286,21 +1355,19 @@ window.viewState.setup(p => {
   selected = window.viewState.integer(p.get('id'), 0, 1);
   quizStep = selected ? window.viewState.integer(p.get('qi'), 0, 0) : 0;
   passUser = selected ? window.viewState.integer(p.get('pass_user'), 0, 1) : 0;
-  editTab = passUser ? 'passes' : ['details', 'passes'].includes(p.get('tab')) ? p.get('tab') : 'questions';
+  editTab = passUser ? 'passes' : ['questions', 'passes'].includes(p.get('tab')) ? p.get('tab') : 'training';
   editQ = selected ? window.viewState.integer(p.get('question'), 0, 1) : 0;
 }, p => {
   window.viewState.set(p, 'q', query);
   window.viewState.set(p, 'id', selected || '', '');
   window.viewState.set(p, 'qi', selected && quizStep ? quizStep : '', '');
   window.viewState.set(p, 'pass_user', selected && passUser ? passUser : '', '');
-  window.viewState.set(p, 'tab', selected && editTab !== 'questions' ? editTab : '', '');
+  window.viewState.set(p, 'tab', selected && editTab !== 'training' ? editTab : '', '');
   window.viewState.set(p, 'question', selected && editQ > 0 ? editQ : '', '');
 }, show);
 function syncAdminButtons() {
-  const on = !!(me && me.is_admin && window.editMode());
-  $('addBtn').hidden = !on;
-  $('importBtn').hidden = !on;
-  if (!on) $('importDialog').close();
+  const on = !!(me && me.is_admin);
+  $('addBtn').hidden = $('manageWrap').hidden = $('adminListHelp').hidden = !on;
 }
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
@@ -1309,15 +1376,9 @@ fetch('/api/me').then(r => r.json()).then(async d => {
   $('search').value = query;
   await load();
   show();
-  if (selected && me.is_admin && window.editMode()) loadResults();
   if (me.is_admin) loadApprovals();
 }).catch(e => { $('err').textContent = e.message; });
 window.addEventListener('beforeunload', event => { if (detailsDirty || questionDirty) { event.preventDefault(); event.returnValue = ''; } });
-window.addEventListener('editchange', () => {
-  syncAdminButtons();
-  if (selected) { paintDetail(); if (me.is_admin && window.editMode()) loadResults(); }
-  else renderList();
-});
 </script>
 </body>
 </html>

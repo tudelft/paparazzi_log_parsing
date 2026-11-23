@@ -23,6 +23,9 @@
   .mute { color:var(--mute); }
   .hello { display:flex; align-items:baseline; gap:4px 12px; flex-wrap:wrap; margin:2px 0 12px; }
   .hello h2 { margin:0; font-size:20px; }
+  .hello .menu-wrap[hidden] { display:none; }
+  .only-mine { font-size:12px; font-weight:400; color:var(--mute); margin-right:8px; cursor:pointer; }
+  .only-mine input { vertical-align:-2px; margin:0 2px 0 0; }
   .hello .mute { font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .grid { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:12px; align-items:stretch; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; min-width:0; }
@@ -37,26 +40,25 @@
   .ellipsis { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
 
   /* messages from the site (the welcome message; other kinds later): dismissible, newest first */
-  .messages { display:grid; gap:10px; }
+  .messages { display:grid; gap:8px; }
   .messages:empty { display:none; }
-  .msg { position:relative; border-left:4px solid var(--acc); padding-right:44px; }
-  .msg h3 { margin-bottom:6px; }
+  /* compact: a short notice is two lines (title, text); ✕ in the corner dismisses it */
+  .msg { position:relative; border-left:4px solid var(--acc); padding:10px 44px 10px 14px; }
+  .msg h3 { margin:0 0 2px; display:flex; align-items:baseline; gap:8px; }
   .msg .body { font-size:14px; line-height:1.5; }
   .msg .body p, .msg .body ul { margin:0 0 8px; overflow-wrap:anywhere; }
+  .msg .body > :last-child { margin-bottom:0; }
   .msg .body ul { padding-left:22px; }
   .msg .body li { margin:0 0 3px; }
   .msg .body .indent { margin:0 0 6px 24px; }
   .msg .body a { color:var(--acc); text-decoration:none; } .msg .body a:hover { text-decoration:underline; }
-  .msg .close { position:absolute; top:8px; right:8px; width:28px; height:28px; padding:0; border:0; border-radius:6px;
+  .msg .close { position:absolute; top:6px; right:8px; width:28px; height:28px; padding:0; border:0; border-radius:6px;
     background:none; color:var(--mute); font-size:18px; line-height:1; cursor:pointer; }
   .msg .close:hover, .msg .close:focus-visible { background:var(--hover); color:var(--txt); }
   .msg.notice { border-left-color:var(--warn); }
   .msg.fixed { padding-right:14px; }
   .msg .tag { font-size:11px; font-weight:600; border-radius:9px; padding:1px 7px; background:var(--warnbg); color:var(--warn); }
   .msg .until { font-size:12px; font-weight:400; color:var(--mute); margin-left:auto; white-space:nowrap; }
-  .msg .actions { display:flex; justify-content:flex-end; }
-  .msg .actions button { font:inherit; font-size:13px; padding:4px 12px; border-radius:6px; border:1px solid var(--fieldline);
-    background:var(--sec); color:var(--txt); cursor:pointer; }
 
   /* needs attention */
   .todo { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr)); gap:8px; }
@@ -130,7 +132,11 @@
 </header>
 <main>
   <div id="err"></div>
-  <div class="hello"><h2 id="hello">Welcome</h2><span class="mute" id="helloSub"></span></div>
+  <div class="hello"><h2 id="hello">Welcome</h2><span class="mute" id="helloSub"></span>
+    <span class="menu-wrap" id="manageWrap" hidden style="margin-left:auto"><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
+      <div class="menu-pop" id="manageMenu" role="menu" hidden>
+        <a class="ext-item" role="menuitem" href="/welcome" title="The welcome message and notices shown at the top of this page">Welcome message and notices</a>
+      </div></span></div>
   <div class="grid">
     <div class="s12 messages" id="messages" aria-label="Messages"></div>
     <section class="card s12" id="todoCard" hidden>
@@ -142,7 +148,7 @@
       <div id="flying"><span class="empty">Loading…</span></div>
     </section>
     <section class="card s4" id="comingCard" hidden>
-      <h3>Coming up <span class="end"><a href="/agenda">Agenda</a></span></h3>
+      <h3>Coming up <span class="end"><label class="only-mine" title="Only your own bookings"><input type="checkbox" id="onlyMine"> Only mine</label> <a href="/agenda">Agenda</a></span></h3>
       <div id="coming"></div>
     </section>
     <section class="card s4" id="weatherCard" hidden>
@@ -184,14 +190,13 @@ async function api(url, options) {
 
 // ---- Messages from the site (data.messages: id, kind, version, title, html, dismissible, until): the welcome
 // message and admins' notices; html is built and escaped by the server. Dismissing is per message and version; a
-// new version shows again. A notice that cannot be closed has no Dismiss.
+// new version shows again. ✕ dismisses it; a notice that cannot be closed has none.
 function paintMessages() {
   $('messages').innerHTML = (data.messages || []).map(m => `<section class="card msg ${esc(m.kind)}${m.dismissible ? '' : ' fixed'}" data-id="${esc(m.id)}" data-version="${m.version}">
       <h3><span class="ellipsis" title="${esc(m.title)}">${esc(m.title)}</span>${m.dismissible ? ''
         : ' <span class="tag" title="This notice stays until it ends or an administrator removes it">Notice</span>'}${m.until
         ? `<span class="until" title="Shown up to and including this day">until ${esc(m.until)}</span>` : ''}</h3><div class="body">${m.html}</div>
-      ${m.dismissible ? `<button type="button" class="close" aria-label="Dismiss ${esc(m.title)}" title="Dismiss">✕</button>
-      <div class="actions"><button type="button" class="dismiss">Dismiss</button></div>` : ''}</section>`).join('');
+      ${m.dismissible ? `<button type="button" class="close" aria-label="Dismiss ${esc(m.title)}" title="Dismiss">✕</button>` : ''}</section>`).join('');
 }
 $('messages').addEventListener('click', async event => {
   const button = event.target.closest('.close, .dismiss');
@@ -258,18 +263,28 @@ function dateBox(text) {
   const d = new Date(text.slice(0, 10) + 'T12:00:00');
   return `<span class="date"><small>${DAYS[d.getDay()]}</small><b>${d.getDate()}</b></span>`;
 }
+// Coming up: everyone's bookings on the items you can view (as in the agenda), or only yours (?coming=mine).
 function paintComing() {
   const b = data.bookings;
   $('comingCard').hidden = !b.enabled;
   if (!b.enabled) return;
-  $('coming').innerHTML = b.upcoming.length ? `<ul class="rows">${b.upcoming.map(x => {
+  const mine = new URLSearchParams(location.search).get('coming') === 'mine';
+  $('onlyMine').checked = mine;
+  const list = mine ? b.upcoming : (b.upcoming_all || b.upcoming);
+  $('coming').innerHTML = list.length ? `<ul class="rows">${list.map(x => {
     const day = x.start.slice(0, 10), endDay = x.end.slice(0, 10);
     const when = `${x.start.slice(11, 16)}–${endDay === day ? x.end.slice(11, 16) : endDay + ' ' + x.end.slice(11, 16)}`;
-    const detail = [when, x.place, x.description].filter(Boolean).join(' · ');
+    const detail = [when, mine || x.mine ? '' : x.person, x.place, x.description].filter(Boolean).join(' · ');
     return `<li>${dateBox(x.start)}<span class="grow"><div class="ellipsis" title="${esc(x.thing)}"><a href="/agenda?week=${esc(day)}&amp;item=${x.thing_id}">${esc(x.thing)}</a></div>
       <div class="d ellipsis" title="${esc(detail)}">${esc(detail)}</div></span>${x.pending ? '<span class="chip" title="Waiting for approval; it holds the time">Pending</span>' : ''}${x.flags.map(f => `<span class="chip" title="${esc(f)}">${esc(f)}</span>`).join('')}</li>`;
-  }).join('')}</ul>` : '<p class="empty">No bookings in the next two weeks.</p>';
+  }).join('')}</ul>` : `<p class="empty">${mine ? 'You have no bookings' : 'No bookings'} in the next two weeks.</p>`;
 }
+$('onlyMine').onchange = () => {
+  const p = new URLSearchParams(location.search);
+  if ($('onlyMine').checked) p.set('coming', 'mine'); else p.delete('coming');
+  history.replaceState(history.state, '', location.pathname + (p.size ? '?' + p : ''));
+  paintComing();
+};
 
 // ---- Today: weather at the chosen place (?place= in the URL; the default comes from My account) ----
 const WMO = [[0, '☀️', 'Clear'], [2, '⛅', 'Partly cloudy'], [3, '☁️', 'Overcast'], [48, '🌫️', 'Fog'], [57, '🌦️', 'Drizzle'],
@@ -375,8 +390,13 @@ fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
   flags = d;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+  $('manageWrap').hidden = !d.user.is_admin;  // admins: the welcome message and notices of this page
   load();
 }).catch(e => { $('err').textContent = e.message; });
+// Manage ▾ (admins): opens on a click, closes on a click elsewhere or Escape.
+$('manageBtn').onclick = e => { e.stopPropagation(); const open = $('manageMenu').hidden; $('manageMenu').hidden = !open; $('manageBtn').setAttribute('aria-expanded', String(open)); };
+document.addEventListener('click', e => { if (!e.target.closest('#manageWrap')) { $('manageMenu').hidden = true; $('manageBtn').setAttribute('aria-expanded', 'false'); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('manageMenu').hidden = true; $('manageBtn').setAttribute('aria-expanded', 'false'); } });
 </script>
 </body>
 </html>

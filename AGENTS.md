@@ -33,7 +33,8 @@
   pprzlink message version when messages or fields are added, renamed, replaced or removed (check fields before use,
   one helper for both forms). Rules and the old/new-format check: [MATLAB README](matlab/README.md#plots).
 - Keep SQLite on local disk; log/evidence storage may be on a share. See the technical guide before changing storage.
-- Follow shared Edit-mode, Help, day/night and entity-detail navigation patterns when changing UI.
+- Follow the [UI rule](webui/TECHNICAL.md#ui-rule) (no Edit mode: Edit <item> dialog, ⋯ for rare actions, selection
+  bar, Add/Manage ▾, item beside the list) and the shared Help, day/night and entity-detail navigation patterns.
   Check both read-only and editing behavior and the relevant user/admin visibility.
 - Update directly related documentation; avoid copying detailed rules into multiple guides.
 - Do not touch real databases, logs, evidence, credentials or running services for development checks.

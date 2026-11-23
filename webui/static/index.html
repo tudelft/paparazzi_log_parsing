@@ -48,16 +48,19 @@
   pre { background:#0f1720; color:#d6e2f0; padding:10px; border-radius:6px; max-height:260px; overflow:auto; font-size:12px; }
   .actions { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
   #status { text-align:right; font-size:12px; color:var(--mute); padding:0 20px 20px; margin:0; }
-  .logs-help { order:9; font-size:13px; }
+  .logs-help { order:9; }
   .logs-help[open] { flex-basis:100%; }
-  .logs-help summary { cursor:pointer; color:var(--mute); }
+  .logs-help summary { cursor:pointer; }
   .suggest-list { margin-top:6px; font-size:13px; }
   .suggest-list h3 { font-size:13px; margin:10px 0 2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .suggest-list label { display:grid; grid-template-columns:auto minmax(0,14em) 6.5em minmax(0,1fr); gap:8px; align-items:center; padding:2px 0; }
   .suggest-list label > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .menu-wrap[hidden] { display:none; }
+  #logSearch, #logStatus, #logPageSize { font:inherit; padding:4px 8px; border:1px solid var(--fieldline, #dfe3e8); border-radius:6px; background:var(--field, #fff); color:var(--txt); }
+  #logSearch { flex:0 1 260px; min-width:0; }
 </style>
 </head>
-<body data-edit="all">
+<body>
 <header>
   <h1>Logs</h1>
   <span class="meta" id="nav"></span>
@@ -67,21 +70,25 @@
 
   <section class="card">
     <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap">
-      <h2 style="margin:0; font-size:17px">Logs</h2><span class="mute" id="logCount"></span>
+      <h2 style="margin:0; font-size:15px">Logs</h2><span class="mute" id="logCount"></span>
       <details class="logs-help"><summary>Help</summary>
         <p>Every log you can see: those of your projects and the ones you uploaded. Upload new logs with
         <strong>Upload logs</strong> at the top right, or drop files on any page. The list shows 25 logs per page by
         default, newest first; open a log for its details and flights.</p>
         <p class="mute">The project is set automatically from the aircraft (then the uploader, GCS operator or PIC).
-        Admins can change it in Edit mode after it is parsed. Edit mode also shows Re-parse and Delete on an opened log,
-        and the Re-parse outdated / unknown dates tools.</p></details>
+        Open a log for its details: <strong>Edit log</strong> changes its project (admins) or its calendar date when it
+        has none; ⋯ has Re-parse and Delete log. Admins find Re-parse outdated, Re-parse unknown dates and the date
+        suggestions under <strong>Manage ▾</strong>.</p></details>
       <input type="search" id="logSearch" placeholder="Search by filename" aria-label="Search logs by filename">
       <select id="logStatus" aria-label="Status"><option value="all">All logs</option><option value="errors">Parser errors</option><option value="unfinished">Unfinished logs</option><option value="failures">All failures</option><option value="outdated">Outdated</option><option value="date_unknown">Date unknown</option></select>
       <button type="button" class="badge-filter outdated" id="outdatedBadge" hidden title="Parsed with an older parser version; show them" onclick="filterStatus('outdated')"></button>
       <button type="button" class="badge-filter date-unknown" id="unknownBadge" hidden title="Logs without a usable calendar date; show them" onclick="filterStatus('date_unknown')"></button>
-      <button class="sec" id="reparseAll" style="margin-left:auto" onclick="reparseOutdated()" hidden>Re-parse outdated</button>
-      <button class="sec" id="reparseUnknownDates" onclick="reparseUnknownDates()" hidden>Re-parse unknown dates</button>
-      <button class="sec" id="acceptDateSuggestions" onclick="acceptDateSuggestions()" hidden title="Review the dates suggested for logs without a usable date">Review date suggestions</button>
+      <span class="menu-wrap" id="manageWrap" style="margin-left:auto" hidden><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
+        <div class="menu-pop" id="manageMenu" role="menu" hidden>
+          <button type="button" class="ext-item" role="menuitem" id="reparseAll" onclick="reparseOutdated()" title="Logs parsed with an older parser version, and failed ones">Re-parse outdated…</button>
+          <button type="button" class="ext-item" role="menuitem" id="reparseUnknownDates" onclick="reparseUnknownDates()">Re-parse unknown dates…</button>
+          <button type="button" class="ext-item" role="menuitem" id="acceptDateSuggestions" onclick="acceptDateSuggestions()" hidden title="Review the dates suggested for logs without a usable date">Review date suggestions</button>
+        </div></span>
     </div>
     <div class="scroll">
     <table class="logs">
@@ -91,7 +98,7 @@
     </table>
     </div>
     <div id="pager" class="mute" style="display:flex; gap:12px; align-items:center; justify-content:flex-end; flex-wrap:wrap; margin-top:12px">
-      <label>Logs per page <select id="logPageSize"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option></select></label>
+      <label>Rows per page <select id="logPageSize"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option></select></label>
       <span id="pageInfo"></span>
       <div id="uploadPages" class="navigation-pages"></div>
     </div>
@@ -109,6 +116,21 @@
   <div id="suggestList" class="suggest-list"></div>
   <div class="dialog-error" id="suggestError"></div>
   <div style="display:flex; justify-content:flex-end; margin-top:12px"><button type="button" id="suggestAccept" onclick="acceptChosenSuggestions()">Use selected dates</button></div>
+</dialog>
+<dialog class="entry-dialog" id="editLogDialog" aria-labelledby="editLogTitle" style="width:min(460px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="editLogTitle">Edit log</h2><button type="button" onclick="$('editLogDialog').close()">Close</button></div>
+  <form id="editLogForm" class="dialog-fields" style="display:grid;gap:10px">
+    <label class="field" id="editLogProjectRow">Project<select name="project"></select></label>
+    <label class="field" id="editLogDateRow">Calendar date<input type="date" name="date"><span class="mute" id="editLogDateHint" style="font-size:12px"></span></label>
+    <p class="dialog-error" id="editLogError" role="alert"></p>
+    <div style="display:flex;gap:8px"><button type="submit" class="primary">Save</button><button type="button" class="sec" onclick="$('editLogDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="askDialog" aria-labelledby="askTitle" style="width:min(440px,calc(100% - 32px))">
+  <div class="dialog-header"><h2 id="askTitle"></h2><button type="button" onclick="$('askDialog').close('no')">Close</button></div>
+  <p id="askText" style="margin:0"></p>
+  <div style="display:flex;gap:8px;margin-top:14px"><button type="button" id="askOk" onclick="$('askDialog').close('yes')"></button>
+    <button type="button" class="sec" id="askCancel" onclick="$('askDialog').close('no')">Cancel</button></div>
 </dialog>
 <p id="status"></p>
 <div id="coUploaded" class="mute" hidden></div>
@@ -163,17 +185,44 @@ function logsQuery() {
 function showLog(id) { onlyLog = id; expanded.add(id); logOffset = 0; window.viewState.save(true); refresh(); }
 function showAllLogs() { onlyLog = null; history.replaceState(history.state, '', location.pathname + location.search); logOffset = 0; window.viewState.save(true); refresh(); }
 function fillProjects() {}
-const editing = () => window.editMode();
+// A small dialog instead of confirm()/alert(): resolves true on OK (okLabel empty: a message with only Close).
+function ask(title, text, okLabel, danger = false) {
+  $('askTitle').textContent = title;
+  $('askText').textContent = text;
+  $('askOk').hidden = !okLabel;
+  $('askOk').textContent = okLabel || '';
+  $('askOk').className = danger ? 'danger' : 'primary';
+  $('askCancel').textContent = okLabel ? 'Cancel' : 'Close';
+  $('askDialog').returnValue = '';
+  $('askDialog').showModal();
+  return new Promise(resolve => $('askDialog').addEventListener('close', () => resolve($('askDialog').returnValue === 'yes'), {once: true}));
+}
 // Columns of the log list; admins also see who uploaded each log and when.
 const logColumns = () => [['No.', '7%'], ['Date (UTC)', '12%'], ['Log', '19%'], ['Aircraft', '13%'], ['Project', '12%'],
   ['Flights', '6%', 'num'], ['Flight time', '8%', 'num'], ...(me?.is_admin ? [['Uploaded', '15%']] : []), ['Status', '8%']];
+// Admins: Manage ▾ with the re-parse tools and the date suggestions (when there are any).
 function syncEditUi() {
   const admin = !!me?.is_admin;
-  $('reparseAll').hidden = $('reparseUnknownDates').hidden = !(admin && editing());
-  if (admin && editing()) countDateSuggestions(); else $('acceptDateSuggestions').hidden = true;
+  $('manageWrap').hidden = !admin;
+  if (admin) countDateSuggestions();
 }
+function closeMenus() {
+  document.querySelectorAll('.menu-pop').forEach(p => { p.hidden = true; });
+  document.querySelectorAll('[aria-haspopup=menu]').forEach(b => b.setAttribute('aria-expanded', 'false'));
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[aria-haspopup=menu]');
+  if (b) {
+    e.stopPropagation();
+    const pop = b.nextElementSibling, open = pop.hidden;
+    closeMenus();
+    pop.hidden = !open; b.setAttribute('aria-expanded', String(open));
+    return;
+  }
+  if (!e.target.closest('.menu-pop') || e.target.closest('.ext-item')) closeMenus();
+}, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
 function filterStatus(value) { $('logStatus').value = value; logOffset = 0; window.viewState.save(true); refresh(); }
-window.addEventListener('editchange', () => { syncEditUi(); refresh(); });
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
   syncEditUi();
@@ -198,6 +247,7 @@ function paintStatus(st) {
   if (st.outdated) msg += ` · ${st.outdated} outdated`;
   if (st.date_unknown) msg += ` · ${st.date_unknown} date unknown`;
   $('status').textContent = msg;
+  working = !!((c.queued || 0) + (c.parsing || 0) + wait);
   // Files someone else had already uploaded: one copy is kept and this user is now a co-uploader of that log.
   const co = st.co_uploaded || [];
   $('coUploaded').hidden = !co.length;
@@ -210,7 +260,11 @@ function paintStatus(st) {
   $('unknownBadge').textContent = `${st.date_unknown} date unknown`;
 }
 
-let refreshBusy = false, refreshWanted = false;
+// The list is refreshed by polling (uploads and parsing change it): every 3 s while logs are being parsed, otherwise
+// every 30 s. A refresh that finds the same rows leaves the table alone, and an opened log keeps its details while they
+// reload, so the page does not flicker.
+let refreshBusy = false, refreshWanted = false, working = false, lastRows = '';
+const detailHtml = new Map();
 async function refresh() {
   if (refreshBusy) { refreshWanted = true; return; }
   refreshBusy = true;
@@ -243,6 +297,15 @@ async function refresh() {
     n => { logOffset = n * LOG_PAGE; window.viewState.save(true); refresh(); });
   const tb = $('logs');
   const details = [];
+  const rowsKey = JSON.stringify([logs, [...expanded], me?.is_admin, cols.length]);
+  if (rowsKey === lastRows && !document.querySelector('#logs .menu-pop:not([hidden])')) {
+    // same rows: only the opened logs' details are re-read (and redrawn when they changed)
+    await Promise.all(logs.filter(l => expanded.has(l.id)).map(l => loadDetail(l.id)));
+    window.viewState.ready();
+    return;
+  }
+  if (rowsKey === lastRows) return;  // a menu of an opened log is open: leave everything as it is
+  lastRows = rowsKey;
   tb.innerHTML = '';
   for (const l of logs) {
     const tr = document.createElement('tr');
@@ -253,9 +316,7 @@ async function refresh() {
       continue;
     }
     tr.className = 'log';
-    const projectCell = me && me.is_admin && editing()
-      ? `<select onclick="event.stopPropagation()" onchange="setProject(${l.id}, this.value)">${'<option value="">No project</option>' + projects.map(p => `<option value="${p.id}"${p.id === l.project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`
-      : l.project_id ? `<a href="/projects/${l.project_id}" onclick="event.stopPropagation()" title="${esc(l.project_name || '')}">${esc(l.project_name || '')}</a>` : '<span class="mute">No project</span>';
+    const projectCell = l.project_id ? `<a href="/projects/${l.project_id}" onclick="event.stopPropagation()" title="${esc(l.project_name || '')}">${esc(l.project_name || '')}</a>` : '<span class="mute">No project</span>';
     const dateLabel = l.date_ok
       ? esc((l.start_utc || l.date_override || '').replace('T', ' ').slice(0, 16))
       : '<span class="badge date-unknown" title="This log has no usable calendar date (often GPS week 0, shown as 1980)">date unknown</span>';
@@ -279,7 +340,7 @@ async function refresh() {
     tb.appendChild(tr);
     if (expanded.has(l.id)) {
       const d = document.createElement('tr');
-      d.innerHTML = `<td colspan="${cols.length}" class="detail" id="d${l.id}">loading…</td>`;
+      d.innerHTML = `<td colspan="${cols.length}" class="detail" id="d${l.id}">${detailHtml.get(l.id) || 'loading…'}</td>`;
       tb.appendChild(d);
       details.push(loadDetail(l.id));
     }
@@ -311,26 +372,56 @@ function dateField(l) {
   const setBy = l.date_override && l.date_override_by_name
     ? `<br><span class="mute">Set by ${esc(l.date_override_by_name)}${l.date_override_note ? ': ' + esc(l.date_override_note) : ''}</span>`
     : l.date_override && l.date_override_note ? `<br><span class="mute">Set ${esc(l.date_override_note)}</span>` : '';
-  if (!l.can_edit_date || !editing())
-    return `<span class="mute">Calendar date</span><span>${l.date_override ? esc(l.date_override) + ' · ' : ''}<span class="mute">${esc(hint)}</span>${setBy}</span>`;
-  return `<span class="mute">Calendar date</span><span onclick="event.stopPropagation()">
-    <input type="date" id="date${l.id}" value="${esc(l.date_override || '')}">
-    <button type="button" class="sec" onclick="event.stopPropagation(); saveLogDate(${l.id})">Save date</button>
-    ${l.date_override ? `<button type="button" class="sec" onclick="event.stopPropagation(); saveLogDate(${l.id}, true)">Clear</button>` : ''}
-    <span class="mute"> ${esc(hint)}</span>${suggestion}${setBy}</span>`;
+  const value = `${l.date_override ? esc(l.date_override) + ' · ' : ''}<span class="mute">${esc(hint)}</span>`;
+  if (!l.can_edit_date) return `<span class="mute">Calendar date</span><span>${value}${setBy}</span>`;
+  return `<span class="mute edit-key" data-edit-log="${l.id}" data-edit-field="date" title="Click to change">Calendar date</span><span><span class="edit-val" data-edit-log="${l.id}" data-edit-field="date" title="Click to change">${value}</span>${suggestion}${setBy}</span>`;
 }
-async function saveLogDate(id, clear) {
-  const value = clear ? null : (($('date' + id) && $('date' + id).value) || '').trim() || null;
-  const r = await fetch('/api/logs/' + id + '/date', {method: 'PUT', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({date_override: value})});
-  if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the date'); return; }
-  expanded.add(id);
-  refresh();
+// Edit log: the project (admins) and, for a log without a confirmed date, its calendar date; only changes are sent.
+const logDetails = new Map();
+function openEditLog(id, focus) {
+  const l = logDetails.get(id);
+  if (!l) return;
+  const f = $('editLogForm'), dateRow = !!(l.can_edit_date && (!l.date_ok || l.date_override || l.date_estimated));
+  $('editLogTitle').textContent = 'Edit log ' + id;
+  $('editLogProjectRow').hidden = !l.can_edit_project;
+  f.project.innerHTML = '<option value="">No project</option>' + projects.map(p => `<option value="${p.id}"${p.id === l.project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+  $('editLogDateRow').hidden = !dateRow;
+  f.date.value = l.date_override || '';
+  $('editLogDateHint').textContent = 'Empty: no date entered by hand. The time of day from the log is kept.';
+  $('editLogError').textContent = '';
+  f.onsubmit = async event => {
+    event.preventDefault();
+    const send = async (url, body) => {
+      const r = await fetch(url, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not save');
+    };
+    try {
+      if (l.can_edit_project && String(l.project_id ?? '') !== f.project.value)
+        await send('/api/logs/' + id + '/project', {project_id: f.project.value ? +f.project.value : null});
+      if (dateRow && (l.date_override || '') !== f.date.value)
+        await send('/api/logs/' + id + '/date', {date_override: f.date.value || null});
+    } catch (error) { $('editLogError').textContent = error.message; return; }
+    $('editLogDialog').close();
+    expanded.add(id);
+    refresh();
+  };
+  $('editLogDialog').showModal();
+  ((focus === 'date' && dateRow) || !l.can_edit_project ? f.date : f.project).focus();
 }
+document.addEventListener('click', e => {
+  const v = e.target.closest('[data-edit-log]');
+  if (v && !e.target.closest('a, button')) { e.stopPropagation(); openEditLog(+v.dataset.editLog, v.dataset.editField); }
+});
 
 async function loadDetail(id) {
   const l = await fetch('/api/logs/' + id).then(r => r.json());
+  l.can_edit_project = !!me?.is_admin;  // PUT /api/logs/<id>/project is admin-only
+  logDetails.set(id, l);
+  const projectName = (projects.find(p => p.id === l.project_id) || {}).name || l.project_name || '';
+  const projectValue = projectName ? esc(projectName) : '<span class="mute">No project</span>';
   let h = `<div class="kv"><span class="mute">SHA-256</span><span class="mono">${l.sha256}</span>
+    ${l.can_edit_project ? `<span class="mute edit-key" data-edit-log="${id}" data-edit-field="project" title="Click to change">Project</span><span class="edit-val" data-edit-log="${id}" data-edit-field="project" title="Click to change">${projectValue}</span>`
+      : `<span class="mute">Project</span><span>${projectValue}</span>`}
     <span class="mute">Log period</span><span>${esc(l.first_data_utc)} → ${esc(l.end_utc)} (${fmtDur(l.duration_s)})</span>
     ${l.timing ? `<span class="mute">Timing</span><span>${esc(l.timing.source)} · original start: ${esc(l.timing.original_start_utc || 'unknown')}
       · effective start: ${esc(l.timing.effective_start_utc || 'unknown')}
@@ -367,32 +458,42 @@ async function loadDetail(id) {
     <a class="btn sec" href="/api/logs/${id}/download" onclick="event.stopPropagation()">Download ${downloadLabel(l.log_type)}</a>
     ${l.has_log ? window.MatlabExport.button([{log_id: id, log_type: l.log_type, log_name: l.name,
       flights: l.aircraft.reduce((n, a) => n + a.flights.length, 0)}], 'sec') : ''}
-    ${editing() ? `<button class="sec" onclick="event.stopPropagation(); reparse(${id})">Re-parse</button>
-    ${l.can_delete ? `<button class="danger" onclick="event.stopPropagation(); del(${id})">Delete</button>` : ''}` : ''}</div>`;
+    <span style="flex:1"></span>
+    ${l.can_edit_project || (l.can_edit_date && (!l.date_ok || l.date_override || l.date_estimated)) ? `<button type="button" class="sec" onclick="event.stopPropagation(); openEditLog(${id})">Edit log</button>` : ''}
+    <span class="menu-wrap" onclick="event.stopPropagation()"><button type="button" class="sec" aria-haspopup="menu" aria-expanded="false" aria-label="More actions for log ${id}" title="Rare actions">⋯</button>
+      <div class="menu-pop" role="menu" hidden>
+        <button type="button" class="ext-item" role="menuitem" onclick="reparse(${id})">Re-parse</button>
+        ${l.can_delete ? `<button type="button" class="ext-item danger-item" role="menuitem" onclick="del(${id})">Delete log…</button>` : ''}
+      </div></span></div>`;
   const el = $('d' + id);
-  if (el) el.innerHTML = h;
+  if (el && detailHtml.get(id) !== h) el.innerHTML = h;  // unchanged details stay as they are (no flicker)
+  detailHtml.set(id, h);
 }
 
 async function reparse(id) { await fetch(`/api/logs/${id}/reparse`, {method: 'POST'}); refresh(); }
 async function del(id) {
-  if (!confirm('Delete this log and its parsed data?')) return;
+  if (!await ask('Delete log', `Delete log ${id} and its parsed data? Flights from it disappear from the logbook.`, 'Delete log', true)) return;
   const r = await fetch('/api/logs/' + id, {method: 'DELETE'});
   if (r.ok) expanded.delete(id);
   refresh();
 }
-async function reparseOutdated() { await fetch('/api/reparse-outdated', {method: 'POST'}); refresh(); }
+async function reparseOutdated() {
+  if (!await ask('Re-parse outdated', 'Re-parse every log parsed with an older parser version, and the failed ones?', 'Re-parse')) return;
+  await fetch('/api/reparse-outdated', {method: 'POST'});
+  refresh();
+}
 async function reparseUnknownDates() {
-  if (!confirm('Re-parse completed logs with unknown dates, even with the current parser version? Confirmed and estimated dates are left unchanged.')) return;
+  if (!await ask('Re-parse unknown dates', 'Re-parse completed logs with unknown dates, even with the current parser version? Confirmed and estimated dates are left unchanged.', 'Re-parse')) return;
   const button = $('reparseUnknownDates');
   button.disabled = true;
   try {
     const r = await fetch('/api/reparse-unknown-dates', {method: 'POST'});
     const result = await r.json();
     if (!r.ok) throw new Error(result.error || 'Could not queue logs');
-    alert(`Queued ${result.queued.length} logs with unknown dates.`);
+    ask('Re-parse unknown dates', `Queued ${result.queued.length} logs with unknown dates.`);
     refresh();
   } catch (error) {
-    alert(`Could not re-parse unknown dates: ${error.message}`);
+    ask('Re-parse unknown dates', `Could not re-parse unknown dates: ${error.message}`);
   } finally {
     button.disabled = false;
   }
@@ -402,7 +503,7 @@ async function countDateSuggestions() {
   const r = await fetch('/api/admin/date-suggestions');
   if (!r.ok) return;
   const n = (await r.json()).suggestions.length;
-  $('acceptDateSuggestions').hidden = !n;
+  $('acceptDateSuggestions').hidden = !n;  // in Manage ▾
   $('acceptDateSuggestions').textContent = `Review date suggestions (${n})`;
 }
 async function acceptDateSuggestions() {
@@ -442,14 +543,9 @@ async function acceptChosenSuggestions() {
 async function acceptLogDateSuggestion(id, folder) {
   const r = await fetch(`/api/logs/${id}/date/suggestion`, {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({folder: !!folder})});
-  if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not use the suggestion'); return; }
+  if (!r.ok) { ask('Date suggestion', ((await r.json().catch(() => ({}))).error) || 'Could not use the suggestion'); return; }
   expanded.add(id);
   if ($('acceptDateSuggestions') && !$('acceptDateSuggestions').hidden) countDateSuggestions();
-  refresh();
-}
-async function setProject(id, value) {
-  await fetch('/api/logs/' + id + '/project', {method: 'PUT', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({project_id: value ? +value : null})});
   refresh();
 }
 $('logPageSize').onchange = () => { LOG_PAGE = +$('logPageSize').value; logOffset = 0; window.viewState.save(true); refresh(); };
@@ -464,8 +560,11 @@ $('logSearch').oninput = () => {
   logSearchTimer = setTimeout(refresh, 250);
 };
 window.addEventListener('flightfilterschange', () => window.viewState.save(true));
+let lastPoll = Date.now();
 setInterval(() => {
-  if (document.hidden || document.querySelector('.detail:hover')) return;
+  if (document.hidden || document.querySelector('.detail:hover') || document.querySelector('dialog[open]')) return;
+  if (!working && Date.now() - lastPoll < 30000) return;  // nothing parsing: every 30 s is enough
+  lastPoll = Date.now();
   refresh();
 }, 3000);
 window.viewState.setup((p, extra) => {

@@ -89,8 +89,19 @@
   .flight-focus { display:flex; flex-wrap:wrap; gap:12px 32px; padding-bottom:14px; margin-bottom:14px; border-bottom:1px solid var(--line); }
   .flight-focus > div { min-width:0; }
   .flight-focus .goal { flex:1 1 280px; }
-  .inline-edit { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:4px; }
-  .inline-edit input { flex:1 1 220px; min-width:0; }
+  /* a value the user may change: clicking it (or its label) opens Edit flight at that field */
+  .edit-val, .edit-key { cursor:pointer; border-radius:4px; }
+  .edit-val:hover, .edit-key:hover, .edit-key:hover + .edit-val { background:var(--hover); box-shadow:0 0 0 3px var(--hover); }
+  #editDialog { width:min(680px, calc(100% - 32px)); }
+  .edit-row { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px; }
+  .edit-row .wide { grid-column:1 / -1; }
+  .field-error { color:var(--err); font-size:12px; }
+  .field-error:empty { display:none; }
+  #editError:empty, #actError:empty { display:none; }
+  .more-wrap { position:relative; display:inline-flex; }
+  #moreMenu { min-width:180px; }
+  .ext-item.danger-item { color:var(--err); }
+  dialog textarea.comment { max-width:none; }
   .flight-focus .label { display:block; font-size:12px; color:var(--mute); margin-bottom:3px; }
   .flight-focus .value { font-size:18px; font-weight:600; overflow-wrap:anywhere; white-space:pre-wrap; }
   .summary-groups { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:14px 28px; }
@@ -120,7 +131,7 @@
   .flight-nav button { padding:2px 10px; }
 </style>
 </head>
-<body data-edit="all">
+<body>
 <header>
   <h1 id="title">Flight</h1>
   <span class="meta" id="nav"></span>
@@ -136,6 +147,9 @@
     <button type="button" id="tab-checks" role="tab" aria-selected="false" aria-controls="panel-checks" tabindex="-1" data-tab="checks">Checklist<span class="n" id="checksBadge"></span></button>
     <button type="button" id="tab-files" role="tab" aria-selected="false" aria-controls="panel-files" tabindex="-1" data-tab="files">Files</button>
     <span class="tabs-end"><span id="matlabMenu" class="tabs-end-items"></span>
+      <button type="button" class="sec" id="editFlight" hidden>Edit flight</button>
+      <span class="more-wrap" id="moreWrap" hidden><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false"
+        aria-label="More actions" title="Re-parse or delete">⋯</button></span>
       <span class="flight-nav" id="flightNav"><button type="button" class="sec" id="prevFlight" disabled aria-label="Previous flight" onclick="goFlight(D.previous_flight_id)">&larr;</button><button type="button" class="sec" id="nextFlight" disabled aria-label="Next flight" onclick="goFlight(D.next_flight_id)">&rarr;</button></span></span>
   </div>
   <div id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
@@ -206,6 +220,24 @@
     <div id="additionalFiles">Loading...</div>
   </section>
 </main>
+<div id="moreMenu" class="ext-pop" role="menu" hidden></div>
+<dialog class="entry-dialog" id="editDialog" aria-labelledby="editTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="editTitle">Edit flight</h2><button type="button" onclick="$('editDialog').close()">Close</button></div>
+  <form id="editForm">
+    <p class="mute" id="editWhat" style="margin:0"></p>
+    <div id="editFields" class="dialog-fields"></div>
+    <p class="dialog-error" id="editError" role="alert"></p>
+    <div class="row"><button type="submit" class="primary" id="editSave">Save</button> <button type="button" class="sec" onclick="$('editDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="actDialog" aria-labelledby="actTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="actTitle"></h2><button type="button" onclick="$('actDialog').close()">Close</button></div>
+  <form id="actForm">
+    <div id="actText"></div>
+    <p class="dialog-error" id="actError" role="alert"></p>
+    <div class="row"><button type="submit" class="primary" id="actSave">OK</button> <button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const $ = id => document.getElementById(id);
@@ -231,13 +263,11 @@ fetch('/api/me').then(r => r.json()).then(async d => {
 
 let D, map, planLayer, marker, trail, chartGeom;
 const flightId = +location.pathname.split('/').pop();
-const editing = can => !!can && window.editMode();
 // Files tab: list, search, category filter, Upload files and Edit, right here (attachments.js).
 AttachmentFiles.manage($('additionalFiles'), 'flight', flightId, {toolbar: $('filesTools'), onload: (d, count, shown) => {
   $('filesCount').textContent = count ? `· ${shown === count ? count : `${shown} of ${count}`}` : '';
   $('tab-files').textContent = count ? `Files (${count})` : 'Files';
 }});
-addEventListener('editchange', () => { if (D) renderSummary(); });
 
 // Previous/next flight in the same project (server order: takeoff, log name, flight number); the keys ← and → too,
 // except while typing, in the tab list (its own arrow keys), on the map or the time slider.
@@ -292,106 +322,220 @@ for (const tab of document.querySelectorAll('[data-tab]')) {
 addEventListener('hashchange', () => selectTab(location.hash.slice(1)));
 selectTab(location.hash.slice(1));
 
-function projectField(e) {
-  if (!editing(e.can_edit_project)) return e.project_id != null ? `<a href="/projects/${e.project_id}">${esc(e.project_name || '')}</a>` : '';
-  const ids = (e.sources || []).map(s => s.flight_id).join(',');
-  const opts = '<option value="">No project</option>' + projects.filter(p => me && (me.is_admin || p.can_add || p.id === e.project_id)).map(p =>
-    `<option value="${p.id}"${p.id === e.project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
-  return `<select onchange="setFlightProject(this.value, [${ids}])">${opts}</select>${goTo('projects', e.project_id)}`;
+// Changes (no Edit mode): the page reads the same for everyone. "Edit flight" (only for who may change something) opens
+// one dialog with every field the user may change: the entry's can_edit_* flags, the date from the log's own flag.
+// Clicking such a value on the page opens the same dialog at that field. The server checks every change again.
+// Re-parse and Delete are in the ⋯ menu next to it.
+const sourceIds = e => [...new Set((e.sources || []).map(s => s.flight_id))];
+const recordKeys = e => sourceIds(e).map(id => `log:${id}`);
+const VERDICT_LABEL = {flight: 'Flight', uncertain: 'Uncertain', ground: 'Not a flight'};
+let logInfo = {};  // log id -> GET /api/logs/<id> (set date, may set the date or delete, status) of this flight's logs
+async function loadLogInfo() {
+  const ids = [...new Set((D.entry.sources || []).map(s => s.log_id))];
+  const got = await Promise.all(ids.map(id => fetch('/api/logs/' + id).then(r => r.ok ? r.json() : null).catch(() => null)));
+  logInfo = Object.fromEntries(ids.map((id, i) => [id, got[i]]).filter(([, v]) => v));
+  if (canDate()) renderSummary();
+  paintEditButton(); paintMore();
 }
-async function setFlightProject(value, ids) {
-  for (const fid of [...new Set(ids || [flightId])]) {
-    const r = await fetch('/api/flights/' + fid + '/project', {method: 'PUT', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({project_id: value ? +value : null})});
-    if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the project'); return; }
-  }
+const canDate = () => !!logInfo[D.log_id]?.can_edit_date;
+const canReparse = () => !!(me?.is_admin || D.entry.can_edit_project);
+// What the user may change; each key is a field of the Edit flight dialog.
+function editable(e = D.entry) {
+  return {aircraft: !!e.can_edit_comment, goal: !!e.can_edit_comment, date: canDate(), pic: !!e.can_edit_crew,
+    pac: !!e.can_edit_crew, gcs: !!e.can_edit_crew, project: !!e.can_edit_project, operator: !!e.can_edit_crew,
+    category: !!e.can_edit_crew, verdict: !!e.can_edit_crew && !e.manual_id, comment: !!e.can_edit_comment};
+}
+const mayEdit = key => !!D && editable()[key];
+function paintEditButton() { $('editFlight').hidden = !Object.values(editable()).some(Boolean); }
+// A value the user may change: clicking it (not its link) opens Edit flight at that field.
+const editVal = (key, html) => mayEdit(key) ? `<span class="edit-val" data-edit-field="${key}" title="Click to change">${html}</span>` : html;
+
+// One small confirmation dialog for the ⋯ actions.
+function actionDialog(title, text, okLabel, run) {
+  $('actTitle').textContent = title;
+  $('actText').innerHTML = text;
+  $('actError').textContent = '';
+  $('actSave').textContent = okLabel;
+  $('actForm').onsubmit = async event => {
+    event.preventDefault();
+    $('actSave').disabled = true;
+    try { await run($('actError')); } finally { $('actSave').disabled = false; }
+  };
+  $('actDialog').showModal();
+}
+async function send(url, method, body, out, fallback) {
+  const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: body && JSON.stringify(body)});
+  if (!r.ok) { out.textContent = ((await r.json().catch(() => ({}))).error) || fallback; return false; }
+  return true;
+}
+async function reloadEntry() {
   const d = await fetch(`/api/flights/${flightId}/detail`).then(r => r.json());
-  D.entry = d.entry; renderSummary();
+  D.entry = d.entry; D.previous_flight_id = d.previous_flight_id; D.next_flight_id = d.next_flight_id;
+  renderSummary(); paintFlightNav(); paintEditButton(); paintMore();
 }
+const options = (list, selected) => list.map(([value, label]) =>
+  `<option value="${esc(value)}"${String(value) === String(selected ?? '') ? ' selected' : ''}>${esc(label)}</option>`).join('');
+let operators = null, authorisations = null, aircraftChoices = null, editStart = {};
 
-// Edit mode: type the goal (all recordings of this flight; empty returns to the logged goal) and link the opened
-// recording to a fleet aircraft (all its flights; Automatic lets the logged name decide again).
-function goalField(e) {
-  const shown = `<div class="value">${e.goal ? esc(e.goal) : '<span class="mute">Not recorded</span>'}</div>`;
-  if (!editing(e.can_edit_comment)) return shown;
-  const ids = [...new Set((e.sources || []).map(s => s.flight_id))];
-  return `<div class="inline-edit"><input id="goalInput" maxlength="300" value="${esc(e.goal || '')}" placeholder="${esc(e.goal_logged || 'Flight goal')}" title="Empty: the goal from the log${e.goal_logged ? ' (' + esc(e.goal_logged) + ')' : ''}">
-    <button type="button" onclick="saveGoal([${ids.join(',')}])">Save goal</button> <span id="goalMsg" class="mute" role="status"></span></div>`;
+// The Edit flight dialog: only the fields the user may change, in a compact grid; Save sends what changed.
+async function openEdit(focus) {
+  const e = D.entry, may = editable(e);
+  if (may.aircraft) aircraftChoices ||= await fetch(`/api/flights/${flightId}/aircraft-choices`).then(r => r.ok ? r.json() : {drones: []}).then(d => d.drones);
+  if (may.operator) operators ||= await fetch('/api/operators').then(r => r.json()).then(d => d.operators);
+  if (may.category) authorisations ||= await fetch('/api/authorisations').then(r => r.json()).then(d => d.authorisations);
+  const set = logInfo[D.log_id]?.date_override || '';
+  const crewNow = role => { const u = e[role + '_user']; return u && (u.source === 'edit' || u.source === 'alias') ? u.id : ''; };
+  const crewLogged = role => { const u = e[role + '_user'];
+    return e[role] ? `From the log: ${e[role]}` : u && !crewNow(role) ? `From the log: ${u.display_name} (uploader)` : 'From the log: none'; };
+  const operatorOptions = selected => options([['', 'From project / place / PIC / own'], ...operators.map(o => [o.id, operatorLabel(o)])], selected) + NEW_OPERATOR_OPTION;
+  const f = (key, label, control, wide) => may[key]
+    ? `<label class="field${wide ? ' wide' : ''}">${label}${control}<span class="field-error" data-error="${key}"></span></label>` : '';
+  const row = (...cells) => { const shown = cells.filter(Boolean); return shown.length ? `<div class="edit-row">${shown.join('')}</div>` : ''; };
+  editStart = {
+    aircraft: String(e.drone_id ?? ''), goal: e.goal && e.goal !== e.goal_logged ? e.goal : '',
+    date: set, pic: String(crewNow('pic')), pac: String(crewNow('pac')), gcs: String(crewNow('gcs')),
+    project: String(e.project_id ?? ''), operator: String(e.operator_source === 'flight' ? e.operator_id ?? '' : ''),
+    category: e.category_source === 'flight' ? categoryValue(e) : '', verdict: e.verdict_override || '', comment: e.comment || ''};
+  const projectList = projects.filter(p => me && (me.is_admin || p.can_add || p.id === e.project_id)).map(p => [p.id, p.name]);
+  $('editTitle').textContent = `Edit flight ${flightId}`;
+  $('editWhat').textContent = `${e.aircraft || 'Flight'} · ${fmtTime(e.takeoff_utc)}${sourceIds(e).length > 1 ? ' · saved on all its recordings' : ''}`;
+  $('editFields').innerHTML = [
+    row(f('aircraft', 'Fleet aircraft', `<select name="aircraft">${may.aircraft ? options([['', `Automatic (by the logged name${e.aircraft_logged ? ': ' + e.aircraft_logged : ''})`],
+        ...aircraftChoices.map(d => [d.id, d.name + (d.unique_id ? ' · ' + d.unique_id : '')])], editStart.aircraft) : ''}</select>`),
+      f('goal', 'Flight goal', `<input name="goal" maxlength="300" value="${esc(editStart.goal)}" placeholder="${esc(e.goal_logged || 'From the log: none')}" title="Empty: the goal from the log">`)),
+    row(f('date', 'Date (UTC)', `<input type="date" name="date" value="${esc(set || (e.takeoff_utc || '').slice(0, 10))}"
+        title="${e.date_ok && !set ? 'The log has a calendar date; change it only when it is wrong' : set ? 'Set by hand; empty: back to the log' : 'This log has no usable calendar date'}">`),
+      f('verdict', 'Classification', `<select name="verdict">${options([['', `Automatic (${(VERDICT_LABEL[e.verdict_auto] || 'unknown').toLowerCase()})`], ['flight', 'Flight'], ['ground', 'Not a flight']], editStart.verdict)}</select>`)),
+    row(...['pic', 'pac', 'gcs'].map(role => f(role, role === 'gcs' ? 'GCS operator' : role.toUpperCase(),
+      `<select name="${role}">${options([['', crewLogged(role)], ...people.map(p => [p.id, p.display_name])], editStart[role])}</select>`))),
+    row(f('project', 'Project', `<select name="project">${options([['', 'No project'], ...projectList], editStart.project)}</select>`),
+      f('operator', 'Operator', `<select name="operator">${may.operator ? operatorOptions(editStart.operator) : ''}</select>`),
+      f('category', 'Category', `<select name="category"><option value="">From project / place / date</option>${may.category ? categoryOptions(authorisations, editStart.category) : ''}</select>`)),
+    row(f('comment', 'Comment', `<textarea class="comment" name="comment" maxlength="4000" rows="3">${esc(editStart.comment)}</textarea>`, true)),
+  ].join('');
+  if (may.date && !set) editStart.date = $('editFields').querySelector('[name=date]').value;  // unchanged unless edited
+  const operatorSelect = $('editFields').querySelector('[name=operator]');
+  if (operatorSelect) operatorSelect.onchange = () => pickNewOperator(operatorSelect, operators,
+    () => { operatorSelect.innerHTML = operatorOptions(editStart.operator); }, editStart.operator);
+  $('editError').textContent = '';
+  $('editDialog').showModal();
+  ($('editFields').querySelector(`[name=${focus}]`) || $('editFields').querySelector('select, input, textarea'))?.focus();
 }
-async function saveGoal(ids) {
-  const goal = $('goalInput').value.trim();
-  for (const fid of ids) {
-    const r = await fetch('/api/flights/' + fid + '/goal', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({goal})});
-    if (!r.ok) { $('goalMsg').textContent = ((await r.json().catch(() => ({}))).error) || 'Could not save the goal'; return; }
-  }
-  D.entry.goal = goal || D.entry.goal_logged;
-  renderSummary();
-  $('goalMsg').textContent = 'Saved.';
+async function saveEdit(event) {
+  event.preventDefault();
+  const e = D.entry, value = key => $('editFields').querySelector(`[name=${key}]`)?.value ?? editStart[key];
+  const changed = Object.keys(editStart).filter(key => editable(e)[key] && value(key).trim() !== editStart[key].trim());
+  for (const el of $('editFields').querySelectorAll('[data-error]')) el.textContent = '';
+  $('editError').textContent = '';
+  if (!changed.length) { $('editDialog').close(); return; }
+  const id = key => value(key) ? +value(key) : null;
+  const records = body => (out, fallback) => send('/api/logbook/records', 'PUT', {record_keys: recordKeys(e), ...body}, out, fallback);
+  const each = (path, body) => async (out, fallback) => {
+    for (const fid of sourceIds(e)) if (!await send(`/api/flights/${fid}/${path}`, 'PUT', body, out, fallback)) return false;
+    return true;
+  };
+  const crew = {};
+  for (const role of ['pic', 'pac', 'gcs']) if (changed.includes(role)) crew[role + '_user_id'] = id(role);
+  // one request per field (the crew together); the aircraft last, as it decides the project and more
+  const steps = [
+    ['goal', each('goal', {goal: value('goal').trim()}), 'Could not save the goal'],
+    ['comment', each('comment', {comment: value('comment').trim()}), 'Could not save the comment'],
+    [Object.keys(crew).length ? Object.keys(crew)[0].replace('_user_id', '') : null,
+      (out, fallback) => send('/api/flights/crew', 'PUT', {flight_ids: sourceIds(e), ...crew}, out, fallback), 'Could not save the crew'],
+    ['project', each('project', {project_id: id('project')}), 'Could not save the project'],
+    ['operator', records({operator_id: id('operator')}), 'Could not save the operator'],
+    ['category', records(categoryChoice(value('category'))), 'Could not save the category'],
+    ['verdict', records({verdict: value('verdict') || null}), 'Could not save the classification'],
+    ['date', (out, fallback) => send(`/api/logs/${D.log_id}/date`, 'PUT', {date_override: value('date') || null}, out, fallback), 'Could not save the date'],
+    ['aircraft', (out, fallback) => send(`/api/flights/${flightId}/aircraft`, 'PUT', {drone_id: id('aircraft')}, out, fallback), 'Could not save the aircraft'],
+  ].filter(([key]) => key && changed.includes(key));
+  $('editSave').disabled = true;
+  let failed = 0;
+  try {
+    for (const [key, run, fallback] of steps) {
+      const out = $('editFields').querySelector(`[data-error="${key}"]`) || $('editError');
+      if (!await run(out, fallback)) failed++;
+    }
+  } finally { $('editSave').disabled = false; }
+  if (failed) { $('editError').textContent = `${failed} change${failed > 1 ? 's were' : ' was'} not saved; see above.`; await reloadEntry(); return; }
+  if (changed.includes('date') || changed.includes('aircraft')) { location.reload(); return; }  // times or aircraft move
+  $('editDialog').close();
+  await reloadEntry();
 }
-function aircraftField(e) {
-  if (!editing(e.can_edit_comment)) return '';
-  setTimeout(loadAircraftChoices);
-  return `<div class="inline-edit"><select id="aircraftPick" aria-label="Fleet aircraft of this recording" title="Link this recording (all its flights) to a fleet aircraft; Automatic: by the logged name">
-    <option value="">Automatic (by name${e.aircraft_logged ? ': ' + esc(e.aircraft_logged) : ''})</option></select>
-    <button type="button" onclick="saveAircraft()">Save aircraft</button> <span id="aircraftMsg" class="mute" role="status"></span></div>`;
-}
-let aircraftChoices = null;
-async function loadAircraftChoices() {
-  const pick = $('aircraftPick');
-  if (!pick) return;
-  aircraftChoices ||= await fetch(`/api/flights/${flightId}/aircraft-choices`).then(r => r.ok ? r.json() : {drones: []}).then(d => d.drones);
-  pick.append(...aircraftChoices.map(d => new Option(d.name + (d.unique_id ? ' · ' + d.unique_id : ''), d.id)));
-  pick.value = D.entry.drone_id ?? '';
-}
-async function saveAircraft() {
-  const value = $('aircraftPick').value;
-  const r = await fetch(`/api/flights/${flightId}/aircraft`, {method: 'PUT', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({drone_id: value ? +value : null})});
-  if (!r.ok) { $('aircraftMsg').textContent = ((await r.json().catch(() => ({}))).error) || 'Could not save the aircraft'; return; }
-  location.reload();  // the aircraft decides the project, category and more: load the flight again
-}
+$('editForm').onsubmit = saveEdit;
+$('editFlight').onclick = () => openEdit();
+document.addEventListener('click', event => {
+  const value = event.target.closest('[data-edit-field]');
+  if (!value || event.target.closest('a, button') || !D) return;
+  openEdit(value.dataset.editField);
+});
 
-function commentField(e) {
-  if (!editing(e.can_edit_comment)) return e.comment ? `<span class="note">${esc(e.comment)}</span>` : '<span class="mute">No comment</span>';
-  const ids = [...new Set((e.sources || []).map(s => s.flight_id))];
-  return `<textarea class="comment" id="cmt" maxlength="4000" placeholder="Notes about this flight">${esc(e.comment || '')}</textarea>
-    <div class="actions" style="margin-top:6px"><button type="button" onclick="saveComment([${ids.join(',')}])">Save comment</button> <span id="cmtMsg" class="mute"></span></div>`;
-}
-async function saveComment(ids) {
-  const text = ($('cmt').value || '').trim();
-  for (const fid of [...new Set(ids)]) {
-    const r = await fetch('/api/flights/' + fid + '/comment', {method: 'PUT', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({comment: text})});
-    if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the comment'); return; }
+// ⋯ next to the downloads: Re-parse (who may change this flight) and Delete (who may delete the log) per recording.
+function paintMore() {
+  const sources = D.entry.sources || [], several = new Set(sources.map(s => s.log_id)).size > 1, seen = new Set(), items = [];
+  for (const s of sources) {
+    if (seen.has(s.log_id)) continue;
+    seen.add(s.log_id);
+    const what = several ? ' ' + (TYPE[s.log_type] || s.log_type) : ' log';
+    if (canReparse()) items.push(`<button type="button" class="ext-item" role="menuitem" data-more="reparse" data-log="${s.log_id}" title="${esc(s.log_name)}">Re-parse${esc(what)}…</button>`);
+    if (logInfo[s.log_id]?.can_delete) items.push(`<button type="button" class="ext-item danger-item" role="menuitem" data-more="delete" data-log="${s.log_id}" title="${esc(s.log_name)}">Delete${esc(what)}…</button>`);
   }
-  D.entry.comment = text;
-  $('cmtMsg').textContent = 'Saved.';
+  $('moreMenu').innerHTML = items.join('');
+  $('moreWrap').hidden = !items.length;
 }
+function closeMore() { $('moreMenu').hidden = true; $('moreBtn').setAttribute('aria-expanded', 'false'); }
+$('moreBtn').onclick = event => {
+  event.stopPropagation();
+  const open = $('moreMenu').hidden;
+  $('moreMenu').hidden = !open;
+  $('moreBtn').setAttribute('aria-expanded', String(open));
+  if (open) {  // under the button, right-aligned with it (the tab row scrolls sideways, so the menu is outside it)
+    const r = $('moreBtn').getBoundingClientRect(), menu = $('moreMenu');
+    menu.style.top = `${r.bottom + scrollY + 6}px`;
+    menu.style.left = `${Math.max(8, r.right + scrollX - menu.offsetWidth)}px`;
+  }
+  if (open) $('moreMenu').querySelector('button')?.focus();
+};
+document.addEventListener('click', event => { if (!event.target.closest('#moreWrap, #moreMenu')) closeMore(); });
+addEventListener('resize', closeMore);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !$('moreMenu').hidden) { closeMore(); $('moreBtn').focus(); }
+});
+$('moreMenu').onclick = event => {
+  const item = event.target.closest('[data-more]');
+  if (!item) return;
+  closeMore();
+  const logId = +item.dataset.log, source = D.entry.sources.find(s => s.log_id === logId);
+  const name = esc(source?.log_name || 'this log');
+  if (item.dataset.more === 'reparse') {
+    actionDialog('Re-parse log', `<p style="margin:0">Parse <b>${name}</b> again with the current parser. Its flights keep their numbers
+      when their takeoff stays within a minute; changes made here stay. The page reloads when it is done.</p>`, 'Re-parse', async out => {
+      if (!await send(`/api/logs/${logId}/reparse`, 'POST', null, out, 'Could not queue the log')) return;
+      out.textContent = 'Queued; waiting for the parser…';
+      for (let i = 0; i < 300; i++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const status = (await fetch('/api/logs/' + logId).then(r => r.ok ? r.json() : null).catch(() => null))?.status;
+        if (status === 'done' || status === 'error') { location.reload(); return; }
+      }
+      out.textContent = 'Still parsing; reload the page later.';
+    });
+  } else {
+    actionDialog('Delete log', `<p style="margin:0">Delete <b>${name}</b>, its files and the flights parsed from it? This cannot be undone.</p>`, 'Delete', async out => {
+      if (await send(`/api/logs/${logId}`, 'DELETE', null, out, 'Could not delete the log')) location.href = '/';
+    });
+  }
+};
 
 const person = (f, role) => {
   const raw = f[role], u = f[role + '_user'];
   if (u) return `<a href="/people/${u.id}">${esc(u.display_name)}</a>`;
   return raw ? esc(raw) : '';
 };
-const goTo = (kind, id) => id != null ? ` <a href="/${kind}/${id}" title="Overview">↗</a>` : '';
-function crewField(e, role) {
-  if (!editing(e.can_edit_crew)) return person(e, role) || '<span class="mute">—</span>';
-  const ids = [...new Set((e.sources || []).map(s => s.flight_id))];
-  const u = e[role + '_user'];
-  const selectedId = u && (u.source === 'edit' || u.source === 'alias') ? u.id : '';
-  const logged = e[role] ? esc(e[role]) : u && !selectedId ? `${esc(u.display_name)} (uploader)` : '—';
-  return `<select onchange="setCrew('${role}', this.value, [${ids.join(',')}])">
-    <option value="">${logged}</option>
-    ${people.map(p => `<option value="${p.id}"${p.id === selectedId ? ' selected' : ''}>${esc(p.display_name)}</option>`).join('')}
-  </select>${goTo('people', u?.id)}`;
-}
-async function setCrew(role, value, ids) {
-  const r = await fetch('/api/flights/crew', {method: 'PUT', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({flight_ids: ids, [role + '_user_id']: value ? +value : null})});
-  if (!r.ok) { alert(((await r.json().catch(() => ({}))).error) || 'Could not save the name'); return; }
-  const d = await fetch(`/api/flights/${flightId}/detail`).then(r => r.json());
-  D.entry = d.entry; renderSummary();
-}
+// A summary row; for a value the user may change, its label and value open Edit flight at that field.
+const ekv = (key, label, value) => mayEdit(key)
+  ? `<span class="mute edit-key" data-edit-field="${key}" title="Click to change">${label}</span><span class="edit-val" data-edit-field="${key}" title="Click to change">${value || '<span class="mute">—</span>'}</span>`
+  : kv(label, value);
+const projectLink = e => e.project_id != null ? `<a href="/projects/${e.project_id}">${esc(e.project_name || '')}</a>` : '';
 const coord = (p, name) => p ? `${name ? esc(name) + ' · ' : ''}${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}${p.alt_m != null ? ' · ' + p.alt_m + ' m' : ''}` : '';
 const windTxt = w => w ? `${w.speed_ms} m/s from ${w.from_deg}°${w.temperature_c != null ? ', ' + w.temperature_c + ' °C' : ''}` : '';
 async function loadWeather(fetchRemote = false) {
@@ -535,14 +679,14 @@ function renderSummary() {
     e.optitrack || e.indoor ? (e.optitrack ? (!e.external_positioning || e.external_positioning === 'OptiTrack' ? 'Indoor (OptiTrack)' : 'Indoor: motion capture (' + esc(e.external_positioning) + ')') : e.indoor_no_gps ? 'Indoor / no GPS (inferred: no good GPS fix at takeoff or landing; a partial path may exist)' : 'Indoor') : '',
   ].filter(Boolean).join(' · ');
   $('summary').innerHTML = `<div class="flight-focus">
-      <div><span class="label">Aircraft</span><div class="value">${e.drone_id != null ? `<a href="/aircraft/${e.drone_id}">${esc(e.aircraft)}</a>` : esc(e.aircraft)}</div>${aircraftField(e)}${e.aircraft_uid ? `<span class="mute">${esc(e.aircraft_uid)}</span>` : ''}${e.aircraft_identity_inferred ? '<div class="mute">Identity inferred from matching GCS recording; SD name is shared.</div>' : (e.aircraft_ambiguous && e.drone_id == null ? '<div class="mute">Shared aircraft name; fleet identity unresolved.</div>' : '')}</div>
-      <div class="goal"><span class="label">Flight goal</span>${goalField(e)}</div>
+      <div><span class="label">Aircraft</span><div class="value">${editVal('aircraft', e.drone_id != null ? `<a href="/aircraft/${e.drone_id}">${esc(e.aircraft)}</a>` : esc(e.aircraft))}</div>${e.aircraft_uid ? `<span class="mute">${esc(e.aircraft_uid)}</span>` : ''}${e.aircraft_identity_inferred ? '<div class="mute">Identity inferred from matching GCS recording; SD name is shared.</div>' : (e.aircraft_ambiguous && e.drone_id == null ? '<div class="mute">Shared aircraft name; fleet identity unresolved.</div>' : '')}</div>
+      <div class="goal"><span class="label">Flight goal</span><div class="value">${editVal('goal', e.goal ? esc(e.goal) : '<span class="mute">Not recorded</span>')}</div></div>
       <div title="${esc(flightNumberTip())}"><span class="label">Flight no.</span><div class="value">${flightId}${window.copyButton(flightId, `flight number ${flightId}`)}</div></div>
       <div><span class="label">Flight time</span><div class="value">${fmtDur(e.duration_s) || '–'}</div></div>
     </div>
     <div class="summary-body"><div class="summary-main"><div class="summary-groups">
       <div><h3>When and where</h3><div class="kv">
-        ${kv('Date (UTC)', esc(day(e.takeoff_utc)) + estimatedDateBadge(e))}
+        ${ekv('date', 'Date (UTC)', esc(day(e.takeoff_utc)) + estimatedDateBadge(e))}
         ${kv('Takeoff', esc(clock(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id, e.takeoff)
           + (e.takeoff_location_inferred ? ' <span class="mute">(location inferred from landing)</span>' : ''))}
         ${kv('Landing', (landingTime ? esc(landingTime) + ' · ' : '') + place(e.landing_place, e.landing_lat, e.landing_lon, e.landing_place_id, e.landing)
@@ -550,16 +694,17 @@ function renderSummary() {
         ${kv('Distance flown', fmtDist(e.distance_m))}${kv('Max from takeoff', fmtDist(e.max_from_takeoff_m))}${kv('At landing', fmtDist(e.from_takeoff_m))}
         ${kv('Battery', pair(e, volts))}${kv('Wind (logged)', pair(e, wind))}${kv('Datalink', linkShort(e))}
       </div></div>
-      <div><h3>Crew</h3><div class="kv">${kv('PIC', crewField(e, 'pic'))}${kv('PAC', crewField(e, 'pac'))}${kv('GCS operator', crewField(e, 'gcs'))}</div></div>
+      <div><h3>Crew</h3><div class="kv">${ekv('pic', 'PIC', person(e, 'pic'))}${ekv('pac', 'PAC', person(e, 'pac'))}${ekv('gcs', 'GCS operator', person(e, 'gcs'))}</div></div>
       <div><h3>Operation</h3><div class="kv">
-        ${kv('Project', projectField(e) || '<span class="mute">—</span>')}
-        ${kv('Operator', e.operator_name ? esc(operatorLabel({name: e.operator_name, registration: e.operator_registration}))
+        ${ekv('project', 'Project', projectLink(e))}
+        ${ekv('operator', 'Operator', e.operator_name ? esc(operatorLabel({name: e.operator_name, registration: e.operator_registration}))
           + (e.operator_source === 'flight' ? '' : ` <span class="mute">${OPERATOR_SOURCE[e.operator_source]}</span>`) : '')}
-        ${kv('Category', esc(categoryText(e)) + (e.category_source === 'flight' ? '' : ` <span class="mute">${CATEGORY_SOURCE[e.category_source] || 'no rule applies'}</span>`)
+        ${ekv('category', 'Category', esc(categoryText(e)) + (e.category_source === 'flight' ? '' : ` <span class="mute">${CATEGORY_SOURCE[e.category_source] || 'no rule applies'}</span>`)
           + (e.category_check ? ` <span class="warn">${esc(e.category_check)}</span>` : ''))}
+        ${ekv('verdict', 'Classification', esc(VERDICT_LABEL[e.verdict] || 'Unknown') + ` <span class="mute">${e.verdict_override ? 'set by hand' : 'automatic'}</span>`)}
       </div></div>
     </div>
-    <div class="comment-block"><h3>Comment</h3>${commentField(e)}</div></div>
+    <div class="comment-block"><h3>Comment</h3>${editVal('comment', e.comment ? `<span class="note">${esc(e.comment)}</span>` : '<span class="mute">No comment</span>')}</div></div>
     <div class="summary-map"><a href="#path" title="Open Path &amp; charts"><div id="overviewMap" role="img" aria-label="Flight path"></div></a></div></div>
     ${status ? `<div class="status-line">${status}</div>` : ''}
     <details style="margin-top:12px"><summary>Log sources and upload details</summary><div class="kv src">
@@ -1160,6 +1305,7 @@ fetch(`/api/flights/${flightId}/detail`).then(r => r.ok ? r.json() : Promise.rej
   }
   $('matlabMenu').innerHTML = logDownloadButtons(D.entry.sources) + IndiflightOpen.button(D.entry.sources) + MatlabExport.button(D.entry.sources);
   setAvailableSeries(); renderSummary(); renderLists(); renderMisc(); loadWeather(); selectTab(activeTab); paintFlightNav();
+  paintEditButton(); paintMore(); loadLogInfo();
   $('allChanges').onchange = () => { listPages.changes = 0; renderLists(); };
   $('allMsgs').onchange = () => { listPages.msgs = 0; renderLists(); };
 }).catch(err => { console.error(err); $('summary').textContent = typeof err === 'number' ? 'Flight not found (or not yours).' : 'Error: ' + err; });

@@ -23,10 +23,10 @@ SETTINGS = {
         "PROXIES": ("0", "Number of reverse proxies (nginx/Caddy) in front of the app. Set to 1 behind a proxy so "
                          "client addresses and https are seen correctly; keep 0 when clients connect directly"),
         "HIDE_UNLINKED_AIRCRAFT": ("0", "Exclude flights without a linked fleet aircraft from statistics, logbook "
-                                      "person details and locations; hide the aircraft-page notice outside Edit mode"),
+                                      "person details and locations; admins still link them under Unlinked names on Aircraft"),
         "TRAINING": ("0", "1 shows Training: in-app questionnaires that can grant a qualification on a pass"),
-        "BOOKINGS": ("0", "1 shows Agenda: a week agenda of bookable items that administrators set up in Edit mode"),
-        "DOCUMENTS": ("0", "1 shows Documents: shared documents that administrators upload in Edit mode, and each "
+        "BOOKINGS": ("0", "1 shows Agenda: a week agenda of bookable items that administrators set up"),
+        "DOCUMENTS": ("0", "1 shows Documents: shared documents that administrators upload, and each "
                            "person's own current qualifications"),
         "SAFETY": ("0", "1 shows Safety (/safety): danger, incident and accident reports. "
                         "The Operations Manual links /safety: keep it on in production"),

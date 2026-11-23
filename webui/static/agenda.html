@@ -16,7 +16,8 @@
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
   .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
   .toolbar h2 { margin:0; }
-  .toolbar details { margin-left:auto; }
+  .toolbar details { margin-left:0; }
+  #newBtn { margin-left:auto; }  /* New booking, Subscribe and Manage ▾ at the end of the title row */
   #err { color:var(--err); margin-bottom:8px; }
   #err:empty { display:none; }
   button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
@@ -77,6 +78,8 @@
   .flag-chip small { color:var(--mute); font-weight:400; }
   #tabs [role=tab][draggable=true] { cursor:grab; }
   #tabs [role=tab].drop { box-shadow:inset 3px 0 0 var(--acc); }
+  /* admins: Edit item and ⋯ for the open item at the end of the tabs, Manage ▾ in the toolbar */
+  #tabs .tabs-end { display:flex; gap:6px; align-items:center; }
   .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
   .check { display:flex; gap:6px; align-items:center; font-size:13px; }
   .flag-row { display:grid; grid-template-columns:1fr auto auto auto auto; gap:6px; align-items:center; }
@@ -89,7 +92,7 @@
   [hidden] { display:none !important; }
 </style>
 </head>
-<body data-edit="admin">
+<body>
 <header>
   <h1>Agenda</h1>
   <span class="meta" id="nav"></span>
@@ -104,10 +107,14 @@
       <strong id="range"></strong>
       <button type="button" class="sec" aria-label="Next week" onclick="moveWeek(7)">›</button>
       <button type="button" class="sec" onclick="moveWeek(0)">Today</button>
-      <button type="button" id="newBtn" onclick="openBooking()">New booking</button>
       <span class="legend" id="legend"></span>
+      <button type="button" id="newBtn" onclick="openBooking()">New booking</button>
       <button type="button" class="sec" onclick="openCalendar()" title="Show this agenda in your own calendar app">Subscribe</button>
-      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day to book that time (a click books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's. With one item there are no tabs. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item overlap only when both set a shared option (for example "Others allowed") and neither sets a blocking one (for example "Demo"); an item without options never overlaps. Some items need a current qualification to book, or to see their agenda at all. Some need approval: your booking then shows as Pending (striped) and holds its time until an administrator or approver approves or rejects it; moving it asks again. You can change or delete your own bookings; administrators can book for someone else, change any booking and set up the items in Edit mode. Times are local.</p></details>
+      <span class="menu-wrap" id="manageWrap" hidden><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
+        <div class="menu-pop" id="manageMenu" role="menu" hidden>
+          <button type="button" class="ext-item" role="menuitem" onclick="openItem()">Add bookable item…</button>
+        </div></span>
+      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day to book that time (a click books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's. With one item there are no tabs. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item overlap only when both set a shared option (for example "Others allowed") and neither sets a blocking one (for example "Demo"); an item without options never overlaps. Some items need a current qualification to book, or to see their agenda at all. Some need approval: your booking then shows as Pending (striped) and holds its time until an administrator or approver approves or rejects it; moving it asks again. You can change or delete your own bookings; administrators can book for someone else and change any booking. Administrators also see items that are closed for bookings, add items with <em>Manage ▾</em> → <em>Add bookable item…</em>, change the open item with <em>Edit item</em> (⋯ deletes it) and drag the tabs to order them. Times are local.</p></details>
     </div>
     <div class="page-tabs" id="tabs" aria-label="Bookable items"></div>
     <p id="about"></p>
@@ -137,7 +144,7 @@
     <div class="field" id="flagField"><span class="mute" style="font-size:12px">Options</span><div id="flagChecks" class="flag-chips"></div></div>
     <p class="mute" id="approvalNote" hidden></p>
     <p class="dialog-error" id="bookingError" role="alert"></p>
-    <div class="row" id="bookingActions"><button type="submit">Save</button> <button type="button" class="danger" id="deleteBtn" onclick="removeBooking()">Delete</button> <button type="button" class="sec" onclick="$('bookingDialog').close()">Cancel</button></div>
+    <div class="row" id="bookingActions"><button type="submit" class="primary">Save</button> <button type="button" class="danger" id="deleteBtn" onclick="removeBooking()">Delete…</button> <button type="button" class="sec" onclick="$('bookingDialog').close()">Cancel</button></div>
   </form>
 </dialog>
 <dialog class="entry-dialog" id="rejectDialog" aria-labelledby="rejectTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
@@ -182,7 +189,15 @@
     <div id="flagRows"></div>
     <div><button type="button" class="sec" onclick="addFlagRow()">Add option</button></div>
     <p class="dialog-error" id="itemError" role="alert"></p>
-    <div class="row"><button type="submit">Save</button> <button type="button" class="danger" id="itemDeleteBtn" onclick="removeItem()">Delete</button> <button type="button" class="sec" onclick="$('itemDialog').close()">Cancel</button></div>
+    <div class="row"><button type="submit" class="primary">Save</button> <button type="button" class="sec" onclick="$('itemDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="actDialog" aria-labelledby="actTitle" style="width:min(460px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="actTitle"></h2><button type="button" class="sec" onclick="$('actDialog').close()">Close</button></div>
+  <form id="actForm">
+    <div id="actBody"></div>
+    <p class="dialog-error" id="actError" role="alert"></p>
+    <div class="row"><button type="submit" class="primary" id="actOk">OK</button> <button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></div>
   </form>
 </dialog>
 <script>
@@ -208,7 +223,42 @@ function mondayOf(d) {
   return m;
 }
 function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
-const editing_ = () => !!(me && me.is_admin && window.editMode());
+const admin = () => !!me?.is_admin;
+// One small confirmation dialog (instead of confirm()); run returns true to close it.
+function actDialog(title, body, okLabel, run) {
+  $('actTitle').textContent = title;
+  $('actBody').innerHTML = body;
+  $('actError').textContent = '';
+  $('actOk').textContent = okLabel;
+  $('actForm').onsubmit = async event => {
+    event.preventDefault();
+    $('actOk').disabled = true;
+    try { if (await run($('actError'))) $('actDialog').close(); } finally { $('actOk').disabled = false; }
+  };
+  $('actDialog').showModal();
+}
+// Manage ▾ and the open item's ⋯: small menus that close on a click elsewhere or Escape.
+function closeMenus() {
+  for (const pop of document.querySelectorAll('.menu-pop')) pop.hidden = true;
+  for (const b of document.querySelectorAll('[aria-haspopup="menu"]')) b.setAttribute('aria-expanded', 'false');
+}
+document.addEventListener('click', e => {
+  const button = e.target.closest('#manageBtn, #itemMoreBtn');
+  if (button) {
+    const pop = button.nextElementSibling, open = pop.hidden;
+    closeMenus();
+    pop.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+    if (open) pop.querySelector('button')?.focus();
+    return;
+  }
+  if (e.target.closest('.menu-pop .ext-item') || !e.target.closest('.menu-wrap')) closeMenus();
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const open = [...document.querySelectorAll('.menu-pop')].find(pop => !pop.hidden);
+  if (open) { closeMenus(); open.previousElementSibling.focus(); }
+});
 const item = id => data.things.find(t => t.id === id);
 const current = () => tab === 'all' ? null : item(+tab);
 function moveWeek(n) {
@@ -252,9 +302,9 @@ async function load() {
 function colourOf(b) {  // the item's colour; options show as tags with their own colour
   return item(b.thing_id).colour || 'var(--acc)';
 }
-const visibleThings = () => data.things.filter(t => t.active || editing_());
-// With one item (and not editing) there are no tabs: the agenda is that item's.
-const single = () => !editing_() && visibleThings().length === 1 && visibleThings()[0].can_view;
+const visibleThings = () => data.things.filter(t => t.active || admin());  // admins also see closed items
+// With one item there are no tabs (the agenda is that item's), except for admins, who change items from the tabs.
+const single = () => !admin() && visibleThings().length === 1 && visibleThings()[0].can_view;
 function paintTabs() {
   const visible = visibleThings();
   if (single()) {
@@ -269,18 +319,19 @@ function paintTabs() {
     ...visible.map(t => [String(t.id), esc(t.name) + (t.active ? '' : ' (inactive)') + (t.can_view ? '' : ' (locked)'),
       t.can_view ? count(t.id) : null])], tab, choose);
   $('tabs').hidden = false;
-  if (editing_()) bindTabOrder();
-  if (editing_()) {
+  if (admin()) {
+    bindTabOrder();
     const t = current();
-    $('tabs').insertAdjacentHTML('beforeend', `<span class="tabs-end">${t ? '<button type="button" class="sec" onclick="openItem(' + t.id + ')">Edit item</button>' : ''}
-      <button type="button" class="sec" onclick="openItem()">Add item</button></span>`);
+    if (t) $('tabs').insertAdjacentHTML('beforeend', `<span class="tabs-end"><button type="button" class="sec" onclick="openItem(${t.id})">Edit item</button>
+      <span class="menu-wrap"><button type="button" class="sec" id="itemMoreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions for ${esc(t.name)}" title="Rare actions">⋯</button>
+        <div class="menu-pop" role="menu" hidden><button type="button" class="ext-item danger-item" role="menuitem" onclick="removeItem(${t.id})">Delete item…</button></div></span></span>`);
   }
 }
 function paintAbout() {
   const t = current();
   const parts = [];
   if (!t) {
-    if (!data.things.length) parts.push(editing_() ? 'No bookable items yet: add one with Add item.' : 'Nothing can be booked yet.');
+    if (!data.things.length) parts.push(admin() ? 'No bookable items yet: add one with Manage ▾ → Add bookable item….' : 'Nothing can be booked yet.');
   } else {
     if (t.description) parts.push(esc(t.description));
     if (t.type_id && !t.can_book && t.active)
@@ -315,6 +366,7 @@ function paint(scroll) {
   paintTabs();
   paintAbout();
   $('newBtn').hidden = !bookable();
+  $('manageWrap').hidden = !admin();
   const days = [...Array(7)].map((_, i) => isoDate(addDays(monday, i)));
   const today = isoDate(new Date());
   const shown = data.bookings.filter(b => tab === 'all' || b.thing_id === +tab);
@@ -445,7 +497,7 @@ function bindMove(el, p, first) {
     };
   };
 }
-// Admins (Edit mode) drag the item tabs to order them.
+// Admins drag the item tabs to order them.
 function bindTabOrder() {
   const tabs = [...$('tabs').querySelectorAll('[role=tab]')].filter(b => b.dataset.tab !== 'all');
   let dragged = null;
@@ -571,13 +623,16 @@ $('bookingForm').onsubmit = async event => {
     $('bookingError').textContent = e.message;
   }
 };
-async function removeBooking() {
-  if (!editing || !confirm('Delete this booking?')) return;
-  try {
-    await api('/api/bookings/' + editing.id, {method: 'DELETE'});
-    $('bookingDialog').close();
-    load();
-  } catch (e) { $('bookingError').textContent = e.message; }
+function removeBooking() {
+  if (!editing) return;
+  const b = editing;
+  actDialog('Delete booking', `<p style="margin:0">Delete <b>${esc(b.description)}</b> (${esc(item(b.thing_id).name)}, ${esc(b.start.replace('T', ' '))} – ${esc(b.end.slice(11))})?</p>`,
+    'Delete', async out => {
+      try { await api('/api/bookings/' + b.id, {method: 'DELETE'}); } catch (e) { out.textContent = e.message; return false; }
+      $('bookingDialog').close();
+      load();
+      return true;
+    });
 }
 function syncItemForm() {
   const f = $('itemForm');
@@ -626,7 +681,6 @@ function openItem(id) {
   paintApprovers();
   $('flagRows').innerHTML = '';
   t.flags.forEach(addFlagRow);
-  $('itemDeleteBtn').hidden = !id;
   $('itemError').textContent = '';
   syncItemForm();
   $('itemDialog').showModal();
@@ -651,15 +705,16 @@ $('itemForm').onsubmit = async event => {
     load();
   } catch (e) { $('itemError').textContent = e.message; }
 };
-async function removeItem() {
-  if (!editingItem || !confirm('Delete this bookable item?')) return;
-  try {
-    await api('/api/admin/booking-things/' + editingItem, {method: 'DELETE'});
-    $('itemDialog').close();
+function removeItem(id) {
+  const t = item(id);
+  actDialog('Delete bookable item', `<p style="margin:0">Delete <b>${esc(t.name)}</b>? To only stop new bookings, untick
+    <em>Open for bookings</em> in Edit item instead.</p>`, 'Delete', async out => {
+    try { await api('/api/admin/booking-things/' + id, {method: 'DELETE'}); } catch (e) { out.textContent = e.message; return false; }
     tab = 'all';
     window.viewState.save();
     load();
-  } catch (e) { $('itemError').textContent = e.message; }
+    return true;
+  });
 }
 // Calendar feed links (private to this person): all items, and one per item.
 async function openCalendar(make) {
@@ -678,10 +733,15 @@ async function openCalendar(make) {
       <td style="padding-left:6px"><button type="button" class="sec" onclick="navigator.clipboard.writeText(this.closest('tr').querySelector('input').value).then(() => { this.textContent = 'Copied'; })">Copy</button></td></tr>`).join('')}</table>`
     : '<p>You have no calendar link yet.</p>';
   $('calendarActions').innerHTML = d.token
-    ? `<button type="button" class="sec" onclick="if (confirm('Replace your link? Calendars that use the old one stop updating.')) openCalendar('new')">Replace link</button>
-       <button type="button" class="danger" onclick="if (confirm('Turn off your calendar link?')) openCalendar('off')">Turn off</button>`
+    ? `<button type="button" class="sec" onclick="confirmCalendar('new')">Replace link…</button>
+       <button type="button" class="danger" onclick="confirmCalendar('off')">Turn off…</button>`
     : '<button type="button" onclick="openCalendar(\'new\')">Make my link</button>';
   if (!$('calendarDialog').open) $('calendarDialog').showModal();
+}
+function confirmCalendar(make) {
+  actDialog(make === 'new' ? 'Replace link' : 'Turn off link', `<p style="margin:0">${make === 'new'
+    ? 'Replace your link? Calendars that use the old one stop updating.' : 'Turn off your calendar link? Calendars that use it stop updating.'}</p>`,
+    make === 'new' ? 'Replace' : 'Turn off', async () => { await openCalendar(make); return true; });
 }
 window.viewState.setup(p => {
   const raw = p.get('week');
@@ -692,7 +752,7 @@ window.viewState.setup(p => {
   window.viewState.set(p, 'week', isoDate(monday) === isoDate(mondayOf(new Date())) ? '' : isoDate(monday), '');
   window.viewState.set(p, 'item', tab === 'all' ? '' : tab, '');
 }, load);
-window.addEventListener('editchange', () => { if (me) paint(); });
+
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');

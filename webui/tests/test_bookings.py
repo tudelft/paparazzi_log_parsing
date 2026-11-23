@@ -43,6 +43,20 @@ class BookingTests(AppTests):
         return self.client.post("/api/bookings", json={"thing_id": item or self.arena, "description": "Hover test",
                                                        "start": start, "end": end, "flags": list(flags)})
 
+    def test_home_coming_up_shows_everyones_bookings_on_items_one_can_view(self):
+        start = (datetime.datetime.now() + datetime.timedelta(days=1)).replace(hour=10, minute=0)
+        span = dict(start=start.strftime("%Y-%m-%dT%H:%M"), end=(start + datetime.timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"))
+        self.assertEqual(self.book(**span).status_code, 201)  # the pilot, on the arena
+        mine = self.client.get("/api/home").json["bookings"]
+        self.assertEqual([(b["thing"], b["mine"]) for b in mine["upcoming"]], [("Indoor arena", True)])
+        self.sign_in(3)  # holds the briefing: sees the pilot's booking, not as their own
+        home = self.client.get("/api/home").json["bookings"]
+        self.assertEqual(home["upcoming"], [])
+        self.assertEqual([(b["thing"], b["person"], b["mine"]) for b in home["upcoming_all"]],
+                         [("Indoor arena", "Pilot", False)])
+        self.sign_in(4)  # may not view the arena: nothing of it
+        self.assertEqual(self.client.get("/api/home").json["bookings"]["upcoming_all"], [])
+
     def test_viewing_mode_hides_the_item_and_links_the_training(self):
         self.assertEqual(self.book(self.room, flags=()).status_code, 201)
         self.assertEqual(self.book(flags=[self.shared]).status_code, 201)

@@ -48,7 +48,7 @@ Day-to-day:
     sudo systemctl start flight-logs-backup          # back up now
     sudo -u logdb /opt/flight-logs/app/webui/venv/bin/python /opt/flight-logs/app/webui/app.py check-config
 
-After an update that changes the parser version, click **Re-parse outdated** on the Logs page (in Edit mode).
+After an update that changes the parser version, use **Manage ▾ → Re-parse outdated…** on the Logs page (admins).
 Re-parsing keeps flight numbers (`flights.id`, used in `/flight/<number>`, `pprz_fetch` and the Python client): a flight
 with the same aircraft ID and flight index whose takeoff moved at most 60 s keeps its number (`db.store_parsed`). Other
 flights get a new number above every number of that log, so a dropped number never points at another flight.
@@ -381,8 +381,8 @@ linked to a fleet aircraft by a clear name or by hand, an unknown board ID is re
 (`drone_boards`); a recording whose name is ambiguous or unknown is then linked by its board, and earlier
 unplaced recordings of that board follow. A clear name or a hand assignment always wins over the board; a
 board that also appears under another aircraft is marked on the Aircraft page (Aliases tab). Admins can stop
-matching by a board (a board moved to another airframe, a shared test board) and allow it again in Edit mode
-under shared names. Simulated recordings never match by board (their ID is the PC's machine ID). The
+matching by a board (a board moved to another airframe, a shared test board: ⋯ → *Stop matching a board…* of the
+open aircraft) and allow it again under **Shared names**. Simulated recordings never match by board (their ID is the PC's machine ID). The
 migration fills board IDs of logs already parsed with parser 1.9.0.
 Admins can also link a board directly (`PUT /api/admin/drone-boards` with `mcu_uid` and `drone_id`, stored as
 `manual`): every recording on that board follows it and hand assignments of single recordings on the board are
@@ -486,8 +486,8 @@ in Web UI ingestion. Reparse outdated logs after updating and configuring any ad
 and Operation groups, the comment and a small non-interactive path map (it opens Path & charts). Takeoff
 and landing times follow one Date row; battery and logged wind are takeoff → landing rows, coordinates are on
 hover over the place name, and INS values are under Log sources; log sources, upload details
-and raw-data links are folded away. Project, crew and comment controls appear only in Edit mode (and only
-with permission); the Files tab is the file manager described under attachments (compact list, search, category filter, **Upload files**, **Edit**). Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
+and raw-data links are folded away. Changes are made with **Edit flight** ([below](#flight-page-changes));
+the Files tab is the file manager described under attachments (compact list, search, category filter, **Upload files**, a click on a file's row to edit it). Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
 and warnings for local (dirty) changes. Multiple reported builds remain visible; raw version messages
 can be expanded. Commit links use `paparazzi/paparazzi` and may not resolve for private forks.
 When the aircraft did not send `AUTOPILOT_VERSION`, the GCS `runtime paparazzi_version` comment at
@@ -590,7 +590,7 @@ its files and is shown after the listed ones, but cannot be chosen again. The pa
 (uncategorised last, empty groups hidden). The file manager (`AttachmentFiles.manage` in `attachments.js`) is the same on
 a flight's Files tab, a paper record and a log (the Logs page opens it in a dialog): the compact list with search and a
 category filter (on pages in the URL as `files_q` / `files_category`), **Upload files** (only with something to upload
-to) and **Edit** per file the user may change; uploading and linking to more flights/logs happen in dialogs. There is
+to); a click on the row of a file the user may change opens its Edit dialog (no per-row buttons, [UI rule](#ui-rule); the name stays a link to the file); uploading and linking to more flights/logs happen in dialogs. There is
 no separate attachments page.
 
 **Matching files to flights.** The general **Upload** (header, or files dropped on a page) sends logs as before;
@@ -702,7 +702,7 @@ to `WEB_DATA/exports` (local disk) with a JSON side file and kept two weeks; abo
 compression threads) and at most 20 may wait. A restart drops queued/running jobs (the page asks again) and
 removes partial files.
 
-**Bulk MATLAB export.** In the Logbook, **Select** (or Edit mode) shows checkboxes; ticks survive paging and a
+**Bulk MATLAB export.** The Logbook always shows tick boxes; ticks survive paging and a
 "N selected · MATLAB ▾ · ✕" control in the toolbar exports them. `POST /api/matlab-bulk` takes `entries`, per
 logbook entry the flight ids of its recordings; the server keeps the ones in visible, finished logs, picks the SD
 recording when there is one and else the GCS one (entries without either are counted as `skipped`) and refuses
@@ -841,7 +841,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `COOKIE_SECURE` | `0` | `1` when served over https |
 | `PROXIES` | `0` | `1` behind nginx/Caddy (trust its `X-Forwarded-*` headers) |
 | `BIND` | `127.0.0.1:8000` | Address gunicorn listens on |
-| `HIDE_UNLINKED_AIRCRAFT` | `0` | `1` excludes unlinked telemetry flights from Logbook, Statistics, person details and Locations, and hides the Aircraft notice outside Edit mode |
+| `HIDE_UNLINKED_AIRCRAFT` | `0` | `1` excludes unlinked telemetry flights from Logbook, Statistics, person details and Locations; admins still link the names under **Unlinked names** on Aircraft |
 | `TRAINING` | `0` | `1` shows Training: in-app questionnaires that can grant a qualification on a pass |
 | `BOOKINGS` | `0` | `1` shows the [Agenda](#booking-agenda) of bookable items |
 | `DOCUMENTS` | `0` | `1` shows [Documents](#documents): shared documents and each person's own qualifications |
@@ -885,8 +885,8 @@ Set `LOGDB_HIDE_UNLINKED_AIRCRAFT=1` and restart the server to hide telemetry fl
 merged aircraft identity has no fleet link. Lists, counts, flight time, charts and location
 map hints use only the remaining flights, for all users including admins. A merged SD/GCS flight
 stays visible if either source is linked. Paper records are unchanged (they already require a
-fleet aircraft). The Aircraft page keeps unlinked names available to admins in Edit mode for
-linking, but hides its read-only unlinked-name notice. Direct flight/upload details remain
+fleet aircraft). The Aircraft page keeps unlinked names available to admins (Unlinked names tab) for
+linking. Direct flight/upload details remain
 accessible under the existing permissions; this is a display setting, not an access restriction.
 Person detail flight lists, charts and role totals use the same filter as Statistics, so PIC/PAC
 totals agree when the indoor/non-flight filters match. Person headline flight time includes
@@ -898,11 +898,11 @@ the previous overviews; no records are deleted or reparsed.
 
 Click your name in the top bar to open **My account**. Local users can change their password
 by entering their current password and a new password of at least 10 characters. On **People**, admins
-can enable **Edit**, select a person and use **Reset password** (or **Set password**) in their Account tab to
+can open a person and use ⋯ → **Reset password** (or **Set password**) to
 generate a one-time, 48-hour link for a local account and share it privately.
 Generating a link does not change the password until it is used; a new link replaces older links.
 SAML/TU Delft passwords remain managed by the identity provider. API keys cannot manage passwords.
-Admins can also **Remove password** in that Account tab without deleting the profile,
+Admins can also **Remove password** (⋯) without deleting the profile,
 flights or other linked information. This clears unused setup/reset links and prevents new password
 sign-ins; existing sessions and API keys are not revoked. **Set password** can restore local sign-in
 later. The last administrator's login method cannot be removed.
@@ -913,8 +913,8 @@ Self-demotion is blocked: ask another administrator to remove your rights. The l
 administrator cannot be demoted. These changes preserve ordinary project memberships and take
 effect on subsequent requests, including requests using existing API keys.
 The separate API keys tab lists the selected person's API-key names, scopes (*full (old)* for a key from before
-scopes), prefixes, creation times and last-use times (or Never). In Edit mode, admins can narrow a key's scopes or
-revoke individual keys after confirmation; scripts using that key immediately lose access. The selected user's other keys remain unchanged.
+scopes), prefixes, creation times and last-use times (or Never). Admins tick keys and use the selection bar: *Narrow scopes…* (one
+key) or *Revoke…* after confirmation; scripts using that key immediately lose access. The selected user's other keys remain unchanged.
 Secrets and hashes are never returned; full secrets cannot be recovered.
 Both role changes (`PUT /api/admin/users/<id>/admin`) and key-detail access
 (`GET /api/admin/users/<id>/keys`) or revocation (`DELETE /api/admin/users/<id>/keys/<key_id>`)
@@ -931,16 +931,24 @@ works in the administrator's browser session (`POST /api/view-as/<id>`, `POST /a
 API key, and ends when the setting is switched off, the administrator loses admin rights, the person can no
 longer sign in, or the administrator signs out.
 
-The Projects overview uses searchable, equal-height responsive cards with contrasting backgrounds,
-accent borders, top-right log/member counts and a member list clipped to three lines with an ellipsis.
-The whole card opens the project; member names in these cards are plain text, not person links.
-Hover over the member list for all names. People and Projects cards do not highlight on mouse hover;
-keyboard focus remains visible. Permissions are only shown in Edit.
-In Edit mode, select one project from the searchable list to
-rename it, change current members' permissions or delete it. The member list contains only existing
-members; search by name, username or alias to add an enabled, non-external person with See access,
-then adjust Upload/Edit/Delete as needed. Removing all permissions removes membership. Existing API
-authorization and project visibility rules apply unchanged.
+<a id="projects-page"></a>**Projects page** ([UI rule](#ui-rule)). Tabs Projects,
+Authorisations and Operators (`tab=`). **Projects** is a table like Aircraft: Project (a link to the project page),
+Members (the first three, "+N", all on hover), Logs, Operator and Category of its flights (`GET /api/projects` returns
+`operator_id`, `category` and `authorisation_id` for this; admins read `/api/admin/projects`). Search, sort, page and
+rows per page are in the URL (`q`, `sort`, `page`, `size`). Admins, and managers for their projects, open a project
+beside the table (`open=<id>`, `ptab=members`; Operator and Category are hidden then) with the tabs Details and
+Members; other rows open the project page. **Edit project** is one dialog: admins change the name, operator (also
+**New operator…**) and category (`PUT /api/admin/projects/<id>` with only what changed) and the members; a manager only
+the members. Each member has one access select (See / See, upload / … edit / … delete / Manager) and × to remove
+(↺ undoes); a search adds an enabled, non-external person with See. Save sends one `PUT /api/projects/<id>/members` per
+changed member (`role: ""` removes). ⋯ (admins): **Delete project…** (logs stay). **Add project** and **Manage ▾**
+(Import CSV…, Download CSV template) are admins only; dialogs replace `confirm()`.
+**Authorisations** and **Operators** are read-only tables for everyone, without tick boxes. Admins click a row to
+change it in a dialog (nothing is sent when unchanged); **Delete…** at the end of that dialog asks for confirmation (the
+server refuses to delete one still in use and says where). **Add operator** is for everyone (only admins tick *Our own operator*), **Add
+authorisation** for admins. Under Operators, admins click an external person to set the operator they fly for
+(`PUT /api/admin/users/<id>/operator`). Existing API authorization and project visibility rules apply
+unchanged.
 
 **Project roles and managers.** `project_members.role` is `view` < `add` < `edit` < `full` < `manager`
 (`ACCESS_ROLES`, `PROJECT_ROLE_RANK` in `app.py`; ticks See, Upload, Edit, Delete, Manager); each includes the ones
@@ -949,8 +957,8 @@ files; `edit` also changes the project's flights, logs and paper records like `f
 flights, log dates, flight projects, links between records, file category and description; `EDIT_ROLES`,
 `historical.can_edit`) but deletes nothing: deleting logs and paper records and removing file links stay `full`
 (`FULL_ROLES`, `historical.can_delete`, `can_remove` of an attachment link).
-Admins tick **Manager** in the members editor (or use `manager` in the project CSV). In Edit mode a manager sees the
-members editor for the projects they manage, without rename, operator, category or delete: they add and remove
+Admins choose **Manager** in Edit project (or use `manager` in the project CSV). A manager gets Edit project for the
+projects they manage, with only the members (no rename, operator, category or delete): they add and remove
 members and set See/Upload/Edit/Delete (`PUT /api/projects/<id>/members`, the same handler as
 `/api/admin/projects/<id>/members`). Only admins appoint managers or change a manager's row, also the manager's
 own (403). Creating, deleting and renaming projects, operators, categories, authorisations and the CSV import stay
@@ -968,8 +976,7 @@ Managers of a project the aircraft is in today (a timeline period covering today
 manager may change only status, current user, comments and manager (`PUT /api/drones/<id>`; other fields 403).
 Name, serial, project history, aliases, import and delete stay admin-only.
 
-**Aircraft requests.** A non-admin with `add`, `edit`, `full` or `manager` on a project sees **Request aircraft** (also
-outside Edit mode): project, name and optional details, no serial (`POST /api/drone-requests`, browser session only).
+**Aircraft requests.** A non-admin with `add`, `edit`, `full` or `manager` on a project sees **Request aircraft**: project, name and optional details, no serial (`POST /api/drone-requests`, browser session only).
 Requests are stored in `drone_requests`, not in `drones`, so a pending request reserves no name and is never used
 for log matching (`drone_name_map`, folder matching, relinking). The Aircraft page lists pending requests, greyed with
 **Pending**, to the requester, the project's managers and admins (`requests` in `GET /api/drones`). Admins and the
@@ -993,7 +1000,7 @@ Everything requires a login. Admins create accounts on the People page or on the
 
 A new account needs an email address (Add user, `create-user --email`). In Add user the username is optional: without one it is taken
 from the address (the part before `@`, lower case, numbered when taken, as for a first SSO login). Accounts made before that rule may have none;
-once an address is set it can be changed in the People Account tab but not removed. External crew (no sign-in), people
+once an address is set it can be changed with People → Edit person but not removed. External crew (no sign-in), people
 created by the qualification import and first SSO logins without a `mail` attribute are not affected.
 Addresses must be valid and unique (case-insensitive). Without an email, automatic SSO
 linking by email is unavailable; password setup/reset links can still be shared privately.
@@ -1019,7 +1026,7 @@ shows (`/login?sso=none`). It is tried once per browser session, and never right
 undone. `/login?local=1` skips it (local accounts). The check depends on `login.tudelft.nl`: while TU Delft sign-in
 itself is broken (an error page there), set `SAML_PASSIVE=0` so the login page shows directly.
 
-**Accounts: merge and move a TU Delft sign-in.** In Edit mode on the People Account tab, admins can fix a wrong
+**Accounts: merge and move a TU Delft sign-in.** With ⋯ of the open person on People, admins can fix a wrong
 match. **Merge into…** (`GET`/`POST /api/admin/users/<id>/merge`, `into`) moves everything of an account to another
 and removes it: every `users` reference (foreign keys and the flight crew overrides), keeping the higher project
 role, one approved/pending qualification per type (the one valid longest; the other becomes superseded/withdrawn) and
@@ -1062,7 +1069,9 @@ their own qualifications, logs and bookings. Trainings (`/api/trainings`) and, f
 - **Your flying:** real flights (no detected simulation, not judged ground/uncertain) where the user is PIC, including
   paper records (their flight count and time): days since the last one, flights in 90 days, flights and time this year
   (UTC dates) and flights per month for 12 months.
-- **Coming up:** the user's bookings in the next 14 days (at most 5), when `LOGDB_BOOKINGS` is on; **Booked today**
+- **Coming up:** everyone's bookings in the next 14 days on the items the user can view, as the agenda shows them (at
+  most 10, `bookings.upcoming_all`, with who booked), or with **Only mine** (`?coming=mine`) only the user's own (at most 5,
+  `bookings.upcoming`), when `LOGDB_BOOKINGS` is on; **Booked today**
   lists today's bookings on things the user may view.
 - **Today:** an Open-Meteo forecast (`GET /api/home/weather?place=<id>`, browser session only) for the next 8 hours at
   the middle of a place (circle centre or polygon bounds), cached in memory per position for 30 minutes and fetched
@@ -1088,29 +1097,65 @@ Pages use a compact heading hierarchy with regular-weight supporting text. Longe
 available through expandable **Help** disclosures; field requirements, errors and sharing warnings
 remain visible alongside the relevant controls.
 
-Aircraft keeps its overview table with Edit off. In Edit mode, use the filtered aircraft list and
-the selected aircraft's **Details**, **Project history** and **Aliases** tabs. Add aircraft and CSV import
-open compact dialogs; unlinked aircraft names remain collapsible. Their link menu always lists every
-aircraft, including Discard (Show discarded only filters the list); its search box at the top of the
-menu filters the list below, names starting with the typed text first (Enter picks the first match). Add user also opens a dialog.
-Dialogs can be closed with Close or Escape. Details are saved together; project
-periods keep their separate Save timeline action.
-Outside Edit mode the Aircraft overview has one line per aircraft: a Serial column first, the current project
+<a id="aircraft-page"></a>**Aircraft page** ([UI rule](#ui-rule)). The overview table is
+the same for everyone; clicking a row (not the name, which links to the aircraft's overview page) opens the
+aircraft beside the table (`open=<id>` and its tab `atab` in the URL; ✕ or the row again closes it; while it is
+open the table leaves out Comments and Aliases, which the panel shows), with
+**Details**, **Project history** and **Aliases** (autopilot boards for admins). **Edit aircraft** is shown to admins
+and to whom `can_edit` allows the details (project managers of its current project and its manager): one dialog
+with name and serial (admins), status, manager, current user and comments, and for admins its aliases (one per line;
+removed and added ones go through `DELETE`/`POST /api/admin/drone-aliases`) and project periods
+(`PUT /api/admin/drones/<id>/projects`); the details are one `PUT /api/drones/<id>` with only the changed fields.
+A failed part shows its error at the field and the dialog stays open. Clicking an editable value or its label opens
+the dialog at that field. ⋯ (admins): *Mark an alias as shared…*, *Stop matching a board…*, *Remove aircraft…*.
+Admins have **Add aircraft** and **Manage ▾** (Import CSV…, Download CSV template, Mark a name as shared…), and the
+tabs **Unlinked names** (when there are any, also with `HIDE_UNLINKED_AIRCRAFT`) and **Shared names**: tick names,
+boards or recordings and use **Link to aircraft…** in the selection bar (the dialog lists every aircraft, including
+Discard; a single folder candidate is preselected). Pending requests show **Approve**/**Reject…** to who may decide
+and **Withdraw** to the requester. Dialogs close with Cancel, Close or Escape.
+<a id="people-page"></a>**People page** ([UI rule](#ui-rule)). A table like Aircraft, the
+same for everyone: Name (a link to the pilot page), Flights, Hours and Last flight as PIC within the flight filters
+(from `/api/people-pic-flights`), and for admins Current licences (approved, not expired), Sign-in and Last sign-in
+(`users.last_login`, returned only by `GET /api/admin/people`); others see licences on the pilot page. The profile (one per person, `user_profiles`; none yet for people who have not signed in
+since profiles were turned on, external crew and imported people) adds columns for viewers who see profiles (admins:
+everyone; a supervisor: the people they supervise, from `GET /api/profiles`, also those who share no project with
+them): Role and Department by default, and under Columns Supervisors, Expected end (with incomplete / ending soon /
+ended / to confirm), Number (admins), GitHub and Confirmed. One **Filters** pop-up next to Columns (its button shows
+how many are active) holds Role, Department and profile status (Incomplete, Ending soon: within 3 months, Ended) for
+viewers who see profiles, Qualification for admins (a current approved qualification of that type), Show external
+and Without flights; the profile and qualification filters also show people without flights. Manage ▾ → **Download profiles (CSV)**
+exports the profiles of the rows shown (supervisors get Manage ▾ with only this). This replaces the former Profiles
+tab (`?tab=profiles` now opens People). Headers sort; the Columns choice is per browser (`people.columns`); 50 rows
+per page with the pager at the bottom. Search, filters (`role`, `dept`, `status`, `qual`), Show external, Without flights,
+sort, page and rows per page are in the URL (`search`, `external`, `unused`, `sort`, `pg`, `size`). On a phone only
+Name, Flights and Last flight are shown. For non-admins a row opens the pilot page. For admins a row opens
+the person beside the table (`person=<id>`, `ptab=<tab>`; Role and Sign-in are then hidden) with the tabs Details,
+Qualifications, API keys and Aliases. Details shows the account and, with `LOGDB_PERSON_PROFILE`, the profile
+(`GET /api/users/<id>/profile`). **Edit person** in the panel header opens one dialog with the account, profile and
+aliases (clicking a value in Details or Aliases opens it at that field); Save sends only what changed, each part to
+its existing endpoint: `PUT /api/admin/users/<id>/profile`, `…/operator`, `…/admin`, `…/external`, aliases one per line
+(`POST`/`DELETE /api/admin/aliases`) and the profile (`PUT /api/users/<id>/profile`). Qualifications keep their own
+per-item actions and Add qualification; API keys use the selection bar. ⋯ (admins):
+Set/Reset password…, Remove password…, Move TU Delft sign-in…, Merge into…, Remove user…. Admins have **Add user** and
+**Manage ▾** (Import profiles (CSV)…, Import qualifications (ZIP)… and its template, Fill numbers from PDFs…, Check QR
+codes…), and always the tabs Unlinked crew names (when any; tick names, then **Link to
+person…** or **Add as external…**), Approval queue, Qualification types (a click on a type edits it, the handle
+reorders) and Profile options.
+
+The Aircraft overview has one line per aircraft: a Serial column first, the current project
 (full history and "+N" earlier periods on hover), total flights (uploaded logs and paper records on hover), the first
 alias with "+N", and long text cut off with the full value on hover. It is sorted by serial, newest TUD number first
 and other serials after by name; the headers sort too. Search, status, filters and sort are kept in the URL; hidden
-columns (Columns menu) are a per-browser preference. Unlinked log names show as a badge in the toolbar. It is
+columns (Columns menu) are a per-browser preference. It is
 paginated at the bottom like the logbook (50 rows by default; page and rows per page in the URL).
 Aircraft without uploaded logs or paper records, and people without any log, paper record or approved
 qualification, stay hidden until **Show aircraft without logs** / **Show people without logs or licences**
-is ticked. A person counts as having logs as uploader or as linked PIC/PAC/GCS; the aircraft or person
-selected in Edit mode stays listed. Non-admins only count qualifications they may see.
+is ticked. A person counts as having logs as uploader or as linked PIC/PAC/GCS; the open aircraft or person
+stays listed. Non-admins only count qualifications they may see.
 Logbook has no top-level project filter and no longer applies a previously saved project filter.
-Project reassignment controls in Edit mode remain available.
 The menu (`theme.js`) has Home (`/home`), Logbook (`/`), Agenda (`/agenda`, when `LOGDB_BOOKINGS=1`), Training (`/training`, when
 `LOGDB_TRAINING=1`), Safety (`/safety`, when `LOGDB_SAFETY=1`) and **Directory ▾** (People, Aircraft, Projects, Locations,
-Documents at `/documents` when `LOGDB_DOCUMENTS=1`, then Logs at `/logs` and Statistics at `/stats`), then the flight filters. On the right: **⬆ Upload** (for admins and members with add or full access on a project, `can_upload` in `/api/me`), Edit (pages that
-have it) and the name menu (My account, Night mode, Sign out). Menus close on a click elsewhere or Escape.
+Documents at `/documents` when `LOGDB_DOCUMENTS=1`, then Logs at `/logs` and Statistics at `/stats`), then the flight filters. On the right: **⬆ Upload** (for admins and members with add or full access on a project, `can_upload` in `/api/me`) and the name menu (My account, Night mode, Sign out). Menus close on a click elsewhere or Escape.
 The upload dialog (`upload.js`, loaded on first use) takes files, zips and folders, also dropped anywhere on a page,
 sends them in batches to `/api/upload` and lists **Your recent uploads** (`/api/logs?mine=1`) with their parsing
 status; the open page refreshes on its `logsuploaded` event. `/logbook` remains a working alias; `/uploads` was
@@ -1119,10 +1164,17 @@ The Logs list has one line per log (date, log with its size, aircraft, project, 
 admins also see who uploaded it and when). A log with one flight links straight to its flight page; several open
 the log, where each flight links to its page. Status shows only what needs attention (queued, parsing, error,
 outdated); the **outdated** / **date unknown** badges filter the list (`/api/logs?status=outdated|date_unknown`).
-Edit mode shows the project menus (admins), Re-parse and Delete on an opened log, date editing, and the Re-parse
-outdated / unknown dates and Review date suggestions tools.
+<a id="logs-page"></a>The Logs page follows the [UI rule](#ui-rule): an opened log has **Edit
+log** (one dialog: the project for admins, `PUT /api/logs/<id>/project`; the calendar date for who may set it on a log
+without a confirmed date, `PUT /api/logs/<id>/date`; only changes are sent; a click on the Project or Calendar date row
+opens it there) and **⋯** (Re-parse for anyone who can see the log, Delete log… with `can_delete`). Admins have
+**Manage ▾** with Re-parse outdated…, Re-parse unknown dates… and Review date suggestions (when there are any).
+Confirmations and messages are small dialogs. The list polls `/api/logs` every 3 s while logs are queued, parsed or
+fingerprinted and every 30 s otherwise (not while the tab is hidden, a dialog is open or the pointer is on an opened
+log); a poll that finds the same rows leaves the table alone, and an opened log keeps its details until changed ones
+arrive, so the page does not flicker.
 Linked aircraft, crew, projects and named locations in the logbook open their detail pages.
-Coordinates without a linked location still open the external map; Edit mode keeps its reassignment menus.
+Coordinates without a linked location still open the external map.
 Aircraft serial numbers in the logbook appear on hover over the aircraft name rather than inline.
 Add aircraft fills the serial with the lowest free `TUDxxxxx` number from TUD00401 on (gaps there first; numbers
 up to TUD00400 may belong to old aircraft that are no longer listed, so they are never handed out again);
@@ -1144,7 +1196,7 @@ count (`4×`) in the number column, with a copy button for the flight numbers, s
 takes them (paper records have none).
 Only rows with several flights show the expand arrow (far-left column); their takeoff/landing times list each
 flight on hover. A row with flights in different projects shows the most common project with "+N"; the split
-is on hover. Import CSV and Review appear in Edit mode; the bulk-edit controls appear once a row is ticked.
+is on hover. Changes in the Logbook: see [Logbook changes](#logbook-changes).
 The Category column shows only the category; the authorisation name and the category source are in its tooltip.
 The Columns menu hides table columns (Date always stays). The choice is stored per browser in `localStorage`
 (`logbook.hiddenColumns`), so it survives navigation, Back and new sessions; Export CSV stays complete.
@@ -1154,7 +1206,7 @@ Overview table links use the theme's blue accent colour, with an underline on ho
 
 For initial setup, import the qualification ZIP on People first (it can create accounts and types), then the
 project CSV on Projects, then the aircraft CSV on Aircraft. Both catalog imports are admin-only,
-available in Edit mode, with downloadable templates. Files are comma-separated UTF-8 (optional BOM);
+under **Manage ▾** on their page, with downloadable templates. Files are comma-separated UTF-8 (optional BOM);
 Latin-1 uploads are also accepted for older fleet spreadsheets. Limit: 1 MB / 5000 rows. All changes
 from one file are committed together; any invalid row leaves the database unchanged.
 
@@ -1214,7 +1266,7 @@ These logs appear in the aircraft/project detail pages' Log files section but ad
 
 ### Places CSV import
 
-`POST /api/admin/places/import` (admin; button on Locations in Edit mode) reads the same CSV limits as
+`POST /api/admin/places/import` (admin; Locations, **Manage ▾ → Import CSV…**) reads the same CSV limits as
 the catalog imports. Columns: `place`, `lat`, `lon`, `radius_m`, optional `indoor` (yes/no, 1/0,
 true/false; blank is no) and `country` (ISO 3166-1 alpha-2 code or English name, e.g. `NL` or `Netherlands`; blank
 keeps the country already set; `countries.py` holds the list, stored as `places.country`). The extra columns of `logbooks/places.csv` (`timezone`, `log_names`, `source`,
@@ -1228,15 +1280,25 @@ writing; the page shows that first. Replacing a drawn polygon by a circle is fla
 ### Training questionnaires
 
 Off unless `LOGDB_TRAINING=1`. The Training page is session-only (API keys get 403). Admins create
-questionnaires in Edit mode: single choice, multiple choice and ranking, each with optional JPEG/PNG. **Add training**
-asks only for a name and description; the training page then has the tabs **Details** (all settings, one Save),
-**Questions** (a filterable list on the left, flagging questions without a correct answer; the selected question is
-edited on the right and saved on its own) and **Passes**. The admin's own pass is shown only outside Edit mode.
+questionnaires ([UI rule](#ui-rule)): single choice, multiple choice and ranking, each with
+optional JPEG/PNG. The list has **Add training** and **Manage ▾** (Import training…) for admins. **Add training** asks
+only for a name and description and then opens **Edit training**. On a training, admins have the tabs **Training**
+(the training as they take it themselves: reading, test, own pass), **Questions** (a filterable list on the left,
+flagging questions without a correct answer; the selected question is edited on the right and saved on its own) and
+**Passes** (Reset… per pass), always shown to them (`tab=questions|passes` in the URL). **Edit training** next to
+the title opens all settings (content, passing, access request mail) in one dialog; Save sends `PUT
+/api/admin/trainings/<id>` only when something changed (uploading or removing the reading PDF acts at once). **⋯** has
+Export and Delete training…. Every confirmation (unsaved question, delete question, reset a pass, remove the reading
+PDF, delete the training) is a small dialog. Outside the test, the training is shown as the same centred card as the test: the result
+(passed in green, waiting for approval in yellow, otherwise grey) with the attempts and the score of the person's own pass,
+the qualification and until when it is valid, and Reading material / Practice again. `GET /api/trainings/<id>` returns
+`pass_score_text` (from the stored passing answers) and `valid_until` (of the linked qualification) for the person's own
+current or waiting pass.
 **Qualification valid for (days)** sets the end date of the qualification a pass grants; the pass counts as current
 while that qualification is valid, so its expiry (or a reset) reopens the training. Without a qualification the field
 is disabled and a pass does not expire. Questions
 are reordered by dragging their handle (or the arrow keys on it; `PUT /api/admin/trainings/<id>/question-order`).
-The training list is ordered the same way in Edit mode (the handle on each card, not while searching; `PUT
+Admins order the training list the same way (the handle on each card, not while searching; `PUT
 /api/admin/trainings/order` with every training once); everyone sees that order.
 Answer options are shuffled per attempt. A training may also **shuffle the questions** and draw a number of
 **questions per attempt** at random (`shuffle_questions`, `question_count`); the attempt (questions, their order
@@ -1395,18 +1457,17 @@ Where it shows:
 - the person's page (`/people/<id>`): a Profile card, with the people that person supervises and the projects
   of each (only projects the viewer may open), and **Edit** for the person;
 - My account: the person's own profile and the people they supervise;
-- People: the role and department on the cards; the **Profiles** tab (a sortable, filterable table with CSV
-  download) and the **Supervision** tab (one card per supervisor, external ones by name). Admins see everyone; a
-  supervisor sees the people they supervise. Both come from `GET /api/profiles`; the Profiles table also shows
-  flights as PIC within the flight filters (Supervision does not). Filters, sort and page are kept in the URL (`p_*` parameters);
-- People in Edit mode: the person **Profile** tab, where admins edit the profile in place (`PUT /api/users/<id>/profile`):
+- People: the profile columns, filters and CSV download of the table ([People page](#people-page)) and the
+  **Supervision** tab (one card per supervisor, external ones by name; its search and Include ended in the URL as
+  `p_*`). Admins see everyone; a supervisor sees the people they supervise. Both come from `GET /api/profiles`;
+- People: the person's Details tab, where admins use **Edit person** (profile part: `PUT /api/users/<id>/profile`):
   like the import, they may fill in only what they know (empty fields are allowed, a past end date too), but what is
   filled in must be valid; the person is asked for the rest at the next sign-in, and **Profile options** to edit the role and department lists
   (`PUT /api/admin/profile-options`; roles with *Max years* and *Indefinite*). The role list is seeded once when the tables are created; the department list starts empty, because it is
 site-specific: admins add departments there or **Import CSV** (`name,group` per line), and people can also type one. Removing a list
 entry empties that field in the profiles that used it, so those people are asked again.
 
-**Import CSV** on the Profiles tab (admins, `POST /api/admin/profiles/import` with `csv` and `apply`) reads
+**Manage ▾ → Import profiles (CSV)…** on People (admins, `POST /api/admin/profiles/import` with `csv` and `apply`) reads
 `username, role, department, supervisors, end_date, number, github` (only `username` is required; it may be an
 email). It fills in only empty fields, so what people entered stays, and rows may leave fields empty. Roles and
 listed departments match by name; other departments are stored as typed. Supervisors (`;`-separated) link to someone
@@ -1421,7 +1482,7 @@ keeps the mark and the person's "last confirmed" date.
 
 `welcome.py`. Only the mechanism is in this repository: administrators write the text in the site, and it is
 stored in the database (`welcome_message`), so each installation has its own. It is shown as a card at the top of the
-Home page (`/home`) until the person dismisses it (**Dismiss** or ✕); no page is ever redirected for it, so the
+Home page (`/home`) until the person dismisses it (✕); no page is ever redirected for it, so the
 Operations Manual links and the profile prompt work as before. Dismissing records the version
 (`POST /api/home/messages/dismiss` with `{id, version}`, table `welcome_seen`); a new version shows again. Dismissing is
 blocked while an admin views as someone (`VIEW_AS_BLOCKED`) and needs a browser session (API keys get 403).
@@ -1442,9 +1503,10 @@ it; changing only the audience, date or closing leaves dismissals as they are. T
 date, and how many active accounts dismissed the current version. An account merge keeps the newest dismissal of either
 account.
 
-Admins open the editor at `/welcome` (People in Edit mode → **Profile options** → *Welcome message*; others are sent
-to `/home`), which shows the message as it reads for them, how many active accounts dismissed it, and **Edit**
-(`PUT /api/admin/welcome` with `title`, `body`, `show_again`). The text is written like a training's access mail and
+Admins open the editor at `/welcome` (Home → **Manage ▾** → *Welcome message and notices*; **Done** returns to Home; others are sent
+to `/home`), which shows the message as it reads for them, how many active accounts dismissed it, and **Edit welcome
+message** (a dialog, also opened by a click on the text; `PUT /api/admin/welcome` with `title`, `body`, `show_again`,
+sent only when something changed). A click on a notice opens it in its dialog, with **Delete…** (a small confirmation). The text is written like a training's access mail and
 filled in per person on the server: the tags `{name} {email} {username} {department} {role} {supervisor} {end_date}`
 (from the account and profile, `-` when unknown; other tags stay as typed), blocks per profile role
 (`{if role: A, B}` … `{elif role: C}` … `{else}` … `{end}`, each on its own line, checked when saving) and the same
@@ -1457,7 +1519,9 @@ An account merge keeps the newest version either account saw.
 ### Booking agenda
 
 Off unless `LOGDB_BOOKINGS=1`; session-only (`bookings.py`, `static/agenda.html`). Administrators set up the
-bookable items in Edit mode (`/api/admin/booking-things`, table `booking_things`): name, description, optional
+bookable items ([UI rule](#ui-rule): **Manage ▾** → *Add bookable item…*, **Edit item** for the
+open tab with **⋯** → *Delete item…*; they always see closed items and the tabs, also with a single item;
+`/api/admin/booking-things`, table `booking_things`): name, description, optional
 colour (used in the All view) and **Open for bookings** (active); they order the tabs by dragging them
 (`PUT /api/admin/booking-things-order`). The place link is no longer shown or set. An item may need a qualification type, for
 `booking` only (everyone sees its agenda) or for `viewing` and booking; it counts when an approved submission of
@@ -1541,8 +1605,7 @@ the mail). The tables are in `db.LOGBOOK_UNRELATED`.
 ### Private licences and qualifications
 
 Users upload and manage their own qualifications on **My account**, alongside password settings.
-The read-only People overview uses a compact responsive grid of equal-height, contrasting cards
-with names, a clipped row of qualifications and top-right PIC flight count, hours and last-flight date.
+The People table shows PIC flight count, hours and last-flight date per person ([People page](#people-page)).
 Totals use the visible merged telemetry and paper-record read model, including daily paper counts,
 and follow the shared browser flight filters. A single bulk `/api/people-pic-flights` request supplies
 only the fields needed for those totals and filters; there are no per-person flight requests.
@@ -1566,7 +1629,9 @@ Person pages show PIC, PAC and GCS flight counts and hours in an always-visible 
 summary totals. Each flight counts once per matching role, including daily paper flight counts.
 The breakdown cards are Aircraft, Projects and Locations; there are no separate Roles or Flew with cards.
 Entity detail pages use a single wrapping title bar for the name, badges and Help (the active flight filters are on
-the Flight filters button, with the full summary as its tooltip). Breakdown cards show name, flights and hours, with the top five entries by flight time
+the Flight filters button, with the full summary as its tooltip). For who may change the item, the title bar has
+**Edit <item>** (person, location: admins; project: admins and its managers; aircraft: who may change its details):
+it opens the list page with the item and `edit=1`, and `theme.js` opens that page's Edit dialog once. Breakdown cards show name, flights and hours, with the top five entries by flight time
 visible initially and Show all / Show fewer controls. Cards share a 320px minimum height for
 short lists; expanded cards grow independently. Use the main navigation or browser Back to leave a detail page.
 
@@ -1599,12 +1664,11 @@ Enable Edit, then select someone to open their
 **Account**, **API keys**, **Aliases** or **Qualifications** tab. The editor shows **Active · TU Delft SSO**
 for enabled accounts linked to TU Delft SSO (also a local account that has since signed in with SSO), **Active · Local**
 for enabled accounts with a password, and **Active · TU Delft SSO + Local** for both; external, disabled and accounts
-without either have no Active badge. In the people list the badge only says **Active** (the sign-in ways in its tooltip). This is sign-in capability, not recent
-activity or qualification validity. The Account tab groups profile, sign-in, access and removal actions,
-with explanations under Help. API key details and revocation load only in the API keys tab.
-Enable Edit to change account settings, manage aliases,
-upload evidence for that person, or review/delete submissions. The people list is searchable, without
-an additional Show filter. Type settings are in a separate People section visible in Edit mode.
+without either have no Active badge. The Sign-in column of the People table shows the same text without "Active", with **Admin** first for administrators. This is sign-in capability, not recent
+activity or qualification validity. The Details tab shows the account and profile, with explanations under Help;
+removal and password actions are under ⋯. API key details and revocation load only in the API keys tab.
+See [People page](#people-page) for how admins change account settings, aliases and qualifications. Type settings
+are in the Qualification types tab (admins).
 
 <a id="people-approval-queue"></a>**Approval queue** (`/people?tab=approvals`, admins; always there for admins) lists
 pending submissions from `GET /api/admin/qualification-pending` and, when the agenda is on, pending bookings from
@@ -1637,21 +1701,21 @@ when it was made: `decided_by`/`decided_at` are stored for it) and bookings appr
 (no decider). Bookings deleted while pending, and submissions deleted by an administrator, leave no history. A row opens
 its details in place (evidence preview, dates, training pass, booking time and options, the full reason); the period,
 page and open row (`open=q<id>` or `b<id>`) are in the URL.
-Admins can edit username, display name, email and default project together with **Save account** in the Account tab.
-All four fields are saved atomically; previous unambiguous display names are preserved as log aliases. Display names are optional
+Admins edit username, display name, email and default project with **Edit person**; these four are saved
+atomically in one request; previous unambiguous display names are preserved as log aliases. Display names are optional
 and at most 80 characters. Usernames must be unique (case-insensitive),
 1-40 characters and contain no spaces or control characters. Username changes do not create log aliases.
 Passwords, SSO identity links, project memberships and existing records stay attached to the same person.
 Display names conflicting with another person's log alias must be resolved first.
 
 Log ingestion, startup and opening People do not create profiles from crew names. Unmatched PIC/PAC/GCS
-names stay as logged text and appear under **Unlinked crew names** for admins in Edit mode. Link them
+names stay as logged text and appear under **Unlinked crew names** for admins (tick them and use the selection bar). Link them
 to an existing person using aliases, or explicitly use **Add user** when a profile is needed.
 **Add as external** (browser session only) creates an external person for crew of another operator, e.g.
 flights under their operational authorisation: display name = the logged name, no password or email, and
 `users.is_external=1`. Their flights link and count like anyone's, but they cannot sign in (password,
 SAML, setup links and API keys are refused), cannot be project members (UI and project CSV reject them),
-and stay hidden on People until **Show external** is ticked. The Account tab's External checkbox converts
+and stay hidden on People until **Show external** is ticked. The External checkbox in Edit person converts
 a person either way (not admins or yourself); marking someone external removes their project memberships.
 Log crew matching uses case-insensitive explicit aliases first, then unique display names. Login usernames
 are not implicit log aliases; admins may add them deliberately. Duplicate display names stay unresolved
@@ -1682,8 +1746,8 @@ An admin first adds types under **Qualification types** on People, for example `
 `RT licence` or an internal qualification. Each type has a short description (at most 300 characters;
 shown under the type when someone adds a qualification and as tooltip on its labels) and evidence-required,
 start-date, expiry, number, internal and active switches. Internal is a label for in-house qualifications, not a licence rule.
-The list shows each type with its description and labels for the switches that are on; in Edit mode **Add type**
-and **Edit** open a dialog (`POST /api/qualification-types`, `PUT /api/qualification-types/<id>`).
+The list shows each type with its description and labels for the switches that are on; **Add type**
+and a click on a type open a dialog (`POST /api/qualification-types`, `PUT /api/qualification-types/<id>`).
 Qualification chips in the People overview and current account qualification lists follow the saved
 type order, not submission order; multiple submissions of one type are newest first.
 Types keep a `sort_order`; dragging a type's handle saves the new order at once
@@ -1817,11 +1881,22 @@ an admin's key with the `documents:upload` or `documents:manage` scope (see API 
 so a leaked one cannot change or delete documents (issue 235). The ZIP import needs a browser session for every key.
 `GET /api/documents` returns `intro` (the text at the top, `document_settings`), `groups` (`document_groups`: name,
 description, sort order; one level, shown as page tabs with All, General for documents without a group and My
-qualifications; the tab is kept in the URL, `?tab=`; empty groups only in Edit mode), `documents` the person may see
+qualifications; the tab is kept in the URL, `?tab=`; empty groups only for admins), `documents` the person may see
 (`documents`: title, description, optional group, limits, `valid_from`/`valid_until`, `current`, file), `qualifications` (the person's own approved
 submissions valid today, with evidence `view`/`download` links when there is a file; also for admins, only their own)
 and, for admins, `types` (all, with `active`, so a limit to a type that was deactivated later stays in the edit
 dialog), `profiles` (person profiles on), `roles` (`profile_roles`) and `max_bytes`.
+
+<a id="documents-page"></a>**Documents page** ([UI rule](#ui-rule)). The page reads the same
+for everyone; admins additionally see every group and tab (also empty ones, unless searching) and each document's
+limits in its line. Admins have **Add document** and **Manage ▾** (Add group…, Edit text at the top…, Import ZIP…,
+Download ZIP manifest template) in the title row; a click on the text at the top opens its dialog too. Every document
+line has a tick box for admins (the line itself still opens the document): the selection bar offers **Edit document…**
+(exactly one ticked; one dialog with every field and an optional replacement file; Save sends the details with
+`PUT /api/admin/documents/<id>` only when one changed, and the file with `POST …/file`), **Move to group…** (a `PUT`
+per ticked document with only `group_id` changed) and **Delete…** (`DELETE` per document, after one confirmation).
+A group's heading has **Edit group** and **⋯** → *Delete group…*: for a group that still holds documents the dialog
+only explains how to move or delete them first, since the server refuses (409).
 
 Admins see every document. Anyone else must meet every limit set on it: `admin_only` (administrators only); `type_ids`
 (`document_qualification_types`: a current approved qualification of one of these types, for example A1/A3, A2 or
@@ -1830,7 +1905,7 @@ that still sends `type_id` gets 400); `roles_limited` with the roles in
 `document_profile_roles` (the person's profile role, `profiles.py`). Role limits fail closed: with
 `LOGDB_PERSON_PROFILE` off, or when every chosen role was removed from the profile lists, only admins see the document.
 A document with `valid_from`/`valid_until` (both optional, `YYYY-MM-DD`) is hidden from everyone but admins outside
-those dates (`current` false; marked expired or not valid yet in Edit mode), so last year's certificate never shows.
+those dates (`current` false; marked expired or not valid yet for admins), so last year's certificate never shows.
 
 Files are stored under `<LOG_DIR>/documents` (mode 0700; gzip when it saves at least 5%, at most 100 MiB each; counted
 as Documents on Statistics) and served by `GET /api/documents/<id>/view` (inline, only the safe types of flight
@@ -1847,7 +1922,7 @@ curl -H "Authorization: Bearer $KEY" https://<server>/api/documents             
 curl -H "Authorization: Bearer $KEY" -OJ https://<server>/api/documents/<id>/download    # download
 ```
 
-**ZIP import** (`document_import.py`, Edit mode: **Import ZIP**; browser session only, API keys get 403). A ZIP holds
+**ZIP import** (`document_import.py`, **Manage ▾** → *Import ZIP…*; browser session only, API keys get 403). A ZIP holds
 `manifest.csv` (`GET /api/admin/documents/import/template`) and the files. Columns, in any order: `title` and `file`
 (required), `group` (empty, or `General` when no group has that name: no group), `description`, `valid_from`,
 `valid_until`, `admin_only` (yes/no), `qualification` (qualification type names separated by `;`, stored in
@@ -1876,7 +1951,7 @@ An existing submission without a newly required expiry must be withdrawn and res
 are not changed retroactively. Existing types keep expiry optional after upgrading.
 
 Users submit claims for themselves; **admins can also upload evidence and submit claims for any user**.
-Admins can bulk-import from People in Edit mode: a ZIP with `manifest.csv` and evidence files
+Admins can bulk-import from People (**Manage ▾ → Import qualifications (ZIP)…**): a ZIP with `manifest.csv` and evidence files
 (`person,type,valid_from,valid_until,file`, optionally `number`; an empty number is read from a PDF
 certificate). Rows without a file are allowed for types that do not require evidence. Preview matches unique display names or aliases and
 active types; Import and approve stores private evidence and sets the dates. Rows may repeat a person
@@ -1935,7 +2010,7 @@ stays on in production; `app.py check-config` (also run by `install.sh`) warns w
 session (API keys get 403).
 
 The page shows the text above a prominent **Report incident** button (`reporting_text` in `safety_settings`, from `GET
-/api/safety`, edited in place on the page in Edit mode and saved with `PUT /api/admin/safety/settings`: who to contact,
+/api/safety`, for admins **Edit text** in the card (or a click on the text; one dialog, [UI rule](#ui-rule)) and **⋯** → *Use the default text…* (a small confirmation; saves it empty), both with `PUT /api/admin/safety/settings`: who to contact,
 where else to report, so organisation details live only in that setting; while it is empty,
 `safety.DEFAULT_REPORTING_TEXT`, general wording, is returned, and saving an empty or the default text stores it empty
 again). The danger/incident/accident definitions (following the Operations Manual) are in the form, behind a ? next to
@@ -2162,15 +2237,23 @@ upload supplies a `.log` the log lacked).
 **Logbook.** The parser tells onboard SD logs from ground station logs. The logbook (`/logbook`) has one row per
 flight and merges the SD and GCS recordings of the same flight: flight data from the SD log, PIC/PAC/GCS operator and
 goal from whichever log has them. Named takeoff areas are listed on the Locations page; everyone sees the ones their
-flights used, and admins add, change or delete them there in edit mode (an area can be marked indoors; indoor flights
-are hidden by default). Logs without a valid date (missing or 1980 clock) are flagged so the
+flights used, and admins add, change or delete them there ([UI rule](#ui-rule): Add location, Edit location and ⋯ in
+the selected location's panel; an area can be marked indoors; indoor flights are hidden by default). Logs without a valid date (missing or 1980 clock) are flagged so the
 real day can be entered.
 
 `GET /api/places` groups endpoint dots at three decimal places (about 100 m).
 Each dot has a total `count` and an `unnamed_count`, determined from the endpoints'
 resolved place IDs before rounding, not from whether the rounded dot lies inside a shape.
-The Locations unnamed-dot review is available only to admins in Edit mode. Leaving
-Edit mode clears the filter and returns to all dots. It filters on `unnamed_count`, orders by that count, and
+<a id="locations-page"></a>**Locations page** ([UI rule](#ui-rule)). The title row has the count, search,
+country and, for admins, **Only unnamed dots**, **Add location** and **Manage ▾** (Import CSV…, CSV template). The
+selected location (`place=<id>` in the URL) opens in a panel under the list: Country, Indoors, Operator, Category,
+Boundary and flights; admins get **Edit location** (one dialog; a click on a value opens it there; Save sends only what
+changed with `PUT /api/admin/places/<id>`) and **⋯** → *Change boundary on the map…* (the shape editor on the map,
+`PUT` with only `shape`) and *Delete location…* (a small confirmation). **Add location** shows a bar on the map to
+pick polygon, rectangle or circle and draws one; after drawing, the same dialog names it (`POST /api/admin/places`) and
+the new location is selected. Leaflet's own edit/delete toolbar is not used. While drawing or changing a boundary, all
+boundaries are shown.
+The Locations unnamed-dot review is available only to admins. It filters on `unnamed_count`, orders by that count, and
 keeps named boundaries visible as context. It uses the same accessible flights and
 non-flight toggle as the normal map. Saving a place refreshes the review without changing
 flight records or requiring reparse.
@@ -2178,7 +2261,7 @@ flight records or requiring reparse.
 The Locations map groups named-place centres into 64-pixel projected grid cells below
 zoom 13, using built-in Leaflet markers (no additional map dependency). Counts represent
 places, not flights; clicking a group zooms in up to three levels. At zoom 13 or above,
-or in admin Edit mode, the actual boundaries replace the overview markers. The selected
+or while an admin draws or changes a boundary, the actual boundaries replace the overview markers. The selected
 place always retains its boundary and name label; other names appear on hover.
 Selection and the case-insensitive table name search are browser-only and do not merge
 places, change access rules or change the smallest-containing-shape resolution rule.
@@ -2186,8 +2269,8 @@ places, change access rules or change the smallest-containing-shape resolution r
 Replacing a named boundary uses the same `PUT /api/admin/places/<id>` shape update
 as resizing it; it never deletes/recreates the place. Circle, polygon and rectangle
 redraws are previews until saved (rectangles are stored as polygons). The place ID,
-name, indoor flag and historical-record references remain intact. Cancel or leaving
-Edit mode restores the original boundary; a failed save retains the preview for retry.
+name, indoor flag and historical-record references remain intact. Cancel restores the original
+boundary; a failed save retains the preview for retry.
 
 The browser requests `GET /api/logbook?compact=1` for its overview. This opt-in projection
 keeps all rows and the fields needed for filtering, totals, grouping, CSV export and permitted
@@ -2254,8 +2337,9 @@ An entire source log counts when any of its flights qualifies; this is not a byt
 just that flight interval. Unknown sizes are explicitly reported, and paper records contribute
 no log bytes. Period/filter changes require no file reads or additional Statistics API requests.
 
-**Shared aircraft names.** In Aircraft Edit mode, mark a generic log name as ambiguous using
-the Aliases tab or **Ambiguous / shared aircraft names**. For example, an SD airframe name
+**Shared aircraft names.** On the Aircraft page, admins mark a generic log name as ambiguous with ⋯ →
+*Mark an alias as shared…* of an aircraft or **Manage ▾ → Mark a name as shared…**, and link its boards and
+recordings under **Shared names**. For example, an SD airframe name
 such as `RotatingWing25Kg` can be shared by several physical aircraft even though GCS
 configuration names are specific. Ambiguity is explicit, case-insensitive and applies to that
 exact trimmed logged name; it is not guessed from spelling or automatically enabled for
@@ -2314,7 +2398,7 @@ Removing ambiguity resumes normal name/folder matching but does not restore a de
 really identifies one aircraft. These management actions require an admin browser session,
 not an API key. No raw-log reparse is needed to mark names or update assignments.
 
-**Paper flight records.** In the Logbook (Edit mode), choose **Import CSV** (admins) or **Add paper record**. Admins and members
+**Paper flight records.** In the Logbook, choose **Manage ▾ → Import CSV…** (admins) or **Add paper record…**. Admins and members
 with **full** access to the selected project can create, edit and delete these records; other project
 members can read them. Select an existing aircraft, PIC and project, then enter the date, total flight
 time in minutes and flight count. An individual flight has count 1 and an optional UTC takeoff time.
@@ -2381,7 +2465,7 @@ flight" (`same=0`), with `origin` `auto` or `manual`, who and when.
   upload, re-parse or import never replaces a link or undoes an unlink. Editing a paper record removes
   its automatic links and matches it again; manual decisions stay.
 - **Manual decisions:** `POST /api/links {record_id, flight_ids, same}` from the logbook (Same flight /
-  Not the same on a paper record's possible duplicates, Unlink on a linked entry in Edit mode). Needs
+  Not the same on a paper record's possible duplicates, Unlink on a linked entry for who may change its crew). Needs
   full access to the record's project and edit rights on every flight (admins always).
 - **Counting.** `logbook_rows` folds linked records into the logged entry (`links.combine`), for the
   logbook, statistics, detail pages and places alike. The entry counts as its logs: flight count and
@@ -2404,7 +2488,7 @@ flight" (`same=0`), with `origin` `auto` or `manual`, who and when.
 
 ### Review page
 
-`/review` (Logbook in Edit mode → *Review*) walks through the paper ↔ log cases a person has to decide, one at a time,
+`/review` (Logbook → **Manage ▾** → *Review*) walks through the paper ↔ log cases a person has to decide, one at a time,
 from `GET /api/review` (same read model and visibility as the logbook):
 
 - **possible duplicate**: an unlinked paper record with logs of its aircraft nearby (`possible_duplicates`);
@@ -2441,11 +2525,11 @@ same stale check as `flight_links`) and passed to `merge_sources(rows, decisions
 - `POST /api/sources/links {flight_ids, same}`: with `same=true` all listed flights are one flight; with
   `same=false` the first is not the same flight as each of the others. The latest decision on a pair
   wins. Needs edit rights on every flight.
-- In the logbook (Edit mode), **Same flight** in the selection bar joins the ticked logged entries; with one
+- In the logbook, **Same flight** in the selection bar joins the ticked logged entries; with one
   ticked paper record it also links that record. An expanded merged entry lists its recordings with
   **Not the same flight**.
 
-Admins can select paper and telemetry records together in Logbook Edit mode and apply PIC, PAC,
+Admins can select paper and telemetry records together in the Logbook and apply (**Change…**) PIC, PAC,
 GCS and project changes in one transaction. Paper records still require a PIC and project:
 leave these fields on **Keep** or select a person/project rather than clearing them. Duplicate
 paper-record checks still apply, including hidden records; an invalid selection rolls back the whole change.
@@ -2453,8 +2537,8 @@ Paper crew/project cells also support individual inline edits for admins.
 
 **Hide selected** is reversible removal from the logbook and its statistics/entity totals, not file deletion.
 It hides all selected telemetry sources (including both SD/GCS sources of a merged row) or entire paper
-records/daily summaries. Unselected flights in the same uploaded log are unaffected. In Edit mode,
-admins can select **Hidden records only**, select entries and choose **Restore selected**.
+records/daily summaries. Unselected flights in the same uploaded log are unaffected. Admins choose
+**Manage ▾ → Hidden records only**, tick entries and choose **Restore** in the selection bar.
 Source logs, CSV attachments and record data stay on disk; uploaded-log views retain their source summaries.
 The hidden state is preserved across re-parsing using the same aircraft/flight-index matching as crew edits.
 Permanent deletion from existing record/upload detail pages remains a separate operation.
@@ -2473,7 +2557,7 @@ or a foreign authority's operation. `operators.py` resolves the operator of ever
 
 Only step 1 is stored per flight; the rest is resolved when the logbook is read. Existing flights therefore need
 no migration: mark our own operator, then set the operator of each external person (Projects → Operators →
-External crew, or the person's page in Edit mode), and their flights follow.
+External crew, or **Edit account** of the person on People), and their flights follow.
 
 Logbook rows carry `operator_id`, `operator_name`, `operator_registration`, `operator_own` and
 `operator_source` (`flight`, `project`, `place`, `pic` or `default`). `operator_check` marks an entry on the
@@ -2531,11 +2615,65 @@ flight filters (`category=all|national|open|specific|luc|indoor|unknown|check`) 
 - Paper-record CSV: optional `category` (key or label) and `authorisation` (name) columns. Like the operator, they
   are not part of a record's fingerprint, and a CSV without them leaves existing records as they are.
 
-**Edit mode.** The Edit button in the menu bar shows the forms and menus to change things on the pages that have them
-(Logbook, Logs, People, Projects, Aircraft, Locations, Agenda, Training, Documents, …); it is one setting for all pages,
-so the button is on every page, and it stays on until you turn it off. With edit mode on, admins also see the names in the
-logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
-are left.
+<a id="ui-rule"></a>**UI rule: changes without an Edit mode.** Every page follows the same few patterns:
+1. The read view is the same for everyone; there is no global Edit mode.
+2. One item, one **Edit <item>** button (Edit flight, Edit aircraft, Edit person, Edit project, …) in that item's
+   header, shown only to who may change something of it. It opens one dialog with every field the user may change
+   (fields they may not change are not shown), a read-only context line on top, a compact grid and a blue
+   (`button.primary`) **Save** with Cancel. Save sends only what changed, through the existing endpoints, shows an
+   error at each field that failed and stays open then. Clicking an editable value (or its label) opens the same
+   dialog at that field; links in values stay links.
+3. Rare or destructive actions of the item (re-parse, delete, discard, merge, reset, …) are in one small **⋯** next
+   to the Edit button, shown only when the user may do one of them, each with a small confirmation dialog.
+4. Lists and tables: tick rows for the **selection bar** (as on the Logbook) for changes to one or more rows; no
+   per-row menus or inline dropdowns.
+5. Page-level tools: the primary **Add …** button and **Manage ▾** (imports, templates, review queues, rarely used
+   settings) at the end of the toolbar, only for who can use them. Admin-only sections and tabs are always shown to
+   admins and never to others.
+6. Pages with a list (Aircraft, People, Projects, Locations) open the selected item beside the list, with its tabs
+   and Edit button; the layout does not switch.
+
+Permissions and APIs stay as they are; the server checks every change. There is no global Edit switch any more (the
+header's former Edit button and its `logdbEdit` browser setting are gone; `theme.js` clears the old setting). Admins see
+the names in the logs that are not linked yet on the Unlinked tabs of People and Aircraft, always.
+
+The pages that follow it: the [Logbook](#logbook-changes), the [flight page](#flight-page-changes), the
+[Aircraft page](#aircraft-page), the [People page](#people-page), the [Projects page](#projects-page), the
+[Locations page](#locations-page), [Training](#training-questionnaires), the [Logs page](#logs-page), the
+[Safety page](#safety), the [Documents page](#documents-page), the [Agenda](#booking-agenda) and the welcome
+message and notices editor (`/welcome`).
+
+<a id="logbook-changes"></a>**Logbook changes (no Edit mode).** The Logbook looks the same for everyone and offers each change
+only where the user may make it, from the flags the logbook API already sends per entry (`can_edit_project`,
+`can_edit_crew`, `can_edit_date`, `can_edit_record`) and the user's project roles; the server checks every change
+again as before.
+- Rows have no menu of their own: changes go through the selection bar (below), also for a single row or a day row
+  (all its flights). For who may set it (`can_edit_date`), the *date unknown* chip of an undated log is a button that
+  opens a small date dialog (`PUT /api/logs/<id>/date`). Changing an existing date and the classification are done
+  on the [flight page](#flight-page-changes).
+- Every row has a tick box, for everyone (paper records too); **Select** under **Columns** turns the column off (a
+  per-browser column choice like the others), and then no selection bar appears. The **selection bar** at the
+  bottom offers what applies to all ticked entries and disables the rest with the reason in its tooltip: Copy
+  numbers (all have a flight number), MATLAB ▾ (all have a Paparazzi log), **Change…** (project, PIC, PAC, GCS,
+  operator, category; fields on Keep stay) and **Same flight** (shown to who may change entries; enabled when they
+  may change every ticked one), and **Hide** or **Restore** for admins.
+- <a id="logs-without-flights"></a>**Logs without flights** are non-flights: shown unless *Hide non-flights* is
+  ticked (URL `nonflights`), like ground runs, uncertain flights and simulations. The Logbook loads
+  `GET /api/logbook/logs-without-flights` and shows parsed logs (status `done`) without any flight as rows of their own
+  with a *no flight* chip: date (set date, else the log start; *date unknown* chip otherwise), start and end, duration,
+  type, aircraft names, project and the log name linking to `/logs#log<id>`. Failed, queued and parsing logs are left to
+  the Logs page. The endpoint uses the Logs page's scope (`list_clause`: admins all; others their projects' logs and
+  logs they uploaded or co-uploaded; `?project=`) and takes optional `from`/`to`, `unknown_dates=0` and `q`; the Logbook
+  applies the period, unknown dates and search itself, sorts the rows by date with the flights and leaves them out with
+  a Files filter or Hidden records only. Ticked, they offer only what applies: MATLAB of the whole log (one log on its
+  own), the date chip for undated logs (`can_edit_date`), and **Change…** with only the project for administrators
+  (`PUT /api/logs/<id>/project`); Copy numbers, Same flight and Hide are disabled with the reason.
+- **Files ▾** filters entries with files (any, or one category); while on it shows as a chip (*Files: Photos*) with ✕.
+  The URL parameter `files` is unchanged (`any` or `cat:<category>`).
+- **Manage ▾** (admins and members with edit, full or manager rights in a project): **Import CSV…**/**Add paper
+  record…**, **Review**, and for admins **Hidden records only** (shown as a chip with ✕ while on).
+- An opened entry shows **Unlink** (linked paper record) and **Not the same flight** (merged recordings) to those
+  who may change it.
 
 **Overview pages.** Every person, aircraft, project and location has its own page (`/people/<id>`, `/aircraft/<id>`,
 `/projects/<id>`, `/locations/<id>`; click a name anywhere). It shows totals (flights, flight time, distance, flying
@@ -2572,12 +2710,27 @@ dots (including unnamed-dot review), without changing place access or hiding acc
 location boundaries. Omitting the date arguments retains all-time API behavior; omitting
 `indoor` retains the API's existing inclusion of indoor records.
 
-**Goal and aircraft on the flight page.** In Edit mode, whoever may edit the flight (as for the comment) can:
+<a id="flight-page-changes"></a>**Changes on the flight page (no Edit mode).** The page reads the same for everyone
+and follows the [UI rule](#ui-rule). **Edit flight** (next to MATLAB) is shown when the user may change any field and
+opens one dialog with only those fields: aircraft, goal and comment (`can_edit_comment`), PIC/PAC/GCS operator
+(`can_edit_crew`, one `PUT /api/flights/crew`), project (`can_edit_project`, `PUT /api/flights/<id>/project`),
+operator, category and classification (`can_edit_crew`, `PUT /api/logbook/records` with the entry's `log:<id>` keys)
+and the date of the shown recording's log (`can_edit_date` of `GET /api/logs/<id>`, `PUT /api/logs/<id>/date`;
+emptying a set date removes it). Save sends only the changed fields, one request each and the aircraft last; a failed
+field shows its error and the dialog stays open. After a date or aircraft change the page reloads (times and the
+aircraft's project move), otherwise only the summary. Goal, comment, crew, project, operator, category and
+classification are saved on every recording of the flight. Clicking an editable value or its label opens the dialog at
+that field. The ⋯ menu next to Edit flight holds what is not tied to one value, per log of the flight:
+**Re-parse** (admins and who may change the flight; the page waits for the parser and reloads, and flight numbers stay
+when the takeoff moved at most a minute) and **Delete** (`can_delete` of the log; afterwards the Logbook opens). The ⋯
+is hidden when neither applies. The server checks every change as before.
+
+**Goal and aircraft on the flight page.** Whoever may edit the flight (as for the comment) can:
 - type the **flight goal** (`PUT /api/flights/<id>/goal`, at most 300 characters, saved on every recording of the
   flight): stored in `flights.goal_override`, kept across a re-parse; empty returns to the logged goal
   (`aircraft.goal`, given as `goal_logged`, while `goal` in the logbook rows is the override or else the logged one);
 - link the opened recording to a **fleet aircraft** (`PUT /api/flights/<id>/aircraft` with `drone_id`, or `null` for
-  automatic by name): the same per-log assignment as Aircraft Edit mode (`log_aircraft_links`), for every flight of
+  automatic by name): the same per-log assignment as **Shared names** on the Aircraft page (`log_aircraft_links`), for every flight of
   that recording and kept across a re-parse. Non-admins choose from the aircraft whose timeline or default project
   is one they may upload to (`GET /api/flights/<id>/aircraft-choices`, `drone_choices`), so a recording cannot be
   moved into someone else's project; admins choose from all.
@@ -2585,7 +2738,7 @@ location boundaries. Omitting the date arguments retains all-time API behavior; 
 **Real flight or not.** The autopilot's in-flight flag also toggles on the ground (arming, motor tests, carrying).
 The parser scores each takeoff/landing on duration, climb, distance, speed, tilt and acceleration and gives a verdict
 `flight`, `uncertain` or `ground` with the reasons. **Hide non-flights** leaves out the last two. Whoever may edit
-a flight's crew can set its classification in Edit mode (`verdict` `flight`, `ground` or `null` for automatic in
+a flight's crew can set its classification with Edit flight on the flight page (`verdict` `flight`, `ground` or `null` for automatic in
 `PUT /api/logbook/records`, logged flights only): it is stored in `flights.verdict_override`, kept across a re-parse
 like the other flight edits, and counts everywhere instead of the parser's verdict (the logbook rows give `verdict`,
 `verdict_auto` and `verdict_override`). Blackbox logs without GPS are scored from the local NED position and velocity. When `ENERGY` reports current, a flight of at least two minutes that draws on average 1 A or more while

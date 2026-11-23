@@ -15,152 +15,159 @@
   header .meta { color:#9fb0c3; font-size:12px; }
   header a { color:#9fb0c3; }
   main { max-width:none; width:100%; margin:0; padding:16px 12px 20px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; }
   .scroll { overflow-x:auto; }
   h2 { margin:0 0 8px; font-size:15px; }
-  table { width:max-content; min-width:100%; border-collapse:collapse; }
-  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  table { width:100%; border-collapse:collapse; table-layout:fixed; }
+  th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); vertical-align:middle; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   th { font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
+  th [data-sort] { cursor:pointer; user-select:none; }
+  th [data-sort]:hover { color:var(--txt); }
+  td.num, th.num { text-align:right; padding-right:16px; }
+  tbody tr[data-id] { cursor:pointer; }
+  tbody tr[data-id]:hover { background:var(--hover); }
+  tbody tr.open { background:var(--hover); box-shadow:inset 3px 0 0 var(--acc); }
+  #projectRows td a, #crewRows td a, #projectContent td a { text-decoration:none; }
+  #projectRows td a:hover, #crewRows td a:hover, #projectContent td a:hover { text-decoration:underline; }
+  .edit-grid.two { grid-template-columns:repeat(auto-fit, minmax(min(100%,240px), 1fr)); }
   .mute { color:var(--mute); }
+  .mono { font-family:ui-monospace, monospace; font-size:12px; }
   button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
   button.sec { background:var(--sec); color:var(--txt); }
   button.danger { background:var(--card); color:var(--err); border:1px solid var(--err); }
-  input, select { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; }
-  #err { color:var(--err); min-height:1.2em; }
-  .row { gap:8px; flex-wrap:wrap; align-items:end; margin-top:8px; }
-  .row:not([hidden]) { display:flex; }
+  input, select, textarea { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; min-width:0; max-width:100%; }
+  #err { color:var(--err); }
+  #err:empty { display:none; }
   [hidden] { display:none !important; }
   label.field { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
-  tr.project { cursor:pointer; font-weight:600; background:var(--band); }
-  tr.project:hover { background:var(--hover); }
-  .detail { background:var(--detail); padding:12px 16px; }
-  .ticks { display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
-  .ticks label { display:flex; align-items:center; gap:5px; font-weight:400; color:var(--txt); white-space:nowrap; }
-  .person { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:6px 0; border-bottom:1px solid var(--line); }
-  .person:last-child { border-bottom:0; }
-  #err:empty { display:none; }
-  .project-toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
-  .project-toolbar h2 { margin:0; }
-  #projectSearch { flex:0 1 280px; min-width:0; max-width:100%; }
-  .project-toolbar details { margin-left:auto; }
-  .project-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:10px; }
-  .project-card { border:1px solid var(--fieldline); border-left:4px solid var(--acc); border-radius:8px; padding:8px 10px; min-width:0; height:104px; background:var(--detail); box-shadow:0 2px 4px #0002; }
-  a.project-card { display:block; color:var(--txt); text-decoration:none; }
-  a.project-card:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
-  .project-card-header { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
-  .project-card h3 { margin:0; min-width:0; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .project-counts { flex-shrink:0; font-size:11px; white-space:nowrap; }
-  .project-card p { margin:6px 0 0; max-height:54px; overflow:hidden; overflow-wrap:anywhere; font-size:12px; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; line-clamp:3; }
-  .project-layout { display:grid; grid-template-columns:minmax(220px,300px) minmax(0,1fr); gap:16px; align-items:start; }
-  .project-list { max-height:65vh; overflow:auto; }
-  .project-button { display:block; width:100%; padding:8px; margin:3px 0; text-align:left; background:var(--card); color:var(--txt); border:1px solid var(--line); overflow-wrap:anywhere; }
-  .project-button[aria-pressed=true] { border-left:4px solid var(--acc); background:var(--hover); }
-  #projectPanel { border:1px solid var(--line); border-top:4px solid var(--acc); border-radius:6px; padding:16px; min-width:0; overflow-wrap:anywhere; }
-  #projectPanel h3 { margin-top:0; }
-  .member-add { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
-  .member-picker { max-height:220px; overflow:auto; }
-  input, select { min-width:0; max-width:100%; }
-  .person { flex-wrap:wrap; gap:8px; }
-  .project-button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
-  table.compact { width:100%; table-layout:fixed; }
-  table.compact td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .role-tag { font-size:12px; padding:1px 8px; border-radius:9px; background:var(--chip); }
+  label.field input, label.field select, label.field textarea { font-size:14px; color:var(--txt); }
+  .toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .toolbar h2 { margin:0; }
+  .toolbar input[type=search] { flex:0 1 260px; }
+  .toolbar-end { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .count { color:var(--mute); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
+  .foot { display:flex; justify-content:flex-end; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .cat { font-size:12px; padding:1px 8px; border-radius:9px; background:var(--chip); }
   .tag { display:inline-block; font-size:11px; padding:1px 8px; border-radius:9px; background:var(--chip); margin-left:6px; }
   .tag.exemption { background:var(--warnbg, #fff4d6); color:var(--warn, #8a6300); }
-  .cat { font-size:12px; padding:1px 8px; border-radius:9px; background:var(--chip); }
-  #crewOperators { margin-top:14px; }
-  @media(max-width:760px) { .project-layout { grid-template-columns:1fr; } .project-list { max-height:30vh; } }
+  .warn { color:var(--warn, #9a6700); }
+  /* the open project beside the table (UI rule) */
+  .split { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; align-items:start; }
+  .split.with-panel { grid-template-columns:minmax(0,1fr) minmax(340px,40%); }
+  @media (max-width:900px) { .split.with-panel { grid-template-columns:minmax(0,1fr); } #projectPanel { order:-1; } }
+  #projectPanel { border:1px solid var(--line); border-top:4px solid var(--acc); border-radius:8px; padding:16px; min-width:0; overflow-wrap:anywhere; }
+  .panel-header { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center; }
+  .panel-header h2 { font-size:20px; margin:0; }
+  .panel-actions { display:flex; gap:6px; align-items:center; }
+  .pilot-link { font-size:13px; font-weight:400; margin-left:8px; }
+  .kv { display:grid; grid-template-columns:minmax(0,12em) minmax(0,1fr); gap:4px 14px; margin-top:6px; }
+  .edit-val, .edit-key { cursor:pointer; border-radius:4px; }
+  .edit-val:hover, .edit-key:hover { background:var(--hover); box-shadow:0 0 0 3px var(--hover); }
+  #projectContent table td { white-space:nowrap; }
+  .edit-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; }
+  .edit-grid .wide { grid-column:1 / -1; }
+  #editDialog { width:min(640px, calc(100% - 32px)); }
+  #editDialog h4 { margin:12px 0 4px; }
+  .field-error { color:var(--err); font-size:12px; }
+  .field-error:empty, .dialog-error:empty { display:none; }
+  .member-rows { max-height:280px; overflow:auto; border:1px solid var(--line); border-radius:6px; }
+  .member-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,220px) 30px; gap:8px; align-items:center; padding:4px 8px; border-top:1px solid var(--line); }
+  .member-row:first-child { border-top:0; }
+  .member-row.removed > span { text-decoration:line-through; color:var(--mute); }
+  .member-row button { padding:0 8px; }
+  .member-add { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .member-add input { flex:1; }
+  .member-matches { margin-top:4px; display:flex; flex-wrap:wrap; gap:4px; }
+  .member-matches button { font-size:12px; padding:2px 8px; }
+  @media (max-width:600px) { .wide-only { display:none; } }
 </style>
 </head>
-<body data-edit="admin">
+<body>
 <header>
   <h1>Projects</h1>
   <span class="meta" id="nav"></span>
   <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
 </header>
 <main>
-  <div id="err"></div>
-  <div class="page-tabs" role="tablist" aria-label="Projects page">
-    <button type="button" role="tab" id="tab-projects" data-tab="projects">Projects<span class="n" id="countProjects"></span></button>
-    <button type="button" role="tab" id="tab-authorisations" data-tab="authorisations">Authorisations<span class="n" id="countAuthorisations"></span></button>
-    <button type="button" role="tab" id="tab-operators" data-tab="operators">Operators<span class="n" id="countOperators"></span></button>
-  </div>
+  <div id="err" role="alert"></div>
+  <div class="page-tabs" id="pageTabs" aria-label="Projects page"></div>
+
   <section class="card" id="projectsCard">
-    <div class="project-toolbar"><h2>Projects</h2>
-    <input type="search" id="projectSearch" aria-label="Search projects" placeholder="Search projects or members" oninput="render()">
-    <span class="mute" id="projectCount" role="status"></span>
-    <span class="row" id="projectActions" hidden>
-      <button type="button" onclick="$('add').reset(); $('addProjectDialog').showModal(); $('name').focus()">Add project</button>
-      <button type="button" class="sec" onclick="$('importProjectsDialog').showModal()">Import CSV</button></span>
-    <details><summary>Help</summary><p id="hint">A project is a separate set of flight logs. Open a project to see its flights.</p></details></div>
-    <dialog class="entry-dialog" id="addProjectDialog" aria-labelledby="addProjectTitle" style="width:min(420px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
-      <div class="dialog-header"><h2 id="addProjectTitle">Add project</h2><button type="button" onclick="$('addProjectDialog').close()" aria-label="Close Add project">Close</button></div>
-      <form id="add" onsubmit="addProject(event)">
-        <label class="field">Name<input id="name" required maxlength="80"></label>
-        <button type="submit">Create project</button>
-      </form>
-    </dialog>
-    <dialog class="entry-dialog" id="importProjectsDialog" aria-labelledby="importProjectsTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
-      <div class="dialog-header"><h2 id="importProjectsTitle">Import projects from CSV</h2><button type="button" onclick="$('importProjectsDialog').close()" aria-label="Close CSV import">Close</button></div>
-      <p>Columns: <code>project,person,role</code>, one row per member. Roles: <code>view</code>, <code>add</code> (view/upload; default), <code>full</code> (also delete), <code>manager</code> (full, plus managing members and aircraft requests). Match people by unique display name or alias.</p>
-      <p><strong>Reimport replaces all members of each included project.</strong> Omitted projects are unchanged. A blank person leaves the project without members. Any invalid row rejects the entire import.</p>
-      <p><a href="/api/admin/projects/template">Download CSV template</a></p>
-      <p class="dialog-error" id="importError" role="alert"></p>
-      <div class="dialog-fields">
-        <label class="field">CSV file<input id="csv" type="file" accept=".csv,text/csv"></label>
-        <button type="button" id="importButton" onclick="importProjects()">Import / update projects</button>
-        <span class="mute" id="importMsg" role="status"></span>
+    <div class="toolbar"><h2>Projects</h2><span class="count" id="projectCount" role="status"></span>
+      <input type="search" id="projectSearch" aria-label="Search projects" placeholder="Search projects or members">
+      <span class="toolbar-end">
+        <button type="button" id="addProjectButton" hidden onclick="openAddProject()">Add project</button>
+        <span class="menu-wrap" id="manageWrap" hidden><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
+          <div class="menu-pop" id="manageMenu" role="menu" hidden>
+            <button type="button" class="ext-item" role="menuitem" onclick="openImport()">Import CSV…</button>
+            <a class="ext-item" role="menuitem" href="/api/admin/projects/template">Download CSV template</a>
+          </div></span>
+        <details><summary>Help</summary><p id="hint"></p></details></span></div>
+    <div class="split" id="projectSplit">
+      <div>
+        <div class="scroll"><table id="projectTable"><colgroup id="projectCols"></colgroup><thead id="projectHead"></thead><tbody id="projectRows"></tbody></table></div>
+        <div class="foot"><span class="mute">Rows per page</span>
+          <select id="size" aria-label="Rows per page"><option>25</option><option selected>50</option><option>100</option><option>200</option></select>
+          <div id="projectPages" class="navigation-pages"></div></div>
       </div>
-    </dialog>
-    <div id="projectOverview" class="project-grid"></div>
-    <div class="project-layout" id="projectEditor" hidden>
-      <div class="project-list" id="projectList"></div>
-      <section id="projectPanel" aria-label="Selected project"></section>
+      <section id="projectPanel" aria-label="Selected project" hidden>
+        <div class="panel-header"><h2 id="projectHeading"></h2>
+          <span class="panel-actions"><button type="button" class="sec" id="editProject" onclick="openEditProject()">Edit project</button>
+            <span class="menu-wrap" id="moreWrap" hidden><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
+              <div class="menu-pop" id="moreMenu" role="menu" hidden>
+                <button type="button" class="ext-item danger-item" role="menuitem" onclick="removeProject()">Delete project…</button>
+              </div></span>
+            <button type="button" class="sec" onclick="selectProject(null)" aria-label="Close the project" title="Close">✕</button></span></div>
+        <p class="mute" id="projectIdentity"></p>
+        <div class="seg-tabs" role="tablist" aria-label="Project" id="projectTabs">
+          <button type="button" role="tab" id="ptab-details" data-ptab="details" aria-controls="projectContent">Details</button>
+          <button type="button" role="tab" id="ptab-members" data-ptab="members" aria-controls="projectContent">Members</button>
+        </div>
+        <div id="projectContent" role="tabpanel"></div>
+      </section>
     </div>
   </section>
+
   <section class="card" id="authorisationsCard">
-    <div class="project-toolbar"><h2>Authorisations</h2>
-    <label><input type="checkbox" id="showExpired" onchange="renderAuthorisations()"> Show expired</label>
-    <button type="button" id="addAuthorisationButton" hidden onclick="$('addAuthorisationDialog').showModal()">Add authorisation</button>
-    <details><summary>Help</summary><p>The rules each flight was flown under (its category): national rules (ROC / ROC-light) before EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. A flight's category is, in this order: set on the flight (logbook Edit mode), indoor, that of its project, that of its takeoff location, or the date. By date, flights before 31 Dec 2020 are under national rules; for our own operations, a national authorisation listed here that was valid that day gives national rules, a day without any valid authorisation of ours gives OPEN, and a day with an EU authorisation stays unknown (OPEN or SPECIFIC): set those on the project, the location or the flight. An exemption (such as a one-off BVLOS exemption) is left out of this date rule: it only applies where it is set. Leave the operator empty for our own authorisations. The logbook marks SPECIFIC flights without an authorisation, or outside its validity, with (check).</p></details></div>
-    <div class="scroll"><table id="authorisationTable"><thead id="authorisationHead"></thead>
-      <tbody id="authorisationRows"></tbody></table></div>
-    <dialog class="entry-dialog" id="addAuthorisationDialog" aria-labelledby="addAuthorisationTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
-    <div class="dialog-header"><h2 id="addAuthorisationTitle">Add authorisation</h2><button type="button" onclick="$('addAuthorisationDialog').close()" aria-label="Close Add authorisation">Close</button></div>
-    <form id="addAuthorisation" onsubmit="event.preventDefault();saveAuthorisation(null)">
-      <label class="field">Name / number<input id="auNewname" required maxlength="80"></label>
-      <label class="field">Category<select id="auNewcategory"></select></label>
-      <label class="field">Holder<select id="auNewoperator_id"></select></label>
-      <label class="field">Valid from<input type="date" id="auNewvalid_from"></label>
-      <label class="field">Valid until<input type="date" id="auNewvalid_until"></label>
-      <label title="Only where it is set on a flight, project or location; never by date"><input type="checkbox" id="auNewexemption"> Exemption</label>
-      <label class="field">Link<input id="auNewlink" maxlength="500"></label>
-      <label class="field">Note<input id="auNewnote" maxlength="400"></label>
-      <button type="submit">Add authorisation</button>
-    </form>
-    </dialog>
+    <div class="toolbar"><h2>Authorisations</h2><span class="count" id="authorisationCount"></span>
+      <label id="showExpiredLabel"><input type="checkbox" id="showExpired"> Show expired</label>
+      <span class="toolbar-end">
+        <button type="button" id="addAuthorisationButton" hidden onclick="openAuthorisation(null)">Add authorisation</button>
+        <details><summary>Help</summary><p>The rules each flight was flown under (its category): national rules (ROC / ROC-light) before EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. A flight's category is, in this order: set on the flight (Edit flight, or Change… in the logbook's selection bar), indoor, that of its project, that of its takeoff location, or the date. By date, flights before 31 Dec 2020 are under national rules; for our own operations, a national authorisation listed here that was valid that day gives national rules, a day without any valid authorisation of ours gives OPEN, and a day with an EU authorisation stays unknown (OPEN or SPECIFIC): set those on the project, the location or the flight. An exemption (such as a one-off BVLOS exemption) is left out of this date rule: it only applies where it is set. Leave the holder empty for our own authorisations. The logbook marks SPECIFIC flights without an authorisation, or outside its validity, with (check). Administrators click a row to change or delete it.</p></details></span></div>
+    <div class="scroll"><table><colgroup id="authorisationCols"></colgroup><thead id="authorisationHead"></thead><tbody id="authorisationRows"></tbody></table></div>
   </section>
+
   <section class="card" id="operatorsCard">
-    <div class="project-toolbar"><h2>Operators</h2>
-    <button type="button" id="addOperatorButton" hidden onclick="$('addOperatorDialog').showModal()">Add operator</button>
-    <details><summary>Help</summary><p>The UAS operator registrations flights are flown under. A flight is under, in this order: the operator set on the flight (logbook Edit mode), that of its project, that of its takeoff location, the operator its PIC flies for, or else our own operator. Nothing has to be filled in per flight: mark our own operator, then choose the operator of external crew below. Anyone can add the operator of a new partner in Edit mode (also from the logbook and the paper-record form); only admins change, remove or mark our own. Use the flight filters for own operations only.</p></details></div>
-    <div class="scroll"><table id="operatorTable"><thead id="operatorHead"></thead>
-      <tbody id="operatorRows"></tbody></table></div>
-    <dialog class="entry-dialog" id="addOperatorDialog" aria-labelledby="addOperatorTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
-    <div class="dialog-header"><h2 id="addOperatorTitle">Add operator</h2><button type="button" onclick="$('addOperatorDialog').close()" aria-label="Close Add operator">Close</button></div>
-    <form id="addOperator" onsubmit="event.preventDefault();saveOperator(null)">
-      <label class="field">Name<input id="opName" required maxlength="80"></label>
-      <label class="field">Registration number<input id="opRegistration" maxlength="40"></label>
-      <label class="field">Country<select id="opCountry"></select></label>
-      <label class="field" id="opOwnField">Own<input type="checkbox" id="opOwn"></label>
-      <label class="field">Note<input id="opNote" maxlength="400" placeholder="e.g. authorisation flown under"></label>
-      <button type="submit">Add operator</button>
-    </form>
-    </dialog>
+    <div class="toolbar"><h2>Operators</h2><span class="count" id="operatorCount"></span>
+      <span class="toolbar-end">
+        <button type="button" id="addOperatorButton" hidden onclick="openOperator(null)">Add operator</button>
+        <details><summary>Help</summary><p>The UAS operator registrations flights are flown under. A flight is under, in this order: the operator set on the flight, that of its project, that of its takeoff location, the operator its PIC flies for, or else our own operator. Nothing has to be filled in per flight: mark our own operator, then choose the operator of external crew below. Anyone can add the operator of a new partner (also from the logbook and the paper-record form); only administrators change, delete or mark our own (click a row). Use the flight filters for own operations only.</p></details></span></div>
+    <div class="scroll"><table><colgroup id="operatorCols"></colgroup><thead id="operatorHead"></thead><tbody id="operatorRows"></tbody></table></div>
     <details id="crewOperators" hidden><summary>External crew <span class="mute" id="crewCount"></span></summary>
-      <p class="mute">The operator each external person flies for. Their flights count under it unless the flight, project or location says otherwise; <span class="warn">(check)</span> in the logbook marks external crew without one.</p>
-      <div class="scroll"><table><thead><tr><th>Person</th><th>Flies for</th></tr></thead><tbody id="crewOperatorRows"></tbody></table></div></details>
+      <p class="mute">The operator each external person flies for. Their flights count under it unless the flight, project or location says otherwise; <span class="warn">(check)</span> in the logbook marks external crew without one. Click a person to set it.</p>
+      <div class="scroll"><table><colgroup><col style="width:45%"><col></colgroup><thead><tr><th>Person</th><th>Flies for</th></tr></thead><tbody id="crewRows"></tbody></table></div>
+</details>
   </section>
+
+  <dialog class="entry-dialog" id="editDialog" aria-labelledby="editTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="editTitle"></h2><button type="button" onclick="$('editDialog').close()">Close</button></div>
+    <form id="editForm" class="dialog-fields">
+      <p class="mute" id="editWhat" style="margin:0"></p>
+      <div id="editFields"></div>
+      <p class="dialog-error" id="editError" role="alert"></p>
+      <div class="row"><button type="submit" class="primary" id="editSave">Save</button> <button type="button" class="sec" onclick="$('editDialog').close()">Cancel</button>
+        <button type="button" class="danger" id="editDelete" hidden style="margin-left:auto">Delete…</button></div>
+    </form>
+  </dialog>
+  <dialog class="entry-dialog" id="actDialog" aria-labelledby="actTitle" style="width:min(460px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="actTitle"></h2><button type="button" onclick="$('actDialog').close()">Close</button></div>
+    <form id="actForm" class="dialog-fields">
+      <div id="actBody"></div>
+      <p class="dialog-error" id="actError" role="alert"></p>
+      <div class="row"><button type="submit" class="primary" id="actOk">OK</button> <button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></div>
+    </form>
+  </dialog>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -172,338 +179,484 @@ window.fetch = async (...args) => {
   return r;
 };
 let projects = [], users = [], me = null, operators = [], authorisations = [], countries = [];
-let selectedProject = null;
-let memberQuery = '';
-// Project roles: view < add < edit < full < manager. Only admins see the Manager box (they appoint managers).
-// Each box includes the ones before it: See, Upload, Edit (change flights, logs and paper records), Delete, Manager.
-const TICK_ROLES = ['view', 'add', 'edit', 'full', 'manager'], TICK_IDS = ['see', 'up', 'edit', 'del', 'man'];
-const ticksOf = role => TICK_ROLES.indexOf(role);
-function tickBoxes(prefix, role, onchange) {
-  const level = ticksOf(role), box = (i, label, title) => `<label${title ? ` title="${title}"` : ''}><input type="checkbox" id="${prefix}${TICK_IDS[i]}" ${level >= i ? 'checked' : ''} onchange="${onchange}"> ${label}</label>`;
-  return `<span class="ticks">${box(0, 'See')}${box(1, 'Upload')}${box(2, 'Edit', 'Change comments, crew and other details of the flights, logs and paper records of this project; deleting needs Delete')}${box(3, 'Delete')}
-    ${me && me.is_admin ? box(4, 'Manager', 'Manages the members (See, Upload, Edit, Delete) and decides on aircraft requests of this project, and edits the details of its aircraft') : ''}
-  </span>`;
-}
-// The highest ticked box sets the role and ticks every box before it.
-function applyTicks(prefix) {
-  const boxes = TICK_IDS.map(id => $(prefix + id) || {checked: false});
-  let level = -1;
-  boxes.forEach((b, i) => { if (b.checked) level = i; });
-  boxes.forEach((b, i) => { b.checked = i <= level; });
-  return level < 0 ? '' : TICK_ROLES[level];
-}
+const isAdmin = () => !!me?.is_admin;
+// Project access, each level including the ones before it (role names as stored).
+const ACCESS = [['view', 'See'], ['add', 'See, upload'], ['edit', 'See, upload, edit'], ['full', 'See, upload, edit, delete'],
+  ['manager', 'Manager']];
+const ACCESS_HELP = 'Edit: change comments, crew and other details of the flights, logs and paper records of this project. Delete: also delete them. Manager: also manages the members and decides on aircraft requests of this project, and edits the details of its aircraft (only administrators appoint managers).';
+const accessLabel = role => (ACCESS.find(a => a[0] === role) || [, role])[1];
 
-const editing = () => !!(me && me.is_admin && window.editMode());
-// Members editor: admins for every project, project managers for theirs (without the admin-only settings).
-const managing = () => !!(me && window.editMode() && (me.is_admin || projects.some(p => p.can_manage)));
-function syncEdit() {
-  $('projectActions').hidden = !editing();
-  if (!editing()) $('addProjectDialog').close();
-  $('addOperatorButton').hidden = !(me && window.editMode());  // anyone can add a partner; only admins mark our own
-  $('addAuthorisationButton').hidden = !editing();
-  if (!window.editMode()) { $('addOperatorDialog').close(); $('addAuthorisationDialog').close(); }
-  $('opOwnField').hidden = !editing();
-  if (!editing()) $('importProjectsDialog').close();
-  $('hint').textContent = managing() && !editing()
-    ? 'Projects you manage. Select one to manage its members: See, Upload and Delete are saved immediately; untick all to remove a member. Only administrators appoint managers.'
-    : editing()
-    ? 'Select a project to manage its current members. Search for another person to add them. See, Upload and Delete permissions are saved immediately; untick all permissions to remove a member.'
-    : me && me.is_admin
-      ? 'A project is a separate set of flight logs. Search projects or members, then open a project to view its flights.'
-      : 'Projects you belong to. Search by project or member name, then open a project to view its flights.';
+async function read(url) {
+  const r = await fetch(url);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `Could not load (${r.status}).`);
+  return data;
 }
 async function load() {
-  const admin = !!(me && me.is_admin);
-  syncEdit();
-  const read = async url => {
-    const r = await fetch(url);
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || `Could not load projects (${r.status}).`);
-    return data;
-  };
   try {
-    if (admin) {
+    if (isAdmin()) {
       const [p, people] = await Promise.all([read('/api/admin/projects'), read('/api/admin/people')]);
       projects = p.projects;
       users = people.users;
     } else {
       projects = await read('/api/projects');
-      users = projects.some(p => p.can_manage)  // people to add as members
-        ? (await read('/api/people')).map(u => ({...u, is_active: true})) : [];
+      users = projects.some(p => p.can_manage) ? (await read('/api/people')).map(u => ({...u, is_active: true})) : [];
     }
     ({operators, countries = []} = await read('/api/operators'));
-    $('opCountry').innerHTML = countryOptions('');
     authorisations = (await read('/api/authorisations')).authorisations;
+    $('err').textContent = '';
     render();
-  } catch (error) {
-    $('err').textContent = `Could not load projects: ${error.message}`;
+  } catch (error) { $('err').textContent = `Could not load projects: ${error.message}`; }
+}
+// A change through the API: the error goes to out (or the page); true when it worked.
+async function call(method, url, body, out) {
+  try {
+    const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Request failed (${r.status}).`);
+    if (out) out.textContent = '';
+    return true;
+  } catch (error) { (out || $('err')).textContent = error.message; return false; }
+}
+
+// ---- page tabs, kept in the URL with the rest of the view (Back returns to it) ----
+let tab = 'projects';
+function paintTabs() {
+  window.pageTabs($('pageTabs'), [['projects', 'Projects', projects.length], ['authorisations', 'Authorisations', authorisations.length],
+    ['operators', 'Operators', operators.length]], tab, key => { tab = key; window.viewState.save(true); paintTabs(); });
+  for (const t of ['projects', 'authorisations', 'operators']) $(t + 'Card').hidden = t !== tab;
+}
+
+// ---- Projects: a table; admins and the project's managers open a project beside it ----
+const COLUMNS = [
+  {key: 'name', label: 'Project', sort: true, w: 26},
+  {key: 'members', label: 'Members', sort: true, w: 30},
+  {key: 'logs', label: 'Logs', sort: true, num: true, w: 8},
+  {key: 'operator', label: 'Operator', sort: true, w: 16, panel: true},
+  {key: 'category', label: 'Category', sort: true, w: 16, panel: true}];
+let sortKey = 'name', sortDesc = false, page = 0, pageSize = 50, selected = null, ptab = 'details';
+const canOpen = p => isAdmin() || p.can_manage;
+const memberNames = p => (p.members || []).map(m => m.display_name || m.username);
+const operatorText = p => { const o = operators.find(x => x.id === p.operator_id); return o ? operatorLabel(o) : ''; };
+function categoryLabel(p) {
+  if (p.authorisation_id) { const a = authorisations.find(x => x.id === p.authorisation_id);
+    return a ? `${CATEGORY_LABELS[a.category] || a.category} · ${a.name}` : 'Authorisation'; }
+  return p.category ? CATEGORY_LABELS[p.category] || p.category : '';
+}
+function sortValue(p, key) {
+  return {name: p.name, members: (p.members || []).length, logs: p.log_count || 0, operator: operatorText(p), category: categoryLabel(p)}[key];
+}
+function render() {
+  paintTabs();
+  renderAuthorisations();
+  renderOperators();
+  const admin = isAdmin(), q = $('projectSearch').value.trim().toLocaleLowerCase();
+  $('addProjectButton').hidden = $('manageWrap').hidden = !admin;
+  $('hint').textContent = admin
+    ? 'A project is a separate set of flight logs. Click a row to open the project beside the list: Details and Members. Edit project changes its name, operator, category and members in one dialog; ⋯ deletes it (its logs stay). The name opens the project page with its flights. Manage ▾ → Import CSV sets the members of many projects at once.'
+    : projects.some(p => p.can_manage)
+      ? 'Projects you belong to. Click a project you manage to open it beside the list; Edit project changes its members (only administrators appoint managers). Other rows open the project page with its flights.'
+      : 'Projects you belong to. Click a project to open its page with its flights.';
+  const shown = projects.filter(p => !q || [p.name, ...memberNames(p)].some(v => v && v.toLocaleLowerCase().includes(q)));
+  $('projectCount').textContent = shown.length === projects.length ? String(projects.length) : `${shown.length} of ${projects.length}`;
+  const open = projects.find(p => p.id === selected && canOpen(p));
+  const cols = COLUMNS.filter(c => !(open && c.panel));
+  const sum = cols.reduce((n, c) => n + c.w, 0);
+  $('projectCols').innerHTML = cols.map(c => `<col style="width:${(100 * c.w / sum).toFixed(1)}%">`).join('');
+  $('projectHead').innerHTML = '<tr>' + cols.map(c => {
+    const on = sortKey === c.key;
+    return `<th class="${c.num ? 'num' : ''} ${c.panel ? 'wide-only' : ''}"${on ? ` aria-sort="${sortDesc ? 'descending' : 'ascending'}"` : ''}><span data-sort="${c.key}">${esc(c.label)}${on ? (sortDesc ? ' ▼' : ' ▲') : ''}</span></th>`;
+  }).join('') + '</tr>';
+  const sorted = [...shown].sort((a, b) => {
+    const x = sortValue(a, sortKey), y = sortValue(b, sortKey);
+    const c = typeof x === 'number' ? x - y : (x && y ? String(x).localeCompare(String(y)) : !x - !y);
+    return (sortDesc ? -c : c) || a.name.localeCompare(b.name);
+  });
+  page = Math.min(page, Math.max(0, Math.ceil(sorted.length / pageSize) - 1));
+  window.viewState.pager($('projectPages'), page, pageSize, sorted.length, n => { page = n; window.viewState.save(true); render(); });
+  const none = '<span class="mute">—</span>';
+  const cell = (c, p) => {
+    if (c.key === 'name') return `<td title="${esc(p.name)}"><a href="/projects/${p.id}" title="Project page: flights of ${esc(p.name)}">${esc(p.name)}</a></td>`;
+    if (c.key === 'members') { const names = memberNames(p);
+      return `<td title="${esc(names.join(', '))}">${names.length ? esc(names.slice(0, 3).join(', ')) + (names.length > 3 ? ` <span class="mute">+${names.length - 3}</span>` : '') : '<span class="mute">Nobody yet</span>'}</td>`; }
+    if (c.key === 'logs') return `<td class="num">${p.log_count || '<span class="mute">0</span>'}</td>`;
+    const v = c.key === 'operator' ? operatorText(p) : categoryLabel(p);
+    return `<td class="wide-only" title="${esc(v || (c.key === 'operator' ? 'Own operator, or the takeoff location\'s' : 'From the takeoff location or date'))}">${v ? esc(v) : none}</td>`;
+  };
+  $('projectRows').innerHTML = sorted.slice(page * pageSize, (page + 1) * pageSize).map(p =>
+    `<tr data-id="${p.id}"${open && open.id === p.id ? ' class="open" aria-selected="true"' : ''} title="${canOpen(p) ? 'Open ' + esc(p.name) + ' beside the list' : 'Project page of ' + esc(p.name)}">${cols.map(c => cell(c, p)).join('')}</tr>`).join('')
+    || `<tr><td colspan="${cols.length}" class="mute">${projects.length ? 'No matching projects.' : 'No projects yet.'}</td></tr>`;
+  renderPanel();
+  window.viewState.ready();
+}
+$('projectHead').onclick = e => {
+  const th = e.target.closest('[data-sort]');
+  if (!th) return;
+  if (sortKey === th.dataset.sort) sortDesc = !sortDesc; else { sortKey = th.dataset.sort; sortDesc = ['logs', 'members'].includes(sortKey); }
+  page = 0; window.viewState.save(true); render();
+};
+$('projectRows').onclick = e => {
+  const tr = e.target.closest('tr[data-id]');
+  if (!tr || e.target.closest('a, button, input')) return;
+  const p = projects.find(x => x.id === +tr.dataset.id);
+  if (!canOpen(p)) { location.href = `/projects/${p.id}`; return; }
+  selectProject(p.id === selected ? null : p.id);
+};
+$('projectSearch').oninput = () => { page = 0; window.viewState.save(); render(); };
+$('size').onchange = () => { pageSize = +$('size').value; page = 0; window.viewState.save(true); render(); };
+function selectProject(id) {
+  selected = id;
+  if (!id) ptab = 'details';
+  window.viewState.save(true);
+  render();
+  if (id) $('projectPanel').scrollIntoView({block: 'nearest'});
+}
+for (const b of document.querySelectorAll('[data-ptab]')) b.onclick = () => { ptab = b.dataset.ptab; window.viewState.save(); renderPanel(); };
+const editRow = (key, label, value) => `<span class="mute edit-key" data-edit-field="${key}" title="Click to change">${label}</span><span class="edit-val" data-edit-field="${key}" title="Click to change">${value || '<span class="mute">—</span>'}</span>`;
+const plainRow = (label, value) => `<span class="mute">${label}</span><span>${value || '<span class="mute">—</span>'}</span>`;
+function renderPanel() {
+  const p = projects.find(x => x.id === selected && canOpen(x));
+  $('projectSplit').classList.toggle('with-panel', !!p);
+  $('projectPanel').hidden = !p;
+  if (!p) { closeMenus(); return; }
+  const admin = isAdmin(), members = p.members || [];
+  $('projectHeading').innerHTML = `${esc(p.name)} <a class="pilot-link" href="/projects/${p.id}" title="The project page with its flights">Project page ↗</a>`;
+  $('projectIdentity').textContent = `${p.log_count || 0} log${p.log_count === 1 ? '' : 's'} · ${members.length} member${members.length === 1 ? '' : 's'}`;
+  $('moreWrap').hidden = !admin;
+  for (const t of ['details', 'members']) {
+    $('ptab-' + t).setAttribute('aria-selected', String(ptab === t));
+    $('ptab-' + t).tabIndex = ptab === t ? 0 : -1;
+  }
+  const row = admin ? editRow : (key, label, value) => plainRow(label, value);
+  if (ptab === 'members') {
+    $('projectContent').innerHTML = members.length ? `<table><colgroup><col style="width:55%"><col></colgroup><tbody>${members.map(m =>
+      `<tr><td><a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a></td><td class="edit-val" data-edit-field="members" title="${esc(ACCESS_HELP)}">${esc(accessLabel(m.role))}</td></tr>`).join('')}</tbody></table>`
+      : '<p class="mute edit-val" data-edit-field="members">No members yet.</p>';
+  } else {
+    $('projectContent').innerHTML = `<div class="kv">
+      ${row('name', 'Name', esc(p.name))}
+      ${row('operator', 'Operator of its flights', esc(operatorText(p)) || '<span class="mute">Own operator, or the takeoff location\'s</span>')}
+      ${row('category', 'Category of its flights', esc(categoryLabel(p)) || '<span class="mute">From the takeoff location or date</span>')}
+      ${plainRow('Logs', String(p.log_count || 0))}</div>`;
   }
 }
-function peoplePreview(p) {
-  const members = p.members || [];
-  if (!members.length) return '<span class="mute">Nobody yet</span>';
-  return members.map(m => esc(m.display_name || m.username)).join(', ');
+// A value opens Edit project at that field (only what the viewer may change).
+document.addEventListener('click', e => {
+  const value = e.target.closest('#projectContent [data-edit-field]');
+  if (value && !e.target.closest('a, button')) openEditProject(value.dataset.editField);
+});
+
+// ---- Edit project: one dialog; admins: name, operator, category and members; managers: the members ----
+// remove: an optional rare action of the item (Delete…), at the end of the buttons, with its own confirmation
+function editDialog(title, what, fields, save, focus, remove) {
+  $('editDelete').hidden = !remove;
+  $('editDelete').onclick = () => { $('editDialog').close(); remove(); };
+  $('editTitle').textContent = title;
+  $('editWhat').textContent = what;
+  $('editFields').innerHTML = fields;
+  $('editError').textContent = '';
+  $('editForm').onsubmit = async event => {
+    event.preventDefault();
+    $('editFields').querySelectorAll('[data-error]').forEach(el => { el.textContent = ''; });
+    $('editSave').disabled = true;
+    try {
+      const failed = await save(key => $('editFields').querySelector(`[data-error="${key}"]`) || $('editError'));
+      if (failed) { $('editError').textContent = `${failed} change${failed > 1 ? 's were' : ' was'} not saved; see above.`; await load(); return; }
+      $('editDialog').close();
+      await load();
+    } finally { $('editSave').disabled = false; }
+  };
+  $('editDialog').showModal();
+  const target = focus && $('editFields').querySelector(`[name="${focus}"], #${focus}`);
+  (target || $('editFields').querySelector('input, select, textarea'))?.focus();
 }
-function selectProject(id) {
-  selectedProject = id;
-  memberQuery = '';
-  render();
-}
-function renderProjectPanel() {
-  const p = projects.find(p => p.id === selectedProject);
-  if (!p) { $('projectPanel').innerHTML = '<p class="mute">Select a project to manage its members and settings.</p>'; return; }
-  const admin = editing();
-  const memberRow = m => `<div class="person"><a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a>
-      ${!admin && m.role === 'manager' ? '<span class="role-tag" title="Only administrators change a manager">Manager</span>'
-        : tickBoxes('m' + p.id + '_' + m.user_id, m.role, `saveTicks(${p.id}, ${m.user_id})`)}</div>`;
-  $('projectPanel').innerHTML = `<h3>${esc(p.name)}</h3><a href="/projects/${p.id}">View project flights</a>
-    ${admin ? `<form class="row" onsubmit="event.preventDefault();renameProject(${p.id})">
-      <label class="field">Project name<input id="ren${p.id}" value="${esc(p.name)}" required maxlength="80"></label>
-      <button type="submit">Save name</button></form>
-    <form class="row" onsubmit="event.preventDefault()">
-      <label class="field">Operator of its flights<select onchange="send('/api/admin/projects/${p.id}', 'PUT', {operator_id: this.value ? +this.value : null})">
-        <option value="">Own operator, or the takeoff location's</option>
-        ${operators.map(o => `<option value="${o.id}"${o.id === p.operator_id ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('')}</select></label></form>
-    <form class="row" onsubmit="event.preventDefault()">
-      <label class="field">Category of its flights<select onchange="send('/api/admin/projects/${p.id}', 'PUT', categoryChoice(this.value))">
-        <option value="">From the takeoff location or date</option>${categoryOptions(authorisations, categoryValue(p))}</select></label></form>` : ''}
-    <h4>Members (${(p.members || []).length})</h4>
-    ${(p.members || []).map(memberRow).join('') || '<p class="mute">No members yet.</p>'}
-    <div class="member-add"><label class="field">Add a member<input type="search" id="memberSearch" placeholder="Search name, username or alias" value="${esc(memberQuery)}" oninput="memberQuery=this.value;renderMemberPicker()"></label>
-      <div class="member-picker" id="memberPicker"></div></div>
-    ${admin ? `<div class="row"><button type="button" class="danger" onclick="removeProject(${p.id})">Delete project</button></div>` : ''}`;
-  renderMemberPicker();
-}
-function renderMemberPicker() {
-  const p = projects.find(p => p.id === selectedProject);
+const field = (key, label, control, wide) => `<label class="field${wide ? ' wide' : ''}">${label}${control}<span class="field-error" data-error="${key}"></span></label>`;
+const val = name => $('editFields').querySelector(`[name=${name}]`);
+let memberEdit = null;  // {project, rows: [{user_id, name, role, was}]}
+function openEditProject(focus) {
+  const p = projects.find(x => x.id === selected && canOpen(x));
   if (!p) return;
-  const q = memberQuery.trim().toLocaleLowerCase();
-  if (!q) { $('memberPicker').innerHTML = '<p class="mute">Search to find someone to add.</p>'; return; }
-  const members = new Set((p.members || []).map(m => m.user_id));
-  const matches = users.filter(u => !u.is_external && u.is_active && !members.has(u.id)
-    && [u.display_name,u.username,...(u.aliases || [])].filter(Boolean).some(v => v.toLocaleLowerCase().includes(q)));
-  $('memberPicker').innerHTML = matches.map(u => `<div class="person"><span>${esc(u.display_name || u.username)}</span>
-    <button type="button" class="sec" onclick="setRole(${p.id},${u.id},'view')">Add with See access</button></div>`).join('')
-    || '<p class="mute">No eligible people match.</p>';
+  const admin = isAdmin();
+  memberEdit = {project: p, rows: (p.members || []).map(m => ({user_id: m.user_id, name: m.display_name || m.username, role: m.role, was: m.role}))};
+  const operatorOptions = () => `<option value="">Own operator, or the takeoff location's</option>${operators.map(o =>
+    `<option value="${o.id}"${o.id === p.operator_id ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('')}${NEW_OPERATOR_OPTION}`;
+  const operatorSelect = `<select name="operator">${operatorOptions()}</select>`;
+  editDialog(`Edit project ${p.name}`, admin ? '' : 'You manage this project: you change its members (only administrators appoint managers).', `
+    ${admin ? `<div class="edit-grid two">
+      ${field('name', 'Name', `<input name="name" required maxlength="80" value="${esc(p.name)}">`, true)}
+      ${field('operator', 'Operator of its flights', operatorSelect)}
+      ${field('category', 'Category of its flights', `<select name="category"><option value="">From the takeoff location or date</option>${categoryOptions(authorisations, categoryValue(p))}</select>`)}
+    </div>` : ''}
+    <h4>Members</h4>
+    <div class="member-rows" id="memberRows"></div>
+    <div class="member-add"><input type="search" id="memberSearch" placeholder="Add a member: search name, username or alias" autocomplete="off"></div>
+    <div class="member-matches" id="memberMatches"></div>
+    <p class="mute" style="font-size:12px;margin:4px 0 0">${esc(ACCESS_HELP)}</p>
+    <span class="field-error" data-error="members"></span>`, async out => {
+    let failed = 0;
+    if (admin) {
+      const body = {};
+      if (val('name').value.trim() !== p.name) body.name = val('name').value.trim();
+      if (String(p.operator_id ?? '') !== val('operator').value) body.operator_id = val('operator').value ? +val('operator').value : null;
+      if (categoryValue(p) !== val('category').value) Object.assign(body, categoryChoice(val('category').value));
+      if (Object.keys(body).length && !await call('PUT', `/api/admin/projects/${p.id}`, body, out('name'))) failed++;
+    }
+    for (const r of memberEdit.rows.filter(r => r.role !== r.was))
+      if (!await call('PUT', `/api/projects/${p.id}/members`, {user_id: r.user_id, role: r.role || ''}, out('members'))) failed++;
+    return failed;
+  }, focus === 'members' ? 'memberSearch' : focus);
+  paintMemberRows();
+  $('memberSearch').oninput = paintMemberMatches;
+  if (admin) {
+    const operator = val('operator');
+    operator.onchange = () => pickNewOperator(operator, operators, () => { operator.innerHTML = operatorOptions(); }, String(p.operator_id ?? ''));
+  }
 }
-// The country of an operator: an ISO code from the same list as the locations ("NL · Netherlands")
+function paintMemberRows() {
+  const admin = isAdmin();
+  $('memberRows').innerHTML = memberEdit.rows.map((r, i) => {
+    const locked = !admin && (r.was === 'manager');  // only admins change a manager
+    const options = ACCESS.filter(([k]) => admin || k !== 'manager' || r.was === 'manager')
+      .map(([k, label]) => `<option value="${k}"${k === r.role ? ' selected' : ''}>${label}</option>`).join('');
+    return `<div class="member-row${r.role ? '' : ' removed'}"><span title="${esc(r.name)}">${esc(r.name)}${r.was ? '' : ' <span class="mute">(new)</span>'}</span>
+      ${r.role ? `<select data-i="${i}" aria-label="Access of ${esc(r.name)}"${locked ? ' disabled title="Only administrators change a manager"' : ''}>${options}</select>` : '<span class="mute">removed</span>'}
+      ${locked ? '<span></span>' : `<button type="button" class="sec" data-x="${i}" aria-label="${r.role ? 'Remove' : 'Keep'} ${esc(r.name)}" title="${r.role ? 'Remove from the project' : 'Undo'}">${r.role ? '×' : '↺'}</button>`}</div>`;
+  }).join('') || '<p class="mute" style="margin:6px 8px">No members yet.</p>';
+  $('memberRows').onchange = e => { const s = e.target.closest('[data-i]'); if (s) memberEdit.rows[+s.dataset.i].role = s.value; };
+  $('memberRows').onclick = e => {
+    const b = e.target.closest('[data-x]');
+    if (!b) return;
+    const r = memberEdit.rows[+b.dataset.x];
+    if (!r.was) memberEdit.rows.splice(+b.dataset.x, 1); else r.role = r.role ? '' : r.was;
+    paintMemberRows();
+  };
+}
+function paintMemberMatches() {
+  const q = $('memberSearch').value.trim().toLocaleLowerCase();
+  const have = new Set(memberEdit.rows.map(r => r.user_id));
+  const matches = q ? users.filter(u => !u.is_external && u.is_active && !have.has(u.id)
+    && [u.display_name, u.username, ...(u.aliases || [])].filter(Boolean).some(v => v.toLocaleLowerCase().includes(q))).slice(0, 12) : [];
+  $('memberMatches').innerHTML = matches.map(u => `<button type="button" class="sec" data-add="${u.id}">+ ${esc(u.display_name || u.username)}</button>`).join('')
+    || (q ? '<span class="mute">No eligible people match.</span>' : '');
+  $('memberMatches').onclick = e => {
+    const b = e.target.closest('[data-add]');
+    if (!b) return;
+    const u = users.find(x => x.id === +b.dataset.add);
+    memberEdit.rows.push({user_id: u.id, name: u.display_name || u.username, role: 'view', was: ''});
+    $('memberSearch').value = '';
+    paintMemberRows(); paintMemberMatches();
+    $('memberSearch').focus();
+  };
+}
+
+// ---- small dialogs: add, import, delete ----
+function actDialog(title, body, okLabel, run, danger) {
+  $('actTitle').textContent = title;
+  $('actBody').innerHTML = body;
+  $('actError').textContent = '';
+  $('actOk').textContent = okLabel;
+  $('actOk').className = danger ? 'danger' : 'primary';
+  $('actForm').onsubmit = async event => {
+    event.preventDefault();
+    $('actOk').disabled = true;
+    try { if (await run($('actError'))) $('actDialog').close(); } finally { $('actOk').disabled = false; }
+  };
+  $('actDialog').showModal();
+  $('actBody').querySelector('input, select')?.focus();
+}
+function openAddProject() {
+  actDialog('Add project', `<label class="field">Name<input name="name" required maxlength="80" autocomplete="off"></label>`, 'Add project', async out => {
+    const name = $('actBody').querySelector('[name=name]').value.trim();
+    const before = new Set(projects.map(p => p.id));
+    if (!await call('POST', '/api/admin/projects', {name}, out)) return false;
+    await load();
+    const created = projects.find(p => !before.has(p.id));
+    if (created) { ptab = 'members'; selectProject(created.id); }
+    return true;
+  });
+}
+function openImport() {
+  actDialog('Import projects from CSV', `<p style="margin:0">Columns: <code>project,person,role</code>, one row per member. Roles: <code>view</code>, <code>add</code> (view/upload; default), <code>edit</code>, <code>full</code> (also delete), <code>manager</code> (full, plus managing members and aircraft requests). People are matched by unique display name or alias. <a href="/api/admin/projects/template">CSV template</a></p>
+    <p style="margin:0"><strong>Reimport replaces all members of each included project</strong>: members not listed lose access. Omitted projects are unchanged. A blank person leaves the project without members. Any invalid row rejects the entire import.</p>
+    <label class="field">CSV file<input name="csv" type="file" accept=".csv,text/csv" required></label>`, 'Import and replace members', async out => {
+    const data = new FormData();
+    data.append('file', $('actBody').querySelector('[name=csv]').files[0]);
+    try {
+      const r = await fetch('/api/admin/projects/import', {method: 'POST', body: data});
+      const result = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(result.error || 'Import failed');
+      $('err').textContent = '';
+      await load();
+      return true;
+    } catch (error) { out.textContent = error.message; return false; }
+  }, true);
+}
+function removeProject() {
+  const p = projects.find(x => x.id === selected);
+  if (!p) return;
+  actDialog('Delete project', `<p style="margin:0">Delete <b>${esc(p.name)}</b>? Its logs stay, but they no longer belong to a project. Its members lose this access.</p>`, 'Delete project', async out => {
+    if (!await call('DELETE', `/api/admin/projects/${p.id}`, null, out)) return false;
+    selected = null; window.viewState.save(); await load();
+    return true;
+  }, true);
+}
+
+// ---- Manage ▾ and ⋯ ----
+function closeMenus() {
+  for (const [b, p] of [['manageBtn', 'manageMenu'], ['moreBtn', 'moreMenu']]) { $(p).hidden = true; $(b).setAttribute('aria-expanded', 'false'); }
+}
+for (const [b, p] of [['manageBtn', 'manageMenu'], ['moreBtn', 'moreMenu']]) {
+  $(b).onclick = e => { e.stopPropagation(); const open = $(p).hidden; closeMenus(); $(p).hidden = !open; $(b).setAttribute('aria-expanded', String(open)); if (open) $(p).querySelector('button, a')?.focus(); };
+  $(p).addEventListener('click', e => { if (e.target.closest('.ext-item')) closeMenus(); });
+}
+document.addEventListener('click', e => { if (!e.target.closest('.menu-wrap')) closeMenus(); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const open = !$('manageMenu').hidden ? 'manageBtn' : !$('moreMenu').hidden ? 'moreBtn' : null;
+  if (open) { closeMenus(); $(open).focus(); }
+});
+
+// ---- Authorisations and Operators: read-only tables; administrators click a row to edit, tick rows to delete ----
+// A click on a row opens it (administrators); the row's own links still work.
+function openRows(body, open) {
+  body.onclick = e => { const tr = e.target.closest('tr[data-id]'); if (tr && open && !e.target.closest('a, input, button')) open(+tr.dataset.id); };
+}
+const AUTH_CATEGORIES = ['national', 'specific', 'luc'];
+const today = () => new Date().toISOString().slice(0, 10);
+function renderAuthorisations() {
+  const admin = isAdmin();
+  const expired = authorisations.filter(a => a.valid_until && a.valid_until < today());
+  const shown = $('showExpired').checked ? authorisations : authorisations.filter(a => !expired.includes(a));
+  $('showExpiredLabel').hidden = !expired.length;
+  $('addAuthorisationButton').hidden = !admin;
+  $('authorisationCount').textContent = shown.length === authorisations.length ? String(authorisations.length) : `${shown.length} of ${authorisations.length}`;
+  const used = a => {
+    const u = a.used || {}, parts = [[u.flights, 'flight'], [u.paper_records, 'paper record'], [u.projects, 'project'], [u.locations, 'location']]
+      .filter(([n]) => n).map(([n, w]) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`);
+    return parts.join(' · ') || '—';
+  };
+  $('authorisationCols').innerHTML = '<col style="width:30%"><col style="width:13%"><col style="width:18%"><col style="width:17%"><col class="wide-only" style="width:22%">';
+  $('authorisationHead').innerHTML = `<tr><th>Name / number</th><th>Category</th><th>Holder</th><th>Valid</th>`
+    + '<th class="wide-only" title="Where it is set by hand on flights, paper records, projects or locations; flights that get it by date are not counted">Used by</th></tr>';
+  $('authorisationRows').innerHTML = shown.map(a => {
+    const name = a.link && /^https?:\/\//.test(a.link) ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.name)}</a>` : esc(a.name);
+    const valid = a.valid_from || a.valid_until ? `${esc(a.valid_from || '…')} – ${a.valid_until ? esc(a.valid_until) : 'now'}` : '<span class="mute">Always</span>';
+    return `<tr${admin ? ` data-id="${a.id}" title="Click to change"` : ''}${expired.includes(a) ? ' class="mute"' : ''}>
+      <td title="${esc([a.name, a.note, a.link].filter(Boolean).join(' · '))}">${name}${a.exemption ? '<span class="tag exemption" title="Only applies where it is set; never by date">exemption</span>' : ''}</td>
+      <td><span class="cat">${esc(CATEGORY_LABELS[a.category] || a.category)}</span></td>
+      <td>${esc(operators.find(o => o.id === a.operator_id)?.name || 'Our own operator')}</td><td>${valid}</td>
+      <td class="mute wide-only">${used(a)}</td></tr>`;
+  }).join('') || `<tr><td colspan="5" class="mute">${authorisations.length ? 'Only expired authorisations; tick Show expired.' : 'No authorisations yet.'}</td></tr>`;
+  openRows($('authorisationRows'), admin ? openAuthorisation : null);
+}
+function openAuthorisation(id) {
+  const a = authorisations.find(x => x.id === id) || {category: 'specific'};
+  const holder = '<option value="">Our own operator</option>' + operators.map(o => `<option value="${o.id}"${o.id === a.operator_id ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('');
+  editDialog(id ? `Edit authorisation ${a.name}` : 'Add authorisation', '', `<div class="edit-grid">
+    ${field('name', 'Name / number', `<input name="name" required maxlength="80" value="${esc(a.name || '')}">`)}
+    ${field('category', 'Category', `<select name="category">${AUTH_CATEGORIES.map(k => `<option value="${k}"${k === a.category ? ' selected' : ''}>${CATEGORY_LABELS[k]}</option>`).join('')}</select>`)}
+    ${field('operator_id', 'Holder', `<select name="operator_id">${holder}</select>`)}
+    ${field('valid_from', 'Valid from', `<input type="date" name="valid_from" value="${esc(a.valid_from || '')}">`)}
+    ${field('valid_until', 'Valid until', `<input type="date" name="valid_until" value="${esc(a.valid_until || '')}">`)}
+    <label title="Only where it is set on a flight, project or location; never by date"><input type="checkbox" name="exemption"${a.exemption ? ' checked' : ''}> Exemption</label>
+    ${field('link', 'Link', `<input name="link" maxlength="500" value="${esc(a.link || '')}">`, true)}
+    ${field('note', 'Note', `<input name="note" maxlength="400" value="${esc(a.note || '')}">`, true)}</div>`, async out => {
+    const body = Object.fromEntries(['name', 'category', 'operator_id', 'valid_from', 'valid_until', 'link', 'note'].map(k => [k, val(k).value]));
+    body.operator_id = body.operator_id ? +body.operator_id : null;
+    body.exemption = val('exemption').checked;
+    if (id && ['name', 'category', 'valid_from', 'valid_until', 'link', 'note'].every(k => (a[k] || '') === body[k])
+        && (a.operator_id ?? null) === body.operator_id && !!a.exemption === body.exemption) return 0;  // nothing changed
+    return await call(id ? 'PUT' : 'POST', id ? `/api/admin/authorisations/${id}` : '/api/admin/authorisations', body, out('name')) ? 0 : 1;
+  }, null, id && (() => deleteItem('authorisation', a, `/api/admin/authorisations/${id}`)));
+}
 const countryName = code => (countries.find(c => c[0] === code) || [])[1] || code || '';
 const countryOptions = selected => '<option value="">—</option>' + countries.map(([code, name]) =>
   `<option value="${code}"${code === selected ? ' selected' : ''}>${esc(code)} · ${esc(name)}</option>`).join('');
 function renderOperators() {
-  const field = (o, key, max) => editing() ? `<input id="op${key}${o.id}" value="${esc(o[key] || '')}" maxlength="${max}">` : esc(o[key] || '');
-  $('countOperators').textContent = operators.length;
-  $('operatorTable').className = editing() ? '' : 'compact';
-  if (!editing()) {  // one line per operator; the note on hover
-    $('operatorHead').innerHTML = '<tr><th style="width:40%">Name</th><th style="width:25%">Registration number</th><th style="width:20%">Country</th><th style="width:15%">Own</th></tr>';
-    $('operatorRows').innerHTML = operators.map(o => `<tr><td title="${esc([o.name, o.note].filter(Boolean).join(' · '))}">${esc(o.name)}</td>
-      <td class="mono" title="${esc(o.registration || '')}">${esc(o.registration || '')}</td><td title="${esc(countryName(o.country))}">${esc(o.country || '')}</td>
-      <td>${o.own ? '<span class="cat">Own operator</span>' : ''}</td></tr>`).join('')
-      || '<tr><td colspan="4" class="mute">No operators yet.</td></tr>';
-  } else {
-  $('operatorHead').innerHTML = '<tr><th>Name</th><th>Registration number</th><th>Country</th><th>Own</th><th>Note</th><th></th></tr>';
-  $('operatorRows').innerHTML = operators.map(o => `<tr><td>${field(o, 'name', 80)}</td><td>${field(o, 'registration', 40)}</td>
-    <td><select id="opcountry${o.id}" aria-label="Country">${countryOptions(o.country || '')}</select></td>
-    <td>${editing() ? `<input type="checkbox" id="opown${o.id}"${o.own ? ' checked' : ''}>` : o.own ? 'Own' : ''}</td>
-    <td>${field(o, 'note', 400)}</td>
-    <td>${editing() ? `<button type="button" onclick="saveOperator(${o.id})">Save</button> <button type="button" class="danger" onclick="deleteOperator(${o.id})">Delete</button>` : ''}</td></tr>`).join('')
-    || `<tr><td colspan="6" class="mute">No operators yet${editing() ? '. Add our own operator registration first.' : '.'}</td></tr>`;
-  }
+  const admin = isAdmin();
+  $('addOperatorButton').hidden = !me;  // anyone adds a partner's operator; only admins change or mark our own
+  $('operatorCount').textContent = String(operators.length);
+  $('operatorCols').innerHTML = '<col style="width:38%"><col style="width:24%"><col style="width:22%"><col style="width:16%">';
+  $('operatorHead').innerHTML = `<tr><th>Name</th><th>Registration number</th><th>Country</th><th>Own</th></tr>`;
+  $('operatorRows').innerHTML = operators.map(o => `<tr${admin ? ` data-id="${o.id}" title="Click to change"` : ''}>
+    <td title="${esc([o.name, o.note].filter(Boolean).join(' · '))}">${esc(o.name)}</td>
+    <td class="mono" title="${esc(o.registration || '')}">${esc(o.registration || '')}</td><td title="${esc(countryName(o.country))}">${esc(o.country || '')}</td>
+    <td>${o.own ? '<span class="cat">Own operator</span>' : ''}</td></tr>`).join('')
+    || `<tr><td colspan="4" class="mute">No operators yet${admin ? '. Add our own operator registration first.' : '.'}</td></tr>`;
+  openRows($('operatorRows'), admin ? openOperator : null);
+  // external crew (admins): the operator each flies for, set through the selection bar
   const crew = users.filter(u => u.is_external && u.is_active);
-  $('crewOperators').hidden = !(me && me.is_admin) || !crew.length;
-  $('crewCount').textContent = `· ${crew.length}${crew.some(u => !u.operator_id) ? ` (${crew.filter(u => !u.operator_id).length} not set)` : ''}`;
-  $('crewOperatorRows').innerHTML = crew.map(u => {
+  $('crewOperators').hidden = !admin || !crew.length;
+  const unset = crew.filter(u => !u.operator_id).length;
+  $('crewCount').textContent = `· ${crew.length}${unset ? ` (${unset} not set)` : ''}`;
+  $('crewRows').innerHTML = crew.map(u => {
     const o = operators.find(x => x.id === u.operator_id);
-    return `<tr><td><a href="/people/${u.id}">${esc(u.display_name || u.username)}</a></td><td>${editing()
-      ? `<select onchange="send('/api/admin/users/${u.id}/operator', 'PUT', {operator_id: this.value ? +this.value : null})">
-        <option value="">Not set (check)</option>${operators.map(x => `<option value="${x.id}"${x.id === u.operator_id ? ' selected' : ''}>${esc(operatorLabel(x))}</option>`).join('')}</select>`
-      : o ? esc(operatorLabel(o)) : '<span class="warn">Not set</span>'}</td></tr>`;
+    return `<tr data-id="${u.id}" title="Click to set the operator"><td><a href="/people/${u.id}">${esc(u.display_name || u.username)}</a></td>
+      <td>${o ? esc(operatorLabel(o)) : '<span class="warn">Not set</span>'}</td></tr>`;
   }).join('');
+  openRows($('crewRows'), openCrewOperator);
 }
-function saveOperator(id) {
-  const value = key => (id === null ? $('op' + key[0].toUpperCase() + key.slice(1)) : $('op' + key + id));
-  const body = {name: value('name').value, registration: value('registration').value, country: value('country').value,
-    own: value('own').checked, note: value('note').value};
-  if (id === null && !editing()) delete body.own;
-  send(id === null ? '/api/operators' : '/api/admin/operators/' + id, id === null ? 'POST' : 'PUT', body)
-    .then(() => { if (id === null && !$('err').textContent) { $('addOperator').reset(); $('addOperatorDialog').close(); } });
+function openOperator(id) {
+  const o = operators.find(x => x.id === id) || {};
+  const admin = isAdmin();
+  editDialog(id ? `Edit operator ${o.name}` : 'Add operator', id ? '' : 'The UAS operator registration of a partner (or, for administrators, our own).', `<div class="edit-grid">
+    ${field('name', 'Name', `<input name="name" required maxlength="80" value="${esc(o.name || '')}">`)}
+    ${field('registration', 'Registration number', `<input name="registration" maxlength="40" value="${esc(o.registration || '')}">`)}
+    ${field('country', 'Country', `<select name="country">${countryOptions(o.country || '')}</select>`)}
+    ${admin ? `<label title="Our own registration: the default for every flight"><input type="checkbox" name="own"${o.own ? ' checked' : ''}> Our own operator</label>` : ''}
+    ${field('note', 'Note', `<input name="note" maxlength="400" placeholder="e.g. authorisation flown under" value="${esc(o.note || '')}">`, true)}</div>`, async out => {
+    const body = {name: val('name').value, registration: val('registration').value, country: val('country').value, note: val('note').value};
+    if (admin) body.own = val('own').checked;
+    if (id && ['name', 'registration', 'country', 'note'].every(k => (o[k] || '') === body[k]) && !!o.own === body.own) return 0;
+    return await call(id ? 'PUT' : 'POST', id ? `/api/admin/operators/${id}` : '/api/operators', body, out('name')) ? 0 : 1;
+  }, null, id && admin && (() => deleteItem('operator', o, `/api/admin/operators/${id}`)));
 }
-function deleteOperator(id) {
-  const o = operators.find(x => x.id === id);
-  if (confirm('Delete operator ' + (o ? o.name : '') + '?')) send('/api/admin/operators/' + id, 'DELETE');
+function openCrewOperator(id) {
+  const u = users.find(x => x.id === id);
+  if (!u) return;
+  editDialog(`Operator of ${u.display_name || u.username}`, 'External crew: their flights count under this operator unless the flight, project or location says otherwise.',
+    field('operator', 'Flies for', `<select name="operator"><option value="">Not set (check)</option>${operators.map(x =>
+      `<option value="${x.id}"${x.id === u.operator_id ? ' selected' : ''}>${esc(operatorLabel(x))}</option>`).join('')}</select>`), async out => {
+    const value = val('operator').value;
+    if (String(u.operator_id ?? '') === value) return 0;
+    return await call('PUT', `/api/admin/users/${u.id}/operator`, {operator_id: value ? +value : null}, out('operator')) ? 0 : 1;
+  });
 }
-// Authorisations (#62): admins keep the catalog; everyone can read it.
-const AUTH_CATEGORIES = ['national', 'specific', 'luc'];
-function renderAuthorisations() {
-  const ed = editing();
-  const holderOptions = id => '<option value="">Our own operator</option>' + operators.map(o =>
-    `<option value="${o.id}"${o.id === id ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('');
-  const categoryOpts = c => AUTH_CATEGORIES.map(k => `<option value="${k}"${k === c ? ' selected' : ''}>${CATEGORY_LABELS[k]}</option>`).join('');
-  const text = (a, key, max, type = 'text') => ed ? `<input type="${type}" id="au${a.id}${key}" value="${esc(a[key] || '')}"${max ? ` maxlength="${max}"` : ''}>` : esc(a[key] || '');
-  const today = new Date().toISOString().slice(0, 10);
-  const expired = authorisations.filter(a => a.valid_until && a.valid_until < today);
-  const shown = $('showExpired').checked ? authorisations : authorisations.filter(a => !expired.includes(a));
-  $('showExpired').parentElement.hidden = !expired.length;
-  $('countAuthorisations').textContent = authorisations.length;
-  $('authorisationTable').className = ed ? '' : 'compact';
-  const empty = authorisations.length ? 'Only expired authorisations; tick Show expired.' : 'No authorisations yet.';
-  if (!ed) {  // one line each; link, note and validity details on hover
-    const used = a => {
-      const u = a.used || {}, parts = [[u.flights, 'flight'], [u.paper_records, 'paper record'], [u.projects, 'project'], [u.locations, 'location']]
-        .filter(([n]) => n).map(([n, w]) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`);
-      return parts.join(' · ') || '—';
-    };
-    $('authorisationHead').innerHTML = '<tr><th style="width:30%">Name / number</th><th style="width:12%">Category</th><th style="width:18%">Holder</th><th style="width:18%">Valid</th>'
-      + '<th style="width:22%" title="Where it is set by hand on flights, paper records, projects or locations; flights that get it by date are not counted">Used by</th></tr>';
-    $('authorisationRows').innerHTML = shown.map(a => {
-      const name = a.link && /^https?:\/\//.test(a.link) ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.name)}</a>` : esc(a.name);
-      const tip = [a.name, a.note, a.link].filter(Boolean).join(' · ');
-      const valid = a.valid_from || a.valid_until ? `${esc(a.valid_from || '…')} – ${a.valid_until ? esc(a.valid_until) : 'now'}` : '<span class="mute">Always</span>';
-      return `<tr${expired.includes(a) ? ' class="mute"' : ''}><td title="${esc(tip)}">${name}${a.exemption ? '<span class="tag exemption" title="Only applies where it is set; never by date">exemption</span>' : ''}</td>
-        <td><span class="cat">${esc(CATEGORY_LABELS[a.category] || a.category)}</span></td>
-        <td>${esc(operators.find(o => o.id === a.operator_id)?.name || 'Our own operator')}</td><td>${valid}</td>
-        <td class="mute" title="Set by hand on these; flights that get it by date are not counted">${used(a)}</td></tr>`;
-    }).join('') || `<tr><td colspan="5" class="mute">${empty}</td></tr>`;
-    return;
-  }
-  $('authorisationHead').innerHTML = '<tr><th>Name / number</th><th>Category</th><th>Holder</th><th>Valid from</th><th>Valid until</th><th title="Only where it is set on a flight, project or location; never by date">Exemption</th><th>Link</th><th>Note</th><th></th></tr>';
-  $('authorisationRows').innerHTML = shown.map(a => `<tr><td>${text(a, 'name', 80)}</td>
-    <td>${ed ? `<select id="au${a.id}category">${categoryOpts(a.category)}</select>` : CATEGORY_LABELS[a.category]}</td>
-    <td>${ed ? `<select id="au${a.id}operator_id">${holderOptions(a.operator_id)}</select>` : esc(operators.find(o => o.id === a.operator_id)?.name || 'Our own operator')}</td>
-    <td>${text(a, 'valid_from', 0, 'date')}</td><td>${text(a, 'valid_until', 0, 'date')}</td>
-    <td>${ed ? `<input type="checkbox" id="au${a.id}exemption"${a.exemption ? ' checked' : ''}>` : a.exemption ? 'Yes' : ''}</td>
-    <td>${ed ? text(a, 'link', 500) : a.link && /^https?:\/\//.test(a.link) ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">Open</a>` : esc(a.link || '')}</td>
-    <td>${text(a, 'note', 400)}</td>
-    <td>${ed ? `<button type="button" onclick="saveAuthorisation(${a.id})">Save</button> <button type="button" class="danger" onclick="deleteAuthorisation(${a.id})">Delete</button>` : ''}</td></tr>`).join('')
-    || `<tr><td colspan="9" class="mute">${authorisations.length ? empty : 'No authorisations yet. Add our ROC(s) and operational authorisations with their validity.'}</td></tr>`;
-  {
-    $('auNewcategory').innerHTML = categoryOpts($('auNewcategory').value || 'specific');
-    $('auNewoperator_id').innerHTML = holderOptions(+$('auNewoperator_id').value || null);
-  }
-}
-function saveAuthorisation(id) {
-  const key = id === null ? 'New' : id;
-  const body = Object.fromEntries(['name', 'category', 'operator_id', 'valid_from', 'valid_until', 'link', 'note'].map(k => [k, $('au' + key + k).value]));
-  body.operator_id = body.operator_id ? +body.operator_id : null;
-  body.exemption = $('au' + key + 'exemption').checked;
-  send(id === null ? '/api/admin/authorisations' : '/api/admin/authorisations/' + id, id === null ? 'POST' : 'PUT', body)
-    .then(() => { if (id === null && !$('err').textContent) { $('addAuthorisation').reset(); $('addAuthorisationDialog').close(); } });
-}
-function deleteAuthorisation(id) {
-  const a = authorisations.find(x => x.id === id);
-  if (confirm('Delete authorisation ' + (a ? a.name : '') + '?')) send('/api/admin/authorisations/' + id, 'DELETE');
-}
-function render() {
-  renderOperators();
-  renderAuthorisations();
-  const q = $('projectSearch').value.trim().toLocaleLowerCase();
-  const shown = projects.filter(p => [p.name,...(p.members || []).flatMap(m => [m.display_name,m.username])]
-    .filter(Boolean).some(v => v.toLocaleLowerCase().includes(q)));
-  $('projectCount').textContent = `${shown.length} of ${projects.length} projects`;
-  $('countProjects').textContent = projects.length;
-  $('projectOverview').hidden = managing();
-  $('projectEditor').hidden = !managing();
-  if (managing()) {
-    $('projectList').innerHTML = shown.filter(p => editing() || p.can_manage).map(p => `<button type="button" class="project-button" aria-pressed="${p.id === selectedProject}"
-      onclick="selectProject(${p.id})">${esc(p.name)} <span class="mute">· ${(p.members || []).length} members</span></button>`).join('')
-      || '<p class="mute">No matching projects.</p>';
-    renderProjectPanel();
-  } else {
-    $('projectOverview').innerHTML = shown.map(p => `<a class="project-card" href="/projects/${p.id}" aria-label="${esc(p.name)}"><div class="project-card-header"><h3 title="${esc(p.name)}">${esc(p.name)}</h3>
-      <span class="project-counts mute">${p.log_count ?? 0} logs · ${(p.members || []).length} members</span></div>
-      <p aria-label="Project members" title="${esc((p.members || []).map(m => m.display_name || m.username).join(', '))}">${peoplePreview(p)}</p></a>`).join('')
-      || '<p class="mute">No matching projects.</p>';
-  }
-}
-async function send(url, method, body) {
-  try {
-    const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : '{}'});
-    if (!r.ok) {
-      const result = await r.json();
-      throw new Error(result.error || `Request failed (${r.status}).`);
-    }
-    $('err').textContent = '';
+function deleteItem(kind, x, url) {
+  actDialog(`Delete ${kind}`, `<p style="margin:0">Delete <b>${esc(x.name)}</b>? One that is still set on flights, projects or locations
+    is not deleted: the message says where to change it first.</p>`, 'Delete', async out => {
+    if (!await call('DELETE', url, null, out)) return false;
     await load();
-  } catch (error) { $('err').textContent = `Could not save project: ${error.message}`; }
+    return true;
+  }, true);
 }
-async function addProject(ev) {
-  ev.preventDefault();
-  const name = $('name').value.trim();
-  if (!name) return;
-  $('name').value = '';
-  $('addProjectDialog').close();
-  const before = new Set(projects.map(p => p.id));
-  await send('/api/admin/projects', 'POST', {name});
-  const created = projects.find(p => !before.has(p.id));
-  if (created) selectProject(created.id);
-}
-async function importProjects() {
-  const file = $('csv').files[0];
-  $('importError').textContent = '';
-  $('importMsg').textContent = '';
-  if (!file) { $('importError').textContent = 'Choose a CSV file first.'; return; }
-  if (!confirm('Replace all member permissions for each project in this CSV? Members not listed will lose access.')) return;
-  const data = new FormData();
-  data.append('file', file);
-  $('importButton').disabled = true;
-  try {
-    const response = await fetch('/api/admin/projects/import', {method:'POST', body:data});
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Import failed');
-    $('importMsg').textContent = `Added ${result.created}, updated ${result.updated}`;
-    $('csv').value = '';
-    await load();
-  } catch (error) { $('importError').textContent = error.message; }
-  finally { $('importButton').disabled = false; }
-}
-function saveTicks(pid, uid) {
-  setRole(pid, uid, applyTicks('m' + pid + '_' + uid));
-}
-function setRole(id, userId, role) { send('/api/projects/' + id + '/members', 'PUT', {user_id: userId, role}); }
-function renameProject(id) {
-  const name = ($('ren' + id).value || '').trim();
-  if (!name) { $('err').textContent = 'A project name is required.'; return; }
-  send('/api/admin/projects/' + id, 'PUT', {name});
-}
-function removeProject(id) {
-  const p = projects.find(x => x.id === id);
-  if (confirm('Delete ' + (p ? p.name : 'this project') + '? The logs stay, but they will no longer belong to a project.'))
-    send('/api/admin/projects/' + id, 'DELETE');
-}
-// Tabs: one section at a time, kept in the URL (?tab=authorisations) so Back and links open the same one.
-const TABS = ['projects', 'authorisations', 'operators'];
-let tab = 'projects';
-function showTab() {
-  for (const t of TABS) {
-    $(t + 'Card').hidden = t !== tab;
-    $('tab-' + t).setAttribute('aria-selected', String(t === tab));
-    $('tab-' + t).tabIndex = t === tab ? 0 : -1;
-  }
-}
-document.querySelector('.page-tabs').addEventListener('click', e => {
-  const b = e.target.closest('[data-tab]');
-  if (!b || b.dataset.tab === tab) return;
-  tab = b.dataset.tab;
-  showTab();
-  window.viewState.save(true);
-});
-document.querySelector('.page-tabs').addEventListener('keydown', e => {
-  if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
-  e.preventDefault();
-  tab = TABS[(TABS.indexOf(tab) + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length];
-  showTab();
-  $('tab-' + tab).focus();
-  window.viewState.save(true);
-});
-window.viewState.setup(p => { tab = TABS.includes(p.get('tab')) ? p.get('tab') : 'projects'; },
-  p => { window.viewState.set(p, 'tab', tab, 'projects'); }, showTab);
-showTab();
+$('showExpired').onchange = () => { window.viewState.save(true); renderAuthorisations(); };
+
+// Tab, search, sort, page, rows per page and the open project (with its tab) are in the URL.
+window.viewState.setup(p => {
+  tab = ['authorisations', 'operators'].includes(p.get('tab')) ? p.get('tab') : 'projects';
+  $('projectSearch').value = p.get('q') || '';
+  const [key, dir] = (p.get('sort') || 'name-asc').split('-');
+  sortKey = COLUMNS.some(c => c.key === key) ? key : 'name';
+  sortDesc = dir === 'desc';
+  page = window.viewState.integer(p.get('page'), 1) - 1;
+  const size = [...$('size').options].some(o => o.value === p.get('size')) ? p.get('size') : '50';
+  $('size').value = size; pageSize = +size;
+  selected = window.viewState.integer(p.get('open'), null);
+  ptab = p.get('ptab') === 'members' ? 'members' : 'details';
+  $('showExpired').checked = p.get('expired') === '1';
+}, p => {
+  const set = window.viewState.set;
+  set(p, 'tab', tab, 'projects'); set(p, 'q', $('projectSearch').value.trim());
+  set(p, 'sort', `${sortKey}-${sortDesc ? 'desc' : 'asc'}`, 'name-asc');
+  set(p, 'page', page + 1, 1); set(p, 'size', pageSize, 50);
+  set(p, 'open', selected || ''); set(p, 'ptab', selected ? ptab : 'details', 'details');
+  set(p, 'expired', $('showExpired').checked ? '1' : '');
+}, () => render());
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   load();
 });
-window.addEventListener('editchange', () => { syncEdit(); render(); });
 </script>
 </body>
 </html>

@@ -3098,10 +3098,12 @@ def list_projects():
     """Projects this user can open. Admins get every project."""
     con = conn()
     if g.user["is_admin"]:
-        rows = con.execute("SELECT id, name, 'full' AS role FROM projects ORDER BY name").fetchall()
+        rows = con.execute("SELECT id, name, operator_id, category, authorisation_id, 'full' AS role FROM projects"
+                           " ORDER BY name").fetchall()
     else:
         rows = con.execute(
-            "SELECT p.id, p.name, m.role FROM projects p JOIN project_members m ON m.project_id = p.id"
+            "SELECT p.id, p.name, p.operator_id, p.category, p.authorisation_id, m.role FROM projects p"
+            " JOIN project_members m ON m.project_id = p.id"
             " WHERE m.user_id=? ORDER BY p.name", (g.user["id"],)).fetchall()
     out = []
     for r in rows:
@@ -3114,7 +3116,10 @@ def list_projects():
         out.append({"id": r["id"], "name": r["name"], "role": r["role"], "log_count": n,
                     "can_add": r["role"] in ADD_ROLES,
                     "can_edit": r["role"] in EDIT_ROLES or bool(g.user["is_admin"]), "can_delete": r["role"] in FULL_ROLES or bool(g.user["is_admin"]),
-                    "can_manage": bool(g.user["is_admin"]) or r["role"] == "manager", "members": members})
+                    "can_manage": bool(g.user["is_admin"]) or r["role"] == "manager", "members": members,
+                    # the operator and category its flights fall under (shown on the Projects page)
+                    "operator_id": r["operator_id"], "category": r["category"],
+                    "authorisation_id": r["authorisation_id"]})
     return jsonify(out)
 
 
@@ -5274,7 +5279,7 @@ def admin_people():
             id=u["id"], username=u["username"], display_name=u["display_name"], email=u["email"],
             is_admin=bool(u["is_admin"]), is_external=bool(u["is_external"]), has_password=bool(u["password_hash"]),
             has_sso=bool(u["subject"]),
-            is_active=bool(u["is_active"]),
+            is_active=bool(u["is_active"]), last_login=u["last_login"],
             provider=prov, pending=prov == "log", has_logs=u["id"] in with_logs,
             default_project_id=u["default_project_id"], operator_id=u["operator_id"],
             aliases=[r["alias"] for r in con.execute(
@@ -5892,6 +5897,7 @@ def home_data():
         logs=dict(undated=undated, failed=failed),
         review=len(review_queue().get_json()["cases"]),
         bookings=dict(enabled=on, upcoming=home.upcoming_bookings(con, g.user, now_local) if on else [],
+                      upcoming_all=home.upcoming_bookings(con, g.user, now_local, everyone=True) if on else [],
                       today=home.bookings_today(con, g.user, now_local) if on else [],
                       to_approve=home.bookings_to_approve(con, g.user) if on else dict(count=0)),
         places=[dict(id=p["id"], name=p["name"]) for p in choices],
@@ -7126,6 +7132,7 @@ def detail_aircraft(con, drone_id, admin, mine):
         " WHERE a.drone_id=? AND a.name IS NOT NULL", (drone_id,)) if not is_file_name(r["name"], r["log_name"])})
     out["ac_ids"] = [r["ac_id"] for r in con.execute(
         "SELECT DISTINCT ac_id FROM aircraft WHERE drone_id=? AND ac_id IS NOT NULL ORDER BY ac_id", (drone_id,))]
+    out["can_edit"] = can_edit_drone_details(con, d)  # Edit aircraft on the aircraft page
     return out
 
 
@@ -7364,6 +7371,53 @@ def list_logs():
         by_id = {r["id"]: r for r in logs}
         logs = [by_id[r["id"]] if r["row_type"] == "log" else receipts[r["id"]] for r in page]
     return jsonify(logs=logs, total=total, limit=limit, offset=offset)
+
+
+@app.get("/api/logbook/logs-without-flights")
+def logs_without_flights():
+    """Parsed logs that produced no flight, for "Logs without flights" in the Logbook's flight filters: the logs this
+    user may see on the Logs page (and ?project=), parsed without error, with no flight. Optional from/to (YYYY-MM-DD,
+    on the log's date: the set date, else its start when that clock is plausible), unknown_dates=0 to leave out logs
+    without a usable date, and q (in the log name, aircraft names or project name)."""
+    dates = {}
+    for key in ("from", "to"):
+        value = request.args.get(key, "")
+        if value:
+            try:
+                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+                    raise ValueError
+                datetime.strptime(value, "%Y-%m-%d")
+            except ValueError:
+                return jsonify(error=f"Invalid {key} date; use YYYY-MM-DD."), 400
+        dates[key] = value
+    unknown_dates = request.args.get("unknown_dates") != "0"
+    search = request.args.get("q", "").strip().lower()
+    where, params = list_clause("l.")
+    con = conn()
+    rows = con.execute(
+        "SELECT l.*, p.name AS project_name,"
+        " (SELECT COALESCE(u.display_name, u.username) FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name,"
+        " (SELECT group_concat(DISTINCT COALESCE(d.name, a.name, '?')) FROM aircraft a"
+        "  LEFT JOIN drones d ON d.id = a.drone_id WHERE a.log_id = l.id) AS aircraft_names"
+        " FROM logs l LEFT JOIN projects p ON p.id = l.project_id WHERE (" + where + ") AND l.status='done'"
+        " AND NOT EXISTS (SELECT 1 FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id = l.id)"
+        " ORDER BY l.id DESC", params).fetchall()
+    out = []
+    for r in rows:
+        d = log_dict(r)
+        day = ((d.get("start_utc") or d.get("date_override") or "") if d["date_ok"] else "")[:10]
+        if day:
+            if (dates["from"] and day < dates["from"]) or (dates["to"] and day > dates["to"]):
+                continue
+        elif not unknown_dates:
+            continue
+        if search and search not in " ".join(str(d.get(k) or "") for k in ("name", "aircraft_names", "project_name")).lower():
+            continue
+        out.append({k: d.get(k) for k in (
+            "id", "name", "log_type", "project_id", "project_name", "start_utc", "end_utc", "duration_s", "date_ok",
+            "date_override", "date_estimated", "uploaded_at", "uploaded_by_name", "aircraft_names", "has_log")}
+            | {"can_edit_date": can_set_log_date(con, r), "can_edit_project": bool(g.user["is_admin"])})
+    return jsonify(logs=out)
 
 
 @app.get("/api/logs/<int:log_id>")

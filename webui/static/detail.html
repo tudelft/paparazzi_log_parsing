@@ -122,6 +122,7 @@
   <div id="page" hidden>
     <section class="card detail-header">
       <div class="hero"><h2 id="name"></h2><span id="chips"></span></div>
+      <button type="button" class="sec" id="editItemBtn" hidden></button>
       <button type="button" class="sec" id="viewAsBtn" hidden title="See and use the site as this person until you stop (administrators)">View as</button>
         <details class="page-help"><summary>Help</summary><p id="scope"></p>
         <p>Statistics, map, charts and tables follow the shared flight filters. Qualification dates appear on hover; qualifications with evidence open the file when you have access. Past qualifications and account details can be expanded.</p></details>
@@ -350,6 +351,13 @@ function renderHead() {
   }).join(' ');
   $('scope').textContent = D.all ? '' : 'Only flights and log files you have access to are counted.';
   $('viewAsBtn').hidden = !(KIND === 'people' && it.can_view_as);
+  // Edit <item> for who may change it: the list page opens the item with its Edit dialog (theme.js, ?edit=1).
+  const admin = !!D.all, edit = {people: admin && ['person', `/people?person=${ID}&edit=1`],
+    projects: (admin || it.role === 'manager') && ['project', `/projects?open=${ID}&edit=1`],
+    aircraft: (admin || it.can_edit) && ['aircraft', `/aircraft?open=${ID}&edit=1`],
+    locations: admin && ['location', `/locations?place=${ID}&edit=1`]}[KIND];
+  $('editItemBtn').hidden = !edit;
+  if (edit) { $('editItemBtn').textContent = `Edit ${edit[0]}`; $('editItemBtn').onclick = () => { location.href = edit[1]; }; }
   $('mapTitle').textContent = KIND === 'locations' ? 'Area and takeoff points' : 'Takeoff locations';
   renderInfo();
 }

@@ -133,6 +133,9 @@ class TrainingTests(AppTests):
         self.assertEqual(match["training_id"], tid)
         self.assertEqual(match["training_user_id"], 2)
         self.assertIn('Training "Safety" passed', match["note"])
+        own = self.client.get(f"/api/trainings/{tid}").json  # the person's own pass: score and validity
+        self.assertEqual(own["pass_score_text"], "1/1")
+        self.assertEqual(own["valid_until"], (today + datetime.timedelta(days=365)).isoformat())
         listed = self.client.get("/api/trainings").json["trainings"]
         self.assertEqual(listed[0]["attempts"], 2)
         self.assertTrue(listed[0]["passed_at"])

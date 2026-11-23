@@ -63,13 +63,15 @@ to gain descriptions and previously omitted crew entries.
   revision, linking to that exact commit on GitHub.
   **(modified)** indicates local code changes; this is separate from the telemetry parser version.
 - Use **Flight filters** in the top menu to select a period (default: last three years), custom
-  UTC dates, **Hide indoor / no-GPS flights**, **Hide non-flights** and **Hide unknown dates**.
+  UTC dates, **Hide indoor / no-GPS flights**, **Hide non-flights** and **Hide unknown dates**. Non-flights are ground runs,
+  uncertain flights, simulations and logs without flights; the Logbook shows the latter as rows marked **no flight**,
+  with a link to the log's details.
   By default everything is shown; ticked options stay saved in this browser. Unknown-date records are
   shown alongside the selected period unless **Hide unknown dates** is ticked, independently of
   **Hide non-flights**; other visibility filters still apply.
   Corrected and **estimated dates** follow the selected period normally, even with **Hide unknown dates**
   ticked. Estimated dates are labelled: the GPS time of day is known but the week is guessed from the
-  firmware commit. Confirm or correct the date in Edit mode. Choose **Apply filters**;
+  firmware commit. Confirm or correct the date with **Edit flight** on the flight page. Choose **Apply filters**;
   the selection stays the same when moving between pages in this browser. **Reset** restores
   the defaults after applying. The filters cover Logbook, Statistics, Locations and individual
   person, aircraft, project and location overviews, including their totals, maps, charts and
@@ -90,8 +92,8 @@ to gain descriptions and previously omitted crew entries.
   Unknown dates are excluded from flying days and monthly activity, with an explanatory count on the chart.
   Aircraft, project and crew tables scroll independently, with column headings kept visible.
 - Detected simulations, uncertain flights (marked (?)) and ground records are non-flights: tick **Hide
-  non-flights** to leave them out of lists and totals. In Edit mode, an expanded logbook flight has a
-  **Classification** choice (Automatic, Flight or Not a flight) for when the estimate is wrong. Flight details show the evidence; reparse outdated Paparazzi
+  non-flights** to leave them out of lists and totals. **Classification** in **Edit flight** on the flight page
+  (Automatic, Flight or Not a flight) corrects the estimate when it is wrong. Flight details show the evidence; reparse outdated Paparazzi
   uploads to assess older recordings.
 - A missing telemetry endpoint location uses the other endpoint's GPS position for display.
   Flights with both endpoint locations unknown are included in indoor/no-GPS filtering, even if a partial
@@ -108,22 +110,23 @@ to gain descriptions and previously omitted crew entries.
   until then an undated log only gets its aircraft's project when the aircraft has just one, open-ended project.
 - Uploading a file that someone else already uploaded keeps one copy and makes you a **co-uploader**: you can then
   see that log and its flights, and the Logs page links to it.
-- **Review** (Logbook, Edit mode) walks through possible duplicates, paper records where only another aircraft
+- **Review** (Logbook, **Manage ▾**) walks through possible duplicates, paper records where only another aircraft
   flew, and conflicts, with the paper record next to the candidate logs; every decision can be undone there.
-- In Edit mode, tick the entries of one flight and press **Same flight** to join them (also when the automatic
+- Tick the entries of one flight and press **Same flight** in the selection bar to join them (also when the automatic
   SD/GCS merge missed it), or press **Not the same flight** next to a recording in an expanded entry to split it off.
 - Each flight shows the **operator** (operator registration) it was flown under: our own unless set on the flight
-  (Edit mode, **Operator** in the selection bar), its project, its takeoff location or the operator its PIC flies
+  (**Change…** in the selection bar), its project, its takeoff location or the operator its PIC flies
   for (external crew); inferred values are grey. Choose **Own operations only** in Flight filters for operator
   reporting; pilot experience counts all operators. The list of operators is on the **Operators** tab of the Projects page; anyone can add
-  a new partner there or with **New operator…** in the Logbook, and admins set which operator external crew fly for.
+  a new partner there or with **New operator…** in the Logbook; admins click a row to change or delete it, and click
+  an external person to set which operator they fly for.
 - Each flight also shows its **category**, the rules it was flown under: national rules (ROC / ROC-light) before
-  EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. It comes from the flight (Edit mode,
-  **Category** in the selection bar), indoor, its project, its takeoff location or the date; inferred values are
+  EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. It comes from the flight (**Change…**
+  in the selection bar), indoor, its project, its takeoff location or the date; inferred values are
   grey. By date, our own flights get national rules while a ROC was valid and OPEN when no authorisation of ours
   was valid; while an EU authorisation was valid they stay unknown until a project, location or flight says which.
   Admins keep the authorisations (number, category, validity) on the **Authorisations** tab of the Projects
-  page; **Used by** counts where each is set by hand. **(check)** marks SPECIFIC
+  page (click a row to change or delete it); **Used by** counts where each is set by hand. **(check)** marks SPECIFIC
   without an authorisation, or flown outside its validity; Flight filters can show one category or those to check.
   The Logbook shows only the category; hover over it for the authorisation.
 - **Columns** in the Logbook hides or shows table columns. Your choice is kept in this browser;
@@ -131,20 +134,21 @@ to gain descriptions and previously omitted crew entries.
 - **No.** is the flight number, the number in `/flight/<number>` and on the flight page, which Python's `ml.fetch` and
   MATLAB's `pprz_fetch` use (**Download logs**). **⧉** next to a number (Logbook, the flights of a log under Logs, the
   flight page) copies it; under Logs, **No.** is the log number with its own **⧉**, for `pprz_fetch('log', n)` and
-  `ml.fetch(log=n)` (the whole log, also without flights); in **Select** mode, **Copy numbers** copies the ticked flights' numbers
+  `ml.fetch(log=n)` (the whole log, also without flights); with flights ticked, **Copy numbers** in the selection bar copies their numbers
   (`1, 3, 4`) to paste into a Python or MATLAB array. Search for `#1234` to find a flight by number; with SD
   and GCS recordings of one flight, hover over the number for both.
-- In Edit mode the flight page lets you type the **flight goal** and link the recording to the right **fleet aircraft**
-  when the log got them wrong.
+- On the flight page, **Edit flight** (shown when you may change the flight) opens one dialog with everything you may
+  change: aircraft, goal, date, crew, project, operator, category, classification and comment. Clicking such a value
+  opens it at that field. **⋯** next to it re-parses or deletes the log.
 - SD and GCS recordings of the same flight are merged. **Group by day** (on by default) shows one row per
   aircraft, crew and takeoff place per day, like a paper daily log; such a row is tinted, shows its number of flights
   (for example **4×**) with a button that copies their flight numbers, and opens with ▸ to show its flights.
-  It does not change stored flights. With something ticked in Edit mode, the selection bar offers the changes.
+  It does not change stored flights. Tick it and use **Change…** to change the project or crew of all its flights.
 - Hover over an aircraft name in the logbook for its TUD/serial number; it is also on the aircraft detail page.
-- Turn on **Edit** to show permitted editing controls. It stays enabled across pages until turned off.
-  Turn it off for the simpler browsing view. Longer explanations are under **Help**.
+- There is no Edit switch: what you may change is offered where it applies (**Edit flight**, **Edit aircraft**,
+  **Edit person**, …, rare actions under **⋯**, imports under **Manage ▾**). Longer explanations are under **Help**.
 - Flight pages include the path, charts, weather, settings, messages, the pre-flight checklist and software version.
-  Turn on **Edit** there to change the project, crew or comment; the Overview shows a small path map.
+  The Overview shows a small path map.
   In Path & charts, hover over a chart for exact values; use **+ Add** and **+ Add chart** to choose what is plotted.
   Expanded Logbook rows show comments and buttons beside the map (stacked on small screens).
   Comments are read-only there; edit them on the flight page.
@@ -160,35 +164,34 @@ to gain descriptions and previously omitted crew entries.
   degrees). It includes settings by name, the checklist, crew, configuration, waypoints and named actuators
   (`ACTUATORS.FRONT_MOT`). The file is prepared in the background and kept for two weeks; load it with
   `s = load('file.mat').s`.
-- To export several flights at once, press **Select** in the Logbook (or tick them in Edit mode), tick flights on
-  any page and use **MATLAB ▾** next to "N selected": a `.zip` with one `.mat` per log (each flight's SD log,
+- To export several flights at once, tick them in the Logbook (on any page) and use **MATLAB ▾** in the selection
+  bar: a `.zip` with one `.mat` per log (each flight's SD log,
   else GCS; at most 200 logs).
 
 ## Add or correct information
 
-Administrators can use **People → Edit → Account** to grant or remove another person's admin rights
-and inspect, narrow or revoke their API keys (not retrieve secret values). You cannot remove your own admin rights.
+Administrators can use **People → Edit person** to grant or remove another person's admin rights,
+and the **API keys** tab to inspect, narrow or revoke their API keys (not retrieve secret values). You cannot remove your own admin rights.
 
 - **Locations** lists the places on the left (search by name or country, filter by **Country**) and shows the map
-  on the right. Click a location in the list or on the map to select it: the map zooms to it and its details and
-  actions (Open location, and in Edit mode Edit details, Edit shape, Delete) appear under the list. Nearby places
-  are grouped into numbered markers when zoomed out; click a group to zoom in.
-- On **Locations**, admins can turn on **Edit**, choose **Edit shape** beside a place,
-  then drag the map handles to move or resize its circle or polygon. Choose **Save shape**
-  to apply the boundary or **Cancel** to discard changes. **Edit details** opens a small dialog for its name,
-  country (two-letter code, e.g. NL), indoor status, operator and category separately.
-  To replace the boundary entirely, use **Edit shape**, select a **New shape** (polygon,
-  rectangle or circle), then **Redraw boundary** and draw it on the map. **Save shape**
-  keeps the location's name and linked records; **Cancel** restores the original boundary.
-  Admins in **Edit** mode can use **Only unnamed dots** to hide already named endpoint dots, then select a coordinate
-  or use **Previous / Next** to visit each remaining dot on the map. In **Edit** mode,
-  draw and name a boundary around it; covered positions leave the review list after saving.
+  on the right. Click a location in the list or on the map to select it: the map zooms to it and its details
+  appear under the list (with a link to its location page). Nearby places are grouped into numbered markers when
+  zoomed out; click a group to zoom in.
+- On **Locations**, admins have **Add location**: choose polygon, rectangle or circle in the bar on the map, draw it
+  and name it. A selected location has **Edit location** (name, country, indoors, operator and category in one
+  dialog; click a value to open it there) and **⋯** → *Change boundary on the map…* (drag the handles, or choose a
+  **New shape** and **Redraw boundary**; **Save shape** keeps the name and linked records, **Cancel** restores the
+  boundary) and *Delete location…*. **Only unnamed dots** (admins) hides named endpoint dots: select a coordinate or
+  use **Previous / Next** to visit each remaining dot, then Add location around it; covered positions leave the
+  review list after saving.
 
-- In **Logbook**, Edit mode exposes crew/project corrections where permitted.
-  Admins can bulk-edit paper and telemetry records together, or **Hide selected** to remove entries
-  from the logbook and totals without deleting files. Use **Hidden records only** and **Restore selected**
-  to undo this. Paper records must keep a PIC and project.
-  Use **Add paper record** (Logbook, Edit mode) to enter historical flights without logs. Admins use **Import CSV**;
+- The **Logbook** looks the same for everyone; what you may change is offered where it applies. Tick one or more
+  rows for the **selection bar** at the bottom: copy numbers, MATLAB, and, when you may change all ticked entries,
+  **Change…** (project, crew, operator, category) and **Same flight**. Click **date unknown** to set a missing date;
+  change an existing date or the classification on the flight page. Admins can also **Hide**
+  entries from the logbook and totals without deleting files; **Manage ▾ → Hidden records only** shows them to
+  **Restore**. Paper records must keep a PIC and project.
+  Use **Add paper record…** (Logbook, **Manage ▾**) to enter historical flights without logs. Admins use **Import CSV**;
   importing a corrected CSV again updates records matched by reference (e.g. flight number F00001)
   or by aircraft, date and takeoff time, after a preview of what each row will do.
   Paper records add flight counts and time, not telemetry; check for overlap with digital logs.
@@ -198,12 +201,15 @@ and inspect, narrow or revoke their API keys (not retrieve secret values). You c
   unless added as aliases. Unknown or ambiguous names produce a row error without importing any records.
   The original CSV is attached to all imported records: anyone who can read one can download the
   whole CSV, including rows from other projects. Failed imports retain no attachment.
-- Admins manage **People** by selecting a person and opening Account, Aliases or Qualifications.
-  In Edit mode the Account tab can **Merge into…** another account (one person with two accounts) or
-  **Move TU Delft sign-in…** when a TU Delft login was matched to the wrong person.
+- **People** is a table (name, role, department, flights, hours and last flight as PIC; current licences, sign-in
+  and last sign-in for admins; Columns adds supervisors, expected end, number,
+  GitHub and last confirmed; **Filters** for role, department, profile status and (admins) qualification, external
+  people and people without flights; Manage ▾ → Download profiles (CSV); pagination like Aircraft). A row opens the pilot page; for admins it opens the person beside the
+  list with the tabs Details (account and profile), Qualifications, API keys and Aliases. **Edit person** changes the
+  account, profile and aliases in one dialog (click a value to open it at that field); ⋯ has password, **Move TU Delft sign-in…** (a TU
+  Delft login matched to the wrong person), **Merge into…** (one person with two accounts) and **Remove user…**.
   A new user needs an email address (the username is optional and then taken from it); an address can be
   changed later but not removed.
-  Username, display name, email and default project share one **Save account** button.
   The normal overview shows aliases too. Logs match explicit aliases or unique display names, not usernames.
   Add a username as an alias only if it reliably identifies that person in logs. Duplicate display names
   stay unresolved unless an explicit alias identifies the person. Renaming a username does not add an alias.
@@ -212,29 +218,34 @@ and inspect, narrow or revoke their API keys (not retrieve secret values). You c
   people without an account). **Manager** is always a registered person and is required for a new aircraft; it
   starts as you.
 - Project members who may add logs can **Request aircraft** for their project (Aircraft). A project manager or an
-  admin approves or rejects it in Edit mode; the serial is assigned on approval and the requester becomes its manager.
+  admin approves or rejects it in the list of requested aircraft; the serial is assigned on approval and the requester becomes its manager.
   Until then it is listed as **Pending** and reserves nothing.
   Project managers also edit the status, current user, comments and manager of their project's aircraft, and the
   linked manager of an aircraft can do the same.
-  Link unrecognised log names to an existing aircraft/person in Edit mode. There, Aircraft shows tabs
-  (Aircraft · Unlinked names · Shared names) and People shows tabs (People · Unlinked crew names · Approval queue ·
-  Qualification types), so one list is on screen at a time; the tab is kept in the URL.
+  On Aircraft, click a row to open the aircraft beside the list; **Edit aircraft** changes what you may change, ⋯ has
+  the rare actions. Admins link unrecognised log names under the **Unlinked names** tab (tick names, then **Link to
+  aircraft…**) and shared names under **Shared names**. Admins link unrecognised crew names under People → **Unlinked crew names** (tick names, then
+  **Link to person…** or **Add as external…**); People shows tabs (People · Unlinked crew names · Approval queue ·
+  Qualification types · Profile options), so one list is on screen at a time; the tab is kept in the URL.
   Logs with an autopilot board ID (newer firmware) also match the aircraft that board was seen on.
   Servers can hide unlinked aircraft flights from Logbook, Statistics, person details and Locations until linked;
-  admins can still find the names in Aircraft Edit mode (see the [settings](TECHNICAL.md#settings)).
-  Mark generic airframe names as **ambiguous** in Edit mode instead of linking every recording
+  admins can still find the names under Unlinked names on Aircraft (see the [settings](TECHNICAL.md#settings)).
+  Mark generic airframe names as **ambiguous** (Aircraft, **Manage ▾**) instead of linking every recording
   to one aircraft. A uniquely matching GCS recording can identify its SD source; use the
   shared-name panel for explicit per-log assignments when needed.
 - Crew names in logs do not create user profiles. Admins can link multiple names to one person using
   aliases, or use Add user if a new profile is needed. Previously generated profiles are kept.
-- Admins manage project access on **Projects** and named takeoff areas on **Locations**. Admins can make a member
-  **Manager** of a project; a manager adds and removes its members and sets See/Upload/Edit/Delete in Edit mode, but
-  only admins appoint managers ([details](TECHNICAL.md#accounts-and-tu-delft-login)).
-  In Edit mode, Projects supports CSV import with `project,person,role`; blank roles mean view/upload.
+- Admins manage project access on **Projects** and named takeoff areas on **Locations**. **Projects** is a table
+  (project, members, logs, operator, category); a row opens a project you may change beside it (Details, Members),
+  other rows open the project page. **Edit project** changes the name, operator, category and members in one dialog
+  (access per member: See, upload, edit, delete or Manager); ⋯ deletes the project. Admins can make a member
+  **Manager** of a project; a manager changes its members with Edit project, but only admins appoint managers
+  ([details](TECHNICAL.md#accounts-and-tu-delft-login)).
+  **Manage ▾ → Import CSV…** on Projects takes `project,person,role`; blank roles mean view/upload.
   Reimports replace all members of included projects. For initial setup, import qualifications first,
   then projects, then aircraft. Aircraft project changes require a `project_effective_date`;
   manual and legacy flight assignments are preserved. Both import dialogs offer templates.
-- Locations has **Import places from CSV** in Edit mode. It accepts `logbooks/places.csv` from SVN as is
+- Locations has **Manage ▾ → Import CSV…** (admins). It accepts `logbooks/places.csv` from SVN as is
   (`place,lat,lon,radius_m,indoor`, optionally `country`; the other columns are ignored) and shows a preview before importing.
 
 ## Agenda
@@ -247,7 +258,9 @@ options, for example "Others allowed" or "Demo". Bookings of one item overlap on
 and neither ticks a blocking one; an item without options never overlaps. An item can need a current
 qualification, for example an arena safety briefing, to book or even to see its agenda; without it the page says
 so and links to the training that grants it. You can change or delete your own bookings; administrators can
-book for someone else (**Booked for**), change any and set up the items in Edit mode (**Add item**, **Edit item**).
+book for someone else (**Booked for**) and change any. They also see items that are closed for bookings (the tabs
+stay with a single item), add items with **Manage ▾** → *Add bookable item…*, change the open item with **Edit item**
+at the end of the tabs (**⋯** → *Delete item…*) and drag the tabs to order them.
 
 An item can need approval (**Bookings need approval**, with optional approvers besides the administrators). Your
 booking then shows as **Pending** (striped) and holds its time until an administrator or approver opens it and
@@ -260,11 +273,13 @@ People **Approval queue** (**Bookings**).
 **Documents** (optional) holds shared documents, for example the ones to show when you are asked for them in the field
 (insurance, operator registration, operations approval, manuals), one line each in tabs per group; **Search** finds them
 by title, text or file name. The date on a line is its expiry (orange within 60 days) or its release date. Administrators write a text at the
-top and upload documents in Edit mode (**Add document**, **Add group**; **Edit** also replaces a document's file). A
+top (click it, or **Manage ▾** → *Edit text at the top…*) and add documents with **Add document**; **Manage ▾** also adds
+a group. They tick documents for the bar at the bottom: **Edit document…** (also replaces its file), **Move to group…**
+and **Delete…**; a group's heading has **Edit group** and **⋯** → *Delete group…* (only when it is empty). A
 document can be only for administrators, for people with one of some current qualifications (for example A1/A3, A2 or STS) or for some profile roles, and can
 have validity dates: outside them only administrators see it, so an old certificate never shows. The tab
 **My qualifications** lists your own approved qualifications that are valid today, with their documents; add or renew
-them in **My account** (see below). **Import ZIP** (Edit mode) adds or replaces many documents at once from a
+them in **My account** (see below). **Manage ▾** → *Import ZIP…* adds or replaces many documents at once from a
 `manifest.csv` and the files: preview, then import; importing the same ZIP again skips unchanged documents. Rules:
 [technical guide](TECHNICAL.md#documents).
 
@@ -276,7 +291,8 @@ location, conditions, flight phase and a sketch or photo are optional. The **?**
 and accident. The report goes by email to the administrators (**Safety
 reports** under My account → Email, separate from the other notices). Tick **Leave my name out of the notification
 email** to keep your name out of that email; it is still stored with the report. Administrators change the text above
-the button directly on the page in Edit mode (a general default text is shown until then). Rules:
+the button with **Edit text** (or a click on the text); **⋯** → *Use the default text…* goes back to the general default
+text, which is shown until they set one. Rules:
 [technical guide](TECHNICAL.md#safety).
 
 ## Email
@@ -296,8 +312,9 @@ random order each attempt. After passing, **Practice again** lets you answer the
 are kept. A pass can grant the linked qualification immediately, or wait in the People approval queue when the
 training has **A pass needs approval** on; admins see **N passes to approve** above the trainings and approve or reject
 them (several at once, with Undo) right in that queue; its **Decided** view lists what was approved, rejected or withdrawn. After that qualification expires, a queued pass is rejected, or an
-administrator resets the pass, you can take it again. Admins create questionnaires in Edit mode (single choice,
-multiple choice, ranking, optional image) or import a JSON/ZIP file kept outside the repository, and can ask who
+administrator resets the pass, you can take it again. Admins create questionnaires with **Add training** (then **Edit training** and the
+**Questions** tab: single choice, multiple choice, ranking, optional image) or **Manage ▾ → Import** a JSON/ZIP file kept
+outside the repository, and can ask who
 delivered the briefing from a short list of people. A training can also mail an access request (for example to a secretary, for room access)
 once a pass is granted, optionally only when the person answers **No** to a question such as "Do you already have
 access to the flight lab?"; admins can get a copy under **My account → Email**.
@@ -307,11 +324,12 @@ date and student/employee number after signing in, and again once that end date 
 end date (for example at most 2 years ahead for a Master student; admins set this per role) and whether it may be
 indefinite. Change it under
 **My account**. Only you, admins and your supervisors see it (supervisors without your number): on your person
-page, and on People in the **Profiles** and **Supervision** tabs, which show supervisors the people they supervise.
+page, and on People (the profile columns and filters, and the **Supervision** tab), which show supervisors the people
+they supervise.
 
 **Welcome message and notices:** when admins have written a welcome message or notices for you, they are at the top
 of your Home page until you dismiss them (some notices cannot be closed and stay until their end date). Admins write
-them on People in Edit mode under **Profile options** → *Welcome message and notices*, like a
+them on Home, **Manage ▾** → *Welcome message and notices*, like a
 training's access mail: tags such as `{name}`, a little markup and parts per role ([details](TECHNICAL.md#welcome-message)).
 
 **Qualifications:** submit your own evidence under **My account**; admins review it on **People**.
@@ -325,9 +343,9 @@ Use **Valid from** and **Valid until** to record the licence period, including p
 When one certificate covers several qualifications (e.g. A1/A3, A2 and STS under one number), add them under
 **Also covers** in the same dialog: each becomes its own record with the same file, number and dates, approved one by one.
 Admins can make either date optional per type; both date switches start checked for new types.
-In Edit mode, admins can correct the dates of any submission with **Edit dates**, for example to end a licence that has expired.
+Admins can correct the dates of any submission with **Edit dates** (the person's Qualifications tab), for example to end a licence that has expired.
 An Internal switch marks in-house qualifications. Drag types to set their order, then use one Save.
-In Edit mode, **Import ZIP** on People loads a `manifest.csv` plus evidence PDFs: preview, then import
+**Manage ▾ → Import qualifications (ZIP)…** on People loads a `manifest.csv` plus evidence PDFs: preview, then import
 and approve in one step. Older licence periods are under **Show older** in each person's qualifications.
 Names not yet on People are added as new users (shown as **New user** in the preview).
 Dates are entered manually, and existing records keep an unknown start date. Historical flight
@@ -342,9 +360,9 @@ Qualification evidence works the same way.
 Uploading a file that is already stored only links it; a file with the name of an existing one replaces it
 on that flight/log, and the old file stays under **Show earlier versions**.
 Files can have a category (for example *Preparation & permits* for NOTAMs and landowner permission), chosen at upload
-or later with **Edit** beside the file; the list groups them by category and has a search box and category filter.
+or later by clicking the file's row (its name opens the file); the list groups them by category and has a search box and category filter.
 In the logbook, opening an entry shows its files by category below the comment, so you can open them from there.
-The logbook's filter box also finds file names, and **Files** next to it shows only flights with files (of a category,
+The logbook's filter box also finds file names, and **Files ▾** next to it shows only flights with files (of a category,
 for example *With Media*).
 On a flight, **Upload files** → **Upload to** chooses *This flight only*, *All flights of this
 log* (default), all flights of the aircraft that day, or all flights that day (for example a NOTAM or weather briefing).

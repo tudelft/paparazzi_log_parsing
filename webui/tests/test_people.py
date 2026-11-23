@@ -59,6 +59,16 @@ class PeopleDirectoryTests(AppTests):
         self.assertFalse(users[2]["has_password"])
         self.assertEqual(users[2]["provider"], "local")
 
+    def test_admin_people_has_last_sign_in_but_the_directory_does_not(self):
+        self.con.execute("UPDATE users SET last_login='2026-11-20T08:00:00Z' WHERE id=2")
+        self.con.commit()
+        self.sign_in(1)
+        users = {u["id"]: u for u in self.client.get("/api/admin/people").json["users"]}
+        self.assertEqual(users[2]["last_login"], "2026-11-20T08:00:00Z")
+        self.assertIsNone(users[4]["last_login"])
+        self.sign_in(2)
+        self.assertTrue(all("last_login" not in u for u in self.client.get("/api/people-directory").json["users"]))
+
     def test_admin_role_changes_and_self_demotion_guard(self):
         url = "/api/admin/users/2/admin"
         self.assertEqual(self.client.put(url, json={"is_admin": True}).status_code, 403)

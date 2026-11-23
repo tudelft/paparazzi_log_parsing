@@ -238,7 +238,8 @@ window.timingEvidenceHTML = function (timing) {
   const CATEGORIES = {all: 'All categories', national: 'National rules (ROC / ROC-light)', open: 'OPEN', specific: 'SPECIFIC',
     luc: 'LUC', indoor: 'Indoor', unknown: 'Unknown category', check: 'Category to check'};
   // indoor, nonflights and unknownDates mean "shown"; by default everything is shown (the panel offers Hide options).
-  // Saved selections keep their values, so a browser that hid them keeps hiding them.
+  // Saved selections keep their values, so a browser that hid them keeps hiding them. Non-flights include logs that
+  // produced no flight (the Logbook lists them as rows of their own).
   const defaults = () => ({period: '3y', from: '', to: '', indoor: true, nonflights: true, unknownDates: true, operator: 'all', category: 'all'});
   let storageWarning = '';
   const validDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)
@@ -373,11 +374,11 @@ window.timingEvidenceHTML = function (timing) {
         <label class="filter-field">Category<select name="category">${Object.entries(CATEGORIES).map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select></label>
         <div class="filter-options">
           <label><input type="checkbox" name="indoor"> Hide indoor / no-GPS flights</label>
-          <label><input type="checkbox" name="nonflights"> Hide non-flights</label>
+          <label title="Ground runs, uncertain flights, simulations and logs without flights"><input type="checkbox" name="nonflights"> Hide non-flights <span class="mute">(ground runs, uncertain, simulations, logs without flights)</span></label>
           <label><input type="checkbox" name="unknownDates"> Hide unknown dates</label>
         </div>
         <details class="filter-help"><summary>Help</summary>
-          <p>Non-flights are simulations, uncertain flights, ground records and zero-flight log files; uncertain flights are marked (?). In Edit mode a flight can be confirmed as a flight or not a flight.</p>
+          <p>Non-flights are ground runs, uncertain flights, simulations and logs that produced no flight; uncertain flights are marked (?). The Logbook lists logs without flights as rows of their own, marked "no flight". Edit flight on the flight page confirms a flight as a flight or not a flight.</p>
           <p>Records without a known date are shown alongside the selected period unless Hide unknown dates is ticked. Other visibility filters still apply.</p>
           <p>Own operations are flights under our own operator registration: use them for operator reporting. Pilot experience counts all operators.</p>
           <p>Category: the rules a flight was flown under. Before 2021 that was national rules (ROC / ROC-light); since then OPEN or SPECIFIC under an operational authorisation. To check: SPECIFIC without an authorisation, or flown outside its validity.</p>
@@ -457,6 +458,22 @@ window.timingEvidenceHTML = function (timing) {
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
   else mount();
+})();
+
+// "Edit <item>" on a detail page (/people/<id>, ...) opens the list page with the item and ?edit=1: once its Edit
+// button shows (data loaded, panel open), it is clicked once. The parameter is removed so Back does not repeat it.
+(function () {
+  const url = new URL(location.href);
+  if (url.searchParams.get('edit') !== '1') return;
+  url.searchParams.delete('edit');
+  history.replaceState(history.state, '', url);
+  const id = {'/people': 'editPerson', '/projects': 'editProject', '/aircraft': 'editAircraft', '/locations': 'editPlace'}[location.pathname];
+  let tries = 0;
+  const timer = id && setInterval(() => {
+    const button = document.getElementById(id);
+    if (button && !button.hidden && button.offsetParent) { clearInterval(timer); button.click(); }
+    else if (++tries > 100) clearInterval(timer);
+  }, 100);
 })();
 
 (function () {
@@ -582,21 +599,14 @@ window.timingEvidenceHTML = function (timing) {
   };
 
   const ADMIN_KEY = 'logdbAdmin';
-  const EDIT_KEY = 'logdbEdit';
   const TRAINING_KEY = 'logdbTraining';
   const BOOKINGS_KEY = 'logdbBookings';
   const DOCUMENTS_KEY = 'logdbDocuments';
   const SAFETY_KEY = 'logdbSafety';
   const UPLOAD_KEY = 'logdbCanUpload';
-  window.editMode = function () {
-    try { return localStorage.getItem(EDIT_KEY) === '1'; } catch (e) { return false; }
-  };
-  window.toggleEditMode = function () {
-    try { localStorage.setItem(EDIT_KEY, window.editMode() ? '0' : '1'); } catch (e) {}
-    paintEdit();
-    window.dispatchEvent(new Event('editchange'));
-  };
-  // Menu: Home · Logbook · Agenda · Training · Documents · Safety (each when enabled) · Directory ▾ (People … Logs, Statistics); Upload logs, Edit and the name menu on the right
+  // There is no Edit mode any more (UI rule): every page offers its changes per item. Forget the old setting.
+  try { localStorage.removeItem('logdbEdit'); } catch (e) {}
+  // Menu: Home · Logbook · Agenda · Training · Documents · Safety (each when enabled) · Directory ▾ (People … Logs, Statistics); Upload logs and the name menu on the right
   const DIRECTORY = [['/people', 'People'], ['/aircraft', 'Aircraft'], ['/projects', 'Projects'], ['/locations', 'Locations'],
     ['/documents', 'Documents'],  // only when LOGDB_DOCUMENTS is on (see paintNav)
     null, ['/logs', 'Logs'], ['/stats', 'Statistics']];
@@ -925,24 +935,6 @@ window.timingEvidenceHTML = function (timing) {
       document.title += ' - ' + SITE.name;
   }
 
-  // On every page with the header actions: Edit mode is one setting for all pages, so its switch is always in the
-  // same place (pages without anything to edit simply show nothing extra).
-  function paintEdit() {
-    const anchor = document.getElementById('userMenuBtn');
-    if (!anchor) return;
-    let btn = document.getElementById('editBtn');
-    if (!btn) {
-      btn = document.createElement('button');
-      btn.type = 'button';
-      btn.id = 'editBtn';
-      btn.textContent = 'Edit';
-      btn.title = 'Edit mode: show the forms and menus to change things on the pages that have them';
-      btn.onclick = window.toggleEditMode;
-      anchor.before(btn);
-    }
-    btn.setAttribute('aria-pressed', window.editMode() ? 'true' : 'false');
-  }
-
   window.logout = async function () {
     try { [ADMIN_KEY, TRAINING_KEY, BOOKINGS_KEY, UPLOAD_KEY].forEach(k => localStorage.removeItem(k)); } catch (e) {}
     await fetch('/logout', {method: 'POST'});
@@ -961,7 +953,6 @@ window.timingEvidenceHTML = function (timing) {
       paintActions();
       paintVersion(null);
     }
-    paintEdit();
   });
 
   if (!/^\/(login|setup|cli-login|profile|welcome)/.test(location.pathname)) {
@@ -983,7 +974,6 @@ window.timingEvidenceHTML = function (timing) {
       try { localStorage.setItem(UPLOAD_KEY, d.can_upload === false ? '0' : '1'); } catch (e) {}
       paintUpload();
       paintNav();
-      paintEdit();
     }).catch(error => { console.warn('Could not load account and Web UI version:', error); });
   }
 })();
