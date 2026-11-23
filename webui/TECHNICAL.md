@@ -1104,9 +1104,9 @@ boards or recordings and use **Link to aircraft…** in the selection bar (the d
 Discard; a single folder candidate is preselected). Pending requests show **Approve**/**Reject…** to who may decide
 and **Withdraw** to the requester. Dialogs close with Cancel, Close or Escape.
 <a id="people-page"></a>**People page** ([UI rule](#ui-rule), `<body data-edit="none">`). A table like Aircraft, the
-same for everyone: Name (a link to the pilot page), Role (role · department, when the viewer sees profiles), Current
-licences (approved, not expired; only when the viewer may see some), Flights, Hours and Last flight as PIC within the
-flight filters (from `/api/people-pic-flights`), and Sign-in (admins). Headers sort; Columns hides columns (per
+same for everyone: Name (a link to the pilot page), Role (role · department, when the viewer sees profiles), Flights,
+Hours and Last flight as PIC within the flight filters (from `/api/people-pic-flights`), and for admins Current
+licences (approved, not expired) and Sign-in; others see licences on the pilot page. Headers sort; Columns hides columns (per
 browser, `people.hiddenColumns`); 50 rows per page with the pager at the bottom. Search, Show external, Include unused
 profiles, sort, page and rows per page are in the URL (`search`, `external`, `unused`, `sort`, `pg`, `size`). On a
 phone only Name, Flights and Last flight are shown. For non-admins a row opens the pilot page. For admins a row opens

@@ -546,7 +546,7 @@ let qualificationTypes = [], pendingQualifications = [];
 let panelGeneration = 0;
 let qualImportToken = null;
 let picFlights = null, picError = '';
-// The table columns: Role only when profiles are shown to this viewer, Sign-in only for administrators.
+// The table columns: Role only when profiles are shown to this viewer, Current licences and Sign-in only for administrators.
 const PEOPLE_COLUMNS = [
   {key: 'name', label: 'Name', sort: 'name', width: '22%'},
   {key: 'role', label: 'Role', sort: 'role', width: '20%'},
@@ -794,9 +794,8 @@ function matchingPeople(query) {
 
 // The columns this viewer gets; a hidden column is a per-browser preference, like on Aircraft and the Logbook.
 const showsRoles = () => profileList.some(x => !x.self || me?.is_admin);
-const showsLicences = () => people.users.some(u => u.qualifications);  // only when this viewer may see some
-const peopleColumns = () => PEOPLE_COLUMNS.filter(c => (c.key !== 'role' || showsRoles()) && (c.key !== 'account' || me?.is_admin)
-  && (c.key !== 'licences' || showsLicences()));
+// Licences and Sign-in are for administrators (who check who may fly); others see them on the pilot page.
+const peopleColumns = () => PEOPLE_COLUMNS.filter(c => (c.key !== 'role' || showsRoles()) && (!['licences', 'account'].includes(c.key) || me?.is_admin));
 const COLUMNS_KEY = 'people.hiddenColumns';
 let hiddenColumns = new Set();
 try { hiddenColumns = new Set(JSON.parse(localStorage.getItem(COLUMNS_KEY) || '[]').filter(k => PEOPLE_COLUMNS.some(c => c.key === k))); } catch (e) {}
