@@ -1479,7 +1479,9 @@ An account merge keeps the newest version either account saw.
 ### Booking agenda
 
 Off unless `LOGDB_BOOKINGS=1`; session-only (`bookings.py`, `static/agenda.html`). Administrators set up the
-bookable items in Edit mode (`/api/admin/booking-things`, table `booking_things`): name, description, optional
+bookable items ([UI rule](#ui-rule), `<body data-edit="none">`: **Manage ▾** → *Add bookable item…*, **Edit item** for the
+open tab with **⋯** → *Delete item…*; they always see closed items and the tabs, also with a single item;
+`/api/admin/booking-things`, table `booking_things`): name, description, optional
 colour (used in the All view) and **Open for bookings** (active); they order the tabs by dragging them
 (`PUT /api/admin/booking-things-order`). The place link is no longer shown or set. An item may need a qualification type, for
 `booking` only (everyone sees its agenda) or for `viewing` and booking; it counts when an approved submission of
@@ -2587,10 +2589,10 @@ Permissions and APIs stay as they are; the server checks every change. A page th
 `<body data-edit="none">` and `theme.js` shows no Edit button there.
 
 **Edit mode (being replaced).** The Edit button in the menu bar shows the forms and menus to change things on the pages
-that still have them (Logs, Projects, Locations, Agenda, Training, …); it is one setting
+that still have them (Logs, Projects, Locations, Training, …); it is one setting
 for all pages, and it stays on until you turn it off. The [Logbook](#logbook-changes), the
 [flight page](#flight-page-changes), the [Aircraft page](#aircraft-page), the [People page](#people-page), the
-[Safety page](#safety) and the [Documents page](#documents-page) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
+[Safety page](#safety), the [Documents page](#documents-page) and the [Agenda](#booking-agenda) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
 are left.
 

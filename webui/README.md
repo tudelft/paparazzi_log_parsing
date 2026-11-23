@@ -254,7 +254,9 @@ options, for example "Others allowed" or "Demo". Bookings of one item overlap on
 and neither ticks a blocking one; an item without options never overlaps. An item can need a current
 qualification, for example an arena safety briefing, to book or even to see its agenda; without it the page says
 so and links to the training that grants it. You can change or delete your own bookings; administrators can
-book for someone else (**Booked for**), change any and set up the items in Edit mode (**Add item**, **Edit item**).
+book for someone else (**Booked for**) and change any. They also see items that are closed for bookings (the tabs
+stay with a single item), add items with **Manage ▾** → *Add bookable item…*, change the open item with **Edit item**
+at the end of the tabs (**⋯** → *Delete item…*) and drag the tabs to order them.
 
 An item can need approval (**Bookings need approval**, with optional approvers besides the administrators). Your
 booking then shows as **Pending** (striped) and holds its time until an administrator or approver opens it and
