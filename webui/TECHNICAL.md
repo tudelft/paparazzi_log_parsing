@@ -487,7 +487,7 @@ and Operation groups, the comment and a small non-interactive path map (it opens
 and landing times follow one Date row; battery and logged wind are takeoff → landing rows, coordinates are on
 hover over the place name, and INS values are under Log sources; log sources, upload details
 and raw-data links are folded away. Changes are made with **Edit flight** ([below](#flight-page-changes));
-the Files tab is the file manager described under attachments (compact list, search, category filter, **Upload files**, **Edit**). Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
+the Files tab is the file manager described under attachments (compact list, search, category filter, **Upload files**, a click on a file's row to edit it). Autopilot software is shown in Overview with the decoded version, Git commit and base tag links,
 and warnings for local (dirty) changes. Multiple reported builds remain visible; raw version messages
 can be expanded. Commit links use `paparazzi/paparazzi` and may not resolve for private forks.
 When the aircraft did not send `AUTOPILOT_VERSION`, the GCS `runtime paparazzi_version` comment at
@@ -590,7 +590,7 @@ its files and is shown after the listed ones, but cannot be chosen again. The pa
 (uncategorised last, empty groups hidden). The file manager (`AttachmentFiles.manage` in `attachments.js`) is the same on
 a flight's Files tab, a paper record and a log (the Logs page opens it in a dialog): the compact list with search and a
 category filter (on pages in the URL as `files_q` / `files_category`), **Upload files** (only with something to upload
-to) and **Edit** per file the user may change; uploading and linking to more flights/logs happen in dialogs. There is
+to); a click on the row of a file the user may change opens its Edit dialog (no per-row buttons, [UI rule](#ui-rule); the name stays a link to the file); uploading and linking to more flights/logs happen in dialogs. There is
 no separate attachments page.
 
 **Matching files to flights.** The general **Upload** (header, or files dropped on a page) sends logs as before;
@@ -1629,7 +1629,9 @@ Person pages show PIC, PAC and GCS flight counts and hours in an always-visible 
 summary totals. Each flight counts once per matching role, including daily paper flight counts.
 The breakdown cards are Aircraft, Projects and Locations; there are no separate Roles or Flew with cards.
 Entity detail pages use a single wrapping title bar for the name, badges and Help (the active flight filters are on
-the Flight filters button, with the full summary as its tooltip). Breakdown cards show name, flights and hours, with the top five entries by flight time
+the Flight filters button, with the full summary as its tooltip). For who may change the item, the title bar has
+**Edit <item>** (person, location: admins; project: admins and its managers; aircraft: who may change its details):
+it opens the list page with the item and `edit=1`, and `theme.js` opens that page's Edit dialog once. Breakdown cards show name, flights and hours, with the top five entries by flight time
 visible initially and Show all / Show fewer controls. Cards share a 320px minimum height for
 short lists; expanded cards grow independently. Use the main navigation or browser Back to leave a detail page.
 

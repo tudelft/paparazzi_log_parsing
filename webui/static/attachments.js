@@ -34,20 +34,22 @@
       earlier.length})</summary>${show(earlier)}</details>` : '');
   }
   // Compact list: one row per file under its category; links and storage on hover. Read-only on the flight / paper
-  // record pages; on the manage page (onedit) each file the user may change has an Edit button.
+  // record pages; on the manage page (onedit) a click on a file the user may change opens its Edit dialog (UI rule:
+  // no per-row buttons; the file name stays a link that opens the file).
   function list(element, files, categories, onedit) {
     element.dataset.mediaGroup = "";  // the media viewer steps through this list
     element.innerHTML = files.length ? versions(files, rows => rows.length ? `<table class="file-list"><tbody>${rows.map(file => {
       const others = file.links.map(l => l.label).join('\n');
-      return `<tr><td class="file-name">${link(file, '')}${file.description
+      const editable = onedit && file.can_edit;
+      return `<tr${editable ? ` class="file-editable" data-edit="${file.id}" title="Click to change; the name opens the file"` : ''}><td class="file-name">${link(file, '')}${file.description
         ? `<div class="mute file-desc" title="${esc(file.description)}">${esc(file.description)}</div>` : ''}</td>
         <td class="mute" title="${esc(stored(file))}">${size(file.size_bytes)}</td>
         <td class="mute file-links" title="${esc(others)}">${file.links.length === 1 ? '1 link' : file.links.length + ' links'}</td>${
-        file.superseded ? `<td class="mute">${replaced(file)}</td>` : ''}${onedit
-        ? `<td class="file-actions">${file.can_edit ? `<button type="button" data-edit="${file.id}">Edit</button>` : ''}</td>` : ''}</tr>`;
+        file.superseded ? `<td class="mute">${replaced(file)}</td>` : ''}</tr>`;
     }).join('')}</tbody></table>` : '', categories) : '<p class="mute">No additional files.</p>';
-    if (onedit) for (const button of element.querySelectorAll('[data-edit]')) button.onclick = () =>
-      onedit(files.find(file => file.id === +button.dataset.edit));
+    if (onedit) for (const row of element.querySelectorAll('tr[data-edit]')) row.onclick = event => {
+      if (!event.target.closest('a, button')) onedit(files.find(file => file.id === +row.dataset.edit));
+    };
   }
   // One line per category with the file names (description on hover), for the logbook's opened row. `url(category)`
   // gives the page with all files (filtered to that category for "+N").

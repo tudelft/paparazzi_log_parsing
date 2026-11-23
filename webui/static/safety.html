@@ -13,7 +13,7 @@
   header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
   header h1 { margin:0; font-size:18px; }
   header .meta { color:#9fb0c3; font-size:12px; }
-  main { width:100%; max-width:960px; margin:0 auto; padding:16px 12px 20px; }
+  main { width:100%; max-width:none; margin:0; padding:16px 12px 20px; }  /* full width, like the other pages */
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; }
   .card h2 { margin:0 0 4px; font-size:16px; }
   h3 { font-size:15px; margin:16px 0 6px; }
@@ -39,10 +39,8 @@
   .report-cta .text { font-size:15px; margin:0 0 12px; max-width:70ch; }
   .report-cta .actions { align-items:center; margin:0; }
   .report-cta details { margin-top:12px; font-size:13px; }
-  .report-cta details summary { color:var(--mute); cursor:pointer; }
+  .report-cta details summary { cursor:pointer; }
   /* the text above Report incident; for admins Edit text and ⋯ in the card's top right, and a click on the text edits it */
-  .cta-head { display:flex; align-items:flex-start; gap:12px; }
-  .cta-head .text { flex:1; min-width:0; }
   .cta-tools { display:flex; gap:6px; flex:none; margin-left:auto; }
   .edit-val { cursor:pointer; border-radius:4px; }
   .edit-val:hover { background:var(--hover); box-shadow:0 0 0 3px var(--hover); }
@@ -61,6 +59,14 @@
   #err { color:var(--err); margin-bottom:8px; }
   #err:empty { display:none; }
   [hidden] { display:none !important; }
+  /* the title row like the other pages: title, then Edit text and ⋯ (admins) and Help at the end */
+  .cta-title { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+  .cta-title h2 { margin:0; font-size:15px; }
+  .cta-tools[hidden] { display:none; }
+  .cta-title .cta-tools { margin-left:auto; display:flex; gap:6px; align-items:center; }
+  .cta-title .cta-tools[hidden] + details, .cta-title > details { margin-left:auto; }
+  .cta-title .cta-tools:not([hidden]) + details { margin-left:0; }
+  .cta-title details[open] { flex-basis:100%; }
 </style>
 </head>
 <body>
@@ -72,14 +78,14 @@
 <main>
   <div id="err"></div>
   <section class="card report-cta">
-    <div class="cta-head">
-      <p class="text" id="pageText"></p>
+    <div class="cta-title"><h2>Safety</h2>
       <span class="cta-tools" id="textTools" hidden><button type="button" class="sec" id="editText">Edit text</button>
         <span class="menu-wrap"><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
           <div class="menu-pop" id="moreMenu" role="menu" hidden><button type="button" class="ext-item" role="menuitem" id="defaultText">Use the default text…</button></div></span></span>
+      <details><summary>Help</summary><p><b>Report incident</b> opens the form for a danger, incident or accident; the ? next to Type explains the three. Only the type, date and time and description are required. Administrators get an email with the whole report. Tick "Leave my name out of the notification email" to keep your name out of that email; it is still stored with the report. Administrators change the text above the button with <b>Edit text</b> (or a click on the text); ⋯ goes back to the default text.</p></details>
     </div>
+    <p class="text" id="pageText"></p>
     <div class="actions"><button type="button" class="report-btn" onclick="newReport()">&#9888;&#xFE0E; Report incident</button> <span id="sent" class="mute" role="status"></span></div>
-    <details><summary>Help</summary><p><b>Report incident</b> opens the form for a danger, incident or accident; the ? next to Type explains the three. Only the type, date and time and description are required. Administrators get an email with the whole report. Tick "Leave my name out of the notification email" to keep your name out of that email; it is still stored with the report. Administrators change the text above the button with <b>Edit text</b> (or a click on the text).</p></details>
   </section>
 </main>
 

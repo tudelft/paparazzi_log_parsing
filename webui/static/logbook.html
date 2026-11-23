@@ -100,6 +100,7 @@
   .col-menu form[hidden] { display:none; }
   .col-menu label { white-space:nowrap; }
   .col-menu .col-actions { grid-column:1 / -1; display:flex; justify-content:space-between; margin-top:6px; }
+  .bar-title { margin:0; font-size:15px; }  /* title and count first, like the other pages */
 </style>
 </head>
 <body>
@@ -112,7 +113,8 @@
   <div id="parseNotice" class="parse-notice" role="status" hidden></div>
   <section class="card">
     <div class="bar">
-      <input type="search" id="q" placeholder="Filter (aircraft, pilot, goal, date, reference, file name, #number…)">
+      <h2 class="bar-title">Logbook</h2><span class="mute" id="logbookCount" role="status" title="Flights shown (within the flight filters and the search)"></span>
+      <input type="search" id="q" placeholder="Search aircraft, pilot, goal, date, #number…" title="Filter by aircraft, pilot, goal, date, reference, file name or #number" aria-label="Search the logbook">
       <label title="One row per aircraft, crew, day and takeoff location, like a paper daily log. Expand a row for its flights."><input type="checkbox" id="combine" checked> Group by day</label>
       <input type="hidden" id="filesFilter" value="">
       <span class="col-menu" id="filesWrap"><button type="button" id="filesBtn" aria-haspopup="menu" aria-expanded="false"
@@ -996,6 +998,7 @@ function render() {
   $('selAll').onchange = () => { toggleSel(pageIds, $('selAll').checked); };
   const total = shown.reduce((s, f) => s + (f.duration_s || 0), 0);
   const dist = shown.some(f => f.distance_m != null) ? shown.reduce((s, f) => s + (f.distance_m || 0), 0) : null;
+  $('logbookCount').textContent = shown.reduce((s, f) => s + (f.flight_count || 1), 0).toLocaleString();
   $('summary').textContent = `${shown.reduce((s, f) => s + (f.flight_count || 1), 0)} flights` + ($('combine').checked ? ` · ${entries.length} rows` : '') + ` · ${fmtDur(total)} · ${dist == null ? 'No recorded distance' : fmtDist(dist) + ' recorded distance'}`
     + (shownLogs.length ? ` · ${shownLogs.length} ${shownLogs.length === 1 ? 'log' : 'logs'} without flights` : '');
   initMiniMaps();

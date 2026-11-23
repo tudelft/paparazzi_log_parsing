@@ -460,6 +460,22 @@ window.timingEvidenceHTML = function (timing) {
   else mount();
 })();
 
+// "Edit <item>" on a detail page (/people/<id>, ...) opens the list page with the item and ?edit=1: once its Edit
+// button shows (data loaded, panel open), it is clicked once. The parameter is removed so Back does not repeat it.
+(function () {
+  const url = new URL(location.href);
+  if (url.searchParams.get('edit') !== '1') return;
+  url.searchParams.delete('edit');
+  history.replaceState(history.state, '', url);
+  const id = {'/people': 'editPerson', '/projects': 'editProject', '/aircraft': 'editAircraft', '/locations': 'editPlace'}[location.pathname];
+  let tries = 0;
+  const timer = id && setInterval(() => {
+    const button = document.getElementById(id);
+    if (button && !button.hidden && button.offsetParent) { clearInterval(timer); button.click(); }
+    else if (++tries > 100) clearInterval(timer);
+  }, 100);
+})();
+
 (function () {
   const filters = window.flightFilters;
   const filterKeys = {period:'period', from:'from', to:'to', indoor:'indoor',

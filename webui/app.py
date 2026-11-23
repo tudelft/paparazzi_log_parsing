@@ -7132,6 +7132,7 @@ def detail_aircraft(con, drone_id, admin, mine):
         " WHERE a.drone_id=? AND a.name IS NOT NULL", (drone_id,)) if not is_file_name(r["name"], r["log_name"])})
     out["ac_ids"] = [r["ac_id"] for r in con.execute(
         "SELECT DISTINCT ac_id FROM aircraft WHERE drone_id=? AND ac_id IS NOT NULL ORDER BY ac_id", (drone_id,))]
+    out["can_edit"] = can_edit_drone_details(con, d)  # Edit aircraft on the aircraft page
     return out
 
 

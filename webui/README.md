@@ -360,7 +360,7 @@ Qualification evidence works the same way.
 Uploading a file that is already stored only links it; a file with the name of an existing one replaces it
 on that flight/log, and the old file stays under **Show earlier versions**.
 Files can have a category (for example *Preparation & permits* for NOTAMs and landowner permission), chosen at upload
-or later with **Edit** beside the file; the list groups them by category and has a search box and category filter.
+or later by clicking the file's row (its name opens the file); the list groups them by category and has a search box and category filter.
 In the logbook, opening an entry shows its files by category below the comment, so you can open them from there.
 The logbook's filter box also finds file names, and **Files ▾** next to it shows only flights with files (of a category,
 for example *With Media*).
