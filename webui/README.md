@@ -257,7 +257,9 @@ options, for example "Others allowed" or "Demo". Bookings of one item overlap on
 and neither ticks a blocking one; an item without options never overlaps. An item can need a current
 qualification, for example an arena safety briefing, to book or even to see its agenda; without it the page says
 so and links to the training that grants it. You can change or delete your own bookings; administrators can
-book for someone else (**Booked for**), change any and set up the items in Edit mode (**Add item**, **Edit item**).
+book for someone else (**Booked for**) and change any. They also see items that are closed for bookings (the tabs
+stay with a single item), add items with **Manage ▾** → *Add bookable item…*, change the open item with **Edit item**
+at the end of the tabs (**⋯** → *Delete item…*) and drag the tabs to order them.
 
 An item can need approval (**Bookings need approval**, with optional approvers besides the administrators). Your
 booking then shows as **Pending** (striped) and holds its time until an administrator or approver opens it and
@@ -270,11 +272,13 @@ People **Approval queue** (**Bookings**).
 **Documents** (optional) holds shared documents, for example the ones to show when you are asked for them in the field
 (insurance, operator registration, operations approval, manuals), one line each in tabs per group; **Search** finds them
 by title, text or file name. The date on a line is its expiry (orange within 60 days) or its release date. Administrators write a text at the
-top and upload documents in Edit mode (**Add document**, **Add group**; **Edit** also replaces a document's file). A
+top (click it, or **Manage ▾** → *Edit text at the top…*) and add documents with **Add document**; **Manage ▾** also adds
+a group. They tick documents for the bar at the bottom: **Edit document…** (also replaces its file), **Move to group…**
+and **Delete…**; a group's heading has **Edit group** and **⋯** → *Delete group…* (only when it is empty). A
 document can be only for administrators, for people with one of some current qualifications (for example A1/A3, A2 or STS) or for some profile roles, and can
 have validity dates: outside them only administrators see it, so an old certificate never shows. The tab
 **My qualifications** lists your own approved qualifications that are valid today, with their documents; add or renew
-them in **My account** (see below). **Import ZIP** (Edit mode) adds or replaces many documents at once from a
+them in **My account** (see below). **Manage ▾** → *Import ZIP…* adds or replaces many documents at once from a
 `manifest.csv` and the files: preview, then import; importing the same ZIP again skips unchanged documents. Rules:
 [technical guide](TECHNICAL.md#documents).
 
@@ -286,7 +290,8 @@ location, conditions, flight phase and a sketch or photo are optional. The **?**
 and accident. The report goes by email to the administrators (**Safety
 reports** under My account → Email, separate from the other notices). Tick **Leave my name out of the notification
 email** to keep your name out of that email; it is still stored with the report. Administrators change the text above
-the button directly on the page in Edit mode (a general default text is shown until then). Rules:
+the button with **Edit text** (or a click on the text); **⋯** → *Use the default text…* goes back to the general default
+text, which is shown until they set one. Rules:
 [technical guide](TECHNICAL.md#safety).
 
 ## Email

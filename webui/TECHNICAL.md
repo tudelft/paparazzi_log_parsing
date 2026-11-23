@@ -1493,7 +1493,9 @@ An account merge keeps the newest version either account saw.
 ### Booking agenda
 
 Off unless `LOGDB_BOOKINGS=1`; session-only (`bookings.py`, `static/agenda.html`). Administrators set up the
-bookable items in Edit mode (`/api/admin/booking-things`, table `booking_things`): name, description, optional
+bookable items ([UI rule](#ui-rule), `<body data-edit="none">`: **Manage ▾** → *Add bookable item…*, **Edit item** for the
+open tab with **⋯** → *Delete item…*; they always see closed items and the tabs, also with a single item;
+`/api/admin/booking-things`, table `booking_things`): name, description, optional
 colour (used in the All view) and **Open for bookings** (active); they order the tabs by dragging them
 (`PUT /api/admin/booking-things-order`). The place link is no longer shown or set. An item may need a qualification type, for
 `booking` only (everyone sees its agenda) or for `viewing` and booking; it counts when an approved submission of
@@ -1851,11 +1853,22 @@ an admin's key with the `documents:upload` or `documents:manage` scope (see API 
 so a leaked one cannot change or delete documents (issue 235). The ZIP import needs a browser session for every key.
 `GET /api/documents` returns `intro` (the text at the top, `document_settings`), `groups` (`document_groups`: name,
 description, sort order; one level, shown as page tabs with All, General for documents without a group and My
-qualifications; the tab is kept in the URL, `?tab=`; empty groups only in Edit mode), `documents` the person may see
+qualifications; the tab is kept in the URL, `?tab=`; empty groups only for admins), `documents` the person may see
 (`documents`: title, description, optional group, limits, `valid_from`/`valid_until`, `current`, file), `qualifications` (the person's own approved
 submissions valid today, with evidence `view`/`download` links when there is a file; also for admins, only their own)
 and, for admins, `types` (all, with `active`, so a limit to a type that was deactivated later stays in the edit
 dialog), `profiles` (person profiles on), `roles` (`profile_roles`) and `max_bytes`.
+
+<a id="documents-page"></a>**Documents page** ([UI rule](#ui-rule), `<body data-edit="none">`). The page reads the same
+for everyone; admins additionally see every group and tab (also empty ones, unless searching) and each document's
+limits in its line. Admins have **Add document** and **Manage ▾** (Add group…, Edit text at the top…, Import ZIP…,
+Download ZIP manifest template) in the title row; a click on the text at the top opens its dialog too. Every document
+line has a tick box for admins (the line itself still opens the document): the selection bar offers **Edit document…**
+(exactly one ticked; one dialog with every field and an optional replacement file; Save sends the details with
+`PUT /api/admin/documents/<id>` only when one changed, and the file with `POST …/file`), **Move to group…** (a `PUT`
+per ticked document with only `group_id` changed) and **Delete…** (`DELETE` per document, after one confirmation).
+A group's heading has **Edit group** and **⋯** → *Delete group…*: for a group that still holds documents the dialog
+only explains how to move or delete them first, since the server refuses (409).
 
 Admins see every document. Anyone else must meet every limit set on it: `admin_only` (administrators only); `type_ids`
 (`document_qualification_types`: a current approved qualification of one of these types, for example A1/A3, A2 or
@@ -1881,7 +1894,7 @@ curl -H "Authorization: Bearer $KEY" https://<server>/api/documents             
 curl -H "Authorization: Bearer $KEY" -OJ https://<server>/api/documents/<id>/download    # download
 ```
 
-**ZIP import** (`document_import.py`, Edit mode: **Import ZIP**; browser session only, API keys get 403). A ZIP holds
+**ZIP import** (`document_import.py`, **Manage ▾** → *Import ZIP…*; browser session only, API keys get 403). A ZIP holds
 `manifest.csv` (`GET /api/admin/documents/import/template`) and the files. Columns, in any order: `title` and `file`
 (required), `group` (empty, or `General` when no group has that name: no group), `description`, `valid_from`,
 `valid_until`, `admin_only` (yes/no), `qualification` (qualification type names separated by `;`, stored in
@@ -1969,7 +1982,7 @@ stays on in production; `app.py check-config` (also run by `install.sh`) warns w
 session (API keys get 403).
 
 The page shows the text above a prominent **Report incident** button (`reporting_text` in `safety_settings`, from `GET
-/api/safety`, edited in place on the page in Edit mode and saved with `PUT /api/admin/safety/settings`: who to contact,
+/api/safety`, for admins **Edit text** in the card (or a click on the text; one dialog, [UI rule](#ui-rule), `<body data-edit="none">`) and **⋯** → *Use the default text…* (a small confirmation; saves it empty), both with `PUT /api/admin/safety/settings`: who to contact,
 where else to report, so organisation details live only in that setting; while it is empty,
 `safety.DEFAULT_REPORTING_TEXT`, general wording, is returned, and saving an empty or the default text stores it empty
 again). The danger/incident/accident definitions (following the Operations Manual) are in the form, behind a ? next to
@@ -2589,10 +2602,10 @@ Permissions and APIs stay as they are; the server checks every change. A page th
 `<body data-edit="none">` and `theme.js` shows no Edit button there.
 
 **Edit mode (being replaced).** The Edit button in the menu bar shows the forms and menus to change things on the pages
-that still have them (Logs, Projects, Locations, Agenda, Training, Documents, …); it is one setting
+that still have them (Logs, Projects, Locations, Training, …); it is one setting
 for all pages, and it stays on until you turn it off. The [Logbook](#logbook-changes), the
-[flight page](#flight-page-changes), the [Aircraft page](#aircraft-page) and the [People page](#people-page) follow the
-[UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
+[flight page](#flight-page-changes), the [Aircraft page](#aircraft-page), the [People page](#people-page), the
+[Safety page](#safety), the [Documents page](#documents-page) and the [Agenda](#booking-agenda) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
 are left.
 
