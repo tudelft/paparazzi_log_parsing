@@ -903,7 +903,7 @@ def register(app, connection, root, require_session):
             briefer = cid.execute("SELECT COALESCE(display_name, username) AS name FROM users WHERE id=?",
                                   (progress["briefed_by"],)).fetchone()
         pass_score_text = None
-        if awaiting and progress and progress["answers_json"]:
+        if (awaiting or current) and progress and progress["answers_json"]:  # the score of the person's own pass
             try:
                 stored = json.loads(progress["answers_json"])
                 asked = [q for q in questions if str(q["id"]) in stored] or questions
@@ -924,6 +924,10 @@ def register(app, connection, root, require_session):
             "awaiting_approval": awaiting,
             "pass_score_text": pass_score_text,
             "expired_pass": bool(progress and progress["passed_at"] and not current and not awaiting),
+            # until when the qualification of a current pass is valid (None: no qualification or no end date)
+            "valid_until": (cid.execute("SELECT valid_until FROM qualification_submissions WHERE id=?",
+                                        (progress["submission_id"],)).fetchone() or {"valid_until": None})["valid_until"]
+                           if progress and progress["submission_id"] and current else None,
             "attempts": progress["attempts"] if progress else 0,
             "briefed_by": progress["briefed_by"] if progress and (current or awaiting) else None,
             "briefed_by_name": briefer["name"] if briefer else None,

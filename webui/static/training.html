@@ -39,13 +39,15 @@
   a.item h3 { margin:0; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   a.item p { margin:6px 0 0; font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ok { color:var(--ok); }
-  /* Training header (not editing): a status chip on the title row; details in its tooltip */
-  .t-badge { display:inline-flex; align-items:center; gap:5px; padding:2px 10px 2px 7px; border-radius:999px; font-size:13px; font-weight:600;
     white-space:nowrap; background:var(--sec); color:var(--mute); cursor:default; }
-  .t-badge svg { width:14px; height:14px; }
-  .t-badge.passed { background:var(--okbg); color:var(--ok); }
-  .t-badge.waiting { background:var(--warnbg); color:var(--warn); }
-  .t-desc { margin:0 0 6px; overflow-wrap:anywhere; }
+  .t-desc { margin:6px 0 14px; overflow-wrap:anywhere; color:var(--mute); }
+  .t-result { display:flex; gap:12px; align-items:center; padding:12px 14px; border-radius:8px; background:var(--sec); color:var(--mute); }
+  .t-result svg { width:22px; height:22px; flex-shrink:0; }
+  .t-result.passed { background:var(--okbg); color:var(--ok); }
+  .t-result.waiting { background:var(--warnbg); color:var(--warn); }
+  .t-result .t-sub { font-size:13px; }
+  .t-kv { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 14px; margin:14px 0 0; }
+  .t-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
   /* Editor (Edit mode): Details form, Questions list + editor, Passes */
   label.field input, label.field select, label.field textarea { font-size:14px; color:var(--txt); }
   .form-cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr)); gap:12px 28px; align-items:start; }
@@ -453,35 +455,40 @@ function ago(t) {
   return Math.round(d / 365.25) + ' years ago';
 }
 function attemptsText(n) { return n === 1 ? 'first attempt' : n + ' attempts'; }
-// The training as a person sees it when not taking the test: a status chip on the title row (details in its tooltip),
-// actions at the right, then only the description and any result that needs reading.
-function headParts(t, questions) {
-  const tip = [];
-  if (t.type_name) tip.push('Grants ' + t.type_name + (t.valid_days ? ' for ' + t.valid_days + ' days' : ''));
-  let kind = '', icon = ICON.info, label, note = '';
+// The training as a person sees it when not taking the test: the same centred card as the test, with the result
+// (passed / waiting for approval / not passed) in a coloured block, what the pass grants, and the actions.
+function resultCard(t, questions) {
+  let kind = '', icon = ICON.info, label, sub = '', note = '';
+  const score = t.pass_score_text ? 'score ' + t.pass_score_text.replace('/', ' / ') : '';
   if (t.passed_at) {
-    kind = 'passed'; icon = ICON.check; label = 'Passed ' + day(t.passed_at);
-    tip.unshift(`Passed ${fmt(t.passed_at)} (${ago(t.passed_at)})`, attemptsText(t.attempts) + (t.briefed_by_name ? ' · briefed by ' + t.briefed_by_name : ''));
+    kind = 'passed'; icon = ICON.check; label = 'Passed on ' + day(t.passed_at);
+    sub = [attemptsText(t.attempts), score].filter(Boolean).join(' · ');
     if (lastResult && lastResult.practice) note = `Practice: ${lastResult.score} / ${lastResult.total}${lastResult.passed ? ' · enough to pass' : ` · ${lastResult.needed} needed to pass`}. Your pass is unchanged.`;
   } else if (t.awaiting_approval) {
     kind = 'waiting'; icon = ICON.clock; label = 'Waiting for approval';
-    const score = t.pass_score_text || (lastResult ? `${lastResult.score} / ${lastResult.needed}` : '');
     const sent = t.submitted_at || (lastResult && lastResult.passed_at) || '';
-    tip.unshift([sent ? 'Submitted ' + fmt(sent) : '', score ? 'score ' + score : '', t.briefed_by_name ? 'briefed by ' + t.briefed_by_name : ''].filter(Boolean).join(' · '));
-    note = `You passed. The qualification${t.type_name ? ' ' + esc(t.type_name) : ''} is added once an admin approves it.`;
+    sub = [sent ? 'submitted ' + day(sent) : '', score || (lastResult ? `score ${lastResult.score} / ${lastResult.needed}` : '')].filter(Boolean).join(' · ');
+    note = `You passed. ${t.type_name ? 'The qualification ' + esc(t.type_name) + ' is' : 'It is'} added once an administrator approves it.`;
   } else {
     label = t.expired_pass ? 'Pass expired' : 'Not passed yet';
-    if (t.attempts) tip.unshift(attemptsText(t.attempts) + ' so far');
+    sub = t.attempts ? attemptsText(t.attempts) + ' so far' : '';
     if (lastResult && !lastResult.passed) note = `Not passed (${lastResult.score} / ${lastResult.needed}). Try again.`;
     else if (!questions.length) note = 'No questions yet.';
   }
+  const rows = [];
+  if (t.type_name) rows.push(['Qualification', esc(t.type_name)]);
+  if (t.passed_at && t.type_name) rows.push(['Valid until', t.valid_until ? `${esc(day(t.valid_until))} <span class="mute">(the training opens again after that)</span>` : 'No end date']);
+  else if (t.type_name && t.valid_days) rows.push(['Valid for', `${t.valid_days} days after a pass`]);
+  if (t.briefed_by_name) rows.push(['Briefed by', esc(t.briefed_by_name)]);
   const actions = [hasReading(t) ? '<button type="button" class="sec" onclick="openReading(false)">Reading material</button>' : '',
     t.passed_at && (questions.length || t.total_points) ? '<button type="button" class="sec" onclick="startPractice()" title="Answer the questions again; the result changes nothing">Practice again</button>' : ''].join('');
-  return {
-    badge: `<span class="t-badge ${kind}" title="${esc(tip.filter(Boolean).join('\n'))}">${icon}${esc(label)}</span>`,
-    actions,
-    body: (t.description ? `<p class="t-desc">${esc(t.description)}</p>` : '') + (note ? `<p class="mute" role="status">${note}</p>` : ''),
-  };
+  return `<div class="quiz-shell"><div class="quiz-card">
+    <div class="quiz-head"><h2 title="${esc(t.name)}">${esc(t.name)}</h2></div>
+    ${t.description ? `<p class="t-desc">${esc(t.description)}</p>` : ''}
+    <div class="t-result ${kind}" title="${t.passed_at ? esc('Passed ' + fmt(t.passed_at) + ' (' + ago(t.passed_at) + ')') : ''}">${icon}<div><strong>${esc(label)}</strong>${sub ? `<div class="t-sub">${esc(sub)}</div>` : ''}</div></div>
+    ${note ? `<p class="mute" role="status" style="margin:10px 0 0">${note}</p>` : ''}
+    ${rows.length ? `<div class="t-kv">${rows.map(([k, v]) => `<span class="mute">${k}</span><span>${v}</span>`).join('')}</div>` : ''}
+    ${actions ? `<div class="t-actions">${actions}</div>` : ''}</div></div>`;
 }
 // A training: what the person sees (Training tab: reading, test, result); administrators also get the tabs Questions
 // and Passes, Edit training (the details in one dialog) and ⋯ (Export, Delete training…).
@@ -492,10 +499,10 @@ function paintDetail() {
   const questions = t.questions || [];
   const taking = !edit && (t.practice || (!t.passed_at && !t.awaiting_approval)) && questions.length;
   parkForms();
-  const head = !taking && !edit ? headParts(t, questions) : null;
+  const result = !taking && !edit;
   let html = `<div class="toolbar">
     <button type="button" class="sec" onclick="goBack()">Back</button>
-    ${taking && !admin ? '' : `<h2 title="${esc(t.name)}">${esc(t.name)}</h2>`}${head ? head.badge + '<span style="flex:1"></span>' + head.actions : '<span style="flex:1"></span>'}
+    ${admin ? `<h2 title="${esc(t.name)}">${esc(t.name)}</h2>` : ''}<span style="flex:1"></span>
     ${admin ? `<button type="button" class="sec" onclick="openDetails()">Edit training</button>
       <span class="menu-wrap"><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
         <div class="menu-pop" id="moreMenu" role="menu" hidden>
@@ -515,8 +522,8 @@ function paintDetail() {
     html += quizHTML(questions);
   } else if (edit) {
     html += editorHTML();
-  } else {
-    html += head.body;
+  } else if (result) {
+    html += resultCard(t, questions);
   }
   $('detailCard').innerHTML = html;
   if (gate) { if (readingShownFor !== t.id) { readingShownFor = t.id; openReading(true); } }

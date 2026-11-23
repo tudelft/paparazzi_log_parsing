@@ -1282,7 +1282,11 @@ flagging questions without a correct answer; the selected question is edited on 
 the title opens all settings (content, passing, access request mail) in one dialog; Save sends `PUT
 /api/admin/trainings/<id>` only when something changed (uploading or removing the reading PDF acts at once). **⋯** has
 Export and Delete training…. Every confirmation (unsaved question, delete question, reset a pass, remove the reading
-PDF, delete the training) is a small dialog.
+PDF, delete the training) is a small dialog. Outside the test, the training is shown as the same centred card as the test: the result
+(passed in green, waiting for approval in yellow, otherwise grey) with the attempts and the score of the person's own pass,
+the qualification and until when it is valid, and Reading material / Practice again. `GET /api/trainings/<id>` returns
+`pass_score_text` (from the stored passing answers) and `valid_until` (of the linked qualification) for the person's own
+current or waiting pass.
 **Qualification valid for (days)** sets the end date of the qualification a pass grants; the pass counts as current
 while that qualification is valid, so its expiry (or a reset) reopens the training. Without a qualification the field
 is disabled and a pass does not expire. Questions
