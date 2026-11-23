@@ -943,11 +943,11 @@ the members. Each member has one access select (See / See, upload / … edit / �
 (↺ undoes); a search adds an enabled, non-external person with See. Save sends one `PUT /api/projects/<id>/members` per
 changed member (`role: ""` removes). ⋯ (admins): **Delete project…** (logs stay). **Add project** and **Manage ▾**
 (Import CSV…, Download CSV template) are admins only; dialogs replace `confirm()`.
-**Authorisations** and **Operators** are read-only tables for everyone. Admins click a row to change it in a dialog
-(nothing is sent when unchanged) and tick rows for the selection bar (Edit…, Delete…; the server refuses to delete one
-still in use and says where). **Add operator** is for everyone (only admins tick *Our own operator*), **Add
-authorisation** for admins. Under Operators, admins set the operator of external crew by ticking them and **Set
-operator…** (`PUT /api/admin/users/<id>/operator`). Existing API authorization and project visibility rules apply
+**Authorisations** and **Operators** are read-only tables for everyone, without tick boxes. Admins click a row to
+change it in a dialog (nothing is sent when unchanged); **Delete…** at the end of that dialog asks for confirmation (the
+server refuses to delete one still in use and says where). **Add operator** is for everyone (only admins tick *Our own operator*), **Add
+authorisation** for admins. Under Operators, admins click an external person to set the operator they fly for
+(`PUT /api/admin/users/<id>/operator`). Existing API authorization and project visibility rules apply
 unchanged.
 
 **Project roles and managers.** `project_members.role` is `view` < `add` < `edit` < `full` < `manager`

@@ -24,7 +24,6 @@
   th [data-sort] { cursor:pointer; user-select:none; }
   th [data-sort]:hover { color:var(--txt); }
   td.num, th.num { text-align:right; padding-right:16px; }
-  td.chk, th.chk { width:30px; padding-right:0; }
   tbody tr[data-id] { cursor:pointer; }
   tbody tr[data-id]:hover { background:var(--hover); }
   tbody tr.open { background:var(--hover); box-shadow:inset 3px 0 0 var(--acc); }
@@ -135,30 +134,20 @@
       <label id="showExpiredLabel"><input type="checkbox" id="showExpired"> Show expired</label>
       <span class="toolbar-end">
         <button type="button" id="addAuthorisationButton" hidden onclick="openAuthorisation(null)">Add authorisation</button>
-        <details><summary>Help</summary><p>The rules each flight was flown under (its category): national rules (ROC / ROC-light) before EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. A flight's category is, in this order: set on the flight (Edit flight, or Change… in the logbook's selection bar), indoor, that of its project, that of its takeoff location, or the date. By date, flights before 31 Dec 2020 are under national rules; for our own operations, a national authorisation listed here that was valid that day gives national rules, a day without any valid authorisation of ours gives OPEN, and a day with an EU authorisation stays unknown (OPEN or SPECIFIC): set those on the project, the location or the flight. An exemption (such as a one-off BVLOS exemption) is left out of this date rule: it only applies where it is set. Leave the holder empty for our own authorisations. The logbook marks SPECIFIC flights without an authorisation, or outside its validity, with (check). Administrators click a row to change it, or tick rows to delete them.</p></details></span></div>
+        <details><summary>Help</summary><p>The rules each flight was flown under (its category): national rules (ROC / ROC-light) before EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. A flight's category is, in this order: set on the flight (Edit flight, or Change… in the logbook's selection bar), indoor, that of its project, that of its takeoff location, or the date. By date, flights before 31 Dec 2020 are under national rules; for our own operations, a national authorisation listed here that was valid that day gives national rules, a day without any valid authorisation of ours gives OPEN, and a day with an EU authorisation stays unknown (OPEN or SPECIFIC): set those on the project, the location or the flight. An exemption (such as a one-off BVLOS exemption) is left out of this date rule: it only applies where it is set. Leave the holder empty for our own authorisations. The logbook marks SPECIFIC flights without an authorisation, or outside its validity, with (check). Administrators click a row to change or delete it.</p></details></span></div>
     <div class="scroll"><table><colgroup id="authorisationCols"></colgroup><thead id="authorisationHead"></thead><tbody id="authorisationRows"></tbody></table></div>
-    <div id="authorisationBar" class="sel-bar" hidden role="region" aria-label="Ticked authorisations">
-      <strong id="authorisationSel"></strong>
-      <button type="button" id="authorisationEdit">Edit…</button><button type="button" id="authorisationDelete">Delete…</button>
-      <button type="button" class="x" onclick="ticks.authorisations.clear(); renderAuthorisations()">Clear</button></div>
   </section>
 
   <section class="card" id="operatorsCard">
     <div class="toolbar"><h2>Operators</h2><span class="count" id="operatorCount"></span>
       <span class="toolbar-end">
         <button type="button" id="addOperatorButton" hidden onclick="openOperator(null)">Add operator</button>
-        <details><summary>Help</summary><p>The UAS operator registrations flights are flown under. A flight is under, in this order: the operator set on the flight, that of its project, that of its takeoff location, the operator its PIC flies for, or else our own operator. Nothing has to be filled in per flight: mark our own operator, then choose the operator of external crew below. Anyone can add the operator of a new partner (also from the logbook and the paper-record form); only administrators change, remove or mark our own (click a row, or tick rows). Use the flight filters for own operations only.</p></details></span></div>
+        <details><summary>Help</summary><p>The UAS operator registrations flights are flown under. A flight is under, in this order: the operator set on the flight, that of its project, that of its takeoff location, the operator its PIC flies for, or else our own operator. Nothing has to be filled in per flight: mark our own operator, then choose the operator of external crew below. Anyone can add the operator of a new partner (also from the logbook and the paper-record form); only administrators change, delete or mark our own (click a row). Use the flight filters for own operations only.</p></details></span></div>
     <div class="scroll"><table><colgroup id="operatorCols"></colgroup><thead id="operatorHead"></thead><tbody id="operatorRows"></tbody></table></div>
-    <div id="operatorBar" class="sel-bar" hidden role="region" aria-label="Ticked operators">
-      <strong id="operatorSel"></strong>
-      <button type="button" id="operatorEdit">Edit…</button><button type="button" id="operatorDelete">Delete…</button>
-      <button type="button" class="x" onclick="ticks.operators.clear(); renderOperators()">Clear</button></div>
     <details id="crewOperators" hidden><summary>External crew <span class="mute" id="crewCount"></span></summary>
-      <p class="mute">The operator each external person flies for. Their flights count under it unless the flight, project or location says otherwise; <span class="warn">(check)</span> in the logbook marks external crew without one. Tick people, then Set operator….</p>
-      <div class="scroll"><table><colgroup><col style="width:30px"><col style="width:45%"><col></colgroup><thead><tr><th class="chk"></th><th>Person</th><th>Flies for</th></tr></thead><tbody id="crewRows"></tbody></table></div>
-      <div id="crewBar" class="sel-bar" hidden role="region" aria-label="Ticked external crew">
-        <strong id="crewSel"></strong><button type="button" onclick="openCrewOperator()">Set operator…</button>
-        <button type="button" class="x" onclick="ticks.crew.clear(); renderOperators()">Clear</button></div></details>
+      <p class="mute">The operator each external person flies for. Their flights count under it unless the flight, project or location says otherwise; <span class="warn">(check)</span> in the logbook marks external crew without one. Click a person to set it.</p>
+      <div class="scroll"><table><colgroup><col style="width:45%"><col></colgroup><thead><tr><th>Person</th><th>Flies for</th></tr></thead><tbody id="crewRows"></tbody></table></div>
+</details>
   </section>
 
   <dialog class="entry-dialog" id="editDialog" aria-labelledby="editTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
@@ -167,7 +156,8 @@
       <p class="mute" id="editWhat" style="margin:0"></p>
       <div id="editFields"></div>
       <p class="dialog-error" id="editError" role="alert"></p>
-      <div class="row"><button type="submit" class="primary" id="editSave">Save</button> <button type="button" class="sec" onclick="$('editDialog').close()">Cancel</button></div>
+      <div class="row"><button type="submit" class="primary" id="editSave">Save</button> <button type="button" class="sec" onclick="$('editDialog').close()">Cancel</button>
+        <button type="button" class="danger" id="editDelete" hidden style="margin-left:auto">Delete…</button></div>
     </form>
   </dialog>
   <dialog class="entry-dialog" id="actDialog" aria-labelledby="actTitle" style="width:min(460px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
@@ -356,7 +346,10 @@ document.addEventListener('click', e => {
 });
 
 // ---- Edit project: one dialog; admins: name, operator, category and members; managers: the members ----
-function editDialog(title, what, fields, save, focus) {
+// remove: an optional rare action of the item (Delete…), at the end of the buttons, with its own confirmation
+function editDialog(title, what, fields, save, focus, remove) {
+  $('editDelete').hidden = !remove;
+  $('editDelete').onclick = () => { $('editDialog').close(); remove(); };
   $('editTitle').textContent = title;
   $('editWhat').textContent = what;
   $('editFields').innerHTML = fields;
@@ -523,16 +516,9 @@ document.addEventListener('keydown', e => {
 });
 
 // ---- Authorisations and Operators: read-only tables; administrators click a row to edit, tick rows to delete ----
-const ticks = {authorisations: new Set(), operators: new Set(), crew: new Set()};
-const tickCell = (set, id, label) => `<td class="chk"><input type="checkbox" data-tick="${id}" aria-label="Select ${esc(label)}"${set.has(id) ? ' checked' : ''}></td>`;
-function bindTable(body, set, repaint, open) {
-  body.onchange = e => { const b = e.target.closest('[data-tick]'); if (!b) return; b.checked ? set.add(+b.dataset.tick) : set.delete(+b.dataset.tick); repaint(); };
+// A click on a row opens it (administrators); the row's own links still work.
+function openRows(body, open) {
   body.onclick = e => { const tr = e.target.closest('tr[data-id]'); if (tr && open && !e.target.closest('a, input, button')) open(+tr.dataset.id); };
-}
-function paintBar(bar, sel, set, items) {
-  for (const id of [...set]) if (!items.some(x => x.id === id)) set.delete(id);
-  $(bar).hidden = !set.size;
-  $(sel).textContent = `${set.size} selected`;
 }
 const AUTH_CATEGORIES = ['national', 'specific', 'luc'];
 const today = () => new Date().toISOString().slice(0, 10);
@@ -548,27 +534,19 @@ function renderAuthorisations() {
       .filter(([n]) => n).map(([n, w]) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`);
     return parts.join(' · ') || '—';
   };
-  $('authorisationCols').innerHTML = (admin ? '<col style="width:30px">' : '') + '<col style="width:30%"><col style="width:13%"><col style="width:18%"><col style="width:17%"><col class="wide-only" style="width:22%">';
-  $('authorisationHead').innerHTML = `<tr>${admin ? '<th class="chk"></th>' : ''}<th>Name / number</th><th>Category</th><th>Holder</th><th>Valid</th>`
+  $('authorisationCols').innerHTML = '<col style="width:30%"><col style="width:13%"><col style="width:18%"><col style="width:17%"><col class="wide-only" style="width:22%">';
+  $('authorisationHead').innerHTML = `<tr><th>Name / number</th><th>Category</th><th>Holder</th><th>Valid</th>`
     + '<th class="wide-only" title="Where it is set by hand on flights, paper records, projects or locations; flights that get it by date are not counted">Used by</th></tr>';
   $('authorisationRows').innerHTML = shown.map(a => {
     const name = a.link && /^https?:\/\//.test(a.link) ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.name)}</a>` : esc(a.name);
     const valid = a.valid_from || a.valid_until ? `${esc(a.valid_from || '…')} – ${a.valid_until ? esc(a.valid_until) : 'now'}` : '<span class="mute">Always</span>';
-    return `<tr${admin ? ` data-id="${a.id}" title="Click to change"` : ''}${expired.includes(a) ? ' class="mute"' : ''}>${admin ? tickCell(ticks.authorisations, a.id, a.name) : ''}
+    return `<tr${admin ? ` data-id="${a.id}" title="Click to change"` : ''}${expired.includes(a) ? ' class="mute"' : ''}>
       <td title="${esc([a.name, a.note, a.link].filter(Boolean).join(' · '))}">${name}${a.exemption ? '<span class="tag exemption" title="Only applies where it is set; never by date">exemption</span>' : ''}</td>
       <td><span class="cat">${esc(CATEGORY_LABELS[a.category] || a.category)}</span></td>
       <td>${esc(operators.find(o => o.id === a.operator_id)?.name || 'Our own operator')}</td><td>${valid}</td>
       <td class="mute wide-only">${used(a)}</td></tr>`;
-  }).join('') || `<tr><td colspan="${admin ? 6 : 5}" class="mute">${authorisations.length ? 'Only expired authorisations; tick Show expired.' : 'No authorisations yet.'}</td></tr>`;
-  const repaint = () => {
-    paintBar('authorisationBar', 'authorisationSel', ticks.authorisations, authorisations);
-    $('authorisationEdit').disabled = ticks.authorisations.size !== 1;
-    $('authorisationEdit').title = ticks.authorisations.size !== 1 ? 'Tick one authorisation to change it' : '';
-  };
-  bindTable($('authorisationRows'), ticks.authorisations, repaint, admin ? openAuthorisation : null);
-  $('authorisationEdit').onclick = () => openAuthorisation([...ticks.authorisations][0]);
-  $('authorisationDelete').onclick = () => deleteItems('authorisation', authorisations, ticks.authorisations, id => `/api/admin/authorisations/${id}`);
-  repaint();
+  }).join('') || `<tr><td colspan="5" class="mute">${authorisations.length ? 'Only expired authorisations; tick Show expired.' : 'No authorisations yet.'}</td></tr>`;
+  openRows($('authorisationRows'), admin ? openAuthorisation : null);
 }
 function openAuthorisation(id) {
   const a = authorisations.find(x => x.id === id) || {category: 'specific'};
@@ -588,7 +566,7 @@ function openAuthorisation(id) {
     if (id && ['name', 'category', 'valid_from', 'valid_until', 'link', 'note'].every(k => (a[k] || '') === body[k])
         && (a.operator_id ?? null) === body.operator_id && !!a.exemption === body.exemption) return 0;  // nothing changed
     return await call(id ? 'PUT' : 'POST', id ? `/api/admin/authorisations/${id}` : '/api/admin/authorisations', body, out('name')) ? 0 : 1;
-  });
+  }, null, id && (() => deleteItem('authorisation', a, `/api/admin/authorisations/${id}`)));
 }
 const countryName = code => (countries.find(c => c[0] === code) || [])[1] || code || '';
 const countryOptions = selected => '<option value="">—</option>' + countries.map(([code, name]) =>
@@ -597,22 +575,14 @@ function renderOperators() {
   const admin = isAdmin();
   $('addOperatorButton').hidden = !me;  // anyone adds a partner's operator; only admins change or mark our own
   $('operatorCount').textContent = String(operators.length);
-  $('operatorCols').innerHTML = (admin ? '<col style="width:30px">' : '') + '<col style="width:38%"><col style="width:24%"><col style="width:22%"><col style="width:16%">';
-  $('operatorHead').innerHTML = `<tr>${admin ? '<th class="chk"></th>' : ''}<th>Name</th><th>Registration number</th><th>Country</th><th>Own</th></tr>`;
-  $('operatorRows').innerHTML = operators.map(o => `<tr${admin ? ` data-id="${o.id}" title="Click to change"` : ''}>${admin ? tickCell(ticks.operators, o.id, o.name) : ''}
+  $('operatorCols').innerHTML = '<col style="width:38%"><col style="width:24%"><col style="width:22%"><col style="width:16%">';
+  $('operatorHead').innerHTML = `<tr><th>Name</th><th>Registration number</th><th>Country</th><th>Own</th></tr>`;
+  $('operatorRows').innerHTML = operators.map(o => `<tr${admin ? ` data-id="${o.id}" title="Click to change"` : ''}>
     <td title="${esc([o.name, o.note].filter(Boolean).join(' · '))}">${esc(o.name)}</td>
     <td class="mono" title="${esc(o.registration || '')}">${esc(o.registration || '')}</td><td title="${esc(countryName(o.country))}">${esc(o.country || '')}</td>
     <td>${o.own ? '<span class="cat">Own operator</span>' : ''}</td></tr>`).join('')
-    || `<tr><td colspan="${admin ? 5 : 4}" class="mute">No operators yet${admin ? '. Add our own operator registration first.' : '.'}</td></tr>`;
-  const repaint = () => {
-    paintBar('operatorBar', 'operatorSel', ticks.operators, operators);
-    $('operatorEdit').disabled = ticks.operators.size !== 1;
-    $('operatorEdit').title = ticks.operators.size !== 1 ? 'Tick one operator to change it' : '';
-  };
-  bindTable($('operatorRows'), ticks.operators, repaint, admin ? openOperator : null);
-  $('operatorEdit').onclick = () => openOperator([...ticks.operators][0]);
-  $('operatorDelete').onclick = () => deleteItems('operator', operators, ticks.operators, id => `/api/admin/operators/${id}`);
-  repaint();
+    || `<tr><td colspan="4" class="mute">No operators yet${admin ? '. Add our own operator registration first.' : '.'}</td></tr>`;
+  openRows($('operatorRows'), admin ? openOperator : null);
   // external crew (admins): the operator each flies for, set through the selection bar
   const crew = users.filter(u => u.is_external && u.is_active);
   $('crewOperators').hidden = !admin || !crew.length;
@@ -620,12 +590,10 @@ function renderOperators() {
   $('crewCount').textContent = `· ${crew.length}${unset ? ` (${unset} not set)` : ''}`;
   $('crewRows').innerHTML = crew.map(u => {
     const o = operators.find(x => x.id === u.operator_id);
-    return `<tr>${tickCell(ticks.crew, u.id, u.display_name || u.username)}<td><a href="/people/${u.id}">${esc(u.display_name || u.username)}</a></td>
+    return `<tr data-id="${u.id}" title="Click to set the operator"><td><a href="/people/${u.id}">${esc(u.display_name || u.username)}</a></td>
       <td>${o ? esc(operatorLabel(o)) : '<span class="warn">Not set</span>'}</td></tr>`;
   }).join('');
-  const crewRepaint = () => paintBar('crewBar', 'crewSel', ticks.crew, crew);
-  bindTable($('crewRows'), ticks.crew, crewRepaint, null);
-  crewRepaint();
+  openRows($('crewRows'), openCrewOperator);
 }
 function openOperator(id) {
   const o = operators.find(x => x.id === id) || {};
@@ -640,25 +608,23 @@ function openOperator(id) {
     if (admin) body.own = val('own').checked;
     if (id && ['name', 'registration', 'country', 'note'].every(k => (o[k] || '') === body[k]) && !!o.own === body.own) return 0;
     return await call(id ? 'PUT' : 'POST', id ? `/api/admin/operators/${id}` : '/api/operators', body, out('name')) ? 0 : 1;
+  }, null, id && admin && (() => deleteItem('operator', o, `/api/admin/operators/${id}`)));
+}
+function openCrewOperator(id) {
+  const u = users.find(x => x.id === id);
+  if (!u) return;
+  editDialog(`Operator of ${u.display_name || u.username}`, 'External crew: their flights count under this operator unless the flight, project or location says otherwise.',
+    field('operator', 'Flies for', `<select name="operator"><option value="">Not set (check)</option>${operators.map(x =>
+      `<option value="${x.id}"${x.id === u.operator_id ? ' selected' : ''}>${esc(operatorLabel(x))}</option>`).join('')}</select>`), async out => {
+    const value = val('operator').value;
+    if (String(u.operator_id ?? '') === value) return 0;
+    return await call('PUT', `/api/admin/users/${u.id}/operator`, {operator_id: value ? +value : null}, out('operator')) ? 0 : 1;
   });
 }
-function openCrewOperator() {
-  const crew = users.filter(u => ticks.crew.has(u.id));
-  actDialog('Set operator', `<p style="margin:0">${crew.map(u => esc(u.display_name || u.username)).join(', ')} fl${crew.length === 1 ? 'ies' : 'y'} for:</p>
-    <label class="field">Operator<select name="operator"><option value="">Not set (check)</option>${operators.map(x => `<option value="${x.id}">${esc(operatorLabel(x))}</option>`).join('')}</select></label>`, 'Set operator', async out => {
-    const value = $('actBody').querySelector('[name=operator]').value;
-    for (const u of crew) if (!await call('PUT', `/api/admin/users/${u.id}/operator`, {operator_id: value ? +value : null}, out)) { await load(); return false; }
-    ticks.crew.clear();
-    await load();
-    return true;
-  });
-}
-function deleteItems(kind, items, set, url) {
-  const chosen = items.filter(x => set.has(x.id));
-  actDialog(chosen.length === 1 ? `Delete ${kind}` : `Delete ${chosen.length} ${kind}s`, `<p style="margin:0">Delete ${chosen.map(x => `<b>${esc(x.name)}</b>`).join(', ')}?
-    One that is still set on flights, projects or locations is not deleted: the message says where to change it first.</p>`, 'Delete', async out => {
-    for (const x of chosen) if (!await call('DELETE', url(x.id), null, out)) { await load(); return false; }
-    set.clear();
+function deleteItem(kind, x, url) {
+  actDialog(`Delete ${kind}`, `<p style="margin:0">Delete <b>${esc(x.name)}</b>? One that is still set on flights, projects or locations
+    is not deleted: the message says where to change it first.</p>`, 'Delete', async out => {
+    if (!await call('DELETE', url, null, out)) return false;
     await load();
     return true;
   }, true);
