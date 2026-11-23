@@ -18,8 +18,10 @@ from bisect import bisect_right
 from datetime import datetime, timezone
 from pathlib import Path
 
+import gps_quality
+
 PARSER_NAME = "mav-log"
-PARSER_VERSION = "1.0.3"
+PARSER_VERSION = "1.1.0"
 BLACKBOX_PARSER_NAME = "blackbox"
 BLACKBOX_PARSER_VERSION = "1.0.2"
 BLACKBOX_DECODE_TIMEOUT_S = 300
@@ -52,6 +54,15 @@ BLACKBOX_KEEP = frozenset(
     + tuple(f"{prefix}[{i}]" for prefix in ("quat", "ekf_quat") for i in range(4))
     + tuple(f"{prefix}[{i}]" for prefix in ("ekf_pos", "pos", "ekf_vel", "vel") for i in range(3))
 )
+
+# Motion capture / external navigation: the flight is indoor like a Paparazzi OptiTrack flight
+AP_VISION_MESSAGES = {"VISP", "VISO", "VISV"}  # vision position / odometry / velocity received by ArduPilot
+AP_EXTNAV_PARAMS = ("EK3_SRC1_POSXY", "EK3_SRC1_VELXY")
+AP_EK3_SRC_EXTNAV = 6  # EK3_SRCn_* value ExternalNav
+AP_EXTNAV_LABEL = "ArduPilot ExternalNav"
+TLOG_VISION_MESSAGES = {"VISION_POSITION_ESTIMATE", "VISION_SPEED_ESTIMATE", "ATT_POS_MOCAP"}
+PX4_VISION_TOPICS = (("vehicle_mocap_odometry", "PX4 motion capture"),
+                     ("vehicle_visual_odometry", "PX4 external vision"))
 
 MAX_INFO_MESSAGES = 50_000
 MAX_PER_TYPE = 2_000
@@ -183,6 +194,20 @@ def _num(v, nd=3):
     return round(x, nd)
 
 
+def _int_or_none(v):
+    try:
+        return int(v) if v is not None and math.isfinite(float(v)) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(v):
+    try:
+        return float(v) if v is not None and math.isfinite(float(v)) else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _haversine_m(lat1, lon1, lat2, lon2):
     if None in (lat1, lon1, lat2, lon2):
         return 0.0
@@ -243,15 +268,86 @@ def _wind(east, north, up=None, temp=None):
     }
 
 
-def _event(t, epoch, lat, lon, alt, volt, wind=None, ins=None):
+def _event(t, epoch, lat, lon, alt, volt, wind=None, ins=None, gps=None):
     loc = None
     if lat is not None and lon is not None:
         loc = {"lat": _num(lat, 7), "lon": _num(lon, 7), "alt_m": _num(alt, 1)}
-    return {
+    event = {
         "time_s": _num(t, 3), "utc": _utc(epoch), "location": loc,
         "voltage_v": _num(volt, 2) if volt is not None else None,
         "wind": wind, "ins": ins,
     }
+    if gps is not None:
+        event["gps"] = gps
+    return event
+
+
+def _gps_report(fix, selected):
+    """The quality stored with an endpoint (gps_quality.endpoint_position): the selected good fix, or with
+    selected "raw" the raw sample at the endpoint (no good fix in the window) including its position."""
+    if not fix:
+        return None
+    out = {k: (_num(fix[k], 2) if k in ("hdop", "eph_m") else fix[k])
+           for k in ("fix_type", "satellites", "hdop", "eph_m", "good", "external") if fix.get(k) is not None}
+    out["selected"] = selected
+    if selected == "raw":
+        out.update(lat=_num(fix.get("lat"), 7), lon=_num(fix.get("lon"), 7), alt_m=_num(fix.get("alt"), 1))
+    return out
+
+
+def _gps_endpoints(window, t_a, t_b):
+    """Takeoff: the first good fix from takeoff to ENDPOINT_WINDOW_S after it (a fix up to 5 s before takeoff is
+    the position at takeoff). Landing: the last good fix in the ENDPOINT_WINDOW_S before landing. Samples carry
+    the latest good fix (lat/lon, _gps, _gps_time) and the latest raw fix (_gps_raw) forward-filled."""
+    limit = gps_quality.ENDPOINT_WINDOW_S
+    takeoff = landing = None
+    raw_takeoff = next((sm["_gps_raw"] for _, sm in window
+                        if sm.get("_gps_raw") and sm["_gps_raw"]["t"] >= t_a - 5), None)
+    for t, sm in window:
+        if t > t_a + limit:
+            break
+        if sm.get("lat") is not None and sm.get("_gps_time") is not None and sm["_gps_time"] >= t_a - 5:
+            takeoff = sm
+            break
+    for t, sm in reversed(window):
+        if sm.get("lat") is not None and sm.get("_gps_time") is not None:
+            if sm["_gps_time"] >= t_b - limit:
+                landing = sm
+            break
+    last_raw = window[-1][1].get("_gps_raw")
+    raw_landing = last_raw if last_raw and last_raw["t"] >= t_b - limit else None
+    report = []
+    for fix, raw, at_end, other in ((takeoff, raw_takeoff, "first", "later"), (landing, raw_landing, "last", "earlier")):
+        if fix is not None:
+            same = raw is not None and raw["t"] == fix["_gps_time"]
+            report.append(_gps_report(fix.get("_gps") or {"good": True}, at_end if same or raw is None else other))
+        else:
+            report.append(_gps_report(raw, "raw"))
+    return takeoff, landing, report[0], report[1]
+
+
+def _mark_external_positioning(flights, times, label):
+    """Set assessment.external_positioning (motion capture / external navigation, so the flight is indoor) on the
+    flights during which the log shows that source in use: `times` are sorted seconds, or True for every flight."""
+    for f in flights:
+        t_a = (f.get("takeoff") or {}).get("time_s")
+        t_b = (f.get("landing") or {}).get("time_s")
+        if times is True or (t_a is not None and t_b is not None and times
+                             and bisect_right(times, t_b) > bisect_right(times, t_a - 1e-9)):
+            f["assessment"].setdefault("external_positioning", label)
+
+
+def _gps_summary(window):
+    """Raw fixes in the flight and how many passed the quality rule; None without fix quality."""
+    seen = {}
+    for _, sm in window:
+        raw = sm.get("_gps_raw")
+        if raw:
+            seen[raw["t"]] = raw.get("good", True)
+    if not seen:
+        return None
+    good = sum(1 for ok in seen.values() if ok)
+    return {"fixes": len(seen), "good_fixes": good, "good_fraction": _num(good / len(seen), 3)}
 
 
 def _assess(duration_s, climb_m, horiz_m, max_speed, max_tilt, motors_on_frac):
@@ -450,10 +546,16 @@ def _split_flights(samples, armed, t0_epoch, path_rate, *, airborne=None, strict
         else:
             picked = [window[0], window[-1]] if len(window) > 1 else window
 
+        quality = not strict_positions and any("_gps_time" in sm or "_gps_raw" in sm for _, sm in window)
+        gps_to_report = gps_ld_report = None
+        if quality:
+            gps_first, gps_last, gps_to_report, gps_ld_report = _gps_endpoints(window, t_a, t_b)
         dist = 0.0
         max_from = 0.0
         prev = None
         origin = None
+        if quality and gps_first is not None:
+            origin = (gps_first["lat"], gps_first["lon"], gps_first.get("alt") or 0.0)
         climb_lo = climb_hi = None
         max_gs = None if strict_positions else 0.0
         max_tilt = 0.0
@@ -489,16 +591,32 @@ def _split_flights(samples, armed, t0_epoch, path_rate, *, airborne=None, strict
             prev = sm
 
         first, last = window[0][1], window[-1][1]
-        gps_first = next((s[1] for s in window if s[1].get("lat") is not None), first)
-        gps_last = next((s[1] for s in reversed(window) if s[1].get("lat") is not None), last)
-        if strict_positions:
-            def endpoint(t):
+        if quality:
+            gps_first, gps_last = gps_first or {}, gps_last or {}
+        elif strict_positions:
+            def endpoint(t, at_end, later):
+                """A fresh position at the endpoint, else the first (takeoff) / last (landing) good position
+                within gps_quality.ENDPOINT_WINDOW_S inside the flight, else the raw GPS sample there."""
                 idx = bisect_right(sample_times, t) - 1
                 sm = samples[idx][1] if idx >= 0 else {}
-                if sm.get("_position_time") is None or not 0 <= t - sm["_position_time"] <= 5:
-                    return {}
-                return sm
-            gps_first, gps_last = endpoint(t_a), endpoint(t_b)
+                raw = sm.get("_gps_raw") if sm.get("_gps_raw") and 0 <= t - sm["_gps_raw"]["t"] <= 5 else None
+                if sm.get("_position_time") is not None and 0 <= t - sm["_position_time"] <= 5:
+                    return sm, _gps_report(sm.get("_gps"), at_end)
+                order = window if at_end == "first" else window[::-1]
+                for _, other in order:
+                    pt = other.get("_position_time")
+                    if pt is not None and other.get("lat") is not None and \
+                            abs(pt - t) <= gps_quality.ENDPOINT_WINDOW_S and t_a <= pt <= t_b:
+                        return other, _gps_report(other.get("_gps"), later)
+                if raw is None:
+                    raw = next((o["_gps_raw"] for _, o in order if o.get("_gps_raw")
+                                and abs(o["_gps_raw"]["t"] - t) <= gps_quality.ENDPOINT_WINDOW_S), None)
+                return {}, _gps_report(raw, "raw")
+            (gps_first, gps_to_report), (gps_last, gps_ld_report) = (endpoint(t_a, "first", "later"),
+                                                                      endpoint(t_b, "last", "earlier"))
+        else:
+            gps_first = next((s[1] for s in window if s[1].get("lat") is not None), first)
+            gps_last = next((s[1] for s in reversed(window) if s[1].get("lat") is not None), last)
         duration = t_b - t_a
         climb = (climb_hi - climb_lo) if climb_lo is not None else None
         if strict_positions:
@@ -526,11 +644,13 @@ def _split_flights(samples, armed, t0_epoch, path_rate, *, airborne=None, strict
         to = _event(t_a, t0_epoch + t_a if t0_epoch is not None else None,
                     gps_first.get("lat"), gps_first.get("lon"), gps_first.get("alt"), gps_first.get("volt") or first.get("volt"),
                     _wind(first.get("we"), first.get("wn")) if first.get("we") is not None else None,
-                    _ins(first.get("n"), first.get("e"), first.get("d"), first.get("vn"), first.get("ve"), first.get("vd")))
+                    _ins(first.get("n"), first.get("e"), first.get("d"), first.get("vn"), first.get("ve"), first.get("vd")),
+                    gps_to_report)
         ld = _event(t_b, t0_epoch + t_b if t0_epoch is not None else None,
                     gps_last.get("lat"), gps_last.get("lon"), gps_last.get("alt"), gps_last.get("volt") or last.get("volt"),
                     _wind(last.get("we"), last.get("wn")) if last.get("we") is not None else None,
-                    _ins(last.get("n"), last.get("e"), last.get("d"), last.get("vn"), last.get("ve"), last.get("vd")))
+                    _ins(last.get("n"), last.get("e"), last.get("d"), last.get("vn"), last.get("ve"), last.get("vd")),
+                    gps_ld_report)
         flights.append({
             "flight": i, "duration_s": _num(duration, 3), "distance_m": _num(dist, 2) or 0,
             "from_takeoff_m": _num(from_to, 2) or 0, "max_from_takeoff_m": _num(max_from, 2) or 0,
@@ -538,6 +658,9 @@ def _split_flights(samples, armed, t0_epoch, path_rate, *, airborne=None, strict
             "assessment": _assess(duration, climb, horiz, max_gs, max_tilt, motors),
             "takeoff": to, "landing": ld, "path": path,
         })
+        summary = _gps_summary(window)
+        if summary is not None:
+            flights[-1]["gps_quality"] = summary
     return flights
 
 
@@ -799,23 +922,26 @@ def _parse_ulog(path, digest, size, path_rate):
             alt = _at(data.get("alt"), i)
             if alt is not None and abs(alt) > 100000:
                 alt *= 0.001
-        fix = _at(data.get("fix_type"), i)
-        if not position_valid(lat, lon, data, i) or (fix is not None and fix < 3):
-            return None
-        satellites = _at(data.get("satellites_used"), i)
-        if satellites is not None and satellites < 6:
-            return None
+        quality = gps_quality.quality(_int_or_none(_at(data.get("fix_type"), i)),
+                                      _int_or_none(_at(data.get("satellites_used"), i)),
+                                      _float_or_none(_at(data.get("hdop"), i)), _float_or_none(_at(data.get("eph"), i)))
+        raw = dict(quality, t=rel(data["timestamp"][i]), lat=lat, lon=lon, alt=alt) if (
+            lat is not None and lon is not None) else None
+        if not position_valid(lat, lon, data, i) or not quality["good"]:
+            return {"_gps_raw": raw} if raw else None
         gs = _at(data.get("vel_m_s"), i)
         vn, ve, vd = _at(data.get("vel_n_m_s"), i), _at(data.get("vel_e_m_s"), i), _at(data.get("vel_d_m_s"), i)
         if gs is None and vn is not None and ve is not None:
             gs = math.hypot(vn, ve)
-        return {"lat": lat, "lon": lon, "alt": alt, "gs": gs, "vn": vn, "ve": ve, "vd": vd}
+        return {"lat": lat, "lon": lon, "alt": alt, "gs": gs, "vn": vn, "ve": ve, "vd": vd,
+                "_gps": quality, "_gps_raw": raw}
 
     def gpos_builder(data, i):
         lat, lon, alt = _at(data.get("lat"), i), _at(data.get("lon"), i), _at(data.get("alt"), i)
-        if not position_valid(lat, lon, data, i) or _at(data.get("dead_reckoning"), i):
+        quality = gps_quality.quality(eph_m=_float_or_none(_at(data.get("eph"), i)))
+        if not position_valid(lat, lon, data, i) or _at(data.get("dead_reckoning"), i) or not quality["good"]:
             return None
-        return {"lat": lat, "lon": lon, "alt": alt}
+        return {"lat": lat, "lon": lon, "alt": alt, "_gps": quality}
 
     def position_valid(lat, lon, data, i):
         if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
@@ -897,7 +1023,7 @@ def _parse_ulog(path, digest, size, path_rate):
 
     streams = []
     global_position = _ds(ulog, "vehicle_global_position")
-    gps_rows = series_rows(gps, gps_builder)
+    gps_rows = [row for row in series_rows(gps, gps_builder) if row[1].get("lat") is not None]
     recording_start = rel(ulog.start_timestamp)
     recording_end = rel(ulog.last_timestamp)
     continuous_gps = bool(gps_rows) and (
@@ -918,8 +1044,10 @@ def _parse_ulog(path, digest, size, path_rate):
             frame = (position_source, _at(ds.data.get("lat_lon_reset_counter"), i),
                      _at(ds.data.get("alt_reset_counter"), i))
             position = dict(lat=None, lon=None, alt=None, gs=None, _position_time=None, _position_frame=None)
-            if row is not None:
+            if row is not None and row.get("lat") is not None:
                 position.update(row, _position_time=t, _position_frame=frame)
+            elif row and row.get("_gps_raw"):
+                position["_gps_raw"] = row["_gps_raw"]
             positions.append((t, position))
     if positions:
         streams.append(positions)
@@ -983,6 +1111,16 @@ def _parse_ulog(path, digest, size, path_rate):
             sm["gs"] = math.hypot(sm["vn"], sm["ve"])
     flights = _split_flights(samples, armed_series, t0_epoch, path_rate,
                              airborne=airborne, strict_positions=True)
+    for topic, label in PX4_VISION_TOPICS:
+        ds = _ds(ulog, topic)
+        if ds is not None and ds.data.get("timestamp") is not None:
+            _mark_external_positioning(flights, sorted(rel(tus) for tus in ds.data["timestamp"]), label)
+    flags = _ds(ulog, "estimator_status_flags")
+    if flags is not None and "cs_ev_pos" in flags.data and flags.data.get("timestamp") is not None:
+        gps_fused = flags.data.get("cs_gps")
+        _mark_external_positioning(flights, sorted(
+            rel(tus) for i, tus in enumerate(flags.data["timestamp"])
+            if flags.data["cs_ev_pos"][i] and not (gps_fused is not None and gps_fused[i])), "PX4 external vision")
 
     # Messages: every logged printf, events, status changes, then other topics up to the cap.
     info_messages = []
@@ -1111,6 +1249,7 @@ def _parse_ardupilot(path, digest, size, path_rate):
     sysid = 1
     vehicle = None
     prev_armed = None
+    vision_times, ap_params = [], {}
 
     def epoch(t):
         return (t0_epoch + t) if t0_epoch is not None else None
@@ -1141,6 +1280,8 @@ def _parse_ardupilot(path, digest, size, path_rate):
             t_first = t_rel
         t_last = t_rel
 
+        if name in AP_VISION_MESSAGES and (not vision_times or t_rel - vision_times[-1] >= 1):
+            vision_times.append(t_rel)
         if name == "MSG":
             text = str(_mav_field(m, "Message", "Msg") or "")
             _push_msg(info_messages, t_rel, epoch(t_rel), text)
@@ -1173,6 +1314,8 @@ def _parse_ardupilot(path, digest, size, path_rate):
                 "time_s": _num(t_rel, 3), "utc": _utc(epoch(t_rel)), "previous_report_s": None,
                 "index": len(settings), "var": str(pname), "from": None, "to": pval, "in_flight": False,
             })
+            if str(pname) in AP_EXTNAV_PARAMS:
+                ap_params[str(pname)] = pval
             if str(pname) in {"SYSID_THISMAV", "MAV_SYSID"}:
                 try:
                     sysid = int(float(pval))
@@ -1192,12 +1335,16 @@ def _parse_ardupilot(path, digest, size, path_rate):
             alt = _mav_field(m, "Alt")
             spd = _mav_field(m, "Spd")
             status = _mav_field(m, "Status")
-            if status is not None and int(status) < 2:
-                continue
             if lat and lon:
+                # older logs may lack NSats/HDop: then only the fix type (Status) is checked
+                quality = gps_quality.quality(_int_or_none(status), _int_or_none(_mav_field(m, "NSats", "NSat")),
+                                              _float_or_none(_mav_field(m, "HDop", "HDp")))
                 slot = samples_map.setdefault(round(t_rel, 3), {})
-                slot.update({"lat": float(lat), "lon": float(lon), "alt": float(alt) if alt is not None else None,
-                             "gs": float(spd) if spd is not None else None})
+                alt = float(alt) if alt is not None else None
+                slot["_gps_raw"] = dict(quality, t=t_rel, lat=float(lat), lon=float(lon), alt=alt)
+                if quality["good"]:
+                    slot.update({"lat": float(lat), "lon": float(lon), "alt": alt,
+                                 "gs": float(spd) if spd is not None else None, "_gps": quality, "_gps_time": t_rel})
             continue
         if name in ("ATT", "AHR2"):
             slot = samples_map.setdefault(round(t_rel, 3), {})
@@ -1252,6 +1399,9 @@ def _parse_ardupilot(path, digest, size, path_rate):
         latest.update(row)
         samples.append((t, dict(latest)))
     flights = _split_flights(samples, armed_series, t0_epoch, path_rate)
+    _mark_external_positioning(flights, vision_times, AP_EXTNAV_LABEL)
+    if any(_int_or_none(ap_params.get(p)) == AP_EK3_SRC_EXTNAV for p in AP_EXTNAV_PARAMS):
+        _mark_external_positioning(flights, True, AP_EXTNAV_LABEL)
     mavtype = getattr(df, "mav_type", None)
     name = f"ArduPilot-{sysid}"
     if vehicle:
@@ -1283,6 +1433,8 @@ def _parse_tlog(path, digest, size, path_rate):
     t_last = 0.0
     sysid = 1
     prev_armed = None
+    tlog_quality = None  # of the latest GPS_RAW_INT
+    vision_times = []
 
     def epoch(t):
         return (t0_epoch + t) if t0_epoch is not None else None
@@ -1314,6 +1466,8 @@ def _parse_tlog(path, digest, size, path_rate):
         except Exception:
             pass
 
+        if name in TLOG_VISION_MESSAGES and (not vision_times or t_rel - vision_times[-1] >= 1):
+            vision_times.append(t_rel)
         if name == "STATUSTEXT":
             text = str(getattr(m, "text", "") or "").rstrip("\x00")
             _push_msg(info_messages, t_rel, epoch(t_rel), text)
@@ -1333,6 +1487,14 @@ def _parse_tlog(path, digest, size, path_rate):
                           f"HEARTBEAT armed={int(on)} type={getattr(m, 'type', '')} autopilot={getattr(m, 'autopilot', '')}")
             continue
         if name in ("GPS_RAW_INT", "GLOBAL_POSITION_INT"):
+            raw_gps = name == "GPS_RAW_INT"
+            if raw_gps:  # eph is HDOP x 100 (UINT16_MAX unknown), satellites_visible 255 unknown
+                eph, sats = getattr(m, "eph", None), getattr(m, "satellites_visible", None)
+                tlog_quality = gps_quality.quality(
+                    _int_or_none(getattr(m, "fix_type", None)), None if sats in (None, 255) else int(sats),
+                    None if eph in (None, 65535) else eph / 100.0)
+            elif tlog_quality is not None and not tlog_quality["good"]:
+                continue  # the fused position follows the raw GPS: not without a good fix
             lat = getattr(m, "lat", None)
             lon = getattr(m, "lon", None)
             if lat is not None:
@@ -1346,8 +1508,12 @@ def _parse_tlog(path, digest, size, path_rate):
             if gs is not None:
                 gs = float(gs) / 100.0
             if lat and lon:
-                samples_map.setdefault(round(t_rel, 3), {}).update(
-                    {"lat": lat, "lon": lon, "alt": alt, "gs": gs})
+                slot = samples_map.setdefault(round(t_rel, 3), {})
+                quality = tlog_quality or gps_quality.quality()
+                if raw_gps:
+                    slot["_gps_raw"] = dict(quality, t=t_rel, lat=lat, lon=lon, alt=alt)
+                if quality["good"]:
+                    slot.update({"lat": lat, "lon": lon, "alt": alt, "gs": gs, "_gps": quality, "_gps_time": t_rel})
             continue
         if name == "ATTITUDE":
             samples_map.setdefault(round(t_rel, 3), {}).update({
@@ -1394,6 +1560,7 @@ def _parse_tlog(path, digest, size, path_rate):
         latest.update(row)
         samples.append((t, dict(latest)))
     flights = _split_flights(samples, armed_series, t0_epoch, path_rate)
+    _mark_external_positioning(flights, vision_times, "MAVLink external vision")
     _push_msg(info_messages, 0, epoch(0),
               "[topics] MAVLink types: " + ", ".join(sorted(per_type)[:80]))
     info_messages.sort(key=lambda m: m["time_s"])
