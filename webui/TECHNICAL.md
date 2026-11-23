@@ -931,7 +931,7 @@ works in the administrator's browser session (`POST /api/view-as/<id>`, `POST /a
 API key, and ends when the setting is switched off, the administrator loses admin rights, the person can no
 longer sign in, or the administrator signs out.
 
-<a id="projects-page"></a>**Projects page** ([UI rule](#ui-rule), `<body data-edit="none">`). Tabs Projects,
+<a id="projects-page"></a>**Projects page** ([UI rule](#ui-rule)). Tabs Projects,
 Authorisations and Operators (`tab=`). **Projects** is a table like Aircraft: Project (a link to the project page),
 Members (the first three, "+N", all on hover), Logs, Operator and Category of its flights (`GET /api/projects` returns
 `operator_id`, `category` and `authorisation_id` for this; admins read `/api/admin/projects`). Search, sort, page and
@@ -1097,7 +1097,7 @@ Pages use a compact heading hierarchy with regular-weight supporting text. Longe
 available through expandable **Help** disclosures; field requirements, errors and sharing warnings
 remain visible alongside the relevant controls.
 
-<a id="aircraft-page"></a>**Aircraft page** ([UI rule](#ui-rule), `<body data-edit="none">`). The overview table is
+<a id="aircraft-page"></a>**Aircraft page** ([UI rule](#ui-rule)). The overview table is
 the same for everyone; clicking a row (not the name, which links to the aircraft's overview page) opens the
 aircraft beside the table (`open=<id>` and its tab `atab` in the URL; ✕ or the row again closes it; while it is
 open the table leaves out Comments and Aliases, which the panel shows), with
@@ -1113,7 +1113,7 @@ tabs **Unlinked names** (when there are any, also with `HIDE_UNLINKED_AIRCRAFT`)
 boards or recordings and use **Link to aircraft…** in the selection bar (the dialog lists every aircraft, including
 Discard; a single folder candidate is preselected). Pending requests show **Approve**/**Reject…** to who may decide
 and **Withdraw** to the requester. Dialogs close with Cancel, Close or Escape.
-<a id="people-page"></a>**People page** ([UI rule](#ui-rule), `<body data-edit="none">`). A table like Aircraft, the
+<a id="people-page"></a>**People page** ([UI rule](#ui-rule)). A table like Aircraft, the
 same for everyone: Name (a link to the pilot page), Flights, Hours and Last flight as PIC within the flight filters
 (from `/api/people-pic-flights`), and for admins Current licences (approved, not expired), Sign-in and Last sign-in
 (`users.last_login`, returned only by `GET /api/admin/people`); others see licences on the pilot page. The profile (one per person, `user_profiles`; none yet for people who have not signed in
@@ -1155,8 +1155,7 @@ stays listed. Non-admins only count qualifications they may see.
 Logbook has no top-level project filter and no longer applies a previously saved project filter.
 The menu (`theme.js`) has Home (`/home`), Logbook (`/`), Agenda (`/agenda`, when `LOGDB_BOOKINGS=1`), Training (`/training`, when
 `LOGDB_TRAINING=1`), Safety (`/safety`, when `LOGDB_SAFETY=1`) and **Directory ▾** (People, Aircraft, Projects, Locations,
-Documents at `/documents` when `LOGDB_DOCUMENTS=1`, then Logs at `/logs` and Statistics at `/stats`), then the flight filters. On the right: **⬆ Upload** (for admins and members with add or full access on a project, `can_upload` in `/api/me`), Edit (pages that
-have it) and the name menu (My account, Night mode, Sign out). Menus close on a click elsewhere or Escape.
+Documents at `/documents` when `LOGDB_DOCUMENTS=1`, then Logs at `/logs` and Statistics at `/stats`), then the flight filters. On the right: **⬆ Upload** (for admins and members with add or full access on a project, `can_upload` in `/api/me`) and the name menu (My account, Night mode, Sign out). Menus close on a click elsewhere or Escape.
 The upload dialog (`upload.js`, loaded on first use) takes files, zips and folders, also dropped anywhere on a page,
 sends them in batches to `/api/upload` and lists **Your recent uploads** (`/api/logs?mine=1`) with their parsing
 status; the open page refreshes on its `logsuploaded` event. `/logbook` remains a working alias; `/uploads` was
@@ -1165,7 +1164,7 @@ The Logs list has one line per log (date, log with its size, aircraft, project, 
 admins also see who uploaded it and when). A log with one flight links straight to its flight page; several open
 the log, where each flight links to its page. Status shows only what needs attention (queued, parsing, error,
 outdated); the **outdated** / **date unknown** badges filter the list (`/api/logs?status=outdated|date_unknown`).
-<a id="logs-page"></a>The Logs page follows the [UI rule](#ui-rule) (`<body data-edit="none">`): an opened log has **Edit
+<a id="logs-page"></a>The Logs page follows the [UI rule](#ui-rule): an opened log has **Edit
 log** (one dialog: the project for admins, `PUT /api/logs/<id>/project`; the calendar date for who may set it on a log
 without a confirmed date, `PUT /api/logs/<id>/date`; only changes are sent; a click on the Project or Calendar date row
 opens it there) and **⋯** (Re-parse for anyone who can see the log, Delete log… with `can_delete`). Admins have
@@ -1197,7 +1196,7 @@ count (`4×`) in the number column, with a copy button for the flight numbers, s
 takes them (paper records have none).
 Only rows with several flights show the expand arrow (far-left column); their takeoff/landing times list each
 flight on hover. A row with flights in different projects shows the most common project with "+N"; the split
-is on hover. The Logbook does not use Edit mode (see [Logbook changes](#logbook-changes)).
+is on hover. Changes in the Logbook: see [Logbook changes](#logbook-changes).
 The Category column shows only the category; the authorisation name and the category source are in its tooltip.
 The Columns menu hides table columns (Date always stays). The choice is stored per browser in `localStorage`
 (`logbook.hiddenColumns`), so it survives navigation, Back and new sessions; Export CSV stays complete.
@@ -1281,7 +1280,7 @@ writing; the page shows that first. Replacing a drawn polygon by a circle is fla
 ### Training questionnaires
 
 Off unless `LOGDB_TRAINING=1`. The Training page is session-only (API keys get 403). Admins create
-questionnaires ([UI rule](#ui-rule), `<body data-edit="none">`): single choice, multiple choice and ranking, each with
+questionnaires ([UI rule](#ui-rule)): single choice, multiple choice and ranking, each with
 optional JPEG/PNG. The list has **Add training** and **Manage ▾** (Import training…) for admins. **Add training** asks
 only for a name and description and then opens **Edit training**. On a training, admins have the tabs **Training**
 (the training as they take it themselves: reading, test, own pass), **Questions** (a filterable list on the left,
@@ -1520,7 +1519,7 @@ An account merge keeps the newest version either account saw.
 ### Booking agenda
 
 Off unless `LOGDB_BOOKINGS=1`; session-only (`bookings.py`, `static/agenda.html`). Administrators set up the
-bookable items ([UI rule](#ui-rule), `<body data-edit="none">`: **Manage ▾** → *Add bookable item…*, **Edit item** for the
+bookable items ([UI rule](#ui-rule): **Manage ▾** → *Add bookable item…*, **Edit item** for the
 open tab with **⋯** → *Delete item…*; they always see closed items and the tabs, also with a single item;
 `/api/admin/booking-things`, table `booking_things`): name, description, optional
 colour (used in the All view) and **Open for bookings** (active); they order the tabs by dragging them
@@ -1886,7 +1885,7 @@ submissions valid today, with evidence `view`/`download` links when there is a f
 and, for admins, `types` (all, with `active`, so a limit to a type that was deactivated later stays in the edit
 dialog), `profiles` (person profiles on), `roles` (`profile_roles`) and `max_bytes`.
 
-<a id="documents-page"></a>**Documents page** ([UI rule](#ui-rule), `<body data-edit="none">`). The page reads the same
+<a id="documents-page"></a>**Documents page** ([UI rule](#ui-rule)). The page reads the same
 for everyone; admins additionally see every group and tab (also empty ones, unless searching) and each document's
 limits in its line. Admins have **Add document** and **Manage ▾** (Add group…, Edit text at the top…, Import ZIP…,
 Download ZIP manifest template) in the title row; a click on the text at the top opens its dialog too. Every document
@@ -1904,7 +1903,7 @@ that still sends `type_id` gets 400); `roles_limited` with the roles in
 `document_profile_roles` (the person's profile role, `profiles.py`). Role limits fail closed: with
 `LOGDB_PERSON_PROFILE` off, or when every chosen role was removed from the profile lists, only admins see the document.
 A document with `valid_from`/`valid_until` (both optional, `YYYY-MM-DD`) is hidden from everyone but admins outside
-those dates (`current` false; marked expired or not valid yet in Edit mode), so last year's certificate never shows.
+those dates (`current` false; marked expired or not valid yet for admins), so last year's certificate never shows.
 
 Files are stored under `<LOG_DIR>/documents` (mode 0700; gzip when it saves at least 5%, at most 100 MiB each; counted
 as Documents on Statistics) and served by `GET /api/documents/<id>/view` (inline, only the safe types of flight
@@ -2009,7 +2008,7 @@ stays on in production; `app.py check-config` (also run by `install.sh`) warns w
 session (API keys get 403).
 
 The page shows the text above a prominent **Report incident** button (`reporting_text` in `safety_settings`, from `GET
-/api/safety`, for admins **Edit text** in the card (or a click on the text; one dialog, [UI rule](#ui-rule), `<body data-edit="none">`) and **⋯** → *Use the default text…* (a small confirmation; saves it empty), both with `PUT /api/admin/safety/settings`: who to contact,
+/api/safety`, for admins **Edit text** in the card (or a click on the text; one dialog, [UI rule](#ui-rule)) and **⋯** → *Use the default text…* (a small confirmation; saves it empty), both with `PUT /api/admin/safety/settings`: who to contact,
 where else to report, so organisation details live only in that setting; while it is empty,
 `safety.DEFAULT_REPORTING_TEXT`, general wording, is returned, and saving an empty or the default text stores it empty
 again). The danger/incident/accident definitions (following the Operations Manual) are in the form, behind a ? next to
@@ -2243,7 +2242,7 @@ real day can be entered.
 `GET /api/places` groups endpoint dots at three decimal places (about 100 m).
 Each dot has a total `count` and an `unnamed_count`, determined from the endpoints'
 resolved place IDs before rounding, not from whether the rounded dot lies inside a shape.
-<a id="locations-page"></a>**Locations page** (`<body data-edit="none">`). The title row has the count, search,
+<a id="locations-page"></a>**Locations page** ([UI rule](#ui-rule)). The title row has the count, search,
 country and, for admins, **Only unnamed dots**, **Add location** and **Manage ▾** (Import CSV…, CSV template). The
 selected location (`place=<id>` in the URL) opens in a panel under the list: Country, Indoors, Operator, Category,
 Boundary and flights; admins get **Edit location** (one dialog; a click on a value opens it there; Save sends only what
@@ -2268,8 +2267,8 @@ places, change access rules or change the smallest-containing-shape resolution r
 Replacing a named boundary uses the same `PUT /api/admin/places/<id>` shape update
 as resizing it; it never deletes/recreates the place. Circle, polygon and rectangle
 redraws are previews until saved (rectangles are stored as polygons). The place ID,
-name, indoor flag and historical-record references remain intact. Cancel or leaving
-Edit mode restores the original boundary; a failed save retains the preview for retry.
+name, indoor flag and historical-record references remain intact. Cancel restores the original
+boundary; a failed save retains the preview for retry.
 
 The browser requests `GET /api/logbook?compact=1` for its overview. This opt-in projection
 keeps all rows and the fields needed for filtering, totals, grouping, CSV export and permitted
@@ -2464,7 +2463,7 @@ flight" (`same=0`), with `origin` `auto` or `manual`, who and when.
   upload, re-parse or import never replaces a link or undoes an unlink. Editing a paper record removes
   its automatic links and matches it again; manual decisions stay.
 - **Manual decisions:** `POST /api/links {record_id, flight_ids, same}` from the logbook (Same flight /
-  Not the same on a paper record's possible duplicates, Unlink on a linked entry in Edit mode). Needs
+  Not the same on a paper record's possible duplicates, Unlink on a linked entry for who may change its crew). Needs
   full access to the record's project and edit rights on every flight (admins always).
 - **Counting.** `logbook_rows` folds linked records into the logged entry (`links.combine`), for the
   logbook, statistics, detail pages and places alike. The entry counts as its logs: flight count and
@@ -2614,8 +2613,7 @@ flight filters (`category=all|national|open|specific|luc|indoor|unknown|check`) 
 - Paper-record CSV: optional `category` (key or label) and `authorisation` (name) columns. Like the operator, they
   are not part of a record's fingerprint, and a CSV without them leaves existing records as they are.
 
-<a id="ui-rule"></a>**UI rule: changes without an Edit mode.** Every page follows the same few patterns (pages still
-being moved over use the older Edit mode below):
+<a id="ui-rule"></a>**UI rule: changes without an Edit mode.** Every page follows the same few patterns:
 1. The read view is the same for everyone; there is no global Edit mode.
 2. One item, one **Edit <item>** button (Edit flight, Edit aircraft, Edit person, Edit project, …) in that item's
    header, shown only to who may change something of it. It opens one dialog with every field the user may change
@@ -2633,16 +2631,15 @@ being moved over use the older Edit mode below):
 6. Pages with a list (Aircraft, People, Projects, Locations) open the selected item beside the list, with its tabs
    and Edit button; the layout does not switch.
 
-Permissions and APIs stay as they are; the server checks every change. A page that follows these patterns sets
-`<body data-edit="none">` and `theme.js` shows no Edit button there.
+Permissions and APIs stay as they are; the server checks every change. There is no global Edit switch any more (the
+header's former Edit button and its `logdbEdit` browser setting are gone; `theme.js` clears the old setting). Admins see
+the names in the logs that are not linked yet on the Unlinked tabs of People and Aircraft, always.
 
-**Edit mode (being replaced).** The Edit button in the menu bar shows the forms and menus to change things on the pages
-that still have them (none left; the switch is removed in the next step); it is one setting
-for all pages, and it stays on until you turn it off. The [Logbook](#logbook-changes), the
-[flight page](#flight-page-changes), the [Aircraft page](#aircraft-page), the [People page](#people-page), the
-[Projects page](#projects-page), the [Locations page](#locations-page), [Training](#training-questionnaires), the [Logs page](#logs-page), the [Safety page](#safety), the [Documents page](#documents-page) and the [Agenda](#booking-agenda) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
-logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
-are left.
+The pages that follow it: the [Logbook](#logbook-changes), the [flight page](#flight-page-changes), the
+[Aircraft page](#aircraft-page), the [People page](#people-page), the [Projects page](#projects-page), the
+[Locations page](#locations-page), [Training](#training-questionnaires), the [Logs page](#logs-page), the
+[Safety page](#safety), the [Documents page](#documents-page), the [Agenda](#booking-agenda) and the welcome
+message and notices editor (`/welcome`).
 
 <a id="logbook-changes"></a>**Logbook changes (no Edit mode).** The Logbook looks the same for everyone and offers each change
 only where the user may make it, from the flags the logbook API already sends per entry (`can_edit_project`,

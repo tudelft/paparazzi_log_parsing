@@ -237,13 +237,6 @@ body > header .header-actions { display:flex; align-items:center; gap:8px; }
 @media (max-width:750px) {
   body > header.has-flight-filters h1 { flex:1 1 100%; width:auto; min-width:0; }
 }
-#editBtn {
-  font:inherit; width:auto; background:transparent; color:#9fb0c3;
-  border:1px solid #3d5168; border-radius:6px; padding:2px 8px; cursor:pointer;
-}
-#editBtn:hover { color:#fff; }
-#editBtn[aria-pressed="true"] { background:#1f6feb; border-color:#1f6feb; color:#fff; }
-#editBtn[hidden] { display:none; }
 .pending { margin-top:6px; color:var(--warn); }
 #nightBtn .when-night { display:none; }
 html.night #nightBtn .when-day { display:none; }

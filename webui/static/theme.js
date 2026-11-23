@@ -583,21 +583,14 @@ window.timingEvidenceHTML = function (timing) {
   };
 
   const ADMIN_KEY = 'logdbAdmin';
-  const EDIT_KEY = 'logdbEdit';
   const TRAINING_KEY = 'logdbTraining';
   const BOOKINGS_KEY = 'logdbBookings';
   const DOCUMENTS_KEY = 'logdbDocuments';
   const SAFETY_KEY = 'logdbSafety';
   const UPLOAD_KEY = 'logdbCanUpload';
-  window.editMode = function () {
-    try { return localStorage.getItem(EDIT_KEY) === '1'; } catch (e) { return false; }
-  };
-  window.toggleEditMode = function () {
-    try { localStorage.setItem(EDIT_KEY, window.editMode() ? '0' : '1'); } catch (e) {}
-    paintEdit();
-    window.dispatchEvent(new Event('editchange'));
-  };
-  // Menu: Home · Logbook · Agenda · Training · Documents · Safety (each when enabled) · Directory ▾ (People … Logs, Statistics); Upload logs, Edit and the name menu on the right
+  // There is no Edit mode any more (UI rule): every page offers its changes per item. Forget the old setting.
+  try { localStorage.removeItem('logdbEdit'); } catch (e) {}
+  // Menu: Home · Logbook · Agenda · Training · Documents · Safety (each when enabled) · Directory ▾ (People … Logs, Statistics); Upload logs and the name menu on the right
   const DIRECTORY = [['/people', 'People'], ['/aircraft', 'Aircraft'], ['/projects', 'Projects'], ['/locations', 'Locations'],
     ['/documents', 'Documents'],  // only when LOGDB_DOCUMENTS is on (see paintNav)
     null, ['/logs', 'Logs'], ['/stats', 'Statistics']];
@@ -926,25 +919,6 @@ window.timingEvidenceHTML = function (timing) {
       document.title += ' - ' + SITE.name;
   }
 
-  // On every page with the header actions: Edit mode is one setting for all pages, so its switch is always in the
-  // same place (pages without anything to edit simply show nothing extra).
-  function paintEdit() {
-    const anchor = document.getElementById('userMenuBtn');
-    // a page that offers its changes per item (<body data-edit="none">, e.g. the Logbook) has no Edit switch
-    if (!anchor || document.body.dataset.edit === 'none') return;
-    let btn = document.getElementById('editBtn');
-    if (!btn) {
-      btn = document.createElement('button');
-      btn.type = 'button';
-      btn.id = 'editBtn';
-      btn.textContent = 'Edit';
-      btn.title = 'Edit mode: show the forms and menus to change things on the pages that have them';
-      btn.onclick = window.toggleEditMode;
-      anchor.before(btn);
-    }
-    btn.setAttribute('aria-pressed', window.editMode() ? 'true' : 'false');
-  }
-
   window.logout = async function () {
     try { [ADMIN_KEY, TRAINING_KEY, BOOKINGS_KEY, UPLOAD_KEY].forEach(k => localStorage.removeItem(k)); } catch (e) {}
     await fetch('/logout', {method: 'POST'});
@@ -963,7 +937,6 @@ window.timingEvidenceHTML = function (timing) {
       paintActions();
       paintVersion(null);
     }
-    paintEdit();
   });
 
   if (!/^\/(login|setup|cli-login|profile|welcome)/.test(location.pathname)) {
@@ -985,7 +958,6 @@ window.timingEvidenceHTML = function (timing) {
       try { localStorage.setItem(UPLOAD_KEY, d.can_upload === false ? '0' : '1'); } catch (e) {}
       paintUpload();
       paintNav();
-      paintEdit();
     }).catch(error => { console.warn('Could not load account and Web UI version:', error); });
   }
 })();

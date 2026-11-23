@@ -145,8 +145,8 @@ to gain descriptions and previously omitted crew entries.
   (for example **4×**) with a button that copies their flight numbers, and opens with ▸ to show its flights.
   It does not change stored flights. Tick it and use **Change…** to change the project or crew of all its flights.
 - Hover over an aircraft name in the logbook for its TUD/serial number; it is also on the aircraft detail page.
-- Turn on **Edit** to show permitted editing controls. It stays enabled across pages until turned off.
-  Turn it off for the simpler browsing view. Longer explanations are under **Help**.
+- There is no Edit switch: what you may change is offered where it applies (**Edit flight**, **Edit aircraft**,
+  **Edit person**, …, rare actions under **⋯**, imports under **Manage ▾**). Longer explanations are under **Help**.
 - Flight pages include the path, charts, weather, settings, messages, the pre-flight checklist and software version.
   The Overview shows a small path map.
   In Path & charts, hover over a chart for exact values; use **+ Add** and **+ Add chart** to choose what is plotted.
