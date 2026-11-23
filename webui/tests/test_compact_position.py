@@ -69,7 +69,7 @@ class CompactPositionTests(unittest.TestCase):
         self.assertEqual(len(flight["path"]), 1)
         self.assertAlmostEqual(flight["path"][0]["position"]["lon"], 90.000009, places=6)
 
-    def test_stale_fix_and_uninitialized_frame_leave_takeoff_unknown(self):
+    def test_stale_fix_and_uninitialized_frame_take_the_first_good_fix_after_takeoff(self):
         flight = self.parse([
             "0 5 INS_REF -637813700 0 0 0 1800000000 0 -30000",
             "1 5 " + self.gps,
@@ -78,7 +78,8 @@ class CompactPositionTests(unittest.TestCase):
             "25 5 " + self.gps,
             "26 5 ROTORCRAFT_STATUS 13 0 230",
         ], extra_messages=self.gps_fields)
-        self.assertIsNone(flight["takeoff"]["location"])
+        self.assertAlmostEqual(flight["takeoff"]["location"]["lon"], 90)  # the fix at 25 s, not the stale one
+        self.assertEqual(flight["takeoff"]["gps"]["selected"], "later")
         self.assertAlmostEqual(flight["landing"]["location"]["lon"], 90)
         self.assertEqual(len(flight["path"]), 1)
 

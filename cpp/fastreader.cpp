@@ -196,6 +196,33 @@ struct FlightStats {
   }
 };
 
+// GPS quality rule, the same as webui/gps_quality.py: positions (takeoff/landing location, path, distances) are used
+// only from a good fix. A field a message does not carry is not checked (older logs: the fix mode only).
+constexpr int GPS_MIN_FIX = 3;                 // 3D fix
+constexpr int GPS_MIN_SATELLITES = 6;
+constexpr double GPS_MAX_DOP = 2.5;            // PDOP
+constexpr double GPS_MAX_ACCURACY_M = 5.0;     // position accuracy (pacc), only when no PDOP is logged
+constexpr double GPS_ENDPOINT_WINDOW_S = 30.0; // first good fix after takeoff / last good fix before landing
+
+struct GpsQuality {
+  bool known = false;               // from a GPS message
+  double t = -1;
+  int fix = -1, satellites = -1;    // -1: not logged
+  double pdop = NAN, accuracy_m = NAN;
+  bool has_pos = false;             // raw position of this fix (also a bad one)
+  double lat = 0, lon = 0, alt = 0;
+  bool external() const { return fix >= GPS_MIN_FIX && satellites == 0; }  // OptiTrack sent as GPS
+  bool good() const {
+    if (!known) { return true; }
+    if (fix >= 0 && fix < GPS_MIN_FIX) { return false; }
+    if (external()) { return true; }
+    if (satellites >= 0 && satellites < GPS_MIN_SATELLITES) { return false; }
+    if (std::isfinite(pdop)) { return pdop >= 0 && pdop <= GPS_MAX_DOP; }
+    if (std::isfinite(accuracy_m)) { return accuracy_m >= 0 && accuracy_m <= GPS_MAX_ACCURACY_M; }
+    return true;
+  }
+};
+
 struct Flight {
   FlightStats stats;
   std::vector<PathPoint> path;  // GPS points at the configured rate while in flight
@@ -209,6 +236,8 @@ struct Flight {
   InsState takeoff_ins, land_ins;
   double land_lat = 0, land_lon = 0, land_alt = 0;
   bool has_land_pos = false;
+  GpsQuality takeoff_gps, land_gps;           // quality of the endpoint fix, or the raw sample when none was good
+  const char *takeoff_sel = "", *land_sel = "";  // first | later, last | earlier, raw
   bool complete = false;  // false if the log ended while in flight
   double distance_m = 0;            // horizontal path length flown; GPS when available, else INS
   double from_takeoff_m = 0;        // horizontal range from takeoff at the latest sample
@@ -422,6 +451,10 @@ struct AircraftState {
   std::vector<InfoMsg> infos;
   bool has_gps = false;
   double position_time = -1, direct_gps_time = -1;
+  GpsQuality raw_gps;   // latest GPS message (good or not)
+  GpsQuality pos_gps;   // quality behind the latest used position
+  double sol_time = -1, sol_pdop = NAN, sol_pacc_m = NAN;  // GPS_SOL (fixed wing: GPS carries no satellites)
+  int sol_satellites = -1;
   bool local_frame_usable = true;
   bool has_optitrack = false;  // motion capture / OptiTrack on this aircraft in this log
   bool has_baro = false;
@@ -1274,7 +1307,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.14.0";
+constexpr const char *PARSER_VERSION = "1.15.0";
 
 struct GpsClock {
   size_t count = 0;
@@ -1677,9 +1710,12 @@ int main(int argc, char *argv[])
   enum { ST_MODE, ST_IN_FLIGHT, ST_MOTORS, ST_H_MODE, ST_V_MODE, ST_VSUPPLY };
   const MsgFields st_f = resolve_fields(hdr, "ROTORCRAFT_STATUS", {"ap_mode", "ap_in_flight", "ap_motors_on?",
                                                                    "ap_h_mode?", "ap_v_mode?", "vsupply?"});
-  enum { GPS_EX, GPS_EY, GPS_EZ, GPS_LAT, GPS_LON, GPS_ALT, GPS_NUMSV, GPS_FIX };
+  enum { GPS_EX, GPS_EY, GPS_EZ, GPS_LAT, GPS_LON, GPS_ALT, GPS_NUMSV, GPS_FIX, GPS_PDOP, GPS_PACC };
   const MsgFields gps_f = resolve_fields(hdr, "GPS_INT", {"ecef_x", "ecef_y", "ecef_z", "lat", "lon", "alt",
-                                                          "numsv", "fix"});
+                                                          "numsv", "fix", "pdop?", "pacc?"});
+  enum { SOL_PACC, SOL_PDOP, SOL_NUMSV };
+  const MsgFields gps_sol_f = hdr.telemetry.count("GPS_SOL")
+      ? resolve_fields(hdr, "GPS_SOL", {"Pacc?", "PDOP?", "numSV?"}) : MsgFields{};
   enum { DL_INDEX, DL_VALUE_ };
   const MsgFields dl_f = resolve_fields(hdr, "DL_VALUE", {"index", "value"});
   enum { WI_FLAGS, WI_EAST, WI_NORTH, WI_UP, WI_TEMP };
@@ -1762,6 +1798,27 @@ int main(int argc, char *argv[])
     return s;
   };
 
+  // Landing: the last good position in the window before landing; else the raw GPS sample there (selected "raw").
+  auto set_landing_position = [](AircraftState &s, Flight &f, double t) {
+    f.has_land_pos = s.has_gps && t - s.position_time <= (s.pos_gps.known ? GPS_ENDPOINT_WINDOW_S : 5.0);
+    f.land_lat = s.lat; f.land_lon = s.lon; f.land_alt = s.alt;
+    if (f.has_land_pos) {
+      f.land_gps = s.pos_gps;
+      f.land_sel = s.raw_gps.known && s.raw_gps.t > s.position_time && !s.raw_gps.good() ? "earlier" : "last";
+    } else if (s.raw_gps.known && t - s.raw_gps.t <= GPS_ENDPOINT_WINDOW_S) {
+      f.land_gps = s.raw_gps; f.land_sel = "raw";
+    }
+  };
+  auto note_raw_gps = [](AircraftState &s, const GpsQuality &q) {
+    s.raw_gps = q;
+    if (s.in_flight && !s.flights.empty()) {
+      Flight &f = s.flights.back();
+      if (!f.has_pos && !f.takeoff_gps.known && q.t - f.takeoff_time <= GPS_ENDPOINT_WINDOW_S) {
+        f.takeoff_gps = q; f.takeoff_sel = "raw";
+      }
+    }
+  };
+
   auto apply_in_flight = [&](AircraftState &s, double t, bool now) {
     if (now && !s.in_flight) {
       Flight f;
@@ -1771,6 +1828,8 @@ int main(int argc, char *argv[])
       f.takeoff_wind = s.wind;
       f.takeoff_ins = s.ins;
       f.has_pos = s.has_gps && t - s.position_time <= 5;
+      if (f.has_pos) { f.takeoff_gps = s.pos_gps; f.takeoff_sel = "first"; }
+      else if (s.raw_gps.known && t - s.raw_gps.t <= 5) { f.takeoff_gps = s.raw_gps; f.takeoff_sel = "raw"; }
       f.has_optitrack = s.has_optitrack;
       f.lat = s.lat; f.lon = s.lon; f.alt = s.alt;
       s.flights.push_back(f);
@@ -1782,8 +1841,7 @@ int main(int argc, char *argv[])
       f.land_volt = s.vsupply;
       f.land_wind = s.wind;
       f.land_ins = s.ins;
-      f.has_land_pos = s.has_gps && t - s.position_time <= 5;
-      f.land_lat = s.lat; f.land_lon = s.lon; f.land_alt = s.alt;
+      set_landing_position(s, f, t);
     }
     s.in_flight = now;
     s.seen_status = true;
@@ -1815,11 +1873,20 @@ int main(int argc, char *argv[])
   auto use_gps = [&](int ac, double t, double lat_d, double lon_d, double alt_d, bool navigation = false) {
     if (!Flight::plausible_ll(lat_d, lon_d)) { return; }
     AircraftState &s = touch(ac, t);
+    // positions derived from GPS (INS local frame, NAVIGATION) take the quality of the latest GPS message
+    if (!s.raw_gps.good()) { return; }
     s.has_gps = true;
     s.position_time = t;
+    s.pos_gps = s.raw_gps;
     s.lat = lat_d; s.lon = lon_d; s.alt = alt_d;
     if (s.in_flight && !s.flights.empty()) {
       Flight &f = s.flights.back();
+      if (!f.has_pos && s.raw_gps.known && t - f.takeoff_time <= GPS_ENDPOINT_WINDOW_S) {
+        // first good fix after a takeoff without one: the takeoff location and the origin of the range
+        f.has_pos = true;
+        f.lat = lat_d; f.lon = lon_d; f.alt = alt_d;
+        f.takeoff_gps = s.raw_gps; f.takeoff_sel = "later";
+      }
       f.stats.add_gps(s.lat, s.lon, s.alt);
       f.add_gps_step(s.lat, s.lon);
     }
@@ -1904,6 +1971,38 @@ int main(int argc, char *argv[])
     fix.alt = alt * .001;
     return utm_to_lla(east / 100.0, north / 100.0, zone, fix.lat, fix.lon);
   };
+  // Quality of a GPS_INT message, also when its fix is not used (pdop is scaled by 100, pacc in cm).
+  auto read_gps_int_quality = [&](const char *q, const char *eol, double t) {
+    GpsQuality g;
+    if (!gps_f.split) { return g; }
+    const Picked f = pick(gps_f, q, eol);
+    int fix, satellites, pdop;
+    int32_t lat, lon, alt, pacc;
+    if (!to_num(f[GPS_FIX], fix)) { return g; }
+    g.known = true; g.t = t; g.fix = fix;
+    if (to_num(f[GPS_NUMSV], satellites)) { g.satellites = satellites; }
+    if (to_num(f[GPS_PDOP], pdop)) { g.pdop = pdop / 100.0; }
+    if (to_num(f[GPS_PACC], pacc)) { g.accuracy_m = pacc / 100.0; }
+    if (to_num(f[GPS_LAT], lat) && to_num(f[GPS_LON], lon) && Flight::plausible_ll(lat * 1e-7, lon * 1e-7)) {
+      g.has_pos = true; g.lat = lat * 1e-7; g.lon = lon * 1e-7;
+      g.alt = to_num(f[GPS_ALT], alt) ? alt * 1e-3 : NAN;
+    }
+    return g;
+  };
+  // Quality of a GPS (UTM) message: its mode, with satellites and PDOP from a GPS_SOL of the last 5 s.
+  auto read_gps_utm_quality = [&](const char *q, const char *eol, double t, const AircraftState *s) {
+    GpsQuality g;
+    if (!gpsu_f.split) { return g; }
+    const Picked f = pick(gpsu_f, q, eol);
+    int mode;
+    if (!to_num(f[GPSU_MODE], mode)) { return g; }
+    g.known = true; g.t = t; g.fix = mode;
+    if (s && s->sol_time >= 0 && t - s->sol_time <= 5) {
+      g.satellites = s->sol_satellites; g.pdop = s->sol_pdop; g.accuracy_m = s->sol_pacc_m;
+    }
+    return g;
+  };
+
   struct Reference { double t; const char *line; Origin origin; };
   std::map<int, std::vector<Reference>> references;
   std::map<int, std::vector<Fix>> fixes;
@@ -2272,18 +2371,42 @@ int main(int argc, char *argv[])
           if (!to_num(clock[2], itow)) { itow = std::numeric_limits<double>::quiet_NaN(); }
           gps_clocks[ac].add(t, week, itow, fix);
         }
-        if (name == "GPS_INT") {
+        if (name == "GPS_SOL") {
+          auto it = acs.find(ac);
+          if (!gps_sol_f.split || it == acs.end()) { break; }
+          const Picked f = pick(gps_sol_f, q, eol);
+          AircraftState &s = it->second;
+          int satellites, pdop;
+          int64_t pacc;
+          s.sol_time = t;
+          s.sol_satellites = to_num(f[SOL_NUMSV], satellites) ? satellites : -1;
+          s.sol_pdop = to_num(f[SOL_PDOP], pdop) ? pdop / 100.0 : NAN;
+          s.sol_pacc_m = to_num(f[SOL_PACC], pacc) ? pacc / 100.0 : NAN;
+        } else if (name == "GPS_INT") {
+          const GpsQuality quality = read_gps_int_quality(q, eol, t);
           Fix fix{t, 0, 0, 0, false};
-          if (!read_fix(q, eol, fix)) { break; }
+          if (!read_fix(q, eol, fix)) {
+            auto it = acs.find(ac);
+            if (quality.known && it != acs.end()) { note_raw_gps(it->second, quality); }
+            break;
+          }
           AircraftState &s = touch(ac, t);
+          if (quality.known) { note_raw_gps(s, quality); }
           s.direct_gps_time = t;
           if (fix.optitrack) { s.has_optitrack = true; }
           use_gps(ac, t, fix.lat, fix.lon, fix.alt);
         } else if (name == "GPS") {
           Fix fix{t, 0, 0, 0, false};
           int speed_cm = 0;
-          if (!read_utm_fix(q, eol, fix, speed_cm)) { break; }
+          auto found = acs.find(ac);
+          GpsQuality quality = read_gps_utm_quality(q, eol, t, found == acs.end() ? nullptr : &found->second);
+          if (!read_utm_fix(q, eol, fix, speed_cm)) {
+            if (quality.known && found != acs.end()) { note_raw_gps(found->second, quality); }
+            break;
+          }
           AircraftState &st = touch(ac, t);
+          quality.has_pos = true; quality.lat = fix.lat; quality.lon = fix.lon; quality.alt = fix.alt;
+          if (quality.known) { note_raw_gps(st, quality); }
           st.has_gs = true;
           st.direct_gps_time = t;
           st.gndspeed = speed_cm / 100.0;
@@ -2479,8 +2602,7 @@ int main(int argc, char *argv[])
       f.land_volt = s.vsupply;
       f.land_wind = s.wind;
       f.land_ins = s.ins;
-      f.has_land_pos = s.has_gps && s.last_time - s.position_time <= 5;
-      f.land_lat = s.lat; f.land_lon = s.lon; f.land_alt = s.alt;
+      set_landing_position(s, f, s.last_time);
     }
   }
 
@@ -2604,9 +2726,27 @@ int main(int argc, char *argv[])
     << ",\n    \"total_flight_distance_m\": " << num(log_flight_dist) << "\n  },\n  \"aircraft\": [";
 
   // {"time_s", "utc", "location", "voltage_v"} describing a takeoff or landing
-  auto event = [&](double t, bool has_pos, double lat, double lon, double alt, bool has_v, double v, const Wind &w, const InsState &ins) {
+  // GPS quality stored with an endpoint (webui/gps_quality.py decides whether to use it)
+  auto gps_json = [&](const GpsQuality &g, const char *selected) {
+    if (!g.known) { return std::string(); }
+    std::string out = ", \"gps\": {\"fix_type\": " + std::to_string(g.fix);
+    if (g.satellites >= 0) { out += ", \"satellites\": " + std::to_string(g.satellites); }
+    if (std::isfinite(g.pdop)) { out += ", \"pdop\": " + num(g.pdop); }
+    if (std::isfinite(g.accuracy_m)) { out += ", \"pacc_m\": " + num(g.accuracy_m); }
+    out += std::string(", \"good\": ") + (g.good() ? "true" : "false");
+    if (g.external()) { out += ", \"external\": \"OptiTrack\""; }
+    out += ", \"selected\": \"" + std::string(selected) + "\"";
+    if (std::string(selected) == "raw" && g.has_pos) {
+      out += ", \"lat\": " + num(g.lat) + ", \"lon\": " + num(g.lon) +
+             ", \"alt_m\": " + (std::isfinite(g.alt) ? num(g.alt) : std::string("null"));
+    }
+    return out + "}";
+  };
+  auto event = [&](double t, bool has_pos, double lat, double lon, double alt, bool has_v, double v, const Wind &w,
+                   const InsState &ins, const GpsQuality &gps, const char *selected) {
     return "{\"time_s\": " + num(t) + ", \"utc\": " + utc(t) + ", \"location\": " + loc(has_pos, lat, lon, alt) +
-           ", \"voltage_v\": " + (has_v ? num(v) : "null") + ", \"wind\": " + wind_json(w) + ", \"ins\": " + ins_json(ins) + "}";
+           ", \"voltage_v\": " + (has_v ? num(v) : "null") + ", \"wind\": " + wind_json(w) + ", \"ins\": " + ins_json(ins) +
+           gps_json(gps, selected) + "}";
   };
 
   auto rng = [&](const Range &r) { return r.any ? num(r.span()) : std::string("null"); };
@@ -2751,9 +2891,11 @@ int main(int argc, char *argv[])
         << ",\n          \"max_from_takeoff_m\": " << num(f.max_from_takeoff_m)
         << ",\n          \"landed\": " << (f.complete ? "true" : "false")
         << ",\n          \"assessment\": " << assessment_json(f)
-        << ",\n          \"takeoff\": " << event(f.takeoff_time, f.has_pos, f.lat, f.lon, f.alt, f.has_takeoff_volt, f.takeoff_volt, f.takeoff_wind, f.takeoff_ins)
+        << ",\n          \"takeoff\": " << event(f.takeoff_time, f.has_pos, f.lat, f.lon, f.alt, f.has_takeoff_volt, f.takeoff_volt, f.takeoff_wind, f.takeoff_ins,
+                 f.takeoff_gps, f.takeoff_sel)
         << ",\n          \"landing\": "
-        << event(f.landing_time, f.has_land_pos, f.land_lat, f.land_lon, f.land_alt, f.has_land_volt, f.land_volt, f.land_wind, f.land_ins)
+        << event(f.landing_time, f.has_land_pos, f.land_lat, f.land_lon, f.land_alt, f.has_land_volt, f.land_volt, f.land_wind,
+              f.land_ins, f.land_gps, f.land_sel)
         << ",\n          \"link\": " << link_summary_json(f)
         << ",\n          \"path\": [";
       bool fp = true;

@@ -676,7 +676,7 @@ function renderSummary() {
     a ? `<span class="tag ${esc(a.verdict)}">${esc(a.verdict)}</span> ${esc(a.reasons.join(', '))}` : '',
     e.simulation == null ? 'Simulation not assessed; reparse with the current parser'
       : e.simulation.detected ? '<span class="tag">Simulation</span> ' + esc(e.simulation.evidence.join(', ')) : '',
-    e.optitrack || e.indoor ? (e.optitrack ? 'Indoor (OptiTrack)' : e.indoor_no_gps ? 'Indoor / no GPS (inferred: both endpoint locations unknown; a partial path may exist)' : 'Indoor') : '',
+    e.optitrack || e.indoor ? (e.optitrack ? (!e.external_positioning || e.external_positioning === 'OptiTrack' ? 'Indoor (OptiTrack)' : 'Indoor: motion capture (' + esc(e.external_positioning) + ')') : e.indoor_no_gps ? 'Indoor / no GPS (inferred: no good GPS fix at takeoff or landing; a partial path may exist)' : 'Indoor') : '',
   ].filter(Boolean).join(' · ');
   $('summary').innerHTML = `<div class="flight-focus">
       <div><span class="label">Aircraft</span><div class="value">${editVal('aircraft', e.drone_id != null ? `<a href="/aircraft/${e.drone_id}">${esc(e.aircraft)}</a>` : esc(e.aircraft))}</div>${e.aircraft_uid ? `<span class="mute">${esc(e.aircraft_uid)}</span>` : ''}${e.aircraft_identity_inferred ? '<div class="mute">Identity inferred from matching GCS recording; SD name is shared.</div>' : (e.aircraft_ambiguous && e.drone_id == null ? '<div class="mute">Shared aircraft name; fleet identity unresolved.</div>' : '')}</div>
