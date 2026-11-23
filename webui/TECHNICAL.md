@@ -1956,7 +1956,7 @@ stays on in production; `app.py check-config` (also run by `install.sh`) warns w
 session (API keys get 403).
 
 The page shows the text above a prominent **Report incident** button (`reporting_text` in `safety_settings`, from `GET
-/api/safety`, edited in place on the page in Edit mode and saved with `PUT /api/admin/safety/settings`: who to contact,
+/api/safety`, for admins **Edit text** in the card (or a click on the text; one dialog, [UI rule](#ui-rule), `<body data-edit="none">`) and **⋯** → *Use the default text…* (a small confirmation; saves it empty), both with `PUT /api/admin/safety/settings`: who to contact,
 where else to report, so organisation details live only in that setting; while it is empty,
 `safety.DEFAULT_REPORTING_TEXT`, general wording, is returned, and saving an empty or the default text stores it empty
 again). The danger/incident/accident definitions (following the Operations Manual) are in the form, behind a ? next to
@@ -2578,8 +2578,8 @@ Permissions and APIs stay as they are; the server checks every change. A page th
 **Edit mode (being replaced).** The Edit button in the menu bar shows the forms and menus to change things on the pages
 that still have them (Logs, Projects, Locations, Agenda, Training, Documents, …); it is one setting
 for all pages, and it stays on until you turn it off. The [Logbook](#logbook-changes), the
-[flight page](#flight-page-changes), the [Aircraft page](#aircraft-page) and the [People page](#people-page) follow the
-[UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
+[flight page](#flight-page-changes), the [Aircraft page](#aircraft-page), the [People page](#people-page) and the
+[Safety page](#safety) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
 are left.
 

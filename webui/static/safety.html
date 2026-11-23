@@ -18,7 +18,6 @@
   .card h2 { margin:0 0 4px; font-size:16px; }
   h3 { font-size:15px; margin:16px 0 6px; }
   .text { white-space:pre-wrap; margin:0 0 8px; }
-  body:not(.editing) .edit-only { display:none !important; }
   .actions { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 10px; }
   .defs { font-size:13px; margin:-4px 0 0; padding:8px 10px; background:var(--bg); border-radius:6px; display:grid; grid-template-columns:max-content 1fr; gap:2px 10px; }
   .defs dt { font-weight:600; }
@@ -41,11 +40,14 @@
   .report-cta .actions { align-items:center; margin:0; }
   .report-cta details { margin-top:12px; font-size:13px; }
   .report-cta details summary { color:var(--mute); cursor:pointer; }
-  body.editing .view-only { display:none !important; }
-  .text-edit { margin:0 0 12px; display:flex; flex-direction:column; gap:6px; }
-  .text-edit textarea { font-size:15px; width:100%; max-width:70ch; min-height:84px; }
-  .text-edit .hint { font-size:12px; color:var(--mute); }
-  #textError { color:var(--err); font-size:13px; }
+  /* the text above Report incident; for admins Edit text and ⋯ in the card's top right, and a click on the text edits it */
+  .cta-head { display:flex; align-items:flex-start; gap:12px; }
+  .cta-head .text { flex:1; min-width:0; }
+  .cta-tools { display:flex; gap:6px; flex:none; margin-left:auto; }
+  .edit-val { cursor:pointer; border-radius:4px; }
+  .edit-val:hover { background:var(--hover); box-shadow:0 0 0 3px var(--hover); }
+  #textDialog textarea { width:100%; min-height:140px; font-size:15px; }
+  #textError:empty, #actError:empty { display:none; }
   button.report-btn { background:var(--err); color:#fff; font-size:17px; font-weight:600; padding:10px 22px; border-radius:8px;
     box-shadow:0 1px 3px rgba(0,0,0,.2); }
   button.report-btn:hover { filter:brightness(1.08); }
@@ -61,7 +63,7 @@
   [hidden] { display:none !important; }
 </style>
 </head>
-<body data-edit="admin">
+<body data-edit="none">
 <header>
   <h1>Safety</h1>
   <span class="meta" id="nav"></span>
@@ -70,14 +72,14 @@
 <main>
   <div id="err"></div>
   <section class="card report-cta">
-    <p class="text view-only" id="pageText"></p>
-    <div class="text-edit edit-only">
-      <span class="hint">Text above Report incident (plain text): who to contact, where else to report. Everyone sees it.</span>
-      <textarea id="pageTextEdit" maxlength="5000" aria-label="Text above Report incident"></textarea>
-      <div class="row"><button type="button" id="saveText" disabled>Save text</button><button type="button" class="sec" id="defaultText">Use the default text</button><span id="textError" role="alert"></span></div>
+    <div class="cta-head">
+      <p class="text" id="pageText"></p>
+      <span class="cta-tools" id="textTools" hidden><button type="button" class="sec" id="editText">Edit text</button>
+        <span class="menu-wrap"><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
+          <div class="menu-pop" id="moreMenu" role="menu" hidden><button type="button" class="ext-item" role="menuitem" id="defaultText">Use the default text…</button></div></span></span>
     </div>
     <div class="actions"><button type="button" class="report-btn" onclick="newReport()">&#9888;&#xFE0E; Report incident</button> <span id="sent" class="mute" role="status"></span></div>
-    <details><summary>Help</summary><p><b>Report incident</b> opens the form for a danger, incident or accident; the ? next to Type explains the three. Only the type, date and time and description are required. Administrators get an email with the whole report. Tick "Leave my name out of the notification email" to keep your name out of that email; it is still stored with the report. In Edit mode administrators change the text above the button.</p></details>
+    <details><summary>Help</summary><p><b>Report incident</b> opens the form for a danger, incident or accident; the ? next to Type explains the three. Only the type, date and time and description are required. Administrators get an email with the whole report. Tick "Leave my name out of the notification email" to keep your name out of that email; it is still stored with the report. Administrators change the text above the button with <b>Edit text</b> (or a click on the text).</p></details>
   </section>
 </main>
 
@@ -105,11 +107,27 @@
     <div class="row"><button type="submit">Submit report</button> <button type="button" class="sec" onclick="$('reportDialog').close()">Cancel</button></div>
   </form>
 </dialog>
+<dialog class="entry-dialog" id="textDialog" aria-labelledby="textTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="textTitle">Edit text</h2><button type="button" onclick="$('textDialog').close()">Close</button></div>
+  <form id="textForm">
+    <p class="mute" style="margin:0 0 8px">The text above Report incident, for everyone: who to contact, where else to report. Plain text.</p>
+    <label class="field">Text<textarea name="text" maxlength="5000"></textarea></label>
+    <p class="dialog-error" id="textError" role="alert"></p>
+    <div class="row"><button type="submit" class="primary" id="textSave">Save</button> <button type="button" class="sec" onclick="$('textDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="actDialog" aria-labelledby="actTitle" style="width:min(460px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="actTitle">Use the default text</h2><button type="button" onclick="$('actDialog').close()">Close</button></div>
+  <form id="actForm">
+    <p style="margin:0">Replace the text above Report incident with the general default text? The current text is not kept.</p>
+    <p class="dialog-error" id="actError" role="alert"></p>
+    <div class="row"><button type="submit" class="primary" id="actOk">Use the default text</button> <button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let me = null, info = null;
-const editing = () => !!(me && me.is_admin && window.editMode && window.editMode());
 
 function toggleKindHelp(button) {
   const open = $('kindHelp').hidden;
@@ -118,9 +136,11 @@ function toggleKindHelp(button) {
 }
 let sentNote = '';
 function paint() {
-  document.body.classList.toggle('editing', editing());
+  const admin = !!me?.is_admin;
   $('pageText').textContent = info.reporting_text || '';
-  if (!textDirty) $('pageTextEdit').value = info.reporting_text || '';  // keep unsaved edits when the page reloads its data
+  $('pageText').classList.toggle('edit-val', admin);
+  if (admin) $('pageText').title = 'Click to change'; else $('pageText').removeAttribute('title');
+  $('textTools').hidden = !admin;
   $('sent').textContent = sentNote;
 }
 async function getJSON(url) {
@@ -173,20 +193,45 @@ $('reportForm').leave_name_out.onchange = e => {
   if (e.target.checked && pic.value === (info.me || '')) pic.value = '';
   else if (!e.target.checked && !pic.value) pic.value = info.me || '';
 };
-// the text above Report incident: edited in place in Edit mode (empty means the default text)
-let textDirty = false;
-$('pageTextEdit').oninput = () => { textDirty = true; $('saveText').disabled = false; $('textError').textContent = ''; };
-async function saveText(value) {
-  $('saveText').disabled = true;
-  textDirty = false;
-  if (!await send('/api/admin/safety/settings', 'PUT', {reporting_text: value}, 'textError')) {
-    textDirty = true; $('saveText').disabled = false;
-  }
+// The text above Report incident (admins): Edit text, or a click on the text, opens one dialog; ⋯ resets it to the
+// default (the server stores an empty or the default text as empty, so a later default applies).
+function openText() {
+  const f = $('textForm');
+  f.text.value = info.reporting_text || '';
+  $('textError').textContent = '';
+  $('textDialog').showModal();
+  f.text.focus();
 }
-$('saveText').onclick = () => saveText($('pageTextEdit').value);
-$('defaultText').onclick = () => saveText('');
+$('editText').onclick = openText;
+$('pageText').onclick = () => { if (me?.is_admin && !getSelection().toString()) openText(); };
+$('textForm').onsubmit = async e => {
+  e.preventDefault();
+  const value = $('textForm').text.value;
+  if (value === (info.reporting_text || '')) { $('textDialog').close(); return; }  // nothing changed
+  $('textSave').disabled = true;
+  try { if (await send('/api/admin/safety/settings', 'PUT', {reporting_text: value}, 'textError')) $('textDialog').close(); }
+  finally { $('textSave').disabled = false; }
+};
+$('defaultText').onclick = () => { $('actError').textContent = ''; $('actDialog').showModal(); };
+$('actForm').onsubmit = async e => {
+  e.preventDefault();
+  $('actOk').disabled = true;
+  try { if (await send('/api/admin/safety/settings', 'PUT', {reporting_text: ''}, 'actError')) $('actDialog').close(); }
+  finally { $('actOk').disabled = false; }
+};
+// ⋯: a small menu that closes on a click elsewhere or Escape
+function closeMore() { $('moreMenu').hidden = true; $('moreBtn').setAttribute('aria-expanded', 'false'); }
+$('moreBtn').onclick = e => {
+  e.stopPropagation();
+  const open = $('moreMenu').hidden;
+  $('moreMenu').hidden = !open;
+  $('moreBtn').setAttribute('aria-expanded', String(open));
+  if (open) $('moreMenu').querySelector('button').focus();
+};
+$('moreMenu').onclick = e => { if (e.target.closest('.ext-item')) closeMore(); };
+document.addEventListener('click', e => { if (!e.target.closest('.menu-wrap')) closeMore(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('moreMenu').hidden) { closeMore(); $('moreBtn').focus(); } });
 
-window.addEventListener('editchange', () => { if (info) paint(); });
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
