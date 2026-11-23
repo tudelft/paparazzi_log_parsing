@@ -174,19 +174,16 @@ Administrators can use **People → Edit person** to grant or remove another per
 and the **API keys** tab to inspect, narrow or revoke their API keys (not retrieve secret values). You cannot remove your own admin rights.
 
 - **Locations** lists the places on the left (search by name or country, filter by **Country**) and shows the map
-  on the right. Click a location in the list or on the map to select it: the map zooms to it and its details and
-  actions (Open location, and in Edit mode Edit details, Edit shape, Delete) appear under the list. Nearby places
-  are grouped into numbered markers when zoomed out; click a group to zoom in.
-- On **Locations**, admins can turn on **Edit**, choose **Edit shape** beside a place,
-  then drag the map handles to move or resize its circle or polygon. Choose **Save shape**
-  to apply the boundary or **Cancel** to discard changes. **Edit details** opens a small dialog for its name,
-  country (two-letter code, e.g. NL), indoor status, operator and category separately.
-  To replace the boundary entirely, use **Edit shape**, select a **New shape** (polygon,
-  rectangle or circle), then **Redraw boundary** and draw it on the map. **Save shape**
-  keeps the location's name and linked records; **Cancel** restores the original boundary.
-  Admins in **Edit** mode can use **Only unnamed dots** to hide already named endpoint dots, then select a coordinate
-  or use **Previous / Next** to visit each remaining dot on the map. In **Edit** mode,
-  draw and name a boundary around it; covered positions leave the review list after saving.
+  on the right. Click a location in the list or on the map to select it: the map zooms to it and its details
+  appear under the list (with a link to its location page). Nearby places are grouped into numbered markers when
+  zoomed out; click a group to zoom in.
+- On **Locations**, admins have **Add location**: choose polygon, rectangle or circle in the bar on the map, draw it
+  and name it. A selected location has **Edit location** (name, country, indoors, operator and category in one
+  dialog; click a value to open it there) and **⋯** → *Change boundary on the map…* (drag the handles, or choose a
+  **New shape** and **Redraw boundary**; **Save shape** keeps the name and linked records, **Cancel** restores the
+  boundary) and *Delete location…*. **Only unnamed dots** (admins) hides named endpoint dots: select a coordinate or
+  use **Previous / Next** to visit each remaining dot, then Add location around it; covered positions leave the
+  review list after saving.
 
 - The **Logbook** looks the same for everyone; what you may change is offered where it applies. Tick one or more
   rows for the **selection bar** at the bottom: copy numbers, MATLAB, and, when you may change all ticked entries,
@@ -248,7 +245,7 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
   Reimports replace all members of included projects. For initial setup, import qualifications first,
   then projects, then aircraft. Aircraft project changes require a `project_effective_date`;
   manual and legacy flight assignments are preserved. Both import dialogs offer templates.
-- Locations has **Import places from CSV** in Edit mode. It accepts `logbooks/places.csv` from SVN as is
+- Locations has **Manage ▾ → Import CSV…** (admins). It accepts `logbooks/places.csv` from SVN as is
   (`place,lat,lon,radius_m,indoor`, optionally `country`; the other columns are ignored) and shows a preview before importing.
 
 ## Agenda

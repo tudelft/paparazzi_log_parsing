@@ -1259,7 +1259,7 @@ These logs appear in the aircraft/project detail pages' Log files section but ad
 
 ### Places CSV import
 
-`POST /api/admin/places/import` (admin; button on Locations in Edit mode) reads the same CSV limits as
+`POST /api/admin/places/import` (admin; Locations, **Manage ▾ → Import CSV…**) reads the same CSV limits as
 the catalog imports. Columns: `place`, `lat`, `lon`, `radius_m`, optional `indoor` (yes/no, 1/0,
 true/false; blank is no) and `country` (ISO 3166-1 alpha-2 code or English name, e.g. `NL` or `Netherlands`; blank
 keeps the country already set; `countries.py` holds the list, stored as `places.country`). The extra columns of `logbooks/places.csv` (`timezone`, `log_names`, `source`,
@@ -2217,15 +2217,23 @@ upload supplies a `.log` the log lacked).
 **Logbook.** The parser tells onboard SD logs from ground station logs. The logbook (`/logbook`) has one row per
 flight and merges the SD and GCS recordings of the same flight: flight data from the SD log, PIC/PAC/GCS operator and
 goal from whichever log has them. Named takeoff areas are listed on the Locations page; everyone sees the ones their
-flights used, and admins add, change or delete them there in edit mode (an area can be marked indoors; indoor flights
-are hidden by default). Logs without a valid date (missing or 1980 clock) are flagged so the
+flights used, and admins add, change or delete them there ([UI rule](#ui-rule): Add location, Edit location and ⋯ in
+the selected location's panel; an area can be marked indoors; indoor flights are hidden by default). Logs without a valid date (missing or 1980 clock) are flagged so the
 real day can be entered.
 
 `GET /api/places` groups endpoint dots at three decimal places (about 100 m).
 Each dot has a total `count` and an `unnamed_count`, determined from the endpoints'
 resolved place IDs before rounding, not from whether the rounded dot lies inside a shape.
-The Locations unnamed-dot review is available only to admins in Edit mode. Leaving
-Edit mode clears the filter and returns to all dots. It filters on `unnamed_count`, orders by that count, and
+<a id="locations-page"></a>**Locations page** (`<body data-edit="none">`). The title row has the count, search,
+country and, for admins, **Only unnamed dots**, **Add location** and **Manage ▾** (Import CSV…, CSV template). The
+selected location (`place=<id>` in the URL) opens in a panel under the list: Country, Indoors, Operator, Category,
+Boundary and flights; admins get **Edit location** (one dialog; a click on a value opens it there; Save sends only what
+changed with `PUT /api/admin/places/<id>`) and **⋯** → *Change boundary on the map…* (the shape editor on the map,
+`PUT` with only `shape`) and *Delete location…* (a small confirmation). **Add location** shows a bar on the map to
+pick polygon, rectangle or circle and draws one; after drawing, the same dialog names it (`POST /api/admin/places`) and
+the new location is selected. Leaflet's own edit/delete toolbar is not used. While drawing or changing a boundary, all
+boundaries are shown.
+The Locations unnamed-dot review is available only to admins. It filters on `unnamed_count`, orders by that count, and
 keeps named boundaries visible as context. It uses the same accessible flights and
 non-flight toggle as the normal map. Saving a place refreshes the review without changing
 flight records or requiring reparse.
@@ -2233,7 +2241,7 @@ flight records or requiring reparse.
 The Locations map groups named-place centres into 64-pixel projected grid cells below
 zoom 13, using built-in Leaflet markers (no additional map dependency). Counts represent
 places, not flights; clicking a group zooms in up to three levels. At zoom 13 or above,
-or in admin Edit mode, the actual boundaries replace the overview markers. The selected
+or while an admin draws or changes a boundary, the actual boundaries replace the overview markers. The selected
 place always retains its boundary and name label; other names appear on hover.
 Selection and the case-insensitive table name search are browser-only and do not merge
 places, change access rules or change the smallest-containing-shape resolution rule.
@@ -2610,10 +2618,10 @@ Permissions and APIs stay as they are; the server checks every change. A page th
 `<body data-edit="none">` and `theme.js` shows no Edit button there.
 
 **Edit mode (being replaced).** The Edit button in the menu bar shows the forms and menus to change things on the pages
-that still have them (Logs, Locations, Training, …); it is one setting
+that still have them (Logs, Training, …); it is one setting
 for all pages, and it stays on until you turn it off. The [Logbook](#logbook-changes), the
 [flight page](#flight-page-changes), the [Aircraft page](#aircraft-page), the [People page](#people-page), the
-[Projects page](#projects-page), the [Safety page](#safety), the [Documents page](#documents-page) and the [Agenda](#booking-agenda) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
+[Projects page](#projects-page), the [Locations page](#locations-page), the [Safety page](#safety), the [Documents page](#documents-page) and the [Agenda](#booking-agenda) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
 are left.
 
