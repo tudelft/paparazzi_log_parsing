@@ -1481,7 +1481,7 @@ keeps the mark and the person's "last confirmed" date.
 
 `welcome.py`. Only the mechanism is in this repository: administrators write the text in the site, and it is
 stored in the database (`welcome_message`), so each installation has its own. It is shown as a card at the top of the
-Home page (`/home`) until the person dismisses it (**Dismiss** or ✕); no page is ever redirected for it, so the
+Home page (`/home`) until the person dismisses it (✕); no page is ever redirected for it, so the
 Operations Manual links and the profile prompt work as before. Dismissing records the version
 (`POST /api/home/messages/dismiss` with `{id, version}`, table `welcome_seen`); a new version shows again. Dismissing is
 blocked while an admin views as someone (`VIEW_AS_BLOCKED`) and needs a browser session (API keys get 403).
