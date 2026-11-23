@@ -50,21 +50,33 @@
   .r .date.soon { color:#b26a00; font-weight:600; }
   html.night .r .date.soon { color:#e3a33b; }
   .r .date.expired { color:var(--err); font-weight:600; }
-  .r .tools, .r a.dl { position:relative; z-index:1; }
+  .r .tools, .r a.dl, .r .tick { position:relative; z-index:1; }
+  /* admins: a tick box in front of each document for the selection bar */
+  .r.sel { grid-template-columns:20px 34px minmax(0,auto) minmax(0,1fr) auto auto 30px; }
+  .r .tick { display:grid; place-items:center; }
   .r a.dl { display:grid; place-items:center; width:30px; height:30px; border-radius:6px; color:var(--mute); }
   .r a.dl:hover, .r a.dl:focus-visible { color:var(--acc); background:var(--sec); }
   @media (max-width:700px) {
     main { padding:10px 8px; }
     #q { flex:1 1 100%; order:5; }
     .r { grid-template-columns:30px minmax(0,1fr) auto 34px; grid-template-areas:"ic t tools dl" "ic d tools dl"; row-gap:1px; padding:7px 0; }
-    .r .ic { grid-area:ic; } .r .t { grid-area:t; max-width:none; } .r .d { grid-area:d; font-size:12px; }
+    .r.sel { grid-template-columns:22px 30px minmax(0,1fr) auto 34px; grid-template-areas:"tick ic t tools dl" "tick ic d tools dl"; }
+    .r .tick { grid-area:tick; } .r .ic { grid-area:ic; } .r .t { grid-area:t; max-width:none; } .r .d { grid-area:d; font-size:12px; }
     .r .tools { grid-area:tools; } .r a.dl { grid-area:dl; width:34px; height:34px; }
     .r .date { display:none; }
     .r .date.soon, .r .date.expired { display:inline; grid-area:d; justify-self:end; background:var(--card); padding-left:6px; }
   }
   .none { color:var(--mute); margin:8px 0 0; }
   .tools { display:flex; gap:6px; }
-  body:not(.editing) .edit-only { display:none !important; }
+  /* admins: Add document and Manage ▾ in the title row; Edit group and ⋯ in a group's heading; a click on the text edits it */
+  .page-tools { display:flex; gap:6px; align-items:center; }
+  .grp h3 .menu-wrap { font-weight:400; }
+  .grp h3 .grp-tools { margin-left:auto; display:flex; gap:4px; align-items:center; font-weight:400; font-size:12px; }
+  .grp h3 .grp-tools button { padding:1px 8px; font-size:12px; }
+  .grp h3 .grp-tools + a, .grp h3 .grp-tools ~ a { margin-left:6px; }
+  .edit-val { cursor:pointer; border-radius:4px; }
+  .edit-val:hover { background:var(--hover); box-shadow:0 0 0 3px var(--hover); }
+  #actError:empty, #docError:empty, #groupError:empty, #introError:empty { display:none; }
   .actions { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 10px; }
   fieldset { border:1px solid var(--line); border-radius:6px; margin:8px 0; padding:6px 10px 8px; }
   fieldset legend { font-size:13px; color:var(--mute); padding:0 4px; }
@@ -103,7 +115,7 @@
   [hidden] { display:none !important; }
 </style>
 </head>
-<body data-edit="admin">
+<body data-edit="none">
 <header>
   <h1>Documents</h1>
   <span class="meta" id="nav"></span>
@@ -113,25 +125,34 @@
   <div id="err"></div>
   <section class="card">
     <div class="section-heading"><h2>Documents</h2><span id="count"></span><input type="search" id="q" placeholder="Search documents" aria-label="Search documents">
-    <details><summary>Help</summary><p>Shared documents, for example the ones to show when you are asked for them in the field, and your own licences and qualifications. Pick a group in the tabs, or All for everything you may see. Search finds documents by title, text or file name. A click on a document opens it in a new tab; the arrow saves it. Hover over a document for its full text and file name; the date is its expiry (orange within 60 days) or, without one, its release date. Some documents are only for administrators, for people with a current qualification of one of some types, or for some profile roles (when person profiles are on): you see a document only when you meet every limit set on it; administrators see all. My qualifications lists your own approved qualifications that are valid today; add or renew them in My account. Administrators set the text at the top, groups and documents in Edit mode; Edit on a document also replaces its file, for example a renewed certificate. <em>Import ZIP</em> adds or replaces many documents at once from a <span class="mono">manifest.csv</span> (<a href="/api/admin/documents/import/template">template</a>) and the files.</p></details></div>
+    <span class="page-tools" id="pageTools" hidden><button type="button" onclick="editDocument()">Add document</button>
+      <span class="menu-wrap"><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
+        <div class="menu-pop" id="manageMenu" role="menu" hidden>
+          <button type="button" class="ext-item" role="menuitem" onclick="editGroup()">Add group…</button>
+          <button type="button" class="ext-item" role="menuitem" onclick="editIntro()">Edit text at the top…</button>
+          <button type="button" class="ext-item" role="menuitem" onclick="openImport()">Import ZIP…</button>
+          <a class="ext-item" role="menuitem" href="/api/admin/documents/import/template">Download ZIP manifest template</a>
+        </div></span></span>
+    <details><summary>Help</summary><p>Shared documents, for example the ones to show when you are asked for them in the field, and your own licences and qualifications. Pick a group in the tabs, or All for everything you may see. Search finds documents by title, text or file name. A click on a document opens it in a new tab; the arrow saves it. Hover over a document for its full text and file name; the date is its expiry (orange within 60 days) or, without one, its release date. Some documents are only for administrators, for people with a current qualification of one of some types, or for some profile roles (when person profiles are on): you see a document only when you meet every limit set on it; administrators see all. My qualifications lists your own approved qualifications that are valid today; add or renew them in My account. Administrators see every group (also empty ones) and each document's limits. They add documents with <em>Add document</em>; <em>Manage ▾</em> adds a group, edits the text at the top (or click the text) and imports. Tick documents for the bar at the bottom: <em>Edit document…</em> (one; it also replaces the file, for example a renewed certificate), <em>Move to group…</em> and <em>Delete…</em>. A group's heading has <em>Edit group</em> and ⋯ (<em>Delete group…</em>). <em>Import ZIP</em> adds or replaces many documents at once from a <span class="mono">manifest.csv</span> (<a href="/api/admin/documents/import/template">template</a>) and the files.</p></details></div>
     <p class="text" id="intro"></p>
-    <div class="actions edit-only">
-      <button type="button" class="sec" onclick="editIntro()">Edit text at the top</button>
-      <button type="button" onclick="editDocument()">Add document</button>
-      <button type="button" class="sec" onclick="editGroup()">Add group</button>
-      <button type="button" class="sec" onclick="openImport()">Import ZIP</button>
-    </div>
     <div class="page-tabs" id="tabs" aria-label="Document groups" hidden></div>
     <div id="content"><span class="mute">Loading…</span></div>
+    <div id="selBar" class="sel-bar" hidden role="region" aria-label="Ticked documents">
+      <strong id="selCount"></strong>
+      <button type="button" id="selEdit">Edit document…</button>
+      <button type="button" id="selMove">Move to group…</button>
+      <button type="button" id="selDelete">Delete…</button>
+      <button type="button" class="x" id="selClear">Clear</button>
+    </div>
   </section>
 </main>
 
 <dialog class="entry-dialog" id="introDialog" aria-labelledby="introTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <form id="introForm">
-    <div class="dialog-header"><h2 id="introTitle">Text at the top</h2><button type="button" class="sec" onclick="$('introDialog').close()">Close</button></div>
+    <div class="dialog-header"><h2 id="introTitle">Edit text at the top</h2><button type="button" class="sec" onclick="$('introDialog').close()">Close</button></div>
     <label class="field">Text (plain text, shown to everyone who opens Documents)<textarea name="intro" rows="8" maxlength="5000"></textarea></label>
     <p class="dialog-error" id="introError" role="alert"></p>
-    <div class="row"><button type="submit">Save</button> <button type="button" class="sec" onclick="$('introDialog').close()">Cancel</button></div>
+    <div class="row"><button type="submit" class="primary">Save</button> <button type="button" class="sec" onclick="$('introDialog').close()">Cancel</button></div>
   </form>
 </dialog>
 <dialog class="entry-dialog" id="groupDialog" aria-labelledby="groupTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
@@ -141,12 +162,13 @@
     <label class="field">Text<textarea name="description" maxlength="1000"></textarea></label>
     <label class="field">Order (low first)<input name="sort_order" type="number" step="1" value="0"></label>
     <p class="dialog-error" id="groupError" role="alert"></p>
-    <div class="row"><button type="submit">Save</button> <button type="button" class="danger" id="groupDeleteBtn" onclick="removeGroup()">Delete</button> <button type="button" class="sec" onclick="$('groupDialog').close()">Cancel</button></div>
+    <div class="row"><button type="submit" class="primary">Save</button> <button type="button" class="sec" onclick="$('groupDialog').close()">Cancel</button></div>
   </form>
 </dialog>
 <dialog class="entry-dialog" id="docDialog" aria-labelledby="docTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <form id="docForm">
     <div class="dialog-header"><h2 id="docTitle">Document</h2><button type="button" class="sec" onclick="$('docDialog').close()">Close</button></div>
+    <p class="mute" id="docWhat" style="margin:0 0 8px"></p>
     <label class="field">Title<input name="title" required maxlength="120"></label>
     <label class="field">Description<textarea name="description" maxlength="1000"></textarea></label>
     <div class="two">
@@ -170,7 +192,15 @@
     </fieldset>
     <label class="field" id="fileField"><span id="fileLabel">File</span><input name="file" type="file"></label>
     <p class="dialog-error" id="docError" role="alert"></p>
-    <div class="row"><button type="submit">Save</button> <button type="button" class="danger" id="docDeleteBtn" onclick="removeDocument()">Delete</button> <button type="button" class="sec" onclick="$('docDialog').close()">Cancel</button></div>
+    <div class="row"><button type="submit" class="primary" id="docSave">Save</button> <button type="button" class="sec" onclick="$('docDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="actDialog" aria-labelledby="actTitle" style="width:min(460px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="actTitle"></h2><button type="button" class="sec" onclick="$('actDialog').close()">Close</button></div>
+  <form id="actForm">
+    <div id="actBody"></div>
+    <p class="dialog-error" id="actError" role="alert"></p>
+    <div class="row"><button type="submit" class="primary" id="actOk">OK</button> <button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></div>
   </form>
 </dialog>
 <dialog class="entry-dialog" id="importDialog" aria-labelledby="importTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
@@ -179,7 +209,7 @@
   <p class="dialog-error" id="importError" role="alert"></p>
   <label class="field">ZIP<input type="file" id="importFile" accept=".zip,application/zip"></label>
   <div class="panel-row"><button type="button" class="sec" onclick="previewImport()">Preview</button>
-    <button type="button" id="importCommit" hidden onclick="commitImport()">Import</button>
+    <button type="button" class="primary" id="importCommit" hidden onclick="commitImport()">Import</button>
     <span class="mute" id="importStatus" role="status"></span></div>
   <div class="scroll" id="importPreview"></div>
 </dialog>
@@ -187,7 +217,8 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let me = null, data = null, editingId = null;
-const editing = () => !!(me && me.is_admin && window.editMode && window.editMode());
+const admin = () => !!me?.is_admin;
+const ticked = new Set();  // admins: ticked document ids, for the selection bar
 
 let tab = 'all';
 const typeName = id => ((data.types || []).find(t => t.id === id) || {}).name;
@@ -220,22 +251,22 @@ let query = '';
 const matches = (...fields) => !query || fields.join(' ').toLowerCase().includes(query);
 const docMatches = d => matches(d.title, d.description, d.filename);
 const qualMatches = q => matches(q.type, q.number);
-function rowHTML({kindText, title, href, text, date, tip, tools = '', download, downloadName}) {
+function rowHTML({kindText, title, href, text, date, tip, tools = '', download, downloadName, tick = ''}) {
   const name = href ? `<a class="t" href="${esc(href)}" target="_blank" rel="noopener" title="${esc(tip)}">${esc(title)}</a>`
     : `<span class="t" title="${esc(tip)}">${esc(title)}</span>`;
-  return `<div class="r"><span class="ic">${esc(kindText)}</span>${name}<span class="d">${text}</span>`
+  return `<div class="r${tick ? ' sel' : ''}">${tick}<span class="ic">${esc(kindText)}</span>${name}<span class="d">${text}</span>`
     + `<span class="date ${date.cls}" title="${esc(date.tip)}">${esc(date.text)}</span><span class="tools">${tools}</span>`
     + (download ? `<a class="dl" href="${esc(download)}" title="Download ${esc(downloadName)}" aria-label="Download ${esc(downloadName)}">${DOWNLOAD_ICON}</a>`
       : '<span></span>') + '</div>';
 }
 function docHTML(d) {
   const date = dateInfo(d.valid_from, d.valid_until, d.current);
-  const limits = editing() ? limitsText(d) : '';
+  const limits = admin() ? limitsText(d) : '';
   return rowHTML({kindText: kind(d.filename), title: d.title, href: d.viewable ? d.view : d.download,
     text: [limits && `<i>${limits}</i>`, esc(d.description || '')].filter(Boolean).join(' · '), date,
     tip: [d.title, d.description, d.filename, date.text].filter(Boolean).join('\n'),
-    tools: `<button type="button" class="sec edit-only" onclick="editDocument(${d.id})">Edit</button>`,
-    download: d.download, downloadName: d.filename});
+    download: d.download, downloadName: d.filename,
+    tick: admin() ? `<span class="tick"><input type="checkbox" data-doc="${d.id}" aria-label="Select ${esc(d.title)}"${ticked.has(d.id) ? ' checked' : ''}></span>` : ''});
 }
 function ownHTML(q) {
   const date = q.valid_until ? dateInfo(null, q.valid_until) : {text: 'no expiry date', cls: '', tip: ''};
@@ -244,14 +275,14 @@ function ownHTML(q) {
     download: q.download, downloadName: q.type});
 }
 const docsOf = id => data.documents.filter(d => d.group_id === id);
-// Tabs: All, General (documents without a group), one per group, My qualifications. Empty ones only in Edit mode.
+// Tabs: All, General (documents without a group), one per group, My qualifications. Empty ones only for admins.
 function tabList() {
   const tabs = [['all', 'All', null]];
   const loose = docsOf(null).length;
-  if (loose || (editing() && data.groups.length)) tabs.push(['general', 'General', loose]);
+  if (loose || (admin() && data.groups.length)) tabs.push(['general', 'General', loose]);
   for (const g of data.groups) {
     const n = docsOf(g.id).length;
-    if (n || editing()) tabs.push([String(g.id), esc(g.name), n]);
+    if (n || admin()) tabs.push([String(g.id), esc(g.name), n]);
   }
   tabs.push(['mine', 'My qualifications', data.qualifications.length]);
   return tabs;
@@ -261,11 +292,13 @@ function groupHTML(name, text, rows, tools, empty) {
     + (text ? `<p class="gtext" title="${esc(text)}">${esc(text)}</p>` : '')
     + (rows.length ? rows.join('') : `<p class="none">${empty}</p>`) + '</section>';
 }
-// a group of documents; null is General (documents without a group). Hidden when empty, except in Edit mode without a search.
+// a group of documents; null is General (documents without a group). Hidden when empty, except for admins without a search.
 function docGroupHTML(g, always) {
   const docs = docsOf(g ? g.id : null).filter(docMatches);
-  if (!docs.length && !always && !(editing() && !query && g)) return '';
-  const tools = g ? `<span class="tools edit-only"><button type="button" class="sec" onclick="editGroup(${g.id})">Edit group</button></span>` : '';
+  if (!docs.length && !always && !(admin() && !query && g)) return '';
+  const tools = g && admin() ? `<span class="grp-tools"><button type="button" class="sec" onclick="editGroup(${g.id})">Edit group</button>
+    <span class="menu-wrap"><button type="button" class="sec" data-group-more="${g.id}" aria-haspopup="menu" aria-expanded="false" aria-label="More actions for ${esc(g.name)}" title="Rare actions">⋯</button>
+      <div class="menu-pop" role="menu" hidden><button type="button" class="ext-item danger-item" role="menuitem" onclick="removeGroup(${g.id})">Delete group…</button></div></span></span>` : '';
   return groupHTML(g ? g.name : 'General', g ? g.description : '', docs.map(docHTML), tools,
     query ? 'No matching documents.' : g ? 'No documents in this group.' : 'No documents without a group.');
 }
@@ -276,9 +309,11 @@ function mineHTML(always) {
     query ? 'No matching qualifications.' : 'No current approved licences or qualifications.');
 }
 function paint() {
-  document.body.classList.toggle('editing', editing());
+  $('pageTools').hidden = !admin();
   $('intro').textContent = data.intro || '';
   $('intro').hidden = !data.intro;
+  $('intro').classList.toggle('edit-val', admin());
+  if (admin()) $('intro').title = 'Click to change'; else $('intro').removeAttribute('title');
   if ($('q').value !== query) $('q').value = query;
   const shown = data.documents.filter(docMatches).length;
   $('count').textContent = query ? `${shown} of ${data.documents.length}` : data.documents.length;
@@ -294,7 +329,59 @@ function paint() {
   else if (tab === 'general') html = docGroupHTML(null, true);
   else html = docGroupHTML(data.groups.find(g => String(g.id) === tab), true);
   $('content').innerHTML = html;
+  paintSelBar();
 }
+// The selection bar (admins): Edit document… for one ticked document, Move to group… and Delete… for all ticked ones.
+function paintSelBar() {
+  for (const id of [...ticked]) if (!data.documents.some(d => d.id === id)) ticked.delete(id);
+  const n = ticked.size;
+  $('selBar').hidden = !n || !admin();
+  if (!n) return;
+  $('selCount').textContent = `${n} selected`;
+  $('selEdit').disabled = n !== 1;
+  $('selEdit').title = n !== 1 ? 'Tick one document to edit it' : '';
+}
+$('content').onchange = e => {
+  const box = e.target.closest('[data-doc]');
+  if (!box) return;
+  box.checked ? ticked.add(+box.dataset.doc) : ticked.delete(+box.dataset.doc);
+  paintSelBar();
+};
+$('selClear').onclick = () => { ticked.clear(); paint(); };
+$('selEdit').onclick = () => { if (ticked.size === 1) editDocument([...ticked][0]); };
+const tickedDocs = () => data.documents.filter(d => ticked.has(d.id));
+const docBody = (d, changes = {}) => ({title: d.title, description: d.description || '', group_id: d.group_id, type_ids: d.type_ids,
+  admin_only: d.admin_only, roles_limited: d.roles_limited, role_ids: d.role_ids, sort_order: d.sort_order,
+  valid_from: d.valid_from || null, valid_until: d.valid_until || null, ...changes});
+function titles(docs) {
+  const shown = docs.slice(0, 5).map(d => `<b>${esc(d.title)}</b>`).join(', ');
+  return docs.length > 5 ? `${shown} and ${docs.length - 5} more` : shown;
+}
+$('selMove').onclick = () => {
+  const docs = tickedDocs();
+  actDialog('Move to group', `<p style="margin:0 0 8px">Move ${titles(docs)} to:</p>
+    <label class="field">Group<select name="group">${['<option value="">(no group: General)</option>',
+      ...data.groups.map(g => `<option value="${g.id}">${esc(g.name)}</option>`)].join('')}</select></label>`, 'Move', async out => {
+    const group = $('actForm').group.value ? +$('actForm').group.value : null;
+    for (const d of docs.filter(d => d.group_id !== group)) {
+      if (!await call(`/api/admin/documents/${d.id}`, 'PUT', docBody(d, {group_id: group}), out)) { await load(); return false; }
+    }
+    await load();
+    return true;
+  });
+};
+$('selDelete').onclick = () => {
+  const docs = tickedDocs();
+  actDialog(docs.length === 1 ? 'Delete document' : `Delete ${docs.length} documents`,
+    `<p style="margin:0">Delete ${titles(docs)} and ${docs.length === 1 ? 'its file' : 'their files'}? This cannot be undone.</p>`, 'Delete', async out => {
+    for (const d of docs) {
+      if (!await call(`/api/admin/documents/${d.id}`, 'DELETE', {}, out)) { await load(); return false; }
+      ticked.delete(d.id);
+    }
+    await load();
+    return true;
+  });
+};
 $('q').oninput = e => {
   query = e.target.value.trim().toLowerCase();
   window.viewState.save();
@@ -312,6 +399,53 @@ async function load() {
   data = d;
   paint();
 }
+// one request; on failure the error goes into out (an element) and false comes back
+async function call(url, method, body, out) {
+  const isForm = body instanceof FormData;
+  const r = await fetch(url, {method, body: isForm ? body : JSON.stringify(body),
+    headers: isForm ? {} : {'Content-Type': 'application/json'}});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { out.textContent = d.error || r.statusText; return false; }
+  return true;
+}
+// One small confirmation dialog for rare and destructive actions; run returns true to close it.
+function actDialog(title, body, okLabel, run) {
+  $('actTitle').textContent = title;
+  $('actBody').innerHTML = body;
+  $('actError').textContent = '';
+  $('actOk').textContent = okLabel || '';
+  $('actOk').hidden = !okLabel;  // without an OK label the dialog only explains (Cancel closes it)
+  $('actForm').onsubmit = async event => {
+    event.preventDefault();
+    $('actOk').disabled = true;
+    try { if (await run($('actError'))) $('actDialog').close(); } finally { $('actOk').disabled = false; }
+  };
+  $('actDialog').showModal();
+  $('actBody').querySelector('input, select')?.focus();
+}
+// Manage ▾ and a group's ⋯: small menus that close on a click elsewhere or Escape.
+function closeMenus() {
+  for (const pop of document.querySelectorAll('.menu-pop')) pop.hidden = true;
+  for (const b of document.querySelectorAll('[aria-haspopup="menu"]')) b.setAttribute('aria-expanded', 'false');
+}
+document.addEventListener('click', e => {
+  const button = e.target.closest('#manageBtn, [data-group-more]');
+  if (button) {
+    const pop = button.nextElementSibling, open = pop.hidden;
+    closeMenus();
+    pop.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+    if (open) pop.querySelector('button, a')?.focus();
+    return;
+  }
+  if (e.target.closest('.menu-pop .ext-item') || !e.target.closest('.menu-wrap')) closeMenus();
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const open = [...document.querySelectorAll('.menu-pop')].find(pop => !pop.hidden);
+  if (open) { closeMenus(); open.previousElementSibling.focus(); }
+});
+$('intro').onclick = () => { if (admin() && !getSelection().toString()) editIntro(); };
 async function send(url, method, body, errorBox) {
   const isForm = body instanceof FormData;
   const r = await fetch(url, {method, body: isForm ? body : JSON.stringify(body),
@@ -325,9 +459,11 @@ function editIntro() {
   $('introForm').intro.value = data.intro || '';
   $('introError').textContent = '';
   $('introDialog').showModal();
+  $('introForm').intro.focus();
 }
 $('introForm').onsubmit = async e => {
   e.preventDefault();
+  if ($('introForm').intro.value === (data.intro || '')) { $('introDialog').close(); return; }  // nothing changed
   if (await send('/api/admin/documents/intro', 'PUT', {intro: $('introForm').intro.value}, 'introError')) $('introDialog').close();
 };
 function editGroup(id) {
@@ -335,7 +471,7 @@ function editGroup(id) {
   editingId = id ?? null;
   const f = $('groupForm');
   f.name.value = g.name; f.description.value = g.description; f.sort_order.value = g.sort_order;
-  $('groupDeleteBtn').hidden = editingId == null;
+  $('groupTitle').textContent = editingId == null ? 'Add group' : 'Edit group';
   $('groupError').textContent = '';
   $('groupDialog').showModal();
 }
@@ -347,9 +483,15 @@ $('groupForm').onsubmit = async e => {
     : await send(`/api/admin/document-groups/${editingId}`, 'PUT', body, 'groupError');
   if (ok) $('groupDialog').close();
 };
-async function removeGroup() {
-  if (confirm('Delete this group?') && await send(`/api/admin/document-groups/${editingId}`, 'DELETE', {}, 'groupError'))
-    $('groupDialog').close();
+function removeGroup(id) {
+  const g = data.groups.find(x => x.id === id), n = docsOf(id).length;
+  if (n) {  // the server keeps a group that still holds documents
+    actDialog('Delete group', `<p style="margin:0"><b>${esc(g.name)}</b> still holds ${n === 1 ? 'a document' : n + ' documents'}: tick ${n === 1 ? 'it' : 'them'} and use
+      <em>Move to group…</em> or <em>Delete…</em> in the bar at the bottom first.</p>`, null);
+    return;
+  }
+  actDialog('Delete group', `<p style="margin:0">Delete the empty group <b>${esc(g.name)}</b>?</p>`,
+    'Delete', async out => { if (!await call(`/api/admin/document-groups/${id}`, 'DELETE', {}, out)) return false; await load(); return true; });
 }
 function syncDocForm() {
   const f = $('docForm');
@@ -385,7 +527,9 @@ function editDocument(id) {
     d.role_ids.includes(r.id) ? ' checked' : ''}> ${esc(r.name)}</label>`).join('');
   f.file.value = '';
   $('fileLabel').textContent = editingId == null ? 'File' : `Replace file (optional; now ${d.filename})`;
-  $('docDeleteBtn').hidden = editingId == null;
+  $('docTitle').textContent = editingId == null ? 'Add document' : 'Edit document';
+  $('docWhat').textContent = editingId == null ? 'A new document: title and file are required.' : `${d.filename}${d.group_id ? ' · ' + (data.groups.find(g => g.id === d.group_id)?.name || '') : ' · General'}`;
+  $('docWhat').hidden = false;
   $('docError').textContent = '';
   syncDocForm();
   $('docDialog').showModal();
@@ -409,7 +553,11 @@ $('docForm').onsubmit = async e => {
     form.append('file', f.file.files[0]);
     ok = await send('/api/admin/documents', 'POST', form, 'docError');
   } else {
-    ok = await send(`/api/admin/documents/${editingId}`, 'PUT', fields, 'docError');
+    // Save sends only what changed: the details (one PUT with every field, as the endpoint expects) and/or the new file
+    const before = docBody(data.documents.find(x => x.id === editingId));
+    const same = (a, b) => JSON.stringify(Array.isArray(a) ? [...a].sort() : a ?? null) === JSON.stringify(Array.isArray(b) ? [...b].sort() : b ?? null);
+    const changed = Object.keys(fields).some(k => !same(k === 'group_id' && fields[k] != null ? +fields[k] : fields[k], before[k]));
+    ok = !changed || await send(`/api/admin/documents/${editingId}`, 'PUT', fields, 'docError');
     if (ok && f.file.files.length) {
       const form = new FormData();
       form.append('file', f.file.files[0]);
@@ -418,10 +566,6 @@ $('docForm').onsubmit = async e => {
   }
   if (ok) $('docDialog').close();
 };
-async function removeDocument() {
-  if (confirm('Delete this document and its file?') && await send(`/api/admin/documents/${editingId}`, 'DELETE', {}, 'docError'))
-    $('docDialog').close();
-}
 let importToken = null;
 function openImport() {
   importToken = null;
@@ -493,7 +637,6 @@ window.viewState.setup(p => { tab = p.get('tab') || 'all'; query = (p.get('q') |
   window.viewState.set(p, 'tab', tab === 'all' ? '' : tab, '');
   window.viewState.set(p, 'q', query, '');
 }, () => { if (data) paint(); });
-window.addEventListener('editchange', () => { if (data) paint(); });
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');

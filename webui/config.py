@@ -26,7 +26,7 @@ SETTINGS = {
                                       "person details and locations; hide the aircraft-page notice outside Edit mode"),
         "TRAINING": ("0", "1 shows Training: in-app questionnaires that can grant a qualification on a pass"),
         "BOOKINGS": ("0", "1 shows Agenda: a week agenda of bookable items that administrators set up in Edit mode"),
-        "DOCUMENTS": ("0", "1 shows Documents: shared documents that administrators upload in Edit mode, and each "
+        "DOCUMENTS": ("0", "1 shows Documents: shared documents that administrators upload, and each "
                            "person's own current qualifications"),
         "SAFETY": ("0", "1 shows Safety (/safety): danger, incident and accident reports. "
                         "The Operations Manual links /safety: keep it on in production"),

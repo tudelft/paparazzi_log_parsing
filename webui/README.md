@@ -267,11 +267,13 @@ People **Approval queue** (**Bookings**).
 **Documents** (optional) holds shared documents, for example the ones to show when you are asked for them in the field
 (insurance, operator registration, operations approval, manuals), one line each in tabs per group; **Search** finds them
 by title, text or file name. The date on a line is its expiry (orange within 60 days) or its release date. Administrators write a text at the
-top and upload documents in Edit mode (**Add document**, **Add group**; **Edit** also replaces a document's file). A
+top (click it, or **Manage ▾** → *Edit text at the top…*) and add documents with **Add document**; **Manage ▾** also adds
+a group. They tick documents for the bar at the bottom: **Edit document…** (also replaces its file), **Move to group…**
+and **Delete…**; a group's heading has **Edit group** and **⋯** → *Delete group…* (only when it is empty). A
 document can be only for administrators, for people with one of some current qualifications (for example A1/A3, A2 or STS) or for some profile roles, and can
 have validity dates: outside them only administrators see it, so an old certificate never shows. The tab
 **My qualifications** lists your own approved qualifications that are valid today, with their documents; add or renew
-them in **My account** (see below). **Import ZIP** (Edit mode) adds or replaces many documents at once from a
+them in **My account** (see below). **Manage ▾** → *Import ZIP…* adds or replaces many documents at once from a
 `manifest.csv` and the files: preview, then import; importing the same ZIP again skips unchanged documents. Rules:
 [technical guide](TECHNICAL.md#documents).
 
