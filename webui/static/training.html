@@ -349,7 +349,7 @@ function renderList() {
   const items = filtered();
   // admins drag the cards (or use the arrow keys on a handle) to set the order everyone sees
   const sortable = me && me.is_admin && !query.trim() && items.length > 1;
-  $('count').textContent = items.length ? items.length + ' training' + (items.length === 1 ? '' : 's') : '';
+  $('count').textContent = items.length === trainings.length ? String(items.length) : `${items.length} of ${trainings.length}`;
   $('grid').innerHTML = items.map(t =>
     `<a class="item${t.passed_at ? ' passed' : ''}${sortable ? ' sortable' : ''}" href="/training?id=${t.id}" data-id="${t.id}" title="${esc(t.name)}"><h3>${esc(t.name)}</h3>
      ${sortable ? '<button type="button" class="t-handle" aria-label="Drag to reorder, or use the arrow keys" title="Drag to reorder (or focus and use the arrow keys)">⋮⋮</button>' : ''}

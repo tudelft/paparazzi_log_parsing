@@ -56,6 +56,8 @@
   .suggest-list label { display:grid; grid-template-columns:auto minmax(0,14em) 6.5em minmax(0,1fr); gap:8px; align-items:center; padding:2px 0; }
   .suggest-list label > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .menu-wrap[hidden] { display:none; }
+  #logSearch, #logStatus, #logPageSize { font:inherit; padding:4px 8px; border:1px solid var(--fieldline, #dfe3e8); border-radius:6px; background:var(--field, #fff); color:var(--txt); }
+  #logSearch { flex:0 1 260px; min-width:0; }
 </style>
 </head>
 <body>
@@ -68,7 +70,7 @@
 
   <section class="card">
     <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap">
-      <h2 style="margin:0; font-size:17px">Logs</h2><span class="mute" id="logCount"></span>
+      <h2 style="margin:0; font-size:15px">Logs</h2><span class="mute" id="logCount"></span>
       <details class="logs-help"><summary>Help</summary>
         <p>Every log you can see: those of your projects and the ones you uploaded. Upload new logs with
         <strong>Upload logs</strong> at the top right, or drop files on any page. The list shows 25 logs per page by
@@ -96,7 +98,7 @@
     </table>
     </div>
     <div id="pager" class="mute" style="display:flex; gap:12px; align-items:center; justify-content:flex-end; flex-wrap:wrap; margin-top:12px">
-      <label>Logs per page <select id="logPageSize"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option></select></label>
+      <label>Rows per page <select id="logPageSize"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option></select></label>
       <span id="pageInfo"></span>
       <div id="uploadPages" class="navigation-pages"></div>
     </div>

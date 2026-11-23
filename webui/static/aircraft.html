@@ -109,6 +109,7 @@
   .field-error:empty, .dialog-error:empty { display:none; }
   td.chk, th.chk { width:28px; padding-right:0; }
   .shared-name summary .sec { margin-left:12px; font-size:12px; padding:2px 8px; }
+  .pilot-link { font-size:13px; font-weight:400; margin-left:8px; }
 </style>
 </head>
 <body>
@@ -510,7 +511,7 @@ function renderAircraftPanel() {
   $('aircraftPanel').hidden = !d;
   if (!d) { closeMenus(); return; }
   const may = editableFields(d);
-  $('aircraftHeading').textContent = d.name;
+  $('aircraftHeading').innerHTML = `${esc(d.name)} <a class="pilot-link" href="/aircraft/${d.id}" title="Overview of ${esc(d.name)}: flights, people, places">Aircraft page ↗</a>`;
   $('aircraftIdentity').textContent = `${d.unique_id || 'No serial'} · ${d.log_count} log${d.log_count === 1 ? '' : 's'}`
     + (d.record_count ? ` · ${d.record_count} paper record${d.record_count === 1 ? '' : 's'}` : '');
   $('editAircraft').hidden = !Object.values(may).some(Boolean);
@@ -543,7 +544,7 @@ function renderAircraftPanel() {
       ${row('status', 'Status', st)}${row('manager', 'Manager', esc(d.manager || ''))}${row('current_user', 'Current user', esc(d.current_user || ''))}
       ${row('periods', 'Project', esc(currentProject(d)))}
       ${row('comments', 'Comments', d.comments ? `<span class="note">${esc(d.comments)}</span>` : '')}
-      <span class="mute">Flights</span><span>${(d.log_count || 0) + (d.record_count || 0)} · <a href="/aircraft/${d.id}">Overview: flights, people, places</a></span>
+      <span class="mute">Flights</span><span>${(d.log_count || 0) + (d.record_count || 0)}</span>
     </div>`;
   }
 }

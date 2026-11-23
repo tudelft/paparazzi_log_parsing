@@ -113,6 +113,9 @@
   #err { color:var(--err); margin-bottom:8px; }
   #err:empty { display:none; }
   [hidden] { display:none !important; }
+  /* Add document and Manage ▾ at the end of the title row, like the other pages */
+  #pageTools { margin-left:auto; }
+  #pageTools:not([hidden]) + details { margin-left:0; }
 </style>
 </head>
 <body>

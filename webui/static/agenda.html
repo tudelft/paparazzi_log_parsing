@@ -16,7 +16,8 @@
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
   .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
   .toolbar h2 { margin:0; }
-  .toolbar details { margin-left:auto; }
+  .toolbar details { margin-left:0; }
+  #newBtn { margin-left:auto; }  /* New booking, Subscribe and Manage ▾ at the end of the title row */
   #err { color:var(--err); margin-bottom:8px; }
   #err:empty { display:none; }
   button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
@@ -106,8 +107,8 @@
       <strong id="range"></strong>
       <button type="button" class="sec" aria-label="Next week" onclick="moveWeek(7)">›</button>
       <button type="button" class="sec" onclick="moveWeek(0)">Today</button>
-      <button type="button" id="newBtn" onclick="openBooking()">New booking</button>
       <span class="legend" id="legend"></span>
+      <button type="button" id="newBtn" onclick="openBooking()">New booking</button>
       <button type="button" class="sec" onclick="openCalendar()" title="Show this agenda in your own calendar app">Subscribe</button>
       <span class="menu-wrap" id="manageWrap" hidden><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
         <div class="menu-pop" id="manageMenu" role="menu" hidden>

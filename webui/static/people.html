@@ -31,7 +31,8 @@
   table.people tbody tr[data-id] { cursor:pointer; }
   table.people tbody tr[data-id]:hover { background:var(--hover); }
   table.people tbody tr.open { background:var(--hover); box-shadow:inset 3px 0 0 var(--acc); }
-  table.people td a { color:var(--txt); }
+  table.people td a { text-decoration:none; }
+  table.people td a:hover { text-decoration:underline; }
   table.people .missing { font-style:italic; opacity:.75; }
   table.people td .chip.warn, table.people td .chip.pending { font-size:11px; }
   .filter-pop { min-width:240px !important; gap:8px !important; }
