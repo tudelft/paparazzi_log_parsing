@@ -201,9 +201,9 @@ and inspect, narrow or revoke their API keys (not retrieve secret values). You c
   unless added as aliases. Unknown or ambiguous names produce a row error without importing any records.
   The original CSV is attached to all imported records: anyone who can read one can download the
   whole CSV, including rows from other projects. Failed imports retain no attachment.
-- Admins manage **People** by selecting a person and opening Account, Aliases or Qualifications.
-  In Edit mode the Account tab can **Merge into…** another account (one person with two accounts) or
-  **Move TU Delft sign-in…** when a TU Delft login was matched to the wrong person.
+- On **People**, click a person to open them beside the list. Admins see the tabs Account, Profile, Qualifications,
+  API keys and Aliases, each with its own **Edit** (one dialog); ⋯ has password, **Move TU Delft sign-in…** (a TU
+  Delft login matched to the wrong person), **Merge into…** (one person with two accounts) and **Remove user…**.
   A new user needs an email address (the username is optional and then taken from it); an address can be
   changed later but not removed.
   Username, display name, email and default project share one **Save account** button.
@@ -221,8 +221,9 @@ and inspect, narrow or revoke their API keys (not retrieve secret values). You c
   linked manager of an aircraft can do the same.
   On Aircraft, click a row to open the aircraft beside the list; **Edit aircraft** changes what you may change, ⋯ has
   the rare actions. Admins link unrecognised log names under the **Unlinked names** tab (tick names, then **Link to
-  aircraft…**) and shared names under **Shared names**. Link unrecognised crew names in Edit mode: People shows
-  tabs (People · Unlinked crew names · Approval queue · Qualification types), so one list is on screen at a time; the tab is kept in the URL.
+  aircraft…**) and shared names under **Shared names**. Admins link unrecognised crew names under People → **Unlinked crew names** (tick names, then
+  **Link to person…** or **Add as external…**); People shows tabs (People · Unlinked crew names · Approval queue ·
+  Qualification types · Profile options), so one list is on screen at a time; the tab is kept in the URL.
   Logs with an autopilot board ID (newer firmware) also match the aircraft that board was seen on.
   Servers can hide unlinked aircraft flights from Logbook, Statistics, person details and Locations until linked;
   admins can still find the names under Unlinked names on Aircraft (see the [settings](TECHNICAL.md#settings)).
@@ -315,7 +316,7 @@ page, and on People in the **Profiles** and **Supervision** tabs, which show sup
 
 **Welcome message and notices:** when admins have written a welcome message or notices for you, they are at the top
 of your Home page until you dismiss them (some notices cannot be closed and stay until their end date). Admins write
-them on People in Edit mode under **Profile options** → *Welcome message and notices*, like a
+them on People, **Manage ▾** → *Welcome message and notices*, like a
 training's access mail: tags such as `{name}`, a little markup and parts per role ([details](TECHNICAL.md#welcome-message)).
 
 **Qualifications:** submit your own evidence under **My account**; admins review it on **People**.
@@ -329,9 +330,9 @@ Use **Valid from** and **Valid until** to record the licence period, including p
 When one certificate covers several qualifications (e.g. A1/A3, A2 and STS under one number), add them under
 **Also covers** in the same dialog: each becomes its own record with the same file, number and dates, approved one by one.
 Admins can make either date optional per type; both date switches start checked for new types.
-In Edit mode, admins can correct the dates of any submission with **Edit dates**, for example to end a licence that has expired.
+Admins can correct the dates of any submission with **Edit dates** (the person's Qualifications tab), for example to end a licence that has expired.
 An Internal switch marks in-house qualifications. Drag types to set their order, then use one Save.
-In Edit mode, **Import ZIP** on People loads a `manifest.csv` plus evidence PDFs: preview, then import
+**Manage ▾ → Import qualifications (ZIP)…** on People loads a `manifest.csv` plus evidence PDFs: preview, then import
 and approve in one step. Older licence periods are under **Show older** in each person's qualifications.
 Names not yet on People are added as new users (shown as **New user** in the preview).
 Dates are entered manually, and existing records keep an unknown start date. Historical flight

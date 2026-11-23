@@ -85,6 +85,11 @@
   .fleet-layout.with-panel { grid-template-columns:minmax(0,1fr) minmax(320px,36%); }
   @media (max-width:900px) { .fleet-layout.with-panel { grid-template-columns:minmax(0,1fr); } #aircraftPanel { order:-1; } }
   table.fleet tbody tr[data-id] { cursor:pointer; }
+  table.fleet td:nth-child(3) { overflow:visible; text-overflow:clip; }  /* the status chip is never cut */
+  table.fleet .badge { white-space:nowrap; }
+  /* with the panel open, Comments and Aliases (shown in the panel) leave room for the rest */
+  .with-panel table.fleet tr > :nth-child(6), .with-panel table.fleet tr > :nth-child(8),
+  .with-panel table.fleet col:nth-child(6), .with-panel table.fleet col:nth-child(8) { display:none; }
   table.fleet tbody tr[data-id]:hover { background:var(--hover); }
   table.fleet tbody tr.open { background:var(--hover); box-shadow:inset 3px 0 0 var(--acc); }
   .panel-actions { display:flex; gap:6px; align-items:center; }
@@ -371,7 +376,7 @@ function render() {
 // Overview columns and sorting. Default: serial, newest TUD number first; other serials after, by name.
 const FLEET_COLUMNS = [
   {label: 'Serial', sort: 'serial', width: '9%'}, {label: 'Aircraft', sort: 'name', width: '19%'},
-  {label: 'Status', sort: 'status', width: '8%'},
+  {label: 'Status', sort: 'status', width: '112px'},
   {label: 'Manager', sort: 'manager', width: '13%'}, {label: 'Project', sort: 'project', width: '16%'},
   {label: 'Comments', width: '16%'}, {label: 'Flights', sort: 'flights', num: true, width: '7%'}, {label: 'Aliases', width: '12%'}];
 let sortKey = 'serial', sortDesc = true, page = 0, pageSize = 50;

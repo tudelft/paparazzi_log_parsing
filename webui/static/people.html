@@ -103,6 +103,30 @@
   #err:empty { display:none; }
   .pair { display:flex; align-items:center; gap:8px; white-space:nowrap; }
   .pair input { width:150px; }
+  /* the open person beside the cards (UI rule) */
+  .people-split { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; align-items:start; }
+  .people-split.with-panel { grid-template-columns:minmax(0,1fr) minmax(360px,42%); }
+  @media (max-width:900px) { .people-split.with-panel { grid-template-columns:minmax(0,1fr); } #personPanel { order:-1; } }
+  a.directory-person.open { border-color:var(--acc); box-shadow:0 0 0 2px var(--acc); }
+  .toolbar-end { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .panel-actions { display:flex; gap:6px; align-items:center; }
+  .pilot-link { font-size:13px; font-weight:400; margin-left:8px; }
+  .tab-head { display:flex; align-items:center; gap:10px; margin:0 0 8px; }
+  .tab-head h3 { margin:0; font-size:14px; }
+  .tab-head details { margin-left:auto; }
+  #personContent .kv { margin-bottom:10px; }
+  .edit-val, .edit-key { cursor:pointer; border-radius:4px; }
+  .edit-val:hover, .edit-key:hover { background:var(--hover); box-shadow:0 0 0 3px var(--hover); }
+  .edit-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; }
+  .edit-grid .wide, .edit-grid div.field { grid-column:1 / -1; }
+  .edit-grid div.field { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--mute); }
+  .edit-grid div.field label { font-size:14px; color:var(--txt); }
+  #editDialog { width:min(640px, calc(100% - 32px)); }
+  #editDialog textarea { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; resize:vertical; }
+  .field-error { color:var(--err); font-size:12px; }
+  .field-error:empty, .dialog-error:empty { display:none; }
+  td.chk, th.chk { width:28px; padding-right:0; }
+  .type-row .type-body { cursor:pointer; }
   .people-layout { display:grid; grid-template-columns:minmax(240px,320px) minmax(0,1fr); gap:16px; margin-top:16px; align-items:start; }
   .people-picker, #personPanel { border:1px solid var(--line); border-radius:8px; padding:16px; background:var(--detail); }
   .people-picker { padding:10px; }
@@ -239,7 +263,7 @@
   }
 </style>
 </head>
-<body data-edit="admin">
+<body data-edit="none">
 <header>
   <h1>People</h1>
   <span class="meta" id="nav"></span>
@@ -250,8 +274,14 @@
   <div class="page-tabs" id="pageTabs" aria-label="People page sections" hidden></div>
   <section class="card" id="unlinkedCard" hidden>
     <div class="section-heading"><h2>Unlinked crew names</h2>
-    <details><summary>Help</summary><p>PIC/PAC/GCS names from logs that do not match a person yet. Link each name to an existing person, or use Add user first if a new profile is needed. Add as external records crew of another operator (for example when flying under their operational authorisation): their flights are linked, but they cannot sign in or join projects. Choose the operator they fly for first: their flights are then counted under that operator. Logs do not create profiles automatically.</p></details></div>
-    <div class="scroll"><table><thead><tr><th>Name in log</th><th>Seen</th><th>Link to user</th><th></th></tr></thead><tbody id="unlinked"></tbody></table></div>
+    <details><summary>Help</summary><p>PIC/PAC/GCS names from logs that do not match a person yet. Tick names and link them to an existing person (use Add user first if a new profile is needed), or add them as external: crew of another operator (for example when flying under their operational authorisation): their flights are linked, but they cannot sign in or join projects. Choose the operator they fly for: their flights are then counted under that operator. Logs do not create profiles automatically.</p></details></div>
+    <div class="scroll"><table><thead><tr><th class="chk"></th><th>Name in log</th><th>Seen</th></tr></thead><tbody id="unlinked"></tbody></table></div>
+    <div id="unlinkedBar" class="sel-bar" hidden role="region" aria-label="Ticked names">
+      <strong id="unlinkedSelCount"></strong>
+      <button type="button" onclick="openLinkPerson()">Link to person…</button>
+      <button type="button" onclick="openAddExternal()">Add as external…</button>
+      <button type="button" class="x" onclick="unlinkedTicks.clear(); render()">Clear</button>
+    </div>
   </section>
   <section class="card" id="peopleCard">
     <div class="people-title-row"><h2>People</h2>
@@ -259,82 +289,48 @@
     <label id="showExternalLabel" title="External people stay hidden until this is ticked" hidden><input type="checkbox" id="showExternal" onchange="render()"> Show external</label>
     <label title="Include people without logs, paper records or approved qualifications"><input type="checkbox" id="showWithoutLogs" onchange="render()"> Include unused profiles</label>
     <span class="mute" id="directoryCount" role="status"></span>
-    <button type="button" class="editOnly" hidden onclick="$('addUserDialog').showModal()">Add user</button>
-    <details class="people-help"><summary>Help</summary>
-    <p id="peopleHint">Accounts that can sign in. Names from the logs are matched to these accounts.</p>
-    </details></div>
+    <span class="toolbar-end">
+      <button type="button" id="addUserBtn" hidden onclick="$('addUserDialog').showModal()">Add user</button>
+      <span class="menu-wrap" id="manageWrap" hidden><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
+        <div class="menu-pop" id="manageMenu" role="menu" hidden>
+          <button type="button" class="ext-item" role="menuitem" id="manageProfileImport" onclick="openProfileImport()">Import profiles (CSV)…</button>
+          <button type="button" class="ext-item" role="menuitem" onclick="$('qualImportDialog').showModal()">Import qualifications (ZIP)…</button>
+          <a class="ext-item" role="menuitem" href="/api/admin/qualifications/import/template">Qualifications ZIP: CSV template</a>
+          <button type="button" class="ext-item" role="menuitem" onclick="openFillNumbers()">Fill numbers from PDFs…</button>
+          <button type="button" class="ext-item" role="menuitem" onclick="openCheckQr()">Check QR codes…</button>
+          <a class="ext-item" role="menuitem" href="/welcome" title="The welcome message and notices at the top of the Home page">Welcome message and notices</a>
+        </div></span>
+      <details class="people-help"><summary>Help</summary>
+      <p id="peopleHint">Accounts that can sign in. Names from the logs are matched to these accounts.</p>
+      </details></span></div>
     <div class="pending" id="pending" hidden></div>
-    <dialog class="entry-dialog" id="addUserDialog" aria-labelledby="addUserTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
-    <div class="dialog-header"><h2 id="addUserTitle">Add user</h2><button type="button" onclick="$('addUserDialog').close()" aria-label="Close Add user">Close</button></div>
-    <p id="addUserError" class="dialog-error" role="alert"></p>
-    <form id="addUser" onsubmit="addUser(event)">
-      <label class="field" title="Used for a password login. Empty: taken from the email address (before the @), numbered when taken.">Username<input id="newUser" maxlength="40" autocomplete="off" placeholder="optional: from the email"></label>
-      <label class="field">Display name<input id="newName" maxlength="80" autocomplete="off"></label>
-      <label class="field">Email<input id="newEmail" type="email" maxlength="120" autocomplete="off" required></label>
-      <label class="field">Default project<select id="newProject"></select></label>
-      <div class="checks">
-        <label><input type="checkbox" id="newAdmin"> Admin</label>
-        <label id="newSendMailBox" hidden title="Send the one-time link to set a password to the email address above"><input type="checkbox" id="newSendMail" checked> Email the sign-in link</label>
-      </div>
-      <button type="submit">Add user</button>
-    </form>
-    </dialog>
-    <dialog class="entry-dialog" id="mergeDialog" aria-labelledby="mergeTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
-    <div class="dialog-header"><h2 id="mergeTitle">Merge into…</h2><button type="button" onclick="$('mergeDialog').close()" aria-label="Close Merge">Close</button></div>
-    <p class="mute" id="mergeIntro"></p>
-    <p id="mergeError" class="dialog-error" role="alert"></p>
-    <form onsubmit="event.preventDefault();mergeUser()">
-      <label class="field">Keep account<select id="mergeInto" required onchange="mergePreview()"></select></label>
-      <table class="merge-plan" id="mergePlan" hidden></table>
-      <button type="submit" class="danger" id="mergeButton" disabled>Merge</button>
-    </form>
-    </dialog>
-    <dialog class="entry-dialog" id="ssoDialog" aria-labelledby="ssoTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
-    <div class="dialog-header"><h2 id="ssoTitle">Move TU Delft sign-in</h2><button type="button" onclick="$('ssoDialog').close()" aria-label="Close Move TU Delft sign-in">Close</button></div>
-    <p class="mute" id="ssoIntro"></p>
-    <p id="ssoError" class="dialog-error" role="alert"></p>
-    <form onsubmit="event.preventDefault();moveSso()">
-      <label class="field">Move to<select id="ssoTo" onchange="$('ssoNew').hidden = this.value !== 'new'"></select></label>
-      <div class="dialog-fields" id="ssoNew" hidden>
-        <label class="field">Username of the new account<input id="ssoUsername" maxlength="40" autocomplete="off"></label>
-        <label class="field">Display name<input id="ssoDisplayName" maxlength="80" autocomplete="off"></label>
-      </div>
-      <label id="ssoEmailRow"><input type="checkbox" id="ssoEmail"> <span id="ssoEmailText"></span></label>
-      <label id="ssoNameRow"><input type="checkbox" id="ssoName"> <span id="ssoNameText"></span></label>
-      <button type="submit" class="danger">Move sign-in</button>
-    </form>
-    </dialog>
     <div id="setupBox" hidden>
       <strong id="setupHint"></strong>
       <input id="setupUrl" readonly>
       <div style="margin-top:8px"><button type="button" class="sec" onclick="copySetup()">Copy link</button> <span id="copied" class="mute"></span></div>
     </div>
-    <div id="adminPeople" hidden>
-      <div class="people-layout">
-        <div class="people-picker">
-          <label class="field">Search people<input type="search" id="peopleSearch" placeholder="Name, username, email or alias" oninput="renderPeopleList()"></label>
-          <p class="mute" id="peopleCount" role="status"></p>
-          <div class="people-list" id="peopleList"></div>
-        </div>
-        <section id="personPanel" aria-label="Selected person">
-          <div class="person-header">
-            <h2 id="personHeading">No person selected</h2>
-            <a id="personLink" hidden>View pilot page</a>
-          </div>
-          <p id="personIdentity">Choose a person from the list to see their account, aliases and qualifications here.</p>
-          <div class="seg-tabs" role="tablist" aria-label="Person management" id="personTabs" hidden>
-            <button type="button" role="tab" id="tab-account" aria-controls="personContent" onclick="selectPersonTab('account')">Account</button>
-            <button type="button" role="tab" id="tab-profile" aria-controls="personContent" onclick="selectPersonTab('profile')" hidden>Profile</button>
-            <button type="button" role="tab" id="tab-api" aria-controls="personContent" onclick="selectPersonTab('api')">API keys</button>
-            <button type="button" role="tab" id="tab-aliases" aria-controls="personContent" onclick="selectPersonTab('aliases')">Aliases</button>
-            <button type="button" role="tab" id="tab-qualifications" aria-controls="personContent" onclick="selectPersonTab('qualifications')">Qualifications</button>
-          </div>
-          <div id="personContent" role="tabpanel"></div>
-        </section>
+    <div class="people-split" id="peopleSplit">
+      <div id="directoryTable">
+        <div class="directory-grid" id="directoryPeople"></div>
       </div>
-    </div>
-    <div id="directoryTable">
-      <div class="directory-grid" id="directoryPeople"></div>
+      <section id="personPanel" aria-label="Selected person" hidden>
+        <div class="person-header">
+          <h2 id="personHeading"></h2>
+          <span class="panel-actions">
+            <span class="menu-wrap" id="moreWrap" hidden><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
+              <div class="menu-pop" id="moreMenu" role="menu" hidden></div></span>
+            <button type="button" class="sec" id="closePerson" aria-label="Close the person" title="Close" onclick="selectPerson(null)">✕</button></span>
+        </div>
+        <p id="personIdentity"></p>
+        <div class="seg-tabs" role="tablist" aria-label="Person" id="personTabs" hidden>
+          <button type="button" role="tab" id="tab-account" aria-controls="personContent" onclick="selectPersonTab('account')">Account</button>
+          <button type="button" role="tab" id="tab-profile" aria-controls="personContent" onclick="selectPersonTab('profile')" hidden>Profile</button>
+          <button type="button" role="tab" id="tab-qualifications" aria-controls="personContent" onclick="selectPersonTab('qualifications')">Qualifications</button>
+          <button type="button" role="tab" id="tab-api" aria-controls="personContent" onclick="selectPersonTab('api')">API keys</button>
+          <button type="button" role="tab" id="tab-aliases" aria-controls="personContent" onclick="selectPersonTab('aliases')">Aliases</button>
+        </div>
+        <div id="personContent" role="tabpanel"></div>
+      </section>
     </div>
   </section>
   <section class="card" id="approvalSection" hidden>
@@ -367,12 +363,9 @@
   </dialog>
   <section class="card" id="typesSection" hidden>
     <div class="people-title-row"><h2>Qualification types</h2><span class="mute" id="typeCount"></span>
-      <span class="type-tools editOnly" hidden><button type="button" onclick="editType(null)">Add type</button>
-        <button type="button" class="sec" onclick="openFillNumbers()">Fill numbers from PDFs…</button>
-        <button type="button" class="sec" onclick="openCheckQr()">Check QR codes…</button>
-        <button type="button" class="sec" onclick="$('qualImportDialog').showModal()">Import ZIP</button></span>
+      <span class="type-tools"><button type="button" onclick="editType(null)">Add type</button></span>
       <span class="mute" id="typeStatus" role="status"></span>
-    <details><summary>Help</summary><p>The kinds of licences and qualifications people can add, in this order. The labels show what someone must fill in when adding one: Evidence (a file), Valid from, Valid until (expiry reminders are sent 30 and 7 days before) and Number (the licence or certificate number, read from a PDF certificate when left empty; <em>Fill numbers from PDFs…</em> does this for approved ones). Internal marks an in-house qualification such as FI or CTR rather than an external licence. The description is shown where people add or see the type. The group puts types under a heading wherever they are listed (adding a qualification, Also covers, Documents, agendas, trainings); types are dragged within their group, and a whole group by the handle on its heading; types without a group come last under Other. Change a type's group with <em>Edit</em> (an existing group in another case is joined); it then moves to the end of that group. In Edit mode, <em>Edit</em> changes a type and the handle drags it to another place. An inactive type can no longer be added; existing ones stay. <em>Import ZIP</em> takes a <span class="mono">manifest.csv</span> (<a href="/api/admin/qualifications/import/template">CSV template</a>) and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
+    <details><summary>Help</summary><p>The kinds of licences and qualifications people can add, in this order. The labels show what someone must fill in when adding one: Evidence (a file), Valid from, Valid until (expiry reminders are sent 30 and 7 days before) and Number (the licence or certificate number, read from a PDF certificate when left empty; <em>Fill numbers from PDFs…</em> does this for approved ones). Internal marks an in-house qualification such as FI or CTR rather than an external licence. The description is shown where people add or see the type. The group puts types under a heading wherever they are listed (adding a qualification, Also covers, Documents, agendas, trainings); types are dragged within their group, and a whole group by the handle on its heading; types without a group come last under Other. Click a type to change it, also its group (an existing group in another case is joined; it then moves to the end of that group); the handle ↕ drags it to another place. An inactive type can no longer be added; existing ones stay. <em>Fill numbers from PDFs…</em>, <em>Check QR codes…</em> and <em>Import qualifications (ZIP)…</em> are under People, <strong>Manage ▾</strong>. The ZIP import takes a <span class="mono">manifest.csv</span> (<a href="/api/admin/qualifications/import/template">CSV template</a>) and evidence PDFs to create and approve qualifications in bulk.</p></details></div>
     <div id="typeSettings"></div>
     <dialog class="entry-dialog" id="typeDialog" aria-labelledby="typeTitle" style="width:min(460px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
       <div class="dialog-header"><h2 id="typeTitle">Qualification type</h2><button type="button" onclick="$('typeDialog').close()">Close</button></div>
@@ -390,7 +383,7 @@
           <label><input type="checkbox" name="internal"><span>Internal<small>Granted in house (training, exam), not an external licence</small></span></label>
           <label><input type="checkbox" name="active"><span>Active<small>Inactive types can no longer be added; existing ones stay</small></span></label></div>
         <p class="dialog-error" id="typeError" role="alert"></p>
-        <div class="row"><button type="submit">Save</button> <button type="button" class="sec" onclick="$('typeDialog').close()">Cancel</button></div>
+        <div class="row"><button type="submit" class="primary">Save</button> <button type="button" class="sec" onclick="$('typeDialog').close()">Cancel</button></div>
       </form>
     </dialog>
   </section>
@@ -416,7 +409,6 @@
       <select id="profilesStatus" aria-label="Status" onchange="profileState('status', this.value)">
         <option value="">All</option><option value="missing">Incomplete</option><option value="soon">Ends within 3 months</option><option value="ended">Ended</option></select>
       <button type="button" class="sec" style="margin-left:auto" onclick="downloadProfiles()">Download CSV</button>
-      <button type="button" class="sec" id="profilesImportBtn" hidden onclick="openProfileImport()">Import CSV</button>
       <details><summary>Help</summary><p>Admins see everyone who can sign in; supervisors see the people they supervise, without numbers. Click a column heading to sort. <em>Incomplete</em> lists people who still have to fill in (part of) their profile; they are asked at their next sign-in. The flights are those as PIC within the flight filters.</p></details></div>
     <div class="scroll"><table class="profiles-table"><thead><tr id="profilesHead"></tr></thead><tbody id="profilesRows"></tbody></table></div>
     <div style="display:flex;justify-content:flex-end;margin-top:8px"><div class="navigation-pages" id="profilesPager"></div></div>
@@ -483,6 +475,66 @@
       <span class="mute" id="profileImportStatus" role="status"></span></div>
     <div class="scroll" id="profileImportPreview"></div>
   </dialog>
+  <!-- dialogs of People: outside the tab sections, so they open whichever tab is shown -->
+    <dialog class="entry-dialog" id="addUserDialog" aria-labelledby="addUserTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="addUserTitle">Add user</h2><button type="button" onclick="$('addUserDialog').close()" aria-label="Close Add user">Close</button></div>
+    <form id="addUser" class="dialog-fields" onsubmit="addUser(event)">
+      <div class="edit-grid">
+      <label class="field" title="Used for a password login. Empty: taken from the email address (before the @), numbered when taken.">Username<input id="newUser" maxlength="40" autocomplete="off" placeholder="optional: from the email"></label>
+      <label class="field">Display name<input id="newName" maxlength="80" autocomplete="off"></label>
+      <label class="field">Email<input id="newEmail" type="email" maxlength="120" autocomplete="off" required></label>
+      <label class="field">Default project<select id="newProject"></select></label>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="newAdmin"> Admin</label>
+        <label id="newSendMailBox" hidden title="Send the one-time link to set a password to the email address above"><input type="checkbox" id="newSendMail" checked> Email the sign-in link</label>
+      </div>
+      <p id="addUserError" class="dialog-error" role="alert"></p>
+      <div class="row"><button type="submit" class="primary">Add user</button> <button type="button" class="sec" onclick="$('addUserDialog').close()">Cancel</button></div>
+    </form>
+    </dialog>
+    <dialog class="entry-dialog" id="editDialog" aria-labelledby="editTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="editTitle"></h2><button type="button" onclick="$('editDialog').close()">Close</button></div>
+    <form id="editForm" class="dialog-fields">
+      <p class="mute" id="editWhat" style="margin:0"></p>
+      <div id="editFields"></div>
+      <p class="dialog-error" id="editError" role="alert"></p>
+      <div class="row"><button type="submit" class="primary" id="editSave">Save</button> <button type="button" class="sec" onclick="$('editDialog').close()">Cancel</button></div>
+    </form>
+    </dialog>
+    <dialog class="entry-dialog" id="actDialog" aria-labelledby="actTitle" style="width:min(460px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="actTitle"></h2><button type="button" onclick="$('actDialog').close()">Close</button></div>
+    <form id="actForm" class="dialog-fields">
+      <div id="actBody"></div>
+      <p class="dialog-error" id="actError" role="alert"></p>
+      <div class="row"><button type="submit" class="primary" id="actOk">OK</button> <button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></div>
+    </form>
+    </dialog>
+    <dialog class="entry-dialog" id="mergeDialog" aria-labelledby="mergeTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="mergeTitle">Merge into…</h2><button type="button" onclick="$('mergeDialog').close()" aria-label="Close Merge">Close</button></div>
+    <p class="mute" id="mergeIntro"></p>
+    <p id="mergeError" class="dialog-error" role="alert"></p>
+    <form class="dialog-fields" onsubmit="event.preventDefault();mergeUser()">
+      <label class="field">Keep account<select id="mergeInto" required onchange="mergePreview()"></select></label>
+      <table class="merge-plan" id="mergePlan" hidden></table>
+      <div class="row"><button type="submit" class="primary" id="mergeButton" disabled>Merge</button> <button type="button" class="sec" onclick="$('mergeDialog').close()">Cancel</button></div>
+    </form>
+    </dialog>
+    <dialog class="entry-dialog" id="ssoDialog" aria-labelledby="ssoTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+    <div class="dialog-header"><h2 id="ssoTitle">Move TU Delft sign-in</h2><button type="button" onclick="$('ssoDialog').close()" aria-label="Close Move TU Delft sign-in">Close</button></div>
+    <p class="mute" id="ssoIntro"></p>
+    <p id="ssoError" class="dialog-error" role="alert"></p>
+    <form class="dialog-fields" onsubmit="event.preventDefault();moveSso()">
+      <label class="field">Move to<select id="ssoTo" onchange="$('ssoNew').hidden = this.value !== 'new'"></select></label>
+      <div class="dialog-fields" id="ssoNew" hidden>
+        <label class="field">Username of the new account<input id="ssoUsername" maxlength="40" autocomplete="off"></label>
+        <label class="field">Display name<input id="ssoDisplayName" maxlength="80" autocomplete="off"></label>
+      </div>
+      <label id="ssoEmailRow"><input type="checkbox" id="ssoEmail"> <span id="ssoEmailText"></span></label>
+      <label id="ssoNameRow"><input type="checkbox" id="ssoName"> <span id="ssoNameText"></span></label>
+      <div class="row"><button type="submit" class="primary">Move sign-in</button> <button type="button" class="sec" onclick="$('ssoDialog').close()">Cancel</button></div>
+    </form>
+    </dialog>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -541,7 +593,7 @@ async function load() {
 
 const hasLicence = u => ((u.qualifications && u.qualifications.items) || []).some(item => item.status === 'approved');
 const shownPeople = () => people.users.filter(u => (!u.is_external || $('showExternal').checked)
-  && (u.has_logs || hasLicence(u) || $('showWithoutLogs').checked || (window.editMode() && u.id === selectedPerson)));
+  && (u.has_logs || hasLicence(u) || $('showWithoutLogs').checked || u.id === selectedPerson));
 // "Active" when the account can sign in: TU Delft SSO linked (also a local account that later signed in with SSO)
 // and/or a local password.
 function activeAccountLabel(u) {
@@ -567,20 +619,26 @@ function qualBits(q) {
 // The admin sections (Unlinked crew names, Approval queue, Qualification types) are tabs next to People, one on
 // screen at a time; the tab is kept in the URL (?tab=) so Back returns to it.
 let pageTab = new URLSearchParams(location.search).get('tab') || 'people';
+function readPersonUrl(p) {
+  selectedPerson = +p.get('person') || null;
+  selectedTab = ['profile', 'qualifications', 'api', 'aliases'].includes(p.get('ptab')) ? p.get('ptab') : 'account';
+}
+readPersonUrl(new URLSearchParams(location.search));
 function paintPageTabs(open) {
   const sections = [['people', 'People', $('peopleCard')], ['unlinked', 'Unlinked crew names', $('unlinkedCard'), open],
     ['approvals', 'Approval queue', $('approvalSection'), pendingQualifications.filter(s => !aqHeld.has(s.id)).length],
     ['types', 'Qualification types', $('typesSection')], ['profile-options', 'Profile options', $('profileOptionsSection')],
     ['profiles', 'Profiles', $('profilesSection'), profileList.filter(x => !x.self || me.is_admin).length], ['supervision', 'Supervision', $('supervisionSection'), supervisionGroups().length]].filter(([, , el]) => el === $('peopleCard') || !el.hidden);
-  if (!sections.some(t => t[0] === pageTab)) pageTab = 'people';
-  window.pageTabs($('pageTabs'), sections.map(([key, label, , count]) => [key, label, count]), pageTab, key => {
+  // a tab that is not there (yet: the data is still loading) shows People, but stays asked for in the URL
+  const current = sections.some(t => t[0] === pageTab) ? pageTab : 'people';
+  window.pageTabs($('pageTabs'), sections.map(([key, label, , count]) => [key, label, count]), current, key => {
     pageTab = key;
     const url = new URL(location.href);
     if (key === 'people') url.searchParams.delete('tab'); else url.searchParams.set('tab', key);
     history.pushState(history.state, '', url);
     render();
   });
-  if (sections.length > 1) for (const [key, , el] of sections) el.hidden = key !== pageTab;
+  if (sections.length > 1) for (const [key, , el] of sections) el.hidden = key !== current;
 }
 window.addEventListener('popstate', () => {
   const p = new URLSearchParams(location.search);
@@ -588,61 +646,123 @@ window.addEventListener('popstate', () => {
   aqKind = AQ_KINDS.includes(p.get('kind')) ? p.get('kind') : '';
   aqQuery = p.get('q') || ''; aqOpen = +p.get('open') || 0;
   ahReadUrl(p);
+  readPersonUrl(p);
   render();
 });
+// No Edit mode (UI rule, TECHNICAL.md#ui-rule): the cards are the same for everyone; a card opens the person beside
+// them. Administrators get tabs per part of the person, each with its own Edit, ⋯ for the rare account actions, Add
+// user and Manage ▾, and the admin page tabs (always shown to them). The server checks every change as before.
 function render() {
   const admin = !!(me && me.is_admin);
-  const editing = admin && window.editMode();
-  $('adminPeople').hidden = !editing;
-  $('directoryTable').hidden = editing;
-  $('directorySearchLabel').hidden = editing;
-  $('directoryCount').hidden = editing;
   // the tab stays while it is open (the last decision does not jump to People)
   $('approvalSection').hidden = !admin;  // also with nothing waiting: Decided shows the history
-  $('typesSection').hidden = !editing;
-  $('profileOptionsSection').hidden = !editing || !profileOn;
+  $('typesSection').hidden = !admin;
+  $('profileOptionsSection').hidden = !admin || !profileOn;
   // Profiles and Supervision: admins see everyone, a supervisor the people they supervise
   const others = profileList.filter(x => !x.self).length;
   $('profilesSection').hidden = !others;
-  $('profilesImportBtn').hidden = !admin;
   $('supervisionSection').hidden = !supervisionGroups().length;
   if (!$('profilesSection').hidden) renderProfiles();
   if (!$('supervisionSection').hidden) renderSupervision();
   const open = admin ? people.unlinked.length : 0;
-  document.querySelectorAll('.editOnly').forEach(el => { el.hidden = !editing; });
-  if (!editing) $('setupBox').hidden = true;
-  if (!editing) $('addUserDialog').close();
-  if (!editing) $('qualImportDialog').close();
-  $('unlinkedCard').hidden = !(editing && open);
+  $('addUserBtn').hidden = $('manageWrap').hidden = !admin;
+  $('manageProfileImport').hidden = !profileOn;
+  $('unlinkedCard').hidden = !open;
   $('showExternalLabel').hidden = !people.users.some(u => u.is_external);
   paintPageTabs(open);
-  $('pending').hidden = !(open && !editing);
-  const bits = [];
-  if (open) bits.push(`${open} name${open === 1 ? ' in the logs is' : 's in the logs are'} not linked`);
-  $('pending').textContent = bits.length
-    ? bits.join(', and ') + '. Turn on Edit in the menu to link them.'
-    : '';
-  $('peopleHint').textContent = editing
-    ? 'Search and select a person to manage their account, aliases and private qualifications. Users submit their own evidence on My account. Removing a user keeps their uploaded logs.'
-    : admin ? 'People and their qualifications. Open a name to view the pilot page. Turn on Edit to manage accounts, aliases and qualifications.'
-    : 'People and their visible qualifications. PIC totals follow the shared flight filters. Open a name for full details.';
-  if (!editing) {
-    if (admin) renderAdminPeople();
-    renderDirectory();
-    return;
+  $('peopleHint').textContent = admin
+    ? 'Click a person to open them beside the list: Account, Profile, Qualifications, API keys and Aliases, each with its own Edit; ⋯ has password, sign-in, merge and remove. Users submit their own evidence on My account. Removing a user keeps their uploaded logs.'
+    : 'People and their visible qualifications. PIC totals follow the shared flight filters. Click a person for a summary; their pilot page has the details.';
+  if (admin) {
+    $('newProject').innerHTML = '<option value="">No default</option>' + (people.projects || []).map(p =>
+      `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+    for (const key of [...unlinkedTicks]) if (!people.unlinked[+key]) unlinkedTicks.delete(key);
+    $('unlinked').innerHTML = people.unlinked.map((e, i) => `<tr><td class="chk"><input type="checkbox" aria-label="Select ${esc(e.name)}"
+      ${unlinkedTicks.has(String(i)) ? 'checked' : ''} onchange="tickUnlinked('${i}', this.checked)"></td><td>${esc(e.name)}</td><td>${e.count}×</td></tr>`).join('')
+      || '<tr><td colspan="3" class="mute">Everything is linked.</td></tr>';
+    paintUnlinkedBar();
+    renderQueue();
+    renderTypes();
   }
-
-  const projOpts = '<option value="">No default</option>' + (people.projects || []).map(p =>
-    `<option value="${p.id}">${esc(p.name)}</option>`).join('');
-  $('newProject').innerHTML = projOpts;
-  const opts = people.users.map(u => `<option value="${u.id}">${esc(u.display_name || u.username)} (${esc(u.username)})${u.is_external ? ' · External' : ''}</option>`).join('');
-  $('unlinked').innerHTML = people.unlinked.map((e, i) => `<tr><td>${esc(e.name)}</td><td>${e.count}×</td>
-    <td><select id="sel${i}">${opts}</select> <button onclick="addAlias(${i}, null)">Link</button></td>
-    <td><select id="extOperator${i}" title="The operator this person flies for" onchange="pickNewOperator(this, people.operators, () => { this.innerHTML = operatorOptions(null); })">${operatorOptions(null)}</select>
-      <button type="button" class="sec" onclick="addExternal(${i})">Add as external</button></td></tr>`).join('')
-    || '<tr><td colspan="4" class="mute">Everything is linked.</td></tr>';
-  renderAdminPeople();
+  renderDirectory();
+  renderPersonPanel();
 }
+// Unlinked crew names: tick them, then Link to person… or Add as external… in the selection bar.
+const unlinkedTicks = new Set();
+function tickUnlinked(key, on) { on ? unlinkedTicks.add(key) : unlinkedTicks.delete(key); paintUnlinkedBar(); }
+function paintUnlinkedBar() {
+  $('unlinkedBar').hidden = !unlinkedTicks.size;
+  $('unlinkedSelCount').textContent = `${unlinkedTicks.size} selected`;
+}
+const tickedNames = () => [...unlinkedTicks].map(k => people.unlinked[+k]).filter(Boolean);
+function openLinkPerson() {
+  const names = tickedNames();
+  const options = [...people.users].sort((a, b) => (a.display_name || a.username).localeCompare(b.display_name || b.username))
+    .map(u => `<option value="${u.id}">${esc(u.display_name || u.username)} (${esc(u.username)})${u.is_external ? ' · External' : ''}</option>`).join('');
+  actDialog('Link to person', `<p style="margin:0">${names.map(e => esc(e.name)).join(', ')} ${names.length === 1 ? 'becomes an alias' : 'become aliases'} of:</p>
+    <label class="field">Person<select name="user"><option value="">Choose a person</option>${options}</select></label>`, 'Link', async out => {
+    const uid = +$('actBody').querySelector('[name=user]').value;
+    if (!uid) { out.textContent = 'Choose a person.'; return false; }
+    for (const e of names) if (!await call('POST', '/api/admin/aliases', {user_id: uid, alias: e.name}, out)) return finishTicks(false);
+    return finishTicks(true);
+  });
+}
+function openAddExternal() {
+  const names = tickedNames();
+  actDialog('Add as external', `<p style="margin:0">${names.map(e => esc(e.name)).join(', ')}: crew of another operator. Their flights are linked; they cannot sign in or join projects.</p>
+    <label class="field">Flies for<select name="operator">${operatorOptions(null)}</select></label>`, 'Add as external', async out => {
+    const value = $('actBody').querySelector('[name=operator]').value;
+    for (const e of names)
+      if (!await call('POST', '/api/admin/people/external', {name: e.name, operator_id: value ? +value : null}, out)) return finishTicks(false);
+    return finishTicks(true);
+  });
+  const select = $('actBody').querySelector('[name=operator]');
+  select.onchange = () => pickNewOperator(select, people.operators, () => { select.innerHTML = operatorOptions(null); });
+}
+async function finishTicks(ok) { if (ok) unlinkedTicks.clear(); await load(); return ok; }
+// One small dialog for the ⋯ actions and the selection bar; OK runs the action (true closes it).
+function actDialog(title, body, okLabel, run) {
+  $('actTitle').textContent = title;
+  $('actBody').innerHTML = body;
+  $('actError').textContent = '';
+  $('actOk').textContent = okLabel;
+  $('actForm').onsubmit = async event => {
+    event.preventDefault();
+    $('actOk').disabled = true;
+    try { if (await run($('actError'))) $('actDialog').close(); } finally { $('actOk').disabled = false; }
+  };
+  $('actDialog').showModal();
+  $('actBody').querySelector('input, select')?.focus();
+}
+// A change through the API: the error goes to out; true when it worked (the caller reloads).
+async function call(method, url, body, out) {
+  try {
+    await adminApi(url, {method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined});
+    out.textContent = '';
+    return true;
+  } catch (error) { out.textContent = error.message; return false; }
+}
+// Manage ▾ and ⋯: small menus that close on a click elsewhere or Escape.
+function closeMenus() {
+  for (const [b, p] of [['manageBtn', 'manageMenu'], ['moreBtn', 'moreMenu']]) { $(p).hidden = true; $(b).setAttribute('aria-expanded', 'false'); }
+}
+for (const [b, p] of [['manageBtn', 'manageMenu'], ['moreBtn', 'moreMenu']]) {
+  $(b).onclick = e => {
+    e.stopPropagation();
+    const open = $(p).hidden;
+    closeMenus();
+    $(p).hidden = !open;
+    $(b).setAttribute('aria-expanded', String(open));
+    if (open) $(p).querySelector('button:not([hidden]), a')?.focus();
+  };
+  $(p).addEventListener('click', e => { if (e.target.closest('.ext-item')) closeMenus(); });
+}
+document.addEventListener('click', e => { if (!e.target.closest('.menu-wrap')) closeMenus(); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const open = !$('manageMenu').hidden ? 'manageBtn' : !$('moreMenu').hidden ? 'moreBtn' : null;
+  if (open) { closeMenus(); $(open).focus(); }
+});
 
 function matchingPeople(query) {
   query = query.trim().toLocaleLowerCase();
@@ -676,7 +796,7 @@ function renderDirectory() {
   $('directoryPeople').classList.toggle('with-profile', profileList.some(x => !x.self || me?.is_admin));
   $('directoryPeople').innerHTML = (picError ? `<p role="alert">${esc(picError)}</p>` : '') + rows.map(u => {
     const t = totals.get(u.id) || {count:0, seconds:0, last:''};
-    return `<a class="directory-person" href="/people/${u.id}" aria-label="${esc(u.display_name || u.username)}"><div class="directory-person-header">
+    return `<a class="directory-person${u.id === selectedPerson ? ' open' : ''}" href="/people/${u.id}" data-person="${u.id}" aria-current="${u.id === selectedPerson}" aria-label="${esc(u.display_name || u.username)}"><div class="directory-person-header">
     ${picFlights === null ? `<div class="pic-totals mute">${picError ? 'PIC totals unavailable' : 'Loading PIC totals...'}</div>` : `<div class="pic-totals mute" aria-label="PIC flight statistics">
       <span title="Flights as PIC"><strong>${t.count}</strong> flights</span><span title="Flight hours as PIC"><strong>${(t.seconds / 3600).toFixed(1)}</strong> h</span>
       <span class="pic-last" title="Last flight as PIC">Last ${esc(t.last || '—')}</span></div>`}
@@ -1047,27 +1167,21 @@ $('approvalQueue').addEventListener('focusin', event => {
   if (row) aqFocus = +row.dataset.id;
 });
 
-function renderAdminPeople() {
-  renderPeopleList();
-  renderPersonPanel();
-  renderQueue();
-  renderTypes();
-}
 
-// Qualification types: a list with what each one asks for; in Edit mode Edit opens a dialog and the handle reorders.
+// Qualification types (administrators): a list with what each one asks for; clicking a type opens it, the handle reorders.
 const TYPE_FLAGS = [['requires_evidence', 'Evidence'], ['requires_start', 'Valid from'], ['requires_expiry', 'Valid until'],
   ['requires_number', 'Number'], ['internal', 'Internal']];
 function renderTypes() {
-  const editing = window.editMode();
+  const editing = !!me?.is_admin;
   $('typeCount').textContent = `${qualificationTypes.length} type${qualificationTypes.length === 1 ? '' : 's'}`;
   // under their group headings once types have groups (the order of the rows is the order a drag saves)
   const grouped = qualificationTypes.some(t => (t.grp || '').trim());
   const typeRow = t => `<div class="type-row${t.active ? '' : ' off'}" data-type-row data-id="${t.id}">
       ${editing ? '<button type="button" class="drag-handle" aria-label="Drag to reorder">↕</button>' : '<span></span>'}
-      <div class="type-body"><strong>${esc(t.name)}</strong>${t.active ? '' : ' <span class="chip warn">inactive</span>'}
+      <div class="type-body" onclick="editType(${t.id})" title="Click to change"><strong>${esc(t.name)}</strong>${t.active ? '' : ' <span class="chip warn">inactive</span>'}
         <div class="type-desc" title="${esc(t.description || '')}">${t.description ? esc(t.description) : '<i>no description</i>'}</div></div>
       <div class="type-chips">${TYPE_FLAGS.filter(([k]) => t[k]).map(([, label]) => `<span class="chip">${label}</span>`).join('')}</div>
-      ${editing ? `<button type="button" class="sec" onclick="editType(${t.id})">Edit</button>` : '<span></span>'}
+      <span></span>
     </div>`;
   // each group in its own block: a type is dragged within its group, a group by the handle on its heading
   $('typeSettings').innerHTML = `<div id="typeList">${(grouped
@@ -1153,40 +1267,32 @@ function bindTypeDrag() {
   });
 }
 
-function renderPeopleList() {
-  const rows = matchingPeople($('peopleSearch').value);
-  $('peopleCount').textContent = `${rows.length} of ${people.users.length} people`;
-  $('peopleList').innerHTML = rows.map(u => `<button type="button" class="person-button" aria-pressed="${u.id === selectedPerson}"
-    title="${esc(u.username)}${pendingQualifications.some(s => s.user_id === u.id && !aqIsBooking(s)) ? ' · Qualification review pending' : ''}"
-    onclick="selectPerson(${u.id})"><span>${esc(u.display_name || u.username)}</span>
-    <span class="person-status">${u.is_external ? '<span>External</span>'
-      : activeAccountLabel(u) ? `<span class="active" title="Signs in with ${[u.has_sso ? 'TU Delft SSO' : '', u.has_password ? 'a local password' : ''].filter(Boolean).join(' or ')}">Active</span>` : ''}
-    ${u.is_admin ? '<span>Admin</span>' : ''}</span></button>`).join('')
-    || '<p class="mute">No matching people.</p>';
+// The open person beside the cards (?person=<id>&ptab=<tab> in the URL, so Back returns to the same view).
+function personUrl(push) {
+  const url = new URL(location.href);
+  if (selectedPerson) url.searchParams.set('person', selectedPerson); else url.searchParams.delete('person');
+  if (selectedPerson && selectedTab !== 'account') url.searchParams.set('ptab', selectedTab); else url.searchParams.delete('ptab');
+  if (url.href !== location.href) history[push ? 'pushState' : 'replaceState'](history.state, '', url);
 }
-
 function selectPerson(id, tab = 'account') {
   selectedPerson = id;
   selectedTab = tab;
   $('setupBox').hidden = true;
-  if (pageTab !== 'people') {  // e.g. Review submission in the Approval queue tab: the person panel is on People
+  if (pageTab !== 'people') {  // e.g. Edit in the Approval queue: the person opens on People; Back returns to the queue
     pageTab = 'people';
     const url = new URL(location.href);
     url.searchParams.delete('tab');
-    history.pushState(history.state, '', url);  // Back returns to the queue
-    if (window.editMode()) render();
+    history.pushState(history.state, '', url);
   }
-  if (!window.editMode()) window.toggleEditMode();
-  renderPeopleList();
-  renderPersonPanel();
-  $('personPanel').scrollIntoView({block:'nearest'});
+  personUrl(true);
+  render();
+  if (id) $('personPanel').scrollIntoView({block: 'nearest'});
 }
-
 function selectPersonTab(tab) {
   selectedTab = tab;
+  personUrl(false);
   renderPersonPanel();
 }
-
 $('personTabs').addEventListener('keydown', event => {
   if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
   event.preventDefault();
@@ -1197,18 +1303,44 @@ $('personTabs').addEventListener('keydown', event => {
   selectPersonTab(tabs[next]);
   $('tab-' + selectedTab).focus();
 });
-
+// A card opens the person beside the cards; Ctrl/Cmd-click still opens the pilot page.
+$('directoryPeople').addEventListener('click', e => {
+  const card = e.target.closest('a.directory-person');
+  if (!card || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
+  e.preventDefault();
+  selectPerson(+card.dataset.person === selectedPerson ? null : +card.dataset.person);
+});
+// A tab's read view with its Edit button in the tab header (one per tab); clicking a value opens it at that field.
+const tabHead = (title, editLabel, onEdit) => `<div class="tab-head"><h3>${title}</h3>${editLabel ? `<button type="button" class="sec" onclick="${onEdit}">${editLabel}</button>` : ''}</div>`;
+const editRow = (key, label, value, tab) => `<span class="mute edit-key" data-edit-field="${key}" data-edit-tab="${tab}" title="Click to change">${label}</span><span class="edit-val" data-edit-field="${key}" data-edit-tab="${tab}" title="Click to change">${value || '<span class="mute">—</span>'}</span>`;
+const plainRow = (label, value) => `<span class="mute">${label}</span><span>${value || '<span class="mute">—</span>'}</span>`;
+document.addEventListener('click', e => {
+  const value = e.target.closest('#personContent [data-edit-field]');
+  if (!value || e.target.closest('a, button')) return;
+  ({account: openEditAccount, aliases: openEditAliases, profile: openEditProfile})[value.dataset.editTab]?.(value.dataset.editField);
+});
 function renderPersonPanel() {
   const generation = ++panelGeneration;
   const user = people.users.find(u => u.id === selectedPerson);
-  $('personTabs').hidden = !user;
-  $('personLink').hidden = !user;
-  $('personHeading').textContent = user ? (user.display_name || user.username) : 'No person selected';
-  $('personIdentity').textContent = user ? `@${user.username}`
-    : 'Choose a person from the list to see their account, aliases and qualifications here.';
-  if (!user) { $('personContent').textContent = ''; return; }
-  $('personLink').href = '/people/' + user.id;
-  $('personLink').textContent = 'View pilot page';
+  const admin = !!me?.is_admin;
+  $('peopleSplit').classList.toggle('with-panel', !!user);
+  $('personPanel').hidden = !user;
+  if (!user) { closeMenus(); return; }
+  const id = user.id, name = user.display_name || user.username;
+  $('personHeading').innerHTML = `${esc(name)} <a class="pilot-link" href="/people/${id}" title="Pilot page: flights, licences, projects">Pilot page ↗</a>`;
+  $('personIdentity').textContent = admin ? `@${user.username}${user.is_external ? ' · External' : ''}` : (user.is_external ? 'External' : '');
+  $('personTabs').hidden = !admin;
+  paintPersonMore(user);
+  if (!admin) {  // the summary everyone may see; the pilot page has the rest
+    const x = profileList.find(p => p.id === id);
+    const t = picTotals().get(id);
+    $('personContent').innerHTML = `<div class="kv">
+      ${x?.profile ? plainRow('Role', esc([x.profile.role, x.profile.department].filter(Boolean).join(' · '))) : ''}
+      ${plainRow('Flights as PIC', esc(flightsText(t)))}
+      ${plainRow('Current licences', qualBits(user.qualifications))}</div>
+      ${me && id === me.id ? '<p><a href="/account">My account</a>' + (profileOn ? ' · <a href="/profile">My profile</a>' : '') + '</p>' : ''}`;
+    return;
+  }
   $('tab-profile').hidden = !profileOn;
   if (!personTabs().includes(selectedTab)) selectedTab = 'account';
   for (const tab of personTabs()) {
@@ -1216,94 +1348,182 @@ function renderPersonPanel() {
     $('tab-' + tab).tabIndex = selectedTab === tab ? 0 : -1;
   }
   $('personContent').setAttribute('aria-labelledby', 'tab-' + selectedTab);
-  const editing = window.editMode();
-  const id = user.id;
   if (selectedTab === 'qualifications') {
     $('personContent').innerHTML = '<div id="personQualifications">Loading qualifications...</div>';
     qualificationManager = new QualificationManager($('personQualifications'), id, true, () => {
       if (generation === panelGeneration) return load();
     });
-    qualificationManager.editing = editing;
-    qualificationManager.name = user.display_name || user.username;  // the add dialog says for whom
+    qualificationManager.editing = true;  // each qualification has its own actions; Add qualification for this person
+    qualificationManager.name = name;  // the add dialog says for whom
     qualificationManager.load();
   } else if (selectedTab === 'aliases') {
-    $('personContent').innerHTML = `<p class="mute">Aliases link PIC/PAC/GCS names in logs to this person. Unique display names match automatically; usernames match only if explicitly added as aliases. Review existing aliases if a short name is ambiguous.</p>
-      ${(user.aliases || []).map(alias => `<span class="chip">${esc(alias)}${editing
-        ? `<button type="button" aria-label="Remove alias ${esc(alias)}" data-alias="${esc(alias)}" onclick="removeAlias(this.dataset.alias)">×</button>` : ''}</span>`).join('') || '<p>No aliases.</p>'}
-      ${editing ? `<form class="panel-row" onsubmit="event.preventDefault();addAlias(null,${id})">
-        <label class="field">New alias<input id="new${id}" required maxlength="80"></label><button type="submit">Add alias</button></form>` : ''}`;
+    $('personContent').innerHTML = `${tabHead('Aliases', 'Edit aliases', 'openEditAliases()')}
+      <p class="mute">Aliases link PIC/PAC/GCS names in logs to this person. Unique display names match automatically; usernames match only if explicitly added as aliases. Review existing aliases if a short name is ambiguous.</p>
+      <div class="edit-val" data-edit-field="aliases" data-edit-tab="aliases" title="Click to change">${(user.aliases || []).map(alias => `<span class="chip">${esc(alias)}</span>`).join('') || '<span class="mute">No aliases.</span>'}</div>`;
   } else if (selectedTab === 'profile') {
-    $('personContent').innerHTML = '<div id="personProfile" role="status">Loading profile...</div>';
+    $('personContent').innerHTML = `${tabHead('Profile', 'Edit profile', 'openEditProfile()')}<div id="personProfile" role="status">Loading profile...</div>`;
     adminApi(`/api/users/${id}/profile`).then(d => {
       if (generation !== panelGeneration) return;
-      profileEdit = {id, sups: (d.profile?.supervisors || []).map(s => ({id: s.id, name: s.name})),
-        options: {...d.options, supervisors: d.options.supervisors.filter(s => s.id !== id)}};
-      $('personProfile').innerHTML = profileFormHTML(d);
-      profileSavedFor = 0;
-      renderProfileSups();
+      personProfile = {id, data: d};
+      const todo = (d.missing || []).filter(m => m !== 'profile').map(m => m.replace('_', ' '));
+      const state = !d.profile ? 'Not filled in yet.' : todo.length ? 'Still to fill in: ' + todo.join(', ') + '.' : '';
+      $('personProfile').innerHTML = `${state ? `<p class="mute">${esc(state)} The person completes it at their next sign-in.</p>` : ''}
+        <div class="kv edit-val" data-edit-field="role" data-edit-tab="profile" title="Click to change">${window.profileHTML(d.profile)}</div>
+        <p class="mute">Last confirmed ${esc((d.profile?.updated_at || '').slice(0, 10)) || '—'}</p>`;
     }).catch(error => { $('personProfile').textContent = error.message; });
   } else if (selectedTab === 'api') {
-    $('personContent').innerHTML = `<div class="section-heading"><h3>API keys</h3>
-      <details><summary>Help</summary><p>Full key secrets are shown only when created and cannot be retrieved. Only key details are listed here. Revoking a key immediately stops scripts using it. Users create keys on My account.</p></details></div>
-      <div id="personApiKeys" role="status">Loading API keys...</div>`;
+    $('personContent').innerHTML = `<div class="tab-head"><h3>API keys</h3>
+      <details><summary>Help</summary><p>Full key secrets are shown only when created and cannot be retrieved. Only key details are listed here. Tick a key to narrow its scopes or revoke it; revoking stops scripts using it immediately. Users create keys on My account.</p></details></div>
+      <div id="personApiKeys" role="status">Loading API keys...</div>
+      <div id="keyBar" class="sel-bar" hidden role="region" aria-label="Ticked keys"><strong id="keySelCount"></strong>
+        <button type="button" id="keyNarrow">Narrow scopes…</button><button type="button" id="keyRevoke">Revoke…</button>
+        <button type="button" class="x" onclick="keyTicks.clear(); renderPersonPanel()">Clear</button></div>`;
     loadPersonKeys(id, generation);
   } else {
     const project = people.projects.find(p => p.id === user.default_project_id);
-    $('personContent').innerHTML = `<details class="account-help"><summary>Help</summary>
+    const signIn = activeAccountLabel(user) || (user.is_external ? 'External, no sign-in' : !user.is_active ? 'Account disabled' : user.provider === 'saml' ? 'TU Delft SSO' : 'No local password set');
+    $('personContent').innerHTML = `${tabHead('Account', 'Edit account', 'openEditAccount()')}
+      <div class="kv">
+      ${editRow('username', 'Username', esc(user.username), 'account')}
+      ${editRow('display_name', 'Display name', esc(user.display_name || ''), 'account')}
+      ${editRow('email', 'Email', esc(user.email || ''), 'account')}
+      ${editRow('default_project', 'Default project', esc(project?.name || 'No default'), 'account')}
+      ${editRow('operator', 'Flies for', esc(operatorLabelById(user.operator_id)), 'account')}
+      ${editRow('access', 'Access', user.is_admin ? 'Administrator' : user.is_external ? 'External crew' : 'Standard account', 'account')}
+      ${plainRow('Sign-in', esc(signIn))}
+      ${user.is_external ? '' : plainRow('Password', user.provider === 'saml' ? 'Managed by identity provider' : user.has_password ? 'Chosen' : 'Not set')}
+      ${user.has_sso && user.provider !== 'saml' ? plainRow('TU Delft sign-in', 'Linked') : ''}
+      </div>
+      <details class="account-help"><summary>Help</summary>
       <p>The username is only the local sign-in name, not an automatic log match. Unique display names and explicit aliases match logs. Previous unambiguous display names remain aliases; username changes do not add aliases. Existing records and SSO links stay attached.</p>
       <p>Active means an enabled TU Delft SSO account or a local account with a password. It does not describe recent activity or qualifications. Local accounts without a password cannot sign in until a password is set.</p>
       <p>Administrators have access to all projects, accounts and private qualification evidence. External people are crew of another operator: flights stay linked, but they cannot sign in or access projects.</p>
-      <p>Removing a person keeps uploaded logs. Existing safeguards still apply to historical records, qualifications and the last administrator.</p>
-      <p>Merge into… is for one person with two accounts: flights, records, uploads, projects, qualifications and API keys move to the account you keep, and this account's names become aliases. Move TU Delft sign-in… fixes a TU Delft login that was matched to the wrong person. Both are recorded in the audit log.</p></details>
-      ${editing ? `<form class="account-profile" onsubmit="event.preventDefault();saveProfile(${id})">
-      <label class="field">Username<input id="username${id}" required maxlength="40" autocomplete="off" value="${esc(user.username)}"></label>
-      <label class="field">Display name<input id="displayName${id}" maxlength="80" value="${esc(user.display_name || '')}"></label>
-      <label class="field"${user.email ? '' : ' title="Accounts made before email became required may have none; once set it can be changed, not removed"'}>Email${user.email ? '' : ' (optional)'}<input id="mail${id}" type="email" maxlength="120" value="${esc(user.email || '')}"${user.email ? ' required' : ''}></label>
-      <label class="field">Default project<select id="userProject${id}">
-      <option value="">No default</option>${people.projects.map(p => `<option value="${p.id}"${p.id === user.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
-      <button type="submit">Save account</button></form>`
-      : `<p><strong>Username:</strong> ${esc(user.username)}</p>`}
-      ${editing ? '' : `<p><strong>Email:</strong> ${esc(user.email || 'Not set')}</p><p><strong>Default project:</strong> ${esc(project?.name || 'No default')}</p>`}
-      <div class="account-sections"><section class="account-section"><h3>Sign-in</h3>
-      <p>${activeAccountLabel(user) || (user.is_external ? 'External, no sign-in' : !user.is_active ? 'Account disabled' : user.provider === 'saml' ? 'TU Delft SSO' : 'No local password set')}</p>
-      ${user.is_external ? '' : `<p><strong>Password:</strong> ${user.provider === 'saml' ? 'Managed by identity provider' : user.has_password ? 'Chosen' : 'Not set'}</p>`}
-      ${user.has_sso && user.provider !== 'saml' ? '<p><strong>TU Delft sign-in:</strong> Linked</p>' : ''}
-      ${editing && user.has_sso ? `<div class="account-actions"><button type="button" class="sec" onclick="openSsoMove(${id})"
-        title="When the TU Delft sign-in was matched to the wrong account">Move TU Delft sign-in…</button></div>` : ''}
-      ${editing && !user.is_external && ['local','log'].includes(user.provider) ? `<div class="account-actions">
-        <button type="button" onclick="newSetupLink(${id})">${user.has_password ? 'Reset password' : 'Set password'}</button>
-        ${user.provider === 'local' && user.has_password ? `<button type="button" class="danger" onclick="removePassword(${id})">Remove password</button>` : ''}</div>` : ''}
-      </section><section class="account-section"><h3>Access</h3>
-      <p>${user.is_admin ? 'Administrator' : user.is_external ? 'External crew' : 'Standard account'}</p>
-      <div class="account-actions">
-      ${editing && !user.is_external ? `<p><button type="button" class="${user.is_admin ? 'danger' : 'sec'}"
-        ${id === me.id ? 'disabled title="Ask another administrator to remove your admin rights."' : ''}
-        onclick="setAdmin(${id}, ${!user.is_admin})">${user.is_admin ? 'Remove admin rights' : 'Make administrator'}</button>
-        </p>` : ''}
-      ${editing && id !== me.id && !user.is_admin ? `<p><label><input type="checkbox" ${user.is_external ? 'checked' : ''} onchange="setExternal(${id}, this.checked)">
-        External</label></p>` : ''}
-      </div>
-      <p title="Their flights are under this operator unless the flight, its project or its location says otherwise"><strong>Flies for:</strong>
-      ${editing ? `<select id="userOperator${id}" onchange="setUserOperator(${id}, this)">${operatorOptions(user.operator_id)}</select>`
-        : esc(operatorLabelById(user.operator_id))}</p></section>
-      ${editing && id !== me.id ? `<section class="account-section"><h3>Merge or remove</h3>
-        <div class="account-actions"><button type="button" class="sec" onclick="openMerge(${id})"
-          title="When one person has two accounts: move everything of this account to the other one">Merge into…</button>
-        <button type="button" class="danger" onclick="removeUser(${id})">Remove user</button></div></section>` : ''}</div>`;
+      <p>⋯ has the rare actions: set or reset the password, remove it, move a TU Delft sign-in matched to the wrong person, merge two accounts of one person (flights, records, uploads, projects, qualifications and API keys move to the account you keep; this account's names become aliases) and remove the person (uploaded logs are kept). Merges and moves are recorded in the audit log.</p></details>`;
   }
 }
+// ⋯ of the open person (administrators): password, sign-in, merge and remove.
+function paintPersonMore(user) {
+  const items = [];
+  if (me?.is_admin) {
+    const id = user.id;
+    if (!user.is_external && ['local', 'log'].includes(user.provider)) items.push([`newSetupLink(${id})`, user.has_password ? 'Reset password…' : 'Set password…']);
+    if (user.provider === 'local' && user.has_password) items.push([`removePassword(${id})`, 'Remove password…', true]);
+    if (user.has_sso) items.push([`openSsoMove(${id})`, 'Move TU Delft sign-in…']);
+    if (id !== me.id) items.push([`openMerge(${id})`, 'Merge into…'], [`removeUser(${id})`, 'Remove user…', true]);
+  }
+  $('moreMenu').innerHTML = items.map(([run, label, danger]) =>
+    `<button type="button" class="ext-item${danger ? ' danger-item' : ''}" role="menuitem" onclick="${run}">${label}</button>`).join('');
+  $('moreWrap').hidden = !items.length;
+}
+// The Edit dialog: fields, then Save sends what changed; an error stays at its field and keeps the dialog open.
+function editDialog(title, what, fields, save, focus) {
+  $('editTitle').textContent = title;
+  $('editWhat').textContent = what;
+  $('editFields').innerHTML = fields;
+  $('editError').textContent = '';
+  $('editForm').onsubmit = async event => {
+    event.preventDefault();
+    $('editFields').querySelectorAll('[data-error]').forEach(el => { el.textContent = ''; });
+    $('editError').textContent = '';
+    $('editSave').disabled = true;
+    try {
+      const failed = await save(key => $('editFields').querySelector(`[data-error="${key}"]`) || $('editError'));
+      if (failed) { $('editError').textContent = `${failed} change${failed > 1 ? 's were' : ' was'} not saved; see above.`; await load(); return; }
+      $('editDialog').close();
+      await load();
+    } finally { $('editSave').disabled = false; }
+  };
+  $('editDialog').showModal();
+  ($('editFields').querySelector(`[name=${focus}]`) || $('editFields').querySelector('input, select, textarea'))?.focus();
+}
+const field = (key, label, control, wide) => `<label class="field${wide ? ' wide' : ''}">${label}${control}<span class="field-error" data-error="${key}"></span></label>`;
+const val = name => $('editFields').querySelector(`[name=${name}]`);
+function openEditAccount(focus) {
+  const user = people.users.find(u => u.id === selectedPerson);
+  if (!user) return;
+  const self = user.id === me.id;
+  const projects = '<option value="">No default</option>' + people.projects.map(p => `<option value="${p.id}"${p.id === user.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+  editDialog(`Edit account ${user.display_name || user.username}`, `@${user.username}`, `<div class="edit-grid">
+    ${field('username', 'Username', `<input name="username" required maxlength="40" autocomplete="off" value="${esc(user.username)}">`)}
+    ${field('display_name', 'Display name', `<input name="display_name" maxlength="80" value="${esc(user.display_name || '')}">`)}
+    ${field('email', 'Email' + (user.email ? '' : ' (optional)'), `<input name="email" type="email" maxlength="120" value="${esc(user.email || '')}"${user.email ? ' required' : ''}
+      ${user.email ? '' : 'title="Accounts made before email became required may have none; once set it can be changed, not removed"'}>`)}
+    ${field('default_project', 'Default project', `<select name="default_project">${projects}</select>`)}
+    ${field('operator', 'Flies for', `<select name="operator" title="Their flights are under this operator unless the flight, its project or its location says otherwise">${operatorOptions(user.operator_id)}</select>`)}
+    <div class="field" data-field="access">Access
+      ${user.is_external ? '' : `<label><input type="checkbox" name="is_admin"${user.is_admin ? ' checked' : ''}${self ? ' disabled title="Ask another administrator to remove your admin rights."' : ''}> Administrator <span class="mute">(all projects, accounts and private qualification evidence)</span></label>`}
+      ${self || user.is_admin ? '' : `<label><input type="checkbox" name="is_external"${user.is_external ? ' checked' : ''}> External <span class="mute">(crew of another operator: cannot sign in, loses project access; flights stay linked)</span></label>`}
+      <span class="field-error" data-error="access"></span></div>
+  </div>`, async out => {
+    let failed = 0;
+    const account = ['username', 'display_name', 'email'].some(k => val(k).value.trim() !== (user[k] || ''))
+      || String(user.default_project_id ?? '') !== val('default_project').value;
+    if (account && !await call('PUT', `/api/admin/users/${user.id}/profile`, {username: val('username').value, display_name: val('display_name').value,
+      email: val('email').value, default_project_id: val('default_project').value || null}, out('username'))) failed++;
+    if (String(user.operator_id ?? '') !== val('operator').value
+        && !await call('PUT', `/api/admin/users/${user.id}/operator`, {operator_id: val('operator').value ? +val('operator').value : null}, out('operator'))) failed++;
+    if (val('is_admin') && val('is_admin').checked !== !!user.is_admin
+        && !await call('PUT', `/api/admin/users/${user.id}/admin`, {is_admin: val('is_admin').checked}, out('access'))) failed++;
+    if (val('is_external') && val('is_external').checked !== !!user.is_external
+        && !await call('PUT', `/api/admin/users/${user.id}/external`, {is_external: val('is_external').checked}, out('access'))) failed++;
+    if (account && user.id === me.id) me = await adminApi('/api/me').then(d => d.user);
+    return failed;
+  }, focus === 'access' ? 'is_admin' : focus);
+  const operator = val('operator');
+  operator.onchange = () => pickNewOperator(operator, people.operators, () => { operator.innerHTML = operatorOptions(user.operator_id); }, String(user.operator_id ?? ''));
+}
+function openEditAliases() {
+  const user = people.users.find(u => u.id === selectedPerson);
+  if (!user) return;
+  const was = user.aliases || [];
+  editDialog(`Edit aliases ${user.display_name || user.username}`, 'Names in logs that link to this person, one per line.',
+    field('aliases', 'Aliases', `<textarea name="aliases" rows="5">${esc(was.join('\n'))}</textarea>`, true), async out => {
+    const is = [...new Set(val('aliases').value.split('\n').map(a => a.trim()).filter(Boolean))];
+    let failed = 0;
+    for (const alias of was.filter(a => !is.includes(a))) if (!await call('DELETE', '/api/admin/aliases', {alias}, out('aliases'))) failed++;
+    for (const alias of is.filter(a => !was.includes(a))) if (!await call('POST', '/api/admin/aliases', {user_id: user.id, alias}, out('aliases'))) failed++;
+    return failed;
+  }, 'aliases');
+}
+// The person's profile, filled in for them (the person checks it at their next sign-in), with the person's own rules.
+let personProfile = null;
+function openEditProfile() {
+  if (!personProfile || personProfile.id !== selectedPerson) return;
+  const d = personProfile.data, id = personProfile.id, user = people.users.find(u => u.id === id);
+  profileEdit = {id, sups: (d.profile?.supervisors || []).map(s => ({id: s.id, name: s.name})),
+    options: {...d.options, supervisors: d.options.supervisors.filter(s => s.id !== id)}};
+  editDialog(`Edit profile ${user ? user.display_name || user.username : ''}`, 'Fields may stay empty, but what is filled in must be valid. The person checks the profile at their next sign-in.',
+    profileFormHTML(d), async out => {
+      try { await savePersonProfile(); return 0; } catch (error) { out('profile').textContent = error.message; return 1; }
+    }, 'pfRole');
+  renderProfileSups();
+}
 
+const keyTicks = new Set();
 async function loadPersonKeys(id, generation) {
   try {
     const keys = await adminApi(`/api/admin/users/${id}/keys`);
     if (generation !== panelGeneration) return;
+    for (const k of [...keyTicks]) if (!keys.some(key => key.id === k)) keyTicks.delete(k);
     const stamp = value => value ? esc(value.replace('T', ' ').replace('Z', ' UTC')) : 'Never';
     $('personApiKeys').innerHTML = keys.length ? `<div class="scroll"><table>
-      <thead><tr><th>Name</th><th>Scopes</th><th>Prefix</th><th>Created</th><th>Last used</th>${window.editMode() ? '<th>Actions</th>' : ''}</tr></thead>
-      <tbody>${keys.map(key => `<tr><td>${esc(key.name)}</td><td>${esc(key.scopes ? key.scopes.join(' ') : 'full (old)')}</td><td><code>${esc(key.prefix)}…</code></td>
-        <td>${stamp(key.created_at)}</td><td>${stamp(key.last_used_at)}</td>
-        ${window.editMode() ? `<td>${!key.scopes || key.scopes.length > 1 ? `<button type="button" class="sec" onclick="narrowPersonKey(${id}, ${key.id}, ${esc(JSON.stringify(key.scopes))})">Narrow</button> ` : ''}<button type="button" class="danger" onclick="revokePersonKey(${id}, ${key.id})">Revoke</button></td>` : ''}</tr>`).join('')}</tbody></table></div>`
+      <thead><tr><th class="chk"></th><th>Name</th><th>Scopes</th><th>Prefix</th><th>Created</th><th>Last used</th></tr></thead>
+      <tbody>${keys.map(key => `<tr><td class="chk"><input type="checkbox" aria-label="Select key ${esc(key.name)}" data-key="${key.id}"${keyTicks.has(key.id) ? ' checked' : ''}></td>
+        <td>${esc(key.name)}</td><td>${esc(key.scopes ? key.scopes.join(' ') : 'full (old)')}</td><td><code>${esc(key.prefix)}…</code></td>
+        <td>${stamp(key.created_at)}</td><td>${stamp(key.last_used_at)}</td></tr>`).join('')}</tbody></table></div>`
       : '<p class="mute">No API keys.</p>';
+    const paint = () => {
+      const ticked = keys.filter(k => keyTicks.has(k.id));
+      $('keyBar').hidden = !ticked.length;
+      $('keySelCount').textContent = `${ticked.length} selected`;
+      const one = ticked.length === 1 ? ticked[0] : null;
+      $('keyNarrow').disabled = !(one && (!one.scopes || one.scopes.length > 1));
+      $('keyNarrow').title = ticked.length !== 1 ? 'Tick one key to narrow its scopes' : $('keyNarrow').disabled ? 'This key has only one scope left' : '';
+      $('keyNarrow').onclick = () => one && narrowPersonKey(id, one.id, one.scopes);
+      $('keyRevoke').onclick = () => revokePersonKeys(id, ticked);
+    };
+    $('personApiKeys').onchange = e => { const box = e.target.closest('[data-key]'); if (!box) return; box.checked ? keyTicks.add(+box.dataset.key) : keyTicks.delete(+box.dataset.key); paint(); };
+    paint();
   } catch (error) {
     if (generation === panelGeneration) $('personApiKeys').textContent = `Could not load API keys: ${error.message}`;
   }
@@ -1338,41 +1558,14 @@ function narrowPersonKey(id, keyId, current) {
   dialog.showModal();
 }
 
-async function revokePersonKey(id, keyId) {
-  if (!confirm('Revoke this API key? Scripts using it will stop working immediately. This cannot be undone.')) return;
-  try {
-    await adminApi(`/api/admin/users/${id}/keys/${keyId}`, {method:'DELETE'});
-    $('err').textContent = '';
+function revokePersonKeys(id, keys) {
+  actDialog(keys.length === 1 ? 'Revoke API key' : `Revoke ${keys.length} API keys`, `<p style="margin:0">Revoke ${keys.map(k => `<b>${esc(k.name)}</b>`).join(', ')}?
+    Scripts using ${keys.length === 1 ? 'it' : 'them'} stop working immediately. This cannot be undone.</p>`, 'Revoke', async out => {
+    for (const key of keys) if (!await call('DELETE', `/api/admin/users/${id}/keys/${key.id}`, null, out)) return false;
+    keyTicks.clear();
     if (selectedPerson === id && selectedTab === 'api') renderPersonPanel();
-  } catch (error) { $('err').textContent = error.message; }
-}
-
-async function setAdmin(id, enabled) {
-  const user = people.users.find(u => u.id === id);
-  const name = user ? user.display_name || user.username : 'this person';
-  if (!confirm(enabled
-    ? `Make ${name} an administrator? This grants access to all projects, accounts and private qualification evidence.`
-    : `Remove administrator rights from ${name}? Their ordinary project memberships remain unchanged.`)) return;
-  try {
-    await adminApi(`/api/admin/users/${id}/admin`, {
-      method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({is_admin:enabled})
-    });
-    $('err').textContent = '';
-    await load();
-  } catch (error) { $('err').textContent = error.message; }
-}
-
-async function saveProfile(id) {
-  try {
-    await adminApi(`/api/admin/users/${id}/profile`, {
-      method:'PUT', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({username:$('username' + id).value, display_name:$('displayName' + id).value,
-        email:$('mail' + id).value, default_project_id:$('userProject' + id).value || null})
-    });
-    $('err').textContent = '';
-    me = await adminApi('/api/me').then(data => data.user);
-    await load();
-  } catch (error) { $('err').textContent = error.message; }
+    return true;
+  });
 }
 
 // Profiles and Supervision tabs, and the role on the cards (profiles.py). The view state is in the URL (p_* parameters).
@@ -1561,8 +1754,8 @@ function cardProfileLine(u) {
   return `<div class="card-profile" title="${esc(text)}">${esc(text)}</div>`;
 }
 
-// The person Profile tab (admins, Edit mode): the profile as an inline form, saved with the person's own rules.
-let profileEdit = null, profileSavedFor = 0;  // the form repaints after a save; say so once
+// The profile form of Edit profile (administrators), saved with the person's own rules.
+let profileEdit = null;
 function profileFormHTML(d) {
   const p = d.profile || {}, o = profileEdit.options;
   const todo = (d.missing || []).filter(m => m !== 'profile').map(m => m.replace('_', ' '));
@@ -1573,10 +1766,8 @@ function profileFormHTML(d) {
     return grp ? `<optgroup label="${esc(grp)}">${items}</optgroup>` : items;
   }).join('');
   const state = !d.profile ? 'not filled in yet' : todo.length ? 'still to fill in: ' + todo.join(', ') : '';
-  return `<div class="section-heading"><h3>Profile${state ? ` <span class="mute" style="font-weight:400;font-size:13px">· ${esc(state)}</span>` : ''}</h3>
-      <details><summary>Help</summary><p>Fill in what you know: fields may stay empty, but what is filled in must be valid.
-      The person checks the profile and completes the rest at their next sign-in.</p></details></div>
-    <form class="account-profile" id="profileForm" onsubmit="event.preventDefault();savePersonProfile()">
+  return `${state ? `<p class="mute" style="margin:0">Profile ${esc(state)}</p>` : ''}
+    <div class="edit-grid" id="profileForm">
     <label class="field">Role<select id="pfRole"><option value="">Choose…</option>${o.roles.map(r =>
       `<option value="${r.id}"${r.id === p.role_id ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}</select></label>
     <label class="field">Department / section<select id="pfDept" onchange="$('pfDeptText').hidden=this.value!=='other'">
@@ -1586,13 +1777,12 @@ function profileFormHTML(d) {
     <label class="field">&nbsp;<span><input type="checkbox" id="pfIndef"${p.indefinite ? ' checked' : ''} onchange="$('pfEnd').disabled=this.checked"> Indefinite</span></label>
     <label class="field">Student / employee no.<input id="pfNumber" maxlength="40" autocomplete="off" value="${esc(p.number || '')}"></label>
     <label class="field">GitHub (optional)<input id="pfGithub" maxlength="39" autocomplete="off" value="${esc(p.github || '')}"></label>
-    <div class="field" style="grid-column:1/-1">Supervisors <span id="pfSups"></span>
+    <div class="field wide">Supervisors <span id="pfSups"></span>
       <span class="panel-row" style="margin:4px 0 0"><input id="pfSupInput" list="pfSupList" maxlength="120" placeholder="Type a name and pick it from the list"
         onchange="addProfileSup()" onkeydown="if(event.key==='Enter'){event.preventDefault();addProfileSup()}">
       <button type="button" class="sec" onclick="addProfileSup(true)" title="Add the typed name as a supervisor without an account here">Add external</button></span>
       <datalist id="pfSupList">${o.supervisors.map(s => `<option value="${esc(s.name)}">${esc(s.role)}</option>`).join('')}</datalist></div>
-    <button type="submit">Save profile</button> <span id="pfStatus" class="mute" role="status">${profileSavedFor === profileEdit.id ? 'Saved.' : ''}</span></form>
-    <p class="mute" style="margin-top:8px">Last confirmed ${esc((p.updated_at || '').slice(0, 10)) || '—'}</p>`;
+    <span class="field-error wide" data-error="profile"></span></div>`;
 }
 function renderProfileSups() {
   $('pfSups').innerHTML = profileEdit.sups.map((s, i) => `<span class="chip">${s.id ? '' : 'External: '}${esc(s.name)}<button type="button"
@@ -1617,14 +1807,9 @@ async function savePersonProfile() {
     department_text: dept === 'other' ? $('pfDeptText').value : null, indefinite: $('pfIndef').checked,
     end_date: $('pfIndef').checked ? null : $('pfEnd').value, number: $('pfNumber').value, github: $('pfGithub').value,
     supervisors: profileEdit.sups.map(s => s.id ? {id: s.id} : {name: s.name})};
-  $('pfStatus').textContent = '';
-  try {
-    await adminApi(`/api/users/${profileEdit.id}/profile`, {method: 'PUT', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body)});
-    profileSavedFor = profileEdit.id;
-    $('pfStatus').textContent = 'Saved.';
-    await loadProfileList();  // cards, Profiles and Supervision; repaints this tab with the saved values
-  } catch (error) { $('pfStatus').textContent = error.message; }
+  await adminApi(`/api/users/${profileEdit.id}/profile`, {method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)});  // an error is shown in the Edit dialog
+  await loadProfileList();  // cards, Profiles and Supervision
 }
 
 // Profile options (roles and departments of the person profile), admins in Edit mode.
@@ -1831,26 +2016,27 @@ async function newSetupLink(id) {
   $('err').textContent = '';
   showSetup(data.setup_url, u ? u.username : 'This user', !!(u && u.has_password), data.expires_at, data.mailed_to);
 }
-async function removePassword(id) {
+function removePassword(id) {
   const u = people.users.find(x => x.id === id);
-  if (!confirm(`Remove password sign-in for ${u ? u.username : 'this user'}? The profile and all linked information are kept. Unused password links will stop working. Existing sessions and API keys are not revoked.`)) return;
-  try {
-    const r = await fetch('/api/admin/users/' + id + '/password', {method:'DELETE'});
-    if (!r.ok) {
-      $('err').textContent = ((await r.json().catch(() => ({}))).error) || 'Could not remove password.';
-      return;
-    }
-    $('setupBox').hidden = true;
-    $('setupUrl').value = '';
-    $('err').textContent = '';
-    await load();
-  } catch (e) { $('err').textContent = 'Could not remove password: ' + e.message; }
+  actDialog('Remove password', `<p style="margin:0">Remove password sign-in for <b>${esc(u ? u.username : 'this user')}</b>? The profile and all linked information are kept. Unused password links stop working. Existing sessions and API keys are not revoked.</p>`,
+    'Remove password', async out => {
+      if (!await call('DELETE', '/api/admin/users/' + id + '/password', null, out)) return false;
+      $('setupBox').hidden = true;
+      $('setupUrl').value = '';
+      await load();
+      return true;
+    });
 }
-async function removeUser(id) {
+function removeUser(id) {
   const u = people.users.find(x => x.id === id);
-  const label = u ? (u.display_name || u.username) : 'this user';
-  if (confirm('Remove ' + label + '? They can no longer sign in. Logs they uploaded are kept.'))
-    await send('DELETE', '/api/admin/users/' + id);
+  actDialog('Remove user', `<p style="margin:0">Remove <b>${esc(u ? (u.display_name || u.username) : 'this user')}</b>? They can no longer sign in. Logs they uploaded are kept.</p>`,
+    'Remove user', async out => {
+      if (!await call('DELETE', '/api/admin/users/' + id, null, out)) return false;
+      selectedPerson = null;
+      personUrl(false);
+      await load();
+      return true;
+    });
 }
 
 // Merging two accounts of one person and moving a wrongly matched TU Delft sign-in (TECHNICAL.md, "Accounts").
@@ -1919,36 +2105,10 @@ async function moveSso() {
   load();
 }
 
-async function send(method, url, body) {
-  const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-  $('err').textContent = r.ok ? '' : ((await r.json()).error || 'failed');
-  if (r.ok) load();
-}
-function addAlias(i, uid) {
-  if (i !== null) return send('POST', '/api/admin/aliases', {user_id: +$('sel' + i).value, alias: people.unlinked[i].name});
-  const v = $('new' + uid).value.trim();
-  if (v) send('POST', '/api/admin/aliases', {user_id: uid, alias: v});
-}
-const removeAlias = alias => send('DELETE', '/api/admin/aliases', {alias});
-const addExternal = i => send('POST', '/api/admin/people/external',
-  {name: people.unlinked[i].name, operator_id: $('extOperator' + i).value ? +$('extOperator' + i).value : null});
 // The operator a person flies for (#63): their flights default to it.
 const operatorOptions = selected => '<option value="">Our own operator</option>' + (people.operators || []).map(o =>
   `<option value="${o.id}"${o.id === selected ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('') + NEW_OPERATOR_OPTION;
 const operatorLabelById = id => { const o = (people.operators || []).find(x => x.id === id); return o ? operatorLabel(o) : 'Our own operator'; };
-async function setUserOperator(id, select) {
-  if (select.value === '__new__') {
-    const user = people.users.find(u => u.id === id);
-    await pickNewOperator(select, people.operators, () => { select.innerHTML = operatorOptions(user?.operator_id); }, String(user?.operator_id ?? ''));
-    if (select.value === String(user?.operator_id ?? '')) return;
-  }
-  send('PUT', `/api/admin/users/${id}/operator`, {operator_id: select.value ? +select.value : null});
-}
-function setExternal(id, external) {
-  if (external && !confirm('Mark this person as external? They can no longer sign in and lose their project access. Their flights stay linked.')) return render();
-  send('PUT', `/api/admin/users/${id}/external`, {is_external: external});
-}
-
 async function previewQualImport() {
   $('qualImportError').textContent = '';
   $('qualImportStatus').textContent = '';
@@ -2015,7 +2175,6 @@ fetch('/api/me').then(r => r.json()).then(d => {
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
   load();
 });
-window.addEventListener('editchange', render);
 window.addEventListener('flightfilterschange', renderFlightViews);
 </script>
 </body>

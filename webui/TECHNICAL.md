@@ -870,8 +870,8 @@ Self-demotion is blocked: ask another administrator to remove your rights. The l
 administrator cannot be demoted. These changes preserve ordinary project memberships and take
 effect on subsequent requests, including requests using existing API keys.
 The separate API keys tab lists the selected person's API-key names, scopes (*full (old)* for a key from before
-scopes), prefixes, creation times and last-use times (or Never). In Edit mode, admins can narrow a key's scopes or
-revoke individual keys after confirmation; scripts using that key immediately lose access. The selected user's other keys remain unchanged.
+scopes), prefixes, creation times and last-use times (or Never). Admins tick keys and use the selection bar: *Narrow scopes…* (one
+key) or *Revoke…* after confirmation; scripts using that key immediately lose access. The selected user's other keys remain unchanged.
 Secrets and hashes are never returned; full secrets cannot be recovered.
 Both role changes (`PUT /api/admin/users/<id>/admin`) and key-detail access
 (`GET /api/admin/users/<id>/keys`) or revocation (`DELETE /api/admin/users/<id>/keys/<key_id>`)
@@ -975,7 +975,7 @@ shows (`/login?sso=none`). It is tried once per browser session, and never right
 undone. `/login?local=1` skips it (local accounts). The check depends on `login.tudelft.nl`: while TU Delft sign-in
 itself is broken (an error page there), set `SAML_PASSIVE=0` so the login page shows directly.
 
-**Accounts: merge and move a TU Delft sign-in.** In Edit mode on the People Account tab, admins can fix a wrong
+**Accounts: merge and move a TU Delft sign-in.** With ⋯ of the open person on People, admins can fix a wrong
 match. **Merge into…** (`GET`/`POST /api/admin/users/<id>/merge`, `into`) moves everything of an account to another
 and removes it: every `users` reference (foreign keys and the flight crew overrides), keeping the higher project
 role, one approved/pending qualification per type (the one valid longest; the other becomes superseded/withdrawn) and
@@ -1046,7 +1046,8 @@ remain visible alongside the relevant controls.
 
 <a id="aircraft-page"></a>**Aircraft page** ([UI rule](#ui-rule), `<body data-edit="none">`). The overview table is
 the same for everyone; clicking a row (not the name, which links to the aircraft's overview page) opens the
-aircraft beside the table (`open=<id>` and its tab `atab` in the URL; ✕ or the row again closes it), with
+aircraft beside the table (`open=<id>` and its tab `atab` in the URL; ✕ or the row again closes it; while it is
+open the table leaves out Comments and Aliases, which the panel shows), with
 **Details**, **Project history** and **Aliases** (autopilot boards for admins). **Edit aircraft** is shown to admins
 and to whom `can_edit` allows the details (project managers of its current project and its manager): one dialog
 with name and serial (admins), status, manager, current user and comments, and for admins its aliases (one per line;
@@ -1059,6 +1060,20 @@ tabs **Unlinked names** (when there are any, also with `HIDE_UNLINKED_AIRCRAFT`)
 boards or recordings and use **Link to aircraft…** in the selection bar (the dialog lists every aircraft, including
 Discard; a single folder candidate is preselected). Pending requests show **Approve**/**Reject…** to who may decide
 and **Withdraw** to the requester. Dialogs close with Cancel, Close or Escape.
+<a id="people-page"></a>**People page** ([UI rule](#ui-rule), `<body data-edit="none">`). The cards are the same for
+everyone; clicking a card opens the person beside them (`person=<id>`, `ptab=<tab>` in the URL; Ctrl/Cmd-click still
+opens the pilot page, linked in the panel). Others see a summary (role, PIC flights, current licences; My account and
+My profile for themselves). Admins see the tabs Account, Profile (with `LOGDB_PERSON_PROFILE`), Qualifications, API
+keys and Aliases. Account, Profile and Aliases each have one **Edit** in the tab header (one dialog; clicking a value
+opens it at that field): the account dialog saves only what changed through `PUT /api/admin/users/<id>/profile`,
+`…/operator`, `…/admin` and `…/external`; aliases are one per line (`POST`/`DELETE /api/admin/aliases`).
+Qualifications keep their own per-item actions and Add qualification; API keys use the selection bar. ⋯ (admins):
+Set/Reset password…, Remove password…, Move TU Delft sign-in…, Merge into…, Remove user…. Admins have **Add user** and
+**Manage ▾** (Import profiles (CSV)…, Import qualifications (ZIP)… and its template, Fill numbers from PDFs…, Check QR
+codes…, Welcome message and notices), and always the tabs Unlinked crew names (when any; tick names, then **Link to
+person…** or **Add as external…**), Approval queue, Qualification types (a click on a type edits it, the handle
+reorders) and Profile options.
+
 The Aircraft overview has one line per aircraft: a Serial column first, the current project
 (full history and "+N" earlier periods on hover), total flights (uploaded logs and paper records on hover), the first
 alias with "+N", and long text cut off with the full value on hover. It is sorted by serial, newest TUD number first
@@ -1067,8 +1082,8 @@ columns (Columns menu) are a per-browser preference. It is
 paginated at the bottom like the logbook (50 rows by default; page and rows per page in the URL).
 Aircraft without uploaded logs or paper records, and people without any log, paper record or approved
 qualification, stay hidden until **Show aircraft without logs** / **Show people without logs or licences**
-is ticked. A person counts as having logs as uploader or as linked PIC/PAC/GCS; the aircraft or person
-selected in Edit mode stays listed. Non-admins only count qualifications they may see.
+is ticked. A person counts as having logs as uploader or as linked PIC/PAC/GCS; the open aircraft or person
+stays listed. Non-admins only count qualifications they may see.
 Logbook has no top-level project filter and no longer applies a previously saved project filter.
 Project reassignment controls in Edit mode remain available.
 The menu (`theme.js`) has Home (`/home`), Logbook (`/`), Agenda (`/agenda`, when `LOGDB_BOOKINGS=1`), Training (`/training`, when
@@ -1363,7 +1378,7 @@ Where it shows:
   download) and the **Supervision** tab (one card per supervisor, external ones by name). Admins see everyone; a
   supervisor sees the people they supervise. Both come from `GET /api/profiles`; the Profiles table also shows
   flights as PIC within the flight filters (Supervision does not). Filters, sort and page are kept in the URL (`p_*` parameters);
-- People in Edit mode: the person **Profile** tab, where admins edit the profile in place (`PUT /api/users/<id>/profile`):
+- People: the person **Profile** tab, where admins use **Edit profile** (`PUT /api/users/<id>/profile`):
   like the import, they may fill in only what they know (empty fields are allowed, a past end date too), but what is
   filled in must be valid; the person is asked for the rest at the next sign-in, and **Profile options** to edit the role and department lists
   (`PUT /api/admin/profile-options`; roles with *Max years* and *Indefinite*). The role list is seeded once when the tables are created; the department list starts empty, because it is
@@ -1406,7 +1421,7 @@ it; changing only the audience, date or closing leaves dismissals as they are. T
 date, and how many active accounts dismissed the current version. An account merge keeps the newest dismissal of either
 account.
 
-Admins open the editor at `/welcome` (People in Edit mode → **Profile options** → *Welcome message*; others are sent
+Admins open the editor at `/welcome` (People → **Manage ▾** → *Welcome message and notices*; others are sent
 to `/home`), which shows the message as it reads for them, how many active accounts dismissed it, and **Edit**
 (`PUT /api/admin/welcome` with `title`, `body`, `show_again`). The text is written like a training's access mail and
 filled in per person on the server: the tags `{name} {email} {username} {department} {role} {supervisor} {end_date}`
@@ -1566,9 +1581,8 @@ for enabled accounts with a password, and **Active · TU Delft SSO + Local** for
 without either have no Active badge. In the people list the badge only says **Active** (the sign-in ways in its tooltip). This is sign-in capability, not recent
 activity or qualification validity. The Account tab groups profile, sign-in, access and removal actions,
 with explanations under Help. API key details and revocation load only in the API keys tab.
-Enable Edit to change account settings, manage aliases,
-upload evidence for that person, or review/delete submissions. The people list is searchable, without
-an additional Show filter. Type settings are in a separate People section visible in Edit mode.
+See [People page](#people-page) for how admins change account settings, aliases and qualifications. Type settings
+are in the Qualification types tab (admins).
 
 <a id="people-approval-queue"></a>**Approval queue** (`/people?tab=approvals`, admins; always there for admins) lists
 pending submissions from `GET /api/admin/qualification-pending` and, when the agenda is on, pending bookings from
@@ -1609,7 +1623,7 @@ Passwords, SSO identity links, project memberships and existing records stay att
 Display names conflicting with another person's log alias must be resolved first.
 
 Log ingestion, startup and opening People do not create profiles from crew names. Unmatched PIC/PAC/GCS
-names stay as logged text and appear under **Unlinked crew names** for admins in Edit mode. Link them
+names stay as logged text and appear under **Unlinked crew names** for admins (tick them and use the selection bar). Link them
 to an existing person using aliases, or explicitly use **Add user** when a profile is needed.
 **Add as external** (browser session only) creates an external person for crew of another operator, e.g.
 flights under their operational authorisation: display name = the logged name, no password or email, and
@@ -1646,8 +1660,8 @@ An admin first adds types under **Qualification types** on People, for example `
 `RT licence` or an internal qualification. Each type has a short description (at most 300 characters;
 shown under the type when someone adds a qualification and as tooltip on its labels) and evidence-required,
 start-date, expiry, number, internal and active switches. Internal is a label for in-house qualifications, not a licence rule.
-The list shows each type with its description and labels for the switches that are on; in Edit mode **Add type**
-and **Edit** open a dialog (`POST /api/qualification-types`, `PUT /api/qualification-types/<id>`).
+The list shows each type with its description and labels for the switches that are on; **Add type**
+and a click on a type open a dialog (`POST /api/qualification-types`, `PUT /api/qualification-types/<id>`).
 Qualification chips in the People overview and current account qualification lists follow the saved
 type order, not submission order; multiple submissions of one type are newest first.
 Types keep a `sort_order`; dragging a type's handle saves the new order at once
@@ -1840,7 +1854,7 @@ An existing submission without a newly required expiry must be withdrawn and res
 are not changed retroactively. Existing types keep expiry optional after upgrading.
 
 Users submit claims for themselves; **admins can also upload evidence and submit claims for any user**.
-Admins can bulk-import from People in Edit mode: a ZIP with `manifest.csv` and evidence files
+Admins can bulk-import from People (**Manage ▾ → Import qualifications (ZIP)…**): a ZIP with `manifest.csv` and evidence files
 (`person,type,valid_from,valid_until,file`, optionally `number`; an empty number is read from a PDF
 certificate). Rows without a file are allowed for types that do not require evidence. Preview matches unique display names or aliases and
 active types; Import and approve stores private evidence and sets the dates. Rows may repeat a person
@@ -2438,7 +2452,7 @@ or a foreign authority's operation. `operators.py` resolves the operator of ever
 
 Only step 1 is stored per flight; the rest is resolved when the logbook is read. Existing flights therefore need
 no migration: mark our own operator, then set the operator of each external person (Projects → Operators →
-External crew, or the person's page in Edit mode), and their flights follow.
+External crew, or **Edit account** of the person on People), and their flights follow.
 
 Logbook rows carry `operator_id`, `operator_name`, `operator_registration`, `operator_own` and
 `operator_source` (`flight`, `project`, `place`, `pic` or `default`). `operator_check` marks an entry on the
@@ -2519,9 +2533,10 @@ Permissions and APIs stay as they are; the server checks every change. A page th
 `<body data-edit="none">` and `theme.js` shows no Edit button there.
 
 **Edit mode (being replaced).** The Edit button in the menu bar shows the forms and menus to change things on the pages
-that still have them (Logs, People, Projects, Locations, Agenda, Training, Documents, …); it is one setting
+that still have them (Logs, Projects, Locations, Agenda, Training, Documents, …); it is one setting
 for all pages, and it stays on until you turn it off. The [Logbook](#logbook-changes), the
-[flight page](#flight-page-changes) and the [Aircraft page](#aircraft-page) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
+[flight page](#flight-page-changes), the [Aircraft page](#aircraft-page) and the [People page](#people-page) follow the
+[UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
 are left.
 
