@@ -20,22 +20,31 @@
   .scroll { overflow-x:auto; }
   h2 { margin:0 0 8px; font-size:15px; }
   table { width:max-content; min-width:100%; border-collapse:collapse; }
-  .directory-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:8px; }
-  .directory-person { position:relative; min-width:0; height:86px; border:1px solid var(--fieldline); border-left:4px solid var(--acc); border-radius:8px; padding:8px 10px; background:var(--detail); box-shadow:0 2px 4px #0002; }
-  .directory-person-header { display:contents; }
-  a.directory-person { display:block; color:var(--txt); text-decoration:none; }
-  a.directory-person:focus-visible { border-color:var(--acc); outline:2px solid var(--acc); outline-offset:1px; }
-  .directory-person .person-name { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
-  .directory-person .chip { max-width:100%; white-space:normal; font-size:12px; }
-  .directory-licences { height:48px; overflow:clip; margin-top:2px; }
-  .directory-licences.has-more { padding-right:100px; }
-  .directory-licences .chip { white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
-  .licences-more { position:absolute; right:10px; bottom:5px; background:var(--detail); padding-left:8px; font-size:11px; }
-  .licences-more[hidden] { display:none; }
-  .directory-person .pic-totals { float:right; display:grid; grid-template-columns:auto auto; justify-content:end; gap:0 6px; width:max-content; max-width:50%; margin-left:8px; font-size:11px; line-height:1.4; white-space:nowrap; text-align:right; }
-  .pic-totals .pic-last { grid-column:1/-1; }
-  .pic-totals strong { color:var(--txt); font-weight:500; }
-  #directorySearch { width:min(100%,360px); }
+  /* the people table, like the Aircraft table: one line per person, details on hover */
+  table.people { width:100%; table-layout:fixed; }
+  table.people td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:4px 8px; }
+  table.people th { white-space:nowrap; }
+  table.people th [data-sort] { cursor:pointer; user-select:none; }
+  table.people th [data-sort]:hover { color:var(--txt); }
+  table.people .num { text-align:right; padding-right:16px; }
+  table.people .chip { padding:1px 8px; margin:0 4px 0 0; font-size:12px; }
+  table.people tbody tr[data-id] { cursor:pointer; }
+  table.people tbody tr[data-id]:hover { background:var(--hover); }
+  table.people tbody tr.open { background:var(--hover); box-shadow:inset 3px 0 0 var(--acc); }
+  table.people td a { color:var(--txt); }
+  table.people .missing { font-style:italic; opacity:.75; }
+  /* with the person open, Role and Sign-in (shown in the panel) leave room for the rest */
+  .with-panel table.people .c-role, .with-panel table.people .c-account { display:none; }
+  /* on a phone: name, flights and last flight (the rest is on the pilot page / in the panel) */
+  @media (max-width:600px) { table.people .c-role, table.people .c-licences, table.people .c-hours, table.people .c-account { display:none; }
+    table.people col.c-last { width:7.5em !important; } }
+  .people-foot { display:flex; justify-content:flex-end; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .col-menu { position:relative; }
+  .col-menu form { position:absolute; top:calc(100% + 6px); left:0; z-index:1000; min-width:180px; padding:10px 12px;
+    border:1px solid var(--line); border-radius:6px; background:var(--card); box-shadow:0 2px 8px #0003; display:grid; gap:2px; }
+  .col-menu label { white-space:nowrap; }
+  .col-menu .col-actions { display:flex; justify-content:space-between; gap:12px; margin-top:6px; }
+  #personContent h4 { margin:14px 0 6px; font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; font-weight:600; }
   .directory-search { flex:0 1 280px; min-width:0; }
   .directory-search input { width:100%; }
   .directory-search[hidden] { display:none; }
@@ -47,9 +56,6 @@
   .chip.pending { background:var(--warnbg, #fff8c5); color:var(--warn, #9a6700); }
   .chip button { background:none; color:var(--err); padding:0 6px; font-size:15px; }
   button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
-  .card-profile { font-size:12px; color:var(--mute); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .card-profile.missing { font-style:italic; opacity:.75; }
-  .with-profile .directory-person { height:104px; }  /* room for the role line; cards stay equal-sized */
   .profiles-table { width:100%; border-collapse:collapse; }
   .profiles-table th { text-align:left; padding:0; }
   .profiles-table th button.sort { background:none; border:0; color:var(--mute); font:inherit; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; padding:6px 8px; cursor:pointer; white-space:nowrap; }
@@ -107,14 +113,13 @@
   .people-split { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; align-items:start; }
   .people-split.with-panel { grid-template-columns:minmax(0,1fr) minmax(360px,42%); }
   @media (max-width:900px) { .people-split.with-panel { grid-template-columns:minmax(0,1fr); } #personPanel { order:-1; } }
-  a.directory-person.open { border-color:var(--acc); box-shadow:0 0 0 2px var(--acc); }
   .toolbar-end { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .panel-actions { display:flex; gap:6px; align-items:center; }
   .pilot-link { font-size:13px; font-weight:400; margin-left:8px; }
   .tab-head { display:flex; align-items:center; gap:10px; margin:0 0 8px; }
   .tab-head h3 { margin:0; font-size:14px; }
   .tab-head details { margin-left:auto; }
-  #personContent .kv { margin-bottom:10px; }
+  #personContent .kv { margin-bottom:10px; grid-template-columns:minmax(0,11em) minmax(0,1fr); }  /* account and profile labels line up */
   .edit-val, .edit-key { cursor:pointer; border-radius:4px; }
   .edit-val:hover, .edit-key:hover { background:var(--hover); box-shadow:0 0 0 3px var(--hover); }
   .edit-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; }
@@ -127,10 +132,7 @@
   .field-error:empty, .dialog-error:empty { display:none; }
   td.chk, th.chk { width:28px; padding-right:0; }
   .type-row .type-body { cursor:pointer; }
-  .people-layout { display:grid; grid-template-columns:minmax(240px,320px) minmax(0,1fr); gap:16px; margin-top:16px; align-items:start; }
-  .people-picker, #personPanel { border:1px solid var(--line); border-radius:8px; padding:16px; background:var(--detail); }
-  .people-picker { padding:10px; }
-  .people-picker #peopleCount { margin:6px 0; }
+  #personPanel { border:1px solid var(--line); border-radius:8px; padding:16px; background:var(--detail); }
   .people-title-row { display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
   .people-title-row h2 { margin:0; }
   .people-help { margin-left:auto; }
@@ -138,24 +140,10 @@
   .person-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
   #personHeading { font-size:20px; margin:0; }
   #personIdentity { color:var(--mute); margin:4px 0 12px; }
-  .people-list { max-height:65vh; overflow:auto; }
-  .person-button { display:flex; align-items:center; justify-content:space-between; gap:8px; text-align:left; width:100%; margin:3px 0; padding:7px 8px; border:1px solid var(--line); background:var(--card); color:var(--txt); overflow-wrap:anywhere; }
-  .person-button[aria-pressed="true"] { border-color:var(--acc); border-left:5px solid var(--acc); background:var(--hover); }
-  .person-status { display:flex; justify-content:flex-end; gap:4px; flex-wrap:wrap; flex-shrink:0; max-width:55%; }
-  .person-status span { font-size:11px; border-radius:10px; padding:1px 6px; background:var(--sec); color:var(--mute); white-space:nowrap; }
-  .person-status .active { background:var(--okbg); color:var(--ok); }
-  .account-sections { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:12px; margin-top:16px; }
-  .account-section { border:1px solid var(--line); border-radius:6px; padding:12px; min-width:0; }
-  .account-section h3 { margin:0 0 8px; font-size:14px; }
-  .account-actions { display:flex; flex-direction:column; align-items:start; gap:8px; margin-top:10px; }
-  .account-actions p { margin:0; }
-  .account-profile { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr)); gap:10px; align-items:end; }
-  .account-profile button { justify-self:start; }
   .account-help { margin:10px 0; }
   table.merge-plan { width:100%; border-collapse:collapse; font-size:13px; }
   table.merge-plan td { padding:3px 4px; border-bottom:1px solid var(--line); }
   table.merge-plan td:last-child { text-align:right; }
-  .person-button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
   #personContent { padding-top:16px; }
   .panel-row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin:12px 0; }
   input, select { max-width:100%; min-width:0; }
@@ -180,7 +168,6 @@
   .drag-handle { cursor:grab; background:var(--sec); color:var(--txt); padding:2px 8px; }
   .drag-handle:active { cursor:grabbing; }
   .drag-handle[hidden] { visibility:hidden; }
-  @media (max-width:760px) { .people-layout { grid-template-columns:1fr; } .people-list { max-height:32vh; } }
   [hidden] { display:none !important; }
   /* Approval queue: one row per submission, decided in place */
   .aq-tools { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
@@ -285,10 +272,12 @@
   </section>
   <section class="card" id="peopleCard">
     <div class="people-title-row"><h2>People</h2>
-    <label class="directory-search" id="directorySearchLabel"><input type="search" id="directorySearch" aria-label="Search people" placeholder="Search people" oninput="renderDirectory()"></label>
-    <label id="showExternalLabel" title="External people stay hidden until this is ticked" hidden><input type="checkbox" id="showExternal" onchange="render()"> Show external</label>
-    <label title="Include people without logs, paper records or approved qualifications"><input type="checkbox" id="showWithoutLogs" onchange="render()"> Include unused profiles</label>
     <span class="mute" id="directoryCount" role="status"></span>
+    <label class="directory-search" id="directorySearchLabel"><input type="search" id="directorySearch" aria-label="Search people" placeholder="Search name, username, alias…" oninput="dirPage = 0; dirUrl(false); renderDirectory()"></label>
+    <label id="showExternalLabel" title="External people stay hidden until this is ticked" hidden><input type="checkbox" id="showExternal" onchange="dirPage = 0; dirUrl(true); render()"> Show external</label>
+    <label title="Include people without logs, paper records or approved qualifications"><input type="checkbox" id="showWithoutLogs" onchange="dirPage = 0; dirUrl(true); render()"> Include unused profiles</label>
+    <span class="col-menu" id="colMenu"><button type="button" class="sec" id="colButton" aria-expanded="false" aria-controls="colForm">Columns</button>
+      <form id="colForm" hidden aria-label="Shown columns"></form></span>
     <span class="toolbar-end">
       <button type="button" id="addUserBtn" hidden onclick="$('addUserDialog').showModal()">Add user</button>
       <span class="menu-wrap" id="manageWrap" hidden><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
@@ -311,20 +300,24 @@
     </div>
     <div class="people-split" id="peopleSplit">
       <div id="directoryTable">
-        <div class="directory-grid" id="directoryPeople"></div>
+        <p role="alert" id="picError" hidden></p>
+        <div class="scroll"><table class="people"><colgroup id="peopleCols"></colgroup><thead id="peopleHead"></thead><tbody id="directoryPeople"></tbody></table></div>
+        <div class="people-foot"><span class="mute">Rows per page</span>
+          <select id="dirSize" aria-label="Rows per page" onchange="dirSize = +this.value; dirPage = 0; dirUrl(true); renderDirectory()"><option>25</option><option selected>50</option><option>100</option><option>200</option></select>
+          <div id="peoplePages" class="navigation-pages"></div></div>
       </div>
       <section id="personPanel" aria-label="Selected person" hidden>
         <div class="person-header">
           <h2 id="personHeading"></h2>
           <span class="panel-actions">
+            <button type="button" class="sec" id="editPerson" onclick="openEditPerson()">Edit person</button>
             <span class="menu-wrap" id="moreWrap" hidden><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
               <div class="menu-pop" id="moreMenu" role="menu" hidden></div></span>
             <button type="button" class="sec" id="closePerson" aria-label="Close the person" title="Close" onclick="selectPerson(null)">✕</button></span>
         </div>
         <p id="personIdentity"></p>
         <div class="seg-tabs" role="tablist" aria-label="Person" id="personTabs" hidden>
-          <button type="button" role="tab" id="tab-account" aria-controls="personContent" onclick="selectPersonTab('account')">Account</button>
-          <button type="button" role="tab" id="tab-profile" aria-controls="personContent" onclick="selectPersonTab('profile')" hidden>Profile</button>
+          <button type="button" role="tab" id="tab-details" aria-controls="personContent" onclick="selectPersonTab('details')">Details</button>
           <button type="button" role="tab" id="tab-qualifications" aria-controls="personContent" onclick="selectPersonTab('qualifications')">Qualifications</button>
           <button type="button" role="tab" id="tab-api" aria-controls="personContent" onclick="selectPersonTab('api')">API keys</button>
           <button type="button" role="tab" id="tab-aliases" aria-controls="personContent" onclick="selectPersonTab('aliases')">Aliases</button>
@@ -547,12 +540,21 @@ window.fetch = async (...args) => {
 };
 let people = {users: [], unlinked: []};
 let me = null, mailOn = false, profileOn = false, profileOptions = null, profileList = [];
-const personTabs = () => ['account', ...(profileOn ? ['profile'] : []), 'api', 'aliases', 'qualifications'];
-let selectedPerson = null, selectedTab = 'account', qualificationManager = null;
+const personTabs = () => ['details', 'qualifications', 'api', 'aliases'];
+let selectedPerson = null, selectedTab = 'details', qualificationManager = null;
 let qualificationTypes = [], pendingQualifications = [];
 let panelGeneration = 0;
 let qualImportToken = null;
 let picFlights = null, picError = '';
+// The table columns: Role only when profiles are shown to this viewer, Sign-in only for administrators.
+const PEOPLE_COLUMNS = [
+  {key: 'name', label: 'Name', sort: 'name', width: '22%'},
+  {key: 'role', label: 'Role', sort: 'role', width: '20%'},
+  {key: 'licences', label: 'Current licences', width: '24%'},
+  {key: 'flights', label: 'Flights', sort: 'flights', num: true, width: '8%', title: 'Flights as PIC, within the flight filters'},
+  {key: 'hours', label: 'Hours', sort: 'hours', num: true, width: '8%', title: 'Flight hours as PIC, within the flight filters'},
+  {key: 'last', label: 'Last flight', sort: 'last', width: '11%', title: 'Last flight as PIC, within the flight filters'},
+  {key: 'account', label: 'Sign-in', sort: 'account', width: '15%'}];
 
 async function loadPicFlights() {
   try {
@@ -619,9 +621,29 @@ function qualBits(q) {
 // The admin sections (Unlinked crew names, Approval queue, Qualification types) are tabs next to People, one on
 // screen at a time; the tab is kept in the URL (?tab=) so Back returns to it.
 let pageTab = new URLSearchParams(location.search).get('tab') || 'people';
+// The table's search, filters, sort, page and the open person (with its tab) are in the URL as well.
+let dirSort = 'name', dirDesc = false, dirPage = 0, dirSize = 50;
 function readPersonUrl(p) {
   selectedPerson = +p.get('person') || null;
-  selectedTab = ['profile', 'qualifications', 'api', 'aliases'].includes(p.get('ptab')) ? p.get('ptab') : 'account';
+  selectedTab = ['qualifications', 'api', 'aliases'].includes(p.get('ptab')) ? p.get('ptab') : 'details';
+  $('directorySearch').value = p.get('search') || '';
+  $('showExternal').checked = p.get('external') === '1';
+  $('showWithoutLogs').checked = p.get('unused') === '1';
+  const [key, dir] = (p.get('sort') || 'name-asc').split('-');
+  dirSort = PEOPLE_COLUMNS.some(c => c.sort === key) ? key : 'name';
+  dirDesc = dir === 'desc';
+  dirPage = Math.max(0, (parseInt(p.get('pg'), 10) || 1) - 1);
+  dirSize = [25, 50, 100, 200].includes(+p.get('size')) ? +p.get('size') : 50;
+  $('dirSize').value = String(dirSize);
+}
+function dirUrl(push) {
+  const url = new URL(location.href);
+  for (const [k, v] of [['search', $('directorySearch').value.trim()], ['external', $('showExternal').checked ? '1' : ''],
+    ['unused', $('showWithoutLogs').checked ? '1' : ''], ['sort', dirSort === 'name' && !dirDesc ? '' : `${dirSort}-${dirDesc ? 'desc' : 'asc'}`],
+    ['pg', dirPage ? dirPage + 1 : ''], ['size', dirSize === 50 ? '' : dirSize]]) {
+    if (v) url.searchParams.set(k, v); else url.searchParams.delete(k);
+  }
+  if (url.href !== location.href) history[push ? 'pushState' : 'replaceState'](history.state, '', url);
 }
 readPersonUrl(new URLSearchParams(location.search));
 function paintPageTabs(open) {
@@ -671,8 +693,8 @@ function render() {
   $('showExternalLabel').hidden = !people.users.some(u => u.is_external);
   paintPageTabs(open);
   $('peopleHint').textContent = admin
-    ? 'Click a person to open them beside the list: Account, Profile, Qualifications, API keys and Aliases, each with its own Edit; ⋯ has password, sign-in, merge and remove. Users submit their own evidence on My account. Removing a user keeps their uploaded logs.'
-    : 'People and their visible qualifications. PIC totals follow the shared flight filters. Click a person for a summary; their pilot page has the details.';
+    ? 'Click a row to open the person beside the list: Details (account and profile), Qualifications, API keys and Aliases. Edit person changes the account, profile and aliases in one dialog; ⋯ has password, sign-in, merge and remove. Users submit their own evidence on My account. Removing a user keeps their uploaded logs. Flights, hours and last flight are as PIC within the flight filters.'
+    : 'People and their visible qualifications. Flights, hours and last flight are as PIC within the shared flight filters. Click a person for their pilot page.';
   if (admin) {
     $('newProject').innerHTML = '<option value="">No default</option>' + (people.projects || []).map(p =>
       `<option value="${p.id}">${esc(p.name)}</option>`).join('');
@@ -770,43 +792,118 @@ function matchingPeople(query) {
     .some(v => v.toLocaleLowerCase().includes(query)));
 }
 
-const licenceOverflowObserver = new ResizeObserver(() => {
-  document.querySelectorAll('.directory-licences').forEach(el => {
-    el.classList.remove('has-more');
-    const overflowing = el.scrollHeight > el.clientHeight;
-    el.classList.toggle('has-more', overflowing);
-    el.nextElementSibling.hidden = !overflowing;
-  });
-});
+// The columns this viewer gets; a hidden column is a per-browser preference, like on Aircraft and the Logbook.
+const showsRoles = () => profileList.some(x => !x.self || me?.is_admin);
+const showsLicences = () => people.users.some(u => u.qualifications);  // only when this viewer may see some
+const peopleColumns = () => PEOPLE_COLUMNS.filter(c => (c.key !== 'role' || showsRoles()) && (c.key !== 'account' || me?.is_admin)
+  && (c.key !== 'licences' || showsLicences()));
+const COLUMNS_KEY = 'people.hiddenColumns';
+let hiddenColumns = new Set();
+try { hiddenColumns = new Set(JSON.parse(localStorage.getItem(COLUMNS_KEY) || '[]').filter(k => PEOPLE_COLUMNS.some(c => c.key === k))); } catch (e) {}
+const columnStyle = document.head.appendChild(document.createElement('style'));
+function applyColumns() {
+  columnStyle.textContent = [...hiddenColumns].map(k => `table.people .c-${k} { display:none; }`).join('\n');
+  const n = peopleColumns().filter(c => hiddenColumns.has(c.key)).length;
+  $('colButton').textContent = n ? `Columns (${n} hidden)` : 'Columns';
+  try { localStorage.setItem(COLUMNS_KEY, JSON.stringify([...hiddenColumns])); } catch (e) {}
+}
+function fillColumns() {
+  $('colForm').innerHTML = peopleColumns().map(c => `<label><input type="checkbox" value="${c.key}"${hiddenColumns.has(c.key) ? '' : ' checked'}${c.key === 'name' ? ' disabled' : ''}> ${esc(c.label)}</label>`).join('')
+    + '<div class="col-actions"><button type="button" class="sec" id="colAll">Show all</button><button type="button" class="sec" id="colClose">Close</button></div>';
+}
+$('colButton').onclick = () => {
+  const open = $('colForm').hidden;
+  if (open) fillColumns();
+  $('colForm').hidden = !open;
+  $('colButton').setAttribute('aria-expanded', String(open));
+};
+$('colForm').onchange = e => { e.target.checked ? hiddenColumns.delete(e.target.value) : hiddenColumns.add(e.target.value); applyColumns(); };
+$('colForm').onclick = e => {
+  if (e.target.id === 'colAll') { hiddenColumns.clear(); applyColumns(); fillColumns(); }
+  if (e.target.id === 'colClose') $('colButton').click();
+};
+document.addEventListener('click', e => { if (!$('colForm').hidden && !e.target.closest('.col-menu')) $('colButton').click(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('colForm').hidden) { $('colButton').click(); $('colButton').focus(); } });
+applyColumns();
 
-function renderDirectory() {
-  licenceOverflowObserver.disconnect();
-  const rows = matchingPeople($('directorySearch').value);
+// PIC totals per person within the shared flight filters: count, seconds and the last day.
+function picTotals() {
   const totals = new Map();
   for (const f of picFlights || []) {
     if (!window.flightFilters.includes(f)) continue;
-    const t = totals.get(f.user_id) || {count:0, seconds:0, last:''};
+    const t = totals.get(f.user_id) || {count: 0, seconds: 0, last: ''};
     t.count += f.flight_count || 1;
     t.seconds += f.duration_s || 0;
     const day = window.flightFilters.day(f);
     if (day > t.last) t.last = day;
     totals.set(f.user_id, t);
   }
-  $('directoryCount').textContent = `${rows.length} of ${people.users.length} people`;
-  $('directoryPeople').classList.toggle('with-profile', profileList.some(x => !x.self || me?.is_admin));
-  $('directoryPeople').innerHTML = (picError ? `<p role="alert">${esc(picError)}</p>` : '') + rows.map(u => {
-    const t = totals.get(u.id) || {count:0, seconds:0, last:''};
-    return `<a class="directory-person${u.id === selectedPerson ? ' open' : ''}" href="/people/${u.id}" data-person="${u.id}" aria-current="${u.id === selectedPerson}" aria-label="${esc(u.display_name || u.username)}"><div class="directory-person-header">
-    ${picFlights === null ? `<div class="pic-totals mute">${picError ? 'PIC totals unavailable' : 'Loading PIC totals...'}</div>` : `<div class="pic-totals mute" aria-label="PIC flight statistics">
-      <span title="Flights as PIC"><strong>${t.count}</strong> flights</span><span title="Flight hours as PIC"><strong>${(t.seconds / 3600).toFixed(1)}</strong> h</span>
-      <span class="pic-last" title="Last flight as PIC">Last ${esc(t.last || '—')}</span></div>`}
-    <span class="person-name" title="${esc(u.display_name || u.username)}">${esc(u.display_name || u.username)}</span>${cardProfileLine(u)}</div>
-    <div class="directory-licences" aria-label="Current licences; open the pilot page for all licences">${qualBits(u.qualifications)}</div>
-    <span class="licences-more" hidden>More licences...</span></a>`;
-  }).join('')
-    || '<p class="mute">No matching people.</p>';
-  document.querySelectorAll('.directory-person').forEach(el => licenceOverflowObserver.observe(el));
+  return totals;
 }
+// "Admin · TU Delft SSO", "External", "No password" …: how the person signs in (administrators only).
+function signInText(u) {
+  if (u.is_external) return 'External';
+  if (!u.is_active) return 'Account disabled';
+  const ways = [u.has_sso || u.provider === 'saml' ? 'TU Delft SSO' : '', u.has_password ? 'Local' : ''].filter(Boolean);
+  return [u.is_admin ? 'Admin' : '', ways.join(' + ') || 'No password'].filter(Boolean).join(' · ');
+}
+const roleText = u => { const x = profileList.find(p => p.id === u.id); return x?.profile ? [x.profile.role, x.profile.department].filter(Boolean).join(' · ') : ''; };
+function renderDirectory() {
+  const admin = !!me?.is_admin, cols = peopleColumns(), totals = picTotals();
+  const rows = matchingPeople($('directorySearch').value);
+  $('directoryCount').textContent = rows.length === people.users.length ? String(rows.length) : `${rows.length} of ${people.users.length}`;
+  $('picError').hidden = !picError;
+  $('picError').textContent = picError;
+  const name = u => u.display_name || u.username;
+  const t = u => totals.get(u.id) || {count: 0, seconds: 0, last: ''};
+  const compare = {
+    name: (a, b) => name(a).localeCompare(name(b), undefined, {sensitivity: 'base'}),
+    role: (a, b) => roleText(a).localeCompare(roleText(b)), account: (a, b) => signInText(a).localeCompare(signInText(b)),
+    flights: (a, b) => t(a).count - t(b).count, hours: (a, b) => t(a).seconds - t(b).seconds, last: (a, b) => t(a).last.localeCompare(t(b).last),
+  }[dirSort];
+  const byName = (a, b) => name(a).localeCompare(name(b), undefined, {sensitivity: 'base'});
+  const sorted = rows.sort((a, b) => (dirDesc ? compare(b, a) : compare(a, b)) || byName(a, b));
+  dirPage = Math.min(dirPage, Math.max(0, Math.ceil(sorted.length / dirSize) - 1));
+  $('peopleCols').innerHTML = cols.map(c => `<col class="c-${c.key}" style="width:${c.width}">`).join('');
+  $('peopleHead').innerHTML = '<tr>' + cols.map(c => {
+    const on = dirSort === c.sort, cls = `c-${c.key}${c.num ? ' num' : ''}`;
+    const title = c.title ? ` title="${esc(c.title)}"` : '';
+    if (!c.sort) return `<th class="${cls}"${title}>${esc(c.label)}</th>`;
+    return `<th class="${cls}"${on ? ` aria-sort="${dirDesc ? 'descending' : 'ascending'}"` : ''}${title}><span data-sort="${c.sort}">${esc(c.label)}${on ? (dirDesc ? ' ▼' : ' ▲') : ''}</span></th>`;
+  }).join('') + '</tr>';
+  window.viewState.pager($('peoplePages'), dirPage, dirSize, sorted.length, n => { dirPage = n; dirUrl(true); renderDirectory(); });
+  const loading = picFlights === null ? `<span class="mute" title="${esc(picError || 'Loading PIC totals…')}">…</span>` : null;
+  const cell = (c, u) => {
+    const s = t(u);
+    switch (c.key) {
+      case 'name': return `<td class="c-name" title="${esc(name(u))}${admin ? ' · @' + esc(u.username) : ''}"><a href="/people/${u.id}" title="Pilot page of ${esc(name(u))}">${esc(name(u))}</a>${u.is_external ? ' <span class="mute">· external</span>' : ''}</td>`;
+      case 'role': {
+        const x = profileList.find(p => p.id === u.id), text = roleText(u);
+        return `<td class="c-role" title="${esc(text)}">${x && !x.profile ? '<span class="mute missing">not filled in</span>' : esc(text)}</td>`;
+      }
+      case 'licences': {
+        const items = ((u.qualifications && u.qualifications.items) || []).filter(q => q.status === 'approved' && !q.expired);
+        return `<td class="c-licences" title="${esc(items.map(q => q.category).join(', '))}">${qualBits(u.qualifications)}</td>`;
+      }
+      case 'flights': return `<td class="c-flights num">${loading || (s.count || '<span class="mute">0</span>')}</td>`;
+      case 'hours': return `<td class="c-hours num">${loading || (s.seconds ? (s.seconds / 3600).toFixed(1) : '<span class="mute">0</span>')}</td>`;
+      case 'last': return `<td class="c-last">${loading || (s.last ? esc(s.last) : '<span class="mute">—</span>')}</td>`;
+      default: return `<td class="c-account mute" title="${esc(signInText(u))}">${esc(signInText(u))}</td>`;
+    }
+  };
+  $('directoryPeople').innerHTML = sorted.slice(dirPage * dirSize, (dirPage + 1) * dirSize).map(u =>
+    `<tr data-id="${u.id}"${u.id === selectedPerson && admin ? ' class="open" aria-selected="true"' : ''} title="${admin ? 'Open ' + esc(name(u)) + ' beside the list' : 'Pilot page of ' + esc(name(u))}">${cols.map(c => cell(c, u)).join('')}</tr>`).join('')
+    || `<tr><td colspan="${cols.length}" class="mute">No matching people.</td></tr>`;
+}
+$('peopleHead').onclick = e => {
+  const th = e.target.closest('[data-sort]');
+  if (!th) return;
+  if (dirSort === th.dataset.sort) dirDesc = !dirDesc;
+  else { dirSort = th.dataset.sort; dirDesc = ['flights', 'hours', 'last'].includes(dirSort); }
+  dirPage = 0;
+  dirUrl(true);
+  renderDirectory();
+};
 
 async function adminApi(url, options) {
   const r = await fetch(url, options);
@@ -1271,10 +1368,10 @@ function bindTypeDrag() {
 function personUrl(push) {
   const url = new URL(location.href);
   if (selectedPerson) url.searchParams.set('person', selectedPerson); else url.searchParams.delete('person');
-  if (selectedPerson && selectedTab !== 'account') url.searchParams.set('ptab', selectedTab); else url.searchParams.delete('ptab');
+  if (selectedPerson && selectedTab !== 'details') url.searchParams.set('ptab', selectedTab); else url.searchParams.delete('ptab');
   if (url.href !== location.href) history[push ? 'pushState' : 'replaceState'](history.state, '', url);
 }
-function selectPerson(id, tab = 'account') {
+function selectPerson(id, tab = 'details') {
   selectedPerson = id;
   selectedTab = tab;
   $('setupBox').hidden = true;
@@ -1303,46 +1400,59 @@ $('personTabs').addEventListener('keydown', event => {
   selectPersonTab(tabs[next]);
   $('tab-' + selectedTab).focus();
 });
-// A card opens the person beside the cards; Ctrl/Cmd-click still opens the pilot page.
+// A row opens the person beside the list for administrators (the name stays a link to the pilot page); for everyone
+// else the row is the way to the pilot page, which has what they may see.
 $('directoryPeople').addEventListener('click', e => {
-  const card = e.target.closest('a.directory-person');
-  if (!card || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
-  e.preventDefault();
-  selectPerson(+card.dataset.person === selectedPerson ? null : +card.dataset.person);
+  const tr = e.target.closest('tr[data-id]');
+  if (!tr || e.target.closest('a, button, input, select')) return;
+  if (!me?.is_admin) { location.href = `/people/${tr.dataset.id}`; return; }
+  selectPerson(+tr.dataset.id === selectedPerson ? null : +tr.dataset.id);
 });
-// A tab's read view with its Edit button in the tab header (one per tab); clicking a value opens it at that field.
-const tabHead = (title, editLabel, onEdit) => `<div class="tab-head"><h3>${title}</h3>${editLabel ? `<button type="button" class="sec" onclick="${onEdit}">${editLabel}</button>` : ''}</div>`;
-const editRow = (key, label, value, tab) => `<span class="mute edit-key" data-edit-field="${key}" data-edit-tab="${tab}" title="Click to change">${label}</span><span class="edit-val" data-edit-field="${key}" data-edit-tab="${tab}" title="Click to change">${value || '<span class="mute">—</span>'}</span>`;
+// Read views; clicking a value the administrator may change opens Edit person at that field.
+const editRow = (key, label, value) => `<span class="mute edit-key" data-edit-field="${key}" title="Click to change">${label}</span><span class="edit-val" data-edit-field="${key}" title="Click to change">${value || '<span class="mute">—</span>'}</span>`;
 const plainRow = (label, value) => `<span class="mute">${label}</span><span>${value || '<span class="mute">—</span>'}</span>`;
 document.addEventListener('click', e => {
   const value = e.target.closest('#personContent [data-edit-field]');
   if (!value || e.target.closest('a, button')) return;
-  ({account: openEditAccount, aliases: openEditAliases, profile: openEditProfile})[value.dataset.editTab]?.(value.dataset.editField);
+  openEditPerson(value.dataset.editField);
 });
+// The person's profile (GET /api/users/<id>/profile), loaded for the Details tab and Edit person.
+let personProfile = null;
+async function loadPersonProfile(id) {
+  if (!profileOn) return null;
+  if (personProfile?.id !== id) personProfile = {id, data: await adminApi(`/api/users/${id}/profile`)};
+  return personProfile.data;
+}
+function profileDetailsHTML(d) {
+  const p = d.profile;
+  const todo = (d.missing || []).filter(m => m !== 'profile').map(m => m.replace('_', ' '));
+  const state = !p ? 'Not filled in yet.' : todo.length ? 'Still to fill in: ' + todo.join(', ') + '.' : '';
+  const sups = (p?.supervisors || []).map(s => s.id ? `<a href="/people/${s.id}">${esc(s.name)}</a>` : `${esc(s.name)} <span class="mute">(external)</span>`).join(' · ');
+  const ended = p && !p.indefinite && p.end_date && p.end_date < today();
+  return `<h4>Profile</h4>${state ? `<p class="mute" style="margin:0 0 6px">${esc(state)} The person completes it at their next sign-in.</p>` : ''}
+    <div class="kv">
+    ${editRow('pfRole', 'Role', esc(p?.role || ''))}
+    ${editRow('pfDept', 'Department', p?.department ? esc(p.department) + (p.department_group ? ` <span class="mute">(${esc(p.department_group)})</span>` : '') : '')}
+    ${editRow('pfSupInput', 'Supervisors', sups)}
+    ${editRow('pfEnd', 'Expected end', p ? (p.indefinite ? 'Indefinite' : esc(p.end_date || '') + (ended ? ' <span class="mute">(passed)</span>' : '')) : '')}
+    ${editRow('pfNumber', 'Student / employee no.', esc(p?.number || ''))}
+    ${editRow('pfGithub', 'GitHub', p?.github ? `<a href="https://github.com/${encodeURIComponent(p.github)}" target="_blank" rel="noopener">${esc(p.github)}</a>` : '')}
+    ${plainRow('Last confirmed', `<span class="mute">${esc((p?.updated_at || '').slice(0, 10)) || '—'}</span>`)}
+    </div>`;
+}
 function renderPersonPanel() {
   const generation = ++panelGeneration;
-  const user = people.users.find(u => u.id === selectedPerson);
   const admin = !!me?.is_admin;
+  const user = admin ? people.users.find(u => u.id === selectedPerson) : null;  // only administrators get the panel
   $('peopleSplit').classList.toggle('with-panel', !!user);
   $('personPanel').hidden = !user;
   if (!user) { closeMenus(); return; }
   const id = user.id, name = user.display_name || user.username;
   $('personHeading').innerHTML = `${esc(name)} <a class="pilot-link" href="/people/${id}" title="Pilot page: flights, licences, projects">Pilot page ↗</a>`;
-  $('personIdentity').textContent = admin ? `@${user.username}${user.is_external ? ' · External' : ''}` : (user.is_external ? 'External' : '');
-  $('personTabs').hidden = !admin;
+  $('personIdentity').textContent = `@${user.username}${user.is_external ? ' · External' : ''}`;
+  $('personTabs').hidden = false;
   paintPersonMore(user);
-  if (!admin) {  // the summary everyone may see; the pilot page has the rest
-    const x = profileList.find(p => p.id === id);
-    const t = picTotals().get(id);
-    $('personContent').innerHTML = `<div class="kv">
-      ${x?.profile ? plainRow('Role', esc([x.profile.role, x.profile.department].filter(Boolean).join(' · '))) : ''}
-      ${plainRow('Flights as PIC', esc(flightsText(t)))}
-      ${plainRow('Current licences', qualBits(user.qualifications))}</div>
-      ${me && id === me.id ? '<p><a href="/account">My account</a>' + (profileOn ? ' · <a href="/profile">My profile</a>' : '') + '</p>' : ''}`;
-    return;
-  }
-  $('tab-profile').hidden = !profileOn;
-  if (!personTabs().includes(selectedTab)) selectedTab = 'account';
+  if (!personTabs().includes(selectedTab)) selectedTab = 'details';
   for (const tab of personTabs()) {
     $('tab-' + tab).setAttribute('aria-selected', String(selectedTab === tab));
     $('tab-' + tab).tabIndex = selectedTab === tab ? 0 : -1;
@@ -1357,20 +1467,8 @@ function renderPersonPanel() {
     qualificationManager.name = name;  // the add dialog says for whom
     qualificationManager.load();
   } else if (selectedTab === 'aliases') {
-    $('personContent').innerHTML = `${tabHead('Aliases', 'Edit aliases', 'openEditAliases()')}
-      <p class="mute">Aliases link PIC/PAC/GCS names in logs to this person. Unique display names match automatically; usernames match only if explicitly added as aliases. Review existing aliases if a short name is ambiguous.</p>
-      <div class="edit-val" data-edit-field="aliases" data-edit-tab="aliases" title="Click to change">${(user.aliases || []).map(alias => `<span class="chip">${esc(alias)}</span>`).join('') || '<span class="mute">No aliases.</span>'}</div>`;
-  } else if (selectedTab === 'profile') {
-    $('personContent').innerHTML = `${tabHead('Profile', 'Edit profile', 'openEditProfile()')}<div id="personProfile" role="status">Loading profile...</div>`;
-    adminApi(`/api/users/${id}/profile`).then(d => {
-      if (generation !== panelGeneration) return;
-      personProfile = {id, data: d};
-      const todo = (d.missing || []).filter(m => m !== 'profile').map(m => m.replace('_', ' '));
-      const state = !d.profile ? 'Not filled in yet.' : todo.length ? 'Still to fill in: ' + todo.join(', ') + '.' : '';
-      $('personProfile').innerHTML = `${state ? `<p class="mute">${esc(state)} The person completes it at their next sign-in.</p>` : ''}
-        <div class="kv edit-val" data-edit-field="role" data-edit-tab="profile" title="Click to change">${window.profileHTML(d.profile)}</div>
-        <p class="mute">Last confirmed ${esc((d.profile?.updated_at || '').slice(0, 10)) || '—'}</p>`;
-    }).catch(error => { $('personProfile').textContent = error.message; });
+    $('personContent').innerHTML = `<p class="mute">Aliases link PIC/PAC/GCS names in logs to this person. Unique display names match automatically; usernames match only if explicitly added as aliases. Review existing aliases if a short name is ambiguous.</p>
+      <div class="edit-val" data-edit-field="aliases" title="Click to change">${(user.aliases || []).map(alias => `<span class="chip">${esc(alias)}</span>`).join('') || '<span class="mute">No aliases.</span>'}</div>`;
   } else if (selectedTab === 'api') {
     $('personContent').innerHTML = `<div class="tab-head"><h3>API keys</h3>
       <details><summary>Help</summary><p>Full key secrets are shown only when created and cannot be retrieved. Only key details are listed here. Tick a key to narrow its scopes or revoke it; revoking stops scripts using it immediately. Users create keys on My account.</p></details></div>
@@ -1382,23 +1480,27 @@ function renderPersonPanel() {
   } else {
     const project = people.projects.find(p => p.id === user.default_project_id);
     const signIn = activeAccountLabel(user) || (user.is_external ? 'External, no sign-in' : !user.is_active ? 'Account disabled' : user.provider === 'saml' ? 'TU Delft SSO' : 'No local password set');
-    $('personContent').innerHTML = `${tabHead('Account', 'Edit account', 'openEditAccount()')}
-      <div class="kv">
-      ${editRow('username', 'Username', esc(user.username), 'account')}
-      ${editRow('display_name', 'Display name', esc(user.display_name || ''), 'account')}
-      ${editRow('email', 'Email', esc(user.email || ''), 'account')}
-      ${editRow('default_project', 'Default project', esc(project?.name || 'No default'), 'account')}
-      ${editRow('operator', 'Flies for', esc(operatorLabelById(user.operator_id)), 'account')}
-      ${editRow('access', 'Access', user.is_admin ? 'Administrator' : user.is_external ? 'External crew' : 'Standard account', 'account')}
+    $('personContent').innerHTML = `<div class="kv">
+      ${editRow('username', 'Username', esc(user.username))}
+      ${editRow('display_name', 'Display name', esc(user.display_name || ''))}
+      ${editRow('email', 'Email', esc(user.email || ''))}
+      ${editRow('default_project', 'Default project', esc(project?.name || 'No default'))}
+      ${editRow('operator', 'Flies for', esc(operatorLabelById(user.operator_id)))}
+      ${editRow('is_admin', 'Access', user.is_admin ? 'Administrator' : user.is_external ? 'External crew' : 'Standard account')}
       ${plainRow('Sign-in', esc(signIn))}
       ${user.is_external ? '' : plainRow('Password', user.provider === 'saml' ? 'Managed by identity provider' : user.has_password ? 'Chosen' : 'Not set')}
       ${user.has_sso && user.provider !== 'saml' ? plainRow('TU Delft sign-in', 'Linked') : ''}
       </div>
+      ${profileOn ? '<div id="personProfile" role="status">Loading profile...</div>' : ''}
       <details class="account-help"><summary>Help</summary>
       <p>The username is only the local sign-in name, not an automatic log match. Unique display names and explicit aliases match logs. Previous unambiguous display names remain aliases; username changes do not add aliases. Existing records and SSO links stay attached.</p>
       <p>Active means an enabled TU Delft SSO account or a local account with a password. It does not describe recent activity or qualifications. Local accounts without a password cannot sign in until a password is set.</p>
       <p>Administrators have access to all projects, accounts and private qualification evidence. External people are crew of another operator: flights stay linked, but they cannot sign in or access projects.</p>
+      ${profileOn ? '<p>The profile is what the person fills in after signing in. What an administrator fills in for them, the person checks at their next sign-in.</p>' : ''}
       <p>⋯ has the rare actions: set or reset the password, remove it, move a TU Delft sign-in matched to the wrong person, merge two accounts of one person (flights, records, uploads, projects, qualifications and API keys move to the account you keep; this account's names become aliases) and remove the person (uploaded logs are kept). Merges and moves are recorded in the audit log.</p></details>`;
+    if (profileOn) loadPersonProfile(id).then(d => {
+      if (generation === panelGeneration) $('personProfile').innerHTML = profileDetailsHTML(d);
+    }).catch(error => { if (generation === panelGeneration) $('personProfile').textContent = error.message; });
   }
 }
 // ⋯ of the open person (administrators): password, sign-in, merge and remove.
@@ -1434,16 +1536,24 @@ function editDialog(title, what, fields, save, focus) {
     } finally { $('editSave').disabled = false; }
   };
   $('editDialog').showModal();
-  ($('editFields').querySelector(`[name=${focus}]`) || $('editFields').querySelector('input, select, textarea'))?.focus();
+  const target = focus && $('editFields').querySelector(`[name="${focus}"], #${focus}`);
+  (target || $('editFields').querySelector('input, select, textarea'))?.focus();
 }
 const field = (key, label, control, wide) => `<label class="field${wide ? ' wide' : ''}">${label}${control}<span class="field-error" data-error="${key}"></span></label>`;
 const val = name => $('editFields').querySelector(`[name=${name}]`);
-function openEditAccount(focus) {
+// Edit person (administrators): account, profile and aliases in one dialog. Save sends only what changed, each part
+// to its own endpoint as before (account, operator, admin/external, aliases, profile).
+async function openEditPerson(focus) {
   const user = people.users.find(u => u.id === selectedPerson);
-  if (!user) return;
-  const self = user.id === me.id;
+  if (!user || !me?.is_admin) return;
+  let d = null;
+  try { d = await loadPersonProfile(user.id); } catch (error) { $('err').textContent = error.message; }
+  const self = user.id === me.id, name = user.display_name || user.username;
   const projects = '<option value="">No default</option>' + people.projects.map(p => `<option value="${p.id}"${p.id === user.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
-  editDialog(`Edit account ${user.display_name || user.username}`, `@${user.username}`, `<div class="edit-grid">
+  if (d) profileEdit = {id: user.id, sups: (d.profile?.supervisors || []).map(s => ({id: s.id, name: s.name})),
+    options: {...d.options, supervisors: d.options.supervisors.filter(s => s.id !== user.id)}};
+  const was = user.aliases || [];
+  editDialog(`Edit person ${name}`, `@${user.username}`, `<h4 style="margin:0">Account</h4><div class="edit-grid">
     ${field('username', 'Username', `<input name="username" required maxlength="40" autocomplete="off" value="${esc(user.username)}">`)}
     ${field('display_name', 'Display name', `<input name="display_name" maxlength="80" value="${esc(user.display_name || '')}">`)}
     ${field('email', 'Email' + (user.email ? '' : ' (optional)'), `<input name="email" type="email" maxlength="120" value="${esc(user.email || '')}"${user.email ? ' required' : ''}
@@ -1454,7 +1564,10 @@ function openEditAccount(focus) {
       ${user.is_external ? '' : `<label><input type="checkbox" name="is_admin"${user.is_admin ? ' checked' : ''}${self ? ' disabled title="Ask another administrator to remove your admin rights."' : ''}> Administrator <span class="mute">(all projects, accounts and private qualification evidence)</span></label>`}
       ${self || user.is_admin ? '' : `<label><input type="checkbox" name="is_external"${user.is_external ? ' checked' : ''}> External <span class="mute">(crew of another operator: cannot sign in, loses project access; flights stay linked)</span></label>`}
       <span class="field-error" data-error="access"></span></div>
-  </div>`, async out => {
+  </div>
+  ${d ? `<h4 style="margin:12px 0 0">Profile</h4><p class="mute" style="margin:0">Fields may stay empty, but what is filled in must be valid. The person checks the profile at their next sign-in.</p>${profileFormHTML(d)}` : ''}
+  <h4 style="margin:12px 0 0">Aliases</h4>
+  ${field('aliases', 'Names in logs that link to this person, one per line', `<textarea name="aliases" rows="3">${esc(was.join('\n'))}</textarea>`, true)}`, async out => {
     let failed = 0;
     const account = ['username', 'display_name', 'email'].some(k => val(k).value.trim() !== (user[k] || ''))
       || String(user.default_project_id ?? '') !== val('default_project').value;
@@ -1466,37 +1579,19 @@ function openEditAccount(focus) {
         && !await call('PUT', `/api/admin/users/${user.id}/admin`, {is_admin: val('is_admin').checked}, out('access'))) failed++;
     if (val('is_external') && val('is_external').checked !== !!user.is_external
         && !await call('PUT', `/api/admin/users/${user.id}/external`, {is_external: val('is_external').checked}, out('access'))) failed++;
-    if (account && user.id === me.id) me = await adminApi('/api/me').then(d => d.user);
-    return failed;
-  }, focus === 'access' ? 'is_admin' : focus);
-  const operator = val('operator');
-  operator.onchange = () => pickNewOperator(operator, people.operators, () => { operator.innerHTML = operatorOptions(user.operator_id); }, String(user.operator_id ?? ''));
-}
-function openEditAliases() {
-  const user = people.users.find(u => u.id === selectedPerson);
-  if (!user) return;
-  const was = user.aliases || [];
-  editDialog(`Edit aliases ${user.display_name || user.username}`, 'Names in logs that link to this person, one per line.',
-    field('aliases', 'Aliases', `<textarea name="aliases" rows="5">${esc(was.join('\n'))}</textarea>`, true), async out => {
     const is = [...new Set(val('aliases').value.split('\n').map(a => a.trim()).filter(Boolean))];
-    let failed = 0;
     for (const alias of was.filter(a => !is.includes(a))) if (!await call('DELETE', '/api/admin/aliases', {alias}, out('aliases'))) failed++;
     for (const alias of is.filter(a => !was.includes(a))) if (!await call('POST', '/api/admin/aliases', {user_id: user.id, alias}, out('aliases'))) failed++;
+    if (d && JSON.stringify(profileBody()) !== profileBefore) {
+      try { await savePersonProfile(); } catch (error) { out('profile').textContent = error.message; failed++; }
+    }
+    if (account && self) me = await adminApi('/api/me').then(x => x.user);
     return failed;
-  }, 'aliases');
-}
-// The person's profile, filled in for them (the person checks it at their next sign-in), with the person's own rules.
-let personProfile = null;
-function openEditProfile() {
-  if (!personProfile || personProfile.id !== selectedPerson) return;
-  const d = personProfile.data, id = personProfile.id, user = people.users.find(u => u.id === id);
-  profileEdit = {id, sups: (d.profile?.supervisors || []).map(s => ({id: s.id, name: s.name})),
-    options: {...d.options, supervisors: d.options.supervisors.filter(s => s.id !== id)}};
-  editDialog(`Edit profile ${user ? user.display_name || user.username : ''}`, 'Fields may stay empty, but what is filled in must be valid. The person checks the profile at their next sign-in.',
-    profileFormHTML(d), async out => {
-      try { await savePersonProfile(); return 0; } catch (error) { out('profile').textContent = error.message; return 1; }
-    }, 'pfRole');
-  renderProfileSups();
+  }, focus === 'is_admin' ? (user.is_external ? 'is_external' : 'is_admin') : focus === 'pfEnd' && d?.profile?.indefinite ? 'pfIndef' : focus);
+  let profileBefore = '';
+  if (d) { renderProfileSups(); profileBefore = JSON.stringify(profileBody()); }
+  const operator = val('operator');
+  operator.onchange = () => pickNewOperator(operator, people.operators, () => { operator.innerHTML = operatorOptions(user.operator_id); }, String(user.operator_id ?? ''));
 }
 
 const keyTicks = new Set();
@@ -1603,16 +1698,6 @@ function profileStatus(x) {
   const p = x.profile;
   if (x.missing.length && !(x.missing.length === 1 && x.missing[0] === 'end_date' && p && p.end_date)) return 'missing';
   return endStatus(x);
-}
-function picTotals() {
-  const totals = new Map();
-  for (const f of picFlights || []) {
-    if (!window.flightFilters.includes(f)) continue;
-    const t = totals.get(f.user_id) || {count: 0, seconds: 0};
-    t.count += f.flight_count || 1; t.seconds += f.duration_s || 0;
-    totals.set(f.user_id, t);
-  }
-  return totals;
 }
 const flightsText = t => t && t.count ? `${t.count} flights · ${(t.seconds / 3600).toFixed(1)} h` : '—';
 const supervisorText = p => (p?.supervisors || []).map(s => s.name + (s.id ? '' : ' (ext.)')).join(', ');
@@ -1746,15 +1831,8 @@ function renderSupervision() {
 </tr>`).join('')}</table></div>`;
   }).join('') || '<p class="mute">No matching people.</p>';
 }
-function cardProfileLine(u) {
-  const x = profileList.find(p => p.id === u.id);
-  if (!x) return '';
-  if (!x.profile) return '<div class="card-profile missing">Profile not filled in</div>';
-  const text = [x.profile.role, x.profile.department].filter(Boolean).join(' · ');
-  return `<div class="card-profile" title="${esc(text)}">${esc(text)}</div>`;
-}
 
-// The profile form of Edit profile (administrators), saved with the person's own rules.
+// The profile part of Edit person (administrators), saved with the person's own rules.
 let profileEdit = null;
 function profileFormHTML(d) {
   const p = d.profile || {}, o = profileEdit.options;
@@ -1801,15 +1879,18 @@ function addProfileSup(external) {
   input.value = '';
   renderProfileSups();
 }
-async function savePersonProfile() {
+function profileBody() {
   const dept = $('pfDept').value;
-  const body = {role_id: +$('pfRole').value || null, department_id: dept && dept !== 'other' ? +dept : null,
+  return {role_id: +$('pfRole').value || null, department_id: dept && dept !== 'other' ? +dept : null,
     department_text: dept === 'other' ? $('pfDeptText').value : null, indefinite: $('pfIndef').checked,
     end_date: $('pfIndef').checked ? null : $('pfEnd').value, number: $('pfNumber').value, github: $('pfGithub').value,
     supervisors: profileEdit.sups.map(s => s.id ? {id: s.id} : {name: s.name})};
+}
+async function savePersonProfile() {
   await adminApi(`/api/users/${profileEdit.id}/profile`, {method: 'PUT', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body)});  // an error is shown in the Edit dialog
-  await loadProfileList();  // cards, Profiles and Supervision
+    body: JSON.stringify(profileBody())});  // an error is shown in the Edit dialog
+  personProfile = null;  // read again for the Details tab
+  await loadProfileList();  // table, Profiles and Supervision
 }
 
 // Profile options (roles and departments of the person profile), admins in Edit mode.
@@ -2003,7 +2084,7 @@ async function addUser(ev) {
   $('addUserDialog').close();
   showSetup(data.setup_url, data.username || username, false, data.expires_at, data.mailed_to);
   selectedPerson = data.id;
-  selectedTab = 'account';
+  selectedTab = 'details';
   await load();
   } catch (error) { $('addUserError').textContent = 'Could not add user: ' + error.message; }
 }

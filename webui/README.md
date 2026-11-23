@@ -169,8 +169,8 @@ to gain descriptions and previously omitted crew entries.
 
 ## Add or correct information
 
-Administrators can use **People → Edit → Account** to grant or remove another person's admin rights
-and inspect, narrow or revoke their API keys (not retrieve secret values). You cannot remove your own admin rights.
+Administrators can use **People → Edit person** to grant or remove another person's admin rights,
+and the **API keys** tab to inspect, narrow or revoke their API keys (not retrieve secret values). You cannot remove your own admin rights.
 
 - **Locations** lists the places on the left (search by name or country, filter by **Country**) and shows the map
   on the right. Click a location in the list or on the map to select it: the map zooms to it and its details and
@@ -203,12 +203,13 @@ and inspect, narrow or revoke their API keys (not retrieve secret values). You c
   unless added as aliases. Unknown or ambiguous names produce a row error without importing any records.
   The original CSV is attached to all imported records: anyone who can read one can download the
   whole CSV, including rows from other projects. Failed imports retain no attachment.
-- On **People**, click a person to open them beside the list. Admins see the tabs Account, Profile, Qualifications,
-  API keys and Aliases, each with its own **Edit** (one dialog); ⋯ has password, **Move TU Delft sign-in…** (a TU
+- **People** is a table (name, role, current licences, flights, hours and last flight as PIC, sign-in for admins;
+  Columns and pagination like Aircraft). A row opens the pilot page; for admins it opens the person beside the
+  list with the tabs Details (account and profile), Qualifications, API keys and Aliases. **Edit person** changes the
+  account, profile and aliases in one dialog (click a value to open it at that field); ⋯ has password, **Move TU Delft sign-in…** (a TU
   Delft login matched to the wrong person), **Merge into…** (one person with two accounts) and **Remove user…**.
   A new user needs an email address (the username is optional and then taken from it); an address can be
   changed later but not removed.
-  Username, display name, email and default project share one **Save account** button.
   The normal overview shows aliases too. Logs match explicit aliases or unique display names, not usernames.
   Add a username as an alias only if it reliably identifies that person in logs. Duplicate display names
   stay unresolved unless an explicit alias identifies the person. Renaming a username does not add an alias.

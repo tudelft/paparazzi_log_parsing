@@ -898,11 +898,11 @@ the previous overviews; no records are deleted or reparsed.
 
 Click your name in the top bar to open **My account**. Local users can change their password
 by entering their current password and a new password of at least 10 characters. On **People**, admins
-can enable **Edit**, select a person and use **Reset password** (or **Set password**) in their Account tab to
+can open a person and use ⋯ → **Reset password** (or **Set password**) to
 generate a one-time, 48-hour link for a local account and share it privately.
 Generating a link does not change the password until it is used; a new link replaces older links.
 SAML/TU Delft passwords remain managed by the identity provider. API keys cannot manage passwords.
-Admins can also **Remove password** in that Account tab without deleting the profile,
+Admins can also **Remove password** (⋯) without deleting the profile,
 flights or other linked information. This clears unused setup/reset links and prevents new password
 sign-ins; existing sessions and API keys are not revoked. **Set password** can restore local sign-in
 later. The last administrator's login method cannot be removed.
@@ -934,7 +934,7 @@ longer sign in, or the administrator signs out.
 The Projects overview uses searchable, equal-height responsive cards with contrasting backgrounds,
 accent borders, top-right log/member counts and a member list clipped to three lines with an ellipsis.
 The whole card opens the project; member names in these cards are plain text, not person links.
-Hover over the member list for all names. People and Projects cards do not highlight on mouse hover;
+Hover over the member list for all names. Projects cards do not highlight on mouse hover;
 keyboard focus remains visible. Permissions are only shown in Edit.
 In Edit mode, select one project from the searchable list to
 rename it, change current members' permissions or delete it. The member list contains only existing
@@ -992,7 +992,7 @@ Everything requires a login. Admins create accounts on the People page or on the
 
 A new account needs an email address (Add user, `create-user --email`). In Add user the username is optional: without one it is taken
 from the address (the part before `@`, lower case, numbered when taken, as for a first SSO login). Accounts made before that rule may have none;
-once an address is set it can be changed in the People Account tab but not removed. External crew (no sign-in), people
+once an address is set it can be changed with People → Edit person but not removed. External crew (no sign-in), people
 created by the qualification import and first SSO logins without a `mail` attribute are not affected.
 Addresses must be valid and unique (case-insensitive). Without an email, automatic SSO
 linking by email is unavailable; password setup/reset links can still be shared privately.
@@ -1103,14 +1103,20 @@ tabs **Unlinked names** (when there are any, also with `HIDE_UNLINKED_AIRCRAFT`)
 boards or recordings and use **Link to aircraft…** in the selection bar (the dialog lists every aircraft, including
 Discard; a single folder candidate is preselected). Pending requests show **Approve**/**Reject…** to who may decide
 and **Withdraw** to the requester. Dialogs close with Cancel, Close or Escape.
-<a id="people-page"></a>**People page** ([UI rule](#ui-rule), `<body data-edit="none">`). The cards are the same for
-everyone; clicking a card opens the person beside them (`person=<id>`, `ptab=<tab>` in the URL; Ctrl/Cmd-click still
-opens the pilot page, linked in the panel). Others see a summary (role, PIC flights, current licences; My account and
-My profile for themselves). Admins see the tabs Account, Profile (with `LOGDB_PERSON_PROFILE`), Qualifications, API
-keys and Aliases. Account, Profile and Aliases each have one **Edit** in the tab header (one dialog; clicking a value
-opens it at that field): the account dialog saves only what changed through `PUT /api/admin/users/<id>/profile`,
-`…/operator`, `…/admin` and `…/external`; aliases are one per line (`POST`/`DELETE /api/admin/aliases`).
-Qualifications keep their own per-item actions and Add qualification; API keys use the selection bar. ⋯ (admins):
+<a id="people-page"></a>**People page** ([UI rule](#ui-rule), `<body data-edit="none">`). A table like Aircraft, the
+same for everyone: Name (a link to the pilot page), Role (role · department, when the viewer sees profiles), Current
+licences (approved, not expired; only when the viewer may see some), Flights, Hours and Last flight as PIC within the
+flight filters (from `/api/people-pic-flights`), and Sign-in (admins). Headers sort; Columns hides columns (per
+browser, `people.hiddenColumns`); 50 rows per page with the pager at the bottom. Search, Show external, Include unused
+profiles, sort, page and rows per page are in the URL (`search`, `external`, `unused`, `sort`, `pg`, `size`). On a
+phone only Name, Flights and Last flight are shown. For non-admins a row opens the pilot page. For admins a row opens
+the person beside the table (`person=<id>`, `ptab=<tab>`; Role and Sign-in are then hidden) with the tabs Details,
+Qualifications, API keys and Aliases. Details shows the account and, with `LOGDB_PERSON_PROFILE`, the profile
+(`GET /api/users/<id>/profile`). **Edit person** in the panel header opens one dialog with the account, profile and
+aliases (clicking a value in Details or Aliases opens it at that field); Save sends only what changed, each part to
+its existing endpoint: `PUT /api/admin/users/<id>/profile`, `…/operator`, `…/admin`, `…/external`, aliases one per line
+(`POST`/`DELETE /api/admin/aliases`) and the profile (`PUT /api/users/<id>/profile`). Qualifications keep their own
+per-item actions and Add qualification; API keys use the selection bar. ⋯ (admins):
 Set/Reset password…, Remove password…, Move TU Delft sign-in…, Merge into…, Remove user…. Admins have **Add user** and
 **Manage ▾** (Import profiles (CSV)…, Import qualifications (ZIP)… and its template, Fill numbers from PDFs…, Check QR
 codes…, Welcome message and notices), and always the tabs Unlinked crew names (when any; tick names, then **Link to
@@ -1417,7 +1423,7 @@ Where it shows:
 - the person's page (`/people/<id>`): a Profile card, with the people that person supervises and the projects
   of each (only projects the viewer may open), and **Edit** for the person;
 - My account: the person's own profile and the people they supervise;
-- People: the role and department on the cards; the **Profiles** tab (a sortable, filterable table with CSV
+- People: the Role column of the table; the **Profiles** tab (a sortable, filterable table with CSV
   download) and the **Supervision** tab (one card per supervisor, external ones by name). Admins see everyone; a
   supervisor sees the people they supervise. Both come from `GET /api/profiles`; the Profiles table also shows
   flights as PIC within the flight filters (Supervision does not). Filters, sort and page are kept in the URL (`p_*` parameters);
@@ -1563,8 +1569,7 @@ the mail). The tables are in `db.LOGBOOK_UNRELATED`.
 ### Private licences and qualifications
 
 Users upload and manage their own qualifications on **My account**, alongside password settings.
-The read-only People overview uses a compact responsive grid of equal-height, contrasting cards
-with names, a clipped row of qualifications and top-right PIC flight count, hours and last-flight date.
+The People table shows PIC flight count, hours and last-flight date per person ([People page](#people-page)).
 Totals use the visible merged telemetry and paper-record read model, including daily paper counts,
 and follow the shared browser flight filters. A single bulk `/api/people-pic-flights` request supplies
 only the fields needed for those totals and filters; there are no per-person flight requests.
@@ -1621,9 +1626,9 @@ Enable Edit, then select someone to open their
 **Account**, **API keys**, **Aliases** or **Qualifications** tab. The editor shows **Active · TU Delft SSO**
 for enabled accounts linked to TU Delft SSO (also a local account that has since signed in with SSO), **Active · Local**
 for enabled accounts with a password, and **Active · TU Delft SSO + Local** for both; external, disabled and accounts
-without either have no Active badge. In the people list the badge only says **Active** (the sign-in ways in its tooltip). This is sign-in capability, not recent
-activity or qualification validity. The Account tab groups profile, sign-in, access and removal actions,
-with explanations under Help. API key details and revocation load only in the API keys tab.
+without either have no Active badge. The Sign-in column of the People table shows the same text without "Active", with **Admin** first for administrators. This is sign-in capability, not recent
+activity or qualification validity. The Details tab shows the account and profile, with explanations under Help;
+removal and password actions are under ⋯. API key details and revocation load only in the API keys tab.
 See [People page](#people-page) for how admins change account settings, aliases and qualifications. Type settings
 are in the Qualification types tab (admins).
 
@@ -1658,8 +1663,8 @@ when it was made: `decided_by`/`decided_at` are stored for it) and bookings appr
 (no decider). Bookings deleted while pending, and submissions deleted by an administrator, leave no history. A row opens
 its details in place (evidence preview, dates, training pass, booking time and options, the full reason); the period,
 page and open row (`open=q<id>` or `b<id>`) are in the URL.
-Admins can edit username, display name, email and default project together with **Save account** in the Account tab.
-All four fields are saved atomically; previous unambiguous display names are preserved as log aliases. Display names are optional
+Admins edit username, display name, email and default project with **Edit person**; these four are saved
+atomically in one request; previous unambiguous display names are preserved as log aliases. Display names are optional
 and at most 80 characters. Usernames must be unique (case-insensitive),
 1-40 characters and contain no spaces or control characters. Username changes do not create log aliases.
 Passwords, SSO identity links, project memberships and existing records stay attached to the same person.
@@ -1672,7 +1677,7 @@ to an existing person using aliases, or explicitly use **Add user** when a profi
 flights under their operational authorisation: display name = the logged name, no password or email, and
 `users.is_external=1`. Their flights link and count like anyone's, but they cannot sign in (password,
 SAML, setup links and API keys are refused), cannot be project members (UI and project CSV reject them),
-and stay hidden on People until **Show external** is ticked. The Account tab's External checkbox converts
+and stay hidden on People until **Show external** is ticked. The External checkbox in Edit person converts
 a person either way (not admins or yourself); marking someone external removes their project memberships.
 Log crew matching uses case-insensitive explicit aliases first, then unique display names. Login usernames
 are not implicit log aliases; admins may add them deliberately. Duplicate display names stay unresolved
