@@ -3098,10 +3098,12 @@ def list_projects():
     """Projects this user can open. Admins get every project."""
     con = conn()
     if g.user["is_admin"]:
-        rows = con.execute("SELECT id, name, 'full' AS role FROM projects ORDER BY name").fetchall()
+        rows = con.execute("SELECT id, name, operator_id, category, authorisation_id, 'full' AS role FROM projects"
+                           " ORDER BY name").fetchall()
     else:
         rows = con.execute(
-            "SELECT p.id, p.name, m.role FROM projects p JOIN project_members m ON m.project_id = p.id"
+            "SELECT p.id, p.name, p.operator_id, p.category, p.authorisation_id, m.role FROM projects p"
+            " JOIN project_members m ON m.project_id = p.id"
             " WHERE m.user_id=? ORDER BY p.name", (g.user["id"],)).fetchall()
     out = []
     for r in rows:
@@ -3114,7 +3116,10 @@ def list_projects():
         out.append({"id": r["id"], "name": r["name"], "role": r["role"], "log_count": n,
                     "can_add": r["role"] in ADD_ROLES,
                     "can_edit": r["role"] in EDIT_ROLES or bool(g.user["is_admin"]), "can_delete": r["role"] in FULL_ROLES or bool(g.user["is_admin"]),
-                    "can_manage": bool(g.user["is_admin"]) or r["role"] == "manager", "members": members})
+                    "can_manage": bool(g.user["is_admin"]) or r["role"] == "manager", "members": members,
+                    # the operator and category its flights fall under (shown on the Projects page)
+                    "operator_id": r["operator_id"], "category": r["category"],
+                    "authorisation_id": r["authorisation_id"]})
     return jsonify(out)
 
 

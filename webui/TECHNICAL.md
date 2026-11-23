@@ -931,16 +931,24 @@ works in the administrator's browser session (`POST /api/view-as/<id>`, `POST /a
 API key, and ends when the setting is switched off, the administrator loses admin rights, the person can no
 longer sign in, or the administrator signs out.
 
-The Projects overview uses searchable, equal-height responsive cards with contrasting backgrounds,
-accent borders, top-right log/member counts and a member list clipped to three lines with an ellipsis.
-The whole card opens the project; member names in these cards are plain text, not person links.
-Hover over the member list for all names. Projects cards do not highlight on mouse hover;
-keyboard focus remains visible. Permissions are only shown in Edit.
-In Edit mode, select one project from the searchable list to
-rename it, change current members' permissions or delete it. The member list contains only existing
-members; search by name, username or alias to add an enabled, non-external person with See access,
-then adjust Upload/Edit/Delete as needed. Removing all permissions removes membership. Existing API
-authorization and project visibility rules apply unchanged.
+<a id="projects-page"></a>**Projects page** ([UI rule](#ui-rule), `<body data-edit="none">`). Tabs Projects,
+Authorisations and Operators (`tab=`). **Projects** is a table like Aircraft: Project (a link to the project page),
+Members (the first three, "+N", all on hover), Logs, Operator and Category of its flights (`GET /api/projects` returns
+`operator_id`, `category` and `authorisation_id` for this; admins read `/api/admin/projects`). Search, sort, page and
+rows per page are in the URL (`q`, `sort`, `page`, `size`). Admins, and managers for their projects, open a project
+beside the table (`open=<id>`, `ptab=members`; Operator and Category are hidden then) with the tabs Details and
+Members; other rows open the project page. **Edit project** is one dialog: admins change the name, operator (also
+**New operator…**) and category (`PUT /api/admin/projects/<id>` with only what changed) and the members; a manager only
+the members. Each member has one access select (See / See, upload / … edit / … delete / Manager) and × to remove
+(↺ undoes); a search adds an enabled, non-external person with See. Save sends one `PUT /api/projects/<id>/members` per
+changed member (`role: ""` removes). ⋯ (admins): **Delete project…** (logs stay). **Add project** and **Manage ▾**
+(Import CSV…, Download CSV template) are admins only; dialogs replace `confirm()`.
+**Authorisations** and **Operators** are read-only tables for everyone. Admins click a row to change it in a dialog
+(nothing is sent when unchanged) and tick rows for the selection bar (Edit…, Delete…; the server refuses to delete one
+still in use and says where). **Add operator** is for everyone (only admins tick *Our own operator*), **Add
+authorisation** for admins. Under Operators, admins set the operator of external crew by ticking them and **Set
+operator…** (`PUT /api/admin/users/<id>/operator`). Existing API authorization and project visibility rules apply
+unchanged.
 
 **Project roles and managers.** `project_members.role` is `view` < `add` < `edit` < `full` < `manager`
 (`ACCESS_ROLES`, `PROJECT_ROLE_RANK` in `app.py`; ticks See, Upload, Edit, Delete, Manager); each includes the ones
@@ -949,8 +957,8 @@ files; `edit` also changes the project's flights, logs and paper records like `f
 flights, log dates, flight projects, links between records, file category and description; `EDIT_ROLES`,
 `historical.can_edit`) but deletes nothing: deleting logs and paper records and removing file links stay `full`
 (`FULL_ROLES`, `historical.can_delete`, `can_remove` of an attachment link).
-Admins tick **Manager** in the members editor (or use `manager` in the project CSV). In Edit mode a manager sees the
-members editor for the projects they manage, without rename, operator, category or delete: they add and remove
+Admins choose **Manager** in Edit project (or use `manager` in the project CSV). A manager gets Edit project for the
+projects they manage, with only the members (no rename, operator, category or delete): they add and remove
 members and set See/Upload/Edit/Delete (`PUT /api/projects/<id>/members`, the same handler as
 `/api/admin/projects/<id>/members`). Only admins appoint managers or change a manager's row, also the manager's
 own (403). Creating, deleting and renaming projects, operators, categories, authorisations and the CSV import stay
@@ -2602,10 +2610,10 @@ Permissions and APIs stay as they are; the server checks every change. A page th
 `<body data-edit="none">` and `theme.js` shows no Edit button there.
 
 **Edit mode (being replaced).** The Edit button in the menu bar shows the forms and menus to change things on the pages
-that still have them (Logs, Projects, Locations, Training, …); it is one setting
+that still have them (Logs, Locations, Training, …); it is one setting
 for all pages, and it stays on until you turn it off. The [Logbook](#logbook-changes), the
 [flight page](#flight-page-changes), the [Aircraft page](#aircraft-page), the [People page](#people-page), the
-[Safety page](#safety), the [Documents page](#documents-page) and the [Agenda](#booking-agenda) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
+[Projects page](#projects-page), the [Safety page](#safety), the [Documents page](#documents-page) and the [Agenda](#booking-agenda) follow the [UI rule](#ui-rule) instead. With edit mode on, admins also see the names in the
 logs that are not yet linked to a person or aircraft, if there are any. With it off, a one-line reminder says how many
 are left.
 

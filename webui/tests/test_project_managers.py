@@ -40,6 +40,13 @@ class ProjectManagerTests(AppTests):
         self.sign_in(2)
         self.assertFalse(next(p for p in self.client.get("/api/projects").json if p["id"] == 1)["can_manage"])
 
+    def test_project_list_has_its_operator_and_category(self):
+        self.con.execute("UPDATE projects SET category='specific' WHERE id=1")
+        self.con.commit()
+        self.sign_in(4)
+        project = next(p for p in self.client.get("/api/projects").json if p["id"] == 1)
+        self.assertEqual((project["category"], project["operator_id"], project["authorisation_id"]), ("specific", None, None))
+
     def test_manager_manages_members_but_not_managers(self):
         self.sign_in(4)
         self.assertEqual(self.member(6, "add").status_code, 200)

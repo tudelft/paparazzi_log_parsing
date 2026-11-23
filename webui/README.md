@@ -118,14 +118,15 @@ to gain descriptions and previously omitted crew entries.
   (**Change…** in the selection bar), its project, its takeoff location or the operator its PIC flies
   for (external crew); inferred values are grey. Choose **Own operations only** in Flight filters for operator
   reporting; pilot experience counts all operators. The list of operators is on the **Operators** tab of the Projects page; anyone can add
-  a new partner there or with **New operator…** in the Logbook, and admins set which operator external crew fly for.
+  a new partner there or with **New operator…** in the Logbook; admins click a row to change it, tick rows to delete
+  them, and set which operator external crew fly for (tick them, then **Set operator…**).
 - Each flight also shows its **category**, the rules it was flown under: national rules (ROC / ROC-light) before
   EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. It comes from the flight (**Change…**
   in the selection bar), indoor, its project, its takeoff location or the date; inferred values are
   grey. By date, our own flights get national rules while a ROC was valid and OPEN when no authorisation of ours
   was valid; while an EU authorisation was valid they stay unknown until a project, location or flight says which.
   Admins keep the authorisations (number, category, validity) on the **Authorisations** tab of the Projects
-  page; **Used by** counts where each is set by hand. **(check)** marks SPECIFIC
+  page (click a row to change it, tick rows to delete them); **Used by** counts where each is set by hand. **(check)** marks SPECIFIC
   without an authorisation, or flown outside its validity; Flight filters can show one category or those to check.
   The Logbook shows only the category; hover over it for the authorisation.
 - **Columns** in the Logbook hides or shows table columns. Your choice is kept in this browser;
@@ -237,10 +238,13 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
   shared-name panel for explicit per-log assignments when needed.
 - Crew names in logs do not create user profiles. Admins can link multiple names to one person using
   aliases, or use Add user if a new profile is needed. Previously generated profiles are kept.
-- Admins manage project access on **Projects** and named takeoff areas on **Locations**. Admins can make a member
-  **Manager** of a project; a manager adds and removes its members and sets See/Upload/Edit/Delete in Edit mode, but
-  only admins appoint managers ([details](TECHNICAL.md#accounts-and-tu-delft-login)).
-  In Edit mode, Projects supports CSV import with `project,person,role`; blank roles mean view/upload.
+- Admins manage project access on **Projects** and named takeoff areas on **Locations**. **Projects** is a table
+  (project, members, logs, operator, category); a row opens a project you may change beside it (Details, Members),
+  other rows open the project page. **Edit project** changes the name, operator, category and members in one dialog
+  (access per member: See, upload, edit, delete or Manager); ⋯ deletes the project. Admins can make a member
+  **Manager** of a project; a manager changes its members with Edit project, but only admins appoint managers
+  ([details](TECHNICAL.md#accounts-and-tu-delft-login)).
+  **Manage ▾ → Import CSV…** on Projects takes `project,person,role`; blank roles mean view/upload.
   Reimports replace all members of included projects. For initial setup, import qualifications first,
   then projects, then aircraft. Aircraft project changes require a `project_effective_date`;
   manual and legacy flight assignments are preserved. Both import dialogs offer templates.
