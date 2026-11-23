@@ -38,26 +38,25 @@
   .ellipsis { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
 
   /* messages from the site (the welcome message; other kinds later): dismissible, newest first */
-  .messages { display:grid; gap:10px; }
+  .messages { display:grid; gap:8px; }
   .messages:empty { display:none; }
-  .msg { position:relative; border-left:4px solid var(--acc); padding-right:44px; }
-  .msg h3 { margin-bottom:6px; }
+  /* compact: a short notice is two lines (title, text); ✕ in the corner dismisses it */
+  .msg { position:relative; border-left:4px solid var(--acc); padding:10px 44px 10px 14px; }
+  .msg h3 { margin:0 0 2px; display:flex; align-items:baseline; gap:8px; }
   .msg .body { font-size:14px; line-height:1.5; }
   .msg .body p, .msg .body ul { margin:0 0 8px; overflow-wrap:anywhere; }
+  .msg .body > :last-child { margin-bottom:0; }
   .msg .body ul { padding-left:22px; }
   .msg .body li { margin:0 0 3px; }
   .msg .body .indent { margin:0 0 6px 24px; }
   .msg .body a { color:var(--acc); text-decoration:none; } .msg .body a:hover { text-decoration:underline; }
-  .msg .close { position:absolute; top:8px; right:8px; width:28px; height:28px; padding:0; border:0; border-radius:6px;
+  .msg .close { position:absolute; top:6px; right:8px; width:28px; height:28px; padding:0; border:0; border-radius:6px;
     background:none; color:var(--mute); font-size:18px; line-height:1; cursor:pointer; }
   .msg .close:hover, .msg .close:focus-visible { background:var(--hover); color:var(--txt); }
   .msg.notice { border-left-color:var(--warn); }
   .msg.fixed { padding-right:14px; }
   .msg .tag { font-size:11px; font-weight:600; border-radius:9px; padding:1px 7px; background:var(--warnbg); color:var(--warn); }
   .msg .until { font-size:12px; font-weight:400; color:var(--mute); margin-left:auto; white-space:nowrap; }
-  .msg .actions { display:flex; justify-content:flex-end; }
-  .msg .actions button { font:inherit; font-size:13px; padding:4px 12px; border-radius:6px; border:1px solid var(--fieldline);
-    background:var(--sec); color:var(--txt); cursor:pointer; }
 
   /* needs attention */
   .todo { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr)); gap:8px; }
@@ -189,14 +188,13 @@ async function api(url, options) {
 
 // ---- Messages from the site (data.messages: id, kind, version, title, html, dismissible, until): the welcome
 // message and admins' notices; html is built and escaped by the server. Dismissing is per message and version; a
-// new version shows again. A notice that cannot be closed has no Dismiss.
+// new version shows again. ✕ dismisses it; a notice that cannot be closed has none.
 function paintMessages() {
   $('messages').innerHTML = (data.messages || []).map(m => `<section class="card msg ${esc(m.kind)}${m.dismissible ? '' : ' fixed'}" data-id="${esc(m.id)}" data-version="${m.version}">
       <h3><span class="ellipsis" title="${esc(m.title)}">${esc(m.title)}</span>${m.dismissible ? ''
         : ' <span class="tag" title="This notice stays until it ends or an administrator removes it">Notice</span>'}${m.until
         ? `<span class="until" title="Shown up to and including this day">until ${esc(m.until)}</span>` : ''}</h3><div class="body">${m.html}</div>
-      ${m.dismissible ? `<button type="button" class="close" aria-label="Dismiss ${esc(m.title)}" title="Dismiss">✕</button>
-      <div class="actions"><button type="button" class="dismiss">Dismiss</button></div>` : ''}</section>`).join('');
+      ${m.dismissible ? `<button type="button" class="close" aria-label="Dismiss ${esc(m.title)}" title="Dismiss">✕</button>` : ''}</section>`).join('');
 }
 $('messages').addEventListener('click', async event => {
   const button = event.target.closest('.close, .dismiss');
