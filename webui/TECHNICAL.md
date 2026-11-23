@@ -1104,12 +1104,19 @@ boards or recordings and use **Link to aircraft…** in the selection bar (the d
 Discard; a single folder candidate is preselected). Pending requests show **Approve**/**Reject…** to who may decide
 and **Withdraw** to the requester. Dialogs close with Cancel, Close or Escape.
 <a id="people-page"></a>**People page** ([UI rule](#ui-rule), `<body data-edit="none">`). A table like Aircraft, the
-same for everyone: Name (a link to the pilot page), Role (role · department, when the viewer sees profiles), Flights,
-Hours and Last flight as PIC within the flight filters (from `/api/people-pic-flights`), and for admins Current
-licences (approved, not expired) and Sign-in; others see licences on the pilot page. Headers sort; Columns hides columns (per
-browser, `people.hiddenColumns`); 50 rows per page with the pager at the bottom. Search, Show external, Include unused
-profiles, sort, page and rows per page are in the URL (`search`, `external`, `unused`, `sort`, `pg`, `size`). On a
-phone only Name, Flights and Last flight are shown. For non-admins a row opens the pilot page. For admins a row opens
+same for everyone: Name (a link to the pilot page), Flights, Hours and Last flight as PIC within the flight filters
+(from `/api/people-pic-flights`), and for admins Current licences (approved, not expired) and Sign-in; others see
+licences on the pilot page. The profile (one per person, `user_profiles`; none yet for people who have not signed in
+since profiles were turned on, external crew and imported people) adds columns for viewers who see profiles (admins:
+everyone; a supervisor: the people they supervise, from `GET /api/profiles`, also those who share no project with
+them): Role and Department by default, and under Columns Supervisors, Expected end (with incomplete / ending soon /
+ended / to confirm), Number (admins), GitHub and Confirmed; plus the filters Role, Department and status (Incomplete,
+Ending soon: within 3 months, Ended), which also show people without flights. Manage ▾ → **Download profiles (CSV)**
+exports the profiles of the rows shown (supervisors get Manage ▾ with only this). This replaces the former Profiles
+tab (`?tab=profiles` now opens People). Headers sort; the Columns choice is per browser (`people.columns`); 50 rows
+per page with the pager at the bottom. Search, filters (`role`, `dept`, `status`), Show external, Without flights,
+sort, page and rows per page are in the URL (`search`, `external`, `unused`, `sort`, `pg`, `size`). On a phone only
+Name, Flights and Last flight are shown. For non-admins a row opens the pilot page. For admins a row opens
 the person beside the table (`person=<id>`, `ptab=<tab>`; Role and Sign-in are then hidden) with the tabs Details,
 Qualifications, API keys and Aliases. Details shows the account and, with `LOGDB_PERSON_PROFILE`, the profile
 (`GET /api/users/<id>/profile`). **Edit person** in the panel header opens one dialog with the account, profile and
@@ -1423,18 +1430,17 @@ Where it shows:
 - the person's page (`/people/<id>`): a Profile card, with the people that person supervises and the projects
   of each (only projects the viewer may open), and **Edit** for the person;
 - My account: the person's own profile and the people they supervise;
-- People: the Role column of the table; the **Profiles** tab (a sortable, filterable table with CSV
-  download) and the **Supervision** tab (one card per supervisor, external ones by name). Admins see everyone; a
-  supervisor sees the people they supervise. Both come from `GET /api/profiles`; the Profiles table also shows
-  flights as PIC within the flight filters (Supervision does not). Filters, sort and page are kept in the URL (`p_*` parameters);
-- People: the person **Profile** tab, where admins use **Edit profile** (`PUT /api/users/<id>/profile`):
+- People: the profile columns, filters and CSV download of the table ([People page](#people-page)) and the
+  **Supervision** tab (one card per supervisor, external ones by name; its search and Include ended in the URL as
+  `p_*`). Admins see everyone; a supervisor sees the people they supervise. Both come from `GET /api/profiles`;
+- People: the person's Details tab, where admins use **Edit person** (profile part: `PUT /api/users/<id>/profile`):
   like the import, they may fill in only what they know (empty fields are allowed, a past end date too), but what is
   filled in must be valid; the person is asked for the rest at the next sign-in, and **Profile options** to edit the role and department lists
   (`PUT /api/admin/profile-options`; roles with *Max years* and *Indefinite*). The role list is seeded once when the tables are created; the department list starts empty, because it is
 site-specific: admins add departments there or **Import CSV** (`name,group` per line), and people can also type one. Removing a list
 entry empties that field in the profiles that used it, so those people are asked again.
 
-**Import CSV** on the Profiles tab (admins, `POST /api/admin/profiles/import` with `csv` and `apply`) reads
+**Manage ▾ → Import profiles (CSV)…** on People (admins, `POST /api/admin/profiles/import` with `csv` and `apply`) reads
 `username, role, department, supervisors, end_date, number, github` (only `username` is required; it may be an
 email). It fills in only empty fields, so what people entered stays, and rows may leave fields empty. Roles and
 listed departments match by name; other departments are stored as typed. Supervisors (`;`-separated) link to someone

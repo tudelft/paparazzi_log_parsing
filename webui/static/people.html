@@ -33,11 +33,10 @@
   table.people tbody tr.open { background:var(--hover); box-shadow:inset 3px 0 0 var(--acc); }
   table.people td a { color:var(--txt); }
   table.people .missing { font-style:italic; opacity:.75; }
-  /* with the person open, Role and Sign-in (shown in the panel) leave room for the rest */
-  .with-panel table.people .c-role, .with-panel table.people .c-account { display:none; }
-  /* on a phone: name, flights and last flight (the rest is on the pilot page / in the panel) */
-  @media (max-width:600px) { table.people .c-role, table.people .c-licences, table.people .c-hours, table.people .c-account { display:none; }
-    table.people col.c-last { width:7.5em !important; } }
+  table.people td .chip.warn, table.people td .chip.pending { font-size:11px; }
+  #peopleFilters { display:contents; }
+  #peopleFilters select { width:auto; max-width:10em; }
+  .people-title-row .directory-search { flex:0 1 220px; }
   .people-foot { display:flex; justify-content:flex-end; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px; }
   .col-menu { position:relative; }
   .col-menu form { position:absolute; top:calc(100% + 6px); left:0; z-index:1000; min-width:180px; padding:10px 12px;
@@ -274,20 +273,26 @@
     <div class="people-title-row"><h2>People</h2>
     <span class="mute" id="directoryCount" role="status"></span>
     <label class="directory-search" id="directorySearchLabel"><input type="search" id="directorySearch" aria-label="Search people" placeholder="Search name, username, alias…" oninput="dirPage = 0; dirUrl(false); renderDirectory()"></label>
+    <span id="peopleFilters" hidden>
+      <select id="dirRole" data-filter="role" aria-label="Role" onchange="setDirFilter(this)"></select>
+      <select id="dirDept" data-filter="dept" aria-label="Department" onchange="setDirFilter(this)"></select>
+      <select id="dirStatus" data-filter="status" aria-label="Profile status" onchange="setDirFilter(this)">
+        <option value="">Any status</option><option value="missing">Incomplete</option><option value="soon" title="The expected end is within 3 months">Ending soon</option><option value="ended">Ended</option></select></span>
     <label id="showExternalLabel" title="External people stay hidden until this is ticked" hidden><input type="checkbox" id="showExternal" onchange="dirPage = 0; dirUrl(true); render()"> Show external</label>
-    <label title="Include people without logs, paper records or approved qualifications"><input type="checkbox" id="showWithoutLogs" onchange="dirPage = 0; dirUrl(true); render()"> Include unused profiles</label>
+    <label title="Include people without logs, paper records or approved qualifications"><input type="checkbox" id="showWithoutLogs" onchange="dirPage = 0; dirUrl(true); render()"> Without flights</label>
     <span class="col-menu" id="colMenu"><button type="button" class="sec" id="colButton" aria-expanded="false" aria-controls="colForm">Columns</button>
       <form id="colForm" hidden aria-label="Shown columns"></form></span>
     <span class="toolbar-end">
       <button type="button" id="addUserBtn" hidden onclick="$('addUserDialog').showModal()">Add user</button>
       <span class="menu-wrap" id="manageWrap" hidden><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
         <div class="menu-pop" id="manageMenu" role="menu" hidden>
-          <button type="button" class="ext-item" role="menuitem" id="manageProfileImport" onclick="openProfileImport()">Import profiles (CSV)…</button>
-          <button type="button" class="ext-item" role="menuitem" onclick="$('qualImportDialog').showModal()">Import qualifications (ZIP)…</button>
-          <a class="ext-item" role="menuitem" href="/api/admin/qualifications/import/template">Qualifications ZIP: CSV template</a>
-          <button type="button" class="ext-item" role="menuitem" onclick="openFillNumbers()">Fill numbers from PDFs…</button>
-          <button type="button" class="ext-item" role="menuitem" onclick="openCheckQr()">Check QR codes…</button>
-          <a class="ext-item" role="menuitem" href="/welcome" title="The welcome message and notices at the top of the Home page">Welcome message and notices</a>
+          <button type="button" class="ext-item" role="menuitem" id="manageDownload" onclick="downloadProfiles()" title="The people in the table now (search and filters), with their profiles">Download profiles (CSV)</button>
+          <button type="button" class="ext-item admin-item" role="menuitem" id="manageProfileImport" onclick="openProfileImport()">Import profiles (CSV)…</button>
+          <button type="button" class="ext-item admin-item" role="menuitem" onclick="$('qualImportDialog').showModal()">Import qualifications (ZIP)…</button>
+          <a class="ext-item admin-item" role="menuitem" href="/api/admin/qualifications/import/template">Qualifications ZIP: CSV template</a>
+          <button type="button" class="ext-item admin-item" role="menuitem" onclick="openFillNumbers()">Fill numbers from PDFs…</button>
+          <button type="button" class="ext-item admin-item" role="menuitem" onclick="openCheckQr()">Check QR codes…</button>
+          <a class="ext-item admin-item" role="menuitem" href="/welcome" title="The welcome message and notices at the top of the Home page">Welcome message and notices</a>
         </div></span>
       <details class="people-help"><summary>Help</summary>
       <p id="peopleHint">Accounts that can sign in. Names from the logs are matched to these accounts.</p>
@@ -393,18 +398,6 @@
     </div>
     <p><button type="button" onclick="saveProfileOptions()">Save</button> <span id="profileOptionsStatus" class="mute" role="status"></span>
       <a class="welcome-link" href="/welcome" title="The welcome message and notices at the top of the Home page">Welcome message and notices</a></p>
-  </section>
-  <section class="card" id="profilesSection" hidden>
-    <div class="people-title-row"><h2>Profiles</h2><span class="mute" id="profilesCount" role="status"></span>
-      <label class="directory-search"><input type="search" id="profilesSearch" aria-label="Search profiles" placeholder="Search name, supervisor, GitHub" oninput="profileState('q', this.value)"></label>
-      <select id="profilesRole" aria-label="Role" onchange="profileState('role', this.value)"></select>
-      <select id="profilesDept" aria-label="Department" onchange="profileState('dept', this.value)"></select>
-      <select id="profilesStatus" aria-label="Status" onchange="profileState('status', this.value)">
-        <option value="">All</option><option value="missing">Incomplete</option><option value="soon">Ends within 3 months</option><option value="ended">Ended</option></select>
-      <button type="button" class="sec" style="margin-left:auto" onclick="downloadProfiles()">Download CSV</button>
-      <details><summary>Help</summary><p>Admins see everyone who can sign in; supervisors see the people they supervise, without numbers. Click a column heading to sort. <em>Incomplete</em> lists people who still have to fill in (part of) their profile; they are asked at their next sign-in. The flights are those as PIC within the flight filters.</p></details></div>
-    <div class="scroll"><table class="profiles-table"><thead><tr id="profilesHead"></tr></thead><tbody id="profilesRows"></tbody></table></div>
-    <div style="display:flex;justify-content:flex-end;margin-top:8px"><div class="navigation-pages" id="profilesPager"></div></div>
   </section>
   <section class="card" id="supervisionSection" hidden>
     <div class="people-title-row"><h2>Supervision</h2><span class="mute" id="supervisionCount" role="status"></span>
@@ -546,15 +539,25 @@ let qualificationTypes = [], pendingQualifications = [];
 let panelGeneration = 0;
 let qualImportToken = null;
 let picFlights = null, picError = '';
-// The table columns: Role only when profiles are shown to this viewer, Current licences and Sign-in only for administrators.
+// The table columns. Profile columns only for viewers who see profiles (admins: everyone; a supervisor: the people
+// they supervise), Number only for admins, Current licences and Sign-in only for admins (who check who may fly; others
+// see licences on the pilot page). `on`: shown by default; `panel`: hidden while the person is open beside the table
+// (the panel shows it); `phone`: kept on a narrow screen. `w`: relative width.
 const PEOPLE_COLUMNS = [
-  {key: 'name', label: 'Name', sort: 'name', width: '22%'},
-  {key: 'role', label: 'Role', sort: 'role', width: '20%'},
-  {key: 'licences', label: 'Current licences', width: '24%'},
-  {key: 'flights', label: 'Flights', sort: 'flights', num: true, width: '8%', title: 'Flights as PIC, within the flight filters'},
-  {key: 'hours', label: 'Hours', sort: 'hours', num: true, width: '8%', title: 'Flight hours as PIC, within the flight filters'},
-  {key: 'last', label: 'Last flight', sort: 'last', width: '11%', title: 'Last flight as PIC, within the flight filters'},
-  {key: 'account', label: 'Sign-in', sort: 'account', width: '15%'}];
+  {key: 'name', label: 'Name', on: true, phone: true, w: 20},
+  {key: 'role', label: 'Role', on: true, panel: true, profile: true, w: 13},
+  {key: 'dept', label: 'Department', on: true, panel: true, profile: true, w: 15},
+  {key: 'licences', label: 'Current licences', on: true, admin: true, w: 20, nosort: true},
+  {key: 'flights', label: 'Flights', on: true, phone: true, num: true, w: 7, title: 'Flights as PIC, within the flight filters'},
+  {key: 'hours', label: 'Hours', on: true, num: true, w: 7, title: 'Flight hours as PIC, within the flight filters'},
+  {key: 'last', label: 'Last flight', on: true, phone: true, w: 10, title: 'Last flight as PIC, within the flight filters'},
+  {key: 'sup', label: 'Supervisors', panel: true, profile: true, w: 16},
+  {key: 'end', label: 'Expected end', panel: true, profile: true, w: 18},
+  {key: 'number', label: 'Number', panel: true, profile: true, admin: true, w: 10, title: 'Student / employee number'},
+  {key: 'github', label: 'GitHub', panel: true, profile: true, w: 10},
+  {key: 'confirmed', label: 'Confirmed', panel: true, profile: true, w: 10, title: 'When the person last confirmed the profile'},
+  {key: 'account', label: 'Sign-in', on: true, panel: true, admin: true, w: 13}];
+PEOPLE_COLUMNS.forEach(c => { c.sort = c.nosort ? null : c.key; });
 
 async function loadPicFlights() {
   try {
@@ -571,7 +574,6 @@ async function loadPicFlights() {
 }
 function renderFlightViews() {
   renderDirectory();
-  if (!$('profilesSection').hidden) renderProfiles();
   if (!$('supervisionSection').hidden) renderSupervision();
 }
 
@@ -594,8 +596,16 @@ async function load() {
 }
 
 const hasLicence = u => ((u.qualifications && u.qualifications.items) || []).some(item => item.status === 'approved');
-const shownPeople = () => people.users.filter(u => (!u.is_external || $('showExternal').checked)
-  && (u.has_logs || hasLicence(u) || $('showWithoutLogs').checked || u.id === selectedPerson));
+// The rows: the people this viewer may open, plus (for a supervisor) the people they supervise who share no project.
+function directoryUsers() {
+  const ids = new Set(people.users.map(u => u.id));
+  return [...people.users, ...profileList.filter(x => !x.self && !ids.has(x.id))
+    .map(x => ({id: x.id, username: x.username, display_name: x.name, has_logs: true, aliases: []}))];
+}
+const profileFiltered = () => !!(dirFilter.role || dirFilter.dept || dirFilter.status);
+const shownPeople = () => directoryUsers().filter(u => (!u.is_external || $('showExternal').checked)
+  && (u.has_logs || hasLicence(u) || $('showWithoutLogs').checked || profileFiltered() || u.id === selectedPerson
+    || (!me?.is_admin && profileList.some(x => x.id === u.id && !x.self))));
 // "Active" when the account can sign in: TU Delft SSO linked (also a local account that later signed in with SSO)
 // and/or a local password.
 function activeAccountLabel(u) {
@@ -622,13 +632,15 @@ function qualBits(q) {
 // screen at a time; the tab is kept in the URL (?tab=) so Back returns to it.
 let pageTab = new URLSearchParams(location.search).get('tab') || 'people';
 // The table's search, filters, sort, page and the open person (with its tab) are in the URL as well.
-let dirSort = 'name', dirDesc = false, dirPage = 0, dirSize = 50;
+let dirSort = 'name', dirDesc = false, dirPage = 0, dirSize = 50, dirFilter = {role: '', dept: '', status: ''};
 function readPersonUrl(p) {
   selectedPerson = +p.get('person') || null;
   selectedTab = ['qualifications', 'api', 'aliases'].includes(p.get('ptab')) ? p.get('ptab') : 'details';
   $('directorySearch').value = p.get('search') || '';
   $('showExternal').checked = p.get('external') === '1';
   $('showWithoutLogs').checked = p.get('unused') === '1';
+  dirFilter = {role: p.get('role') || '', dept: p.get('dept') || '', status: ['missing', 'soon', 'ended'].includes(p.get('status')) ? p.get('status') : ''};
+  $('dirStatus').value = dirFilter.status;
   const [key, dir] = (p.get('sort') || 'name-asc').split('-');
   dirSort = PEOPLE_COLUMNS.some(c => c.sort === key) ? key : 'name';
   dirDesc = dir === 'desc';
@@ -636,10 +648,12 @@ function readPersonUrl(p) {
   dirSize = [25, 50, 100, 200].includes(+p.get('size')) ? +p.get('size') : 50;
   $('dirSize').value = String(dirSize);
 }
+function setDirFilter(select) { dirFilter[select.dataset.filter] = select.value; dirPage = 0; dirUrl(true); render(); }
 function dirUrl(push) {
   const url = new URL(location.href);
   for (const [k, v] of [['search', $('directorySearch').value.trim()], ['external', $('showExternal').checked ? '1' : ''],
-    ['unused', $('showWithoutLogs').checked ? '1' : ''], ['sort', dirSort === 'name' && !dirDesc ? '' : `${dirSort}-${dirDesc ? 'desc' : 'asc'}`],
+    ['unused', $('showWithoutLogs').checked ? '1' : ''], ['role', dirFilter.role], ['dept', dirFilter.dept],
+    ['status', dirFilter.status], ['sort', dirSort === 'name' && !dirDesc ? '' : `${dirSort}-${dirDesc ? 'desc' : 'asc'}`],
     ['pg', dirPage ? dirPage + 1 : ''], ['size', dirSize === 50 ? '' : dirSize]]) {
     if (v) url.searchParams.set(k, v); else url.searchParams.delete(k);
   }
@@ -650,7 +664,7 @@ function paintPageTabs(open) {
   const sections = [['people', 'People', $('peopleCard')], ['unlinked', 'Unlinked crew names', $('unlinkedCard'), open],
     ['approvals', 'Approval queue', $('approvalSection'), pendingQualifications.filter(s => !aqHeld.has(s.id)).length],
     ['types', 'Qualification types', $('typesSection')], ['profile-options', 'Profile options', $('profileOptionsSection')],
-    ['profiles', 'Profiles', $('profilesSection'), profileList.filter(x => !x.self || me.is_admin).length], ['supervision', 'Supervision', $('supervisionSection'), supervisionGroups().length]].filter(([, , el]) => el === $('peopleCard') || !el.hidden);
+    ['supervision', 'Supervision', $('supervisionSection'), supervisionGroups().length]].filter(([, , el]) => el === $('peopleCard') || !el.hidden);
   // a tab that is not there (yet: the data is still loading) shows People, but stays asked for in the URL
   const current = sections.some(t => t[0] === pageTab) ? pageTab : 'people';
   window.pageTabs($('pageTabs'), sections.map(([key, label, , count]) => [key, label, count]), current, key => {
@@ -680,21 +694,23 @@ function render() {
   $('approvalSection').hidden = !admin;  // also with nothing waiting: Decided shows the history
   $('typesSection').hidden = !admin;
   $('profileOptionsSection').hidden = !admin || !profileOn;
-  // Profiles and Supervision: admins see everyone, a supervisor the people they supervise
-  const others = profileList.filter(x => !x.self).length;
-  $('profilesSection').hidden = !others;
+  // Supervision: admins see everyone, a supervisor the people they supervise (their profiles are People columns)
   $('supervisionSection').hidden = !supervisionGroups().length;
-  if (!$('profilesSection').hidden) renderProfiles();
   if (!$('supervisionSection').hidden) renderSupervision();
   const open = admin ? people.unlinked.length : 0;
-  $('addUserBtn').hidden = $('manageWrap').hidden = !admin;
-  $('manageProfileImport').hidden = !profileOn;
+  $('addUserBtn').hidden = !admin;
+  $('manageWrap').hidden = !admin && !showsRoles();  // a supervisor: only Download profiles
+  document.querySelectorAll('#manageMenu .admin-item').forEach(el => { el.hidden = !admin; });
+  $('manageDownload').hidden = !showsRoles();
+  $('manageProfileImport').hidden = !admin || !profileOn;
+  paintDirFilters();
   $('unlinkedCard').hidden = !open;
   $('showExternalLabel').hidden = !people.users.some(u => u.is_external);
   paintPageTabs(open);
   $('peopleHint').textContent = admin
-    ? 'Click a row to open the person beside the list: Details (account and profile), Qualifications, API keys and Aliases. Edit person changes the account, profile and aliases in one dialog; ⋯ has password, sign-in, merge and remove. Users submit their own evidence on My account. Removing a user keeps their uploaded logs. Flights, hours and last flight are as PIC within the flight filters.'
-    : 'People and their visible qualifications. Flights, hours and last flight are as PIC within the shared flight filters. Click a person for their pilot page.';
+    ? 'Click a row to open the person beside the list: Details (account and profile), Qualifications, API keys and Aliases. Edit person changes the account, profile and aliases in one dialog; ⋯ has password, sign-in, merge and remove. Users submit their own evidence on My account. Removing a user keeps their uploaded logs. Flights, hours and last flight are as PIC within the flight filters. Columns adds profile fields (supervisors, expected end, number, GitHub, last confirmed); the profile filters also show unused profiles. Incomplete: people who still have to fill in (part of) their profile, asked at their next sign-in.'
+    : showsRoles() ? 'Flights, hours and last flight are as PIC within the shared flight filters. You see the profiles of the people you supervise (Columns adds their supervisors, expected end and GitHub; Manage ▾ downloads them). Click a person for their pilot page.'
+    : 'Flights, hours and last flight are as PIC within the shared flight filters. Click a person for their pilot page.';
   if (admin) {
     $('newProject').innerHTML = '<option value="">No default</option>' + (people.projects || []).map(p =>
       `<option value="${p.id}">${esc(p.name)}</option>`).join('');
@@ -792,23 +808,28 @@ function matchingPeople(query) {
     .some(v => v.toLocaleLowerCase().includes(query)));
 }
 
-// The columns this viewer gets; a hidden column is a per-browser preference, like on Aircraft and the Logbook.
-const showsRoles = () => profileList.some(x => !x.self || me?.is_admin);
-// Licences and Sign-in are for administrators (who check who may fly); others see them on the pilot page.
-const peopleColumns = () => PEOPLE_COLUMNS.filter(c => (c.key !== 'role' || showsRoles()) && (!['licences', 'account'].includes(c.key) || me?.is_admin));
-const COLUMNS_KEY = 'people.hiddenColumns';
-let hiddenColumns = new Set();
-try { hiddenColumns = new Set(JSON.parse(localStorage.getItem(COLUMNS_KEY) || '[]').filter(k => PEOPLE_COLUMNS.some(c => c.key === k))); } catch (e) {}
-const columnStyle = document.head.appendChild(document.createElement('style'));
-function applyColumns() {
-  columnStyle.textContent = [...hiddenColumns].map(k => `table.people .c-${k} { display:none; }`).join('\n');
-  const n = peopleColumns().filter(c => hiddenColumns.has(c.key)).length;
-  $('colButton').textContent = n ? `Columns (${n} hidden)` : 'Columns';
-  try { localStorage.setItem(COLUMNS_KEY, JSON.stringify([...hiddenColumns])); } catch (e) {}
+// The columns this viewer may get; which are shown is a per-browser preference (Columns), like on Aircraft.
+const showsRoles = () => profileOn && profileList.some(x => !x.self || me?.is_admin);
+const peopleColumns = () => PEOPLE_COLUMNS.filter(c => (!c.profile || showsRoles()) && (!c.admin || me?.is_admin));
+const COLUMNS_KEY = 'people.columns';
+let columnChoice = {};
+try { columnChoice = JSON.parse(localStorage.getItem(COLUMNS_KEY) || '{}') || {}; } catch (e) {}
+const columnOn = c => c.key === 'name' || (columnChoice[c.key] ?? !!c.on);
+const narrow = window.matchMedia('(max-width:600px)');
+narrow.addEventListener('change', () => renderDirectory());
+// What is drawn: the chosen columns, without those the open panel shows, and on a phone only the essentials.
+function drawnColumns() {
+  const panel = !!(me?.is_admin && people.users.some(u => u.id === selectedPerson));
+  return peopleColumns().filter(c => columnOn(c) && !(panel && c.panel) && (!narrow.matches || c.phone));
+}
+function saveColumns() {
+  const off = peopleColumns().filter(c => !columnOn(c)).length;
+  $('colButton').textContent = off ? `Columns (${peopleColumns().length - off} of ${peopleColumns().length})` : 'Columns';
+  try { localStorage.setItem(COLUMNS_KEY, JSON.stringify(columnChoice)); } catch (e) {}
 }
 function fillColumns() {
-  $('colForm').innerHTML = peopleColumns().map(c => `<label><input type="checkbox" value="${c.key}"${hiddenColumns.has(c.key) ? '' : ' checked'}${c.key === 'name' ? ' disabled' : ''}> ${esc(c.label)}</label>`).join('')
-    + '<div class="col-actions"><button type="button" class="sec" id="colAll">Show all</button><button type="button" class="sec" id="colClose">Close</button></div>';
+  $('colForm').innerHTML = peopleColumns().map(c => `<label${c.title ? ` title="${esc(c.title)}"` : ''}><input type="checkbox" value="${c.key}"${columnOn(c) ? ' checked' : ''}${c.key === 'name' ? ' disabled' : ''}> ${esc(c.label)}</label>`).join('')
+    + '<div class="col-actions"><button type="button" class="sec" id="colAll">Default</button><button type="button" class="sec" id="colClose">Close</button></div>';
 }
 $('colButton').onclick = () => {
   const open = $('colForm').hidden;
@@ -816,14 +837,26 @@ $('colButton').onclick = () => {
   $('colForm').hidden = !open;
   $('colButton').setAttribute('aria-expanded', String(open));
 };
-$('colForm').onchange = e => { e.target.checked ? hiddenColumns.delete(e.target.value) : hiddenColumns.add(e.target.value); applyColumns(); };
+$('colForm').onchange = e => { columnChoice[e.target.value] = e.target.checked; saveColumns(); renderDirectory(); };
 $('colForm').onclick = e => {
-  if (e.target.id === 'colAll') { hiddenColumns.clear(); applyColumns(); fillColumns(); }
+  if (e.target.id === 'colAll') { columnChoice = {}; saveColumns(); fillColumns(); renderDirectory(); }
   if (e.target.id === 'colClose') $('colButton').click();
 };
 document.addEventListener('click', e => { if (!$('colForm').hidden && !e.target.closest('.col-menu')) $('colButton').click(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('colForm').hidden) { $('colButton').click(); $('colButton').focus(); } });
-applyColumns();
+// Role, Department and profile status: only for viewers who see profiles; the choices come from those profiles.
+function paintDirFilters() {
+  $('peopleFilters').hidden = !showsRoles();
+  const opts = (sel, label, key, values) => {
+    sel.innerHTML = `<option value="">${label}</option>` + [...new Set([...values.filter(Boolean), dirFilter[key]].filter(Boolean))].sort()
+      .map(v => `<option>${esc(v)}</option>`).join('');
+    sel.value = dirFilter[key];
+  };
+  opts($('dirRole'), 'All roles', 'role', profileList.map(x => x.profile?.role));
+  opts($('dirDept'), 'All departments', 'dept', profileList.map(x => x.profile?.department));
+  $('dirStatus').value = dirFilter.status;
+  saveColumns();
+}
 
 // PIC totals per person within the shared flight filters: count, seconds and the last day.
 function picTotals() {
@@ -846,24 +879,39 @@ function signInText(u) {
   const ways = [u.has_sso || u.provider === 'saml' ? 'TU Delft SSO' : '', u.has_password ? 'Local' : ''].filter(Boolean);
   return [u.is_admin ? 'Admin' : '', ways.join(' + ') || 'No password'].filter(Boolean).join(' · ');
 }
-const roleText = u => { const x = profileList.find(p => p.id === u.id); return x?.profile ? [x.profile.role, x.profile.department].filter(Boolean).join(' · ') : ''; };
+const profileOf = u => profileList.find(p => p.id === u.id);
+// The value a profile column sorts and exports by ('' without a profile).
+function profileValue(key, u) {
+  const p = profileOf(u)?.profile;
+  if (!p) return '';
+  return {role: p.role, dept: p.department, sup: supervisorText(p), end: p.indefinite ? '9999' : p.end_date, number: p.number,
+    github: p.github, confirmed: p.updated_at}[key] || '';
+}
 function renderDirectory() {
-  const admin = !!me?.is_admin, cols = peopleColumns(), totals = picTotals();
-  const rows = matchingPeople($('directorySearch').value);
-  $('directoryCount').textContent = rows.length === people.users.length ? String(rows.length) : `${rows.length} of ${people.users.length}`;
+  const admin = !!me?.is_admin, cols = drawnColumns(), totals = picTotals();
+  const all = directoryUsers();
+  const rows = matchingPeople($('directorySearch').value).filter(u => {
+    if (!profileFiltered()) return true;
+    const x = profileOf(u);
+    if (!x) return false;
+    return (!dirFilter.role || x.profile?.role === dirFilter.role) && (!dirFilter.dept || x.profile?.department === dirFilter.dept)
+      && (!dirFilter.status || (dirFilter.status === 'missing' ? profileStatus(x) === 'missing' : endStatus(x) === dirFilter.status));
+  });
+  $('directoryCount').textContent = rows.length === all.length ? String(rows.length) : `${rows.length} of ${all.length}`;
   $('picError').hidden = !picError;
   $('picError').textContent = picError;
   const name = u => u.display_name || u.username;
   const t = u => totals.get(u.id) || {count: 0, seconds: 0, last: ''};
-  const compare = {
-    name: (a, b) => name(a).localeCompare(name(b), undefined, {sensitivity: 'base'}),
-    role: (a, b) => roleText(a).localeCompare(roleText(b)), account: (a, b) => signInText(a).localeCompare(signInText(b)),
-    flights: (a, b) => t(a).count - t(b).count, hours: (a, b) => t(a).seconds - t(b).seconds, last: (a, b) => t(a).last.localeCompare(t(b).last),
-  }[dirSort];
   const byName = (a, b) => name(a).localeCompare(name(b), undefined, {sensitivity: 'base'});
+  const text = f => (a, b) => { const x = f(a), y = f(b); return x && y ? String(x).localeCompare(String(y)) : !x - !y; };  // empty last
+  const compare = {
+    name: byName, account: text(signInText),
+    flights: (a, b) => t(a).count - t(b).count, hours: (a, b) => t(a).seconds - t(b).seconds, last: (a, b) => t(a).last.localeCompare(t(b).last),
+  }[dirSort] || text(u => profileValue(dirSort, u));
   const sorted = rows.sort((a, b) => (dirDesc ? compare(b, a) : compare(a, b)) || byName(a, b));
   dirPage = Math.min(dirPage, Math.max(0, Math.ceil(sorted.length / dirSize) - 1));
-  $('peopleCols').innerHTML = cols.map(c => `<col class="c-${c.key}" style="width:${c.width}">`).join('');
+  const sum = cols.reduce((n, c) => n + c.w, 0);
+  $('peopleCols').innerHTML = cols.map(c => `<col class="c-${c.key}" style="width:${(100 * c.w / sum).toFixed(2)}%">`).join('');
   $('peopleHead').innerHTML = '<tr>' + cols.map(c => {
     const on = dirSort === c.sort, cls = `c-${c.key}${c.num ? ' num' : ''}`;
     const title = c.title ? ` title="${esc(c.title)}"` : '';
@@ -872,28 +920,42 @@ function renderDirectory() {
   }).join('') + '</tr>';
   window.viewState.pager($('peoplePages'), dirPage, dirSize, sorted.length, n => { dirPage = n; dirUrl(true); renderDirectory(); });
   const loading = picFlights === null ? `<span class="mute" title="${esc(picError || 'Loading PIC totals…')}">…</span>` : null;
+  const none = '<span class="mute">—</span>';
+  const td = (c, inner, title) => `<td class="c-${c.key}${c.num ? ' num' : ''}"${title ? ` title="${esc(title)}"` : ''}>${inner}</td>`;
   const cell = (c, u) => {
-    const s = t(u);
+    const s = t(u), x = profileOf(u), p = x?.profile;
     switch (c.key) {
-      case 'name': return `<td class="c-name" title="${esc(name(u))}${admin ? ' · @' + esc(u.username) : ''}"><a href="/people/${u.id}" title="Pilot page of ${esc(name(u))}">${esc(name(u))}</a>${u.is_external ? ' <span class="mute">· external</span>' : ''}</td>`;
-      case 'role': {
-        const x = profileList.find(p => p.id === u.id), text = roleText(u);
-        return `<td class="c-role" title="${esc(text)}">${x && !x.profile ? '<span class="mute missing">not filled in</span>' : esc(text)}</td>`;
-      }
+      case 'name': return td(c, `<a href="/people/${u.id}" title="Pilot page of ${esc(name(u))}">${esc(name(u))}</a>${u.is_external ? ' <span class="mute">· external</span>' : ''}`, name(u) + (admin ? ' · @' + u.username : ''));
       case 'licences': {
         const items = ((u.qualifications && u.qualifications.items) || []).filter(q => q.status === 'approved' && !q.expired);
-        return `<td class="c-licences" title="${esc(items.map(q => q.category).join(', '))}">${qualBits(u.qualifications)}</td>`;
+        return td(c, qualBits(u.qualifications), items.map(q => q.category).join(', '));
       }
-      case 'flights': return `<td class="c-flights num">${loading || (s.count || '<span class="mute">0</span>')}</td>`;
-      case 'hours': return `<td class="c-hours num">${loading || (s.seconds ? (s.seconds / 3600).toFixed(1) : '<span class="mute">0</span>')}</td>`;
-      case 'last': return `<td class="c-last">${loading || (s.last ? esc(s.last) : '<span class="mute">—</span>')}</td>`;
-      default: return `<td class="c-account mute" title="${esc(signInText(u))}">${esc(signInText(u))}</td>`;
+      case 'flights': return td(c, loading || (s.count || '<span class="mute">0</span>'));
+      case 'hours': return td(c, loading || (s.seconds ? (s.seconds / 3600).toFixed(1) : '<span class="mute">0</span>'));
+      case 'last': return td(c, loading || (s.last ? esc(s.last) : none));
+      case 'account': return td(c, `<span class="mute">${esc(signInText(u))}</span>`, signInText(u));
     }
+    // profile columns: one profile per person; none yet (not signed in since profiles were turned on, external crew)
+    if (!p) return c.key === 'role' && x ? td(c, '<span class="mute missing">not filled in</span>') : td(c, '');
+    if (c.key === 'dept') return td(c, esc(p.department || ''), [p.department, p.department_group].filter(Boolean).join(' · '));
+    if (c.key === 'sup') return td(c, (p.supervisors || []).map(v => v.id ? `<a href="/people/${v.id}">${esc(v.name)}</a>` : `${esc(v.name)} <span class="mute">(ext.)</span>`).join(', ') || none, supervisorText(p));
+    if (c.key === 'end') {
+      const st = profileStatus(x);
+      const chip = st === 'missing' ? ' <span class="chip pending">incomplete</span>' : st === 'ended' ? ' <span class="chip warn">ended</span>' : st === 'soon' ? ' <span class="chip pending">ends soon</span>' : '';
+      return td(c, (p.indefinite ? 'Indefinite' : esc(p.end_date || '')) + chip
+        + (p.to_confirm ? ' <span class="chip pending" title="Filled in by an administrator or an import; the person checks it at the next sign-in">to confirm</span>' : ''));
+    }
+    if (c.key === 'github') return td(c, p.github ? `<a href="https://github.com/${encodeURIComponent(p.github)}" target="_blank" rel="noopener">${esc(p.github)}</a>` : '');
+    if (c.key === 'confirmed') return td(c, `<span class="mute">${esc((p.updated_at || '').slice(0, 10))}</span>`);
+    const v = profileValue(c.key, u);
+    return td(c, esc(v), v);
   };
   $('directoryPeople').innerHTML = sorted.slice(dirPage * dirSize, (dirPage + 1) * dirSize).map(u =>
     `<tr data-id="${u.id}"${u.id === selectedPerson && admin ? ' class="open" aria-selected="true"' : ''} title="${admin ? 'Open ' + esc(name(u)) + ' beside the list' : 'Pilot page of ' + esc(name(u))}">${cols.map(c => cell(c, u)).join('')}</tr>`).join('')
     || `<tr><td colspan="${cols.length}" class="mute">No matching people.</td></tr>`;
+  lastDirectoryRows = sorted;
 }
+let lastDirectoryRows = [];
 $('peopleHead').onclick = e => {
   const th = e.target.closest('[data-sort]');
   if (!th) return;
@@ -1662,20 +1724,12 @@ function revokePersonKeys(id, keys) {
   });
 }
 
-// Profiles and Supervision tabs, and the role on the cards (profiles.py). The view state is in the URL (p_* parameters).
-const PROFILE_PAGE = 25;
+// Profiles (profiles.py): the profile columns of the People table and the Supervision tab (its view state in the URL as p_*).
 const today = () => new Date().toISOString().slice(0, 10);
 const soonDay = () => { const d = new Date(); d.setMonth(d.getMonth() + 3); return d.toISOString().slice(0, 10); };
 async function loadProfileList() {
   try { profileList = (await adminApi('/api/profiles')).people; } catch (error) { profileList = []; }
-  const opts = (sel, label, values) => { const cur = sel.value;
-    sel.innerHTML = `<option value="">${label}</option>` + [...new Set(values.filter(Boolean))].sort().map(v => `<option>${esc(v)}</option>`).join('');
-    sel.value = cur; };
-  opts($('profilesRole'), 'All roles', profileList.map(x => x.profile?.role));
-  opts($('profilesDept'), 'All departments', profileList.map(x => x.profile?.department));
   const q = new URLSearchParams(location.search);
-  $('profilesSearch').value = q.get('p_q') || ''; $('profilesRole').value = q.get('p_role') || '';
-  $('profilesDept').value = q.get('p_dept') || ''; $('profilesStatus').value = q.get('p_status') || '';
   $('supervisionSearch').value = q.get('p_sq') || ''; $('supervisionEnded').checked = q.get('p_ended') === '1';
   render();
 }
@@ -1700,55 +1754,6 @@ function profileStatus(x) {
 }
 const flightsText = t => t && t.count ? `${t.count} flights · ${(t.seconds / 3600).toFixed(1)} h` : '—';
 const supervisorText = p => (p?.supervisors || []).map(s => s.name + (s.id ? '' : ' (ext.)')).join(', ');
-const PROFILE_COLUMNS = [
-  ['name', 'Name', x => x.name], ['role', 'Role', x => x.profile?.role || ''], ['dept', 'Department', x => x.profile?.department || ''],
-  ['sup', 'Supervisors', x => supervisorText(x.profile)], ['end', 'Expected end', x => x.profile ? (x.profile.indefinite ? '9999' : x.profile.end_date || '') : ''],
-  ['number', 'Number', x => x.profile?.number || ''], ['github', 'GitHub', x => x.profile?.github || ''],
-  ['flights', 'Flights', x => x.flights?.count || 0], ['confirmed', 'Confirmed', x => x.profile?.updated_at || '']];
-function profileRows() {
-  const totals = picTotals();
-  const q = profileParam('q').toLowerCase(), role = profileParam('role'), dept = profileParam('dept'), status = profileParam('status');
-  const [key, dir] = (profileParam('sort') || 'end:asc').split(':');
-  const col = PROFILE_COLUMNS.find(c => c[0] === key) || PROFILE_COLUMNS[4];
-  return profileList.filter(x => !x.self || me.is_admin).map(x => ({...x, flights: totals.get(x.id), status: profileStatus(x)}))
-    .filter(x => (!q || [x.name, x.username, supervisorText(x.profile), x.profile?.github].join(' ').toLowerCase().includes(q))
-      && (!role || x.profile?.role === role) && (!dept || x.profile?.department === dept) && (!status || (status === 'missing' ? x.status === 'missing' : endStatus(x) === status)))
-    .sort((a, b) => { const va = col[2](a), vb = col[2](b);
-      const c = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb));
-      return (dir === 'desc' ? -c : c) || a.name.localeCompare(b.name); });
-}
-function renderProfiles() {
-  const rows = profileRows(), admin = !!me.is_admin;
-  const [key, dir] = (profileParam('sort') || 'end:asc').split(':');
-  const cols = PROFILE_COLUMNS.filter(c => admin || c[0] !== 'number');
-  $('profilesHead').innerHTML = cols.map(([k, label]) => `<th scope="col" aria-sort="${k === key ? (dir === 'desc' ? 'descending' : 'ascending') : 'none'}">`
-    + `<button type="button" class="sort" onclick="profileState('sort', '${k}:' + ('${k}' === '${key}' && '${dir}' !== 'desc' ? 'desc' : 'asc'))">${label}${k === key ? (dir === 'desc' ? ' ▼' : ' ▲') : ''}</button></th>`).join('');
-  $('profilesCount').textContent = `${rows.length} ${rows.length === 1 ? 'person' : 'people'}`;
-  let page = Math.max(0, +profileParam('page') || 0);
-  const last = Math.max(0, Math.ceil(rows.length / PROFILE_PAGE) - 1);
-  page = Math.min(page, last);
-  const badge = x => x.status === 'ended' ? '<span class="chip warn">ended</span>' : x.status === 'soon' ? '<span class="chip pending">ends soon</span>' : '';
-  const cell = (k, x) => {
-    const p = x.profile;
-    if (k === 'name') return `<a href="/people/${x.id}">${esc(x.name)}</a>`;
-    if (!p && k === 'end') return '<span class="chip pending">not filled in</span>';
-    if (!p) return '';
-    if (k === 'role') return esc(p.role || '—');
-    if (k === 'dept') return `<span title="${esc(p.department_group || '')}">${esc(p.department || '')}</span>`;
-    if (k === 'sup') return (p.supervisors || []).map(s => s.id ? `<a href="/people/${s.id}">${esc(s.name)}</a>` : `${esc(s.name)} <span class="mute">(ext.)</span>`).join(', ') || '<span class="mute">—</span>';
-    if (k === 'end') return (p.indefinite ? 'Indefinite' : esc(p.end_date || '')) + ' ' + (x.status === 'missing' ? '<span class="chip pending">incomplete</span>' : badge(x))
-      + (p.to_confirm ? ' <span class="chip pending" title="Filled in by an administrator or an import; the person checks it at the next sign-in">to confirm</span>' : '');
-    if (k === 'number') return esc(p.number || '');
-    if (k === 'github') return p.github ? `<a href="https://github.com/${encodeURIComponent(p.github)}" target="_blank" rel="noopener">${esc(p.github)}</a>` : '';
-    if (k === 'flights') return `<span class="mute">${flightsText(x.flights)}</span>`;
-    return `<span class="mute">${esc((p.updated_at || '').slice(0, 10))}</span>`;
-  };
-  $('profilesRows').innerHTML = rows.slice(page * PROFILE_PAGE, (page + 1) * PROFILE_PAGE)
-    .map(x => `<tr>${cols.map(([k]) => `<td>${cell(k, x)}</td>`).join('')}</tr>`).join('')
-    || `<tr><td colspan="${cols.length}" class="mute">No matching people.</td></tr>`;
-  if (rows.length > PROFILE_PAGE) window.viewState.pager($('profilesPager'), page, PROFILE_PAGE, rows.length, n => profileState('page', n ? String(n) : ''));
-  else $('profilesPager').innerHTML = '';
-}
 // Import profiles from a CSV (admins): a preview first, then Import writes them when no row has an error.
 function openProfileImport() {
   $('profileImportFile').value = '';
@@ -1785,13 +1790,14 @@ async function previewProfileImport(apply = false) {
     if (d.applied) loadProfileList();
   } catch (error) { $('profileImportError').textContent = error.message; }
 }
+// Download profiles (CSV): the people in the table now (search and filters), with their profile fields.
 function downloadProfiles() {
   const admin = !!me.is_admin;
   const head = ['Name', 'Username', 'Role', 'Department', 'Department group', 'Supervisors', 'Expected end', ...(admin ? ['Number'] : []), 'GitHub', 'Projects', 'Status', 'Last confirmed'];
   const csv = v => /[",\n]/.test(String(v ?? '')) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v ?? '');
-  const lines = profileRows().map(x => { const p = x.profile || {};
+  const lines = lastDirectoryRows.map(profileOf).filter(Boolean).map(x => { const p = x.profile || {};
     return [x.name, x.username, p.role, p.department, p.department_group, supervisorText(p), p.indefinite ? 'Indefinite' : p.end_date,
-      ...(admin ? [p.number] : []), p.github, x.projects.map(pr => pr.name).join('; '), x.status, (p.updated_at || '').slice(0, 10)].map(csv).join(','); });
+      ...(admin ? [p.number] : []), p.github, x.projects.map(pr => pr.name).join('; '), profileStatus(x), (p.updated_at || '').slice(0, 10)].map(csv).join(','); });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([[head.join(','), ...lines].join('\n') + '\n'], {type: 'text/csv'}));
   a.download = `profiles-${today()}.csv`;

@@ -203,8 +203,9 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
   unless added as aliases. Unknown or ambiguous names produce a row error without importing any records.
   The original CSV is attached to all imported records: anyone who can read one can download the
   whole CSV, including rows from other projects. Failed imports retain no attachment.
-- **People** is a table (name, role, flights, hours and last flight as PIC; current licences and sign-in for admins;
-  Columns and pagination like Aircraft). A row opens the pilot page; for admins it opens the person beside the
+- **People** is a table (name, role, department, flights, hours and last flight as PIC; current licences and sign-in
+  for admins; Columns adds supervisors, expected end, number, GitHub and last confirmed; filters for role, department
+  and profile status; Manage ▾ → Download profiles (CSV); pagination like Aircraft). A row opens the pilot page; for admins it opens the person beside the
   list with the tabs Details (account and profile), Qualifications, API keys and Aliases. **Edit person** changes the
   account, profile and aliases in one dialog (click a value to open it at that field); ⋯ has password, **Move TU Delft sign-in…** (a TU
   Delft login matched to the wrong person), **Merge into…** (one person with two accounts) and **Remove user…**.
@@ -315,7 +316,8 @@ date and student/employee number after signing in, and again once that end date 
 end date (for example at most 2 years ahead for a Master student; admins set this per role) and whether it may be
 indefinite. Change it under
 **My account**. Only you, admins and your supervisors see it (supervisors without your number): on your person
-page, and on People in the **Profiles** and **Supervision** tabs, which show supervisors the people they supervise.
+page, and on People (the profile columns and filters, and the **Supervision** tab), which show supervisors the people
+they supervise.
 
 **Welcome message and notices:** when admins have written a welcome message or notices for you, they are at the top
 of your Home page until you dismiss them (some notices cannot be closed and stay until their end date). Admins write
