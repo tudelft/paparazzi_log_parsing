@@ -155,13 +155,8 @@ async function getJSON(url) {
   if (!r.ok) throw new Error(d.error || r.statusText);
   return d;
 }
-// the first load is asked for at once, next to /api/me (not after it); later loads (after a save) ask again
-let firstLoad = getJSON('/api/safety');
-firstLoad.catch(() => {});
 async function load() {
-  const pending = firstLoad || getJSON('/api/safety');
-  firstLoad = null;
-  info = await pending;
+  info = await getJSON('/api/safety');
   paint();
 }
 async function send(url, method, body, errorBox) {
