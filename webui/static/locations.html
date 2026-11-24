@@ -13,8 +13,12 @@
   /* List left, map right; on narrow screens the map comes first. */
   .places-grid { display:grid; grid-template-columns:minmax(300px, 2fr) 3fr; gap:16px; align-items:start; }
   .places-grid > .map-wrap { grid-column:2; grid-row:1; position:relative; }
-  .places-side { grid-column:1; grid-row:1; min-width:0; }
-  @media (max-width: 820px) { .places-grid { grid-template-columns:1fr; } .places-grid > .map-wrap, .places-side { grid-column:1; grid-row:auto; } .places-grid > .map-wrap { order:-1; } #map { height:360px; } }
+  /* the list is as tall as the map, the pager at its bottom; the rows per page fit that height (placePageSize) */
+  .places-side { grid-column:1; grid-row:1; min-width:0; display:flex; flex-direction:column; height:560px; }
+  .places-side .place-list { flex:1; min-height:0; }
+  #placePages { margin-top:auto; padding-top:8px; }
+  @media (max-width: 820px) { .places-grid { grid-template-columns:1fr; } .places-grid > .map-wrap, .places-side { grid-column:1; grid-row:auto; } .places-grid > .map-wrap { order:-1; } #map { height:360px; }
+    .places-side { height:auto; } }
   /* hints and the shape editor float on the map (Edit mode) */
   .map-bar { position:absolute; top:10px; left:56px; right:10px; z-index:500; display:flex; gap:6px; align-items:center; flex-wrap:wrap; width:fit-content; max-width:calc(100% - 66px);
     background:var(--card); border:1px solid var(--line); border-radius:6px; padding:4px 10px; font-size:12px; color:var(--mute); box-shadow:0 2px 8px #0003; }
@@ -25,16 +29,24 @@
   .toolbar input[type=search] { flex:0 1 240px; min-width:0; }
   .toolbar-end { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .place-list { border:1px solid var(--line); border-radius:6px; overflow:hidden; }
-  .place-row { display:flex; gap:8px; align-items:baseline; padding:7px 10px; border-top:1px solid var(--line); cursor:pointer; }
+  /* Name, Flights and Time columns; the headers sort (?sort=) */
+  .place-row, .place-head { display:grid; grid-template-columns:minmax(0,1fr) 64px 76px; gap:10px; align-items:baseline; padding:7px 10px; }
+  .place-row { border-top:1px solid var(--line); cursor:pointer; }
+  .place-head { font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--mute); border-bottom:1px solid var(--line); }
+  .place-head button { all:unset; cursor:pointer; } .place-head button:hover { color:var(--txt); }
+  .place-row .num, .place-head .num { text-align:right; white-space:nowrap; }
+  .place-head + .place-row { border-top:0; }
   .place-row:first-child { border-top:0; }
   .place-row[aria-selected="true"] { background:color-mix(in srgb, var(--acc) 12%, transparent); }
   .place-row .name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .place-row:hover { background:var(--hover); }
-  .place-row .stats { white-space:nowrap; }
   .place-list .empty { padding:10px; }
-  #placePages { margin-top:8px; }
-  /* the selected location under the list (the map is beside it): the same panel as on Aircraft and People */
-  #placePanel { margin-top:10px; padding:12px 14px; border:1px solid var(--line); border-top:4px solid var(--acc); border-radius:8px; min-width:0; overflow-wrap:anywhere; }
+  /* the selected location: a card on the map, top left (the list stays where it is); under the map on a phone */
+  #placePanel { position:absolute; top:10px; left:56px; z-index:600; width:min(380px, calc(100% - 70px)); max-height:calc(100% - 20px); overflow:auto;
+    padding:12px 14px; border:1px solid var(--line); border-top:4px solid var(--acc); border-radius:8px; min-width:0; overflow-wrap:anywhere;
+    background:var(--card); box-shadow:0 4px 16px #0006; }
+  #placePanel[hidden] { display:none; }
+  @media (max-width: 820px) { #placePanel { position:static; width:auto; max-height:none; margin-top:10px; box-shadow:none; } }
   .panel-header { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center; }
   .panel-header h3 { margin:0; font-size:17px; }
   .panel-actions { display:flex; gap:6px; align-items:center; }
@@ -105,19 +117,20 @@
       <div class="places-side">
         <div class="place-list" id="placeList" role="listbox" aria-label="Locations"></div>
         <div id="placePages" class="navigation-pages"></div>
-        <section id="placePanel" aria-label="Selected location" hidden>
-          <div class="panel-header"><h3 id="placeHeading"></h3>
-            <span class="panel-actions"><button type="button" class="sec" id="editPlace" onclick="editPlace()">Edit location</button>
-              <span class="menu-wrap" id="moreWrap" hidden><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
-                <div class="menu-pop" id="moreMenu" role="menu" hidden>
-                  <button type="button" class="ext-item" role="menuitem" onclick="editShape(selectedPlace)">Change boundary on the map…</button>
-                  <button type="button" class="ext-item danger-item" role="menuitem" onclick="deletePlace(selectedPlace)">Delete location…</button>
-                </div></span>
-              <button type="button" class="sec" onclick="selectPlace(null)" aria-label="Close the location" title="Close">✕</button></span></div>
-          <div class="kv" id="placeDetails"></div>
-        </section>
+
       </div>
       <div class="map-wrap"><div id="map"></div>
+        <section id="placePanel" aria-label="Selected location" hidden>
+        <div class="panel-header"><h3 id="placeHeading"></h3>
+          <span class="panel-actions"><button type="button" class="sec" id="editPlace" onclick="editPlace()">Edit location</button>
+            <span class="menu-wrap" id="moreWrap" hidden><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
+              <div class="menu-pop" id="moreMenu" role="menu" hidden>
+                <button type="button" class="ext-item" role="menuitem" onclick="editShape(selectedPlace)">Change boundary on the map…</button>
+                <button type="button" class="ext-item danger-item" role="menuitem" onclick="deletePlace(selectedPlace)">Delete location…</button>
+              </div></span>
+            <button type="button" class="sec" onclick="selectPlace(null)" aria-label="Close the location" title="Close">✕</button></span></div>
+        <div class="kv" id="placeDetails"></div>
+      </section>
         <div class="map-bar" id="drawBar" hidden><span>New location: draw a</span>
           <select id="drawType" aria-label="Shape"><option value="polygon">polygon (click the corners)</option><option value="rectangle">rectangle (drag)</option><option value="circle">circle (drag)</option></select>
           <span>on the map, then name it.</span> <button type="button" class="sec" onclick="stopAdd()">Cancel</button></div>
@@ -409,7 +422,7 @@ function paintMode() {
   if (!admin) $('unnamedOnly').checked = false;
   renderPoints();
   $('intro').textContent = admin
-    ? 'Takeoffs and landings inside a place show its name in the logbook (the smallest matching shape wins). Add location draws a polygon, rectangle or circle on the map and names it. Select a location for its details: Edit location changes its name, country, operator, category and indoors; ⋯ changes its boundary on the map (the location keeps its name and linked records) or deletes it. Manage ▾ → Import CSV adds circles from a CSV.'
+    ? 'Takeoffs and landings inside a place show its name in the logbook (the smallest matching shape wins). Add location draws a polygon, rectangle or circle on the map and names it. Select a location for its details (a card on the map): Edit location changes its name, country, operator, category and indoors; ⋯ changes its boundary on the map (the location keeps its name and linked records) or deletes it. Manage ▾ → Import CSV adds circles from a CSV.'
     : 'Places where flights you have access to took off or landed.';
   if (!admin) { closeName(); stopAdd(); }
   $('addPlaceBtn').hidden = $('manageWrap').hidden = !admin;
@@ -471,10 +484,27 @@ function renderPoints(focus = false) {
   if (only && focus) visitPoint(selectedPoint);
 }
 
-// Compact list (search and country first), paged at the bottom; the selected location's details and actions
-// are in the panel underneath. Page, search, country and selection are kept in the URL.
-const PLACE_PAGE = 12;
-let placePage = 0;
+// Compact list (search and country first) with Name, Flights and Time columns, paged at the bottom; as many rows per
+// page as fit beside the map (12 on a phone). The selected location's details and actions are a card on the map.
+// Page, sort, search, country and selection are kept in the URL.
+let placePage = 0, placeSort = 'name', placeDesc = false;
+function placePageSize() {
+  if (matchMedia('(max-width: 820px)').matches) return 12;
+  // measured from the rendered list when there is one (row, header and pager heights), else estimated
+  const side = document.querySelector('.places-side');
+  const row = document.querySelector('.place-row')?.getBoundingClientRect().height || 36;
+  const head = document.querySelector('.place-head')?.getBoundingClientRect().height || 30;
+  const pager = 44;
+  return Math.max(5, Math.floor((side.clientHeight - pager - head - 2) / row));
+}
+addEventListener('resize', () => { if (placeData) renderTable(); });
+const PLACE_SORTS = {name: (a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base'}),
+  flights: (a, b) => a.flights - b.flights, time: (a, b) => a.seconds - b.seconds};
+const sortedPlaces = () => shownPlaces().sort((a, b) => (placeDesc ? -1 : 1) * PLACE_SORTS[placeSort](a, b) || PLACE_SORTS.name(a, b));
+function sortPlace(key) {
+  if (placeSort === key) placeDesc = !placeDesc; else { placeSort = key; placeDesc = key !== 'name'; }
+  placePage = 0; saveState(true); renderTable();
+}
 const countryName = code => (placeData.countries || []).find(c => c[0] === code)?.[1] || code;
 function shownPlaces() {
   const query = $('placeSearch').value.trim().toLocaleLowerCase(), country = $('placeCountry').value;
@@ -489,14 +519,19 @@ function renderTable() {
   $('placeCountry').value = used.includes(chosen) ? chosen : '';
   $('placeCountry').hidden = !used.length;
   if (placeData.places.length) pendingCountry = '';
-  const list = shownPlaces();
+  const list = sortedPlaces();
+  const PLACE_PAGE = placePageSize();
   $('placeCount').textContent = list.length === placeData.places.length ? String(list.length) : `${list.length} of ${placeData.places.length}`;
   placePage = Math.min(placePage, Math.max(0, Math.ceil(list.length / PLACE_PAGE) - 1));
   const query = $('placeSearch').value.trim();
-  $('placeList').innerHTML = list.slice(placePage * PLACE_PAGE, (placePage + 1) * PLACE_PAGE).map(p => `
+  const arrow = key => placeSort === key ? (placeDesc ? ' ▼' : ' ▲') : '';
+  const head = `<div class="place-head"><button type="button" onclick="sortPlace('name')">Name${arrow('name')}</button>
+    <button type="button" class="num" onclick="sortPlace('flights')">Flights${arrow('flights')}</button><button type="button" class="num" onclick="sortPlace('time')">Time${arrow('time')}</button></div>`;
+  const time = s => { const t = fmtHours(s); return t.startsWith('0h ') ? t.slice(3) : t; };
+  $('placeList').innerHTML = (list.length ? head : '') + list.slice(placePage * PLACE_PAGE, (placePage + 1) * PLACE_PAGE).map(p => `
     <div class="place-row" role="option" aria-selected="${p.id === selectedPlace}" data-id="${p.id}" title="${esc(p.name)}">
       <span class="name">${esc(p.name)}${p.country ? ` <span class="mute" title="${esc(countryName(p.country))}">· ${esc(p.country)}</span>` : ''}${p.indoor ? ' <span class="mute">· indoors</span>' : ''}</span>
-      <span class="stats mute">${p.flights} flight${p.flights === 1 ? '' : 's'} · ${fmtHours(p.seconds)}</span></div>`).join('')
+      <span class="num mute">${p.flights || '—'}</span><span class="num mute">${p.flights ? time(p.seconds) : ''}</span></div>`).join('')
     || `<div class="empty mute">${query || $('placeCountry').value ? 'No matching locations.' : placeData.admin ? 'No places yet.' : 'No named places on your flights yet.'}</div>`;
   for (const row of $('placeList').querySelectorAll('.place-row')) row.onclick = () => +row.dataset.id === selectedPlace ? selectPlace(null) : zoomPlace(+row.dataset.id);
   window.viewState.pager($('placePages'), placePage, PLACE_PAGE, list.length, n => { placePage = n; saveState(true); renderTable(); });
@@ -511,7 +546,7 @@ function categoryText(p) {
 }
 function renderPanel() {
   const p = placeData.places.find(x => x.id === selectedPlace);
-  $('placePanel').hidden = !p;
+  $('placePanel').hidden = !p || showAll();  // not over the drawing hints while a boundary is drawn or changed
   if (!p) { closeMenus(); return; }
   const admin = isAdmin(), row = admin ? editRow : (key, label, value) => plainRow(label, value);
   const shape = p.shape.type === 'circle' ? 'Circle, ' + Math.round(p.shape.radius_m) + ' m radius' : 'Polygon, ' + p.shape.points.length + ' points';
@@ -547,6 +582,7 @@ function bindPlace(layer, place) {
 }
 
 function renderNamedPlaces() {
+  if (placeData && $('placePanel')) $('placePanel').hidden = !placeData.places.some(x => x.id === selectedPlace) || showAll();
   if (!map || !visibleBoundaries) return;
   const local = map.getZoom() >= 13, editing = showAll();
   for (const layer of visibleBoundaries.getLayers()) {
@@ -609,9 +645,17 @@ async function loadPlaces() {
   paintMode();
   renderPoints($('unnamedOnly').checked);
   if (!fitted && !$('unnamedOnly').checked) {
+    // Where most flying happens: the most-flown places that together hold 90% of the flights (all places and dots
+    // when there are no flights yet), so a few far-away places do not zoom the map out to the whole world.
     const b = L.latLngBounds([]);
-    layers.getLayers().forEach(layer => b.extend(boundaryBounds(layer)));
-    pointMarkers.forEach(marker => b.extend(marker.getLatLng()));
+    const flown = [...placeData.places].filter(p => p.flights > 0).sort((x, y) => y.flights - x.flights);
+    const total = flown.reduce((n, p) => n + p.flights, 0);
+    let sum = 0;
+    for (const p of flown) { if (sum >= 0.9 * total) break; sum += p.flights; if (layerById.has(p.id)) b.extend(boundaryBounds(layerById.get(p.id))); }
+    if (!b.isValid()) {
+      layers.getLayers().forEach(layer => b.extend(boundaryBounds(layer)));
+      pointMarkers.forEach(marker => b.extend(marker.getLatLng()));
+    }
     if (b.isValid()) { map.fitBounds(b.pad(0.2), {maxZoom: 16}); fitted = true; }
   }
   if (pendingPlace != null) { const id = pendingPlace; pendingPlace = null; if (id === selectedPlace) zoomPlace(id); }
@@ -621,8 +665,8 @@ function zoomPlace(id) {
   selectedPlace = id;
   if (!layer || !map) { renderTable(); saveState(); return; }  // without the map (library not loaded) the list still works
   // Page to the selected location, so a click on the map shows it in the list too.
-  const index = shownPlaces().findIndex(p => p.id === id);
-  if (index >= 0) placePage = Math.floor(index / PLACE_PAGE);
+  const index = sortedPlaces().findIndex(p => p.id === id);
+  if (index >= 0) placePage = Math.floor(index / placePageSize());
   map.fitBounds(boundaryBounds(layer).pad(.3), {maxZoom: 18, animate: false});
   renderNamedPlaces();
   renderTable();
@@ -708,12 +752,15 @@ window.viewState.setup(p => {
   pendingCountry = p.get('country') || '';
   $('placeCountry').value = pendingCountry;
   placePage = window.viewState.integer(p.get('page'), 1) - 1;
+  const [sortKey, sortDir] = (p.get('sort') || 'name-asc').split('-');
+  placeSort = PLACE_SORTS[sortKey] ? sortKey : 'name'; placeDesc = sortDir === 'desc';
   pendingPlace = window.viewState.integer(p.get('place'), null);
   if (pendingPlace == null) selectedPlace = null;
 }, p => {
   const set = window.viewState.set;
   set(p, 'q', $('placeSearch').value); set(p, 'country', $('placeCountry').value || pendingCountry);
   set(p, 'page', placePage + 1, 1); set(p, 'place', selectedPlace ?? '', '');
+  set(p, 'sort', `${placeSort}-${placeDesc ? 'desc' : 'asc'}`, 'name-asc');
 }, () => { if (pendingPlace != null && layerById.has(pendingPlace)) { const id = pendingPlace; pendingPlace = null; zoomPlace(id); } else renderTable(); });
 $('placeSearch').oninput = () => { placePage = 0; saveState(); renderTable(); };
 $('placeCountry').onchange = () => { placePage = 0; pendingCountry = ''; saveState(true); renderTable(); };

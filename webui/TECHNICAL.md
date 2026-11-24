@@ -2293,7 +2293,12 @@ Each dot has a total `count` and an `unnamed_count`, determined from the endpoin
 resolved place IDs before rounding, not from whether the rounded dot lies inside a shape.
 <a id="locations-page"></a>**Locations page** ([UI rule](#ui-rule)). The title row has the count, search,
 country and, for admins, **Only unnamed dots**, **Add location** and **Manage ▾** (Import CSV…, CSV template). The
-selected location (`place=<id>` in the URL) opens in a panel under the list: Country, Indoors, Operator, Category,
+list has Name, Flights and Time columns (no flights: "—"); the headers sort (`sort=name|flights|time-asc|desc`). It is
+as tall as the map, with the pager at its bottom: the rows per page are what fits (measured; 12 on a phone). The map
+first fits the most-flown places that together hold 90% of the flights (all places and dots when nothing was flown),
+so a few far-away places do not zoom it out to the whole world. The
+selected location (`place=<id>` in the URL) opens as a card on the map, top left (under the map on a phone; hidden
+while a boundary is drawn or changed): Country, Indoors, Operator, Category,
 Boundary and flights; admins get **Edit location** (one dialog; a click on a value opens it there; Save sends only what
 changed with `PUT /api/admin/places/<id>`) and **⋯** → *Change boundary on the map…* (the shape editor on the map,
 `PUT` with only `shape`) and *Delete location…* (a small confirmation). **Add location** shows a bar on the map to

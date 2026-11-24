@@ -177,7 +177,8 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
 
 - **Locations** lists the places on the left (search by name or country, filter by **Country**) and shows the map
   on the right. Click a location in the list or on the map to select it: the map zooms to it and its details
-  appear under the list (with a link to its location page). Nearby places are grouped into numbered markers when
+  appear in a card on the map (with a link to its location page). The Flights and Time headers sort the list; the
+  map opens on where most of the flying happens. Nearby places are grouped into numbered markers when
   zoomed out; click a group to zoom in.
 - On **Locations**, admins have **Add location**: choose polygon, rectangle or circle in the bar on the map, draw it
   and name it. A selected location has **Edit location** (name, country, indoors, operator and category in one
