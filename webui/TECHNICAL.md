@@ -936,7 +936,7 @@ longer sign in, or the administrator signs out.
 Authorisations and Operators (`tab=`). **Projects** is a table like Aircraft: Project (a link to the project page),
 Members (the first three, "+N", all on hover), Logs, Operator and Category of its flights (`GET /api/projects` returns
 `operator_id`, `category` and `authorisation_id` for this; admins read `/api/admin/projects`). Search, sort, page and
-rows per page are in the URL (`q`, `sort`, `page`, `size`). Admins, and managers for their projects, open a project
+rows per page (20 by default) are in the URL (`q`, `sort`, `page`, `size`). Admins, and managers for their projects, open a project
 beside the table (`open=<id>`, `ptab=members`; Operator and Category are hidden then) with the tabs Details and
 Members; other rows open the project page. **Edit project** is one dialog: admins change the name, operator (also
 **New operator…**) and category (`PUT /api/admin/projects/<id>` with only what changed) and the members; a manager only
@@ -1001,7 +1001,7 @@ Everything requires a login. Admins create accounts on the People page or on the
 
 A new account needs an email address (Add user, `create-user --email`). In Add user the username is optional: without one it is taken
 from the address (the part before `@`, lower case, numbered when taken, as for a first SSO login). Accounts made before that rule may have none;
-once an address is set it can be changed with People → Edit person but not removed. External crew (no sign-in), people
+once an address is set it can be changed with People → Edit account but not removed. External crew (no sign-in), people
 created by the qualification import and first SSO logins without a `mail` attribute are not affected.
 Addresses must be valid and unique (case-insensitive). Without an email, automatic SSO
 linking by email is unavailable; password setup/reset links can still be shared privately.
@@ -1124,19 +1124,22 @@ everyone; a supervisor: the people they supervise, from `GET /api/profiles`, als
 them): Role and Department by default, and under Columns Supervisors, Expected end (with incomplete / ending soon /
 ended / to confirm), Number (admins), GitHub and Confirmed. One **Filters** pop-up next to Columns (its button shows
 how many are active) holds Role, Department and profile status (Incomplete, Ending soon: within 3 months, Ended) for
-viewers who see profiles, Qualification for admins (a current approved qualification of that type), Show external
-and Without flights; the profile and qualification filters also show people without flights. Manage ▾ → **Download profiles (CSV)**
+viewers who see profiles, for admins Sign-in (Administrators, TU Delft SSO, Local password, Never signed in, Account
+disabled; `access`) and Qualification (a current approved qualification of that type), Show external
+and Without flights; the profile, sign-in and qualification filters also show people without flights. Manage ▾ → **Download profiles (CSV)**
 exports the profiles of the rows shown (supervisors get Manage ▾ with only this). This replaces the former Profiles
-tab (`?tab=profiles` now opens People). Headers sort; the Columns choice is per browser (`people.columns`); 50 rows
-per page with the pager at the bottom. Search, filters (`role`, `dept`, `status`, `qual`), Show external, Without flights,
+tab (`?tab=profiles` now opens People). Headers sort (Last sign-in: never counts as oldest; Role in the order of Profile options, then the furthest expected
+end first); the Columns choice is per browser (`people.columns`); 20 rows
+per page with the pager at the bottom. Search, filters (`role`, `dept`, `status`, `access`, `qual`), Show external, Without flights,
 sort, page and rows per page are in the URL (`search`, `external`, `unused`, `sort`, `pg`, `size`). On a phone only
 Name, Flights and Last flight are shown. For non-admins a row opens the pilot page. For admins a row opens
-the person beside the table (`person=<id>`, `ptab=<tab>`; Role and Sign-in are then hidden) with the tabs Details,
-Qualifications, API keys and Aliases. Details shows the account and, with `LOGDB_PERSON_PROFILE`, the profile
-(`GET /api/users/<id>/profile`). **Edit person** in the panel header opens one dialog with the account, profile and
-aliases (clicking a value in Details or Aliases opens it at that field); Save sends only what changed, each part to
-its existing endpoint: `PUT /api/admin/users/<id>/profile`, `…/operator`, `…/admin`, `…/external`, aliases one per line
-(`POST`/`DELETE /api/admin/aliases`) and the profile (`PUT /api/users/<id>/profile`). Qualifications keep their own
+the person beside the table (`person=<id>`, `ptab=<tab>`; the table then keeps only Name and Role, and the panel takes most of the width) with the tabs Details (the
+account), Profile (with `LOGDB_PERSON_PROFILE`, not for external crew; `GET /api/users/<id>/profile`; `ptab=profile`),
+Qualifications, API keys and Aliases. The Edit button in the panel header follows the tab, one small dialog each:
+**Edit account** (Details, Qualifications, API keys: `PUT /api/admin/users/<id>/profile`, `…/operator`, `…/admin`,
+`…/external`), **Edit profile** (`PUT /api/users/<id>/profile`) and **Edit aliases** (chips with ✕ and an Add field;
+`POST`/`DELETE /api/admin/aliases` for the differences). A click on a value opens the matching dialog at that field;
+Save sends only what changed. Qualifications keep their own
 per-item actions and Add qualification; API keys use the selection bar. ⋯ (admins):
 Set/Reset password…, Remove password…, Move TU Delft sign-in…, Merge into…, Remove user…. Admins have **Add user** and
 **Manage ▾** (Import profiles (CSV)…, Import qualifications (ZIP)… and its template, Fill numbers from PDFs…, Check QR
@@ -1460,9 +1463,10 @@ Where it shows:
   of each (only projects the viewer may open), and **Edit** for the person;
 - My account: the person's own profile and the people they supervise;
 - People: the profile columns, filters and CSV download of the table ([People page](#people-page)) and the
-  **Supervision** tab (one card per supervisor, external ones by name; its search and Include ended in the URL as
+  **Supervision** tab, right after People (people per card by role in the order of Profile options, then the furthest
+  expected end; one card per supervisor, external ones by name; its search and Include ended in the URL as
   `p_*`). Admins see everyone; a supervisor sees the people they supervise. Both come from `GET /api/profiles`;
-- People: the person's Details tab, where admins use **Edit person** (profile part: `PUT /api/users/<id>/profile`):
+- People: the person's Profile tab, where admins use **Edit profile** ( `PUT /api/users/<id>/profile`):
   like the import, they may fill in only what they know (empty fields are allowed, a past end date too), but what is
   filled in must be valid; the person is asked for the rest at the next sign-in, and **Profile options** to edit the role and department lists
   (`PUT /api/admin/profile-options`; roles with *Max years* and *Indefinite*). The role list is seeded once when the tables are created; the department list starts empty, because it is
@@ -1703,7 +1707,7 @@ when it was made: `decided_by`/`decided_at` are stored for it) and bookings appr
 (no decider). Bookings deleted while pending, and submissions deleted by an administrator, leave no history. A row opens
 its details in place (evidence preview, dates, training pass, booking time and options, the full reason); the period,
 page and open row (`open=q<id>` or `b<id>`) are in the URL.
-Admins edit username, display name, email and default project with **Edit person**; these four are saved
+Admins edit username, display name, email and default project with **Edit account**; these four are saved
 atomically in one request; previous unambiguous display names are preserved as log aliases. Display names are optional
 and at most 80 characters. Usernames must be unique (case-insensitive),
 1-40 characters and contain no spaces or control characters. Username changes do not create log aliases.
@@ -1717,7 +1721,7 @@ to an existing person using aliases, or explicitly use **Add user** when a profi
 flights under their operational authorisation: display name = the logged name, no password or email, and
 `users.is_external=1`. Their flights link and count like anyone's, but they cannot sign in (password,
 SAML, setup links and API keys are refused), cannot be project members (UI and project CSV reject them),
-and stay hidden on People until **Show external** is ticked. The External checkbox in Edit person converts
+and stay hidden on People until **Show external** is ticked. The External checkbox in Edit account converts
 a person either way (not admins or yourself); marking someone external removes their project memberships.
 Log crew matching uses case-insensitive explicit aliases first, then unique display names. Login usernames
 are not implicit log aliases; admins may add them deliberately. Duplicate display names stay unresolved
@@ -2619,7 +2623,7 @@ flight filters (`category=all|national|open|specific|luc|indoor|unknown|check`) 
 
 <a id="ui-rule"></a>**UI rule: changes without an Edit mode.** Every page follows the same few patterns:
 1. The read view is the same for everyone; there is no global Edit mode.
-2. One item, one **Edit <item>** button (Edit flight, Edit aircraft, Edit person, Edit project, …) in that item's
+2. One item, one **Edit <item>** button (Edit flight, Edit aircraft, Edit account / profile, Edit project, …) in that item's
    header, shown only to who may change something of it. It opens one dialog with every field the user may change
    (fields they may not change are not shown), a read-only context line on top, a compact grid and a blue
    (`button.primary`) **Save** with Cancel. Save sends only what changed, through the existing endpoints, shows an

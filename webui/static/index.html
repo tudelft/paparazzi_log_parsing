@@ -73,7 +73,7 @@
       <h2 style="margin:0; font-size:15px">Logs</h2><span class="mute" id="logCount"></span>
       <details class="logs-help"><summary>Help</summary>
         <p>Every log you can see: those of your projects and the ones you uploaded. Upload new logs with
-        <strong>Upload logs</strong> at the top right, or drop files on any page. The list shows 25 logs per page by
+        <strong>Upload logs</strong> at the top right, or drop files on any page. The list shows 20 logs per page by
         default, newest first; open a log for its details and flights.</p>
         <p class="mute">The project is set automatically from the aircraft (then the uploader, GCS operator or PIC).
         Open a log for its details: <strong>Edit log</strong> changes its project (admins) or its calendar date when it
@@ -98,7 +98,7 @@
     </table>
     </div>
     <div id="pager" class="mute" style="display:flex; gap:12px; align-items:center; justify-content:flex-end; flex-wrap:wrap; margin-top:12px">
-      <label>Rows per page <select id="logPageSize"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option></select></label>
+      <label>Rows per page <select id="logPageSize"><option value="10">10</option><option value="20" selected>20</option><option value="50">50</option><option value="100">100</option></select></label>
       <span id="pageInfo"></span>
       <div id="uploadPages" class="navigation-pages"></div>
     </div>
@@ -153,7 +153,7 @@ const fmtDur = s => s == null ? '' : s >= 3600 ? `${Math.floor(s/3600)}h ${Strin
 const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 1 : 2)} km` : `${Math.round(m)} m`;
 const fmtSize = b => b > 1e9 ? (b/1e9).toFixed(2)+' GB' : (b/1e6).toFixed(1)+' MB';
 let expanded = new Set(), me = null, projects = [];
-let LOG_PAGE = 25;
+let LOG_PAGE = 20;
 let logOffset = 0, logTotal = 0;
 if (/^#log\d+$/.test(location.hash)) expanded.add(+location.hash.slice(4));
 
@@ -211,8 +211,9 @@ function closeMenus() {
   document.querySelectorAll('[aria-haspopup=menu]').forEach(b => b.setAttribute('aria-expanded', 'false'));
 }
 document.addEventListener('click', e => {
+  // only this page's menus (button + .menu-pop); the header's Directory menu is handled by theme.js
   const b = e.target.closest('[aria-haspopup=menu]');
-  if (b) {
+  if (b && b.nextElementSibling?.classList.contains('menu-pop')) {
     e.stopPropagation();
     const pop = b.nextElementSibling, open = pop.hidden;
     closeMenus();
@@ -568,8 +569,8 @@ setInterval(() => {
   refresh();
 }, 3000);
 window.viewState.setup((p, extra) => {
-  const size = p.get('size') || '25';
-  LOG_PAGE = [10,25,50,100].includes(+size) ? +size : 25;
+  const size = p.get('size') || '20';
+  LOG_PAGE = [10,20,50,100].includes(+size) ? +size : 20;
   $('logPageSize').value = String(LOG_PAGE);
   logOffset = (window.viewState.integer(p.get('page'),1)-1) * LOG_PAGE;
   $('logSearch').value = p.get('q') || '';
@@ -579,7 +580,7 @@ window.viewState.setup((p, extra) => {
   if (onlyLog) expanded.add(onlyLog);
 }, p => {
   const set = window.viewState.set;
-  set(p,'page',Math.floor(logOffset/LOG_PAGE)+1,1); set(p,'size',LOG_PAGE,25);
+  set(p,'page',Math.floor(logOffset/LOG_PAGE)+1,1); set(p,'size',LOG_PAGE,20);
   set(p,'q',$('logSearch').value); set(p,'status',$('logStatus').value,'all');
   set(p,'log',onlyLog || '');
   return {expanded:[...expanded]};

@@ -113,7 +113,12 @@
   .pair input { width:150px; }
   /* the open person beside the cards (UI rule) */
   .people-split { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; align-items:start; }
-  .people-split.with-panel { grid-template-columns:minmax(0,1fr) minmax(360px,42%); }
+  .alias-chips { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 10px; }
+  .alias-chip { display:inline-flex; align-items:center; gap:4px; }
+  .alias-chip button { border:0; background:none; padding:0 2px; color:var(--mute); cursor:pointer; font-size:11px; }
+  .alias-chip button:hover { color:var(--err); }
+  .alias-add { display:flex; gap:6px; } .alias-add input { flex:1; }
+  .people-split.with-panel { grid-template-columns:minmax(0,1fr) minmax(420px,64%); }  /* the list keeps Name and Role */
   @media (max-width:900px) { .people-split.with-panel { grid-template-columns:minmax(0,1fr); } #personPanel { order:-1; } }
   .toolbar-end { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .panel-actions { display:flex; gap:6px; align-items:center; }
@@ -152,7 +157,7 @@
   #personPanel, #personContent { min-width:0; overflow-wrap:anywhere; }
   #typeList { display:flex; flex-direction:column; }
   .type-row { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; gap:10px; align-items:center; padding:8px 0; border-top:1px solid var(--line); }
-  .type-row.dragging { opacity:.45; }
+  .type-row.dragging, #roleRows tr.dragging, #deptRows tr.dragging { opacity:.45; }
   .type-row.off > .type-body, .type-row.off > .type-chips { opacity:.55; }
   .type-body .type-desc { font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .type-chips { display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
@@ -283,6 +288,7 @@
         <label class="field">Department<select id="dirDept" data-filter="dept" onchange="setDirFilter(this)"></select></label>
         <label class="field">Profile<select id="dirStatus" data-filter="status" onchange="setDirFilter(this)">
           <option value="">Any status</option><option value="missing">Incomplete</option><option value="soon" title="The expected end is within 3 months">Ending soon</option><option value="ended">Ended</option></select></label></div>
+        <label class="field" id="dirAccessLabel" hidden>Sign-in<select id="dirAccess" data-filter="access" onchange="setDirFilter(this)"></select></label>
         <label class="field" id="dirQualLabel" hidden>Qualification<select id="dirQual" data-filter="qual" onchange="setDirFilter(this)"></select></label>
         <label id="showExternalLabel" title="External people stay hidden until this is ticked" hidden><input type="checkbox" id="showExternal" onchange="dirPage = 0; dirUrl(true); render()"> Show external</label>
         <label title="Include people without logs, paper records or approved qualifications"><input type="checkbox" id="showWithoutLogs" onchange="dirPage = 0; dirUrl(true); render()"> Without flights</label>
@@ -315,14 +321,14 @@
         <p role="alert" id="picError" hidden></p>
         <div class="scroll"><table class="people"><colgroup id="peopleCols"></colgroup><thead id="peopleHead"></thead><tbody id="directoryPeople"></tbody></table></div>
         <div class="people-foot"><span class="mute">Rows per page</span>
-          <select id="dirSize" aria-label="Rows per page" onchange="dirSize = +this.value; dirPage = 0; dirUrl(true); renderDirectory()"><option>25</option><option selected>50</option><option>100</option><option>200</option></select>
+          <select id="dirSize" aria-label="Rows per page" onchange="dirSize = +this.value; dirPage = 0; dirUrl(true); renderDirectory()"><option selected>20</option><option>50</option><option>100</option><option>200</option></select>
           <div id="peoplePages" class="navigation-pages"></div></div>
       </div>
       <section id="personPanel" aria-label="Selected person" hidden>
         <div class="person-header">
           <h2 id="personHeading"></h2>
           <span class="panel-actions">
-            <button type="button" class="sec" id="editPerson" onclick="openEditPerson()">Edit person</button>
+            <button type="button" class="sec" id="editPerson" onclick="openEditPerson()">Edit account</button>
             <span class="menu-wrap" id="moreWrap" hidden><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
               <div class="menu-pop" id="moreMenu" role="menu" hidden></div></span>
             <button type="button" class="sec" id="closePerson" aria-label="Close the person" title="Close" onclick="selectPerson(null)">✕</button></span>
@@ -330,6 +336,7 @@
         <p id="personIdentity"></p>
         <div class="seg-tabs" role="tablist" aria-label="Person" id="personTabs" hidden>
           <button type="button" role="tab" id="tab-details" aria-controls="personContent" onclick="selectPersonTab('details')">Details</button>
+          <button type="button" role="tab" id="tab-profile" aria-controls="personContent" onclick="selectPersonTab('profile')" hidden>Profile</button>
           <button type="button" role="tab" id="tab-qualifications" aria-controls="personContent" onclick="selectPersonTab('qualifications')">Qualifications</button>
           <button type="button" role="tab" id="tab-api" aria-controls="personContent" onclick="selectPersonTab('api')">API keys</button>
           <button type="button" role="tab" id="tab-aliases" aria-controls="personContent" onclick="selectPersonTab('aliases')">Aliases</button>
@@ -394,11 +401,11 @@
   </section>
   <section class="card" id="profileOptionsSection" hidden>
     <div class="section-heading"><h2>Profile options</h2>
-    <details><summary>Help</summary><p>The choices of the profile everyone fills in after signing in. <em>Supervises</em> offers people with that role as supervisors; <em>Needs supervisor</em> makes naming one required. <em>Max years</em> limits how far ahead the expected end date may be (empty: no limit), and only roles with <em>Indefinite</em> may tick Indefinite instead of a date; profiles outside these limits are asked again at the next sign-in. A department's group is shown next to it; people can also type a department that is not listed. The department list starts empty: add your departments or sections, or <em>Import CSV</em> with one per line as <span class="mono">name,group</span>. Removing an entry leaves that field empty in the profiles that used it, so those people are asked again. One Save writes both lists.</p></details></div>
+    <details><summary>Help</summary><p>The choices of the profile everyone fills in after signing in. <em>Supervises</em> offers people with that role as supervisors; <em>Needs supervisor</em> makes naming one required. <em>Max years</em> limits how far ahead the expected end date may be (empty: no limit), and only roles with <em>Indefinite</em> may tick Indefinite instead of a date; profiles outside these limits are asked again at the next sign-in. A department's group is shown next to it; people can also type a department that is not listed. The department list starts empty: add your departments or sections, or <em>Import CSV</em> with one per line as <span class="mono">name,group</span>. Drag a row by ↕ to change the order: roles are sorted in this order on this page (Role column and filter, Supervision), for example Staff first. Removing an entry leaves that field empty in the profiles that used it, so those people are asked again. One Save writes both lists and the order.</p></details></div>
     <div class="profile-options">
-      <div><h3>Roles</h3><table class="compact"><thead><tr><th>Name</th><th title="Offered as a supervisor">Supervises</th><th title="Must name a supervisor">Needs supervisor</th><th title="The expected end date is at most this many years ahead (empty: no limit)">Max years</th><th title="May tick Indefinite instead of an end date">Indefinite</th><th></th></tr></thead><tbody id="roleRows"></tbody></table>
+      <div><h3>Roles</h3><table class="compact"><thead><tr><th></th><th>Name</th><th title="Offered as a supervisor">Supervises</th><th title="Must name a supervisor">Needs supervisor</th><th title="The expected end date is at most this many years ahead (empty: no limit)">Max years</th><th title="May tick Indefinite instead of an end date">Indefinite</th><th></th></tr></thead><tbody id="roleRows"></tbody></table>
         <button type="button" class="sec" onclick="addOptionRow('role')">Add role</button></div>
-      <div><h3>Departments</h3><table class="compact"><thead><tr><th>Section</th><th>Department</th><th></th></tr></thead><tbody id="deptRows"></tbody></table>
+      <div><h3>Departments</h3><table class="compact"><thead><tr><th></th><th>Section</th><th>Department</th><th></th></tr></thead><tbody id="deptRows"></tbody></table>
         <button type="button" class="sec" onclick="addOptionRow('dept')">Add department</button>
         <button type="button" class="sec" onclick="$('deptCsv').click()" title="A CSV file with one department per line: name,group (a header line is skipped). Adds the ones not yet listed; Save to keep them.">Import CSV</button>
         <input type="file" id="deptCsv" accept=".csv,text/csv,text/plain" hidden onchange="importDepartments(this)"></div>
@@ -539,7 +546,15 @@ window.fetch = async (...args) => {
 };
 let people = {users: [], unlinked: []};
 let me = null, mailOn = false, profileOn = false, profileOptions = null, profileList = [];
-const personTabs = () => ['details', 'qualifications', 'api', 'aliases'];
+// Profile only with person profiles on, and not for external crew (they have none)
+const personTabs = user => ['details', ...(profileOn && !user?.is_external ? ['profile'] : []), 'qualifications', 'api', 'aliases'];
+// Roles sort in the order of Profile options (dragged there), not alphabetically; unknown roles after, by name.
+let roleOrder = [];
+const roleRank = role => { const i = roleOrder.findIndex(r => r.toLowerCase() === String(role || '').toLowerCase()); return i < 0 ? roleOrder.length : i; };
+const byRole = (a, b) => roleRank(a) - roleRank(b) || String(a || '').localeCompare(String(b || ''));
+// within a role: the furthest expected end first (Indefinite furthest, no date last)
+const endKey = p => p?.indefinite ? '9999' : p?.end_date || '';
+const byEndDesc = (a, b) => endKey(b).localeCompare(endKey(a));
 let selectedPerson = null, selectedTab = 'details', qualificationManager = null;
 let qualificationTypes = [], pendingQualifications = [];
 let panelGeneration = 0;
@@ -551,12 +566,12 @@ let picFlights = null, picError = '';
 // (the panel shows it); `phone`: kept on a narrow screen. `w`: relative width.
 const PEOPLE_COLUMNS = [
   {key: 'name', label: 'Name', on: true, phone: true, w: 20},
-  {key: 'role', label: 'Role', on: true, panel: true, profile: true, w: 13},
+  {key: 'role', label: 'Role', on: true, profile: true, w: 13},
   {key: 'dept', label: 'Department', on: true, panel: true, profile: true, w: 15},
-  {key: 'licences', label: 'Current licences', on: true, admin: true, w: 20, nosort: true},
-  {key: 'flights', label: 'Flights', on: true, phone: true, num: true, w: 7, title: 'Flights as PIC, within the flight filters'},
-  {key: 'hours', label: 'Hours', on: true, num: true, w: 7, title: 'Flight hours as PIC, within the flight filters'},
-  {key: 'last', label: 'Last flight', on: true, phone: true, w: 10, title: 'Last flight as PIC, within the flight filters'},
+  {key: 'licences', label: 'Current licences', on: true, panel: true, admin: true, w: 20, nosort: true},
+  {key: 'flights', label: 'Flights', on: true, panel: true, phone: true, num: true, w: 7, title: 'Flights as PIC, within the flight filters'},
+  {key: 'hours', label: 'Hours', on: true, panel: true, num: true, w: 7, title: 'Flight hours as PIC, within the flight filters'},
+  {key: 'last', label: 'Last flight', on: true, panel: true, phone: true, w: 10, title: 'Last flight as PIC, within the flight filters'},
   {key: 'sup', label: 'Supervisors', panel: true, profile: true, w: 16},
   {key: 'end', label: 'Expected end', panel: true, profile: true, w: 18},
   {key: 'number', label: 'Number', panel: true, profile: true, admin: true, w: 10, title: 'Student / employee number'},
@@ -609,7 +624,7 @@ function directoryUsers() {
   return [...people.users, ...profileList.filter(x => !x.self && !ids.has(x.id))
     .map(x => ({id: x.id, username: x.username, display_name: x.name, has_logs: true, aliases: []}))];
 }
-const profileFiltered = () => !!(dirFilter.role || dirFilter.dept || dirFilter.status || dirFilter.qual);  // also shows people without flights
+const profileFiltered = () => !!(dirFilter.role || dirFilter.dept || dirFilter.status || dirFilter.qual || dirFilter.access);  // also shows people without flights
 const currentQuals = u => ((u.qualifications && u.qualifications.items) || []).filter(q => q.status === 'approved' && !q.expired);
 const shownPeople = () => directoryUsers().filter(u => (!u.is_external || $('showExternal').checked)
   && (u.has_logs || hasLicence(u) || $('showWithoutLogs').checked || profileFiltered() || u.id === selectedPerson
@@ -640,21 +655,28 @@ function qualBits(q) {
 // screen at a time; the tab is kept in the URL (?tab=) so Back returns to it.
 let pageTab = new URLSearchParams(location.search).get('tab') || 'people';
 // The table's search, filters, sort, page and the open person (with its tab) are in the URL as well.
-let dirSort = 'name', dirDesc = false, dirPage = 0, dirSize = 50, dirFilter = {role: '', dept: '', status: '', qual: ''};
+// Sign-in filter (administrators): label and test per choice; ?access= in the URL.
+const ACCESS_FILTERS = {
+  admin: ['Administrators', u => !!u.is_admin],
+  sso: ['TU Delft SSO', u => !u.is_external && !!(u.has_sso || u.provider === 'saml')],
+  local: ['Local password', u => !u.is_external && !!u.has_password],
+  never: ['Never signed in', u => !u.is_external && !u.last_login],
+  disabled: ['Account disabled', u => !u.is_external && !u.is_active]};
+let dirSort = 'name', dirDesc = false, dirPage = 0, dirSize = 20, dirFilter = {role: '', dept: '', status: '', qual: '', access: ''};
 function readPersonUrl(p) {
   selectedPerson = +p.get('person') || null;
-  selectedTab = ['qualifications', 'api', 'aliases'].includes(p.get('ptab')) ? p.get('ptab') : 'details';
+  selectedTab = ['profile', 'qualifications', 'api', 'aliases'].includes(p.get('ptab')) ? p.get('ptab') : 'details';
   $('directorySearch').value = p.get('search') || '';
   $('showExternal').checked = p.get('external') === '1';
   $('showWithoutLogs').checked = p.get('unused') === '1';
   dirFilter = {role: p.get('role') || '', dept: p.get('dept') || '', status: ['missing', 'soon', 'ended'].includes(p.get('status')) ? p.get('status') : '',
-    qual: p.get('qual') || ''};
+    qual: p.get('qual') || '', access: ACCESS_FILTERS[p.get('access')] ? p.get('access') : ''};
   $('dirStatus').value = dirFilter.status;
   const [key, dir] = (p.get('sort') || 'name-asc').split('-');
   dirSort = PEOPLE_COLUMNS.some(c => c.sort === key) ? key : 'name';
   dirDesc = dir === 'desc';
   dirPage = Math.max(0, (parseInt(p.get('pg'), 10) || 1) - 1);
-  dirSize = [25, 50, 100, 200].includes(+p.get('size')) ? +p.get('size') : 50;
+  dirSize = [20, 50, 100, 200].includes(+p.get('size')) ? +p.get('size') : 20;
   $('dirSize').value = String(dirSize);
 }
 function setDirFilter(select) { dirFilter[select.dataset.filter] = select.value; dirPage = 0; dirUrl(true); render(); }
@@ -662,18 +684,18 @@ function dirUrl(push) {
   const url = new URL(location.href);
   for (const [k, v] of [['search', $('directorySearch').value.trim()], ['external', $('showExternal').checked ? '1' : ''],
     ['unused', $('showWithoutLogs').checked ? '1' : ''], ['role', dirFilter.role], ['dept', dirFilter.dept],
-    ['status', dirFilter.status], ['qual', dirFilter.qual], ['sort', dirSort === 'name' && !dirDesc ? '' : `${dirSort}-${dirDesc ? 'desc' : 'asc'}`],
-    ['pg', dirPage ? dirPage + 1 : ''], ['size', dirSize === 50 ? '' : dirSize]]) {
+    ['status', dirFilter.status], ['qual', dirFilter.qual], ['access', dirFilter.access], ['sort', dirSort === 'name' && !dirDesc ? '' : `${dirSort}-${dirDesc ? 'desc' : 'asc'}`],
+    ['pg', dirPage ? dirPage + 1 : ''], ['size', dirSize === 20 ? '' : dirSize]]) {
     if (v) url.searchParams.set(k, v); else url.searchParams.delete(k);
   }
   if (url.href !== location.href) history[push ? 'pushState' : 'replaceState'](history.state, '', url);
 }
 readPersonUrl(new URLSearchParams(location.search));
 function paintPageTabs(open) {
-  const sections = [['people', 'People', $('peopleCard')], ['unlinked', 'Unlinked crew names', $('unlinkedCard'), open],
+  const sections = [['people', 'People', $('peopleCard')], ['supervision', 'Supervision', $('supervisionSection'), supervisionGroups().length],
+    ['unlinked', 'Unlinked crew names', $('unlinkedCard'), open],
     ['approvals', 'Approval queue', $('approvalSection'), pendingQualifications.filter(s => !aqHeld.has(s.id)).length],
-    ['types', 'Qualification types', $('typesSection')], ['profile-options', 'Profile options', $('profileOptionsSection')],
-    ['supervision', 'Supervision', $('supervisionSection'), supervisionGroups().length]].filter(([, , el]) => el === $('peopleCard') || !el.hidden);
+    ['types', 'Qualification types', $('typesSection')], ['profile-options', 'Profile options', $('profileOptionsSection')]].filter(([, , el]) => el === $('peopleCard') || !el.hidden);
   // a tab that is not there (yet: the data is still loading) shows People, but stays asked for in the URL
   const current = sections.some(t => t[0] === pageTab) ? pageTab : 'people';
   window.pageTabs($('pageTabs'), sections.map(([key, label, , count]) => [key, label, count]), current, key => {
@@ -717,7 +739,7 @@ function render() {
   $('showExternalLabel').hidden = !people.users.some(u => u.is_external);
   paintPageTabs(open);
   $('peopleHint').textContent = admin
-    ? 'Click a row to open the person beside the list: Details (account and profile), Qualifications, API keys and Aliases. Edit person changes the account, profile and aliases in one dialog; ⋯ has password, sign-in, merge and remove. Users submit their own evidence on My account. Removing a user keeps their uploaded logs. Flights, hours and last flight are as PIC within the flight filters. Columns adds profile fields (supervisors, expected end, number, GitHub, last confirmed); the profile filters also show unused profiles. Incomplete: people who still have to fill in (part of) their profile, asked at their next sign-in.'
+    ? 'Click a row to open the person beside the list: Details (account), Profile, Qualifications, API keys and Aliases. The Edit button follows the tab: Edit account, Edit profile or Edit aliases (a click on a value opens it there too); ⋯ has password, sign-in, merge and remove. Users submit their own evidence on My account. Removing a user keeps their uploaded logs. Flights, hours and last flight are as PIC within the flight filters. Columns adds profile fields (supervisors, expected end, number, GitHub, last confirmed); the profile filters also show unused profiles. Incomplete: people who still have to fill in (part of) their profile, asked at their next sign-in.'
     : showsRoles() ? 'Flights, hours and last flight are as PIC within the shared flight filters. You see the profiles of the people you supervise (Columns adds their supervisors, expected end and GitHub; Manage ▾ downloads them). Click a person for their pilot page.'
     : 'Flights, hours and last flight are as PIC within the shared flight filters. Click a person for their pilot page.';
   if (admin) {
@@ -861,7 +883,7 @@ $('filterButton').onclick = () => {
 };
 $('filterClose').onclick = () => $('filterButton').click();
 $('filterClear').onclick = () => {
-  dirFilter = {role: '', dept: '', status: '', qual: ''};
+  dirFilter = {role: '', dept: '', status: '', qual: '', access: ''};
   $('showExternal').checked = $('showWithoutLogs').checked = false;
   dirPage = 0; dirUrl(true); render();
 };
@@ -870,20 +892,23 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('filter
 // Role, Department and profile status: only for viewers who see profiles; the choices come from those profiles.
 function paintDirFilters() {
   $('peopleFilters').hidden = !showsRoles();
-  const active = [dirFilter.qual, dirFilter.role, dirFilter.dept, dirFilter.status && $('dirStatus').querySelector(`[value="${dirFilter.status}"]`)?.textContent,
+  const active = [dirFilter.access && ACCESS_FILTERS[dirFilter.access][0], dirFilter.qual, dirFilter.role, dirFilter.dept, dirFilter.status && $('dirStatus').querySelector(`[value="${dirFilter.status}"]`)?.textContent,
     $('showExternal').checked && 'Show external', $('showWithoutLogs').checked && 'Without flights'].filter(Boolean);
   $('filterButton').textContent = active.length ? `Filters · ${active.length}` : 'Filters';
   $('filterButton').classList.toggle('active', !!active.length);
-  $('filterButton').title = active.join(' · ') || 'Role, department, profile status, qualification, external people and people without flights';
-  const opts = (sel, label, key, values) => {
-    sel.innerHTML = `<option value="">${label}</option>` + [...new Set([...values.filter(Boolean), dirFilter[key]].filter(Boolean))].sort()
+  $('filterButton').title = active.join(' · ') || 'Role, department, profile status, sign-in, qualification, external people and people without flights';
+  const opts = (sel, label, key, values, order) => {
+    sel.innerHTML = `<option value="">${label}</option>` + [...new Set([...values.filter(Boolean), dirFilter[key]].filter(Boolean))].sort(order)
       .map(v => `<option>${esc(v)}</option>`).join('');
     sel.value = dirFilter[key];
   };
-  opts($('dirRole'), 'All roles', 'role', profileList.map(x => x.profile?.role));
+  opts($('dirRole'), 'All roles', 'role', profileList.map(x => x.profile?.role), byRole);
   opts($('dirDept'), 'All departments', 'dept', profileList.map(x => x.profile?.department));
   // Qualification (admins, like the Current licences column): the types people hold now
-  $('dirQualLabel').hidden = !me?.is_admin;
+  $('dirQualLabel').hidden = $('dirAccessLabel').hidden = !me?.is_admin;
+  $('dirAccess').innerHTML = '<option value="">Any sign-in</option>' + Object.entries(ACCESS_FILTERS)
+    .map(([k, [label]]) => `<option value="${k}">${esc(label)}</option>`).join('');
+  $('dirAccess').value = dirFilter.access;
   opts($('dirQual'), 'Any qualification', 'qual', people.users.flatMap(u => currentQuals(u).map(q => q.category)));
   $('dirStatus').value = dirFilter.status;
   saveColumns();
@@ -923,6 +948,7 @@ function renderDirectory() {
   const all = directoryUsers();
   const rows = matchingPeople($('directorySearch').value).filter(u => {
     if (dirFilter.qual && !currentQuals(u).some(q => q.category === dirFilter.qual)) return false;
+    if (dirFilter.access && !ACCESS_FILTERS[dirFilter.access][1](u)) return false;
     if (!(dirFilter.role || dirFilter.dept || dirFilter.status)) return true;
     const x = profileOf(u);
     if (!x) return false;
@@ -937,8 +963,10 @@ function renderDirectory() {
   const byName = (a, b) => name(a).localeCompare(name(b), undefined, {sensitivity: 'base'});
   const text = f => (a, b) => { const x = f(a), y = f(b); return x && y ? String(x).localeCompare(String(y)) : !x - !y; };  // empty last
   const compare = {
-    name: byName, account: text(signInText), login: text(u => u.last_login),
+    name: byName, account: text(signInText), login: (a, b) => (a.last_login || '').localeCompare(b.last_login || ''),  // never = oldest
     flights: (a, b) => t(a).count - t(b).count, hours: (a, b) => t(a).seconds - t(b).seconds, last: (a, b) => t(a).last.localeCompare(t(b).last),
+    role: (a, b) => { const x = profileValue('role', a), y = profileValue('role', b);
+      return x && y ? byRole(x, y) || (dirDesc ? -1 : 1) * byEndDesc(profileOf(a)?.profile, profileOf(b)?.profile) : !x - !y; },
   }[dirSort] || text(u => profileValue(dirSort, u));
   const sorted = rows.sort((a, b) => (dirDesc ? compare(b, a) : compare(a, b)) || byName(a, b));
   dirPage = Math.min(dirPage, Math.max(0, Math.ceil(sorted.length / dirSize) - 1));
@@ -1488,7 +1516,7 @@ function selectPersonTab(tab) {
 $('personTabs').addEventListener('keydown', event => {
   if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
   event.preventDefault();
-  const tabs = personTabs();
+  const tabs = personTabs(people.users.find(u => u.id === selectedPerson));
   const index = tabs.indexOf(selectedTab);
   const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
     : (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
@@ -1503,7 +1531,7 @@ $('directoryPeople').addEventListener('click', e => {
   if (!me?.is_admin) { location.href = `/people/${tr.dataset.id}`; return; }
   selectPerson(+tr.dataset.id === selectedPerson ? null : +tr.dataset.id);
 });
-// Read views; clicking a value the administrator may change opens Edit person at that field.
+// Read views; clicking a value the administrator may change opens its Edit dialog (account, profile or aliases) at that field.
 const editRow = (key, label, value) => `<span class="mute edit-key" data-edit-field="${key}" title="Click to change">${label}</span><span class="edit-val" data-edit-field="${key}" title="Click to change">${value || '<span class="mute">—</span>'}</span>`;
 const plainRow = (label, value) => `<span class="mute">${label}</span><span>${value || '<span class="mute">—</span>'}</span>`;
 document.addEventListener('click', e => {
@@ -1511,7 +1539,7 @@ document.addEventListener('click', e => {
   if (!value || e.target.closest('a, button')) return;
   openEditPerson(value.dataset.editField);
 });
-// The person's profile (GET /api/users/<id>/profile), loaded for the Details tab and Edit person.
+// The person's profile (GET /api/users/<id>/profile), loaded for the Profile tab and Edit profile.
 let personProfile = null;
 async function loadPersonProfile(id) {
   if (!profileOn) return null;
@@ -1524,7 +1552,7 @@ function profileDetailsHTML(d) {
   const state = !p ? 'Not filled in yet.' : todo.length ? 'Still to fill in: ' + todo.join(', ') + '.' : '';
   const sups = (p?.supervisors || []).map(s => s.id ? `<a href="/people/${s.id}">${esc(s.name)}</a>` : `${esc(s.name)} <span class="mute">(external)</span>`).join(' · ');
   const ended = p && !p.indefinite && p.end_date && p.end_date < today();
-  return `<h4>Profile</h4>${state ? `<p class="mute" style="margin:0 0 6px">${esc(state)} The person completes it at their next sign-in.</p>` : ''}
+  return `${state ? `<p class="mute" style="margin:0 0 6px">${esc(state)} The person completes it at their next sign-in.</p>` : ''}
     <div class="kv">
     ${editRow('pfRole', 'Role', esc(p?.role || ''))}
     ${editRow('pfDept', 'Department', p?.department ? esc(p.department) + (p.department_group ? ` <span class="mute">(${esc(p.department_group)})</span>` : '') : '')}
@@ -1547,8 +1575,10 @@ function renderPersonPanel() {
   $('personIdentity').textContent = `@${user.username}${user.is_external ? ' · External' : ''}`;
   $('personTabs').hidden = false;
   paintPersonMore(user);
-  if (!personTabs().includes(selectedTab)) selectedTab = 'details';
-  for (const tab of personTabs()) {
+  if (!personTabs(user).includes(selectedTab)) selectedTab = 'details';
+  $('tab-profile').hidden = !personTabs(user).includes('profile');
+  $('editPerson').textContent = EDIT_LABELS[editPart()];
+  for (const tab of personTabs(user)) {
     $('tab-' + tab).setAttribute('aria-selected', String(selectedTab === tab));
     $('tab-' + tab).tabIndex = selectedTab === tab ? 0 : -1;
   }
@@ -1561,6 +1591,12 @@ function renderPersonPanel() {
     qualificationManager.editing = true;  // each qualification has its own actions; Add qualification for this person
     qualificationManager.name = name;  // the add dialog says for whom
     qualificationManager.load();
+  } else if (selectedTab === 'profile') {
+    $('personContent').innerHTML = `<div id="personProfile" role="status">Loading profile...</div>
+      <details class="account-help"><summary>Help</summary><p>The profile is what the person fills in after signing in. What an administrator fills in for them (Edit profile, or a click on a value), the person checks at their next sign-in.</p></details>`;
+    loadPersonProfile(id).then(d => {
+      if (generation === panelGeneration) $('personProfile').innerHTML = profileDetailsHTML(d);
+    }).catch(error => { if (generation === panelGeneration) $('personProfile').textContent = error.message; });
   } else if (selectedTab === 'aliases') {
     $('personContent').innerHTML = `<p class="mute">Aliases link PIC/PAC/GCS names in logs to this person. Unique display names match automatically; usernames match only if explicitly added as aliases. Review existing aliases if a short name is ambiguous.</p>
       <div class="edit-val" data-edit-field="aliases" title="Click to change">${(user.aliases || []).map(alias => `<span class="chip">${esc(alias)}</span>`).join('') || '<span class="mute">No aliases.</span>'}</div>`;
@@ -1587,16 +1623,11 @@ function renderPersonPanel() {
       ${user.is_external ? '' : plainRow('Password', user.provider === 'saml' ? 'Managed by identity provider' : user.has_password ? 'Chosen' : 'Not set')}
       ${user.has_sso && user.provider !== 'saml' ? plainRow('TU Delft sign-in', 'Linked') : ''}
       </div>
-      ${profileOn ? '<div id="personProfile" role="status">Loading profile...</div>' : ''}
       <details class="account-help"><summary>Help</summary>
       <p>The username is only the local sign-in name, not an automatic log match. Unique display names and explicit aliases match logs. Previous unambiguous display names remain aliases; username changes do not add aliases. Existing records and SSO links stay attached.</p>
       <p>Active means an enabled TU Delft SSO account or a local account with a password. It does not describe recent activity or qualifications. Local accounts without a password cannot sign in until a password is set.</p>
       <p>Administrators have access to all projects, accounts and private qualification evidence. External people are crew of another operator: flights stay linked, but they cannot sign in or access projects.</p>
-      ${profileOn ? '<p>The profile is what the person fills in after signing in. What an administrator fills in for them, the person checks at their next sign-in.</p>' : ''}
       <p>⋯ has the rare actions: set or reset the password, remove it, move a TU Delft sign-in matched to the wrong person, merge two accounts of one person (flights, records, uploads, projects, qualifications and API keys move to the account you keep; this account's names become aliases) and remove the person (uploaded logs are kept). Merges and moves are recorded in the audit log.</p></details>`;
-    if (profileOn) loadPersonProfile(id).then(d => {
-      if (generation === panelGeneration) $('personProfile').innerHTML = profileDetailsHTML(d);
-    }).catch(error => { if (generation === panelGeneration) $('personProfile').textContent = error.message; });
   }
 }
 // ⋯ of the open person (administrators): password, sign-in, merge and remove.
@@ -1637,19 +1668,21 @@ function editDialog(title, what, fields, save, focus) {
 }
 const field = (key, label, control, wide) => `<label class="field${wide ? ' wide' : ''}">${label}${control}<span class="field-error" data-error="${key}"></span></label>`;
 const val = name => $('editFields').querySelector(`[name=${name}]`);
-// Edit person (administrators): account, profile and aliases in one dialog. Save sends only what changed, each part
-// to its own endpoint as before (account, operator, admin/external, aliases, profile).
+// Edit the open person (administrators), one small dialog per part, chosen by the tab (or by the value clicked):
+// Edit account (Details, Qualifications, API keys), Edit profile (Profile) and Edit aliases (Aliases). Save sends only
+// what changed, each part to its own endpoint as before (account, operator, admin/external, profile, aliases).
+const editPart = focus => focus ? (focus === 'aliases' ? 'aliases' : focus.startsWith('pf') ? 'profile' : 'account')
+  : selectedTab === 'profile' ? 'profile' : selectedTab === 'aliases' ? 'aliases' : 'account';
+const EDIT_LABELS = {account: 'Edit account', profile: 'Edit profile', aliases: 'Edit aliases'};
 async function openEditPerson(focus) {
   const user = people.users.find(u => u.id === selectedPerson);
   if (!user || !me?.is_admin) return;
-  let d = null;
-  try { d = await loadPersonProfile(user.id); } catch (error) { $('err').textContent = error.message; }
-  const self = user.id === me.id, name = user.display_name || user.username;
+  const part = editPart(focus), name = user.display_name || user.username;
+  if (part === 'aliases') return editAliases(user, name);
+  if (part === 'profile') return editProfile(user, name, focus);
+  const self = user.id === me.id;
   const projects = '<option value="">No default</option>' + people.projects.map(p => `<option value="${p.id}"${p.id === user.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
-  if (d) profileEdit = {id: user.id, sups: (d.profile?.supervisors || []).map(s => ({id: s.id, name: s.name})),
-    options: {...d.options, supervisors: d.options.supervisors.filter(s => s.id !== user.id)}};
-  const was = user.aliases || [];
-  editDialog(`Edit person ${name}`, `@${user.username}`, `<h4 style="margin:0">Account</h4><div class="edit-grid">
+  editDialog(`Edit account ${name}`, `@${user.username}`, `<div class="edit-grid">
     ${field('username', 'Username', `<input name="username" required maxlength="40" autocomplete="off" value="${esc(user.username)}">`)}
     ${field('display_name', 'Display name', `<input name="display_name" maxlength="80" value="${esc(user.display_name || '')}">`)}
     ${field('email', 'Email' + (user.email ? '' : ' (optional)'), `<input name="email" type="email" maxlength="120" value="${esc(user.email || '')}"${user.email ? ' required' : ''}
@@ -1660,10 +1693,7 @@ async function openEditPerson(focus) {
       ${user.is_external ? '' : `<label><input type="checkbox" name="is_admin"${user.is_admin ? ' checked' : ''}${self ? ' disabled title="Ask another administrator to remove your admin rights."' : ''}> Administrator <span class="mute">(all projects, accounts and private qualification evidence)</span></label>`}
       ${self || user.is_admin ? '' : `<label><input type="checkbox" name="is_external"${user.is_external ? ' checked' : ''}> External <span class="mute">(crew of another operator: cannot sign in, loses project access; flights stay linked)</span></label>`}
       <span class="field-error" data-error="access"></span></div>
-  </div>
-  ${d ? `<h4 style="margin:12px 0 0">Profile</h4><p class="mute" style="margin:0">Fields may stay empty, but what is filled in must be valid. The person checks the profile at their next sign-in.</p>${profileFormHTML(d)}` : ''}
-  <h4 style="margin:12px 0 0">Aliases</h4>
-  ${field('aliases', 'Names in logs that link to this person, one per line', `<textarea name="aliases" rows="3">${esc(was.join('\n'))}</textarea>`, true)}`, async out => {
+  </div>`, async out => {
     let failed = 0;
     const account = ['username', 'display_name', 'email'].some(k => val(k).value.trim() !== (user[k] || ''))
       || String(user.default_project_id ?? '') !== val('default_project').value;
@@ -1675,19 +1705,54 @@ async function openEditPerson(focus) {
         && !await call('PUT', `/api/admin/users/${user.id}/admin`, {is_admin: val('is_admin').checked}, out('access'))) failed++;
     if (val('is_external') && val('is_external').checked !== !!user.is_external
         && !await call('PUT', `/api/admin/users/${user.id}/external`, {is_external: val('is_external').checked}, out('access'))) failed++;
-    const is = [...new Set(val('aliases').value.split('\n').map(a => a.trim()).filter(Boolean))];
-    for (const alias of was.filter(a => !is.includes(a))) if (!await call('DELETE', '/api/admin/aliases', {alias}, out('aliases'))) failed++;
-    for (const alias of is.filter(a => !was.includes(a))) if (!await call('POST', '/api/admin/aliases', {user_id: user.id, alias}, out('aliases'))) failed++;
-    if (d && JSON.stringify(profileBody()) !== profileBefore) {
-      try { await savePersonProfile(); } catch (error) { out('profile').textContent = error.message; failed++; }
-    }
     if (account && self) me = await adminApi('/api/me').then(x => x.user);
     return failed;
-  }, focus === 'is_admin' ? (user.is_external ? 'is_external' : 'is_admin') : focus === 'pfEnd' && d?.profile?.indefinite ? 'pfIndef' : focus);
-  let profileBefore = '';
-  if (d) { renderProfileSups(); profileBefore = JSON.stringify(profileBody()); }
+  }, focus === 'is_admin' ? (user.is_external ? 'is_external' : 'is_admin') : focus);
   const operator = val('operator');
   operator.onchange = () => pickNewOperator(operator, people.operators, () => { operator.innerHTML = operatorOptions(user.operator_id); }, String(user.operator_id ?? ''));
+}
+async function editProfile(user, name, focus) {
+  let d = null;
+  try { d = await loadPersonProfile(user.id); } catch (error) { $('err').textContent = error.message; return; }
+  if (!d) return;
+  profileEdit = {id: user.id, sups: (d.profile?.supervisors || []).map(s => ({id: s.id, name: s.name})),
+    options: {...d.options, supervisors: d.options.supervisors.filter(s => s.id !== user.id)}};
+  let before = '';
+  editDialog(`Edit profile ${name}`, 'Fields may stay empty, but what is filled in must be valid. The person checks the profile at their next sign-in.',
+    profileFormHTML(d), async out => {
+      if (JSON.stringify(profileBody()) === before) return 0;
+      try { await savePersonProfile(); return 0; } catch (error) { out('profile').textContent = error.message; return 1; }
+    }, focus === 'pfEnd' && d.profile?.indefinite ? 'pfIndef' : focus);
+  renderProfileSups();
+  before = JSON.stringify(profileBody());
+}
+// Aliases as chips: ✕ removes one, the field and Add (or Enter) add one; Save adds and removes only the differences.
+function editAliases(user, name) {
+  const was = user.aliases || [], list = [...was];
+  editDialog(`Edit aliases ${name}`, 'Names in logs (PIC, PAC, GCS) that link to this person. Unique display names match without an alias.', `
+    <div class="alias-chips" id="aliasChips"></div>
+    <div class="alias-add"><input id="aliasNew" maxlength="80" placeholder="Name as written in logs" aria-label="New alias">
+      <button type="button" class="sec" id="aliasAdd">Add</button></div><span class="field-error" data-error="aliases"></span>`, async out => {
+    add();
+    let failed = 0;
+    for (const alias of was.filter(a => !list.includes(a))) if (!await call('DELETE', '/api/admin/aliases', {alias}, out('aliases'))) failed++;
+    for (const alias of list.filter(a => !was.includes(a))) if (!await call('POST', '/api/admin/aliases', {user_id: user.id, alias}, out('aliases'))) failed++;
+    return failed;
+  }, 'aliasNew');
+  const paint = () => {
+    $('aliasChips').innerHTML = list.map((a, i) => `<span class="chip alias-chip">${esc(a)}<button type="button" data-drop="${i}" aria-label="Remove ${esc(a)}" title="Remove">✕</button></span>`).join('')
+      || '<span class="mute">No aliases.</span>';
+  };
+  const add = () => {
+    const a = $('aliasNew').value.trim();
+    if (a && !list.includes(a)) list.push(a);
+    $('aliasNew').value = '';
+    paint();
+  };
+  $('aliasChips').onclick = e => { const b = e.target.closest('[data-drop]'); if (b) { list.splice(+b.dataset.drop, 1); paint(); } };
+  $('aliasAdd').onclick = () => { add(); $('aliasNew').focus(); };
+  $('aliasNew').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); add(); } };
+  paint();
 }
 
 const keyTicks = new Set();
@@ -1763,7 +1828,7 @@ function revokePersonKeys(id, keys) {
 const today = () => new Date().toISOString().slice(0, 10);
 const soonDay = () => { const d = new Date(); d.setMonth(d.getMonth() + 3); return d.toISOString().slice(0, 10); };
 async function loadProfileList() {
-  try { profileList = (await adminApi('/api/profiles')).people; } catch (error) { profileList = []; }
+  try { const d = await adminApi('/api/profiles'); profileList = d.people; roleOrder = d.roles || []; } catch (error) { profileList = []; }
   const q = new URLSearchParams(location.search);
   $('supervisionSearch').value = q.get('p_sq') || ''; $('supervisionEnded').checked = q.get('p_ended') === '1';
   render();
@@ -1851,6 +1916,8 @@ function supervisionGroups() {
       groups.get(key).people.push({...x, status});
     }
   }
+  for (const g of groups.values()) g.people.sort((a, b) => byRole(a.profile?.role, b.profile?.role) || byEndDesc(a.profile, b.profile)
+    || a.name.localeCompare(b.name));
   return [...groups.values()].sort((a, b) => (!a.id - !b.id) || a.name.localeCompare(b.name));
 }
 function renderSupervision() {
@@ -1872,7 +1939,7 @@ function renderSupervision() {
   }).join('') || '<p class="mute">No matching people.</p>';
 }
 
-// The profile part of Edit person (administrators), saved with the person's own rules.
+// The form of Edit profile (administrators), saved with the person's own rules.
 let profileEdit = null;
 function profileFormHTML(d) {
   const p = d.profile || {}, o = profileEdit.options;
@@ -1943,12 +2010,13 @@ async function loadProfileOptions() {
 }
 function optionRow(kind, item = {}) {
   const remove = '<td><button type="button" class="danger" aria-label="Remove" onclick="this.closest(\'tr\').remove()">×</button></td>';
-  if (kind === 'role') return `<tr data-id="${item.id || ''}"><td><input name="name" maxlength="120" value="${esc(item.name || '')}"></td>
+  const handle = '<td><button type="button" class="drag-handle" aria-label="Drag to reorder" title="Drag to reorder; Save keeps the order">↕</button></td>';
+  if (kind === 'role') return `<tr data-id="${item.id || ''}">${handle}<td><input name="name" maxlength="120" value="${esc(item.name || '')}"></td>
     <td><input type="checkbox" name="can_supervise"${item.can_supervise ? ' checked' : ''}></td>
     <td><input type="checkbox" name="needs_supervisor"${item.needs_supervisor ? ' checked' : ''}></td>
     <td><input type="number" name="max_years" min="1" max="50" step="1" style="width:4.5em" value="${item.max_years ?? ''}" aria-label="Max years"></td>
     <td><input type="checkbox" name="allow_indefinite"${item.allow_indefinite ?? !item.id ? ' checked' : ''}></td>${remove}</tr>`;
-  return `<tr data-id="${item.id || ''}"><td><input name="name" maxlength="120" value="${esc(item.name || '')}"></td>
+  return `<tr data-id="${item.id || ''}">${handle}<td><input name="name" maxlength="120" value="${esc(item.name || '')}"></td>
     <td><input name="grp" maxlength="120" value="${esc(item.grp || '')}"></td>${remove}</tr>`;
 }
 function addOptionRow(kind) {
@@ -1984,6 +2052,22 @@ async function importDepartments(input) {
   }
   $('profileOptionsStatus').textContent = added ? `${added} added; Save to keep them.` : 'Nothing new in that file.';
 }
+// Roles and departments are dragged by their handle; the order of the rows is what Save stores (sort_order), and roles
+// are sorted in that order everywhere on this page (Role column and filter, Supervision).
+for (const id of ['roleRows', 'deptRows']) {
+  const body = $(id);
+  let dragged = null;
+  body.addEventListener('mousedown', e => { const tr = e.target.closest('.drag-handle')?.closest('tr'); if (tr) tr.draggable = true; });
+  body.addEventListener('dragstart', e => { dragged = e.target.closest('tr'); dragged.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+  body.addEventListener('dragend', () => { if (dragged) { dragged.draggable = false; dragged.classList.remove('dragging'); } dragged = null; });
+  body.addEventListener('dragover', e => {
+    const tr = e.target.closest('tr');
+    if (!dragged || !tr || tr === dragged) return;
+    e.preventDefault();
+    const r = tr.getBoundingClientRect();
+    tr.parentNode.insertBefore(dragged, e.clientY > r.top + r.height / 2 ? tr.nextSibling : tr);
+  });
+}
 async function saveProfileOptions() {
   const rows = id => [...$(id).querySelectorAll('tr')].map(tr => {
     const out = tr.dataset.id ? {id: +tr.dataset.id} : {};
@@ -1995,6 +2079,7 @@ async function saveProfileOptions() {
     await adminApi('/api/admin/profile-options', {method: 'PUT', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({roles: rows('roleRows'), departments: rows('deptRows')})});
     await loadProfileOptions();
+    load();  // roles sort in the new order
     $('profileOptionsStatus').textContent = 'Saved.';
   } catch (error) { $('profileOptionsStatus').textContent = error.message; }
 }

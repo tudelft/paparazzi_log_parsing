@@ -83,6 +83,11 @@ class ProfileTests(AppTests):
         saved = self.client.put("/api/admin/profile-options", json={"roles": roles})
         self.assertEqual(saved.status_code, 200, saved.json)
         self.assertEqual([r["name"] for r in saved.json["roles"]][-1], "Visitor")
+        # the order of the list is the order roles sort in on the People page
+        self.assertEqual(self.client.get("/api/profiles").json["roles"], [r["name"] for r in saved.json["roles"]])
+        reordered = [saved.json["roles"][-1]] + saved.json["roles"][:-1]
+        self.assertEqual(self.client.put("/api/admin/profile-options", json={"roles": reordered}).status_code, 200)
+        self.assertEqual(self.client.get("/api/profiles").json["roles"][0], "Visitor")
         self.assertEqual([d["name"] for d in saved.json["departments"]], ["Flight Lab"])
         emptied = self.client.put("/api/admin/profile-options", json={"departments": []})
         self.assertEqual(emptied.status_code, 200, emptied.json)

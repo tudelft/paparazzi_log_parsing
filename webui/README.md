@@ -146,7 +146,7 @@ to gain descriptions and previously omitted crew entries.
   It does not change stored flights. Tick it and use **Change…** to change the project or crew of all its flights.
 - Hover over an aircraft name in the logbook for its TUD/serial number; it is also on the aircraft detail page.
 - There is no Edit switch: what you may change is offered where it applies (**Edit flight**, **Edit aircraft**,
-  **Edit person**, …, rare actions under **⋯**, imports under **Manage ▾**). Longer explanations are under **Help**.
+  **Edit account**, …, rare actions under **⋯**, imports under **Manage ▾**). Longer explanations are under **Help**.
 - Flight pages include the path, charts, weather, settings, messages, the pre-flight checklist and software version.
   The Overview shows a small path map.
   In Path & charts, hover over a chart for exact values; use **+ Add** and **+ Add chart** to choose what is plotted.
@@ -170,7 +170,7 @@ to gain descriptions and previously omitted crew entries.
 
 ## Add or correct information
 
-Administrators can use **People → Edit person** to grant or remove another person's admin rights,
+Administrators can use **People → Edit account** to grant or remove another person's admin rights,
 and the **API keys** tab to inspect, narrow or revoke their API keys (not retrieve secret values). You cannot remove your own admin rights.
 
 - **Locations** lists the places on the left (search by name or country, filter by **Country**) and shows the map
@@ -205,8 +205,8 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
   and last sign-in for admins; Columns adds supervisors, expected end, number,
   GitHub and last confirmed; **Filters** for role, department, profile status and (admins) qualification, external
   people and people without flights; Manage ▾ → Download profiles (CSV); pagination like Aircraft). A row opens the pilot page; for admins it opens the person beside the
-  list with the tabs Details (account and profile), Qualifications, API keys and Aliases. **Edit person** changes the
-  account, profile and aliases in one dialog (click a value to open it at that field); ⋯ has password, **Move TU Delft sign-in…** (a TU
+  list with the tabs Details (account), Profile, Qualifications, API keys and Aliases. The Edit button follows the
+  tab: **Edit account**, **Edit profile** or **Edit aliases** (chips: ✕ removes, Add adds); a click on a value opens it there; ⋯ has password, **Move TU Delft sign-in…** (a TU
   Delft login matched to the wrong person), **Merge into…** (one person with two accounts) and **Remove user…**.
   A new user needs an email address (the username is optional and then taken from it); an address can be
   changed later but not removed.
