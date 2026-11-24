@@ -1138,7 +1138,8 @@ def login_saml_identity(ident):
                 app.logger.warning("TU Delft email of user %s not taken: another account has it", row["id"])
             else:
                 con.execute("UPDATE users SET email=? WHERE id=?", (email, row["id"]))
-        if not row["subject"]:
+        # a stored transient NameID (SimpleSAMLphp: "_" + hex) never comes back: replace it with the stable id
+        if not row["subject"] or (row["subject"].startswith("_") and row["subject"] != subject):
             prov = row["provider"] or ""
             if prov in ("", "log", "saml"):
                 prov = "saml"

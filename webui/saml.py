@@ -177,7 +177,10 @@ def identity_from_auth(auth):
                      "urn:mace:dir:attribute-def:uid")
     display = attr_first(attrs, "displayName", "Displayname", "cn", "urn:oid:2.16.840.1.113730.3.1.241",
                          "urn:mace:dir:attribute-def:displayName")
-    subject = nameid or uid or email
+    # TU Delft sends a transient NameID: a new random value at every sign-in, so it cannot find the account again.
+    # Then the NetID (uid) is the stable id; a persistent NameID is still preferred where an IdP sends one.
+    transient = (getattr(auth, "get_nameid_format", lambda: None)() or "").endswith(":transient")
+    subject = ((uid or email) if transient else (nameid or uid or email)) or nameid
     username = (uid or (email.split("@")[0] if email else "") or "user")
     username = re.sub(r"[^A-Za-z0-9._-]+", "", username)[:40] or "user"
     # everything TU Delft sent, kept for administrators (lists of strings, as python3-saml gives them)

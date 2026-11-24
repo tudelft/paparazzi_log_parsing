@@ -280,6 +280,14 @@ class PeopleDirectoryTests(AppTests):
         self.assertEqual(users[2]["aliases"], ["<crew>", "Pilot alias"])
 
 
+    def test_transient_nameid_uses_the_netid(self):
+        attrs = {"uid": ["examplepilot"], "displayName": ["Example van Pilot"], "mail": ["E.Pilot@example.test"]}
+        auth = SimpleNamespace(get_attributes=lambda: attrs, get_nameid=lambda: "_98c2c1",
+                               get_nameid_format=lambda: "urn:oasis:names:tc:SAML:2.0:nameid-format:transient")
+        ident = saml.identity_from_auth(auth)
+        self.assertEqual((ident["subject"], ident["display_name"]), ("examplepilot", "Example van Pilot"))
+
+
 class UsernameTests(AppTests):
     def test_log_matching_uses_unique_display_names_and_explicit_aliases(self):
         self.con.execute("UPDATE users SET username='piet',display_name='Piet ter Baas' WHERE id=2")
@@ -428,6 +436,16 @@ class UsernameTests(AppTests):
         with self.app.test_request_context():
             user, _ = self.ns["login_saml_identity"](dict(subject="test-subject", display_name="Taken Name"))
         self.assertEqual(user["display_name"], "New Name")
+
+    def test_old_transient_subject_is_replaced_by_the_netid(self):
+        self.con.execute("UPDATE users SET provider='saml',subject='_0ld',email='pilot@example.test' WHERE id=2")
+        self.con.commit()
+        with self.app.test_request_context():
+            user, error = self.ns["login_saml_identity"](dict(subject="pilotnetid", email="Pilot@example.test"))
+        self.assertEqual((user["id"], user["subject"], error), (2, "pilotnetid", None))
+        with self.app.test_request_context():  # found by the NetID from now on, even with another address
+            user, _ = self.ns["login_saml_identity"](dict(subject="pilotnetid", email="new@example.test"))
+        self.assertEqual((user["id"], user["email"]), (2, "new@example.test"))
 
     def test_sso_rename_preserves_subject(self):
         self.con.execute("UPDATE users SET provider='saml',subject='test-subject' WHERE id=2")
