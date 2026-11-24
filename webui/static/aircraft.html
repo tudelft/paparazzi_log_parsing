@@ -108,7 +108,16 @@
   .field-error { color:var(--err); font-size:12px; }
   .field-error:empty, .dialog-error:empty { display:none; }
   td.chk, th.chk { width:28px; padding-right:0; }
-  .shared-name summary .sec { margin-left:12px; font-size:12px; padding:2px 8px; }
+  /* Shared names: one compact row per name; a click opens its boards below it (?sname= in the URL) */
+  table.shared-list { width:100%; border-collapse:collapse; }
+  table.shared-list > tbody > tr.shared-row { cursor:pointer; }
+  table.shared-list > tbody > tr.shared-row:hover { background:var(--hover); }
+  table.shared-list > tbody > tr.shared-row > td:first-child::before { content:'▸'; display:inline-block; width:14px; color:var(--mute); }
+  table.shared-list > tbody > tr.shared-row.open > td:first-child::before { content:'▾'; }
+  table.shared-list td.num, table.shared-list th.num { text-align:right; width:110px; }
+  table.shared-list td.ellipsis { max-width:0; width:45%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  table.shared-list td.shared-detail { background:var(--detail); padding:8px 12px 10px 26px; }
+  .shared-detail .shared-actions { display:flex; justify-content:flex-end; margin-top:8px; }
   .pilot-link { font-size:13px; font-weight:400; margin-left:8px; }
 </style>
 </head>
@@ -135,7 +144,7 @@
   <section class="card" id="sharedCard" hidden>
     <div class="fleet-toolbar"><h2>Shared names</h2><span class="fleet-count" id="sharedCount"></span>
       <button type="button" class="sec" onclick="openMarkShared()">Mark a name as shared…</button>
-      <details><summary>Help</summary><p>Shared airframe names do not identify a physical aircraft. SD recordings may inherit a uniquely matched GCS identity in the logbook. Tick boards or recordings and link them to an aircraft: a board links every recording on it, now and in later uploads; a recording without a board ID is assigned on its own. Both survive reparsing.</p></details></div>
+      <details><summary>Help</summary><p>Shared airframe names do not identify a physical aircraft. SD recordings may inherit a uniquely matched GCS identity in the logbook. Click a name for its boards and recordings (Remove ambiguous status… is at the bottom). Tick boards or recordings and link them to an aircraft: a board links every recording on it, now and in later uploads; a recording without a board ID is assigned on its own. Both survive reparsing.</p></details></div>
     <div id="ambiguousNames"></div>
     <div id="excludedBoards"></div>
     <div id="sharedBar" class="sel-bar" hidden role="region" aria-label="Ticked boards and recordings">
@@ -855,14 +864,24 @@ function renderUnlinked() {
   paintBars();
 }
 // One table per shared name: a row per board (a choice links every recording on it) and per recording without one.
+let sharedOpen = '';  // the shared name opened below its row (?sname=)
 function renderShared() {
   $('sharedCount').textContent = String((data.ambiguous || []).length);
-  $('ambiguousNames').innerHTML = (data.ambiguous || []).map((item, i) => ambiguousHTML(item, i)).join('')
-    || '<p class="mute">No shared names marked ambiguous.</p>';
+  const items = data.ambiguous || [];
+  $('ambiguousNames').innerHTML = items.length ? `<table class="shared-list"><thead><tr><th>Name</th><th class="num">Recordings</th>
+    <th class="num">Boards</th><th>Aircraft now</th></tr></thead><tbody>${items.map((item, i) => ambiguousHTML(item, i)).join('')}</tbody></table>`
+    : '<p class="mute">No shared names marked ambiguous.</p>';
   $('excludedBoards').innerHTML = (data.excluded_boards || []).length ? `<h3>Boards not used for matching</h3>
     ${data.excluded_boards.map(b => `<span class="chip"><span class="mono">${esc(b.mcu_uid)}</span> · ${b.log_count} log${b.log_count === 1 ? '' : 's'}<button type="button" data-board="${esc(b.mcu_uid)}" class="allow" onclick="allowBoard(this.dataset.board)">Allow again</button></span>`).join('')}` : '';
   paintBars();
 }
+$('ambiguousNames').addEventListener('click', e => {
+  const row = e.target.closest('tr.shared-row');
+  if (!row || e.target.closest('a, button, input')) return;
+  sharedOpen = sharedOpen === row.dataset.shared ? '' : row.dataset.shared;
+  window.viewState.save(true);
+  renderShared();
+});
 function sharedGroups(item) {
   const groups = [], byBoard = new Map();
   for (const r of item.recordings) {
@@ -891,14 +910,21 @@ function ambiguousHTML(item, i) {
     return `${g.recs.length} · <a href="/logs#log${r.log_id}">${esc(r.log_name.replace(/\.data$/, ''))}</a>${more ? ` <span class="mute" title="${esc(more)}">+${g.recs.length - 1}</span>` : ''}${!g.board && r.ac_id != null ? ` <span class="mute">(autopilot ${esc(r.ac_id)})</span>` : ''}`;
   };
   const linkable = g => g.board || g.recs[0].ac_id != null;
-  return `<details class="shared-name">
-    <summary>${esc(item.name)} — ambiguous (${item.recordings.length} recording${item.recordings.length === 1 ? '' : 's'}${boards ? ` on ${boards} board${boards === 1 ? '' : 's'}` : ''})
-      <button type="button" class="sec" data-name="${esc(item.name)}" onclick="event.preventDefault(); clearAmbiguous(this.dataset.name)">Remove ambiguous status…</button></summary>
+  const drones = [...new Set(item.recordings.map(r => r.drone_id))];
+  const unresolved = item.recordings.filter(r => r.drone_id == null).length;
+  const summary = [drones.filter(id => id != null).map(name).join(', '), unresolved ? `<span class="mute">${unresolved} unresolved</span>` : '']
+    .filter(Boolean).join(' · ');
+  const open = sharedOpen === item.name;
+  return `<tr class="shared-row${open ? ' open' : ''}" data-shared="${esc(item.name)}" title="${open ? 'Close' : 'Show its boards and recordings'}">
+    <td>${esc(item.name)}</td><td class="num">${item.recordings.length}</td><td class="num">${boards || '<span class="mute">—</span>'}</td>
+    <td class="ellipsis">${summary}</td></tr>${open ? `<tr><td colspan="4" class="shared-detail">
     <div class="scroll"><table><thead><tr><th class="chk"></th><th>Board</th><th>Recordings</th><th>Aircraft now</th></tr></thead><tbody>
     ${groups.map(g => `<tr>${linkable(g) ? tickBox('shared', groupKey(g), g.board || g.recs[0].log_name) : '<td class="chk"></td>'}
       <td>${g.board ? `<span class="mono" title="${esc(g.board)}">${esc(g.board.slice(0, 8))}…</span>` : '<span class="mute">No board ID</span>'}</td>
       <td>${recs(g)}</td><td>${linkable(g) ? now(g) : '<span class="mute">No board or autopilot ID; cannot be assigned</span>'}</td></tr>`).join('')}
-    </tbody></table></div></details>`;
+    </tbody></table></div>
+    <div class="shared-actions"><button type="button" class="sec" data-name="${esc(item.name)}" onclick="clearAmbiguous(this.dataset.name)"
+      title="Normal name and folder matching resumes for this name">Remove ambiguous status…</button></div></td></tr>` : ''}`;
 }
 // Link to aircraft…: the ticked unlinked names (aliases + their boards) or shared-name boards/recordings.
 function openLink(kind) {
@@ -969,6 +995,7 @@ window.viewState.setup(p => {
   $('size').value = size; pageSize = +size;
   selectedAircraft = window.viewState.integer(p.get('open'), null);
   selectedAircraftTab = ['projects', 'aliases'].includes(p.get('atab')) ? p.get('atab') : 'details';
+  sharedOpen = p.get('sname') || '';
 }, p => {
   const set = window.viewState.set;
   set(p, 'q', $('q').value); set(p, 'status', $('statusFilter').value);
@@ -978,6 +1005,7 @@ window.viewState.setup(p => {
   set(p, 'page', page + 1, 1); set(p, 'size', pageSize, 50);
   set(p, 'tab', pageTab, 'fleet'); set(p, 'uq', $('unlinkedQ').value);
   set(p, 'open', selectedAircraft || ''); set(p, 'atab', selectedAircraft ? selectedAircraftTab : 'details', 'details');
+  set(p, 'sname', pageTab === 'shared' ? sharedOpen : '');
 }, () => render());
 fetch('/api/me').then(r => r.json()).then(d => {
   me = d.user;

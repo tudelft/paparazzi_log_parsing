@@ -900,10 +900,26 @@ def no_cache_pages(resp):
     if request.path in ("/api/people-directory", "/api/admin/people", "/api/people-pic-flights", "/api/pilots", "/api/profiles", "/api/profile") or request.path.startswith((
             "/api/detail/people/", "/api/users/", "/api/qualification-", "/api/admin/qualification-", "/api/admin/users/")):
         resp.headers["Cache-Control"] = "private, no-store"
-    if resp.mimetype == "text/html" or request.path in ("/theme.css", "/theme.js", "/attachments.js",
-                                                        "/qualifications.js", "/matlab.js", "/indiflight.js", "/upload.js", "/download.js"):
+    if resp.mimetype == "text/html":
         resp.headers["Cache-Control"] = "no-store"
+    elif request.path in ("/theme.css", "/theme.js", "/attachments.js", "/qualifications.js", "/matlab.js",
+                          "/indiflight.js", "/upload.js", "/download.js"):
+        # kept, but checked on every page load (ETag / Last-Modified: 304 when unchanged), so a release shows at once
+        resp.headers["Cache-Control"] = "no-cache"
     return resp
+
+
+COMPRESSED_TYPES = {"application/json", "text/html", "text/css", "text/javascript", "application/javascript"}
+
+
+@app.after_request
+def compress(resp):
+    """gzip large JSON, HTML, CSS and JavaScript answers for clients that accept it (the proxy does not compress them;
+    for example /api/stats and /api/admin/people are megabytes of JSON). Files sent from disk and streams are left alone."""
+    if (resp.status_code != 200 or resp.direct_passthrough or resp.is_streamed or "Content-Encoding" in resp.headers
+            or resp.mimetype not in COMPRESSED_TYPES):
+        return resp
+    return gzip_json(resp, minimum=16 * 1024)
 
 
 @app.get("/theme.css")
@@ -917,7 +933,9 @@ def theme_js():
     with open(os.path.join(PAGES_DIR, "theme.js"), encoding="utf-8") as f:
         source = f.read()
     site = json.dumps(branding.site()).replace("<", "\\u003c")
-    return Response(f"window.SITE = {site};\n{source}", mimetype="text/javascript")
+    resp = Response(f"window.SITE = {site};\n{source}", mimetype="text/javascript")
+    resp.add_etag()  # with Cache-Control: no-cache the browser asks again and gets 304 while unchanged
+    return resp.make_conditional(request)
 
 
 @app.get("/matlab.js")
@@ -6250,12 +6268,12 @@ def logbook():
     return response
 
 
-def gzip_json(response):
+def gzip_json(response, minimum=1024):
     """Compress a large JSON response for clients that accept gzip (the proxy usually does not compress JSON)."""
     response.vary.add("Accept-Encoding")
     if request.accept_encodings.best_match(("gzip", "identity")) == "gzip":
         body = response.get_data()
-        if len(body) >= 1024:
+        if len(body) >= minimum:
             compressed = gzip.compress(body, compresslevel=5, mtime=0)
             if len(compressed) < len(body):
                 response.set_data(compressed)

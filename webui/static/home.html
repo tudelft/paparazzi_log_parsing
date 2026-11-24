@@ -150,18 +150,18 @@
       <h3>Your flying <span class="end"><a href="/stats">Statistics</a></span></h3>
       <div id="flying"><span class="empty">Loading…</span></div>
     </section>
-    <section class="card s4" id="comingCard" hidden>
+    <section class="card s4" id="comingCard">
       <h3>Coming up <span class="end"><label class="only-mine" title="Only your own bookings"><input type="checkbox" id="onlyMine"> Only mine</label> <a href="/agenda">Agenda</a></span></h3>
-      <div id="coming"></div>
+      <div id="coming"><span class="empty">Loading…</span></div>
     </section>
-    <section class="card s4" id="weatherCard" hidden>
+    <section class="card s4" id="weatherCard">
       <h3><span class="ellipsis">Today</span> <span class="end"><select id="placeSelect" aria-label="Weather location"></select></span></h3>
-      <div id="weather"></div>
+      <div id="weather"><span class="empty">Loading…</span></div>
       <div class="today" id="flyingToday" hidden></div>
     </section>
-    <section class="card s6" id="recentCard" hidden>
+    <section class="card s6" id="recentCard">
       <h3>Recent flights <span class="count">your projects</span><span class="end"><a href="/">Logbook</a></span></h3>
-      <div id="recent"></div>
+      <div id="recent"><span class="empty">Loading…</span></div>
     </section>
     <section class="card s6" id="mediaCard" hidden>
       <h3>Latest media <span class="count">your projects</span></h3>
@@ -362,9 +362,12 @@ function paintMedia() {
   }).join('');
 }
 
+// /api/home is asked for at once, next to /api/me (not after it)
+const homeData = api('/api/home');
+homeData.catch(() => {});
 async function load() {
   try {
-    data = await api('/api/home');
+    data = await homeData;
   } catch (e) { $('err').textContent = e.message; return; }
   const hour = new Date().getHours();
   $('hello').textContent = `${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}, ${data.user.display_name.split(' ')[0]}`;
