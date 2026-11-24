@@ -163,12 +163,8 @@
       <div class="todo" id="todo"></div>
     </section>
     <section class="card" id="flyingCard" data-card="flying">
-      <h3>Your flying <span class="end"><a href="/stats">Statistics</a></span></h3>
+      <h3>Flying <span class="count" id="flyingScope">as PIC</span><span class="end"><label class="only-mine" title="Only your own flights as PIC; untick for all flights in your projects"><input type="checkbox" id="flyingMine" checked> Only mine</label> <a href="/stats">Statistics</a></span></h3>
       <div id="flying"><span class="empty">Loading…</span></div>
-    </section>
-    <section class="card" id="allFlyingCard" data-card="all_flying" hidden>
-      <h3>All flying <span class="count">your projects</span><span class="end"><a href="/stats">Statistics</a></span></h3>
-      <div id="allFlying"></div>
     </section>
     <section class="card" id="comingCard" data-card="coming">
       <h3>Coming up <span class="end"><label class="only-mine" title="Only your own bookings"><input type="checkbox" id="onlyMine"> Only mine</label> <a href="/agenda">Agenda</a></span></h3>
@@ -294,12 +290,23 @@ async function paintTodo() {
 }
 
 // Your flying (as PIC) and All flying (every flight you may see, your projects): the same tiles and chart.
+// Flying: your own flights as PIC, or (Only mine unticked) every flight in your projects; the choice is saved for the
+// account (flying_mine), like Only mine on Coming up.
 function paintFlying() {
-  $('flying').innerHTML = flyingHTML(data.flying, true);
-  $('allFlyingCard').hidden = !data.all_flying || data.all_flying.last_day == null;
-  if (data.all_flying) $('allFlying').innerHTML = flyingHTML(data.all_flying, false);
-  $('allFlyingCard').querySelector('.count').textContent = data.user.is_admin ? 'all projects' : 'your projects';
+  const mine = data.cards?.flying_mine !== false;
+  $('flyingMine').checked = mine;
+  $('flyingScope').textContent = mine ? 'as PIC' : data.user.is_admin ? 'all projects' : 'your projects';
+  $('flying').innerHTML = flyingHTML(mine ? data.flying : data.all_flying, mine);
 }
+// An Only mine choice is saved for the account at once (PUT /api/home/cards).
+async function saveOption(key, value) {
+  data.cards = {...data.cards, [key]: value};
+  try {
+    const d = await api('/api/home/cards', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({[key]: value})});
+    data.cards = d.cards;
+  } catch (e) { $('err').textContent = e.message; }
+}
+$('flyingMine').onchange = () => { if (!data) return; saveOption('flying_mine', $('flyingMine').checked); paintFlying(); };
 function flyingHTML(f, mine) {
   const since = f.last_day == null ? '–' : f.days_since === 0 ? 'Today' : plural(f.days_since, 'day');
   const max = Math.max(1, ...f.months.map(m => m.flights));
@@ -319,12 +326,13 @@ function dateBox(text) {
   const d = new Date(text.slice(0, 10) + 'T12:00:00');
   return `<span class="date"><small>${DAYS[d.getDay()]}</small><b>${d.getDate()}</b></span>`;
 }
-// Coming up: everyone's bookings on the items you can view (as in the agenda), or only yours (?coming=mine).
+// Coming up: everyone's bookings on the items you can view (as in the agenda), or only yours (Only mine, saved for
+// the account as coming_mine).
 function paintComing() {
   const b = data.bookings;
   $('comingCard').hidden = !b.enabled;
   if (!b.enabled) return;
-  const mine = new URLSearchParams(location.search).get('coming') === 'mine';
+  const mine = !!data.cards?.coming_mine;
   $('onlyMine').checked = mine;
   const list = mine ? b.upcoming : (b.upcoming_all || b.upcoming);
   $('coming').innerHTML = list.length ? `<ul class="rows">${list.map(x => {
@@ -335,12 +343,7 @@ function paintComing() {
       <div class="d ellipsis" title="${esc(detail)}">${esc(detail)}</div></span>${x.pending ? '<span class="chip" title="Waiting for approval; it holds the time">Pending</span>' : ''}${x.flags.map(f => `<span class="chip" title="${esc(f)}">${esc(f)}</span>`).join('')}</li>`;
   }).join('')}</ul>` : `<p class="empty">${mine ? 'You have no bookings' : 'No bookings'} in the next two weeks.</p>`;
 }
-$('onlyMine').onchange = () => {
-  const p = new URLSearchParams(location.search);
-  if ($('onlyMine').checked) p.set('coming', 'mine'); else p.delete('coming');
-  history.replaceState(history.state, '', location.pathname + (p.size ? '?' + p : ''));
-  paintComing();
-};
+$('onlyMine').onchange = () => { if (!data) return; saveOption('coming_mine', $('onlyMine').checked); paintComing(); };
 
 // ---- Today: weather at the chosen place (?place= in the URL; the default comes from My account) ----
 const WMO = [[0, '☀️', 'Clear'], [2, '⛅', 'Partly cloudy'], [3, '☁️', 'Overcast'], [48, '🌫️', 'Fog'], [57, '🌦️', 'Drizzle'],
@@ -416,12 +419,13 @@ function paintMedia() {
 }
 
 // ---- The customizable cards: order and on/off per user (data.cards from /api/home, PUT /api/home/cards) ----
-const CARD_LABELS = {flying: 'Your flying', all_flying: 'All flying (your projects)', coming: 'Coming up', weather: 'Today (weather)', recent: 'Recent flights',
+const CARD_LABELS = {flying: 'Flying (yours or all, Only mine)', coming: 'Coming up', weather: 'Today (weather)', recent: 'Recent flights',
   media: 'Latest media', qualifications: 'Your qualifications', training: 'Training', aircraft: 'Your aircraft',
   documents: 'Documents (recently updated)'};
 const CARD_NOTES = {coming: 'with bookings on', weather: 'with outdoor places', media: 'when there is media',
-  training: 'with trainings on', documents: 'off by default'};
-const DEFAULT_CARDS = {order: Object.keys(CARD_LABELS), off: ['documents']};
+  training: 'with trainings on'};
+// by default the original cards; the others are added with Customize (as HOME_CARDS_OFF in app.py)
+const DEFAULT_CARDS = {order: Object.keys(CARD_LABELS), off: ['qualifications', 'training', 'aircraft', 'documents']};
 // Packs the shown cards into rows of 12 columns in the user's order (small cards a third, wide ones half; on a
 // tablet small half, wide whole) and stretches each row to the full width.
 function layout() {
@@ -463,8 +467,9 @@ const untilText = d => { if (!d) return 'no expiry'; const n = daysUntil(d);
   return n < 0 ? `<span class="bad">expired ${shortDay(d)}</span>` : n <= 60 ? `<span class="soon">until ${shortDay(d)}</span>` : `until ${shortDay(d)}`; };
 // Your qualifications: the current approved ones (from /api/documents, as Documents → My qualifications), the one
 // that ends first on top.
+const cardOn = key => !(data.cards?.off || DEFAULT_CARDS.off).includes(key);
 async function paintQualifications() {
-  const quals = flags.documents ? ((await documentsData().catch(() => null))?.qualifications || []) : [];
+  const quals = flags.documents && cardOn('qualifications') ? ((await documentsData().catch(() => null))?.qualifications || []) : [];
   const sorted = [...quals].sort((a, b) => (a.valid_until || '9999').localeCompare(b.valid_until || '9999'));
   $('qualificationsCard').hidden = !sorted.length;
   $('qualificationsList').innerHTML = sorted.slice(0, 5).map(q => li(q.view ? `<a href="${esc(q.view)}" target="_blank" rel="noopener">${esc(q.type)}</a>` : esc(q.type),
@@ -495,7 +500,7 @@ function paintAircraft() {
 }
 // Documents: the latest uploads you may see (off by default).
 async function paintDocuments() {
-  const docs = flags.documents && !(data.cards?.off || []).includes('documents')
+  const docs = flags.documents && cardOn('documents')
     ? ((await documentsData().catch(() => null))?.documents || []) : [];
   const latest = [...docs].sort((a, b) => (b.uploaded_at || '').localeCompare(a.uploaded_at || '')).slice(0, 5);
   $('documentsCard').hidden = !latest.length;
@@ -532,7 +537,7 @@ async function saveCards(body) {
     data.cards = d.cards;
     $('customizeDialog').close();
     layout();
-    paintDocuments();  // asked for only when its card is on
+    paintQualifications(); paintDocuments();  // /api/documents is asked for only when one of these cards is on
   } catch (e) { $('customizeError').textContent = e.message; }
 }
 $('customizeForm').onsubmit = e => {

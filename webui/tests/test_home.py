@@ -86,7 +86,9 @@ class HomeTests(AppTests):
     def test_home_cards_are_saved_per_user(self):
         self.sign_in(2)
         cards = self.client.get("/api/home").json["cards"]
-        self.assertEqual((cards["order"][0], cards["off"], cards["saved"]), ("flying", ["documents"], False))
+        self.assertEqual((cards["order"][0], cards["saved"]), ("flying", False))
+        self.assertEqual(set(cards["off"]), {"qualifications", "training", "aircraft", "documents"})
+        self.assertEqual((cards["flying_mine"], cards["coming_mine"]), (True, False))
         order = ["training"] + [c for c in cards["order"] if c != "training"]
         r = self.client.put("/api/home/cards", json={"order": order, "off": ["coming"]})
         self.assertEqual(r.status_code, 200, r.json)
@@ -104,7 +106,17 @@ class HomeTests(AppTests):
         self.con.commit()
         cards = self.client.get("/api/home").json["cards"]
         self.assertEqual(cards["order"][0], "recent")
-        self.assertIn("all_flying", cards["order"])
+        self.assertIn("training", cards["order"])
+        self.assertIn("training", cards["off"])  # added, but off as by default
+        self.assertNotIn("flying", cards["off"])
+        # the Only mine choices are kept with the cards, and a card order keeps them
+        self.assertEqual(self.client.put("/api/home/cards", json={"flying_mine": False}).status_code, 200)
+        self.assertEqual(self.client.put("/api/home/cards", json={"coming_mine": True}).status_code, 200)
+        self.assertEqual(self.client.put("/api/home/cards", json={"order": ["flying"], "off": []}).status_code, 200)
+        cards = self.client.get("/api/home").json["cards"]
+        self.assertEqual((cards["flying_mine"], cards["coming_mine"], cards["order"][0]), (False, True, "flying"))
+        self.assertEqual(self.client.put("/api/home/cards", json={"default": True}).json["cards"]["flying_mine"], False)
+        self.assertEqual(self.client.put("/api/home/cards", json={"coming_mine": "yes"}).status_code, 400)
 
     def test_signed_out_logbook_link_returns_to_the_logbook(self):
         anonymous = self.app.test_client()
