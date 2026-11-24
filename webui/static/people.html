@@ -484,7 +484,7 @@
     <div class="dialog-header"><h2 id="addUserTitle">Add user</h2><button type="button" onclick="$('addUserDialog').close()" aria-label="Close Add user">Close</button></div>
     <form id="addUser" class="dialog-fields" onsubmit="addUser(event)">
       <div class="edit-grid">
-      <label class="field" title="Used for a password login. Empty: taken from the email address (before the @), numbered when taken.">Username<input id="newUser" maxlength="40" autocomplete="off" placeholder="optional: from the email"></label>
+      <label class="field" title="Used for a password login. Empty: taken from the email address (before the @), numbered when taken.">Username<input id="newHandle" maxlength="40" autocomplete="off" placeholder="optional: from the email"></label>
       <label class="field">Display name<input id="newName" maxlength="80" autocomplete="off"></label>
       <label class="field">Email<input id="newEmail" type="email" maxlength="120" autocomplete="off" required></label>
       <label class="field">Default project<select id="newProject"></select></label>
@@ -531,7 +531,7 @@
     <form class="dialog-fields" onsubmit="event.preventDefault();moveSso()">
       <label class="field">Move to<select id="ssoTo" onchange="$('ssoNew').hidden = this.value !== 'new'"></select></label>
       <div class="dialog-fields" id="ssoNew" hidden>
-        <label class="field">Username of the new account<input id="ssoUsername" maxlength="40" autocomplete="off"></label>
+        <label class="field">Username of the new account<input id="ssoHandle" maxlength="40" autocomplete="off"></label>
         <label class="field">Display name<input id="ssoDisplayName" maxlength="80" autocomplete="off"></label>
       </div>
       <label id="ssoEmailRow"><input type="checkbox" id="ssoEmail"> <span id="ssoEmailText"></span></label>
@@ -1617,7 +1617,7 @@ function renderPersonPanel() {
     const project = people.projects.find(p => p.id === user.default_project_id);
     const signIn = activeAccountLabel(user) || (user.is_external ? 'External, no sign-in' : !user.is_active ? 'Account disabled' : user.provider === 'saml' ? 'TU Delft SSO' : 'No local password set');
     $('personContent').innerHTML = `<div class="kv">
-      ${editRow('username', 'Username', esc(user.username))}
+      ${editRow('handle', 'Username', esc(user.username))}
       ${editRow('display_name', 'Display name', esc(user.display_name || ''))}
       ${editRow('email', 'Email', esc(user.email || ''))}
       ${editRow('default_project', 'Default project', esc(project?.name || 'No default'))}
@@ -1719,8 +1719,10 @@ async function openEditPerson(focus) {
   if (part === 'profile') return editProfile(user, name, focus);
   const self = user.id === me.id;
   const projects = '<option value="">No default</option>' + people.projects.map(p => `<option value="${p.id}"${p.id === user.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+  // the username field is name="handle" (and Add user's #newHandle): password managers take a field named username
+  // for a sign-in field and fill in the administrator's own login
   editDialog(`Edit account ${name}`, `@${user.username}`, `<div class="edit-grid">
-    ${field('username', 'Username', `<input name="username" required maxlength="40" autocomplete="off" value="${esc(user.username)}">`)}
+    ${field('username', 'Username', `<input name="handle" required maxlength="40" autocomplete="off" value="${esc(user.username)}">`)}
     ${field('display_name', 'Display name' + (user.sso_synced ? ' (from TU Delft)' : ''), `<input name="display_name" maxlength="80" value="${esc(user.display_name || '')}"${user.sso_synced ? ' readonly title="From TU Delft: it follows their name at every sign-in"' : ''}>`)}
     ${field('email', 'Email' + (!user.email ? ' (optional)' : user.sso_synced ? ' (from TU Delft)' : ''), `<input name="email" type="email" maxlength="120" value="${esc(user.email || '')}"${user.email ? ' required' : ''}${user.sso_synced && user.email ? ' readonly title="From TU Delft: it follows their address at every sign-in"' : ''}
       ${user.email ? '' : 'title="Accounts made before email became required may have none; once set it can be changed, not removed"'}>`)}
@@ -1732,9 +1734,10 @@ async function openEditPerson(focus) {
       <span class="field-error" data-error="access"></span></div>
   </div>`, async out => {
     let failed = 0;
-    const account = ['username', 'display_name', 'email'].some(k => val(k).value.trim() !== (user[k] || ''))
+    const account = [['handle', 'username'], ['display_name', 'display_name'], ['email', 'email']]
+      .some(([f, k]) => val(f).value.trim() !== (user[k] || ''))
       || String(user.default_project_id ?? '') !== val('default_project').value;
-    if (account && !await call('PUT', `/api/admin/users/${user.id}/profile`, {username: val('username').value, display_name: val('display_name').value,
+    if (account && !await call('PUT', `/api/admin/users/${user.id}/profile`, {username: val('handle').value, display_name: val('display_name').value,
       email: val('email').value, default_project_id: val('default_project').value || null}, out('username'))) failed++;
     if (String(user.operator_id ?? '') !== val('operator').value
         && !await call('PUT', `/api/admin/users/${user.id}/operator`, {operator_id: val('operator').value ? +val('operator').value : null}, out('operator'))) failed++;
@@ -2247,7 +2250,7 @@ async function copySetup() {
 async function addUser(ev) {
   ev.preventDefault();
   try {
-  const username = $('newUser').value.trim();
+  const username = $('newHandle').value.trim();
   const r = await fetch('/api/admin/users', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({username, display_name: $('newName').value.trim(), email: $('newEmail').value.trim(),
       is_admin: $('newAdmin').checked, default_project_id: $('newProject').value ? +$('newProject').value : null,
@@ -2341,7 +2344,7 @@ function openSsoMove(id) {
     .sort((a, b) => (a.display_name || a.username).localeCompare(b.display_name || b.username));
   $('ssoTo').innerHTML = '<option value="new">A new account</option>' + others.map(u => `<option value="${u.id}">${esc(personLabel(u))}</option>`).join('');
   $('ssoNew').hidden = false;
-  $('ssoUsername').value = ''; $('ssoDisplayName').value = '';
+  $('ssoHandle').value = ''; $('ssoDisplayName').value = '';
   $('ssoEmailRow').hidden = !ssoSource.email; $('ssoEmail').checked = false;
   $('ssoEmailText').textContent = `Also move the e-mail ${ssoSource.email || ''}`;
   $('ssoNameRow').hidden = !ssoSource.display_name; $('ssoName').checked = false;
@@ -2351,7 +2354,7 @@ function openSsoMove(id) {
 }
 async function moveSso() {
   const to = $('ssoTo').value;
-  const body = {to: to === 'new' ? null : +to, username: $('ssoUsername').value.trim(), display_name: $('ssoDisplayName').value.trim(),
+  const body = {to: to === 'new' ? null : +to, username: $('ssoHandle').value.trim(), display_name: $('ssoDisplayName').value.trim(),
     clear_email: $('ssoEmail').checked, clear_display_name: $('ssoName').checked};
   if (to === 'new' && !body.username) { $('ssoError').textContent = 'Enter a username for the new account.'; return; }
   const r = await fetch(`/api/admin/users/${ssoSource.id}/sso-move`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
