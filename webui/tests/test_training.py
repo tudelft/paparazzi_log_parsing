@@ -326,16 +326,39 @@ class TrainingTests(AppTests):
     def test_admin_can_practise_after_a_pass(self):
         tid = self.add_training()
         self.add_question(tid)
-        self.sign_in(1)  # an admin gets the editor's questions (with the answers) when not practising
+        self.sign_in(1)  # an admin gets the editor's questions (with the answers) besides their own test
         quiz = self.client.get(f"/api/trainings/{tid}").json
         right = {str(q["id"]): next(c["id"] for c in q["choices"] if c["correct"]) for q in quiz["questions"]}
         self.assertTrue(self.client.post(f"/api/trainings/{tid}/submit", json={"answers": right}).json["passed"])
         practice = self.client.get(f"/api/trainings/{tid}?practice=1").json
         self.assertTrue(practice.get("practice"))  # used to be the editor's view: Practice again did nothing
-        self.assertEqual(len(practice["questions"]), 1)
-        self.assertNotIn("correct", practice["questions"][0]["choices"][0])  # no answers in a practice draw
+        self.assertEqual(len(practice["test_questions"]), 1)
+        self.assertNotIn("correct", practice["test_questions"][0]["choices"][0])  # no answers in a practice draw
         self.assertIn("access_mail_to", practice)  # admin settings stay
         self.assertIn("correct", self.client.get(f"/api/trainings/{tid}").json["questions"][0]["choices"][0])
+
+    def test_admin_takes_the_training_as_anyone(self):
+        tid = self.add_training(pass_score=8)
+        for i in range(10):
+            self.add_question(tid, prompt=f"Q{i}")
+        settings = self.client.get(f"/api/trainings/{tid}").json
+        body = {k: settings[k] for k in ("name", "type_id", "valid_days", "pass_score")}
+        self.assertEqual(self.client.put(f"/api/admin/trainings/{tid}", json={
+            **body, "question_count": 5, "shuffle_questions": True}).status_code, 200)
+        d = self.client.get(f"/api/trainings/{tid}").json
+        self.assertEqual(len(d["questions"]), 10)  # the editor's list, in order, with the answers
+        self.assertIn("correct", d["questions"][0]["choices"][0])
+        test = d["test_questions"]  # the Training tab: their own draw, without the answers
+        self.assertEqual(len(test), 5)
+        self.assertNotIn("correct", test[0]["choices"][0])
+        self.assertEqual((d["needed"], d["asked_points"]), (4, 5))
+        again = self.client.get(f"/api/trainings/{tid}").json["test_questions"]  # a reload keeps the attempt
+        self.assertEqual([(q["id"], [c["id"] for c in q["choices"]]) for q in again],
+                         [(q["id"], [c["id"] for c in q["choices"]]) for q in test])
+        keys = {q["id"]: q for q in d["questions"]}
+        right = {str(q["id"]): next(c["id"] for c in keys[q["id"]]["choices"] if c["correct"]) for q in test}
+        result = self.client.post(f"/api/trainings/{tid}/submit", json={"answers": right}).json
+        self.assertEqual((result["passed"], result["total"]), (True, 5))
 
     def test_question_order(self):
         tid = self.add_training()

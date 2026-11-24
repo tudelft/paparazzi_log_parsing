@@ -947,28 +947,29 @@ def register(app, connection, root, require_session):
                        access_question_text=row["access_question"], access_mail_cc=bool(row["access_mail_cc"]),
                        access_mail_cc_to=row["access_mail_cc_to"],
                        mail_enabled=mail.enabled())
-        if g.user["is_admin"] and not practising:  # the editor's view, with the answers; admins practise as anyone
+        # the test as this person takes it: their draw, shuffled, without the answers (administrators too)
+        test = []
+        if practising:
+            # practice after a pass: a fresh draw each time, not stored; the result changes nothing
+            draw = new_draw(row, questions, choices)
+            test, out["practice"] = public_questions(questions, choices, draw), True
+        elif questions and not (out["passed_at"] or awaiting):
+            draw = current_draw(cid, training_id, row, questions, choices)
+            test = public_questions(questions, choices, draw)
+        if test:
+            asked = [q for q in questions if q["id"] in set(draw["questions"])]
+            out["needed"], out["asked_points"] = needed_points(row, asked, questions), sum(q["points"] for q in asked)
+        if g.user["is_admin"]:
+            # questions: the editor's list, in order and with the answers; test_questions: their own test (Training tab)
+            out["test_questions"] = test
             out["questions"] = [{
                 "id": q["id"], "prompt": q["prompt"], "kind": q["kind"], "points": q["points"],
                 "image": bool(q["image_path"]),
                 "choices": [{"id": c["id"], "label": c["label"], "correct": bool(c["correct"]),
                              "sort_order": c["sort_order"]} for c in choices.get(q["id"], [])],
             } for q in questions]
-        elif practising:
-            # practice after a pass: a fresh draw each time, not stored; the result changes nothing
-            draw = new_draw(row, questions, choices)
-            out["questions"], out["practice"] = public_questions(questions, choices, draw), True
-            asked = [q for q in questions if q["id"] in set(draw["questions"])]
-            out["needed"], out["asked_points"] = needed_points(row, asked, questions), sum(q["points"] for q in asked)
-        elif out["passed_at"] or awaiting:
-            out["questions"] = []
-        elif questions:
-            draw = current_draw(cid, training_id, row, questions, choices)
-            out["questions"] = public_questions(questions, choices, draw)
-            asked = [q for q in questions if q["id"] in set(draw["questions"])]
-            out["needed"], out["asked_points"] = needed_points(row, asked, questions), sum(q["points"] for q in asked)
         else:
-            out["questions"] = []
+            out["questions"] = test
         return jsonify(out)
 
     def current_draw(cid, training_id, row, questions, choices):
@@ -1044,7 +1045,7 @@ def register(app, connection, root, require_session):
             if not questions:
                 raise TrainingError("This training has no questions yet.")
             draw = valid_draw(progress["draw_json"] if progress else None, questions, choices)
-            if draw is None and (row["question_count"] or row["shuffle_questions"]) and not g.user["is_admin"]:
+            if draw is None and (row["question_count"] or row["shuffle_questions"]):
                 raise TrainingError("The questions of this training changed; open it again to start a new attempt.", 409)
             asked = [q for q in questions if q["id"] in set(draw["questions"])] if draw else questions
             answers = parse_answers(body, asked)

@@ -1343,7 +1343,9 @@ is disabled and a pass does not expire. Questions
 are reordered by dragging their handle (or the arrow keys on it; `PUT /api/admin/trainings/<id>/question-order`).
 Admins order the training list the same way (the handle on each card, not while searching; `PUT
 /api/admin/trainings/order` with every training once); everyone sees that order.
-Answer options are shuffled per attempt. A training may also **shuffle the questions** and draw a number of
+Answer options are shuffled per attempt, also for administrators taking it on the Training tab (`GET
+/api/trainings/<id>` gives them their own test in `test_questions` and the editor's list, in order and with the
+answers, in `questions`). A training may also **shuffle the questions** and draw a number of
 **questions per attempt** at random (`shuffle_questions`, `question_count`); the attempt (questions, their order
 and the answer order) is kept in `training_progress.draw_json` until it is submitted, so Previous/Next and a reload
 show the same questions, and any change to the questions or settings starts a new attempt. With a subset, the pass
