@@ -55,7 +55,7 @@
   .r a.dl:hover, .r a.dl:focus-visible, .r .doc-edit:hover, .r .doc-edit:focus-visible { color:var(--acc); background:var(--sec); }
   /* admins: ✎ beside the download arrow opens Edit document (the row itself opens the document) */
   .r .doc-edit { border:0; padding:0; background:none; font:inherit; font-size:15px; cursor:pointer; }
-  .r .tools { display:flex; align-items:center; gap:2px; }
+  .r .tools:not(:empty) { display:grid; grid-template-columns:18px 30px; align-items:center; justify-items:center; }  /* 🔒 and ✎ slots line up on every row */
   .r .doc-lock { font-size:12px; opacity:.55; cursor:help; }
   @media (hover:hover) { .r .doc-edit { opacity:0; } .r:hover .doc-edit, .r .doc-edit:focus-visible { opacity:1; } }
   @media (max-width:700px) {
@@ -265,7 +265,7 @@ function docHTML(d) {
     tip: [d.title, d.description, d.filename, date.text].filter(Boolean).join('\n'),
     download: d.download, downloadName: d.filename,
     // admins: who may see it as a small 🔒 (the limits on hover), and ✎ (shown on hover) for Edit document
-    tools: admin() ? (limits ? `<span class="doc-lock" title="${limits.charAt(0).toUpperCase() + limits.slice(1)}" aria-label="${limits}">🔒</span>` : '') + `<button type="button" class="doc-edit" data-edit-doc="${d.id}" title="Edit document: details, file, group, limits; Delete…" aria-label="Edit ${esc(d.title)}">✎</button>` : ''});
+    tools: admin() ? (limits ? `<span class="doc-lock" title="${limits.charAt(0).toUpperCase() + limits.slice(1)}" aria-label="${limits}">🔒</span>` : '<span></span>') + `<button type="button" class="doc-edit" data-edit-doc="${d.id}" title="Edit document: details, file, group, limits; Delete…" aria-label="Edit ${esc(d.title)}">✎</button>` : ''});
 }
 function ownHTML(q) {
   const date = q.valid_until ? dateInfo(null, q.valid_until) : {text: 'no expiry date', cls: '', tip: ''};
