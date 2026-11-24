@@ -495,7 +495,8 @@ function paintDetail() {
   const t = detail, admin = !!me.is_admin;
   if (!admin) editTab = 'training';
   const edit = admin && editTab !== 'training';
-  const questions = t.questions || [];
+  // administrators: questions is the editor's list (with the answers), test_questions their own test as anyone takes it
+  const questions = (admin ? t.test_questions : t.questions) || [];
   const taking = !edit && (t.practice || (!t.passed_at && !t.awaiting_approval)) && questions.length;
   parkForms();
   const result = !taking && !edit;
