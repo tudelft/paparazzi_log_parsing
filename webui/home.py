@@ -38,8 +38,11 @@ def months_back(today, n=12):
 
 def flying(rows, user_id, today):
     """The user's own flights as PIC (telemetry and paper records): last flight day, flights in 90 days, flights
-    and time this year and flights per month for the last 12 months."""
-    mine = [r for r in rows if (r.get("pic_user") or {}).get("id") == user_id and real_flight(r) and row_day(r)]
+    and time this year and flights per month for the last 12 months. With user_id None: every flight in `rows` (the
+    ones the user may see, for All flying), with the number of pilots (PIC) who flew in the last 90 days."""
+    mine = [r for r in rows if (user_id is None or (r.get("pic_user") or {}).get("id") == user_id)
+            and real_flight(r) and row_day(r)]
+    pilots = set()
     since90 = (today - datetime.timedelta(days=89)).isoformat()
     year = f"{today.year:04d}"
     months = months_back(today)
@@ -52,15 +55,21 @@ def flying(rows, user_id, today):
         last = max(last or day, day)
         if day >= since90:
             n90 += count
+            pic = (r.get("pic_user") or {}).get("id") or r.get("pic")
+            if pic:
+                pilots.add(pic)
         if day.startswith(year):
             year_flights += count
             year_seconds += float(r.get("duration_s") or 0)
         if day[:7] >= months[0]:
             per_month[day[:7]] += count
-    return dict(last_day=last,
-                days_since=(today - datetime.date.fromisoformat(last)).days if last else None,
-                flights_90d=n90, flights_year=year_flights, seconds_year=round(year_seconds),
-                months=[dict(month=m, flights=per_month[m]) for m in months])
+    out = dict(last_day=last,
+               days_since=(today - datetime.date.fromisoformat(last)).days if last else None,
+               flights_90d=n90, flights_year=year_flights, seconds_year=round(year_seconds),
+               months=[dict(month=m, flights=per_month[m]) for m in months])
+    if user_id is None:
+        out["pilots_90d"] = len(pilots)
+    return out
 
 
 def person(u, name):
@@ -82,6 +91,29 @@ def recent(rows, n=RECENT_FLIGHTS):
         if len(out) == n:
             break
     return out
+
+
+AIRCRAFT_SHOWN = 5
+
+
+def my_aircraft(con, rows, user_id, n=AIRCRAFT_SHOWN):
+    """The Home card Your aircraft: the aircraft the user is the responsible person of, then the ones they flew as PIC
+    most recently (from the logbook rows they can see), each with its status and the day they last flew it."""
+    last = {}
+    for r in rows:
+        if r.get("drone_id") and (r.get("pic_user") or {}).get("id") == user_id and real_flight(r) and row_day(r):
+            last[r["drone_id"]] = max(last.get(r["drone_id"], ""), row_day(r))
+    responsible = [dict(r) for r in con.execute(
+        "SELECT id, name, status FROM drones WHERE manager_id=? AND COALESCE(status,'')<>'Discard' ORDER BY name COLLATE NOCASE",
+        (user_id,))]
+    out = [dict(id=d["id"], name=d["name"], status=d["status"], responsible=True, last_flown=last.get(d["id"]))
+           for d in responsible]
+    seen = {d["id"] for d in out}
+    flown = sorted((d for d in last if d not in seen), key=lambda d: last[d], reverse=True)
+    for d in con.execute(f"SELECT id, name, status FROM drones WHERE id IN ({','.join('?' * len(flown))})", flown) if flown else []:
+        out.append(dict(id=d["id"], name=d["name"], status=d["status"], responsible=False, last_flown=last[d["id"]]))
+    out = out[:len(responsible)] + sorted(out[len(responsible):], key=lambda d: d["last_flown"], reverse=True)
+    return out[:max(n, len(responsible))]
 
 
 def place_centre(shape):

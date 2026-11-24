@@ -69,6 +69,43 @@ class HomeTests(AppTests):
         self.assertEqual((d["recent"], d["media"], d["places"], d["place_id"]), ([], [], [], None))
         self.assertEqual(self.client.get("/api/home/weather?place=1").status_code, 404)
 
+    def test_all_flying_and_your_aircraft(self):
+        self.flight(1, days_ago(3), pic=2)
+        self.flight(1, days_ago(5), pic=3)
+        self.flight(2, days_ago(1), pic=3)  # another project: not counted for user 2
+        self.sign_in(2)
+        d = self.client.get("/api/home").json
+        self.assertEqual((d["flying"]["flights_90d"], d["all_flying"]["flights_90d"], d["all_flying"]["pilots_90d"]), (1, 2, 2))
+        self.assertNotIn("pilots_90d", d["flying"])
+        # the aircraft flown as PIC, with the day; responsible for one: that one first
+        self.assertEqual([(a["id"], a["responsible"], bool(a["last_flown"])) for a in d["aircraft"]], [(1, False, True)])
+        self.con.execute("UPDATE drones SET manager_id=2 WHERE id=1")
+        self.con.commit()
+        self.assertTrue(self.client.get("/api/home").json["aircraft"][0]["responsible"])
+
+    def test_home_cards_are_saved_per_user(self):
+        self.sign_in(2)
+        cards = self.client.get("/api/home").json["cards"]
+        self.assertEqual((cards["order"][0], cards["off"], cards["saved"]), ("flying", ["documents"], False))
+        order = ["training"] + [c for c in cards["order"] if c != "training"]
+        r = self.client.put("/api/home/cards", json={"order": order, "off": ["coming"]})
+        self.assertEqual(r.status_code, 200, r.json)
+        cards = self.client.get("/api/home").json["cards"]
+        self.assertEqual((cards["order"][0], cards["off"], cards["saved"]), ("training", ["coming"], True))
+        self.assertEqual(self.client.put("/api/home/cards", json={"order": ["nonsense"], "off": []}).status_code, 400)
+        self.assertEqual(self.client.put("/api/home/cards", json={"order": ["flying", "flying"], "off": []}).status_code, 400)
+        self.sign_in(3)  # another user still has the default
+        self.assertFalse(self.client.get("/api/home").json["cards"]["saved"])
+        self.sign_in(2)
+        self.assertEqual(self.client.put("/api/home/cards", json={"default": True}).status_code, 200)
+        self.assertFalse(self.client.get("/api/home").json["cards"]["saved"])
+        # an older saved choice gets the cards added later at the end
+        self.con.execute("UPDATE users SET home_cards=? WHERE id=2", ('{"order": ["recent"], "off": []}',))
+        self.con.commit()
+        cards = self.client.get("/api/home").json["cards"]
+        self.assertEqual(cards["order"][0], "recent")
+        self.assertIn("all_flying", cards["order"])
+
     def test_signed_out_logbook_link_returns_to_the_logbook(self):
         anonymous = self.app.test_client()
         self.assertEqual(anonymous.get("/").headers["Location"], "/login?next=%2F")  # the Operations Manual's link

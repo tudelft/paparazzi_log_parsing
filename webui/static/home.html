@@ -33,9 +33,24 @@
   .card h3 { display:flex; align-items:center; gap:8px; margin:0 0 10px; font-size:14px; min-width:0; }
   .card h3 .count { font-size:12px; font-weight:500; color:var(--mute); white-space:nowrap; }
   .card h3 .end { margin-left:auto; display:flex; align-items:center; gap:8px; font-size:12px; font-weight:500; min-width:0; }
-  .s12 { grid-column:span 12; } .s6 { grid-column:span 6; } .s4 { grid-column:span 4; }
-  @media (max-width: 1100px) { .s4 { grid-column:span 6; } .s4.wide { grid-column:span 12; } }
-  @media (max-width: 760px) { .s4, .s6 { grid-column:span 12; } }
+  .s12 { grid-column:span 12; }
+  /* The cards below Needs your attention: in the user's order (Customize), packed into rows by layout(), each row
+     stretched to the full width so a card without content leaves no gap; one per row on a phone. */
+  .grid > .card[data-card] { grid-column:span var(--span, 4); }
+  .grid > .card.off { display:none; }
+  @media (max-width: 760px) { .grid > .card[data-card] { grid-column:span 12; } }
+  .list { list-style:none; margin:0; padding:0; }
+  .list li { display:flex; align-items:center; gap:10px; padding:6px 0; border-top:1px solid var(--line); min-width:0; }
+  .list li:first-child { border-top:0; padding-top:0; }
+  .list .grow { flex:1; min-width:0; }
+  .list .d { color:var(--mute); font-size:12px; }
+  .list .end-val { font-size:12px; white-space:nowrap; color:var(--mute); }
+  .list .soon { color:var(--warn); font-weight:600; }
+  .list .bad { color:var(--err); font-weight:600; }
+  .list a { color:var(--acc); text-decoration:none; } .list a:hover { text-decoration:underline; }
+  #customizeList li { cursor:default; } #customizeList li.dragging { opacity:.45; }
+  #customizeList label { display:flex; gap:8px; align-items:center; flex:1; font-size:14px; color:var(--txt); }
+  #customizeList .drag-handle { cursor:grab; background:var(--sec); color:var(--txt); border:0; border-radius:6px; padding:2px 8px; }
   .empty { color:var(--mute); font-size:13px; }
   .ellipsis { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
 
@@ -136,7 +151,8 @@
 <main>
   <div id="err"></div>
   <div class="hello"><h2 id="hello">Welcome</h2><span class="mute" id="helloSub"></span>
-    <span class="menu-wrap" id="manageWrap" hidden style="margin-left:auto"><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
+    <button type="button" class="sec" id="customizeBtn" style="margin-left:auto" title="Choose and order the cards on this page">Customize</button>
+    <span class="menu-wrap" id="manageWrap" hidden><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
       <div class="menu-pop" id="manageMenu" role="menu" hidden>
         <a class="ext-item" role="menuitem" href="/welcome" title="The welcome message and notices shown at the top of this page">Welcome message and notices</a>
       </div></span></div>
@@ -146,29 +162,60 @@
       <h3>Needs your attention <span class="count" id="todoCount"></span></h3>
       <div class="todo" id="todo"></div>
     </section>
-    <section class="card s4" id="flyingCard">
+    <section class="card" id="flyingCard" data-card="flying">
       <h3>Your flying <span class="end"><a href="/stats">Statistics</a></span></h3>
       <div id="flying"><span class="empty">Loading…</span></div>
     </section>
-    <section class="card s4" id="comingCard">
+    <section class="card" id="allFlyingCard" data-card="all_flying" hidden>
+      <h3>All flying <span class="count">your projects</span><span class="end"><a href="/stats">Statistics</a></span></h3>
+      <div id="allFlying"></div>
+    </section>
+    <section class="card" id="comingCard" data-card="coming">
       <h3>Coming up <span class="end"><label class="only-mine" title="Only your own bookings"><input type="checkbox" id="onlyMine"> Only mine</label> <a href="/agenda">Agenda</a></span></h3>
       <div id="coming"><span class="empty">Loading…</span></div>
     </section>
-    <section class="card s4" id="weatherCard">
+    <section class="card" id="weatherCard" data-card="weather">
       <h3><span class="ellipsis">Today</span> <span class="end"><select id="placeSelect" aria-label="Weather location"></select></span></h3>
       <div id="weather"><span class="empty">Loading…</span></div>
       <div class="today" id="flyingToday" hidden></div>
     </section>
-    <section class="card s6" id="recentCard">
+    <section class="card" id="recentCard" data-card="recent" data-size="wide">
       <h3>Recent flights <span class="count">your projects</span><span class="end"><a href="/">Logbook</a></span></h3>
       <div id="recent"><span class="empty">Loading…</span></div>
     </section>
-    <section class="card s6" id="mediaCard" hidden>
+    <section class="card" id="mediaCard" data-card="media" data-size="wide" hidden>
       <h3>Latest media <span class="count">your projects</span></h3>
       <div class="media" id="media" data-media-group></div>
     </section>
+    <section class="card" id="qualificationsCard" data-card="qualifications" hidden>
+      <h3>Your qualifications <span class="end"><a href="/account?tab=qualifications">My account</a></span></h3>
+      <ul class="list" id="qualificationsList"></ul>
+    </section>
+    <section class="card" id="trainingCard" data-card="training" hidden>
+      <h3>Training <span class="end"><a href="/training">Training</a></span></h3>
+      <ul class="list" id="trainingList"></ul>
+    </section>
+    <section class="card" id="aircraftCard" data-card="aircraft" hidden>
+      <h3>Your aircraft <span class="end"><a href="/aircraft">Aircraft</a></span></h3>
+      <ul class="list" id="aircraftList"></ul>
+    </section>
+    <section class="card" id="documentsCard" data-card="documents" hidden>
+      <h3>Documents <span class="count">recently updated</span><span class="end"><a href="/documents">Documents</a></span></h3>
+      <ul class="list" id="documentsList"></ul>
+    </section>
   </div>
 </main>
+<dialog class="entry-dialog" id="customizeDialog" aria-labelledby="customizeTitle" style="width:min(440px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="customizeTitle">Customize Home</h2><button type="button" onclick="$('customizeDialog').close()">Close</button></div>
+  <form id="customizeForm">
+    <p class="mute" style="margin:0 0 8px">Tick the cards you want and drag ↕ to order them. Cards with nothing to show stay hidden. The messages and Needs your attention are always at the top. Saved for your account, on every device.</p>
+    <ul class="list" id="customizeList"></ul>
+    <p class="dialog-error" id="customizeError" role="alert"></p>
+    <div class="row" style="display:flex;gap:8px;margin-top:12px"><button type="submit" class="primary">Save</button>
+      <button type="button" class="sec" onclick="$('customizeDialog').close()">Cancel</button>
+      <button type="button" class="sec" id="customizeDefault" style="margin-left:auto" title="All cards in the standard order">Default</button></div>
+  </form>
+</dialog>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -223,7 +270,7 @@ async function paintTodo() {
     else add('', 1, `${q.name} expires in ${plural(q.days, 'day')}`, `Valid until ${q.valid_until} · upload the renewal`, '/account?tab=qualifications');
   }
   if (flags.training) {
-    const t = await api('/api/trainings').catch(() => null);
+    const t = await trainingsData().catch(() => null);
     for (const x of (t?.trainings || []).filter(x => x.expired_pass && !x.passed_at && !x.awaiting_approval))
       add('err', 1, `Training expired: ${x.name}`, 'Take it again to renew the qualification', `/training?id=${x.id}`);
   }
@@ -246,19 +293,25 @@ async function paintTodo() {
     <span class="n">${i.n}</span><span class="tx"><div class="t ellipsis">${esc(i.title)}</div><div class="d ellipsis">${esc(i.detail)}</div></span></a>`).join('');
 }
 
+// Your flying (as PIC) and All flying (every flight you may see, your projects): the same tiles and chart.
 function paintFlying() {
-  const f = data.flying;
+  $('flying').innerHTML = flyingHTML(data.flying, true);
+  $('allFlyingCard').hidden = !data.all_flying || data.all_flying.last_day == null;
+  if (data.all_flying) $('allFlying').innerHTML = flyingHTML(data.all_flying, false);
+  $('allFlyingCard').querySelector('.count').textContent = data.user.is_admin ? 'all projects' : 'your projects';
+}
+function flyingHTML(f, mine) {
   const since = f.last_day == null ? '–' : f.days_since === 0 ? 'Today' : plural(f.days_since, 'day');
   const max = Math.max(1, ...f.months.map(m => m.flights));
   const label = m => `${MONTHS[+m.month.slice(5) - 1]} ${m.month.slice(0, 4)}: ${plural(m.flights, 'flight')}`;
   const first = f.months[0].month, last = f.months[f.months.length - 1].month;
-  $('flying').innerHTML = `<div class="tiles">
-      <div class="tile" title="${f.last_day ? 'Last flight as PIC: ' + esc(f.last_day) : 'No flights as PIC yet'}"><div class="v">${since}</div><div class="l">since your last flight</div></div>
-      <div class="tile"><div class="v">${f.flights_90d}</div><div class="l">flights in the last 90 days</div></div>
+  return `<div class="tiles">
+      <div class="tile" title="${f.last_day ? (mine ? 'Last flight as PIC: ' : 'Last flight: ') + esc(f.last_day) : 'No flights yet'}"><div class="v">${since}</div><div class="l">since ${mine ? 'your' : 'the'} last flight</div></div>
+      <div class="tile"${mine ? '' : ` title="${plural(f.pilots_90d || 0, 'pilot')} (PIC) in the last 90 days"`}><div class="v">${f.flights_90d}</div><div class="l">flights in the last 90 days${mine || !f.pilots_90d ? '' : ` · ${plural(f.pilots_90d, 'pilot')}`}</div></div>
       <div class="tile"><div class="v">${f.flights_year}</div><div class="l">flights in ${new Date().getUTCFullYear()}</div></div>
       <div class="tile"><div class="v">${hm(f.seconds_year)}</div><div class="l">flight time in ${new Date().getUTCFullYear()}</div></div>
     </div>
-    <div class="spark"><div class="l"><span>Flights per month as PIC</span><span>${MONTHS[+first.slice(5) - 1]} – ${MONTHS[+last.slice(5) - 1]}</span></div>
+    <div class="spark"><div class="l"><span>Flights per month${mine ? ' as PIC' : ''}</span><span>${MONTHS[+first.slice(5) - 1]} – ${MONTHS[+last.slice(5) - 1]}</span></div>
       <div class="bars">${f.months.map((m, i) => `<span class="${m.flights ? '' : 'zero'}${i === f.months.length - 1 ? ' now' : ''}" style="height:${Math.round(100 * m.flights / max)}%" title="${esc(label(m))}"></span>`).join('')}</div></div>`;
 }
 
@@ -362,6 +415,133 @@ function paintMedia() {
   }).join('');
 }
 
+// ---- The customizable cards: order and on/off per user (data.cards from /api/home, PUT /api/home/cards) ----
+const CARD_LABELS = {flying: 'Your flying', all_flying: 'All flying (your projects)', coming: 'Coming up', weather: 'Today (weather)', recent: 'Recent flights',
+  media: 'Latest media', qualifications: 'Your qualifications', training: 'Training', aircraft: 'Your aircraft',
+  documents: 'Documents (recently updated)'};
+const CARD_NOTES = {coming: 'with bookings on', weather: 'with outdoor places', media: 'when there is media',
+  training: 'with trainings on', documents: 'off by default'};
+const DEFAULT_CARDS = {order: Object.keys(CARD_LABELS), off: ['documents']};
+// Packs the shown cards into rows of 12 columns in the user's order (small cards a third, wide ones half; on a
+// tablet small half, wide whole) and stretches each row to the full width.
+function layout() {
+  const cards = data?.cards || DEFAULT_CARDS, grid = document.querySelector('.grid');
+  const narrow = matchMedia('(max-width: 1100px)').matches;
+  const shown = [];
+  for (const key of cards.order) {
+    const el = document.querySelector(`[data-card="${key}"]`);
+    if (!el) continue;
+    grid.append(el);
+    el.classList.toggle('off', cards.off.includes(key));
+    if (!el.hidden && !cards.off.includes(key)) shown.push(el);
+  }
+  let row = [], used = 0;
+  const flush = () => {
+    const total = row.reduce((sum, [, w]) => sum + w, 0);
+    let left = 12;
+    row.forEach(([el, w], i) => { const span = i === row.length - 1 ? left : Math.round(w * 12 / total); el.style.setProperty('--span', span); left -= span; });
+    row = []; used = 0;
+  };
+  for (const el of shown) {
+    const w = el.dataset.size === 'wide' ? (narrow ? 12 : 6) : (narrow ? 6 : 4);
+    if (used + w > 12) flush();
+    row.push([el, w]); used += w;
+  }
+  if (row.length) flush();
+}
+addEventListener('resize', () => layout());
+layout();  // the loading cards in place at once
+
+// Trainings and documents are asked for once (theme.js starts them next to /api/home) and shared by the cards.
+let trainingsAnswer = null, documentsAnswer = null;
+const trainingsData = () => trainingsAnswer || (trainingsAnswer = api('/api/trainings'));
+const documentsData = () => documentsAnswer || (documentsAnswer = api('/api/documents'));
+const shortDay = d => { if (!d) return ''; const [y, m, day] = d.slice(0, 10).split('-'); return `${+day} ${MONTHS[m - 1]}${y !== String(new Date().getFullYear()) ? ' ' + y : ''}`; };
+const daysUntil = d => Math.round((new Date(d.slice(0, 10) + 'T12:00:00') - new Date(new Date().toDateString() + ' 12:00:00')) / 864e5);
+const li = (main, sub, end) => `<li><span class="grow"><div class="ellipsis">${main}</div>${sub ? `<div class="d ellipsis">${sub}</div>` : ''}</span>${end ? `<span class="end-val">${end}</span>` : ''}</li>`;
+const untilText = d => { if (!d) return 'no expiry'; const n = daysUntil(d);
+  return n < 0 ? `<span class="bad">expired ${shortDay(d)}</span>` : n <= 60 ? `<span class="soon">until ${shortDay(d)}</span>` : `until ${shortDay(d)}`; };
+// Your qualifications: the current approved ones (from /api/documents, as Documents → My qualifications), the one
+// that ends first on top.
+async function paintQualifications() {
+  const quals = flags.documents ? ((await documentsData().catch(() => null))?.qualifications || []) : [];
+  const sorted = [...quals].sort((a, b) => (a.valid_until || '9999').localeCompare(b.valid_until || '9999'));
+  $('qualificationsCard').hidden = !sorted.length;
+  $('qualificationsList').innerHTML = sorted.slice(0, 5).map(q => li(q.view ? `<a href="${esc(q.view)}" target="_blank" rel="noopener">${esc(q.type)}</a>` : esc(q.type),
+    q.number ? 'No. ' + esc(q.number) : '', untilText(q.valid_until))).join('')
+    + (sorted.length > 5 ? li(`<a href="/account?tab=qualifications">${sorted.length - 5} more</a>`) : '');
+  layout();
+}
+// Training: what is still to do, waiting for approval or expiring soon, then the latest passes.
+async function paintTraining() {
+  const all = flags.training ? ((await trainingsData().catch(() => null))?.trainings || []).filter(t => t.active) : [];
+  const expires = t => t.passed_at && t.valid_days ? new Date(Date.parse(t.passed_at) + t.valid_days * 864e5).toISOString().slice(0, 10) : null;
+  const rank = t => !t.passed_at && !t.awaiting_approval ? 0 : t.awaiting_approval ? 1 : expires(t) && daysUntil(expires(t)) <= 60 ? 2 : 3;
+  const items = all.map(t => ({t, r: rank(t)})).sort((a, b) => a.r - b.r || (b.t.passed_at || '').localeCompare(a.t.passed_at || ''));
+  $('trainingCard').hidden = !items.length;
+  $('trainingList').innerHTML = items.slice(0, 5).map(({t, r}) => li(`<a href="/training?id=${t.id}">${esc(t.name)}</a>`,
+    r === 0 ? (t.expired_pass ? 'Your pass expired: take it again' : esc(t.type_name ? 'Gives ' + t.type_name : 'Not done yet'))
+      : r === 1 ? 'Waiting for approval' : `Passed ${shortDay(t.passed_at)}`,
+    r === 0 ? '<span class="chip">To do</span>' : r === 1 ? '' : expires(t) ? untilText(expires(t)) : '✓')).join('');
+  layout();
+}
+// Your aircraft (/api/home): the ones the user is responsible for, then the ones flown as PIC most recently.
+function paintAircraft() {
+  const list = data.aircraft || [];
+  $('aircraftCard').hidden = !list.length;
+  $('aircraftList').innerHTML = list.map(a => li(`<a href="/aircraft/${a.id}">${esc(a.name)}</a>`,
+    [a.responsible ? 'You are responsible' : '', a.last_flown ? 'flown ' + shortDay(a.last_flown) : ''].filter(Boolean).join(' · '),
+    a.status ? `<span class="chip">${esc(a.status)}</span>` : '')).join('');
+}
+// Documents: the latest uploads you may see (off by default).
+async function paintDocuments() {
+  const docs = flags.documents && !(data.cards?.off || []).includes('documents')
+    ? ((await documentsData().catch(() => null))?.documents || []) : [];
+  const latest = [...docs].sort((a, b) => (b.uploaded_at || '').localeCompare(a.uploaded_at || '')).slice(0, 5);
+  $('documentsCard').hidden = !latest.length;
+  $('documentsList').innerHTML = latest.map(d => li(`<a href="${esc(d.viewable ? d.view : d.download)}" target="_blank" rel="noopener">${esc(d.title)}</a>`,
+    esc(d.description || ''), shortDay(d.uploaded_at))).join('');
+  layout();
+}
+
+// Customize: tick and drag the cards; Save stores them for the account.
+$('customizeBtn').onclick = () => {
+  const cards = data?.cards || DEFAULT_CARDS;
+  $('customizeList').innerHTML = cards.order.map(key => `<li data-key="${key}"><button type="button" class="drag-handle" aria-label="Drag to reorder">↕</button>
+    <label><input type="checkbox"${cards.off.includes(key) ? '' : ' checked'}> ${esc(CARD_LABELS[key])}</label>${CARD_NOTES[key] ? `<span class="end-val">${CARD_NOTES[key]}</span>` : ''}</li>`).join('');
+  $('customizeError').textContent = '';
+  $('customizeDialog').showModal();
+};
+(() => {
+  const list = $('customizeList');
+  let dragged = null;
+  list.addEventListener('mousedown', e => { const item = e.target.closest('.drag-handle')?.closest('li'); if (item) item.draggable = true; });
+  list.addEventListener('dragstart', e => { dragged = e.target.closest('li'); dragged.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+  list.addEventListener('dragend', () => { if (dragged) { dragged.draggable = false; dragged.classList.remove('dragging'); } dragged = null; });
+  list.addEventListener('dragover', e => {
+    const item = e.target.closest('li');
+    if (!dragged || !item || item === dragged) return;
+    e.preventDefault();
+    const r = item.getBoundingClientRect();
+    list.insertBefore(dragged, e.clientY > r.top + r.height / 2 ? item.nextSibling : item);
+  });
+})();
+async function saveCards(body) {
+  try {
+    const d = await api('/api/home/cards', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    data.cards = d.cards;
+    $('customizeDialog').close();
+    layout();
+    paintDocuments();  // asked for only when its card is on
+  } catch (e) { $('customizeError').textContent = e.message; }
+}
+$('customizeForm').onsubmit = e => {
+  e.preventDefault();
+  const items = [...$('customizeList').children];
+  saveCards({order: items.map(li => li.dataset.key), off: items.filter(li => !li.querySelector('input').checked).map(li => li.dataset.key)});
+};
+$('customizeDefault').onclick = () => saveCards({default: true});
+
 // /api/home is asked for at once, next to /api/me (not after it)
 const homeData = api('/api/home');
 homeData.catch(() => {});
@@ -384,7 +564,12 @@ async function load() {
   paintMedia();
   paintToday();
   paintWeather();
+  paintAircraft();
+  layout();
   paintTodo().catch(e => { $('err').textContent = e.message; });
+  paintQualifications();
+  paintTraining();
+  paintDocuments();
 }
 window.addEventListener('popstate', () => {
   if (!data) return;
