@@ -7,8 +7,13 @@
 <script src="/theme.js"></script>
 <link rel="stylesheet" href="/theme.css">
 <style>
+  /* the same base colours and header as the other pages (each page sets them; theme.css adds night mode) */
+  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --txt:#1d2733; --mute:#6b7785; --acc:#1f6feb; --err:#cf222e; --ok:#1a7f37; --warn:#9a6700; }
   * { box-sizing: border-box; }
   body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#16202c; color:#fff; padding:14px 24px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  header .meta { color:#9fb0c3; font-size:12px; }
   main { max-width:none; margin:0; padding:0; }
   .bar { display:flex; align-items:center; gap:12px; padding:8px 12px; border-bottom:1px solid var(--line); background:var(--card); font-size:13px; min-width:0; }
   .bar a { color:var(--acc); text-decoration:none; white-space:nowrap; } .bar a:hover { text-decoration:underline; }
