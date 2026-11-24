@@ -428,12 +428,8 @@ button.qual-chip { cursor:pointer; }
 .file-list tr.file-editable { cursor:pointer; }  /* a click opens the file's Edit dialog */
 .file-list tr.file-editable:hover { background:var(--hover); }
 @media(max-width:600px) { .file-list td.file-links { display:none; } }
-/* Files in the logbook's opened row (AttachmentFiles.summary): one line per category */
-.files-line { display:flex; gap:8px; margin:3px 0; font-size:13px; line-height:1.35; }
-.files-line > .mute { flex:none; width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.files-names { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.files-more { flex:none; } .files-count { font-weight:normal; }
-.files-all { font-weight:normal; font-size:13px; margin-left:8px; }
+/* Files in the logbook's opened row (AttachmentFiles.summary); the layout is in logbook.html */
+.files-all { white-space:nowrap; }
 /* Review of files matched to flights (AttachmentFiles.review): one card per file */
 dialog.af-dialog.af-wide { width:min(860px,calc(100% - 32px)); }
 .af-review { max-height:50vh; overflow:auto; margin:6px 0; }

@@ -113,7 +113,7 @@ to gain descriptions and previously omitted crew entries.
 - **Review** (Logbook, **Manage ▾**) walks through possible duplicates, paper records where only another aircraft
   flew, and conflicts, with the paper record next to the candidate logs; every decision can be undone there.
 - Tick the entries of one flight and press **Same flight** in the selection bar to join them (also when the automatic
-  SD/GCS merge missed it), or press **Not the same flight** next to a recording in an expanded entry to split it off.
+  SD/GCS merge missed it), or, in an expanded entry, choose **⋯ → Split … off this entry** to split a recording off.
 - Each flight shows the **operator** (operator registration) it was flown under: our own unless set on the flight
   (**Change…** in the selection bar), its project, its takeoff location or the operator its PIC flies
   for (external crew); inferred values are grey. Choose **Own operations only** in Flight filters for operator

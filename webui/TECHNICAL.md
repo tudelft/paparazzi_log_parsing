@@ -610,9 +610,10 @@ screen with the heading and buttons kept in view. When
 logs are in the same upload, matching waits until they are parsed (at most 15 minutes).
 
 The Upload dialog starts with a drop zone (drop files or choose them); files dropped
-on a file list open the Upload dialog with them. The logbook shows an opened entry's files read-only (`AttachmentFiles.summary`): one line
-per category with up to four names, "+N more" and *Files tab →* linking to the flight's Files tab (filtered with
-`files_category`); for an entry merged from several recordings, the files of all of them. They load when the row opens.
+on a file list open the Upload dialog with them. The logbook shows an opened entry's files read-only (`AttachmentFiles.summary`): **Media**,
+up to four images and videos as small thumbnails (`/api/attachments/<id>/thumb`; a plain tile without one) and "+N", and
+**Files**, up to six other files as chips with their category, "+N more" and *Files tab →* linking to the flight's Files
+tab; for an entry merged from several recordings, the files of all of them. They load when the row opens.
 `GET /api/logbook/files` gives the logbook the names and categories of the current files (no earlier versions) of the
 flights (linked to the flight or its log) and paper records the user may see, separate from `/api/logbook` so its
 cache is not involved; the logbook filter searches those names, and **Files** (`?files=any` or `?files=cat:<name>`,
@@ -2673,8 +2674,9 @@ again as before.
   The URL parameter `files` is unchanged (`any` or `cat:<category>`).
 - **Manage ▾** (admins and members with edit, full or manager rights in a project): **Import CSV…**/**Add paper
   record…**, **Review**, and for admins **Hidden records only** (shown as a chip with ✕ while on).
-- An opened entry shows **Unlink** (linked paper record) and **Not the same flight** (merged recordings) to those
-  who may change it.
+- An opened entry shows the map beside the comment and a compact list of its recordings, linked paper record, media
+  and files, then one row of actions. For those who may change it, **⋯** has *Split … off this entry…* (merged
+  recordings, "Not the same flight") and *Unlink paper record…*, each confirmed in a small dialog.
 
 **Overview pages.** Every person, aircraft, project and location has its own page (`/people/<id>`, `/aircraft/<id>`,
 `/projects/<id>`, `/locations/<id>`; click a name anywhere). It shows totals (flights, flight time, distance, flying

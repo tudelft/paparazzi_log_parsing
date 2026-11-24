@@ -51,22 +51,33 @@
       if (!event.target.closest('a, button')) onedit(files.find(file => file.id === +row.dataset.edit));
     };
   }
-  // One line per category with the file names (description on hover), for the logbook's opened row. `url(category)`
-  // gives the page with all files (filtered to that category for "+N").
+  // The files of the logbook's opened row, as rows of its facts grid: Media (images and videos as small thumbnails,
+  // a plain tile when there is no thumbnail) and Files (the others as chips with their category); description on
+  // hover. `url(category)` gives the page with all files (filtered to that category for "+N").
   function summary(element, files, categories, url) {
     const current = files.filter(file => !file.superseded);
     if (!current.length) { element.replaceChildren(); return; }
-    const name = file => `<a href="/api/attachments/${file.id}/${file.viewable ? 'view' : 'download'}"${file.viewable
-      ? (mediaKind(file.filename) ? ' ' + mediaAttrs({filename: file.filename, download: `/api/attachments/${file.id}/download`})
-        : ' target="_blank" rel="noopener"') : ''} title="${esc(file.description || file.filename)}">${esc(file.filename)}</a>`;
+    const view = file => `/api/attachments/${file.id}/${file.viewable ? 'view' : 'download'}`;
+    const attrs = file => file.viewable ? (mediaKind(file.filename) ? ' ' + mediaAttrs({filename: file.filename,
+      download: `/api/attachments/${file.id}/download`}) : ' target="_blank" rel="noopener"') : '';
+    const tip = file => esc(file.description ? `${file.filename} · ${file.description}` : file.filename);
+    const order = groups(current, categories).flatMap(group => group.files);
+    const media = order.filter(file => file.viewable && ['image', 'video'].includes(mediaKind(file.filename)));
+    const others = order.filter(file => !media.includes(file));
+    const all = url ? `<a class="files-all" href="${esc(url(''))}">Files tab →</a>` : '';
+    const shownMedia = media.slice(0, 4), moreMedia = media.length - shownMedia.length;
+    const shownOthers = others.slice(0, 6), moreOthers = others.length - shownOthers.length;
     element.dataset.mediaGroup = "";
-    element.innerHTML = `<h4>Files <span class="mute files-count">· ${current.length}</span>${url
-      ? `<a class="files-all" href="${esc(url(''))}">Files tab →</a>` : ''}</h4>` + groups(current, categories).map(group => {
-      const shown = group.files.slice(0, 4), more = group.files.length - shown.length;
-      return `<div class="files-line"><span class="mute" title="${esc(group.name || 'Uncategorised')}">${
-        esc(group.name || 'Uncategorised')} (${group.files.length})</span><span class="files-names">${shown.map(name).join(' · ')}</span>${
-        more && url ? `<a class="files-more" href="${esc(url(group.name || UNCATEGORISED))}">+${more} more</a>` : ''}</div>`;
-    }).join('');
+    element.innerHTML = (media.length ? `<span class="k">Media</span><span class="thumbs">${shownMedia.map(file =>
+      // the 🖼 of an image lies under its thumbnail (seen only without one); ▶ of a video stays on top
+      `<a class="thumb" href="${view(file)}"${attrs(file)} title="${tip(file)}">${mediaKind(file.filename) === 'video' ? ''
+        : '<span class="ico" aria-hidden="true">🖼</span>'}<img src="/api/attachments/${file.id}/thumb" alt=""
+        loading="lazy" onerror="this.remove()">${mediaKind(file.filename) === 'video' ? '<span class="ico" aria-hidden="true">▶</span>' : ''}<span class="n">${
+        esc(file.filename)}</span></a>`).join('')}${moreMedia && url ? `<a class="thumb more" href="${esc(url(''))}">+${moreMedia}</a>` : ''}${
+      others.length ? '' : all}</span>` : '')
+      + (others.length ? `<span class="k">Files</span><span class="fact-row">${shownOthers.map(file =>
+        `<span class="fchip" title="${tip(file)}">${file.category ? `<span class="mute">${esc(file.category)}</span>` : ''}<a href="${view(file)}"${
+          attrs(file)}>${esc(file.filename)}</a></span>`).join('')}${moreOthers && url ? `<a href="${esc(url(''))}">+${moreOthers} more</a>` : ''}${all}</span>` : '');
   }
 
   // ---- File manager on the flight, paper record and logs pages: the grouped list with search, a category filter and
