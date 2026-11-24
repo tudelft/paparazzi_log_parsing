@@ -108,7 +108,7 @@
       <div>
         <div class="scroll"><table id="projectTable"><colgroup id="projectCols"></colgroup><thead id="projectHead"></thead><tbody id="projectRows"></tbody></table></div>
         <div class="foot"><span class="mute">Rows per page</span>
-          <select id="size" aria-label="Rows per page"><option>25</option><option selected>50</option><option>100</option><option>200</option></select>
+          <select id="size" aria-label="Rows per page"><option selected>20</option><option>50</option><option>100</option><option>200</option></select>
           <div id="projectPages" class="navigation-pages"></div></div>
       </div>
       <section id="projectPanel" aria-label="Selected project" hidden>
@@ -233,7 +233,7 @@ const COLUMNS = [
   {key: 'logs', label: 'Logs', sort: true, num: true, w: 8},
   {key: 'operator', label: 'Operator', sort: true, w: 16, panel: true},
   {key: 'category', label: 'Category', sort: true, w: 16, panel: true}];
-let sortKey = 'name', sortDesc = false, page = 0, pageSize = 50, selected = null, ptab = 'details';
+let sortKey = 'name', sortDesc = false, page = 0, pageSize = 20, selected = null, ptab = 'details';
 const canOpen = p => isAdmin() || p.can_manage;
 const memberNames = p => (p.members || []).map(m => m.display_name || m.username);
 const operatorText = p => { const o = operators.find(x => x.id === p.operator_id); return o ? operatorLabel(o) : ''; };
@@ -639,7 +639,7 @@ window.viewState.setup(p => {
   sortKey = COLUMNS.some(c => c.key === key) ? key : 'name';
   sortDesc = dir === 'desc';
   page = window.viewState.integer(p.get('page'), 1) - 1;
-  const size = [...$('size').options].some(o => o.value === p.get('size')) ? p.get('size') : '50';
+  const size = [...$('size').options].some(o => o.value === p.get('size')) ? p.get('size') : '20';
   $('size').value = size; pageSize = +size;
   selected = window.viewState.integer(p.get('open'), null);
   ptab = p.get('ptab') === 'members' ? 'members' : 'details';
@@ -648,7 +648,7 @@ window.viewState.setup(p => {
   const set = window.viewState.set;
   set(p, 'tab', tab, 'projects'); set(p, 'q', $('projectSearch').value.trim());
   set(p, 'sort', `${sortKey}-${sortDesc ? 'desc' : 'asc'}`, 'name-asc');
-  set(p, 'page', page + 1, 1); set(p, 'size', pageSize, 50);
+  set(p, 'page', page + 1, 1); set(p, 'size', pageSize, 20);
   set(p, 'open', selected || ''); set(p, 'ptab', selected ? ptab : 'details', 'details');
   set(p, 'expired', $('showExpired').checked ? '1' : '');
 }, () => render());

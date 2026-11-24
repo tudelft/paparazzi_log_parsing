@@ -935,7 +935,7 @@ longer sign in, or the administrator signs out.
 Authorisations and Operators (`tab=`). **Projects** is a table like Aircraft: Project (a link to the project page),
 Members (the first three, "+N", all on hover), Logs, Operator and Category of its flights (`GET /api/projects` returns
 `operator_id`, `category` and `authorisation_id` for this; admins read `/api/admin/projects`). Search, sort, page and
-rows per page are in the URL (`q`, `sort`, `page`, `size`). Admins, and managers for their projects, open a project
+rows per page (20 by default) are in the URL (`q`, `sort`, `page`, `size`). Admins, and managers for their projects, open a project
 beside the table (`open=<id>`, `ptab=members`; Operator and Category are hidden then) with the tabs Details and
 Members; other rows open the project page. **Edit project** is one dialog: admins change the name, operator (also
 **New operator…**) and category (`PUT /api/admin/projects/<id>` with only what changed) and the members; a manager only
@@ -1122,17 +1122,18 @@ everyone; a supervisor: the people they supervise, from `GET /api/profiles`, als
 them): Role and Department by default, and under Columns Supervisors, Expected end (with incomplete / ending soon /
 ended / to confirm), Number (admins), GitHub and Confirmed. One **Filters** pop-up next to Columns (its button shows
 how many are active) holds Role, Department and profile status (Incomplete, Ending soon: within 3 months, Ended) for
-viewers who see profiles, Qualification for admins (a current approved qualification of that type), Show external
-and Without flights; the profile and qualification filters also show people without flights. Manage ▾ → **Download profiles (CSV)**
+viewers who see profiles, for admins Sign-in (Administrators, TU Delft SSO, Local password, Never signed in, Account
+disabled; `access`) and Qualification (a current approved qualification of that type), Show external
+and Without flights; the profile, sign-in and qualification filters also show people without flights. Manage ▾ → **Download profiles (CSV)**
 exports the profiles of the rows shown (supervisors get Manage ▾ with only this). This replaces the former Profiles
-tab (`?tab=profiles` now opens People). Headers sort; the Columns choice is per browser (`people.columns`); 50 rows
-per page with the pager at the bottom. Search, filters (`role`, `dept`, `status`, `qual`), Show external, Without flights,
+tab (`?tab=profiles` now opens People). Headers sort (Last sign-in: never counts as oldest); the Columns choice is per browser (`people.columns`); 20 rows
+per page with the pager at the bottom. Search, filters (`role`, `dept`, `status`, `access`, `qual`), Show external, Without flights,
 sort, page and rows per page are in the URL (`search`, `external`, `unused`, `sort`, `pg`, `size`). On a phone only
 Name, Flights and Last flight are shown. For non-admins a row opens the pilot page. For admins a row opens
-the person beside the table (`person=<id>`, `ptab=<tab>`; Role and Sign-in are then hidden) with the tabs Details,
-Qualifications, API keys and Aliases. Details shows the account and, with `LOGDB_PERSON_PROFILE`, the profile
-(`GET /api/users/<id>/profile`). **Edit person** in the panel header opens one dialog with the account, profile and
-aliases (clicking a value in Details or Aliases opens it at that field); Save sends only what changed, each part to
+the person beside the table (`person=<id>`, `ptab=<tab>`; the table then keeps only Name and Role, and the panel takes most of the width) with the tabs Details (the
+account), Profile (with `LOGDB_PERSON_PROFILE`, not for external crew; `GET /api/users/<id>/profile`; `ptab=profile`),
+Qualifications, API keys and Aliases. **Edit person** in the panel header opens one dialog with the account, profile and
+aliases (clicking a value in Details, Profile or Aliases opens it at that field); Save sends only what changed, each part to
 its existing endpoint: `PUT /api/admin/users/<id>/profile`, `…/operator`, `…/admin`, `…/external`, aliases one per line
 (`POST`/`DELETE /api/admin/aliases`) and the profile (`PUT /api/users/<id>/profile`). Qualifications keep their own
 per-item actions and Add qualification; API keys use the selection bar. ⋯ (admins):

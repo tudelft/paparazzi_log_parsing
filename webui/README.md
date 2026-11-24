@@ -205,7 +205,7 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
   and last sign-in for admins; Columns adds supervisors, expected end, number,
   GitHub and last confirmed; **Filters** for role, department, profile status and (admins) qualification, external
   people and people without flights; Manage ▾ → Download profiles (CSV); pagination like Aircraft). A row opens the pilot page; for admins it opens the person beside the
-  list with the tabs Details (account and profile), Qualifications, API keys and Aliases. **Edit person** changes the
+  list with the tabs Details (account), Profile, Qualifications, API keys and Aliases. **Edit person** changes the
   account, profile and aliases in one dialog (click a value to open it at that field); ⋯ has password, **Move TU Delft sign-in…** (a TU
   Delft login matched to the wrong person), **Merge into…** (one person with two accounts) and **Remove user…**.
   A new user needs an email address (the username is optional and then taken from it); an address can be
