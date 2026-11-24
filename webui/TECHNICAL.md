@@ -326,7 +326,12 @@ in `db.LOGBOOK_UNRELATED` (API keys, sign-in and upload bookkeeping, caches, tra
 `users.last_login`, so those no longer empty the cache; a table missing from that list only costs a refresh. The finished logbook response is kept the same way.
 At most eight of each are kept; each read model takes roughly 25 MB per 5000 flights. These responses carry a
 `Server-Timing` header (`built`, `cached` or `response cached`, with the time) shown in the browser's Network tab.
-Flight detail and path responses are gzip-compressed for clients that accept it.
+Flight detail and path responses are gzip-compressed for clients that accept it, and so is every other JSON, HTML,
+CSS or JavaScript answer over 16 KB (for example `/api/stats` and `/api/admin/people`; files sent from disk and streams
+are left alone). Pages are `no-store`; `theme.js`, `theme.css` and the other page scripts are `no-cache` (kept by the
+browser and revalidated: 304 while unchanged, so a release still shows at once). `theme.js` answers every page's
+`GET /api/me` with one request (the page and theme.js both ask), and Home and the Logbook ask for their main data
+(`/api/home`, `/api/logbook`) at once instead of after `/api/me`.
 
 **Missing telemetry locations.** The shared logbook read model copies the known endpoint's GPS
 latitude/longitude for display and named-place resolution when the other endpoint is missing.
@@ -880,7 +885,8 @@ Relative paths are relative to `webui/`.
 For example, the MAVLab instance uses `SITE_NAME=MAVLab`, `SITE_LOGO=mavlab`,
 `FOOTER_TEXT=MAVLab, Faculty of Aerospace Engineering, TU Delft` and
 `FOOTER_LOGOS=tudelft=https://www.tudelft.nl,mavlab=https://mavlab.tudelft.nl`. Restart the service after changing
-them; `check-config` reports logo names without a file.
+them; `check-config` reports logo names without a file. In the footer the lettering of the TU Delft and MAVLab
+logos is the same height (24 px) on one bottom line (`theme.css`).
 
 Set `LOGDB_HIDE_UNLINKED_AIRCRAFT=1` and restart the server to hide telemetry flights whose
 merged aircraft identity has no fleet link. Lists, counts, flight time, charts and location
@@ -1111,7 +1117,8 @@ removed and added ones go through `DELETE`/`POST /api/admin/drone-aliases`) and 
 A failed part shows its error at the field and the dialog stays open. Clicking an editable value or its label opens
 the dialog at that field. ⋯ (admins): *Mark an alias as shared…*, *Stop matching a board…*, *Remove aircraft…*.
 Admins have **Add aircraft** and **Manage ▾** (Import CSV…, Download CSV template, Mark a name as shared…), and the
-tabs **Unlinked names** (when there are any, also with `HIDE_UNLINKED_AIRCRAFT`) and **Shared names**: tick names,
+tabs **Unlinked names** (when there are any, also with `HIDE_UNLINKED_AIRCRAFT`) and **Shared names** (one row per name with its recordings, boards and aircraft; a click opens its
+boards below it, `sname=` in the URL, with *Remove ambiguous status…* at the bottom): tick names,
 boards or recordings and use **Link to aircraft…** in the selection bar (the dialog lists every aircraft, including
 Discard; a single folder candidate is preselected). Pending requests show **Approve**/**Reject…** to who may decide
 and **Withdraw** to the requester. Dialogs close with Cancel, Close or Escape.

@@ -1,3 +1,16 @@
+// One GET /api/me per page: theme.js and the page both ask for it at load; the second gets a copy of the first answer.
+(function () {
+  const realFetch = window.fetch.bind(window);
+  let me = null;
+  window.fetch = (input, init) => {
+    if (input === '/api/me' && !(init && init.method && init.method !== 'GET')) {
+      me = me || realFetch('/api/me');
+      return me.then(r => r.clone());
+    }
+    return realFetch(input, init);
+  };
+})();
+
 // Site name, logos and footer text; the server puts the configured values (LOGDB_SITE_*, LOGDB_FOOTER_*) before this file.
 window.SITE = Object.assign({name: 'Flight logbook', logo: null, footer_text: '', footer_logos: []}, window.SITE || {});
 

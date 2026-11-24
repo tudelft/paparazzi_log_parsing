@@ -251,6 +251,9 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
+// The logbook itself (the largest answer) is asked for at once, next to the lists below; the first loadFlights uses it.
+let earlyLogbook = fetch('/api/logbook?compact=1');
+earlyLogbook.catch(() => {});
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
@@ -271,7 +274,9 @@ async function loadFlights() {
   try {
     loadLogbookFiles();
     const withoutFlights = loadNoFlightLogs();
-    const r = await fetch('/api/logbook?compact=1' + ($('hiddenRecords').checked ? '&hidden=1' : ''));
+    const early = !$('hiddenRecords').checked && earlyLogbook;
+    earlyLogbook = null;
+    const r = await (early || fetch('/api/logbook?compact=1' + ($('hiddenRecords').checked ? '&hidden=1' : '')));
     const d = await r.json();
     await withoutFlights;
     if (generation !== loadGeneration) return;

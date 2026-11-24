@@ -25,9 +25,12 @@ main a { color:var(--acc); }
 #webuiVersion { padding:12px 20px 18px; text-align:center; font-size:12px; color:var(--mute); }
 #webuiVersion a { color:var(--mute); text-decoration:none; overflow-wrap:anywhere; }
 #webuiVersion a:hover, #webuiVersion a:focus-visible { color:var(--acc); text-decoration:underline; }
-#webuiVersion .brand { display:flex; justify-content:center; align-items:center; gap:28px; margin-bottom:8px; }
-#webuiVersion .brand img { display:block; height:34px; width:auto; }
-#webuiVersion .brand .logo-tudelft img { height:66px; margin:-16px 0; }  /* the TU Delft file has its clear space built in */
+#webuiVersion .brand { display:flex; justify-content:center; align-items:flex-end; gap:32px; margin-bottom:10px; }
+#webuiVersion .brand img { display:block; height:29px; width:auto; }
+/* The lettering of both logos is 24 px tall and they share its bottom line; the negative margins cut the empty space
+   built into the files (MAVLab: 9% above and below; TU Delft: the flame above the letters and clear space around). */
+#webuiVersion .brand .logo-mavlab img { margin:-2.5px 0; }
+#webuiVersion .brand .logo-tudelft img { height:94px; margin:-24px 0 -23.5px; }
 #webuiVersion .brand .night, html.night #webuiVersion .brand .day { display:none; }
 body > header .site-brand span { overflow:hidden; text-overflow:ellipsis; }
 body > header .site-brand img { display:block; height:26px; max-width:100%; object-fit:contain; }
