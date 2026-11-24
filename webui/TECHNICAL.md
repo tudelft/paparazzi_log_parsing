@@ -1126,7 +1126,8 @@ viewers who see profiles, for admins Sign-in (Administrators, TU Delft SSO, Loca
 disabled; `access`) and Qualification (a current approved qualification of that type), Show external
 and Without flights; the profile, sign-in and qualification filters also show people without flights. Manage ▾ → **Download profiles (CSV)**
 exports the profiles of the rows shown (supervisors get Manage ▾ with only this). This replaces the former Profiles
-tab (`?tab=profiles` now opens People). Headers sort (Last sign-in: never counts as oldest); the Columns choice is per browser (`people.columns`); 20 rows
+tab (`?tab=profiles` now opens People). Headers sort (Last sign-in: never counts as oldest; Role in the order of Profile options, then the furthest expected
+end first); the Columns choice is per browser (`people.columns`); 20 rows
 per page with the pager at the bottom. Search, filters (`role`, `dept`, `status`, `access`, `qual`), Show external, Without flights,
 sort, page and rows per page are in the URL (`search`, `external`, `unused`, `sort`, `pg`, `size`). On a phone only
 Name, Flights and Last flight are shown. For non-admins a row opens the pilot page. For admins a row opens
@@ -1460,7 +1461,8 @@ Where it shows:
   of each (only projects the viewer may open), and **Edit** for the person;
 - My account: the person's own profile and the people they supervise;
 - People: the profile columns, filters and CSV download of the table ([People page](#people-page)) and the
-  **Supervision** tab, right after People (one card per supervisor, external ones by name; its search and Include ended in the URL as
+  **Supervision** tab, right after People (people per card by role in the order of Profile options, then the furthest
+  expected end; one card per supervisor, external ones by name; its search and Include ended in the URL as
   `p_*`). Admins see everyone; a supervisor sees the people they supervise. Both come from `GET /api/profiles`;
 - People: the person's Profile tab, where admins use **Edit profile** ( `PUT /api/users/<id>/profile`):
   like the import, they may fill in only what they know (empty fields are allowed, a past end date too), but what is

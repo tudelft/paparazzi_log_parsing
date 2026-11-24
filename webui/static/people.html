@@ -157,7 +157,7 @@
   #personPanel, #personContent { min-width:0; overflow-wrap:anywhere; }
   #typeList { display:flex; flex-direction:column; }
   .type-row { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; gap:10px; align-items:center; padding:8px 0; border-top:1px solid var(--line); }
-  .type-row.dragging { opacity:.45; }
+  .type-row.dragging, #roleRows tr.dragging, #deptRows tr.dragging { opacity:.45; }
   .type-row.off > .type-body, .type-row.off > .type-chips { opacity:.55; }
   .type-body .type-desc { font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .type-chips { display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
@@ -401,11 +401,11 @@
   </section>
   <section class="card" id="profileOptionsSection" hidden>
     <div class="section-heading"><h2>Profile options</h2>
-    <details><summary>Help</summary><p>The choices of the profile everyone fills in after signing in. <em>Supervises</em> offers people with that role as supervisors; <em>Needs supervisor</em> makes naming one required. <em>Max years</em> limits how far ahead the expected end date may be (empty: no limit), and only roles with <em>Indefinite</em> may tick Indefinite instead of a date; profiles outside these limits are asked again at the next sign-in. A department's group is shown next to it; people can also type a department that is not listed. The department list starts empty: add your departments or sections, or <em>Import CSV</em> with one per line as <span class="mono">name,group</span>. Removing an entry leaves that field empty in the profiles that used it, so those people are asked again. One Save writes both lists.</p></details></div>
+    <details><summary>Help</summary><p>The choices of the profile everyone fills in after signing in. <em>Supervises</em> offers people with that role as supervisors; <em>Needs supervisor</em> makes naming one required. <em>Max years</em> limits how far ahead the expected end date may be (empty: no limit), and only roles with <em>Indefinite</em> may tick Indefinite instead of a date; profiles outside these limits are asked again at the next sign-in. A department's group is shown next to it; people can also type a department that is not listed. The department list starts empty: add your departments or sections, or <em>Import CSV</em> with one per line as <span class="mono">name,group</span>. Drag a row by ↕ to change the order: roles are sorted in this order on this page (Role column and filter, Supervision), for example Staff first. Removing an entry leaves that field empty in the profiles that used it, so those people are asked again. One Save writes both lists and the order.</p></details></div>
     <div class="profile-options">
-      <div><h3>Roles</h3><table class="compact"><thead><tr><th>Name</th><th title="Offered as a supervisor">Supervises</th><th title="Must name a supervisor">Needs supervisor</th><th title="The expected end date is at most this many years ahead (empty: no limit)">Max years</th><th title="May tick Indefinite instead of an end date">Indefinite</th><th></th></tr></thead><tbody id="roleRows"></tbody></table>
+      <div><h3>Roles</h3><table class="compact"><thead><tr><th></th><th>Name</th><th title="Offered as a supervisor">Supervises</th><th title="Must name a supervisor">Needs supervisor</th><th title="The expected end date is at most this many years ahead (empty: no limit)">Max years</th><th title="May tick Indefinite instead of an end date">Indefinite</th><th></th></tr></thead><tbody id="roleRows"></tbody></table>
         <button type="button" class="sec" onclick="addOptionRow('role')">Add role</button></div>
-      <div><h3>Departments</h3><table class="compact"><thead><tr><th>Section</th><th>Department</th><th></th></tr></thead><tbody id="deptRows"></tbody></table>
+      <div><h3>Departments</h3><table class="compact"><thead><tr><th></th><th>Section</th><th>Department</th><th></th></tr></thead><tbody id="deptRows"></tbody></table>
         <button type="button" class="sec" onclick="addOptionRow('dept')">Add department</button>
         <button type="button" class="sec" onclick="$('deptCsv').click()" title="A CSV file with one department per line: name,group (a header line is skipped). Adds the ones not yet listed; Save to keep them.">Import CSV</button>
         <input type="file" id="deptCsv" accept=".csv,text/csv,text/plain" hidden onchange="importDepartments(this)"></div>
@@ -548,6 +548,13 @@ let people = {users: [], unlinked: []};
 let me = null, mailOn = false, profileOn = false, profileOptions = null, profileList = [];
 // Profile only with person profiles on, and not for external crew (they have none)
 const personTabs = user => ['details', ...(profileOn && !user?.is_external ? ['profile'] : []), 'qualifications', 'api', 'aliases'];
+// Roles sort in the order of Profile options (dragged there), not alphabetically; unknown roles after, by name.
+let roleOrder = [];
+const roleRank = role => { const i = roleOrder.findIndex(r => r.toLowerCase() === String(role || '').toLowerCase()); return i < 0 ? roleOrder.length : i; };
+const byRole = (a, b) => roleRank(a) - roleRank(b) || String(a || '').localeCompare(String(b || ''));
+// within a role: the furthest expected end first (Indefinite furthest, no date last)
+const endKey = p => p?.indefinite ? '9999' : p?.end_date || '';
+const byEndDesc = (a, b) => endKey(b).localeCompare(endKey(a));
 let selectedPerson = null, selectedTab = 'details', qualificationManager = null;
 let qualificationTypes = [], pendingQualifications = [];
 let panelGeneration = 0;
@@ -890,12 +897,12 @@ function paintDirFilters() {
   $('filterButton').textContent = active.length ? `Filters · ${active.length}` : 'Filters';
   $('filterButton').classList.toggle('active', !!active.length);
   $('filterButton').title = active.join(' · ') || 'Role, department, profile status, sign-in, qualification, external people and people without flights';
-  const opts = (sel, label, key, values) => {
-    sel.innerHTML = `<option value="">${label}</option>` + [...new Set([...values.filter(Boolean), dirFilter[key]].filter(Boolean))].sort()
+  const opts = (sel, label, key, values, order) => {
+    sel.innerHTML = `<option value="">${label}</option>` + [...new Set([...values.filter(Boolean), dirFilter[key]].filter(Boolean))].sort(order)
       .map(v => `<option>${esc(v)}</option>`).join('');
     sel.value = dirFilter[key];
   };
-  opts($('dirRole'), 'All roles', 'role', profileList.map(x => x.profile?.role));
+  opts($('dirRole'), 'All roles', 'role', profileList.map(x => x.profile?.role), byRole);
   opts($('dirDept'), 'All departments', 'dept', profileList.map(x => x.profile?.department));
   // Qualification (admins, like the Current licences column): the types people hold now
   $('dirQualLabel').hidden = $('dirAccessLabel').hidden = !me?.is_admin;
@@ -958,6 +965,8 @@ function renderDirectory() {
   const compare = {
     name: byName, account: text(signInText), login: (a, b) => (a.last_login || '').localeCompare(b.last_login || ''),  // never = oldest
     flights: (a, b) => t(a).count - t(b).count, hours: (a, b) => t(a).seconds - t(b).seconds, last: (a, b) => t(a).last.localeCompare(t(b).last),
+    role: (a, b) => { const x = profileValue('role', a), y = profileValue('role', b);
+      return x && y ? byRole(x, y) || (dirDesc ? -1 : 1) * byEndDesc(profileOf(a)?.profile, profileOf(b)?.profile) : !x - !y; },
   }[dirSort] || text(u => profileValue(dirSort, u));
   const sorted = rows.sort((a, b) => (dirDesc ? compare(b, a) : compare(a, b)) || byName(a, b));
   dirPage = Math.min(dirPage, Math.max(0, Math.ceil(sorted.length / dirSize) - 1));
@@ -1819,7 +1828,7 @@ function revokePersonKeys(id, keys) {
 const today = () => new Date().toISOString().slice(0, 10);
 const soonDay = () => { const d = new Date(); d.setMonth(d.getMonth() + 3); return d.toISOString().slice(0, 10); };
 async function loadProfileList() {
-  try { profileList = (await adminApi('/api/profiles')).people; } catch (error) { profileList = []; }
+  try { const d = await adminApi('/api/profiles'); profileList = d.people; roleOrder = d.roles || []; } catch (error) { profileList = []; }
   const q = new URLSearchParams(location.search);
   $('supervisionSearch').value = q.get('p_sq') || ''; $('supervisionEnded').checked = q.get('p_ended') === '1';
   render();
@@ -1907,6 +1916,8 @@ function supervisionGroups() {
       groups.get(key).people.push({...x, status});
     }
   }
+  for (const g of groups.values()) g.people.sort((a, b) => byRole(a.profile?.role, b.profile?.role) || byEndDesc(a.profile, b.profile)
+    || a.name.localeCompare(b.name));
   return [...groups.values()].sort((a, b) => (!a.id - !b.id) || a.name.localeCompare(b.name));
 }
 function renderSupervision() {
@@ -1999,12 +2010,13 @@ async function loadProfileOptions() {
 }
 function optionRow(kind, item = {}) {
   const remove = '<td><button type="button" class="danger" aria-label="Remove" onclick="this.closest(\'tr\').remove()">×</button></td>';
-  if (kind === 'role') return `<tr data-id="${item.id || ''}"><td><input name="name" maxlength="120" value="${esc(item.name || '')}"></td>
+  const handle = '<td><button type="button" class="drag-handle" aria-label="Drag to reorder" title="Drag to reorder; Save keeps the order">↕</button></td>';
+  if (kind === 'role') return `<tr data-id="${item.id || ''}">${handle}<td><input name="name" maxlength="120" value="${esc(item.name || '')}"></td>
     <td><input type="checkbox" name="can_supervise"${item.can_supervise ? ' checked' : ''}></td>
     <td><input type="checkbox" name="needs_supervisor"${item.needs_supervisor ? ' checked' : ''}></td>
     <td><input type="number" name="max_years" min="1" max="50" step="1" style="width:4.5em" value="${item.max_years ?? ''}" aria-label="Max years"></td>
     <td><input type="checkbox" name="allow_indefinite"${item.allow_indefinite ?? !item.id ? ' checked' : ''}></td>${remove}</tr>`;
-  return `<tr data-id="${item.id || ''}"><td><input name="name" maxlength="120" value="${esc(item.name || '')}"></td>
+  return `<tr data-id="${item.id || ''}">${handle}<td><input name="name" maxlength="120" value="${esc(item.name || '')}"></td>
     <td><input name="grp" maxlength="120" value="${esc(item.grp || '')}"></td>${remove}</tr>`;
 }
 function addOptionRow(kind) {
@@ -2040,6 +2052,22 @@ async function importDepartments(input) {
   }
   $('profileOptionsStatus').textContent = added ? `${added} added; Save to keep them.` : 'Nothing new in that file.';
 }
+// Roles and departments are dragged by their handle; the order of the rows is what Save stores (sort_order), and roles
+// are sorted in that order everywhere on this page (Role column and filter, Supervision).
+for (const id of ['roleRows', 'deptRows']) {
+  const body = $(id);
+  let dragged = null;
+  body.addEventListener('mousedown', e => { const tr = e.target.closest('.drag-handle')?.closest('tr'); if (tr) tr.draggable = true; });
+  body.addEventListener('dragstart', e => { dragged = e.target.closest('tr'); dragged.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+  body.addEventListener('dragend', () => { if (dragged) { dragged.draggable = false; dragged.classList.remove('dragging'); } dragged = null; });
+  body.addEventListener('dragover', e => {
+    const tr = e.target.closest('tr');
+    if (!dragged || !tr || tr === dragged) return;
+    e.preventDefault();
+    const r = tr.getBoundingClientRect();
+    tr.parentNode.insertBefore(dragged, e.clientY > r.top + r.height / 2 ? tr.nextSibling : tr);
+  });
+}
 async function saveProfileOptions() {
   const rows = id => [...$(id).querySelectorAll('tr')].map(tr => {
     const out = tr.dataset.id ? {id: +tr.dataset.id} : {};
@@ -2051,6 +2079,7 @@ async function saveProfileOptions() {
     await adminApi('/api/admin/profile-options', {method: 'PUT', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({roles: rows('roleRows'), departments: rows('deptRows')})});
     await loadProfileOptions();
+    load();  // roles sort in the new order
     $('profileOptionsStatus').textContent = 'Saved.';
   } catch (error) { $('profileOptionsStatus').textContent = error.message; }
 }

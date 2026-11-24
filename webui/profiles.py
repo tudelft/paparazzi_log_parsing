@@ -583,10 +583,12 @@ def register(app, connection, require_session, now, pages_dir):
     @app.get("/api/profiles")
     def visible_profiles():
         """Profiles for the People Profiles and Supervision tabs: admins everyone, others themselves and the
-        people they supervise (without numbers)."""
+        people they supervise (without numbers). `roles` is the role names in the order of Profile options, which the
+        page sorts roles by (for example Staff first)."""
         signed_in()
         c = con()
-        return jsonify(people=visible_people(c, g.user), admin=bool(g.user["is_admin"]))
+        return jsonify(people=visible_people(c, g.user), admin=bool(g.user["is_admin"]),
+                       roles=[r["name"] for r in c.execute("SELECT name FROM profile_roles ORDER BY sort_order, name")])
 
     @app.post("/api/admin/profiles/import")
     def import_profile_csv():
