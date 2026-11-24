@@ -274,8 +274,8 @@ People **Approval queue** (**Bookings**).
 (insurance, operator registration, operations approval, manuals), one line each in tabs per group; **Search** finds them
 by title, text or file name. The date on a line is its expiry (orange within 60 days) or its release date. Administrators write a text at the
 top (click it, or **Manage ▾** → *Edit text at the top…*) and add documents with **Add document**; **Manage ▾** also adds
-a group. They tick documents for the bar at the bottom: **Edit document…** (also replaces its file), **Move to group…**
-and **Delete…**; a group's heading has **Edit group** and **⋯** → *Delete group…* (only when it is empty). A
+a group. **✎** next to a document opens **Edit document** (details, group, limits, a new file; **Delete…** at the
+end); a group's heading has **Edit group** and **⋯** → *Delete group…* (only when it is empty). A
 document can be only for administrators, for people with one of some current qualifications (for example A1/A3, A2 or STS) or for some profile roles, and can
 have validity dates: outside them only administrators see it, so an old certificate never shows. The tab
 **My qualifications** lists your own approved qualifications that are valid today, with their documents; add or renew

@@ -1890,13 +1890,13 @@ and, for admins, `types` (all, with `active`, so a limit to a type that was deac
 dialog), `profiles` (person profiles on), `roles` (`profile_roles`) and `max_bytes`.
 
 <a id="documents-page"></a>**Documents page** ([UI rule](#ui-rule)). The page reads the same
-for everyone; admins additionally see every group and tab (also empty ones, unless searching) and each document's
-limits in its line. Admins have **Add document** and **Manage ▾** (Add group…, Edit text at the top…, Import ZIP…,
+for everyone; admins additionally see every group and tab (also empty ones, unless searching) and a small 🔒 on a
+limited document (its limits on hover), so the page stays calm to show someone. Admins have **Add document** and **Manage ▾** (Add group…, Edit text at the top…, Import ZIP…,
 Download ZIP manifest template) in the title row; a click on the text at the top opens its dialog too. Every document
-line has a tick box for admins (the line itself still opens the document): the selection bar offers **Edit document…**
-(exactly one ticked; one dialog with every field and an optional replacement file; Save sends the details with
-`PUT /api/admin/documents/<id>` only when one changed, and the file with `POST …/file`), **Move to group…** (a `PUT`
-per ticked document with only `group_id` changed) and **Delete…** (`DELETE` per document, after one confirmation).
+line has **✎** for admins beside the download arrow, shown on hover (on touch screens always; the line itself still opens the document; no tick boxes): it
+opens **Edit document**, one dialog with every field (also the group) and an optional replacement file; Save sends the
+details with `PUT /api/admin/documents/<id>` only when one changed, and the file with `POST …/file`. **Delete…** at the
+end of that dialog asks once and sends `DELETE`.
 A group's heading has **Edit group** and **⋯** → *Delete group…*: for a group that still holds documents the dialog
 only explains how to move or delete them first, since the server refuses (409).
 
