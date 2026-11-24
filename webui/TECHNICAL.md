@@ -1632,7 +1632,7 @@ a disabled account or external crew get nothing. Daily summaries and the reminde
 attempts or at once when the relay refuses the address. Once-only mails (reminders, overlap and parse-error notices)
 are recorded in `mail_sent_keys`, so a reminder comes once per qualification, end date and step. Rows older than 90
 days are deleted, and the body of a sent account mail is cleared because it holds a one-time link. Admins see the
-last 90 days on **Statistics**, **Sent emails** (`GET /api/admin/mail`, `?status=sent|waiting|failed`; a row opens
+last 90 days on **Statistics**, **Sent emails** (`GET /api/admin/mail`, `?status=sent|waiting|failed`; 10 per page with the pager below; a row opens
 the mail). The tables are in `db.LOGBOOK_UNRELATED`.
 
 ### Private licences and qualifications
