@@ -148,7 +148,9 @@
   #personHeading { font-size:20px; margin:0; }
   #personIdentity { color:var(--mute); margin:4px 0 12px; }
   .account-help { margin:10px 0; }
-  .edit-grid input[readonly] { background:var(--bg); color:var(--mute); cursor:default; }  /* from TU Delft */
+  .edit-grid input[readonly] { background:transparent; border-style:dashed; color:var(--mute); cursor:default; }  /* from TU Delft */
+  dialog input[type=search] { -webkit-appearance:none; appearance:none; }  /* text fields made search fields (noAutofill) */
+  dialog input[type=search]::-webkit-search-cancel-button { display:none; }
   .sso-kv { grid-template-columns:minmax(0,14em) minmax(0,1fr); font-size:13px; }
   .sso-kv > span { overflow-wrap:anywhere; } .sso-kv > span.mute { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   table.merge-plan { width:100%; border-collapse:collapse; font-size:13px; }
@@ -1651,9 +1653,11 @@ function paintPersonMore(user) {
 }
 // The Edit dialog: fields, then Save sends what changed; an error stays at its field and keeps the dialog open.
 // Password managers (LastPass, 1Password, Bitwarden, Dashlane) take a Username field for a sign-in form and fill in
-// the administrator's own login; these dialogs edit other people, so they are told to leave the fields alone.
+// the administrator's own login; these dialogs edit other people, so they are told to leave the fields alone. LastPass
+// ignores its own data-lpignore marker, but skips search fields: plain text fields become type=search (same look).
 function noAutofill(root) {
   root.querySelectorAll('input:not([type=checkbox]):not([type=radio]):not([type=hidden])').forEach(input => {
+    if (input.type === 'text') input.type = 'search';
     input.autocomplete = 'off';
     for (const [k, v] of [['data-lpignore', 'true'], ['data-1p-ignore', ''], ['data-bwignore', ''], ['data-form-type', 'other']])
       input.setAttribute(k, v);
