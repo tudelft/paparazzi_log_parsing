@@ -177,7 +177,7 @@
     <div class="fleet-layout" id="fleetLayout">
       <div id="aircraftOverview"><div class="scroll"><table class="fleet"><colgroup id="droneCols"></colgroup><thead id="droneHead"></thead><tbody id="drones"></tbody></table></div>
         <div class="fleet-foot"><span class="mute">Rows per page</span>
-          <select id="size" aria-label="Rows per page"><option>25</option><option selected>50</option><option>100</option><option>200</option></select>
+          <select id="size" aria-label="Rows per page"><option selected>20</option><option>50</option><option>100</option><option>200</option></select>
           <div id="fleetPages" class="navigation-pages"></div></div></div>
       <section id="aircraftPanel" aria-label="Selected aircraft" hidden>
         <div class="panel-header"><h2 id="aircraftHeading"></h2>
@@ -389,7 +389,7 @@ const FLEET_COLUMNS = [
   {label: 'Status', sort: 'status', width: '112px'},
   {label: 'Manager', sort: 'manager', width: '13%'}, {label: 'Project', sort: 'project', width: '16%'},
   {label: 'Comments', width: '16%'}, {label: 'Flights', sort: 'flights', num: true, width: '7%'}, {label: 'Aliases', width: '12%'}];
-let sortKey = 'serial', sortDesc = true, page = 0, pageSize = 50;
+let sortKey = 'serial', sortDesc = true, page = 0, pageSize = 20;
 const tudNumber = d => { const m = /^TUD(\d{5})$/i.exec((d.unique_id || '').trim()); return m ? +m[1] : null; };
 const currentProject = d => { const ps = d.projects || []; const c = ps.find(p => !p.end_date) || ps[ps.length - 1];
   return (c ? c.project_name : d.default_project_name || d.inventory_project) || ''; };
@@ -991,7 +991,7 @@ window.viewState.setup(p => {
   page = window.viewState.integer(p.get('page'), 1) - 1;
   pageTab = ['unlinked', 'shared'].includes(p.get('tab')) ? p.get('tab') : 'fleet';
   $('unlinkedQ').value = p.get('uq') || '';
-  const size = [...$('size').options].some(o => o.value === p.get('size')) ? p.get('size') : '50';
+  const size = [...$('size').options].some(o => o.value === p.get('size')) ? p.get('size') : '20';
   $('size').value = size; pageSize = +size;
   selectedAircraft = window.viewState.integer(p.get('open'), null);
   selectedAircraftTab = ['projects', 'aliases'].includes(p.get('atab')) ? p.get('atab') : 'details';
@@ -1002,7 +1002,7 @@ window.viewState.setup(p => {
   set(p, 'mine', $('mineOnly').checked ? '1' : '');
   set(p, 'discarded', $('showDiscarded').checked ? '1' : ''); set(p, 'without_logs', $('showWithoutLogs').checked ? '1' : '');
   set(p, 'sort', `${sortKey}-${sortDesc ? 'desc' : 'asc'}`, 'serial-desc');
-  set(p, 'page', page + 1, 1); set(p, 'size', pageSize, 50);
+  set(p, 'page', page + 1, 1); set(p, 'size', pageSize, 20);
   set(p, 'tab', pageTab, 'fleet'); set(p, 'uq', $('unlinkedQ').value);
   set(p, 'open', selectedAircraft || ''); set(p, 'atab', selectedAircraft ? selectedAircraftTab : 'details', 'details');
   set(p, 'sname', pageTab === 'shared' ? sharedOpen : '');

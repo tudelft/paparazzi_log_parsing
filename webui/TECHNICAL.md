@@ -1162,7 +1162,7 @@ The Aircraft overview has one line per aircraft: a Serial column first, the curr
 alias with "+N", and long text cut off with the full value on hover. It is sorted by serial, newest TUD number first
 and other serials after by name; the headers sort too. Search, status, filters and sort are kept in the URL; hidden
 columns (Columns menu) are a per-browser preference. It is
-paginated at the bottom like the logbook (50 rows by default; page and rows per page in the URL).
+paginated at the bottom like the logbook (20 rows by default; page and rows per page in the URL).
 Aircraft without uploaded logs or paper records, and people without any log, paper record or approved
 qualification, stay hidden until **Show aircraft without logs** / **Show people without logs or licences**
 is ticked. A person counts as having logs as uploader or as linked PIC/PAC/GCS; the open aircraft or person
