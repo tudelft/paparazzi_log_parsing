@@ -1459,7 +1459,7 @@ Where it shows:
   of each (only projects the viewer may open), and **Edit** for the person;
 - My account: the person's own profile and the people they supervise;
 - People: the profile columns, filters and CSV download of the table ([People page](#people-page)) and the
-  **Supervision** tab (one card per supervisor, external ones by name; its search and Include ended in the URL as
+  **Supervision** tab, right after People (one card per supervisor, external ones by name; its search and Include ended in the URL as
   `p_*`). Admins see everyone; a supervisor sees the people they supervise. Both come from `GET /api/profiles`;
 - People: the person's Details tab, where admins use **Edit person** (profile part: `PUT /api/users/<id>/profile`):
   like the import, they may fill in only what they know (empty fields are allowed, a past end date too), but what is

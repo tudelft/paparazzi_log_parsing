@@ -680,10 +680,10 @@ function dirUrl(push) {
 }
 readPersonUrl(new URLSearchParams(location.search));
 function paintPageTabs(open) {
-  const sections = [['people', 'People', $('peopleCard')], ['unlinked', 'Unlinked crew names', $('unlinkedCard'), open],
+  const sections = [['people', 'People', $('peopleCard')], ['supervision', 'Supervision', $('supervisionSection'), supervisionGroups().length],
+    ['unlinked', 'Unlinked crew names', $('unlinkedCard'), open],
     ['approvals', 'Approval queue', $('approvalSection'), pendingQualifications.filter(s => !aqHeld.has(s.id)).length],
-    ['types', 'Qualification types', $('typesSection')], ['profile-options', 'Profile options', $('profileOptionsSection')],
-    ['supervision', 'Supervision', $('supervisionSection'), supervisionGroups().length]].filter(([, , el]) => el === $('peopleCard') || !el.hidden);
+    ['types', 'Qualification types', $('typesSection')], ['profile-options', 'Profile options', $('profileOptionsSection')]].filter(([, , el]) => el === $('peopleCard') || !el.hidden);
   // a tab that is not there (yet: the data is still loading) shows People, but stays asked for in the URL
   const current = sections.some(t => t[0] === pageTab) ? pageTab : 'people';
   window.pageTabs($('pageTabs'), sections.map(([key, label, , count]) => [key, label, count]), current, key => {
