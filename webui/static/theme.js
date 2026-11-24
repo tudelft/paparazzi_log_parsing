@@ -15,7 +15,7 @@
     // and document cards, off by default, ask for /api/documents only when they are on)
     '/home': training ? ['/api/trainings'] : [],
     '/aircraft': ['/api/drones'], '/documents': ['/api/documents'], '/review': ['/api/review'],
-    '/training': ['/api/trainings'], '/safety': ['/api/safety'], '/logs': ['/api/projects'],
+    '/training': ['/api/trainings'], '/safety': ['/api/safety'], '/safety/emergency': ['/api/safety'], '/logs': ['/api/projects'],
     '/projects': admin ? ['/api/admin/projects', '/api/admin/people'] : ['/api/projects'],
     '/people': admin ? ['/api/admin/people', '/api/admin/qualification-types'] : ['/api/people-directory'],
   }[path] || (/^\/flight\/\d+$/.test(path) ? ['/api/projects', '/api/people'] : []);

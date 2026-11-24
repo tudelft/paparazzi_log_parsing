@@ -2076,7 +2076,16 @@ with the file in a sandboxed `<iframe>`; `/safety/emergency/file` serves the fil
 `Content-Security-Policy` (`safety.EMERGENCY_CSP`: scripts and styles only inline, no network, no outside files, an
 opaque origin without the logbook's session; `tel:` and `mailto:` links work after a click), also when opened on its
 own. The logbook's night mode is passed as `?night=1`; the page follows it only if it reads that parameter (the
-sandbox cannot read the logbook's saved setting), else its own Night button works.
+sandbox cannot read the logbook's saved setting), else its own Night button works. The frame starts loading as the
+page is parsed (not after `/api/me` and `/api/safety`, which `theme.js` starts at once for `/safety/emergency`), is
+shown once `/api/safety` says there is a flowchart, and fills the window below the bar until the page says how tall it
+is. Two optional messages fit it into the logbook; the uploaded page has to send them itself, else it scrolls inside
+the frame: it posts `{type: 'emergency-height', height}` (its content height in CSS pixels, again whenever that
+changes, for example from a `ResizeObserver` on its body; the frame then gets exactly that height, so the logbook
+page scrolls as one instead of a scroll area inside it), and receives
+`{type: 'logbook-night', night}` when the logbook's Night button is used. Only messages from that frame are read and
+only the height is used. A page can tell it is inside the logbook from `window.top !== window.self` (for example to
+leave out its own header).
 
 ## Uploading with a script
 
