@@ -148,7 +148,7 @@
   #personHeading { font-size:20px; margin:0; }
   #personIdentity { color:var(--mute); margin:4px 0 12px; }
   .account-help { margin:10px 0; }
-  .edit-grid input[readonly] { background:transparent; color:var(--mute); cursor:default; }  /* from TU Delft */
+  .edit-grid input[readonly] { background:var(--bg); color:var(--mute); cursor:default; }  /* from TU Delft */
   .sso-kv { grid-template-columns:minmax(0,14em) minmax(0,1fr); font-size:13px; }
   .sso-kv > span { overflow-wrap:anywhere; } .sso-kv > span.mute { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   table.merge-plan { width:100%; border-collapse:collapse; font-size:13px; }
@@ -1689,8 +1689,8 @@ async function openEditPerson(focus) {
   const projects = '<option value="">No default</option>' + people.projects.map(p => `<option value="${p.id}"${p.id === user.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
   editDialog(`Edit account ${name}`, `@${user.username}`, `<div class="edit-grid">
     ${field('username', 'Username', `<input name="username" required maxlength="40" autocomplete="off" value="${esc(user.username)}">`)}
-    ${field('display_name', 'Display name', `<input name="display_name" maxlength="80" value="${esc(user.display_name || '')}"${user.has_sso ? ' readonly title="From TU Delft: it follows their name at every sign-in"' : ''}>`)}
-    ${field('email', 'Email' + (user.email ? '' : ' (optional)'), `<input name="email" type="email" maxlength="120" value="${esc(user.email || '')}"${user.email ? ' required' : ''}${user.has_sso && user.email ? ' readonly title="From TU Delft: it follows their address at every sign-in"' : ''}
+    ${field('display_name', 'Display name' + (user.has_sso ? ' (from TU Delft)' : ''), `<input name="display_name" maxlength="80" value="${esc(user.display_name || '')}"${user.has_sso ? ' readonly title="From TU Delft: it follows their name at every sign-in"' : ''}>`)}
+    ${field('email', 'Email' + (!user.email ? ' (optional)' : user.has_sso ? ' (from TU Delft)' : ''), `<input name="email" type="email" maxlength="120" value="${esc(user.email || '')}"${user.email ? ' required' : ''}${user.has_sso && user.email ? ' readonly title="From TU Delft: it follows their address at every sign-in"' : ''}
       ${user.email ? '' : 'title="Accounts made before email became required may have none; once set it can be changed, not removed"'}>`)}
     ${field('default_project', 'Default project', `<select name="default_project">${projects}</select>`)}
     ${field('operator', 'Flies for', `<select name="operator" title="Their flights are under this operator unless the flight, its project or its location says otherwise">${operatorOptions(user.operator_id)}</select>`)}
