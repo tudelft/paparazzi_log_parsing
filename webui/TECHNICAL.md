@@ -1056,7 +1056,11 @@ own admin rights. Refused: your own account as the one removed, internal with ex
 and removing the last administrator. **Move TU Delft sign-in…** (`POST /api/admin/users/<id>/sso-move`, `to` or a
 new `username`) puts the ID on another account without one, or on a new account, so the next login goes there; the
 old account stays a local account (its password, if any, still works) and can hand over its email/display name.
-Both are recorded in `qualification_audit` (`account_merged`, `sso_moved`).
+**Remove TU Delft sign-in…** (`DELETE /api/admin/users/<id>/sso`) drops the ID and the saved TU Delft data without
+another account: the account keeps everything else and becomes a local one (name and email editable; *Set password…*
+gives it a normal login). Not for the last administrator's only way to sign in. A later TU Delft sign-in with the same
+email links the account again, so change the email when that should not happen.
+All are recorded in `qualification_audit` (`account_merged`, `sso_moved`, `sso_removed`).
 
 ### Tests
 
@@ -1179,7 +1183,7 @@ Qualifications, API keys and Aliases. The Edit button in the panel header follow
 `POST`/`DELETE /api/admin/aliases` for the differences). A click on a value opens the matching dialog at that field;
 Save sends only what changed. Qualifications keep their own
 per-item actions and Add qualification; API keys use the selection bar. ⋯ (admins):
-Set/Reset password…, Remove password…, Move TU Delft sign-in…, Merge into…, Remove user…. Admins have **Add user** and
+Set/Reset password…, Remove password…, Move TU Delft sign-in…, Remove TU Delft sign-in…, Merge into…, Remove user…. Admins have **Add user** and
 **Manage ▾** (Import profiles (CSV)…, Import qualifications (ZIP)… and its template, Fill numbers from PDFs…, Check QR
 codes…), and always the tabs Unlinked crew names (when any; tick names, then **Link to
 person…** or **Add as external…**), Approval queue, Qualification types (a click on a type edits it, the handle

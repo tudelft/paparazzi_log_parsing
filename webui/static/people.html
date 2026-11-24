@@ -1634,7 +1634,7 @@ function renderPersonPanel() {
       <p>The username is only the local sign-in name, not an automatic log match. Unique display names and explicit aliases match logs. Previous unambiguous display names remain aliases; username changes do not add aliases. Existing records and SSO links stay attached.</p>
       <p>Active means an enabled TU Delft SSO account or a local account with a password. It does not describe recent activity or qualifications. Local accounts without a password cannot sign in until a password is set.</p>
       <p>Administrators have access to all projects, accounts and private qualification evidence. External people are crew of another operator: flights stay linked, but they cannot sign in or access projects.</p>
-      <p>⋯ has the rare actions: set or reset the password, remove it, move a TU Delft sign-in matched to the wrong person, merge two accounts of one person (flights, records, uploads, projects, qualifications and API keys move to the account you keep; this account's names become aliases) and remove the person (uploaded logs are kept). Merges and moves are recorded in the audit log.</p></details>`;
+      <p>⋯ has the rare actions: set or reset the password, remove it, move a TU Delft sign-in matched to the wrong person or remove it (the account becomes a local one), merge two accounts of one person (flights, records, uploads, projects, qualifications and API keys move to the account you keep; this account's names become aliases) and remove the person (uploaded logs are kept). Merges and moves are recorded in the audit log.</p></details>`;
   }
 }
 // ⋯ of the open person (administrators): password, sign-in, merge and remove.
@@ -1645,6 +1645,7 @@ function paintPersonMore(user) {
     if (!user.is_external && ['local', 'log'].includes(user.provider)) items.push([`newSetupLink(${id})`, user.has_password ? 'Reset password…' : 'Set password…']);
     if (user.provider === 'local' && user.has_password) items.push([`removePassword(${id})`, 'Remove password…', true]);
     if (user.has_sso) items.push([`openSsoMove(${id})`, 'Move TU Delft sign-in…']);
+    if (user.has_sso) items.push([`removeSso(${id})`, 'Remove TU Delft sign-in…', true]);
     if (id !== me.id) items.push([`openMerge(${id})`, 'Merge into…'], [`removeUser(${id})`, 'Remove user…', true]);
   }
   $('moreMenu').innerHTML = items.map(([run, label, danger]) =>
@@ -2283,6 +2284,15 @@ function removePassword(id) {
       if (!await call('DELETE', '/api/admin/users/' + id + '/password', null, out)) return false;
       $('setupBox').hidden = true;
       $('setupUrl').value = '';
+      await load();
+      return true;
+    });
+}
+function removeSso(id) {
+  const u = people.users.find(x => x.id === id);
+  actDialog('Remove TU Delft sign-in', `<p style="margin:0">Remove the TU Delft sign-in of <b>${esc(u ? (u.display_name || u.username) : 'this user')}</b>? The account and everything linked to it stay; it becomes a local account whose name and email can be edited. Use Set password… for a normal login. The saved TU Delft data is removed. A later TU Delft sign-in with the same email address links this account again, so change the email if that should not happen. Existing sessions and API keys are not revoked.</p>`,
+    'Remove TU Delft sign-in', async out => {
+      if (!await call('DELETE', '/api/admin/users/' + id + '/sso', null, out)) return false;
       await load();
       return true;
     });
