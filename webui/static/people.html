@@ -1665,14 +1665,30 @@ function noAutofill(root) {
 }
 ['addUser', 'editForm', 'actForm'].forEach(id => $(id) && noAutofill($(id)));
 document.querySelectorAll('dialog form.dialog-fields').forEach(noAutofill);
+// LastPass still fills in the administrator's own username (it goes by the label, whatever the markers and type).
+// What a person types or pastes is a trusted input event, a password manager's fill is not: a field nobody typed in
+// goes back to the value the dialog opened with (its value attribute), on screen and before Save.
+let autofillTimer = 0;
+function undoAutofill(root) {
+  const fields = [...root.querySelectorAll('input[type=search], input[type=email], input[type=text]')];
+  fields.forEach(input => input.addEventListener('input', event => { if (event.isTrusted) input.dataset.typed = '1'; }));
+  const undo = () => fields.forEach(input => {
+    if (!input.dataset.typed && input.value !== input.defaultValue) input.value = input.defaultValue;
+  });
+  clearInterval(autofillTimer);
+  autofillTimer = setInterval(() => { if ($('editDialog').open) undo(); else clearInterval(autofillTimer); }, 200);
+  return undo;
+}
 function editDialog(title, what, fields, save, focus) {
   $('editTitle').textContent = title;
   $('editWhat').textContent = what;
   $('editFields').innerHTML = fields;
   noAutofill($('editFields'));
+  const undo = undoAutofill($('editFields'));
   $('editError').textContent = '';
   $('editForm').onsubmit = async event => {
     event.preventDefault();
+    undo();
     $('editFields').querySelectorAll('[data-error]').forEach(el => { el.textContent = ''; });
     $('editError').textContent = '';
     $('editSave').disabled = true;
