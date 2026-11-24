@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_external INTEGER NOT NULL DEFAULT 0 CHECK(is_external IN (0,1)),  -- crew from another operator; cannot sign in
     operator_id INTEGER,               -- operators.id this person flies for (external crew); NULL = our own
     home_place_id INTEGER REFERENCES places(id) ON DELETE SET NULL,  -- Home page weather; NULL: most-flown place
+    home_cards TEXT,                                -- Home page cards (JSON {order, off}, app.py); NULL: the default
     UNIQUE (provider, subject)
 );
 CREATE TABLE IF NOT EXISTS logs (
@@ -902,6 +903,8 @@ def init(path):
         con.execute("ALTER TABLE users ADD COLUMN default_project_id INTEGER")
     if "home_place_id" not in ucols:  # the place of the Home page's weather; NULL: the most-flown outdoor place
         con.execute("ALTER TABLE users ADD COLUMN home_place_id INTEGER REFERENCES places(id) ON DELETE SET NULL")
+    if "home_cards" not in ucols:  # the cards on the Home page, chosen with Customize; NULL: the default
+        con.execute("ALTER TABLE users ADD COLUMN home_cards TEXT")
     fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
     for col in ("pic_user_id", "pac_user_id", "gcs_user_id"):
         if col not in fcols:
@@ -1081,7 +1084,7 @@ LOGBOOK_UNRELATED = {
     "mail_outbox", "mail_prefs", "mail_sent_keys",
     "profile_roles", "profile_departments", "user_profiles", "user_supervisors", "logbook_version",
 }
-LOGBOOK_UNRELATED_COLUMNS = {"users": {"last_login"}}
+LOGBOOK_UNRELATED_COLUMNS = {"users": {"last_login", "home_cards"}}
 
 
 def logbook_version_triggers(con):

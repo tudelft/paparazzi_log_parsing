@@ -5908,10 +5908,13 @@ def home_data():
             "SELECT p.name FROM projects p JOIN project_members m ON m.project_id=p.id WHERE m.user_id=?"
             " ORDER BY p.name COLLATE NOCASE", (g.user["id"],))],
         flying=home.flying(rows, g.user["id"], today),
+        all_flying=home.flying(rows, None, today),
         recent=home.recent(rows),
         media=home.media(con, g.user, attachments.visible),
         messages=welcome.home_messages(con, g.user),
         qualifications=home.qualification_alerts(con, g.user["id"], today),
+        aircraft=home.my_aircraft(con, rows, g.user["id"]),
+        cards=home_cards(con),
         logs=dict(undated=undated, failed=failed),
         review=len(review_queue().get_json()["cases"]),
         bookings=dict(enabled=on, upcoming=home.upcoming_bookings(con, g.user, now_local) if on else [],
@@ -5941,6 +5944,45 @@ def home_weather():
         return jsonify(error=str(exc)), exc.status
     except (KeyError, IndexError, TypeError, ValueError):
         return jsonify(error="The place has no usable position."), 400
+
+
+# The cards of the Home page that each user may show, hide and order (Customize); the notices and Needs your attention
+# stay at the top for everyone. Off by default: documents (recently updated).
+HOME_CARDS = ("flying", "all_flying", "coming", "weather", "recent", "media", "qualifications", "training", "aircraft", "documents")
+HOME_CARDS_OFF = ("documents",)
+
+
+def home_cards(con):
+    """The user's Home cards: {order, off}; the default when none is saved. Cards added later are appended."""
+    raw = con.execute("SELECT home_cards FROM users WHERE id=?", (g.user["id"],)).fetchone()[0]
+    try:
+        saved = json.loads(raw) if raw else None
+    except ValueError:
+        saved = None
+    if not isinstance(saved, dict):
+        return dict(order=list(HOME_CARDS), off=list(HOME_CARDS_OFF), saved=False)
+    order = [c for c in saved.get("order") or [] if c in HOME_CARDS]
+    order += [c for c in HOME_CARDS if c not in order]
+    return dict(order=order, off=[c for c in saved.get("off") or [] if c in HOME_CARDS], saved=True)
+
+
+@app.put("/api/home/cards")
+def set_home_cards():
+    """Save the current user's Home cards ({order, off}); {"default": true} goes back to the default."""
+    session_required()
+    body = request.get_json(silent=True) or {}
+    con = conn()
+    if body.get("default"):
+        value = None
+    else:
+        order, off = body.get("order"), body.get("off")
+        if not (isinstance(order, list) and isinstance(off, list) and all(c in HOME_CARDS for c in order + off)
+                and len(set(order)) == len(order)):
+            return jsonify(error="Unknown Home cards."), 400
+        value = json.dumps(dict(order=order, off=sorted(set(off))))
+    con.execute("UPDATE users SET home_cards=? WHERE id=?", (value, g.user["id"]))
+    con.commit()
+    return jsonify(ok=True, cards=home_cards(con))
 
 
 @app.put("/api/account/home")

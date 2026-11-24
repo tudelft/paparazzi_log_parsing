@@ -1070,8 +1070,17 @@ App tests use temporary storage and in-memory databases, without starting ingest
 Logbook for the Operations Manual, and a signed-out visit to `/` returns there after signing in (`next=/`). The menu
 lists **Home** first and the site logo links to it. The page reads `GET /api/home`, built only from what the user
 can already see: the logbook read model (flights and paper records), visible attachments (`attachments.visible`),
-their own qualifications, logs and bookings. Trainings (`/api/trainings`) and, for admins, the approval queue
-(`/api/admin/qualification-pending`) come from their own endpoints. Empty cards are hidden.
+their own qualifications, logs and bookings. Trainings (`/api/trainings`), the user's qualifications and documents
+(`/api/documents`) and, for admins, the approval queue (`/api/admin/qualification-pending`) come from their own
+endpoints; `theme.js` starts `/api/trainings` and `/api/documents` next to `/api/home` (when those features are on, as
+last seen in the browser), and the page asks for each once. Empty cards are hidden.
+
+**Cards and Customize.** The messages and Needs your attention are always at the top. The other cards (`HOME_CARDS` in
+`app.py`) come in the user's order: **Customize** (next to the greeting, for everyone) ticks and drags them and saves
+`{order, off}` in `users.home_cards` (`PUT /api/home/cards`; `{"default": true}` clears it; `/api/home` returns
+`cards`, with cards added in a later release appended). Documents is off by default. `layout()` packs the shown cards
+into rows of 12 columns (small a third, Recent flights and Latest media half; on a tablet small half, wide whole) and
+stretches each row to the full width, so a card without content leaves no gap; on a phone each card is full width.
 
 - **Needs your attention:** expired training passes; own approved qualification types (not internal ones) whose newest
   validity ends within 30 days or ended at most 60 days ago; own uploads that failed or have no date; open review cases;
@@ -1079,6 +1088,14 @@ their own qualifications, logs and bookings. Trainings (`/api/trainings`) and, f
 - **Your flying:** real flights (no detected simulation, not judged ground/uncertain) where the user is PIC, including
   paper records (their flight count and time): days since the last one, flights in 90 days, flights and time this year
   (UTC dates) and flights per month for 12 months.
+- **All flying:** the same for every real flight the user can see (their projects; admins all), with the number of
+  pilots (PIC) in the last 90 days (`all_flying`).
+- **Your qualifications:** the user's current approved qualifications (as Documents → My qualifications), the one that
+  ends first on top, orange within 60 days.
+- **Training:** active trainings: to do, waiting for approval, expiring within 60 days, then the latest passes.
+- **Your aircraft:** the aircraft the user is the responsible person of, then the ones they flew as PIC most recently
+  (at most 5 in all), with status and the day last flown (`aircraft`, `home.my_aircraft`).
+- **Documents** (off by default): the 5 newest documents the user may see.
 - **Coming up:** everyone's bookings in the next 14 days on the items the user can view, as the agenda shows them (at
   most 10, `bookings.upcoming_all`, with who booked), or with **Only mine** (`?coming=mine`) only the user's own (at most 5,
   `bookings.upcoming`), when `LOGDB_BOOKINGS` is on; the list scrolls inside the card, which is no taller than
