@@ -1131,22 +1131,60 @@ def login_saml_identity(ident):
     elif row["is_external"]:
         return None, "external people cannot sign in"
     else:
-        if ident.get("display_name") and not row["display_name"]:
-            con.execute("UPDATE users SET display_name=? WHERE id=?", (ident["display_name"], row["id"]))
-        if email and not row["email"]:
-            con.execute("UPDATE users SET email=? WHERE id=?", (email, row["id"]))
-        if not row["subject"]:
+        sync_saml_display_name(con, row, ident.get("display_name"))
+        # the email follows TU Delft's too, unless another account already has that address
+        if email and email.casefold() != (row["email"] or "").casefold():
+            if con.execute("SELECT 1 FROM users WHERE email=? COLLATE NOCASE AND id!=?", (email, row["id"])).fetchone():
+                app.logger.warning("TU Delft email of user %s not taken: another account has it", row["id"])
+            else:
+                con.execute("UPDATE users SET email=? WHERE id=?", (email, row["id"]))
+        # a stored transient NameID (SimpleSAMLphp: "_" + hex) never comes back: replace it with the stable id
+        if not row["subject"] or (row["subject"].startswith("_") and row["subject"] != subject):
             prov = row["provider"] or ""
             if prov in ("", "log", "saml"):
                 prov = "saml"
             con.execute("UPDATE users SET subject=?, provider=? WHERE id=?", (subject, prov, row["id"]))
         row = con.execute("SELECT * FROM users WHERE id=?", (row["id"],)).fetchone()
-    con.execute("UPDATE users SET last_login=? WHERE id=?", (now(), row["id"]))
+    stamp = now()
+    sent = json.dumps(ident.get("attributes") or {}, ensure_ascii=False, sort_keys=True)
+    con.execute("UPDATE users SET last_login=?, saml_attributes=?, saml_attributes_at=? WHERE id=?",
+                (stamp, sent if len(sent) <= SAML_ATTRIBUTES_MAX else None, stamp, row["id"]))
     con.commit()
     session.clear()
     session.permanent = True
     session["uid"] = row["id"]
     return row, None
+
+
+SSO_EMAIL_LOCKED = "The email comes from TU Delft (it follows their address at every sign-in)."
+
+
+def sso_email_locked(user, email):
+    """With a TU Delft sign-in the email follows TU Delft's, so Edit account only fills it in while there is none."""
+    return bool(user["subject"] and user["email"] and email.casefold() != user["email"].casefold())
+
+
+SAML_ATTRIBUTES_MAX = 64 * 1024  # a normal sign-in sends about 1 kB; more is not kept
+
+
+def sync_saml_display_name(con, row, name):
+    """The display name follows TU Delft's at every sign-in. As with Edit account, the old name stays a log alias
+    (unless another person has it as display name), and nothing changes while the new name is another person's
+    log alias."""
+    name = (name or "").strip()[:80]
+    old = row["display_name"]
+    if not name or name == old:
+        return
+    alias = con.execute("SELECT user_id FROM user_aliases WHERE alias=?", (name,)).fetchone()
+    if alias and alias["user_id"] != row["id"]:
+        app.logger.warning("TU Delft name %r of user %s not taken: it is another person's log alias", name, row["id"])
+        return
+    if old and not con.execute("SELECT 1 FROM users WHERE id!=? AND display_name=? COLLATE NOCASE",
+                               (row["id"], old.strip())).fetchone() \
+            and not con.execute("SELECT 1 FROM user_aliases WHERE alias=?", (old,)).fetchone():
+        con.execute("INSERT INTO user_aliases(user_id,alias) VALUES (?,?)", (row["id"], old))
+    con.execute("UPDATE users SET display_name=? WHERE id=?", (name, row["id"]))
+    assign_open_flights(con)
 
 
 @app.get("/login/tudelft")
@@ -4947,7 +4985,7 @@ def admin_rename_user(user_id):
     con = conn()
     with db.write_lock, con:
         con.execute("BEGIN IMMEDIATE")
-        user = con.execute("SELECT username,display_name,default_project_id,email FROM users WHERE id=?",
+        user = con.execute("SELECT username,display_name,default_project_id,email,subject FROM users WHERE id=?",
                            (user_id,)).fetchone()
         if user is None:
             return jsonify(error="no such user"), 404
@@ -4957,6 +4995,8 @@ def admin_rename_user(user_id):
                 return jsonify(error="enter a valid email address"), 400
             if not email and user["email"]:
                 return jsonify(error=EMAIL_REQUIRED), 400
+            if sso_email_locked(user, email):
+                return jsonify(error=SSO_EMAIL_LOCKED), 400
             if email and con.execute("SELECT 1 FROM users WHERE email=? COLLATE NOCASE AND id!=?",
                                      (email, user_id)).fetchone():
                 return jsonify(error="that email address is already used"), 409
@@ -4967,6 +5007,8 @@ def admin_rename_user(user_id):
                 return jsonify(error="no such project"), 404
         if con.execute("SELECT 1 FROM users WHERE username=? AND id!=?", (username, user_id)).fetchone():
             return jsonify(error="that username already exists"), 409
+        if profile and user["subject"] and display_name != user["display_name"]:
+            return jsonify(error="The display name comes from TU Delft (it follows their name at every sign-in)."), 400
         old_display = user["display_name"] if profile and display_name != user["display_name"] else None
         if old_display and any(
                 r["display_name"].strip().casefold() == old_display.strip().casefold()
@@ -4998,13 +5040,15 @@ def admin_update_user(user_id):
     session_required()  # changes the email address that setup links and SSO matching use
     body = request.get_json(silent=True) or {}
     con = conn()
-    user = con.execute("SELECT email FROM users WHERE id=?", (user_id,)).fetchone()
+    user = con.execute("SELECT email, subject FROM users WHERE id=?", (user_id,)).fetchone()
     if user is None:
         return jsonify(error="no such user"), 404
     if "email" in body:
         email = clean_email(body.get("email"))
         if email is None:
             return jsonify(error="enter a valid email address"), 400
+        if sso_email_locked(user, email):
+            return jsonify(error=SSO_EMAIL_LOCKED), 400
         if not email and user["email"]:
             return jsonify(error=EMAIL_REQUIRED), 400
         if con.execute("SELECT 1 FROM users WHERE email=? COLLATE NOCASE AND id!=?", (email, user_id)).fetchone():
@@ -5192,7 +5236,10 @@ def merge_accounts(con, plan):
         con.execute("INSERT OR IGNORE INTO user_aliases (user_id, alias) VALUES (?,?)", (target_id, alias))
     password = dst["password_hash"] or src["password_hash"]
     subject = dst["subject"] or src["subject"]
+    sso_from = dst if dst["subject"] else src  # the attributes belong to the TU Delft sign-in that is kept
     con.execute("UPDATE users SET subject=NULL WHERE id=?", (source_id,))  # (provider, subject) is unique
+    con.execute("UPDATE users SET saml_attributes=?, saml_attributes_at=? WHERE id=?",
+                (sso_from["saml_attributes"], sso_from["saml_attributes_at"], target_id))
     con.execute(
         "UPDATE users SET password_hash=?, subject=?, provider=?, email=COALESCE(email, ?),"
         " display_name=COALESCE(display_name, ?), default_project_id=COALESCE(default_project_id, ?),"
@@ -5275,7 +5322,10 @@ def admin_move_sso(user_id):
             con.execute("UPDATE users SET subject=?, provider=?, email=COALESCE(email, ?),"
                         " display_name=COALESCE(display_name, ?) WHERE id=?",
                         (src["subject"], "local" if dst["password_hash"] else "saml", email, name, target_id))
-        con.execute("UPDATE users SET provider='local', email=CASE WHEN ? THEN NULL ELSE email END,"
+        con.execute("UPDATE users SET saml_attributes=?, saml_attributes_at=? WHERE id=?",
+                    (src["saml_attributes"], src["saml_attributes_at"], target_id))
+        con.execute("UPDATE users SET provider='local', saml_attributes=NULL, saml_attributes_at=NULL,"
+                    " email=CASE WHEN ? THEN NULL ELSE email END,"
                     " display_name=CASE WHEN ? THEN NULL ELSE display_name END WHERE id=?",
                     (bool(body.get("clear_email")), bool(body.get("clear_display_name")), user_id))
         qualifications.audit(con, target_id, g.user["id"], "sso_moved", {
@@ -5353,6 +5403,17 @@ def admin_set_admin(user_id):
         if enabled and not user["is_admin"]:
             notify_new_admin(con, user_id, g.user)
     return jsonify(ok=True)
+
+
+@app.get("/api/admin/users/<int:user_id>/sso")
+def admin_user_sso(user_id):
+    """Everything TU Delft sent at the person's last SSO sign-in (administrators only; see login_saml_identity)."""
+    admin_required()
+    row = conn().execute("SELECT saml_attributes, saml_attributes_at FROM users WHERE id=?", (user_id,)).fetchone()
+    if row is None:
+        return jsonify(error="no such user"), 404
+    return jsonify(attributes=json.loads(row["saml_attributes"]) if row["saml_attributes"] else None,
+                   received_at=row["saml_attributes_at"])
 
 
 @app.get("/api/admin/users/<int:user_id>/keys")

@@ -148,6 +148,9 @@
   #personHeading { font-size:20px; margin:0; }
   #personIdentity { color:var(--mute); margin:4px 0 12px; }
   .account-help { margin:10px 0; }
+  .edit-grid input[readonly] { background:var(--bg); color:var(--mute); cursor:default; }  /* from TU Delft */
+  .sso-kv { grid-template-columns:minmax(0,14em) minmax(0,1fr); font-size:13px; }
+  .sso-kv > span { overflow-wrap:anywhere; } .sso-kv > span.mute { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   table.merge-plan { width:100%; border-collapse:collapse; font-size:13px; }
   table.merge-plan td { padding:3px 4px; border-bottom:1px solid var(--line); }
   table.merge-plan td:last-child { text-align:right; }
@@ -1623,7 +1626,9 @@ function renderPersonPanel() {
       ${user.is_external ? '' : plainRow('Password', user.provider === 'saml' ? 'Managed by identity provider' : user.has_password ? 'Chosen' : 'Not set')}
       ${user.has_sso && user.provider !== 'saml' ? plainRow('TU Delft sign-in', 'Linked') : ''}
       </div>
+      ${user.has_sso ? `<details class="account-help" id="ssoData" ontoggle="if (this.open) loadPersonSso(${user.id}, ${generation})"><summary>TU Delft SSO data</summary><div id="ssoDataBody" role="status">Loading...</div></details>` : ''}
       <details class="account-help"><summary>Help</summary>
+      <p>With a TU Delft sign-in, the display name and email follow TU Delft's at every sign-in (the old name stays an alias) and cannot be edited here. TU Delft SSO data lists everything TU Delft sent at the last sign-in.</p>
       <p>The username is only the local sign-in name, not an automatic log match. Unique display names and explicit aliases match logs. Previous unambiguous display names remain aliases; username changes do not add aliases. Existing records and SSO links stay attached.</p>
       <p>Active means an enabled TU Delft SSO account or a local account with a password. It does not describe recent activity or qualifications. Local accounts without a password cannot sign in until a password is set.</p>
       <p>Administrators have access to all projects, accounts and private qualification evidence. External people are crew of another operator: flights stay linked, but they cannot sign in or access projects.</p>
@@ -1684,8 +1689,8 @@ async function openEditPerson(focus) {
   const projects = '<option value="">No default</option>' + people.projects.map(p => `<option value="${p.id}"${p.id === user.default_project_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
   editDialog(`Edit account ${name}`, `@${user.username}`, `<div class="edit-grid">
     ${field('username', 'Username', `<input name="username" required maxlength="40" autocomplete="off" value="${esc(user.username)}">`)}
-    ${field('display_name', 'Display name', `<input name="display_name" maxlength="80" value="${esc(user.display_name || '')}">`)}
-    ${field('email', 'Email' + (user.email ? '' : ' (optional)'), `<input name="email" type="email" maxlength="120" value="${esc(user.email || '')}"${user.email ? ' required' : ''}
+    ${field('display_name', 'Display name' + (user.has_sso ? ' (from TU Delft)' : ''), `<input name="display_name" maxlength="80" value="${esc(user.display_name || '')}"${user.has_sso ? ' readonly title="From TU Delft: it follows their name at every sign-in"' : ''}>`)}
+    ${field('email', 'Email' + (!user.email ? ' (optional)' : user.has_sso ? ' (from TU Delft)' : ''), `<input name="email" type="email" maxlength="120" value="${esc(user.email || '')}"${user.email ? ' required' : ''}${user.has_sso && user.email ? ' readonly title="From TU Delft: it follows their address at every sign-in"' : ''}
       ${user.email ? '' : 'title="Accounts made before email became required may have none; once set it can be changed, not removed"'}>`)}
     ${field('default_project', 'Default project', `<select name="default_project">${projects}</select>`)}
     ${field('operator', 'Flies for', `<select name="operator" title="Their flights are under this operator unless the flight, its project or its location says otherwise">${operatorOptions(user.operator_id)}</select>`)}
@@ -1756,6 +1761,20 @@ function editAliases(user, name) {
 }
 
 const keyTicks = new Set();
+// Everything TU Delft sent at the person's last sign-in (administrators; GET /api/admin/users/<id>/sso).
+async function loadPersonSso(id, generation) {
+  const body = $('ssoDataBody');
+  try {
+    const d = await adminApi(`/api/admin/users/${id}/sso`);
+    if (generation !== panelGeneration) return;
+    const when = d.received_at ? esc(d.received_at.replace('T', ' ').replace('Z', ' UTC')) : '';
+    body.innerHTML = !d.attributes ? '<p class="mute">Nothing yet: saved from the next TU Delft sign-in.</p>'
+      : `<p class="mute">Received ${when}</p><div class="kv sso-kv">${Object.entries(d.attributes).map(([name, values]) =>
+          `<span class="mute" title="${esc(name)}">${esc(name)}</span><span>${values.map(esc).join('<br>') || '<span class="mute">empty</span>'}</span>`).join('')}</div>`;
+  } catch (error) {
+    if (generation === panelGeneration) body.textContent = error.message;
+  }
+}
 async function loadPersonKeys(id, generation) {
   try {
     const keys = await adminApi(`/api/admin/users/${id}/keys`);

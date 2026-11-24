@@ -45,7 +45,8 @@ class SamlAttributeTests(unittest.TestCase):
                 auth = SimpleNamespace(get_attributes=lambda: attrs, get_nameid=lambda: "stable-subject")
                 self.assertEqual(saml.identity_from_auth(auth), {
                     "subject": "stable-subject", "username": "examplepilot",
-                    "display_name": "Example Pilot", "email": "pilot@example.test"})
+                    "display_name": "Example Pilot", "email": "pilot@example.test",
+                    "attributes": {"NameID": ["stable-subject"], **attrs}})
 
 
 class PeopleDirectoryTests(AppTests):
@@ -279,6 +280,14 @@ class PeopleDirectoryTests(AppTests):
         self.assertEqual(users[2]["aliases"], ["<crew>", "Pilot alias"])
 
 
+    def test_transient_nameid_uses_the_netid(self):
+        attrs = {"uid": ["examplepilot"], "displayName": ["Example van Pilot"], "mail": ["E.Pilot@example.test"]}
+        auth = SimpleNamespace(get_attributes=lambda: attrs, get_nameid=lambda: "_98c2c1",
+                               get_nameid_format=lambda: "urn:oasis:names:tc:SAML:2.0:nameid-format:transient")
+        ident = saml.identity_from_auth(auth)
+        self.assertEqual((ident["subject"], ident["display_name"]), ("examplepilot", "Example van Pilot"))
+
+
 class UsernameTests(AppTests):
     def test_log_matching_uses_unique_display_names_and_explicit_aliases(self):
         self.con.execute("UPDATE users SET username='piet',display_name='Piet ter Baas' WHERE id=2")
@@ -385,6 +394,58 @@ class UsernameTests(AppTests):
         response = self.client.put("/api/admin/users/2/username", json={"username": "forbidden"},
                                    headers={"Authorization": "Bearer logdb_rename-test"})
         self.assertEqual(response.status_code, 403)
+
+    def test_sso_sign_in_keeps_everything_sent_for_admins_and_takes_the_name(self):
+        self.con.execute("UPDATE users SET provider='saml',subject='test-subject',display_name='Old Name' WHERE id=2")
+        self.con.commit()
+        sent = {"NameID": ["test-subject"], "displayName": ["New Name"], "givenName": ["New"],
+                "eduPersonAffiliation": ["student", "member"]}
+        with self.app.test_request_context():
+            user, error = self.ns["login_saml_identity"](
+                dict(subject="test-subject", username="pic", display_name="New Name", attributes=sent))
+        self.assertIsNone(error)
+        self.assertEqual(user["display_name"], "New Name")  # TU Delft's name at every sign-in
+        self.assertEqual(self.con.execute("SELECT alias FROM user_aliases WHERE user_id=2").fetchone()[0], "Old Name")
+        self.sign_in(2)
+        self.assertEqual(self.client.get("/api/admin/users/2/sso").status_code, 403)  # administrators only
+        self.sign_in(1)
+        d = self.client.get("/api/admin/users/2/sso").json
+        self.assertEqual(d["attributes"], sent)
+        self.assertTrue(d["received_at"])
+        self.assertIsNone(self.client.get("/api/admin/users/3/sso").json["attributes"])
+        # the name comes from TU Delft: Edit account cannot change it (other fields still save)
+        body = dict(username="pic", display_name="Admin Choice", email=None, default_project_id=None)
+        self.assertEqual(self.client.put("/api/admin/users/2/profile", json=body).status_code, 400)
+        body["display_name"] = "New Name"
+        self.assertEqual(self.client.put("/api/admin/users/2/profile", json=body).status_code, 200)
+        # the email follows TU Delft's at every sign-in, and is then locked in Edit account too
+        with self.app.test_request_context():
+            user, _ = self.ns["login_saml_identity"](dict(subject="test-subject", email="new@example.test"))
+        self.assertEqual(user["email"], "new@example.test")
+        body["email"] = "other@example.test"
+        self.assertEqual(self.client.put("/api/admin/users/2/profile", json=body).status_code, 400)
+        self.assertEqual(self.client.put("/api/admin/users/2", json={"email": "other@example.test"}).status_code, 400)
+        self.con.execute("UPDATE users SET email='taken@example.test' WHERE id=3")
+        self.con.commit()
+        with self.app.test_request_context():  # another account's address is not taken
+            user, _ = self.ns["login_saml_identity"](dict(subject="test-subject", email="taken@example.test"))
+        self.assertEqual(user["email"], "new@example.test")
+        # a name that is another person's log alias is not taken
+        self.con.execute("INSERT INTO user_aliases(user_id,alias) VALUES(3,'Taken Name')")
+        self.con.commit()
+        with self.app.test_request_context():
+            user, _ = self.ns["login_saml_identity"](dict(subject="test-subject", display_name="Taken Name"))
+        self.assertEqual(user["display_name"], "New Name")
+
+    def test_old_transient_subject_is_replaced_by_the_netid(self):
+        self.con.execute("UPDATE users SET provider='saml',subject='_0ld',email='pilot@example.test' WHERE id=2")
+        self.con.commit()
+        with self.app.test_request_context():
+            user, error = self.ns["login_saml_identity"](dict(subject="pilotnetid", email="Pilot@example.test"))
+        self.assertEqual((user["id"], user["subject"], error), (2, "pilotnetid", None))
+        with self.app.test_request_context():  # found by the NetID from now on, even with another address
+            user, _ = self.ns["login_saml_identity"](dict(subject="pilotnetid", email="new@example.test"))
+        self.assertEqual((user["id"], user["email"]), (2, "new@example.test"))
 
     def test_sso_rename_preserves_subject(self):
         self.con.execute("UPDATE users SET provider='saml',subject='test-subject' WHERE id=2")
