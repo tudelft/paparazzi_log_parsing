@@ -5947,40 +5947,59 @@ def home_weather():
 
 
 # The cards of the Home page that each user may show, hide and order (Customize); the notices and Needs your attention
-# stay at the top for everyone. Off by default: documents (recently updated).
-HOME_CARDS = ("flying", "all_flying", "coming", "weather", "recent", "media", "qualifications", "training", "aircraft", "documents")
-HOME_CARDS_OFF = ("documents",)
+# stay at the top for everyone. By default only the original cards are on (Flying, Coming up, Today, Recent flights,
+# Latest media); the others are added with Customize. Flying and Coming up each have an Only mine tick box
+# (flying_mine, default on; coming_mine, default off), kept with the cards.
+HOME_CARDS = ("flying", "coming", "weather", "recent", "media", "qualifications", "training", "aircraft", "documents")
+HOME_CARDS_OFF = ("qualifications", "training", "aircraft", "documents")
+HOME_OPTIONS = {"flying_mine": True, "coming_mine": False}
+
+
+def home_saved(con):
+    raw = con.execute("SELECT home_cards FROM users WHERE id=?", (g.user["id"],)).fetchone()[0]
+    try:
+        saved = json.loads(raw) if raw else {}
+    except ValueError:
+        saved = {}
+    return saved if isinstance(saved, dict) else {}
 
 
 def home_cards(con):
-    """The user's Home cards: {order, off}; the default when none is saved. Cards added later are appended."""
-    raw = con.execute("SELECT home_cards FROM users WHERE id=?", (g.user["id"],)).fetchone()[0]
-    try:
-        saved = json.loads(raw) if raw else None
-    except ValueError:
-        saved = None
-    if not isinstance(saved, dict):
-        return dict(order=list(HOME_CARDS), off=list(HOME_CARDS_OFF), saved=False)
-    order = [c for c in saved.get("order") or [] if c in HOME_CARDS]
-    order += [c for c in HOME_CARDS if c not in order]
-    return dict(order=order, off=[c for c in saved.get("off") or [] if c in HOME_CARDS], saved=True)
+    """The user's Home cards: {order, off, saved} and the Only mine choices; the default when none is saved. Cards
+    added later are appended, off when they are off by default; cards no longer offered are dropped."""
+    saved = home_saved(con)
+    options = {k: bool(saved.get(k, v)) for k, v in HOME_OPTIONS.items()}
+    if not isinstance(saved.get("order"), list):
+        return dict(order=list(HOME_CARDS), off=list(HOME_CARDS_OFF), saved=False, **options)
+    order = [c for c in saved["order"] if c in HOME_CARDS]
+    new = [c for c in HOME_CARDS if c not in order]
+    off = [c for c in saved.get("off") or [] if c in HOME_CARDS] + [c for c in new if c in HOME_CARDS_OFF]
+    return dict(order=order + new, off=off, saved=True, **options)
 
 
 @app.put("/api/home/cards")
 def set_home_cards():
-    """Save the current user's Home cards ({order, off}); {"default": true} goes back to the default."""
+    """Save the current user's Home cards ({order, off}; {"default": true} goes back to the default cards) and/or an
+    Only mine choice ({"flying_mine": bool} or {"coming_mine": bool}); what is not sent is kept."""
     session_required()
     body = request.get_json(silent=True) or {}
     con = conn()
+    saved = home_saved(con)
     if body.get("default"):
-        value = None
-    else:
+        saved.pop("order", None)
+        saved.pop("off", None)
+    elif "order" in body or "off" in body:
         order, off = body.get("order"), body.get("off")
         if not (isinstance(order, list) and isinstance(off, list) and all(c in HOME_CARDS for c in order + off)
                 and len(set(order)) == len(order)):
             return jsonify(error="Unknown Home cards."), 400
-        value = json.dumps(dict(order=order, off=sorted(set(off))))
-    con.execute("UPDATE users SET home_cards=? WHERE id=?", (value, g.user["id"]))
+        saved.update(order=order, off=sorted(set(off)))
+    for key in HOME_OPTIONS:
+        if key in body:
+            if not isinstance(body[key], bool):
+                return jsonify(error=f"{key} must be true or false."), 400
+            saved[key] = body[key]
+    con.execute("UPDATE users SET home_cards=? WHERE id=?", (json.dumps(saved) if saved else None, g.user["id"]))
     con.commit()
     return jsonify(ok=True, cards=home_cards(con))
 

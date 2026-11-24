@@ -4,16 +4,16 @@
 // page both use it). A guess that is not used (for example after admin rights changed) only costs one request.
 (function () {
   const realFetch = window.fetch.bind(window);
-  let admin = false, training = false, documents = false;
+  let admin = false, training = false;
   try {
     admin = localStorage.getItem('logdbAdmin') === '1';
     training = localStorage.getItem('logdbTraining') === '1';
-    documents = localStorage.getItem('logdbDocuments') === '1';
   } catch (e) {}
   const path = location.pathname;
   const early = {
-    // Home starts /api/home itself; its training and qualification/document cards use these two
-    '/home': [...(training ? ['/api/trainings'] : []), ...(documents ? ['/api/documents'] : [])],
+    // Home starts /api/home itself; Needs your attention and the Training card use the trainings (the qualification
+    // and document cards, off by default, ask for /api/documents only when they are on)
+    '/home': training ? ['/api/trainings'] : [],
     '/aircraft': ['/api/drones'], '/documents': ['/api/documents'], '/review': ['/api/review'],
     '/training': ['/api/trainings'], '/safety': ['/api/safety'], '/logs': ['/api/projects'],
     '/projects': admin ? ['/api/admin/projects', '/api/admin/people'] : ['/api/projects'],

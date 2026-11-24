@@ -16,10 +16,11 @@ name opens My account, Night mode and Sign out. Existing `/logbook` links still 
 ## Everyday use
 
 **Home** (first in the menu, and where signing in lands) shows what needs your attention (expired
-trainings, qualifications that expire soon, logs without a date, approvals for admins), your own flying
-as PIC and all flying in your projects, your coming bookings, the weather at a flying site, the latest flights and
-the latest photos and videos of your projects, your qualifications, trainings and aircraft. **Customize** chooses and
-orders the cards for your account (notices and Needs your attention stay at the top). Choose the weather location
+trainings, qualifications that expire soon, logs without a date, approvals for admins), your flying
+as PIC (untick **Only mine** for all flying in your projects), the coming bookings, the weather at a flying site,
+the latest flights and the latest photos and videos of your projects, and, when you add them with **Customize**, your
+qualifications, trainings, aircraft and recent documents. **Customize** chooses and orders the cards for your
+account; the **Only mine** choices are saved too (notices and Needs your attention stay at the top). Choose the weather location
 under **My account**; the Logbook stays at `/`.
 
 On **Logs** (Directory ▾), use **Filename** to find logs by part of their filename across all pages.
