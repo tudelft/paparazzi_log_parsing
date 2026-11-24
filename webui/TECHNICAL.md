@@ -2045,6 +2045,20 @@ name is still stored) and the form no longer fills in Pilot in command with the 
 `GET /api/safety/reports/<id>/sketch` serves the sketch to the reporter and administrators, with an ASCII `filename`
 and the full name in `filename*` (as attachments), so any file name works.
 
+**Emergency flowchart** (who to call after an incident). An administrator uploads one self-contained HTML page (its
+styles and scripts inline, UTF-8, `.html`, at most 2 MiB) with **⋯** → *Upload / Replace emergency flowchart…*
+(`POST /api/admin/safety/emergency`, multipart `file`); *Remove emergency flowchart…* (`DELETE`) stops showing it. It
+holds contact details from the Operations Manual, so it lives in the data folder (`<LOG_DIR>/safety/emergency`), never
+in the repository. Every upload is a row in `safety_emergency` (file, name, size, when, by whom) and its file is kept;
+the newest row is shown unless `removed_at` is set. While there is one, the page has **Emergency: who to call** next
+to Report incident (`emergency` in `GET /api/safety`: the date for everyone, file name, size and uploader for
+admins). It opens `/safety/emergency` (`static/safety_emergency.html`: the menu, ← Safety, the date and *Open alone ↗*)
+with the file in a sandboxed `<iframe>`; `/safety/emergency/file` serves the file with a sandbox
+`Content-Security-Policy` (`safety.EMERGENCY_CSP`: scripts and styles only inline, no network, no outside files, an
+opaque origin without the logbook's session; `tel:` and `mailto:` links work after a click), also when opened on its
+own. The logbook's night mode is passed as `?night=1`; the page follows it only if it reads that parameter (the
+sandbox cannot read the logbook's saved setting), else its own Night button works.
+
 ## Uploading with a script
 
 Click your name at the top right, create an API key on the account page (it is shown once) and download

@@ -615,6 +615,15 @@ CREATE TABLE IF NOT EXISTS safety_settings (  -- Safety page (safety.py): the te
     id INTEGER PRIMARY KEY CHECK(id=1),
     reporting_text TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS safety_emergency (  -- the emergency flowchart (an HTML file uploaded by an administrator):
+    id INTEGER PRIMARY KEY AUTOINCREMENT,         -- one row per upload; the newest is shown unless removed_at is set
+    stored TEXT NOT NULL,                         -- file name in <LOG_DIR>/safety/emergency
+    name TEXT NOT NULL,                           -- the uploaded file name
+    size_bytes INTEGER NOT NULL,
+    uploaded_at TEXT NOT NULL,
+    uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    removed_at TEXT
+);
 CREATE TABLE IF NOT EXISTS safety_reports (  -- danger, incident and accident reports; never deleted
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kind TEXT NOT NULL CHECK(kind IN ('danger','incident','accident')),
@@ -1068,7 +1077,7 @@ LOGBOOK_UNRELATED = {
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
     "training_progress", "training_briefers", "booking_things", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
     "welcome_message", "welcome_seen", "notices", "notice_roles", "notice_dismissals", "document_settings", "document_groups", "documents", "document_profile_roles", "document_qualification_types",
-    "safety_settings", "safety_reports",
+    "safety_settings", "safety_reports", "safety_emergency",
     "mail_outbox", "mail_prefs", "mail_sent_keys",
     "profile_roles", "profile_departments", "user_profiles", "user_supervisors", "logbook_version",
 }

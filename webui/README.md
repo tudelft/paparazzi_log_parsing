@@ -292,7 +292,9 @@ and accident. The report goes by email to the administrators (**Safety
 reports** under My account → Email, separate from the other notices). Tick **Leave my name out of the notification
 email** to keep your name out of that email; it is still stored with the report. Administrators change the text above
 the button with **Edit text** (or a click on the text); **⋯** → *Use the default text…* goes back to the general default
-text, which is shown until they set one. Rules:
+text, which is shown until they set one. When an administrator has uploaded the emergency flowchart (**⋯** →
+*Upload emergency flowchart…*: one HTML page, kept behind the login), the blue **Emergency: who to call** button opens
+it: who to call after an incident, per location and kind of incident, with tap-to-call buttons. Rules:
 [technical guide](TECHNICAL.md#safety).
 
 ## Email
