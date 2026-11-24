@@ -55,6 +55,9 @@
   .r a.dl:hover, .r a.dl:focus-visible, .r .doc-edit:hover, .r .doc-edit:focus-visible { color:var(--acc); background:var(--sec); }
   /* admins: ✎ beside the download arrow opens Edit document (the row itself opens the document) */
   .r .doc-edit { border:0; padding:0; background:none; font:inherit; font-size:15px; cursor:pointer; }
+  .r .tools { display:flex; align-items:center; gap:2px; }
+  .r .doc-lock { font-size:12px; opacity:.55; cursor:help; }
+  @media (hover:hover) { .r .doc-edit { opacity:0; } .r:hover .doc-edit, .r .doc-edit:focus-visible { opacity:1; } }
   @media (max-width:700px) {
     main { padding:10px 8px; }
     #q { flex:1 1 100%; order:5; }
@@ -135,7 +138,7 @@
           <button type="button" class="ext-item" role="menuitem" onclick="openImport()">Import ZIP…</button>
           <a class="ext-item" role="menuitem" href="/api/admin/documents/import/template">Download ZIP manifest template</a>
         </div></span></span>
-    <details><summary>Help</summary><p>Shared documents, for example the ones to show when you are asked for them in the field, and your own licences and qualifications. Pick a group in the tabs, or All for everything you may see. Search finds documents by title, text or file name. A click on a document opens it in a new tab; the arrow saves it. Hover over a document for its full text and file name; the date is its expiry (orange within 60 days) or, without one, its release date. Some documents are only for administrators, for people with a current qualification of one of some types, or for some profile roles (when person profiles are on): you see a document only when you meet every limit set on it; administrators see all. My qualifications lists your own approved qualifications that are valid today; add or renew them in My account. Administrators see every group (also empty ones) and each document's limits. They add documents with <em>Add document</em>; <em>Manage ▾</em> adds a group, edits the text at the top (or click the text) and imports. ✎ next to a document opens <em>Edit document</em>: its details, group and limits, a new file (for example a renewed certificate), and <em>Delete…</em> at the end. A group's heading has <em>Edit group</em> and ⋯ (<em>Delete group…</em>). <em>Import ZIP</em> adds or replaces many documents at once from a <span class="mono">manifest.csv</span> (<a href="/api/admin/documents/import/template">template</a>) and the files.</p></details></div>
+    <details><summary>Help</summary><p>Shared documents, for example the ones to show when you are asked for them in the field, and your own licences and qualifications. Pick a group in the tabs, or All for everything you may see. Search finds documents by title, text or file name. A click on a document opens it in a new tab; the arrow saves it. Hover over a document for its full text and file name; the date is its expiry (orange within 60 days) or, without one, its release date. Some documents are only for administrators, for people with a current qualification of one of some types, or for some profile roles (when person profiles are on): you see a document only when you meet every limit set on it; administrators see all. My qualifications lists your own approved qualifications that are valid today; add or renew them in My account. Administrators see every group (also empty ones); 🔒 on a document shows its limits on hover. They add documents with <em>Add document</em>; <em>Manage ▾</em> adds a group, edits the text at the top (or click the text) and imports. ✎ next to a document (on hover) opens <em>Edit document</em>: its details, group and limits, a new file (for example a renewed certificate), and <em>Delete…</em> at the end. A group's heading has <em>Edit group</em> and ⋯ (<em>Delete group…</em>). <em>Import ZIP</em> adds or replaces many documents at once from a <span class="mono">manifest.csv</span> (<a href="/api/admin/documents/import/template">template</a>) and the files.</p></details></div>
     <p class="text" id="intro"></p>
     <div class="page-tabs" id="tabs" aria-label="Document groups" hidden></div>
     <div id="content"><span class="mute">Loading…</span></div>
@@ -258,10 +261,11 @@ function docHTML(d) {
   const date = dateInfo(d.valid_from, d.valid_until, d.current);
   const limits = admin() ? limitsText(d) : '';
   return rowHTML({kindText: kind(d.filename), title: d.title, href: d.viewable ? d.view : d.download,
-    text: [limits && `<i>${limits}</i>`, esc(d.description || '')].filter(Boolean).join(' · '), date,
+    text: esc(d.description || ''), date,
     tip: [d.title, d.description, d.filename, date.text].filter(Boolean).join('\n'),
     download: d.download, downloadName: d.filename,
-    tools: admin() ? `<button type="button" class="doc-edit" data-edit-doc="${d.id}" title="Edit document: details, file, group, limits; Delete…" aria-label="Edit ${esc(d.title)}">✎</button>` : ''});
+    // admins: who may see it as a small 🔒 (the limits on hover), and ✎ (shown on hover) for Edit document
+    tools: admin() ? (limits ? `<span class="doc-lock" title="${limits.charAt(0).toUpperCase() + limits.slice(1)}" aria-label="${limits}">🔒</span>` : '') + `<button type="button" class="doc-edit" data-edit-doc="${d.id}" title="Edit document: details, file, group, limits; Delete…" aria-label="Edit ${esc(d.title)}">✎</button>` : ''});
 }
 function ownHTML(q) {
   const date = q.valid_until ? dateInfo(null, q.valid_until) : {text: 'no expiry date', cls: '', tip: ''};
