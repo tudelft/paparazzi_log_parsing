@@ -85,6 +85,9 @@
 
   /* lists */
   ul.rows { list-style:none; margin:0; padding:0; }
+  /* Coming up does not set the row height: its list scrolls inside the card, as tall as the cards beside it */
+  #comingCard:not([hidden]) { display:flex; flex-direction:column; }
+  #coming { flex:1 1 0; contain:size; min-height:260px; overflow-y:auto; }
   ul.rows li { display:flex; align-items:center; gap:10px; padding:6px 0; border-top:1px solid var(--line); min-width:0; }
   ul.rows li:first-child { border-top:0; padding-top:0; }
   .date { flex:0 0 44px; text-align:center; border-radius:6px; background:var(--chip); padding:2px 0; line-height:1.15; }
