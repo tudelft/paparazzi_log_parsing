@@ -1,11 +1,31 @@
-// One GET /api/me per page: theme.js and the page both ask for it at load; the second gets a copy of the first answer.
+// Page data at once. Pages ask for /api/me first and for their own data only after it came back; that chain made them
+// slow to show. Here the first data requests of each page start as theme.js loads (admin or not as last seen in this
+// browser), and the page's own request later gets that answer. /api/me is asked for once per page (theme.js and the
+// page both use it). A guess that is not used (for example after admin rights changed) only costs one request.
 (function () {
   const realFetch = window.fetch.bind(window);
-  let me = null;
+  let admin = false;
+  try { admin = localStorage.getItem('logdbAdmin') === '1'; } catch (e) {}
+  const path = location.pathname;
+  const early = {
+    '/aircraft': ['/api/drones'], '/documents': ['/api/documents'], '/review': ['/api/review'],
+    '/training': ['/api/trainings'], '/safety': ['/api/safety'], '/logs': ['/api/projects'],
+    '/projects': admin ? ['/api/admin/projects', '/api/admin/people'] : ['/api/projects'],
+    '/people': admin ? ['/api/admin/people', '/api/admin/qualification-types'] : ['/api/people-directory'],
+  }[path] || (/^\/flight\/\d+$/.test(path) ? ['/api/projects', '/api/people'] : []);
+  const waiting = new Map();
+  if (!/^\/(login|setup|cli-login|profile|welcome)/.test(path)) {
+    for (const url of ['/api/me', ...early]) {
+      const answer = realFetch(url);
+      answer.catch(() => {});
+      waiting.set(url, answer);
+    }
+  }
   window.fetch = (input, init) => {
-    if (input === '/api/me' && !(init && init.method && init.method !== 'GET')) {
-      me = me || realFetch('/api/me');
-      return me.then(r => r.clone());
+    if (typeof input === 'string' && waiting.has(input) && !(init && init.method && init.method !== 'GET')) {
+      const answer = waiting.get(input);
+      if (input !== '/api/me') waiting.delete(input);  // page data: only the first request; later ones ask again
+      return answer.then(r => r.clone());
     }
     return realFetch(input, init);
   };

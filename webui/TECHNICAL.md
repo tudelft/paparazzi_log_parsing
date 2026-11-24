@@ -329,9 +329,12 @@ At most eight of each are kept; each read model takes roughly 25 MB per 5000 fli
 Flight detail and path responses are gzip-compressed for clients that accept it, and so is every other JSON, HTML,
 CSS or JavaScript answer over 16 KB (for example `/api/stats` and `/api/admin/people`; files sent from disk and streams
 are left alone). Pages are `no-store`; `theme.js`, `theme.css` and the other page scripts are `no-cache` (kept by the
-browser and revalidated: 304 while unchanged, so a release still shows at once). `theme.js` answers every page's
-`GET /api/me` with one request (the page and theme.js both ask), and Home and the Logbook ask for their main data
-(`/api/home`, `/api/logbook`) at once instead of after `/api/me`.
+browser and revalidated: 304 while unchanged, so a release still shows at once). `theme.js` starts `GET /api/me` and each
+page's first data requests at once (a list per page in `theme.js`: Aircraft, Documents, Review, Training, Safety, Logs,
+Projects, People and the flight page; admin or not as last seen in the browser) and hands those answers to the page's
+own requests, so a page no longer waits for `/api/me` before asking for its data. Home and the Logbook start
+`/api/home` and `/api/logbook` themselves; the overview pages, Locations and Statistics never waited. The Agenda's
+first request depends on the week shown and is not started early.
 
 **Missing telemetry locations.** The shared logbook read model copies the known endpoint's GPS
 latitude/longitude for display and named-place resolution when the other endpoint is missing.
