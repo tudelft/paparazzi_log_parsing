@@ -1159,9 +1159,15 @@ def login_saml_identity(ident):
 SSO_EMAIL_LOCKED = "The email comes from TU Delft (it follows their address at every sign-in)."
 
 
+def sso_synced(user):
+    """The name and email came from TU Delft: the account has signed in since they follow TU Delft's. Before that
+    (an old or mistyped value) administrators can still correct them."""
+    return bool(user["subject"] and user["saml_attributes_at"])
+
+
 def sso_email_locked(user, email):
     """With a TU Delft sign-in the email follows TU Delft's, so Edit account only fills it in while there is none."""
-    return bool(user["subject"] and user["email"] and email.casefold() != user["email"].casefold())
+    return bool(sso_synced(user) and user["email"] and email.casefold() != user["email"].casefold())
 
 
 SAML_ATTRIBUTES_MAX = 64 * 1024  # a normal sign-in sends about 1 kB; more is not kept
@@ -4985,7 +4991,7 @@ def admin_rename_user(user_id):
     con = conn()
     with db.write_lock, con:
         con.execute("BEGIN IMMEDIATE")
-        user = con.execute("SELECT username,display_name,default_project_id,email,subject FROM users WHERE id=?",
+        user = con.execute("SELECT username,display_name,default_project_id,email,subject,saml_attributes_at FROM users WHERE id=?",
                            (user_id,)).fetchone()
         if user is None:
             return jsonify(error="no such user"), 404
@@ -5007,7 +5013,7 @@ def admin_rename_user(user_id):
                 return jsonify(error="no such project"), 404
         if con.execute("SELECT 1 FROM users WHERE username=? AND id!=?", (username, user_id)).fetchone():
             return jsonify(error="that username already exists"), 409
-        if profile and user["subject"] and display_name != user["display_name"]:
+        if profile and sso_synced(user) and display_name != user["display_name"]:
             return jsonify(error="The display name comes from TU Delft (it follows their name at every sign-in)."), 400
         old_display = user["display_name"] if profile and display_name != user["display_name"] else None
         if old_display and any(
@@ -5040,7 +5046,7 @@ def admin_update_user(user_id):
     session_required()  # changes the email address that setup links and SSO matching use
     body = request.get_json(silent=True) or {}
     con = conn()
-    user = con.execute("SELECT email, subject FROM users WHERE id=?", (user_id,)).fetchone()
+    user = con.execute("SELECT email, subject, saml_attributes_at FROM users WHERE id=?", (user_id,)).fetchone()
     if user is None:
         return jsonify(error="no such user"), 404
     if "email" in body:
@@ -5346,7 +5352,7 @@ def admin_people():
         users.append(dict(
             id=u["id"], username=u["username"], display_name=u["display_name"], email=u["email"],
             is_admin=bool(u["is_admin"]), is_external=bool(u["is_external"]), has_password=bool(u["password_hash"]),
-            has_sso=bool(u["subject"]),
+            has_sso=bool(u["subject"]), sso_synced=sso_synced(u),
             is_active=bool(u["is_active"]), last_login=u["last_login"],
             provider=prov, pending=prov == "log", has_logs=u["id"] in with_logs,
             default_project_id=u["default_project_id"], operator_id=u["operator_id"],
