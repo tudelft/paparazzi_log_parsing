@@ -1645,10 +1645,22 @@ function paintPersonMore(user) {
   $('moreWrap').hidden = !items.length;
 }
 // The Edit dialog: fields, then Save sends what changed; an error stays at its field and keeps the dialog open.
+// Password managers (LastPass, 1Password, Bitwarden, Dashlane) take a Username field for a sign-in form and fill in
+// the administrator's own login; these dialogs edit other people, so they are told to leave the fields alone.
+function noAutofill(root) {
+  root.querySelectorAll('input:not([type=checkbox]):not([type=radio]):not([type=hidden])').forEach(input => {
+    input.autocomplete = 'off';
+    for (const [k, v] of [['data-lpignore', 'true'], ['data-1p-ignore', ''], ['data-bwignore', ''], ['data-form-type', 'other']])
+      input.setAttribute(k, v);
+  });
+}
+['addUser', 'editForm', 'actForm'].forEach(id => $(id) && noAutofill($(id)));
+document.querySelectorAll('dialog form.dialog-fields').forEach(noAutofill);
 function editDialog(title, what, fields, save, focus) {
   $('editTitle').textContent = title;
   $('editWhat').textContent = what;
   $('editFields').innerHTML = fields;
+  noAutofill($('editFields'));
   $('editError').textContent = '';
   $('editForm').onsubmit = async event => {
     event.preventDefault();
