@@ -9,6 +9,13 @@ is stored (never deleted) and mailed in full to the administrators (mail kind "s
 separate from the other administrator notices; to LOGDB_MAIL_ADMIN_TO when set), with a link to the sketch. The
 reporter can ask to leave their name out of that email (leave_name_out); the name is still stored with the report,
 as it was at filing time. Every route needs a browser session; API keys get 403.
+
+Emergency flowchart (who to call): an administrator uploads one self-contained HTML page (for example the
+"Drone incident: who to call" chart); it holds contact details from the Operations Manual, so it lives in the data
+folder, not in the repository, and is shown only to signed-in users. /safety/emergency shows it inside the logbook in
+a sandboxed frame; the file itself (/safety/emergency/file) is served with a sandbox Content-Security-Policy, so its
+scripts run in an opaque origin without the logbook's session, cannot fetch anything and cannot load outside files.
+Every upload is kept (safety_emergency); the newest one is shown unless it was removed.
 """
 import datetime
 import gzip
@@ -26,6 +33,11 @@ import storage
 from config import env_bool
 
 MAX_SKETCH_BYTES = 20 * 2**20
+MAX_EMERGENCY_BYTES = 2 * 2**20
+# the uploaded page: its own inline scripts and styles only; tel:/mailto: links still work (a click opens them)
+EMERGENCY_CSP = ("sandbox allow-scripts allow-popups allow-modals allow-top-navigation-by-user-activation; "
+                 "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; "
+                 "font-src data:; form-action 'none'; base-uri 'none'; frame-ancestors 'self'")
 MAX_TEXT = 5000
 MAX_FIELD = 200
 KINDS = ("danger", "incident", "accident")
@@ -147,6 +159,19 @@ def register(app, connection, root, pages_dir, require_session):
             abort(404)
         return send_from_directory(pages_dir, "safety.html")
 
+    def emergency_row(cid):
+        row = cid.execute("SELECT e.*, (SELECT {} FROM users u WHERE u.id=e.uploaded_by) AS uploader"
+                          " FROM safety_emergency e ORDER BY e.id DESC LIMIT 1".format(NAME_SQL)).fetchone()
+        return row if row and not row["removed_at"] else None
+
+    def emergency_info(row, is_admin):
+        if row is None:
+            return None
+        out = {"updated_at": row["uploaded_at"]}
+        if is_admin:
+            out.update(name=row["name"], size_bytes=row["size_bytes"], uploaded_by=row["uploader"])
+        return out
+
     @app.get("/api/safety")
     def safety_overview():
         signed_in()
@@ -155,8 +180,78 @@ def register(app, connection, root, pages_dir, require_session):
         is_admin = bool(g.user["is_admin"])
         out = {"reporting_text": current["reporting_text"] or DEFAULT_REPORTING_TEXT, "is_admin": is_admin, "kinds": list(KINDS),
                "max_sketch_bytes": MAX_SKETCH_BYTES,
-               "me": cid.execute(f"SELECT {NAME_SQL} FROM users WHERE id=?", (g.user["id"],)).fetchone()[0]}
+               "me": cid.execute(f"SELECT {NAME_SQL} FROM users WHERE id=?", (g.user["id"],)).fetchone()[0],
+               "emergency": emergency_info(emergency_row(cid), is_admin)}
         return jsonify(out)
+
+    @app.get("/safety/emergency")
+    def emergency_page():
+        signed_in()
+        return send_from_directory(pages_dir, "safety_emergency.html")
+
+    @app.get("/safety/emergency/file")
+    def emergency_file():
+        """The uploaded page, sandboxed (see the module docstring); 404 while there is none."""
+        signed_in()
+        row = emergency_row(connection())
+        if row is None:
+            raise SafetyError("There is no emergency flowchart.", 404)
+        path = folder() / "emergency" / row["stored"]
+        if problem := storage.stored_file_problem(path):
+            app.logger.error("Missing emergency flowchart %s: %s", path, problem)
+            raise SafetyError(storage.UNAVAILABLE, 503)
+        return Response(path.read_bytes(), mimetype="text/html", headers={
+            "Content-Security-Policy": EMERGENCY_CSP, "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"})
+
+    @app.post("/api/admin/safety/emergency")
+    def upload_emergency():
+        """Upload (or replace) the emergency flowchart: one HTML file, UTF-8, at most 2 MiB."""
+        admin()
+        uploaded = request.files.get("file")
+        if not uploaded or not uploaded.filename:
+            raise SafetyError("Choose the flowchart's HTML file.")
+        name = Path(uploaded.filename).name[:160]
+        if Path(name).suffix.lower() not in (".html", ".htm"):
+            raise SafetyError("The flowchart must be an .html file.")
+        data = uploaded.stream.read(MAX_EMERGENCY_BYTES + 1)
+        if not data.strip() or len(data) > MAX_EMERGENCY_BYTES:
+            raise SafetyError("The file must be non-empty and at most 2 MiB.")
+        try:
+            data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise SafetyError("The file must be UTF-8 text (HTML).") from None
+        if b"<" not in data[:4096]:
+            raise SafetyError("This does not look like an HTML page.")
+        target = folder() / "emergency"
+        target.mkdir(parents=True, exist_ok=True, mode=0o700)
+        stored = uuid.uuid4().hex + ".html"
+        staged = target / (stored + ".tmp")
+        staged.write_bytes(data)
+        staged.rename(target / stored)
+        cid = connection()
+        try:
+            with db.write_lock, cid:
+                cid.execute("BEGIN IMMEDIATE")
+                cid.execute("INSERT INTO safety_emergency(stored,name,size_bytes,uploaded_at,uploaded_by) VALUES (?,?,?,?,?)",
+                            (stored, name, len(data), utc_now(), g.user["id"]))
+        except Exception:
+            (target / stored).unlink(missing_ok=True)
+            raise
+        return jsonify(ok=True, emergency=emergency_info(emergency_row(cid), True)), 201
+
+    @app.delete("/api/admin/safety/emergency")
+    def remove_emergency():
+        """Stop showing the flowchart; the file and its history stay (an upload shows a new one again)."""
+        admin()
+        cid = connection()
+        with db.write_lock, cid:
+            cid.execute("BEGIN IMMEDIATE")
+            row = emergency_row(cid)
+            if row is None:
+                raise SafetyError("There is no emergency flowchart.", 404)
+            cid.execute("UPDATE safety_emergency SET removed_at=? WHERE id=?", (utc_now(), row["id"]))
+        return jsonify(ok=True)
 
     @app.put("/api/admin/safety/settings")
     def save_safety_settings():

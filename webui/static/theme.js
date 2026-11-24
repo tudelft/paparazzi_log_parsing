@@ -672,7 +672,7 @@ window.timingEvidenceHTML = function (timing) {
     if (p === '/training' || p.startsWith('/training/')) return '/training';
     if (p === '/agenda') return '/agenda';
     if (p === '/documents') return '/documents';
-    if (p === '/safety') return '/safety';
+    if (p === '/safety' || p.startsWith('/safety/')) return '/safety';
     for (const [tab] of DIRECTORY.filter(Boolean))
       if (p === tab || p.startsWith(tab + '/')) return tab;
     if (p === '/' || p === '') return '/';

@@ -107,9 +107,50 @@ class SafetyTests(AppTests):
         self.assertEqual(r.status_code, 200, r.json)
         d = self.client.get("/api/safety").json
         self.assertEqual(d["reporting_text"], "Call the safety manager.\nThen the board.")
-        self.assertEqual(set(d), {"reporting_text", "is_admin", "kinds", "max_sketch_bytes", "me"})
+        self.assertEqual(set(d), {"reporting_text", "is_admin", "kinds", "max_sketch_bytes", "me", "emergency"})
         self.assertEqual(self.client.put("/api/admin/safety/settings", json={"reporting_text": ""}).status_code, 200)
         self.assertEqual(self.client.get("/api/safety").json["reporting_text"], safety.DEFAULT_REPORTING_TEXT)
+
+    def upload_emergency(self, data=b"<!doctype html><title>Who to call</title><a href='tel:112'>112</a>", name="chart.html"):
+        return self.client.post("/api/admin/safety/emergency", data={"file": (io.BytesIO(data), name)},
+                                content_type="multipart/form-data")
+
+    def test_emergency_flowchart_is_uploaded_by_admins_and_served_sandboxed(self):
+        self.assertIsNone(self.client.get("/api/safety").json["emergency"])
+        self.assertEqual(self.client.get("/safety/emergency/file").status_code, 404)
+        self.assertEqual(self.upload_emergency().status_code, 403)  # pilots cannot upload
+        self.sign_in(1)
+        self.assertEqual(self.upload_emergency(name="chart.pdf").status_code, 400)
+        self.assertEqual(self.upload_emergency(data=b"\xff\xfe not text").status_code, 400)
+        self.assertEqual(self.upload_emergency(data=b"").status_code, 400)
+        r = self.upload_emergency()
+        self.assertEqual(r.status_code, 201, r.json)
+        self.assertEqual(r.json["emergency"]["name"], "chart.html")
+        self.sign_in(2)
+        info = self.client.get("/api/safety").json["emergency"]
+        self.assertEqual(set(info), {"updated_at"})  # who uploaded which file: administrators only
+        page = self.client.get("/safety/emergency")
+        self.assertEqual(page.status_code, 200)
+        page.close()
+        f = self.client.get("/safety/emergency/file")
+        self.assertEqual(f.status_code, 200)
+        self.assertIn(b"tel:112", f.data)
+        csp = f.headers["Content-Security-Policy"]
+        self.assertTrue(csp.startswith("sandbox allow-scripts"), csp)
+        self.assertNotIn("allow-same-origin", csp)  # its scripts never get the logbook's session
+        self.assertIn("default-src 'none'", csp)
+        self.assertIn("no-store", f.headers["Cache-Control"])
+        # replaced, then removed: earlier versions stay on record, nothing is shown after removal
+        self.sign_in(1)
+        self.assertEqual(self.upload_emergency(data=b"<html>new</html>", name="v2.html").status_code, 201)
+        self.assertIn(b"new", self.client.get("/safety/emergency/file").data)
+        self.assertEqual(self.client.delete("/api/admin/safety/emergency").status_code, 200)
+        self.assertIsNone(self.client.get("/api/safety").json["emergency"])
+        self.assertEqual(self.client.get("/safety/emergency/file").status_code, 404)
+        self.assertEqual(self.client.delete("/api/admin/safety/emergency").status_code, 404)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM safety_emergency").fetchone()[0], 2)
+        with patch.dict(os.environ, LOGDB_SAFETY="0"):
+            self.assertEqual(self.client.get("/safety/emergency").status_code, 404)
 
     def test_sketch_with_a_non_latin_1_name(self):
         name = "Screenshot 2026-11-14 at 10.00.00\u202fAM \u2019wing\u2019 \U0001F681.png"

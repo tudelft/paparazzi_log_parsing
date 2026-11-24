@@ -51,6 +51,13 @@
   button.report-btn:hover { filter:brightness(1.08); }
   button.report-btn:focus-visible { outline:3px solid var(--err); outline-offset:2px; }
   @media (max-width:560px) { button.report-btn { width:100%; } }
+  /* the emergency flowchart (who to call), when an administrator uploaded one */
+  a.emergency-btn { display:inline-flex; align-items:center; gap:6px; background:var(--acc); color:#fff; font-size:17px; font-weight:600;
+    padding:10px 22px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.2); text-decoration:none; }
+  a.emergency-btn:hover { filter:brightness(1.08); text-decoration:none; }
+  a.emergency-btn[hidden] { display:none; }
+  @media (max-width:560px) { a.emergency-btn { width:100%; justify-content:center; } }
+  .report-cta .actions { display:flex; flex-wrap:wrap; gap:10px; }
   label.check { display:flex; gap:6px; align-items:center; font-size:13px; }
   .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   @media (max-width:560px) { .two { grid-template-columns:1fr; } }
@@ -81,11 +88,15 @@
     <div class="cta-title"><h2>Safety</h2>
       <span class="cta-tools" id="textTools" hidden><button type="button" class="sec" id="editText">Edit text</button>
         <span class="menu-wrap"><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
-          <div class="menu-pop" id="moreMenu" role="menu" hidden><button type="button" class="ext-item" role="menuitem" id="defaultText">Use the default text…</button></div></span></span>
-      <details><summary>Help</summary><p><b>Report incident</b> opens the form for a danger, incident or accident; the ? next to Type explains the three. Only the type, date and time and description are required. Administrators get an email with the whole report. Tick "Leave my name out of the notification email" to keep your name out of that email; it is still stored with the report. Administrators change the text above the button with <b>Edit text</b> (or a click on the text); ⋯ goes back to the default text.</p></details>
+          <div class="menu-pop" id="moreMenu" role="menu" hidden><button type="button" class="ext-item" role="menuitem" id="defaultText">Use the default text…</button>
+            <button type="button" class="ext-item" role="menuitem" id="uploadEmergency">Upload emergency flowchart…</button>
+            <button type="button" class="ext-item danger-item" role="menuitem" id="removeEmergency" hidden>Remove emergency flowchart…</button></div></span></span>
+      <details><summary>Help</summary><p><b>Report incident</b> opens the form for a danger, incident or accident; the ? next to Type explains the three. Only the type, date and time and description are required. Administrators get an email with the whole report. Tick "Leave my name out of the notification email" to keep your name out of that email; it is still stored with the report. <b>Emergency: who to call</b> (when there is one) opens the emergency flowchart: who to call after a drone incident, per location and kind of incident. Administrators change the text above the buttons with <b>Edit text</b> (or a click on the text); ⋯ goes back to the default text and uploads, replaces or removes the emergency flowchart (one self-contained HTML page; it stays behind the login, not in the repository).</p></details>
     </div>
     <p class="text" id="pageText"></p>
-    <div class="actions"><button type="button" class="report-btn" onclick="newReport()">&#9888;&#xFE0E; Report incident</button> <span id="sent" class="mute" role="status"></span></div>
+    <div class="actions"><button type="button" class="report-btn" onclick="newReport()">&#9888;&#xFE0E; Report incident</button>
+      <a class="emergency-btn" id="emergencyBtn" href="/safety/emergency" hidden title="Who to call after a drone incident, per location and kind of incident">&#9742;&#xFE0E; Emergency: who to call</a>
+      <span id="sent" class="mute" role="status"></span></div>
   </section>
 </main>
 
@@ -123,11 +134,21 @@
   </form>
 </dialog>
 <dialog class="entry-dialog" id="actDialog" aria-labelledby="actTitle" style="width:min(460px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
-  <div class="dialog-header"><h2 id="actTitle">Use the default text</h2><button type="button" onclick="$('actDialog').close()">Close</button></div>
+  <div class="dialog-header"><h2 id="actTitle"></h2><button type="button" onclick="$('actDialog').close()">Close</button></div>
   <form id="actForm">
-    <p style="margin:0">Replace the text above Report incident with the general default text? The current text is not kept.</p>
+    <p style="margin:0" id="actText"></p>
     <p class="dialog-error" id="actError" role="alert"></p>
-    <div class="row"><button type="submit" class="primary" id="actOk">Use the default text</button> <button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></div>
+    <div class="row"><button type="submit" class="primary" id="actOk"></button> <button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="emergencyDialog" aria-labelledby="emergencyTitle" style="width:min(520px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="emergencyTitle">Emergency flowchart</h2><button type="button" onclick="$('emergencyDialog').close()">Close</button></div>
+  <form id="emergencyForm">
+    <p class="mute" style="margin:0 0 8px">One self-contained HTML page (its styles and scripts inside, no outside files), at most 2 MiB. Everyone who is signed in sees it behind <b>Emergency: who to call</b>; it runs sandboxed: it cannot reach the logbook or load anything from elsewhere, phone and mail links work. Earlier versions are kept.</p>
+    <p style="margin:0 0 8px" id="emergencyNow"></p>
+    <label class="field">HTML file<input type="file" name="file" accept=".html,.htm,text/html" required></label>
+    <p class="dialog-error" id="emergencyError" role="alert"></p>
+    <div class="row"><button type="submit" class="primary" id="emergencySave">Upload</button> <button type="button" class="sec" onclick="$('emergencyDialog').close()">Cancel</button></div>
   </form>
 </dialog>
 <script>
@@ -147,6 +168,9 @@ function paint() {
   $('pageText').classList.toggle('edit-val', admin);
   if (admin) $('pageText').title = 'Click to change'; else $('pageText').removeAttribute('title');
   $('textTools').hidden = !admin;
+  $('emergencyBtn').hidden = !info.emergency;
+  $('uploadEmergency').textContent = info.emergency ? 'Replace emergency flowchart…' : 'Upload emergency flowchart…';
+  $('removeEmergency').hidden = !info.emergency;
   $('sent').textContent = sentNote;
 }
 async function getJSON(url) {
@@ -218,13 +242,42 @@ $('textForm').onsubmit = async e => {
   try { if (await send('/api/admin/safety/settings', 'PUT', {reporting_text: value}, 'textError')) $('textDialog').close(); }
   finally { $('textSave').disabled = false; }
 };
-$('defaultText').onclick = () => { $('actError').textContent = ''; $('actDialog').showModal(); };
-$('actForm').onsubmit = async e => {
-  e.preventDefault();
-  $('actOk').disabled = true;
-  try { if (await send('/api/admin/safety/settings', 'PUT', {reporting_text: ''}, 'actError')) $('actDialog').close(); }
-  finally { $('actOk').disabled = false; }
+// A small confirmation dialog for the rare actions under ⋯.
+function confirmAct(title, text, ok, run) {
+  $('actTitle').textContent = title;
+  $('actText').textContent = text;
+  $('actOk').textContent = ok;
+  $('actError').textContent = '';
+  $('actForm').onsubmit = async e => {
+    e.preventDefault();
+    $('actOk').disabled = true;
+    try { if (await run()) $('actDialog').close(); } finally { $('actOk').disabled = false; }
+  };
+  $('actDialog').showModal();
+}
+$('defaultText').onclick = () => confirmAct('Use the default text',
+  'Replace the text above Report incident with the general default text? The current text is not kept.', 'Use the default text',
+  () => send('/api/admin/safety/settings', 'PUT', {reporting_text: ''}, 'actError'));
+// Emergency flowchart (admins): upload or replace the HTML file, or stop showing it (the files stay on the server).
+const shortDate = t => t ? new Date(t).toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'}) : '';
+$('uploadEmergency').onclick = () => {
+  const e = info.emergency;
+  $('emergencyTitle').textContent = e ? 'Replace emergency flowchart' : 'Upload emergency flowchart';
+  $('emergencyNow').textContent = e ? `Now: ${e.name} · ${Math.round(e.size_bytes / 1024)} KB · ${shortDate(e.updated_at)}${e.uploaded_by ? ' by ' + e.uploaded_by : ''}` : '';
+  $('emergencyNow').hidden = !e;
+  $('emergencyForm').reset();
+  $('emergencyError').textContent = '';
+  $('emergencyDialog').showModal();
 };
+$('emergencyForm').onsubmit = async e => {
+  e.preventDefault();
+  $('emergencySave').disabled = true;
+  try { if (await send('/api/admin/safety/emergency', 'POST', new FormData($('emergencyForm')), 'emergencyError')) $('emergencyDialog').close(); }
+  finally { $('emergencySave').disabled = false; }
+};
+$('removeEmergency').onclick = () => confirmAct('Remove emergency flowchart',
+  'Stop showing the emergency flowchart? Emergency: who to call disappears from this page. The uploaded files stay on the server; upload one again to show it.',
+  'Remove', () => send('/api/admin/safety/emergency', 'DELETE', {}, 'actError'));
 // ⋯: a small menu that closes on a click elsewhere or Escape
 function closeMore() { $('moreMenu').hidden = true; $('moreBtn').setAttribute('aria-expanded', 'false'); }
 $('moreBtn').onclick = e => {

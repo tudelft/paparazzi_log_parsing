@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Emergency: who to call</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  main { max-width:none; margin:0; padding:0; }
+  .bar { display:flex; align-items:center; gap:12px; padding:8px 12px; border-bottom:1px solid var(--line); background:var(--card); font-size:13px; min-width:0; }
+  .bar a { color:var(--acc); text-decoration:none; white-space:nowrap; } .bar a:hover { text-decoration:underline; }
+  .bar h2 { margin:0; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bar .mute { color:var(--mute); margin-left:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  iframe { display:block; width:100%; border:0; background:#fff; }
+  #err { color:var(--err); padding:16px; } #err:empty { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Safety</h1>
+  <span class="meta" id="nav"></span>
+  <span class="meta" style="margin-left:auto"><span id="who"></span> <button type="button" id="nightBtn" onclick="toggleNight()"><span class="when-day">Night</span><span class="when-night">Day</span></button> <button class="sec" onclick="logout()">Sign out</button></span>
+</header>
+<main>
+  <div class="bar"><a href="/safety">← Safety</a><h2>Emergency: who to call</h2>
+    <span class="mute" id="updated"></span><a id="fullLink" href="/safety/emergency/file" target="_blank" rel="noopener" title="Only the flowchart, in a new tab (for example to keep it open on a phone)">Open alone ↗</a></div>
+  <div id="err"></div>
+  <!-- The uploaded page (safety.py): sandboxed here and by its own Content-Security-Policy, so it cannot reach the
+       logbook's session or data; phone and mail links still work. ?night=1 tells it the logbook is in night mode. -->
+  <iframe id="chart" title="Emergency flowchart" sandbox="allow-scripts allow-popups allow-modals allow-top-navigation-by-user-activation"></iframe>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+function fit() { const f = $('chart'); f.style.height = Math.max(400, innerHeight - f.getBoundingClientRect().top - window.scrollY) + 'px'; }
+addEventListener('resize', fit);
+fetch('/api/me').then(r => r.json()).then(d => {
+  $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
+});
+fetch('/api/safety').then(r => r.json()).then(info => {
+  if (!info.emergency) { $('err').textContent = 'There is no emergency flowchart yet; an administrator uploads it on the Safety page (⋯).'; $('chart').hidden = true; return; }
+  const day = new Date(info.emergency.updated_at).toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'});
+  $('updated').textContent = 'Updated ' + day;
+  const night = document.documentElement.classList.contains('night') ? '?night=1' : '';
+  $('chart').src = '/safety/emergency/file' + night;
+  $('fullLink').href = '/safety/emergency/file' + night;
+  fit();
+}).catch(e => { $('err').textContent = e.message; });
+</script>
+</body>
+</html>
