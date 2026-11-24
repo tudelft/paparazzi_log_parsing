@@ -136,6 +136,7 @@ class SafetyTests(AppTests):
         # the frame loads while the page is parsed; only its own height messages are used
         self.assertLess(html.index("'/safety/emergency/file'"), html.index("fetch('/api/safety')"))
         self.assertIn("e.source !== f.contentWindow", html)
+        self.assertIn('<iframe id="chart" hidden', html)  # shown once /api/safety says there is one
         f = self.client.get("/safety/emergency/file")
         self.assertEqual(f.status_code, 200)
         self.assertIn(b"tel:112", f.data)
