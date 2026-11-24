@@ -19,7 +19,9 @@
   .bar a { color:var(--acc); text-decoration:none; white-space:nowrap; } .bar a:hover { text-decoration:underline; }
   .bar h2 { margin:0; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .bar .mute { color:var(--mute); margin-left:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  iframe { display:block; width:100%; border:0; background:#fff; }
+  iframe { display:block; width:100%; height:calc(100vh - 110px); min-height:400px; border:0; background:var(--bg); }
+  /* phones: the bar on one short line (the date is on hover of the title) */
+  @media (max-width:560px) { .bar { padding:6px 10px; gap:10px; } .bar .mute { display:none; } .bar h2 { margin-right:auto; } }
   #err { color:var(--err); padding:16px; } #err:empty { display:none; }
 </style>
 </head>
@@ -36,22 +38,53 @@
   <!-- The uploaded page (safety.py): sandboxed here and by its own Content-Security-Policy, so it cannot reach the
        logbook's session or data; phone and mail links still work. ?night=1 tells it the logbook is in night mode. -->
   <iframe id="chart" title="Emergency flowchart" sandbox="allow-scripts allow-popups allow-modals allow-top-navigation-by-user-activation"></iframe>
+  <script>
+  // Start loading the flowchart right away, next to theme.js and /api/safety, instead of after them (the page is
+  // useless until it shows). ?night=1 passes the logbook's night mode; the sandbox cannot read the saved setting.
+  (function () {
+    let night = false;
+    try { night = localStorage.getItem('logdbNight') === '1'; } catch (e) {}
+    document.getElementById('chart').src = '/safety/emergency/file' + (night ? '?night=1' : '');
+  })();
+  </script>
 </main>
 <script>
 const $ = id => document.getElementById(id);
-function fit() { const f = $('chart'); f.style.height = Math.max(400, innerHeight - f.getBoundingClientRect().top - window.scrollY) + 'px'; }
+// Without a message from the page the frame fills the window below the bar (the page scrolls inside it). A page that
+// reports its height (postMessage {type: 'emergency-height', height}) gets exactly that, so the logbook page scrolls
+// as one; it gets the logbook's night mode as {type: 'logbook-night', night} when that changes. Only messages from
+// this frame count, and nothing else is read from them.
+let sized = false;
+function fit() {
+  if (sized) return;
+  const f = $('chart');
+  f.style.height = Math.max(400, innerHeight - f.getBoundingClientRect().top - window.scrollY) + 'px';
+}
 addEventListener('resize', fit);
+addEventListener('message', e => {
+  const f = $('chart');
+  if (e.source !== f.contentWindow || !e.data || e.data.type !== 'emergency-height') return;
+  const h = Math.round(Number(e.data.height));
+  if (!(h > 0 && h < 200000)) return;
+  sized = true;
+  f.style.minHeight = '0';
+  f.style.height = h + 'px';
+});
+addEventListener('nightchange', () => {
+  const night = document.documentElement.classList.contains('night');
+  $('chart').contentWindow?.postMessage({type: 'logbook-night', night}, '*');
+  $('fullLink').href = '/safety/emergency/file' + (night ? '?night=1' : '');
+});
+fit();
 fetch('/api/me').then(r => r.json()).then(d => {
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
 });
 fetch('/api/safety').then(r => r.json()).then(info => {
-  if (!info.emergency) { $('err').textContent = 'There is no emergency flowchart yet; an administrator uploads it on the Safety page (⋯).'; $('chart').hidden = true; return; }
+  if (!info.emergency) { $('err').textContent = 'There is no emergency flowchart yet; an administrator uploads it on the Safety page (⋯).'; $('chart').remove(); return; }
   const day = new Date(info.emergency.updated_at).toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'});
   $('updated').textContent = 'Updated ' + day;
-  const night = document.documentElement.classList.contains('night') ? '?night=1' : '';
-  $('chart').src = '/safety/emergency/file' + night;
-  $('fullLink').href = '/safety/emergency/file' + night;
-  fit();
+  document.querySelector('.bar h2').title = 'Updated ' + day;
+  if (document.documentElement.classList.contains('night')) $('fullLink').href = '/safety/emergency/file?night=1';
 }).catch(e => { $('err').textContent = e.message; });
 </script>
 </body>

@@ -131,7 +131,11 @@ class SafetyTests(AppTests):
         self.assertEqual(set(info), {"updated_at"})  # who uploaded which file: administrators only
         page = self.client.get("/safety/emergency")
         self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
         page.close()
+        # the frame loads while the page is parsed; only its own height messages are used
+        self.assertLess(html.index("'/safety/emergency/file'"), html.index("fetch('/api/safety')"))
+        self.assertIn("e.source !== f.contentWindow", html)
         f = self.client.get("/safety/emergency/file")
         self.assertEqual(f.status_code, 200)
         self.assertIn(b"tel:112", f.data)
