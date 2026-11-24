@@ -2813,7 +2813,8 @@ and GCS log when both exist. Missing `AUTOPILOT_VERSION` falls back to the GCS `
 previous/next flight in the same project among the flights the viewer may see, by takeoff time (else the set date or
 the log's start), then log file name in natural order and flight number (`neighbour_flights`; `previous_flight_id`
 and `next_flight_id` in `/api/flights/<id>/detail`). Without a project both are greyed out. The open tab is kept.
-*Open flight page* in an expanded Logbook row opens a new tab.
+*Open flight page* in an expanded Logbook row opens the flight in the same tab; Back returns to the logbook with its
+page, filters and opened rows (kept in the URL).
 Photos, videos and sound files (by extension) open in a media viewer over the page instead of a new tab, wherever a file
 name is shown (Files lists, the Logbook row, Home): `theme.js` `openMedia` for any link with `data-media` (`mediaAttrs`);
 ← / → step through the media links in the same list (`data-media-group`), a video starts playing at once and stops when
