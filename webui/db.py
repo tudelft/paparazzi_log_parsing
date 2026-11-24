@@ -153,6 +153,8 @@ CREATE TABLE IF NOT EXISTS users (
     operator_id INTEGER,               -- operators.id this person flies for (external crew); NULL = our own
     home_place_id INTEGER REFERENCES places(id) ON DELETE SET NULL,  -- Home page weather; NULL: most-flown place
     home_cards TEXT,                                -- Home page cards (JSON {order, off}, app.py); NULL: the default
+    saml_attributes TEXT,              -- JSON: every attribute of the last TU Delft sign-in (admins only)
+    saml_attributes_at TEXT,           -- when those were received
     UNIQUE (provider, subject)
 );
 CREATE TABLE IF NOT EXISTS logs (
@@ -905,6 +907,9 @@ def init(path):
         con.execute("ALTER TABLE users ADD COLUMN home_place_id INTEGER REFERENCES places(id) ON DELETE SET NULL")
     if "home_cards" not in ucols:  # the cards on the Home page, chosen with Customize; NULL: the default
         con.execute("ALTER TABLE users ADD COLUMN home_cards TEXT")
+    if "saml_attributes" not in ucols:  # what TU Delft sent at the last sign-in; filled at the next one
+        con.execute("ALTER TABLE users ADD COLUMN saml_attributes TEXT")
+        con.execute("ALTER TABLE users ADD COLUMN saml_attributes_at TEXT")
     fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
     for col in ("pic_user_id", "pac_user_id", "gcs_user_id"):
         if col not in fcols:

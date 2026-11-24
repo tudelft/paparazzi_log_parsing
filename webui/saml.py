@@ -180,4 +180,7 @@ def identity_from_auth(auth):
     subject = nameid or uid or email
     username = (uid or (email.split("@")[0] if email else "") or "user")
     username = re.sub(r"[^A-Za-z0-9._-]+", "", username)[:40] or "user"
-    return {"subject": subject, "email": email, "username": username, "display_name": display}
+    # everything TU Delft sent, kept for administrators (lists of strings, as python3-saml gives them)
+    sent = {str(k): [str(v) for v in (vals if isinstance(vals, (list, tuple)) else [vals])] for k, vals in attrs.items()}
+    return {"subject": subject, "email": email, "username": username, "display_name": display,
+            "attributes": {"NameID": [nameid], **sent} if nameid else sent}

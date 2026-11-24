@@ -45,7 +45,8 @@ class SamlAttributeTests(unittest.TestCase):
                 auth = SimpleNamespace(get_attributes=lambda: attrs, get_nameid=lambda: "stable-subject")
                 self.assertEqual(saml.identity_from_auth(auth), {
                     "subject": "stable-subject", "username": "examplepilot",
-                    "display_name": "Example Pilot", "email": "pilot@example.test"})
+                    "display_name": "Example Pilot", "email": "pilot@example.test",
+                    "attributes": {"NameID": ["stable-subject"], **attrs}})
 
 
 class PeopleDirectoryTests(AppTests):
@@ -385,6 +386,48 @@ class UsernameTests(AppTests):
         response = self.client.put("/api/admin/users/2/username", json={"username": "forbidden"},
                                    headers={"Authorization": "Bearer logdb_rename-test"})
         self.assertEqual(response.status_code, 403)
+
+    def test_sso_sign_in_keeps_everything_sent_for_admins_and_takes_the_name(self):
+        self.con.execute("UPDATE users SET provider='saml',subject='test-subject',display_name='Old Name' WHERE id=2")
+        self.con.commit()
+        sent = {"NameID": ["test-subject"], "displayName": ["New Name"], "givenName": ["New"],
+                "eduPersonAffiliation": ["student", "member"]}
+        with self.app.test_request_context():
+            user, error = self.ns["login_saml_identity"](
+                dict(subject="test-subject", username="pic", display_name="New Name", attributes=sent))
+        self.assertIsNone(error)
+        self.assertEqual(user["display_name"], "New Name")  # TU Delft's name at every sign-in
+        self.assertEqual(self.con.execute("SELECT alias FROM user_aliases WHERE user_id=2").fetchone()[0], "Old Name")
+        self.sign_in(2)
+        self.assertEqual(self.client.get("/api/admin/users/2/sso").status_code, 403)  # administrators only
+        self.sign_in(1)
+        d = self.client.get("/api/admin/users/2/sso").json
+        self.assertEqual(d["attributes"], sent)
+        self.assertTrue(d["received_at"])
+        self.assertIsNone(self.client.get("/api/admin/users/3/sso").json["attributes"])
+        # the name comes from TU Delft: Edit account cannot change it (other fields still save)
+        body = dict(username="pic", display_name="Admin Choice", email=None, default_project_id=None)
+        self.assertEqual(self.client.put("/api/admin/users/2/profile", json=body).status_code, 400)
+        body["display_name"] = "New Name"
+        self.assertEqual(self.client.put("/api/admin/users/2/profile", json=body).status_code, 200)
+        # the email follows TU Delft's at every sign-in, and is then locked in Edit account too
+        with self.app.test_request_context():
+            user, _ = self.ns["login_saml_identity"](dict(subject="test-subject", email="new@example.test"))
+        self.assertEqual(user["email"], "new@example.test")
+        body["email"] = "other@example.test"
+        self.assertEqual(self.client.put("/api/admin/users/2/profile", json=body).status_code, 400)
+        self.assertEqual(self.client.put("/api/admin/users/2", json={"email": "other@example.test"}).status_code, 400)
+        self.con.execute("UPDATE users SET email='taken@example.test' WHERE id=3")
+        self.con.commit()
+        with self.app.test_request_context():  # another account's address is not taken
+            user, _ = self.ns["login_saml_identity"](dict(subject="test-subject", email="taken@example.test"))
+        self.assertEqual(user["email"], "new@example.test")
+        # a name that is another person's log alias is not taken
+        self.con.execute("INSERT INTO user_aliases(user_id,alias) VALUES(3,'Taken Name')")
+        self.con.commit()
+        with self.app.test_request_context():
+            user, _ = self.ns["login_saml_identity"](dict(subject="test-subject", display_name="Taken Name"))
+        self.assertEqual(user["display_name"], "New Name")
 
     def test_sso_rename_preserves_subject(self):
         self.con.execute("UPDATE users SET provider='saml',subject='test-subject' WHERE id=2")
