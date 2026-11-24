@@ -1032,7 +1032,8 @@ A login is matched, in order, to the account holding that TU Delft ID, an active
 unique display name/username/alias; otherwise a new account is made. The first match stores the ID on the account.
 At every sign-in the display name (`displayName`) and email (`mail`) follow TU Delft's; the old name stays a log
 alias, and a name that is another person's alias or an address another account has is not taken. Both are then
-read-only in Edit account (an empty email can still be filled in). Everything TU Delft sent at the last sign-in
+read-only in Edit account once the account has signed in since (`saml_attributes_at` set; before that, a wrong
+value can still be corrected), and an empty email can still be filled in. Everything TU Delft sent at the last sign-in
 (`users.saml_attributes`, JSON, with `saml_attributes_at`) is shown to administrators only, under People → Details →
 TU Delft SSO data (`GET /api/admin/users/<id>/sso`); it moves with the sign-in on Move TU Delft sign-in and merges.
 At TU Delft that is `uid`, `displayName`, `givenName`, `sn`, `mail`, `eduPersonAffiliation` and `preferredLanguage`.

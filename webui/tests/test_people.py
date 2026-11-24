@@ -437,6 +437,21 @@ class UsernameTests(AppTests):
             user, _ = self.ns["login_saml_identity"](dict(subject="test-subject", display_name="Taken Name"))
         self.assertEqual(user["display_name"], "New Name")
 
+    def test_admins_correct_name_and_email_until_the_next_sso_sign_in(self):
+        self.con.execute("UPDATE users SET provider='saml',subject='pilotnetid',display_name='Typo',"
+                         "email='typo@example.test' WHERE id=2")
+        self.con.commit()
+        self.sign_in(1)
+        body = dict(username="pic", display_name="Right Name", email="right@example.test", default_project_id=None)
+        self.assertEqual(self.client.put("/api/admin/users/2/profile", json=body).status_code, 200)
+        with self.app.test_request_context():  # signed in since: now TU Delft's, and locked
+            self.ns["login_saml_identity"](dict(subject="pilotnetid", display_name="TU Name", attributes={}))
+        body["display_name"] = "Other"
+        self.assertEqual(self.client.put("/api/admin/users/2/profile", json=body).status_code, 400)
+        people = {u["id"]: u for u in self.client.get("/api/admin/people").json["users"]}
+        self.assertTrue(people[2]["sso_synced"])
+        self.assertFalse(people[3]["sso_synced"])
+
     def test_old_transient_subject_is_replaced_by_the_netid(self):
         self.con.execute("UPDATE users SET provider='saml',subject='_0ld',email='pilot@example.test' WHERE id=2")
         self.con.commit()
