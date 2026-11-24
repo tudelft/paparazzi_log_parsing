@@ -554,7 +554,7 @@ function renderPanel() {
   $('editPlace').hidden = $('moreWrap').hidden = !admin;
   $('placeDetails').innerHTML = `
     ${row('placeCountrySet', 'Country', p.country ? esc(p.country + ' · ' + countryName(p.country)) : '')}
-    ${row('placeIndoor', 'Indoors', p.indoor ? 'Yes: flights here count as indoor' : 'No')}
+    ${row('placeIndoor', 'Indoors', p.indoor ? '<span title="Flights here count as indoor">Yes</span>' : 'No')}
     ${row('placeOperator', 'Operator', esc(operatorName(p.operator_id) || '') || '<span class="mute">Own operator, or the project\'s</span>')}
     ${row('placeCategory', 'Category', esc(categoryText(p)) || '<span class="mute">From the project or date</span>')}
     ${plainRow('Boundary', shape)}
