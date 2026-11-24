@@ -106,6 +106,29 @@ class AccountMergeTests(AppTests):
         self.sign_in(2)
         self.assertEqual(self.preview(5, 3).status_code, 403)  # admins only
 
+    def test_remove_tu_delft_sign_in(self):
+        con = self.con
+        con.execute("UPDATE users SET display_name='Typo', saml_attributes='{}', saml_attributes_at='now' WHERE id=5")
+        con.commit()
+        remove = lambda uid: self.client.delete(f"/api/admin/users/{uid}/sso")  # noqa: E731
+        self.assertEqual(remove(3).status_code, 400)  # no TU Delft sign-in on 3
+        self.sign_in(2)
+        self.assertEqual(remove(5).status_code, 403)  # administrators only
+        self.sign_in(1)
+        self.assertEqual(remove(5).status_code, 200)
+        self.assertEqual(tuple(con.execute("SELECT subject, provider, saml_attributes, saml_attributes_at, email"
+                                           " FROM users WHERE id=5").fetchone()),
+                         (None, "local", None, None, "pilot@example.org"))  # everything else stays
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM flights WHERE pic_user_id=5").fetchone()[0], 1)
+        body = dict(username="uploader", display_name="Right Name", email="pilot@example.org", default_project_id=None)
+        self.assertEqual(self.client.put("/api/admin/users/5/profile", json=body).status_code, 200)  # editable again
+        self.assertEqual([r[0] for r in con.execute("SELECT action FROM qualification_audit")], ["sso_removed"])
+        # the last administrator keeps a way to sign in
+        con.execute("UPDATE users SET is_admin=0 WHERE id!=1")
+        con.execute("UPDATE users SET subject='netid-admin', password_hash=NULL WHERE id=1")
+        con.commit()
+        self.assertEqual(remove(1).status_code, 400)
+
     def test_move_tu_delft_sign_in_to_another_or_a_new_account(self):
         move = lambda source, **body: self.client.post(f"/api/admin/users/{source}/sso-move", json=body)  # noqa: E731
         self.assertEqual(move(3, to=4).status_code, 400)  # no TU Delft sign-in on 3

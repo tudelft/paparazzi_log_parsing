@@ -4944,6 +4944,31 @@ def admin_remove_password(user_id):
     return jsonify(ok=True)
 
 
+@app.delete("/api/admin/users/<int:user_id>/sso")
+def admin_remove_sso(user_id):
+    """Remove the TU Delft sign-in: the account keeps everything else and becomes a local account (name and email
+    editable again; Set password gives it a normal login). Its saved TU Delft data goes too."""
+    admin_required()
+    session_required()
+    con = conn()
+    with db.write_lock, con:
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+        if row is None:
+            return jsonify(error="no such user"), 404
+        if not row["subject"]:
+            return jsonify(error="This account has no TU Delft sign-in."), 400
+        if row["is_admin"] and not con.execute(
+                "SELECT 1 FROM users WHERE id!=? AND is_admin=1 AND is_active=1"
+                " AND (subject IS NOT NULL OR password_hash IS NOT NULL) LIMIT 1",  # SSO linked or a password
+                (user_id,)).fetchone():
+            return jsonify(error="Cannot remove the last administrator's login method."), 400
+        con.execute("UPDATE users SET subject=NULL, provider='local', saml_attributes=NULL, saml_attributes_at=NULL"
+                    " WHERE id=?", (user_id,))
+        qualifications.audit(con, user_id, g.user["id"], "sso_removed", {})
+    return jsonify(ok=True)
+
+
 @app.post("/api/admin/users/<int:user_id>/setup-link")
 def admin_new_setup_link(user_id):
     admin_required()
