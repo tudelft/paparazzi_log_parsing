@@ -196,7 +196,7 @@ fetch('/api/me').then(r => r.json()).then(d => {
 });
 
 // Sent emails (admins): the mail outbox of the last 90 days; page and status filter are kept in the URL.
-const MAIL_PAGE = 25;
+const MAIL_PAGE = 10;  // Sent mails: 10 per page, the pager below
 let mailState = (() => { const p = new URLSearchParams(location.search);
   return {page: Math.max(0, (+p.get('mailpage') || 1) - 1), status: p.get('mailstatus') || ''}; })();
 function saveMailState() {
