@@ -1263,7 +1263,7 @@ def store_parsed(con, log_id, doc, paths_file):
              summ.get("num_flights"), summ.get("total_flight_time_s"), summ.get("total_flight_distance_m"),
              json.dumps(ac.get("preflight_checks", [])), pack(ac.get("info_messages", [])), pack(config),
              json.dumps(ac["simulation"]) if ac.get("simulation") is not None else None,
-             board_id(lg.get("timing"), ac.get("ac_id"))),
+             ac.get("mcu_uid") or board_id(lg.get("timing"), ac.get("ac_id"))),  # mav_parse gives it directly
         )
         ac_pk = cur.lastrowid
         for f in ac.get("flights", []):

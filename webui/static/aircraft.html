@@ -923,8 +923,10 @@ function ambiguousHTML(item, i) {
       <td>${g.board ? `<span class="mono" title="${esc(g.board)}">${esc(g.board.slice(0, 8))}…</span>` : '<span class="mute">No board ID</span>'}</td>
       <td>${recs(g)}</td><td>${linkable(g) ? now(g) : '<span class="mute">No board or autopilot ID; cannot be assigned</span>'}</td></tr>`).join('')}
     </tbody></table></div>
-    <div class="shared-actions"><button type="button" class="sec" data-name="${esc(item.name)}" onclick="clearAmbiguous(this.dataset.name)"
-      title="Normal name and folder matching resumes for this name">Remove ambiguous status…</button></div></td></tr>` : ''}`;
+    <div class="shared-actions">${item.default_name
+      ? '<span class="mute">An autopilot\'s default name: it stays shared. Link the board of each flight controller.</span>'
+      : `<button type="button" class="sec" data-name="${esc(item.name)}" onclick="clearAmbiguous(this.dataset.name)"
+      title="Normal name and folder matching resumes for this name">Remove ambiguous status…</button>`}</div></td></tr>` : ''}`;
 }
 // Link to aircraft…: the ticked unlinked names (aliases + their boards) or shared-name boards/recordings.
 function openLink(kind) {

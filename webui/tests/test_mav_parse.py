@@ -205,7 +205,7 @@ class PX4NavigationTests(unittest.TestCase):
         self.assertEqual(flights[0]["duration_s"], 10)
 
 
-def _tiny_tlog(path):
+def _tiny_tlog(path, board=None):
     from pymavlink import mavutil
 
     mav = mavutil.mavlink.MAVLink(None, srcSystem=1, srcComponent=1)
@@ -218,6 +218,8 @@ def _tiny_tlog(path):
 
     add(0, mav.heartbeat_encode(2, 3, 128, 0, 4))
     add(10_000, mav.statustext_encode(6, b"ArduCopter ready"))
+    if board:
+        add(20_000, mav.statustext_encode(6, board))
     add(1_000_000, mav.gps_raw_int_encode(t0, 3, 519900000, 43700000, 12000, 65535, 65535, 200, 0, 12))
     add(1_100_000, mav.attitude_encode(1100, 0.1, -0.05, 1.2, 0, 0, 0))
     add(2_000_000, mav.gps_raw_int_encode(t0 + 2_000_000, 3, 519903000, 43700300, 25000, 65535, 65535, 800, 0, 12))
@@ -299,6 +301,38 @@ class ParseTests(unittest.TestCase):
         self.assertTrue(ac["preflight_checks"])
         self.assertGreaterEqual(len(ac["flights"]), 1)
         self.assertTrue(any(p.get("position") for p in ac["flights"][0]["path"]))
+
+    def test_ardupilot_board_id_from_the_boot_line(self):
+        """The flight controller's unique ID links the log to its aircraft, not the name (ArduPilot-<SYSID>)."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "flash.log"
+            _tiny_ap_log(path)
+            doc = mav_parse.parse(path, path_rate=1)
+            self.assertIsNone(doc["aircraft"][0]["mcu_uid"])  # no boot line: no board ID
+            text = path.read_text().replace("MSG, 1000, ArduCopter V4.5.0\n",
+                                            "MSG, 1000, ArduCopter V4.5.0\nMSG, 1100, CubeOrangePlus 0042003D 30325114 33383839\n")
+            path.write_text(text)
+            ac = mav_parse.parse(path, path_rate=1)["aircraft"][0]
+        self.assertEqual(ac["name"], "ArduPilot-7")
+        self.assertEqual(ac["mcu_uid"], "0042003d3032511433383839")
+        self.assertIn("CubeOrangePlus 0042003D 30325114 33383839", ac["autopilot_versions"])
+
+    def test_board_id_helpers(self):
+        self.assertEqual(mav_parse.ap_board_id("CubeOrange 00300032 32385111 31393631"), ("CubeOrange", "003000323238511131393631"))
+        for text in ("ArduCopter V4.5.7 (2a3dc4b7)", "ChibiOS: 6a85082c", "Cube 00000000 00000000 00000000", "Cube 0042003d 30325114 33383839"):
+            self.assertIsNone(mav_parse.ap_board_id(text), text)
+        raw = struct.pack("<III", 0x0042003D, 0x30325114, 0x33383839) + bytes(6)
+        self.assertEqual(mav_parse.mavlink_uid_board_id(list(raw)), "0042003d3032511433383839")  # same as the boot line
+        self.assertEqual(mav_parse.mavlink_uid_board_id([0] * 18, 0x1234), "0000000000001234")
+        self.assertIsNone(mav_parse.mavlink_uid_board_id([0] * 18, 0))
+        self.assertIsNone(mav_parse.mavlink_uid_board_id(None))
+
+    def test_tlog_board_id_from_statustext(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "link.tlog"
+            _tiny_tlog(path, board=b"CubeOrangePlus 0042003D 30325114 33383839")
+            ac = mav_parse.parse(path, path_rate=1)["aircraft"][0]
+        self.assertEqual(ac["mcu_uid"], "0042003d3032511433383839")
 
     def test_tlog_statustext_and_heartbeat_arming(self):
         with tempfile.TemporaryDirectory() as d:

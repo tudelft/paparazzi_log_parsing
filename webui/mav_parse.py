@@ -21,7 +21,7 @@ from pathlib import Path
 import gps_quality
 
 PARSER_NAME = "mav-log"
-PARSER_VERSION = "1.1.0"
+PARSER_VERSION = "1.2.0"
 BLACKBOX_PARSER_NAME = "blackbox"
 BLACKBOX_PARSER_VERSION = "1.0.2"
 BLACKBOX_DECODE_TIMEOUT_S = 300
@@ -54,6 +54,32 @@ BLACKBOX_KEEP = frozenset(
     + tuple(f"{prefix}[{i}]" for prefix in ("quat", "ekf_quat") for i in range(4))
     + tuple(f"{prefix}[{i}]" for prefix in ("ekf_pos", "pos", "ekf_vel", "vel") for i in range(3))
 )
+
+# The flight controller's own unique ID (the processor's serial), so a log is linked to its aircraft by hardware and
+# not by its name: an ArduPilot log is named after SYSID_THISMAV ("ArduPilot-1" on every drone where it was never set).
+# ArduPilot writes it once at boot as text, e.g. "CubeOrangePlus 0042003D 30325114 33383839" (board type and three
+# 32-bit words of the 96-bit ID); a tlog has the same text as STATUSTEXT, or the raw bytes in AUTOPILOT_VERSION.uid2.
+AP_BOARD_LINE = re.compile(r"^(\S+) ([0-9A-F]{8}) ([0-9A-F]{8}) ([0-9A-F]{8})$")
+
+
+def ap_board_id(text):
+    """(board type, board ID) from ArduPilot's boot line, or None. The ID is the three words as one lowercase hex string
+    (as the logbook stores board IDs)."""
+    m = AP_BOARD_LINE.match((text or "").strip())
+    if not m or m[2] + m[3] + m[4] in ("0" * 24, "F" * 24):
+        return None
+    return m[1], (m[2] + m[3] + m[4]).lower()
+
+
+def mavlink_uid_board_id(uid2, uid=0):
+    """Board ID from AUTOPILOT_VERSION: uid2 (raw ID bytes; ArduPilot puts the 96-bit processor ID first, read as the
+    same little-endian 32-bit words as its boot line) or else uid (64 bit, e.g. PX4). None when both are empty."""
+    raw = bytes(int(b) & 0xFF for b in (uid2 or []))[:12]
+    if len(raw) == 12 and any(raw) and raw != b"\xff" * 12:
+        return "".join(f"{struct.unpack('<I', raw[i:i + 4])[0]:08x}" for i in (0, 4, 8))
+    uid = int(uid or 0)
+    return f"{uid:016x}" if uid else None
+
 
 # Motion capture / external navigation: the flight is indoor like a Paparazzi OptiTrack flight
 AP_VISION_MESSAGES = {"VISP", "VISO", "VISV"}  # vision position / odometry / velocity received by ArduPilot
@@ -666,7 +692,7 @@ def _split_flights(samples, armed, t0_epoch, path_rate, *, airborne=None, strict
 
 def _document(path, digest, size, log_type, type_basis, path_rate, t0_epoch, t_first, t_last,
               ac_id, name, versions, flights, info_messages, preflight, settings_timeline=None,
-              parser_name=None, parser_version=None):
+              parser_name=None, parser_version=None, mcu_uid=None):
     total_time = sum(f["duration_s"] or 0 for f in flights)
     total_dist = sum(f["distance_m"] or 0 for f in flights)
     start_utc = _utc(t0_epoch) if t0_epoch is not None else None
@@ -686,7 +712,7 @@ def _document(path, digest, size, log_type, type_basis, path_rate, t0_epoch, t_f
             "total_flight_distance_m": _num(total_dist, 2) or 0,
         },
         "aircraft": [{
-            "ac_id": ac_id, "name": name, "autopilot_versions": versions,
+            "ac_id": ac_id, "name": name, "autopilot_versions": versions, "mcu_uid": mcu_uid,
             "data_span": {"first_utc": first_utc, "last_utc": end_utc},
             "mission": {"pic": "", "pac": "", "gcs": "", "goal": ""},
             "summary": {
@@ -1248,6 +1274,7 @@ def _parse_ardupilot(path, digest, size, path_rate):
     t_last = 0.0
     sysid = 1
     vehicle = None
+    board = None  # (board type, board ID) from the boot line
     prev_armed = None
     vision_times, ap_params = [], {}
 
@@ -1287,6 +1314,9 @@ def _parse_ardupilot(path, digest, size, path_rate):
             _push_msg(info_messages, t_rel, epoch(t_rel), text)
             low = text.lower()
             if "apm:" in low or "ardupilot" in low or "chibios" in low or "px4v" in low:
+                versions.append(text)
+            if board is None and (found := ap_board_id(text)):
+                board = found
                 versions.append(text)
             if "prearm" in low or "preflight" in low or "arming" in low:
                 preflight.append({"time_s": _num(t_rel, 3) or 0, "utc": _utc(epoch(t_rel)), "text": text})
@@ -1411,7 +1441,8 @@ def _parse_ardupilot(path, digest, size, path_rate):
               cap=MAX_INFO_MESSAGES + 1)
     info_messages.sort(key=lambda m: m["time_s"])
     return _document(path, digest, size, LOG_AP, "DataFlash", path_rate, t0_epoch, t_first, t_last,
-                     sysid, name, versions, flights, info_messages, preflight, settings)
+                     sysid, name, versions, flights, info_messages, preflight, settings,
+                     mcu_uid=board[1] if board else None)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1435,6 +1466,7 @@ def _parse_tlog(path, digest, size, path_rate):
     prev_armed = None
     tlog_quality = None  # of the latest GPS_RAW_INT
     vision_times = []
+    board_uid = None  # the vehicle's flight-controller ID (boot STATUSTEXT or AUTOPILOT_VERSION)
 
     def epoch(t):
         return (t0_epoch + t) if t0_epoch is not None else None
@@ -1468,12 +1500,19 @@ def _parse_tlog(path, digest, size, path_rate):
 
         if name in TLOG_VISION_MESSAGES and (not vision_times or t_rel - vision_times[-1] >= 1):
             vision_times.append(t_rel)
+        if name == "AUTOPILOT_VERSION" and board_uid is None and sysid != 255:  # 255: the ground station
+            board_uid = mavlink_uid_board_id(getattr(m, "uid2", None), getattr(m, "uid", 0))
         if name == "STATUSTEXT":
             text = str(getattr(m, "text", "") or "").rstrip("\x00")
             _push_msg(info_messages, t_rel, epoch(t_rel), text)
             low = text.lower()
             if "ardupilot" in low or "px4" in low:
                 versions.append(text)
+            if (found := ap_board_id(text)) and sysid != 255:
+                if board_uid is None:
+                    board_uid = found[1]
+                if text not in versions:
+                    versions.append(text)
             if "prearm" in low or "preflight" in low:
                 preflight.append({"time_s": _num(t_rel, 3) or 0, "utc": _utc(epoch(t_rel)), "text": text})
             continue
@@ -1565,7 +1604,7 @@ def _parse_tlog(path, digest, size, path_rate):
               "[topics] MAVLink types: " + ", ".join(sorted(per_type)[:80]))
     info_messages.sort(key=lambda m: m["time_s"])
     return _document(path, digest, size, LOG_TLOG, "MAVLink tlog", path_rate, t0_epoch, t_first, t_last,
-                     sysid, f"MAVLink-{sysid}", versions, flights, info_messages, preflight)
+                     sysid, f"MAVLink-{sysid}", versions, flights, info_messages, preflight, mcu_uid=board_uid)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
