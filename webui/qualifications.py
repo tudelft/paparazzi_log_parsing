@@ -84,13 +84,13 @@ def qualifications_payload(con, viewer, user_id):
         return None
     items = []
     for row in con.execute(
-            "SELECT q.*,t.name AS category,t.requires_evidence,t.requires_start,t.requires_expiry,t.internal,"
+            "SELECT q.*,t.name AS category,t.grp,t.requires_evidence,t.requires_start,t.requires_expiry,t.internal,"
             " t.requires_number,t.description AS type_description,"
             " COALESCE(u.display_name,u.username) AS reviewer FROM qualification_submissions q"
             " JOIN qualification_types t ON t.id=q.type_id LEFT JOIN users u ON u.id=q.reviewed_by"
             " WHERE q.user_id=? ORDER BY t.sort_order, t.name, q.id DESC", (user_id,)):
         item = {key: row[key] for key in (
-            "id", "type_id", "category", "status", "valid_from", "valid_until", "submitted_at",
+            "id", "type_id", "category", "grp", "status", "valid_from", "valid_until", "submitted_at",
             "reviewed_at", "reviewer", "evidence_deleted_at", "filename", "note", "requires_evidence",
             "requires_start", "requires_expiry", "requires_number", "number", "review_note")}
         item["internal"] = bool(row["internal"])
@@ -122,10 +122,10 @@ def current_payload(con, viewer, user_id):
              viewable=bool(r["evidence_path"]) and storage.view_type(r["filename"] or "") is not None,
              category=r["category"], valid_from=r["valid_from"], valid_until=r["valid_until"], status="approved",
              expired=bool(r["valid_until"] and r["valid_until"] < datetime.date.today().isoformat()),
-             internal=bool(r["internal"]), number=r["number"])
+             internal=bool(r["internal"]), number=r["number"], grp=r["grp"])
         for r in con.execute(
-            "SELECT q.id,q.evidence_path,q.filename,t.name AS category,q.valid_from,q.valid_until,t.internal,q.number"
-            " FROM qualification_submissions q"
+            "SELECT q.id,q.evidence_path,q.filename,t.name AS category,t.grp,q.valid_from,q.valid_until,t.internal,"
+            " q.number FROM qualification_submissions q"
             " JOIN qualification_types t ON t.id=q.type_id WHERE q.user_id=? AND q.status='approved'"
             " ORDER BY t.sort_order, t.name", (user_id,))])
 

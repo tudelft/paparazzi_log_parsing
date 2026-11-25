@@ -99,6 +99,10 @@ window.typeGroups = types => {
   }
   return [...groups].sort(([a], [b]) => (a === '') - (b === '')).map(([name, list]) => ({name: name || 'Other', types: list}));
 };
+// Items of qualification types (a person's qualifications, each with its type's grp, in type order) under their
+// group headings: head(name, items) gives a heading, body(items) the rows. Without any group: body(all items).
+window.inTypeGroups = (items, head, body) => !items.some(i => (i.grp || '').trim()) ? body(items)
+  : window.typeGroups(items).map(g => head(g.name, g.types) + body(g.types)).join('');
 window.typeOptions = (types, option) => {
   const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   if (!types.some(t => (t.grp || '').trim())) return types.map(option).join('');
