@@ -276,10 +276,11 @@ window.timingEvidenceHTML = function (timing) {
   const OPERATORS = {all: 'All operators', own: 'Own operations only', other: 'Other operators only'};
   const CATEGORIES = {all: 'All categories', national: 'National rules (ROC / ROC-light)', open: 'OPEN', specific: 'SPECIFIC',
     luc: 'LUC', indoor: 'Indoor', unknown: 'Unknown category', check: 'Category to check'};
-  // indoor, nonflights and unknownDates mean "shown"; by default everything is shown (the panel offers Hide options).
-  // Saved selections keep their values, so a browser that hid them keeps hiding them. Non-flights include logs that
-  // produced no flight (the Logbook lists them as rows of their own).
-  const defaults = () => ({period: '3y', from: '', to: '', indoor: true, nonflights: true, unknownDates: true, operator: 'all', category: 'all'});
+  // indoor, nonflights, nologs and unknownDates mean "shown"; by default everything is shown (the panel offers Hide
+  // options). Saved selections keep their values, so a browser that hid them keeps hiding them. nologs: logs that
+  // produced no flight (the Logbook lists them as rows of their own); a selection saved before it existed follows
+  // nonflights, which used to include them.
+  const defaults = () => ({period: '3y', from: '', to: '', indoor: true, nonflights: true, nologs: true, unknownDates: true, operator: 'all', category: 'all'});
   let storageWarning = '';
   const validDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)
     && !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
@@ -293,13 +294,15 @@ window.timingEvidenceHTML = function (timing) {
           || !['from', 'to'].every(k => value[k] === '' || validDay(value[k]))
           || typeof value.indoor !== 'boolean' || typeof value.nonflights !== 'boolean'
           || (value.unknownDates !== undefined && typeof value.unknownDates !== 'boolean')
+          || (value.nologs !== undefined && typeof value.nologs !== 'boolean')
           || (value.operator !== undefined && !Object.hasOwn(OPERATORS, value.operator))
           || (value.category !== undefined && !Object.hasOwn(CATEGORIES, value.category))
           || (value.from && value.to && value.from > value.to)) {
         throw new Error('Invalid saved flight filters');
       }
       return {period: value.period, from: value.from, to: value.to,
-        indoor: value.indoor, nonflights: value.nonflights, unknownDates: value.unknownDates ?? true,
+        indoor: value.indoor, nonflights: value.nonflights, nologs: value.nologs ?? value.nonflights,
+        unknownDates: value.unknownDates ?? true,
         operator: value.operator ?? 'all', category: value.category ?? 'all'};
     } catch (error) {
       console.warn('Could not restore flight filters:', error);
@@ -313,7 +316,7 @@ window.timingEvidenceHTML = function (timing) {
     restore(value) {
       if (!value || !Object.hasOwn(PERIODS, value.period)
           || !['from', 'to'].every(k => value[k] === '' || validDay(value[k]))
-          || ['indoor','nonflights','unknownDates'].some(k => typeof value[k] !== 'boolean')
+          || ['indoor','nonflights','nologs','unknownDates'].some(k => typeof value[k] !== 'boolean')
           || !Object.hasOwn(OPERATORS, value.operator || 'all')
           || !Object.hasOwn(CATEGORIES, value.category || 'all')
           || (value.from && value.to && value.from > value.to)) return false;
@@ -359,7 +362,7 @@ window.timingEvidenceHTML = function (timing) {
   logs(logs, allFlights, shownFlights) {
     const ids = new Set(shownFlights.flatMap(f => f.log_ids || []));
     const flightIds = new Set(allFlights.flatMap(f => f.log_ids || []));
-    return logs.filter(l => ids.has(l.id) || (state.nonflights && l.status === 'done'
+    return logs.filter(l => ids.has(l.id) || (state.nologs && l.status === 'done'
       && l.num_flights === 0 && !flightIds.has(l.id)
       && this.includesDate({takeoff_utc: l.start_utc, date_ok: l.date_ok, date_override: l.date_override})));
   },
@@ -374,7 +377,7 @@ window.timingEvidenceHTML = function (timing) {
       : PERIODS[state.period];
   },
   summary() {
-    return `${this.periodLabel()} · Indoor/no-GPS ${state.indoor ? 'shown' : 'hidden'} · Non-flights ${state.nonflights ? 'shown' : 'hidden'} · Unknown dates ${state.unknownDates ? 'shown' : 'hidden'}`
+    return `${this.periodLabel()} · Indoor/no-GPS ${state.indoor ? 'shown' : 'hidden'} · Non-flights ${state.nonflights ? 'shown' : 'hidden'} · Logs without flights ${state.nologs ? 'shown' : 'hidden'} · Unknown dates ${state.unknownDates ? 'shown' : 'hidden'}`
       + (state.operator === 'all' ? '' : ` · ${OPERATORS[state.operator]}`)
       + (state.category === 'all' ? '' : ` · ${CATEGORIES[state.category]}`);
   },
@@ -387,7 +390,7 @@ window.timingEvidenceHTML = function (timing) {
   function paint() {
     const button = document.getElementById('flightFiltersButton');
     if (!button) return;
-    const extra = Number(!state.indoor) + Number(!state.nonflights) + Number(!state.unknownDates) + Number(state.operator !== 'all') + Number(state.category !== 'all');
+    const extra = Number(!state.indoor) + Number(!state.nonflights) + Number(!state.nologs) + Number(!state.unknownDates) + Number(state.operator !== 'all') + Number(state.category !== 'all');
     // a funnel icon, then the period and how many other filters are changed (the full summary is the tooltip)
     button.innerHTML = '<svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
       + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>'
@@ -413,11 +416,12 @@ window.timingEvidenceHTML = function (timing) {
         <label class="filter-field">Category<select name="category">${Object.entries(CATEGORIES).map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select></label>
         <div class="filter-options">
           <label><input type="checkbox" name="indoor"> Hide indoor / no-GPS flights</label>
-          <label title="Ground runs, uncertain flights, simulations and logs without flights"><input type="checkbox" name="nonflights"> Hide non-flights <span class="mute">(ground runs, uncertain, simulations, logs without flights)</span></label>
+          <label title="Ground runs, uncertain flights and simulations"><input type="checkbox" name="nonflights"> Hide non-flights <span class="mute">(ground runs, uncertain, simulations)</span></label>
+          <label title="Parsed logs that produced no flight"><input type="checkbox" name="nologs"> Hide logs without flights</label>
           <label><input type="checkbox" name="unknownDates"> Hide unknown dates</label>
         </div>
         <details class="filter-help"><summary>Help</summary>
-          <p>Non-flights are ground runs, uncertain flights, simulations and logs that produced no flight; uncertain flights are marked (?). The Logbook lists logs without flights as rows of their own, marked "no flight". Edit flight on the flight page confirms a flight as a flight or not a flight.</p>
+          <p>Non-flights are ground runs, uncertain flights and simulations; uncertain flights are marked (?). Logs that produced no flight have a filter of their own: the Logbook lists them as rows marked "no flight", with their log number. Edit flight on the flight page confirms a flight as a flight or not a flight.</p>
           <p>Records without a known date are shown alongside the selected period unless Hide unknown dates is ticked. Other visibility filters still apply.</p>
           <p>Own operations are flights under our own operator registration: use them for operator reporting. Pilot experience counts all operators.</p>
           <p>Category: the rules a flight was flown under. Before 2021 that was national rules (ROC / ROC-light); since then OPEN or SPECIFIC under an operational authorisation. To check: SPECIFIC without an authorisation, or flown outside its validity.</p>
@@ -438,7 +442,7 @@ window.timingEvidenceHTML = function (timing) {
     }
     function fill(value) {
       for (const key of ['period', 'from', 'to', 'operator', 'category']) fields[key].value = value[key];
-      for (const key of ['indoor', 'nonflights', 'unknownDates']) fields[key].checked = !value[key];  // ticked = hidden
+      for (const key of ['indoor', 'nonflights', 'nologs', 'unknownDates']) fields[key].checked = !value[key];  // ticked = hidden
       syncDates();
     }
     function close(focus = false) {
@@ -477,7 +481,7 @@ window.timingEvidenceHTML = function (timing) {
         return;
       }
       state = {period: fields.period.value, from: custom ? fields.from.value : '', to: custom ? fields.to.value : '',
-        indoor: !fields.indoor.checked, nonflights: !fields.nonflights.checked, unknownDates: !fields.unknownDates.checked,
+        indoor: !fields.indoor.checked, nonflights: !fields.nonflights.checked, nologs: !fields.nologs.checked, unknownDates: !fields.unknownDates.checked,
         operator: fields.operator.value, category: fields.category.value};
       try { localStorage.setItem(KEY, JSON.stringify(state)); storageWarning = ''; }
       catch (error) {
@@ -518,7 +522,9 @@ window.timingEvidenceHTML = function (timing) {
 (function () {
   const filters = window.flightFilters;
   const filterKeys = {period:'period', from:'from', to:'to', indoor:'indoor',
-    nonflights:'nonflights', unknownDates:'unknown_dates', operator:'operator', category:'category'};
+    nonflights:'nonflights', nologs:'nologs', unknownDates:'unknown_dates', operator:'operator', category:'category'};
+  // nologs is in the URL only when hidden (nologs=0), so links from before it existed keep showing those logs
+  const inverted = new Set(['nologs']);
   const integer = (value, fallback, min = 1) => /^\d+$/.test(value || '')
     && Number.isSafeInteger(+value) && +value >= min ? +value : fallback;
   window.viewState = {
@@ -533,7 +539,7 @@ window.timingEvidenceHTML = function (timing) {
           const value = {};
           for (const [key, param] of Object.entries(filterKeys)) {
             value[key] = ['period', 'from', 'to', 'operator', 'category'].includes(key) ? params.get(param) || ''
-              : params.get(param) === '1';
+              : inverted.has(key) ? params.get(param) !== '0' : params.get(param) === '1';
           }
           if (!filters.restore(value)) console.warn('Invalid URL flight filters; keeping current filters');
         }
@@ -546,6 +552,7 @@ window.timingEvidenceHTML = function (timing) {
         const extra = write(params) || {};
         for (const [key, param] of Object.entries(filterKeys)) {
           const value = filters.state[key];
+          if (inverted.has(key)) { if (value) params.delete(param); else params.set(param, '0'); continue; }
           if (value === '' || value === false || (['operator', 'category'].includes(key) && value === 'all')) params.delete(param);
           else params.set(param, value === true ? '1' : value);
         }

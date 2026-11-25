@@ -2735,15 +2735,18 @@ again as before.
   numbers (all have a flight number), MATLAB ▾ (all have a Paparazzi log), **Change…** (project, PIC, PAC, GCS,
   operator, category; fields on Keep stay) and **Same flight** (shown to who may change entries; enabled when they
   may change every ticked one), and **Hide** or **Restore** for admins.
-- <a id="logs-without-flights"></a>**Logs without flights** are non-flights: shown unless *Hide non-flights* is
-  ticked (URL `nonflights`), like ground runs, uncertain flights and simulations. The Logbook loads
+- <a id="logs-without-flights"></a>**Logs without flights** have their own flight filter: shown unless *Hide logs
+  without flights* is ticked (state `nologs`; in the URL only as `nologs=0` when hidden, so older links keep showing
+  them; a browser selection saved before the option existed takes its value from `nonflights`). The Logbook loads
   `GET /api/logbook/logs-without-flights` and shows parsed logs (status `done`) without any flight as rows of their own
-  with a *no flight* chip: date (set date, else the log start; *date unknown* chip otherwise), start and end, duration,
+  with a *no flight* chip: the log number (as on the Logs page; outlined with a *log* label so it is not taken for a
+  flight number, with ⧉ to copy it), date (set date, else the log start; *date unknown* chip otherwise), start and end, duration,
   type, aircraft names, project and the log name linking to `/logs#log<id>`. Failed, queued and parsing logs are left to
   the Logs page. The endpoint uses the Logs page's scope (`list_clause`: admins all; others their projects' logs and
   logs they uploaded or co-uploaded; `?project=`) and takes optional `from`/`to`, `unknown_dates=0` and `q`; the Logbook
   applies the period, unknown dates and search itself, sorts the rows by date with the flights and leaves them out with
-  a Files filter or Hidden records only. Ticked, they offer only what applies: MATLAB of the whole log (one log on its
+  a Files filter or Hidden records only. With *Group by day* the dated ones of one aircraft (names) and UTC day form one
+  grey-barred row (count ×, ⧉ copies their log numbers space-separated) that opens to the single logs. Ticked, they offer only what applies: MATLAB of the whole log (one log on its
   own), the date chip for undated logs (`can_edit_date`), and **Change…** with only the project for administrators
   (`PUT /api/logs/<id>/project`); Copy numbers, Same flight and Hide are disabled with the reason.
 - **Files ▾** filters entries with files (any, or one category); while on it shows as a chip (*Files: Photos*) with ✕.
@@ -2770,7 +2773,7 @@ on `/aircraft` (`?mine=1`) keeps only those, including ones without logs.
 
 **Shared flight filters.** The menu's **Flight filters** popover stores its applied selection in
 browser `localStorage` (`logdbFlightFilters`): period preset or inclusive custom UTC dates,
-indoor/no-GPS visibility, non-flight visibility and unknown-date visibility. Defaults are last three years with all
+indoor/no-GPS visibility, non-flight visibility, logs-without-flights visibility and unknown-date visibility. Defaults are last three years with all
 visibility options off. Apply commits changes; Cancel/Escape/outside-click discard the draft;
 Reset fills the defaults for the next Apply. Other tabs update on storage changes. Storage
 failures are reported in the popover instead of claiming the selection was saved.
@@ -2781,7 +2784,7 @@ any selected period; other visibility filters still apply. Older saved selection
 option to off. Corrected dates and dated paper records follow the selected period. Single-flight pages, entity
 metadata/qualifications/memberships, directory administration and Uploads remain unfiltered.
 Detail log inventories and log-data totals count each accessible contributing source once;
-parsed zero-flight logs are additionally included only with non-flights enabled and a matching
+parsed zero-flight logs are additionally included only with logs without flights shown and a matching
 recording/corrected date (or unknown dates enabled). Upload time is not substituted for a missing recording date.
 The Locations overview sends `from`, `to`, `indoor=0/1`, `nonflights=0/1` and `unknown_dates=0/1` to `/api/places`.
 The endpoint validates ISO dates/order and applies the selection to both counters and endpoint

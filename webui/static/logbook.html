@@ -110,6 +110,16 @@
   .no-flight { background:var(--chip, var(--sec)); color:var(--mute); margin-left:4px; }
   tr.nolog { cursor:default; }
   tr.nolog td { color:var(--mute); }
+  /* a log without flights shows its log number (not a flight number) in a dashed outline with a "log" label; their
+     day row has a grey bar instead of the flights' blue one */
+  .log-num { display:inline-block; padding:0 4px; border:1px dashed var(--mute); border-radius:4px; white-space:nowrap; }
+  .log-num small { font-family:system-ui, sans-serif; font-size:10px; text-transform:uppercase; letter-spacing:.03em; margin-right:3px; }
+  tr.group.nolog-group { --row-bg:color-mix(in srgb, var(--mute) 7%, var(--card)); box-shadow:inset 3px 0 0 var(--mute); }
+  tr.group.nolog-group.ticked { --row-bg:color-mix(in srgb, var(--acc) 9%, var(--card)); }
+  tr.group.nolog-group:hover { --row-bg:color-mix(in srgb, var(--mute) 12%, var(--card)); }
+  tr.group.nolog-group td { color:var(--mute); }
+  tr.group.nolog-group .grp-count { background:var(--chip); color:var(--mute); }
+  tr.nolog.sub { box-shadow:inset 3px 0 0 color-mix(in srgb, var(--mute) 45%, transparent); }
   .date-estimated { text-decoration:underline dotted var(--warn); text-underline-offset:3px; cursor:help; }
   .date-estimated .date-tip { display:none; position:fixed; left:16px; bottom:16px; z-index:1000;
     max-width:min(420px,calc(100vw - 32px)); padding:8px 12px; border:1px solid var(--line);
@@ -225,13 +235,13 @@ const exportable = f => MatlabExport.available(f.sources);
 const selectable = () => true;
 const selectOn = () => !hiddenColumns.has('Select');  // the tick-box column can be switched off under Columns
 const pickedFlights = () => flights.filter(f => crewIds(f).some(id => selected.has(id)));
-// Logs without flights (non-flights, shown unless "Hide non-flights"): parsed logs that produced no flight, as
+// Logs without flights (shown unless "Hide logs without flights"): parsed logs that produced no flight, as
 // rows of their own (GET /api/logbook/logs-without-flights, the Logs page's scope); key "nolog:<log id>".
 let noFlightLogs = [], noFlightLoaded = false;
 const asLogRow = l => ({...l, nolog: true, record_key: 'nolog:' + l.id, log_id: l.id, aircraft: l.aircraft_names || l.name,
   takeoff_utc: l.date_ok ? l.start_utc : null, log_start_utc: l.start_utc});
 async function loadNoFlightLogs() {
-  if (!window.flightFilters.state.nonflights) return;
+  if (!window.flightFilters.state.nologs) return;
   try {
     const r = await fetch('/api/logbook/logs-without-flights');
     const d = await r.json();
@@ -886,20 +896,56 @@ function flightRows(f, cls = '') {
     + (open_.has(f.record_key) ? `<tr><td colspan="21" class="detail">${detail(f)}</td></tr>` : '');
 }
 
-// A log without flights: its date (or the date chip), start and end, duration, type with a "no flight" chip, aircraft
-// and project; the log name links to its details on the Logs page.
-function logRow(l) {
+// A log without flights: its log number (as on the Logs page and in ml.fetch(log=n), marked as a log), date (or the
+// date chip), start and end, duration, type with a "no flight" chip, aircraft and project; the log name links to its
+// details on the Logs page.
+const logNumber = id => `<span class="log-num" title="Log number ${id} (a log without flights, not a flight number)"><small>log</small>${id}</span>`;
+function logRow(l, cls = '') {
   const ids = [l.record_key];
   const date = l.date_ok ? esc(fmtDate(l.start_utc) || l.date_override || '') : l.can_edit_date
     ? `<button type="button" class="badge date-unknown" data-set-date="${esc(l.record_key)}" title="Click to set the date (this log has no usable calendar date, often GPS week 0, shown as 1980)">date unknown</button>`
     : '<span class="badge date-unknown" title="This log has no usable calendar date (often GPS week 0, shown as 1980)">date unknown</span>';
-  return `<tr class="flight nolog${ticked(ids) ? ' ticked' : ''}" data-id="${esc(l.record_key)}"><td class="exp"></td>${chk(ids)}<td class="num"></td>
+  return `<tr class="flight nolog ${cls}${ticked(ids) ? ' ticked' : ''}" data-id="${esc(l.record_key)}"><td class="exp"></td>${chk(ids)}<td class="num mono">${logNumber(l.id)}${window.copyButton(l.id, `log number ${l.id}`)}</td>
     <td>${date}</td><td>${esc(fmtHm(l.start_utc))}</td><td>${esc(fmtHm(l.end_utc)) || '<span class="mute">–</span>'}</td><td>0</td>
     <td>${fmtDur(l.duration_s)}</td><td></td>
     <td>${esc(TYPE_LABEL[l.log_type] || l.log_type || 'Log')}<span class="badge no-flight" title="This log was parsed but produced no flight">no flight</span></td>
     <td>${esc(l.aircraft_names || '')}</td><td>${l.project_id != null ? `<a href="/projects/${l.project_id}">${esc(l.project_name || '')}</a>` : ''}</td>
     <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
     <td><a href="/logs#log${l.id}" title="Log details: ${esc(l.name)}">${esc(l.name)}</a></td></tr>`;
+}
+
+// Group by day for logs without flights: one row per aircraft and UTC day (undated logs stay single), with the
+// number of logs and a button that copies their log numbers; opened, it lists the logs.
+function combineLogs(list) {
+  const groups = [];
+  for (const l of [...list].sort((a, b) => (a.start_utc || '').localeCompare(b.start_utc || '') || a.id - b.id)) {
+    const day = window.flightFilters.day(l), key = [l.aircraft_names || '', day].join('|');
+    const g = day && groups.find(g => g.key === key);
+    if (g) g.logs.push(l);
+    else groups.push({key: day ? key : null, logs: [l], id: 'nologday:' + l.id});
+  }
+  return groups;
+}
+function logGroupRows(g) {
+  const ls = g.logs;
+  if (ls.length === 1) return logRow(ls[0]);
+  const isOpen = openGroups.has(g.id), first = ls[0], last = ls[ls.length - 1];
+  const ids = ls.map(l => l.record_key), numbers = ls.map(l => l.id).join(' ');
+  const uniq = values => [...new Set(values.filter(Boolean))];
+  const times = esc('Logs: ' + ls.map(l => `${fmtHm(l.start_utc)}–${fmtHm(l.end_utc) || '?'}`).join(', '));
+  const projects = uniq(ls.map(l => l.project_id)).map(id => ls.find(l => l.project_id === id))
+    .map(l => `<a href="/projects/${l.project_id}">${esc(l.project_name || '')}</a>`).join(', ');
+  const names = ls.map(l => l.name).join(', ');
+  return `<tr class="group nolog-group${ticked(ids) ? ' ticked' : ''}" data-gid="${esc(g.id)}"><td class="exp">${isOpen ? '▾' : '▸'}</td>${chk(ids)}
+    <td class="num"><span class="grp-count" title="${ls.length} logs without flights in this row: ${esc(numbers)}">${ls.length}×</span>${window.copyButton(numbers, `the ${ls.length} log numbers of this row`)}</td>
+    <td>${esc(fmtDate(first.start_utc) || first.date_override || '')}</td><td><span class="times" title="${times}">${esc(fmtHm(first.start_utc))}</span></td>
+    <td><span class="times" title="${times}">${esc(fmtHm(last.end_utc)) || '<span class="mute">–</span>'}</span></td><td>0</td>
+    <td>${fmtDur(ls.reduce((s, l) => s + (l.duration_s || 0), 0))}</td><td></td>
+    <td>${esc(uniq(ls.map(l => TYPE_LABEL[l.log_type] || l.log_type || 'Log')).join(' + '))}<span class="badge no-flight" title="These logs were parsed but produced no flight">no flight</span></td>
+    <td>${esc(first.aircraft_names || '')}</td><td>${projects}</td>
+    <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+    <td><span title="${esc(names)}">${ls.length} logs</span></td></tr>`
+    + (isOpen ? ls.map(l => logRow(l, 'sub')).join('') : '');
 }
 
 function groupRows(g) {
@@ -1043,18 +1089,19 @@ function render() {
   // logs without flights: same period and search, not with a Files filter or among hidden records; by date with the rest
   const logText = l => [l.name, l.aircraft_names, l.project_name, TYPE_LABEL[l.log_type] || l.log_type, 'no flight',
     l.date_ok ? fmtDate(l.start_utc) : 'date unknown', l.date_override].join(' ').toLowerCase();
-  const shownLogs = window.flightFilters.state.nonflights && !$('filesFilter').value && !$('hiddenRecords').checked
+  const shownLogs = window.flightFilters.state.nologs && !$('filesFilter').value && !$('hiddenRecords').checked
     ? noFlightLogs.filter(l => window.flightFilters.includesDate(l) && (!q || q.split(/\s+/).every(w => logText(l).includes(w)))) : [];
   if (shownLogs.length) {
-    const key = e => e.log ? latest(e.log) : latest(e.flights[0]);
-    entries = [...entries, ...shownLogs.map(l => ({log: l, id: l.record_key}))].sort((a, b) => key(b).localeCompare(key(a)));
+    const logEntries = $('combine').checked ? combineLogs(shownLogs) : shownLogs.map(l => ({logs: [l], id: l.record_key}));
+    const key = e => latest(e.logs ? e.logs[0] : e.flights[0]);
+    entries = [...entries, ...logEntries].sort((a, b) => key(b).localeCompare(key(a)));
   }
   const pages = Math.max(1, Math.ceil(entries.length / pageSize));
   page = Math.min(page, pages - 1);
   const visible = entries.slice(page * pageSize, (page + 1) * pageSize);
   window.viewState.pager($('logbookPages'), page, pageSize, entries.length, n => { page = n; window.viewState.save(true); render(); });
-  $('rows').innerHTML = visible.map(e => e.log ? logRow(e.log) : groupRows(e)).join('');
-  const pageIds = [...new Set(visible.flatMap(e => e.log ? [e.log.record_key] : (e.flights || []).filter(selectable).flatMap(crewIds)))];
+  $('rows').innerHTML = visible.map(e => e.logs ? logGroupRows(e) : groupRows(e)).join('');
+  const pageIds = [...new Set(visible.flatMap(e => e.logs ? e.logs.map(l => l.record_key) : (e.flights || []).filter(selectable).flatMap(crewIds)))];
   $('selAll').checked = pageIds.length > 0 && pageIds.every(id => selected.has(id));
   $('selAll').disabled = !pageIds.length;
   renderSelBar();
@@ -1109,7 +1156,7 @@ $('combine').onchange = () => { page = 0; window.viewState.save(true); render();
 document.addEventListener('attachmentsuploaded', loadLogbookFiles);  // the general Upload added files
 window.addEventListener('flightfilterschange', async () => {
   selected.clear(); page = 0; window.viewState.save(true);
-  if (window.flightFilters.state.nonflights && !noFlightLoaded) await loadNoFlightLogs();
+  if (window.flightFilters.state.nologs && !noFlightLoaded) await loadNoFlightLogs();
   render();
 });
 window.addEventListener('pageshow', event => {
