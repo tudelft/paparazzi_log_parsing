@@ -66,9 +66,10 @@ to gain descriptions and previously omitted crew entries.
   revision, linking to that exact commit on GitHub.
   **(modified)** indicates local code changes; this is separate from the telemetry parser version.
 - Use **Flight filters** in the top menu to select a period (default: last three years), custom
-  UTC dates, **Hide indoor / no-GPS flights**, **Hide non-flights** and **Hide unknown dates**. Non-flights are ground runs,
-  uncertain flights, simulations and logs without flights; the Logbook shows the latter as rows marked **no flight**,
-  with a link to the log's details.
+  UTC dates, **Hide indoor / no-GPS flights**, **Hide non-flights**, **Hide logs without flights** and **Hide unknown
+  dates**. Non-flights are ground runs, uncertain flights and simulations. Logs without flights are parsed logs that
+  produced no flight; the Logbook shows them as rows marked **no flight**, with their log number (outlined, with ⧉ to
+  copy it, e.g. for `ml.fetch(log=n)`), grouped by day with **Group by day**, and a link to the log's details.
   By default everything is shown; ticked options stay saved in this browser. Unknown-date records are
   shown alongside the selected period unless **Hide unknown dates** is ticked, independently of
   **Hide non-flights**; other visibility filters still apply.
@@ -79,7 +80,7 @@ to gain descriptions and previously omitted crew entries.
   the defaults after applying. The filters cover Logbook, Statistics, Locations and individual
   person, aircraft, project and location overviews, including their totals, maps, charts and
   flight lists. Detail-page log lists show contributing logs; zero-flight logs appear only
-  without **Hide non-flights** and within the selected period.
+  without **Hide logs without flights** and within the selected period.
 - On a flight's **Path & charts** tab, use **Show sectors** to hide/show flight-plan sector
   boundaries independently of the flight-plan waypoint markers. Waypoint names appear above
   their dots with a subtle text halo; **Show flight plan** hides/shows both the dots and names. Waypoints whose names
