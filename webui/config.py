@@ -20,6 +20,9 @@ SETTINGS = {
                              "when empty they follow the request"),
         "BIND": ("127.0.0.1:8000", "Address:port gunicorn (and `python3 app.py`) listens on"),
         "THREADS": ("8", "Gunicorn threads (there is always exactly one gunicorn process)"),
+        "SLOW_REQUEST_MS": ("2000", "Log a warning (journalctl) for a request slower than this, and for a write that "
+                                    "waits more than half of it for the database write lock or holds it longer than "
+                                    "this; 0 turns these warnings off"),
         "PROXIES": ("0", "Number of reverse proxies (nginx/Caddy) in front of the app. Set to 1 behind a proxy so "
                          "client addresses and https are seen correctly; keep 0 when clients connect directly"),
         "CORS_ORIGINS": (None, "Web pages on other origins that may call /api with an API key, e.g. "
@@ -281,7 +284,7 @@ def check():
     for key in os.environ:
         if key.startswith("LOGDB_") and key[6:] not in known:
             warnings.append(f"unknown environment variable {key}")
-    for name in ("THREADS", "PROXIES", "INGEST_WORKERS", "EXPORT_WORKERS", "SESSION_HOURS") + (("WORKERS",) if env("WORKERS") else ()):
+    for name in ("THREADS", "SLOW_REQUEST_MS", "PROXIES", "INGEST_WORKERS", "EXPORT_WORKERS", "SESSION_HOURS") + (("WORKERS",) if env("WORKERS") else ()):
         v = env(name)
         if not v.isdigit():
             errors.append(f"LOGDB_{name} must be a whole number, not {v!r}")

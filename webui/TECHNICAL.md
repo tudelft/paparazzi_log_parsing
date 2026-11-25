@@ -48,6 +48,15 @@ Day-to-day:
     sudo systemctl start flight-logs-backup          # back up now
     sudo -u logdb /opt/flight-logs/app/webui/venv/bin/python /opt/flight-logs/app/webui/app.py check-config
 
+<a id="slow-pages"></a>**Slow pages.** A request slower than `LOGDB_SLOW_REQUEST_MS` (2 s) is a warning in the service
+log with its method and path (never the query string), time, status, upload size, user id and how many gunicorn threads
+were busy at its start and end (all `THREADS` busy: requests queue, for example behind long uploads). A write that
+waits more than half of it for the database write lock, or holds it longer, is logged with what held the lock
+(a request, `parsing log <id>` or `storing upload <id>`). Page loads only read; in WAL mode reads never wait for writes,
+so a page that hangs is waiting for a free thread or doing slow work, not for the database. Find them with
+`sudo journalctl -u flight-logs --since today | grep -E "slow request|write lock"` (sudo: the journal needs it).
+A streamed download is timed until its response starts.
+
 After an update that changes the parser version, use **Manage ▾ → Re-parse outdated…** on the Logs page (admins).
 Re-parsing keeps flight numbers (`flights.id`, used in `/flight/<number>`, `pprz_fetch` and the Python client): a flight
 with the same aircraft ID and flight index whose takeoff moved at most 60 s keeps its number (`db.store_parsed`). Other
@@ -872,6 +881,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `SAML_ENTITY_ID` | `<PUBLIC_URL>/saml/metadata` | This service's SAML entity ID |
 | `SAML_PASSIVE` | `1` | Silent check on the login page: sign in without a click with an existing TU Delft session |
 | `THREADS` | `8` | Gunicorn threads (always one gunicorn process: the parse queue lives in it) |
+| `SLOW_REQUEST_MS` | `2000` | Warn in the service log about slower requests and long waits for the write lock ([Slow pages](#slow-pages)); `0` off |
 | `WORKERS` | `1` | Logs parsed in parallel; increase only with sufficient RAM and temporary disk |
 | `INGEST_WORKERS` | `1` | Threads that hash, deduplicate and unzip uploads |
 | `PATH_RATE` | `5` | Flight path points per second (`0`: no map path) |

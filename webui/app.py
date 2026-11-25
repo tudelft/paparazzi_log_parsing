@@ -324,9 +324,11 @@ def parse_log(log_id):
 def worker():
     while True:
         log_id = jobs.get()
+        db.activity.what = f"parsing log {log_id}"
         try:
             parse_log(log_id)
         finally:
+            db.activity.what = None
             jobs.task_done()
 
 
@@ -463,6 +465,7 @@ def set_ingest(con, ingest_id, **fields):
 def ingest_worker():
     while True:
         ingest_id = ingest_jobs.get()
+        db.activity.what = f"storing upload {ingest_id}"
         try:
             run_ingest(ingest_id)
         except Exception as e:  # noqa: BLE001 - any failure is recorded on the ingest row
@@ -872,6 +875,47 @@ def user_public(u):
     return {"id": u["id"], "username": u["username"], "display_name": u["display_name"] or u["username"],
             "is_admin": bool(u["is_admin"]), "provider": u["provider"],
             "has_password": bool(u["password_hash"])}
+
+
+# Slow requests (LOGDB_SLOW_REQUEST_MS): a warning in the service log (journalctl -u flight-logs) with the time, the
+# status, the upload size and how many of the gunicorn threads were busy, so a page that hung can be traced. A streamed
+# download is timed until its response starts, not until it is sent.
+_busy_lock, _busy = threading.Lock(), [0]
+db.write_lock.slow_s = env_int("SLOW_REQUEST_MS") / 1000
+
+
+@app.before_request
+def start_request_timer():
+    g.request_start = time.monotonic()
+    with _busy_lock:
+        _busy[0] += 1
+        g.busy_at_start = _busy[0]
+    db.activity.what = f"{request.method} {request.path}"
+
+
+@app.after_request
+def note_status(resp):
+    g.request_status = resp.status_code
+    return resp
+
+
+@app.teardown_request
+def log_slow_request(exc):
+    start = g.pop("request_start", None)
+    if start is None:
+        return
+    with _busy_lock:
+        _busy[0] -= 1
+        busy_now = _busy[0]
+    db.activity.what = None
+    seconds, limit = time.monotonic() - start, env_int("SLOW_REQUEST_MS") / 1000
+    if limit and seconds >= limit:
+        user = g.get("user")
+        app.logger.warning(
+            "slow request: %s %s took %.1f s (status %s%s, user %s, %d of %s threads busy at the start, %d now)",
+            request.method, request.path, seconds, g.get("request_status", "error" if exc else "?"),
+            f", upload {request.content_length / 1e6:.1f} MB" if request.content_length else "",
+            user["id"] if user else "-", g.busy_at_start, env("THREADS"), busy_now)
 
 
 @app.teardown_request
