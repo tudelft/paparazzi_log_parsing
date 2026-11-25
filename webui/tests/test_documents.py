@@ -165,6 +165,11 @@ class DocumentTests(AppTests):
         self.assertEqual(set(own), {"A1/A3", "RT"})  # expired A2 and other people's are left out
         self.assertTrue(own["A1/A3"]["view"].endswith("/evidence/view"))
         self.assertNotIn("download", own["RT"])
+        self.assertEqual(own["RT"]["grp"], "")  # the type's group, for the headings under My qualifications
+        self.con.execute("UPDATE qualification_types SET grp='Special operations' WHERE id=?", (rt,))
+        self.con.commit()
+        self.assertEqual({q["type"]: q["grp"] for q in self.listing()["qualifications"]},
+                         {"A1/A3": "", "RT": "Special operations"})
 
     def test_inactive_qualification_limit_is_kept(self):
         tid = self.create_type("Old permit", False)

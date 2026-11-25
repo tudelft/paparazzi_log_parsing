@@ -33,6 +33,7 @@
   .grp { break-inside:avoid; margin:0 0 16px; }
   .grp h3 { margin:0; font-size:14px; display:flex; gap:6px; align-items:baseline; padding:2px 0 4px; border-bottom:1px solid var(--line); }
   .grp h3 .n { color:var(--mute); font-weight:400; }
+  .grp .qual-group-head { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--mute); padding:10px 0 2px 44px; }
   .grp h3 .tools { font-weight:400; font-size:12px; align-self:center; }
   .grp h3 a { font-weight:400; font-size:12px; margin-left:auto; color:var(--acc); text-decoration:none; }
   .grp h3 a:hover { text-decoration:underline; text-underline-offset:3px; }
@@ -286,8 +287,8 @@ function tabList() {
   tabs.push(['mine', 'My qualifications', data.qualifications.length]);
   return tabs;
 }
-function groupHTML(name, text, rows, tools, empty) {
-  return `<section class="grp"><h3>${esc(name)} <span class="n">${rows.length}</span>${tools}</h3>`
+function groupHTML(name, text, rows, tools, empty, count = rows.length) {
+  return `<section class="grp"><h3>${esc(name)} <span class="n">${count}</span>${tools}</h3>`
     + (text ? `<p class="gtext" title="${esc(text)}">${esc(text)}</p>` : '')
     + (rows.length ? rows.join('') : `<p class="none">${empty}</p>`) + '</section>';
 }
@@ -304,8 +305,10 @@ function docGroupHTML(g, always) {
 function mineHTML(always) {
   const quals = data.qualifications.filter(qualMatches);
   if (!quals.length && !always) return '';
-  return groupHTML('My qualifications', '', quals.map(ownHTML), '<a href="/account">Add or renew in My account</a>',
-    query ? 'No matching qualifications.' : 'No current approved licences or qualifications.');
+  // under their type group headings (People → Qualification types) once types have groups
+  const rows = window.inTypeGroups(quals, name => `<div class="qual-group-head">${esc(name)}</div>`, list => list.map(ownHTML).join(''));
+  return groupHTML('My qualifications', '', quals.length ? [rows] : [], '<a href="/account">Add or renew in My account</a>',
+    query ? 'No matching qualifications.' : 'No current approved licences or qualifications.', quals.length);
 }
 function paint() {
   $('pageTools').hidden = !admin();

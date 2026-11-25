@@ -1804,8 +1804,11 @@ Types keep a `sort_order`; dragging a type's handle saves the new order at once
 (`PUT /api/admin/qualification-types`, which keeps a description and group that are not sent). Types can be disabled.
 A type can have a **group** (`grp`, at most 60 characters, typed or picked from the existing groups in the type
 dialog; empty: none). Wherever types are listed (the type choice and *Also covers* when adding a qualification, the
-qualification limits of Documents, the qualification of an agenda item and of a training), they are shown under
-their group, in `<optgroup>`s or headings (`typeGroups` and `typeOptions` in `theme.js`). Groups follow the order of
+qualification limits of Documents, the qualification of an agenda item and of a training, the Qualification filter on
+People), they are shown under their group, in `<optgroup>`s or headings (`typeGroups` and `typeOptions` in `theme.js`).
+A person's qualifications are grouped the same way: Documents → My qualifications, My account and People → person →
+Qualifications (headings above the current ones; older ones stay one list) and the person page (one line per group).
+Each qualification carries its type's `grp` for this (`inTypeGroups` in `theme.js`). Groups follow the order of
 their first type; types without a group come last under *Other*. On People a type is dragged only within its group,
 and a whole group by the handle on its heading. A type that joins a group (a new type, or one whose group is changed
 with **Edit**) moves to the end of that group, so the groups keep their order; a group typed in another case joins the

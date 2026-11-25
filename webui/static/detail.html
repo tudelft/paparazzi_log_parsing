@@ -64,6 +64,9 @@
   .person-info .detail-label:first-child { margin-top:0; }
   .detail-count { color:var(--mute); font-weight:400; }
   .detail-chips { display:flex; flex-wrap:wrap; gap:5px; }
+  .chip-groups { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:6px 12px; align-items:baseline; }
+  .chip-group-name { font-size:12px; color:var(--mute); white-space:nowrap; }
+  @media (max-width:560px) { .chip-groups { grid-template-columns:minmax(0,1fr); gap:2px; } .chip-groups .detail-chips { margin-bottom:6px; } }
   .detail-chips .chip { max-width:100%; overflow-wrap:anywhere; }
   .detail-chips a.chip { color:var(--acc); }
   .detail-chips .expired { background:var(--errbg); color:var(--err); }
@@ -408,10 +411,15 @@ function renderInfo() {
           + '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 2v8m-3.5-3.5L8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a>' : '';
         return `<span class="chip qual-chip${item.expired ? ' expired' : ''}${download ? '' : ' plain'}" title="${esc(dates)}">${name}${number}${download}</span>`;
       }).join('');
+      // one line per type group (People → Qualification types): its name, then its chips
+      const grouped = items => window.inTypeGroups(items,
+        name => `<span class="chip-group-name">${esc(name)}</span>`, list => `<div class="detail-chips">${qualificationChips(list)}</div>`);
+      const chipList = items => items.some(i => (i.grp || '').trim()) ? `<div class="chip-groups">${grouped(items)}</div>`
+        : `<div class="detail-chips">${qualificationChips(items)}</div>`;
       html += `<h3 class="detail-label">Current qualifications <span class="detail-count">· ${current.length}</span></h3>
-        <div class="detail-chips">${qualificationChips(current) || '<span class="mute">None approved.</span>'}</div>
+        ${current.length ? chipList(current) : '<div class="detail-chips"><span class="mute">None approved.</span></div>'}
         <details><summary>Past qualifications <span class="detail-count">· ${past.length}</span></summary>
-        <div class="detail-chips">${qualificationChips(past) || '<span class="mute">None</span>'}</div></details>`;
+        ${past.length ? chipList(past) : '<div class="detail-chips"><span class="mute">None</span></div>'}</details>`;
     }
     html += `<details><summary>Account details</summary><div class="kv account-info">${
       kv('Username', esc(it.username)) + kv('Email', it.email ? `<a href="mailto:${esc(it.email)}">${esc(it.email)}</a>` : '')

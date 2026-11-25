@@ -386,8 +386,8 @@ class QualificationTests(AppTests):
         self.review(expired)
         self.submit(until="2031-01-01")
         expected = [
-            dict(id=new, has_evidence=True, viewable=True, category="A1/A3", valid_from=None, valid_until="2030-01-01", status="approved", expired=False, internal=False, number=None),
-            dict(id=expired, has_evidence=False, viewable=False, category="Expired licence", valid_from=None, valid_until="2020-01-01", status="approved", expired=True, internal=False, number=None)]
+            dict(id=new, has_evidence=True, viewable=True, category="A1/A3", valid_from=None, valid_until="2030-01-01", status="approved", expired=False, internal=False, number=None, grp=""),
+            dict(id=expired, has_evidence=False, viewable=False, category="Expired licence", valid_from=None, valid_until="2020-01-01", status="approved", expired=True, internal=False, number=None, grp="")]
         for uid in (1, 2):
             self.sign_in(uid)
             data = self.client.get("/api/detail/people/2").json["item"]["qualifications"]
@@ -597,6 +597,20 @@ class QualificationTests(AppTests):
         for invalid in (1, "true", None):
             self.assertEqual(self.client.put(f"/api/qualification-types/{second}", json={
                 "name": "Rotorcraft", "requires_evidence": True, "internal": invalid}).status_code, 400)
+
+    def test_type_group_reaches_people_overviews_and_account(self):
+        # the type's group (People → Qualification types) comes with each qualification, for the group headings
+        self.con.execute("UPDATE qualification_types SET grp='Drone pilot certificates' WHERE id=?", (self.tid,))
+        self.con.commit()
+        self.review(self.submit(until="2030-01-01").json["id"])
+        groups = lambda payload: {item["category"]: item["grp"] for item in payload["items"]}
+        for uid in (1, 2):
+            self.sign_in(uid)
+            self.assertEqual(groups(self.listing().json), {"A1/A3": "Drone pilot certificates"})
+            self.assertEqual(groups(self.client.get("/api/detail/people/2").json["item"]["qualifications"]),
+                             {"A1/A3": "Drone pilot certificates"})
+        person = next(u for u in self.client.get("/api/people-directory").json["users"] if u["id"] == 2)
+        self.assertEqual(groups(person["qualifications"]), {"A1/A3": "Drone pilot certificates"})
 
     def test_saved_type_order_reaches_people_overviews_and_account(self):
         second = self.create_type("Rotorcraft", False)

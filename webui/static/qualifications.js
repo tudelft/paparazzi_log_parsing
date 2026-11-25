@@ -143,7 +143,9 @@ window.QualificationManager = class {
         expired, earlier, rejected and withdrawn ones are under Show older, newest first, so past flights can be checked.
         Only the linked person and administrators can see these records and files.
         Hover over a qualification for its dates, file and review; click its name to open the evidence.</p></details></div>
-      <div class="qual-list" data-list>${current.map(claim).join('') || '<p class="mute">None recorded.</p>'}</div>
+      <div class="qual-list" data-list>${window.inTypeGroups(current,
+        (name, list) => `<div class="qual-group-head" data-group-head>${esc(name)} <span class="count">${list.length}</span></div>`,
+        list => list.map(claim).join('')) || '<p class="mute">None recorded.</p>'}</div>
       ${older.length ? `<button type="button" class="link-button" data-older>${showOld ? 'Hide' : 'Show'} ${older.length} older</button>
         <div class="qual-list" data-list data-older-list${showOld ? '' : ' hidden'}>${older.map(claim).join('')}</div>` : ''}
       ${this.editing && !types.length ? '<p class="mute">An admin must first add a qualification type on People.</p>' : ''}
@@ -198,6 +200,12 @@ window.QualificationManager = class {
       const words = (this.query || '').toLowerCase().split(/\s+/).filter(Boolean);
       this.element.querySelectorAll('[data-row]').forEach(row => {
         row.hidden = !words.every(w => row.dataset.search.includes(w));
+      });
+      // a group heading only while one of its rows shows
+      this.element.querySelectorAll('[data-group-head]').forEach(head => {
+        let row = head.nextElementSibling, shown = false;
+        for (; row && !row.matches('[data-group-head]'); row = row.nextElementSibling) shown ||= !row.hidden;
+        head.hidden = !shown;
       });
       if (words.length) this.element.querySelectorAll('[data-older-list]').forEach(list => { list.hidden = false; });
     };

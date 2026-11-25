@@ -136,12 +136,12 @@ def own_qualifications(cid, user_id):
     today = datetime.date.today().isoformat()
     out = []
     for r in cid.execute(
-            "SELECT q.id,t.name AS type,q.number,q.valid_from,q.valid_until,q.filename,q.evidence_path,"
+            "SELECT q.id,t.name AS type,t.grp,q.number,q.valid_from,q.valid_until,q.filename,q.evidence_path,"
             " q.evidence_deleted_at FROM qualification_submissions q JOIN qualification_types t ON t.id=q.type_id"
             " WHERE q.user_id=? AND q.status='approved' AND (q.valid_until IS NULL OR q.valid_until>=?)"
             " AND (q.valid_from IS NULL OR q.valid_from<=?) ORDER BY t.sort_order, t.name",
             (user_id, today, today)):
-        item = {"id": r["id"], "type": r["type"], "number": r["number"], "valid_until": r["valid_until"]}
+        item = {"id": r["id"], "type": r["type"], "grp": r["grp"], "number": r["number"], "valid_until": r["valid_until"]}
         if r["evidence_path"] and not r["evidence_deleted_at"]:
             item["download"] = f"/api/qualification-submissions/{r['id']}/evidence"
             if storage.view_type(r["filename"] or ""):
