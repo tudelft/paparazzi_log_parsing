@@ -634,12 +634,13 @@ class QualificationTests(AppTests):
     def test_management_page_assets_and_read_only_pilot_page(self):
         with self.client.get("/qualifications.js") as response:
             self.assertEqual(response.status_code, 200)
-            self.assertIn("no-store", response.headers["Cache-Control"])
+            self.assertEqual(response.headers["Cache-Control"], "no-cache")  # page script: revalidated, not no-store
             script = response.get_data(as_text=True)
             self.assertIn("data-open-upload", script)
             self.assertIn("data-older", script)  # older records folded away
             self.assertNotIn("not recorded", script)
         with self.client.get("/people") as response:
+            self.assertIn("no-store", response.headers["Cache-Control"])  # pages are no-store
             people = response.get_data(as_text=True)
         with self.client.get("/account") as response:
             account = response.get_data(as_text=True)
