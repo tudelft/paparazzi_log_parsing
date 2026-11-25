@@ -2,6 +2,7 @@
 import countries
 import gzip
 import json
+import logging
 import math
 import sqlite3
 import statistics
@@ -709,8 +710,46 @@ CREATE INDEX IF NOT EXISTS ix_training_choices ON training_choices(question_id, 
 """
 
 _local = threading.local()
-# Only one worker stores a parse result at a time; others wait here instead of failing with "database is locked".
-write_lock = threading.Lock()
+# What this thread is doing, for the write lock's warnings: "GET /api/logbook", "parsing log 12" (set by the app).
+activity = threading.local()
+log = logging.getLogger("logdb")
+
+
+class WriteLock:
+    """Only one worker stores a parse result at a time; others wait here instead of failing with "database is locked".
+    A thread that waits at least slow_s / 2 for it, or holds it at least slow_s, is logged as a warning with what held
+    it, so a stalled save can be traced in journalctl. slow_s 0: no warnings (set from LOGDB_SLOW_REQUEST_MS)."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.holder, self.since, self.slow_s = None, 0.0, 2.0
+
+    def __enter__(self):
+        start = time.monotonic()
+        if not self._lock.acquire(blocking=False):
+            holder, since = self.holder, self.since
+            self._lock.acquire()
+            waited = time.monotonic() - start
+            if self.slow_s and waited >= self.slow_s / 2:
+                log.warning("%s waited %.1f s for the database write lock, held by %s for %.1f s before",
+                            _doing(), waited, holder or "?", start - since if since else 0)
+        self.holder, self.since = _doing(), time.monotonic()
+        return self
+
+    def __exit__(self, *exc):
+        held, holder = time.monotonic() - self.since, self.holder
+        self.holder = None
+        self._lock.release()
+        if self.slow_s and held >= self.slow_s:
+            log.warning("%s held the database write lock for %.1f s", holder, held)
+        return False
+
+
+def _doing():
+    return getattr(activity, "what", None) or threading.current_thread().name
+
+
+write_lock = WriteLock()
 BUSY_TIMEOUT_MS = 300_000  # 5 minutes
 
 
