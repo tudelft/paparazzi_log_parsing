@@ -224,6 +224,7 @@ SERVER_EXAMPLE = {"PUBLIC_URL": "https://logs.example.org", "PROXIES": "1", "COO
                   "BACKUP_DIR": "/mnt/flight-logs/backup"}
 PORTABLE_DEFAULTS = {"WEB_DATA": "data", "FASTREADER": "../cpp/build/paparazzi_log_parsing",
                     "BLACKBOX_DECODE": "../cpp/build/blackbox_decode"}  # relative to webui/
+COMMENTED_EXAMPLE = {"FIRMWARE_GITHUB_REPOS": "your-team/paparazzi,your-user/paparazzi"}  # format hints, still off
 
 
 def example():
@@ -236,9 +237,10 @@ def example():
             if name in SERVER_EXAMPLE:
                 out.append(f"LOGDB_{name}={SERVER_EXAMPLE[name]}")
             else:
-                out.append(f"#LOGDB_{name}={PORTABLE_DEFAULTS.get(name, default or '')}")
+                value = COMMENTED_EXAMPLE.get(name, PORTABLE_DEFAULTS.get(name, default or ""))
+                out.append(f"#LOGDB_{name}={value}")
         out.append("")
-    return "\n".join(out)
+    return "\n".join(out).rstrip("\n")
 
 
 def check():
