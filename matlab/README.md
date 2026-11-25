@@ -110,6 +110,7 @@ aircraft `a` explicitly.
 | `pprz.crop(d, t0, t1)` | Rows of every message between t0 and t1. |
 | `pprz.actuators(d)` | `ACTUATORS` as an N×k matrix with names, whether exported by name or as `values`. |
 | `pprz.esc(d)` | ESC telemetry as one row per sample per motor, the same for `ESC_TELEMETRY` (newer logs) and `ESC` (older): rpm, current, voltages, temperatures, output; stale values (age 255) NaN. |
+| `pprz.wind(d)` | Wind in use, the same for `AIR_DATA` wind (newer logs, north/east/down) and `WIND_INFO_RET` (older, east/north/up with validity flags): north, east, up (the direction it blows to; NaN when not valid), speed, from (deg), source id. |
 | `pprz.servo(d)` | Servo telemetry (`SERVO_TELEMETRY`) the same way: position, speed, load, current, voltage, temperature. |
 | `pprz.counter_steps(c, wrap)` | Increase per sample of a wrapping counter (e.g. errors in `DATALINK_REPORT`, `LINK_STATS`). |
 | `pprz.enum(f, msg, field, v)` | Names of enum values, e.g. autopilot modes. |
@@ -119,7 +120,7 @@ aircraft `a` explicitly.
 | `pprz.rates(d)` | Body rates p, q, r in rad/s from `IMU_GYRO`, `IMU_GYRO_SCALED` or `BODY_RATES_ACCEL`. |
 | `pprz.lowpass(x, fc, fs)`, `pprz.step_info(t, y, t0, t1)`, `pprz.freq_response(u, y, fs, n)` | Zero-phase Butterworth low-pass, step response metrics and Welch frequency response, as used by `pprz_sysid`. |
 | `pprz.spectrogram(t, x, n)` | Power spectral density over time (Hann windows, no toolbox). |
-| `pprz.has(d, msg, ...)` | True when the messages were logged. |
+| `pprz.has(d, msg, ...)` | True when the messages were logged; `'AIR_DATA.wind'` also needs that field with a finite value. |
 | `pprz.track(f, by)` | The flown path (lat/lon and local east/north) with a value per point to colour by, and the flight plan waypoints. |
 
 ## Plots
@@ -137,9 +138,9 @@ datalink and link statistics per node.
 **Old and new logs.** Every plot and helper must work on logs from every pprzlink version, because old logs are
 analysed next to new ones. A message or field can be missing, renamed or replaced in either direction (e.g. `ESC`
 became `ESC_TELEMETRY`, `INS_EKF2_EXT` swapped its vibration metrics for EKF status, `BARO_RAW` became one message
-per sensor). So: check fields with `isfield` before use and leave out panels without data; read a replaced message
-through one helper that gives the same fields for both versions (`pprz.esc`); register a plot with every message
-name that can feed it (`needs` in `pprz_plots.m`). `tests/check_message_versions.m` runs the plotters on synthetic
+per sensor, `WIND_INFO_RET` became the wind in `AIR_DATA` plus `WIND_RAW` per source). So: check fields with `isfield` before use and leave out panels without data; read a replaced message
+through one helper that gives the same fields for both versions (`pprz.esc`, `pprz.wind`); register a plot with every message
+name that can feed it (`needs` in `pprz_plots.m`; `'MESSAGE.field'` for a field that only newer logs have). `tests/check_message_versions.m` runs the plotters on synthetic
 old- and new-format messages without drawing (stand-ins in a temporary folder for the run only, the path is
 restored; MATLAB: `check_message_versions` in `tests/`; Octave:
 `octave-cli --eval check_message_versions` there); extend it when a message changes.

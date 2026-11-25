@@ -30,7 +30,8 @@
 namespace
 {
 
-// WIND_INFO_RET: wind vector (direction the wind blows to), valid when bit 0 of the flags is set
+// Wind in use (the direction the wind blows to): AIR_DATA wind (north/east/down, NaN if unknown) in newer logs,
+// WIND_INFO_RET (east/north/up, valid when bit 0 of the flags is set) in older ones
 struct Wind {
   bool valid = false, has_up = false, has_temp = false;
   double east = 0, north = 0, up = 0, temp = 0;
@@ -487,6 +488,21 @@ inline bool to_num(std::string_view sv, T &out)
 {
   auto r = std::from_chars(sv.data(), sv.data() + sv.size(), out);
   return r.ec == std::errc() && std::isfinite(out);
+}
+
+// A float array field ("1.5,-0.2,nan"): up to n values, NaN where a value is not a number; returns how many
+int parse_vector(std::string_view v, double *out, int n)
+{
+  int k = 0;
+  const char *c = v.data(), *ce = c + v.size();
+  while (c < ce && k < n) {
+    const char *end = std::find(c, ce, ',');
+    double val;
+    auto rr = std::from_chars(c, end, val);
+    out[k++] = rr.ec == std::errc() && rr.ptr == end && std::isfinite(val) ? val : NAN;
+    c = end < ce ? end + 1 : ce;
+  }
+  return k;
 }
 
 std::vector<int16_t> parse_int_list(std::string_view v)
@@ -1307,7 +1323,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.15.0";
+constexpr const char *PARSER_VERSION = "1.16.0";
 
 struct GpsClock {
   size_t count = 0;
@@ -1724,8 +1740,9 @@ int main(int argc, char *argv[])
                                                       "ins_xdd", "ins_ydd", "ins_zdd"});
   enum { Q_I, Q_X, Q_Y, Q_Z };
   const MsgFields quat_f = resolve_fields(hdr, "AHRS_REF_QUAT", {"body_qi", "body_qx", "body_qy", "body_qz"});
-  enum { AD_PRESS, AD_DIFF_P, AD_AMSL, AD_AIRSPEED, AD_TAS };
-  const MsgFields air_f = resolve_fields(hdr, "AIR_DATA", {"pressure", "diff_p?", "amsl_baro", "airspeed?", "tas?"});
+  enum { AD_PRESS, AD_DIFF_P, AD_AMSL, AD_AIRSPEED, AD_TAS, AD_WIND, AD_TEMP };
+  const MsgFields air_f = resolve_fields(hdr, "AIR_DATA", {"pressure", "diff_p?", "amsl_baro", "airspeed?", "tas?",
+                                                           "wind?", "temp?"});
   enum { FW_NAV_BLOCK, FW_NAV_STAGE, FW_NAV_FT };
   const MsgFields fw_nav_f = resolve_fields(hdr, "NAVIGATION", {"cur_block", "cur_stage", "flight_time?"});
   const MsgFields fw_pos_f = resolve_fields(hdr, "NAVIGATION", {"pos_x", "pos_y"});
@@ -2580,6 +2597,16 @@ int main(int argc, char *argv[])
           s.pressure = press;
           s.baro_alt = baro_alt;
           if (s.in_flight && !s.flights.empty()) { s.flights.back().stats.baro.add(baro_alt); }
+          if (!f[AD_WIND].empty()) {  // newer AIR_DATA: the wind in use replaces WIND_INFO_RET
+            double ned[3];
+            const int k = parse_vector(f[AD_WIND], ned, 3);
+            float temp;
+            Wind &w = s.wind;
+            w.valid = k == 3 && std::isfinite(ned[0]) && std::isfinite(ned[1]);
+            w.north = w.valid ? ned[0] : 0; w.east = w.valid ? ned[1] : 0;
+            w.has_up = w.valid && std::isfinite(ned[2]); w.up = w.has_up ? -ned[2] : 0;
+            w.has_temp = w.valid && to_num(f[AD_TEMP], temp) && temp > -900.f; w.temp = w.has_temp ? temp : 0;  // -1000: none
+          }
           sample_without_position(ac, t);
         } else if (name == "AUTOPILOT_VERSION") {
           touch(ac, t).versions.insert(parse_autopilot_version(av_fields, q, eol));
