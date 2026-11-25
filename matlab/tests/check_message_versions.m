@@ -113,10 +113,40 @@ function failures = check_message_versions()
     failures = failures + check('plot_baro newer BARO_RAW', @() plot_baro(banew), 10);
     failures = failures + check('plot_airspeed', @() plot_airspeed(banew), 1);
 
+    % Wind: WIND_INFO_RET (east/north/up with flags) in older logs; AIR_DATA wind (north/east/down, NaN if unknown,
+    % wind_id) and WIND_RAW per source (when logged) in newer ones
+    wold = ba;
+    wold.WIND_INFO_RET = struct('t', t, 'flags', 7 * ones(n, 1), 'east', -4 * ones(n, 1), 'north', 3 * ones(n, 1), ...
+        'up', 0.5 * ones(n, 1), 'airspeed', 12 * ones(n, 1), 'temp', 15 * ones(n, 1));
+    wnew = banew;
+    wnew.AIR_DATA.wind = [repmat([3 -4 -0.5], n - 5, 1); nan(5, 3)];
+    wnew.AIR_DATA.wind_id = [3 * ones(n - 5, 1); zeros(5, 1)];
+    wraw = wnew;
+    wraw.WIND_RAW = struct('t', [t; t], 'sensor_id', [3 * ones(n, 1); 4 * ones(n, 1)], 'wind', repmat([3 -4 -0.5], 2 * n, 1));
+    wnan = banew;
+    wnan.AIR_DATA.wind = nan(n, 3);
+    failures = failures + check('pprz.has AIR_DATA.wind', @() assert(pprz.has(wnew, 'AIR_DATA.wind') ...
+        && ~pprz.has(ba, 'AIR_DATA.wind') && ~pprz.has(wnan, 'AIR_DATA.wind') && pprz.has(wnan, 'AIR_DATA')));
+    failures = failures + check('pprz.wind', @() wind_forms(wold, wnew));
+    failures = failures + check('plot_wind WIND_INFO_RET', @() plot_wind(wold), 7);
+    failures = failures + check('plot_wind AIR_DATA', @() plot_wind(wnew), 7, 'Wind source in use');
+    failures = failures + check('plot_wind AIR_DATA and WIND_RAW', @() plot_wind(wraw), 9, 'Source 4 (WIND_RAW)');
+
     list = pprz_plots();
     failures = failures + check('pprz_plots', @() assert(all(ismember({'esc', 'servo', 'baro', 'link_stats', 'ekf2'}, ...
         {list.name}))));
     fprintf('%d failure(s)\n', failures);
+end
+
+function wind_forms(old, new)
+    % both forms give the same wind: 5 m/s from 126.9 deg, 0.5 m/s up
+    for w = [pprz.wind(old), pprz.wind(new)]
+        assert(abs(w.speed(1) - 5) < 1e-9 && abs(w.from(1) - 126.87) < 0.01 && abs(w.up(1) - 0.5) < 1e-9);
+    end
+    w = pprz.wind(new);
+    assert(strcmp(w.source, 'AIR_DATA') && isnan(w.speed(end)) && w.id(1) == 3 && all(isnan(w.airspeed)));
+    w = pprz.wind(old);
+    assert(strcmp(w.source, 'WIND_INFO_RET') && w.airspeed(1) == 12 && all(isnan(w.id)));
 end
 
 function failed = check(name, fn, lines, expect)
@@ -343,6 +373,12 @@ function folder = write_stubs()
     files.ylabel = {
         'function varargout = ylabel(varargin)'
         '%YLABEL Test stand-in (tests/check_message_versions): draws nothing.'
+        '    varargout = repmat({1}, 1, nargout);'
+        'end'
+        };
+    files.yyaxis = {
+        'function varargout = yyaxis(varargin)'
+        '%YYAXIS Test stand-in (tests/check_message_versions): draws nothing.'
         '    varargout = repmat({1}, 1, nargout);'
         'end'
         };

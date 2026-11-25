@@ -1,6 +1,6 @@
 function list = pprz_plots()
 %PPRZ_PLOTS The plots pprz_plot and pprz_view offer, as a struct array with
-%   name (for pprz_plot), group, title, needs (messages; any one is enough) and fn (called as fn(f.data, f)).
+%   name (for pprz_plot), group, title, needs (messages, or 'MESSAGE.field' for a field newer logs added; any one is enough) and fn (called as fn(f.data, f)).
 %   Add a plot by writing plotters/plot_xxx.m and a line here.
 %   The plotters/ folder next to this file is put on the path when it is not, so pprz_plot and pprz_view work
 %   whether or not the path was set with addpath(genpath(...)).
@@ -31,7 +31,7 @@ function list = pprz_plots()
         p('hover_loop',     'Guidance',            'Hover loop',                    {'HOVER_LOOP'}, @(d, f) plot_hover_loop(d))
         p('cmd',            'Guidance',            'Rotorcraft commands',           {'ROTORCRAFT_CMD'}, @(d, f) plot_rotorcraft_cmd(d))
         p('guidance_ref',   'Guidance',            'Guidance reference and height',  {'GUIDANCE_H_REF_INT', 'INS_Z'}, @(d, f) plot_guidance_ref(d))
-        p('wind',           'Guidance',            'Wind',                          {'WIND_INFO_RET'}, @(d, f) plot_wind(d))
+        p('wind',           'Guidance',            'Wind',                          {'AIR_DATA.wind', 'WIND_INFO_RET'}, @(d, f) plot_wind(d))
         p('gps',            'Navigation sensors',  'GPS',                           {'GPS_INT'}, @(d, f) plot_gps(d))
         p('gps_sats',       'Navigation sensors',  'GPS satellites',                {'SVINFO'}, @(d, f) plot_gps_sats(d))
         p('ekf2',           'Navigation sensors',  'INS EKF2 (innovations, GPS drift, status)', {'INS_EKF2'}, @(d, f) plot_ekf2(d))
