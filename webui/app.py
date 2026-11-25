@@ -1003,6 +1003,41 @@ def session_required():
 KEY_READ_POSTS = scopes.READ_POSTS
 
 
+def cors_origin():
+    """The request's Origin when LOGDB_CORS_ORIGINS allows it (`*` for any), else None. Only /api answers CORS."""
+    origin = request.headers.get("Origin")
+    allowed = [o.strip().rstrip("/") for o in env("CORS_ORIGINS", "").split(",") if o.strip()]
+    if not origin or not request.path.startswith("/api/") or not (allowed and ("*" in allowed or origin in allowed)):
+        return None
+    return origin
+
+
+@app.before_request
+def cors_preflight():
+    """Answer a browser's preflight (it carries no Authorization header, so it must precede require_login)."""
+    if request.method != "OPTIONS" or "Access-Control-Request-Method" not in request.headers:
+        return None
+    if cors_origin() is None:
+        return "", 403
+    return "", 204
+
+
+@app.after_request
+def cors_headers(resp):
+    """Let a page on an allowed origin call the API with a bearer key. No credentials mode: cookies are never sent
+    cross-origin, so the answers stay limited to what the key may do."""
+    origin = cors_origin()
+    if origin:
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers.add("Vary", "Origin")
+        resp.headers["Access-Control-Expose-Headers"] = "Retry-After"
+        if request.method == "OPTIONS":
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE"
+            resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, X-Bulk-Reservation"
+            resp.headers["Access-Control-Max-Age"] = "600"
+    return resp
+
+
 @app.before_request
 def require_login():
     if request.endpoint in PUBLIC_ENDPOINTS:

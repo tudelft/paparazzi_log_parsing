@@ -22,6 +22,8 @@ SETTINGS = {
         "THREADS": ("8", "Gunicorn threads (there is always exactly one gunicorn process)"),
         "PROXIES": ("0", "Number of reverse proxies (nginx/Caddy) in front of the app. Set to 1 behind a proxy so "
                          "client addresses and https are seen correctly; keep 0 when clients connect directly"),
+        "CORS_ORIGINS": (None, "Web pages on other origins that may call /api with an API key, e.g. "
+                               "https://app.indiflight.org (comma-separated; * allows any page). Default: none"),
         "HIDE_UNLINKED_AIRCRAFT": ("0", "Exclude flights without a linked fleet aircraft from statistics, logbook "
                                       "person details and locations; admins still link them under Unlinked names on Aircraft"),
         "TRAINING": ("0", "1 shows Training: in-app questionnaires that can grant a qualification on a pass"),

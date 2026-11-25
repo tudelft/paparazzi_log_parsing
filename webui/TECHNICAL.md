@@ -851,6 +851,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `COOKIE_SECURE` | `0` | `1` when served over https |
 | `PROXIES` | `0` | `1` behind nginx/Caddy (trust its `X-Forwarded-*` headers) |
 | `BIND` | `127.0.0.1:8000` | Address gunicorn listens on |
+| `CORS_ORIGINS` | (empty) | Pages on these origins (comma-separated, `*` for any) may call `/api/...` from a browser with an API key, e.g. `https://app.indiflight.org` uploading blackbox logs. Only `/api` answers CORS, without credentials mode, so a browser session cookie is never used cross-origin |
 | `HIDE_UNLINKED_AIRCRAFT` | `0` | `1` excludes unlinked telemetry flights from Logbook, Statistics, person details and Locations; admins still link the names under **Unlinked names** on Aircraft |
 | `TRAINING` | `0` | `1` shows Training: in-app questionnaires that can grant a qualification on a pass |
 | `BOOKINGS` | `0` | `1` shows the [Agenda](#booking-agenda) of bookable items |
