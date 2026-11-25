@@ -841,7 +841,8 @@ or add server-side pagination.
 
 Settings are `LOGDB_<NAME>` values, read from the environment, else from one file: `$LOGDB_CONFIG`, else
 `/etc/flight-logs/logdb.env`, else `webui/logdb.env`. [logdb.env.example](logdb.env.example) lists them all with an
-explanation. `python3 app.py check-config` shows the effective values and where they come from, and catches typos,
+explanation; it is generated from `SETTINGS` in `config.py` (`python3 config.py example > logdb.env.example`, checked by
+`tests.test_config_example`). `python3 app.py check-config` shows the effective values and where they come from, and catches typos,
 a missing parser, unwritable directories and http/https mismatches. `install.sh` sets the first group for you.
 
 | Setting | Default | Meaning |
