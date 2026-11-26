@@ -52,6 +52,11 @@ def utc_date():
     return datetime.datetime.now(datetime.timezone.utc).date()
 
 
+def profiles_enabled():
+    import profiles
+    return profiles.enabled()
+
+
 def require_enabled():
     if not enabled():
         abort(404)
@@ -385,9 +390,13 @@ def queue_qualification(con, user_id, kind, valid_days, note):
 
 
 def clear_progress_for_submission(con, submission_id):
-    """Clear a queued training pass so the person can retake after reject or withdraw."""
+    """Clear a queued training pass so the person can retake after reject or withdraw. An extension that waited for
+    this pass (retake) is withdrawn with it."""
     if not submission_id:
         return
+    con.execute("UPDATE training_extensions SET status='withdrawn', decided_at=? WHERE status='retake' AND"
+                " EXISTS (SELECT 1 FROM training_progress p WHERE p.submission_id=? AND p.user_id=training_extensions.user_id"
+                " AND p.training_id=training_extensions.training_id)", (utc_now(), submission_id))
     con.execute(
         "UPDATE training_progress SET passed_at=NULL, answers_json=NULL, submission_id=NULL, briefed_by=NULL,"
         " access_answer=NULL WHERE submission_id=?", (submission_id,))
@@ -432,7 +441,8 @@ def pass_awaiting_approval(con, progress):
 
 ADDRESS = re.compile(r"[^@\s,;<>\"]+@[^@\s,;<>\"]+\.[^@\s,;<>\"]+")
 PLACEHOLDERS = ("{name}", "{email}", "{username}", "{number}", "{department}", "{role}", "{supervisor}", "{end_date}",
-                "{training}", "{date}", "{valid_until}", "{briefed_by}")
+                "{training}", "{date}", "{valid_until}", "{briefed_by}", "{request}", "{note}")
+EXTENSION_MODES = ("off", "direct", "approval", "retake")
 
 
 def addresses_field(raw):
@@ -447,9 +457,10 @@ def addresses_field(raw):
 
 
 def access_fields(body):
-    """The access request mail settings of a training: (to, text, question, cc, cc_to). Several addresses are
-    separated by commas or semicolons; without a To address the mail is off. cc is a copy to the person, cc_to
-    fixed addresses in copy (e.g. a secretary, while To is a mailbox a mail flow reads)."""
+    """The access request mail settings of a training: (to, text, question, cc, cc_to, extension). Several addresses
+    are separated by commas or semicolons; without a To address the mail is off. cc is a copy to the person, cc_to
+    fixed addresses in copy (e.g. a secretary, while To is a mailbox a mail flow reads). extension: whether people
+    with a current pass may ask for access until a later expected end date (off, direct, approval or retake)."""
     text, question = body.get("access_mail_text") or "", body.get("access_question") or ""
     if not all(isinstance(v, str) for v in (text, question)):
         raise TrainingError("The access mail fields must be text.")
@@ -466,7 +477,12 @@ def access_fields(body):
         raise TrainingError("Add a To address for the access mail, or remove its Cc.")
     if type(body.get("access_mail_cc", False)) is not bool:
         raise TrainingError("Copy to the person must be true or false.")
-    return to, text, question, int(body.get("access_mail_cc", False)), cc_to
+    extension = body.get("access_extension") or "off"
+    if extension not in EXTENSION_MODES:
+        raise TrainingError("Extension requests must be off, direct, approval or retake.")
+    if extension != "off" and not to:
+        raise TrainingError("Extension requests need the access mail: add its To address.")
+    return to, text, question, int(body.get("access_mail_cc", False)), cc_to, extension
 
 
 def access_question(row):
@@ -560,24 +576,30 @@ def person_details(con, user_id):
     return out
 
 
-def access_details(person, row, day, valid_until, briefed_by, reference):
+def access_details(person, row, day, valid_until, briefed_by, reference, extension=None):
     """A fixed block at the end of the access mail, one "Key: value" per line, so a mail flow (e.g. Power Automate)
-    can copy the request into a list; the reference is the same for a repeated mail of one pass."""
-    lines = ["Request details:", f"Person: {person['name']}", f"Email: {person['email'] or '-'}",
+    can copy the request into a list; the reference is the same for a repeated mail of one pass. Type and Note come
+    first, so a note cannot hide a later label from a flow that reads the text after the last "Label:"."""
+    lines = ["Request details:", f"Type: {'extension' if extension else 'new'}",
+             f"Note: {(extension or {}).get('note') or '-'}", f"Person: {person['name']}",
+             f"Email: {person['email'] or '-'}",
              f"Username: {person['username']}", f"Number: {person['number']}", f"Department: {person['department']}",
              f"Role: {person['role']}", f"Supervisor: {person['supervisor']}",
              f"Supervisor email: {person['supervisor_email']}", f"Until: {person['end_date']}",
-             f"Training: {row['name']}", f"Passed: {day}", f"Valid until: {valid_until}", f"Briefed by: {briefed_by}",
+             f"Previous until: {(extension or {}).get('previous_end') or '-'}", f"Training: {row['name']}", f"Passed: {day}", f"Valid until: {valid_until}", f"Briefed by: {briefed_by}",
              f"Reference: {reference}"]
     return "\n".join(" ".join(line.split()) for line in lines)
 
 
-def access_mail(con, user_id, row, when=None, briefed_by=None, test=False):
+def access_mail(con, user_id, row, when=None, briefed_by=None, test=False, extension=None):
     """(subject, body, person email) of the training's access request for `user_id`, or None without that person.
-    A test mail has the same subject and body, only its reference ends in -test."""
+    A test mail has the same subject and body, only its reference ends in -test. With `extension` (end_date,
+    previous_end, note and id of a training_extensions row) it asks for access until that later end date."""
     person = person_details(con, user_id)
     if person is None:
         return None
+    if extension:
+        person["end_date"] = extension["end_date"]
     email = person["email"]
     day = (when or utc_now())[:10]
     valid_until = ((datetime.date.fromisoformat(day) + datetime.timedelta(days=row["valid_days"])).isoformat()
@@ -586,18 +608,22 @@ def access_mail(con, user_id, row, when=None, briefed_by=None, test=False):
     values = {"{name}": person["name"], "{email}": email or "(no email address)", "{username}": person["username"],
               "{number}": person["number"], "{department}": person["department"], "{role}": person["role"],
               "{supervisor}": person["supervisor"], "{end_date}": person["end_date"], "{training}": row["name"],
-              "{date}": day, "{valid_until}": valid_until, "{briefed_by}": briefed_by}
-    reference = f"T{row['id']}-U{user_id}-{day}" + ("-test" if test else "")
-    return (f"Access request: {person['name']} passed {row['name']}",
-            fill_access(row["access_mail_text"], values) + "\n\n" + access_details(
-                person, row, day, valid_until, briefed_by, reference), email)
+              "{date}": day, "{valid_until}": valid_until, "{briefed_by}": briefed_by,
+              "{request}": "extension" if extension else "new", "{note}": (extension or {}).get("note") or "-"}
+    reference = (f"T{row['id']}-U{user_id}-{day}" + (f"-E{extension['id']}" if extension and extension.get("id") else "")
+                 + ("-test" if test else ""))
+    subject = (f"Access request: {person['name']}, extension of {row['name']} until {extension['end_date']}" if extension
+               else f"Access request: {person['name']} passed {row['name']}")
+    return (subject, fill_access(row["access_mail_text"], values) + "\n\n" + access_details(
+                person, row, day, valid_until, briefed_by, reference, extension), email)
 
 
-def queue_access_mail(con, user_id, row, answer, when=None, briefed_by=None):
-    """Queue the training's access request for a granted pass: always without a question, else only after "No"."""
-    if not row["access_mail_to"] or (row["access_question"] and answer != "no"):
+def queue_access_mail(con, user_id, row, answer, when=None, briefed_by=None, extension=None):
+    """Queue the training's access request for a granted pass: always without a question, else only after "No".
+    An extension request is always sent (the person already has access)."""
+    if not row["access_mail_to"] or (row["access_question"] and answer != "no" and not extension):
         return False
-    built = access_mail(con, user_id, row, when, briefed_by)
+    built = access_mail(con, user_id, row, when, briefed_by, extension=extension)
     if built is None:
         return False
     subject, body, email = built
@@ -606,8 +632,62 @@ def queue_access_mail(con, user_id, row, answer, when=None, briefed_by=None):
                              reply_to=email or None)
 
 
+def send_extension(con, ext, row, decided_by=None, when=None, briefed_by=None):
+    """Grant an access extension: save the new expected end date in the profile and queue the access mail.
+    `when` is the pass the mail names (the current pass, or the new one of a retake)."""
+    import profiles
+    profiles.extend_end_date(con, ext["user_id"], ext["end_date"])
+    con.execute("UPDATE training_extensions SET status='sent', decided_by=?, decided_at=? WHERE id=?",
+                (decided_by, utc_now(), ext["id"]))
+    if when is None:
+        progress = con.execute(
+            "SELECT p.passed_at, COALESCE(u.display_name, u.username) AS briefer FROM training_progress p"
+            " LEFT JOIN users u ON u.id=p.briefed_by WHERE p.user_id=? AND p.training_id=?",
+            (ext["user_id"], ext["training_id"])).fetchone()
+        when, briefed_by = (progress["passed_at"], progress["briefer"]) if progress else (None, None)
+    return queue_access_mail(con, ext["user_id"], row, None, when, briefed_by, extension=dict(ext))
+
+
+def waiting_retake(con, user_id, training_id):
+    """The extension request that waits for this person's new pass of the training (retake), or None."""
+    return con.execute("SELECT * FROM training_extensions WHERE user_id=? AND training_id=? AND status='retake'"
+                       " ORDER BY id DESC LIMIT 1", (user_id, training_id)).fetchone()
+
+
+def extension_offer(con, user_id, row, current, awaiting):
+    """What the training page needs for Request extension, or None when the person cannot ask: the training offers
+    extensions, sends an access mail (email and person profiles on), the person holds a current pass and has a dated
+    profile. Gives the mode, the expected end date, the latest date the role allows and an open request."""
+    import profiles
+    if (row["access_extension"] == "off" or not row["access_mail_to"] or not mail.enabled() or not profiles.enabled()
+            or not current or awaiting):
+        return None
+    dates = profiles.extension_dates(con, user_id)
+    if dates is None:
+        return None
+    open_request = con.execute(
+        "SELECT id, status, end_date, note, created_at FROM training_extensions WHERE user_id=? AND training_id=?"
+        " AND status IN ('pending','retake') ORDER BY id DESC LIMIT 1", (user_id, row["id"])).fetchone()
+    return {"mode": row["access_extension"], "end_date": dates[0], "latest": dates[1], "today": utc_date().isoformat(),
+            "open": dict(open_request) if open_request else None}
+
+
+def extendable(con, user_id):
+    """[(id, name)] of the active trainings where this person can ask for an access extension now (reminders)."""
+    out = []
+    for row in con.execute("SELECT * FROM trainings WHERE active=1 AND access_extension!='off' AND access_mail_to!=''"
+                           " ORDER BY sort_order, name").fetchall():
+        progress = con.execute("SELECT * FROM training_progress WHERE user_id=? AND training_id=?",
+                               (user_id, row["id"])).fetchone()
+        current = pass_is_current(con, user_id, row, progress)
+        if extension_offer(con, user_id, row, current, pass_awaiting_approval(con, progress)):
+            out.append((row["id"], row["name"]))
+    return out
+
+
 def queue_access_after_approval(con, submission_id):
-    """An administrator approved a queued training pass: send its access request now."""
+    """An administrator approved a queued training pass: send its access request now (an extension when the pass
+    was a retake for one)."""
     progress = con.execute(
         "SELECT p.user_id, p.training_id, p.access_answer, COALESCE(u.display_name, u.username) AS briefer"
         " FROM training_progress p LEFT JOIN users u ON u.id=p.briefed_by WHERE p.submission_id=?",
@@ -615,8 +695,12 @@ def queue_access_after_approval(con, submission_id):
     if progress is None:
         return False
     row = con.execute("SELECT * FROM trainings WHERE id=?", (progress["training_id"],)).fetchone()
-    return bool(row) and queue_access_mail(con, progress["user_id"], row, progress["access_answer"],
-                                           briefed_by=progress["briefer"])
+    if not row:
+        return False
+    retake = waiting_retake(con, progress["user_id"], progress["training_id"])
+    if retake:
+        return send_extension(con, retake, row, when=utc_now(), briefed_by=progress["briefer"])
+    return queue_access_mail(con, progress["user_id"], row, progress["access_answer"], briefed_by=progress["briefer"])
 
 
 def register(app, connection, root, require_session):
@@ -898,6 +982,8 @@ def register(app, connection, root, require_session):
                                (g.user["id"], training_id)).fetchone()
         current = pass_is_current(cid, g.user["id"], row, progress)
         awaiting = pass_awaiting_approval(cid, progress)
+        # a retake for an access extension: the test opens again while the current pass stays
+        retake = bool(current and row["access_extension"] == "retake" and waiting_retake(cid, g.user["id"], training_id))
         briefer = None
         if progress and progress["briefed_by"] and (current or awaiting):
             briefer = cid.execute("SELECT COALESCE(display_name, username) AS name FROM users WHERE id=?",
@@ -936,24 +1022,26 @@ def register(app, connection, root, require_session):
             "reading": row["reading"] or "",
             "reading_file": bool(row["reading_path"]),
             "reading_name": row["reading_name"],
-            "must_read": must_read(row, progress) and not current and not awaiting,
+            "must_read": must_read(row, progress) and (not current or retake) and not awaiting,
             "type_name": cid.execute("SELECT name FROM qualification_types WHERE id=?",
                                      (row["type_id"],)).fetchone()["name"] if row["type_id"] else None,
-            "access_question": access_question(row),
+            "access_question": None if retake else access_question(row),
+            "extension": extension_offer(cid, g.user["id"], row, current, awaiting),
+            "extension_retake": retake,
         }
-        practising = (out["passed_at"] or awaiting) and request.args.get("practice") == "1" and questions
+        practising = (out["passed_at"] or awaiting) and request.args.get("practice") == "1" and questions and not retake
         if g.user["is_admin"]:
             out.update(access_mail_to=row["access_mail_to"], access_mail_text=row["access_mail_text"],
                        access_question_text=row["access_question"], access_mail_cc=bool(row["access_mail_cc"]),
-                       access_mail_cc_to=row["access_mail_cc_to"],
-                       mail_enabled=mail.enabled())
+                       access_mail_cc_to=row["access_mail_cc_to"], access_extension=row["access_extension"],
+                       mail_enabled=mail.enabled(), profiles_enabled=profiles_enabled())
         # the test as this person takes it: their draw, shuffled, without the answers (administrators too)
         test = []
         if practising:
             # practice after a pass: a fresh draw each time, not stored; the result changes nothing
             draw = new_draw(row, questions, choices)
             test, out["practice"] = public_questions(questions, choices, draw), True
-        elif questions and not (out["passed_at"] or awaiting):
+        elif questions and (retake or not (out["passed_at"] or awaiting)):
             draw = current_draw(cid, training_id, row, questions, choices)
             test = public_questions(questions, choices, draw)
         if test:
@@ -1035,7 +1123,8 @@ def register(app, connection, root, require_session):
             body = request.get_json(silent=True) or {}
             if body.get("practice") is True:
                 return practice_result(cid, row, training_id, body)
-            if pass_is_current(cid, g.user["id"], row, progress):
+            retake = waiting_retake(cid, g.user["id"], training_id) if row["access_extension"] == "retake" else None
+            if pass_is_current(cid, g.user["id"], row, progress) and not retake:
                 raise TrainingError("You have already passed this training.", 409)
             if pass_awaiting_approval(cid, progress):
                 raise TrainingError("Your pass is waiting for approval.", 409)
@@ -1049,7 +1138,7 @@ def register(app, connection, root, require_session):
                 raise TrainingError("The questions of this training changed; open it again to start a new attempt.", 409)
             asked = [q for q in questions if q["id"] in set(draw["questions"])] if draw else questions
             answers = parse_answers(body, asked)
-            access_answer = parse_access_answer(row, body)
+            access_answer = None if retake else parse_access_answer(row, body)
             briefed_by = None
             briefer_name = None
             if row["ask_briefed_by"]:
@@ -1088,7 +1177,10 @@ def register(app, connection, root, require_session):
                     awaiting = True
                 else:
                     submission_id = grant_qualification(cid, g.user["id"], kind, row["valid_days"], note)
-                    queue_access_mail(cid, g.user["id"], row, access_answer, passed_at, briefer_name)
+                    if retake:
+                        send_extension(cid, retake, row, when=passed_at, briefed_by=briefer_name)
+                    else:
+                        queue_access_mail(cid, g.user["id"], row, access_answer, passed_at, briefer_name)
                 cid.execute(
                     "INSERT INTO training_progress(user_id,training_id,attempts,passed_at,answers_json,submission_id,"
                     "briefed_by,access_answer) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id,training_id) DO UPDATE SET"
@@ -1104,6 +1196,121 @@ def register(app, connection, root, require_session):
                     (g.user["id"], training_id, attempts))
         return jsonify(passed=passed, score=earned, total=total, needed=needed, attempts=attempts,
                        passed_at=passed_at, qualification_id=submission_id, awaiting_approval=awaiting)
+
+    @app.post("/api/trainings/<int:training_id>/extension")
+    def request_extension(training_id):
+        """Ask for access until a later expected end date (end_date, optional note), for a current pass of a training
+        that offers it. direct: the end date is saved and the access mail queued now; approval: it waits in the
+        approval queue; retake: it waits for a new pass of the test. A new request replaces an open one."""
+        signed_in()
+        body = request.get_json(silent=True) or {}
+        note = body.get("note") or ""
+        if not isinstance(note, str) or len(note.strip()) > 300:
+            raise TrainingError("The note is text of at most 300 characters.")
+        note = " ".join(note.split())
+        cid = con()
+        import profiles
+        with db.write_lock, cid:
+            cid.execute("BEGIN IMMEDIATE")
+            row = training_row(cid, training_id, active_only=True)
+            progress = cid.execute("SELECT * FROM training_progress WHERE user_id=? AND training_id=?",
+                                   (g.user["id"], training_id)).fetchone()
+            offer = extension_offer(cid, g.user["id"], row, pass_is_current(cid, g.user["id"], row, progress),
+                                    pass_awaiting_approval(cid, progress))
+            if offer is None:
+                raise TrainingError("This training offers no access extension to you now.", 409)
+            if problem := profiles.extension_problem(cid, g.user["id"], body.get("end_date")):
+                raise TrainingError(problem)
+            mode, stamp = offer["mode"], utc_now()
+            if mode == "direct" and cid.execute(
+                    "SELECT 1 FROM training_extensions WHERE user_id=? AND training_id=? AND status='sent'"
+                    " AND substr(created_at,1,10)=?", (g.user["id"], training_id, stamp[:10])).fetchone():
+                raise TrainingError("You already asked for an extension of this training today.", 409)
+            cid.execute("UPDATE training_extensions SET status='withdrawn', decided_by=?, decided_at=?"
+                        " WHERE user_id=? AND training_id=? AND status IN ('pending','retake')",
+                        (g.user["id"], stamp, g.user["id"], training_id))
+            status = {"direct": "sent", "approval": "pending", "retake": "retake"}[mode]
+            eid = cid.execute(
+                "INSERT INTO training_extensions(training_id,user_id,mode,end_date,previous_end,note,status,created_at)"
+                " VALUES (?,?,?,?,?,?,?,?)", (training_id, g.user["id"], mode, body["end_date"], offer["end_date"],
+                                             note, "pending" if mode == "direct" else status, stamp)).lastrowid
+            ext = cid.execute("SELECT * FROM training_extensions WHERE id=?", (eid,)).fetchone()
+            if mode == "direct":
+                send_extension(cid, ext, row)
+            elif mode == "approval":
+                person = g.user["display_name"] or g.user["username"]
+                mail.notify_admins(cid, f"Access extension to approve: {row['name']} of {person}",
+                                   f"{person} asks for access ({row['name']}) until {body['end_date']}"
+                                   f" (now {offer['end_date'] or '-'})." + (f"\n\nNote: {note}" if note else ""),
+                                   "/people?tab=approvals&kind=extension")
+        return jsonify(ok=True, id=eid, status=status)
+
+    @app.delete("/api/trainings/<int:training_id>/extension")
+    def withdraw_extension(training_id):
+        """Withdraw one's own open extension request (waiting for approval or for a new pass)."""
+        signed_in()
+        cid = con()
+        with db.write_lock, cid:
+            cid.execute("BEGIN IMMEDIATE")
+            done = cid.execute("UPDATE training_extensions SET status='withdrawn', decided_by=?, decided_at=?"
+                               " WHERE user_id=? AND training_id=? AND status IN ('pending','retake')",
+                               (g.user["id"], utc_now(), g.user["id"], training_id)).rowcount
+            if not done:
+                raise TrainingError("There is no open extension request.", 404)
+            cid.execute("UPDATE training_progress SET draw_json=NULL WHERE user_id=? AND training_id=?",
+                        (g.user["id"], training_id))
+        return jsonify(ok=True)
+
+    @app.get("/api/admin/extension-pending")
+    def extension_pending():
+        """Access extension requests waiting for an administrator (the People approval queue)."""
+        admin()
+        import profiles
+        rows = con().execute(
+            "SELECT e.*, t.name AS training, COALESCE(u.display_name, u.username) AS person,"
+            " COALESCE(d.name, p.department_text) AS department, r.name AS role, p.end_date AS profile_end"
+            " FROM training_extensions e JOIN trainings t ON t.id=e.training_id JOIN users u ON u.id=e.user_id"
+            " LEFT JOIN user_profiles p ON p.user_id=e.user_id LEFT JOIN profile_departments d ON d.id=p.department_id"
+            " LEFT JOIN profile_roles r ON r.id=p.role_id WHERE e.status='pending' ORDER BY e.id").fetchall()
+        show = profiles.enabled()
+        return jsonify(extensions=[{
+            "id": r["id"], "user_id": r["user_id"], "person": r["person"], "training_id": r["training_id"],
+            "training": r["training"], "end_date": r["end_date"], "previous_end": r["previous_end"],
+            "profile_end": r["profile_end"], "note": r["note"], "submitted_at": r["created_at"],
+            "role": r["role"] if show else None, "department": r["department"] if show else None,
+        } for r in rows])
+
+    @app.post("/api/training-extensions/<int:extension_id>/review")
+    def review_extension(extension_id):
+        """An administrator approves (end date saved, access mail queued) or rejects (optional reason, mailed to the
+        person) an access extension request."""
+        admin()
+        body = request.get_json(silent=True) or {}
+        action, reason = body.get("action"), body.get("reason") or ""
+        if action not in ("approve", "reject"):
+            raise TrainingError("Choose approve or reject.")
+        if not isinstance(reason, str) or len(reason.strip()) > 500:
+            raise TrainingError("The reason is text of at most 500 characters.")
+        cid = con()
+        with db.write_lock, cid:
+            cid.execute("BEGIN IMMEDIATE")
+            ext = cid.execute("SELECT * FROM training_extensions WHERE id=?", (extension_id,)).fetchone()
+            if ext is None:
+                raise TrainingError("No such extension request.", 404)
+            if ext["status"] != "pending":
+                raise TrainingError("Only waiting extension requests can be approved or rejected.", 409)
+            row = training_row(cid, ext["training_id"])
+            if action == "approve":
+                send_extension(cid, ext, row, decided_by=g.user["id"])
+            else:
+                reason = reason.strip()
+                cid.execute("UPDATE training_extensions SET status='rejected', decided_by=?, decided_at=?, review_note=?"
+                            " WHERE id=?", (g.user["id"], utc_now(), reason or None, extension_id))
+                mail.notify(cid, ext["user_id"], "reviews", f"Not approved: access extension for {row['name']}",
+                            f"An administrator did not approve your access extension for {row['name']} until"
+                            f" {ext['end_date']}." + (f"\n\nReason: {reason}" if reason else "")
+                            + "\n\nYour expected end date is unchanged.", f"/training?id={row['id']}")
+        return jsonify(ok=True)
 
     def practice_result(cid, row, training_id, body):
         """Score a practice attempt (after a pass): the answered questions are the ones drawn; nothing is stored."""
@@ -1159,7 +1366,8 @@ def register(app, connection, root, require_session):
                 tid = cid.execute(
                     "INSERT INTO trainings(name,description,type_id,pass_score,valid_days,ask_briefed_by,"
                     "needs_approval,sort_order,shuffle_questions,question_count,reading,access_mail_to,access_mail_text,"
-                    "access_question,access_mail_cc,access_mail_cc_to) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "access_question,access_mail_cc,access_mail_cc_to,access_extension)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (name, description, type_id, pass_score, valid_days, int(ask_briefed_by),
                      int(needs_approval), nxt, *draw)).lastrowid
                 save_briefers(cid, tid, briefers)
@@ -1182,7 +1390,8 @@ def register(app, connection, root, require_session):
             try:
                 cid.execute("UPDATE trainings SET name=?,description=?,type_id=?,pass_score=?,valid_days=?,"
                             "ask_briefed_by=?,needs_approval=?,active=?,shuffle_questions=?,question_count=?,reading=?,"
-                            "access_mail_to=?,access_mail_text=?,access_question=?,access_mail_cc=?,access_mail_cc_to=? WHERE id=?",
+                            "access_mail_to=?,access_mail_text=?,access_question=?,access_mail_cc=?,access_mail_cc_to=?,"
+                            "access_extension=? WHERE id=?",
                             (name, description, type_id, pass_score, valid_days, int(ask_briefed_by),
                              int(needs_approval), body.get("active", True), *draw, training_id))
                 cid.execute("UPDATE training_progress SET draw_json=NULL WHERE training_id=?", (training_id,))
@@ -1198,9 +1407,11 @@ def register(app, connection, root, require_session):
         include_cc, or only to the administrator. No copy to the person or to administrators."""
         admin()
         body = request.get_json(silent=True) or {}
-        to, text, _, _, cc_to = access_fields({**body, "access_mail_cc": False})
+        to, text, _, _, cc_to, _ = access_fields({**body, "access_mail_cc": False, "access_extension": "off"})
         if type(body.get("include_cc", False)) is not bool:
             raise TrainingError("Include Cc must be true or false.")
+        if type(body.get("extension", False)) is not bool:
+            raise TrainingError("Extension must be true or false.")
         if not mail.enabled():
             raise TrainingError("Email is not set up on this server.")
         if body.get("send_to") == "me":
@@ -1219,7 +1430,13 @@ def register(app, connection, root, require_session):
         if person is None:
             raise TrainingError("Choose an active person.")
         row = {**dict(training_row(cid, training_id)), "access_mail_text": text}
-        subject, text, email = access_mail(cid, user_id, row, test=True)
+        extension = None
+        if body.get("extension"):  # as if the person asked to stay a year longer than their expected end date
+            end = person_details(cid, user_id)["end_date"]
+            later = (datetime.date.fromisoformat(end) + datetime.timedelta(days=365)).isoformat() \
+                if re.fullmatch(r"\d{4}-\d\d-\d\d", end) else "-"
+            extension = {"id": None, "end_date": later, "previous_end": end, "note": "Test of an extension request"}
+        subject, text, email = access_mail(cid, user_id, row, test=True, extension=extension)
         with db.write_lock, cid:
             mail.queue_access(cid, to, subject, text, cc_addr=cc or None, reply_to=email or None, copies=False)
         return jsonify(ok=True, to=to, cc=cc or None)
@@ -1598,6 +1815,9 @@ def register(app, connection, root, require_session):
                                          dict(id=progress["submission_id"], training_id=training_id))
             cid.execute("DELETE FROM training_progress WHERE user_id=? AND training_id=?",
                         (user_id, training_id))
+            cid.execute("UPDATE training_extensions SET status='withdrawn', decided_by=?, decided_at=?"
+                        " WHERE user_id=? AND training_id=? AND status IN ('pending','retake')",
+                        (g.user["id"], utc_now(), user_id, training_id))
         return jsonify(ok=True)
 
     @app.errorhandler(TrainingError)

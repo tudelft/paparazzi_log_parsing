@@ -438,10 +438,23 @@ def queue_reminders(con, today=None):
                              " AND end_date<=?", (today.isoformat(), horizon)).fetchall():
             days = (datetime.date.fromisoformat(p["end_date"]) - today).days
             step = min(d for d in REMIND_DAYS if days <= d)
-            remind(con, p["user_id"], f"Your expected end date is {p['end_date']}",
-                   f"Your profile says you leave on {p['end_date']} ({days} day{'s' * (days != 1)} from now). "
-                   "If you stay longer, give a new end date in your profile.",
-                   "/profile", f"expiry:end:{p['end_date']}:{step}", f"expected end date {p['end_date']}")
+            text = (f"Your profile says you leave on {p['end_date']} ({days} day{'s' * (days != 1)} from now). "
+                    "If you stay longer, give a new end date in your profile.")
+            path = "/profile"
+            offers = []
+            if env_bool("TRAINING"):  # trainings whose access you can extend: that also sets the new end date
+                import training
+                offers = training.extendable(con, p["user_id"])
+            if len(offers) == 1:
+                text = (f"Your profile says you leave on {p['end_date']} ({days} day{'s' * (days != 1)} from now). "
+                        f"If you stay longer, request an access extension for {offers[0][1]}; that also changes the"
+                        " end date in your profile.")
+                path = f"/training?id={offers[0][0]}&extend=1"
+            elif offers:
+                text += " To keep your access, request an extension for each of these trainings:\n" + "\n".join(
+                    f"- {name}: {link(f'/training?id={tid}&extend=1')}" for tid, name in offers)
+            remind(con, p["user_id"], f"Your expected end date is {p['end_date']}", text,
+                   path, f"expiry:end:{p['end_date']}:{step}", f"expected end date {p['end_date']}")
     con.commit()
 
 

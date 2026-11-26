@@ -1,11 +1,11 @@
 """Decided approvals for the administrators' history (Approval queue, Decided): qualification submissions and training
-passes (approved, rejected, withdrawn; also passes granted without approval and imported certificates) and bookings
+passes (approved, rejected, withdrawn; also passes granted without approval and imported certificates), bookings
 of agendas that need approval (approved or rejected; also bookings an administrator or approver made, approved at
-once). Built from what the records already keep: who decided, when and the rejection reason."""
+once) and training access extensions (approved, rejected or withdrawn; also those sent without approval). Built from what the records already keep: who decided, when and the rejection reason."""
 import datetime
 import re
 
-KINDS = ("training", "qualification", "booking")
+KINDS = ("training", "qualification", "booking", "extension")
 PERIODS = ("90d", "year", "all")
 PAGE_SIZE = 50
 QUERY_MAX = 100
@@ -106,16 +106,45 @@ def booking_items(con, start):
     return out
 
 
+def extension_items(con, start):
+    """Access extension requests of trainings: decided by an administrator (approval), withdrawn while waiting, or
+    sent without approval (direct, or after a new pass of the test)."""
+    rows = con.execute(
+        "SELECT e.*,t.name AS training,COALESCE(u.display_name,u.username) AS person,"
+        " COALESCE(d.display_name,d.username) AS decider FROM training_extensions e"
+        " JOIN trainings t ON t.id=e.training_id JOIN users u ON u.id=e.user_id LEFT JOIN users d ON d.id=e.decided_by"
+        " WHERE e.decided_at IS NOT NULL AND e.decided_at>=? AND (e.status IN ('sent','rejected')"
+        " OR (e.status='withdrawn' AND e.mode='approval'))", (start or "",)).fetchall()
+    out = []
+    for r in rows:
+        automatic = r["status"] == "sent" and r["mode"] != "approval"
+        by, reason = r["decider"], r["review_note"]
+        if automatic:
+            by, reason = None, ("Automatic: passed the training again" if r["mode"] == "retake"
+                                else "Automatic: the training needs no approval")
+        elif r["status"] == "withdrawn":
+            reason = "By the person" if r["decided_by"] == r["user_id"] else "Pass reset"
+        out.append(dict(
+            key=f"e{r['id']}", kind="extension", id=r["id"], user_id=r["user_id"], person=r["person"],
+            what=r["training"], training_id=r["training_id"], outcome="approved" if r["status"] == "sent" else r["status"],
+            replaced=False, automatic=automatic, decided_at=r["decided_at"], submitted_at=r["created_at"],
+            by=None if automatic else by, by_approver=False, reason=reason,
+            rejection=r["review_note"] if r["status"] == "rejected" else None, end_date=r["end_date"],
+            previous_end=r["previous_end"], note=r["note"] or None))
+    return out
+
+
 def matches(item, query):
     fields = (item["person"], item["what"], item.get("category"), item["reason"], item["by"], item.get("number"),
-              item.get("description"), item.get("briefed_by"))
+              item.get("description"), item.get("briefed_by"), item.get("note"))
     return any(query in value.casefold() for value in fields if value)
 
 
 def history(con, kind="", query="", period="90d", page=1, bookings=True):
     """(items of the page, total) of the decided approvals, newest decision first."""
     start = since(period)
-    items = qualification_items(con, start) + (booking_items(con, start) if bookings else [])
+    items = (qualification_items(con, start) + (booking_items(con, start) if bookings else [])
+             + extension_items(con, start))
     query = query.strip().casefold()[:QUERY_MAX]
     items = [i for i in items if (not kind or i["kind"] == kind) and (not query or matches(i, query))]
     items.sort(key=lambda i: (i["decided_at"], i["key"]), reverse=True)

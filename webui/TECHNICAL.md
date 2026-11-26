@@ -1419,14 +1419,16 @@ it in the People approval queue (`/people?tab=approvals`); for admins the Traini
 addresses (`access_mail_to`, e.g. a secretary who arranges room access) and a mail text (`access_mail_text`, in which
 tags filled in: `{name}`, `{email}`, `{username}`, `{number}` (student or employee number), `{department}`, `{role}`,
 `{supervisor}`, `{end_date}` (expected end, or `indefinite`), `{training}`, `{date}` (the pass), `{valid_until}` (pass date
-plus the training's validity) and `{briefed_by}`; the profile tags are `-` when person profiles are off or the field is empty). The mail is queued when the pass is granted: at once,
+plus the training's validity), `{briefed_by}`, `{request}` (`new`, or `extension` for an
+[access extension](#access-extensions)) and `{note}` (the note of an extension, else `-`); the profile tags are `-` when person profiles are off or the field is empty). The mail is queued when the pass is granted: at once,
 or when an admin approves a queued pass (`needs_approval`). With an optional Yes/No question (`access_question`, e.g.
 "Do you already have access to the flight lab?") the person answers it on a last step after the questions (together with who delivered the briefing, when asked)
 (`access_answer` in the submit body, required then; stored in `training_progress.access_answer`) and only **No**
 sends the mail. Its Reply-To is the person; **Cc** (`access_mail_cc_to`, optional addresses, e.g. a secretary while
 To is the mailbox a mail flow reads) and **Copy to the person** (`access_mail_cc`) add copies. A test mail goes
 without the copy to the person (the Cc only on request, below). The subject is
-`Access request: <name> passed <training>`. JSON export/import does not carry these settings.
+`Access request: <name> passed <training>` (an extension: `Access request: <name>, extension of <training> until
+<date>`). JSON export/import does not carry these settings.
 The text may use a little markup in the HTML part (the plain-text part keeps it as typed): `**bold**`, lines
 starting with `- ` as bullets and lines starting with two spaces (or a tab) indented.
 Lines `{if role: PhD Student, PostDoc, Staff}`, `{elif role: ...}`, `{else}` and `{end}` (each on its own line, not
@@ -1436,6 +1438,8 @@ Below the typed text every access mail ends with a fixed block, one value per li
 
 ```text
 Request details:
+Type: <new or extension>
+Note: <the note of an extension, or ->
 Person: <name>
 Email: <address, or ->
 Username: <username>
@@ -1444,22 +1448,50 @@ Department: <department, or ->
 Role: <role, or ->
 Supervisor: <names, comma-separated, or ->
 Supervisor email: <addresses of the supervisors with an account, comma-separated, or ->
-Until: <expected end yyyy-mm-dd, indefinite, or ->
+Until: <expected end yyyy-mm-dd, indefinite, or -; for an extension the new end date>
+Previous until: <for an extension the end date before it, else ->
 Training: <training>
 Passed: <yyyy-mm-dd>
 Valid until: <yyyy-mm-dd, or ->
 Briefed by: <name, or ->
-Reference: T<training id>-U<user id>-<yyyy-mm-dd>
+Reference: T<training id>-U<user id>-<yyyy-mm-dd>[-E<extension id>]
 ```
 
-The reference is the same when one pass is mailed again, so a flow can skip duplicates.
+The reference is the same when one pass is mailed again, so a flow can skip duplicates; an extension adds its own
+`-E<id>`. Type and Note come first, so a note cannot hide a later label from a flow that reads the text after the
+last `Label:` (the note is one line).
 
 **Send test mail…** (admins, below the access mail settings; `POST /api/admin/trainings/<id>/test-access-mail` with
 `user_id`, `send_to` = `me` or `to`, `include_cc`, `access_mail_to`, `access_mail_cc_to` and `access_mail_text`) queues the mail as if that active person
 passed today, using the form's To and text even when not saved yet. `me` sends it only to the administrator's own
 address; `to` sends it to the To addresses, where a mail flow treats it as a real request, and with
 `include_cc` (**Also to the Cc**) also to the form's Cc addresses. The subject and block
-are the same, only the reference ends in `-test`; there is no Cc to the person and no administrator copy.
+are the same, only the reference ends in `-test`; there is no Cc to the person and no administrator copy. With
+`extension` (**As an extension request**) it is the extension mail, as if the person asked to stay a year past their
+expected end date.
+
+<a id="access-extensions"></a>**Access extensions** (`trainings.access_extension`, **Extension requests** in the access
+mail settings; needs the access mail, email and [person profiles](#person-profiles)): someone with a current pass (not
+waiting for approval) and a dated profile gets **Request extension…** on the training's result card, next to
+**Access until** (their expected end date). The dialog asks for a new expected end date (after the current one and
+today, within the role's `max_years`; `profiles.extension_problem`) and an optional one-line note (≤ 300 characters),
+and posts `POST /api/trainings/<id>/extension` (`end_date`, `note`), stored in `training_extensions`. What happens
+depends on the setting:
+
+| Setting | Request | Then |
+|---|---|---|
+| `off` (Not offered, the default) | no button | |
+| `direct` (Sent directly) | `sent` at once; at most one per training and day | |
+| `approval` (After admin approval) | `pending`, administrators get an `admin` notice | Approve in the [Approval queue](#people-approval-queue) (`POST /api/training-extensions/<id>/review`, `approve` or `reject` with an optional reason mailed as kind `reviews`) |
+| `retake` (After taking the test again) | `retake`: the test opens again (reading material first, no access question) while the current pass stays | A pass grants the qualification as usual; the extension is sent with it, or when an administrator approves the pass (`needs_approval`) |
+
+Sending saves the new end date in the profile (`profiles.extend_end_date`, never earlier than the stored one; clears
+`end_date_by_admin`) and queues the access mail with `Type: extension`, regardless of the Yes/No question. A new
+request withdraws an open one; `DELETE /api/trainings/<id>/extension` withdraws it (**Withdraw** on the card,
+**Cancel** above the retake test), and so do a reset of the pass and a rejected retake pass. `GET /api/trainings/<id>`
+returns `extension` (`mode`, `end_date`, `latest`, `today`, `open` request) or null, and `extension_retake`. The
+[end date reminder](#email-notifications) names the trainings that offer an extension and links to
+`/training?id=<id>&extend=1`, which opens the dialog.
 
 #### Access requests into a SharePoint list (Power Automate)
 
@@ -1641,7 +1673,7 @@ name, a button for the link, the footer with a link to the email settings) with 
 | Kind | Who | Default | What |
 |---|---|---|---|
 | Account | everyone | immediately (fixed) | the one-time link to set a password, when an admin ticks **Email the sign-in link** (Add user, New setup link) |
-| Expiry reminders | everyone | immediately | 30 and 7 days before an approved qualification ends (not when a newer approved or pending one of the type runs longer) and before the profile's expected end date (with person profiles on) |
+| Expiry reminders | everyone | immediately | 30 and 7 days before an approved qualification ends (not when a newer approved or pending one of the type runs longer) and before the profile's expected end date (with person profiles on; it links to Request extension… of the trainings that offer one) |
 | Bookings | everyone | immediately | own new booking; someone else changed or removed yours; a new or moved booking overlaps yours |
 | Aircraft requests | everyone | immediately | your aircraft request was approved or rejected (with the reason); project managers: a new request for their project |
 | Others' expiry reminders | admins | off | a copy of everyone's expiry reminders |
@@ -1735,8 +1767,10 @@ are in the Qualification types tab (admins).
 <a id="people-approval-queue"></a>**Approval queue** (`/people?tab=approvals`, admins; always there for admins) lists
 pending submissions from `GET /api/admin/qualification-pending` and, when the agenda is on, pending bookings from
 `GET /api/admin/booking-pending` (shown with negative ids, posted to `/api/bookings/<id>/review`, filter **Bookings**,
-`kind=booking`; see [Booking agenda](#booking-agenda)): training passes (score and briefer parsed from the pass note, the access
-answer) and certificates (number, dates, evidence name and type, the approved submission of that type it would
+`kind=booking`; see [Booking agenda](#booking-agenda)) and access extensions from `GET /api/admin/extension-pending`
+(ids `-(1e9 + id)`, posted to `/api/training-extensions/<id>/review`, filter **Extensions**, `kind=extension`: new and
+current end date, note; see [Access extensions](#access-extensions)): training passes (score and briefer parsed from the
+pass note, the access answer, and the end date when the pass is a retake for an extension) and certificates (number, dates, evidence name and type, the approved submission of that type it would
 replace, profile role and department when profiles are on). `can_approve`/`blocked_reason` come from
 `qualifications.approval_problem`, the same rules the review endpoint enforces (type active, required dates, number
 and stored evidence). Each row has Approve and Reject; ▸ opens the evidence (image inline, PDF in a small frame, via
@@ -1748,21 +1782,22 @@ the same for several rows; a blocked row has no checkbox and Edit (the person's 
 Approve. Reject opens a dialog with an optional reason: `POST /api/qualification-submissions/<id>/review` takes
 `reason` (≤ 500 characters, rejections only) stored in `qualification_submissions.review_note`, shown after the
 rejected item in the person's qualifications and in the audit entry, and mailed to the person as kind `reviews`
-(**Qualification reviews**, on by default) when email is set up. The filter (`kind=training|qualification|booking`), search
+(**Qualification reviews**, on by default) when email is set up. The filter (`kind=training|qualification|booking|extension`), search
 (`q=`) and open row (`open=`) are in the URL; the Trainings badge links to `kind=training`. Keys while a row has focus:
 ↑/↓ move, Space selects, Enter opens, A approves, R rejects.
 **Waiting | Decided** switches to the history (`view=decided`): `GET /api/admin/approval-history` (`approval_history.py`;
-admins, browser session) with `kind` (`training`, `qualification`, `booking`), `q` (person, what, reason, decider,
-number, description), `period` (`90d`, the default; `year`; `all`) and `page` (50 per page), newest decision first,
+admins, browser session) with `kind` (`training`, `qualification`, `booking`, `extension`), `q` (person, what, reason,
+decider, number, description, note), `period` (`90d`, the default; `year`; `all`) and `page` (50 per page), newest decision first,
 with `total`. It lists qualification submissions and training passes that were approved (also later superseded),
 rejected or withdrawn (`reviewed_at` set; a withdrawal by the person says *By the person*), and bookings of agendas that
-need approval that were approved or rejected (`decided_at` set). **Automatic** approvals are included and marked (for submissions as the audit log records them): a
+need approval that were approved or rejected (`decided_at` set), and access extensions that were sent, rejected or
+withdrawn while waiting for approval (extensions sent without approval are *Automatic*). **Automatic** approvals are included and marked (for submissions as the audit log records them): a
 training pass granted without approval (decided by the person at the moment of the pass), an imported certificate (the
 importing administrator, *Imported*), a booking an administrator or approver made on such an agenda (approved by them
 when it was made: `decided_by`/`decided_at` are stored for it) and bookings approved when approval was switched off
 (no decider). Bookings deleted while pending, and submissions deleted by an administrator, leave no history. A row opens
 its details in place (evidence preview, dates, training pass, booking time and options, the full reason); the period,
-page and open row (`open=q<id>` or `b<id>`) are in the URL.
+page and open row (`open=q<id>`, `b<id>` or `e<id>`) are in the URL.
 Admins edit username, display name, email and default project with **Edit account**; these four are saved
 atomically in one request; previous unambiguous display names are preserved as log aliases. Display names are optional
 and at most 80 characters. Usernames must be unique (case-insensitive),

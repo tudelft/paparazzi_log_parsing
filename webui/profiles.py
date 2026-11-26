@@ -82,6 +82,43 @@ def today():
     return datetime.datetime.now(datetime.timezone.utc).date().isoformat()
 
 
+def extension_dates(con, user_id):
+    """(expected end date, latest date the role allows or None) for an access extension request; None when the
+    person has no profile or an indefinite one (nothing to extend)."""
+    row = con.execute("SELECT p.end_date, p.indefinite, r.max_years FROM user_profiles p"
+                      " LEFT JOIN profile_roles r ON r.id=p.role_id WHERE p.user_id=?", (user_id,)).fetchone()
+    if row is None or row["indefinite"]:
+        return None
+    return row["end_date"], latest_end(row["max_years"])
+
+
+def extension_problem(con, user_id, end_date):
+    """Why `end_date` cannot be the new expected end date of an access extension (None when it can): a real date
+    after the current one (and after today), within the limits of the person's role."""
+    dates = extension_dates(con, user_id)
+    if dates is None:
+        return "Your profile has no expected end date to extend."
+    try:
+        if not isinstance(end_date, str) or not DATE.match(end_date):
+            raise ValueError
+        datetime.date.fromisoformat(end_date)
+    except ValueError:
+        return "Give the new expected end date (YYYY-MM-DD)."
+    current, latest = dates
+    if end_date <= max(current or "", today()):
+        return f"Choose a date after your current expected end date ({current or today()})."
+    if latest and end_date > latest:
+        role = con.execute("SELECT p.role_id FROM user_profiles p WHERE p.user_id=?", (user_id,)).fetchone()
+        return end_date_problem(con, role["role_id"], end_date, False)
+    return None
+
+
+def extend_end_date(con, user_id, end_date):
+    """Set the expected end date to that of an approved or sent access extension (never earlier than it is)."""
+    con.execute("UPDATE user_profiles SET end_date=?, indefinite=0, end_date_by_admin=0"
+                " WHERE user_id=? AND indefinite=0 AND (end_date IS NULL OR end_date<?)", (end_date, user_id, end_date))
+
+
 def options(con):
     roles = [dict(r, can_supervise=bool(r["can_supervise"]), needs_supervisor=bool(r["needs_supervisor"]),
                   allow_indefinite=bool(r["allow_indefinite"]), latest_end=latest_end(r["max_years"]))

@@ -23,6 +23,9 @@
   .toolbar-end details { margin-left:0; }
   #detailsDialog { width:min(960px, calc(100% - 32px)); }
   #confirmDialog { width:min(440px, calc(100% - 32px)); }
+  #extDialog { width:min(460px, calc(100% - 32px)); }
+  #extError:empty { display:none; }
+  .retake-note { margin:8px 0 12px; font-size:13px; }
   .dialog-row { display:flex; gap:8px; margin-top:14px; }
   #err { color:var(--err); margin-bottom:8px; }
   #err:empty { display:none; }
@@ -204,6 +207,7 @@
     <label class="field"><span><input type="radio" name="send_to" value="me" checked> Only to me <span class="mute">(your account's address)</span></span></label>
     <label class="field"><span><input type="radio" name="send_to" value="to"> To the To addresses <span class="mute" id="testMailTo"></span></span></label>
     <label class="field" id="testMailCcRow"><span><input type="checkbox" name="include_cc"> Also to the Cc <span class="mute" id="testMailCc"></span></span></label>
+    <label class="field" title="As if the person asked for access a year past their expected end date"><span><input type="checkbox" name="extension"> As an extension request</span></label>
     <p class="mute" id="testMailFlow" hidden>A mail flow on these addresses handles it as a real request.</p>
     <p class="dialog-error" id="testMailError" role="alert"></p>
     <div class="row"><button type="submit">Send</button> <button type="button" class="sec" onclick="$('testMailDialog').close()">Cancel</button> <span class="mute" id="testMailMsg" role="status"></span></div>
@@ -222,6 +226,18 @@
 <dialog class="entry-dialog" id="detailsDialog" aria-labelledby="detailsTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <div class="dialog-header"><h2 id="detailsTitle">Edit training</h2><button type="button" onclick="$('detailsDialog').close()">Close</button></div>
   <div id="detailsHost"></div>
+</dialog>
+<dialog class="entry-dialog" id="extDialog" aria-labelledby="extTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="extTitle">Request access extension</h2><button type="button" class="sec" onclick="$('extDialog').close()">Close</button></div>
+  <form id="extForm">
+    <p id="extWhat" style="margin:0"></p>
+    <label class="field" id="extDateField">New expected end date<input type="date" name="end_date" required></label>
+    <label class="field" title="Optional; it is in the access mail">Note<input name="note" maxlength="300" placeholder="optional, e.g. project extended"></label>
+    <p class="mute" id="extHow" style="margin:0"></p>
+    <p class="dialog-error" id="extError" role="alert"></p>
+    <div class="dialog-row" style="margin-top:0"><button type="submit" class="primary" id="extOk"></button>
+      <button type="button" class="sec" onclick="$('extDialog').close()">Cancel</button></div>
+  </form>
 </dialog>
 <dialog class="entry-dialog" id="confirmDialog" aria-labelledby="confirmTitle">
   <div class="dialog-header"><h2 id="confirmTitle"></h2><button type="button" onclick="$('confirmDialog').close('no')">Close</button></div>
@@ -269,9 +285,13 @@
           <label class="field" title="Optional: these addresses get a copy (e.g. a secretary, when To is a mailbox a mail flow reads). Several separated by commas.">Cc<input name="access_mail_cc_to" maxlength="300" placeholder="optional"></label>
           <label class="field" title="Optional. The person answers Yes or No at the end of the test; only No sends the mail. Empty: always sent.">Ask first (Yes/No)<input name="access_question" maxlength="200" placeholder="e.g. Do you already have access to the flight lab?"></label>
           <label class="field" title="The tags below are filled in. Replies go to the person.">Mail<textarea name="access_mail_text" maxlength="5000" rows="5" placeholder="e.g. {name} ({email}) passed {training} on {date}. Please give access to the flight lab."></textarea></label>
-          <p class="mute" style="margin:2px 0 0;font-size:12px" title="Number, department, role, supervisor and end date come from the person profile (- when person profiles are off or the field is empty). Valid until: the pass date plus the training's validity. All of them are also in the Request details block at the end of every mail.">Tags: {name} {email} {username} {number} {department} {role} {supervisor} {end_date} {training} {date} {valid_until} {briefed_by} · Markup: **bold**, "- " bullets, two leading spaces indent · Per role, each on its own line: {if role: PhD Student, Staff} … {else} … {end}</p>
+          <p class="mute" style="margin:2px 0 0;font-size:12px" title="Number, department, role, supervisor and end date come from the person profile (- when person profiles are off or the field is empty). Valid until: the pass date plus the training's validity. {request}: new, or extension for an extension request ({end_date} is then the new end date and {note} the person's note, else -). All of them are also in the Request details block at the end of every mail.">Tags: {name} {email} {username} {number} {department} {role} {supervisor} {end_date} {training} {date} {valid_until} {briefed_by} {request} {note} · Markup: **bold**, "- " bullets, two leading spaces indent · Per role, each on its own line: {if role: PhD Student, Staff} … {else} … {end}</p>
           <label class="field"><span><input name="access_mail_cc" type="checkbox"> Copy to the person</span></label>
-          <p class="mute">Sent when the pass is granted (after approval when it needs one). Replies go to the person.</p>
+          <label class="field" title="People with a current pass may ask for access until a later expected end date (Request extension… on the training). The same mail is sent with {request} = extension and their new end date; it also changes the end date in their profile. Needs person profiles.">Extension requests<select name="access_extension">
+            <option value="off">Not offered</option><option value="direct">Sent directly</option>
+            <option value="approval">After admin approval</option><option value="retake">After taking the test again</option></select></label>
+          <p class="mute" id="extensionProfilesOff" hidden>Person profiles are off on this server, so no extension can be asked.</p>
+          <p class="mute">Sent when the pass is granted (after approval when it needs one), and for an extension as chosen above. Replies go to the person.</p>
           <button type="button" class="sec" id="testMailButton" onclick="openTestMail()" title="Send this mail as if a person passed today, to check how it looks or to test a mail flow">Send test mail…</button>
         </details>
       </div>
@@ -433,8 +453,13 @@ function show() {
 async function loadDetail() {
   try {
     detail = await api('/api/trainings/' + selected + (practice ? '?practice=1' : ''));
-    if (passCountFor !== selected) { passCount = null; passCountFor = selected; }  // not the previous training's count
+    if (passCountFor !== selected) { passCount = null; passCountFor = selected; extensionNote = ''; }  // not the previous training's
     paintDetail();
+    if (extendOnLoad) {  // the end date reminder links here with extend=1
+      extendOnLoad = false;
+      window.viewState.save();
+      if (detail.extension && !detail.extension_retake) openExtension();
+    }
   } catch (e) { $('err').textContent = e.message; }
 }
 const ICON = {
@@ -479,7 +504,12 @@ function resultCard(t, questions) {
   if (t.passed_at && t.type_name) rows.push(['Valid until', t.valid_until ? `${esc(day(t.valid_until))} <span class="mute">(the training opens again after that)</span>` : 'No end date']);
   else if (t.type_name && t.valid_days) rows.push(['Valid for', `${t.valid_days} days after a pass`]);
   if (t.briefed_by_name) rows.push(['Briefed by', esc(t.briefed_by_name)]);
-  const actions = [hasReading(t) ? '<button type="button" class="sec" onclick="openReading(false)">Reading material</button>' : '',
+  const ext = t.passed_at && t.extension;
+  if (ext) rows.push(['Access until', `${esc(dayOnly(ext.end_date) || '—')} <span class="mute">(your expected end date)</span>`]);
+  if (ext && ext.open && ext.open.status === 'pending') rows.push(['Extension', `until ${esc(dayOnly(ext.open.end_date))} · waiting for approval · <a href="#" onclick="withdrawExtension();return false">Withdraw</a>`]);
+  if (t.passed_at && extensionNote && !(lastResult && lastResult.practice)) note = esc(extensionNote);
+  const actions = [ext ? '<button type="button" class="sec" onclick="openExtension()" title="Ask for access until a later expected end date">Request extension…</button>' : '',
+    hasReading(t) ? '<button type="button" class="sec" onclick="openReading(false)">Reading material</button>' : '',
     t.passed_at && (questions.length || t.total_points) ? '<button type="button" class="sec" onclick="startPractice()" title="Answer the questions again; the result changes nothing">Practice again</button>' : ''].join('');
   return `<div class="quiz-shell"><div class="quiz-card">
     <div class="quiz-head"><h2 title="${esc(t.name)}">${esc(t.name)}</h2></div>
@@ -497,7 +527,7 @@ function paintDetail() {
   const edit = admin && editTab !== 'training';
   // administrators: questions is the editor's list (with the answers), test_questions their own test as anyone takes it
   const questions = (admin ? t.test_questions : t.questions) || [];
-  const taking = !edit && (t.practice || (!t.passed_at && !t.awaiting_approval)) && questions.length;
+  const taking = !edit && (t.practice || t.extension_retake || (!t.passed_at && !t.awaiting_approval)) && questions.length;
   parkForms();
   const result = !taking && !edit;
   let html = `<div class="toolbar">
@@ -511,12 +541,12 @@ function paintDetail() {
         </div></span>` : ''}
     <details><summary>Help</summary>${admin
       ? '<p><strong>Training</strong> is the training as you take it yourself. <strong>Edit training</strong> changes its name, reading material and pass rules (and the access mail) in one dialog. <strong>Questions</strong>: pick a question on the left to edit it on the right, and save it there; drag a handle (or focus it and use the arrow keys) to reorder, which is saved at once. <strong>Passes</strong>: everyone who passed; Reset lets a person take it again. ⋯ exports or deletes the training.</p>'
-      : '<p>If the training has reading material, read it and confirm that you have read and understood it; the test opens after that. Answer one question at a time, then submit. Retry until you pass; failed answers are not stored. A pass may grant the qualification immediately or wait for admin approval, depending on the training. Some trainings end with a question, for example whether you already have access to a room; answering No sends an access request on your behalf when the pass is granted. When that qualification expires, a queued pass is rejected, or an administrator resets your pass, you can take it again.</p>'}</details></div>
+      : '<p>If the training has reading material, read it and confirm that you have read and understood it; the test opens after that. Answer one question at a time, then submit. Retry until you pass; failed answers are not stored. A pass may grant the qualification immediately or wait for admin approval, depending on the training. Some trainings end with a question, for example whether you already have access to a room; answering No sends an access request on your behalf when the pass is granted. When that qualification expires, a queued pass is rejected, or an administrator resets your pass, you can take it again. When a training offers it, <strong>Request extension…</strong> asks for access until a later expected end date: depending on the training it is sent at once, after an administrator approves it, or after you pass the test again; it also changes the end date in your profile.</p>'}</details></div>
     ${admin ? '<div class="page-tabs" id="editTabs" aria-label="Training sections"></div>' : ''}`;
   const gate = taking && !t.practice && t.must_read;
   if (gate) {
     html += `<div class="quiz-shell"><div class="quiz-card"><div class="quiz-head"><h2 title="${esc(t.name)}">${esc(t.name)}</h2></div>
-      <p>Read the material first. When you confirm that you have read and understood it, the test starts.</p>
+      <p>Read the material first. When you confirm that you have read and understood it, the test starts.</p>${retakeNote()}
       <p><button type="button" onclick="openReading(true)">Open the reading material</button></p></div></div>`;
   } else if (taking) {
     html += quizHTML(questions);
@@ -574,7 +604,7 @@ function quizHTML(questions) {
   return `<div class="quiz-shell"><div class="quiz-card">
     <div class="quiz-head"><h2 title="${esc(detail.name)}">${esc(detail.name)}</h2>
       <span class="step">${hasReading(detail) ? '<a href="#" onclick="openReading(false);return false">Material</a> · ' : ''}<span id="quizProgress">${stepLabel(quizStep, questions.length)}</span></span></div>
-    <div class="quiz-bar" aria-hidden="true"><i id="quizBar" style="width:${pct}%"></i></div>
+    <div class="quiz-bar" aria-hidden="true"><i id="quizBar" style="width:${pct}%"></i></div>${retakeNote()}
     <form id="quiz">
     ${questions.map((q, i) => `<div class="question quiz-pane" data-id="${q.id}" data-kind="${q.kind}"${i === quizStep ? '' : ' hidden'}>
     ${q.image ? `<img src="/api/trainings/questions/${q.id}/image" alt="">` : ''}
@@ -734,6 +764,59 @@ function collectAnswers() {
   });
   return answers;
 }
+// Request extension…: a later expected end date (and an optional note) for a current pass. The training decides
+// whether it is sent at once, waits for an administrator, or waits for a new pass of the test.
+let extensionNote = '', extendOnLoad = false;
+const EXT_HOW = {
+  direct: ['Saves your new end date and sends the access request.', 'Send request'],
+  approval: ['An administrator approves it first; then your new end date is saved and the access request is sent.', 'Send for approval'],
+  retake: ['Take the test again first. When you pass, your new end date is saved and the access request is sent.', 'Start test'],
+};
+function dayOnly(d) { return d ? day(d + 'T00:00') : ''; }
+function nextDay(d) { const t = new Date(d + 'T00:00Z'); t.setUTCDate(t.getUTCDate() + 1); return t.toISOString().slice(0, 10); }
+function retakeNote() {
+  const open = detail.extension_retake && !detail.practice && detail.extension && detail.extension.open;
+  return open ? `<p class="mute retake-note">Access extension until ${esc(dayOnly(open.end_date))}: when you pass, the request is sent. <a href="#" onclick="withdrawExtension();return false">Cancel</a></p>` : '';
+}
+function openExtension() {
+  const x = detail.extension, f = $('extForm');
+  if (!x) return;
+  f.end_date.min = nextDay([x.end_date, x.today].filter(Boolean).sort().pop());
+  f.end_date.max = x.latest || '';
+  f.end_date.value = f.note.value = '';
+  $('extDateField').title = (x.latest ? `At most ${dayOnly(x.latest)} for your role. ` : '') + 'Also changes the expected end date in your profile.';
+  $('extWhat').innerHTML = `${esc(detail.name)} · access until <strong>${esc(dayOnly(x.end_date) || '—')}</strong>`;
+  [$('extHow').textContent, $('extOk').textContent] = EXT_HOW[x.mode];
+  $('extError').textContent = '';
+  $('extDialog').showModal();
+  f.end_date.focus();
+}
+$('extForm').onsubmit = async event => {
+  event.preventDefault();
+  const f = $('extForm'), mode = detail.extension.mode, until = dayOnly(f.end_date.value);
+  $('extError').textContent = '';
+  try {
+    await api(`/api/trainings/${detail.id}/extension`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({end_date: f.end_date.value, note: f.note.value})});
+  } catch (e) { $('extError').textContent = e.message; return; }
+  $('extDialog').close();
+  extensionNote = mode === 'direct' ? `Access extension until ${until} requested: your end date is changed and the request is sent.`
+    : '';  // approval: the Extension row says it waits; retake: the test opens with its own note
+  lastResult = null;
+  quizStep = 0;
+  await loadDetail();
+};
+async function withdrawExtension() {
+  const retake = detail.extension_retake;
+  if (!await askConfirm(retake ? 'Cancel extension' : 'Withdraw extension',
+    retake ? 'Cancel the access extension? The test closes again and your pass stays as it is.' : 'Withdraw your access extension request?',
+    retake ? 'Cancel extension' : 'Withdraw', false)) return;
+  try { await api(`/api/trainings/${detail.id}/extension`, {method: 'DELETE'}); }
+  catch (e) { $('err').textContent = e.message; return; }
+  extensionNote = '';
+  quizStep = 0;
+  await loadDetail();
+}
 function startPractice() {
   practice = true;
   quizStep = 0;
@@ -750,8 +833,12 @@ async function submitQuiz(event) {
       if (detail.ask_briefed_by) payload.briefed_by = +$('quiz').briefed_by.value || null;
       if (detail.access_question) payload.access_answer = ($('quiz').querySelector('[name=access_answer]:checked') || {}).value || null;
     }
+    const retake = detail.extension_retake && !detail.practice, until = retake ? detail.extension.open.end_date : '';
     lastResult = await api('/api/trainings/' + selected + '/submit', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+    if (retake && lastResult.passed) extensionNote = lastResult.awaiting_approval
+      ? `Your access extension until ${dayOnly(until)} is sent once an administrator approves the pass.`
+      : `Access extension until ${dayOnly(until)} requested: your end date is changed and the request is sent.`;
     quizStep = 0;
     const failed = !lastResult.passed && !lastResult.practice;
     practice = false;
@@ -1157,6 +1244,8 @@ function fillDetails(t) {
   f.access_mail_text.value = t.access_mail_text || '';
   f.access_mail_cc.checked = !!t.access_mail_cc;
   f.access_mail_cc_to.value = t.access_mail_cc_to || '';
+  f.access_extension.value = t.access_extension || 'off';
+  $('extensionProfilesOff').hidden = t.profiles_enabled !== false;
   $('accessState').textContent = t.access_mail_to ? '· on' : '';
   $('accessMailOff').hidden = t.mail_enabled !== false;
   brieferIds = (t.briefers || []).map(b => b.id);
@@ -1196,7 +1285,7 @@ $('testMailForm').onsubmit = async event => {
       headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user_id: +f.user_id.value,
         send_to: f.send_to.value, include_cc: f.send_to.value === 'to' && f.include_cc.checked,
         access_mail_to: d.access_mail_to.value, access_mail_cc_to: d.access_mail_cc_to.value,
-        access_mail_text: d.access_mail_text.value})});
+        access_mail_text: d.access_mail_text.value, extension: f.extension.checked})});
     $('testMailMsg').textContent = 'Queued to ' + r.to + (r.cc ? ', Cc ' + r.cc : '');
   } catch (e) { $('testMailError').textContent = e.message; }
 };
@@ -1217,7 +1306,7 @@ $('detailsForm').onsubmit = async event => {
     briefers: f.ask_briefed_by.checked ? brieferIds : [],
     access_mail_to: f.access_mail_to.value, access_question: f.access_question.value,
     access_mail_text: f.access_mail_text.value, access_mail_cc: f.access_mail_cc.checked,
-    access_mail_cc_to: f.access_mail_cc_to.value,
+    access_mail_cc_to: f.access_mail_cc_to.value, access_extension: f.access_extension.value,
     active: f.active.checked};
   $('trainingError').textContent = '';
   try {
@@ -1358,7 +1447,9 @@ window.viewState.setup(p => {
   passUser = selected ? window.viewState.integer(p.get('pass_user'), 0, 1) : 0;
   editTab = passUser ? 'passes' : ['questions', 'passes'].includes(p.get('tab')) ? p.get('tab') : 'training';
   editQ = selected ? window.viewState.integer(p.get('question'), 0, 1) : 0;
+  extendOnLoad = !!selected && p.get('extend') === '1';
 }, p => {
+  if (!extendOnLoad) p.delete('extend');
   window.viewState.set(p, 'q', query);
   window.viewState.set(p, 'id', selected || '', '');
   window.viewState.set(p, 'qi', selected && quizStep ? quizStep : '', '');

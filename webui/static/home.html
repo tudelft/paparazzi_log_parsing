@@ -282,6 +282,9 @@ async function paintTodo() {
     const passes = subs.filter(s => s.training_id).length, other = subs.length - passes;
     if (passes) add('info', passes, plural(passes, 'training pass', 'training passes') + ' to approve', 'Admin · approval queue', '/people?tab=approvals');
     if (other) add('info', other, plural(other, 'qualification') + ' to review', 'Admin · approval queue', '/people?tab=approvals');
+    const ext = flags.training ? await api('/api/admin/extension-pending').catch(() => null) : null;
+    const extensions = (ext?.extensions || []).length;
+    if (extensions) add('info', extensions, plural(extensions, 'access extension') + ' to approve', 'Admin · approval queue', '/people?tab=approvals&kind=extension');
   }
   $('todoCard').hidden = !items.length;
   $('todoCount').textContent = items.length || '';
