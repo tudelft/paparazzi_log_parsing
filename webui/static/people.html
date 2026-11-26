@@ -219,6 +219,7 @@
   .aq-kind.training { background:color-mix(in srgb, var(--acc) 15%, transparent); color:var(--acc); }
   .aq-kind.booking { background:color-mix(in srgb, var(--ok) 15%, transparent); color:var(--ok); }
   .aq-kind.extension { background:color-mix(in srgb, var(--warn) 15%, transparent); color:var(--warn); }
+  .aq-kind.operation { background:color-mix(in srgb, var(--ok) 15%, transparent); color:var(--ok); }
   .aq-small { font-size:12px; color:var(--mute); }
   .aq-warn { font-size:12px; color:var(--warn); }
   .aq-err { font-size:12px; color:var(--err); }
@@ -375,7 +376,7 @@
       <span class="aq-spacer"></span>
       <span class="mute" id="aqSelected"></span>
       <button type="button" id="aqApproveSelected" hidden onclick="aqApprove([...aqSelection])">Approve selected</button>
-      <details><summary>Help</summary><p>Approve or reject each training pass, qualification, booking (agendas that need approval) or access extension (trainings whose extensions need approval; approving saves the new expected end date and sends the access mail) here; ▸ opens its evidence and details. Approve shows Undo for a few seconds before it is saved (leaving the page saves it at once). Reject asks for an optional reason, which is mailed to the person. A submission that cannot be approved yet says why; Edit opens it in that person's Qualifications tab. <strong>Decided</strong> lists what was approved, rejected or withdrawn, also what needed no approval (training passes without approval, imports, bookings by an administrator or approver); click a row for its details.</p></details>
+      <details><summary>Help</summary><p>Approve or reject each training pass, qualification, booking (agendas that need approval) or access extension (trainings whose extensions need approval; approving saves the new expected end date and sends the access mail), or flight plan (Outdoor operations teams whose qualification needs approval; ▸ shows the checks and NOTAM check) here; ▸ opens its evidence and details. Approve shows Undo for a few seconds before it is saved (leaving the page saves it at once). Reject asks for an optional reason, which is mailed to the person. A submission that cannot be approved yet says why; Edit opens it in that person's Qualifications tab. <strong>Decided</strong> lists what was approved, rejected or withdrawn, also what needed no approval (training passes without approval, imports, bookings by an administrator or approver); click a row for its details.</p></details>
     </div>
     <div id="approvalQueue"></div>
     <div id="approvalHistory" hidden></div>
@@ -1064,9 +1065,9 @@ async function adminApi(url, options) {
 // Approval queue: training passes, qualifications and bookings (agendas that need approval) waiting for an
 // administrator, decided in place. Approve is held for a few seconds with Undo and then sent (at once when the page is
 // left); Reject asks for an optional reason. Bookings get negative ids (-booking id) and access extensions
-// -(1e9 + extension id), so they share the queue's code.
-const AQ_KINDS = ['training', 'qualification', 'booking', 'extension'];
-const AQ_LABELS = {training: 'Training', qualification: 'Certificate', booking: 'Booking', extension: 'Extension'};
+// -(1e9 + extension id) and flight plans (outdoor operations teams) -(2e9 + team id), so they share the queue's code.
+const AQ_KINDS = ['training', 'qualification', 'booking', 'extension', 'operation'];
+const AQ_LABELS = {training: 'Training', qualification: 'Certificate', booking: 'Booking', extension: 'Extension', operation: 'Flight plan'};
 const aqParams = new URLSearchParams(location.search);
 let aqKind = AQ_KINDS.includes(aqParams.get('kind')) ? aqParams.get('kind') : '';
 let aqQuery = aqParams.get('q') || '', aqOpen = +aqParams.get('open') || 0;
@@ -1078,15 +1079,17 @@ function ahReadUrl(p) {
   aqView = p.get('view') === 'decided' ? 'decided' : '';
   ahPeriod = ['year', 'all'].includes(p.get('period')) ? p.get('period') : '90d';
   ahPage = Math.max(0, (parseInt(p.get('page'), 10) || 1) - 1);
-  ahOpen = /^[qbe]\d+$/.test(p.get('open') || '') ? p.get('open') : '';
+  ahOpen = /^[qbeo]\d+$/.test(p.get('open') || '') ? p.get('open') : '';
 }
 ahReadUrl(aqParams);
 const aqIsExtension = s => s.kind === 'extension';
+const aqIsOperation = s => s.kind === 'operation';
 const aqIsTraining = s => !!s.training_id && !aqIsExtension(s);
 const aqIsBooking = s => s.kind === 'booking';
-const aqKindOf = s => aqIsExtension(s) ? 'extension' : aqIsBooking(s) ? 'booking' : aqIsTraining(s) ? 'training' : 'qualification';
+const aqKindOf = s => aqIsOperation(s) ? 'operation' : aqIsExtension(s) ? 'extension' : aqIsBooking(s) ? 'booking' : aqIsTraining(s) ? 'training' : 'qualification';
 const aqWhat = s => aqIsTraining(s) || aqIsExtension(s) ? (s.training || s.category) : s.category;
-const aqReviewUrl = s => aqIsExtension(s) ? `/api/training-extensions/${s.extension_id}/review`
+const aqReviewUrl = s => aqIsOperation(s) ? `/api/operations/teams/${s.team_id}/review`
+  : aqIsExtension(s) ? `/api/training-extensions/${s.extension_id}/review`
   : aqIsBooking(s) ? `/api/bookings/${s.booking_id}/review` : `/api/qualification-submissions/${s.id}/review`;
 const aqDate = d => d ? new Date(d + 'T00:00').toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'}) : '';
 // "until 31 Aug 2027 (now 31 Jan 2027)" for an access extension
@@ -1101,12 +1104,14 @@ function aqSpan(b) {
 // for approval.
 async function aqLoad() {
   const optional = (url, key) => fetch(url).then(r => r.ok ? r.json() : {[key]: []}).catch(() => ({[key]: []}));
-  const [queue, bookings, extensions] = await Promise.all([adminApi('/api/admin/qualification-pending'),
-    optional('/api/admin/booking-pending', 'bookings'), optional('/api/admin/extension-pending', 'extensions')]);
+  const [queue, bookings, extensions, teams] = await Promise.all([adminApi('/api/admin/qualification-pending'),
+    optional('/api/admin/booking-pending', 'bookings'), optional('/api/admin/extension-pending', 'extensions'),
+    optional('/api/admin/operation-pending', 'teams')]);
   return [...queue.submissions, ...bookings.bookings.map(b => ({...b, id: -b.id, booking_id: b.id, kind: 'booking',
     category: b.thing, can_approve: true})),
     ...extensions.extensions.map(e => ({...e, id: -(1e9 + e.id), extension_id: e.id, kind: 'extension',
-      category: e.training, can_approve: true}))];
+      category: e.training, can_approve: true})),
+    ...teams.teams.map(t => ({...t, id: -(2e9 + t.id), team_id: t.id, kind: 'operation', category: t.place, can_approve: true}))];
 }
 function aqWhen(t) {
   if (!t) return '';
@@ -1114,7 +1119,13 @@ function aqWhen(t) {
   const time = d.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'});
   return days <= 0 ? 'Today ' + time : days === 1 ? 'Yesterday' : days < 30 ? days + ' days ago' : d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'});
 }
+// The failed checks of a flight plan, e.g. "1 check not met"
+const aqChecks = s => { const bad = (s.checks || []).filter(c => !c.ok).length; return bad ? `${bad} check${bad === 1 ? '' : 's'} not met` : 'checks met'; };
 function aqDetails(s) {
+  if (aqIsOperation(s)) {
+    const text = [aqSpan(s), s.project, aqChecks(s), s.notam && s.notam.checked ? 'NOTAMs checked' : 'NOTAMs not checked'].filter(Boolean).join(' · ');
+    return `<span class="aq-ell aq-small" title="${esc(text)}">${esc(text)}</span>`;
+  }
   if (aqIsExtension(s)) {
     const text = [aqUntil(s), s.note].filter(Boolean).join(' · ');
     return `<span class="aq-ell aq-small" title="${esc(text)}">${esc(text)}</span>`;
@@ -1135,13 +1146,26 @@ function aqVisible() {
   const q = aqQuery.trim().toLowerCase();
   return pendingQualifications.filter(s => !aqHeld.has(s.id)
     && (!aqKind || aqKind === aqKindOf(s))
-    && (!q || [s.person, s.category, s.training, s.number, s.briefed_by, s.description, s.note].some(v => v && v.toLowerCase().includes(q))));
+    && (!q || [s.person, s.category, s.training, s.number, s.briefed_by, s.description, s.note, s.project, s.goal].some(v => v && v.toLowerCase().includes(q))));
 }
 function aqPanel(s) {
   const rows = [];
   const dd = (k, v) => v ? rows.push(`<dt>${k}</dt><dd>${v}</dd>`) : null;
   const view = `/api/qualification-submissions/${s.id}/evidence/view`;
   let preview = '';
+  if (aqIsOperation(s)) {
+    dd('Location', `<a href="/agenda?week=${esc(s.start.slice(0, 10))}">${esc(s.place)}</a>`);
+    dd('When', esc(aqSpan(s)));
+    dd('Project', esc(s.project));
+    dd('Crew', esc(s.crew.join(', ')));
+    dd('Aircraft', esc(s.drone));
+    dd('Goal', esc(s.goal));
+    dd('Checks', (s.checks || []).map(c => `${c.ok ? '✓' : '<span class="aq-warn">!</span>'} ${esc(c.who)}: ${esc(c.what)} <span class="mute">${esc(c.detail)}</span>`).join('<br>') || '<span class="mute">None</span>');
+    dd('NOTAMs', s.notam && s.notam.checked ? 'Checked' + (s.notam.reference ? ' · ' + esc(s.notam.reference) : '') : '<span class="aq-warn">Not checked</span>');
+    dd('PIC', `<a href="/people/${s.user_id}">${esc(s.person)}</a>`);
+    dd('Requested', esc(String(s.submitted_at || '').replace('T', ' ').replace(/Z$/, ' UTC')));
+    return `<div class="aq-open no-preview" id="aqOpen${s.id}"><dl class="aq-kv">${rows.join('')}</dl></div>`;
+  }
   if (aqIsExtension(s)) {
     dd('Training', `<a href="/training?id=${s.training_id}&amp;pass_user=${s.user_id}">${esc(s.training)}</a>`);
     dd('New end date', esc(aqDate(s.end_date)));
@@ -1195,12 +1219,14 @@ function renderQueue() {
   if (decided) { $('aqSelected').textContent = ''; $('aqApproveSelected').hidden = true; $('aqKeys').hidden = true; return renderHistory(); }
   $('ahPager').innerHTML = '';
   for (const id of [...aqSelection]) if (!items.some(s => s.id === id && s.can_approve)) aqSelection.delete(id);
-  const count = k => all.filter(s => aqKindOf(s) === k).length, bookings = count('booking'), extensions = count('extension');
+  const count = k => all.filter(s => aqKindOf(s) === k).length, bookings = count('booking'), extensions = count('extension'),
+    plans = count('operation');
   $('aqCount').textContent = '';
   $('aqKinds').innerHTML = [['', 'All', ''], ['training', 'Training passes', count('training')],
     ['qualification', 'Qualifications', count('qualification')],
     ...(bookings || aqKind === 'booking' ? [['booking', 'Bookings', bookings]] : []),
-    ...(extensions || aqKind === 'extension' ? [['extension', 'Extensions', extensions]] : [])]
+    ...(extensions || aqKind === 'extension' ? [['extension', 'Extensions', extensions]] : []),
+    ...(plans || aqKind === 'operation' ? [['operation', 'Flight plans', plans]] : [])]
     .map(([k, label, n]) => `<button type="button" aria-pressed="${aqKind === k}" onclick="aqSetKind('${k}')">${label}${n === '' ? '' : ' ' + n}</button>`).join('');
   if ($('aqSearch').value !== aqQuery) $('aqSearch').value = aqQuery;
   $('aqSelected').textContent = aqSelection.size ? aqSelection.size + ' selected' : '';
@@ -1249,7 +1275,7 @@ async function renderHistory() {
   const query = new URLSearchParams({kind: aqKind, q: aqQuery.trim(), period: ahPeriod, page: ahPage + 1}).toString();
   if ($('aqSearch').value !== aqQuery) $('aqSearch').value = aqQuery;
   $('ahPeriod').value = ahPeriod;
-  $('aqKinds').innerHTML = [['', 'All'], ['training', 'Training passes'], ['qualification', 'Qualifications'], ['booking', 'Bookings'], ['extension', 'Extensions']]
+  $('aqKinds').innerHTML = [['', 'All'], ['training', 'Training passes'], ['qualification', 'Qualifications'], ['booking', 'Bookings'], ['extension', 'Extensions'], ['operation', 'Flight plans']]
     .map(([k, label]) => `<button type="button" aria-pressed="${aqKind === k}" onclick="aqSetKind('${k}')">${label}</button>`).join('');
   if (!ahData || ahData.query !== query) {
     const seq = ++ahSeq;
@@ -1273,7 +1299,7 @@ async function renderHistory() {
       const note = h.rejection || h.reason || (h.replaced ? 'Replaced later by a newer one' : '');
       return `<div class="ah-row" role="listitem" tabindex="0" data-key="${h.key}" aria-expanded="${open}" onclick="ahToggle('${h.key}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();ahToggle('${h.key}')}">
         <span class="aq-caret" aria-hidden="true">${open ? '▾' : '▸'}</span>
-        <span class="aq-small aq-ell" title="Decided ${esc(exact(h.decided_at))} · ${['booking', 'extension'].includes(h.kind) ? 'requested' : 'submitted'} ${esc(exact(h.submitted_at))}">${esc(aqWhen(h.decided_at))}</span>
+        <span class="aq-small aq-ell" title="Decided ${esc(exact(h.decided_at))} · ${['booking', 'extension', 'operation'].includes(h.kind) ? 'requested' : 'submitted'} ${esc(exact(h.submitted_at))}">${esc(aqWhen(h.decided_at))}</span>
         <span class="aq-ell aq-person" title="${esc(h.person)}">${esc(h.person)}</span>
         <span class="aq-ell" title="${esc(ahWhat(h))}"><span class="aq-kind ${h.kind}">${AQ_LABELS[h.kind] || 'Certificate'}</span>${esc(ahWhat(h))}</span>
         <span><span class="ah-out ${h.outcome}">${h.outcome === 'approved' ? 'Approved' : h.outcome === 'rejected' ? 'Rejected' : 'Withdrawn'}</span></span>
@@ -1286,7 +1312,7 @@ async function renderHistory() {
   else $('ahPager').innerHTML = '';
 }
 function ahWhat(h) {
-  if (h.kind === 'booking') return `${h.what} · ${aqSpan(h)}`;
+  if (h.kind === 'booking' || h.kind === 'operation') return `${h.what} · ${aqSpan(h)}`;
   if (h.kind === 'extension') return `${h.what} · ${aqUntil(h)}`;
   return h.number ? `${h.what} · ${h.number}` : h.what;
 }
@@ -1294,7 +1320,12 @@ function ahPanel(h) {
   const rows = [], dd = (k, v) => v ? rows.push(`<dt>${k}</dt><dd>${v}</dd>`) : null;
   const exact = t => esc(String(t || '').replace('T', ' ').replace(/Z$/, ' UTC'));
   let preview = '';
-  if (h.kind === 'extension') {
+  if (h.kind === 'operation') {
+    dd('Location', `<a href="/agenda?week=${esc(h.start.slice(0, 10))}">${esc(h.what)}</a>`);
+    dd('When', esc(aqSpan(h)));
+    dd('Project', esc(h.project));
+    dd('Goal', esc(h.description));
+  } else if (h.kind === 'extension') {
     dd('Training', `<a href="/training?id=${h.training_id}&amp;pass_user=${h.user_id}">${esc(h.what)}</a>`);
     dd('New end date', esc(aqDate(h.end_date)));
     dd('Previous end', esc(aqDate(h.previous_end)));
@@ -1323,7 +1354,7 @@ function ahPanel(h) {
     dd('Valid until', esc(h.valid_until));
   }
   dd('Person', `<a href="/people/${h.user_id}">${esc(h.person)}</a>`);
-  dd(['booking', 'extension'].includes(h.kind) ? 'Requested' : 'Submitted', exact(h.submitted_at));
+  dd(['booking', 'extension', 'operation'].includes(h.kind) ? 'Requested' : 'Submitted', exact(h.submitted_at));
   dd('Decided', exact(h.decided_at) + ' · ' + esc(h.by ? h.by + (h.by_approver ? ' (approver)' : '') : 'automatically'));
   dd('Outcome', esc(h.outcome === 'approved' ? 'Approved' + (h.automatic ? ' (automatic)' : '') + (h.replaced ? ', replaced later by a newer one' : '')
     : h.outcome === 'rejected' ? 'Rejected' : 'Withdrawn'));
@@ -1401,7 +1432,8 @@ function aqReject(id) {
   if (!s) return;
   aqRejecting = id; aqFocus = id;
   $('aqRejectTitle').textContent = 'Reject · ' + aqWhat(s);
-  $('aqRejectWhat').textContent = aqIsExtension(s) ? `${s.person} · access extension ${aqUntil(s)}. Their end date stays as it is; they can ask again.`
+  $('aqRejectWhat').textContent = aqIsOperation(s) ? `${s.person} · flight plan at ${s.place}, ${aqSpan(s)}. Their team stays in the slot as not approved; they can plan again.`
+    : aqIsExtension(s) ? `${s.person} · access extension ${aqUntil(s)}. Their end date stays as it is; they can ask again.`
     : aqIsBooking(s) ? `${s.person} · ${s.thing}, ${aqSpan(s)}. The time is free again; they can ask again.`
     : `${s.person} · ${aqIsTraining(s) ? 'training pass' : s.category}. Evidence is kept; they can submit again.`;
   $('aqRejectReason').value = '';

@@ -387,6 +387,7 @@ CREATE TABLE IF NOT EXISTS places (
     category TEXT,                      -- default operation category here, e.g. SPECIFIC (categories.py)
     authorisation_id INTEGER,
     country TEXT,                       -- ISO 3166-1 alpha-2 code, e.g. NL (countries.py); NULL = not set
+    bookable INTEGER NOT NULL DEFAULT 0 CHECK(bookable IN (0,1)),  -- can be planned in Outdoor operations
     shape TEXT NOT NULL                 -- JSON: {"type":"polygon","points":[[lat,lon],...]} or {"type":"circle","center":[lat,lon],"radius_m":r}
 );
 CREATE TABLE IF NOT EXISTS ingest (
@@ -468,7 +469,41 @@ CREATE TABLE IF NOT EXISTS booking_things (
     colour TEXT,                       -- #rrggbb for its bookings in the All view
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
     sort_order INTEGER NOT NULL DEFAULT 0,
-    needs_approval INTEGER NOT NULL DEFAULT 0 CHECK(needs_approval IN (0,1))  -- bookings wait for an approver
+    needs_approval INTEGER NOT NULL DEFAULT 0 CHECK(needs_approval IN (0,1)),  -- bookings wait for an approver
+    kind TEXT CHECK(kind IN ('operations'))  -- NULL: an ordinary item; operations: the fixed Outdoor operations item
+);
+-- Who may book an item by qualification (Outdoor operations): holders of any listed type; needs_approval per type
+CREATE TABLE IF NOT EXISTS booking_thing_rules (
+    thing_id INTEGER NOT NULL REFERENCES booking_things(id) ON DELETE CASCADE,
+    type_id INTEGER NOT NULL REFERENCES qualification_types(id) ON DELETE CASCADE,
+    needs_approval INTEGER NOT NULL DEFAULT 0 CHECK(needs_approval IN (0,1)),
+    PRIMARY KEY (thing_id, type_id)
+);
+-- Outdoor operations (operations.py): a booking of the operations item is a slot at a place, shared by teams
+CREATE TABLE IF NOT EXISTS operation_slots (
+    booking_id INTEGER PRIMARY KEY REFERENCES bookings(id) ON DELETE CASCADE,
+    place_id INTEGER NOT NULL REFERENCES places(id)
+);
+CREATE TABLE IF NOT EXISTS operation_teams (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    booking_id INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+    pic_id INTEGER NOT NULL REFERENCES users(id),
+    project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+    drone_id INTEGER REFERENCES drones(id) ON DELETE SET NULL,
+    goal TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL CHECK(status IN ('approved','pending','rejected')),
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    decided_by INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- set when an approver decided it
+    decided_at TEXT,
+    review_note TEXT,
+    preparation TEXT                   -- JSON: weather, checks and NOTAM check as they were when the team booked
+);
+CREATE INDEX IF NOT EXISTS ix_operation_teams ON operation_teams(booking_id);
+CREATE TABLE IF NOT EXISTS operation_crew (
+    team_id INTEGER NOT NULL REFERENCES operation_teams(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (team_id, user_id)
 );
 CREATE TABLE IF NOT EXISTS booking_approvers (  -- besides administrators: who approves bookings of an item
     thing_id INTEGER NOT NULL REFERENCES booking_things(id) ON DELETE CASCADE,
@@ -1127,6 +1162,10 @@ def init(path):
                         ("review_note", "TEXT")):
         if bcols and column not in bcols:
             con.execute(f"ALTER TABLE bookings ADD COLUMN {column} {ddl}")
+    if "bookable" not in {r[1] for r in con.execute("PRAGMA table_info(places)")}:
+        con.execute("ALTER TABLE places ADD COLUMN bookable INTEGER NOT NULL DEFAULT 0 CHECK(bookable IN (0,1))")
+    if "kind" not in {r[1] for r in con.execute("PRAGMA table_info(booking_things)")}:
+        con.execute("ALTER TABLE booking_things ADD COLUMN kind TEXT CHECK(kind IN ('operations'))")
     upcols = {r["name"] for r in con.execute("PRAGMA table_info(user_profiles)")}
     if upcols and "to_confirm" not in upcols:
         con.execute("ALTER TABLE user_profiles ADD COLUMN to_confirm INTEGER NOT NULL DEFAULT 0 CHECK(to_confirm IN (0,1))")
@@ -1143,7 +1182,8 @@ def init(path):
 LOGBOOK_UNRELATED = {
     "api_keys", "cli_logins", "drone_requests", "password_setup_tokens", "ingest", "bulk_reservations", "weather_cache",
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
-    "training_progress", "training_briefers", "training_extensions", "booking_things", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
+    "training_progress", "training_briefers", "training_extensions", "booking_things", "booking_thing_rules",
+    "operation_slots", "operation_teams", "operation_crew", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
     "welcome_message", "welcome_seen", "notices", "notice_roles", "notice_dismissals", "document_settings", "document_groups", "documents", "document_profile_roles", "document_qualification_types",
     "safety_settings", "safety_reports", "safety_emergency",
     "mail_outbox", "mail_prefs", "mail_sent_keys",

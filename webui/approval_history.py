@@ -5,7 +5,7 @@ once) and training access extensions (approved, rejected or withdrawn; also thos
 import datetime
 import re
 
-KINDS = ("training", "qualification", "booking", "extension")
+KINDS = ("training", "qualification", "booking", "extension", "operation")
 PERIODS = ("90d", "year", "all")
 PAGE_SIZE = 50
 QUERY_MAX = 100
@@ -134,6 +134,24 @@ def extension_items(con, start):
     return out
 
 
+def operation_items(con, start):
+    """Teams of outdoor operations that waited for approval and were approved or rejected (decided_by set)."""
+    rows = con.execute(
+        "SELECT o.*, b.starts_at, b.ends_at, p.name AS place, COALESCE(u.display_name,u.username) AS person,"
+        " COALESCE(d.display_name,d.username) AS decider, pr.name AS project FROM operation_teams o"
+        " JOIN bookings b ON b.id=o.booking_id JOIN operation_slots s ON s.booking_id=b.id"
+        " JOIN places p ON p.id=s.place_id JOIN users u ON u.id=o.pic_id LEFT JOIN users d ON d.id=o.decided_by"
+        " LEFT JOIN projects pr ON pr.id=o.project_id"
+        " WHERE o.decided_by IS NOT NULL AND o.status IN ('approved','rejected') AND o.decided_at>=?",
+        (start or "",)).fetchall()
+    return [dict(key=f"o{r['id']}", kind="operation", id=r["id"], user_id=r["pic_id"], person=r["person"],
+                 what=r["place"], booking_id=r["booking_id"], outcome=r["status"], replaced=False, automatic=False,
+                 decided_at=r["decided_at"], submitted_at=r["created_at"], by=r["decider"], by_approver=False,
+                 reason=r["review_note"], rejection=r["review_note"] if r["status"] == "rejected" else None,
+                 start=r["starts_at"], end=r["ends_at"], project=r["project"], description=r["goal"] or None)
+            for r in rows]
+
+
 def matches(item, query):
     fields = (item["person"], item["what"], item.get("category"), item["reason"], item["by"], item.get("number"),
               item.get("description"), item.get("briefed_by"), item.get("note"))
@@ -144,7 +162,7 @@ def history(con, kind="", query="", period="90d", page=1, bookings=True):
     """(items of the page, total) of the decided approvals, newest decision first."""
     start = since(period)
     items = (qualification_items(con, start) + (booking_items(con, start) if bookings else [])
-             + extension_items(con, start))
+             + extension_items(con, start) + (operation_items(con, start) if bookings else []))
     query = query.strip().casefold()[:QUERY_MAX]
     items = [i for i in items if (not kind or i["kind"] == kind) and (not query or matches(i, query))]
     items.sort(key=lambda i: (i["decided_at"], i["key"]), reverse=True)

@@ -89,6 +89,46 @@
   #lockDialog p { margin:0 0 12px; }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   a.btn { padding:4px 10px; border-radius:6px; background:var(--btn); color:#fff; text-decoration:none; }
+  /* Outdoor operations: Plan flight (form beside its preparation) and a slot with its teams */
+  dialog.entry-dialog.op-wide { width:min(980px, calc(100% - 32px)); }
+  .op-cols { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.1fr); gap:18px; }
+  .op-cols > div { display:flex; flex-direction:column; gap:10px; min-width:0; }
+  .op-cols input:not([type=checkbox]), .op-cols select, .op-cols textarea { width:100%; min-width:0; }
+  @media (max-width:760px) { .op-cols { grid-template-columns:1fr; } }
+  .op-cols .two { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+  .op-sec { border:1px solid var(--line); border-radius:8px; padding:8px 10px; overflow-x:auto; }
+  .op-sec h3 { margin:0 0 6px; font-size:13px; display:flex; justify-content:space-between; gap:8px; }
+  .op-sec h3 small { font-weight:400; color:var(--mute); }
+  .op-wx { width:100%; border-collapse:collapse; font-size:12px; }
+  .op-wx th { color:var(--mute); font-weight:500; text-align:right; padding:2px 4px; white-space:nowrap; }
+  .op-wx td { text-align:right; padding:2px 4px; border-top:1px solid var(--line); white-space:nowrap; }
+  .op-wx th:first-child, .op-wx td:first-child { text-align:left; }
+  .op-strong { color:var(--warn); font-weight:600; }
+  .op-checks { list-style:none; margin:0; padding:0; font-size:13px; display:flex; flex-direction:column; gap:3px; }
+  .op-checks li { display:flex; gap:6px; align-items:baseline; min-width:0; }
+  .op-checks li > span:first-child { flex:none; width:12px; font-weight:700; text-align:center; }
+  .op-checks li.ok > span:first-child { color:var(--ok); }
+  .op-checks li.bad > span:first-child { color:var(--warn); }
+  .op-checks li > span:last-child { color:var(--mute); font-size:12px; margin-left:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .op-note { margin:0; padding:7px 10px; border-radius:6px; font-size:13px; background:var(--warnbg); }
+  .op-info { margin:0; padding:7px 10px; border-radius:6px; font-size:13px; background:color-mix(in srgb, var(--acc) 12%, var(--card)); }
+  .op-chips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .op-chips select { flex:1; min-width:140px; width:auto !important; }
+  .op-chip { display:inline-flex; align-items:center; gap:4px; border:1px solid var(--fieldline); border-radius:12px; padding:1px 4px 1px 8px; font-size:12px; }
+  .op-chip button { background:none; color:var(--mute); padding:0 4px; }
+  .op-teams { width:100%; border-collapse:collapse; font-size:13px; }
+  .op-teams th { text-align:left; color:var(--mute); font-weight:500; font-size:12px; padding:3px 6px; }
+  .op-teams td { padding:5px 6px; border-top:1px solid var(--line); vertical-align:top; }
+  .op-teams td.acts { white-space:nowrap; text-align:right; }
+  .op-teams td.acts button { padding:1px 8px; font-size:12px; }
+  .op-prep td { background:var(--bg); }
+  .op-st { font-size:11px; font-weight:600; border-radius:9px; padding:1px 7px; white-space:nowrap; }
+  .op-st.approved { background:color-mix(in srgb, var(--ok) 15%, transparent); color:var(--ok); }
+  .op-st.pending { background:color-mix(in srgb, var(--warn) 15%, transparent); color:var(--warn); }
+  .op-st.rejected { background:color-mix(in srgb, var(--err) 15%, transparent); color:var(--err); }
+  .bk .op-tag { display:inline-block; font-size:10px; font-weight:600; border-radius:8px; padding:0 6px; margin-top:2px;
+    background:color-mix(in srgb, var(--warn) 20%, var(--card)); color:var(--warn); }
+  .op-rule { display:grid; grid-template-columns:1fr 1fr auto; gap:6px; align-items:center; }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -114,7 +154,7 @@
         <div class="menu-pop" id="manageMenu" role="menu" hidden>
           <button type="button" class="ext-item" role="menuitem" onclick="openItem()">Add bookable item…</button>
         </div></span>
-      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day to book that time (a click books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's. With one item there are no tabs. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item overlap only when both set a shared option (for example "Others allowed") and neither sets a blocking one (for example "Demo"); an item without options never overlaps. Some items need a current qualification to book, or to see their agenda at all. Some need approval: your booking then shows as Pending (striped) and holds its time until an administrator or approver approves or rejects it; moving it asks again. You can change or delete your own bookings; administrators can book for someone else and change any booking. Administrators also see items that are closed for bookings, add items with <em>Manage ▾</em> → <em>Add bookable item…</em>, change the open item with <em>Edit item</em> (⋯ deletes it) and drag the tabs to order them. Times are local.</p></details>
+      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day to book that time (a click books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's. With one item there are no tabs. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item overlap only when both set a shared option (for example "Others allowed") and neither sets a blocking one (for example "Demo"); an item without options never overlaps. Some items need a current qualification to book, or to see their agenda at all. Some need approval: your booking then shows as Pending (striped) and holds its time until an administrator or approver approves or rejects it; moving it asks again. You can change or delete your own bookings; administrators can book for someone else and change any booking. Administrators also see items that are closed for bookings, add items with <em>Manage ▾</em> → <em>Add bookable item…</em>, change the open item with <em>Edit item</em> (⋯ deletes it) and drag the tabs to order them. Times are local.</p><p><strong>Outdoor operations</strong> (when the server has it on): <em>Plan flight</em> books a slot at a bookable location for your team, with project, PIC, optional crew and aircraft. It shows the weather forecast, red/green checks of the qualifications and the aircraft for that day, and the NOTAM check; they are saved with your team. Click a slot to see its teams, their preparation, or <em>Join this slot…</em> with your own team (one booking, a shared field). The last team that leaves removes the slot. Who may plan, and whether it needs approval, follows the qualifications in <em>Edit item</em>.</p></details>
     </div>
     <div class="page-tabs" id="tabs" aria-label="Bookable items"></div>
     <p id="about"></p>
@@ -171,7 +211,12 @@
     <div class="dialog-header"><h2 id="itemTitle">Bookable item</h2><button type="button" class="sec" onclick="$('itemDialog').close()">Close</button></div>
     <label class="field">Name<input name="name" required maxlength="80"></label>
     <label class="field">Description<textarea name="description" maxlength="500"></textarea></label>
-    <div class="two">
+    <div class="field" id="ruleField" style="display:flex;flex-direction:column;gap:6px" hidden>
+      <span class="mute" style="font-size:12px">Who may plan or join (people with none of these qualifications cannot; without any, everyone may)</span>
+      <div id="ruleRows" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div><button type="button" class="sec" onclick="addRuleRow()">Add qualification</button></div>
+      <span class="mute" style="font-size:12px">Outdoor operations is fixed while LOGDB_OPERATIONS is on. A booking is a slot at a bookable location (Locations); other teams join it. Administrators and the approvers below decide what needs approval.</span></div>
+    <div class="two" id="typeRow">
       <label class="field">Qualification<select name="type_id" onchange="syncItemForm()"></select></label>
       <label class="field" id="modeField">Needed for<select name="qualification_for">
         <option value="booking">Booking only</option><option value="viewing">Viewing and booking</option></select></label>
@@ -181,13 +226,13 @@
       <input name="colour" type="color" value="#4493f8" aria-label="Colour">
       <label class="check" title="Off: hidden for everyone but administrators and not bookable; existing bookings stay"><input name="active" type="checkbox" checked> Open for bookings</label>
     </div>
-    <label class="check" title="A booking waits for an administrator or an approver below (it holds its time meanwhile); theirs are approved at once. Off: what waits is booked."><input name="needs_approval" type="checkbox" onchange="syncItemForm()"> Bookings need approval</label>
+    <label class="check" id="needsField" title="A booking waits for an administrator or an approver below (it holds its time meanwhile); theirs are approved at once. Off: what waits is booked."><input name="needs_approval" type="checkbox" onchange="syncItemForm()"> Bookings need approval</label>
     <div class="field" id="approverField" style="display:flex;flex-direction:column;gap:4px"><span class="mute" style="font-size:12px">Approvers besides administrators (optional)</span>
       <input type="search" id="approverSearch" placeholder="Find a person" aria-label="Find an approver" oninput="paintApprovers()">
       <div class="people-picks" id="approverPicks"></div></div>
-    <span class="mute">Booking options (a booking may tick them; with a colour they show as a coloured tag)</span>
+    <div id="flagSection" style="display:contents"><span class="mute">Booking options (a booking may tick them; with a colour they show as a coloured tag)</span>
     <div id="flagRows"></div>
-    <div><button type="button" class="sec" onclick="addFlagRow()">Add option</button></div>
+    <div><button type="button" class="sec" onclick="addFlagRow()">Add option</button></div></div>
     <p class="dialog-error" id="itemError" role="alert"></p>
     <div class="row"><button type="submit" class="primary">Save</button> <button type="button" class="sec" onclick="$('itemDialog').close()">Cancel</button></div>
   </form>
@@ -200,6 +245,43 @@
     <div class="row"><button type="submit" class="primary" id="actOk">OK</button> <button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></div>
   </form>
 </dialog>
+<dialog class="entry-dialog op-wide" id="planDialog" aria-labelledby="planTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <form id="planForm">
+    <div class="dialog-header"><h2 id="planTitle">Plan flight</h2><button type="button" class="sec" onclick="$('planDialog').close()">Close</button></div>
+    <div class="op-cols">
+      <div>
+        <p class="mute" id="planSlot" style="margin:0" hidden></p>
+        <label class="field" id="planPlaceField">Location<select name="place_id" required onchange="prepare()"></select></label>
+        <div class="two" id="planTimes"><label class="field">Start<input name="start" type="datetime-local" required onchange="prepare()"></label>
+          <label class="field">End<input name="end" type="datetime-local" required onchange="prepare()"></label></div>
+        <p class="op-info" id="planJoinHint" hidden></p>
+        <div class="two"><label class="field">Project<select name="project_id" required></select></label>
+          <label class="field">PIC<select name="pic_id" onchange="prepare()"></select></label></div>
+        <div class="field"><span class="mute" style="font-size:12px">Crew (optional)</span>
+          <div class="op-chips" id="planCrew"></div></div>
+        <label class="field">Aircraft (optional)<select name="drone_id" onchange="prepare()"></select></label>
+        <label class="field">Goal<textarea name="goal" maxlength="500" placeholder="What you fly and why"></textarea></label>
+        <p class="mute" id="planRule" style="margin:0;font-size:12px"></p>
+        <p class="dialog-error" id="planError" role="alert"></p>
+        <div class="row"><button type="submit" class="primary" id="planOk">Book</button> <button type="button" class="sec" onclick="$('planDialog').close()">Cancel</button></div>
+      </div>
+      <div>
+        <section class="op-sec"><h3>Weather <small id="planWeatherWhen"></small></h3><div id="planWeather" class="mute">Choose a location and time.</div></section>
+        <section class="op-sec"><h3>Checks <small id="planChecksWhen"></small></h3><div id="planChecks" class="mute">Choose a location and time.</div></section>
+        <section class="op-sec"><h3>Airspace and NOTAMs</h3>
+          <p style="margin:0 0 6px;font-size:13px" id="planNotamLink"></p>
+          <label class="check"><input type="checkbox" name="notam_checked"> Checked: nothing that stops this flight</label>
+          <label class="field" style="margin-top:6px">Reference or remark (optional)<input name="notam_reference" maxlength="200"></label></section>
+      </div>
+    </div>
+  </form>
+</dialog>
+<dialog class="entry-dialog op-wide" id="slotDialog" aria-labelledby="slotTitle" style="width:min(880px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+  <div class="dialog-header"><h2 id="slotTitle"></h2><button type="button" class="sec" onclick="$('slotDialog').close()">Close</button></div>
+  <div id="slotBody"></div>
+  <p class="dialog-error" id="slotError" role="alert"></p>
+  <div class="row" style="margin-top:12px" id="slotActions"></div>
+</dialog>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -209,7 +291,8 @@ const local = d => `${isoDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const DAY = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const HOUR = 40;
-let me, monday, tab = 'all', data = {things: [], bookings: []}, editing = null, editingItem = null;
+let me, monday, tab = 'all', data = {things: [], bookings: []}, editing = null, editingItem = null, ops = null;
+const isOps = t => !!t && t.kind === 'operations';
 async function api(url, opt) {
   const r = await fetch(url, opt);
   const d = await r.json().catch(() => ({}));
@@ -289,6 +372,7 @@ async function load() {
   const last = addDays(monday, 6);
   try {
     data = await api(`/api/bookings?from=${isoDate(monday)}&to=${isoDate(last)}`);
+    if (data.things.some(isOps) && !ops) ops = await api('/api/operations/options').catch(() => null);
   } catch (e) { $('err').textContent = e.message; return; }
   $('range').textContent = `${monday.getDate()} ${MONTH[monday.getMonth()]} – ${last.getDate()} ${MONTH[last.getMonth()]} ${last.getFullYear()}`;
   const t = current();
@@ -323,8 +407,8 @@ function paintTabs() {
     bindTabOrder();
     const t = current();
     if (t) $('tabs').insertAdjacentHTML('beforeend', `<span class="tabs-end"><button type="button" class="sec" onclick="openItem(${t.id})">Edit item</button>
-      <span class="menu-wrap"><button type="button" class="sec" id="itemMoreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions for ${esc(t.name)}" title="Rare actions">⋯</button>
-        <div class="menu-pop" role="menu" hidden><button type="button" class="ext-item danger-item" role="menuitem" onclick="removeItem(${t.id})">Delete item…</button></div></span></span>`);
+      ${isOps(t) ? '' : `<span class="menu-wrap"><button type="button" class="sec" id="itemMoreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions for ${esc(t.name)}" title="Rare actions">⋯</button>
+        <div class="menu-pop" role="menu" hidden><button type="button" class="ext-item danger-item" role="menuitem" onclick="removeItem(${t.id})">Delete item…</button></div></span>`}</span>`);
   }
 }
 function paintAbout() {
@@ -334,6 +418,11 @@ function paintAbout() {
     if (!data.things.length) parts.push(admin() ? 'No bookable items yet: add one with Manage ▾ → Add bookable item….' : 'Nothing can be booked yet.');
   } else {
     if (t.description) parts.push(esc(t.description));
+    if (isOps(t)) {
+      parts.push('A booking is a slot at a location; click a slot to see its teams or join it.');
+      if (ops && !ops.rule) parts.push(`To plan an outdoor flight you need a current qualification: ${esc(ops.rules.map(r => r.name).join(' or '))}.`);
+      else if (ops && ops.rule === 'approval') parts.push('Your flight plans need approval by an administrator or approver.');
+    }
     if (t.type_id && !t.can_book && t.active)
       parts.push(`To book it you need the qualification “${esc(t.type_name)}”: <a href="${t.training_id ? '/training?id=' + t.training_id : '/training'}">go to the training</a>.`);
     if (t.needs_approval) parts.push(t.can_approve ? 'Bookings need approval: you approve or reject requests, and your own bookings are approved at once.'
@@ -366,6 +455,7 @@ function paint(scroll) {
   paintTabs();
   paintAbout();
   $('newBtn').hidden = !bookable();
+  $('newBtn').textContent = isOps(current()) ? 'Plan flight' : 'New booking';
   $('manageWrap').hidden = !admin();
   const days = [...Array(7)].map((_, i) => isoDate(addDays(monday, i)));
   const today = isoDate(new Date());
@@ -397,6 +487,15 @@ function paint(scroll) {
       const tip = [state, tab === 'all' ? t.name : '', p.b.description, p.b.person, `${p.b.start.replace('T', ' ')} – ${p.b.end.replace('T', ' ')}`, ...flags]
         .filter(Boolean).join(' · ');
       const label = p.b.status === 'pending' ? '<span class="state">Pending</span>' : p.b.status === 'rejected' ? '<span class="state">Rejected</span>' : '';
+      const op = p.b.operation;
+      if (op) {  // an Outdoor operations slot: its location, teams and PICs; opens the slot (not movable here)
+        const teams = `${op.teams} team${op.teams === 1 ? '' : 's'} · ${op.pics.join(', ')}`;
+        return `<div role="button" tabindex="0" class="bk${p.b.status === 'rejected' ? ' rejected' : ''}" data-id="${p.b.id}" data-op="1" title="${esc([op.place, teams, when, op.pending ? op.pending + ' waiting for approval' : ''].filter(Boolean).join(' · '))}"
+          style="--c:${esc(colourOf(p.b))};top:${(p.s - first) * HOUR}px;height:${Math.max((p.e - p.s) * HOUR - 2, 18)}px;
+          left:calc(${p.lane / p.n * 100}% + 2px);width:calc(${100 / p.n}% - 4px)">
+          <b>${label}${esc(tab === 'all' ? t.name + ': ' + op.place : op.place)}</b><span>${esc(teams)}</span>
+          ${op.pending ? `<span class="op-tag">${op.pending} waiting</span>` : ''}</div>`;
+      }
       return `<div role="button" tabindex="0" class="bk${p.b.can_edit ? ' movable' : ''}${p.b.status !== 'approved' ? ' ' + p.b.status : ''}" data-id="${p.b.id}" data-piece="${pieces.indexOf(p)}" title="${esc(tip)}"
         style="--c:${esc(colourOf(p.b))};top:${(p.s - first) * HOUR}px;height:${Math.max((p.e - p.s) * HOUR - 2, 18)}px;
         left:calc(${p.lane / p.n * 100}% + 2px);width:calc(${100 / p.n}% - 4px)">
@@ -406,9 +505,10 @@ function paint(scroll) {
   });
   $('week').innerHTML = html;
   $('week').querySelectorAll('.bk').forEach(el => {
-    el.onclick = e => { e.stopPropagation(); if (!el.dataset.dragged) openBooking(null, +el.dataset.id); };
+    const open = () => el.dataset.op ? openSlot(+el.dataset.id) : openBooking(null, +el.dataset.id);
+    el.onclick = e => { e.stopPropagation(); if (!el.dataset.dragged) open(); };
     if (el.classList.contains('movable')) bindMove(el, pieces[+el.dataset.piece], first);
-    el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBooking(null, +el.dataset.id); } };
+    el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } };
   });
   $('week').querySelectorAll('.col.bookable').forEach(col => bindSlotDrag(col, first));
   if (scroll) {  // show 08:00 at the top, unless every booking of the week is outside 08:00-20:00
@@ -530,11 +630,13 @@ function paintFlagChecks(checked) {
   $('flagChecks').querySelectorAll('input').forEach(i => { i.disabled = disabled; });
 }
 function openBooking(start, id, end, moved) {
+  if (!id && isOps(current())) return openPlan(start, end);
   const b = id ? data.bookings.find(x => x.id === id) : null;
   editing = b;
   const f = $('bookingForm');
   const canEdit = b ? b.can_edit : true;
-  const choices = b ? [item(b.thing_id)] : data.things.filter(t => canBookItem(t) && (tab === 'all' || t.id === +tab));
+  const choices = b ? [item(b.thing_id)] : data.things.filter(t => canBookItem(t) && !isOps(t) && (tab === 'all' || t.id === +tab));
+  if (!choices.length && !b && data.things.some(t => isOps(t) && canBookItem(t))) return openPlan(start, end);
   if (!choices.length) return;
   f.thing_id.innerHTML = choices.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
   f.thing_id.disabled = !!b || choices.length < 2;
@@ -634,11 +736,196 @@ function removeBooking() {
       return true;
     });
 }
+// ---- Outdoor operations (LOGDB_OPERATIONS): Plan flight books a slot at a location for your team, Join adds your
+// team to a slot, and the slot dialog lists its teams. The preparation (weather, checks, NOTAM check) is shown while
+// planning and stored with the team on the server.
+let plan = null, planTimer = null, planCrew = [];
+const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+const compass = deg => deg == null ? '' : COMPASS[Math.round(deg / 22.5) % 16];
+const num = (v, d = 1) => v == null ? '–' : (+v).toFixed(d);
+const span = (a, b) => `${DAY[(new Date(a).getDay() + 6) % 7]} ${+a.slice(8, 10)} ${MONTH[+a.slice(5, 7) - 1]} ${a.slice(11)}–${a.slice(0, 10) === b.slice(0, 10) ? b.slice(11) : b.replace('T', ' ')}`;
+function weatherHTML(w) {
+  if (!w || !w.hours || !w.hours.length) return `<span class="mute">${esc(w && w.note || 'No forecast.')}</span>`;
+  return `<table class="op-wx"><tr><th>Hour</th><th>Wind m/s</th><th>Gusts</th><th>From</th><th>Rain mm</th><th>Cloud %</th><th>Temp °C</th></tr>${w.hours.map(h =>
+    `<tr><td>${esc(h.time.slice(11, 16))}</td><td>${num(h.wind_speed_ms)}</td><td${h.wind_gusts_ms >= 10 ? ' class="op-strong" title="Gusts of 10 m/s or more"' : ''}>${num(h.wind_gusts_ms)}</td>
+      <td>${compass(h.wind_from_deg)}</td><td>${num(h.precipitation_mm)}</td><td>${num(h.cloud_cover_percent, 0)}</td><td>${num(h.temperature_c, 0)}</td></tr>`).join('')}</table>`;
+}
+function checksHTML(rows) {
+  if (!rows || !rows.length) return '<span class="mute">Nothing to check: no qualifications are set for Outdoor operations and no aircraft is chosen.</span>';
+  return `<ul class="op-checks">${rows.map(c => `<li class="${c.ok ? 'ok' : 'bad'}" title="${esc(c.who + ': ' + c.what + ' · ' + c.detail)}"><span>${c.ok ? '✓' : '!'}</span>
+    <span>${esc(c.who)}: ${esc(c.what)}</span><span>${esc(c.detail)}</span></li>`).join('')}</ul>`;
+}
+function notamLink(url) {
+  return url ? `<a href="${esc(url)}" target="_blank" rel="noopener">Open the NOTAMs and drone zones ↗</a> and check them for this time and place.`
+    : 'Check the NOTAMs and drone zones for this time and place.';
+}
+function paintCrew() {
+  const f = $('planForm'), pic = +f.pic_id.value;
+  planCrew = planCrew.filter(id => id !== pic);
+  const name = id => (ops.people.find(x => x.id === id) || {name: '?'}).name;
+  $('planCrew').innerHTML = planCrew.map(id => `<span class="op-chip">${esc(name(id))}<button type="button" aria-label="Remove ${esc(name(id))}" onclick="planCrew = planCrew.filter(x => x !== ${id}); paintCrew(); prepare()">✕</button></span>`).join('')
+    + `<select aria-label="Add crew" onchange="if (this.value) { planCrew.push(+this.value); paintCrew(); prepare(); }"><option value="">Add a person…</option>${
+      ops.people.filter(x => x.id !== pic && !planCrew.includes(x.id)).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select>`;
+}
+// mode: plan (a new slot), join (a slot's teams + yours), edit (your team in a slot)
+async function openPlan(start, end, slot, team) {
+  if (!ops) try { ops = await api('/api/operations/options'); } catch (e) { $('err').textContent = e.message; return; }
+  if (!slot && !ops.places.length) {
+    $('err').textContent = admin() ? 'No location can be booked yet: tick Bookable for outdoor operations on a location in Locations.'
+      : 'No location can be booked for outdoor operations yet.';
+    return;
+  }
+  plan = {mode: team ? 'edit' : slot ? 'join' : 'plan', slot, team};
+  const f = $('planForm');
+  $('planTitle').textContent = team ? 'Edit your team' : slot ? 'Join slot' : 'Plan flight';
+  $('planOk').textContent = team ? 'Save' : slot ? 'Join' : 'Book';
+  $('planSlot').hidden = !slot;
+  if (slot) $('planSlot').textContent = `${slot.place} · ${span(slot.start, slot.end)}`;
+  $('planPlaceField').hidden = $('planTimes').hidden = !!slot;
+  f.place_id.innerHTML = ops.places.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
+  if (!start) { const d = new Date(); d.setHours(d.getHours() + 24, 0, 0, 0); start = local(d); }
+  if (!end) { const d = new Date(start); d.setHours(d.getHours() + 3); end = local(d); }
+  f.start.value = start; f.end.value = end;
+  f.project_id.innerHTML = ops.projects.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
+  f.pic_id.innerHTML = ops.people.map(x => `<option value="${x.id}">${esc(x.name)}${x.id === me.id ? ' (you)' : ''}</option>`).join('');
+  f.drone_id.innerHTML = '<option value="">None</option>' + ops.drones.map(x => `<option value="${x.id}">${esc(x.name)}${x.status && x.status !== 'Ready' ? ' (' + esc(x.status) + ')' : ''}</option>`).join('');
+  f.pic_id.value = team ? team.pic_id : me.id;
+  if (team && team.project_id) f.project_id.value = team.project_id;
+  f.drone_id.value = team && team.drone_id ? team.drone_id : '';
+  f.goal.value = team ? team.goal : '';
+  planCrew = team ? team.crew.map(c => c.id) : [];
+  const notam = team ? team.preparation.notam || {} : {};
+  f.notam_checked.checked = !!notam.checked;
+  f.notam_reference.value = notam.reference || '';
+  $('planNotamLink').innerHTML = notamLink(ops.notam_url);
+  $('planRule').textContent = ops.rule === 'approval' ? 'Your flight plan needs approval by an administrator or approver; it holds the time meanwhile.'
+    : ops.rule ? 'Weather, checks and the NOTAM check are saved with your booking.' : '';
+  $('planJoinHint').hidden = true;
+  $('planError').textContent = '';
+  paintCrew();
+  $('planDialog').showModal();
+  prepare(true);
+}
+function prepare(now) {
+  clearTimeout(planTimer);
+  planTimer = setTimeout(async () => {
+    const f = $('planForm'), slot = plan && plan.slot;
+    const body = {place_id: slot ? slot.place_id : +f.place_id.value, start: slot ? slot.start : f.start.value,
+      end: slot ? slot.end : f.end.value, pic_id: +f.pic_id.value, crew: planCrew,
+      drone_id: f.drone_id.value ? +f.drone_id.value : null, ignore_id: slot ? slot.id : null};
+    if (!body.place_id || !body.start || !body.end) return;
+    try {
+      const d = await api('/api/operations/prepare', json('POST', body));
+      const day = span(body.start, body.end);
+      $('planWeatherWhen').textContent = `forecast for ${day}` + (d.weather.fetched_at ? ' · ' + new Date(d.weather.fetched_at).toTimeString().slice(0, 5) : '');
+      $('planWeather').innerHTML = weatherHTML(d.weather);
+      $('planChecksWhen').textContent = 'on ' + day.split(' ').slice(0, 3).join(' ');
+      $('planChecks').innerHTML = checksHTML(d.checks);
+      const other = !slot && d.slots[0];
+      $('planJoinHint').hidden = !other;
+      if (other) $('planJoinHint').innerHTML = `${esc(other.person)}'s slot at this location, ${esc(span(other.start, other.end))}, overlaps this time. <a href="#" onclick="joinFromPlan(${other.id}); return false">Join that slot</a> instead of booking a second one.`;
+      $('planError').textContent = '';
+    } catch (e) { $('planError').textContent = e.message; }
+  }, now ? 0 : 300);
+}
+async function joinFromPlan(id) {
+  $('planDialog').close();
+  const slot = await api('/api/operations/' + id).catch(e => { $('err').textContent = e.message; });
+  if (slot) openPlan(null, null, slot);
+}
+$('planForm').onsubmit = async event => {
+  event.preventDefault();
+  const f = event.target, {mode, slot, team} = plan;
+  const body = {project_id: +f.project_id.value, pic_id: +f.pic_id.value, crew: planCrew,
+    drone_id: f.drone_id.value ? +f.drone_id.value : null, goal: f.goal.value,
+    notam: {checked: f.notam_checked.checked, reference: f.notam_reference.value}};
+  if (mode === 'plan') Object.assign(body, {place_id: +f.place_id.value, start: f.start.value, end: f.end.value});
+  try {
+    await api(mode === 'plan' ? '/api/operations' : mode === 'join' ? `/api/operations/${slot.id}/teams` : `/api/operations/teams/${team.id}`,
+      json(mode === 'edit' ? 'PUT' : 'POST', body));
+    $('planDialog').close();
+    await load();
+    if (slot) openSlot(slot.id);
+  } catch (e) { $('planError').textContent = e.message; }
+};
+let slotOpen = null, slotPrep = null;
+async function openSlot(id) {
+  let slot;
+  try { slot = await api('/api/operations/' + id); } catch (e) { $('err').textContent = e.message; return; }
+  slotOpen = slot;
+  $('slotTitle').textContent = `${slot.place} · ${span(slot.start, slot.end)}`;
+  const label = {approved: 'Booked', pending: 'Waiting for approval', rejected: 'Not approved'};
+  $('slotBody').innerHTML = `<table class="op-teams"><tr><th>PIC</th><th>Project</th><th>Crew</th><th>Aircraft</th><th></th><th></th></tr>${slot.teams.map(t => `
+    <tr><td><strong>${esc(t.pic)}</strong>${t.goal ? `<div class="mute" style="font-size:12px">${esc(t.goal)}</div>` : ''}</td><td>${esc(t.project || '–')}</td>
+      <td>${esc(t.crew.map(c => c.name).join(', ') || '–')}</td><td>${esc(t.drone || '–')}</td>
+      <td><span class="op-st ${t.status}" title="${esc(t.review_note || '')}">${label[t.status]}</span></td>
+      <td class="acts"><button type="button" class="sec" onclick="toggleSlotPrep(${t.id})" aria-expanded="${slotPrep === t.id}">Preparation ${slotPrep === t.id ? '▾' : '▸'}</button>
+        ${t.can_decide ? `<button type="button" onclick="decideTeam(${t.id}, 'approve')">Approve</button> <button type="button" class="danger" onclick="decideTeam(${t.id}, 'reject')">Reject</button>` : ''}
+        ${t.can_edit ? `<button type="button" class="sec" onclick="openPlan(null, null, slotOpen, slotOpen.teams.find(x => x.id === ${t.id}))">Edit</button> <button type="button" class="danger" onclick="leaveTeam(${t.id})">Leave…</button>` : ''}</td></tr>
+    ${slotPrep === t.id ? `<tr class="op-prep"><td colspan="6"><div class="op-cols"><div>
+      <section class="op-sec"><h3>Weather <small>as planned ${esc((t.preparation.prepared_at || '').replace('T', ' ').slice(0, 16))} UTC</small></h3>${weatherHTML(t.preparation.weather)}</section></div><div>
+      <section class="op-sec"><h3>Checks</h3>${checksHTML(t.preparation.checks)}</section>
+      <section class="op-sec"><h3>Airspace and NOTAMs</h3>${t.preparation.notam && t.preparation.notam.checked ? '✓ Checked' : '! Not checked'}${t.preparation.notam && t.preparation.notam.reference ? ' · ' + esc(t.preparation.notam.reference) : ''}</section>
+      </div></div></td></tr>` : ''}`).join('')}</table>`;
+  $('slotActions').innerHTML = (slot.can_join ? '<button type="button" class="primary" onclick="openPlan(null, null, slotOpen)">Join this slot…</button> ' : '')
+    + (slot.can_move ? '<button type="button" class="sec" onclick="moveSlot()">Change time…</button> ' : '')
+    + `<button type="button" class="sec" onclick="$('slotDialog').close()">Close</button>`;
+  $('slotError').textContent = '';
+  if (!$('slotDialog').open) $('slotDialog').showModal();
+}
+function toggleSlotPrep(id) { slotPrep = slotPrep === id ? null : id; openSlot(slotOpen.id); }
+function decideTeam(id, action) {
+  const t = slotOpen.teams.find(x => x.id === id);
+  const send = async (reason, out) => {
+    try { await api(`/api/operations/teams/${id}/review`, json('POST', reason ? {action, reason} : {action})); }
+    catch (e) { out.textContent = e.message; return false; }
+    await load();
+    openSlot(slotOpen.id);
+    return true;
+  };
+  if (action === 'approve') return send(null, $('slotError'));
+  actDialog('Reject flight plan', `<p style="margin:0 0 8px">${esc(t.pic)} · ${esc(slotOpen.place)}, ${esc(span(slotOpen.start, slotOpen.end))}.</p>
+    <label class="field">Reason (optional, mailed to them)<textarea id="opReason" maxlength="500"></textarea></label>`, 'Reject',
+    out => send($('opReason').value.trim(), out));
+}
+function leaveTeam(id) {
+  const t = slotOpen.teams.find(x => x.id === id), last = slotOpen.teams.filter(x => x.status !== 'rejected').length <= 1;
+  actDialog('Leave slot', `<p style="margin:0">Take ${esc(t.pic)}'s team out of ${esc(slotOpen.place)}, ${esc(span(slotOpen.start, slotOpen.end))}?${last ? ' It is the last team: the slot is removed.' : ''}</p>`,
+    'Leave', async out => {
+      let d;
+      try { d = await api('/api/operations/teams/' + id, {method: 'DELETE'}); } catch (e) { out.textContent = e.message; return false; }
+      await load();
+      if (d.slot_removed) $('slotDialog').close(); else openSlot(slotOpen.id);
+      return true;
+    });
+}
+function moveSlot() {
+  actDialog('Change time', `<div class="two"><label class="field">Start<input id="opStart" type="datetime-local" value="${esc(slotOpen.start)}"></label>
+    <label class="field">End<input id="opEnd" type="datetime-local" value="${esc(slotOpen.end)}"></label></div>`, 'Save', async out => {
+    try { await api('/api/operations/' + slotOpen.id, json('PUT', {start: $('opStart').value, end: $('opEnd').value})); }
+    catch (e) { out.textContent = e.message; return false; }
+    await load();
+    openSlot(slotOpen.id);
+    return true;
+  });
+}
 function syncItemForm() {
-  const f = $('itemForm');
+  const f = $('itemForm'), opsItem = !!(editingItem && isOps(item(editingItem)));
   $('modeField').hidden = !f.type_id.value;
   f.colour.disabled = !f.use_colour.checked;
-  $('approverField').hidden = !f.needs_approval.checked;
+  $('ruleField').hidden = !opsItem;
+  $('typeRow').hidden = $('needsField').hidden = $('flagSection').hidden = opsItem;
+  $('approverField').hidden = !opsItem && !f.needs_approval.checked;
+}
+// Outdoor operations: the qualification types that may plan, each booking directly or needing approval.
+function addRuleRow(rule = {}) {
+  const row = document.createElement('div');
+  row.className = 'op-rule';
+  row.innerHTML = `<select aria-label="Qualification">${window.typeOptions(data.types || [], q =>
+      `<option value="${q.id}"${q.id === rule.type_id ? ' selected' : ''}>${esc(q.name)}</option>`)}</select>
+    <select aria-label="Approval"><option value="0">Books directly</option><option value="1"${rule.needs_approval ? ' selected' : ''}>Needs approval</option></select>
+    <button type="button" class="sec" aria-label="Remove" onclick="this.parentElement.remove()">✕</button>`;
+  $('ruleRows').append(row);
 }
 // Approvers: ticked people first, the rest filtered by the search (administrators always approve; not listed).
 let approverIds = new Set();
@@ -681,6 +968,8 @@ function openItem(id) {
   paintApprovers();
   $('flagRows').innerHTML = '';
   t.flags.forEach(addFlagRow);
+  $('ruleRows').innerHTML = '';
+  (t.rules || []).forEach(addRuleRow);
   $('itemError').textContent = '';
   syncItemForm();
   $('itemDialog').showModal();
@@ -697,6 +986,11 @@ $('itemForm').onsubmit = async event => {
       label: row.querySelector('input[type=text]').value,
       colour: row.querySelector('.use').checked ? row.querySelector('input[type=color]').value : null,
       blocks_overlap: row.querySelector('.blocks').checked}))};
+  if (editingItem && isOps(item(editingItem))) {
+    body.flags = [];
+    body.approver_ids = [...approverIds];
+    body.rules = [...$('ruleRows').children].map(row => ({type_id: +row.children[0].value, needs_approval: row.children[1].value === '1'}));
+  }
   try {
     const d = await api('/api/admin/booking-things' + (editingItem ? '/' + editingItem : ''), json(editingItem ? 'PUT' : 'POST', body));
     $('itemDialog').close();

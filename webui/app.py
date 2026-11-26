@@ -64,6 +64,7 @@ import config
 import qualifications
 import training
 import bookings
+import operations
 import documents
 import safety
 import scopes
@@ -1765,6 +1766,7 @@ def me():
     return jsonify(user=user_public(g.user), webui_version=WEBUI_VERSION,
                    viewing_as_by=dict(id=g.real_user["id"], display_name=g.real_user["display_name"] or g.real_user["username"])
                    if g.get("real_user") else None, training=env_bool("TRAINING"), bookings=env_bool("BOOKINGS"),
+                   operations=operations.enabled(),
                    documents=env_bool("DOCUMENTS"), safety=env_bool("SAFETY"),
                    can_upload=can_upload_any(conn()), person_profile=profiles.enabled(), email=mail.enabled())
 
@@ -2931,12 +2933,13 @@ def list_places():
                 point["count"] += 1
                 if f.get(end + "_place_id") is None:
                     point["unnamed_count"] += 1
-    places = [dict(id=r["id"], name=r["name"], indoor=bool(r["indoor"]), shape=json.loads(r["shape"]),
+    places = [dict(id=r["id"], name=r["name"], indoor=bool(r["indoor"]), bookable=bool(r["bookable"]),
+                   shape=json.loads(r["shape"]),
                    country=r["country"], operator_id=r["operator_id"], category=r["category"], authorisation_id=r["authorisation_id"],
                    **stats.get(r["id"], {"flights": 0, "seconds": 0.0, "last": None}))
               for r in con.execute("SELECT * FROM places ORDER BY name") if admin or r["id"] in visible_places]
     return jsonify(places=places, points=[{"lat": k[0], "lon": k[1], **n} for k, n in pts.items()],
-                   admin=admin, countries=countries.choices())
+                   admin=admin, countries=countries.choices(), operations=operations.enabled())
 
 
 @app.post("/api/admin/places")
@@ -2958,9 +2961,12 @@ def admin_add_place():
         country = countries.parse(body.get("country"))
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
-    cur = con.execute("INSERT INTO places (name, indoor, shape, operator_id, category, authorisation_id, country)"
-                      " VALUES (?,?,?,?,?,?,?)", (name, int(bool(body.get("indoor"))), json.dumps(shape), operator_id,
-                                                  category, authorisation_id, country))
+    if type(body.get("bookable", False)) is not bool:
+        return jsonify(error="bookable must be true or false"), 400
+    cur = con.execute("INSERT INTO places (name, indoor, shape, operator_id, category, authorisation_id, country, bookable)"
+                      " VALUES (?,?,?,?,?,?,?,?)", (name, int(bool(body.get("indoor"))), json.dumps(shape), operator_id,
+                                                    category, authorisation_id, country,
+                                                    int(body.get("bookable", False) and not body.get("indoor"))))
     con.commit()
     return jsonify(id=cur.lastrowid)
 
@@ -2978,6 +2984,9 @@ def admin_update_place(place_id):
     if not name or len(name) > 80 or shape is None:
         return jsonify(error="invalid name or shape"), 400
     indoor = int(bool(body["indoor"])) if "indoor" in body else row["indoor"]
+    if "bookable" in body and type(body["bookable"]) is not bool:
+        return jsonify(error="bookable must be true or false"), 400
+    bookable = int(body["bookable"]) if "bookable" in body else row["bookable"]
     operator_id = operators.parse_id(con, body["operator_id"]) if "operator_id" in body else row["operator_id"]
     if operator_id is False:
         return jsonify(error="no such operator"), 400
@@ -2991,9 +3000,9 @@ def admin_update_place(place_id):
         country = countries.parse(body["country"]) if "country" in body else row["country"]
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
-    con.execute("UPDATE places SET name=?, indoor=?, shape=?, operator_id=?, category=?, authorisation_id=?, country=?"
-                " WHERE id=?", (name, indoor, json.dumps(shape), operator_id, category, authorisation_id, country,
-                                place_id))
+    con.execute("UPDATE places SET name=?, indoor=?, shape=?, operator_id=?, category=?, authorisation_id=?, country=?,"
+                " bookable=? WHERE id=?", (name, indoor, json.dumps(shape), operator_id, category, authorisation_id,
+                                           country, bookable, place_id))
     con.commit()
     return jsonify(ok=True)
 
@@ -8319,6 +8328,7 @@ training.register(app, lambda: conn(), DATA_DIR, session_required)
 profiles.register(app, lambda: conn(), session_required, now, PAGES_DIR)
 welcome.register(app, lambda: conn(), session_required, now, PAGES_DIR)
 bookings.register(app, lambda: conn(), session_required, PAGES_DIR)
+operations.register(app, lambda: conn(), session_required)
 documents.register(app, lambda: conn(), STORAGE_DIR, PAGES_DIR)
 safety.register(app, lambda: conn(), STORAGE_DIR, PAGES_DIR, session_required)
 

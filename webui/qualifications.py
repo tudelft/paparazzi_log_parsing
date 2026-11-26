@@ -949,7 +949,7 @@ def register(app, connection, root, require_session):
         from config import env_bool
         kind, period = request.args.get("kind", ""), request.args.get("period", "90d")
         if kind and kind not in approval_history.KINDS:
-            raise QualificationError("kind must be training, qualification, booking or extension.")
+            raise QualificationError("kind must be training, qualification, booking, extension or operation.")
         if period not in approval_history.PERIODS:
             raise QualificationError("period must be 90d, year or all.")
         try:
