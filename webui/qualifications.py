@@ -914,6 +914,9 @@ def register(app, connection, root, require_session):
                 " LEFT JOIN profile_departments d ON d.id=p.department_id LEFT JOIN profile_roles ro ON ro.id=p.role_id"
                 " WHERE p.user_id=?", (r["user_id"],)).fetchone() if profiles.enabled() else None
             score = re.search(r"passed (\d+)/(\d+)", r["note"] or "") if link else None
+            retake = con.execute(  # a retake for an access extension: sent with the new end date once approved
+                "SELECT end_date FROM training_extensions WHERE user_id=? AND training_id=? AND status='retake'"
+                " ORDER BY id DESC LIMIT 1", (r["user_id"], link["training_id"])).fetchone() if link else None
             problem = approval_problem(r, evidence_root())
             out.append({
                 "id": r["id"], "user_id": r["user_id"], "type_id": r["type_id"],
@@ -929,6 +932,7 @@ def register(app, connection, root, require_session):
                 "score": f"{score[1]} / {score[2]}" if score else None,
                 "briefed_by": link["briefed_by"] if link else None,
                 "access_answer": link["access_answer"] if link else None,
+                "extension_end": retake["end_date"] if retake else None,
                 "replaces": dict(current) if current else None,
                 "role": profile["role"] if profile else None,
                 "department": profile["department"] if profile else None,
@@ -945,7 +949,7 @@ def register(app, connection, root, require_session):
         from config import env_bool
         kind, period = request.args.get("kind", ""), request.args.get("period", "90d")
         if kind and kind not in approval_history.KINDS:
-            raise QualificationError("kind must be training, qualification or booking.")
+            raise QualificationError("kind must be training, qualification, booking or extension.")
         if period not in approval_history.PERIODS:
             raise QualificationError("period must be 90d, year or all.")
         try:

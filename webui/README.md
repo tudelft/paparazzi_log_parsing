@@ -324,7 +324,10 @@ administrator resets the pass, you can take it again. Admins create questionnair
 outside the repository, and can ask who
 delivered the briefing from a short list of people. A training can also mail an access request (for example to a secretary, for room access)
 once a pass is granted, optionally only when the person answers **No** to a question such as "Do you already have
-access to the flight lab?"; admins can get a copy under **My account → Email**.
+access to the flight lab?"; admins can get a copy under **My account → Email**. When the training offers it,
+**Request extension…** asks for access until a later expected end date (with an optional note): sent at once, after
+an admin approves it, or after you pass the test again, depending on the training; it also changes the end date in
+your profile, and the end date reminder links to it. Rules: [technical guide](TECHNICAL.md#access-extensions).
 
 **Profile** (optional): when the server turns it on, you fill in your role, department, supervisors, expected end
 date and student/employee number after signing in, and again once that end date has passed. Your role limits the

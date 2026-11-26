@@ -667,6 +667,8 @@ CREATE TABLE IF NOT EXISTS trainings (
     access_question TEXT NOT NULL DEFAULT '',    -- optional Yes/No question; only "No" sends the mail
     access_mail_cc INTEGER NOT NULL DEFAULT 0 CHECK(access_mail_cc IN (0,1)),  -- copy to the person
     access_mail_cc_to TEXT NOT NULL DEFAULT '',  -- copy to these addresses as well (e.g. a secretary)
+    -- after a pass, people may ask for access until a later expected end date: off | direct | approval | retake
+    access_extension TEXT NOT NULL DEFAULT 'off' CHECK(access_extension IN ('off','direct','approval','retake')),
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
     sort_order INTEGER NOT NULL DEFAULT 0
 );
@@ -700,6 +702,23 @@ CREATE TABLE IF NOT EXISTS training_progress (
     access_answer TEXT,                -- answer to the access question at the pass: yes | no
     PRIMARY KEY (user_id, training_id)
 );
+-- Access extension requests of a training (trainings.access_extension): a new expected end date for a current pass
+CREATE TABLE IF NOT EXISTS training_extensions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    training_id INTEGER NOT NULL REFERENCES trainings(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    mode TEXT NOT NULL CHECK(mode IN ('direct','approval','retake')),  -- the training's setting when asked
+    end_date TEXT NOT NULL,            -- the new expected end date asked for
+    previous_end TEXT,                 -- the profile's expected end date when asked
+    note TEXT NOT NULL DEFAULT '',     -- optional note of the person, in the mail
+    -- retake: waits for a new pass; pending: waits for an administrator; sent: mail queued, end date saved
+    status TEXT NOT NULL CHECK(status IN ('retake','pending','sent','rejected','withdrawn')),
+    created_at TEXT NOT NULL,
+    decided_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    decided_at TEXT,
+    review_note TEXT                   -- the reason of a rejection
+);
+CREATE INDEX IF NOT EXISTS ix_training_extensions ON training_extensions(user_id, training_id, status);
 CREATE TABLE IF NOT EXISTS training_briefers (
     training_id INTEGER NOT NULL REFERENCES trainings(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1088,7 +1107,9 @@ def init(path):
                         ("access_mail_to", "TEXT NOT NULL DEFAULT ''"), ("access_mail_text", "TEXT NOT NULL DEFAULT ''"),
                         ("access_question", "TEXT NOT NULL DEFAULT ''"),
                         ("access_mail_cc", "INTEGER NOT NULL DEFAULT 0 CHECK(access_mail_cc IN (0,1))"),
-                        ("access_mail_cc_to", "TEXT NOT NULL DEFAULT ''")):
+                        ("access_mail_cc_to", "TEXT NOT NULL DEFAULT ''"),
+                        ("access_extension", "TEXT NOT NULL DEFAULT 'off'"
+                                             " CHECK(access_extension IN ('off','direct','approval','retake'))")):
         if tcols and column not in tcols:
             con.execute(f"ALTER TABLE trainings ADD COLUMN {column} {ddl}")
     qcols = {r["name"] for r in con.execute("PRAGMA table_info(qualification_submissions)")}
@@ -1122,7 +1143,7 @@ def init(path):
 LOGBOOK_UNRELATED = {
     "api_keys", "cli_logins", "drone_requests", "password_setup_tokens", "ingest", "bulk_reservations", "weather_cache",
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
-    "training_progress", "training_briefers", "booking_things", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
+    "training_progress", "training_briefers", "training_extensions", "booking_things", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
     "welcome_message", "welcome_seen", "notices", "notice_roles", "notice_dismissals", "document_settings", "document_groups", "documents", "document_profile_roles", "document_qualification_types",
     "safety_settings", "safety_reports", "safety_emergency",
     "mail_outbox", "mail_prefs", "mail_sent_keys",

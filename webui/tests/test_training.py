@@ -618,8 +618,9 @@ class TrainingTests(AppTests):
                          ("desk@example.org, keys@example.org", "pic@example.org", "pic@example.org"))
         self.assertTrue(row["subject"].startswith("Access request: "), row["subject"])
         self.assertIn("(pic@example.org) passed Safety on ", row["body"])
-        self.assertRegex(row["body"], r"\n\nRequest details:\nPerson: Pilot\nEmail: pic@example.org\nUsername: pic\n"
-                                      r"Number: -\nDepartment: -\nRole: -\nSupervisor: -\nSupervisor email: -\nUntil: -\nTraining: Safety\n"
+        self.assertRegex(row["body"], r"\n\nRequest details:\nType: new\nNote: -\nPerson: Pilot\nEmail: pic@example.org\n"
+                                      r"Username: pic\nNumber: -\nDepartment: -\nRole: -\nSupervisor: -\nSupervisor email: -\n"
+                                      r"Until: -\nPrevious until: -\nTraining: Safety\n"
                                       r"Passed: \d{4}-\d\d-\d\d\nValid until: (\d{4}-\d\d-\d\d|-)\nBriefed by: -\n"
                                       r"Reference: T\d+-U2-\d{4}-\d\d-\d\d$")
         sent = []
@@ -633,7 +634,8 @@ class TrainingTests(AppTests):
         self.assertIn("max-width:960px", page)
         self.assertIn('background:#f5f6f8;border:1px solid #dfe3e8;border-radius:6px', page)  # the details box
         text = re.sub(r"<[^>]+>", "", re.sub(r"</div>|<br>", "\n", page[page.index("Request details:"):]))
-        self.assertIn("Request details:\nPerson: Pilot\nEmail: pic@example.org\nUsername: pic\n", text)  # same lines as text
+        self.assertIn("Request details:\nType: new\nNote: -\nPerson: Pilot\nEmail: pic@example.org\nUsername: pic\n",
+                      text)  # same lines as text
 
     def test_access_mail_tags_from_the_person_profile(self):
         tid, _ = self.access_setup()
@@ -654,7 +656,7 @@ class TrainingTests(AppTests):
         self.assertTrue(body.startswith(f"Pilot pic S1234567 Control and Simulation Visiting Student {admin}, Ext Supervisor"
                                         " 2027-08-31 Safety 2026-11-14 2027-11-14 Briefer B\n\n"), body)
         self.assertIn(f"\nNumber: S1234567\nDepartment: Control and Simulation\nRole: Visiting Student\n"
-                      f"Supervisor: {admin}, Ext Supervisor\nSupervisor email: {admin_email}\nUntil: 2027-08-31\nTraining: Safety\nPassed: 2026-11-14\n"
+                      f"Supervisor: {admin}, Ext Supervisor\nSupervisor email: {admin_email}\nUntil: 2027-08-31\nPrevious until: -\nTraining: Safety\nPassed: 2026-11-14\n"
                       "Valid until: 2027-11-14\nBriefed by: Briefer B\n", body)
         with patch.dict(os.environ, LOGDB_PERSON_PROFILE="0"):  # profiles off: the stored profile is not used
             training.queue_access_mail(self.con, 2, row, None, "2026-11-14T10:00:00Z")
@@ -712,6 +714,134 @@ class TrainingTests(AppTests):
         row, = self.access_mails()
         self.assertIsNone(row["cc_addr"])
         self.assertEqual(row["reply_to"], "pic@example.org")
+
+    def extension_setup(self, mode, **body):
+        """A training with an access mail offering extensions in `mode`; the Pilot (2) passed it and has a profile
+        (Master Student, at most 2 years ahead) ending in 20 days."""
+        tid, answers = self.access_setup(access_extension=mode, **body)
+        profiles_env = patch.dict(os.environ, LOGDB_PERSON_PROFILE="1")
+        profiles_env.start()
+        self.addCleanup(profiles_env.stop)
+        role = self.con.execute("INSERT INTO profile_roles (name, max_years) VALUES ('Master Student', 2)").lastrowid
+        self.end = (datetime.date.today() + datetime.timedelta(days=20)).isoformat()
+        self.con.execute("INSERT INTO user_profiles (user_id, role_id, department_text, end_date, number)"
+                         " VALUES (2, ?, 'Dept', ?, 'S1')", (role, self.end))
+        self.con.commit()
+        self.sign_in(2)
+        self.assertTrue(self.client.post(f"/api/trainings/{tid}/submit", json={**answers, "access_answer": "no"})
+                        .json["passed"])
+        self.con.execute("DELETE FROM mail_outbox")
+        self.con.commit()
+        self.later = (datetime.date.today() + datetime.timedelta(days=200)).isoformat()
+        return tid, answers
+
+    def profile_end(self):
+        return self.con.execute("SELECT end_date FROM user_profiles WHERE user_id=2").fetchone()[0]
+
+    def test_extension_settings(self):
+        tid = self.add_training()
+        base = {"name": "Safety", "type_id": self.type_id, "valid_days": 365}
+        for bad in ({"access_extension": "direct"}, {"access_extension": "x", "access_mail_to": "desk@example.org",
+                                                     "access_mail_text": "x"}):
+            self.assertEqual(self.client.put(f"/api/admin/trainings/{tid}", json={**base, **bad}).status_code, 400, bad)
+        self.assertEqual(self.client.put(f"/api/admin/trainings/{tid}", json={
+            **base, "access_extension": "approval", "access_mail_to": "desk@example.org",
+            "access_mail_text": "x"}).status_code, 200)
+        self.assertEqual(self.client.get(f"/api/trainings/{tid}").json["access_extension"], "approval")
+
+    def test_extension_sent_directly(self):
+        tid, _ = self.extension_setup("direct", access_question="Do you already have access?", access_mail_cc=True)
+        offer = self.client.get(f"/api/trainings/{tid}").json["extension"]
+        self.assertEqual((offer["mode"], offer["end_date"], offer["open"]), ("direct", self.end, None))
+        url = f"/api/trainings/{tid}/extension"
+        too_late = (datetime.date.today() + datetime.timedelta(days=3 * 366)).isoformat()
+        for bad in ({"end_date": self.end}, {"end_date": "2027-13-01"}, {"end_date": too_late},
+                    {"end_date": self.later, "note": "x" * 301}):
+            self.assertEqual(self.client.post(url, json=bad).status_code, 400, bad)
+        r = self.client.post(url, json={"end_date": self.later, "note": "Project  extended\nby a year"})
+        self.assertEqual((r.status_code, r.json["status"]), (200, "sent"), r.json)
+        self.assertEqual(self.profile_end(), self.later)
+        row, = self.access_mails()
+        self.assertEqual(row["subject"], f"Access request: Pilot, extension of Safety until {self.later}")
+        self.assertEqual(row["cc_addr"], "pic@example.org")
+        self.assertIn(f"\n\nRequest details:\nType: extension\nNote: Project extended by a year\nPerson: Pilot\n",
+                      row["body"])
+        self.assertIn(f"\nUntil: {self.later}\nPrevious until: {self.end}\nTraining: Safety\n", row["body"])
+        self.assertRegex(row["body"], rf"\nReference: T{tid}-U2-\d{{4}}-\d\d-\d\d-E{r.json['id']}$")
+        even_later = (datetime.date.today() + datetime.timedelta(days=300)).isoformat()
+        self.assertEqual(self.client.post(url, json={"end_date": even_later}).status_code, 409)  # once a day
+        history = self.client.get  # the Decided view lists it as automatic
+        self.sign_in(1)
+        items = history("/api/admin/approval-history?kind=extension").json["items"]
+        self.assertEqual([(i["outcome"], i["automatic"], i["end_date"]) for i in items], [("approved", True, self.later)])
+        with patch.dict(os.environ, LOGDB_PERSON_PROFILE="0"):  # no end date to extend without profiles
+            self.sign_in(2)
+            self.assertIsNone(self.client.get(f"/api/trainings/{tid}").json["extension"])
+            self.assertEqual(self.client.post(url, json={"end_date": even_later}).status_code, 409)
+
+    def test_extension_after_approval(self):
+        tid, _ = self.extension_setup("approval")
+        url = f"/api/trainings/{tid}/extension"
+        self.assertEqual(self.client.post(url, json={"end_date": self.later}).json["status"], "pending")
+        self.assertEqual((self.profile_end(), self.access_mails()), (self.end, []))
+        self.assertEqual(self.client.get(f"/api/trainings/{tid}").json["extension"]["open"]["status"], "pending")
+        self.assertEqual(self.client.get("/api/admin/extension-pending").status_code, 403)
+        self.sign_in(1)
+        first, = self.client.get("/api/admin/extension-pending").json["extensions"]
+        self.assertEqual((first["person"], first["training"], first["end_date"], first["previous_end"]),
+                         ("Pilot", "Safety", self.later, self.end))
+        r = self.client.post(f"/api/training-extensions/{first['id']}/review", json={"action": "reject", "reason": "No"})
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertEqual((self.profile_end(), self.access_mails()), (self.end, []))
+        self.assertEqual(self.client.post(f"/api/training-extensions/{first['id']}/review",
+                                          json={"action": "approve"}).status_code, 409)
+        self.sign_in(2)
+        self.assertEqual(self.client.post(url, json={"end_date": self.later}).status_code, 200)
+        self.sign_in(1)
+        second, = self.client.get("/api/admin/extension-pending").json["extensions"]
+        self.assertEqual(self.client.post(f"/api/training-extensions/{second['id']}/review",
+                                          json={"action": "approve"}).status_code, 200)
+        self.assertEqual(self.profile_end(), self.later)
+        row, = self.access_mails()
+        self.assertIn("Type: extension", row["body"])
+        items = self.client.get("/api/admin/approval-history?kind=extension").json["items"]
+        self.assertEqual(sorted((i["outcome"], i["automatic"]) for i in items), [("approved", False), ("rejected", False)])
+
+    def test_extension_after_retaking_the_test(self):
+        tid, answers = self.extension_setup("retake", access_question="Do you already have access?")
+        before = self.client.get(f"/api/trainings/{tid}").json
+        self.assertFalse(before["extension_retake"])
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/submit", json=answers).status_code, 409)
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/extension", json={"end_date": self.later})
+                         .json["status"], "retake")
+        quiz = self.client.get(f"/api/trainings/{tid}").json
+        self.assertTrue(quiz["extension_retake"])
+        self.assertTrue(quiz["questions"])
+        self.assertIsNone(quiz["access_question"])  # not asked: the person already has access
+        self.assertEqual(self.access_mails(), [])
+        r = self.client.post(f"/api/trainings/{tid}/submit", json=answers)
+        self.assertTrue(r.json["passed"], r.json)
+        self.assertEqual(self.profile_end(), self.later)
+        row, = self.access_mails()
+        self.assertIn("Type: extension", row["body"])
+        after = self.client.get(f"/api/trainings/{tid}").json
+        self.assertFalse(after["extension_retake"])
+        self.assertIsNone(after["extension"]["open"])
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/submit", json=answers).status_code, 409)
+        # withdrawing a retake closes the test again
+        self.assertEqual(self.client.post(f"/api/trainings/{tid}/extension", json={
+            "end_date": (datetime.date.today() + datetime.timedelta(days=300)).isoformat()}).status_code, 200)
+        self.assertEqual(self.client.delete(f"/api/trainings/{tid}/extension").status_code, 200)
+        self.assertFalse(self.client.get(f"/api/trainings/{tid}").json["extension_retake"])
+        self.assertEqual(self.client.delete(f"/api/trainings/{tid}/extension").status_code, 404)
+
+    def test_end_date_reminder_links_the_extension(self):
+        tid, _ = self.extension_setup("direct")
+        today = datetime.date.today() + datetime.timedelta(days=13)  # the end date is 7 days ahead
+        mail.queue_reminders(self.con, today)
+        row = self.con.execute("SELECT body FROM mail_outbox WHERE user_id=2 AND kind='expiry'").fetchone()
+        self.assertIn("request an access extension for Safety", row["body"])
+        self.assertTrue(row["body"].endswith(f"/training?id={tid}&extend=1"), row["body"])
 
 
 class ScoreTests(unittest.TestCase):
