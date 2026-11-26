@@ -281,7 +281,11 @@ the buffer leaves the location; admins set each location's area and height in Lo
 checks of the qualifications and the aircraft for that day, and the NOTAM check; these are saved with your team. Other
 teams **Join** a slot instead of booking their own (one booking, a shared field); the slot goes when its last team
 leaves. Flights uploaded later at that location and time, by a team's PIC, crew or aircraft, appear in the slot (link or
-unlink others there by hand), and the flight page shows its flight plan, or *Not planned* at a bookable location. Who
+unlink others there by hand), and the flight page shows its flight plan, or *Not planned* at a bookable location. A
+location can be booked elsewhere by mail (for example Unmanned Valley): Plan flight then shows the deadline, the request is
+mailed to that mailbox (also when teams join or leave, the time changes or the slot is cancelled), and the slot shows
+*Requested* until an admin enters the booking number (*Booked*); a reminder follows when it is still not booked close to the
+deadline. Who
 may plan, and whether it needs approval, depends on your qualifications (**Edit item**). Rules:
 [technical guide](TECHNICAL.md#outdoor-operations).
 

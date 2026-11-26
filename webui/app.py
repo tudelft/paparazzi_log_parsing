@@ -2938,6 +2938,9 @@ def list_places():
                    max_height_m=r["max_height_m"], flight_area=json.loads(r["flight_area"]) if r["flight_area"] else None,
                    flight_area_inside=ground_risk.assess(json.loads(r["flight_area"]) if r["flight_area"] else None,
                                                          r["max_height_m"], json.loads(r["shape"]))["inside"],
+                   booking_mode=r["booking_mode"], booking_provider=r["booking_provider"],
+                   booking_lead_hours=r["booking_lead_hours"],
+                   **({"booking_mail_to": r["booking_mail_to"], "booking_mail_text": r["booking_mail_text"]} if admin else {}),
                    shape=json.loads(r["shape"]),
                    country=r["country"], operator_id=r["operator_id"], category=r["category"], authorisation_id=r["authorisation_id"],
                    **stats.get(r["id"], {"flights": 0, "seconds": 0.0, "last": None}))
@@ -2999,6 +3002,10 @@ def admin_update_place(place_id):
             json.loads(row["flight_area"]) if row["flight_area"] else None)
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
+    try:  # outdoor operations: booked elsewhere (by mail)
+        booking = operations.parse_booking_settings(body, row)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
     operator_id = operators.parse_id(con, body["operator_id"]) if "operator_id" in body else row["operator_id"]
     if operator_id is False:
         return jsonify(error="no such operator"), 400
@@ -3013,9 +3020,10 @@ def admin_update_place(place_id):
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     con.execute("UPDATE places SET name=?, indoor=?, shape=?, operator_id=?, category=?, authorisation_id=?, country=?,"
-                " bookable=?, max_height_m=?, flight_area=? WHERE id=?",
+                " bookable=?, max_height_m=?, flight_area=?, booking_mode=?, booking_provider=?, booking_lead_hours=?,"
+                " booking_mail_to=?, booking_mail_text=? WHERE id=?",
                 (name, indoor, json.dumps(shape), operator_id, category, authorisation_id, country, bookable, height,
-                 json.dumps(area) if area else None, place_id))
+                 json.dumps(area) if area else None, *booking, place_id))
     con.commit()
     return jsonify(ok=True)
 
@@ -6774,7 +6782,7 @@ def admin_mail_log():
         "SELECT m.id, m.kind, m.subject, m.created_at, m.sent_at, m.attempts, m.error, m.digest, m.to_addr,"
         " COALESCE(u.display_name, u.username) AS name, u.email FROM mail_outbox m LEFT JOIN users u ON u.id=m.user_id"
         f" WHERE {where} ORDER BY m.id DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
-    return jsonify(enabled=mail.enabled(), total=total, offset=offset, limit=limit, kinds={**{k: v[0] for k, v in mail.KINDS.items()}, "access": "Training access request", "security": mail.SECURITY_LABEL},
+    return jsonify(enabled=mail.enabled(), total=total, offset=offset, limit=limit, kinds={**{k: v[0] for k, v in mail.KINDS.items()}, "access": "Training access request", "booking": "Outdoor operation booking request", "security": mail.SECURITY_LABEL},
                    mails=[{"id": r["id"], "kind": r["kind"], "subject": r["subject"], "created_at": r["created_at"],
                            "sent_at": r["sent_at"], "error": r["error"], "digest": bool(r["digest"]),
                            "to": r["to_addr"] or (f"{r['name']} <{r['email']}>" if r["email"] else r["name"]),

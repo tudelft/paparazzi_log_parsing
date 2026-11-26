@@ -390,6 +390,11 @@ CREATE TABLE IF NOT EXISTS places (
     bookable INTEGER NOT NULL DEFAULT 0 CHECK(bookable IN (0,1)),  -- can be planned in Outdoor operations
     max_height_m INTEGER,               -- Outdoor operations: the highest a flight here may go (m)
     flight_area TEXT,                   -- Outdoor operations: default flight area, JSON [[lat,lon],...]
+    booking_mode TEXT NOT NULL DEFAULT 'none' CHECK(booking_mode IN ('none','mail')),  -- external booking of a slot
+    booking_provider TEXT NOT NULL DEFAULT '',  -- who it is booked at, e.g. Unmanned Valley
+    booking_lead_hours INTEGER,         -- book at least this many hours before the slot
+    booking_mail_to TEXT NOT NULL DEFAULT '',   -- by mail: the mailbox that books it
+    booking_mail_text TEXT NOT NULL DEFAULT '', -- by mail: the request's text, with tags
     shape TEXT NOT NULL                 -- JSON: {"type":"polygon","points":[[lat,lon],...]} or {"type":"circle","center":[lat,lon],"radius_m":r}
 );
 CREATE TABLE IF NOT EXISTS ingest (
@@ -484,7 +489,16 @@ CREATE TABLE IF NOT EXISTS booking_thing_rules (
 -- Outdoor operations (operations.py): a booking of the operations item is a slot at a place, shared by teams
 CREATE TABLE IF NOT EXISTS operation_slots (
     booking_id INTEGER PRIMARY KEY REFERENCES bookings(id) ON DELETE CASCADE,
-    place_id INTEGER NOT NULL REFERENCES places(id)
+    place_id INTEGER NOT NULL REFERENCES places(id),
+    -- external booking (places.booking_mode): how it was asked, its state and the external booking number
+    external TEXT CHECK(external IN ('mail')),
+    external_status TEXT CHECK(external_status IN ('requested','booked')),
+    external_ref TEXT,
+    requested_at TEXT,
+    book_by TEXT,                      -- local time it must be booked by (slot start minus the lead hours)
+    booked_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    booked_at TEXT,
+    reminded_at TEXT
 );
 CREATE TABLE IF NOT EXISTS operation_teams (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -565,7 +579,7 @@ CREATE TABLE IF NOT EXISTS mail_outbox (   -- email notifications waiting to be 
     to_addr TEXT,
     cc_addr TEXT,                      -- training access requests: the person when the training copies them
     reply_to TEXT,                     -- training access requests: the person
-    kind TEXT NOT NULL,                -- a mail.KINDS key, or access (training access request to to_addr)
+    kind TEXT NOT NULL,                -- a mail.KINDS key, or access / booking (requests to to_addr, mail.EXTERNAL)
     subject TEXT NOT NULL,
     body TEXT NOT NULL,
     digest INTEGER NOT NULL DEFAULT 0 CHECK(digest IN (0,1)),  -- 1: goes in the daily summary
@@ -1188,6 +1202,20 @@ def init(path):
     for column, ddl in (("max_height_m", "INTEGER"), ("flight_area", "TEXT")):
         if column not in {r[1] for r in con.execute("PRAGMA table_info(places)")}:
             con.execute(f"ALTER TABLE places ADD COLUMN {column} {ddl}")
+    pcols = {r[1] for r in con.execute("PRAGMA table_info(places)")}
+    for column, ddl in (("booking_mode", "TEXT NOT NULL DEFAULT 'none' CHECK(booking_mode IN ('none','mail'))"),
+                        ("booking_provider", "TEXT NOT NULL DEFAULT ''"), ("booking_lead_hours", "INTEGER"),
+                        ("booking_mail_to", "TEXT NOT NULL DEFAULT ''"), ("booking_mail_text", "TEXT NOT NULL DEFAULT ''")):
+        if column not in pcols:
+            con.execute(f"ALTER TABLE places ADD COLUMN {column} {ddl}")
+    scols = {r[1] for r in con.execute("PRAGMA table_info(operation_slots)")}
+    for column, ddl in (("external", "TEXT CHECK(external IN ('mail'))"),
+                        ("external_status", "TEXT CHECK(external_status IN ('requested','booked'))"),
+                        ("external_ref", "TEXT"), ("requested_at", "TEXT"), ("book_by", "TEXT"),
+                        ("booked_by", "INTEGER REFERENCES users(id) ON DELETE SET NULL"), ("booked_at", "TEXT"),
+                        ("reminded_at", "TEXT")):
+        if scols and column not in scols:
+            con.execute(f"ALTER TABLE operation_slots ADD COLUMN {column} {ddl}")
     ocols = {r[1] for r in con.execute("PRAGMA table_info(operation_teams)")}
     for column, ddl in (("height_m", "INTEGER"), ("flight_area", "TEXT"), ("buffer_m", "REAL"), ("buffer_method", "TEXT"),
                         ("buffer_inside", "INTEGER CHECK(buffer_inside IN (0,1))")):
