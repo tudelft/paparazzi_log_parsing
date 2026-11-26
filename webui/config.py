@@ -31,6 +31,9 @@ SETTINGS = {
                                       "person details and locations; admins still link them under Unlinked names on Aircraft"),
         "TRAINING": ("0", "1 shows Training: in-app questionnaires that can grant a qualification on a pass"),
         "BOOKINGS": ("0", "1 shows Agenda: a week agenda of bookable items that administrators set up"),
+        "OPERATIONS": ("0", "1 adds Outdoor operations to the Agenda (needs LOGDB_BOOKINGS): plan and book outdoor "
+                            "flights at bookable locations, shared by teams"),
+        "NOTAM_URL": (None, "Page Plan flight links to for checking NOTAMs and drone zones (default: no link)"),
         "DOCUMENTS": ("0", "1 shows Documents: shared documents that administrators upload, and each "
                            "person's own current qualifications"),
         "SAFETY": ("0", "1 shows Safety (/safety): danger, incident and accident reports. "

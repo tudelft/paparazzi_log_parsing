@@ -273,6 +273,14 @@ clicks **Approve** or **Reject** (with an optional reason); you get a mail eithe
 Administrators and approvers book such an item without approval; administrators also find the requests in the
 People **Approval queue** (**Bookings**).
 
+**Outdoor operations** (when the server has it on) is a fixed item for planning outdoor flights. **Plan flight** books
+a slot at a bookable location (admins tick *Bookable for outdoor operations* in Locations) for your team: project, PIC
+(you by default), optional crew and aircraft, and the goal. While you plan it shows the weather forecast, red/green
+checks of the qualifications and the aircraft for that day, and the NOTAM check; these are saved with your team. Other
+teams **Join** a slot instead of booking their own (one booking, a shared field); the slot goes when its last team
+leaves. Who may plan, and whether it needs approval, depends on your qualifications (**Edit item**). Rules:
+[technical guide](TECHNICAL.md#outdoor-operations).
+
 ## Documents
 
 **Documents** (optional) holds shared documents, for example the ones to show when you are asked for them in the field

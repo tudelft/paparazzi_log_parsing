@@ -67,8 +67,20 @@ def granting_training(con, type_id):
     return row["id"] if row else None
 
 
+def is_operations(item):
+    return "kind" in item.keys() and item["kind"] == "operations"
+
+
 def access(con, item, user):
-    """(can_view, can_book) for this person on this item."""
+    """(can_view, can_book) for this person on this item. Outdoor operations (operations.py) is seen by everyone
+    while its switch is on; its qualification rules decide who books."""
+    if is_operations(item):
+        import operations
+        if not operations.enabled():
+            return False, False
+        can_book = bool(item["active"]) and (can_approve(con, item, user)
+                                             or operations.rule_for(con, item["id"], user["id"]) is not None)
+        return True, can_book
     qualified = not item["type_id"] or has_qualification(con, user["id"], item["type_id"])
     can_view = qualified or item["qualification_for"] == "booking" or bool(user["is_admin"])
     return can_view, qualified and bool(item["active"])
@@ -212,9 +224,14 @@ def item_json(con, item, user):
         "flags": [{**f, "blocks_overlap": bool(f["blocks_overlap"])} for f in load_flags(con, item["id"])],
         "can_view": can_view, "can_book": can_book,
         "needs_approval": bool(item["needs_approval"]), "can_approve": can_approve(con, item, user),
+        "kind": item["kind"] if "kind" in item.keys() else None,
     }
     if user["is_admin"]:
         out["approver_ids"] = sorted(approver_ids(con, item["id"]))
+        if out["kind"] == "operations":
+            import operations
+            out["rules"] = [{"type_id": r["type_id"], "needs_approval": bool(r["needs_approval"])}
+                            for r in operations.rules(con, item["id"])]
     if item["type_id"] and not has_qualification(con, user["id"], item["type_id"]):
         out["training_id"] = granting_training(con, item["type_id"])
     return out
@@ -296,10 +313,13 @@ def register(app, connection, require_session, pages_dir):
         if not g.user["is_admin"]:
             raise BookingError("Administrator access required.", 403)
 
-    def item_row(cid, item_id):
+    def item_row(cid, item_id, plain=False):
+        """plain: refuse Outdoor operations, whose slots are booked with Plan flight (operations.py)."""
         row = cid.execute(ITEM_SQL + " WHERE t.id=?", (item_id,)).fetchone()
         if row is None or (not row["active"] and not g.user["is_admin"]):
             raise BookingError("No such bookable item.", 404)
+        if plain and is_operations(row):
+            raise BookingError("Plan outdoor flights with Plan flight.", 409)
         return row
 
     def require(cid, item, booking=False):
@@ -351,6 +371,9 @@ def register(app, connection, require_session, pages_dir):
     def list_bookings():
         signed_in()
         cid = connection()
+        import operations
+        if operations.enabled():
+            operations.ensure_item(cid)
         try:
             first = datetime.date.fromisoformat(request.args.get("from", ""))
             last = datetime.date.fromisoformat(request.args.get("to", ""))
@@ -359,7 +382,7 @@ def register(app, connection, require_session, pages_dir):
         if last < first or (last - first).days > 62:
             raise BookingError("Choose a range of at most two months.")
         items = [item_json(cid, t, g.user) for t in cid.execute(ITEM_SQL + " ORDER BY t.sort_order, t.name")
-                 if t["active"] or g.user["is_admin"]]
+                 if (t["active"] or g.user["is_admin"]) and (not is_operations(t) or operations.enabled())]
         visible = [t["id"] for t in items if t["can_view"]]
         rows = cid.execute(
             "SELECT b.*, COALESCE(u.display_name,u.username) AS person FROM bookings b JOIN users u ON u.id=b.user_id"
@@ -367,9 +390,14 @@ def register(app, connection, require_session, pages_dir):
             " AND (b.status!='rejected' OR b.user_id=?) ORDER BY b.starts_at, b.id",
             (*visible, (last + datetime.timedelta(days=1)).isoformat(), first.isoformat(), g.user["id"])).fetchall() \
             if visible else []
-        decide = {t["id"] for t in items if t["can_approve"]}
+        decide = {t["id"] for t in items if t["can_approve"] and t["kind"] != "operations"}
         out = {"things": items, "bookings": [booking_json(r, booking_flags(cid, r["id"]), g.user, r["thing_id"] in decide)
                                              for r in rows]}
+        slots = operations.summaries(cid, [b["id"] for b in out["bookings"]
+                                           if b["thing_id"] in {t["id"] for t in items if t["kind"] == "operations"}])
+        for b in out["bookings"]:
+            if b["id"] in slots:
+                b["operation"] = slots[b["id"]]
         if g.user["is_admin"]:
             out["types"] = [dict(r) for r in cid.execute(
                 "SELECT id, name, grp FROM qualification_types WHERE active=1 ORDER BY sort_order, name")]
@@ -390,7 +418,7 @@ def register(app, connection, require_session, pages_dir):
         with db.write_lock, cid:
             cid.execute("BEGIN IMMEDIATE")
             owner = owner_of(cid, body, g.user["id"])
-            item = item_row(cid, body["thing_id"])
+            item = item_row(cid, body["thing_id"], plain=True)
             if owner == g.user["id"]:
                 require(cid, item, booking=True)
             elif not item["active"]:
@@ -430,7 +458,7 @@ def register(app, connection, require_session, pages_dir):
             cid.execute("BEGIN IMMEDIATE")
             row = booking_row(cid, booking_id)
             owner = owner_of(cid, body, row["user_id"])
-            item = item_row(cid, row["thing_id"])
+            item = item_row(cid, row["thing_id"], plain=True)
             if row["user_id"] == g.user["id"] and owner == g.user["id"]:
                 require(cid, item, booking=True)
             check_flags(cid, item["id"], flags)
@@ -482,6 +510,8 @@ def register(app, connection, require_session, pages_dir):
             if row is None:
                 raise BookingError("No such booking.", 404)
             item = cid.execute(ITEM_SQL + " WHERE t.id=?", (row["thing_id"],)).fetchone()
+            if is_operations(item):
+                raise BookingError("Decide the teams of an outdoor operation in its slot.", 409)
             if not can_approve(cid, item, g.user):
                 raise BookingError("Only administrators and the approvers of this item decide its bookings.", 403)
             if row["status"] != "pending":
@@ -525,6 +555,8 @@ def register(app, connection, require_session, pages_dir):
             cid.execute("BEGIN IMMEDIATE")
             row = booking_row(cid, booking_id)
             item = item_row(cid, row["thing_id"])
+            if is_operations(item) and not g.user["is_admin"]:
+                raise BookingError("Leave an outdoor operation from its slot.", 409)
             require(cid, item)
             cid.execute("DELETE FROM bookings WHERE id=?", (booking_id,))
             if row["user_id"] != g.user["id"]:
@@ -619,7 +651,11 @@ def register(app, connection, require_session, pages_dir):
         try:
             with db.write_lock, cid:
                 cid.execute("BEGIN IMMEDIATE")
-                item_row(cid, thing_id)
+                if is_operations(item_row(cid, thing_id)):
+                    # Outdoor operations: no place or single qualification; its rules say who books and who waits
+                    import operations
+                    fields = (*fields[:2], None, None, "booking", *fields[5:8], 0)
+                    operations.save_rules(cid, thing_id, (request.get_json(silent=True) or {}).get("rules", []))
                 cid.execute("UPDATE booking_things SET name=?, description=?, place_id=?, type_id=?,"
                             " qualification_for=?, colour=?, active=?, sort_order=?, needs_approval=? WHERE id=?",
                             (*fields, thing_id))
@@ -635,7 +671,8 @@ def register(app, connection, require_session, pages_dir):
         cid = connection()
         with db.write_lock, cid:
             cid.execute("BEGIN IMMEDIATE")
-            item_row(cid, thing_id)
+            if is_operations(item_row(cid, thing_id)):
+                raise BookingError("Outdoor operations is fixed while LOGDB_OPERATIONS is on; make it inactive instead.", 409)
             if cid.execute("SELECT 1 FROM bookings WHERE thing_id=?", (thing_id,)).fetchone():
                 raise BookingError("This item has bookings; make it inactive instead.", 409)
             cid.execute("DELETE FROM booking_things WHERE id=?", (thing_id,))

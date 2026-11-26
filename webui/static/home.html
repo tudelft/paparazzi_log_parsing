@@ -285,6 +285,8 @@ async function paintTodo() {
     const ext = flags.training ? await api('/api/admin/extension-pending').catch(() => null) : null;
     const extensions = (ext?.extensions || []).length;
     if (extensions) add('info', extensions, plural(extensions, 'access extension') + ' to approve', 'Admin · approval queue', '/people?tab=approvals&kind=extension');
+    const plans = flags.operations ? ((await api('/api/admin/operation-pending').catch(() => null))?.teams || []).length : 0;
+    if (plans) add('info', plans, plural(plans, 'flight plan') + ' to approve', 'Admin · approval queue', '/people?tab=approvals&kind=operation');
   }
   $('todoCard').hidden = !items.length;
   $('todoCount').textContent = items.length || '';

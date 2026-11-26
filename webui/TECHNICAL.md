@@ -864,6 +864,8 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `HIDE_UNLINKED_AIRCRAFT` | `0` | `1` excludes unlinked telemetry flights from Logbook, Statistics, person details and Locations; admins still link the names under **Unlinked names** on Aircraft |
 | `TRAINING` | `0` | `1` shows Training: in-app questionnaires that can grant a qualification on a pass |
 | `BOOKINGS` | `0` | `1` shows the [Agenda](#booking-agenda) of bookable items |
+| `OPERATIONS` | `0` | `1` adds [Outdoor operations](#outdoor-operations) to the Agenda (needs `BOOKINGS`) |
+| `NOTAM_URL` | (empty) | Page that Plan flight links to for checking NOTAMs and drone zones; empty: no link |
 | `DOCUMENTS` | `0` | `1` shows [Documents](#documents): shared documents and each person's own qualifications |
 | `SAFETY` | `0` | `1` shows [Safety](#safety) (`/safety`): danger, incident and accident reports. The Operations Manual links `/safety`: keep it on in production (`check-config` warns when it is off) |
 | `VIEW_AS` | `0` | `1` lets administrators [view as another user](#view-as-another-user) |
@@ -1662,6 +1664,51 @@ The feed is reachable without a session (`calendar_feed` in `PUBLIC_ENDPOINTS`);
 or turning off the link stops the old one. Calendar apps fetch it themselves, so they need to reach the site (VPN);
 web calendars such as Google Calendar fetch from their own servers.
 
+#### Outdoor operations
+
+Off unless `LOGDB_OPERATIONS=1` with `LOGDB_BOOKINGS=1` (`operations.py`; plan in issue 134). The fixed agenda item
+**Outdoor operations** (`booking_things.kind='operations'`) is created the first time the agenda is opened with the
+switch on (an existing item with that name becomes it); it cannot be deleted while the switch is on, and with the
+switch off it is hidden everywhere (agenda, Home, calendar feeds). Its **Edit item** has no single qualification,
+approval tick or options; instead a list of qualification types (`booking_thing_rules`), each *Books directly* or
+*Needs approval*. Someone may plan or join when they hold a current approved qualification of a listed type (one that
+books directly is enough to skip approval); without rules everyone may. Administrators and the item's approvers
+plan without approval and decide the rest.
+
+Only locations with **Bookable for outdoor operations** (`places.bookable`, Locations, admins; default off; never
+indoors) can be planned. A booking of the item is a *slot* (`operation_slots`: the booking and its place) shared by
+*teams* (`operation_teams`: PIC, project, optional aircraft, goal, approval status, and the preparation as JSON;
+`operation_crew`). The slot's `bookings` row keeps its time; its status stays `approved` while a team is not rejected
+(`rejected` when all are), so the ordinary booking queue and Home count never list it, and the generic booking
+endpoints refuse the item (409; administrators may still delete a slot). Slots may overlap.
+
+API (browser session): `GET /api/operations/options` (bookable places, your projects, people, aircraft not
+discarded, your `rule`: `direct`, `approval` or null, and `notam_url`); `POST /api/operations/prepare` (`place_id`,
+`start`, `end`, `pic_id`, `crew`, `drone_id`: the forecast, the checks and the overlapping slots at that place,
+nothing stored); `POST /api/operations` (Plan flight: place, start, end, at most one day, and the team fields
+`project_id` (one of your projects), `pic_id` (default you), `crew`, `drone_id`, `goal`, `notam: {checked,
+reference}`); `GET /api/operations/<booking id>` (the slot with its teams); `POST /api/operations/<id>/teams` (join
+for the whole slot; one team per PIC); `PUT`/`DELETE /api/operations/teams/<id>` (edit or leave: the team's PIC, whoever
+added it, or an administrator; the slot is removed with its last team); `PUT /api/operations/<id>` (change the time:
+administrators, approvers or a slot's only team); `POST /api/operations/teams/<id>/review` (approve or reject with an
+optional reason). The booker and the PIC both need a rule qualification (403 otherwise); when either only has one that
+needs approval the team is `pending`. An edited team stays approved while its PIC is the same.
+
+The preparation is taken when a team books, joins or is edited, and stored with it: the weather forecast for the slot
+(`weather.forecast_window`, Open-Meteo hourly, up to 16 days ahead, cached 30 minutes per position; later slots say so),
+the checks (the PIC's and crew's approved qualifications of the rule types valid on the slot's date, and the aircraft's
+fleet status: `Ready` or not set is fine) and the NOTAM check (`LOGDB_NOTAM_URL`, a tick and a reference). Fleet
+aircraft have no registration or insurance data, so these are not checked yet.
+
+`GET /api/bookings` adds `kind` per item (`rules` for administrators) and `operation` (`place`, `teams`, `pending`,
+`pics`) per slot; the week shows a slot as its location with its teams and "N waiting", and opens the slot dialog
+(teams, their preparation, Join, Edit, Leave, Approve/Reject, Change time). Plan flight replaces New booking on that
+tab and offers to join an overlapping slot at the same place. Mails: a waiting team to the administrators and
+approvers (`booking_requests`, the [Approval queue](#people-approval-queue) filter **Flight plans** from
+`GET /api/admin/operation-pending`, ids `-(2e9 + team id)`, `kind=operation`), the decision to the team, and a join or
+leave to the other teams' PICs (`bookings`). Home shows administrators "N flight plans to approve". The Decided view
+lists teams that waited and were decided (`kind=operation`).
+
 ### Email notifications
 
 Off unless `LOGDB_SMTP_HOST` is set (settings in the **Email** group of `config.py example`; use the organisation's
@@ -1786,7 +1833,7 @@ rejected item in the person's qualifications and in the audit entry, and mailed 
 (`q=`) and open row (`open=`) are in the URL; the Trainings badge links to `kind=training`. Keys while a row has focus:
 ↑/↓ move, Space selects, Enter opens, A approves, R rejects.
 **Waiting | Decided** switches to the history (`view=decided`): `GET /api/admin/approval-history` (`approval_history.py`;
-admins, browser session) with `kind` (`training`, `qualification`, `booking`, `extension`), `q` (person, what, reason,
+admins, browser session) with `kind` (`training`, `qualification`, `booking`, `extension`, `operation`), `q` (person, what, reason,
 decider, number, description, note), `period` (`90d`, the default; `year`; `all`) and `page` (50 per page), newest decision first,
 with `total`. It lists qualification submissions and training passes that were approved (also later superseded),
 rejected or withdrawn (`reviewed_at` set; a withdrawal by the person says *By the person*), and bookings of agendas that
@@ -1797,7 +1844,7 @@ importing administrator, *Imported*), a booking an administrator or approver mad
 when it was made: `decided_by`/`decided_at` are stored for it) and bookings approved when approval was switched off
 (no decider). Bookings deleted while pending, and submissions deleted by an administrator, leave no history. A row opens
 its details in place (evidence preview, dates, training pass, booking time and options, the full reason); the period,
-page and open row (`open=q<id>`, `b<id>` or `e<id>`) are in the URL.
+page and open row (`open=q<id>`, `b<id>`, `e<id>` or `o<id>`) are in the URL.
 Admins edit username, display name, email and default project with **Edit account**; these four are saved
 atomically in one request; previous unambiguous display names are preserved as log aliases. Display names are optional
 and at most 80 characters. Usernames must be unique (case-insensitive),

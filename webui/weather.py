@@ -129,6 +129,65 @@ def _number(value):
     return value is None or (not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value))
 
 
+WINDOW_DAYS = 16  # how far ahead Open-Meteo forecasts; a slot later than that has no forecast yet
+_windows = {}  # "lat,lon" -> (fetched monotonic, data)
+
+
+def _fetch_forecast(lat, lon, days):
+    """The raw hourly forecast of Open-Meteo for `days` days at a position (local times of the place)."""
+    params = urlencode({
+        "latitude": f"{lat:.4f}", "longitude": f"{lon:.4f}", "hourly": ",".join(FORECAST_FIELDS),
+        "timezone": "auto", "wind_speed_unit": "ms", "forecast_days": days,
+    })
+    try:
+        with urlopen("https://api.open-meteo.com/v1/forecast?" + params, timeout=15) as response:
+            raw = response.read(2_000_001)
+        if len(raw) > 2_000_000:
+            raise WeatherError("Weather service returned an oversized response.")
+        return json.loads(raw)
+    except HTTPError as exc:
+        raise WeatherError(f"Weather service returned HTTP {exc.code}. Please try again later.") from exc
+    except (URLError, TimeoutError, OSError) as exc:
+        raise WeatherError("Could not reach the weather service. Please try again later.") from exc
+    except (ValueError, UnicodeError) as exc:
+        raise WeatherError("Weather service returned invalid JSON.") from exc
+
+
+def forecast_window(lat, lon, start, end):
+    """{timezone, fetched_at, hours, note} of the forecast for the local hours from `start` to `end`
+    (YYYY-MM-DDTHH:MM, the place's local time) for a planned flight. hours is empty with a note when the window is
+    past or more than WINDOW_DAYS days ahead. Cached for FORECAST_TTL_S per rounded position."""
+    if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (lat, lon)) \
+            or not -90 <= lat <= 90 or not -180 <= lon <= 180:
+        raise WeatherError("The place has no valid position.", 400)
+    key = f"{lat:.2f},{lon:.2f}"
+    with _forecast_lock:
+        hit = _windows.get(key)
+        if hit and time.monotonic() - hit[0] < FORECAST_TTL_S:
+            data, fetched = hit[1]
+        else:
+            data, fetched = _fetch_forecast(lat, lon, WINDOW_DAYS), datetime.now(timezone.utc).isoformat()
+            _windows[key] = (time.monotonic(), (data, fetched))
+    try:
+        hourly = data["hourly"]
+        first = start[:13] + ":00"  # the hour the window starts in, to its last started hour
+        hours = []
+        for i, t in enumerate(hourly["time"]):
+            if first <= t < end:
+                values = {label: hourly[field][i] for field, label in FORECAST_FIELDS.items()}
+                if not all(_number(v) for v in values.values()):
+                    raise ValueError("Invalid weather values")
+                hours.append({"time": t, **values})
+        times = hourly["time"]
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
+        raise WeatherError("Weather service returned incomplete or invalid forecast data.") from exc
+    note = None
+    if not hours:
+        note = ("No forecast yet: it is available about {} days ahead.".format(WINDOW_DAYS)
+                if times and start > times[-1] else "No forecast for this time.")
+    return {"timezone": data.get("timezone"), "fetched_at": fetched, "hours": hours, "note": note}
+
+
 def forecast(lat, lon, now=None):
     """{timezone, fetched_at, hours: [{time (local), <FORECAST_FIELDS labels>}]} for the next FORECAST_HOURS
     hours from Open-Meteo, the same provider as the historical weather. Cached for FORECAST_TTL_S."""
