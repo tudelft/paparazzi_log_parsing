@@ -558,6 +558,9 @@ def register(app, connection, require_session, pages_dir):
             if is_operations(item) and not g.user["is_admin"]:
                 raise BookingError("Leave an outdoor operation from its slot.", 409)
             require(cid, item)
+            if is_operations(item):  # an administrator removes a slot: its external booking is cancelled
+                import operations
+                operations.external_event(cid, booking_id, "cancelled")
             cid.execute("DELETE FROM bookings WHERE id=?", (booking_id,))
             if row["user_id"] != g.user["id"]:
                 mail.notify(cid, row["user_id"], "bookings", f"Removed: your booking of {item['name']}",

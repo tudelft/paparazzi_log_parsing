@@ -158,6 +158,17 @@
         <label class="field" title="The rules flights here are flown under, e.g. SPECIFIC with the authorisation a site needs, unless the flight or its project says otherwise">Category<select id="placeCategory"></select></label>
         <label><input type="checkbox" id="placeIndoor" onchange="syncBookable()"> Indoors <span class="mute">(flights here count as indoor)</span></label>
         <label id="placeBookableField" hidden title="Off by default: only bookable outdoor locations can be chosen in Plan flight (Agenda, Outdoor operations)"><input type="checkbox" id="placeBookable" onchange="syncBookable()"> Bookable for outdoor operations</label>
+        <fieldset id="placeBookingField" hidden style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;gap:8px;margin:0">
+          <legend style="font-size:12px;color:var(--mute)">External booking</legend>
+          <label class="field" title="By mail: a slot planned here mails your mailbox to book it (and when teams join or leave, the time changes or it is cancelled); an administrator then enters the booking number">Booked<select id="placeBookingMode" onchange="syncBookable()"><option value="none">Only in our agenda</option><option value="mail">By mail</option></select></label>
+          <div id="placeBookingMail" style="display:grid;gap:8px">
+            <div style="display:grid;grid-template-columns:1fr 9em;gap:8px">
+              <label class="field">Booked at<input id="placeBookingProvider" maxlength="80" placeholder="e.g. Unmanned Valley"></label>
+              <label class="field" title="The deadline is this many hours before the slot; a reminder goes 12 h before it">Hours ahead<input id="placeBookingLead" type="number" min="0" max="720" placeholder="none"></label></div>
+            <label class="field" title="Several addresses separated by commas">Mail to<input id="placeBookingTo" maxlength="300" placeholder="e.g. ops@example.org"></label>
+            <label class="field">Mail<textarea id="placeBookingText" rows="4" maxlength="5000" placeholder="e.g. Please book {place} on {date} from {start} to {end} for {teams}."></textarea></label>
+            <span class="mute" style="font-size:12px" title="Every mail also ends with a Request details block (type, location, date, times, deadline, teams, booking number, reference S&lt;id&gt;) for mail flows">Tags: {place} {provider} {date} {start} {end} {book_by} {teams} {booker} {reference} {request} · Markup: **bold**, "- " bullets</span>
+          </div></fieldset>
         <label class="field" id="placeHeightField" hidden title="The highest a flight here may go. Plan flight starts from it; the ground risk buffer (1:1) is as wide as the planned height. The default flight area is drawn with ⋯ → Draw flight area on the map.">Maximum height for outdoor operations (m)<input type="number" id="placeMaxHeight" min="1" max="1000" placeholder="not set" style="width:10em"></label>
       </div>
       <p class="dialog-error" id="nameError" role="alert"></p>
@@ -314,12 +325,17 @@ fetch('/api/operators').then(r => r.json()).then(d => { operators = d.operators 
 fetch('/api/authorisations').then(r => r.json()).then(d => { authorisations = d.authorisations || []; });
 const operatorName = id => operators.find(o => o.id === id)?.name;
 let nameWas = null;
-function askName(mode, label, value, indoor = false, operatorId = null, category = '', country = '', focus = 'placeName', bookable = false, maxHeight = null) {
+function askName(mode, label, value, indoor = false, operatorId = null, category = '', country = '', focus = 'placeName', bookable = false, maxHeight = null, place = {}) {
   cancelShape();
   naming = mode;
   $('placeIndoor').checked = indoor;
   $('placeBookable').checked = bookable;
   $('placeMaxHeight').value = maxHeight || '';
+  $('placeBookingMode').value = place.booking_mode || 'none';
+  $('placeBookingProvider').value = place.booking_provider || '';
+  $('placeBookingLead').value = place.booking_lead_hours ?? '';
+  $('placeBookingTo').value = place.booking_mail_to || '';
+  $('placeBookingText').value = place.booking_mail_text || '';
   syncBookable();
   $('placeCountrySet').innerHTML = '<option value="">—</option>' + (placeData.countries || []).map(([code, name]) =>
     `<option value="${code}"${code === country ? ' selected' : ''}>${esc(code)} · ${esc(name)}</option>`).join('');
@@ -337,12 +353,16 @@ function nameValues() {
   return {name: $('placeName').value.trim(), indoor: $('placeIndoor').checked, operator_id: $('placeOperator').value ? +$('placeOperator').value : null,
     country: $('placeCountrySet').value || null, category: $('placeCategory').value,
     bookable: !$('placeIndoor').checked && $('placeBookable').checked,
-    max_height_m: $('placeMaxHeight').value ? +$('placeMaxHeight').value : null};
+    max_height_m: $('placeMaxHeight').value ? +$('placeMaxHeight').value : null,
+    booking_mode: $('placeBookingMode').value, booking_provider: $('placeBookingProvider').value.trim(),
+    booking_lead_hours: $('placeBookingLead').value === '' ? null : +$('placeBookingLead').value,
+    booking_mail_to: $('placeBookingTo').value.trim(), booking_mail_text: $('placeBookingText').value};
 }
 // Bookable for outdoor operations: only when the server has them on (LOGDB_OPERATIONS), and never indoors.
 function syncBookable() {
   $('placeBookableField').hidden = !(placeData && placeData.operations) || $('placeIndoor').checked;
-  $('placeHeightField').hidden = $('placeBookableField').hidden || !$('placeBookable').checked;
+  $('placeHeightField').hidden = $('placeBookingField').hidden = $('placeBookableField').hidden || !$('placeBookable').checked;
+  $('placeBookingMail').hidden = $('placeBookingMode').value !== 'mail';
 }
 function closeName() {
   if (pendingLayer) { pendingLayer.remove(); pendingLayer = null; }
@@ -357,6 +377,8 @@ async function saveName() {
   for (const k of ['name', 'indoor', 'operator_id', 'country']) if (naming.kind === 'new' || v[k] !== nameWas[k]) body[k] = v[k];
   if (placeData.operations && (naming.kind === 'new' ? v.bookable : v.bookable !== nameWas.bookable)) body.bookable = v.bookable;
   if (naming.kind !== 'new' && placeData.operations && v.max_height_m !== nameWas.max_height_m) body.max_height_m = v.max_height_m;
+  if (naming.kind !== 'new' && placeData.operations && ['booking_mode', 'booking_provider', 'booking_lead_hours', 'booking_mail_to', 'booking_mail_text'].some(k => v[k] !== nameWas[k]))
+    for (const k of ['booking_mode', 'booking_provider', 'booking_lead_hours', 'booking_mail_to', 'booking_mail_text']) body[k] = v[k];
   if (naming.kind === 'new' || v.category !== nameWas.category) Object.assign(body, categoryChoice(v.category));
   if (naming.kind !== 'new' && !Object.keys(body).length) { closeName(); return; }
   if (naming.kind === 'new') body.shape = naming.shape;
@@ -636,6 +658,9 @@ function renderPanel() {
     ${row('placeCategory', 'Category', esc(categoryText(p)) || '<span class="mute">From the project or date</span>')}
     ${placeData.operations && !p.indoor ? row('placeBookable', 'Outdoor operations', p.bookable ? 'Bookable' : 'Not bookable') : ''}
     ${placeData.operations && p.bookable ? row('placeMaxHeight', 'Maximum height', p.max_height_m ? p.max_height_m + ' m' : '') : ''}
+    ${placeData.operations && p.bookable ? row('placeBookingMode', 'External booking', p.booking_mode === 'mail'
+      ? esc(`By mail${p.booking_provider ? ' · at ' + p.booking_provider : ''}${p.booking_lead_hours != null ? ` · ${p.booking_lead_hours} h ahead` : ''}${p.booking_mail_to ? ' · to ' + p.booking_mail_to : ''}`)
+      : 'Only in our agenda') : ''}
     ${placeData.operations && p.bookable ? plainRow('Flight area', !p.flight_area ? (admin ? '<span class="mute">None: ⋯ → Draw flight area on the map</span>' : '')
       : 'Drawn' + (p.max_height_m ? ` · ground risk buffer 1:1: ${p.max_height_m} m ${p.flight_area_inside ? '<span style="color:var(--ok);font-weight:600">✓ inside the location</span>' : '<span style="color:var(--err);font-weight:600">! crosses the boundary</span>'}` : ' · set the maximum height for the buffer')) : ''}
     ${plainRow('Boundary', shape)}
@@ -757,7 +782,7 @@ function zoomPlace(id) {
 function editPlace(focus) {
   const cur = placeData.places.find(p => p.id === selectedPlace);
   if (!cur || !isAdmin()) return;
-  askName({kind: 'rename', id: cur.id}, `Edit location ${cur.name}`, cur.name, cur.indoor, cur.operator_id, categoryValue(cur), cur.country || '', focus, cur.bookable, cur.max_height_m);
+  askName({kind: 'rename', id: cur.id}, `Edit location ${cur.name}`, cur.name, cur.indoor, cur.operator_id, categoryValue(cur), cur.country || '', focus, cur.bookable, cur.max_height_m, cur);
 }
 function openImport() {
   $('placesCsv').value = ''; $('placesPreview').innerHTML = ''; $('importPlaces').hidden = true;

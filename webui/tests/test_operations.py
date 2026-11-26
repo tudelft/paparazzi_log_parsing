@@ -78,7 +78,8 @@ class OperationsTests(AppTests):
         self.assertEqual(team["preparation"]["notam"], {"checked": True, "reference": "A1234/26"})
         self.assertEqual(team["preparation"]["weather"], FORECAST)
         listed, = self.client.get(f"/api/bookings?from={DAY}&to={DAY}").json["bookings"]
-        self.assertEqual(listed["operation"], {"place_id": 1, "place": "Field", "teams": 1, "pending": 0, "pics": ["Pilot"]})
+        self.assertEqual(listed["operation"], {"place_id": 1, "place": "Field", "teams": 1, "pending": 0, "pics": ["Pilot"],
+                                               "external_status": None, "external_ref": None})
         self.assertEqual(listed["description"], "Field: Pilot")
         self.assertEqual(self.client.post("/api/operations/prepare", json={
             "place_id": 1, "start": f"{DAY}T12:00", "end": f"{DAY}T13:00"}).json["slots"][0]["id"], r.json["id"])
@@ -231,6 +232,90 @@ class OperationsTests(AppTests):
         self.con.execute("UPDATE flights SET takeoff_utc='2001-01-01T00:00:00.000Z' WHERE id=12")
         self.con.commit()
         self.assertEqual(operations.flight_decisions(self.con).get(12), None)
+
+    def booking_mails(self):
+        return self.con.execute("SELECT * FROM mail_outbox WHERE kind='booking' ORDER BY id").fetchall()
+
+    def test_booking_by_mail(self):
+        mail_env = patch.dict(os.environ, {"LOGDB_SMTP_HOST": "relay.example.org", "LOGDB_MAIL_FROM": "logbook@example.org"})
+        mail_env.start()
+        self.addCleanup(mail_env.stop)
+        self.con.execute("UPDATE users SET email=lower(username)||'@example.org'")
+        self.con.commit()
+        for bad in ({"booking_mode": "mail"}, {"booking_mode": "x"}, {"booking_mode": "mail", "booking_mail_to": "nope",
+                                                                      "booking_mail_text": "x"}):
+            self.assertEqual(self.client.put("/api/admin/places/1", json=bad).status_code, 400, bad)
+        self.assertEqual(self.client.put("/api/admin/places/1", json={
+            "booking_mode": "mail", "booking_provider": "Unmanned Valley", "booking_lead_hours": 24,
+            "booking_mail_to": "ops@example.org", "booking_mail_text": "Please book {place} on {date} {start}-{end} for {teams}."
+        }).status_code, 200)
+        self.sign_in(2)
+        self.assertEqual(self.client.get("/api/operations/options").json["places"][0]["booking"],
+                         {"mode": "mail", "provider": "Unmanned Valley", "lead_hours": 24, "mail_to": "ops@example.org"})
+        bid = self.plan(goal="Wind").json["id"]
+        request, = self.booking_mails()
+        self.assertEqual((request["to_addr"], request["reply_to"]), ("ops@example.org", "pic@example.org"))
+        self.assertTrue(request["subject"].startswith("Booking request: Field, "), request["subject"])
+        self.assertIn(f"Please book Field on {DAY} 10:00-14:00 for Pilot (Research).", request["body"])
+        self.assertIn(f"\nType: request\nLocation: Field\nBooked at: Unmanned Valley\nDate: {DAY}\nStart: 10:00\nEnd: 14:00\n"
+                      f"Book by: {(datetime.date.fromisoformat(DAY) - datetime.timedelta(days=1)).isoformat()} 10:00\n",
+                      request["body"])
+        self.assertTrue(request["body"].endswith(f"Reference: S{bid}"), request["body"])
+        ext = self.client.get(f"/api/operations/{bid}").json["external"]
+        self.assertEqual((ext["status"], ext["ref"], ext["can_set"]), ("requested", None, False))
+        self.assertEqual(self.client.post(f"/api/operations/{bid}/external", json={"ref": "48213"}).status_code, 403)
+        self.sign_in(5)  # joins: the mailbox hears of it
+        self.client.post(f"/api/operations/{bid}/teams", json={"project_id": 1})
+        self.assertTrue(self.booking_mails()[-1]["subject"].startswith("Booking update: "))
+        self.sign_in(1)
+        self.assertEqual(self.client.post(f"/api/operations/{bid}/external", json={"ref": " 48213 "}).status_code, 200)
+        ext = self.client.get(f"/api/operations/{bid}").json["external"]
+        self.assertEqual((ext["status"], ext["ref"], ext["booked_by"]), ("booked", "48213", "Admin"))
+        self.assertEqual(self.client.get(f"/api/bookings?from={DAY}&to={DAY}").json["bookings"][0]["operation"]["external_ref"], "48213")
+        # a new time: requested again, with a change mail that names the booking number
+        self.assertEqual(self.client.put(f"/api/operations/{bid}", json={"start": f"{DAY}T11:00", "end": f"{DAY}T15:00"}).status_code, 200)
+        change = self.booking_mails()[-1]
+        self.assertIn("(booking number 48213)", change["body"])
+        self.assertEqual(self.client.get(f"/api/operations/{bid}").json["external"]["status"], "requested")
+        # the reminder: once, 12 h before the deadline (the day before at 11:00)
+        day_before = (datetime.date.fromisoformat(DAY) - datetime.timedelta(days=1)).isoformat()
+        two_before = (datetime.date.fromisoformat(day_before) - datetime.timedelta(days=1)).isoformat()
+        operations.queue_booking_reminders(self.con, now=f"{two_before}T22:59")
+        self.assertEqual(len(self.booking_mails()), 3)
+        operations.queue_booking_reminders(self.con, now=f"{two_before}T23:00")
+        self.assertTrue(self.booking_mails()[-1]["subject"].startswith("Not booked yet: "))
+        operations.queue_booking_reminders(self.con, now=f"{day_before}T09:00")
+        self.assertEqual(len(self.booking_mails()), 4)  # once
+        # the last team leaves: cancelled
+        for team in self.client.get(f"/api/operations/{bid}").json["teams"]:
+            self.client.delete(f"/api/operations/teams/{team['id']}")
+        self.assertTrue(self.booking_mails()[-1]["subject"].startswith("Booking cancelled: "))
+        self.assertEqual(self.client.get(f"/api/operations/{bid}").status_code, 404)
+
+    def test_booking_request_waits_for_approval(self):
+        mail_env = patch.dict(os.environ, {"LOGDB_SMTP_HOST": "relay.example.org", "LOGDB_MAIL_FROM": "logbook@example.org"})
+        mail_env.start()
+        self.addCleanup(mail_env.stop)
+        self.client.put("/api/admin/places/1", json={"booking_mode": "mail", "booking_mail_to": "ops@example.org",
+                                                     "booking_mail_text": "Book it."})
+        waits = self.qualification("A1/A3", user_id=2)
+        self.set_rules([{"type_id": waits, "needs_approval": True}])
+        self.sign_in(2)
+        bid = self.plan().json["id"]
+        self.assertEqual(self.booking_mails(), [])  # nothing to book before a team is approved
+        self.sign_in(1)
+        team = self.client.get("/api/admin/operation-pending").json["teams"][0]["id"]
+        self.client.post(f"/api/operations/teams/{team}/review", json={"action": "approve"})
+        self.assertEqual([m["subject"][:16] for m in self.booking_mails()], ["Booking request:"])
+        self.assertEqual(self.client.get(f"/api/operations/{bid}").json["external"]["status"], "requested")
+        sent = []
+        smtp = type("FakeSMTP", (), {"send_message": lambda _, m: sent.append(m), "quit": lambda _: None})()
+        import mail
+        mail.send_due(self.con, lambda: smtp)
+        msg = next(m for m in sent if m["Subject"].startswith("Booking request:"))
+        self.assertEqual(msg["To"], "ops@example.org")
+        self.assertIn(mail.EXTERNAL["booking"], msg.get_body(("plain",)).get_content())
+        self.assertIn("Request details:", msg.get_body(("html",)).get_content())
 
 
 class GroundRiskTests(unittest.TestCase):

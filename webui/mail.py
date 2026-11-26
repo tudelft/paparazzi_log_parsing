@@ -165,13 +165,14 @@ def notify_security(con, subject, text, path=None, skip=None):
     return len(admins)
 
 
-def queue_access(con, to_addr, subject, body, cc_addr=None, reply_to=None, copies=True):
-    """Queue a training access request to fixed addresses (not an account), and (with `copies`) a copy to
-    administrators who asked for one ("access_copy"). Returns True when queued."""
+def queue_access(con, to_addr, subject, body, cc_addr=None, reply_to=None, copies=True, kind="access"):
+    """Queue a mail to fixed addresses (not an account): a training access request, or (kind "booking") a booking
+    request of an outdoor operation; with `copies` a copy to administrators who asked for access copies
+    ("access_copy"). Returns True when queued."""
     if not enabled() or not to_addr:
         return False
     con.execute("INSERT INTO mail_outbox(user_id, to_addr, cc_addr, reply_to, kind, subject, body, created_at)"
-                " VALUES (NULL,?,?,?,'access',?,?,?)", (to_addr, cc_addr, reply_to, subject, body, now()))
+                " VALUES (NULL,?,?,?,?,?,?,?)", (to_addr, cc_addr, reply_to, kind, subject, body, now()))
     for admin in con.execute("SELECT id FROM users WHERE is_admin=1 AND is_active=1").fetchall() if copies else ():
         notify(con, admin["id"], "access_copy", subject, f"Sent to {to_addr}" + (f", copy to {cc_addr}" if cc_addr else "")
                + f":\n\n{body}")
@@ -191,10 +192,13 @@ def signature():
 
 
 ACCESS_NOTE = "Access request, sent by the flight logbook after a training was passed."
+# Mails to fixed addresses (mail_outbox.kind), with the note at their end; their text keeps a little markup.
+EXTERNAL = {"access": ACCESS_NOTE,
+            "booking": "Booking request, sent by the flight logbook for a planned outdoor operation."}
 
 
 def footer(shared=False):
-    end = (ACCESS_NOTE if shared == "access" else "Administrator notice, sent to the shared mailbox." if shared
+    end = (EXTERNAL[shared] if shared in EXTERNAL else "Administrator notice, sent to the shared mailbox." if shared
            else "Change which emails you get: " + link("/account?tab=email"))
     return f"\n\n-- \n{signature()}\n{end}"
 
@@ -264,14 +268,15 @@ def html_body(name, body, shared):
     """The same mail as simple HTML with inline styles (what mail programs support): a header with the sender name,
     the text, a button for a link on its own line and a small footer with the email settings link."""
     paragraphs = []
-    # access mails keep leading spaces (indented lines); other mails are trimmed as before
-    for block in (b.strip("\n").rstrip() if shared == "access" else b.strip() for b in body.split("\n\n")):
+    # access and booking mails keep leading spaces (indented lines); other mails are trimmed as before
+    external = shared in EXTERNAL
+    for block in (b.strip("\n").rstrip() if external else b.strip() for b in body.split("\n\n")):
         if not block.strip():
             continue
-        if shared == "access" and block.startswith(DETAILS + "\n"):
+        if external and block.startswith(DETAILS + "\n"):
             paragraphs.append(details_html(block))
             continue
-        if shared == "access":
+        if external:
             paragraphs.append(formatted_html(block))
             continue
         if URL.fullmatch(block):
@@ -283,7 +288,7 @@ def html_body(name, body, shared):
         text = URL.sub(lambda m: f'<a href="{m[0]}" style="color:#1f6feb">{m[0]}</a>', html.escape(block, quote=False))
         paragraphs.append('<p style="margin:0 0 14px">' + text.replace("\n", "<br>") + "</p>")
     sign = html.escape(signature()).replace("\n", "<br>")
-    end = (html.escape(ACCESS_NOTE) if shared == "access" else "Administrator notice, sent to the shared mailbox." if shared else
+    end = (html.escape(EXTERNAL[shared]) if external else "Administrator notice, sent to the shared mailbox." if shared else
            f'<a href="{html.escape(link("/account?tab=email"), quote=True)}" style="color:#6b7785">Change which emails '
            "you get</a>")
     hello = f'<p style="margin:0 0 14px">Hello {html.escape(name)},</p>' if name else ""
@@ -345,8 +350,8 @@ def _send_batches(con, batches, connect):
                 if isinstance(user, str):  # the shared admin mailbox
                     msg = compose(None, subject, body, shared=True)
                     msg["To"] = user
-                elif isinstance(user, dict):  # a training access request to fixed addresses
-                    msg = compose(None, subject, body, shared="access")
+                elif isinstance(user, dict):  # a training access or booking request to fixed addresses
+                    msg = compose(None, subject, body, shared=user["kind"])
                     msg["To"] = user["to"]
                     if user["cc"]:
                         msg["Cc"] = user["cc"]
@@ -387,8 +392,8 @@ def _users(con, ids):
 
 
 def recipient(row, users):
-    if row["kind"] == "access":
-        return {"to": row["to_addr"], "cc": row["cc_addr"], "reply_to": row["reply_to"]}
+    if row["kind"] in EXTERNAL:
+        return {"to": row["to_addr"], "cc": row["cc_addr"], "reply_to": row["reply_to"], "kind": row["kind"]}
     return row["to_addr"] if row["user_id"] is None else users.get(row["user_id"])
 
 
@@ -470,6 +475,9 @@ def _loop(connect_db):
             daily = local.hour >= env_int("MAIL_DAILY_HOUR") and local.date() != last_day
             if daily:
                 queue_reminders(con)
+            if env_bool("OPERATIONS"):  # outdoor operations still waiting to be booked close to their deadline
+                import operations
+                operations.queue_booking_reminders(con)
             send_due(con, digests=daily)
             if daily:
                 last_day = local.date()

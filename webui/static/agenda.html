@@ -128,6 +128,9 @@
   .op-st.rejected { background:color-mix(in srgb, var(--err) 15%, transparent); color:var(--err); }
   .bk .op-tag { display:inline-block; font-size:10px; font-weight:600; border-radius:8px; padding:0 6px; margin-top:2px;
     background:color-mix(in srgb, var(--warn) 20%, var(--card)); color:var(--warn); }
+  .bk .op-tag.booked { background:color-mix(in srgb, var(--ok) 20%, var(--card)); color:var(--ok); }
+  .op-ext { display:grid; grid-template-columns:max-content 1fr; gap:4px 14px; font-size:13px; margin:0 0 12px; }
+  .op-ext dt { color:var(--mute); } .op-ext dd { margin:0; }
   .op-rule { display:grid; grid-template-columns:1fr 1fr auto; gap:6px; align-items:center; }
   .op-map { height:230px; border-radius:6px; background:var(--bg); }
   .op-legend { display:flex; gap:12px; font-size:12px; color:var(--mute); margin-top:4px; flex-wrap:wrap; }
@@ -269,6 +272,7 @@
         <label class="field">Aircraft (optional)<select name="drone_id" onchange="prepare()"></select></label>
         <label class="field" id="planHeightField" title="The ground risk buffer (1:1) is as wide as this height">Maximum height (m)<input name="height_m" type="number" min="1" max="1000" oninput="prepare()"></label>
         <label class="field">Goal<textarea name="goal" maxlength="500" placeholder="What you fly and why"></textarea></label>
+        <p class="op-note" id="planBooking" hidden></p>
         <p class="mute" id="planRule" style="margin:0;font-size:12px"></p>
         <p class="dialog-error" id="planError" role="alert"></p>
         <div class="row"><button type="submit" class="primary" id="planOk">Book</button> <button type="button" class="sec" onclick="$('planDialog').close()">Cancel</button></div>
@@ -507,7 +511,8 @@ function paint(scroll) {
           style="--c:${esc(colourOf(p.b))};top:${(p.s - first) * HOUR}px;height:${Math.max((p.e - p.s) * HOUR - 2, 18)}px;
           left:calc(${p.lane / p.n * 100}% + 2px);width:calc(${100 / p.n}% - 4px)">
           <b>${label}${esc(tab === 'all' ? t.name + ': ' + op.place : op.place)}</b><span>${esc(teams)}</span>
-          ${op.pending ? `<span class="op-tag">${op.pending} waiting</span>` : ''}</div>`;
+          ${op.pending ? `<span class="op-tag">${op.pending} waiting</span>` : ''}${op.external_status === 'booked' ? `<span class="op-tag booked" title="Booked externally">Booked${op.external_ref ? ' · ' + esc(op.external_ref) : ''}</span>`
+            : op.external_status === 'requested' ? '<span class="op-tag" title="Asked by mail, not booked yet">Requested</span>' : ''}</div>`;
       }
       return `<div role="button" tabindex="0" class="bk${p.b.can_edit ? ' movable' : ''}${p.b.status !== 'approved' ? ' ' + p.b.status : ''}" data-id="${p.b.id}" data-piece="${pieces.indexOf(p)}" title="${esc(tip)}"
         style="--c:${esc(colourOf(p.b))};top:${(p.s - first) * HOUR}px;height:${Math.max((p.e - p.s) * HOUR - 2, 18)}px;
@@ -752,7 +757,7 @@ function removeBooking() {
 // ---- Outdoor operations (LOGDB_OPERATIONS): Plan flight books a slot at a location for your team, Join adds your
 // team to a slot, and the slot dialog lists its teams. The preparation (weather, checks, NOTAM check) is shown while
 // planning and stored with the team on the server.
-let plan = null, planTimer = null, planCrew = [], planArea = null, planMap = null, planLayers = null, planPlace = null;
+let plan = null, planTimer = null, planCrew = [], planArea = null, planMap = null, planLayers = null, planPlace = null, planSeq = 0;
 const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const compass = deg => deg == null ? '' : COMPASS[Math.round(deg / 22.5) % 16];
 const num = (v, d = 1) => v == null ? '–' : (+v).toFixed(d);
@@ -864,6 +869,17 @@ async function openPlan(start, end, slot, team) {
     prepare(true);
   }).catch(() => { $('planAreaVerdict').textContent = 'The map could not be loaded.'; prepare(true); });
 }
+// A location booked elsewhere (by mail): who is asked, and the deadline (the slot start minus its hours ahead).
+function paintBookingNote(place, start) {
+  const b = place.booking, el = $('planBooking'), joining = plan && plan.slot;
+  el.hidden = !b || !!joining;
+  if (el.hidden) return;
+  const due = b.lead_hours != null ? local(new Date(new Date(start).getTime() - b.lead_hours * 3600e3)) : null;
+  const late = due && due < local(new Date());
+  el.innerHTML = `${esc(place.name)} is booked${b.provider ? ' at ' + esc(b.provider) : ''}: saving mails the request to <strong>${esc(b.mail_to)}</strong>.`
+    + (due ? ` Book at least ${b.lead_hours} h ahead, before <strong>${esc(span(due, due).split('–')[0])}</strong>.` : '')
+    + (late ? ' <strong>That deadline has passed</strong>: the request still goes, but ask them directly as well.' : '');
+}
 function drawPlanArea() {
   if (!planMap) return;
   new L.Draw.Polygon(planMap, {allowIntersection: false, shapeOptions: {color: '#1a7f37'}}).enable();
@@ -882,9 +898,12 @@ function prepare(now) {
     if (planPlace && planPlace !== place.id) { planArea = body.flight_area = null; }  // another location: its own area
     planPlace = place.id;
     f.height_m.max = place.max_height_m || 1000;
+    paintBookingNote(place, body.start);
     f.height_m.placeholder = place.max_height_m ? `${place.max_height_m} (the maximum here)` : 'required for the buffer';
+    const seq = ++planSeq;  // only the latest answer is shown, also when an earlier one arrives later
     try {
       const d = await api('/api/operations/prepare', json('POST', body));
+      if (seq !== planSeq) return;
       const day = span(body.start, body.end);
       $('planWeatherWhen').textContent = `forecast for ${day}` + (d.weather.fetched_at ? ' · ' + new Date(d.weather.fetched_at).toTimeString().slice(0, 5) : '');
       $('planWeather').innerHTML = weatherHTML(d.weather);
@@ -898,7 +917,7 @@ function prepare(now) {
       $('planJoinHint').hidden = !other;
       if (other) $('planJoinHint').innerHTML = `${esc(other.person)}'s slot at this location, ${esc(span(other.start, other.end))}, overlaps this time. <a href="#" onclick="joinFromPlan(${other.id}); return false">Join that slot</a> instead of booking a second one.`;
       $('planError').textContent = '';
-    } catch (e) { $('planError').textContent = e.message; }
+    } catch (e) { if (seq === planSeq) $('planError').textContent = e.message; }
   }, now ? 0 : 300);
 }
 async function joinFromPlan(id) {
@@ -929,7 +948,12 @@ async function openSlot(id) {
   slotOpen = slot;
   $('slotTitle').textContent = `${slot.place} · ${span(slot.start, slot.end)}`;
   const label = {approved: 'Booked', pending: 'Waiting for approval', rejected: 'Not approved'};
-  $('slotBody').innerHTML = `<table class="op-teams"><tr><th>PIC</th><th>Project</th><th>Crew</th><th>Aircraft</th><th></th><th></th></tr>${slot.teams.map(t => `
+  const x = slot.external, utc = t => t ? new Date(t).toLocaleString('en-GB', {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'}) : '';
+  const extHTML = x ? `<dl class="op-ext"><dt>${esc(x.provider || 'External booking')}</dt><dd><span class="op-st ${x.status === 'booked' ? 'approved' : 'pending'}">${x.status === 'booked' ? 'Booked' : 'Requested'}</span>
+      ${x.status === 'booked' ? `${esc(x.ref)} · entered by ${esc(x.booked_by || '?')}` : 'not booked yet'}
+      ${x.can_set ? ` <button type="button" class="sec" style="padding:1px 8px;font-size:12px" onclick="setBookingNumber()">${x.status === 'booked' ? 'Edit…' : 'Enter booking number…'}</button>` : ''}</dd>
+    <dt>Requested</dt><dd>${esc(utc(x.requested_at))}, mailed to ${esc(x.mail_to)}${x.book_by ? ' · book by ' + esc(span(x.book_by, x.book_by).split('–')[0]) : ''}${x.reminded_at ? ' · reminder mailed ' + esc(utc(x.reminded_at)) : ''}</dd></dl>` : '';
+  $('slotBody').innerHTML = extHTML + `<table class="op-teams"><tr><th>PIC</th><th>Project</th><th>Crew</th><th>Aircraft</th><th></th><th></th></tr>${slot.teams.map(t => `
     <tr><td><strong>${esc(t.pic)}</strong>${t.goal ? `<div class="mute" style="font-size:12px">${esc(t.goal)}</div>` : ''}
       <div class="op-flights">${t.flights.length ? 'Flights: ' + t.flights.map(f => `<a href="/flight/${f.flight_id}" title="${esc(flightTip(f))}">${esc(flightTime(f))}</a>${t.can_link ? `<button type="button" title="Not this team's flight" aria-label="Unlink flight ${f.flight_id}" onclick="linkFlight(${t.id}, ${f.flight_id}, 'unlink')">✕</button>` : ''}`).join(' ') : 'No flights linked yet'}</div></td><td>${esc(t.project || '–')}</td>
       <td>${esc(t.crew.map(c => c.name).join(', ') || '–')}</td><td>${esc(t.drone || '–')}</td>
@@ -968,6 +992,18 @@ async function linkFlight(teamId, flightId, action) {
   try { await api(`/api/operations/teams/${teamId}/flights`, json('POST', {flight_id: flightId, action})); }
   catch (e) { $('slotError').textContent = e.message; return; }
   openSlot(slotOpen.id);
+}
+// Administrators: the booking number once the slot is booked externally (empty: requested again).
+function setBookingNumber() {
+  const x = slotOpen.external;
+  actDialog('Booking number', `<label class="field">${esc(x.provider || 'External')} booking number<input id="opRef" maxlength="80" value="${esc(x.ref || '')}" placeholder="e.g. 48213"></label>
+    <p class="mute" style="margin:6px 0 0;font-size:12px">Empty sets it back to Requested.</p>`, 'Save', async out => {
+    try { await api(`/api/operations/${slotOpen.id}/external`, json('POST', {ref: $('opRef').value})); }
+    catch (e) { out.textContent = e.message; return false; }
+    await load();
+    openSlot(slotOpen.id);
+    return true;
+  });
 }
 function toggleSlotPrep(id) { slotPrep = slotPrep === id ? null : id; openSlot(slotOpen.id); }
 function decideTeam(id, action) {

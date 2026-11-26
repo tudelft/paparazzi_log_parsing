@@ -38,6 +38,9 @@ MAX_GOAL = 500
 MAX_REFERENCE = 200
 MAX_CREW = 10
 MATCH_MARGIN = datetime.timedelta(minutes=30)  # flights this long before or after a slot still belong to it
+REMIND_BEFORE = datetime.timedelta(hours=12)  # a slot still not booked this long before its deadline: reminder
+BOOKING_TAGS = ("{place}", "{provider}", "{date}", "{start}", "{end}", "{book_by}", "{teams}", "{booker}",
+                "{reference}", "{request}")
 
 
 def enabled():
@@ -164,10 +167,138 @@ def forecast(con, place_id, start, end):
 
 
 def place_geometry(con, place_id):
-    """{id, name, shape, max_height_m, flight_area} of a location, for the map and the buffer."""
-    r = con.execute("SELECT id, name, shape, max_height_m, flight_area FROM places WHERE id=?", (place_id,)).fetchone()
+    """{id, name, shape, max_height_m, flight_area, booking} of a location, for the map, the buffer and the external
+    booking notice (booking: {mode, provider, lead_hours, mail_to} when it is booked elsewhere, else None)."""
+    r = con.execute("SELECT * FROM places WHERE id=?", (place_id,)).fetchone()
+    booking = dict(mode=r["booking_mode"], provider=r["booking_provider"], lead_hours=r["booking_lead_hours"],
+                   mail_to=r["booking_mail_to"]) if r["booking_mode"] != "none" else None
     return dict(id=r["id"], name=r["name"], shape=json.loads(r["shape"]), max_height_m=r["max_height_m"],
-                flight_area=json.loads(r["flight_area"]) if r["flight_area"] else None)
+                flight_area=json.loads(r["flight_area"]) if r["flight_area"] else None, booking=booking)
+
+
+def parse_booking_settings(body, row):
+    """The external booking settings of a location from PUT /api/admin/places (missing keys keep `row`'s):
+    (mode, provider, lead_hours, mail_to, mail_text); ValueError when invalid. By mail needs the mailbox and a text."""
+    import training
+    get = lambda key: body[key] if key in body else row[key]  # noqa: E731
+    mode, provider, lead, to, text = (get("booking_mode"), get("booking_provider"), get("booking_lead_hours"),
+                                      get("booking_mail_to"), get("booking_mail_text"))
+    if mode not in ("none", "mail"):
+        raise ValueError("booking_mode must be none or mail.")
+    if not isinstance(provider, str) or len(provider.strip()) > 80 or not isinstance(text, str) or len(text) > 5000:
+        raise ValueError("Who books it is at most 80 characters and the mail at most 5000.")
+    if lead is not None and (type(lead) is not int or not 0 <= lead <= 720):
+        raise ValueError("Book at least: a whole number of hours (0 to 720).")
+    try:
+        to = training.addresses_field(to or "")
+    except training.TrainingError as exc:
+        raise ValueError(str(exc)) from exc
+    if mode == "mail" and not (to and text.strip()):
+        raise ValueError("Booking by mail needs the mailbox and the mail text.")
+    return mode, provider.strip(), lead, to, text.strip()
+
+
+def local_time(t, hours=0):
+    """A local agenda time (YYYY-MM-DDTHH:MM) moved by `hours`."""
+    return (datetime.datetime.strptime(t, bookings.TIME_FORMAT) + datetime.timedelta(hours=hours)).strftime(
+        bookings.TIME_FORMAT)
+
+
+def booking_mail(con, booking_id, event, was=None):
+    """(subject, body, reply-to) of a mail about a slot's external booking to the location's mailbox. event:
+    request, change (was: the old time), joined, left, cancelled or reminder. The location's own text (tags filled in)
+    is in a request, change and reminder; every mail ends with a fixed "Request details:" block for mail flows."""
+    r = con.execute(
+        "SELECT b.id, b.starts_at, b.ends_at, b.user_id, s.*, p.name AS place, p.booking_provider, p.booking_mail_text,"
+        " COALESCE(u.display_name,u.username) AS booker, u.email FROM bookings b JOIN operation_slots s ON s.booking_id=b.id"
+        " JOIN places p ON p.id=s.place_id JOIN users u ON u.id=b.user_id WHERE b.id=?", (booking_id,)).fetchone()
+    teams = [f"{t['pic']} ({', '.join(x for x in (t['project'], t['drone']) if x) or 'no project'})" for t in con.execute(
+        "SELECT COALESCE(u.display_name,u.username) AS pic, pr.name AS project, d.name AS drone FROM operation_teams o"
+        " JOIN users u ON u.id=o.pic_id LEFT JOIN projects pr ON pr.id=o.project_id LEFT JOIN drones d ON d.id=o.drone_id"
+        " WHERE o.booking_id=? AND o.status='approved' ORDER BY o.id", (booking_id,))]
+    span = when(r["starts_at"], r["ends_at"])
+    values = {"{place}": r["place"], "{provider}": r["booking_provider"] or "-", "{date}": r["starts_at"][:10],
+              "{start}": r["starts_at"][11:], "{end}": r["ends_at"][11:],
+              "{book_by}": (r["book_by"] or "-").replace("T", " "), "{teams}": "; ".join(teams) or "-",
+              "{booker}": r["booker"], "{reference}": f"S{r['id']}", "{request}": event}
+    text = r["booking_mail_text"]
+    for key in BOOKING_TAGS:
+        text = text.replace(key, values[key])
+    ref = f" (booking number {r['external_ref']})" if r["external_ref"] else ""
+    intro = {"request": "", "change": f"Changed: this slot is now {span} (was {was}). Please change the booking{ref}.",
+             "joined": f"Another team joined this slot{ref}; the teams are listed below.",
+             "left": f"A team left this slot{ref}; the teams are listed below.",
+             "cancelled": f"Cancelled: this slot is no longer needed. Please cancel the booking{ref}.",
+             "reminder": f"Reminder: this slot is not booked yet. It must be booked by {values['{book_by}']}."}[event]
+    details = "\n".join(" ".join(line.split()) for line in [
+        "Request details:", f"Type: {event}", f"Location: {r['place']}", f"Booked at: {values['{provider}']}",
+        f"Date: {values['{date}']}", f"Start: {values['{start}']}", f"End: {values['{end}']}",
+        f"Book by: {values['{book_by}']}", f"Teams: {values['{teams}']}", f"Booked by: {r['booker']}",
+        f"Email: {r['email'] or '-'}", f"Booking number: {r['external_ref'] or '-'}", f"Reference: S{r['id']}"])
+    subject = {"request": "Booking request", "change": "Booking change", "joined": "Booking update",
+               "left": "Booking update", "cancelled": "Booking cancelled", "reminder": "Not booked yet"}[event]
+    parts = [intro, text if event in ("request", "change", "reminder") else "", details]
+    return f"{subject}: {r['place']}, {span}", "\n\n".join(x for x in parts if x), r["email"] or None
+
+
+def external_event(con, booking_id, event, was=None):
+    """Keep a slot's external booking up to date after a change (in the caller's transaction). A slot at a location
+    booked by mail asks for the booking when it gets its first approved team (status requested); after that the
+    mailbox hears of joins, leaves, a new time (requested again) and the cancellation (before the slot is removed)."""
+    r = con.execute("SELECT s.*, b.starts_at, p.booking_mode, p.booking_lead_hours, p.booking_mail_to FROM operation_slots s"
+                    " JOIN bookings b ON b.id=s.booking_id JOIN places p ON p.id=s.place_id WHERE s.booking_id=?",
+                    (booking_id,)).fetchone()
+    if r is None:
+        return
+    approved = con.execute("SELECT COUNT(*) FROM operation_teams WHERE booking_id=? AND status='approved'",
+                           (booking_id,)).fetchone()[0]
+    book_by = local_time(r["starts_at"], -r["booking_lead_hours"]) if r["booking_lead_hours"] is not None else None
+    def send(kind):
+        subject, body, reply_to = booking_mail(con, booking_id, kind, was)
+        mail.queue_access(con, r["booking_mail_to"], subject, body, reply_to=reply_to, copies=False, kind="booking")
+    if r["external"] is None:
+        if r["booking_mode"] == "mail" and r["booking_mail_to"] and approved and event != "cancelled":
+            con.execute("UPDATE operation_slots SET external='mail', external_status='requested', requested_at=?,"
+                        " book_by=? WHERE booking_id=?", (utc_now(), book_by, booking_id))
+            send("request")
+        return
+    if not r["booking_mail_to"]:
+        return
+    if event == "moved":
+        con.execute("UPDATE operation_slots SET external_status='requested', book_by=?, reminded_at=NULL"
+                    " WHERE booking_id=?", (book_by, booking_id))
+        send("change")
+    elif event in ("joined", "left", "cancelled"):
+        send(event)
+
+
+def queue_booking_reminders(con, now=None):
+    """Remind the location's mailbox and the administrators of slots still not booked REMIND_BEFORE before their
+    deadline (or before the slot without one), once per slot. Run by the mail thread."""
+    now = now or datetime.datetime.now(zone()).strftime(bookings.TIME_FORMAT)
+    for r in con.execute(
+            "SELECT s.booking_id, s.book_by, b.starts_at, b.ends_at, p.name AS place FROM operation_slots s"
+            " JOIN bookings b ON b.id=s.booking_id JOIN places p ON p.id=s.place_id"
+            " WHERE s.external_status='requested' AND s.reminded_at IS NULL AND b.ends_at>? AND b.status!='rejected'",
+            (now,)).fetchall():
+        due = local_time(r["book_by"] or r["starts_at"], -REMIND_BEFORE.total_seconds() / 3600)
+        if now < due:
+            continue
+        con.execute("UPDATE operation_slots SET reminded_at=? WHERE booking_id=?", (utc_now(), r["booking_id"]))
+        external_reminder(con, r)
+    con.commit()
+
+
+def external_reminder(con, r):
+    subject, body, reply_to = booking_mail(con, r["booking_id"], "reminder")
+    to = con.execute("SELECT p.booking_mail_to FROM operation_slots s JOIN places p ON p.id=s.place_id"
+                     " WHERE s.booking_id=?", (r["booking_id"],)).fetchone()[0]
+    mail.queue_access(con, to, subject, body, reply_to=reply_to, copies=False, kind="booking")
+    item_id = con.execute("SELECT thing_id FROM bookings WHERE id=?", (r["booking_id"],)).fetchone()[0]
+    mail.notify_admins(con, subject, f"{r['place']}, {when(r['starts_at'], r['ends_at'])} is not booked yet"
+                       + (f" (book by {r['book_by'].replace('T', ' ')})" if r["book_by"] else "")
+                       + ". Enter the booking number in the slot once it is booked.",
+                       f"/agenda?item={item_id}&slot={r['booking_id']}", key=f"booking-reminder:{r['booking_id']}")
 
 
 def area_plan(place, height_m=None, flight_area=None):
@@ -213,9 +344,10 @@ def summaries(con, booking_ids):
     if not booking_ids:
         return out
     marks = ",".join("?" * len(booking_ids))
-    for r in con.execute(f"SELECT s.booking_id, s.place_id, p.name FROM operation_slots s JOIN places p ON p.id=s.place_id"
+    for r in con.execute(f"SELECT s.booking_id, s.place_id, p.name, s.external_status, s.external_ref FROM operation_slots s"
+                         f" JOIN places p ON p.id=s.place_id"
                          f" WHERE s.booking_id IN ({marks})", booking_ids):
-        out[r[0]] = dict(place_id=r[1], place=r[2], teams=0, pending=0, pics=[])
+        out[r[0]] = dict(place_id=r[1], place=r[2], teams=0, pending=0, pics=[], external_status=r[3], external_ref=r[4])
     for r in con.execute(f"SELECT o.booking_id, o.status, COALESCE(u.display_name,u.username) FROM operation_teams o"
                          f" JOIN users u ON u.id=o.pic_id WHERE o.booking_id IN ({marks}) AND o.status!='rejected'"
                          f" ORDER BY o.id", booking_ids):
@@ -527,8 +659,15 @@ def register(app, connection, require_session, logbook=None):
         for t in teams:
             t["flights"] = by_team.get(t["id"], [])
             t["can_link"] = t["can_edit"] or decide
+        ext = cid.execute("SELECT s.*, p.booking_provider, p.booking_mail_to, COALESCE(u.display_name,u.username) AS booker"
+                          " FROM operation_slots s JOIN places p ON p.id=s.place_id LEFT JOIN users u ON u.id=s.booked_by"
+                          " WHERE s.booking_id=?", (slot["id"],)).fetchone()
+        external = dict(status=ext["external_status"], ref=ext["external_ref"], provider=ext["booking_provider"],
+                        mail_to=ext["booking_mail_to"], requested_at=ext["requested_at"], book_by=ext["book_by"],
+                        booked_at=ext["booked_at"], booked_by=ext["booker"], reminded_at=ext["reminded_at"],
+                        can_set=bool(g.user["is_admin"])) if ext["external"] else None
         return dict(id=slot["id"], place_id=slot["place_id"], place=slot["place"], start=slot["starts_at"],
-                    geometry=place_geometry(cid, slot["place_id"]), other_flights=other,
+                    geometry=place_geometry(cid, slot["place_id"]), other_flights=other, external=external,
                     end=slot["ends_at"], user_id=slot["user_id"], teams=teams,
                     can_join=not mine and (decide or rule_for(cid, thing["id"], g.user["id"]) is not None),
                     can_move=bool(g.user["is_admin"]) or decide or (len(live) <= 1 and mine), can_decide=decide)
@@ -596,6 +735,7 @@ def register(app, connection, require_session, logbook=None):
             cid.execute("INSERT INTO operation_slots(booking_id, place_id) VALUES (?,?)", (bid, place["id"]))
             tid = insert_team(cid, bid, team, crew, status, preparation(cid, thing, place["id"], start, end, team, crew))
             sync_slot(cid, bid)
+            external_event(cid, bid, "request")
             if status == "pending":
                 mail_waiting(cid, thing, slot_row(cid, bid), tid, team["pic_id"])
         return jsonify(ok=True, id=bid, team_id=tid, status=status), 201
@@ -625,6 +765,8 @@ def register(app, connection, require_session, logbook=None):
             tid = insert_team(cid, booking_id, team, crew, status,
                               preparation(cid, thing, slot["place_id"], slot["starts_at"], slot["ends_at"], team, crew))
             sync_slot(cid, booking_id)
+            if status == "approved":
+                external_event(cid, booking_id, "joined")
             mail_joined(cid, slot, tid)
             if status == "pending":
                 mail_waiting(cid, thing, slot, tid, team["pic_id"])
@@ -678,8 +820,14 @@ def register(app, connection, require_session, logbook=None):
             cid.execute("BEGIN IMMEDIATE")
             row = own_team(cid, team_id)
             slot = slot_row(cid, row["booking_id"])
+            last = not cid.execute("SELECT 1 FROM operation_teams WHERE booking_id=? AND id!=? AND status!='rejected'",
+                                   (slot["id"], team_id)).fetchone()
+            if last:  # the slot goes: the mailbox cancels its booking
+                external_event(cid, slot["id"], "cancelled")
             cid.execute("DELETE FROM operation_teams WHERE id=?", (team_id,))
             kept = sync_slot(cid, slot["id"])
+            if kept and not last and row["status"] == "approved":
+                external_event(cid, slot["id"], "left")
             span = when(slot["starts_at"], slot["ends_at"])
             for r in cid.execute("SELECT DISTINCT pic_id FROM operation_teams WHERE booking_id=? AND status!='rejected'",
                                  (slot["id"],)).fetchall() if kept else ():
@@ -703,6 +851,8 @@ def register(app, connection, require_session, logbook=None):
                 raise BookingError("Only administrators, approvers or a slot's only team can change its time.", 403)
             start, end = parse_time_window(body)
             cid.execute("UPDATE bookings SET starts_at=?, ends_at=? WHERE id=?", (start, end, booking_id))
+            if (start, end) != (slot["starts_at"], slot["ends_at"]):
+                external_event(cid, booking_id, "moved", was=when(slot["starts_at"], slot["ends_at"]))
         return jsonify(ok=True)
 
     @app.post("/api/operations/teams/<int:team_id>/review")
@@ -731,6 +881,8 @@ def register(app, connection, require_session, logbook=None):
                         ("approved" if action == "approve" else "rejected", g.user["id"], utc_now(), note, team_id))
             slot = slot_row(cid, row["booking_id"])
             sync_slot(cid, slot["id"])
+            if action == "approve":  # the first approved team asks for the booking; later ones join it
+                external_event(cid, slot["id"], "joined")
             span = when(slot["starts_at"], slot["ends_at"])
             for uid in {row["pic_id"], row["created_by"]} - {g.user["id"], None}:
                 mail.notify(cid, uid, "booking_requests",
@@ -740,6 +892,28 @@ def register(app, connection, require_session, logbook=None):
                             + f" the outdoor flight at {slot['place']} for {span}."
                             + (f"\n\nReason: {note}" if note else ""),
                             f"/agenda?item={thing['id']}&week={slot['starts_at'][:10]}")
+        return jsonify(ok=True)
+
+    @app.post("/api/operations/<int:booking_id>/external")
+    def set_external(booking_id):
+        """Administrators enter the external booking number of a requested slot ({ref}): it is then booked;
+        an empty ref makes it requested again."""
+        signed_in()
+        if not g.user["is_admin"]:
+            raise BookingError("Only administrators enter the booking number.", 403)
+        ref = (request.get_json(silent=True) or {}).get("ref")
+        if ref is not None and (not isinstance(ref, str) or len(ref.strip()) > 80):
+            raise BookingError("The booking number is text of at most 80 characters.")
+        ref = (ref or "").strip() or None
+        cid = connection()
+        with db.write_lock, cid:
+            cid.execute("BEGIN IMMEDIATE")
+            slot = slot_row(cid, booking_id)
+            if not cid.execute("SELECT external FROM operation_slots WHERE booking_id=?", (booking_id,)).fetchone()[0]:
+                raise BookingError("This slot was not requested from an external booking.", 409)
+            cid.execute("UPDATE operation_slots SET external_ref=?, external_status=?, booked_by=?, booked_at=?"
+                        " WHERE booking_id=?", (ref, "booked" if ref else "requested", g.user["id"] if ref else None,
+                                                utc_now() if ref else None, slot["id"]))
         return jsonify(ok=True)
 
     @app.post("/api/operations/teams/<int:team_id>/flights")

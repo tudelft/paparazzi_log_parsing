@@ -1708,6 +1708,23 @@ the dialog shows the map (Leaflet, Turf for the buffer outline, loaded only when
 outside only warns. The team stores `height_m`, `flight_area`, `buffer_m`, `buffer_method` and `buffer_inside` in its
 own columns and in the preparation (`area`), which the slot dialog shows with the map.
 
+**External booking** (step 2 of issue 134). A bookable location may be booked elsewhere: Edit location → *External
+booking* (`places.booking_mode` `none` or `mail`, later a SuperSaaS API; `booking_provider`, e.g. Unmanned Valley;
+`booking_lead_hours`, how many hours before the slot it must be booked; `booking_mail_to`, the mailbox that books it;
+`booking_mail_text` with the tags `{place}` `{provider}` `{date}` `{start}` `{end}` `{book_by}` `{teams}` `{booker}`
+`{reference}` `{request}` and the access mail's markup). Plan flight then says where the request goes and the deadline
+(the slot start minus the hours; warning only when it has passed). Once a slot there has an approved team
+(`operations.external_event`), it mails the request to that mailbox (`mail_outbox.kind` `booking`, Reply-To the
+booker, `mail.EXTERNAL`) and the slot is *Requested* (`operation_slots.external`, `external_status`, `requested_at`,
+`book_by`); the mailbox also gets a mail when an approved team joins or leaves, when the time changes (*Requested*
+again) and when the slot is cancelled (its last team leaves, or an administrator deletes it). Every mail has the
+location's text (request, change, reminder) and a fixed *Request details* block (type, location, booked at, date, times,
+book by, teams, booked by, email, booking number, reference `S<slot id>`). An administrator enters the external booking
+number in the slot (`POST /api/operations/<id>/external` with `ref`; empty: requested again), and the slot shows
+*Booked · number* in the week. The mail thread (`operations.queue_booking_reminders`) reminds the mailbox and the
+administrators (`admin` notices) once when a slot is still *Requested* 12 h before its deadline (before its start without
+one).
+
 **Flights.** A slot's flights are matched when they are shown (`operations.slot_flights`, from the viewer's logbook
 read model, so only flights they may see): telemetry flights that took off or landed at the slot's location within its
 time (local times in `LOGDB_TIME_ZONE`, 30 minutes before and after), each to the first team whose PIC or crew is the
