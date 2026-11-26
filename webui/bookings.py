@@ -391,7 +391,8 @@ def register(app, connection, require_session, pages_dir):
             (*visible, (last + datetime.timedelta(days=1)).isoformat(), first.isoformat(), g.user["id"])).fetchall() \
             if visible else []
         decide = {t["id"] for t in items if t["can_approve"] and t["kind"] != "operations"}
-        out = {"things": items, "bookings": [booking_json(r, booking_flags(cid, r["id"]), g.user, r["thing_id"] in decide)
+        out = {"time_zone": operations.zone().key,  # the agenda's local times (LOGDB_TIME_ZONE)
+               "things": items, "bookings": [booking_json(r, booking_flags(cid, r["id"]), g.user, r["thing_id"] in decide)
                                              for r in rows]}
         slots = operations.summaries(cid, [b["id"] for b in out["bookings"]
                                            if b["thing_id"] in {t["id"] for t in items if t["kind"] == "operations"}])

@@ -133,11 +133,11 @@ WINDOW_DAYS = 16  # how far ahead Open-Meteo forecasts; a slot later than that h
 _windows = {}  # "lat,lon" -> (fetched monotonic, data)
 
 
-def _fetch_forecast(lat, lon, days):
-    """The raw hourly forecast of Open-Meteo for `days` days at a position (local times of the place)."""
+def _fetch_forecast(lat, lon, days, tz="auto"):
+    """The raw hourly forecast of Open-Meteo for `days` days at a position, in time zone `tz` (auto: the place's)."""
     params = urlencode({
         "latitude": f"{lat:.4f}", "longitude": f"{lon:.4f}", "hourly": ",".join(FORECAST_FIELDS),
-        "timezone": "auto", "wind_speed_unit": "ms", "forecast_days": days,
+        "timezone": tz, "wind_speed_unit": "ms", "forecast_days": days,
     })
     try:
         with urlopen("https://api.open-meteo.com/v1/forecast?" + params, timeout=15) as response:
@@ -153,20 +153,20 @@ def _fetch_forecast(lat, lon, days):
         raise WeatherError("Weather service returned invalid JSON.") from exc
 
 
-def forecast_window(lat, lon, start, end):
-    """{timezone, fetched_at, hours, note} of the forecast for the local hours from `start` to `end`
-    (YYYY-MM-DDTHH:MM, the place's local time) for a planned flight. hours is empty with a note when the window is
-    past or more than WINDOW_DAYS days ahead. Cached for FORECAST_TTL_S per rounded position."""
+def forecast_window(lat, lon, start, end, tz="auto"):
+    """{timezone, fetched_at, hours, note} of the forecast for the hours from `start` to `end` (YYYY-MM-DDTHH:MM in
+    time zone `tz`, the agenda's) for a planned flight. hours is empty with a note when the window is past or more
+    than WINDOW_DAYS days ahead. Cached for FORECAST_TTL_S per rounded position and time zone."""
     if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (lat, lon)) \
             or not -90 <= lat <= 90 or not -180 <= lon <= 180:
         raise WeatherError("The place has no valid position.", 400)
-    key = f"{lat:.2f},{lon:.2f}"
+    key = f"{lat:.2f},{lon:.2f},{tz}"
     with _forecast_lock:
         hit = _windows.get(key)
         if hit and time.monotonic() - hit[0] < FORECAST_TTL_S:
             data, fetched = hit[1]
         else:
-            data, fetched = _fetch_forecast(lat, lon, WINDOW_DAYS), datetime.now(timezone.utc).isoformat()
+            data, fetched = _fetch_forecast(lat, lon, WINDOW_DAYS, tz), datetime.now(timezone.utc).isoformat()
             _windows[key] = (time.monotonic(), (data, fetched))
     try:
         hourly = data["hourly"]

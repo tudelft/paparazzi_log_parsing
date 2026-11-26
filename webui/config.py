@@ -34,8 +34,8 @@ SETTINGS = {
         "OPERATIONS": ("0", "1 adds Outdoor operations to the Agenda (needs LOGDB_BOOKINGS): plan and book outdoor "
                             "flights at bookable locations, shared by teams"),
         "NOTAM_URL": (None, "Page Plan flight links to for checking NOTAMs and drone zones (default: no link)"),
-        "TIME_ZONE": ("Europe/Amsterdam", "Time zone of the Agenda's local times, used to match uploaded flights (UTC) "
-                                          "to outdoor operation slots"),
+        "TIME_ZONE": ("Europe/Amsterdam", "Time zone of the Agenda's local times (slots, Plan flight, the forecast, "
+                                          "booking mails) and of the local times next to the UTC times of flights"),
         "DOCUMENTS": ("0", "1 shows Documents: shared documents that administrators upload, and each "
                            "person's own current qualifications"),
         "SAFETY": ("0", "1 shows Safety (/safety): danger, incident and accident reports. "

@@ -159,7 +159,7 @@ def forecast(con, place_id, start, end):
     row = con.execute("SELECT shape FROM places WHERE id=?", (place_id,)).fetchone()
     try:
         lat, lon = home.place_centre(row["shape"])
-        return weather.forecast_window(lat, lon, start, end)
+        return weather.forecast_window(lat, lon, start, end, zone().key)
     except weather.WeatherError as exc:
         return {"hours": [], "note": str(exc)}
     except (KeyError, IndexError, TypeError, ValueError):
@@ -210,6 +210,7 @@ def booking_mail(con, booking_id, event, was=None):
     is in a request, change and reminder; every mail ends with a fixed "Request details:" block for mail flows."""
     r = con.execute(
         "SELECT b.id, b.starts_at, b.ends_at, b.user_id, s.*, p.name AS place, p.booking_provider, p.booking_mail_text,"
+        " p.country,"
         " COALESCE(u.display_name,u.username) AS booker, u.email FROM bookings b JOIN operation_slots s ON s.booking_id=b.id"
         " JOIN places p ON p.id=s.place_id JOIN users u ON u.id=b.user_id WHERE b.id=?", (booking_id,)).fetchone()
     teams = [f"{t['pic']} ({', '.join(x for x in (t['project'], t['drone']) if x) or 'no project'})" for t in con.execute(
@@ -233,7 +234,10 @@ def booking_mail(con, booking_id, event, was=None):
     details = "\n".join(" ".join(line.split()) for line in [
         "Request details:", f"Type: {event}", f"Location: {r['place']}", f"Booked at: {values['{provider}']}",
         f"Date: {values['{date}']}", f"Start: {values['{start}']}", f"End: {values['{end}']}",
-        f"Book by: {values['{book_by}']}", f"Teams: {values['{teams}']}", f"Booked by: {r['booker']}",
+        f"Book by: {values['{book_by}']}",
+        # the times are the agenda's: say in which zone only for a location in another country than that zone's
+        *([f"Time zone: {zone().key}"] if r["country"] and r["country"] != zone_country() else []),
+        f"Teams: {values['{teams}']}", f"Booked by: {r['booker']}",
         f"Email: {r['email'] or '-'}", f"Booking number: {r['external_ref'] or '-'}", f"Reference: S{r['id']}"])
     subject = {"request": "Booking request", "change": "Booking change", "joined": "Booking update",
                "left": "Booking update", "cancelled": "Booking cancelled", "reminder": "Not booked yet"}[event]
@@ -384,6 +388,22 @@ def zone():
         return ZoneInfo("UTC")
 
 
+def zone_country():
+    """The country (ISO code) of LOGDB_TIME_ZONE from the system's zone.tab, or None when it cannot be told."""
+    import zoneinfo
+    from pathlib import Path
+    name = zone().key
+    for folder in zoneinfo.TZPATH:
+        table = Path(folder) / "zone.tab"
+        if table.is_file():
+            for line in table.read_text(encoding="utf-8", errors="replace").splitlines():
+                cols = line.split("\t")
+                if len(cols) >= 3 and cols[2] == name:
+                    return cols[0]
+            return None
+    return None
+
+
 def slot_window(start, end):
     """(first, last) UTC epoch seconds of takeoffs that belong to a slot of local times: the slot with MATCH_MARGIN."""
     z = zone()
@@ -433,8 +453,15 @@ def assign(entry, teams, decisions):
     return None, True
 
 
+def local_of(utc_iso):
+    """A UTC time from a log as the agenda's local time (YYYY-MM-DDTHH:MM, LOGDB_TIME_ZONE), or None."""
+    ts = links._ts(utc_iso)
+    return datetime.datetime.fromtimestamp(ts, zone()).strftime(bookings.TIME_FORMAT) if ts is not None else None
+
+
 def flight_brief(entry, automatic):
     return dict(flight_id=entry["flight_id"], takeoff_utc=entry.get("takeoff_utc"), duration_s=entry.get("duration_s"),
+                takeoff_local=local_of(entry.get("takeoff_utc")),
                 aircraft=entry.get("aircraft"), pic=(entry.get("pic_user") or {}).get("display_name") or entry.get("pic"),
                 automatic=automatic)
 

@@ -687,9 +687,9 @@ function renderSummary() {
     <div class="summary-body"><div class="summary-main"><div class="summary-groups">
       <div><h3>When and where</h3><div class="kv">
         ${ekv('date', 'Date (UTC)', esc(day(e.takeoff_utc)) + estimatedDateBadge(e))}
-        ${kv('Takeoff', esc(clock(e.takeoff_utc)) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id, e.takeoff)
+        ${kv('Takeoff', esc(clock(e.takeoff_utc)) + localTime(e.takeoff_utc) + ' · ' + place(e.takeoff_place, e.takeoff_lat, e.takeoff_lon, e.takeoff_place_id, e.takeoff)
           + (e.takeoff_location_inferred ? ' <span class="mute">(location inferred from landing)</span>' : ''))}
-        ${kv('Landing', (landingTime ? esc(landingTime) + ' · ' : '') + place(e.landing_place, e.landing_lat, e.landing_lon, e.landing_place_id, e.landing)
+        ${kv('Landing', (landingTime ? esc(landingTime) + localTime(e.landing_utc) + ' · ' : '') + place(e.landing_place, e.landing_lat, e.landing_lon, e.landing_place_id, e.landing)
           + (e.landing_location_inferred ? ' <span class="mute">(location inferred from takeoff)</span>' : ''))}
         ${kv('Distance flown', fmtDist(e.distance_m))}${kv('Max from takeoff', fmtDist(e.max_from_takeoff_m))}${kv('At landing', fmtDist(e.from_takeoff_m))}
         ${kv('Battery', pair(e, volts))}${kv('Wind (logged)', pair(e, wind))}${kv('Datalink', linkShort(e))}
@@ -728,6 +728,13 @@ function renderSummary() {
 
 // Outdoor operations: the slot and team this flight belongs to, with its planned height and 1:1 buffer, or that a
 // flight at a bookable location was not planned.
+// The local time (the agenda's time zone, LOGDB_TIME_ZONE) of a logged UTC time, after the UTC one.
+function localTime(t) {
+  if (!t || !D.time_zone) return '';
+  const d = new Date(t);
+  if (isNaN(d)) return '';
+  return ` <span class="mute" title="${esc(D.time_zone)}">(${d.toLocaleTimeString('en-GB', {timeZone: D.time_zone, hour: '2-digit', minute: '2-digit'})} local)</span>`;
+}
 function operationRow(o) {
   if (!o) return '';
   if (o.missing) return kv('Flight plan', `<span style="color:var(--warn);font-weight:600">Not planned</span> <span class="mute">no outdoor operation booked at ${esc(o.missing)} for this time</span>`);

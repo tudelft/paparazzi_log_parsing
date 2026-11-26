@@ -866,7 +866,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `BOOKINGS` | `0` | `1` shows the [Agenda](#booking-agenda) of bookable items |
 | `OPERATIONS` | `0` | `1` adds [Outdoor operations](#outdoor-operations) to the Agenda (needs `BOOKINGS`) |
 | `NOTAM_URL` | (empty) | Page that Plan flight links to for checking NOTAMs and drone zones; empty: no link |
-| `TIME_ZONE` | `Europe/Amsterdam` | Time zone of the Agenda's local times, to match uploaded flights (UTC) to [outdoor operation](#outdoor-operations) slots |
+| `TIME_ZONE` | `Europe/Amsterdam` | Time zone of the Agenda's local times; see [Time zones](#time-zones) |
 | `DOCUMENTS` | `0` | `1` shows [Documents](#documents): shared documents and each person's own qualifications |
 | `SAFETY` | `0` | `1` shows [Safety](#safety) (`/safety`): danger, incident and accident reports. The Operations Manual links `/safety`: keep it on in production (`check-config` warns when it is off) |
 | `VIEW_AS` | `0` | `1` lets administrators [view as another user](#view-as-another-user) |
@@ -1664,6 +1664,17 @@ are iCalendar feeds of the bookings that person may see, 30 days back to a year 
 The feed is reachable without a session (`calendar_feed` in `PUBLIC_ENDPOINTS`); the token is the key, so replacing
 or turning off the link stops the old one. Calendar apps fetch it themselves, so they need to reach the site (VPN);
 web calendars such as Google Calendar fetch from their own servers.
+
+#### Time zones
+
+Planning is in one local time zone, `LOGDB_TIME_ZONE` (default `Europe/Amsterdam`); flights stay in UTC as the logs
+record them. Local (that zone, whatever the browser's): agenda bookings and slots (wall-clock times, `YYYY-MM-DDTHH:MM`,
+no zone stored), Plan flight (its default start and whether a booking deadline has passed), the forecast hours (Open-Meteo
+asked for that zone), the flight times listed in a slot (`takeoff_local`), the slot's requested and reminder times, the
+booking mails (with a `Time zone:` line only for a location in another country than that zone's, from the system's
+`zone.tab`) and the *Flight plan* row of a flight. When the browser's zone differs, the
+agenda says which zone its times are in. UTC: the Logbook, Statistics and a flight's date and takeoff/landing times, which
+show the local time next to them (`time_zone` in `/api/flights/<id>/detail`). The calendar feeds keep floating local times.
 
 #### Outdoor operations
 
