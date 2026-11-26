@@ -72,10 +72,12 @@ window.preflightCheckHTML = function (message) {
 
 // Whether the pre-flight inspection of a logbook entry is recorded (#315; app.py apply_preflight): {short, long, tip, ok}
 // for a logbook cell (short), the flight page (long) and their tooltip; ok is false when it is missing.
+window.LMRA_LABEL = 'Last-minute risk assessment (LMRA)';
 window.PREFLIGHT_SPECIAL_HELP = 'Risks specific to this location, airspace or weather today (NOTAM, other traffic, people nearby, wind limits, ...) and how you mitigate them. Leave empty if nothing is special.';
 window.preflightStatus = function (entry) {
   const status = window.preflightStatusOnly(entry);
-  if (entry.preflight_special) status.tip += '\nSpecial conditions: ' + entry.preflight_special;
+  if (['log', 'confirmed', 'paper'].includes(entry.preflight))
+    status.tip += '\nLMRA: ' + (entry.preflight_special || 'nothing special');
   return status;
 };
 window.preflightStatusOnly = function (entry) {

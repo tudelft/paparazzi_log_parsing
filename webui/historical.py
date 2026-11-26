@@ -12,7 +12,7 @@ import qualifications
 
 COLUMNS = ("aircraft", "pic", "project", "date", "duration_minutes", "flight_count",
            "kind", "takeoff_time", "location", "pac", "gcs", "goal", "comment", "reference", "operator",
-           "category", "authorisation", "preflight", "special")
+           "category", "authorisation", "preflight", "lmra")
 FIELDS = ("drone_id", "pic_user_id", "project_id", "date", "duration_s", "flight_count",
           "kind", "takeoff_time", "place_id", "pac_user_id", "gcs_user_id", "goal", "comment", "reference",
           "operator_id", "category", "authorisation_id", "preflight", "preflight_special")
@@ -20,8 +20,8 @@ COLUMN_OF = dict(zip(FIELDS, COLUMNS))  # stored field -> CSV column
 # Under which operator and rules a record was flown, and whether the pre-flight inspection was recorded: not part of
 # its identity (fingerprint), and a CSV without their columns keeps them.
 ANNOTATIONS = {"operator": ("operator_id",), "category": ("category", "authorisation_id"), "preflight": ("preflight",),
-               "special": ("preflight_special",)}
-SPECIAL_MAX = 1000  # special conditions noted with the pre-flight inspection
+               "lmra": ("preflight_special",)}
+SPECIAL_MAX = 1000  # the last-minute risk assessment (special conditions) noted with the pre-flight inspection
 YES, NO = ("yes", "1", "true"), ("no", "0", "false", "")
 
 
@@ -120,16 +120,17 @@ def validate(con, user, body):
     except categories.CategoryError as exc:
         raise RecordError(str(exc)) from None
     out["preflight"] = preflight_value(body.get("preflight"))
-    out["preflight_special"] = special_value(body.get("preflight_special", body.get("special")))
+    out["preflight_special"] = special_value(body.get("preflight_special", body.get("lmra")))
     return out
 
 
 def special_value(value):
-    """Special conditions of the location, airspace or weather and their mitigation (optional text), or None."""
+    """The last-minute risk assessment (LMRA): special conditions of the location, airspace or weather and their
+    mitigation (optional text), or None."""
     if value is None:
         return None
     if not isinstance(value, str) or len(value) > SPECIAL_MAX:
-        raise RecordError(f"Special conditions must be text of at most {SPECIAL_MAX} characters.")
+        raise RecordError(f"The LMRA must be text of at most {SPECIAL_MAX} characters.")
     return value.strip() or None
 
 

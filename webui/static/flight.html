@@ -416,7 +416,7 @@ async function openEdit(focus) {
     row(f('project', 'Project', `<select name="project">${options([['', 'No project'], ...projectList], editStart.project)}</select>`),
       f('operator', 'Operator', `<select name="operator">${may.operator ? operatorOptions(editStart.operator) : ''}</select>`),
       f('category', 'Category', `<select name="category"><option value="">From project / place / date</option>${may.category ? categoryOptions(authorisations, editStart.category) : ''}</select>`)),
-    row(f('special', 'Special conditions (with the pre-flight inspection)', `<textarea class="comment" name="special" maxlength="1000" rows="2" title="${esc(PREFLIGHT_SPECIAL_HELP)}" placeholder="Nothing special">${esc(editStart.special)}</textarea>`, true)),
+    row(f('special', LMRA_LABEL, `<textarea class="comment" name="special" maxlength="1000" rows="2" title="${esc(PREFLIGHT_SPECIAL_HELP)}" placeholder="Nothing special">${esc(editStart.special)}</textarea>`, true)),
     row(f('comment', 'Comment', `<textarea class="comment" name="comment" maxlength="4000" rows="3">${esc(editStart.comment)}</textarea>`, true)),
   ].join('');
   if (may.date && !set) editStart.date = $('editFields').querySelector('[name=date]').value;  // unchanged unless edited
@@ -458,7 +458,7 @@ async function saveEdit(event) {
     ['aircraft', (out, fallback) => send(`/api/flights/${flightId}/aircraft`, 'PUT', {drone_id: id('aircraft')}, out, fallback), 'Could not save the aircraft'],
   ].filter(([key]) => key && changed.includes(key));
   if (changed.includes('special') && value('preflight') !== '1') {
-    $('editFields').querySelector('[data-error="special"]').textContent = 'Set the pre-flight inspection to Completed to save special conditions.';
+    $('editFields').querySelector('[data-error="special"]').textContent = 'Set the pre-flight inspection to Completed to save the LMRA.';
     return;
   }
   $('editSave').disabled = true;
@@ -715,8 +715,7 @@ function renderSummary() {
           + (e.category_check ? ` <span class="warn">${esc(e.category_check)}</span>` : ''))}
         ${ekv('verdict', 'Classification', esc(VERDICT_LABEL[e.verdict] || 'Unknown') + ` <span class="mute">${e.verdict_override ? 'set by hand' : 'automatic'}</span>`)}
         ${ekv('preflight', 'Pre-flight', preflightHTML(e))}
-        ${e.preflight_special ? (e.preflight === 'confirmed' ? ekv('special', 'Special conditions', `<span class="note">${esc(e.preflight_special)}</span>`)
-          : kv('Special conditions', `<span class="note">${esc(e.preflight_special)}</span>`)) : ''}
+        ${lmraRow(e)}
         ${operationRow(D.operation)}
       </div></div>
     </div>
@@ -758,10 +757,19 @@ function preflightHTML(e) {
   return text + (e.preflight == null && mayEdit('preflight')
     ? ' <button type="button" class="small" onclick="confirmPreflight()">Confirm…</button>' : '');
 }
+// The last-minute risk assessment (special conditions) of every outdoor flight: its text, "Nothing special" when the
+// inspection is recorded without one, or Not recorded; indoor flights and simulations need none.
+function lmraRow(e) {
+  if (e.preflight === 'not_needed') return '';
+  const value = e.preflight_special ? `<span class="note">${esc(e.preflight_special)}</span>`
+    : e.preflight ? '<span class="mute">Nothing special</span>' : '<span style="color:var(--warn);font-weight:600">Not recorded</span>';
+  const label = `<span title="${esc(LMRA_LABEL + ': ' + PREFLIGHT_SPECIAL_HELP)}">LMRA</span>`;  // short: the label column stays narrow
+  return e.preflight === 'confirmed' ? ekv('special', label, value) : kv(label, value);
+}
 function confirmPreflight() {
   actionDialog('Confirm the pre-flight inspection', '<p>Confirm that the pre-flight inspection of this flight was completed? '
     + 'It is saved with your name and the time; Edit flight takes it back.</p>'
-    + `<label class="field">Special conditions<textarea id="preflightSpecial" class="comment" maxlength="1000" rows="3" placeholder="Nothing special"></textarea>`
+    + `<label class="field">${LMRA_LABEL}<textarea id="preflightSpecial" class="comment" maxlength="1000" rows="3" placeholder="Nothing special"></textarea>`
     + `<span class="mute" style="font-size:12px">${esc(PREFLIGHT_SPECIAL_HELP)}</span></label>`, 'Confirm', async out => {
     const special = $('preflightSpecial').value.trim();
     for (const fid of sourceIds(D.entry))

@@ -551,9 +551,11 @@ events omitted by older parsers and attach full descriptions; older stored messa
   record does not require it. The one-time fix `preflight_paper_done_before_recording` ticked every record from
   before #315. CSV column `preflight`
   (`yes`/`no`/blank), kept when the column is missing. The tick is not part of the record's fingerprint.
-- `preflight_special`: the special conditions noted with it: the last non-empty answer to the checklist item
-  `special` (`log`), `flights.preflight_special` (`"special"` with the confirmation, at most 1000 characters; cleared
-  when it is taken back) or `flight_records.preflight_special` (form, CSV column `special`).
+- `preflight_special`: the last-minute risk assessment (LMRA, the special conditions) noted with it: the last
+  non-empty answer to the checklist item `special` (`log`), `flights.preflight_special` (`"special"` with the
+  confirmation, at most 1000 characters; cleared when it is taken back) or `flight_records.preflight_special` (form,
+  CSV column `lmra`). Export CSV calls it `lmra`; the flight page shows *Nothing special* for an empty one with a
+  recorded inspection.
 - `not_needed`: nothing recorded, and the category is `indoor` (an indoor place, motion capture, or no GPS) or the
   flight is a simulation.
 - `null`: not recorded.
