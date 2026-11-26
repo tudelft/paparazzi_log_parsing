@@ -126,7 +126,14 @@ class ApiKeyScopeTests(AppTests):
                    # training access extensions (training.py) and outdoor operations (operations.py): browser session
                    "request_extension", "withdraw_extension", "review_extension", "test_access_mail",
                    "operation_prepare", "plan_flight", "join_slot", "edit_team", "leave_slot", "move_slot", "review_team",
-                   "link_flight", "set_external"}
+                   "link_flight", "set_external",
+                   # flight goal and fleet aircraft: browser session (comment and crew are logs:edit)
+                   "set_flight_goal", "set_flight_aircraft",
+                   # Home (home.py), notices, emergency procedures and the welcome message (welcome.py)
+                   "set_home_cards", "set_home_place", "dismiss_home_message", "add_notice", "edit_notice",
+                   "delete_notice", "upload_emergency", "remove_emergency", "save_welcome",
+                   # Training order, booking review and moving an account off single sign-on
+                   "training_order", "review_booking", "admin_remove_sso"}
         unmapped = {rule.endpoint for rule in self.app.url_map.iter_rules()
                     if rule.rule.startswith("/api/") and rule.methods - {"GET", "HEAD", "OPTIONS"}
                     and rule.endpoint not in scopes.READ_POSTS | scopes.WRITE_ANY

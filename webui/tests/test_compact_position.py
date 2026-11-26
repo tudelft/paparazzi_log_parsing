@@ -188,8 +188,12 @@ class CompactPositionTests(unittest.TestCase):
             "4 5 ROTORCRAFT_STATUS 13 0 230",
         ])
         self.assertEqual(flight["duration_s"], 4)
-        self.assertEqual(len(flight["path"]), 2)
-        first, last = flight["path"]
+        # the air data before the first position is a sensor-only point (no latitude/longitude, see
+        # sample_without_position in the parser); the early positions follow once the reference arrives
+        self.assertEqual(len(flight["path"]), 3)
+        sensors, first, last = flight["path"]
+        self.assertEqual((sensors["time_s"], sensors["position"]["lat"]), (0.5, None))
+        self.assertEqual(sensors["airspeed"]["eas_ms"], 20)
         self.assertAlmostEqual(first["position"]["gps_alt_m"], -20, delta=.05)
         self.assertAlmostEqual(first["position"]["lat"], 0, delta=1e-6)
         self.assertAlmostEqual(last["position"]["lon"], 90.0008983, delta=1e-6)

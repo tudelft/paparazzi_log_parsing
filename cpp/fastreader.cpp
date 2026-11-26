@@ -1323,7 +1323,7 @@ std::string ins_json(const InsState &n)
 
 // Bump when the content or meaning of the JSON output changes so stored results can be recognised as outdated
 constexpr const char *PARSER_NAME = "fastreader";
-constexpr const char *PARSER_VERSION = "1.16.0";
+constexpr const char *PARSER_VERSION = "1.16.1";
 
 struct GpsClock {
   size_t count = 0;
@@ -1907,9 +1907,12 @@ int main(int argc, char *argv[])
       f.stats.add_gps(s.lat, s.lon, s.alt);
       f.add_gps_step(s.lat, s.lon);
     }
-    if (path_rate > 0 && s.in_flight && !s.flights.empty() && !navigation &&
-        static_cast<long>(t * path_rate) == s.last_path_bucket &&
-        !s.flights.back().path.empty() && s.flights.back().path.back().navigation_position) {
+    // a position replaces a point of the same path slot without one (sensors only, e.g. the attitude of the same
+    // ROTORCRAFT_FP message) and a GPS position replaces a NAVIGATION one
+    if (path_rate > 0 && s.in_flight && !s.flights.empty() &&
+        static_cast<long>(t * path_rate) == s.last_path_bucket && !s.flights.back().path.empty() &&
+        (std::isnan(s.flights.back().path.back().lat) ||
+         (!navigation && s.flights.back().path.back().navigation_position))) {
       s.flights.back().path.pop_back();
       s.last_path_bucket = -1;
     }

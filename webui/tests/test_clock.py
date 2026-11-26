@@ -1,4 +1,5 @@
 import json
+import re
 import sqlite3
 import subprocess
 import tempfile
@@ -11,6 +12,9 @@ from . import test_historical
 
 
 PARSER = Path(__file__).resolve().parents[2] / "cpp/build/paparazzi_log_parsing"
+# the version in the parser's source: a binary that reports another one is an old build
+SOURCE_VERSION = re.search(r'PARSER_VERSION = "([^"]+)"',
+                           (Path(__file__).resolve().parents[2] / "cpp/fastreader.cpp").read_text()).group(1)
 GPS_EPOCH = datetime(1980, 1, 6, tzinfo=timezone.utc)
 START = datetime(2023, 9, 8, 14, 25, tzinfo=timezone.utc)
 
@@ -42,7 +46,7 @@ class ParserClockTests(unittest.TestCase):
     def setUp(self):
         self.assertTrue(PARSER.exists(), "Build the C++ parser first")
         version = subprocess.check_output([str(PARSER), "--version"], text=True).strip()
-        self.assertEqual(version, "1.10.0", "Rebuild the parser before running clock tests")
+        self.assertEqual(version, SOURCE_VERSION, "Rebuild the parser before running clock tests")
 
     def samples(self, start=START, ac=5, fix=3, message="GPS"):
         return [gps_line(t, start + timedelta(seconds=t), ac, fix, message) for t in (0, 20, 40, 60)]

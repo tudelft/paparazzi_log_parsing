@@ -760,8 +760,9 @@ class FileNameAliasTests(AppTests):
         aliases = {r[0] for r in self.con.execute("SELECT alias FROM drone_aliases WHERE drone_id=10")}
         self.assertEqual(aliases, {"CINERAT T2 frame"})
         self.sign_in(1)
-        detail = self.ns["detail_aircraft"](self.con, 10, True, set())
-        self.assertEqual(detail["logged_names"], ["CINERAT T2 frame"])
+        response = self.client.get("/api/detail/aircraft/10")  # detail_aircraft needs the signed-in user (g.user)
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json["item"]["logged_names"], ["CINERAT T2 frame"])
 
     def test_old_file_name_aliases_are_removed_at_start(self):
         self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'CINERAT T2','TUD00907','now')")
