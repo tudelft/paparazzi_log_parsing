@@ -309,6 +309,14 @@ const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'O
 const HOUR = 40;
 let me, monday, tab = 'all', data = {things: [], bookings: []}, editing = null, editingItem = null, ops = null, slotFromUrl = 0;
 const isOps = t => !!t && t.kind === 'operations';
+// The agenda's times are local wall-clock times in the server's time zone (LOGDB_TIME_ZONE, data.time_zone), whatever
+// the browser's zone is: inTz gives a moment as YYYY-MM-DDTHH:MM there.
+const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+function inTz(moment) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {timeZone: data.time_zone || browserTz, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'}).formatToParts(new Date(moment)).map(p => [p.type, p.value]));
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
 async function api(url, opt) {
   const r = await fetch(url, opt);
   const d = await r.json().catch(() => ({}));
@@ -445,6 +453,7 @@ function paintAbout() {
     if (t.needs_approval) parts.push(t.can_approve ? 'Bookings need approval: you approve or reject requests, and your own bookings are approved at once.'
       : 'Bookings need approval by an administrator or approver; your request keeps its time until then.');
   }
+  if (data.time_zone && data.time_zone !== browserTz) parts.push(`Times are ${esc(data.time_zone)} (your computer uses ${esc(browserTz)}).`);
   $('about').innerHTML = parts.join(' · ');
   const legend = t ? [] : single() ? [] : data.things.filter(x => x.can_view && x.colour).map(x => [x.colour, x.name]);
   $('legend').innerHTML = legend.map(([c, label]) => `<span><i style="--c:${esc(c)}"></i>${esc(label)}</span>`).join('');
@@ -836,7 +845,7 @@ async function openPlan(start, end, slot, team) {
   if (slot) $('planSlot').textContent = `${slot.place} · ${span(slot.start, slot.end)}`;
   $('planPlaceField').hidden = $('planTimes').hidden = !!slot;
   f.place_id.innerHTML = ops.places.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
-  if (!start) { const d = new Date(); d.setHours(d.getHours() + 24, 0, 0, 0); start = local(d); }
+  if (!start) { const d = new Date(inTz(new Date())); d.setHours(d.getHours() + 24, 0, 0, 0); start = local(d); }
   if (!end) { const d = new Date(start); d.setHours(d.getHours() + 3); end = local(d); }
   f.start.value = start; f.end.value = end;
   f.project_id.innerHTML = ops.projects.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
@@ -875,7 +884,7 @@ function paintBookingNote(place, start) {
   el.hidden = !b || !!joining;
   if (el.hidden) return;
   const due = b.lead_hours != null ? local(new Date(new Date(start).getTime() - b.lead_hours * 3600e3)) : null;
-  const late = due && due < local(new Date());
+  const late = due && due < inTz(new Date());
   el.innerHTML = `${esc(place.name)} is booked${b.provider ? ' at ' + esc(b.provider) : ''}: saving mails the request to <strong>${esc(b.mail_to)}</strong>.`
     + (due ? ` Book at least ${b.lead_hours} h ahead, before <strong>${esc(span(due, due).split('–')[0])}</strong>.` : '')
     + (late ? ' <strong>That deadline has passed</strong>: the request still goes, but ask them directly as well.' : '');
@@ -948,7 +957,7 @@ async function openSlot(id) {
   slotOpen = slot;
   $('slotTitle').textContent = `${slot.place} · ${span(slot.start, slot.end)}`;
   const label = {approved: 'Booked', pending: 'Waiting for approval', rejected: 'Not approved'};
-  const x = slot.external, utc = t => t ? new Date(t).toLocaleString('en-GB', {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'}) : '';
+  const x = slot.external, utc = t => t ? span(inTz(t), inTz(t)).split('–')[0] : '';
   const extHTML = x ? `<dl class="op-ext"><dt>${esc(x.provider || 'External booking')}</dt><dd><span class="op-st ${x.status === 'booked' ? 'approved' : 'pending'}">${x.status === 'booked' ? 'Booked' : 'Requested'}</span>
       ${x.status === 'booked' ? `${esc(x.ref)} · entered by ${esc(x.booked_by || '?')}` : 'not booked yet'}
       ${x.can_set ? ` <button type="button" class="sec" style="padding:1px 8px;font-size:12px" onclick="setBookingNumber()">${x.status === 'booked' ? 'Edit…' : 'Enter booking number…'}</button>` : ''}</dd>
@@ -983,11 +992,11 @@ async function openSlot(id) {
 }
 // A flight in the slot: its local takeoff time (and date when another day), linked by hand or matched.
 function flightTime(f) {
-  if (!f.takeoff_utc) return 'Flight ' + f.flight_id;
-  const d = new Date(f.takeoff_utc), t = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  return isoDate(d) === slotOpen.start.slice(0, 10) ? t : `${isoDate(d)} ${t}`;
+  if (!f.takeoff_local) return 'Flight ' + f.flight_id;
+  const t = f.takeoff_local.slice(11);
+  return f.takeoff_local.slice(0, 10) === slotOpen.start.slice(0, 10) ? t : `${f.takeoff_local.slice(0, 10)} ${t}`;
 }
-const flightTip = f => [`Flight ${f.flight_id}`, f.aircraft, f.pic ? 'PIC ' + f.pic : '', f.automatic ? 'matched by place, time and crew or aircraft' : 'linked by hand'].filter(Boolean).join(' · ');
+const flightTip = f => [`Flight ${f.flight_id}`, f.takeoff_utc ? 'takeoff ' + f.takeoff_utc.slice(11, 19) + 'Z' : '', f.aircraft, f.pic ? 'PIC ' + f.pic : '', f.automatic ? 'matched by place, time and crew or aircraft' : 'linked by hand'].filter(Boolean).join(' · ');
 async function linkFlight(teamId, flightId, action) {
   try { await api(`/api/operations/teams/${teamId}/flights`, json('POST', {flight_id: flightId, action})); }
   catch (e) { $('slotError').textContent = e.message; return; }

@@ -261,6 +261,12 @@ class OperationsTests(AppTests):
                       f"Book by: {(datetime.date.fromisoformat(DAY) - datetime.timedelta(days=1)).isoformat()} 10:00\n",
                       request["body"])
         self.assertTrue(request["body"].endswith(f"Reference: S{bid}"), request["body"])
+        self.assertNotIn("Time zone:", request["body"])  # no country set for the location
+        self.con.execute("UPDATE places SET country='BE' WHERE id=1")  # another country than the agenda's zone
+        self.assertIn("\nTime zone: Europe/Amsterdam\n", operations.booking_mail(self.con, bid, "reminder")[1])
+        self.con.execute("UPDATE places SET country='NL' WHERE id=1")
+        self.assertNotIn("Time zone:", operations.booking_mail(self.con, bid, "reminder")[1])
+        self.con.commit()
         ext = self.client.get(f"/api/operations/{bid}").json["external"]
         self.assertEqual((ext["status"], ext["ref"], ext["can_set"]), ("requested", None, False))
         self.assertEqual(self.client.post(f"/api/operations/{bid}/external", json={"ref": "48213"}).status_code, 403)

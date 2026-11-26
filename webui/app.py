@@ -7306,7 +7306,7 @@ def flight_detail(flight_id):
     versions, from_gcs = with_gcs_autopilot_fallback(json.loads(row["autopilot_versions"] or "[]"), row["log_path"])
     return gzip_json(jsonify(
         entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
-        operation=operations.flight_operation(con, entry),
+        operation=operations.flight_operation(con, entry), time_zone=operations.zone().key,
         previous_flight_id=previous_flight_id, next_flight_id=next_flight_id,
         aircraft_pk=row["aircraft_pk"],
         timing=log_timing(row),
