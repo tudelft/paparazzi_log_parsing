@@ -280,7 +280,9 @@ as wide as the maximum height; the location's area and height unless you draw yo
 the buffer leaves the location; admins set each location's area and height in Locations. It also shows the weather forecast, red/green
 checks of the qualifications and the aircraft for that day, and the NOTAM check; these are saved with your team. Other
 teams **Join** a slot instead of booking their own (one booking, a shared field); the slot goes when its last team
-leaves. Who may plan, and whether it needs approval, depends on your qualifications (**Edit item**). Rules:
+leaves. Flights uploaded later at that location and time, by a team's PIC, crew or aircraft, appear in the slot (link or
+unlink others there by hand), and the flight page shows its flight plan, or *Not planned* at a bookable location. Who
+may plan, and whether it needs approval, depends on your qualifications (**Edit item**). Rules:
 [technical guide](TECHNICAL.md#outdoor-operations).
 
 ## Documents

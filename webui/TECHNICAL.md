@@ -866,6 +866,7 @@ a missing parser, unwritable directories and http/https mismatches. `install.sh`
 | `BOOKINGS` | `0` | `1` shows the [Agenda](#booking-agenda) of bookable items |
 | `OPERATIONS` | `0` | `1` adds [Outdoor operations](#outdoor-operations) to the Agenda (needs `BOOKINGS`) |
 | `NOTAM_URL` | (empty) | Page that Plan flight links to for checking NOTAMs and drone zones; empty: no link |
+| `TIME_ZONE` | `Europe/Amsterdam` | Time zone of the Agenda's local times, to match uploaded flights (UTC) to [outdoor operation](#outdoor-operations) slots |
 | `DOCUMENTS` | `0` | `1` shows [Documents](#documents): shared documents and each person's own qualifications |
 | `SAFETY` | `0` | `1` shows [Safety](#safety) (`/safety`): danger, incident and accident reports. The Operations Manual links `/safety`: keep it on in production (`check-config` warns when it is off) |
 | `VIEW_AS` | `0` | `1` lets administrators [view as another user](#view-as-another-user) |
@@ -1706,6 +1707,19 @@ local flat projection whether the area with its buffer stays inside the location
 the dialog shows the map (Leaflet, Turf for the buffer outline, loaded only when needed) with the verdict. A buffer
 outside only warns. The team stores `height_m`, `flight_area`, `buffer_m`, `buffer_method` and `buffer_inside` in its
 own columns and in the preparation (`area`), which the slot dialog shows with the map.
+
+**Flights.** A slot's flights are matched when they are shown (`operations.slot_flights`, from the viewer's logbook
+read model, so only flights they may see): telemetry flights that took off or landed at the slot's location within its
+time (local times in `LOGDB_TIME_ZONE`, 30 minutes before and after), each to the first team whose PIC or crew is the
+flight's PIC, PAC or GCS operator, or whose aircraft flew it. Flights there that match no team are listed as *Other
+flights here*. The team's PIC, whoever added it, administrators and approvers link a flight to a team by hand or keep
+it out (`POST /api/operations/teams/<id>/flights`, `flight_id`, `action` link or unlink; a link takes the flight from
+any other team, also of another slot). These decisions (`operation_flight_links`) address a flight by log, ac_id and
+parser flight number with its takeoff time, like the paper-record links, so they survive a re-parse and a renumbered
+flight drops its stale link. The slot dialog lists each team's flights (✕ keeps one out) and the other flights with
+*Link to …*; the flight page (`operation` in `/api/flights/<id>/detail`) shows **Flight plan**: the slot (a link that opens
+it, `slot=` in the agenda URL), the team, its height and buffer and whether it was matched or linked by hand, or
+*Not planned* for a flight at a bookable location without one.
 
 The preparation is taken when a team books, joins or is edited, and stored with it: the weather forecast for the slot
 (`weather.forecast_window`, Open-Meteo hourly, up to 16 days ahead, cached 30 minutes per position; later slots say so),
