@@ -507,6 +507,20 @@ CREATE TABLE IF NOT EXISTS operation_teams (
     buffer_inside INTEGER CHECK(buffer_inside IN (0,1))  -- the area with its buffer stays inside the location
 );
 CREATE INDEX IF NOT EXISTS ix_operation_teams ON operation_teams(booking_id);
+-- Flights linked to (or kept out of) a team by hand; others match automatically by place, time and people/aircraft.
+-- A flight is addressed like in flight_links (log, ac_id, parser flight number, takeoff time), which survives a re-parse.
+CREATE TABLE IF NOT EXISTS operation_flight_links (
+    team_id INTEGER NOT NULL REFERENCES operation_teams(id) ON DELETE CASCADE,
+    log_id INTEGER NOT NULL REFERENCES logs(id) ON DELETE CASCADE,
+    ac_id INTEGER NOT NULL,            -- -1 when the log has none
+    flight_idx INTEGER NOT NULL,
+    takeoff_utc TEXT,                  -- to notice a re-parse that numbered the flights differently
+    decision TEXT NOT NULL CHECK(decision IN ('linked','unlinked')),
+    decided_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    decided_at TEXT NOT NULL,
+    PRIMARY KEY (team_id, log_id, ac_id, flight_idx)
+);
+CREATE INDEX IF NOT EXISTS ix_operation_flight_links ON operation_flight_links(log_id, ac_id, flight_idx);
 CREATE TABLE IF NOT EXISTS operation_crew (
     team_id INTEGER NOT NULL REFERENCES operation_teams(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1198,7 +1212,7 @@ LOGBOOK_UNRELATED = {
     "api_keys", "cli_logins", "drone_requests", "password_setup_tokens", "ingest", "bulk_reservations", "weather_cache",
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
     "training_progress", "training_briefers", "training_extensions", "booking_things", "booking_thing_rules",
-    "operation_slots", "operation_teams", "operation_crew", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
+    "operation_slots", "operation_teams", "operation_crew", "operation_flight_links", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
     "welcome_message", "welcome_seen", "notices", "notice_roles", "notice_dismissals", "document_settings", "document_groups", "documents", "document_profile_roles", "document_qualification_types",
     "safety_settings", "safety_reports", "safety_emergency",
     "mail_outbox", "mail_prefs", "mail_sent_keys",

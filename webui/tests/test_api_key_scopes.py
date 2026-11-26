@@ -125,7 +125,8 @@ class ApiKeyScopeTests(AppTests):
                    "order_questions", "upload_question_image", "upload_reading_file", "remove_reading_file",
                    # training access extensions (training.py) and outdoor operations (operations.py): browser session
                    "request_extension", "withdraw_extension", "review_extension", "test_access_mail",
-                   "operation_prepare", "plan_flight", "join_slot", "edit_team", "leave_slot", "move_slot", "review_team"}
+                   "operation_prepare", "plan_flight", "join_slot", "edit_team", "leave_slot", "move_slot", "review_team",
+                   "link_flight"}
         unmapped = {rule.endpoint for rule in self.app.url_map.iter_rules()
                     if rule.rule.startswith("/api/") and rule.methods - {"GET", "HEAD", "OPTIONS"}
                     and rule.endpoint not in scopes.READ_POSTS | scopes.WRITE_ANY

@@ -7298,6 +7298,7 @@ def flight_detail(flight_id):
     versions, from_gcs = with_gcs_autopilot_fallback(json.loads(row["autopilot_versions"] or "[]"), row["log_path"])
     return gzip_json(jsonify(
         entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
+        operation=operations.flight_operation(con, entry),
         previous_flight_id=previous_flight_id, next_flight_id=next_flight_id,
         aircraft_pk=row["aircraft_pk"],
         timing=log_timing(row),
@@ -8341,7 +8342,7 @@ training.register(app, lambda: conn(), DATA_DIR, session_required)
 profiles.register(app, lambda: conn(), session_required, now, PAGES_DIR)
 welcome.register(app, lambda: conn(), session_required, now, PAGES_DIR)
 bookings.register(app, lambda: conn(), session_required, PAGES_DIR)
-operations.register(app, lambda: conn(), session_required)
+operations.register(app, lambda: conn(), session_required, lambda: logbook_rows())
 documents.register(app, lambda: conn(), STORAGE_DIR, PAGES_DIR)
 safety.register(app, lambda: conn(), STORAGE_DIR, PAGES_DIR, session_required)
 

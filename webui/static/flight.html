@@ -702,6 +702,7 @@ function renderSummary() {
         ${ekv('category', 'Category', esc(categoryText(e)) + (e.category_source === 'flight' ? '' : ` <span class="mute">${CATEGORY_SOURCE[e.category_source] || 'no rule applies'}</span>`)
           + (e.category_check ? ` <span class="warn">${esc(e.category_check)}</span>` : ''))}
         ${ekv('verdict', 'Classification', esc(VERDICT_LABEL[e.verdict] || 'Unknown') + ` <span class="mute">${e.verdict_override ? 'set by hand' : 'automatic'}</span>`)}
+        ${operationRow(D.operation)}
       </div></div>
     </div>
     <div class="comment-block"><h3>Comment</h3>${editVal('comment', e.comment ? `<span class="note">${esc(e.comment)}</span>` : '<span class="mute">No comment</span>')}</div></div>
@@ -725,6 +726,16 @@ function renderSummary() {
   drawOverviewMap();
 }
 
+// Outdoor operations: the slot and team this flight belongs to, with its planned height and 1:1 buffer, or that a
+// flight at a bookable location was not planned.
+function operationRow(o) {
+  if (!o) return '';
+  if (o.missing) return kv('Flight plan', `<span style="color:var(--warn);font-weight:600">Not planned</span> <span class="mute">no outdoor operation booked at ${esc(o.missing)} for this time</span>`);
+  const when = `${o.start.slice(0, 10)} ${o.start.slice(11)}–${o.end.slice(0, 10) === o.start.slice(0, 10) ? o.end.slice(11) : o.end.replace('T', ' ')}`;
+  const buffer = o.buffer_m ? ` · height ${o.height_m} m, buffer ${Math.round(o.buffer_m)} m (1:1) ${o.buffer_inside ? '<span style="color:var(--ok)">✓ inside</span>' : o.buffer_inside === false ? '<span style="color:var(--err);font-weight:600">! crossed the boundary</span>' : ''}` : '';
+  return kv('Flight plan', `<a href="/agenda?item=${o.thing_id}&amp;week=${esc(o.start.slice(0, 10))}&amp;slot=${o.booking_id}">${esc(o.place)}, ${esc(when)} local</a> · team ${esc(o.pic)}${buffer}`
+    + ` <span class="mute">${o.automatic ? '(matched)' : '(linked by hand)'}</span>`);
+}
 const pt = i => D.path[i];
 const alt = p => p.ins?.position_ned_m ? -p.ins.position_ned_m.down
   : p.position?.source === 'navigation' ? null

@@ -133,6 +133,9 @@
   .op-legend { display:flex; gap:12px; font-size:12px; color:var(--mute); margin-top:4px; flex-wrap:wrap; }
   .op-legend i { display:inline-block; width:14px; height:8px; margin-right:4px; border:2px solid; }
   .op-area-ok { color:var(--ok); font-weight:600; } .op-area-bad { color:var(--err); font-weight:600; }
+  .op-flights { font-size:12px; color:var(--mute); margin-top:3px; }
+  .op-flights a { white-space:nowrap; }
+  .op-flights button { background:none; color:var(--mute); padding:0 3px; font-size:12px; }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -300,7 +303,7 @@ const local = d => `${isoDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const DAY = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const HOUR = 40;
-let me, monday, tab = 'all', data = {things: [], bookings: []}, editing = null, editingItem = null, ops = null;
+let me, monday, tab = 'all', data = {things: [], bookings: []}, editing = null, editingItem = null, ops = null, slotFromUrl = 0;
 const isOps = t => !!t && t.kind === 'operations';
 async function api(url, opt) {
   const r = await fetch(url, opt);
@@ -391,6 +394,7 @@ async function load() {
     window.viewState.save();
   }
   paint(true);
+  if (slotFromUrl) { const id = slotFromUrl; slotFromUrl = 0; window.viewState.save(); openSlot(id); }
 }
 function colourOf(b) {  // the item's colour; options show as tags with their own colour
   return item(b.thing_id).colour || 'var(--acc)';
@@ -926,7 +930,8 @@ async function openSlot(id) {
   $('slotTitle').textContent = `${slot.place} · ${span(slot.start, slot.end)}`;
   const label = {approved: 'Booked', pending: 'Waiting for approval', rejected: 'Not approved'};
   $('slotBody').innerHTML = `<table class="op-teams"><tr><th>PIC</th><th>Project</th><th>Crew</th><th>Aircraft</th><th></th><th></th></tr>${slot.teams.map(t => `
-    <tr><td><strong>${esc(t.pic)}</strong>${t.goal ? `<div class="mute" style="font-size:12px">${esc(t.goal)}</div>` : ''}</td><td>${esc(t.project || '–')}</td>
+    <tr><td><strong>${esc(t.pic)}</strong>${t.goal ? `<div class="mute" style="font-size:12px">${esc(t.goal)}</div>` : ''}
+      <div class="op-flights">${t.flights.length ? 'Flights: ' + t.flights.map(f => `<a href="/flight/${f.flight_id}" title="${esc(flightTip(f))}">${esc(flightTime(f))}</a>${t.can_link ? `<button type="button" title="Not this team's flight" aria-label="Unlink flight ${f.flight_id}" onclick="linkFlight(${t.id}, ${f.flight_id}, 'unlink')">✕</button>` : ''}`).join(' ') : 'No flights linked yet'}</div></td><td>${esc(t.project || '–')}</td>
       <td>${esc(t.crew.map(c => c.name).join(', ') || '–')}</td><td>${esc(t.drone || '–')}</td>
       <td><span class="op-st ${t.status}" title="${esc(t.review_note || '')}">${label[t.status]}</span></td>
       <td class="acts"><button type="button" class="sec" onclick="toggleSlotPrep(${t.id})" aria-expanded="${slotPrep === t.id}">Preparation ${slotPrep === t.id ? '▾' : '▸'}</button>
@@ -939,6 +944,11 @@ async function openSlot(id) {
       <section class="op-sec"><h3>Checks</h3>${checksHTML(t.preparation.checks)}</section>
       <section class="op-sec"><h3>Airspace and NOTAMs</h3>${t.preparation.notam && t.preparation.notam.checked ? '✓ Checked' : '! Not checked'}${t.preparation.notam && t.preparation.notam.reference ? ' · ' + esc(t.preparation.notam.reference) : ''}</section>
       </div></div></td></tr>` : ''}`).join('')}</table>`;
+  const linkable = slot.teams.filter(t => t.can_link && t.status !== 'rejected');
+  if (slot.other_flights.length) $('slotBody').insertAdjacentHTML('beforeend', `<h3 style="margin:12px 0 4px;font-size:14px">Other flights here</h3>
+    <p class="mute" style="margin:0 0 4px;font-size:12px">At ${esc(slot.place)} during the slot, but not by a team's PIC, crew or aircraft.</p>
+    <table class="op-teams">${slot.other_flights.map(f => `<tr><td><a href="/flight/${f.flight_id}">${esc(flightTime(f))}</a></td><td>${esc(f.aircraft || '–')}</td><td>${esc(f.pic || '–')}</td>
+      <td class="acts">${linkable.map(t => `<button type="button" class="sec" onclick="linkFlight(${t.id}, ${f.flight_id}, 'link')">Link to ${esc(t.pic)}</button>`).join(' ')}</td></tr>`).join('')}</table>`);
   $('slotActions').innerHTML = (slot.can_join ? '<button type="button" class="primary" onclick="openPlan(null, null, slotOpen)">Join this slot…</button> ' : '')
     + (slot.can_move ? '<button type="button" class="sec" onclick="moveSlot()">Change time…</button> ' : '')
     + `<button type="button" class="sec" onclick="$('slotDialog').close()">Close</button>`;
@@ -946,6 +956,18 @@ async function openSlot(id) {
   if (!$('slotDialog').open) $('slotDialog').showModal();
   const shown = slotPrep && slot.teams.find(t => t.id === slotPrep);
   if (shown) needMap().then(() => { const m = newMap('prepMap'); drawArea(m, L.layerGroup().addTo(m), slot.geometry.shape, shown.preparation.area); }).catch(() => {});
+}
+// A flight in the slot: its local takeoff time (and date when another day), linked by hand or matched.
+function flightTime(f) {
+  if (!f.takeoff_utc) return 'Flight ' + f.flight_id;
+  const d = new Date(f.takeoff_utc), t = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return isoDate(d) === slotOpen.start.slice(0, 10) ? t : `${isoDate(d)} ${t}`;
+}
+const flightTip = f => [`Flight ${f.flight_id}`, f.aircraft, f.pic ? 'PIC ' + f.pic : '', f.automatic ? 'matched by place, time and crew or aircraft' : 'linked by hand'].filter(Boolean).join(' · ');
+async function linkFlight(teamId, flightId, action) {
+  try { await api(`/api/operations/teams/${teamId}/flights`, json('POST', {flight_id: flightId, action})); }
+  catch (e) { $('slotError').textContent = e.message; return; }
+  openSlot(slotOpen.id);
 }
 function toggleSlotPrep(id) { slotPrep = slotPrep === id ? null : id; openSlot(slotOpen.id); }
 function decideTeam(id, action) {
@@ -1116,7 +1138,9 @@ window.viewState.setup(p => {
   const d = raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(raw + 'T00:00') : new Date();
   monday = mondayOf(isNaN(d) ? new Date() : d);
   tab = /^\d+$/.test(p.get('item') || '') ? p.get('item') : 'all';
+  slotFromUrl = /^\d+$/.test(p.get('slot') || '') ? +p.get('slot') : 0;
 }, p => {
+  if (!slotFromUrl) p.delete('slot');
   window.viewState.set(p, 'week', isoDate(monday) === isoDate(mondayOf(new Date())) ? '' : isoDate(monday), '');
   window.viewState.set(p, 'item', tab === 'all' ? '' : tab, '');
 }, load);

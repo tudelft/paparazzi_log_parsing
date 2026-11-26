@@ -182,6 +182,56 @@ class OperationsTests(AppTests):
         self.assertEqual(self.con.execute("SELECT buffer_inside FROM operation_teams").fetchone()[0], 0)
         self.assertTrue(self.client.get(f"/api/operations/{r.json['id']}").json["teams"][0]["own_area"])
 
+    def flight(self, ident, local, pic=None, log=None):
+        """A logged flight over the location (52, 4) taking off at a local time of DAY (LOGDB_TIME_ZONE)."""
+        from zoneinfo import ZoneInfo
+        log = log or ident
+        if not self.con.execute("SELECT 1 FROM logs WHERE id=?", (log,)).fetchone():
+            self.con.execute("INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,log_type)"
+                             " VALUES(?,?,?,'test.data','done','now',2,1,'onboard_sd')", (log, f"log{log}", f"sha{log}"))
+            self.con.execute("INSERT INTO aircraft(id,log_id,drone_id,name,ac_id) VALUES(?,?,1,'Drone',7)", (log, log))
+        at = datetime.datetime.fromisoformat(f"{DAY}T{local}").replace(tzinfo=ZoneInfo("Europe/Amsterdam"))
+        utc = at.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        self.con.execute("INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,landing_utc,takeoff_lat,takeoff_lon,"
+                         "landed,verdict,has_gps_position,pic_user_id) VALUES(?,?,?,300,?,?,52,4,1,'flight',1,?)",
+                         (ident, log, ident, utc, utc, pic))
+        self.con.commit()
+
+    def test_flights_linked_to_teams(self):
+        self.sign_in(2)
+        bid = self.plan().json["id"]  # 10:00-14:00 local, PIC Pilot (2)
+        self.flight(11, "10:30", pic=2)  # the team's PIC: linked
+        self.flight(12, "13:50", pic=4)  # someone else: there, but no team
+        self.flight(13, "16:00", pic=2)  # after the slot and its margin
+        slot = self.client.get(f"/api/operations/{bid}").json
+        team = slot["teams"][0]
+        self.assertEqual([(f["flight_id"], f["automatic"]) for f in team["flights"]], [(11, True)])
+        self.assertEqual([f["flight_id"] for f in slot["other_flights"]], [12])
+        url = f"/api/operations/teams/{team['id']}/flights"
+        self.assertEqual(self.client.post(url, json={"flight_id": 12, "action": "link"}).status_code, 200)
+        self.assertEqual(self.client.post(url, json={"flight_id": 11, "action": "unlink"}).status_code, 200)
+        slot = self.client.get(f"/api/operations/{bid}").json
+        self.assertEqual([(f["flight_id"], f["automatic"]) for f in slot["teams"][0]["flights"]], [(12, False)])
+        self.assertEqual([f["flight_id"] for f in slot["other_flights"]], [11])
+        self.assertEqual(self.client.post(url, json={"flight_id": 999, "action": "link"}).status_code, 404)
+        self.sign_in(3)  # not the team's
+        self.assertEqual(self.client.post(url, json={"flight_id": 11, "action": "link"}).status_code, 403)
+        # the flight page: the operation, or "not planned" at a bookable location
+        self.sign_in(2)
+        rows = self.client.get("/api/logbook").json
+        entry = lambda fid: next(r for r in (rows["rows"] if isinstance(rows, dict) else rows)  # noqa: E731
+                                 if any(s["flight_id"] == fid for s in r.get("sources") or []))
+        with self.app.test_request_context():
+            from flask import g
+            g.user = self.con.execute("SELECT * FROM users WHERE id=2").fetchone()
+            linked = operations.flight_operation(self.con, entry(12))
+            self.assertEqual((linked["booking_id"], linked["pic"], linked["automatic"]), (bid, "Pilot", False))
+            self.assertEqual(operations.flight_operation(self.con, entry(11)), {"missing": "Field"})
+        # a re-parse that renumbers the flights leaves the stale link out
+        self.con.execute("UPDATE flights SET takeoff_utc='2001-01-01T00:00:00.000Z' WHERE id=12")
+        self.con.commit()
+        self.assertEqual(operations.flight_decisions(self.con).get(12), None)
+
 
 class GroundRiskTests(unittest.TestCase):
     def test_margin(self):

@@ -19,6 +19,7 @@ it; the generic booking endpoints refuse the operations item.
 """
 import datetime
 import json
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import abort, g, jsonify, request
 
@@ -26,6 +27,7 @@ import bookings
 import db
 import ground_risk
 import home
+import links
 import mail
 import weather
 from bookings import BookingError, person_name, utc_now, when
@@ -35,6 +37,7 @@ ITEM_NAME = "Outdoor operations"
 MAX_GOAL = 500
 MAX_REFERENCE = 200
 MAX_CREW = 10
+MATCH_MARGIN = datetime.timedelta(minutes=30)  # flights this long before or after a slot still belong to it
 
 
 def enabled():
@@ -241,7 +244,135 @@ def sync_slot(con, booking_id):
     return True
 
 
-def register(app, connection, require_session):
+def zone():
+    """The time zone of the agenda's local times (LOGDB_TIME_ZONE)."""
+    try:
+        return ZoneInfo(env("TIME_ZONE") or "Europe/Amsterdam")
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("UTC")
+
+
+def slot_window(start, end):
+    """(first, last) UTC epoch seconds of takeoffs that belong to a slot of local times: the slot with MATCH_MARGIN."""
+    z = zone()
+    epoch = lambda t: datetime.datetime.strptime(t, bookings.TIME_FORMAT).replace(tzinfo=z).timestamp()  # noqa: E731
+    return epoch(start) - MATCH_MARGIN.total_seconds(), epoch(end) + MATCH_MARGIN.total_seconds()
+
+
+def flight_decisions(con):
+    """{flight id: [(team id, 'linked' or 'unlinked')]} of the links made by hand, for the present flight ids; a link
+    whose flight was renumbered by a re-parse (another takeoff time) is left out, as in links.resolved."""
+    out = {}
+    for r in con.execute(
+            "SELECT k.team_id, k.decision, k.takeoff_utc AS kept, f.id AS flight_id, f.takeoff_utc FROM operation_flight_links k"
+            " JOIN aircraft a ON a.log_id=k.log_id AND COALESCE(a.ac_id, ?)=k.ac_id"
+            " JOIN flights f ON f.aircraft_id=a.id AND f.idx=k.flight_idx", (links.NO_AC_ID,)):
+        kept, now = links._ts(r["kept"]), links._ts(r["takeoff_utc"])
+        if kept is not None and now is not None and abs(kept - now) > links.STALE_S:
+            continue
+        out.setdefault(r["flight_id"], []).append((r["team_id"], r["decision"]))
+    return out
+
+
+def slot_teams(con, booking_id):
+    """{team id: (people: PIC and crew, aircraft id)} of a slot's teams that were not rejected."""
+    return {t["id"]: ({t["pic_id"], *(c["id"] for c in crew_of(con, t["id"]))}, t["drone_id"])
+            for t in con.execute("SELECT id, pic_id, drone_id FROM operation_teams WHERE booking_id=? AND status!='rejected'"
+                                 " ORDER BY id", (booking_id,))}
+
+
+def flight_people(entry):
+    return {u["id"] for role in ("pic", "pac", "gcs") if (u := entry.get(role + "_user")) and u.get("id")}
+
+
+def assign(entry, teams, decisions):
+    """(team id or None, automatic) of a logbook entry among a slot's teams: the team it was linked to by hand, else the
+    first team whose PIC, crew or aircraft flew it (unless kept out by hand). A flight linked by hand to a team of
+    another slot belongs to none of these."""
+    mine = [d for s in entry["sources"] for d in decisions.get(s["flight_id"], [])]
+    linked = [t for t, d in mine if d == "linked"]
+    if linked:
+        return next((t for t in linked if t in teams), None), False
+    kept_out = {t for t, d in mine if d == "unlinked"}
+    people, drone = flight_people(entry), entry.get("drone_id")
+    for tid, (team_people, team_drone) in teams.items():
+        if tid not in kept_out and (people & team_people or (drone and drone == team_drone)):
+            return tid, True
+    return None, True
+
+
+def flight_brief(entry, automatic):
+    return dict(flight_id=entry["flight_id"], takeoff_utc=entry.get("takeoff_utc"), duration_s=entry.get("duration_s"),
+                aircraft=entry.get("aircraft"), pic=(entry.get("pic_user") or {}).get("display_name") or entry.get("pic"),
+                automatic=automatic)
+
+
+def slot_flights(con, slot, rows):
+    """({team id: [flights]}, [other flights]) of a slot: the logbook entries the viewer may see that took off or
+    landed at its location within its time (MATCH_MARGIN around it), and those linked to one of its teams by hand.
+    Other flights are there but match no team: for a person to link."""
+    teams = slot_teams(con, slot["id"])
+    first, last = slot_window(slot["starts_at"], slot["ends_at"])
+    decisions = flight_decisions(con)
+    linked_here = {fid for fid, ds in decisions.items() for t, d in ds if d == "linked" and t in teams}
+    by_team, other = {t: [] for t in teams}, []
+    for e in rows:
+        if e.get("source_type") != "telemetry" or not e.get("flight_id"):
+            continue
+        ts = links._ts(e.get("takeoff_utc"))
+        here = slot["place_id"] in (e.get("takeoff_place_id"), e.get("landing_place_id")) and ts is not None \
+            and first <= ts <= last
+        if not here and not {s["flight_id"] for s in e["sources"]} & linked_here:
+            continue
+        tid, automatic = assign(e, teams, decisions)
+        (by_team[tid] if tid else other).append(flight_brief(e, automatic))
+    for flights in (*by_team.values(), other):
+        flights.sort(key=lambda f: f["takeoff_utc"] or "")
+    return by_team, other
+
+
+def flight_operation(con, entry):
+    """The outdoor operation a logbook entry belongs to, for the flight page: {booking_id, thing_id, place, start, end,
+    team_id, pic, height_m, buffer_m, buffer_inside, automatic}; {missing: place} for a flight at a bookable location
+    without one; None otherwise."""
+    if not enabled() or entry.get("source_type") != "telemetry":
+        return None
+    decisions = flight_decisions(con)
+    linked = [t for s in entry["sources"] for t, d in decisions.get(s["flight_id"], []) if d == "linked"]
+    slots = []
+    if linked:
+        slots = con.execute("SELECT booking_id FROM operation_teams WHERE id=?", (linked[0],)).fetchall()
+    else:
+        places = {entry.get("takeoff_place_id"), entry.get("landing_place_id")} - {None}
+        ts = links._ts(entry.get("takeoff_utc"))
+        if places and ts is not None:
+            margin = MATCH_MARGIN.total_seconds()
+            local = lambda t: datetime.datetime.fromtimestamp(t, zone()).strftime(bookings.TIME_FORMAT)  # noqa: E731
+            slots = con.execute(
+                f"SELECT s.booking_id FROM operation_slots s JOIN bookings b ON b.id=s.booking_id"
+                f" WHERE s.place_id IN ({','.join('?' * len(places))}) AND b.status!='rejected'"
+                f" AND b.starts_at<=? AND b.ends_at>=? ORDER BY b.starts_at",
+                (*places, local(ts + margin), local(ts - margin))).fetchall()
+    for row in slots:
+        tid, automatic = assign(entry, slot_teams(con, row[0]), decisions)
+        if tid is None:
+            continue
+        r = con.execute(
+            "SELECT b.id, b.thing_id, b.starts_at, b.ends_at, p.name AS place, o.height_m, o.buffer_m, o.buffer_inside,"
+            " COALESCE(u.display_name,u.username) AS pic FROM operation_teams o JOIN bookings b ON b.id=o.booking_id"
+            " JOIN operation_slots s ON s.booking_id=b.id JOIN places p ON p.id=s.place_id JOIN users u ON u.id=o.pic_id"
+            " WHERE o.id=?", (tid,)).fetchone()
+        return dict(booking_id=r["id"], thing_id=r["thing_id"], place=r["place"], start=r["starts_at"], end=r["ends_at"],
+                    team_id=tid, pic=r["pic"], height_m=r["height_m"], buffer_m=r["buffer_m"],
+                    buffer_inside=None if r["buffer_inside"] is None else bool(r["buffer_inside"]), automatic=automatic)
+    bookable = [r[0] for r in con.execute(
+        f"SELECT name FROM places WHERE bookable=1 AND id IN ({','.join('?' * 2)})",
+        (entry.get("takeoff_place_id") or -1, entry.get("landing_place_id") or -1))]
+    return {"missing": bookable[0]} if bookable else None
+
+
+def register(app, connection, require_session, logbook=None):
+    """logbook: the logbook read model of the signed-in user (app.logbook_rows), to match flights to slots."""
     def signed_in():
         require_session()
         if not enabled():
@@ -385,14 +516,19 @@ def register(app, connection, require_session):
                     preparation=prep, can_edit=mine or bool(g.user["is_admin"]),
                     can_decide=decide and row["status"] == "pending")
 
-    def slot_json(cid, slot, thing):
+    def slot_json(cid, slot, thing, flights=False):
+        """flights: also the flights matched to its teams and the other flights there (the logbook read model)."""
         decide = may_decide(cid, thing)
         teams = [team_json(cid, r, thing, decide) for r in team_rows(cid, slot["id"])
                  if r["status"] != "rejected" or g.user["id"] in (r["created_by"], r["pic_id"]) or decide]
         mine = any(t["can_edit"] and g.user["id"] in (t["created_by"], t["pic_id"]) for t in teams)
         live = [t for t in teams if t["status"] != "rejected"]
+        by_team, other = slot_flights(cid, slot, logbook()) if flights and logbook else ({}, [])
+        for t in teams:
+            t["flights"] = by_team.get(t["id"], [])
+            t["can_link"] = t["can_edit"] or decide
         return dict(id=slot["id"], place_id=slot["place_id"], place=slot["place"], start=slot["starts_at"],
-                    geometry=place_geometry(cid, slot["place_id"]),
+                    geometry=place_geometry(cid, slot["place_id"]), other_flights=other,
                     end=slot["ends_at"], user_id=slot["user_id"], teams=teams,
                     can_join=not mine and (decide or rule_for(cid, thing["id"], g.user["id"]) is not None),
                     can_move=bool(g.user["is_admin"]) or decide or (len(live) <= 1 and mine), can_decide=decide)
@@ -468,7 +604,7 @@ def register(app, connection, require_session):
     def get_slot(booking_id):
         signed_in()
         cid = connection()
-        return jsonify(slot_json(cid, slot_row(cid, booking_id), operations_item(cid)))
+        return jsonify(slot_json(cid, slot_row(cid, booking_id), operations_item(cid), flights=True))
 
     @app.post("/api/operations/<int:booking_id>/teams")
     def join_slot(booking_id):
@@ -604,6 +740,38 @@ def register(app, connection, require_session):
                             + f" the outdoor flight at {slot['place']} for {span}."
                             + (f"\n\nReason: {note}" if note else ""),
                             f"/agenda?item={thing['id']}&week={slot['starts_at'][:10]}")
+        return jsonify(ok=True)
+
+    @app.post("/api/operations/teams/<int:team_id>/flights")
+    def link_flight(team_id):
+        """Link a flight to a team by hand ({flight_id, action: link}), which takes it from any other team, or keep a
+        flight out of a team ({action: unlink}). The team's PIC, whoever added it, administrators and approvers."""
+        signed_in()
+        body = request.get_json(silent=True) or {}
+        if body.get("action") not in ("link", "unlink") or type(body.get("flight_id")) is not int:
+            raise BookingError("Send flight_id and action link or unlink.")
+        cid = connection()
+        if not any(body["flight_id"] in {s["flight_id"] for s in e.get("sources") or []} for e in logbook()):
+            raise BookingError("No such flight.", 404)
+        with db.write_lock, cid:
+            cid.execute("BEGIN IMMEDIATE")
+            row = cid.execute("SELECT * FROM operation_teams WHERE id=?", (team_id,)).fetchone()
+            if row is None:
+                raise BookingError("No such team.", 404)
+            if g.user["id"] not in (row["created_by"], row["pic_id"]) and not g.user["is_admin"] \
+                    and not may_decide(cid, operations_item(cid)):
+                raise BookingError("Only the team's PIC, the person who added it, administrators and approvers link flights.", 403)
+            log_id, ac_id, idx, takeoff = links.flight_key(cid, body["flight_id"])
+            key = (log_id, ac_id, idx)
+            if body["action"] == "link":  # one team per flight
+                cid.execute("DELETE FROM operation_flight_links WHERE log_id=? AND ac_id=? AND flight_idx=?"
+                            " AND decision='linked'", key)
+            cid.execute("INSERT INTO operation_flight_links(team_id,log_id,ac_id,flight_idx,takeoff_utc,decision,"
+                        "decided_by,decided_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(team_id,log_id,ac_id,flight_idx)"
+                        " DO UPDATE SET decision=excluded.decision, takeoff_utc=excluded.takeoff_utc,"
+                        " decided_by=excluded.decided_by, decided_at=excluded.decided_at",
+                        (team_id, *key, takeoff, "linked" if body["action"] == "link" else "unlinked", g.user["id"],
+                         utc_now()))
         return jsonify(ok=True)
 
     @app.get("/api/admin/operation-pending")
