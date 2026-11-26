@@ -51,7 +51,8 @@ to gain descriptions and previously omitted crew entries.
 
 **Pre-flight** (flight page, under Operation) says whether the pre-flight inspection is recorded: the checklist in the
 log (one checklist covers every flight of that log), confirmed by hand, or ticked on the paper record. Indoor flights
-and simulations do not need it. Without a checklist, the PIC or anyone else who may edit the flight clicks
+and simulations do not need it. Flights and paper records from before it was recorded count as done by their PIC.
+Without a checklist, the PIC or anyone else who may edit the flight clicks
 **Confirm…**; Edit flight takes a confirmation back. Several flights at once: tick them and use **Change…**. The
 Logbook has a **Pre-flight** column (hidden by default, under **Columns**), and **Export CSV** includes it.
 

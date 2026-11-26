@@ -543,10 +543,13 @@ events omitted by older parsers and attach full descriptions; older stored messa
 - `confirmed`: confirmed by hand, with `preflight_by` (name) and `preflight_at`. `PUT /api/flights/<id>/preflight`
   `{"completed": true|false}` has the rights of the flight goal (`logs:edit` for keys); the bulk
   `PUT /api/logbook/records` takes `"preflight": true|false`. Stored in `flights.preflight_by`/`preflight_at` and kept
-  across a re-parse; a second confirmation keeps the first one's name and time.
+  across a re-parse; a second confirmation keeps the first one's name and time. `preflight_at` without
+  `preflight_by` is done by the PIC: the one-time data fix `preflight_done_before_recording` (`db.init`,
+  `data_migrations`) set it on every flight from before #315, so `preflight_by` is then the PIC's name.
 - `paper`: `flight_records.preflight` is 1 on the entry's own or linked paper record. `POST /api/historical` refuses
   a new record without `"preflight": true` unless its location is indoor or its category is `indoor`; changing a
-  record does not require it, so old records are not given a claim they never had. CSV column `preflight`
+  record does not require it. The one-time fix `preflight_paper_done_before_recording` ticked every record from
+  before #315. CSV column `preflight`
   (`yes`/`no`/blank), kept when the column is missing. The tick is not part of the record's fingerprint.
 - `not_needed`: nothing recorded, and the category is `indoor` (an indoor place, motion capture, or no GPS) or the
   flight is a simulation.

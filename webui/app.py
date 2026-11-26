@@ -4619,8 +4619,8 @@ def update_logbook_records():
                         con.execute("UPDATE flights SET verdict_override=? WHERE id=?", (changes["verdict"], identity))
                     if "preflight" in changes:
                         if changes["preflight"]:  # an earlier confirmation keeps who confirmed it and when
-                            con.execute("UPDATE flights SET preflight_by=COALESCE(preflight_by, ?),"
-                                        " preflight_at=COALESCE(preflight_at, ?) WHERE id=?", (g.user["id"], now(), identity))
+                            con.execute("UPDATE flights SET preflight_by=?, preflight_at=? WHERE id=? AND preflight_at IS NULL",
+                                        (g.user["id"], now(), identity))
                         else:
                             con.execute("UPDATE flights SET preflight_by=NULL, preflight_at=NULL WHERE id=?", (identity,))
             if log_flights:  # the paper records linked to an entry carry its operator and category too
@@ -4899,8 +4899,8 @@ def set_flight_preflight(flight_id):
     if type(completed) is not bool:
         return jsonify(error="completed must be true or false"), 400
     if completed:  # an earlier confirmation keeps who confirmed it and when
-        con.execute("UPDATE flights SET preflight_by=COALESCE(preflight_by, ?), preflight_at=COALESCE(preflight_at, ?)"
-                    " WHERE id=?", (g.user["id"], now(), flight_id))
+        con.execute("UPDATE flights SET preflight_by=?, preflight_at=? WHERE id=? AND preflight_at IS NULL",
+                    (g.user["id"], now(), flight_id))
     else:
         con.execute("UPDATE flights SET preflight_by=NULL, preflight_at=NULL WHERE id=?", (flight_id,))
     con.commit()
@@ -7117,8 +7117,8 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
 def apply_preflight(con, rows, source_rows):
     """Whether the pre-flight inspection of each entry is recorded (#315): "log" (the Paparazzi pre-flight checklist,
     [PFC], is in a log of the entry; one checklist covers every flight of its aircraft in that log), "confirmed" (by
-    hand on the flight page, with preflight_by/at), "paper" (ticked on the paper record), "not_needed" (indoor or a
-    simulation), or None (not recorded). MAVLink pre-arm messages are the autopilot's own checks, not the inspection."""
+    hand on the flight page, with preflight_by/at; flights from before it was recorded: by the PIC), "paper" (ticked
+    on the paper record), "not_needed" (indoor or a simulation), or None (not recorded). MAVLink pre-arm messages are the autopilot's own checks, not the inspection."""
     names = {r["id"]: r["name"] for r in con.execute("SELECT id, COALESCE(display_name, username) AS name FROM users")}
     ticked = {r["id"] for r in con.execute("SELECT id FROM flight_records WHERE preflight=1")}
     other = (mav_parse.PARSER_NAME, mav_parse.BLACKBOX_PARSER_NAME)
@@ -7128,11 +7128,13 @@ def apply_preflight(con, rows, source_rows):
             status = "paper" if r.get("preflight_record") else None
         else:
             sources = [source_rows[s["flight_id"]] for s in r["sources"] if s["flight_id"] in source_rows]
-            confirmed = next((s for s in sources if s["preflight_by"]), None)
+            confirmed = next((s for s in sources if s["preflight_at"]), None)
             if any(s["has_pfc"] and s["parser_name"] not in other for s in sources):
                 status = "log"
             elif confirmed:
                 status, by, at = "confirmed", names.get(confirmed["preflight_by"]), confirmed["preflight_at"]
+                if not confirmed["preflight_by"]:  # done by the PIC, before the inspection was recorded
+                    by, at = (r.get("pic_user") or {}).get("display_name") or r.get("pic") or "the PIC", None
             elif any(p["id"] in ticked for p in r.get("linked_records") or []):
                 status = "paper"
         if status is None and (r.get("category") == "indoor" or (r.get("simulation") or {}).get("detected")):

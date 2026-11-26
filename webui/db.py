@@ -276,8 +276,9 @@ CREATE TABLE IF NOT EXISTS flights (
     category TEXT,                     -- operation category set on this flight; NULL = from project, place or date
     authorisation_id INTEGER,          -- authorisations.id set on this flight (categories.py)
     path_idx INTEGER,                  -- index of this flight's path in logs.paths_file
-    preflight_by INTEGER,              -- users.id who confirmed the pre-flight inspection by hand; kept across a re-parse
-    preflight_at TEXT                  -- when (a checklist in the log needs no confirmation)
+    preflight_by INTEGER,              -- users.id who confirmed the pre-flight inspection by hand; NULL with preflight_at:
+                                       -- done by the PIC (flights from before it was recorded); kept across a re-parse
+    preflight_at TEXT                  -- when confirmed; NULL = not confirmed (a checklist in the log needs none)
 );
 CREATE TABLE IF NOT EXISTS setting_changes (
     id INTEGER PRIMARY KEY,
@@ -1238,6 +1239,10 @@ def init(path):
     # flights put in a project by hand used to leave their log without one (only the uploader saw the log); now the
     # log follows (app.apply_flight_project); this fixes the logs from before that
     run_once(con, "log_project_from_flights", LOG_PROJECT_FROM_FLIGHTS)
+    # the pre-flight inspection is recorded since #315; every flight and paper record from before was done by its PIC
+    run_once(con, "preflight_done_before_recording",
+             "UPDATE flights SET preflight_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE preflight_at IS NULL")
+    run_once(con, "preflight_paper_done_before_recording", "UPDATE flight_records SET preflight=1 WHERE preflight IS NULL")
     logbook_version_triggers(con)
     con.commit()
 

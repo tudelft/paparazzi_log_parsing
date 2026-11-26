@@ -736,6 +736,14 @@ class PreflightTests(AppTests):
         self.assertEqual(self.client.put("/api/flights/1/preflight", json={"completed": False}).status_code, 200)
         self.assertEqual(self.status()["log:1"], (None, None))
 
+    def test_flights_from_before_were_done_by_the_pic(self):
+        self.con.execute("UPDATE flights SET preflight_at='2026-11-27T00:00:00Z', pic_user_id=2 WHERE id=1")
+        self.con.commit()
+        self.assertEqual(self.status()["log:1"], ("confirmed", "Pilot"))
+        self.assertIsNone(next(r for r in self.client.get("/api/logbook").json if r["flight_id"] == 1)["preflight_at"])
+        self.client.put("/api/flights/1/preflight", json={"completed": True})  # already done: stays the PIC's
+        self.assertEqual(self.con.execute("SELECT preflight_by FROM flights WHERE id=1").fetchone()[0], None)
+
     def test_bulk_change_and_csv_column(self):
         record = self.create().json["id"]
         self.client.put(f"/api/historical/{record}", json={**self.body, "preflight": False})
@@ -748,3 +756,32 @@ class PreflightTests(AppTests):
         response = self.client.post("/api/historical/import", data={"file": (io.BytesIO(text.encode()), "p.csv")})
         self.assertEqual(response.status_code, 201, response.json)
         self.assertEqual(self.con.execute("SELECT preflight FROM flight_records WHERE date='2009-05-01'").fetchone()[0], 1)
+
+
+class PreflightMigrationTests(unittest.TestCase):
+    def test_records_from_before_are_marked_done_once(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "logs.db")
+            db.init(path)
+            con = sqlite3.connect(path)
+            con.execute("DELETE FROM data_migrations WHERE name LIKE 'preflight%'")  # as on a database from before
+            con.execute("INSERT INTO users(id,username,created_at) VALUES (1,'pic','now')")
+            con.execute("INSERT INTO projects(id,name,created_at) VALUES (1,'P','now')")
+            con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (1,'D','U','now')")
+            con.execute("INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at) VALUES (1,'l','s','d','done','now')")
+            con.execute("INSERT INTO aircraft(id,log_id,name,ac_id) VALUES (1,1,'D',1)")
+            insert_flight = "INSERT INTO flights(aircraft_id,idx,duration_s) VALUES (1,?,10)"
+            insert_record = ("INSERT INTO flight_records(drone_id,pic_user_id,project_id,date,kind,flight_count,duration_s,"
+                             "fingerprint,created_at,updated_at) VALUES (1,1,1,'2010-01-01','flight',1,60,?,'now','now')")
+            con.execute(insert_flight, (0,))
+            con.execute(insert_record, ("a",))
+            con.commit()
+            db.init(path)
+            con.execute(insert_flight, (1,))
+            con.execute(insert_record, ("b",))
+            con.commit()
+            db.init(path)  # a later start does not mark new ones
+            self.assertEqual([tuple(r) for r in con.execute("SELECT idx, preflight_by, preflight_at IS NOT NULL FROM flights")],
+                             [(0, None, 1), (1, None, 0)])
+            self.assertEqual([r[0] for r in con.execute("SELECT preflight FROM flight_records ORDER BY id")], [1, None])
+            con.close()

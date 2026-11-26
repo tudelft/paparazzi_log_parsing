@@ -78,8 +78,10 @@ window.preflightStatus = function (entry) {
   switch (entry.preflight) {
     case 'log': return {short: '✓', long: '✓ Checklist in the log', ok: true,
       tip: 'The pre-flight checklist ([PFC]) is in the log; one checklist covers every flight of the aircraft in that log'};
-    case 'confirmed': return {short: '✓', long: `✓ Confirmed by ${entry.preflight_by || 'a former user'}`, ok: true,
-      tip: `Confirmed by hand by ${entry.preflight_by || 'a former user'}${at ? ' on ' + at : ''}`};
+    case 'confirmed': return at
+      ? {short: '✓', long: `✓ Confirmed by ${entry.preflight_by || 'a former user'}`, ok: true,
+        tip: `Confirmed by ${entry.preflight_by || 'a former user'} on ${at}`}
+      : {short: '✓', long: `✓ Done by ${entry.preflight_by} (PIC)`, ok: true, tip: `Done by the PIC, ${entry.preflight_by}`};
     case 'paper': return {short: '✓', long: '✓ On the paper record', ok: true, tip: 'Ticked on the paper record'};
     case 'not_needed': return {short: '–', long: 'Not needed', ok: true, tip: `Not needed for ${indoor}`};
     default: return {short: 'Not recorded', long: 'Not recorded', ok: false,
