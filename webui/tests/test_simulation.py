@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from .test_clock import SOURCE_VERSION
+
 
 PARSER = Path(__file__).resolve().parents[2] / "cpp/build/paparazzi_log_parsing"
 NPS_MESSAGES = (
@@ -38,7 +40,7 @@ class ParserSimulationTests(unittest.TestCase):
         for name in NPS_MESSAGES:
             with self.subTest(message=name):
                 doc = parse_simulation_fixture({5: ("Aircraft", "")}, [f"1 5 {name} 0 0 0\n"])
-                self.assertEqual(doc["parser"]["version"], "1.9.0")
+                self.assertEqual(doc["parser"]["version"], SOURCE_VERSION, "Rebuild the parser")
                 self.assertEqual(doc["aircraft"][0]["simulation"], {
                     "detected": True, "evidence": [f"telemetry:{name}"],
                 })

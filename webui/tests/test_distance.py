@@ -1,7 +1,7 @@
 import math
 import unittest
 
-from .test_clock import parse_fixture
+from .test_clock import SOURCE_VERSION, parse_fixture
 
 
 GPS_FIELDS = ("mode", "utm_east", "utm_north", "alt", "speed", "utm_zone")
@@ -17,7 +17,7 @@ class HorizontalDistanceTests(unittest.TestCase):
             fields=GPS_FIELDS, extra_messages=(("GPS_INT", GPS_INT_FIELDS), ("INS", INS_FIELDS)))
 
     def assert_distances(self, doc, distance, current, maximum, delta=0.01):
-        self.assertEqual(doc["parser"]["version"], "1.9.0", "Rebuild the parser before testing distances")
+        self.assertEqual(doc["parser"]["version"], SOURCE_VERSION, "Rebuild the parser before testing distances")
         aircraft = doc["aircraft"][0]
         flight = aircraft["flights"][0]
         for key, expected in (("distance_m", distance), ("from_takeoff_m", current),
