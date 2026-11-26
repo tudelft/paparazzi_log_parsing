@@ -1077,7 +1077,7 @@ def cors_headers(resp):
         resp.headers["Access-Control-Expose-Headers"] = "Retry-After"
         if request.method == "OPTIONS":
             resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE"
-            resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, X-Bulk-Reservation"
+            resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, X-Bulk-Reservation, X-Attachment-Metadata"
             resp.headers["Access-Control-Max-Age"] = "600"
     return resp
 

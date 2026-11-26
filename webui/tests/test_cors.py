@@ -35,6 +35,15 @@ class CorsTests(AppTests):
         self.assertEqual(r.headers["Vary"], "Origin")
         self.assertEqual(self.preflight(origin="https://evil.example.org").status_code, 403)
 
+    def test_preflight_allows_the_attachment_metadata_header(self):
+        """POST /api/attachments takes its metadata (file name, targets) in this header."""
+        self.allow(ORIGIN)
+        r = self.client.options("/api/attachments", headers={
+            "Origin": ORIGIN, "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization,x-attachment-metadata"})
+        self.assertEqual(r.status_code, 204)
+        self.assertIn("X-Attachment-Metadata", r.headers["Access-Control-Allow-Headers"])
+
     def test_actual_answers_carry_the_header_even_when_refused(self):
         self.allow(ORIGIN)
         r = self.client.post("/api/logs/check", json={}, headers={"Origin": ORIGIN, "Authorization": "Bearer nope"})
