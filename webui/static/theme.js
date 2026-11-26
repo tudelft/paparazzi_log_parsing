@@ -70,6 +70,23 @@ window.preflightCheckHTML = function (message) {
     window.checklistAnswerHTML(message.checklist_value, message.text, !!message.checklist_optional)}</span>`;
 };
 
+// Whether the pre-flight inspection of a logbook entry is recorded (#315; app.py apply_preflight): {short, long, tip, ok}
+// for a logbook cell (short), the flight page (long) and their tooltip; ok is false when it is missing.
+window.preflightStatus = function (entry) {
+  const at = (entry.preflight_at || '').slice(0, 10);
+  const indoor = entry.simulation && entry.simulation.detected ? 'a simulation' : 'an indoor flight';
+  switch (entry.preflight) {
+    case 'log': return {short: '✓', long: '✓ Checklist in the log', ok: true,
+      tip: 'The pre-flight checklist ([PFC]) is in the log; one checklist covers every flight of the aircraft in that log'};
+    case 'confirmed': return {short: '✓', long: `✓ Confirmed by ${entry.preflight_by || 'a former user'}`, ok: true,
+      tip: `Confirmed by hand by ${entry.preflight_by || 'a former user'}${at ? ' on ' + at : ''}`};
+    case 'paper': return {short: '✓', long: '✓ On the paper record', ok: true, tip: 'Ticked on the paper record'};
+    case 'not_needed': return {short: '–', long: 'Not needed', ok: true, tip: `Not needed for ${indoor}`};
+    default: return {short: 'Not recorded', long: 'Not recorded', ok: false,
+      tip: 'No pre-flight checklist in the log and not confirmed'};
+  }
+};
+
 // How an operator is shown everywhere, and where a logbook entry's operator comes from (operators.py).
 window.operatorLabel = o => o.name + (o.registration ? ` (${o.registration})` : '');
 window.OPERATOR_SOURCE = {flight: 'set on this flight', project: 'from the project', place: 'from the takeoff place', pic: 'the operator the PIC flies for', default: 'own operator (default)'};

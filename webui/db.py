@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS flight_records (
     operator_id INTEGER REFERENCES operators(id),  -- NULL = from project, place or own operator (operators.py)
     category TEXT,                      -- operation category; NULL = from project, place or date (categories.py)
     authorisation_id INTEGER REFERENCES authorisations(id),
+    preflight INTEGER CHECK(preflight IS NULL OR preflight=1),  -- 1 = pre-flight inspection completed; NULL = not recorded
     fingerprint TEXT NOT NULL UNIQUE,
     created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -274,7 +275,9 @@ CREATE TABLE IF NOT EXISTS flights (
     operator_id INTEGER,               -- operators.id set on this flight; NULL = from project, place or own operator
     category TEXT,                     -- operation category set on this flight; NULL = from project, place or date
     authorisation_id INTEGER,          -- authorisations.id set on this flight (categories.py)
-    path_idx INTEGER                   -- index of this flight's path in logs.paths_file
+    path_idx INTEGER,                  -- index of this flight's path in logs.paths_file
+    preflight_by INTEGER,              -- users.id who confirmed the pre-flight inspection by hand; kept across a re-parse
+    preflight_at TEXT                  -- when (a checklist in the log needs no confirmation)
 );
 CREATE TABLE IF NOT EXISTS setting_changes (
     id INTEGER PRIMARY KEY,
@@ -1084,6 +1087,12 @@ def init(path):
         con.execute("ALTER TABLE logs ADD COLUMN paths_file TEXT")
     if "path_idx" not in {r[1] for r in con.execute("PRAGMA table_info(flights)")}:
         con.execute("ALTER TABLE flights ADD COLUMN path_idx INTEGER")
+    fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
+    for col, kind in (("preflight_by", "INTEGER"), ("preflight_at", "TEXT")):
+        if col not in fcols:
+            con.execute(f"ALTER TABLE flights ADD COLUMN {col} {kind}")
+    if "preflight" not in {r[1] for r in con.execute("PRAGMA table_info(flight_records)")}:
+        con.execute("ALTER TABLE flight_records ADD COLUMN preflight INTEGER CHECK(preflight IS NULL OR preflight=1)")
     acols = {r[1] for r in con.execute("PRAGMA table_info(aircraft)")}
     if "drone_id" not in acols:
         con.execute("ALTER TABLE aircraft ADD COLUMN drone_id INTEGER")

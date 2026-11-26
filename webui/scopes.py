@@ -3,7 +3,8 @@
 A key has a space-separated list of scopes in api_keys.scopes:
   read              every GET (and HEAD), plus the read-only POSTs in READ_POSTS (MATLAB export requests, matching files to flights)
   logs:upload       log upload and reservations, logs/check, attachments (upload, share), paper records (single, CSV)
-  logs:edit         project, date, crew and comment of logs and flights, date suggestions, conflicts, reparse
+  logs:edit         project, date, crew, comment and pre-flight inspection of logs and flights, date suggestions,
+                    conflicts, reparse
   documents:upload  add a document and replace its file
   documents:manage  edit and delete documents, groups and the text at the top of Documents
   admin             the administration routes listed in ENDPOINTS["admin"] (places, operators, authorisations,
@@ -28,8 +29,8 @@ ENDPOINTS = {
     "logs:upload": {"upload", "reserve_bulk_upload", "check_logs", "upload_attachment", "share_attachment",
                     "create_historical", "import_historical"},
     "logs:edit": {"set_log_project", "set_log_date", "accept_log_date_suggestion", "set_flight_project",
-                  "set_flights_project", "set_flight_crew", "set_flights_crew", "set_flight_comment", "reparse",
-                  "accept_conflict"},
+                  "set_flights_project", "set_flight_crew", "set_flights_crew", "set_flight_comment",
+                  "set_flight_preflight", "reparse", "accept_conflict"},
     "documents:upload": {"add_document", "replace_document_file"},
     "documents:manage": {"edit_document", "delete_document", "add_group", "edit_group", "delete_group",
                          "save_intro"},

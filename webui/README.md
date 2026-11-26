@@ -49,6 +49,12 @@ hover over or focus a description to see its help text (dotted underline) and th
 Ticked checkboxes show as ✓, unticked as ✗; optional items left empty as –. Older logs need re-parsing
 to gain descriptions and previously omitted crew entries.
 
+**Pre-flight** (flight page, under Operation) says whether the pre-flight inspection is recorded: the checklist in the
+log (one checklist covers every flight of that log), confirmed by hand, or ticked on the paper record. Indoor flights
+and simulations do not need it. Without a checklist, the PIC or anyone else who may edit the flight clicks
+**Confirm…**; Edit flight takes a confirmation back. Several flights at once: tick them and use **Change…**. The
+Logbook has a **Pre-flight** column (hidden by default, under **Columns**), and **Export CSV** includes it.
+
 | Page | What to do |
 |---|---|
 | **Logbook** | Filter flights (also by a paper record's reference, e.g. F00090), review flight time, expand a row or open its flight page (Back returns to the logbook as you left it; ← / → there go to the previous/next flight of the project). Click aircraft, crew, project or location names for their detail pages. |
@@ -192,13 +198,15 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
 
 - The **Logbook** looks the same for everyone; what you may change is offered where it applies. Tick one or more
   rows for the **selection bar** at the bottom: copy numbers, MATLAB, and, when you may change all ticked entries,
-  **Change…** (project, crew, operator, category) and **Same flight**. Click **date unknown** to set a missing date;
+  **Change…** (project, crew, operator, category, pre-flight inspection) and **Same flight**. Click **date unknown** to set a missing date;
   change an existing date or the classification on the flight page. Admins can also **Hide**
   entries from the logbook and totals without deleting files; **Manage ▾ → Hidden records only** shows them to
   **Restore**. Paper records must keep a PIC and project.
   Use **Add paper record…** (Logbook, **Manage ▾**) to enter historical flights without logs. Admins use **Import CSV**;
   importing a corrected CSV again updates records matched by reference (e.g. flight number F00001)
   or by aircraft, date and takeoff time, after a preview of what each row will do.
+  A new paper record needs **Pre-flight inspection completed** ticked, unless it was flown indoors (an indoor
+  location or the Indoor category); in a CSV, the optional `preflight` column (`yes`) records it.
   Paper records add flight counts and time, not telemetry; check for overlap with digital logs.
   Overviews show their recorded location in both the takeoff and landing location columns;
   this does not add a landing time or GPS coordinates.
@@ -414,7 +422,8 @@ Keep the key private. For a large initial import, see [controlled bulk uploads](
 To download and upload logs from your own Python code or MATLAB (examples under **Download logs**), use the [mavlab-logbook-client](../python/mavlab-logbook-client/README.md) package
 (`pip install mavlab-logbook-client`) or the [MATLAB tools](../matlab/README.md); they sign in through the browser.
 
-A key can also add paper records: `POST /api/historical` (full project access) and, with an admin's key,
+A key can also add paper records: `POST /api/historical` (full project access; send `"preflight": true` unless
+flown indoors) and, with an admin's key,
 the CSV import `POST /api/historical/import`. A key can also upload additional files to records it may edit
 (`POST /api/attachments`, which returns the file id) and link a file to more records
 (`POST /api/attachments/<id>/links`). Changing or deleting records, unlinking files, and managing keys or the

@@ -12,14 +12,15 @@ import qualifications
 
 COLUMNS = ("aircraft", "pic", "project", "date", "duration_minutes", "flight_count",
            "kind", "takeoff_time", "location", "pac", "gcs", "goal", "comment", "reference", "operator",
-           "category", "authorisation")
+           "category", "authorisation", "preflight")
 FIELDS = ("drone_id", "pic_user_id", "project_id", "date", "duration_s", "flight_count",
           "kind", "takeoff_time", "place_id", "pac_user_id", "gcs_user_id", "goal", "comment", "reference",
-          "operator_id", "category", "authorisation_id")
+          "operator_id", "category", "authorisation_id", "preflight")
 COLUMN_OF = dict(zip(FIELDS, COLUMNS))  # stored field -> CSV column
-# Under which operator and rules a record was flown: not part of its identity (fingerprint), and a CSV without
-# their columns keeps them.
-ANNOTATIONS = {"operator": ("operator_id",), "category": ("category", "authorisation_id")}
+# Under which operator and rules a record was flown, and whether the pre-flight inspection was recorded: not part of
+# its identity (fingerprint), and a CSV without their columns keeps them.
+ANNOTATIONS = {"operator": ("operator_id",), "category": ("category", "authorisation_id"), "preflight": ("preflight",)}
+YES, NO = ("yes", "1", "true"), ("no", "0", "false", "")
 
 
 class RecordError(ValueError):
@@ -116,7 +117,27 @@ def validate(con, user, body):
         out["category"], out["authorisation_id"] = categories.parse(con, body)
     except categories.CategoryError as exc:
         raise RecordError(str(exc)) from None
+    out["preflight"] = preflight_value(body.get("preflight"))
     return out
+
+
+def preflight_value(value):
+    """Pre-flight inspection completed: 1, or None when not recorded (true/false, or yes/no in a CSV)."""
+    if value is None or isinstance(value, bool):
+        return 1 if value else None
+    if isinstance(value, str) and value.strip().casefold() in YES + NO:
+        return 1 if value.strip().casefold() in YES else None
+    raise RecordError("preflight must be yes or no (pre-flight inspection completed).")
+
+
+def require_preflight(con, values):
+    """A new record must say the pre-flight inspection was completed, unless it was flown indoors (an indoor
+    location or the Indoor category)."""
+    if values["preflight"] or values["category"] == "indoor":
+        return
+    if values["place_id"] and con.execute("SELECT indoor FROM places WHERE id=?", (values["place_id"],)).fetchone()[0]:
+        return
+    raise RecordError("Tick Pre-flight inspection completed (not needed for indoor flights).")
 
 
 def fingerprint(values):
@@ -315,7 +336,7 @@ def rows(con, user, project=None, hidden=False):
             indoor=bool(r["indoor"]), verdict="flight", optitrack=False, date_ok=True, date_override=None,
             goal=r["goal"], comment=r["comment"], pic=None, pac=None, gcs=None,
             pic_user_id=r["pic_user_id"], pac_user_id=r["pac_user_id"], gcs_user_id=r["gcs_user_id"],
-            hidden=bool(r["hidden"]), can_edit_record=editable,
+            hidden=bool(r["hidden"]), can_edit_record=editable, preflight_record=bool(r["preflight"]),
             can_edit_crew=bool(user["is_admin"]), can_edit_project=bool(user["is_admin"]), can_edit_date=False,
             can_edit_comment=False, takeoff_voltage_v=None, landing_voltage_v=None,
         ))

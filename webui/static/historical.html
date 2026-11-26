@@ -16,6 +16,7 @@
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:16px; }
   .fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; }
   label { display:flex; flex-direction:column; gap:4px; } .wide { grid-column:1/-1; }
+  label.tick { flex-direction:row; align-items:center; gap:8px; } label.tick input { width:auto; }
   input,select,textarea,button { font:inherit; padding:7px; border:1px solid var(--line); border-radius:5px; background:var(--field); color:var(--txt); min-width:0; }
   button { cursor:pointer; background:var(--sec); } button:disabled { opacity:.6; cursor:default; }
   .actions { display:flex; gap:12px; margin-top:16px; align-items:center; flex-wrap:wrap; }
@@ -58,6 +59,7 @@
         <label>Paper reference<input id="reference" maxlength="500" placeholder="Book / page / entry"></label>
         <label class="wide">Flight goal<input id="goal" maxlength="1000"></label>
         <label class="wide">Notes<textarea id="comment" maxlength="4000" rows="3"></textarea></label>
+        <label class="tick wide" title="Required for a new record, unless it was flown indoors (an indoor location or the Indoor category)"><input type="checkbox" id="preflight"> <span id="preflightLabel">Pre-flight inspection completed</span></label>
       </fieldset>
       <div class="actions"><button type="submit" id="save" hidden>Save record</button>
         <button type="button" id="delete" hidden class="danger">Delete paper record</button></div>
@@ -78,7 +80,9 @@
       column, records keep the operator they have.
       Optional category (national, open, specific, luc or indoor) and authorisation (its name in the list on the
       Projects page; it sets the category): blank means the project / location / date default; without these
-      columns, records keep what they have. No users or aircraft are created automatically.</p>
+      columns, records keep what they have. Optional preflight: yes when the pre-flight inspection was completed;
+      blank or no means not recorded, and without this column records keep what they have. No users or aircraft are
+      created automatically.</p>
     <p><a href="/api/historical/template" download>Download CSV template</a></p>
     <p>At most 1000 rows / 1 MB. Every row is validated before saving: if any row is invalid,
       nothing is imported. Dates and flight totals are kept exactly as supplied.</p>
@@ -131,6 +135,15 @@ function syncKind() {
   $('takeoffLabel').textContent = daily ? 'First takeoff of the day (UTC, optional)' : 'Takeoff time (UTC, optional)';
 }
 $('kind').onchange = syncKind;
+// A new record needs the pre-flight inspection ticked, unless it was flown indoors (#315); old records may stay without.
+let indoorPlaces = new Set();
+function syncPreflight() {
+  const needed = !recordId && !indoorPlaces.has($('place_id').value) && $('category').value !== 'cat:indoor';
+  $('preflight').required = needed;
+  $('preflightLabel').textContent = 'Pre-flight inspection completed' + (needed ? ' *' : '');
+}
+$('place_id').addEventListener('change', syncPreflight);
+$('category').addEventListener('change', syncPreflight);
 async function start() {
   const [me, catalogs, detail] = await Promise.all([api('/api/me'), api('/api/historical/options'),
     recordId ? api(`/api/historical/${recordId}`) : Promise.resolve(null)]);
@@ -140,6 +153,7 @@ async function start() {
   for (const key of ['pic_user_id','pac_user_id','gcs_user_id'])
     options(key,catalogs.people,r=>`${r.name} (${r.username})`);
   options('place_id',catalogs.places,r=>r.name);
+  indoorPlaces = new Set(catalogs.places.filter(r => r.indoor).map(r => String(r.id)));
   $('category').innerHTML = '<option value="">From the project / location / date</option>' + categoryOptions(catalogs.authorisations || [], '');
   operatorCatalog = catalogs.operators;
   fillOperators();
@@ -152,11 +166,13 @@ async function start() {
     r.duration_minutes = r.duration_s / 60;
     for (const key of keys) $(key).value = r[key] ?? '';
     $('category').value = categoryValue(r);
+    $('preflight').checked = !!r.preflight;
     $('provenance').textContent = `Paper record ${r.id} · Created ${r.created_at} · Last updated ${r.updated_at}`;
     $('title').textContent = 'Historical flight record ' + r.id;
   }
   $('fields').disabled = !editable;
   syncKind();
+  syncPreflight();
   $('save').hidden = !editable;
   $('delete').hidden = !detail || !editable;
   $('importSection').hidden = !!detail || !me.user.is_admin;
@@ -167,7 +183,8 @@ $('recordForm').onsubmit = async event => {
   $('save').disabled = true;
   $('status').textContent = 'Saving…';
   try {
-    const body = {...Object.fromEntries(keys.map(key=>[key,$(key).value])), ...categoryChoice($('category').value)};
+    const body = {...Object.fromEntries(keys.map(key=>[key,$(key).value])), ...categoryChoice($('category').value),
+      preflight: $('preflight').checked};
     const result = await api('/api/historical' + (recordId ? '/' + recordId : ''), {
       method:recordId ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
     if (!recordId) location.href = '/historical/' + result.id;

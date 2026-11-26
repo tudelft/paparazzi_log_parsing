@@ -55,7 +55,7 @@ class AppTests(unittest.TestCase):
         self.con.commit()
         self.client = self.app.test_client()
         self.sign_in(2)
-        self.body = dict(drone_id=1, pic_user_id=2, project_id=1, date="2010-01-01",
+        self.body = dict(drone_id=1, pic_user_id=2, project_id=1, date="2010-01-01", preflight=True,
                          duration_minutes="30.5", flight_count=5, kind="daily", place_id=1,
                          reference="Book 1 / page 2", goal="Old flight")
 
@@ -675,3 +675,76 @@ class LogbookBulkTests(AppTests):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PreflightTests(AppTests):
+    """The pre-flight inspection of every entry (#315)."""
+
+    def setUp(self):
+        super().setUp()
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,log_type)"
+            " VALUES(1,'Digital','test','test.data','done','now',2,1,'onboard_sd')")
+        self.con.execute("INSERT INTO aircraft(id,log_id,drone_id,name,ac_id,preflight_checks) VALUES(1,1,1,'Drone',7,'[]')")
+        self.con.executemany(
+            "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,verdict,project_id,has_gps_position,"
+            " takeoff_lat,takeoff_lon) VALUES(?,1,?,100,?,'flight',1,1,52.0,4.0)",
+            [(1, 0, "2011-01-01T12:00:00.000Z"), (2, 1, "2011-01-01T13:00:00.000Z")])
+        self.con.commit()
+
+    def status(self):
+        return {r["record_key"]: (r["preflight"], r["preflight_by"]) for r in self.client.get("/api/logbook?compact=1").json}
+
+    def test_new_paper_record_needs_the_tick_unless_indoors(self):
+        response = self.create(preflight=False)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Pre-flight inspection", response.json["error"])
+        self.con.execute("INSERT INTO places(id,name,indoor,shape) VALUES (2,'Hall',1,?)",
+                         (json.dumps({"type": "circle", "center": [51, 4], "radius_m": 30}),))
+        self.con.commit()
+        indoor = self.create(preflight=None, place_id=2).json["id"]
+        ticked = self.create(date="2010-01-02").json["id"]
+        status = self.status()
+        self.assertEqual(status[f"paper:{indoor}"], ("not_needed", None))
+        self.assertEqual(status[f"paper:{ticked}"], ("paper", None))
+        # an existing record may be saved without it (no claim is made for old records)
+        response = self.client.put(f"/api/historical/{ticked}", json={**self.body, "date": "2010-01-02", "preflight": False})
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(self.status()[f"paper:{ticked}"], (None, None))
+
+    def test_checklist_in_the_log_covers_its_flights(self):
+        self.assertEqual(self.status()["log:1"], (None, None))
+        self.con.execute("""UPDATE aircraft SET preflight_checks='[{"text": "battery: ok"}]'""")
+        self.con.commit()
+        self.assertEqual({k: v for k, v in self.status().items() if k.startswith("log:")},
+                         {"log:1": ("log", None), "log:2": ("log", None)})
+        # MAVLink pre-arm messages are the autopilot's own checks, not the inspection
+        self.con.execute("UPDATE logs SET parser_name=?", (self.ns["mav_parse"].PARSER_NAME,))
+        self.con.commit()
+        self.assertEqual(self.status()["log:1"], (None, None))
+
+    def test_confirm_by_hand_and_take_it_back(self):
+        self.sign_in(3)  # view access only
+        self.assertEqual(self.client.put("/api/flights/1/preflight", json={"completed": True}).status_code, 403)
+        self.sign_in(2)
+        self.assertEqual(self.client.put("/api/flights/1/preflight", json={"completed": "yes"}).status_code, 400)
+        self.assertEqual(self.client.put("/api/flights/1/preflight", json={"completed": True}).status_code, 200)
+        self.assertEqual(self.status()["log:1"], ("confirmed", "Pilot"))
+        self.assertEqual(self.status()["log:2"], (None, None))
+        kept = self.ns["snapshot_flight_edits"](self.con, 1)[(7, 0)]
+        self.assertEqual(kept["preflight_by"], 2)  # restored after a re-parse
+        self.assertEqual(self.client.put("/api/flights/1/preflight", json={"completed": False}).status_code, 200)
+        self.assertEqual(self.status()["log:1"], (None, None))
+
+    def test_bulk_change_and_csv_column(self):
+        record = self.create().json["id"]
+        self.client.put(f"/api/historical/{record}", json={**self.body, "preflight": False})
+        self.sign_in(1)
+        response = self.client.put("/api/logbook/records", json={"record_keys": ["log:2", f"paper:{record}"], "preflight": True})
+        self.assertEqual(response.status_code, 200, response.json)
+        status = self.status()
+        self.assertEqual((status["log:2"], status[f"paper:{record}"]), (("confirmed", "Admin"), ("paper", None)))
+        text = "aircraft,pic,project,date,duration_minutes,flight_count,preflight\nDrone,Pilot,Research,2009-05-01,10,1,yes\n"
+        response = self.client.post("/api/historical/import", data={"file": (io.BytesIO(text.encode()), "p.csv")})
+        self.assertEqual(response.status_code, 201, response.json)
+        self.assertEqual(self.con.execute("SELECT preflight FROM flight_records WHERE date='2009-05-01'").fetchone()[0], 1)
