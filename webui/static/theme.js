@@ -70,6 +70,31 @@ window.preflightCheckHTML = function (message) {
     window.checklistAnswerHTML(message.checklist_value, message.text, !!message.checklist_optional)}</span>`;
 };
 
+// Whether the pre-flight inspection of a logbook entry is recorded (#315; app.py apply_preflight): {short, long, tip, ok}
+// for a logbook cell (short), the flight page (long) and their tooltip; ok is false when it is missing.
+window.PREFLIGHT_SPECIAL_HELP = 'Risks specific to this location, airspace or weather today (NOTAM, other traffic, people nearby, wind limits, ...) and how you mitigate them. Leave empty if nothing is special.';
+window.preflightStatus = function (entry) {
+  const status = window.preflightStatusOnly(entry);
+  if (entry.preflight_special) status.tip += '\nSpecial conditions: ' + entry.preflight_special;
+  return status;
+};
+window.preflightStatusOnly = function (entry) {
+  const at = (entry.preflight_at || '').slice(0, 10);
+  const indoor = entry.simulation && entry.simulation.detected ? 'a simulation' : 'an indoor flight';
+  switch (entry.preflight) {
+    case 'log': return {short: '✓', long: '✓ Checklist in the log', ok: true,
+      tip: 'The pre-flight checklist ([PFC]) is in the log; one checklist covers every flight of the aircraft in that log'};
+    case 'confirmed': return at
+      ? {short: '✓', long: `✓ Confirmed by ${entry.preflight_by || 'a former user'}`, ok: true,
+        tip: `Confirmed by ${entry.preflight_by || 'a former user'} on ${at}`}
+      : {short: '✓', long: `✓ Done by ${entry.preflight_by} (PIC)`, ok: true, tip: `Done by the PIC, ${entry.preflight_by}`};
+    case 'paper': return {short: '✓', long: '✓ On the paper record', ok: true, tip: 'Ticked on the paper record'};
+    case 'not_needed': return {short: '–', long: 'Not needed', ok: true, tip: `Not needed for ${indoor}`};
+    default: return {short: 'Not recorded', long: 'Not recorded', ok: false,
+      tip: 'No pre-flight checklist in the log and not confirmed'};
+  }
+};
+
 // How an operator is shown everywhere, and where a logbook entry's operator comes from (operators.py).
 window.operatorLabel = o => o.name + (o.registration ? ` (${o.registration})` : '');
 window.OPERATOR_SOURCE = {flight: 'set on this flight', project: 'from the project', place: 'from the takeoff place', pic: 'the operator the PIC flies for', default: 'own operator (default)'};

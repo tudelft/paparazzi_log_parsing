@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS flight_records (
     operator_id INTEGER REFERENCES operators(id),  -- NULL = from project, place or own operator (operators.py)
     category TEXT,                      -- operation category; NULL = from project, place or date (categories.py)
     authorisation_id INTEGER REFERENCES authorisations(id),
+    preflight INTEGER CHECK(preflight IS NULL OR preflight=1),  -- 1 = pre-flight inspection completed; NULL = not recorded
+    preflight_special TEXT,             -- special conditions: risks of the location, airspace or weather and their mitigation
     fingerprint TEXT NOT NULL UNIQUE,
     created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -274,7 +276,11 @@ CREATE TABLE IF NOT EXISTS flights (
     operator_id INTEGER,               -- operators.id set on this flight; NULL = from project, place or own operator
     category TEXT,                     -- operation category set on this flight; NULL = from project, place or date
     authorisation_id INTEGER,          -- authorisations.id set on this flight (categories.py)
-    path_idx INTEGER                   -- index of this flight's path in logs.paths_file
+    path_idx INTEGER,                  -- index of this flight's path in logs.paths_file
+    preflight_by INTEGER,              -- users.id who confirmed the pre-flight inspection by hand; NULL with preflight_at:
+                                       -- done by the PIC (flights from before it was recorded); kept across a re-parse
+    preflight_at TEXT,                 -- when confirmed; NULL = not confirmed (a checklist in the log needs none)
+    preflight_special TEXT             -- special conditions noted with the confirmation (the log's own: checklist "special")
 );
 CREATE TABLE IF NOT EXISTS setting_changes (
     id INTEGER PRIMARY KEY,
@@ -1084,6 +1090,15 @@ def init(path):
         con.execute("ALTER TABLE logs ADD COLUMN paths_file TEXT")
     if "path_idx" not in {r[1] for r in con.execute("PRAGMA table_info(flights)")}:
         con.execute("ALTER TABLE flights ADD COLUMN path_idx INTEGER")
+    fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
+    for col, kind in (("preflight_by", "INTEGER"), ("preflight_at", "TEXT"), ("preflight_special", "TEXT")):
+        if col not in fcols:
+            con.execute(f"ALTER TABLE flights ADD COLUMN {col} {kind}")
+    rcols = {r[1] for r in con.execute("PRAGMA table_info(flight_records)")}
+    if "preflight" not in rcols:
+        con.execute("ALTER TABLE flight_records ADD COLUMN preflight INTEGER CHECK(preflight IS NULL OR preflight=1)")
+    if "preflight_special" not in rcols:
+        con.execute("ALTER TABLE flight_records ADD COLUMN preflight_special TEXT")
     acols = {r[1] for r in con.execute("PRAGMA table_info(aircraft)")}
     if "drone_id" not in acols:
         con.execute("ALTER TABLE aircraft ADD COLUMN drone_id INTEGER")
@@ -1229,6 +1244,10 @@ def init(path):
     # flights put in a project by hand used to leave their log without one (only the uploader saw the log); now the
     # log follows (app.apply_flight_project); this fixes the logs from before that
     run_once(con, "log_project_from_flights", LOG_PROJECT_FROM_FLIGHTS)
+    # the pre-flight inspection is recorded since #315; every flight and paper record from before was done by its PIC
+    run_once(con, "preflight_done_before_recording",
+             "UPDATE flights SET preflight_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE preflight_at IS NULL")
+    run_once(con, "preflight_paper_done_before_recording", "UPDATE flight_records SET preflight=1 WHERE preflight IS NULL")
     logbook_version_triggers(con)
     con.commit()
 

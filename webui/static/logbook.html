@@ -169,7 +169,7 @@
     </div>
     <div class="scroll">
     <table class="log">
-      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"><input type="checkbox" id="selAll" title="Select all on this page" aria-label="Select all on this page"></th><th title="Flight number: the number in /flight/&lt;number&gt;, used by ml.fetch in Python and pprz_fetch in MATLAB (⧉ copies it)">No.</th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th>Takeoff location</th><th>Landing location</th>
+      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"><input type="checkbox" id="selAll" title="Select all on this page" aria-label="Select all on this page"></th><th title="Flight number: the number in /flight/&lt;number&gt;, used by ml.fetch in Python and pprz_fetch in MATLAB (⧉ copies it)">No.</th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th title="Pre-flight inspection: the checklist in the log, confirmed by hand or ticked on the paper record">Pre-flight</th><th>Takeoff location</th><th>Landing location</th>
         <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -187,7 +187,7 @@
       <strong id="selCount"></strong>
       <button type="button" id="selCopy">Copy numbers</button>
       <span id="selMatlab"></span>
-      <button type="button" id="bulkChange" hidden onclick="openBulk()" title="Project, crew, operator or category of the ticked entries">Change…</button>
+      <button type="button" id="bulkChange" hidden onclick="openBulk()" title="Project, crew, operator, category or pre-flight inspection of the ticked entries">Change…</button>
       <button type="button" id="sameFlightBtn" hidden onclick="sameFlight()" title="The ticked entries are recordings of one flight: logged flights, optionally with one paper record">Same flight</button>
       <button type="button" id="hideSelected" hidden onclick="setHidden(true)">Hide</button>
       <button type="button" id="restoreSelected" hidden onclick="setHidden(false)">Restore</button>
@@ -205,6 +205,7 @@
     <label class="field">GCS<select id="bulkGcs"></select></label>
     <label class="field" title="The operator registration the flights were flown under">Operator<select id="bulkOperator" onchange="pickNewOperator(this, operators, fillBulkMenus, '__keep__')"></select></label>
     <label class="field" title="The rules the flights were flown under: OPEN, SPECIFIC with its authorisation, national rules before 2021">Category<select id="bulkCategory"></select></label>
+    <label class="field" title="Confirm that the pre-flight inspection was completed (saved with your name and the time), or take that back; a checklist in the log needs no confirmation">Pre-flight inspection<select id="bulkPreflight"><option value="__keep__">Keep</option><option value="1">Completed</option><option value="">Not recorded</option></select></label>
     <p class="dialog-error" id="bulkError" role="alert"></p>
     <div class="row"><button type="submit" class="primary">Apply</button> <button type="button" class="sec" onclick="$('bulkDialog').close()">Cancel</button></div>
   </form>
@@ -352,12 +353,25 @@ function categoryCell(f) {
   return `<span${f.category_source === 'flight' ? '' : ' class="mute"'} title="${esc(title)}">${esc(label)}</span>${check}`;
 }
 
+// Pre-flight inspection (#315): ✓ when recorded, – when not needed (indoor, simulation); a day row counts the missing.
+function preflightCell(list) {
+  const states = list.map(preflightStatus), missing = states.filter(p => !p.ok).length;
+  if (list.length === 1) return `<span title="${esc(states[0].tip)}"${states[0].ok ? (states[0].short === '–' ? ' class="mute"' : ' style="color:var(--ok)"') : ' class="warn"'}>${esc(states[0].short)}</span>`;
+  if (!missing) return `<span style="color:var(--ok)" title="Recorded or not needed for all ${list.length} flights">✓</span>`;
+  return `<span class="warn" title="${missing} of ${list.length} flights have no recorded pre-flight inspection">${missing === list.length ? 'Not recorded' : `${missing} of ${list.length} missing`}</span>`;
+}
 // Column visibility is a per-browser preference, so it survives page changes, Back and new sessions.
 const COLUMNS = ['No.', 'Date (UTC)', 'Takeoff', 'Landing', 'Flights', 'Duration', 'Flown', 'Source', 'Aircraft', 'Project',
-  'Operator', 'Category', 'Takeoff location', 'Landing location', 'PIC', 'PAC', 'GCS', 'Goal', 'Comment'];
+  'Operator', 'Category', 'Pre-flight', 'Takeoff location', 'Landing location', 'PIC', 'PAC', 'GCS', 'Goal', 'Comment'];
 const COLUMNS_KEY = 'logbook.hiddenColumns';
-let hiddenColumns = new Set();
-try { hiddenColumns = new Set(JSON.parse(localStorage.getItem(COLUMNS_KEY) || '[]').filter(c => c === 'Select' || COLUMNS.includes(c))); } catch (e) {}
+// Hidden until someone shows them; those shown are remembered separately, so the stored hidden list stays as it was.
+const DEFAULT_HIDDEN = ['Pre-flight'], SHOWN_KEY = 'logbook.shownColumns';
+let hiddenColumns = new Set(DEFAULT_HIDDEN);
+try {
+  const shown = JSON.parse(localStorage.getItem(SHOWN_KEY) || '[]');
+  hiddenColumns = new Set([...JSON.parse(localStorage.getItem(COLUMNS_KEY) || '[]').filter(c => c === 'Select' || COLUMNS.includes(c)),
+    ...DEFAULT_HIDDEN.filter(c => !shown.includes(c))]);
+} catch (e) {}
 const columnStyle = document.head.appendChild(document.createElement('style'));
 function applyColumns() {
   // Column n+3 in each row: first the expand arrow, then the tick box (Select, column 2). Expanded detail rows span all columns.
@@ -366,7 +380,10 @@ function applyColumns() {
     ? `table.log tr > :nth-child(${i + 3}):not(.detail) { display:none; }` : '').join('\n');
   if (hiddenColumns.has('Select') && selected.size) { selected.clear(); if (flights.length) render(); }
   $('colButton').textContent = hiddenColumns.size ? `Columns (${hiddenColumns.size} hidden)` : 'Columns';
-  try { localStorage.setItem(COLUMNS_KEY, JSON.stringify([...hiddenColumns])); } catch (e) {}
+  try {
+    localStorage.setItem(COLUMNS_KEY, JSON.stringify([...hiddenColumns].filter(c => !DEFAULT_HIDDEN.includes(c))));
+    localStorage.setItem(SHOWN_KEY, JSON.stringify(DEFAULT_HIDDEN.filter(c => !hiddenColumns.has(c))));
+  } catch (e) {}
 }
 function fillColumns() {
   $('colForm').innerHTML = ['Select', ...COLUMNS].map(c => `<label${c === 'Select' ? ' title="The tick boxes and the selection bar"' : ''}><input type="checkbox" value="${esc(c)}"${hiddenColumns.has(c) ? '' : ' checked'}${c === 'Date (UTC)' ? ' disabled' : ''}> ${esc(c)}</label>`).join('')
@@ -441,9 +458,9 @@ function openBulk() {
   const n = pickedFlights().length, logs = pickedLogs().length;
   $('bulkWhat').textContent = logMode() ? `${logs} ticked ${logs === 1 ? 'log' : 'logs'} without flights: only the project applies.`
     : `${n} ticked ${n === 1 ? 'entry' : 'entries'}; fields left on Keep stay as they are.`;
-  for (const id of ['bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory']) $(id).closest('label').style.display = logMode() ? 'none' : '';
+  for (const id of ['bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory', 'bulkPreflight']) $(id).closest('label').style.display = logMode() ? 'none' : '';
   $('bulkError').textContent = '';
-  ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory'].forEach(id => { $(id).value = '__keep__'; });
+  ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory', 'bulkPreflight'].forEach(id => { $(id).value = '__keep__'; });
   $('bulkDialog').showModal();
 }
 async function applyBulk() {
@@ -467,10 +484,11 @@ async function applyBulk() {
     if (v !== '__keep__') body[key] = v ? +v : null;
   });
   if ($('bulkCategory').value !== '__keep__') Object.assign(body, categoryChoice($('bulkCategory').value));
+  if ($('bulkPreflight').value !== '__keep__') body.preflight = $('bulkPreflight').value === '1';
   const projectV = $('bulkProject').value;
   const changeProject = projectV !== '__keep__';
   if (!Object.keys(body).length && !changeProject) {
-    $('bulkError').textContent = 'Choose a project, PIC, PAC, GCS, operator or category.';
+    $('bulkError').textContent = 'Choose a project, PIC, PAC, GCS, operator, category or pre-flight inspection.';
     return;
   }
   if (changeProject) {
@@ -479,7 +497,7 @@ async function applyBulk() {
   if (!await updateRecords(ids, body, $('bulkError'))) return;
   $('bulkDialog').close();
   $('bulkMsg').textContent = 'Saved.';
-  ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory'].forEach(id => { $(id).value = '__keep__'; });
+  ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory', 'bulkPreflight'].forEach(id => { $(id).value = '__keep__'; });
   loadFlights();
 }
 // Manage ▾: the rarer tools, only for those who may use them (paper records and review need edit rights in a
@@ -886,14 +904,14 @@ function numberTd(f, o) {
 }
 const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '▾' : '▸') : ''}</td>${chk(o.ids)}${numberTd(f, o)}${dateTd(f)}<td><span${timesTip(o)}>${esc(fmtHm(f.takeoff_utc))}</span></td><td><span${timesTip(o)}>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</span></td>
     <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${o.sources}</td><td><span${f.aircraft_uid ? ` title="${esc(f.aircraft_uid)}"` : ''}>${entityLink('aircraft', f.drone_id, f.aircraft)}</span>${verdictMark(f)}</td>
-    <td>${o.project}</td><td>${operatorCell(f)}</td><td>${categoryCell(f)}</td>
+    <td>${o.project}</td><td>${operatorCell(f)}</td><td>${categoryCell(f)}</td><td>${o.preflight}</td>
     <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place, f.takeoff_place_id)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place, landingPlaceId)}</td>
     <td>${person(f, 'pic')}</td><td>${person(f, 'pac')}</td><td>${person(f, 'gcs')}</td><td>${esc(o.goal)}</td><td>${esc(o.comment)}</td>`;
 
 function flightRows(f, cls = '') {
   const ids = crewIds(f);
-  return `<tr class="flight ${cls}${open_.has(f.record_key) ? ' open' : ''}${ticked(ids) ? ' ticked' : ''}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), ids, canEdit: selectable(f)}, f.landing_place_id)}</tr>`
-    + (open_.has(f.record_key) ? `<tr><td colspan="21" class="detail">${detail(f)}</td></tr>` : '');
+  return `<tr class="flight ${cls}${open_.has(f.record_key) ? ' open' : ''}${ticked(ids) ? ' ticked' : ''}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), preflight: preflightCell([f]), ids, canEdit: selectable(f)}, f.landing_place_id)}</tr>`
+    + (open_.has(f.record_key) ? `<tr><td colspan="22" class="detail">${detail(f)}</td></tr>` : '');
 }
 
 // A log without flights: its log number (as on the Logs page and in ml.fetch(log=n), marked as a log), date (or the
@@ -910,7 +928,7 @@ function logRow(l, cls = '') {
     <td>${fmtDur(l.duration_s)}</td><td></td>
     <td>${esc(TYPE_LABEL[l.log_type] || l.log_type || 'Log')}<span class="badge no-flight" title="This log was parsed but produced no flight">no flight</span></td>
     <td>${esc(l.aircraft_names || '')}</td><td>${l.project_id != null ? `<a href="/projects/${l.project_id}">${esc(l.project_name || '')}</a>` : ''}</td>
-    <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+    <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
     <td><a href="/logs#log${l.id}" title="Log details: ${esc(l.name)}">${esc(l.name)}</a></td></tr>`;
 }
 
@@ -943,7 +961,7 @@ function logGroupRows(g) {
     <td>${fmtDur(ls.reduce((s, l) => s + (l.duration_s || 0), 0))}</td><td></td>
     <td>${esc(uniq(ls.map(l => TYPE_LABEL[l.log_type] || l.log_type || 'Log')).join(' + '))}<span class="badge no-flight" title="These logs were parsed but produced no flight">no flight</span></td>
     <td>${esc(first.aircraft_names || '')}</td><td>${projects}</td>
-    <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+    <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
     <td><span title="${esc(names)}">${ls.length} logs</span></td></tr>`
     + (isOpen ? ls.map(l => logRow(l, 'sub')).join('') : '');
 }
@@ -959,7 +977,7 @@ function groupRows(g) {
   const times = g.flights.map(f => `${fmtHm(f.takeoff_utc)}–${fmtHm(f.landing_utc) || '?'}`).join(', ');
   const ids = [...new Set(g.flights.flatMap(crewIds))];
   const flightIds = g.flights.map(f => f.flight_id).filter(id => id != null);
-  return `<tr class="group${ticked(ids) ? ' ticked' : ''}" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, flightIds, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: groupProject(g, first), ids, canEdit: g.flights.some(selectable)}, g.landing_place_id)}</tr>`
+  return `<tr class="group${ticked(ids) ? ' ticked' : ''}" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, flightIds, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: groupProject(g, first), preflight: preflightCell(g.flights), ids, canEdit: g.flights.some(selectable)}, g.landing_place_id)}</tr>`
     + (isOpen ? g.flights.map(f => flightRows(f, 'sub')).join('') : '');
 }
 
@@ -1129,7 +1147,7 @@ $('rows').onclick = e => {
 };
 
 function exportCsv() {
-  const cols = ['flight_id', 'source_type', 'simulation', 'flight_count', 'record_kind', 'reference', 'takeoff_utc', 'landing_utc', 'date_ok', 'date_estimated', 'date_override', 'duration_s', 'distance_m', 'from_takeoff_m', 'max_from_takeoff_m', 'aircraft', 'aircraft_uid', 'project_name', 'operator_name', 'operator_registration', 'operator_source', 'category_label', 'authorisation_name', 'category_source', 'category_check', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
+  const cols = ['flight_id', 'source_type', 'simulation', 'flight_count', 'record_kind', 'reference', 'takeoff_utc', 'landing_utc', 'date_ok', 'date_estimated', 'date_override', 'duration_s', 'distance_m', 'from_takeoff_m', 'max_from_takeoff_m', 'aircraft', 'aircraft_uid', 'project_name', 'operator_name', 'operator_registration', 'operator_source', 'category_label', 'authorisation_name', 'category_source', 'category_check', 'preflight', 'preflight_by', 'preflight_at', 'preflight_special', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
   const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const csv = [cols.join(',')].concat(render().map(f => cols.map(c => cell(c === 'simulation' ? f.simulation?.detected : c.endsWith('_user') ? f[c]?.display_name : f[c])).join(','))).join('\n');
   const a = document.createElement('a');

@@ -535,6 +535,29 @@ confirmed an item without a value keep ✓.
 No database migration is needed. Existing logs need **Re-parse outdated** to recover crew/goal
 events omitted by older parsers and attach full descriptions; older stored messages remain displayable.
 
+**Pre-flight inspection (#315).** Every logbook entry has `preflight` (`app.py` `apply_preflight`), also in
+`/api/logbook` and Export CSV:
+- `log`: a Paparazzi log of the entry has `[PFC]` messages (`aircraft.preflight_checks`); one checklist covers every
+  flight of its aircraft in that log. MAVLink pre-arm and arming messages (also stored there for other formats) are
+  the autopilot's own checks and do not count.
+- `confirmed`: confirmed by hand, with `preflight_by` (name) and `preflight_at`. `PUT /api/flights/<id>/preflight`
+  `{"completed": true|false}` has the rights of the flight goal (`logs:edit` for keys); the bulk
+  `PUT /api/logbook/records` takes `"preflight": true|false`. Stored in `flights.preflight_by`/`preflight_at` and kept
+  across a re-parse; a second confirmation keeps the first one's name and time. `preflight_at` without
+  `preflight_by` is done by the PIC: the one-time data fix `preflight_done_before_recording` (`db.init`,
+  `data_migrations`) set it on every flight from before #315, so `preflight_by` is then the PIC's name.
+- `paper`: `flight_records.preflight` is 1 on the entry's own or linked paper record. `POST /api/historical` refuses
+  a new record without `"preflight": true` unless its location is indoor or its category is `indoor`; changing a
+  record does not require it. The one-time fix `preflight_paper_done_before_recording` ticked every record from
+  before #315. CSV column `preflight`
+  (`yes`/`no`/blank), kept when the column is missing. The tick is not part of the record's fingerprint.
+- `preflight_special`: the special conditions noted with it: the last non-empty answer to the checklist item
+  `special` (`log`), `flights.preflight_special` (`"special"` with the confirmation, at most 1000 characters; cleared
+  when it is taken back) or `flight_records.preflight_special` (form, CSV column `special`).
+- `not_needed`: nothing recorded, and the category is `indoor` (an indoor place, motion capture, or no GPS) or the
+  flight is a simulation.
+- `null`: not recorded.
+
 **Additional files.** Use the **Files** tab on a flight, **Additional files** on a paper record,
 or **Additional files** in an expanded upload. Photos, videos, wind-tunnel measurements, offboard
 computer logs and other files can be uploaded there. Search by aircraft, date, filename or numeric
@@ -554,7 +577,7 @@ flight no longer exists, its file links move to the parent log instead of losing
 it may do on top of its user's rights: `read` (every GET and HEAD, plus the MATLAB export requests
 `POST /api/logs/<id>/matlab` and `POST /api/flights/<id>/matlab`, which only read), `logs:upload` (log upload and
 reservations, `logs/check`, attachments: upload and share, paper records: single and CSV), `logs:edit` (project, date,
-crew and comment of logs and flights, date suggestions, conflicts, reparse), and for administrators `documents:upload`
+crew, comment and pre-flight inspection of logs and flights, date suggestions, conflicts, reparse), and for administrators `documents:upload`
 (add a document, replace its file), `documents:manage` (edit and delete documents, groups and the intro) and `admin`
 (places, operators, authorisations, projects, aircraft, aliases, date suggestions, deleting accounts, reparse: each
 route listed by name in `scopes.ENDPOINTS["admin"]`, so a new admin route needs a decision). `require_login`
