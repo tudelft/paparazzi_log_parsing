@@ -345,7 +345,8 @@ function editable(e = D.entry) {
   return {aircraft: !!e.can_edit_comment, goal: !!e.can_edit_comment, date: canDate(), pic: !!e.can_edit_crew,
     pac: !!e.can_edit_crew, gcs: !!e.can_edit_crew, project: !!e.can_edit_project, operator: !!e.can_edit_crew,
     category: !!e.can_edit_crew, verdict: !!e.can_edit_crew && !e.manual_id, comment: !!e.can_edit_comment,
-    preflight: !!e.can_edit_comment && (e.preflight == null || e.preflight === 'confirmed')};
+    preflight: !!e.can_edit_comment && (e.preflight == null || e.preflight === 'confirmed'),
+    special: !!e.can_edit_comment && (e.preflight == null || e.preflight === 'confirmed')};
 }
 const mayEdit = key => !!D && editable()[key];
 function paintEditButton() { $('editFlight').hidden = !Object.values(editable()).some(Boolean); }
@@ -398,7 +399,7 @@ async function openEdit(focus) {
     date: set, pic: String(crewNow('pic')), pac: String(crewNow('pac')), gcs: String(crewNow('gcs')),
     project: String(e.project_id ?? ''), operator: String(e.operator_source === 'flight' ? e.operator_id ?? '' : ''),
     category: e.category_source === 'flight' ? categoryValue(e) : '', verdict: e.verdict_override || '', comment: e.comment || '',
-    preflight: e.preflight === 'confirmed' ? '1' : ''};
+    preflight: e.preflight === 'confirmed' ? '1' : '', special: e.preflight === 'confirmed' ? e.preflight_special || '' : ''};
   const projectList = projects.filter(p => me && (me.is_admin || p.can_add || p.id === e.project_id)).map(p => [p.id, p.name]);
   $('editTitle').textContent = `Edit flight ${flightId}`;
   $('editWhat').textContent = `${e.aircraft || 'Flight'} · ${fmtTime(e.takeoff_utc)}${sourceIds(e).length > 1 ? ' · saved on all its recordings' : ''}`;
@@ -415,6 +416,7 @@ async function openEdit(focus) {
     row(f('project', 'Project', `<select name="project">${options([['', 'No project'], ...projectList], editStart.project)}</select>`),
       f('operator', 'Operator', `<select name="operator">${may.operator ? operatorOptions(editStart.operator) : ''}</select>`),
       f('category', 'Category', `<select name="category"><option value="">From project / place / date</option>${may.category ? categoryOptions(authorisations, editStart.category) : ''}</select>`)),
+    row(f('special', 'Special conditions (with the pre-flight inspection)', `<textarea class="comment" name="special" maxlength="1000" rows="2" title="${esc(PREFLIGHT_SPECIAL_HELP)}" placeholder="Nothing special">${esc(editStart.special)}</textarea>`, true)),
     row(f('comment', 'Comment', `<textarea class="comment" name="comment" maxlength="4000" rows="3">${esc(editStart.comment)}</textarea>`, true)),
   ].join('');
   if (may.date && !set) editStart.date = $('editFields').querySelector('[name=date]').value;  // unchanged unless edited
@@ -450,10 +452,15 @@ async function saveEdit(event) {
     ['operator', records({operator_id: id('operator')}), 'Could not save the operator'],
     ['category', records(categoryChoice(value('category'))), 'Could not save the category'],
     ['verdict', records({verdict: value('verdict') || null}), 'Could not save the classification'],
-    ['preflight', each('preflight', {completed: value('preflight') === '1'}), 'Could not save the pre-flight inspection'],
+    [changed.includes('preflight') ? 'preflight' : 'special', each('preflight', {completed: value('preflight') === '1', special: value('special').trim()}),
+      'Could not save the pre-flight inspection'],
     ['date', (out, fallback) => send(`/api/logs/${D.log_id}/date`, 'PUT', {date_override: value('date') || null}, out, fallback), 'Could not save the date'],
     ['aircraft', (out, fallback) => send(`/api/flights/${flightId}/aircraft`, 'PUT', {drone_id: id('aircraft')}, out, fallback), 'Could not save the aircraft'],
   ].filter(([key]) => key && changed.includes(key));
+  if (changed.includes('special') && value('preflight') !== '1') {
+    $('editFields').querySelector('[data-error="special"]').textContent = 'Set the pre-flight inspection to Completed to save special conditions.';
+    return;
+  }
   $('editSave').disabled = true;
   let failed = 0;
   try {
@@ -708,6 +715,8 @@ function renderSummary() {
           + (e.category_check ? ` <span class="warn">${esc(e.category_check)}</span>` : ''))}
         ${ekv('verdict', 'Classification', esc(VERDICT_LABEL[e.verdict] || 'Unknown') + ` <span class="mute">${e.verdict_override ? 'set by hand' : 'automatic'}</span>`)}
         ${ekv('preflight', 'Pre-flight', preflightHTML(e))}
+        ${e.preflight_special ? (e.preflight === 'confirmed' ? ekv('special', 'Special conditions', `<span class="note">${esc(e.preflight_special)}</span>`)
+          : kv('Special conditions', `<span class="note">${esc(e.preflight_special)}</span>`)) : ''}
         ${operationRow(D.operation)}
       </div></div>
     </div>
@@ -743,17 +752,20 @@ function localTime(t) {
 }
 // The pre-flight inspection (#315): the checklist links to its tab; a missing one can be confirmed in one step.
 function preflightHTML(e) {
-  const p = preflightStatus(e);
+  const p = preflightStatusOnly(e);
   const text = e.preflight === 'log' ? `<a href="#checks" title="${esc(p.tip)}">${esc(p.long)}</a>`
     : `<span title="${esc(p.tip)}"${p.ok ? '' : ' style="color:var(--warn);font-weight:600"'}>${esc(p.long)}</span>`;
   return text + (e.preflight == null && mayEdit('preflight')
     ? ' <button type="button" class="small" onclick="confirmPreflight()">Confirm…</button>' : '');
 }
 function confirmPreflight() {
-  actionDialog('Confirm the pre-flight inspection', 'Confirm that the pre-flight inspection of this flight was completed? '
-    + 'It is saved with your name and the time; Edit flight takes it back.', 'Confirm', async out => {
+  actionDialog('Confirm the pre-flight inspection', '<p>Confirm that the pre-flight inspection of this flight was completed? '
+    + 'It is saved with your name and the time; Edit flight takes it back.</p>'
+    + `<label class="field">Special conditions<textarea id="preflightSpecial" class="comment" maxlength="1000" rows="3" placeholder="Nothing special"></textarea>`
+    + `<span class="mute" style="font-size:12px">${esc(PREFLIGHT_SPECIAL_HELP)}</span></label>`, 'Confirm', async out => {
+    const special = $('preflightSpecial').value.trim();
     for (const fid of sourceIds(D.entry))
-      if (!await send(`/api/flights/${fid}/preflight`, 'PUT', {completed: true}, out, 'Could not confirm')) return;
+      if (!await send(`/api/flights/${fid}/preflight`, 'PUT', {completed: true, special}, out, 'Could not confirm')) return;
     $('actDialog').close();
     await reloadEntry();
   });

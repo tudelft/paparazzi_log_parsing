@@ -12,14 +12,16 @@ import qualifications
 
 COLUMNS = ("aircraft", "pic", "project", "date", "duration_minutes", "flight_count",
            "kind", "takeoff_time", "location", "pac", "gcs", "goal", "comment", "reference", "operator",
-           "category", "authorisation", "preflight")
+           "category", "authorisation", "preflight", "special")
 FIELDS = ("drone_id", "pic_user_id", "project_id", "date", "duration_s", "flight_count",
           "kind", "takeoff_time", "place_id", "pac_user_id", "gcs_user_id", "goal", "comment", "reference",
-          "operator_id", "category", "authorisation_id", "preflight")
+          "operator_id", "category", "authorisation_id", "preflight", "preflight_special")
 COLUMN_OF = dict(zip(FIELDS, COLUMNS))  # stored field -> CSV column
 # Under which operator and rules a record was flown, and whether the pre-flight inspection was recorded: not part of
 # its identity (fingerprint), and a CSV without their columns keeps them.
-ANNOTATIONS = {"operator": ("operator_id",), "category": ("category", "authorisation_id"), "preflight": ("preflight",)}
+ANNOTATIONS = {"operator": ("operator_id",), "category": ("category", "authorisation_id"), "preflight": ("preflight",),
+               "special": ("preflight_special",)}
+SPECIAL_MAX = 1000  # special conditions noted with the pre-flight inspection
 YES, NO = ("yes", "1", "true"), ("no", "0", "false", "")
 
 
@@ -118,7 +120,17 @@ def validate(con, user, body):
     except categories.CategoryError as exc:
         raise RecordError(str(exc)) from None
     out["preflight"] = preflight_value(body.get("preflight"))
+    out["preflight_special"] = special_value(body.get("preflight_special", body.get("special")))
     return out
+
+
+def special_value(value):
+    """Special conditions of the location, airspace or weather and their mitigation (optional text), or None."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) > SPECIAL_MAX:
+        raise RecordError(f"Special conditions must be text of at most {SPECIAL_MAX} characters.")
+    return value.strip() or None
 
 
 def preflight_value(value):
@@ -337,6 +349,7 @@ def rows(con, user, project=None, hidden=False):
             goal=r["goal"], comment=r["comment"], pic=None, pac=None, gcs=None,
             pic_user_id=r["pic_user_id"], pac_user_id=r["pac_user_id"], gcs_user_id=r["gcs_user_id"],
             hidden=bool(r["hidden"]), can_edit_record=editable, preflight_record=bool(r["preflight"]),
+            preflight_special_record=r["preflight_special"],
             can_edit_crew=bool(user["is_admin"]), can_edit_project=bool(user["is_admin"]), can_edit_date=False,
             can_edit_comment=False, takeoff_voltage_v=None, landing_voltage_v=None,
         ))

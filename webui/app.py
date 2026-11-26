@@ -2477,8 +2477,8 @@ def snapshot_flight_edits(con, log_id):
     with the aircraft rows)."""
     return {(r["ac_id"], r["idx"]): dict(r) for r in con.execute(
         "SELECT a.ac_id, f.idx, f.project_id, f.project_source, f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment, f.hidden,"
-        " f.operator_id, f.category, f.authorisation_id, f.verdict_override, f.goal_override, f.preflight_by, f.preflight_at"
-        " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id=?", (log_id,))}
+        " f.operator_id, f.category, f.authorisation_id, f.verdict_override, f.goal_override, f.preflight_by, f.preflight_at,"
+        " f.preflight_special FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id=?", (log_id,))}
 
 
 def drone_periods(con, drone_id):
@@ -2734,13 +2734,13 @@ def assign_log_flights(con, log_id, kept=None):
         restore = kept.get((f["ac_id"], f["idx"])) or {}
         if restore:
             con.execute("UPDATE flights SET pic_user_id=?, pac_user_id=?, gcs_user_id=?, comment=?, hidden=?, operator_id=?,"
-                        " category=?, authorisation_id=?, verdict_override=?, goal_override=?, preflight_by=?, preflight_at=?"
-                        " WHERE id=?",
+                        " category=?, authorisation_id=?, verdict_override=?, goal_override=?, preflight_by=?, preflight_at=?,"
+                        " preflight_special=? WHERE id=?",
                         (restore.get("pic_user_id"), restore.get("pac_user_id"), restore.get("gcs_user_id"),
                          restore.get("comment"), restore.get("hidden", 0), restore.get("operator_id"),
                          restore.get("category"), restore.get("authorisation_id"), restore.get("verdict_override"),
                          restore.get("goal_override"), restore.get("preflight_by"), restore.get("preflight_at"),
-                         f["id"]))
+                         restore.get("preflight_special"), f["id"]))
         saved = restore.get("project_id")
         source = restore.get("project_source") if restore else f["project_source"]
         if source == "manual":
@@ -4622,7 +4622,8 @@ def update_logbook_records():
                             con.execute("UPDATE flights SET preflight_by=?, preflight_at=? WHERE id=? AND preflight_at IS NULL",
                                         (g.user["id"], now(), identity))
                         else:
-                            con.execute("UPDATE flights SET preflight_by=NULL, preflight_at=NULL WHERE id=?", (identity,))
+                            con.execute("UPDATE flights SET preflight_by=NULL, preflight_at=NULL, preflight_special=NULL"
+                                        " WHERE id=?", (identity,))
             if log_flights:  # the paper records linked to an entry carry its operator and category too
                 for record_id in {k["record_id"] for k in links.resolved(con) if k["same"] and k["flight_id"] in log_flights}:
                     if "operator_id" in changes:
@@ -4888,21 +4889,30 @@ def set_flight_goal(flight_id):
 @app.put("/api/flights/<int:flight_id>/preflight")
 def set_flight_preflight(flight_id):
     """Confirm that the pre-flight inspection was completed for a logged flight without a checklist in its log
-    ({"completed": true}), or take the confirmation back (false). Same rights as the goal; kept across a re-parse."""
+    ({"completed": true}, optionally with "special": the special conditions of the location, airspace or weather and
+    their mitigation), or take the confirmation back (false). Same rights as the goal; kept across a re-parse."""
     con = conn()
     _, err = visible_editable_flight(con, flight_id)
     if err == "missing":
         abort(404)
     if err == "forbidden":
         return jsonify(error="you cannot confirm the pre-flight inspection of this flight"), 403
-    completed = (request.get_json(silent=True) or {}).get("completed")
+    body = request.get_json(silent=True) or {}
+    completed = body.get("completed")
     if type(completed) is not bool:
         return jsonify(error="completed must be true or false"), 400
-    if completed:  # an earlier confirmation keeps who confirmed it and when
+    try:
+        special = historical.special_value(body.get("special"))
+    except historical.RecordError as exc:
+        return jsonify(error=str(exc)), exc.status
+    if completed:  # an earlier confirmation keeps who confirmed it and when; its note can be changed
         con.execute("UPDATE flights SET preflight_by=?, preflight_at=? WHERE id=? AND preflight_at IS NULL",
                     (g.user["id"], now(), flight_id))
+        if "special" in body:
+            con.execute("UPDATE flights SET preflight_special=? WHERE id=?", (special, flight_id))
     else:
-        con.execute("UPDATE flights SET preflight_by=NULL, preflight_at=NULL WHERE id=?", (flight_id,))
+        con.execute("UPDATE flights SET preflight_by=NULL, preflight_at=NULL, preflight_special=NULL WHERE id=?",
+                    (flight_id,))
     con.commit()
     return jsonify(ok=True)
 
@@ -6629,7 +6639,7 @@ LOGBOOK_OVERVIEW_KEYS = (
     "can_edit_project", "can_edit_date", "linked_records", "conflicts", "possible_duplicates",
     "operator_id", "operator_name", "operator_registration", "operator_own", "operator_source", "operator_check",
     "category", "category_label", "category_source", "category_check", "authorisation_id", "authorisation_name",
-    "preflight", "preflight_by", "preflight_at",
+    "preflight", "preflight_by", "preflight_at", "preflight_special",
 )
 
 
@@ -7038,7 +7048,12 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
         " EXISTS(SELECT 1 FROM ambiguous_drone_names n WHERE n.name=TRIM(a.name) COLLATE NOCASE) AS aircraft_ambiguous,"
         " COALESCE(f.verdict_override, f.verdict) AS verdict, f.verdict AS verdict_auto, f.verdict_override,"
         " f.assessment_json, f.takeoff_voltage_v, f.landing_voltage_v, f.num_points, f.takeoff_json, f.landing_json,"
-        " f.preflight_by, f.preflight_at, COALESCE(a.preflight_checks, '[]') NOT IN ('', '[]') AS has_pfc, l.parser_name,"
+        " f.preflight_by, f.preflight_at, f.preflight_special, l.parser_name,"
+        " COALESCE(a.preflight_checks, '[]') NOT IN ('', '[]') AS has_pfc,"
+        # the last answer to the checklist item "special" (special conditions of the location, airspace or weather)
+        " (SELECT json_extract(j.value, '$.text') FROM json_each(CASE WHEN json_valid(a.preflight_checks)"
+        "  THEN a.preflight_checks ELSE '[]' END) j WHERE json_extract(j.value, '$.text') LIKE 'special:%'"
+        "  ORDER BY CAST(j.key AS INTEGER) DESC LIMIT 1) AS pfc_special,"
         " f.link_json, l.id AS log_id, l.name AS log_name, l.size_bytes, l.log_type, l.uploaded_by, l.uploaded_at, l.sha256, l.log_path IS NOT NULL AS has_log,"
         " l.project_id AS log_project_id, l.start_utc AS log_start_utc, l.date_override, l.date_estimated,"
         " (SELECT username FROM users u WHERE u.id = l.uploaded_by) AS uploaded_by_name"
@@ -7118,28 +7133,37 @@ def apply_preflight(con, rows, source_rows):
     """Whether the pre-flight inspection of each entry is recorded (#315): "log" (the Paparazzi pre-flight checklist,
     [PFC], is in a log of the entry; one checklist covers every flight of its aircraft in that log), "confirmed" (by
     hand on the flight page, with preflight_by/at; flights from before it was recorded: by the PIC), "paper" (ticked
-    on the paper record), "not_needed" (indoor or a simulation), or None (not recorded). MAVLink pre-arm messages are the autopilot's own checks, not the inspection."""
+    on the paper record), "not_needed" (indoor or a simulation), or None (not recorded); preflight_special holds the
+    special conditions noted with it (the checklist item "special"). MAVLink pre-arm messages are the autopilot's own
+    checks, not the inspection."""
     names = {r["id"]: r["name"] for r in con.execute("SELECT id, COALESCE(display_name, username) AS name FROM users")}
-    ticked = {r["id"] for r in con.execute("SELECT id FROM flight_records WHERE preflight=1")}
+    ticked = {r["id"]: r["preflight_special"] for r in con.execute(
+        "SELECT id, preflight_special FROM flight_records WHERE preflight=1")}
     other = (mav_parse.PARSER_NAME, mav_parse.BLACKBOX_PARSER_NAME)
     for r in rows:
-        status = by = at = None
+        status = by = at = special = None
         if r["source_type"] == "paper":
             status = "paper" if r.get("preflight_record") else None
+            special = r.get("preflight_special_record")
         else:
             sources = [source_rows[s["flight_id"]] for s in r["sources"] if s["flight_id"] in source_rows]
             confirmed = next((s for s in sources if s["preflight_at"]), None)
-            if any(s["has_pfc"] and s["parser_name"] not in other for s in sources):
+            checklists = [s for s in sources if s["has_pfc"] and s["parser_name"] not in other]
+            if checklists:
                 status = "log"
+                special = next((s["pfc_special"][len("special:"):].strip() for s in checklists
+                                if (s["pfc_special"] or "")[len("special:"):].strip()), None)
             elif confirmed:
                 status, by, at = "confirmed", names.get(confirmed["preflight_by"]), confirmed["preflight_at"]
+                special = confirmed["preflight_special"]
                 if not confirmed["preflight_by"]:  # done by the PIC, before the inspection was recorded
                     by, at = (r.get("pic_user") or {}).get("display_name") or r.get("pic") or "the PIC", None
             elif any(p["id"] in ticked for p in r.get("linked_records") or []):
                 status = "paper"
+                special = next((ticked[p["id"]] for p in r["linked_records"] if ticked.get(p["id"])), None)
         if status is None and (r.get("category") == "indoor" or (r.get("simulation") or {}).get("detected")):
             status = "not_needed"
-        r.update(preflight=status, preflight_by=by, preflight_at=at)
+        r.update(preflight=status, preflight_by=by, preflight_at=at, preflight_special=special)
 
 
 @app.route("/api/flights/<int:flight_id>/weather", methods=["GET", "POST"])

@@ -72,7 +72,13 @@ window.preflightCheckHTML = function (message) {
 
 // Whether the pre-flight inspection of a logbook entry is recorded (#315; app.py apply_preflight): {short, long, tip, ok}
 // for a logbook cell (short), the flight page (long) and their tooltip; ok is false when it is missing.
+window.PREFLIGHT_SPECIAL_HELP = 'Risks specific to this location, airspace or weather today (NOTAM, other traffic, people nearby, wind limits, ...) and how you mitigate them. Leave empty if nothing is special.';
 window.preflightStatus = function (entry) {
+  const status = window.preflightStatusOnly(entry);
+  if (entry.preflight_special) status.tip += '\nSpecial conditions: ' + entry.preflight_special;
+  return status;
+};
+window.preflightStatusOnly = function (entry) {
   const at = (entry.preflight_at || '').slice(0, 10);
   const indoor = entry.simulation && entry.simulation.detected ? 'a simulation' : 'an indoor flight';
   switch (entry.preflight) {

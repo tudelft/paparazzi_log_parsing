@@ -736,6 +736,28 @@ class PreflightTests(AppTests):
         self.assertEqual(self.client.put("/api/flights/1/preflight", json={"completed": False}).status_code, 200)
         self.assertEqual(self.status()["log:1"], (None, None))
 
+    def test_special_conditions_from_the_checklist_the_confirmation_and_the_paper_record(self):
+        special = lambda key: next(r for r in self.client.get("/api/logbook?compact=1").json  # noqa: E731
+                                   if r["record_key"] == key)["preflight_special"]
+        self.con.execute("""UPDATE aircraft SET preflight_checks='[{"text": "special: crane north"}, {"text": "special:"},
+            {"text": "special: crane north, stay south of it"}]'""")
+        self.con.commit()
+        self.assertEqual(special("log:1"), "crane north, stay south of it")  # the last answer of the log
+        self.con.execute("UPDATE aircraft SET preflight_checks='[]'")
+        self.con.commit()
+        self.sign_in(2)
+        self.client.put("/api/flights/1/preflight", json={"completed": True, "special": " Kite surfers on the beach "})
+        self.assertEqual(special("log:1"), "Kite surfers on the beach")
+        self.assertEqual(self.client.put("/api/flights/1/preflight", json={"completed": True, "special": "x" * 1001}).status_code, 400)
+        self.client.put("/api/flights/1/preflight", json={"completed": False})
+        self.assertEqual(self.con.execute("SELECT preflight_special FROM flights WHERE id=1").fetchone()[0], None)
+        record = self.create(preflight_special="Event next to the field").json["id"]
+        self.assertEqual(special(f"paper:{record}"), "Event next to the field")
+        self.sign_in(1)
+        text = "aircraft,pic,project,date,duration_minutes,flight_count,preflight,special\nDrone,Pilot,Research,2009-05-02,10,1,yes,Gusts\n"
+        self.client.post("/api/historical/import", data={"file": (io.BytesIO(text.encode()), "p.csv")})
+        self.assertEqual(self.con.execute("SELECT preflight_special FROM flight_records WHERE date='2009-05-02'").fetchone()[0], "Gusts")
+
     def test_flights_from_before_were_done_by_the_pic(self):
         self.con.execute("UPDATE flights SET preflight_at='2026-11-27T00:00:00Z', pic_user_id=2 WHERE id=1")
         self.con.commit()

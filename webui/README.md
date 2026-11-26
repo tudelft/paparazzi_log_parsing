@@ -53,7 +53,9 @@ to gain descriptions and previously omitted crew entries.
 log (one checklist covers every flight of that log), confirmed by hand, or ticked on the paper record. Indoor flights
 and simulations do not need it. Flights and paper records from before it was recorded count as done by their PIC.
 Without a checklist, the PIC or anyone else who may edit the flight clicks
-**Confirm…**; Edit flight takes a confirmation back. Several flights at once: tick them and use **Change…**. The
+**Confirm…**; Edit flight takes a confirmation back. **Special conditions** (the risks of the location, airspace or
+weather that day and how you mitigate them; the last-minute risk assessment) come from the checklist item `special`,
+or are typed with the confirmation or on the paper record. Several flights at once: tick them and use **Change…**. The
 Logbook has a **Pre-flight** column (hidden by default, under **Columns**), and **Export CSV** includes it.
 
 | Page | What to do |
@@ -207,7 +209,8 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
   importing a corrected CSV again updates records matched by reference (e.g. flight number F00001)
   or by aircraft, date and takeoff time, after a preview of what each row will do.
   A new paper record needs **Pre-flight inspection completed** ticked, unless it was flown indoors (an indoor
-  location or the Indoor category); in a CSV, the optional `preflight` column (`yes`) records it.
+  location or the Indoor category); in a CSV, the optional `preflight` column (`yes`) records it, and `special`
+  the special conditions.
   Paper records add flight counts and time, not telemetry; check for overlap with digital logs.
   Overviews show their recorded location in both the takeoff and landing location columns;
   this does not add a landing time or GPS coordinates.
