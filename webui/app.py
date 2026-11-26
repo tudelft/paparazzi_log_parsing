@@ -65,6 +65,7 @@ import qualifications
 import training
 import bookings
 import operations
+import ground_risk
 import documents
 import safety
 import scopes
@@ -2934,6 +2935,9 @@ def list_places():
                 if f.get(end + "_place_id") is None:
                     point["unnamed_count"] += 1
     places = [dict(id=r["id"], name=r["name"], indoor=bool(r["indoor"]), bookable=bool(r["bookable"]),
+                   max_height_m=r["max_height_m"], flight_area=json.loads(r["flight_area"]) if r["flight_area"] else None,
+                   flight_area_inside=ground_risk.assess(json.loads(r["flight_area"]) if r["flight_area"] else None,
+                                                         r["max_height_m"], json.loads(r["shape"]))["inside"],
                    shape=json.loads(r["shape"]),
                    country=r["country"], operator_id=r["operator_id"], category=r["category"], authorisation_id=r["authorisation_id"],
                    **stats.get(r["id"], {"flights": 0, "seconds": 0.0, "last": None}))
@@ -2987,6 +2991,14 @@ def admin_update_place(place_id):
     if "bookable" in body and type(body["bookable"]) is not bool:
         return jsonify(error="bookable must be true or false"), 400
     bookable = int(body["bookable"]) if "bookable" in body else row["bookable"]
+    height = body["max_height_m"] if "max_height_m" in body else row["max_height_m"]
+    if height is not None and (type(height) is not int or not 1 <= height <= 1000):
+        return jsonify(error="the maximum height is a whole number of metres (1 to 1000)"), 400
+    try:  # outdoor operations: the default flight area (null removes it)
+        area = ground_risk.parse_area(body["flight_area"]) if "flight_area" in body else (
+            json.loads(row["flight_area"]) if row["flight_area"] else None)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
     operator_id = operators.parse_id(con, body["operator_id"]) if "operator_id" in body else row["operator_id"]
     if operator_id is False:
         return jsonify(error="no such operator"), 400
@@ -3001,8 +3013,9 @@ def admin_update_place(place_id):
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     con.execute("UPDATE places SET name=?, indoor=?, shape=?, operator_id=?, category=?, authorisation_id=?, country=?,"
-                " bookable=? WHERE id=?", (name, indoor, json.dumps(shape), operator_id, category, authorisation_id,
-                                           country, bookable, place_id))
+                " bookable=?, max_height_m=?, flight_area=? WHERE id=?",
+                (name, indoor, json.dumps(shape), operator_id, category, authorisation_id, country, bookable, height,
+                 json.dumps(area) if area else None, place_id))
     con.commit()
     return jsonify(ok=True)
 

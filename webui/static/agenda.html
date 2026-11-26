@@ -129,6 +129,10 @@
   .bk .op-tag { display:inline-block; font-size:10px; font-weight:600; border-radius:8px; padding:0 6px; margin-top:2px;
     background:color-mix(in srgb, var(--warn) 20%, var(--card)); color:var(--warn); }
   .op-rule { display:grid; grid-template-columns:1fr 1fr auto; gap:6px; align-items:center; }
+  .op-map { height:230px; border-radius:6px; background:var(--bg); }
+  .op-legend { display:flex; gap:12px; font-size:12px; color:var(--mute); margin-top:4px; flex-wrap:wrap; }
+  .op-legend i { display:inline-block; width:14px; height:8px; margin-right:4px; border:2px solid; }
+  .op-area-ok { color:var(--ok); font-weight:600; } .op-area-bad { color:var(--err); font-weight:600; }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -260,12 +264,17 @@
         <div class="field"><span class="mute" style="font-size:12px">Crew (optional)</span>
           <div class="op-chips" id="planCrew"></div></div>
         <label class="field">Aircraft (optional)<select name="drone_id" onchange="prepare()"></select></label>
+        <label class="field" id="planHeightField" title="The ground risk buffer (1:1) is as wide as this height">Maximum height (m)<input name="height_m" type="number" min="1" max="1000" oninput="prepare()"></label>
         <label class="field">Goal<textarea name="goal" maxlength="500" placeholder="What you fly and why"></textarea></label>
         <p class="mute" id="planRule" style="margin:0;font-size:12px"></p>
         <p class="dialog-error" id="planError" role="alert"></p>
         <div class="row"><button type="submit" class="primary" id="planOk">Book</button> <button type="button" class="sec" onclick="$('planDialog').close()">Cancel</button></div>
       </div>
       <div>
+        <section class="op-sec"><h3>Flight area and ground risk buffer <small>1:1</small></h3>
+          <div class="op-map" id="planMap"></div>
+          <div class="op-legend"><span><i style="border-color:#1a7f37;background:#1a7f3740"></i>Flight area</span><span><i style="border-color:#bf8700;border-style:dashed"></i><span id="planBufferLabel">Buffer</span></span><span><i style="border-color:#57606a;border-style:dotted"></i>Location boundary</span></div>
+          <p id="planAreaVerdict" style="margin:4px 0 0;font-size:13px"></p></section>
         <section class="op-sec"><h3>Weather <small id="planWeatherWhen"></small></h3><div id="planWeather" class="mute">Choose a location and time.</div></section>
         <section class="op-sec"><h3>Checks <small id="planChecksWhen"></small></h3><div id="planChecks" class="mute">Choose a location and time.</div></section>
         <section class="op-sec"><h3>Airspace and NOTAMs</h3>
@@ -739,11 +748,46 @@ function removeBooking() {
 // ---- Outdoor operations (LOGDB_OPERATIONS): Plan flight books a slot at a location for your team, Join adds your
 // team to a slot, and the slot dialog lists its teams. The preparation (weather, checks, NOTAM check) is shown while
 // planning and stored with the team on the server.
-let plan = null, planTimer = null, planCrew = [];
+let plan = null, planTimer = null, planCrew = [], planArea = null, planMap = null, planLayers = null, planPlace = null;
 const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const compass = deg => deg == null ? '' : COMPASS[Math.round(deg / 22.5) % 16];
 const num = (v, d = 1) => v == null ? '–' : (+v).toFixed(d);
 const span = (a, b) => `${DAY[(new Date(a).getDay() + 6) % 7]} ${+a.slice(8, 10)} ${MONTH[+a.slice(5, 7) - 1]} ${a.slice(11)}–${a.slice(0, 10) === b.slice(0, 10) ? b.slice(11) : b.replace('T', ' ')}`;
+// The map libraries (Leaflet, Leaflet.draw, Turf for the buffer outline) load only when a map is needed.
+let mapLibs = null;
+function needMap() {
+  const css = href => new Promise(r => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = href; l.onload = l.onerror = r; document.head.append(l); });
+  const js = src => new Promise((ok, fail) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = fail; document.head.append(s); });
+  return mapLibs = mapLibs || Promise.all([css('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'), css('https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css')])
+    .then(() => js('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'))
+    .then(() => Promise.all([js('https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js'), js('https://unpkg.com/@turf/turf@6.5.0/turf.min.js')]));
+}
+function newMap(el) {
+  const m = L.map(el, {attributionControl: false, scrollWheelZoom: false});
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(m);
+  return m;
+}
+// A location's boundary, a flight area and its ground risk buffer (inside: the server's verdict) on a map.
+function drawArea(m, group, shape, a) {
+  group.clearLayers();
+  const boundary = shape.type === 'circle' ? L.circle(shape.center, {radius: shape.radius_m}) : L.polygon(shape.points);
+  boundary.setStyle({color: '#57606a', weight: 2, fill: false, dashArray: '2 4'}).addTo(group);
+  if (a && a.area && a.buffer_m && window.turf) {
+    const ring = [...a.area.map(([lat, lon]) => [lon, lat]), [a.area[0][1], a.area[0][0]]];
+    const buffer = turf.buffer(turf.polygon([ring]), a.buffer_m, {units: 'meters', steps: 16});
+    L.polygon(buffer.geometry.coordinates[0].map(([lon, lat]) => [lat, lon]),
+      {color: a.inside ? '#bf8700' : '#cf222e', weight: 2, fillOpacity: .12, dashArray: '6 4'}).addTo(group);
+  }
+  if (a && a.area) L.polygon(a.area, {color: '#1a7f37', weight: 2, fillOpacity: .25}).addTo(group);
+  m.invalidateSize();
+  m.fitBounds(boundary.getBounds ? boundary.getBounds() : boundary.getLatLng().toBounds(2 * shape.radius_m), {padding: [10, 10]});
+}
+function areaText(a, place) {
+  if (!a || !a.area) return place.max_height_m || a && a.height_m ? 'No flight area for this location yet: draw one.' : 'No flight area or maximum height for this location yet: draw an area and set the height.';
+  if (!a.buffer_m) return 'Set the maximum height: the ground risk buffer (1:1) is as wide as it.';
+  return a.inside ? `<span class="op-area-ok">✓</span> The flight area with its ${Math.round(a.buffer_m)} m buffer stays inside ${esc(place.name)}.`
+    : `<span class="op-area-bad">!</span> The ${Math.round(a.buffer_m)} m buffer crosses the boundary of ${esc(place.name)}. Lower the height or move the area.`;
+}
 function weatherHTML(w) {
   if (!w || !w.hours || !w.hours.length) return `<span class="mute">${esc(w && w.note || 'No forecast.')}</span>`;
   return `<table class="op-wx"><tr><th>Hour</th><th>Wind m/s</th><th>Gusts</th><th>From</th><th>Rain mm</th><th>Cloud %</th><th>Temp °C</th></tr>${w.hours.map(h =>
@@ -793,6 +837,9 @@ async function openPlan(start, end, slot, team) {
   if (team && team.project_id) f.project_id.value = team.project_id;
   f.drone_id.value = team && team.drone_id ? team.drone_id : '';
   f.goal.value = team ? team.goal : '';
+  f.height_m.value = team && team.height_m ? team.height_m : '';
+  planArea = team && team.own_area ? team.preparation.area.area : null;
+  planPlace = null;
   planCrew = team ? team.crew.map(c => c.id) : [];
   const notam = team ? team.preparation.notam || {} : {};
   f.notam_checked.checked = !!notam.checked;
@@ -804,7 +851,19 @@ async function openPlan(start, end, slot, team) {
   $('planError').textContent = '';
   paintCrew();
   $('planDialog').showModal();
-  prepare(true);
+  needMap().then(() => {
+    if (!planMap) {
+      planMap = newMap('planMap');
+      planLayers = L.layerGroup().addTo(planMap);
+      planMap.on(L.Draw.Event.CREATED, e => { planArea = e.layer.getLatLngs()[0].map(p => [+p.lat.toFixed(7), +p.lng.toFixed(7)]); prepare(true); });
+    }
+    prepare(true);
+  }).catch(() => { $('planAreaVerdict').textContent = 'The map could not be loaded.'; prepare(true); });
+}
+function drawPlanArea() {
+  if (!planMap) return;
+  new L.Draw.Polygon(planMap, {allowIntersection: false, shapeOptions: {color: '#1a7f37'}}).enable();
+  $('planAreaVerdict').textContent = 'Click the corners of the flight area on the map; click the first corner to finish.';
 }
 function prepare(now) {
   clearTimeout(planTimer);
@@ -812,8 +871,14 @@ function prepare(now) {
     const f = $('planForm'), slot = plan && plan.slot;
     const body = {place_id: slot ? slot.place_id : +f.place_id.value, start: slot ? slot.start : f.start.value,
       end: slot ? slot.end : f.end.value, pic_id: +f.pic_id.value, crew: planCrew,
-      drone_id: f.drone_id.value ? +f.drone_id.value : null, ignore_id: slot ? slot.id : null};
+      drone_id: f.drone_id.value ? +f.drone_id.value : null, ignore_id: slot ? slot.id : null,
+      height_m: f.height_m.value ? +f.height_m.value : null, flight_area: planArea};
     if (!body.place_id || !body.start || !body.end) return;
+    const place = slot ? slot.geometry : ops.places.find(x => x.id === body.place_id);
+    if (planPlace && planPlace !== place.id) { planArea = body.flight_area = null; }  // another location: its own area
+    planPlace = place.id;
+    f.height_m.max = place.max_height_m || 1000;
+    f.height_m.placeholder = place.max_height_m ? `${place.max_height_m} (the maximum here)` : 'required for the buffer';
     try {
       const d = await api('/api/operations/prepare', json('POST', body));
       const day = span(body.start, body.end);
@@ -821,6 +886,10 @@ function prepare(now) {
       $('planWeather').innerHTML = weatherHTML(d.weather);
       $('planChecksWhen').textContent = 'on ' + day.split(' ').slice(0, 3).join(' ');
       $('planChecks').innerHTML = checksHTML(d.checks);
+      if (planMap) drawArea(planMap, planLayers, place.shape, d.area);
+      $('planBufferLabel').textContent = d.area.buffer_m ? `Buffer ${Math.round(d.area.buffer_m)} m` : 'Buffer';
+      $('planAreaVerdict').innerHTML = areaText(d.area, place) + (planMap ? ` <a href="#" onclick="drawPlanArea(); return false">${d.area.area ? 'Draw another area…' : 'Draw an area…'}</a>`
+        + (planArea && place.flight_area ? ` · <a href="#" onclick="planArea = null; prepare(true); return false">Use the location's area</a>` : '') : '');
       const other = !slot && d.slots[0];
       $('planJoinHint').hidden = !other;
       if (other) $('planJoinHint').innerHTML = `${esc(other.person)}'s slot at this location, ${esc(span(other.start, other.end))}, overlaps this time. <a href="#" onclick="joinFromPlan(${other.id}); return false">Join that slot</a> instead of booking a second one.`;
@@ -838,6 +907,7 @@ $('planForm').onsubmit = async event => {
   const f = event.target, {mode, slot, team} = plan;
   const body = {project_id: +f.project_id.value, pic_id: +f.pic_id.value, crew: planCrew,
     drone_id: f.drone_id.value ? +f.drone_id.value : null, goal: f.goal.value,
+    height_m: f.height_m.value ? +f.height_m.value : null, flight_area: planArea,
     notam: {checked: f.notam_checked.checked, reference: f.notam_reference.value}};
   if (mode === 'plan') Object.assign(body, {place_id: +f.place_id.value, start: f.start.value, end: f.end.value});
   try {
@@ -863,6 +933,8 @@ async function openSlot(id) {
         ${t.can_decide ? `<button type="button" onclick="decideTeam(${t.id}, 'approve')">Approve</button> <button type="button" class="danger" onclick="decideTeam(${t.id}, 'reject')">Reject</button>` : ''}
         ${t.can_edit ? `<button type="button" class="sec" onclick="openPlan(null, null, slotOpen, slotOpen.teams.find(x => x.id === ${t.id}))">Edit</button> <button type="button" class="danger" onclick="leaveTeam(${t.id})">Leave…</button>` : ''}</td></tr>
     ${slotPrep === t.id ? `<tr class="op-prep"><td colspan="6"><div class="op-cols"><div>
+      <section class="op-sec"><h3>Flight area and ground risk buffer <small>1:1</small></h3><div class="op-map" id="prepMap"></div>
+        <p style="margin:4px 0 0;font-size:13px">${t.preparation.area ? (t.preparation.area.height_m ? `Maximum height ${t.preparation.area.height_m} m · ${t.preparation.area.own_area ? 'own flight area' : "the location's flight area"}. ` : '') + areaText(t.preparation.area, slot.geometry) : 'Planned before flight areas were kept.'}</p></section>
       <section class="op-sec"><h3>Weather <small>as planned ${esc((t.preparation.prepared_at || '').replace('T', ' ').slice(0, 16))} UTC</small></h3>${weatherHTML(t.preparation.weather)}</section></div><div>
       <section class="op-sec"><h3>Checks</h3>${checksHTML(t.preparation.checks)}</section>
       <section class="op-sec"><h3>Airspace and NOTAMs</h3>${t.preparation.notam && t.preparation.notam.checked ? '✓ Checked' : '! Not checked'}${t.preparation.notam && t.preparation.notam.reference ? ' · ' + esc(t.preparation.notam.reference) : ''}</section>
@@ -872,6 +944,8 @@ async function openSlot(id) {
     + `<button type="button" class="sec" onclick="$('slotDialog').close()">Close</button>`;
   $('slotError').textContent = '';
   if (!$('slotDialog').open) $('slotDialog').showModal();
+  const shown = slotPrep && slot.teams.find(t => t.id === slotPrep);
+  if (shown) needMap().then(() => { const m = newMap('prepMap'); drawArea(m, L.layerGroup().addTo(m), slot.geometry.shape, shown.preparation.area); }).catch(() => {});
 }
 function toggleSlotPrep(id) { slotPrep = slotPrep === id ? null : id; openSlot(slotOpen.id); }
 function decideTeam(id, action) {

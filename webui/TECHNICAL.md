@@ -1694,6 +1694,19 @@ administrators, approvers or a slot's only team); `POST /api/operations/teams/<i
 optional reason). The booker and the PIC both need a rule qualification (403 otherwise); when either only has one that
 needs approval the team is `pending`. An edited team stays approved while its PIC is the same.
 
+**Flight area and ground risk buffer** (`ground_risk.py`, the operations manual's 1:1 rule; SORA 2.5 terms such as
+the contingency volume come later). A bookable location may have a maximum height (`places.max_height_m`, Edit
+location) and a default flight area (`places.flight_area`, a polygon of `[lat, lon]` points drawn with **⋯** → *Draw
+flight area on the map…*; *Remove flight area…*; `PUT /api/admin/places/<id>` with `max_height_m` and `flight_area`,
+`null` removes). Locations shows the area with its buffer and whether it stays inside (`flight_area_inside` in
+`GET /api/places`). In Plan flight a team uses the location's area and height, or draws its own area
+(**Draw another area…**) and sets a lower height (`height_m`, at most the location's maximum, 400 otherwise;
+`flight_area`). The buffer is as wide as the height (`buffer_m`, `buffer_method` `1:1`); the server checks in metres on a
+local flat projection whether the area with its buffer stays inside the location's boundary (polygon or circle) and
+the dialog shows the map (Leaflet, Turf for the buffer outline, loaded only when needed) with the verdict. A buffer
+outside only warns. The team stores `height_m`, `flight_area`, `buffer_m`, `buffer_method` and `buffer_inside` in its
+own columns and in the preparation (`area`), which the slot dialog shows with the map.
+
 The preparation is taken when a team books, joins or is edited, and stored with it: the weather forecast for the slot
 (`weather.forecast_window`, Open-Meteo hourly, up to 16 days ahead, cached 30 minutes per position; later slots say so),
 the checks (the PIC's and crew's approved qualifications of the rule types valid on the slot's date, and the aircraft's

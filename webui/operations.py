@@ -8,8 +8,11 @@ rules (booking_thing_rules): holders of a current approved qualification of a li
 directly or needing approval; without rules anyone may book. Administrators and the item's approvers decide waiting
 teams (in the agenda and the People approval queue) and book without approval.
 
-Plan flight shows the weather forecast for the slot, red/green checks of the crew's qualifications and the aircraft on
-that date, and a NOTAM check (a link from LOGDB_NOTAM_URL, a tick and a reference); these are stored with the team
+Plan flight shows the flight area with its ground risk buffer (ground_risk.py, 1:1: as wide as the planned maximum
+height; the location's default area and maximum height unless the team draws or sets its own; a warning when it does
+not stay inside the location), the weather forecast for the slot, red/green checks of the crew's qualifications and
+the aircraft on that date, and a NOTAM check (a link from LOGDB_NOTAM_URL, a tick and a reference); these are stored
+with the team
 as they were when it booked (operation_teams.preparation). The slot itself is a bookings row: its status stays
 'approved' while a team has not been rejected (team approval is separate), so the ordinary booking queue never lists
 it; the generic booking endpoints refuse the operations item.
@@ -21,6 +24,7 @@ from flask import abort, g, jsonify, request
 
 import bookings
 import db
+import ground_risk
 import home
 import mail
 import weather
@@ -156,6 +160,36 @@ def forecast(con, place_id, start, end):
         return {"hours": [], "note": "The location has no usable position."}
 
 
+def place_geometry(con, place_id):
+    """{id, name, shape, max_height_m, flight_area} of a location, for the map and the buffer."""
+    r = con.execute("SELECT id, name, shape, max_height_m, flight_area FROM places WHERE id=?", (place_id,)).fetchone()
+    return dict(id=r["id"], name=r["name"], shape=json.loads(r["shape"]), max_height_m=r["max_height_m"],
+                flight_area=json.loads(r["flight_area"]) if r["flight_area"] else None)
+
+
+def area_plan(place, height_m=None, flight_area=None):
+    """The flight area and ground risk buffer of a team at a location: its own area and height, else the location's.
+    {area, own_area, height_m, buffer_m, method, inside, margin_m}"""
+    area = flight_area or place["flight_area"]
+    height = height_m or place["max_height_m"]
+    return dict(area=area, own_area=bool(flight_area), height_m=height,
+                **ground_risk.assess(area, height, place["shape"]))
+
+
+def parse_area_fields(body, place):
+    """(height_m or None, own flight area or None) from a Plan flight body; the height at most the location's."""
+    height = body.get("height_m")
+    if height is not None and (type(height) is not int or not 1 <= height <= 1000):
+        raise BookingError("The maximum height is a whole number of metres (1 to 1000).")
+    if height and place["max_height_m"] and height > place["max_height_m"]:
+        raise BookingError(f"At {place['name']} the maximum height is {place['max_height_m']} m.")
+    try:
+        area = ground_risk.parse_area(body.get("flight_area"))
+    except ValueError as exc:
+        raise BookingError(str(exc)) from exc
+    return height, area
+
+
 def team_rows(con, booking_id):
     return con.execute(
         "SELECT o.*, COALESCE(u.display_name,u.username) AS pic, p.name AS project, d.name AS drone,"
@@ -259,7 +293,7 @@ def register(app, connection, require_session):
             raise BookingError(f"Choose an active account as {label}.")
         return raw
 
-    def parse_team(cid, thing, body, start):
+    def parse_team(cid, thing, body, start, place):
         """(fields, crew ids, status) of a team from the form; checks who may book or join, and whether it waits for
         approval: the booker and the PIC each need a qualification of the rules (an administrator or approver
         books for anyone, without approval)."""
@@ -293,20 +327,28 @@ def register(app, connection, require_session):
                 raise BookingError(f"To plan an outdoor flight {who} need{'' if who == 'you' else 's'} a current "
                                    f"qualification: {names}.", 403)
         status = "approved" if decider or "approval" not in (mine, theirs) else "pending"
-        return dict(pic_id=pic, project_id=project, drone_id=drone, goal=goal,
+        height, area = parse_area_fields(body, place)
+        return dict(pic_id=pic, project_id=project, drone_id=drone, goal=goal, height_m=height, flight_area=area,
                     notam=dict(checked=bool(notam.get("checked")), reference=reference)), crew, status
 
     def preparation(cid, thing, place_id, start, end, team, crew):
         return dict(prepared_at=utc_now(), weather=forecast(cid, place_id, start, end),
+                    area=area_plan(place_geometry(cid, place_id), team["height_m"], team["flight_area"]),
                     checks=checks(cid, thing["id"], start[:10], team["pic_id"], crew, team["drone_id"]),
                     notam=team["notam"], notam_url=env("NOTAM_URL") or None)
+
+    def area_columns(prep):
+        """The flight area, height and buffer of a team as stored in its own columns (for audits and linking)."""
+        a = prep["area"]
+        return (a["height_m"], json.dumps(a["area"]) if a["area"] else None, a["buffer_m"], a["method"],
+                None if a["inside"] is None else int(a["inside"]))
 
     def insert_team(cid, booking_id, team, crew, status, prep):
         tid = cid.execute(
             "INSERT INTO operation_teams(booking_id,pic_id,project_id,drone_id,goal,status,created_by,created_at,"
-            "preparation) VALUES (?,?,?,?,?,?,?,?,?)",
+            "preparation,height_m,flight_area,buffer_m,buffer_method,buffer_inside) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (booking_id, team["pic_id"], team["project_id"], team["drone_id"], team["goal"], status, g.user["id"],
-             utc_now(), json.dumps(prep))).lastrowid
+             utc_now(), json.dumps(prep), *area_columns(prep))).lastrowid
         cid.executemany("INSERT INTO operation_crew(team_id,user_id) VALUES (?,?)", [(tid, c) for c in crew])
         return tid
 
@@ -338,6 +380,7 @@ def register(app, connection, require_session):
         return dict(id=row["id"], pic_id=row["pic_id"], pic=row["pic"], project_id=row["project_id"],
                     project=row["project"], drone_id=row["drone_id"], drone=row["drone"], goal=row["goal"],
                     crew=crew_of(cid, row["id"]), status=row["status"], created_by=row["created_by"],
+                    height_m=row["height_m"], own_area=bool((prep.get("area") or {}).get("own_area")),
                     creator=row["creator"], created_at=row["created_at"], review_note=row["review_note"],
                     preparation=prep, can_edit=mine or bool(g.user["is_admin"]),
                     can_decide=decide and row["status"] == "pending")
@@ -349,6 +392,7 @@ def register(app, connection, require_session):
         mine = any(t["can_edit"] and g.user["id"] in (t["created_by"], t["pic_id"]) for t in teams)
         live = [t for t in teams if t["status"] != "rejected"]
         return dict(id=slot["id"], place_id=slot["place_id"], place=slot["place"], start=slot["starts_at"],
+                    geometry=place_geometry(cid, slot["place_id"]),
                     end=slot["ends_at"], user_id=slot["user_id"], teams=teams,
                     can_join=not mine and (decide or rule_for(cid, thing["id"], g.user["id"]) is not None),
                     can_move=bool(g.user["is_admin"]) or decide or (len(live) <= 1 and mine), can_decide=decide)
@@ -362,7 +406,8 @@ def register(app, connection, require_session):
         rule = "direct" if may_decide(cid, thing) else rule_for(cid, thing["id"], g.user["id"])
         return jsonify(
             item_id=thing["id"], rule=rule, rules=rules(cid, thing["id"]), notam_url=env("NOTAM_URL") or None,
-            places=[dict(r) for r in cid.execute("SELECT id, name FROM places WHERE bookable=1 AND indoor=0 ORDER BY name")],
+            places=[place_geometry(cid, r[0]) for r in cid.execute(
+                "SELECT id FROM places WHERE bookable=1 AND indoor=0 ORDER BY name")],
             projects=projects_for(cid, g.user),
             people=[dict(r) for r in cid.execute("SELECT id, COALESCE(display_name, username) AS name FROM users"
                                                  " WHERE is_active=1 AND is_external=0 ORDER BY name COLLATE NOCASE")],
@@ -383,13 +428,15 @@ def register(app, connection, require_session):
         if not isinstance(crew, list) or any(type(c) is not int for c in crew):
             raise BookingError("crew must be a list of account ids.")
         drone = body.get("drone_id") if type(body.get("drone_id")) is int else None
+        geometry = place_geometry(cid, place["id"])
+        height, area = parse_area_fields(body, geometry)
         overlapping = [dict(id=r["id"], start=r["starts_at"], end=r["ends_at"], person=r["person"])
                        for r in cid.execute(
                            "SELECT b.id, b.starts_at, b.ends_at, COALESCE(u.display_name,u.username) AS person"
                            " FROM bookings b JOIN operation_slots s ON s.booking_id=b.id JOIN users u ON u.id=b.user_id"
                            " WHERE s.place_id=? AND b.starts_at<? AND b.ends_at>? AND b.status!='rejected'"
                            " AND b.id IS NOT ? ORDER BY b.starts_at", (place["id"], end, start, body.get("ignore_id")))]
-        return jsonify(weather=forecast(cid, place["id"], start, end),
+        return jsonify(weather=forecast(cid, place["id"], start, end), area=area_plan(geometry, height, area),
                        checks=checks(cid, thing["id"], start[:10], pic, [c for c in crew if c != pic], drone),
                        slots=overlapping, notam_url=env("NOTAM_URL") or None)
 
@@ -405,7 +452,7 @@ def register(app, connection, require_session):
             thing = operations_item(cid)
             place = bookable_place(cid, body.get("place_id"))
             start, end = parse_time_window(body)
-            team, crew, status = parse_team(cid, thing, body, start)
+            team, crew, status = parse_team(cid, thing, body, start, place_geometry(cid, place["id"]))
             stamp = utc_now()
             bid = cid.execute("INSERT INTO bookings(thing_id,user_id,description,starts_at,ends_at,created_at,status)"
                               " VALUES (?,?,?,?,?,?,'approved')",
@@ -435,7 +482,7 @@ def register(app, connection, require_session):
             slot = slot_row(cid, booking_id)
             if slot["status"] == "rejected":
                 raise BookingError("This slot was not approved; plan a new one.", 409)
-            team, crew, status = parse_team(cid, thing, body, slot["starts_at"])
+            team, crew, status = parse_team(cid, thing, body, slot["starts_at"], place_geometry(cid, slot["place_id"]))
             if cid.execute("SELECT 1 FROM operation_teams WHERE booking_id=? AND pic_id=? AND status!='rejected'",
                            (booking_id, team["pic_id"])).fetchone():
                 raise BookingError("That PIC already has a team in this slot.", 409)
@@ -467,17 +514,18 @@ def register(app, connection, require_session):
             thing = operations_item(cid)
             row = own_team(cid, team_id)
             slot = slot_row(cid, row["booking_id"])
-            team, crew, status = parse_team(cid, thing, body, slot["starts_at"])
+            team, crew, status = parse_team(cid, thing, body, slot["starts_at"], place_geometry(cid, slot["place_id"]))
             if row["status"] == "approved" and team["pic_id"] == row["pic_id"]:
                 status = "approved"  # an approved team stays approved while its PIC is the same
             prep = preparation(cid, thing, slot["place_id"], slot["starts_at"], slot["ends_at"], team, crew)
             reset = status != row["status"]
             cid.execute("UPDATE operation_teams SET pic_id=?, project_id=?, drone_id=?, goal=?, status=?, preparation=?,"
+                        " height_m=?, flight_area=?, buffer_m=?, buffer_method=?, buffer_inside=?,"
                         " decided_by=CASE WHEN ? THEN NULL ELSE decided_by END,"
                         " decided_at=CASE WHEN ? THEN NULL ELSE decided_at END,"
                         " review_note=CASE WHEN ? THEN NULL ELSE review_note END WHERE id=?",
                         (team["pic_id"], team["project_id"], team["drone_id"], team["goal"], status, json.dumps(prep),
-                         reset, reset, reset, team_id))
+                         *area_columns(prep), reset, reset, reset, team_id))
             cid.execute("DELETE FROM operation_crew WHERE team_id=?", (team_id,))
             cid.executemany("INSERT INTO operation_crew(team_id,user_id) VALUES (?,?)", [(team_id, c) for c in crew])
             sync_slot(cid, slot["id"])
@@ -577,5 +625,6 @@ def register(app, connection, require_session):
                             place=r["place"], start=r["starts_at"], end=r["ends_at"], project=r["project"],
                             drone=r["drone"], goal=r["goal"], crew=[c["name"] for c in crew_of(cid, r["id"])],
                             checks=prep.get("checks") or [], notam=prep.get("notam") or {},
+                            area={k: (prep.get("area") or {}).get(k) for k in ("height_m", "buffer_m", "method", "inside", "own_area")},
                             submitted_at=r["created_at"]))
         return jsonify(teams=out)
