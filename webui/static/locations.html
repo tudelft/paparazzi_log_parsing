@@ -128,6 +128,8 @@
             <span class="menu-wrap" id="moreWrap" hidden><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
               <div class="menu-pop" id="moreMenu" role="menu" hidden>
                 <button type="button" class="ext-item" role="menuitem" onclick="editShape(selectedPlace)">Change boundary on the map…</button>
+                <button type="button" class="ext-item" role="menuitem" id="areaDrawItem" onclick="drawFlightArea(selectedPlace)">Draw flight area on the map…</button>
+                <button type="button" class="ext-item danger-item" role="menuitem" id="areaRemoveItem" onclick="removeFlightArea(selectedPlace)">Remove flight area…</button>
                 <button type="button" class="ext-item danger-item" role="menuitem" onclick="deletePlace(selectedPlace)">Delete location…</button>
               </div></span>
             <button type="button" class="sec" onclick="selectPlace(null)" aria-label="Close the location" title="Close">✕</button></span></div>
@@ -155,7 +157,8 @@
         <label class="field" title="A site that runs its own operation, such as a test centre: flights here are under that operator unless set otherwise">Operator<select id="placeOperator"></select></label>
         <label class="field" title="The rules flights here are flown under, e.g. SPECIFIC with the authorisation a site needs, unless the flight or its project says otherwise">Category<select id="placeCategory"></select></label>
         <label><input type="checkbox" id="placeIndoor" onchange="syncBookable()"> Indoors <span class="mute">(flights here count as indoor)</span></label>
-        <label id="placeBookableField" hidden title="Off by default: only bookable outdoor locations can be chosen in Plan flight (Agenda, Outdoor operations)"><input type="checkbox" id="placeBookable"> Bookable for outdoor operations</label>
+        <label id="placeBookableField" hidden title="Off by default: only bookable outdoor locations can be chosen in Plan flight (Agenda, Outdoor operations)"><input type="checkbox" id="placeBookable" onchange="syncBookable()"> Bookable for outdoor operations</label>
+        <label class="field" id="placeHeightField" hidden title="The highest a flight here may go. Plan flight starts from it; the ground risk buffer (1:1) is as wide as the planned height. The default flight area is drawn with ⋯ → Draw flight area on the map.">Maximum height for outdoor operations (m)<input type="number" id="placeMaxHeight" min="1" max="1000" placeholder="not set" style="width:10em"></label>
       </div>
       <p class="dialog-error" id="nameError" role="alert"></p>
       <p style="display:flex;gap:8px;margin:14px 0 0"><button type="button" id="nameSave" class="primary">Save</button><button type="button" id="nameCancel" class="sec">Cancel</button></p>
@@ -205,7 +208,8 @@ const layerById = new Map();
 // No Edit mode (UI rule): administrators get Add location, Edit location and ⋯ (boundary, delete) and Manage ▾.
 const isAdmin = () => !!placeData.admin;
 let adding = null;  // the drawer while a new location is being drawn
-const showAll = () => !!(adding || shapeEdit);  // all boundaries while drawing or changing one
+let areaDraw = null;  // {id, drawer} while a location's flight area is being drawn
+const showAll = () => !!(adding || shapeEdit || areaDraw);  // all boundaries (and no panel) while drawing or changing one
 const fmtHours = s => {
   const t = Math.max(0, Math.round(s || 0));
   return `${Math.floor(t / 3600)}h ${String(Math.floor((t % 3600) / 60)).padStart(2, '0')}m`;
@@ -310,11 +314,12 @@ fetch('/api/operators').then(r => r.json()).then(d => { operators = d.operators 
 fetch('/api/authorisations').then(r => r.json()).then(d => { authorisations = d.authorisations || []; });
 const operatorName = id => operators.find(o => o.id === id)?.name;
 let nameWas = null;
-function askName(mode, label, value, indoor = false, operatorId = null, category = '', country = '', focus = 'placeName', bookable = false) {
+function askName(mode, label, value, indoor = false, operatorId = null, category = '', country = '', focus = 'placeName', bookable = false, maxHeight = null) {
   cancelShape();
   naming = mode;
   $('placeIndoor').checked = indoor;
   $('placeBookable').checked = bookable;
+  $('placeMaxHeight').value = maxHeight || '';
   syncBookable();
   $('placeCountrySet').innerHTML = '<option value="">—</option>' + (placeData.countries || []).map(([code, name]) =>
     `<option value="${code}"${code === country ? ' selected' : ''}>${esc(code)} · ${esc(name)}</option>`).join('');
@@ -331,11 +336,13 @@ function askName(mode, label, value, indoor = false, operatorId = null, category
 function nameValues() {
   return {name: $('placeName').value.trim(), indoor: $('placeIndoor').checked, operator_id: $('placeOperator').value ? +$('placeOperator').value : null,
     country: $('placeCountrySet').value || null, category: $('placeCategory').value,
-    bookable: !$('placeIndoor').checked && $('placeBookable').checked};
+    bookable: !$('placeIndoor').checked && $('placeBookable').checked,
+    max_height_m: $('placeMaxHeight').value ? +$('placeMaxHeight').value : null};
 }
 // Bookable for outdoor operations: only when the server has them on (LOGDB_OPERATIONS), and never indoors.
 function syncBookable() {
   $('placeBookableField').hidden = !(placeData && placeData.operations) || $('placeIndoor').checked;
+  $('placeHeightField').hidden = $('placeBookableField').hidden || !$('placeBookable').checked;
 }
 function closeName() {
   if (pendingLayer) { pendingLayer.remove(); pendingLayer = null; }
@@ -349,6 +356,7 @@ async function saveName() {
   const body = {};
   for (const k of ['name', 'indoor', 'operator_id', 'country']) if (naming.kind === 'new' || v[k] !== nameWas[k]) body[k] = v[k];
   if (placeData.operations && (naming.kind === 'new' ? v.bookable : v.bookable !== nameWas.bookable)) body.bookable = v.bookable;
+  if (naming.kind !== 'new' && placeData.operations && v.max_height_m !== nameWas.max_height_m) body.max_height_m = v.max_height_m;
   if (naming.kind === 'new' || v.category !== nameWas.category) Object.assign(body, categoryChoice(v.category));
   if (naming.kind !== 'new' && !Object.keys(body).length) { closeName(); return; }
   if (naming.kind === 'new') body.shape = naming.shape;
@@ -397,6 +405,12 @@ function initMap() {
   });
   map.on('zoomend', renderNamedPlaces);
   map.on(L.Draw.Event.CREATED, e => {
+    if (areaDraw) {
+      const id = areaDraw.id;
+      areaDraw = null;
+      saveFlightArea(id, e.layer.getLatLngs()[0].map(p => [+p.lat.toFixed(7), +p.lng.toFixed(7)]));
+      return;
+    }
     if (shapeEdit && shapeEdit.drawer) {
       layers.removeLayer(shapeEdit.layer);
       shapeEdit.layer = e.layer;
@@ -413,6 +427,7 @@ function initMap() {
     askName({kind: 'new', shape: shapeOf(e.layer)}, 'New location', '');
   });
   map.on(L.Draw.Event.DRAWSTOP, () => {
+    if (areaDraw) { areaDraw = null; $('mapMsg').textContent = ''; renderNamedPlaces(); renderPanel(); return; }  // Escape while drawing a flight area
     if (adding) { stopAdd(); return; }  // Escape while drawing a new location
     if (!shapeEdit || !shapeEdit.drawer) return;
     shapeEdit.drawer = null;
@@ -555,11 +570,62 @@ function categoryText(p) {
   if (p.authorisation_id) { const a = authorisations.find(x => x.id === p.authorisation_id); return a ? `${CATEGORY_LABELS[a.category] || a.category} · ${a.name}` : 'Authorisation'; }
   return p.category ? CATEGORY_LABELS[p.category] || p.category : '';
 }
+// Outdoor operations: the selected location's default flight area with its 1:1 ground risk buffer (Turf draws the
+// buffer outline; the server says whether it stays inside). Admins draw it with ⋯ → Draw flight area on the map.
+let areaLayers = null, turfLoad = null;
+function paintFlightArea(p) {
+  if (!map) return;
+  if (!areaLayers) areaLayers = L.layerGroup().addTo(map);
+  areaLayers.clearLayers();
+  if (!p || !p.flight_area || !placeData.operations || showAll()) return;
+  L.polygon(p.flight_area, {color: '#1a7f37', weight: 2, fillOpacity: .25, interactive: false}).addTo(areaLayers);
+  if (!p.max_height_m) return;
+  turfLoad = turfLoad || new Promise((ok, fail) => { const s = document.createElement('script');
+    s.src = 'https://unpkg.com/@turf/turf@6.5.0/turf.min.js'; s.onload = ok; s.onerror = fail; document.head.append(s); });
+  turfLoad.then(() => {
+    if (selectedPlace !== p.id) return;
+    const ring = [...p.flight_area.map(([lat, lon]) => [lon, lat]), [p.flight_area[0][1], p.flight_area[0][0]]];
+    const b = turf.buffer(turf.polygon([ring]), p.max_height_m, {units: 'meters', steps: 16});
+    L.polygon(b.geometry.coordinates[0].map(([lon, lat]) => [lat, lon]), {color: p.flight_area_inside ? '#bf8700' : '#cf222e',
+      weight: 2, fillOpacity: .1, dashArray: '6 4', interactive: false}).addTo(areaLayers);
+  }).catch(() => {});
+}
+function drawFlightArea(id) {
+  if (!map || !isAdmin()) return;
+  cancelShape();
+  stopAdd();
+  areaDraw = {id, drawer: new L.Draw.Polygon(map, {allowIntersection: false, shapeOptions: {color: '#1a7f37'}})};
+  areaDraw.drawer.enable();
+  closeMenus();
+  renderNamedPlaces();
+  paintFlightArea(null);
+  $('mapMsg').textContent = 'Click the corners of the flight area inside the location; click the first corner to finish. Escape stops.';
+}
+async function saveFlightArea(id, area) {
+  try {
+    const r = await fetch('/api/admin/places/' + id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({flight_area: area})});
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not save the flight area.');
+    $('mapMsg').textContent = '';
+    await loadPlaces();
+  } catch (e) { $('err').textContent = e.message; }
+}
+function removeFlightArea(id) {
+  const p = placeData.places.find(x => x.id === id);
+  $('actTitle').textContent = 'Remove flight area';
+  $('actBody').innerHTML = `<p style="margin:0">Remove the default flight area of <b>${esc(p.name)}</b>? Plans keep the area they were made with.</p>`;
+  $('actError').textContent = '';
+  $('actOk').textContent = 'Remove';
+  $('actOk').onclick = async () => { $('actDialog').close(); await saveFlightArea(id, null); };
+  $('actDialog').showModal();
+}
 function renderPanel() {
   const p = placeData.places.find(x => x.id === selectedPlace);
   $('placePanel').hidden = !p || showAll();  // not over the drawing hints while a boundary is drawn or changed
+  paintFlightArea(p);
   if (!p) { closeMenus(); return; }
   const admin = isAdmin(), row = admin ? editRow : (key, label, value) => plainRow(label, value);
+  $('areaDrawItem').hidden = !(placeData.operations && p.bookable);
+  $('areaRemoveItem').hidden = !(placeData.operations && p.flight_area);
   const shape = p.shape.type === 'circle' ? 'Circle, ' + Math.round(p.shape.radius_m) + ' m radius' : 'Polygon, ' + p.shape.points.length + ' points';
   $('placeHeading').innerHTML = `${esc(p.name)} <a class="pilot-link" href="/locations/${p.id}" title="The location page with its flights">Location page ↗</a>`;
   $('editPlace').hidden = $('moreWrap').hidden = !admin;
@@ -569,6 +635,9 @@ function renderPanel() {
     ${row('placeOperator', 'Operator', esc(operatorName(p.operator_id) || '') || '<span class="mute">Own operator, or the project\'s</span>')}
     ${row('placeCategory', 'Category', esc(categoryText(p)) || '<span class="mute">From the project or date</span>')}
     ${placeData.operations && !p.indoor ? row('placeBookable', 'Outdoor operations', p.bookable ? 'Bookable' : 'Not bookable') : ''}
+    ${placeData.operations && p.bookable ? row('placeMaxHeight', 'Maximum height', p.max_height_m ? p.max_height_m + ' m' : '') : ''}
+    ${placeData.operations && p.bookable ? plainRow('Flight area', !p.flight_area ? (admin ? '<span class="mute">None: ⋯ → Draw flight area on the map</span>' : '')
+      : 'Drawn' + (p.max_height_m ? ` · ground risk buffer 1:1: ${p.max_height_m} m ${p.flight_area_inside ? '<span style="color:var(--ok);font-weight:600">✓ inside the location</span>' : '<span style="color:var(--err);font-weight:600">! crosses the boundary</span>'}` : ' · set the maximum height for the buffer')) : ''}
     ${plainRow('Boundary', shape)}
     ${plainRow('Flights', `${p.flights} · ${fmtHours(p.seconds)}${p.last ? ' · last ' + esc(p.last.slice(0, 10)) : ''}`)}`;
 }
@@ -688,7 +757,7 @@ function zoomPlace(id) {
 function editPlace(focus) {
   const cur = placeData.places.find(p => p.id === selectedPlace);
   if (!cur || !isAdmin()) return;
-  askName({kind: 'rename', id: cur.id}, `Edit location ${cur.name}`, cur.name, cur.indoor, cur.operator_id, categoryValue(cur), cur.country || '', focus, cur.bookable);
+  askName({kind: 'rename', id: cur.id}, `Edit location ${cur.name}`, cur.name, cur.indoor, cur.operator_id, categoryValue(cur), cur.country || '', focus, cur.bookable, cur.max_height_m);
 }
 function openImport() {
   $('placesCsv').value = ''; $('placesPreview').innerHTML = ''; $('importPlaces').hidden = true;

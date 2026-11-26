@@ -153,6 +153,51 @@ class OperationsTests(AppTests):
         self.sign_in(3)
         self.assertEqual(self.client.put(f"/api/operations/teams/{team}", json={"project_id": 1}).status_code, 403)
 
+    def test_flight_area_and_buffer(self):
+        # the location (a circle of 100 m around 52, 4): a 40 m square area in the middle (corners 28 m out), at most 80 m high
+        square = [[52.0 + dy, 4.0 + dx] for dy, dx in ((-0.00018, -0.00029), (-0.00018, 0.00029), (0.00018, 0.00029),
+                                                         (0.00018, -0.00029))]
+        for bad in ({"max_height_m": 0}, {"flight_area": [[52, 4], [52.1, 4]]}, {"flight_area": [[91, 4]] * 3}):
+            self.assertEqual(self.client.put("/api/admin/places/1", json=bad).status_code, 400, bad)
+        self.assertEqual(self.client.put("/api/admin/places/1", json={"max_height_m": 80, "flight_area": square}).status_code, 200)
+        place, = self.client.get("/api/places").json["places"]
+        self.assertEqual((place["max_height_m"], len(place["flight_area"])), (80, 4))
+        self.sign_in(2)
+        prepare = lambda **b: self.client.post("/api/operations/prepare", json={  # noqa: E731
+            "place_id": 1, "start": f"{DAY}T10:00", "end": f"{DAY}T11:00", **b})
+        area = prepare().json["area"]  # the location's area and height: the 80 m buffer reaches outside
+        self.assertEqual((area["own_area"], area["height_m"], area["buffer_m"], area["method"], area["inside"]),
+                         (False, 80, 80.0, "1:1", False))
+        self.assertTrue(prepare(height_m=50).json["area"]["inside"])  # lower: the 50 m buffer fits
+        self.assertEqual(prepare(height_m=90).status_code, 400)  # above the location's maximum
+        r = self.plan(height_m=50)
+        self.assertEqual(r.status_code, 201, r.json)  # a buffer outside would only warn
+        row = self.con.execute("SELECT height_m, flight_area, buffer_m, buffer_method, buffer_inside FROM operation_teams").fetchone()
+        self.assertEqual((row[0], len(json.loads(row[1])), row[2], row[3], row[4]), (50, 4, 50.0, "1:1", 1))
+        team, = self.client.get(f"/api/operations/{r.json['id']}").json["teams"]
+        self.assertEqual((team["height_m"], team["preparation"]["area"]["inside"]), (50, True))
+        own = [[p[0] + 0.0006, p[1]] for p in square]  # a team's own area, moved towards the edge
+        self.assertEqual(self.client.put(f"/api/operations/teams/{team['id']}", json={
+            "project_id": 1, "height_m": 50, "flight_area": own}).json["status"], "approved")
+        self.assertEqual(self.con.execute("SELECT buffer_inside FROM operation_teams").fetchone()[0], 0)
+        self.assertTrue(self.client.get(f"/api/operations/{r.json['id']}").json["teams"][0]["own_area"])
+
+
+class GroundRiskTests(unittest.TestCase):
+    def test_margin(self):
+        import ground_risk
+        field = {"type": "polygon", "points": [[52.0, 4.0], [52.0, 4.01], [52.005, 4.01], [52.005, 4.0]]}  # ~685 x 556 m
+        middle = [[52.002, 4.004], [52.002, 4.006], [52.003, 4.006], [52.003, 4.004]]
+        room = ground_risk.margin(middle, field)
+        self.assertAlmostEqual(room, 222.4, delta=2)  # 0.002 deg of latitude to the south edge
+        self.assertTrue(ground_risk.assess(middle, 120, field)["inside"])
+        self.assertFalse(ground_risk.assess(middle, 250, field)["inside"])
+        crossing = [[51.999, 4.004], [51.999, 4.006], [52.001, 4.006], [52.001, 4.004]]
+        self.assertLess(ground_risk.margin(crossing, field), 0)
+        circle = {"type": "circle", "center": [52.0, 4.0], "radius_m": 500}
+        self.assertAlmostEqual(ground_risk.margin([[52.0, 4.0], [52.001, 4.0], [52.0, 4.001]], circle), 388.8, delta=2)
+        self.assertEqual(ground_risk.assess(None, 120, field)["inside"], None)
+
 
 class ForecastWindowTests(unittest.TestCase):
     def test_hours_of_the_window(self):

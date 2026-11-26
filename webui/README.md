@@ -275,7 +275,9 @@ People **Approval queue** (**Bookings**).
 
 **Outdoor operations** (when the server has it on) is a fixed item for planning outdoor flights. **Plan flight** books
 a slot at a bookable location (admins tick *Bookable for outdoor operations* in Locations) for your team: project, PIC
-(you by default), optional crew and aircraft, and the goal. While you plan it shows the weather forecast, red/green
+(you by default), optional crew and aircraft, and the goal. A map shows the flight area with its ground risk buffer (1:1:
+as wide as the maximum height; the location's area and height unless you draw your own or fly lower) and warns when
+the buffer leaves the location; admins set each location's area and height in Locations. It also shows the weather forecast, red/green
 checks of the qualifications and the aircraft for that day, and the NOTAM check; these are saved with your team. Other
 teams **Join** a slot instead of booking their own (one booking, a shared field); the slot goes when its last team
 leaves. Who may plan, and whether it needs approval, depends on your qualifications (**Edit item**). Rules:

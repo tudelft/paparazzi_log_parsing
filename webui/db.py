@@ -388,6 +388,8 @@ CREATE TABLE IF NOT EXISTS places (
     authorisation_id INTEGER,
     country TEXT,                       -- ISO 3166-1 alpha-2 code, e.g. NL (countries.py); NULL = not set
     bookable INTEGER NOT NULL DEFAULT 0 CHECK(bookable IN (0,1)),  -- can be planned in Outdoor operations
+    max_height_m INTEGER,               -- Outdoor operations: the highest a flight here may go (m)
+    flight_area TEXT,                   -- Outdoor operations: default flight area, JSON [[lat,lon],...]
     shape TEXT NOT NULL                 -- JSON: {"type":"polygon","points":[[lat,lon],...]} or {"type":"circle","center":[lat,lon],"radius_m":r}
 );
 CREATE TABLE IF NOT EXISTS ingest (
@@ -497,7 +499,12 @@ CREATE TABLE IF NOT EXISTS operation_teams (
     decided_by INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- set when an approver decided it
     decided_at TEXT,
     review_note TEXT,
-    preparation TEXT                   -- JSON: weather, checks and NOTAM check as they were when the team booked
+    preparation TEXT,                  -- JSON: weather, checks and NOTAM check as they were when the team booked
+    height_m INTEGER,                  -- planned maximum height (m)
+    flight_area TEXT,                  -- planned flight area (flight geography), JSON [[lat,lon],...]
+    buffer_m REAL,                     -- ground risk buffer width (m)
+    buffer_method TEXT,                -- how buffer_m was set: '1:1' (= height)
+    buffer_inside INTEGER CHECK(buffer_inside IN (0,1))  -- the area with its buffer stays inside the location
 );
 CREATE INDEX IF NOT EXISTS ix_operation_teams ON operation_teams(booking_id);
 CREATE TABLE IF NOT EXISTS operation_crew (
@@ -1164,6 +1171,14 @@ def init(path):
             con.execute(f"ALTER TABLE bookings ADD COLUMN {column} {ddl}")
     if "bookable" not in {r[1] for r in con.execute("PRAGMA table_info(places)")}:
         con.execute("ALTER TABLE places ADD COLUMN bookable INTEGER NOT NULL DEFAULT 0 CHECK(bookable IN (0,1))")
+    for column, ddl in (("max_height_m", "INTEGER"), ("flight_area", "TEXT")):
+        if column not in {r[1] for r in con.execute("PRAGMA table_info(places)")}:
+            con.execute(f"ALTER TABLE places ADD COLUMN {column} {ddl}")
+    ocols = {r[1] for r in con.execute("PRAGMA table_info(operation_teams)")}
+    for column, ddl in (("height_m", "INTEGER"), ("flight_area", "TEXT"), ("buffer_m", "REAL"), ("buffer_method", "TEXT"),
+                        ("buffer_inside", "INTEGER CHECK(buffer_inside IN (0,1))")):
+        if ocols and column not in ocols:
+            con.execute(f"ALTER TABLE operation_teams ADD COLUMN {column} {ddl}")
     if "kind" not in {r[1] for r in con.execute("PRAGMA table_info(booking_things)")}:
         con.execute("ALTER TABLE booking_things ADD COLUMN kind TEXT CHECK(kind IN ('operations'))")
     upcols = {r["name"] for r in con.execute("PRAGMA table_info(user_profiles)")}
