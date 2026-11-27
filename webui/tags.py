@@ -105,14 +105,34 @@ def apply(rows, source_tags, paper_tags, by_id):
         r["tags_hidden"] = sorted((name for name, hidden in known if hidden), key=str.casefold)
 
 
+def of_logs(con, log_ids):
+    """{log id: (tag names, names of those hidden by default)}, both sorted: the tags given with its uploads
+    (logs.upload_tags) and those of its flights (#396)."""
+    if not log_ids:
+        return {}
+    by_id = names(con)
+    found = {}
+    marks = ",".join("?" * len(log_ids))
+    for r in con.execute(f"SELECT id, upload_tags FROM logs WHERE id IN ({marks})", list(log_ids)):
+        found.setdefault(r["id"], set()).update(ids_of(r["upload_tags"]))
+    for r in con.execute(f"SELECT a.log_id, f.tags FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+                         f" WHERE a.log_id IN ({marks}) AND f.tags IS NOT NULL", list(log_ids)):
+        found.setdefault(r["log_id"], set()).update(ids_of(r["tags"]))
+    out = {}
+    for log_id, tag_ids in found.items():
+        known = [by_id[i] for i in tag_ids if i in by_id]
+        out[log_id] = (sorted((n for n, _ in known), key=str.casefold), sorted((n for n, h in known if h), key=str.casefold))
+    return out
+
+
 def _rewrite(con, old_id, new_id=None):
-    """Replace (merge) or drop (delete) a tag id on every flight and paper record."""
-    for table in ("flights", "flight_records"):
-        for row in con.execute(f"SELECT id, tags FROM {table} WHERE tags IS NOT NULL").fetchall():
+    """Replace (merge) or drop (delete) a tag id on every flight, paper record and log (its upload tags)."""
+    for table, column in (("flights", "tags"), ("flight_records", "tags"), ("logs", "upload_tags")):
+        for row in con.execute(f"SELECT id, {column} AS tags FROM {table} WHERE {column} IS NOT NULL").fetchall():
             ids = ids_of(row["tags"])
             if old_id in ids:
                 ids = [i for i in ids if i != old_id] + ([new_id] if new_id is not None else [])
-                con.execute(f"UPDATE {table} SET tags=? WHERE id=?", (dump(ids), row["id"]))
+                con.execute(f"UPDATE {table} SET {column}=? WHERE id=?", (dump(ids), row["id"]))
 
 
 def register(app, connection, write_lock, require_admin):

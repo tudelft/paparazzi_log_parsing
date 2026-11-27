@@ -1236,7 +1236,7 @@ function render() {
   const logText = l => [l.name, l.aircraft_names, l.project_name, TYPE_LABEL[l.log_type] || l.log_type, 'no flight',
     l.date_ok ? fmtDate(l.start_utc) : 'date unknown', l.date_override].join(' ').toLowerCase();
   const shownLogs = window.flightFilters.state.nologs && !$('filesFilter').value && !$('hiddenRecords').checked
-    ? noFlightLogs.filter(l => window.flightFilters.includesDate(l) && (!q || q.split(/\s+/).every(w => logText(l).includes(w)))) : [];
+    ? noFlightLogs.filter(l => window.flightFilters.includesDate(l) && window.flightFilters.includesTags(l) && (!q || q.split(/\s+/).every(w => logText(l).includes(w)))) : [];
   if (shownLogs.length) {
     const logEntries = $('combine').checked ? combineLogs(shownLogs) : shownLogs.map(l => ({logs: [l], id: l.record_key}));
     const key = e => latest(e.logs ? e.logs[0] : e.flights[0]);

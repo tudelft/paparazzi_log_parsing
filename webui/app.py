@@ -8066,7 +8066,11 @@ def detail_logs(con, kind, item_id, log_ids):
         " ORDER BY COALESCE(l.start_utc, l.uploaded_at) DESC", (*params, *args)).fetchall()
     keep = ("id", "name", "log_type", "status", "size_bytes", "uploaded_at", "uploaded_by_name", "co_uploaders", "project_id",
             "project_name", "start_utc", "duration_s", "date_ok", "date_override", "date_estimated", "has_log", "aircraft_names", "num_flights")
-    return [{k: d.get(k) for k in keep} for d in map(log_dict, rows)]
+    out = [{k: d.get(k) for k in keep} for d in map(log_dict, rows)]
+    log_tags = tags.of_logs(con, [d["id"] for d in out])  # Flight filters hide a log without flights by its tags
+    for d in out:
+        d["tags"], d["tags_hidden"] = log_tags.get(d["id"], ([], []))
+    return out
 
 
 @app.get("/api/detail/<kind>/<int:item_id>")
@@ -8304,6 +8308,9 @@ def logs_without_flights():
             "date_override", "date_estimated", "uploaded_at", "uploaded_by_name", "aircraft_names", "has_log",
             "size_bytes", "outdated", "parser_version")}
             | {"can_edit_date": can_set_log_date(con, r), "can_edit_project": bool(g.user["is_admin"])})
+    log_tags = tags.of_logs(con, [d["id"] for d in out])  # its upload tags (it has no flights): Flight filters hide it
+    for d in out:
+        d["tags"], d["tags_hidden"] = log_tags.get(d["id"], ([], []))
     return jsonify(logs=out)
 
 

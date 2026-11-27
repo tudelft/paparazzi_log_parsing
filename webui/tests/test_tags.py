@@ -67,6 +67,41 @@ class TagTests(AppTests):
         self.assertEqual([home.real_flight(r) for r in sorted(rows, key=lambda r: r["flight_id"])], [False, True])
 
 
+class LogTagTests(AppTests):
+    """Logs without flights are hidden by their tags too (#396): the tags given with their uploads."""
+    entry = TagTests.entry
+
+    def setUp(self):
+        super().setUp()
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,log_type)"
+            " VALUES(1,'Digital','test','test.data','done','now',2,1,'onboard_sd')")
+        self.con.execute("INSERT INTO aircraft(id,log_id,drone_id,name,ac_id) VALUES(1,1,1,'Drone',7)")
+        self.con.executemany(
+            "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,verdict,project_id,has_gps_position,"
+            " takeoff_lat,takeoff_lon) VALUES(?,1,?,100,?,'flight',1,1,52.0,4.0)",
+            [(1, 0, "2011-01-01T12:00:00.000Z"), (2, 1, "2011-01-01T13:00:00.000Z")])
+        self.con.execute(  # a simulation log that produced no flight
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,log_type)"
+            " VALUES(2,'Sim run','sim','sim.data','done','now',2,1,'onboard_sd')")
+        self.con.commit()
+
+    def test_logs_without_flights_carry_their_upload_tags(self):
+        """Flight filters hide them by these, as flights (#396); merging or deleting a tag reaches them too."""
+        self.sign_in(1)
+        self.client.put("/api/flights/1/tags", json={"tags": ["simulation", "sim"]})
+        ids = {t["name"]: t["id"] for t in self.client.get("/api/tags").json["tags"]}
+        self.con.execute("UPDATE logs SET upload_tags=? WHERE id=2", (json.dumps([ids["sim"]]),))
+        self.con.commit()
+        self.client.put(f"/api/admin/tags/{ids['simulation']}", json={"hidden": True})
+        self.client.post(f"/api/admin/tags/{ids['sim']}/merge", json={"into": ids["simulation"]})
+        nolog, = self.client.get("/api/logbook/logs-without-flights").json["logs"]
+        self.assertEqual((nolog["id"], nolog["tags"], nolog["tags_hidden"]), (2, ["simulation"], ["simulation"]))
+        self.client.delete(f"/api/admin/tags/{ids['simulation']}")
+        self.assertEqual(self.client.get("/api/logbook/logs-without-flights").json["logs"][0]["tags"], [])
+        self.assertIsNone(self.con.execute("SELECT upload_tags FROM logs WHERE id=2").fetchone()[0])
+
+
 class UploadTagTests(AppTests):
     """Tags given with an upload go to the flights of its log (#368)."""
 
