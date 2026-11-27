@@ -596,3 +596,8 @@ body > header.header-wrap #flightFiltersMenu ~ .meta:not(#nav) { margin-left:0 !
 .tag-sugg[hidden] { display:none; }
 .tag-sugg div { padding:3px 8px; border-radius:4px; cursor:pointer; }
 .tag-sugg div.on, .tag-sugg div:hover { background:var(--hover); }
+
+/* Drone zones on maps (uas_zones.js) */
+.uas-popup .uas-zone { margin:0 0 6px; max-width:300px; }
+.uas-popup .uas-lim { color:#57606a; font-size:11px; margin-left:4px; }
+.uas-popup .uas-src { color:#57606a; font-size:11px; margin-top:4px; }

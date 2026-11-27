@@ -853,6 +853,16 @@ CREATE TABLE IF NOT EXISTS training_briefers (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (training_id, user_id)
 );
+CREATE TABLE IF NOT EXISTS uas_zones (  -- uas_zones.py: drone (UAS) zones imported by an administrator from an
+    id INTEGER PRIMARY KEY AUTOINCREMENT,  -- ED-269 JSON file; one row per import, the newest is used unless removed
+    title TEXT NOT NULL,                   -- the file's own title (its version)
+    name TEXT NOT NULL,                    -- the uploaded file name
+    zones TEXT NOT NULL,                   -- JSON list of zones as uas_zones.parse makes them
+    zone_count INTEGER NOT NULL,
+    uploaded_at TEXT NOT NULL,
+    uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    removed_at TEXT
+);
 CREATE INDEX IF NOT EXISTS ix_training_questions ON training_questions(training_id, sort_order, id);
 CREATE INDEX IF NOT EXISTS ix_training_choices ON training_choices(question_id, sort_order, id);
 """

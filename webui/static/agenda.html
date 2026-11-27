@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/theme.js"></script>
 <script src="/area_editor.js" defer></script>
+<script src="/uas_zones.js" defer></script>
 <link rel="stylesheet" href="/theme.css">
 <style>
   * { box-sizing: border-box; }
@@ -173,6 +174,7 @@
   .op-map { height:230px; border-radius:6px; background:var(--bg); }
   .op-legend { display:flex; gap:12px; font-size:12px; color:var(--mute); margin-top:4px; flex-wrap:wrap; }
   .op-legend i { display:inline-block; width:14px; height:8px; margin-right:4px; border:2px solid; }
+  .op-zones { margin:2px 0 0; padding-left:18px; max-height:8em; overflow:auto; } .op-zones li { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .op-area-ok { color:var(--ok); font-weight:600; } .op-area-bad { color:var(--err); font-weight:600; }
   .op-flights { font-size:12px; color:var(--mute); margin-top:3px; }
   .op-flights a { white-space:nowrap; }
@@ -935,6 +937,14 @@ function areaText(a, place) {
   return a.inside ? `<span class="op-area-ok">✓</span> The flight area with its ${Math.round(a.buffer_m)} m buffer stays inside ${esc(place.name)}.`
     : `<span class="op-area-bad">!</span> The ${Math.round(a.buffer_m)} m buffer crosses the boundary of ${esc(place.name)}. Lower the height or move the area.`;
 }
+// The drone zones (uas_zones.py) the flight area with its buffer reaches; nothing when no zones are imported.
+function zonesText(z) {
+  if (!z) return '';
+  if (!z.zones.length) return `<br><span class="op-area-ok">✓</span> No drone zone in the flight area or its buffer <span class="mute">(${esc(z.title)})</span>.`;
+  const list = z.zones.map(x => `<li title="${esc(x.name + (x.message ? " · " + x.message : ""))}"><b style="color:${UasZones.color(x.restriction)}">${esc(UasZones.label(x.restriction))}</b>
+    ${esc(x.name)}${UasZones.limits(x) ? ` <span class="mute">${esc(UasZones.limits(x))}</span>` : ''}${x.in_area ? '' : ' <span class="mute">(buffer only)</span>'}</li>`).join('');
+  return `<br><span class="op-area-bad">!</span> ${z.zones.length === 1 ? 'A drone zone' : z.zones.length + ' drone zones'} in the flight area or its buffer <span class="mute">(${esc(z.title)})</span>:<ul class="op-zones">${list}</ul>`;
+}
 function weatherHTML(w) {
   if (!w || !w.hours || !w.hours.length) return `<span class="mute">${esc(w && w.note || 'No forecast.')}</span>`;
   return `<table class="op-wx"><tr><th>Hour</th><th>Wind<small>m/s</small></th><th>Gusts<small>m/s</small></th><th>From</th><th>Rain<small>mm</small></th><th>Cloud<small>%</small></th><th>Temp<small>°C</small></th></tr>${w.hours.map(h =>
@@ -1067,6 +1077,7 @@ async function openPlan(start, end, slot, team) {
     if (!planMap) {
       planMap = newMap('planMap');
       planLayers = L.layerGroup().addTo(planMap);
+      UasZones.attach(planMap);
       planMap.on(L.Draw.Event.CREATED, e => { planArea = e.layer.getLatLngs()[0].map(p => [+p.lat.toFixed(7), +p.lng.toFixed(7)]); prepare(true); });
     }
     prepare(true);
@@ -1120,7 +1131,8 @@ function prepare(now) {
       if (planMap) drawArea(planMap, planLayers, place.shape, d.area);
       $('planBufferLabel').textContent = d.area.buffer_m ? `Buffer ${Math.round(d.area.buffer_m)} m` : 'Buffer';
       $('planAreaVerdict').innerHTML = areaText(d.area, place) + (planMap ? ` <a href="#" class="op-act" onclick="drawPlanArea(); return false">${d.area.area ? 'Change the area…' : 'Draw or enter an area…'}</a>`
-        + (planArea && place.flight_area ? ` · <a href="#" class="op-act" onclick="planArea = null; prepare(true); return false">Use the location's area</a>` : '') : '');
+        + (planArea && place.flight_area ? ` · <a href="#" class="op-act" onclick="planArea = null; prepare(true); return false">Use the location's area</a>` : '') : '')
+        + zonesText(d.area.area && d.zones);
       const other = !slot && d.slots[0];
       $('planJoinHint').hidden = !other;
       if (other) $('planJoinHint').innerHTML = `${esc(other.person)}'s slot at this location, ${esc(span(other.start, other.end))}, overlaps this time. <a href="#" onclick="joinFromPlan(${other.id}); return false">Join that slot</a> instead of booking a second one.`;
@@ -1173,7 +1185,7 @@ async function openSlot(id) {
         ${t.can_edit ? `<button type="button" class="sec" onclick="openPlan(null, null, slotOpen, slotOpen.teams.find(x => x.id === ${t.id}))">Edit</button> <button type="button" class="danger" onclick="leaveTeam(${t.id})" title="${t.pic_id === me.id ? 'Take your team out of this slot' : `Take ${esc(t.pic)}'s team out of this slot`}">${t.pic_id === me.id ? 'Leave…' : 'Remove…'}</button>` : ''}</td></tr>
     ${slotPrep === t.id ? `<tr class="op-prep"><td colspan="6"><div class="op-cols"><div>
       <section class="op-sec"><h3>Flight area and ground risk buffer <small>1:1</small></h3><div class="op-map" id="prepMap"></div>
-        <p style="margin:4px 0 0;font-size:13px">${t.preparation.area ? (t.preparation.area.height_m ? `Maximum height ${t.preparation.area.height_m} m · ${t.preparation.area.own_area ? 'own flight area' : "the location's flight area"}. ` : '') + areaText(t.preparation.area, slot.geometry) : 'Planned before flight areas were kept.'}</p></section>
+        <p style="margin:4px 0 0;font-size:13px">${t.preparation.area ? (t.preparation.area.height_m ? `Maximum height ${t.preparation.area.height_m} m · ${t.preparation.area.own_area ? 'own flight area' : "the location's flight area"}. ` : '') + areaText(t.preparation.area, slot.geometry) + zonesText(t.preparation.area.area && t.preparation.zones) : 'Planned before flight areas were kept.'}</p></section>
 </div><div>
       <section class="op-sec"><h3>Weather <small>as planned ${esc((t.preparation.prepared_at || '').replace('T', ' ').slice(0, 16))} UTC</small></h3>${weatherHTML(t.preparation.weather)}</section>
       <section class="op-sec"><h3>Checks</h3>${checksHTML(t.preparation.checks)}</section>
@@ -1191,7 +1203,7 @@ async function openSlot(id) {
   $('slotError').textContent = '';
   if (!$('slotDialog').open) $('slotDialog').showModal();
   const shown = slotPrep && slot.teams.find(t => t.id === slotPrep);
-  if (shown) needMap().then(() => { const m = newMap('prepMap'); drawArea(m, L.layerGroup().addTo(m), slot.geometry.shape, shown.preparation.area); }).catch(() => {});
+  if (shown) needMap().then(() => { const m = newMap('prepMap'); UasZones.attach(m); drawArea(m, L.layerGroup().addTo(m), slot.geometry.shape, shown.preparation.area); }).catch(() => {});
 }
 // A flight in the slot: its local takeoff time (and date when another day), linked by hand or matched.
 function flightTime(f) {

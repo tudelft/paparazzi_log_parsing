@@ -7,7 +7,7 @@ A key has a space-separated list of scopes in api_keys.scopes:
                     date suggestions, conflicts, reparse
   documents:upload  add a document and replace its file
   documents:manage  edit and delete documents, groups and the text at the top of Documents
-  admin             the administration routes listed in ENDPOINTS["admin"] (places, operators, authorisations,
+  admin             the administration routes listed in ENDPOINTS["admin"] (places, drone zones, operators, authorisations,
                     projects, aircraft, tags, who may choose a category, deleting accounts, reparse); not the account routes that can lead to a sign-in
                     (new account, setup link, email, password, admin rights): those need a browser session, for every key
 A request that changes something is allowed only when its endpoint is in the map below for one of the key's scopes
@@ -36,6 +36,7 @@ ENDPOINTS = {
                          "save_intro"},
     # listed one by one, so a new administration route is refused to scoped keys until it is added here
     "admin": {"admin_add_place", "admin_update_place", "admin_delete_place", "admin_import_places",
+              "admin_import_uas_zones", "admin_remove_uas_zones",
               "admin_save_operator", "admin_delete_operator", "admin_save_authorisation", "admin_delete_authorisation",
               "admin_add_project", "admin_update_project", "admin_delete_project", "admin_import_projects",
               "admin_set_member", "admin_add_drone", "admin_update_drone", "admin_delete_drone",

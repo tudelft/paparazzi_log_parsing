@@ -71,6 +71,7 @@ import tags
 import ground_risk
 import documents
 import safety
+import uas_zones
 import scopes
 import mail
 import weather
@@ -1063,7 +1064,7 @@ def no_cache_pages(resp):
     if resp.mimetype == "text/html":
         resp.headers["Cache-Control"] = "no-store"
     elif request.path in ("/theme.css", "/theme.js", "/attachments.js", "/qualifications.js", "/matlab.js",
-                          "/indiflight.js", "/upload.js", "/download.js", "/area_editor.js"):
+                          "/indiflight.js", "/upload.js", "/download.js", "/area_editor.js", "/uas_zones.js"):
         # kept, but checked on every page load (ETag / Last-Modified: 304 when unchanged), so a release shows at once
         resp.headers["Cache-Control"] = "no-cache"
     return resp
@@ -1111,6 +1112,11 @@ def indiflight_js():
 @app.get("/area_editor.js")
 def area_editor_js():
     return send_from_directory(PAGES_DIR, "area_editor.js")
+
+
+@app.get("/uas_zones.js")
+def uas_zones_js():
+    return send_from_directory(PAGES_DIR, "uas_zones.js")
 
 
 @app.get("/upload.js")
@@ -8984,6 +8990,7 @@ bookings.register(app, lambda: conn(), session_required, PAGES_DIR)
 operations.register(app, lambda: conn(), session_required, lambda: logbook_rows())
 documents.register(app, lambda: conn(), STORAGE_DIR, PAGES_DIR)
 safety.register(app, lambda: conn(), STORAGE_DIR, PAGES_DIR, session_required)
+uas_zones.register(app, lambda: conn(), admin_required)
 
 
 if __name__ == "__main__" and len(sys.argv) > 1:

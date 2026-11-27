@@ -1,4 +1,5 @@
 import datetime
+import io
 import json
 import os
 import unittest
@@ -220,6 +221,49 @@ class OperationsTests(AppTests):
                          "landed,verdict,has_gps_position,pic_user_id) VALUES(?,?,?,300,?,?,52,4,1,'flight',1,?)",
                          (ident, log, ident, utc, utc, pic))
         self.con.commit()
+
+    def test_drone_zones(self):
+        # an ED-269 file: a prohibited circle of 50 m on the location and a conditional square 1 km north (in feet)
+        zone = lambda ident, restriction, projection, unit="M": {  # noqa: E731
+            "identifier": ident, "name": f"Zone {ident}", "restriction": restriction, "reason": ["SENSITIVE"],
+            "message": "Ask first", "geometry": [{"uomDimensions": unit, "lowerLimit": 0, "upperLimit": 394,
+                                                   "lowerVerticalReference": "AGL", "upperVerticalReference": "AGL",
+                                                   "horizontalProjection": projection}]}
+        north = [[4.0 - 0.002, 52.009], [4.0 + 0.002, 52.009], [4.0 + 0.002, 52.012], [4.0 - 0.002, 52.012], [4.0 - 0.002, 52.009]]
+        doc = {"title": "UASZoneVersion test", "features": [
+            zone("1", "PROHIBITED", {"type": "Circle", "center": [4.0, 52.0], "radius": 50}),
+            zone("2", "CONDITIONAL", {"type": "Polygon", "coordinates": [north]}, unit="FT")]}
+        upload = lambda data, name="zones.json": self.client.post(  # noqa: E731
+            "/api/admin/uas-zones", data={"file": (io.BytesIO(data), name)}, content_type="multipart/form-data")
+        self.assertEqual(self.client.get("/api/uas-zones").json, {"info": None, "zones": []})
+        self.assertEqual(upload(b"not json").status_code, 400)
+        self.assertEqual(upload(b'{"features": [{"geometry": [{"horizontalProjection": {"type": "Line"}}]}]}').status_code, 400)
+        r = upload(json.dumps(doc).encode())
+        self.assertEqual(r.status_code, 201, r.json)
+        self.assertEqual((r.json["info"]["title"], r.json["info"]["count"]), ("UASZoneVersion test", 2))
+        square = [[52.0 + dy, 4.0 + dx] for dy, dx in ((-0.00018, -0.00029), (-0.00018, 0.00029), (0.00018, 0.00029),
+                                                         (0.00018, -0.00029))]
+        self.assertEqual(self.client.put("/api/admin/places/1", json={"max_height_m": 80, "flight_area": square}).status_code, 200)
+        self.sign_in(2)
+        self.assertEqual(upload(json.dumps(doc).encode()).status_code, 403)  # only administrators import
+        d = self.client.get("/api/uas-zones").json  # everyone signed in sees them
+        self.assertEqual([z["shapes"][0] for z in d["zones"]][0], {"type": "circle", "center": [52.0, 4.0], "radius_m": 50.0})
+        self.assertEqual((d["zones"][1]["upper_m"], d["zones"][1]["shapes"][0]["points"][0]), (120, [52.009, 3.998]))
+        prepare = lambda **b: self.client.post("/api/operations/prepare", json={  # noqa: E731
+            "place_id": 1, "start": f"{DAY}T10:00", "end": f"{DAY}T11:00", **b}).json["zones"]
+        z = prepare(height_m=50)
+        self.assertEqual([(x["id"], x["restriction"], x["in_area"]) for x in z["zones"]], [("1", "PROHIBITED", True)])
+        far = [[p[0] + 0.0083, p[1]] for p in square]  # about 60 m south of the northern square: only its buffer reaches it
+        self.assertEqual([(x["id"], x["in_area"]) for x in prepare(height_m=80, flight_area=far)["zones"]], [("2", False)])
+        self.assertEqual(prepare(height_m=40, flight_area=far)["zones"], [])
+        self.assertEqual(self.plan(height_m=50).status_code, 201)  # a zone only warns; the preparation keeps it
+        team = self.con.execute("SELECT preparation FROM operation_teams").fetchone()[0]
+        self.assertEqual([x["id"] for x in json.loads(team)["zones"]["zones"]], ["1"])
+        self.assertEqual(self.client.delete("/api/admin/uas-zones").status_code, 403)
+        self.sign_in(1)
+        self.assertEqual(self.client.delete("/api/admin/uas-zones").status_code, 200)
+        self.assertEqual(self.client.get("/api/uas-zones").json["info"], None)
+        self.assertIsNone(prepare())
 
     def test_several_aircraft(self):
         self.con.execute("INSERT INTO drones(id,name,unique_id,status,created_at) VALUES (2,'Other','UID2','Repair','now')")
