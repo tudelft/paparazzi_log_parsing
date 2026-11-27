@@ -982,7 +982,7 @@ def no_cache_pages(resp):
     if resp.mimetype == "text/html":
         resp.headers["Cache-Control"] = "no-store"
     elif request.path in ("/theme.css", "/theme.js", "/attachments.js", "/qualifications.js", "/matlab.js",
-                          "/indiflight.js", "/upload.js", "/download.js"):
+                          "/indiflight.js", "/upload.js", "/download.js", "/area_editor.js"):
         # kept, but checked on every page load (ETag / Last-Modified: 304 when unchanged), so a release shows at once
         resp.headers["Cache-Control"] = "no-cache"
     return resp
@@ -1025,6 +1025,11 @@ def matlab_js():
 @app.get("/indiflight.js")
 def indiflight_js():
     return send_from_directory(PAGES_DIR, "indiflight.js")
+
+
+@app.get("/area_editor.js")
+def area_editor_js():
+    return send_from_directory(PAGES_DIR, "area_editor.js")
 
 
 @app.get("/upload.js")

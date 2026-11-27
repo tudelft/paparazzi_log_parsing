@@ -5,6 +5,7 @@
 <title>Agenda</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/theme.js"></script>
+<script src="/area_editor.js" defer></script>
 <link rel="stylesheet" href="/theme.css">
 <style>
   * { box-sizing: border-box; }
@@ -129,8 +130,9 @@
   .op-sec h3 { margin:0 0 6px; font-size:13px; display:flex; justify-content:space-between; gap:8px; }
   .op-sec h3 small { font-weight:400; color:var(--mute); }
   .op-wx { width:100%; border-collapse:collapse; font-size:12px; }
-  .op-wx th { color:var(--mute); font-weight:500; text-align:right; padding:2px 4px; white-space:nowrap; }
-  .op-wx td { text-align:right; padding:2px 4px; border-top:1px solid var(--line); white-space:nowrap; }
+  .op-wx th { color:var(--mute); font-weight:500; text-align:right; padding:2px 3px; white-space:nowrap; vertical-align:bottom; }
+  .op-wx th small { display:block; font-size:10px; }
+  .op-wx td { text-align:right; padding:2px 3px; border-top:1px solid var(--line); white-space:nowrap; }
   .op-wx th:first-child, .op-wx td:first-child { text-align:left; }
   .op-strong { color:var(--warn); font-weight:600; }
   .op-checks { list-style:none; margin:0; padding:0; font-size:13px; display:flex; flex-direction:column; gap:3px; }
@@ -918,7 +920,7 @@ function areaText(a, place) {
 }
 function weatherHTML(w) {
   if (!w || !w.hours || !w.hours.length) return `<span class="mute">${esc(w && w.note || 'No forecast.')}</span>`;
-  return `<table class="op-wx"><tr><th>Hour</th><th>Wind m/s</th><th>Gusts</th><th>From</th><th>Rain mm</th><th>Cloud %</th><th>Temp °C</th></tr>${w.hours.map(h =>
+  return `<table class="op-wx"><tr><th>Hour</th><th>Wind<small>m/s</small></th><th>Gusts<small>m/s</small></th><th>From</th><th>Rain<small>mm</small></th><th>Cloud<small>%</small></th><th>Temp<small>°C</small></th></tr>${w.hours.map(h =>
     `<tr><td>${esc(h.time.slice(11, 16))}</td><td>${num(h.wind_speed_ms)}</td><td${h.wind_gusts_ms >= 10 ? ' class="op-strong" title="Gusts of 10 m/s or more"' : ''}>${num(h.wind_gusts_ms)}</td>
       <td>${compass(h.wind_from_deg)}</td><td>${num(h.precipitation_mm)}</td><td>${num(h.cloud_cover_percent, 0)}</td><td>${num(h.temperature_c, 0)}</td></tr>`).join('')}</table>`;
 }
@@ -963,6 +965,7 @@ async function openPlan(start, end, slot, team) {
   f.drone_id.innerHTML = '<option value="">None</option>' + ops.drones.map(x => `<option value="${x.id}">${esc(x.name)}${x.status && x.status !== 'Ready' ? ' (' + esc(x.status) + ')' : ''}</option>`).join('');
   f.pic_id.value = team ? team.pic_id : me.id;
   if (team && team.project_id) f.project_id.value = team.project_id;
+  else if (!team && ops.last_project_id) f.project_id.value = ops.last_project_id;
   f.drone_id.value = team && team.drone_id ? team.drone_id : '';
   f.goal.value = team ? team.goal : '';
   f.height_m.value = team && team.height_m ? team.height_m : '';
@@ -999,10 +1002,13 @@ function paintBookingNote(place, start) {
     + (due ? ` Book at least ${b.lead_hours} h ahead, before <strong>${esc(span(due, due).split('–')[0])}</strong>.` : '')
     + (late ? ' <strong>That deadline has passed</strong>: the request still goes, but ask them directly as well.' : '');
 }
+// Draw or type the team's own flight area in the window-filling editor (area_editor.js).
+let planShown = null;  // the area the map shows: the team's own or the location's
 function drawPlanArea() {
   if (!planMap) return;
-  new L.Draw.Polygon(planMap, {allowIntersection: false, shapeOptions: {color: '#1a7f37'}}).enable();
-  $('planAreaVerdict').textContent = 'Click the corners of the flight area on the map; click the first corner to finish.';
+  const slot = plan && plan.slot, place = slot ? slot.geometry : ops.places.find(x => x.id === +$('planForm').place_id.value);
+  openAreaEditor({title: 'Flight area · ' + place.name, points: planArea || planShown, boundary: place.shape,
+                  onSave: points => { planArea = points; prepare(true); }});
 }
 function prepare(now) {
   clearTimeout(planTimer);
@@ -1028,9 +1034,10 @@ function prepare(now) {
       $('planWeather').innerHTML = weatherHTML(d.weather);
       $('planChecksWhen').textContent = 'on ' + day.split(' ').slice(0, 3).join(' ');
       $('planChecks').innerHTML = checksHTML(d.checks);
+      planShown = d.area.area || null;
       if (planMap) drawArea(planMap, planLayers, place.shape, d.area);
       $('planBufferLabel').textContent = d.area.buffer_m ? `Buffer ${Math.round(d.area.buffer_m)} m` : 'Buffer';
-      $('planAreaVerdict').innerHTML = areaText(d.area, place) + (planMap ? ` <a href="#" onclick="drawPlanArea(); return false">${d.area.area ? 'Draw another area…' : 'Draw an area…'}</a>`
+      $('planAreaVerdict').innerHTML = areaText(d.area, place) + (planMap ? ` <a href="#" onclick="drawPlanArea(); return false">${d.area.area ? 'Change the area…' : 'Draw or enter an area…'}</a>`
         + (planArea && place.flight_area ? ` · <a href="#" onclick="planArea = null; prepare(true); return false">Use the location's area</a>` : '') : '');
       const other = !slot && d.slots[0];
       $('planJoinHint').hidden = !other;
@@ -1083,7 +1090,8 @@ async function openSlot(id) {
     ${slotPrep === t.id ? `<tr class="op-prep"><td colspan="6"><div class="op-cols"><div>
       <section class="op-sec"><h3>Flight area and ground risk buffer <small>1:1</small></h3><div class="op-map" id="prepMap"></div>
         <p style="margin:4px 0 0;font-size:13px">${t.preparation.area ? (t.preparation.area.height_m ? `Maximum height ${t.preparation.area.height_m} m · ${t.preparation.area.own_area ? 'own flight area' : "the location's flight area"}. ` : '') + areaText(t.preparation.area, slot.geometry) : 'Planned before flight areas were kept.'}</p></section>
-      <section class="op-sec"><h3>Weather <small>as planned ${esc((t.preparation.prepared_at || '').replace('T', ' ').slice(0, 16))} UTC</small></h3>${weatherHTML(t.preparation.weather)}</section></div><div>
+</div><div>
+      <section class="op-sec"><h3>Weather <small>as planned ${esc((t.preparation.prepared_at || '').replace('T', ' ').slice(0, 16))} UTC</small></h3>${weatherHTML(t.preparation.weather)}</section>
       <section class="op-sec"><h3>Checks</h3>${checksHTML(t.preparation.checks)}</section>
       <section class="op-sec"><h3>Airspace and NOTAMs</h3>${t.preparation.notam && t.preparation.notam.checked ? '✓ Checked' : '! Not checked'}${t.preparation.notam && t.preparation.notam.reference ? ' · ' + esc(t.preparation.notam.reference) : ''}</section>
       </div></div></td></tr>` : ''}`).join('')}</table>`;

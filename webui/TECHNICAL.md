@@ -1743,7 +1743,8 @@ indoors) can be planned. A booking of the item is a *slot* (`operation_slots`: t
 endpoints refuse the item (409; administrators may still delete a slot). Slots may overlap.
 
 API (browser session): `GET /api/operations/options` (bookable places, your projects, people, aircraft not
-discarded, your `rule`: `direct`, `approval` or null, and `notam_url`); `POST /api/operations/prepare` (`place_id`,
+discarded, your `rule`: `direct`, `approval` or null, `notam_url`, and `last_project_id`: the project of your
+latest real flight as PIC, PAC or GCS in the logbook, else your default project, if it is one of yours, else null); `POST /api/operations/prepare` (`place_id`,
 `start`, `end`, `pic_id`, `crew`, `drone_id`: the forecast, the checks and the overlapping slots at that place,
 nothing stored); `POST /api/operations` (Plan flight: place, start, end, at most one day, and the team fields
 `project_id` (one of your projects), `pic_id` (default you), `crew`, `drone_id`, `goal`, `notam: {checked,
@@ -1756,11 +1757,11 @@ needs approval the team is `pending`. An edited team stays approved while its PI
 
 **Flight area and ground risk buffer** (`ground_risk.py`, the operations manual's 1:1 rule; SORA 2.5 terms such as
 the contingency volume come later). A bookable location may have a maximum height (`places.max_height_m`, Edit
-location) and a default flight area (`places.flight_area`, a polygon of `[lat, lon]` points drawn with **⋯** → *Draw
-flight area on the map…*; *Remove flight area…*; `PUT /api/admin/places/<id>` with `max_height_m` and `flight_area`,
+location) and a default flight area (`places.flight_area`, a polygon of `[lat, lon]` points drawn or typed as corners with **⋯** → *Draw
+or enter flight area…*; *Remove flight area…*; `PUT /api/admin/places/<id>` with `max_height_m` and `flight_area`,
 `null` removes). Locations shows the area with its buffer and whether it stays inside (`flight_area_inside` in
 `GET /api/places`). In Plan flight a team uses the location's area and height, or draws its own area
-(**Draw another area…**) and sets a lower height (`height_m`, at most the location's maximum, 400 otherwise;
+(**Change the area…** / **Draw or enter an area…**: the editor in `static/area_editor.js`, shared with Locations) and sets a lower height (`height_m`, at most the location's maximum, 400 otherwise;
 `flight_area`). The buffer is as wide as the height (`buffer_m`, `buffer_method` `1:1`); the server checks in metres on a
 local flat projection whether the area with its buffer stays inside the location's boundary (polygon or circle) and
 the dialog shows the map (Leaflet, Turf for the buffer outline, loaded only when needed) with the verdict. A buffer

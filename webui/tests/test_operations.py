@@ -216,6 +216,22 @@ class OperationsTests(AppTests):
                          (ident, log, ident, utc, utc, pic))
         self.con.commit()
 
+    def test_last_flown_project_first(self):
+        self.sign_in(2)
+        self.assertIsNone(self.client.get("/api/operations/options").json["last_project_id"])
+        self.con.execute("INSERT INTO project_members(project_id,user_id,role) VALUES (2,2,'edit')")
+        self.flight(11, "10:30", pic=2)
+        self.flight(12, "12:00", pic=2)
+        self.flight(13, "13:00", pic=4)  # someone else's later flight does not count
+        self.con.execute("UPDATE flights SET project_id=1, project_source='manual' WHERE id IN (11,13)")
+        self.con.execute("UPDATE flights SET project_id=2, project_source='manual' WHERE id=12")
+        self.con.execute("UPDATE flights SET takeoff_utc=replace(takeoff_utc, ?, '2026-01-05'),"
+                         " landing_utc=replace(landing_utc, ?, '2026-01-05')", (DAY, DAY))  # flown: in the past
+        self.con.execute("UPDATE logs SET start_utc='2026-01-05T08:00:00Z'")  # a plausible log clock
+        self.con.commit()
+        options = self.client.get("/api/operations/options").json
+        self.assertEqual((sorted(p["id"] for p in options["projects"]), options["last_project_id"]), ([1, 2], 2))
+
     def test_flights_linked_to_teams(self):
         self.sign_in(2)
         bid = self.plan().json["id"]  # 10:00-14:00 local, PIC Pilot (2)
