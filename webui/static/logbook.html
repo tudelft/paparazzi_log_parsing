@@ -845,25 +845,30 @@ function loadMiniMap(el) {
     const p = await r.json();
     const points = p.points || p;
     if (!Array.isArray(points)) throw new Error('Invalid path response.');
-    const segments = [];
-    let segment = null, previous = null;
-    for (const point of points) {
-      const position = point?.position;
-      if (!position || !Number.isFinite(position.lat) || !Number.isFinite(position.lon)
-          || Math.abs(position.lat) > 90 || Math.abs(position.lon) > 180
-          || (position.lat === 0 && position.lon === 0)) {
-        segment = null;
-        previous = null;
-        continue;
+    // GPS positions; without any, the INS estimate (OptiTrack, or a local track placed at its track origin)
+    const segmentsOf = key => {
+      const segments = [];
+      let segment = null, previous = null;
+      for (const point of points) {
+        const position = point?.[key];
+        if (!position || !Number.isFinite(position.lat) || !Number.isFinite(position.lon)
+            || Math.abs(position.lat) > 90 || Math.abs(position.lon) > 180
+            || (position.lat === 0 && position.lon === 0)) {
+          segment = null;
+          previous = null;
+          continue;
+        }
+        if (!segment || point.time_s - previous.time_s > 5) {
+          segment = [];
+          segments.push(segment);
+        }
+        segment.push([position.lat, position.lon]);
+        previous = point;
       }
-      if (!segment || point.time_s - previous.time_s > 5) {
-        segment = [];
-        segments.push(segment);
-      }
-      segment.push([position.lat, position.lon]);
-      previous = point;
-    }
-    return segments;
+      return segments;
+    };
+    const gps = segmentsOf('position');
+    return gps.length ? gps : segmentsOf('ins');
   }));
   const pending = pathCache.get(id);
   pending.then(segments => {

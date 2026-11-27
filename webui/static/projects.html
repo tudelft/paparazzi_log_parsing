@@ -178,6 +178,7 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
+let places = [];  // admins: the locations a project's tracks without GPS can start from
 let projects = [], users = [], me = null, operators = [], authorisations = [], countries = [];
 const isAdmin = () => !!me?.is_admin;
 // Project access, each level including the ones before it (role names as stored).
@@ -197,6 +198,7 @@ async function load() {
     if (isAdmin()) {
       const [p, people] = await Promise.all([read('/api/admin/projects'), read('/api/admin/people')]);
       projects = p.projects;
+      places = p.places || [];
       users = people.users;
     } else {
       projects = await read('/api/projects');
@@ -336,9 +338,11 @@ function renderPanel() {
       ${row('name', 'Name', esc(p.name))}
       ${row('operator', 'Operator of its flights', esc(operatorText(p)) || '<span class="mute">Own operator, or the takeoff location\'s</span>')}
       ${row('category', 'Category of its flights', esc(categoryLabel(p)) || '<span class="mute">From the takeoff location or date</span>')}
+      ${row('origin', `<span title="${esc(ORIGIN_HELP)}">Track origin (no GPS)</span>`, p.track_origin_place_id != null ? `<a href="/locations/${p.track_origin_place_id}">${esc(p.track_origin_name || '')}</a>` : '<span class="mute">None</span>')}
       ${plainRow('Logs', String(p.log_count || 0))}</div>`;
   }
 }
+const ORIGIN_HELP = 'Logs without GPS but with a local position (motion capture, simulation) are drawn on the map from the centre of this location, without rotation. A flight can choose another one (Edit flight).';
 // A value opens Edit project at that field (only what the viewer may change).
 document.addEventListener('click', e => {
   const value = e.target.closest('#projectContent [data-edit-field]');
@@ -385,6 +389,8 @@ function openEditProject(focus) {
       ${field('name', 'Name', `<input name="name" required maxlength="80" value="${esc(p.name)}">`, true)}
       ${field('operator', 'Operator of its flights', operatorSelect)}
       ${field('category', 'Category of its flights', `<select name="category"><option value="">From the takeoff location or date</option>${categoryOptions(authorisations, categoryValue(p))}</select>`)}
+      ${field('origin', 'Track origin (no GPS)', `<select name="origin" title="${esc(ORIGIN_HELP)}"><option value="">None</option>${places.map(l =>
+        `<option value="${l.id}"${l.id === p.track_origin_place_id ? ' selected' : ''}>${esc(l.name)}${l.indoor ? ' (indoor)' : ''}</option>`).join('')}</select>`)}
     </div>` : ''}
     <h4>Members</h4>
     <div class="member-rows" id="memberRows"></div>
@@ -398,6 +404,7 @@ function openEditProject(focus) {
       if (val('name').value.trim() !== p.name) body.name = val('name').value.trim();
       if (String(p.operator_id ?? '') !== val('operator').value) body.operator_id = val('operator').value ? +val('operator').value : null;
       if (categoryValue(p) !== val('category').value) Object.assign(body, categoryChoice(val('category').value));
+      if (String(p.track_origin_place_id ?? '') !== val('origin').value) body.track_origin_place_id = val('origin').value ? +val('origin').value : null;
       if (Object.keys(body).length && !await call('PUT', `/api/admin/projects/${p.id}`, body, out('name'))) failed++;
     }
     for (const r of memberEdit.rows.filter(r => r.role !== r.was))

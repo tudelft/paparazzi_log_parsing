@@ -105,7 +105,9 @@ Logbook has a **Pre-flight** column (hidden by default, under **Columns**), and 
   their dots with a subtle text halo; **Show flight plan** hides/shows both the dots and names. Waypoints whose names
   start with `_` are hidden by default; enable **Show hidden waypoints** to reveal them.
   OptiTrack flights show the **OptiTrack / INS path** by default; switch to **GPS path** next to the title
-  (see "INS path" in the [technical guide](TECHNICAL.md)).
+  (see "INS path" in the [technical guide](TECHNICAL.md)). Logs without GPS but with a local position (motion
+  capture, simulation) are drawn from a location: the project's default (Edit project) or **Track origin** in Edit
+  flight ([details](TECHNICAL.md#track-origin)).
 - Logs has a **Status** filter: **Parser errors**, **Unfinished logs** (queued, parsing or
   error), or **All failures** (also failed/rejected upload receipts). Filters cover all pages.
 - Statistics uses the shared flight filters. **Total log data (GB)** sums original telemetry sizes for logs contributing to
@@ -267,7 +269,7 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
   aliases, or use Add user if a new profile is needed. Previously generated profiles are kept.
 - Admins manage project access on **Projects** and named takeoff areas on **Locations**. **Projects** is a table
   (project, members, logs, operator, category); a row opens a project you may change beside it (Details, Members),
-  other rows open the project page. **Edit project** changes the name, operator, category and members in one dialog
+  other rows open the project page. **Edit project** changes the name, operator, category, track origin and members in one dialog
   (access per member: See, upload, edit, delete or Manager); ⋯ deletes the project. Admins can make a member
   **Manager** of a project; a manager changes its members with Edit project, but only admins appoint managers
   ([details](TECHNICAL.md#accounts-and-tu-delft-login)).
