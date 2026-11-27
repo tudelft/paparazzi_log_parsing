@@ -69,7 +69,7 @@ def _create_item(con):
         return named["id"]
     order = con.execute("SELECT COALESCE(MIN(sort_order), 0) - 1 FROM booking_things").fetchone()[0]
     return con.execute("INSERT INTO booking_things(name, description, colour, sort_order, kind) VALUES (?,?,?,?,?)",
-                       (ITEM_NAME, "Plan and book outdoor flights", "#2da44e", order, "operations")).lastrowid
+                       (ITEM_NAME, "Plan and book outdoor flights", db.item_colour(con), order, "operations")).lastrowid
 
 
 def item(con):

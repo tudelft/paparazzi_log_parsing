@@ -1655,8 +1655,9 @@ An account merge keeps the newest version either account saw.
 Off unless `LOGDB_BOOKINGS=1`; session-only (`bookings.py`, `static/agenda.html`). Administrators set up the
 bookable items ([UI rule](#ui-rule): **Manage ▾** → *Add bookable item…*, **Edit item** for the
 open tab with **⋯** → *Delete item…*; they always see closed items and the tabs, also with a single item;
-`/api/admin/booking-things`, table `booking_things`): name, description, optional
-colour (used in the All view) and **Open for bookings** (active); they order the tabs by dragging them
+`/api/admin/booking-things`, table `booking_things`): name, description, a colour (required: its bookings and
+the dot on its tab; without one the first of `db.ITEM_COLOURS` no item uses yet, also for items from before,
+at start) and **Open for bookings** (active); in All a booking shows only its description, the colour says the item; they order the tabs by dragging them
 (`PUT /api/admin/booking-things-order`). The place link is no longer shown or set. An item may need a qualification type, for
 `booking` only (everyone sees its agenda) or for `viewing` and booking; it counts when an approved submission of
 that type is valid today. Without it the API answers 403 with `thing_id` and `training_id` (an active training

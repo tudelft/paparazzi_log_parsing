@@ -935,6 +935,15 @@ LOG_PROJECT_FROM_FLIGHTS = (
     " WHERE a.log_id=logs.id)=1")
 
 
+# Every bookable item has a colour (its bookings, its tab's dot); a new one gets the first of these no item uses yet.
+ITEM_COLOURS = ("#4493f8", "#2da44e", "#e5534b", "#f0883e", "#a371f7", "#db61a2", "#1f9eb3", "#c69026", "#768390")
+
+
+def item_colour(con):
+    used = {(r[0] or "").lower() for r in con.execute("SELECT colour FROM booking_things")}
+    return next((c for c in ITEM_COLOURS if c not in used), ITEM_COLOURS[len(used) % len(ITEM_COLOURS)])
+
+
 def run_once(con, name, sql, params=()):
     """Run a data fix once per database: an administrator may undo its result afterwards (e.g. clear a log's
     project), and a later start must not redo it."""
@@ -1284,6 +1293,8 @@ def init(path):
     run_once(con, "preflight_done_before_recording",
              "UPDATE flights SET preflight_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE preflight_at IS NULL")
     run_once(con, "preflight_paper_done_before_recording", "UPDATE flight_records SET preflight=1 WHERE preflight IS NULL")
+    for (item_id,) in con.execute("SELECT id FROM booking_things WHERE colour IS NULL ORDER BY sort_order, id").fetchall():
+        con.execute("UPDATE booking_things SET colour=? WHERE id=?", (item_colour(con), item_id))  # colours are required
     logbook_version_triggers(con)
     con.commit()
 

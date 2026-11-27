@@ -155,6 +155,11 @@ class BookingTests(AppTests):
         self.sign_in(1)
         self.assertEqual(self.client.post("/api/admin/booking-things", json={"name": "meeting ROOM"}).status_code, 409)
         self.assertEqual(self.client.post("/api/admin/booking-things", json={"name": "Hall", "colour": "red"}).status_code, 400)
+        # every item has a colour: without one, the first of the palette no item uses yet
+        hall = self.client.post("/api/admin/booking-things", json={"name": "Hall"}).json["id"]
+        used = {t["colour"] for t in self.client.get("/api/bookings?from=2030-01-07&to=2030-01-07").json["things"] if t["id"] != hall}
+        self.assertNotIn(self.item(hall)["colour"], used)
+        self.assertRegex(self.item(hall)["colour"], r"^#[0-9a-f]{6}$")
         self.assertEqual(self.client.delete(f"/api/admin/booking-things/{self.room}").status_code, 409)
         flags = [f for f in self.item(self.arena)["flags"] if f["label"] == "Demo"]
         r = self.client.put(f"/api/admin/booking-things/{self.arena}", json={
