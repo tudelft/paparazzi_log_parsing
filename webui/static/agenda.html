@@ -72,8 +72,8 @@
   .now-line { position:absolute; left:0; right:0; height:0; border-top:2px solid var(--err); z-index:3; pointer-events:none; }
   .now-line::before { content:''; position:absolute; left:-5px; top:-6px; width:10px; height:10px; border-radius:50%; background:var(--err); }
   .now-line[hidden] { display:none; }
-  .bk .order { display:inline-block; font-size:10px; font-weight:600; border-radius:8px; padding:0 5px; margin-right:4px;
-    background:color-mix(in srgb, var(--warn) 22%, var(--card)); color:var(--warn); vertical-align:1px; }
+  .bk .order { display:inline-block; font-size:10px; border-radius:8px; padding:0 5px; margin-top:2px;
+    background:var(--chip); color:var(--mute); }
   .ghost { position:absolute; left:2px; right:2px; border-radius:5px; background:color-mix(in srgb, var(--acc) 25%, transparent);
     border:1px dashed var(--acc); font-size:11px; padding:1px 4px; pointer-events:none; color:var(--txt); }
   .flag-chips { display:flex; flex-wrap:wrap; gap:6px; }
@@ -555,7 +555,7 @@ function paint(scroll) {
       return `<div role="button" tabindex="0" class="bk${p.b.can_edit ? ' movable' : ''}${p.b.status !== 'approved' ? ' ' + p.b.status : ''}" data-id="${p.b.id}" data-piece="${pieces.indexOf(p)}" title="${esc(tip)}"
         style="--c:${esc(colourOf(p.b))};top:${(p.s - first) * HOUR}px;height:${Math.max((p.e - p.s) * HOUR - 2, 18)}px;
         left:calc(${p.lane / p.n * W}% + 2px);width:calc(${W / p.n}% - 4px)">
-        <b>${label}${order.has(p.b.id) ? `<small class="order" title="${esc(`Booked after ${order.get(p.b.id).map(o => o.person).join(', ')}, during the same time`)}">${ordinal(order.get(p.b.id).length + 1)}</small>` : ''}${esc(p.b.description)}</b><span>${esc(p.b.person)}</span><span>${when}</span>
+        <b>${label}${esc(p.b.description)}</b><span>${esc(p.b.person)}</span><span>${when}</span>${order.has(p.b.id) ? `<small class="order" title="${esc(`Booked after ${order.get(p.b.id).map(o => o.person).join(', ')}, during the same time`)}">${ordinal(order.get(p.b.id).length + 1)}</small>` : ''}
         ${ticked.length ? `<span class="tags">${ticked.map(f => `<span class="tag"${f.colour ? ` style="--c:${esc(f.colour)}"` : ''}>${f.colour ? '<i></i>' : ''}${esc(f.label)}</span>`).join('')}</span>` : ''}</div>`;
     }).join('') + (day === today ? '<div class="now-line" aria-hidden="true"></div>' : '') + '</div>';
   });
