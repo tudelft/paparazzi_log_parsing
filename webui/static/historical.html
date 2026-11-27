@@ -60,6 +60,7 @@
         <label class="wide">Flight goal<input id="goal" maxlength="1000"></label>
         <label class="wide">Notes<textarea id="comment" maxlength="4000" rows="3"></textarea></label>
         <label class="tick wide" title="Required for a new record, unless it was flown indoors (an indoor location or the Indoor category)"><input type="checkbox" id="preflight"> <span id="preflightLabel">Pre-flight inspection completed</span></label>
+        <div class="wide" style="display:flex;flex-direction:column;gap:4px">Tags<div id="tagsBox"></div></div>
         <label class="wide"><span id="lmraLabel">Last-minute risk assessment (LMRA)</span><textarea id="preflight_special" maxlength="1000" rows="2" placeholder="Nothing special"></textarea></label>
       </fieldset>
       <div class="actions"><button type="submit" id="save" hidden>Save record</button>
@@ -156,6 +157,7 @@ async function start() {
     options(key,catalogs.people,r=>`${r.name} (${r.username})`);
   options('place_id',catalogs.places,r=>r.name);
   $('preflight_special').title = PREFLIGHT_SPECIAL_HELP;
+  tagField = tagInput($('tagsBox'), {values: detail?.record.tags || []});
   indoorPlaces = new Set(catalogs.places.filter(r => r.indoor).map(r => String(r.id)));
   $('category').innerHTML = '<option value="">From the project / location / date</option>' + categoryOptions(catalogs.authorisations || [], '');
   operatorCatalog = catalogs.operators;
@@ -192,7 +194,7 @@ $('recordForm').onsubmit = async event => {
   $('status').textContent = 'Saving…';
   try {
     const body = {...Object.fromEntries(keys.map(key=>[key,$(key).value])), ...categoryChoice($('category').value),
-      preflight: $('preflight').checked};
+      preflight: $('preflight').checked, tags: tagField.values};
     const result = await api('/api/historical' + (recordId ? '/' + recordId : ''), {
       method:recordId ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
     if (!recordId) location.href = '/historical/' + result.id;
@@ -200,7 +202,7 @@ $('recordForm').onsubmit = async event => {
   } catch (error) { $('status').textContent = error.message; }
   finally { $('save').disabled = false; }
 };
-let keptUntil = null;
+let keptUntil = null, tagField = null;
 $('delete').onclick = async () => {
   if (!confirm('Delete this paper record? This removes its contribution to flight totals, not the aircraft or people.')) return;
   const reason = keptUntil ? prompt(`This record is kept until ${keptUntil} (retention period); hiding it in the Logbook keeps it. Reason for deleting it anyway (kept with a copy of the record):`) : null;

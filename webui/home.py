@@ -18,8 +18,10 @@ BOOKINGS_SHOWN = 5
 
 
 def real_flight(r):
-    """A flight that counts: not a detected simulation, not judged a ground test or uncertain."""
-    return not (r.get("simulation") or {}).get("detected") and r.get("verdict") not in ("ground", "uncertain")
+    """A flight that counts: not a detected simulation, not judged a ground test or uncertain, and without a tag that
+    is hidden by default (tags.py)."""
+    return (not (r.get("simulation") or {}).get("detected") and r.get("verdict") not in ("ground", "uncertain")
+            and not r.get("tags_hidden"))
 
 
 def row_day(r):
