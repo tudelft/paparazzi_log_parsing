@@ -79,6 +79,14 @@ aviation authority, so every one of these links must keep working in every relea
   add one commit per pull request on top of `origin/pr-screenshots` (in a separate worktree), with the images in a
   folder named after the feature branch, push it, and link the images in the pull request by commit SHA
   (`https://raw.githubusercontent.com/tudelft/paparazzi_log_parsing/<sha>/<feature-branch>/<image>.png`).
+  Cloud sessions (Claude Code on the web) pass pull request text through a filter that can rewrite image embeds
+  and Markdown links into plain code, so the maintainer sees no images. There: write the body to a file and send it
+  with `-F body=@file`; give the screenshots folder as a bare URL on its own line
+  (`https://github.com/tudelft/paparazzi_log_parsing/tree/<sha>/<feature-branch>`, which GitHub links) next to any
+  embeds; after creating or editing the pull request, read the body back (`gh api repos/<owner>/<repo>/pulls/<n>
+  -q .body`) and check that each `![...](...)` or `<img>` is still intact; when one was rewritten, replace it with the
+  folder URL rather than leaving a broken link, and tell the maintainer the images are behind that link. Do not try
+  other link forms to get past the filter.
   If the push is rejected, fetch, rebase onto `origin/pr-screenshots` and push again; never force-push or rewrite
   this branch, because older pull requests link to its commits. Never create a separate branch per pull request
   for screenshots. Blur personal details (names, email addresses) in screenshots; see the public-repository rule
