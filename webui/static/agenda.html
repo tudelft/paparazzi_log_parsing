@@ -17,7 +17,27 @@
   .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
   .toolbar h2 { margin:0; }
   .toolbar details { margin-left:0; }
-  #newBtn { margin-left:auto; }  /* New booking, Subscribe and Manage ▾ at the end of the title row */
+  #newBtn { margin-left:auto; }  /* New booking and ⋯ at the end of the title row */
+  .toolbar .nav { display:inline-flex; align-items:center; gap:6px; }
+  #range { min-width:150px; text-align:center; cursor:help; }
+  .today-btn { background:none; border:1px solid var(--acc); color:var(--acc); }
+  .view-seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .view-seg button { border:0; border-radius:0; padding:5px 11px; background:var(--card); color:var(--txt); font-size:13px; }
+  .view-seg button.on { background:var(--acc); color:#fff; }
+  .wk-hint { font-size:12px; color:var(--mute); } .wk-hint a { color:var(--acc); }
+  #newBtn .short { display:none; }
+  .help-body { font-size:14px; } .help-body p { margin:0 0 10px; }
+  /* a phone: the date and + on the first row, the views and ⋯ on the second, tabs on one scrolling line */
+  @media (max-width:700px) {
+    main { padding:8px 6px; } section.card { padding:10px 8px; }
+    .toolbar { gap:6px; } .toolbar h2 { display:none; }
+    .toolbar .nav { flex:1 1 auto; order:1; } #range { flex:1; min-width:0; font-size:15px; }
+    .today-btn { order:2; } #newBtn { order:3; margin-left:0; } #newBtn .long { display:none; }
+    #newBtn .short { display:inline; font-size:18px; line-height:1; }
+    .view-seg { order:4; flex:1 1 60%; } .view-seg button { flex:1; } .view-seg .wide-only { display:none; }
+    #moreWrap { order:5; } .wk-hint { order:6; flex-basis:100%; }
+    #tabs { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; } #tabs [role=tab] { flex:0 0 auto; }
+  }
   #err { color:var(--err); margin-bottom:8px; }
   #err:empty { display:none; }
   button { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:4px 10px; cursor:pointer; }
@@ -31,7 +51,7 @@
   #about { margin:0 0 10px; font-size:13px; color:var(--mute); }
   #about:empty { display:none; }
   .scroll { overflow:auto; max-height:min(560px, 70vh); border-top:1px solid var(--line); }
-  .week { display:grid; grid-template-columns:44px repeat(7, minmax(84px, 1fr)); min-width:640px; }
+  .week { display:grid; grid-template-columns:44px repeat(5, minmax(84px, 1fr)); }  /* columns and width per view (paint) */
   .dh { position:sticky; top:0; z-index:2; background:var(--card); font-size:12px; color:var(--mute); text-align:center;
     padding:4px 0; border-bottom:1px solid var(--line); }
   .dh.today { color:var(--acc); font-weight:600; }
@@ -162,24 +182,30 @@
   <section class="card">
     <div class="toolbar">
       <h2 id="agendaTitle">Agenda</h2>
-      <button type="button" class="sec" aria-label="Previous week" onclick="moveWeek(-7)">‹</button>
-      <strong id="range"></strong>
-      <button type="button" class="sec" aria-label="Next week" onclick="moveWeek(7)">›</button>
-      <button type="button" class="sec" onclick="moveWeek(0)">Today</button>
+      <span class="nav"><button type="button" class="sec" id="prevBtn" aria-label="Earlier" onclick="moveWeek(-1)">‹</button>
+        <strong id="range"></strong>
+        <button type="button" class="sec" id="nextBtn" aria-label="Later" onclick="moveWeek(1)">›</button></span>
+      <button type="button" class="today-btn" id="todayBtn" onclick="moveWeek(0)" hidden>Today</button>
+      <span class="view-seg" id="viewSeg" role="group" aria-label="View"><button type="button" data-view="day">Day</button><button type="button" data-view="3d">3 days</button><button type="button" data-view="work" class="wide-only">Work week</button><button type="button" data-view="week">Week</button></span>
+      <span class="wk-hint" id="weekendHint" hidden></span>
       <span class="legend" id="legend"></span>
-      <button type="button" id="newBtn" onclick="openBooking()">New booking</button>
-      <button type="button" class="sec" onclick="openCalendar()" title="Show this agenda in your own calendar app">Subscribe</button>
-      <span class="menu-wrap" id="manageWrap" hidden><button type="button" class="sec" id="manageBtn" aria-haspopup="menu" aria-expanded="false">Manage ▾</button>
-        <div class="menu-pop" id="manageMenu" role="menu" hidden>
-          <button type="button" class="ext-item" role="menuitem" onclick="openItem()">Add bookable item…</button>
+      <button type="button" id="newBtn" onclick="openBooking()"><span class="long">New booking</span><span class="short" aria-hidden="true">+</span></button>
+      <span class="menu-wrap" id="moreWrap"><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More: subscribe, add an item, help" title="Subscribe, add a bookable item, help">⋯</button>
+        <div class="menu-pop" id="moreMenu" role="menu" hidden>
+          <button type="button" class="ext-item" role="menuitem" onclick="openCalendar()" title="Show this agenda in your own calendar app">Subscribe…</button>
+          <button type="button" class="ext-item" role="menuitem" id="addItemMenu" hidden onclick="openItem()">Add bookable item…</button>
+          <button type="button" class="ext-item" role="menuitem" onclick="$('helpDialog').showModal()">Help</button>
         </div></span>
-      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day, in the strip next to the bookings, or across a booking you may not change, to book that time (a click in an empty part books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's, as the dot on its tab (in All, hover over a booking for its item). With one item there are no tabs. A red line marks the current time on today. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item may overlap, unless one of them sets a blocking option (for example "No others"); the other options only label a booking. An item can be set the other way round (Edit item → Overlapping bookings): then bookings overlap only when both set the same option, for example "Others allowed". When bookings overlap, the later ones show 2nd, 3rd, … by when they were booked. Some items need a current qualification to book, or to see their agenda at all (without it they have no tab). Some need approval: your booking then shows as Pending (striped) and holds its time until an administrator or approver approves or rejects it; moving it asks again. You can change or delete your own bookings; administrators can book for someone else and change any booking. Administrators also see items that are closed for bookings, add items with <em>Manage ▾</em> → <em>Add bookable item…</em>, change the open item with <em>Edit item</em> (⋯ deletes it) and drag the tabs to order them. Times are local.</p><p><strong>Outdoor operations</strong> (when the server has it on): <em>Plan flight</em> books a slot at a bookable location for your team, with project, PIC, optional crew and aircraft. It shows the weather forecast, red/green checks of the qualifications and the aircraft for that day, and the NOTAM check; they are saved with your team. Click a slot to see its teams, their preparation, or <em>Join this slot…</em> with your own team (one booking, a shared field). The last team that leaves removes the slot. Who may plan, and whether it needs approval, follows the qualifications in <em>Edit item</em>.</p></details>
     </div>
     <div class="page-tabs" id="tabs" aria-label="Bookable items"></div>
     <p id="about"></p>
     <div class="scroll" id="scroll"><div class="week" id="week"></div></div>
   </section>
 </main>
+<dialog class="entry-dialog" id="helpDialog" aria-labelledby="helpTitle" style="width:min(640px,calc(100% - 32px))">
+  <div class="dialog-header"><h2 id="helpTitle">Agenda help</h2><button type="button" onclick="$('helpDialog').close()">Close</button></div>
+  <div class="help-body"><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day, in the strip next to the bookings, or across a booking you may not change, to book that time (a click in an empty part books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's, as the dot on its tab (in All, hover over a booking for its item). With one item there are no tabs. A red line marks the current time on today. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item may overlap, unless one of them sets a blocking option (for example "No others"); the other options only label a booking. An item can be set the other way round (Edit item → Overlapping bookings): then bookings overlap only when both set the same option, for example "Others allowed". When bookings overlap, the later ones show 2nd, 3rd, … by when they were booked. Some items need a current qualification to book, or to see their agenda at all (without it they have no tab). Some need approval: your booking then shows as Pending (striped) and holds its time until an administrator or approver approves or rejects it; moving it asks again. You can change or delete your own bookings; administrators can book for someone else and change any booking. Administrators also see items that are closed for bookings, add items with <em>⋯</em> → <em>Add bookable item…</em>, change the open item with <em>Edit item</em> (⋯ deletes it) and drag the tabs to order them. Times are local.</p><p><strong>Outdoor operations</strong> (when the server has it on): <em>Plan flight</em> books a slot at a bookable location for your team, with project, PIC, optional crew and aircraft. It shows the weather forecast, red/green checks of the qualifications and the aircraft for that day, and the NOTAM check; they are saved with your team. Click a slot to see its teams, their preparation, or <em>Join this slot…</em> with your own team (one booking, a shared field). The last team that leaves removes the slot. Who may plan, and whether it needs approval, follows the qualifications in <em>Edit item</em>.</p></div>
+</dialog>
 <dialog class="entry-dialog" id="lockDialog" aria-labelledby="lockTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();closeLock();}">
   <div class="dialog-header"><h2 id="lockTitle">Qualification required</h2></div>
   <p id="lockText"></p>
@@ -345,6 +371,24 @@ function mondayOf(d) {
   return m;
 }
 function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+// Views: days shown from `monday` (the first shown day). Work week and Week start on a Monday, Day and 3 days on any
+// day; ‹ › move by a week or by the days shown. Kept in the URL and in this browser; Day by default on a phone.
+const VIEWS = {day: 1, '3d': 3, work: 5, week: 7};
+const narrow = () => matchMedia('(max-width:700px)').matches;
+const defaultView = () => narrow() ? 'day' : 'work';
+let view = 'work';
+const nDays = () => VIEWS[view];
+function firstOf(d) { return view === 'work' || view === 'week' ? mondayOf(d) : new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+function setView(v) {
+  if (!VIEWS[v] || v === view) return;
+  const shown = [...Array(nDays())].map((_, i) => isoDate(addDays(monday, i)));
+  const anchor = shown.includes(isoDate(new Date())) ? new Date() : monday;  // keep today in view, else the first day
+  view = v;
+  try { localStorage.setItem('agenda.view', v); } catch (e) {}
+  monday = firstOf(anchor);
+  window.viewState.save(true);
+  load();
+}
 const admin = () => !!me?.is_admin;
 // One small confirmation dialog (instead of confirm()); run returns true to close it.
 function actDialog(title, body, okLabel, run) {
@@ -365,7 +409,9 @@ function closeMenus() {
   for (const b of document.querySelectorAll('[aria-haspopup="menu"]')) b.setAttribute('aria-expanded', 'false');
 }
 document.addEventListener('click', e => {
-  const button = e.target.closest('#manageBtn, #itemMoreBtn');
+  const pick = e.target.closest('#viewSeg [data-view]');
+  if (pick) { setView(pick.dataset.view); return; }
+  const button = e.target.closest('#moreBtn, #itemMoreBtn');
   if (button) {
     const pop = button.nextElementSibling, open = pop.hidden;
     closeMenus();
@@ -383,8 +429,8 @@ document.addEventListener('keydown', e => {
 });
 const item = id => data.things.find(t => t.id === id);
 const current = () => tab === 'all' ? null : item(+tab);
-function moveWeek(n) {
-  monday = n ? addDays(monday, n) : mondayOf(new Date());
+function moveWeek(n) {  // n: -1 earlier, 1 later (a week, or the days shown), 0 today
+  monday = n ? addDays(monday, n * (view === 'work' ? 7 : nDays())) : firstOf(new Date());
   window.viewState.save(true);
   load();
 }
@@ -408,12 +454,14 @@ function closeLock() {
 }
 async function load() {
   $('err').textContent = '';
-  const last = addDays(monday, 6);
-  try {
-    data = await api(`/api/bookings?from=${isoDate(monday)}&to=${isoDate(last)}`);
+  const last = addDays(monday, nDays() - 1);
+  try {  // a work week also loads its weekend, for the hint
+    data = await api(`/api/bookings?from=${isoDate(monday)}&to=${isoDate(view === 'work' ? addDays(monday, 6) : last)}`);
     if (data.things.some(isOps) && !ops) ops = await api('/api/operations/options').catch(() => null);
   } catch (e) { $('err').textContent = e.message; return; }
-  $('range').textContent = `${monday.getDate()} ${MONTH[monday.getMonth()]} – ${last.getDate()} ${MONTH[last.getMonth()]} ${last.getFullYear()}`;
+  $('range').textContent = nDays() === 1 ? `${DAY[(monday.getDay() + 6) % 7]} ${monday.getDate()} ${MONTH[monday.getMonth()]} ${monday.getFullYear()}`
+    : `${monday.getDate()} ${MONTH[monday.getMonth()]} – ${last.getDate()} ${MONTH[last.getMonth()]} ${last.getFullYear()}`;
+  $('range').title = `Times are ${data.time_zone || browserTz}` + (data.time_zone && data.time_zone !== browserTz ? ` (your computer uses ${browserTz})` : '');
   const t = current();
   if (tab !== 'all' && (!t || !t.can_view)) {
     if (t) lock(t, 'see the agenda of');
@@ -440,8 +488,9 @@ function paintTabs() {
     return;
   }
   $('agendaTitle').textContent = 'Agenda';
-  const count = id => data.bookings.filter(b => b.thing_id === id).length;
-  window.pageTabs($('tabs'), [['all', 'All', data.bookings.length],
+  const from = isoDate(monday) + 'T00:00', to = isoDate(addDays(monday, nDays())) + 'T00:00';  // the days shown
+  const count = id => data.bookings.filter(b => (id == null || b.thing_id === id) && b.start < to && b.end > from).length;
+  window.pageTabs($('tabs'), [['all', 'All', count(null)],
     ...visible.map(t => [String(t.id), (t.colour ? `<i class="tab-dot" style="--c:${esc(t.colour)}"></i>` : '') + esc(t.name) + (t.active ? '' : ' (inactive)'),
       t.can_view ? count(t.id) : null])], tab, choose);
   $('tabs').hidden = false;
@@ -457,7 +506,7 @@ function paintAbout() {
   const t = current();
   const parts = [];
   if (!t) {
-    if (!data.things.length) parts.push(admin() ? 'No bookable items yet: add one with Manage ▾ → Add bookable item….' : 'Nothing can be booked yet.');
+    if (!data.things.length) parts.push(admin() ? 'No bookable items yet: add one with ⋯ → Add bookable item….' : 'Nothing can be booked yet.');
   } else {
     if (t.description) parts.push(esc(t.description));
     if (isOps(t)) {
@@ -470,7 +519,6 @@ function paintAbout() {
     if (t.needs_approval) parts.push(t.can_approve ? 'Bookings need approval: you approve or reject requests, and your own bookings are approved at once.'
       : 'Bookings need approval by an administrator or approver; your request keeps its time until then.');
   }
-  if (data.time_zone && data.time_zone !== browserTz) parts.push(`Times are ${esc(data.time_zone)} (your computer uses ${esc(browserTz)}).`);
   $('about').innerHTML = parts.join(' · ');
   const legend = [];  // the item colours are dots on the tabs (paintTabs)
   $('legend').innerHTML = legend.map(([c, label]) => `<span><i style="--c:${esc(c)}"></i>${esc(label)}</span>`).join('');
@@ -498,12 +546,23 @@ function paint(scroll) {
   paintTabs();
   paintAbout();
   $('newBtn').hidden = !bookable();
-  $('newBtn').textContent = isOps(current()) ? 'Plan flight' : 'New booking';
-  $('manageWrap').hidden = !admin();
-  const days = [...Array(7)].map((_, i) => isoDate(addDays(monday, i)));
+  $('newBtn').querySelector('.long').textContent = isOps(current()) ? 'Plan flight' : 'New booking';
+  $('newBtn').setAttribute('aria-label', isOps(current()) ? 'Plan flight' : 'New booking');
+  $('addItemMenu').hidden = !admin();
+  for (const b of $('viewSeg').children) { b.classList.toggle('on', b.dataset.view === view); b.setAttribute('aria-pressed', String(b.dataset.view === view)); }
+  const n = nDays();
+  const days = [...Array(n)].map((_, i) => isoDate(addDays(monday, i)));
+  $('week').style.gridTemplateColumns = `44px repeat(${n}, minmax(84px, 1fr))`;
+  $('week').style.minWidth = n === 7 ? '640px' : n === 5 ? '480px' : '0';
   const today = inTz(Date.now()).slice(0, 10);
   const topTime = gridFirst == null ? null : gridFirst + $('scroll').scrollTop / HOUR;  // the time at the top now
   const shown = data.bookings.filter(b => tab === 'all' || b.thing_id === +tab);
+  $('todayBtn').hidden = days.includes(today);  // only when today is not shown
+  // a work week: the weekend's bookings as a hint, with a link to the whole week
+  const weekend = view === 'work' ? shown.filter(b => b.status !== 'rejected' && b.start < isoDate(addDays(monday, 7)) + 'T00:00'
+    && b.end > isoDate(addDays(monday, 5)) + 'T00:00').length : 0;
+  $('weekendHint').hidden = !weekend;
+  $('weekendHint').innerHTML = weekend ? `Weekend: ${weekend} booking${weekend === 1 ? '' : 's'} · <a href="#" onclick="setView('week'); return false">show the week</a>` : '';
   const pieces = [];
   const h = t => +t.slice(11, 13) + t.slice(14, 16) / 60;
   for (const b of shown) days.forEach((day, i) => {
@@ -511,11 +570,10 @@ function paint(scroll) {
     if (from.slice(0, 10) !== day || b.end <= day + 'T00:00') return;
     pieces.push({b, i, s: h(from), e: b.end.slice(0, 10) === day ? h(b.end) : 24});
   });
-  const first = Math.min(8, ...pieces.map(p => Math.floor(p.s)));
-  const last = Math.max(20, ...pieces.map(p => Math.ceil(p.e)));
+  const first = 0, last = 24;  // the whole day: scroll to early or late hours; a new view opens at 08:00
   const hours = last - first;
   let html = '<div class="dh"></div>' + days.map((day, i) =>
-    `<div class="dh${day === today ? ' today' : ''}">${DAY[i]} ${+day.slice(8)}</div>`).join('');
+    `<div class="dh${day === today ? ' today' : ''}">${DAY[(new Date(day + 'T00:00').getDay() + 6) % 7]} ${+day.slice(8)}</div>`).join('');
   html += '<div>' + [...Array(hours)].map((_, i) => `<div class="hl">${pad(first + i)}:00</div>`).join('') + '</div>';
   // Overlapping bookings of one item: 2nd, 3rd, … by when they were booked (the first one has no badge)
   const order = new Map();
@@ -739,7 +797,7 @@ function openBooking(start, id, end, moved) {
   if (start) from = new Date(start);
   else {
     const now = new Date();
-    from = isoDate(now) >= isoDate(monday) && isoDate(now) <= isoDate(addDays(monday, 6))
+    from = isoDate(now) >= isoDate(monday) && isoDate(now) <= isoDate(addDays(monday, nDays() - 1))
       ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1) : addDays(monday, 0);
     if (from.getHours() === 0) from.setHours(9);
   }
@@ -1236,14 +1294,18 @@ function confirmCalendar(make) {
     make === 'new' ? 'Replace' : 'Turn off', async () => { await openCalendar(make); return true; });
 }
 window.viewState.setup(p => {
+  let saved = null;
+  try { saved = localStorage.getItem('agenda.view'); } catch (e) {}
+  view = VIEWS[p.get('view')] ? p.get('view') : VIEWS[saved] ? saved : defaultView();
   const raw = p.get('week');
   const d = raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(raw + 'T00:00') : new Date();
-  monday = mondayOf(isNaN(d) ? new Date() : d);
+  monday = firstOf(isNaN(d) ? new Date() : d);
   tab = /^\d+$/.test(p.get('item') || '') ? p.get('item') : 'all';
   slotFromUrl = /^\d+$/.test(p.get('slot') || '') ? +p.get('slot') : 0;
 }, p => {
   if (!slotFromUrl) p.delete('slot');
-  window.viewState.set(p, 'week', isoDate(monday) === isoDate(mondayOf(new Date())) ? '' : isoDate(monday), '');
+  window.viewState.set(p, 'week', isoDate(monday) === isoDate(firstOf(new Date())) ? '' : isoDate(monday), '');
+  window.viewState.set(p, 'view', view, defaultView());
   window.viewState.set(p, 'item', tab === 'all' ? '' : tab, '');
 }, load);
 
