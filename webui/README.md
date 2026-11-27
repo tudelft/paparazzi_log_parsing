@@ -285,7 +285,11 @@ strip to the right of the bookings stays free for that, and dragging across a bo
 Drag a booking you may change to move it: it opens with the new times, and **Save** moves it. A red line marks the
 current time on today; switching tabs keeps the same time at the top. Every item has a colour, shown as a dot on its
 tab and on its bookings, so **All** shows only the description (hover for the item).
-**Subscribe** gives private links to show the agenda in your calendar app. A booking has a description, start and end, and the item's
+Choose **Day**, **3 days**, **Work week** (the default; on a phone **Day**) or **Week** next to the dates; ‹ › move by
+a week or by the days shown, and **Today** (shown when you are elsewhere) jumps back. A work week tells you when the
+weekend has bookings, with a link to the whole week. The whole day can be scrolled; a view opens at 08:00. Hover over
+the dates for the time zone. **⋯** holds **Subscribe**, which gives private links to show the agenda in your calendar app,
+and Help. A booking has a description, start and end, and the item's
 options, for example "No others" or "Demo". Bookings of one item may overlap unless one of them ticks an option that
 blocks overlaps (such as "No others"); later ones then show **2nd**, **3rd**, … by when they were booked. An item
 can be set the other way round (**Edit item → Overlapping bookings**): its bookings overlap only when both tick the
@@ -293,7 +297,7 @@ same option, such as "Others allowed". An item can need a current
 qualification, for example an arena safety briefing, to book or even to see its agenda. An item you may not see has
 no tab; a link to it says which qualification is needed and links to the training that grants it. You can change or delete your own bookings; administrators can
 book for someone else (**Booked for**) and change any. They also see items that are closed for bookings (the tabs
-stay with a single item), add items with **Manage ▾** → *Add bookable item…*, change the open item with **Edit item**
+stay with a single item), add items with **⋯** → *Add bookable item…*, change the open item with **Edit item**
 at the end of the tabs (**⋯** → *Delete item…*) and drag the tabs to order them.
 
 An item can need approval (**Bookings need approval**, with optional approvers besides the administrators). Your

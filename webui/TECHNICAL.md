@@ -1653,7 +1653,7 @@ An account merge keeps the newest version either account saw.
 ### Booking agenda
 
 Off unless `LOGDB_BOOKINGS=1`; session-only (`bookings.py`, `static/agenda.html`). Administrators set up the
-bookable items ([UI rule](#ui-rule): **Manage ▾** → *Add bookable item…*, **Edit item** for the
+bookable items ([UI rule](#ui-rule): **⋯** → *Add bookable item…*, **Edit item** for the
 open tab with **⋯** → *Delete item…*; they always see closed items and the tabs, also with a single item;
 `/api/admin/booking-things`, table `booking_things`): name, description, a colour (required: its bookings and
 the dot on its tab; without one the first of `db.ITEM_COLOURS` no item uses yet, also for items from before,
@@ -1674,7 +1674,10 @@ with each other. The week view numbers overlapping bookings of an item 2nd, 3rd,
 keeps 15% of each day free next to the bookings, and a drag that starts on a booking they may not move selects a new
 time (a click still opens it). `GET /api/bookings?from=&to=` (at most two months) returns the items and the
 bookings of the items the person may view. Times are local wall-clock time (`YYYY-MM-DDTHH:MM`), at most 7 days
-per booking. The item tab (`item=`) and week (`week=`, the Monday) are kept in the URL. An item with bookings
+per booking. The item tab (`item=`), the view (`view=`: `day`, `3d`, `work` or `week`; also kept in
+`localStorage` `agenda.view`; the default is `work`, `day` below 700 px) and the first day shown (`week=`, a Monday in
+`work` and `week`) are kept in the URL. The grid always covers 00:00–24:00 and opens at 08:00 (or at the earliest
+booking when none falls between 08:00 and 20:00); switching tabs keeps the time at the top. An item with bookings
 cannot be deleted; make it inactive instead.
 
 **Approval.** An item with `needs_approval` (item dialog: **Bookings need approval**) has optional approvers
