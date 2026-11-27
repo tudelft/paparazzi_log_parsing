@@ -128,7 +128,7 @@
             <span class="menu-wrap" id="moreWrap" hidden><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
               <div class="menu-pop" id="moreMenu" role="menu" hidden>
                 <button type="button" class="ext-item" role="menuitem" onclick="editShape(selectedPlace)">Change boundary on the map…</button>
-                <button type="button" class="ext-item" role="menuitem" id="areaDrawItem" onclick="drawFlightArea(selectedPlace)">Draw flight area on the map…</button>
+                <button type="button" class="ext-item" role="menuitem" id="areaDrawItem" onclick="drawFlightArea(selectedPlace)">Draw or enter flight area…</button>
                 <button type="button" class="ext-item danger-item" role="menuitem" id="areaRemoveItem" onclick="removeFlightArea(selectedPlace)">Remove flight area…</button>
                 <button type="button" class="ext-item danger-item" role="menuitem" onclick="deletePlace(selectedPlace)">Delete location…</button>
               </div></span>
@@ -169,7 +169,7 @@
             <label class="field">Mail<textarea id="placeBookingText" rows="4" maxlength="5000" placeholder="e.g. Please book {place} on {date} from {start} to {end} for {teams}."></textarea></label>
             <span class="mute" style="font-size:12px" title="Every mail also ends with a Request details block (type, location, date, times, deadline, teams, booking number, reference S&lt;id&gt;) for mail flows">Tags: {place} {provider} {date} {start} {end} {book_by} {teams} {booker} {reference} {request} · Markup: **bold**, "- " bullets</span>
           </div></fieldset>
-        <label class="field" id="placeHeightField" hidden title="The highest a flight here may go. Plan flight starts from it; the ground risk buffer (1:1) is as wide as the planned height. The default flight area is drawn with ⋯ → Draw flight area on the map.">Maximum height for outdoor operations (m)<input type="number" id="placeMaxHeight" min="1" max="1000" placeholder="not set" style="width:10em"></label>
+        <label class="field" id="placeHeightField" hidden title="The highest a flight here may go. Plan flight starts from it; the ground risk buffer (1:1) is as wide as the planned height. The default flight area is drawn with ⋯ → Draw or enter flight area.">Maximum height for outdoor operations (m)<input type="number" id="placeMaxHeight" min="1" max="1000" placeholder="not set" style="width:10em"></label>
       </div>
       <p class="dialog-error" id="nameError" role="alert"></p>
       <p style="display:flex;gap:8px;margin:14px 0 0"><button type="button" id="nameSave" class="primary">Save</button><button type="button" id="nameCancel" class="sec">Cancel</button></p>
@@ -195,6 +195,7 @@
 </main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script src="/area_editor.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -219,8 +220,7 @@ const layerById = new Map();
 // No Edit mode (UI rule): administrators get Add location, Edit location and ⋯ (boundary, delete) and Manage ▾.
 const isAdmin = () => !!placeData.admin;
 let adding = null;  // the drawer while a new location is being drawn
-let areaDraw = null;  // {id, drawer} while a location's flight area is being drawn
-const showAll = () => !!(adding || shapeEdit || areaDraw);  // all boundaries (and no panel) while drawing or changing one
+const showAll = () => !!(adding || shapeEdit);  // all boundaries (and no panel) while drawing or changing one
 const fmtHours = s => {
   const t = Math.max(0, Math.round(s || 0));
   return `${Math.floor(t / 3600)}h ${String(Math.floor((t % 3600) / 60)).padStart(2, '0')}m`;
@@ -427,12 +427,6 @@ function initMap() {
   });
   map.on('zoomend', renderNamedPlaces);
   map.on(L.Draw.Event.CREATED, e => {
-    if (areaDraw) {
-      const id = areaDraw.id;
-      areaDraw = null;
-      saveFlightArea(id, e.layer.getLatLngs()[0].map(p => [+p.lat.toFixed(7), +p.lng.toFixed(7)]));
-      return;
-    }
     if (shapeEdit && shapeEdit.drawer) {
       layers.removeLayer(shapeEdit.layer);
       shapeEdit.layer = e.layer;
@@ -449,7 +443,6 @@ function initMap() {
     askName({kind: 'new', shape: shapeOf(e.layer)}, 'New location', '');
   });
   map.on(L.Draw.Event.DRAWSTOP, () => {
-    if (areaDraw) { areaDraw = null; $('mapMsg').textContent = ''; renderNamedPlaces(); renderPanel(); return; }  // Escape while drawing a flight area
     if (adding) { stopAdd(); return; }  // Escape while drawing a new location
     if (!shapeEdit || !shapeEdit.drawer) return;
     shapeEdit.drawer = null;
@@ -593,7 +586,7 @@ function categoryText(p) {
   return p.category ? CATEGORY_LABELS[p.category] || p.category : '';
 }
 // Outdoor operations: the selected location's default flight area with its 1:1 ground risk buffer (Turf draws the
-// buffer outline; the server says whether it stays inside). Admins draw it with ⋯ → Draw flight area on the map.
+// buffer outline; the server says whether it stays inside). Admins draw it with ⋯ → Draw or enter flight area.
 let areaLayers = null, turfLoad = null;
 function paintFlightArea(p) {
   if (!map) return;
@@ -612,16 +605,16 @@ function paintFlightArea(p) {
       weight: 2, fillOpacity: .1, dashArray: '6 4', interactive: false}).addTo(areaLayers);
   }).catch(() => {});
 }
+// Draw, change or type the flight area in the window-filling editor (area_editor.js).
 function drawFlightArea(id) {
   if (!map || !isAdmin()) return;
+  const p = placeData.places.find(x => x.id === id);
+  if (!p) return;
   cancelShape();
   stopAdd();
-  areaDraw = {id, drawer: new L.Draw.Polygon(map, {allowIntersection: false, shapeOptions: {color: '#1a7f37'}})};
-  areaDraw.drawer.enable();
   closeMenus();
-  renderNamedPlaces();
-  paintFlightArea(null);
-  $('mapMsg').textContent = 'Click the corners of the flight area inside the location; click the first corner to finish. Escape stops.';
+  openAreaEditor({title: 'Flight area · ' + p.name, points: p.flight_area, boundary: p.shape,
+                  onSave: area => saveFlightArea(id, area)});
 }
 async function saveFlightArea(id, area) {
   try {
@@ -661,7 +654,7 @@ function renderPanel() {
     ${placeData.operations && p.bookable ? row('placeBookingMode', 'External booking', p.booking_mode === 'mail'
       ? esc(`By mail${p.booking_provider ? ' · at ' + p.booking_provider : ''}${p.booking_lead_hours != null ? ` · ${p.booking_lead_hours} h ahead` : ''}${p.booking_mail_to ? ' · to ' + p.booking_mail_to : ''}`)
       : 'Only in our agenda') : ''}
-    ${placeData.operations && p.bookable ? plainRow('Flight area', !p.flight_area ? (admin ? '<span class="mute">None: ⋯ → Draw flight area on the map</span>' : '')
+    ${placeData.operations && p.bookable ? plainRow('Flight area', !p.flight_area ? (admin ? '<span class="mute">None: ⋯ → Draw or enter flight area</span>' : '')
       : 'Drawn' + (p.max_height_m ? ` · ground risk buffer 1:1: ${p.max_height_m} m ${p.flight_area_inside ? '<span style="color:var(--ok);font-weight:600">✓ inside the location</span>' : '<span style="color:var(--err);font-weight:600">! crosses the boundary</span>'}` : ' · set the maximum height for the buffer')) : ''}
     ${plainRow('Boundary', shape)}
     ${plainRow('Flights', `${p.flights} · ${fmtHours(p.seconds)}${p.last ? ' · last ' + esc(p.last.slice(0, 10)) : ''}`)}`;

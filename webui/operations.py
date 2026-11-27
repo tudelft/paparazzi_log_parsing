@@ -433,6 +433,20 @@ def slot_teams(con, booking_id):
                                  " ORDER BY id", (booking_id,))}
 
 
+def last_flown_project(rows, user_id, allowed):
+    """The project of the user's latest real flight (PIC, PAC or GCS; telemetry or paper) among the logbook rows
+    the user may see, if it is one of `allowed` project ids; else None."""
+    best, best_key = None, None
+    for r in rows:
+        pid = r.get("project_id")
+        if pid not in allowed or user_id not in flight_people(r) or not home.real_flight(r):
+            continue
+        key = (home.row_day(r), r.get("takeoff_utc") or r.get("takeoff_time") or "")
+        if key[0] and (best_key is None or key > best_key):
+            best, best_key = pid, key
+    return best
+
+
 def flight_people(entry):
     return {u["id"] for role in ("pic", "pac", "gcs") if (u := entry.get(role + "_user")) and u.get("id")}
 
@@ -706,11 +720,18 @@ def register(app, connection, require_session, logbook=None):
         cid = connection()
         thing = operations_item(cid)
         rule = "direct" if may_decide(cid, thing) else rule_for(cid, thing["id"], g.user["id"])
+        projects = projects_for(cid, g.user)
+        allowed = {p["id"] for p in projects}
+        last_project = last_flown_project(logbook() if logbook else [], g.user["id"], allowed)
+        if last_project is None:
+            default = cid.execute("SELECT default_project_id FROM users WHERE id=?", (g.user["id"],)).fetchone()
+            last_project = default[0] if default and default[0] in allowed else None
         return jsonify(
             item_id=thing["id"], rule=rule, rules=rules(cid, thing["id"]), notam_url=env("NOTAM_URL") or None,
             places=[place_geometry(cid, r[0]) for r in cid.execute(
                 "SELECT id FROM places WHERE bookable=1 AND indoor=0 ORDER BY name")],
-            projects=projects_for(cid, g.user),
+            projects=projects,
+            last_project_id=last_project,
             people=[dict(r) for r in cid.execute("SELECT id, COALESCE(display_name, username) AS name FROM users"
                                                  " WHERE is_active=1 AND is_external=0 ORDER BY name COLLATE NOCASE")],
             drones=[dict(r) for r in cid.execute("SELECT id, name, status FROM drones WHERE COALESCE(status,'')!='Discard'"
