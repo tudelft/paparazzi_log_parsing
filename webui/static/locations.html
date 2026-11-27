@@ -23,7 +23,6 @@
   .map-bar { position:absolute; top:10px; left:56px; right:10px; z-index:500; display:flex; gap:6px; align-items:center; flex-wrap:wrap; width:fit-content; max-width:calc(100% - 66px);
     background:var(--card); border:1px solid var(--line); border-radius:6px; padding:4px 10px; font-size:12px; color:var(--mute); box-shadow:0 2px 8px #0003; }
   .map-bar[hidden] { display:none; }
-  #shapeForm { color:var(--txt); font-size:13px; top:auto; bottom:28px; left:10px; }
   .toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
   .toolbar h2 { margin:0; }
   .toolbar input[type=search] { flex:0 1 240px; min-width:0; }
@@ -127,8 +126,7 @@
           <span class="panel-actions"><button type="button" class="sec" id="editPlace" onclick="editPlace()">Edit location</button>
             <span class="menu-wrap" id="moreWrap" hidden><button type="button" class="sec" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" title="Rare actions">⋯</button>
               <div class="menu-pop" id="moreMenu" role="menu" hidden>
-                <button type="button" class="ext-item" role="menuitem" onclick="editShape(selectedPlace)">Change boundary on the map…</button>
-                <button type="button" class="ext-item" role="menuitem" id="areaDrawItem" onclick="drawFlightArea(selectedPlace)">Draw or enter flight area…</button>
+                <button type="button" class="ext-item" role="menuitem" id="areaDrawItem" onclick="editArea(selectedPlace)">Edit boundary…</button>
                 <button type="button" class="ext-item danger-item" role="menuitem" id="areaRemoveItem" onclick="removeFlightArea(selectedPlace)">Remove flight area…</button>
                 <button type="button" class="ext-item danger-item" role="menuitem" onclick="deletePlace(selectedPlace)">Delete location…</button>
               </div></span>
@@ -138,14 +136,6 @@
         <div class="map-bar" id="drawBar" hidden><span>New location: draw a</span>
           <select id="drawType" aria-label="Shape"><option value="polygon">polygon (click the corners)</option><option value="rectangle">rectangle (drag)</option><option value="circle">circle (drag)</option></select>
           <span>on the map, then name it.</span> <button type="button" class="sec" onclick="stopAdd()">Cancel</button></div>
-      <div id="shapeForm" class="map-bar" hidden>
-        <span id="shapeLabel"></span>
-        <label>New shape <select id="shapeType"><option value="polygon">Polygon</option><option value="rectangle">Rectangle</option><option value="circle">Circle</option></select></label>
-        <button type="button" id="shapeRedraw" class="sec" onclick="redrawShape()">Redraw boundary</button>
-        <button type="button" id="shapeSave" onclick="saveShape()">Save shape</button>
-        <button type="button" id="shapeCancel" class="sec" onclick="cancelShape()">Cancel</button>
-        <span id="shapeError" role="alert"></span>
-      </div>
       </div>
     </div>
     <div id="mapMsg" class="mute" style="margin-top:6px"></div>
@@ -169,7 +159,7 @@
             <label class="field">Mail<textarea id="placeBookingText" rows="4" maxlength="5000" placeholder="e.g. Please book {place} on {date} from {start} to {end} for {teams}."></textarea></label>
             <span class="mute" style="font-size:12px" title="Every mail also ends with a Request details block (type, location, date, times, deadline, teams, booking number, reference S&lt;id&gt;) for mail flows">Tags: {place} {provider} {date} {start} {end} {book_by} {teams} {booker} {reference} {request} · Markup: **bold**, "- " bullets</span>
           </div></fieldset>
-        <label class="field" id="placeHeightField" hidden title="The highest a flight here may go. Plan flight starts from it; the ground risk buffer (1:1) is as wide as the planned height. The default flight area is drawn with ⋯ → Draw or enter flight area.">Maximum height for outdoor operations (m)<input type="number" id="placeMaxHeight" min="1" max="1000" placeholder="not set" style="width:10em"></label>
+        <label class="field" id="placeHeightField" hidden title="The highest a flight here may go. Plan flight starts from it; the ground risk buffer (1:1) is as wide as the planned height. The default flight area is drawn with ⋯ → Edit boundary and flight area.">Maximum height for outdoor operations (m)<input type="number" id="placeMaxHeight" min="1" max="1000" placeholder="not set" style="width:10em"></label>
       </div>
       <p class="dialog-error" id="nameError" role="alert"></p>
       <p style="display:flex;gap:8px;margin:14px 0 0"><button type="button" id="nameSave" class="primary">Save</button><button type="button" id="nameCancel" class="sec">Cancel</button></p>
@@ -220,7 +210,7 @@ const layerById = new Map();
 // No Edit mode (UI rule): administrators get Add location, Edit location and ⋯ (boundary, delete) and Manage ▾.
 const isAdmin = () => !!placeData.admin;
 let adding = null;  // the drawer while a new location is being drawn
-const showAll = () => !!(adding || shapeEdit);  // all boundaries (and no panel) while drawing or changing one
+const showAll = () => !!adding;  // all boundaries (and no panel) while drawing or changing one
 const fmtHours = s => {
   const t = Math.max(0, Math.round(s || 0));
   return `${Math.floor(t / 3600)}h ${String(Math.floor((t % 3600) / 60)).padStart(2, '0')}m`;
@@ -239,94 +229,12 @@ function boundaryBounds(layer) {
 }
 
 let pendingLayer = null, naming = null;
-let shapeEdit = null, shapeSaving = false;
-function cancelShape() {
-  if (!shapeEdit || shapeSaving) return;
-  const edit = shapeEdit;
-  shapeEdit = null;
-  if (edit.drawer) edit.drawer.disable();
-  edit.editor.revertLayers();
-  edit.editor.disable();
-  if (edit.layer !== edit.originalLayer) {
-    layers.removeLayer(edit.layer);
-    layers.addLayer(edit.originalLayer);
-    layerById.set(edit.id, edit.originalLayer);
-  }
-  $('shapeForm').hidden = true;
-  paintMode();
-  if (filtersPending) loadPlaces().catch(error => { $('err').textContent = error.message; });
-}
-function shapeControls() {
-  const drawing = !!(shapeEdit && shapeEdit.drawer);
-  $('shapeSave').disabled = shapeSaving || drawing;
-  $('shapeCancel').disabled = shapeSaving;
-  $('shapeRedraw').disabled = $('shapeType').disabled = shapeSaving || drawing;
-}
-function redrawShape() {
-  if (!shapeEdit || shapeSaving || shapeEdit.drawer || !isAdmin()) return;
-  shapeEdit.editor.revertLayers();
-  shapeEdit.editor.disable();
-  const type = $('shapeType').value;
-  const Draw = {polygon: L.Draw.Polygon, rectangle: L.Draw.Rectangle, circle: L.Draw.Circle}[type];
-  shapeEdit.drawer = new Draw(map, type === 'polygon' ? {allowIntersection: false} : {});
-  shapeEdit.drawer.enable();
-  $('shapeLabel').textContent = 'Draw the replacement boundary on the map. Escape stops drawing; Cancel restores the original boundary.';
-  $('shapeError').textContent = '';
-  shapeControls();
-}
-function editShape(id) {
-  if (!isAdmin() || !map || shapeSaving) return;
-  cancelShape();
-  closeName();
-  const layer = layerById.get(id), place = placeData.places.find(p => p.id === id);
-  if (!layer || !place) return;
-  stopAdd();
-  closeMenus();
-  const editor = new L.EditToolbar.Edit(map, {featureGroup: L.featureGroup([layer])});
-  shapeEdit = {id, layer, originalLayer: layer, editor, drawer: null};
-  editor.enable();
-  shapeControls();
-  zoomPlace(id);
-  $('shapeLabel').textContent = `${place.name}: drag the handles to move or resize the boundary, or draw a new shape.`;
-  $('shapeError').textContent = '';
-  $('shapeForm').hidden = false;
-  renderNamedPlaces();
-  $('map').scrollIntoView({behavior: 'smooth', block: 'nearest'});
-}
-async function saveShape() {
-  if (!shapeEdit || shapeSaving || shapeEdit.drawer || !isAdmin()) return;
-  shapeSaving = true;
-  shapeControls();
-  $('shapeSave').textContent = 'Saving...';
-  $('shapeError').textContent = '';
-  try {
-    const r = await fetch('/api/admin/places/' + shapeEdit.id, {
-      method: 'PUT', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({shape: shapeOf(shapeEdit.layer)}),
-    });
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not save shape.');
-    shapeEdit.editor.disable();
-    shapeEdit = null;
-    $('shapeForm').hidden = true;
-    await loadPlaces();
-  } catch (error) {
-    $('shapeError').textContent = error.message;
-    if (!shapeEdit) $('err').textContent = 'Shape saved, but refreshing locations failed: ' + error.message;
-  } finally {
-    shapeSaving = false;
-    shapeControls();
-    $('shapeSave').textContent = 'Save shape';
-    if (filtersPending && !shapeEdit) loadPlaces().catch(error => { $('err').textContent = error.message; });
-    else if (filtersPending) $('err').textContent = 'Filter refresh is waiting. Retry saving the boundary or cancel the edit.';
-  }
-}
 let operators = [], authorisations = [];
 fetch('/api/operators').then(r => r.json()).then(d => { operators = d.operators || []; if (placeData) renderTable(); });
 fetch('/api/authorisations').then(r => r.json()).then(d => { authorisations = d.authorisations || []; });
 const operatorName = id => operators.find(o => o.id === id)?.name;
 let nameWas = null;
 function askName(mode, label, value, indoor = false, operatorId = null, category = '', country = '', focus = 'placeName', bookable = false, maxHeight = null, place = {}) {
-  cancelShape();
   naming = mode;
   $('placeIndoor').checked = indoor;
   $('placeBookable').checked = bookable;
@@ -393,7 +301,6 @@ async function saveName() {
 // Add location: draw one shape on the map (the bar on the map picks its kind), then name it.
 function startAdd() {
   if (!map || !isAdmin()) return;
-  cancelShape();
   stopAdd();
   const type = $('drawType').value;
   const Draw = {polygon: L.Draw.Polygon, rectangle: L.Draw.Rectangle, circle: L.Draw.Circle}[type];
@@ -427,28 +334,12 @@ function initMap() {
   });
   map.on('zoomend', renderNamedPlaces);
   map.on(L.Draw.Event.CREATED, e => {
-    if (shapeEdit && shapeEdit.drawer) {
-      layers.removeLayer(shapeEdit.layer);
-      shapeEdit.layer = e.layer;
-      e.layer.placeId = shapeEdit.id;
-      bindPlace(e.layer, placeData.places.find(p => p.id === shapeEdit.id));
-      layers.addLayer(e.layer);
-      layerById.set(shapeEdit.id, e.layer);
-      renderNamedPlaces();
-      shapeEdit.editor = new L.EditToolbar.Edit(map, {featureGroup: L.featureGroup([e.layer])});
-      return;
-    }
     stopAdd();
     pendingLayer = e.layer.addTo(map);
     askName({kind: 'new', shape: shapeOf(e.layer)}, 'New location', '');
   });
   map.on(L.Draw.Event.DRAWSTOP, () => {
-    if (adding) { stopAdd(); return; }  // Escape while drawing a new location
-    if (!shapeEdit || !shapeEdit.drawer) return;
-    shapeEdit.drawer = null;
-    shapeEdit.editor.enable();
-    $('shapeLabel').textContent = 'Adjust the boundary if needed, then Save shape or Cancel. The location keeps its name and linked records.';
-    shapeControls();
+    if (adding) stopAdd();  // Escape while drawing a new location
   });
   $('nameSave').onclick = saveName;
   $('nameCancel').onclick = $('nameClose').onclick = closeName;
@@ -586,7 +477,7 @@ function categoryText(p) {
   return p.category ? CATEGORY_LABELS[p.category] || p.category : '';
 }
 // Outdoor operations: the selected location's default flight area with its 1:1 ground risk buffer (Turf draws the
-// buffer outline; the server says whether it stays inside). Admins draw it with ⋯ → Draw or enter flight area.
+// buffer outline; the server says whether it stays inside). Admins draw it with ⋯ → Edit boundary and flight area.
 let areaLayers = null, turfLoad = null;
 function paintFlightArea(p) {
   if (!map) return;
@@ -601,20 +492,30 @@ function paintFlightArea(p) {
     if (selectedPlace !== p.id) return;
     const ring = [...p.flight_area.map(([lat, lon]) => [lon, lat]), [p.flight_area[0][1], p.flight_area[0][0]]];
     const b = turf.buffer(turf.polygon([ring]), p.max_height_m, {units: 'meters', steps: 16});
-    L.polygon(b.geometry.coordinates[0].map(([lon, lat]) => [lat, lon]), {color: p.flight_area_inside ? '#bf8700' : '#cf222e',
-      weight: 2, fillOpacity: .1, dashArray: '6 4', interactive: false}).addTo(areaLayers);
+    L.polygon(b.geometry.coordinates[0].map(([lon, lat]) => [lat, lon]), {color: '#cf222e',
+      weight: p.flight_area_inside ? 2 : 4, fillOpacity: p.flight_area_inside ? .06 : .18, dashArray: '6 4', interactive: false})  // bolder: crosses the boundary
+      .addTo(areaLayers);
   }).catch(() => {});
 }
-// Draw, change or type the flight area in the window-filling editor (area_editor.js).
-function drawFlightArea(id) {
+// The boundary and, at a location bookable for outdoor operations, its flight area: drawn, dragged or typed as
+// coordinates in the window-filling editor (area_editor.js), saved together.
+function editArea(id) {
   if (!map || !isAdmin()) return;
   const p = placeData.places.find(x => x.id === id);
   if (!p) return;
-  cancelShape();
   stopAdd();
   closeMenus();
-  openAreaEditor({title: 'Flight area · ' + p.name, points: p.flight_area, boundary: p.shape,
-                  onSave: area => saveFlightArea(id, area)});
+  const withArea = !!(placeData.operations && p.bookable);
+  openAreaEditor({title: (withArea ? 'Boundary and flight area · ' : 'Boundary · ') + p.name, boundary: p.shape,
+                  points: p.flight_area, editBoundary: true, editArea: withArea, areaRequired: false,
+                  onSave: (area, shape) => savePlaceArea(id, withArea ? {shape, flight_area: area} : {shape})});
+}
+async function savePlaceArea(id, body) {
+  try {
+    const r = await fetch('/api/admin/places/' + id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not save the boundary.');
+    await loadPlaces();
+  } catch (e) { $('err').textContent = e.message; }
 }
 async function saveFlightArea(id, area) {
   try {
@@ -639,7 +540,7 @@ function renderPanel() {
   paintFlightArea(p);
   if (!p) { closeMenus(); return; }
   const admin = isAdmin(), row = admin ? editRow : (key, label, value) => plainRow(label, value);
-  $('areaDrawItem').hidden = !(placeData.operations && p.bookable);
+  $('areaDrawItem').textContent = placeData.operations && p.bookable ? 'Edit boundary and flight area…' : 'Edit boundary…';
   $('areaRemoveItem').hidden = !(placeData.operations && p.flight_area);
   const shape = p.shape.type === 'circle' ? 'Circle, ' + Math.round(p.shape.radius_m) + ' m radius' : 'Polygon, ' + p.shape.points.length + ' points';
   $('placeHeading').innerHTML = `${esc(p.name)} <a class="pilot-link" href="/locations/${p.id}" title="The location page with its flights">Location page ↗</a>`;
@@ -654,7 +555,7 @@ function renderPanel() {
     ${placeData.operations && p.bookable ? row('placeBookingMode', 'External booking', p.booking_mode === 'mail'
       ? esc(`By mail${p.booking_provider ? ' · at ' + p.booking_provider : ''}${p.booking_lead_hours != null ? ` · ${p.booking_lead_hours} h ahead` : ''}${p.booking_mail_to ? ' · to ' + p.booking_mail_to : ''}`)
       : 'Only in our agenda') : ''}
-    ${placeData.operations && p.bookable ? plainRow('Flight area', !p.flight_area ? (admin ? '<span class="mute">None: ⋯ → Draw or enter flight area</span>' : '')
+    ${placeData.operations && p.bookable ? plainRow('Flight area', !p.flight_area ? (admin ? '<span class="mute">None: ⋯ → Edit boundary and flight area</span>' : '')
       : 'Drawn' + (p.max_height_m ? ` · ground risk buffer 1:1: ${p.max_height_m} m ${p.flight_area_inside ? '<span style="color:var(--ok);font-weight:600">✓ inside the location</span>' : '<span style="color:var(--err);font-weight:600">! crosses the boundary</span>'}` : ' · set the maximum height for the buffer')) : ''}
     ${plainRow('Boundary', shape)}
     ${plainRow('Flights', `${p.flights} · ${fmtHours(p.seconds)}${p.last ? ' · last ' + esc(p.last.slice(0, 10)) : ''}`)}`;
@@ -722,10 +623,8 @@ function renderNamedPlaces() {
 }
 
 async function loadPlaces() {
-  if (shapeSaving && shapeEdit) { filtersPending = true; return; }
   filtersPending = false;
   const generation = ++placesGeneration;
-  cancelShape();
   const r = await fetch('/api/places?' + window.flightFilters.params());
   if (generation !== placesGeneration) return;
   if (!r.ok) { $('err').textContent = (await r.json()).error || 'Could not load the places.'; return; }

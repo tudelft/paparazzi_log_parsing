@@ -203,9 +203,9 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
   zoomed out; click a group to zoom in.
 - On **Locations**, admins have **Add location**: choose polygon, rectangle or circle in the bar on the map, draw it
   and name it. A selected location has **Edit location** (name, country, indoors, operator and category in one
-  dialog; click a value to open it there) and **⋯** → *Change boundary on the map…* (drag the handles, or choose a
-  **New shape** and **Redraw boundary**; **Save shape** keeps the name and linked records, **Cancel** restores the
-  boundary) and *Delete location…*. **Only unnamed dots** (admins) hides named endpoint dots: select a coordinate or
+  dialog; click a value to open it there) and **⋯** → *Edit boundary…* (*Edit boundary and flight area…* at a location
+  bookable for outdoor operations: a map over the whole window with the corners, or a circle's centre and radius, beside
+  it to drag, draw, type or paste; Save keeps the name and linked records) and *Delete location…*. **Only unnamed dots** (admins) hides named endpoint dots: select a coordinate or
   use **Previous / Next** to visit each remaining dot, then Add location around it; covered positions leave the
   review list after saving.
 
@@ -312,7 +312,7 @@ choose who may plan (qualifications) and who sees it (everyone, or only who may 
 a slot at a bookable location (admins tick *Bookable for outdoor operations* in Locations) for your team: project (by default the one
 of your latest flight), PIC (you by default), optional crew and aircraft, and the goal. A map shows the flight area with its ground risk buffer (1:1:
 as wide as the maximum height; the location's area and height unless you draw your own or fly lower) and warns when
-the buffer leaves the location; admins set each location's area and height in Locations. Drawing an area opens a map over the whole window, with the corners as
+the buffer leaves the location; admins set each location's area and height in Locations. The buffer is red, and bolder when it crosses the boundary. Drawing an area opens a map over the whole window, with the corners as
 latitude, longitude lines that you can also type or paste. It also shows the weather forecast, red/green
 checks of the qualifications and the aircraft for that day, and the NOTAM check; these are saved with your team. Other
 teams **Join** a slot instead of booking their own (one booking, a shared field); the slot goes when its last team

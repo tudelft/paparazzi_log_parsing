@@ -944,6 +944,35 @@ function geographicPosition(p) {
     && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180 && (p.lat !== 0 || p.lon !== 0);
 }
 
+// The location boundary, flight area and ground risk buffer of the flight's outdoor operation (the booked team's, else
+// the location's default), under the path in their own pane; the buffer needs turf, loaded on first use. Returns the
+// boundary's bounds (to zoom to when there is no path), or null.
+let turfLoad = null;
+function drawOperationArea(m) {
+  const o = D.operation && D.operation.map;
+  if (!o || !o.boundary) return null;
+  m.createPane('operationArea').style.zIndex = 350;  // below the path (overlay pane, 400)
+  const pane = 'operationArea', b = o.boundary;
+  const boundary = b.type === 'circle' ? L.circle(b.center, {radius: b.radius_m, pane}) : L.polygon(b.points, {pane});
+  boundary.setStyle({color: '#57606a', weight: 2, fill: false, dashArray: '2 4', interactive: false}).addTo(m);
+  const bounds = boundary.getBounds();
+  if (!o.area) return bounds;
+  L.polygon(o.area, {pane, color: '#1a7f37', weight: 2, fillOpacity: .2, interactive: false})
+    .bindTooltip('Flight area').addTo(m);
+  if (!o.buffer_m) return bounds;
+  turfLoad = turfLoad || new Promise((ok, fail) => { const s = document.createElement('script');
+    s.src = 'https://unpkg.com/@turf/turf@6.5.0/turf.min.js'; s.onload = ok; s.onerror = fail; document.head.append(s); });
+  turfLoad.then(() => {
+    if (m !== map) return;  // the map was redrawn meanwhile
+    const ring = [...o.area.map(([lat, lon]) => [lon, lat]), [o.area[0][1], o.area[0][0]]];
+    const buffer = turf.buffer(turf.polygon([ring]), o.buffer_m, {units: 'meters', steps: 16});
+    L.polygon(buffer.geometry.coordinates[0].map(([lon, lat]) => [lat, lon]), {pane, color: '#cf222e',
+      weight: o.inside === false ? 4 : 2, fillOpacity: o.inside === false ? .18 : .06, dashArray: '6 4', interactive: false})
+      .addTo(m);
+  }).catch(() => {});
+  return bounds;
+}
+
 function initMap() {
   // Tiles stop at zoom 19; beyond that they are scaled up so small indoor (OptiTrack) paths can be inspected.
   map = L.map('map', {maxZoom: 23}).setView([52, 4.4], 6);
@@ -993,6 +1022,7 @@ function initMap() {
         .bindTooltip(label).addTo(group);
     }
   }
+  const areaBounds = drawOperationArea(map);
   group.addTo(map);
   const fp = D.flight_plan;
   planLayer = L.layerGroup();
@@ -1039,7 +1069,9 @@ function initMap() {
     const bounds = L.featureGroup([group, sectorLayer, visibleWaypoints,
       ...($('showHiddenWaypoints').checked ? [hiddenWaypoints] : [])]).getBounds();
     const b = group.getBounds().isValid() ? group.getBounds() : bounds;
-    if (b.isValid()) map.fitBounds(b.pad(0.1), {maxZoom: source === 'ins' ? 22 : 19}); else map.setView([52, 4.4], 6);
+    if (b.isValid()) map.fitBounds(b.pad(0.1), {maxZoom: source === 'ins' ? 22 : 19});
+    else if (areaBounds) map.fitBounds(areaBounds.pad(0.1));  // no path: the flight's location
+    else map.setView([52, 4.4], 6);
   };
   const togglePlan = () => { $('showPlan').checked ? planLayer.addTo(map) : planLayer.remove(); };
   $('showPlan').onchange = togglePlan;

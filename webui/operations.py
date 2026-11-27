@@ -506,8 +506,9 @@ def slot_flights(con, slot, rows):
 
 def flight_operation(con, entry):
     """The outdoor operation a logbook entry belongs to, for the flight page: {booking_id, thing_id, place, start, end,
-    team_id, pic, height_m, buffer_m, buffer_inside, automatic}; {missing: place} for a flight at a bookable location
-    without one; None otherwise."""
+    team_id, pic, height_m, buffer_m, buffer_inside, automatic, map}; {missing: place, map} for a flight at a bookable
+    location without one; None otherwise. map: {boundary, area, buffer_m, inside} to draw under the path: the team's
+    flight area and buffer, or (missing) the location's default area with its maximum height; area None when unset."""
     if not enabled() or entry.get("source_type") != "telemetry":
         return None
     decisions = flight_decisions(con)
@@ -532,16 +533,25 @@ def flight_operation(con, entry):
             continue
         r = con.execute(
             "SELECT b.id, b.thing_id, b.starts_at, b.ends_at, p.name AS place, o.height_m, o.buffer_m, o.buffer_inside,"
+            " o.flight_area, p.shape,"
             " COALESCE(u.display_name,u.username) AS pic FROM operation_teams o JOIN bookings b ON b.id=o.booking_id"
             " JOIN operation_slots s ON s.booking_id=b.id JOIN places p ON p.id=s.place_id JOIN users u ON u.id=o.pic_id"
             " WHERE o.id=?", (tid,)).fetchone()
         return dict(booking_id=r["id"], thing_id=r["thing_id"], place=r["place"], start=r["starts_at"], end=r["ends_at"],
                     team_id=tid, pic=r["pic"], height_m=r["height_m"], buffer_m=r["buffer_m"],
-                    buffer_inside=None if r["buffer_inside"] is None else bool(r["buffer_inside"]), automatic=automatic)
-    bookable = [r[0] for r in con.execute(
-        f"SELECT name FROM places WHERE bookable=1 AND id IN ({','.join('?' * 2)})",
-        (entry.get("takeoff_place_id") or -1, entry.get("landing_place_id") or -1))]
-    return {"missing": bookable[0]} if bookable else None
+                    buffer_inside=None if r["buffer_inside"] is None else bool(r["buffer_inside"]), automatic=automatic,
+                    map=dict(boundary=json.loads(r["shape"]), area=json.loads(r["flight_area"]) if r["flight_area"] else None,
+                             buffer_m=r["buffer_m"],
+                             inside=None if r["buffer_inside"] is None else bool(r["buffer_inside"])))
+    bookable = con.execute(
+        f"SELECT id FROM places WHERE bookable=1 AND id IN ({','.join('?' * 2)})",
+        (entry.get("takeoff_place_id") or -1, entry.get("landing_place_id") or -1)).fetchall()
+    if not bookable:
+        return None
+    place = place_geometry(con, bookable[0][0])
+    a = area_plan(place)
+    return {"missing": place["name"],
+            "map": dict(boundary=place["shape"], area=a["area"], buffer_m=a["buffer_m"], inside=a["inside"])}
 
 
 def register(app, connection, require_session, logbook=None):
