@@ -66,6 +66,7 @@
   .minimap { height:240px; max-width:640px; border:1px solid var(--line); border-radius:6px; margin-bottom:10px; }
   /* Opened row: map, then the comment, a compact facts grid (recordings, paper record, media, files) and one row of
      actions with ⋯ for the rare ones (UI rule). */
+  .nolog-detail .kv-grid { display:grid; grid-template-columns:max-content 1fr; gap:3px 14px; font-size:13px; }
   .flight-detail { display:grid; grid-template-columns:minmax(0,420px) minmax(260px,1fr); gap:20px; width:min(1200px,calc(100vw - 80px)); }
   .flight-detail .minimap { max-width:none; height:200px; margin:0; }
   .flight-detail .minimap.no-path { height:auto; align-self:start; padding:10px; border-style:dashed; font-size:13px; }
@@ -1023,13 +1024,33 @@ function logRow(l, cls = '') {
   const date = l.date_ok ? esc(fmtDate(l.start_utc) || l.date_override || '') : l.can_edit_date
     ? `<button type="button" class="badge date-unknown" data-set-date="${esc(l.record_key)}" title="Click to set the date (this log has no usable calendar date, often GPS week 0, shown as 1980)">date unknown</button>`
     : '<span class="badge date-unknown" title="This log has no usable calendar date (often GPS week 0, shown as 1980)">date unknown</span>';
-  return `<tr class="flight nolog ${cls}${ticked(ids) ? ' ticked' : ''}" data-id="${esc(l.record_key)}"><td class="exp"></td>${chk(ids)}<td class="num mono">${logNumber(l.id)}${window.copyButton(l.id, `log number ${l.id}`)}</td>
+  const open = open_.has(l.record_key);
+  return `<tr class="flight nolog ${cls}${open ? ' open' : ''}${ticked(ids) ? ' ticked' : ''}" data-id="${esc(l.record_key)}"><td class="exp">${open ? '▾' : '▸'}</td>${chk(ids)}<td class="num mono">${logNumber(l.id)}${window.copyButton(l.id, `log number ${l.id}`)}</td>
     <td>${date}</td><td>${esc(fmtHm(l.start_utc))}</td><td>${esc(fmtHm(l.end_utc)) || '<span class="mute">–</span>'}</td><td>0</td>
     <td>${fmtDur(l.duration_s)}</td><td></td>
     <td>${esc(TYPE_LABEL[l.log_type] || l.log_type || 'Log')}<span class="badge no-flight" title="This log was parsed but produced no flight">no flight</span></td>
     <td>${esc(l.aircraft_names || '')}</td><td>${l.project_id != null ? `<a href="/projects/${l.project_id}">${esc(l.project_name || '')}</a>` : ''}</td>
     <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
-    <td><a href="/logs#log${l.id}" title="Log details: ${esc(l.name)}">${esc(l.name)}</a></td></tr>`;
+    <td><a href="/logs#log${l.id}" title="Log details: ${esc(l.name)}">${esc(l.name)}</a></td></tr>`
+    + (open ? `<tr><td colspan="23" class="detail">${logDetail(l)}</td></tr>` : '');
+}
+// An opened log without flights: what it is, why it has no flight, and what to do with it.
+function logDetail(l) {
+  const size = l.size_bytes == null ? '' : l.size_bytes >= 1e6 ? (l.size_bytes / 1e6).toFixed(1) + ' MB' : Math.ceil(l.size_bytes / 1e3) + ' kB';
+  const when = l.date_ok ? `${esc(fmtTime(l.start_utc) || l.date_override || '')}${l.end_utc ? ' – ' + esc(fmtHm(l.end_utc)) : ''}` : 'No usable calendar date';
+  const kv = (k, v) => v ? `<span class="mute">${k}</span><span>${v}</span>` : '';
+  return `<div class="nolog-detail">
+    <p style="margin:0 0 8px">The parser found no flight in this log (no takeoff). It may be a ground test, a bench run or a log
+      that stopped before takeoff.${l.outdated ? ' <strong>It was parsed with an older parser:</strong> re-parsing may find flights.' : ''}</p>
+    <div class="kv-grid">${kv('File', esc(l.name) + (size ? ` <span class="mute">· ${size}</span>` : '') )}
+      ${kv('Type', esc(TYPE_LABEL[l.log_type] || l.log_type || 'Log'))}${kv('Recorded', when + (l.duration_s ? ` <span class="mute">· ${fmtDur(l.duration_s)}</span>` : ''))}
+      ${kv('Aircraft', esc(l.aircraft_names || ''))}${kv('Project', l.project_id != null ? `<a href="/projects/${l.project_id}">${esc(l.project_name || '')}</a>` : '<span class="mute">None</span>')}
+      ${kv('Uploaded', esc((l.uploaded_at || '').slice(0, 10)) + (l.uploaded_by_name ? ' by ' + esc(l.uploaded_by_name) : ''))}</div>
+    <div class="actions" style="margin-top:10px"><a class="btn" href="/logs#log${l.id}">Open in Logs</a>
+      <a class="btn sec" href="/api/logs/${l.id}/download" title="Download the log (all its files)">Download</a>
+      ${!l.date_ok && l.can_edit_date ? `<button type="button" class="sec" data-set-date="${esc(l.record_key)}">Set date…</button>` : ''}
+      <button type="button" class="sec" data-reparse-log="${l.id}" title="Parse this log again with the current parser">Re-parse</button></div>
+  </div>`;
 }
 
 // Group by day for logs without flights: one row per aircraft and UTC day (undated logs stay single), with the
@@ -1172,6 +1193,14 @@ function setDateDialog(key) {
 document.addEventListener('click', e => {
   const dateChip = e.target.closest('[data-set-date]');
   if (dateChip) { e.stopPropagation(); closeMenus(); setDateDialog(dateChip.dataset.setDate); return; }
+  const reparse = e.target.closest('[data-reparse-log]');
+  if (reparse) {  // a log without flights: parse it again; it leaves this list once it has flights
+    reparse.disabled = true;
+    fetch(`/api/logs/${reparse.dataset.reparseLog}/reparse`, {method: 'POST'}).then(r => {
+      reparse.textContent = r.ok ? 'Queued for re-parsing' : 'Could not re-parse';
+    });
+    return;
+  }
   const filesOpen = e.target.closest('#filesBtn, #filesChipLabel');
   if (filesOpen) {
     const open = $('filesMenu').hidden;
@@ -1243,7 +1272,7 @@ $('rows').onclick = e => {
   const gr = e.target.closest('tr.group');
   if (gr) { const id = gr.dataset.gid; openGroups.has(id) ? openGroups.delete(id) : openGroups.add(id); render(); return; }
   const tr = e.target.closest('tr.flight');
-  if (!tr || tr.classList.contains('nolog')) return;
+  if (!tr) return;  // a flight, paper record or log without flights opens below its row
   const id = tr.dataset.id;
   open_.has(id) ? open_.delete(id) : open_.add(id);
   render();

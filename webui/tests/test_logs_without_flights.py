@@ -30,6 +30,11 @@ class LogsWithoutFlightsTests(AppTests):
         self.add_log(5, 1, "1980-01-06T10:00:00.000Z")                  # no usable date
         self.add_log(6, None, "2026-05-06T10:00:00.000Z", uploaded_by=2)  # no project, uploaded by the pilot
 
+    def test_rows_carry_what_the_opened_row_shows(self):
+        self.sign_in(1)
+        log = next(l for l in self.client.get("/api/logbook/logs-without-flights").json["logs"] if l["id"] == 1)
+        self.assertTrue({"size_bytes", "outdated", "parser_version", "uploaded_by_name", "has_log"} <= set(log))
+
     def test_scope_is_the_logs_page_scope(self):
         self.sign_in(1)
         self.assertEqual(self.ids(), [6, 5, 2, 1])

@@ -87,7 +87,8 @@ Logbook has a **Pre-flight** column (hidden by default, under **Columns**), and 
   UTC dates, **Tags** (✓ only entries with a tag, ⊘ leave them out; click a tag to switch), **Hide indoor / no-GPS flights**, **Hide non-flights**, **Hide logs without flights** and **Hide unknown
   dates**, and under **More filters** the operator and category. Non-flights are ground runs, uncertain flights and simulations. Logs without flights are parsed logs that
   produced no flight; the Logbook shows them as rows marked **no flight**, with their log number (outlined, with ⧉ to
-  copy it, e.g. for `ml.fetch(log=n)`), grouped by day with **Group by day**, and a link to the log's details.
+  copy it, e.g. for `ml.fetch(log=n)`), grouped by day with **Group by day**. Click one to open it below its row: file,
+  type, time, aircraft, project and uploader, with **Open in Logs**, **Download**, **Set date…** and **Re-parse**.
   By default everything is shown; ticked options stay saved in this browser. Unknown-date records are
   shown alongside the selected period unless **Hide unknown dates** is ticked, independently of
   **Hide non-flights**; other visibility filters still apply.

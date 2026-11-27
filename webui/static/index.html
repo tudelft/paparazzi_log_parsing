@@ -45,6 +45,7 @@
   .detail h4 { margin:12px 0 6px; }
   .detail table th, .detail table td { padding:3px 8px; }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
+  .settings-changes { margin:10px 0; } .settings-changes summary { cursor:pointer; font-weight:600; }
   table.deleted td { vertical-align:top; } table.deleted summary { cursor:pointer; }
   pre { background:#0f1720; color:#d6e2f0; padding:10px; border-radius:6px; max-height:260px; overflow:auto; font-size:12px; }
   .actions { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
@@ -463,8 +464,13 @@ async function loadDetail(id) {
         <td><a href="/api/flights/${f.id}/path" target="_blank" onclick="event.stopPropagation()">${f.num_points} pts</a></td></tr>`).join('')}
       </tbody></table>`;
     if (a.setting_changes.length) {
-      h += `<h4>Settings changed from default <span class="mute">(${a.setting_changes.length})</span></h4><table><thead><tr><th>Time (UTC)</th><th>Setting</th><th>From</th><th>To</th><th>In flight</th></tr></thead><tbody>
-        ${a.setting_changes.map(c => `<tr><td>${esc((c.utc || '').replace('T', ' ').slice(0, 19))}</td><td>${esc(c.var || 'setting')} <span class="mute">#${c.idx}</span></td><td>${c.from_value}</td><td>${c.to_value}</td><td>${c.in_flight ? 'yes' : ''}</td></tr>`).join('')}</tbody></table>`;
+      // Collapsed: a log can hold thousands (the parameter dump at start); 50 rows when opened, then Show all
+      const changes = a.setting_changes, inFlight = changes.filter(c => c.in_flight).length, LIMIT = 50;
+      h += `<details class="settings-changes" onclick="event.stopPropagation()"><summary>Settings changed from default <span class="mute">(${changes.length}${inFlight ? `, ${inFlight} in flight` : ''})</span></summary>
+        <table><thead><tr><th>Time (UTC)</th><th>Setting</th><th>From</th><th>To</th><th>In flight</th></tr></thead><tbody>
+        ${changes.map((c, i) => `<tr${i >= LIMIT ? ' class="more" hidden' : ''}><td>${esc((c.utc || '').replace('T', ' ').slice(0, 19))}</td><td>${esc(c.var || 'setting')} <span class="mute">#${c.idx}</span></td><td>${c.from_value}</td><td>${c.to_value}</td><td>${c.in_flight ? 'yes' : ''}</td></tr>`).join('')}</tbody></table>
+        ${changes.length > LIMIT ? `<button type="button" class="sec" onclick="event.stopPropagation(); this.previousElementSibling.querySelectorAll('tr.more').forEach(r => { r.hidden = false; }); this.remove()">Show all ${changes.length}</button>` : ''}
+        <p class="mute" style="font-size:12px;margin:6px 0 0">The flight page's Settings tab shows the changes of one flight.</p></details>`;
     }
     const pfc = a.preflight_checks || [];
     if (pfc.length) h += `<h4>Pre-flight checks</h4><table><tbody>${pfc.map(m =>
