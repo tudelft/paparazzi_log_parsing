@@ -137,21 +137,18 @@ Logbook has a **Pre-flight** column (hidden by default, under **Columns**), and 
   flew, and conflicts, with the paper record next to the candidate logs; every decision can be undone there.
 - Tick the entries of one flight and press **Same flight** in the selection bar to join them (also when the automatic
   SD/GCS merge missed it), or, in an expanded entry, choose **⋯ → Split … off this entry** to split a recording off.
-- Each flight shows the **operator** (operator registration) it was flown under: our own unless set on the flight
-  (**Change…** in the selection bar), its project, its takeoff location or the operator its PIC flies
-  for (external crew); inferred values are grey. Choose **Own operations only** in Flight filters for operator
-  reporting; pilot experience counts all operators. The list of operators is on the **Operators** tab of the Projects page; anyone can add
-  a new partner there or with **New operator…** in the Logbook; admins click a row to change or delete it, and click
-  an external person to set which operator they fly for.
-- Each flight also shows its **category**, the rules it was flown under: national rules (ROC / ROC-light) before
-  EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. It comes from the flight (**Change…**
-  in the selection bar), indoor, its project, its takeoff location or the date; inferred values are
-  grey. By date, our own flights get national rules while a ROC was valid and OPEN when no authorisation of ours
-  was valid; while an EU authorisation was valid they stay unknown until a project, location or flight says which.
-  Admins keep the authorisations (number, category, validity) on the **Authorisations** tab of the Projects
-  page (click a row to change or delete it); **Used by** counts where each is set by hand. **(check)** marks SPECIFIC
-  without an authorisation, or flown outside its validity; Flight filters can show one category or those to check.
-  The Logbook shows only the category; hover over it for the authorisation.
+- Each flight shows the **operator** (operator registration) and the **category** (the rules it was flown under:
+  national rules before 2021, then OPEN, SPECIFIC under an operational authorisation, LUC or indoor). By default
+  a flight is OPEN under our own operator. Set a preference on the **project** (Edit project) or the **location**
+  (Edit location), or choose them for a slot in **Plan flight**; an exception for one flight goes in **Edit flight**.
+  Inferred values are grey; hover for where they come from. The order is in the
+  [technical guide](TECHNICAL.md#operator-per-flight). Choose **Own operations only** in Flight filters for operator
+  reporting; pilot experience counts all operators.
+- Directory → Projects has the **Categories** tab (who may choose each category, and the authorisations with their
+  validity) and the **Operators** tab (partners, and the operator external crew fly for). Admins click a row to change
+  it, including **Who may choose**: the qualifications needed to choose it in Plan flight or Edit flight (both you and
+  the PIC need one; nothing listed: everyone). **(check)** marks SPECIFIC without an authorisation, or flown outside
+  its validity; Flight filters can show one category or those to check.
 - **Columns** in the Logbook hides or shows table columns. Your choice is kept in this browser;
   **Export CSV** always contains every column.
 - **No.** is the flight number, the number in `/flight/<number>` and on the flight page, which Python's `ml.fetch` and
@@ -211,7 +208,7 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
 
 - The **Logbook** looks the same for everyone; what you may change is offered where it applies. Tick one or more
   rows for the **selection bar** at the bottom: copy numbers, MATLAB, and, when you may change all ticked entries,
-  **Change…** (project, crew, operator, category, pre-flight inspection) and **Same flight**. Click **date unknown** to set a missing date;
+  **Change…** (project, crew, pre-flight inspection) and **Same flight**. Click **date unknown** to set a missing date;
   change an existing date or the classification on the flight page. Admins can also **Hide**
   entries from the logbook and totals without deleting files; **Manage ▾ → Hidden records only** shows them to
   **Restore**. Paper records must keep a PIC and project.
@@ -310,7 +307,9 @@ People **Approval queue** (**Bookings**).
 **Outdoor operations** (when the server has it on) is a fixed item for planning outdoor flights; in its Edit item, admins
 choose who may plan (qualifications) and who sees it (everyone, or only who may plan). **Plan flight** books
 a slot at a bookable location (admins tick *Bookable for outdoor operations* in Locations) for your team: projects (by default the one
-of your latest flight), PIC (you by default), optional crew and aircraft (several of each), and the goal. A map shows the flight area with its ground risk buffer (1:1:
+of your latest flight), PIC (you by default), optional crew and aircraft (several of each), the goal, and the operator and category its flights
+are flown under (by default the first project's, else the location's, else OPEN under our own operator; only what you
+and the PIC are qualified for). A map shows the flight area with its ground risk buffer (1:1:
 as wide as the maximum height; the location's area and height unless you draw your own or fly lower) and warns when
 the buffer leaves the location; admins set each location's area and height in Locations. The buffer is red, and bolder when it crosses the boundary. Drawing an area opens a map over the whole window, with the corners as
 latitude, longitude lines that you can also type or paste. It also shows the weather forecast, red/green

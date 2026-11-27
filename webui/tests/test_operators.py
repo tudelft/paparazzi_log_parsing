@@ -57,6 +57,10 @@ class OperatorTests(LinkFixtures):
         self.assertEqual(self.operator_of(flight_id=1), ("Test centre", "place", False))
         self.con.execute("UPDATE projects SET operator_id=2 WHERE id=1")
         self.assertEqual(self.operator_of(flight_id=1), ("Partner", "project", False))
+        self.con.execute("UPDATE projects SET operator_id=1 WHERE id=1")  # our own on the project: the place's wins
+        self.assertEqual(self.operator_of(flight_id=1), ("Test centre", "place", False))
+        self.con.execute("UPDATE places SET operator_id=NULL WHERE id=1")
+        self.assertEqual(self.operator_of(flight_id=1), ("Our lab", "project", True))
         self.con.execute("UPDATE flights SET operator_id=1 WHERE id=1")
         self.assertEqual(self.operator_of(flight_id=1), ("Our lab", "flight", True))
         row = self.entry(flight_id=1)
@@ -196,14 +200,16 @@ class OperatorTests(LinkFixtures):
         rows = self.client.get("/api/people-pic-flights").json["flights"]
         self.assertEqual([r["operator_own"] for r in rows], [False])
 
-    def test_the_operator_a_pic_flies_for_comes_after_project_and_place(self):
+    def test_the_operator_a_pic_flies_for_comes_before_project_and_place(self):
         self.flight(1, "12:00:00")
         self.con.execute("UPDATE flights SET pic_user_id=2 WHERE id=1")
         self.con.execute("UPDATE users SET operator_id=2 WHERE id=2")  # the PIC flies for the partner
         self.assertEqual(self.operator_of(flight_id=1), ("Partner", "pic", False))
         self.con.execute("UPDATE places SET operator_id=3 WHERE id=1")
-        self.assertEqual(self.operator_of(flight_id=1), ("Test centre", "place", False))
+        self.con.execute("UPDATE projects SET operator_id=3 WHERE id=1")
+        self.assertEqual(self.operator_of(flight_id=1), ("Partner", "pic", False))
         self.con.execute("UPDATE places SET operator_id=NULL WHERE id=1")
+        self.con.execute("UPDATE projects SET operator_id=NULL WHERE id=1")
         self.con.execute("UPDATE flights SET operator_id=1 WHERE id=1")  # flown under our operation after all
         self.assertEqual(self.operator_of(flight_id=1), ("Our lab", "flight", True))
         self.con.commit()

@@ -378,19 +378,28 @@ async function reloadEntry() {
 }
 const options = (list, selected) => list.map(([value, label]) =>
   `<option value="${esc(value)}"${String(value) === String(selected ?? '') ? ' selected' : ''}>${esc(label)}</option>`).join('');
-let operators = null, authorisations = null, aircraftChoices = null, editStart = {}, editTags = null;
+let operators = null, authorisations = null, mayCategory = {}, aircraftChoices = null, editStart = {}, editTags = null;
 
 // The Edit flight dialog: only the fields the user may change, in a compact grid; Save sends what changed.
 async function openEdit(focus) {
   const e = D.entry, may = editable(e);
   if (may.aircraft) aircraftChoices ||= await fetch(`/api/flights/${flightId}/aircraft-choices`).then(r => r.ok ? r.json() : {drones: []}).then(d => d.drones);
   if (may.operator) operators ||= await fetch('/api/operators').then(r => r.json()).then(d => d.operators);
-  if (may.category) authorisations ||= await fetch('/api/authorisations').then(r => r.json()).then(d => d.authorisations);
+  if (may.category && !authorisations) ({authorisations, may_choose_categories: mayCategory = {}} = await fetch('/api/authorisations').then(r => r.json()));
   const set = logInfo[D.log_id]?.date_override || '';
   const crewNow = role => { const u = e[role + '_user']; return u && (u.source === 'edit' || u.source === 'alias') ? u.id : ''; };
   const crewLogged = role => { const u = e[role + '_user'];
     return e[role] ? `From the log: ${e[role]}` : u && !crewNow(role) ? `From the log: ${u.display_name} (uploader)` : 'From the log: none'; };
-  const operatorOptions = selected => options([['', 'From project / place / PIC / own'], ...operators.map(o => [o.id, operatorLabel(o)])], selected) + NEW_OPERATOR_OPTION;
+  // the default (empty) says what the flight gets without an exception; choices that need a qualification the editor
+  // lacks are disabled (the server also checks the PIC)
+  const operatorDefault = e.operator_source !== 'flight' && e.operator_name
+    ? `Default: ${operatorLabel({name: e.operator_name, registration: e.operator_registration})} (${OPERATOR_SOURCE[e.operator_source]})` : 'Default (slot, PIC, project, location, own)';
+  const categoryDefault = e.category_source !== 'flight' && e.category
+    ? `Default: ${categoryText(e)} (${CATEGORY_SOURCE[e.category_source]})` : 'Default (slot, project, location, OPEN)';
+  const operatorOptions = selected => options([['', operatorDefault]], selected) + operators.map(o => {
+    const blocked = o.may_choose === false && String(o.id) !== String(selected);
+    return `<option value="${o.id}"${String(o.id) === String(selected) ? ' selected' : ''}${blocked ? ' disabled' : ''}>${esc(operatorLabel(o))}${blocked ? ' (qualification needed)' : ''}</option>`;
+  }).join('') + NEW_OPERATOR_OPTION;
   const f = (key, label, control, wide) => may[key]
     ? `<label class="field${wide ? ' wide' : ''}">${label}${control}<span class="field-error" data-error="${key}"></span></label>` : '';
   const row = (...cells) => { const shown = cells.filter(Boolean); return shown.length ? `<div class="edit-row">${shown.join('')}</div>` : ''; };
@@ -416,7 +425,7 @@ async function openEdit(focus) {
       `<select name="${role}">${options([['', crewLogged(role)], ...people.map(p => [p.id, p.display_name])], editStart[role])}</select>`))),
     row(f('project', 'Project', `<select name="project">${options([['', 'No project'], ...projectList], editStart.project)}</select>`),
       f('operator', 'Operator', `<select name="operator">${may.operator ? operatorOptions(editStart.operator) : ''}</select>`),
-      f('category', 'Category', `<select name="category"><option value="">From project / place / date</option>${may.category ? categoryOptions(authorisations, editStart.category) : ''}</select>`)),
+      f('category', 'Category', `<select name="category"><option value="">${esc(categoryDefault)}</option>${may.category ? categoryOptions(authorisations, editStart.category, mayCategory) : ''}</select>`)),
     row(f('tags', 'Tags', '<div id="editTags"></div>', true)),
     row(f('special', LMRA_LABEL, `<textarea class="comment" name="special" maxlength="1000" rows="2" title="${esc(PREFLIGHT_SPECIAL_HELP)}" placeholder="Nothing special">${esc(editStart.special)}</textarea>`, true)),
     row(f('comment', 'Comment', `<textarea class="comment" name="comment" maxlength="4000" rows="3">${esc(editStart.comment)}</textarea>`, true)),

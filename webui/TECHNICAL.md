@@ -982,7 +982,7 @@ API key, and ends when the setting is switched off, the administrator loses admi
 longer sign in, or the administrator signs out.
 
 <a id="projects-page"></a>**Projects page** ([UI rule](#ui-rule)). Tabs Projects,
-Authorisations and Operators (`tab=`). **Projects** is a table like Aircraft: Project (a link to the project page),
+Categories and Operators (`tab=projects|authorisations|operators`). **Projects** is a table like Aircraft: Project (a link to the project page),
 Members (the first three, "+N", all on hover), Logs, Operator and Category of its flights (`GET /api/projects` returns
 `operator_id`, `category` and `authorisation_id` for this; admins read `/api/admin/projects`). Search, sort, page and
 rows per page (20 by default) are in the URL (`q`, `sort`, `page`, `size`). Admins, and managers for their projects, open a project
@@ -993,7 +993,8 @@ the members. Each member has one access select (See / See, upload / … edit / �
 (↺ undoes); a search adds an enabled, non-external person with See. Save sends one `PUT /api/projects/<id>/members` per
 changed member (`role: ""` removes). ⋯ (admins): **Delete project…** (logs stay). **Add project** and **Manage ▾**
 (Import CSV…, Download CSV template) are admins only; dialogs replace `confirm()`.
-**Authorisations** and **Operators** are read-only tables for everyone, without tick boxes. Admins click a row to
+**Categories** (the categories with who may choose each, then the authorisations) and **Operators** are read-only
+tables for everyone, without tick boxes; both show **Who may choose** ([rules](#who-may-choose-an-operator-or-category)). Admins click a row to
 change it in a dialog (nothing is sent when unchanged); **Delete…** at the end of that dialog asks for confirmation (the
 server refuses to delete one still in use and says where). **Add operator** is for everyone (only admins tick *Our own operator*), **Add
 authorisation** for admins. Under Operators, admins click an external person to set the operator they fly for
@@ -1749,7 +1750,11 @@ latest real flight as PIC, PAC or GCS in the logbook, else your default project,
 nothing stored); `POST /api/operations` (Plan flight: place, start, end, at most one day, and the team fields
 `projects` (one or more of your projects; table `operation_projects`), `pic_id` (default you), `crew`, `drones` (aircraft ids, at most 10; table
 `operation_drones`), `goal`, `notam: {checked,
-reference}`); `GET /api/operations/<booking id>` (the slot with its teams); `POST /api/operations/<id>/teams` (join
+reference}`, and optionally `operator_id`, `category`/`authorisation_id` for the team's flights: null = the default,
+which the form shows from the first project, else the location (see [Operator per flight](#operator-per-flight)); a new
+or changed choice must be one the booker and the PIC may make (`choices.py`, 403) and an authorisation must be valid on
+the slot's day (400)); `GET /api/operations/options` also returns the operator and category of your projects and of
+each location for that default; `GET /api/operations/<booking id>` (the slot with its teams); `POST /api/operations/<id>/teams` (join
 for the whole slot; one PIC may have several teams, for example for different projects or aircraft; a flight goes to
 the team whose aircraft flew it, else to the first team whose PIC or crew flew it); `PUT`/`DELETE /api/operations/teams/<id>` (edit or leave: the team's PIC, whoever
 added it, or an administrator; the slot is removed with its last team); `DELETE /api/operations/<id>` (cancel the slot with all its teams: administrators, approvers, or who planned or flies
@@ -2836,25 +2841,30 @@ or a foreign authority's operation. `operators.py` resolves the operator of ever
 
 1. set on the flight (`flights.operator_id`, kept across a re-parse like crew edits) or on the paper record
    (`flight_records.operator_id`); a paper record linked to logged flights also sets it for that entry;
-2. the project (`projects.operator_id`);
-3. the takeoff place (`places.operator_id`), for a site that runs its own operation;
-4. the operator the PIC flies for (`users.operator_id`, set for external crew);
-5. our own operator (`operators.own`, at most one); with no own operator set up, every flight counts as own.
+2. the planned slot: `operation_teams.operator_id` of the Plan flight team the flight matched (`operations.chosen`,
+   the same matching as the slot's flight list; with `LOGDB_OPERATIONS` on);
+3. the operator the PIC flies for (`users.operator_id`, set for external crew);
+4. the project (`projects.operator_id`);
+5. the takeoff place (`places.operator_id`), for a site that runs its own operation; it goes before the project when
+   the project names our own operator and the place another one;
+6. our own operator (`operators.own`, at most one); with no own operator set up, every flight counts as own.
 
-Only step 1 is stored per flight; the rest is resolved when the logbook is read. Existing flights therefore need
+Only step 1 is stored per flight; the rest is resolved when the logbook is read (the logbook cache therefore also
+follows writes to the slot tables). Existing flights therefore need
 no migration: mark our own operator, then set the operator of each external person (Projects → Operators →
 External crew, or **Edit account** of the person on People), and their flights follow.
 
 Logbook rows carry `operator_id`, `operator_name`, `operator_registration`, `operator_own` and
-`operator_source` (`flight`, `project`, `place`, `pic` or `default`). `operator_check` marks an entry on the
+`operator_source` (`flight`, `booking`, `pic`, `project`, `place` or `default`). `operator_check` marks an entry on the
 default whose PIC is external crew without an operator. The shared flight filters (`operator=all|own|other`) apply it to the Logbook,
 Statistics, Locations (`/api/places?operator=`) and overview pages.
 
-- `GET /api/operators`: the list (any signed-in user). `POST /api/operators`: anyone signed in adds the operator
+- `GET /api/operators`: the list (any signed-in user), each with `qualification_types` (who may choose it) and
+  `may_choose` (the signed-in person), plus the active `qualification_types` for the editor. `POST /api/operators`: anyone signed in adds the operator
   of a new partner (not our own); the Logbook bulk bar, the paper-record form and the People page offer
   **New operator…** for it. Admins: `POST /api/admin/operators`, `PUT`/`DELETE /api/admin/operators/<id>` (name,
   registration, country (an ISO code from `countries.py`, as for locations; older free text was converted to the
-  code it names, or cleared), own, note; a `PUT` keeps the fields it leaves out). An operator still used by flights,
+  code it names, or cleared), own, note, `qualification_types`; a `PUT` keeps the fields it leaves out). An operator still used by flights,
   paper records, projects, places or people cannot be deleted.
 - `PUT /api/admin/users/<id>/operator` sets the operator a person flies for; `POST /api/admin/people/external`
   takes an optional `operator_id`.
@@ -2875,24 +2885,29 @@ order:
 1. set on the flight (`flights.category`/`authorisation_id`, kept across a re-parse) or on the paper record; a
    paper record linked to logged flights also sets it for that entry;
 2. `indoor` for an indoor flight;
-3. the project (`projects.category`/`authorisation_id`);
-4. the takeoff place (`places.category`/`authorisation_id`), e.g. a site that needs an authorisation;
-5. the date: before 31 Dec 2020 every flight was under national rules. For our own operations (the resolved
-   operator is ours) with authorisations in the catalog, a national authorisation valid that day (the newest if
-   several) gives `national` with it, and a day without any valid authorisation of ours gives `open`; on a day with
-   a valid EU authorisation the flight could be OPEN or SPECIFIC, so it stays unknown.
+3. the planned slot (`operation_teams.category`/`authorisation_id` of the team the flight matched);
+4. the project (`projects.category`/`authorisation_id`);
+5. the takeoff place (`places.category`/`authorisation_id`), e.g. a site that needs an authorisation; it goes before
+   the project when the project says `open` and the place something else;
+6. old flights by date (`date`): before 31 Dec 2020 every flight was under national rules, and for our own
+   operations (the resolved operator is ours) a national authorisation valid that day (the newest if several) gives
+   `national` with it (so also in 2021 while a ROC was valid);
+7. otherwise `open` (`default`); only a flight without a known date stays unknown.
 
-Only step 1 is stored per flight. Logbook rows carry `category`, `category_label`, `category_source` (`flight`,
-`indoor`, `project`, `place`, `date` or null), `authorisation_id`, `authorisation_name` and `category_check`
+An authorisation from steps 3-5 only counts on the days it is valid; outside them the next step applies. Only step 1
+is stored per flight. Logbook rows carry `category`, `category_label`, `category_source` (`flight`, `indoor`,
+`booking`, `project`, `place`, `date`, `default` or null), `authorisation_id`, `authorisation_name` and `category_check`
 (own entries: SPECIFIC without an authorisation, or a date outside the authorisation's validity). The shared
 flight filters (`category=all|national|open|specific|luc|indoor|unknown|check`) apply it like the operator filter.
 
-- `GET /api/authorisations`: the catalog and category labels. Admins: `POST /api/admin/authorisations`,
+- `GET /api/authorisations`: the catalog and category labels; each authorisation with `qualification_types` and
+  `may_choose`, plus `category_rules` ({category: type ids}), `may_choose_categories`, `free_categories` and the
+  active `qualification_types`. `PUT /api/admin/categories/<key>` (admins) sets who may choose a category
+  (`{"qualification_types": [ids]}`; not for `open`). Admins: `POST /api/admin/authorisations`,
   `PUT`/`DELETE /api/admin/authorisations/<id>`; a `PUT` keeps the fields it leaves out and moves the category of
   everything that names it along; one still in use cannot be deleted.
 - An authorisation with `exemption: true` (such as a one-off BVLOS or Remote-ID exemption) only applies where it is
-  set on a flight, paper record, project or location. The date rule ignores it, both for the national default and
-  for deciding that a day had no valid authorisation of ours.
+  set on a flight, paper record, project, location or planned slot. The date rule ignores it.
 - `PUT /api/logbook/records`, `PUT /api/admin/projects/<id>`, `POST`/`PUT /api/admin/places` and the paper-record
   API take `category` and/or `authorisation_id`; both empty return to the default.
 - An administrator's API key may call `PUT /api/logbook/records` when the body only sets `operator_id`,
@@ -2900,6 +2915,19 @@ flight filters (`category=all|national|open|specific|luc|indoor|unknown|check`) 
   browser session.
 - Paper-record CSV: optional `category` (key or label) and `authorisation` (name) columns. Like the operator, they
   are not part of a record's fingerprint, and a CSV without them leaves existing records as they are.
+
+### Who may choose an operator or category
+
+`choices.py`, table `choice_qualifications (kind, ref, type_id)`: an operator, an authorisation or a category
+(`kind` `operator`, `authorisation`, `category`; `ref` the id or key) may list qualification types. Choosing it then
+needs a current approved qualification of one of them (`bookings.has_qualification`); nothing listed means everyone.
+An authorisation also needs the rule of its category. Our own operator, `open` and empty (the default) are free.
+Administrators may always choose; otherwise both the person who chooses and the flight's PIC (the team's PIC in Plan
+flight; for a logged flight the PIC set by hand, else the one matched from the log) need it (403 naming who lacks
+what). It is checked only for a new or changed value, so other edits of a flight with an earlier exception still
+save: in Plan flight (create, join, edit team), `PUT /api/logbook/records` (Edit flight) and the paper-record API.
+Admins set the rules on Directory → Projects: **Categories** (a table of the categories, then the authorisations) and
+**Operators**, column and dialog field **Who may choose**. Deleting an operator or authorisation removes its rules.
 
 <a id="ui-rule"></a>**UI rule: changes without an Edit mode.** Every page follows the same few patterns:
 1. The read view is the same for everyone; there is no global Edit mode.
@@ -2941,7 +2969,8 @@ again as before.
   per-browser column choice like the others), and then no selection bar appears. The **selection bar** at the
   bottom offers what applies to all ticked entries and disables the rest with the reason in its tooltip: Copy
   numbers (all have a flight number), MATLAB ▾ (all have a Paparazzi log), **Change…** (project, PIC, PAC, GCS,
-  operator, category; fields on Keep stay) and **Same flight** (shown to who may change entries; enabled when they
+  pre-flight inspection; fields on Keep stay; operator and category are set per flight in Edit flight, or by
+  project, location or planned slot) and **Same flight** (shown to who may change entries; enabled when they
   may change every ticked one), and **Hide** or **Restore** for admins.
 - <a id="logs-without-flights"></a>**Logs without flights** have their own flight filter: shown unless *Hide logs
   without flights* is ticked (state `nologs`; in the URL only as `nologs=0` when hidden, so older links keep showing

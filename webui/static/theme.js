@@ -99,16 +99,19 @@ window.preflightStatusOnly = function (entry) {
 
 // How an operator is shown everywhere, and where a logbook entry's operator comes from (operators.py).
 window.operatorLabel = o => o.name + (o.registration ? ` (${o.registration})` : '');
-window.OPERATOR_SOURCE = {flight: 'set on this flight', project: 'from the project', place: 'from the takeoff place', pic: 'the operator the PIC flies for', default: 'own operator (default)'};
+window.OPERATOR_SOURCE = {flight: 'set on this flight', booking: 'from the planned slot', pic: 'the operator the PIC flies for', project: 'from the project', place: 'from the takeoff place', default: 'own operator (default)'};
 // Operation category and authorisation (categories.py): one select whose values are "cat:<key>" or "auth:<id>".
-window.CATEGORY_SOURCE = {flight: 'set on this flight', indoor: 'indoor flight', project: 'from the project', place: 'from the takeoff place', date: 'from the date and our authorisations'};
+window.CATEGORY_SOURCE = {flight: 'set on this flight', indoor: 'indoor flight', booking: 'from the planned slot', project: 'from the project', place: 'from the takeoff place', date: 'national rules by date', default: 'OPEN (default)'};
 window.CATEGORY_LABELS = {national: 'National rules (ROC / ROC-light)', open: 'OPEN', specific: 'SPECIFIC', luc: 'LUC', indoor: 'Indoor'};
 window.authorisationLabel = a => a.name + (a.valid_from || a.valid_until ? ` (${a.valid_from || '…'} – ${a.valid_until || '…'})` : '');
-window.categoryOptions = function (authorisations, selected) {
-  const opt = (value, label) => `<option value="${value}"${value === selected ? ' selected' : ''}>${label}</option>`;
+// mayCategory (optional): {key: false} for categories this person may not choose (choices.py); an authorisation with
+// may_choose false is shown disabled too, unless it is the current value.
+window.categoryOptions = function (authorisations, selected, mayCategory = {}) {
+  const opt = (value, label, may = true) => `<option value="${value}"${value === selected ? ' selected' : ''}${may || value === selected ? '' : ' disabled'}>${label}${may ? '' : ' (qualification needed)'}</option>`;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
-  return Object.entries(window.CATEGORY_LABELS).map(([key, label]) => opt('cat:' + key, label)
-    + authorisations.filter(a => a.category === key).map(a => opt('auth:' + a.id, '&nbsp;&nbsp;' + esc(label + ' · ' + window.authorisationLabel(a)))).join('')).join('');
+  return Object.entries(window.CATEGORY_LABELS).map(([key, label]) => opt('cat:' + key, label, mayCategory[key] !== false)
+    + authorisations.filter(a => a.category === key).map(a => opt('auth:' + a.id, '&nbsp;&nbsp;' + esc(label + ' · ' + window.authorisationLabel(a)),
+      a.may_choose !== false && mayCategory[key] !== false)).join('')).join('');
 };
 window.categoryValue = o => o.authorisation_id ? 'auth:' + o.authorisation_id : o.category ? 'cat:' + o.category : '';
 window.categoryChoice = value => value.startsWith('auth:') ? {category: null, authorisation_id: +value.slice(5)}

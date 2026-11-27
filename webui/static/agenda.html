@@ -317,6 +317,8 @@
         <label class="field">PIC<select name="pic_id" onchange="prepare()"></select></label>
         <div class="field"><span class="mute" style="font-size:12px">Projects</span>
           <div class="op-chips" id="planProjects"></div></div>
+        <div class="two" id="planChoice"><label class="field" title="The operator registration its flights are flown under">Operator<select name="operator_id"></select></label>
+          <label class="field" title="The rules its flights are flown under; only what you and the PIC are qualified for">Category<select name="category"></select></label></div>
         <div class="field"><span class="mute" style="font-size:12px">Crew (optional)</span>
           <div class="op-chips" id="planCrew"></div></div>
         <div class="field"><span class="mute" style="font-size:12px">Aircraft (optional)</span>
@@ -961,8 +963,51 @@ function paintProjects() {
   $('planProjects').innerHTML = planProjects.map(id => `<span class="op-chip">${esc(name(id))}<button type="button" aria-label="Remove ${esc(name(id))}" onclick="planProjects = planProjects.filter(x => x !== ${id}); paintProjects()">✕</button></span>`).join('')
     + `<select aria-label="Add project" onchange="if (this.value) { planProjects.push(+this.value); paintProjects(); }"><option value="">Add a project…</option>${
       ops.projects.filter(x => !planProjects.includes(x.id)).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select>`;
+  paintChoice();
 }
 let planProjectNames = {};
+// Operator and category of the team's flights: empty = the default, from the first project, else the location (the one
+// that is not OPEN / not our own operator wins), else our own operator and OPEN. Choices that need a qualification
+// you lack are disabled; the server also checks the PIC.
+let planChoice = null;
+function planDefaults() {
+  const f = $('planForm'), slot = plan && plan.slot;
+  const project = ops.projects.find(x => x.id === planProjects[0]) || {name: planProjectNames[planProjects[0]]};
+  const place = (slot ? slot.geometry : ops.places.find(x => x.id === +f.place_id.value)) || {};
+  const day = (slot ? slot.start : f.start.value).slice(0, 10);
+  const own = planChoice.operators.find(o => o.own);
+  const opName = id => { const o = planChoice.operators.find(x => x.id === id); return o ? operatorLabel(o) : '?'; };
+  let operator = own ? `Default: ${operatorLabel(own)}` : 'Default: our own operator';
+  const pOp = project.operator_id, lOp = place.operator_id;
+  if (pOp && !(own && pOp === own.id && lOp && lOp !== own.id)) operator = `Default: ${opName(pOp)} (from ${project.name})`;
+  else if (lOp) operator = `Default: ${opName(lOp)} (from ${place.name})`;
+  const auth = id => planChoice.authorisations.find(a => a.id === id);
+  const valid = id => { const a = auth(id); return !a || ((a.valid_from || '') <= day && day <= (a.valid_until || '9999')); };
+  const text = o => (o.category === 'national' ? 'National rules' : CATEGORY_LABELS[o.category]) + (o.authorisation_id && auth(o.authorisation_id) ? ' · ' + auth(o.authorisation_id).name : '');
+  const pCat = project.category && valid(project.authorisation_id) ? project : null;
+  const lCat = place.category && valid(place.authorisation_id) ? place : null;
+  let category = 'Default: OPEN';
+  if (pCat && !(pCat.category === 'open' && lCat && lCat.category !== 'open')) category = `Default: ${text(pCat)} (from ${project.name})`;
+  else if (lCat) category = `Default: ${text(lCat)} (from ${place.name})`;
+  return {operator, category, day};
+}
+function paintChoice() {
+  if (!planChoice) return;
+  const f = $('planForm'), team = plan && plan.team;
+  const opValue = f.operator_id.dataset.ready ? f.operator_id.value : String(team && team.operator_id || '');
+  const catValue = f.category.dataset.ready ? f.category.value : team ? categoryValue(team) : '';
+  const d = planDefaults();
+  f.operator_id.innerHTML = `<option value="">${esc(d.operator)}</option>` + planChoice.operators.map(o => {
+    const blocked = o.may_choose === false && String(o.id) !== opValue;
+    return `<option value="${o.id}"${blocked ? ' disabled' : ''}>${esc(operatorLabel(o))}${blocked ? ' (qualification needed)' : ''}</option>`;
+  }).join('');
+  const usable = planChoice.authorisations.filter(a => 'auth:' + a.id === catValue
+    || ((a.valid_from || '') <= d.day && d.day <= (a.valid_until || '9999')));  // valid on the slot's day
+  f.category.innerHTML = `<option value="">${esc(d.category)}</option>` + categoryOptions(usable, catValue, planChoice.mayCategory);
+  f.operator_id.value = opValue;
+  f.category.value = catValue;
+  f.operator_id.dataset.ready = f.category.dataset.ready = '1';
+}
 function paintDrones() {
   const drone = id => ops.drones.find(x => x.id === id) || {name: planDroneNames[id] || '?'};
   const label = x => esc(x.name) + (x.status && x.status !== 'Ready' ? ' (' + esc(x.status) + ')' : '');
@@ -973,6 +1018,10 @@ function paintDrones() {
 // mode: plan (a new slot), join (a slot's teams + yours), edit (your team in a slot)
 async function openPlan(start, end, slot, team) {
   if (!ops) try { ops = await api('/api/operations/options'); } catch (e) { $('err').textContent = e.message; return; }
+  if (!planChoice) try {
+    const [o, a] = await Promise.all([api('/api/operators'), api('/api/authorisations')]);
+    planChoice = {operators: o.operators, authorisations: a.authorisations, mayCategory: a.may_choose_categories || {}};
+  } catch (e) { $('err').textContent = e.message; return; }
   if (!slot && !ops.places.length) {
     $('err').textContent = admin() ? 'No location can be booked yet: tick Bookable for outdoor operations on a location in Locations.'
       : 'No location can be booked for outdoor operations yet.';
@@ -1008,6 +1057,8 @@ async function openPlan(start, end, slot, team) {
     : ops.rule ? 'Weather, checks and the NOTAM check are saved with your booking.' : '';
   $('planJoinHint').hidden = true;
   $('planError').textContent = '';
+  delete f.operator_id.dataset.ready;
+  delete f.category.dataset.ready;
   paintCrew();
   paintProjects();
   paintDrones();
@@ -1050,6 +1101,7 @@ function prepare(now) {
       height_m: f.height_m.value ? +f.height_m.value : null, flight_area: planArea};
     if (!body.place_id || !body.start || !body.end) return;
     const place = slot ? slot.geometry : ops.places.find(x => x.id === body.place_id);
+    paintChoice();  // the location and the day decide the defaults and the valid authorisations
     if (planPlace && planPlace !== place.id) { planArea = body.flight_area = null; }  // another location: its own area
     planPlace = place.id;
     f.height_m.max = place.max_height_m || 1000;
@@ -1088,7 +1140,8 @@ $('planForm').onsubmit = async event => {
   const body = {projects: planProjects, pic_id: +f.pic_id.value, crew: planCrew,
     drones: planDrones, goal: f.goal.value,
     height_m: f.height_m.value ? +f.height_m.value : null, flight_area: planArea,
-    notam: {checked: f.notam_checked.checked, reference: f.notam_reference.value}};
+    notam: {checked: f.notam_checked.checked, reference: f.notam_reference.value},
+    operator_id: f.operator_id.value ? +f.operator_id.value : null, ...categoryChoice(f.category.value)};
   if (mode === 'plan') Object.assign(body, {place_id: +f.place_id.value, start: f.start.value, end: f.end.value});
   try {
     await api(mode === 'plan' ? '/api/operations' : mode === 'join' ? `/api/operations/${slot.id}/teams` : `/api/operations/teams/${team.id}`,
@@ -1111,7 +1164,7 @@ async function openSlot(id) {
       ${x.can_set ? ` <button type="button" class="sec" style="padding:1px 8px;font-size:12px" onclick="setBookingNumber()">${x.status === 'booked' ? 'Edit…' : 'Enter booking number…'}</button>` : ''}</dd>
     <dt>Requested</dt><dd>${esc(utc(x.requested_at))}, mailed to ${esc(x.mail_to)}${x.book_by ? ' · book by ' + esc(span(x.book_by, x.book_by).split('–')[0]) : ''}${x.reminded_at ? ' · reminder mailed ' + esc(utc(x.reminded_at)) : ''}</dd></dl>` : '';
   $('slotBody').innerHTML = extHTML + `<table class="op-teams"><tr><th>PIC</th><th>Project</th><th>Crew</th><th>Aircraft</th><th></th><th></th></tr>${slot.teams.map(t => `
-    <tr><td><strong>${esc(t.pic)}</strong>${t.goal ? `<div class="mute" style="font-size:12px">${esc(t.goal)}</div>` : ''}
+    <tr><td><strong>${esc(t.pic)}</strong>${t.goal ? `<div class="mute" style="font-size:12px">${esc(t.goal)}</div>` : ''}${t.choice ? `<div class="mute" style="font-size:12px" title="Operator and category chosen for its flights">${esc(t.choice)}</div>` : ''}
       <div class="op-flights">${t.flights.length ? 'Flights: ' + t.flights.map(f => `<a href="/flight/${f.flight_id}" title="${esc(flightTip(f))}">${esc(flightTime(f))}</a>${t.can_link ? `<button type="button" title="Not this team's flight" aria-label="Unlink flight ${f.flight_id}" onclick="linkFlight(${t.id}, ${f.flight_id}, 'unlink')">✕</button>` : ''}`).join(' ') : 'No flights linked yet'}</div></td><td>${esc(t.projects.map(p => p.name).join(', ') || '–')}</td>
       <td>${esc(t.crew.map(c => c.name).join(', ') || '–')}</td><td>${esc(t.drones.map(d => d.name).join(', ') || '–')}</td>
       <td><span class="op-st ${t.status}" title="${esc(t.review_note || '')}">${label[t.status]}</span></td>

@@ -99,6 +99,15 @@ CREATE TABLE IF NOT EXISTS authorisations (  -- ROCs, operational authorisations
     exemption INTEGER NOT NULL DEFAULT 0,  -- 1 = only applies where set, never as the date default
     created_at TEXT NOT NULL
 );
+-- Who may choose an operator, a category or an authorisation for a flight or a planned slot (choices.py): holders of a
+-- current qualification of a listed type; nothing listed = everyone. ref: the operator or authorisation id, or the
+-- category key.
+CREATE TABLE IF NOT EXISTS choice_qualifications (
+    kind TEXT NOT NULL CHECK(kind IN ('operator','authorisation','category')),
+    ref TEXT NOT NULL,
+    type_id INTEGER NOT NULL REFERENCES qualification_types(id) ON DELETE CASCADE,
+    PRIMARY KEY (kind, ref, type_id)
+);
 CREATE TABLE IF NOT EXISTS flight_links (     -- paper record <-> telemetry flight decisions (links.py)
     id INTEGER PRIMARY KEY,
     record_id INTEGER NOT NULL REFERENCES flight_records(id) ON DELETE CASCADE,
@@ -529,7 +538,10 @@ CREATE TABLE IF NOT EXISTS operation_teams (
     flight_area TEXT,                  -- planned flight area (flight geography), JSON [[lat,lon],...]
     buffer_m REAL,                     -- ground risk buffer width (m)
     buffer_method TEXT,                -- how buffer_m was set: '1:1' (= height)
-    buffer_inside INTEGER CHECK(buffer_inside IN (0,1))  -- the area with its buffer stays inside the location
+    buffer_inside INTEGER CHECK(buffer_inside IN (0,1)),  -- the area with its buffer stays inside the location
+    operator_id INTEGER REFERENCES operators(id),  -- chosen in Plan flight for its flights; NULL = from the PIC, project, location or own
+    category TEXT,                     -- chosen in Plan flight (categories.py); NULL = from the project, location or date
+    authorisation_id INTEGER REFERENCES authorisations(id)
 );
 CREATE INDEX IF NOT EXISTS ix_operation_teams ON operation_teams(booking_id);
 -- Flights linked to (or kept out of) a team by hand; others match automatically by place, time and people/aircraft.
@@ -1292,7 +1304,9 @@ def init(path):
             con.execute(f"ALTER TABLE operation_slots ADD COLUMN {column} {ddl}")
     ocols = {r[1] for r in con.execute("PRAGMA table_info(operation_teams)")}
     for column, ddl in (("height_m", "INTEGER"), ("flight_area", "TEXT"), ("buffer_m", "REAL"), ("buffer_method", "TEXT"),
-                        ("buffer_inside", "INTEGER CHECK(buffer_inside IN (0,1))")):
+                        ("buffer_inside", "INTEGER CHECK(buffer_inside IN (0,1))"),
+                        ("operator_id", "INTEGER REFERENCES operators(id)"), ("category", "TEXT"),
+                        ("authorisation_id", "INTEGER REFERENCES authorisations(id)")):
         if ocols and column not in ocols:
             con.execute(f"ALTER TABLE operation_teams ADD COLUMN {column} {ddl}")
     if "kind" not in {r[1] for r in con.execute("PRAGMA table_info(booking_things)")}:
@@ -1324,7 +1338,7 @@ LOGBOOK_UNRELATED = {
     "api_keys", "cli_logins", "drone_requests", "password_setup_tokens", "ingest", "bulk_reservations", "weather_cache",
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
     "training_progress", "training_briefers", "training_extensions", "booking_things", "booking_thing_rules",
-    "operation_slots", "operation_teams", "operation_crew", "operation_drones", "operation_projects", "operation_flight_links", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
+    "operation_projects", "booking_flags", "booking_flag_values", "calendar_tokens", "choice_qualifications",
     "welcome_message", "welcome_seen", "notices", "notice_roles", "notice_dismissals", "document_settings", "document_groups", "documents", "document_profile_roles", "document_qualification_types",
     "safety_settings", "safety_reports", "safety_emergency",
     "mail_outbox", "mail_prefs", "mail_sent_keys",

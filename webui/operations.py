@@ -24,11 +24,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from flask import abort, g, jsonify, request
 
 import bookings
+import categories
+import choices
 import db
 import ground_risk
 import home
 import links
 import mail
+import operators
 import weather
 from bookings import BookingError, person_name, utc_now, when
 from config import env, env_bool
@@ -174,7 +177,8 @@ def place_geometry(con, place_id):
     booking = dict(mode=r["booking_mode"], provider=r["booking_provider"], lead_hours=r["booking_lead_hours"],
                    mail_to=r["booking_mail_to"]) if r["booking_mode"] != "none" else None
     return dict(id=r["id"], name=r["name"], shape=json.loads(r["shape"]), max_height_m=r["max_height_m"],
-                flight_area=json.loads(r["flight_area"]) if r["flight_area"] else None, booking=booking)
+                flight_area=json.loads(r["flight_area"]) if r["flight_area"] else None, booking=booking,
+                operator_id=r["operator_id"], category=r["category"], authorisation_id=r["authorisation_id"])
 
 
 def parse_booking_settings(body, row):
@@ -518,6 +522,40 @@ def slot_flights(con, slot, rows):
     return by_team, other
 
 
+def chosen(con, rows):
+    """{flight id of a logbook entry: (operator id, category, authorisation id)} for the entries that belong to a team
+    (matched as in slot_flights) that chose an operator or category in Plan flight; for operators.apply and
+    categories.apply. Teams that chose nothing leave their flights to the next rule."""
+    if not enabled():
+        return {}
+    settings = {r["id"]: (r["operator_id"], r["category"], r["authorisation_id"]) for r in con.execute(
+        "SELECT id, operator_id, category, authorisation_id FROM operation_teams"
+        " WHERE status!='rejected' AND (operator_id IS NOT NULL OR category IS NOT NULL)")}
+    if not settings:
+        return {}
+    slots = con.execute(
+        f"SELECT DISTINCT b.id, b.starts_at, b.ends_at, s.place_id FROM operation_teams o JOIN bookings b ON b.id=o.booking_id"
+        f" JOIN operation_slots s ON s.booking_id=b.id WHERE b.status!='rejected'"
+        f" AND o.id IN ({','.join('?' * len(settings))})", tuple(settings)).fetchall()
+    decisions = flight_decisions(con)
+    telemetry = [e for e in rows if e.get("source_type") == "telemetry" and e.get("flight_id")]
+    out = {}
+    for slot in slots:
+        teams = slot_teams(con, slot["id"])
+        first, last = slot_window(slot["starts_at"], slot["ends_at"])
+        linked_here = {fid for fid, ds in decisions.items() for t, d in ds if d == "linked" and t in teams}
+        for e in telemetry:
+            ts = links._ts(e.get("takeoff_utc"))
+            here = slot["place_id"] in (e.get("takeoff_place_id"), e.get("landing_place_id")) and ts is not None \
+                and first <= ts <= last
+            if not here and not {src["flight_id"] for src in e["sources"]} & linked_here:
+                continue
+            tid, _ = assign(e, teams, decisions)
+            if tid in settings:
+                out[e["flight_id"]] = settings[tid]
+    return out
+
+
 def flight_operation(con, entry):
     """The outdoor operation a logbook entry belongs to, for the flight page: {booking_id, thing_id, place, start, end,
     team_id, pic, height_m, buffer_m, buffer_inside, automatic, map}; {missing: place, map} for a flight at a bookable
@@ -586,7 +624,7 @@ def register(app, connection, require_session, logbook=None):
         return bookings.can_approve(cid, thing, g.user)
 
     def projects_for(cid, user):
-        sql = "SELECT id, name FROM projects"
+        sql = "SELECT id, name, operator_id, category, authorisation_id FROM projects"
         if not user["is_admin"]:
             sql += " WHERE id IN (SELECT project_id FROM project_members WHERE user_id=?)"
         return [dict(r) for r in cid.execute(sql + " ORDER BY name COLLATE NOCASE", () if user["is_admin"] else (user["id"],))]
@@ -621,10 +659,36 @@ def register(app, connection, require_session, logbook=None):
             raise BookingError(f"Choose an active account as {label}.")
         return raw
 
-    def parse_team(cid, thing, body, start, place):
+    def parse_choice(cid, body, pic, day, row=None):
+        """(operator id, category, authorisation id) a team chose for its flights; None for each = the default (the
+        PIC's operator, project, location, our own operator, OPEN). A new or changed choice must be one the booker and
+        the PIC may make (choices.py), and an authorisation must be valid on the slot's day."""
+        operator_id = operators.parse_id(cid, body.get("operator_id"))
+        if operator_id is False:
+            raise BookingError("Choose an existing operator.")
+        try:
+            category, authorisation_id = categories.parse(cid, body)
+        except categories.CategoryError as exc:
+            raise BookingError(str(exc)) from None
+        choice = {}
+        if row is None or operator_id != row["operator_id"]:
+            choice["operator_id"] = operator_id
+        if row is None or (category, authorisation_id) != (row["category"], row["authorisation_id"]):
+            choice.update(category=category, authorisation_id=authorisation_id)
+            auth = cid.execute("SELECT name, valid_from, valid_until FROM authorisations WHERE id=?",
+                               (authorisation_id,)).fetchone() if authorisation_id else None
+            if auth and not (auth["valid_from"] or "") <= day <= (auth["valid_until"] or "9999"):
+                raise BookingError(f"{auth['name']} is not valid on {day}.")
+        try:
+            choices.check(cid, g.user, pic, **choice)
+        except choices.ChoiceError as exc:
+            raise BookingError(str(exc), exc.status) from None
+        return operator_id, category, authorisation_id
+
+    def parse_team(cid, thing, body, start, place, row=None):
         """(fields, crew ids, status) of a team from the form; checks who may book or join, and whether it waits for
         approval: the booker and the PIC each need a qualification of the rules (an administrator or approver
-        books for anyone, without approval)."""
+        books for anyone, without approval). row: the team being changed."""
         pic = active_person(cid, body.get("pic_id", g.user["id"]), "PIC")
         projects = body.get("projects")
         mine = {p["id"] for p in projects_for(cid, g.user)}
@@ -660,8 +724,10 @@ def register(app, connection, require_session, logbook=None):
                                    f"qualification: {names}.", 403)
         status = "approved" if decider or "approval" not in (mine, theirs) else "pending"
         height, area = parse_area_fields(body, place)
+        operator_id, category, authorisation_id = parse_choice(cid, body, pic, start[:10], row)
         return dict(pic_id=pic, projects=projects, drones=drones, goal=goal, height_m=height, flight_area=area,
-                    notam=dict(checked=bool(notam.get("checked")), reference=reference)), crew, status
+                    notam=dict(checked=bool(notam.get("checked")), reference=reference), operator_id=operator_id,
+                    category=category, authorisation_id=authorisation_id), crew, status
 
     def preparation(cid, thing, place_id, start, end, team, crew):
         return dict(prepared_at=utc_now(), weather=forecast(cid, place_id, start, end),
@@ -678,9 +744,11 @@ def register(app, connection, require_session, logbook=None):
     def insert_team(cid, booking_id, team, crew, status, prep):
         tid = cid.execute(
             "INSERT INTO operation_teams(booking_id,pic_id,goal,status,created_by,created_at,"
-            "preparation,height_m,flight_area,buffer_m,buffer_method,buffer_inside) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "preparation,height_m,flight_area,buffer_m,buffer_method,buffer_inside,operator_id,category,authorisation_id)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (booking_id, team["pic_id"], team["goal"], status, g.user["id"],
-             utc_now(), json.dumps(prep), *area_columns(prep))).lastrowid
+             utc_now(), json.dumps(prep), *area_columns(prep), team["operator_id"], team["category"],
+             team["authorisation_id"])).lastrowid
         cid.executemany("INSERT INTO operation_crew(team_id,user_id) VALUES (?,?)", [(tid, c) for c in crew])
         cid.executemany("INSERT INTO operation_drones(team_id,drone_id) VALUES (?,?)", [(tid, d) for d in team["drones"]])
         cid.executemany("INSERT INTO operation_projects(team_id,project_id) VALUES (?,?)", [(tid, p) for p in team["projects"]])
@@ -708,6 +776,19 @@ def register(app, connection, require_session, logbook=None):
                             f"{person_name(cid, g.user['id'])} joined your slot at {slot['place']} for {span}.",
                             f"/agenda?week={slot['starts_at'][:10]}")
 
+    def choice_label(cid, row):
+        """What a team chose for its flights, as text ("" when nothing: the defaults)."""
+        parts = []
+        if row["operator_id"] is not None:
+            o = cid.execute("SELECT name FROM operators WHERE id=?", (row["operator_id"],)).fetchone()
+            parts.append(o["name"] if o else "?")
+        if row["category"]:
+            a = cid.execute("SELECT name FROM authorisations WHERE id=?", (row["authorisation_id"],)).fetchone() \
+                if row["authorisation_id"] else None
+            parts.append(("National rules" if row["category"] == "national" else categories.CATEGORIES[row["category"]])
+                         + (" · " + a["name"] if a else ""))
+        return " · ".join(parts)
+
     def team_json(cid, row, thing, decide):
         prep = json.loads(row["preparation"] or "{}")
         mine = g.user["id"] in (row["created_by"], row["pic_id"])
@@ -716,7 +797,8 @@ def register(app, connection, require_session, logbook=None):
                     crew=crew_of(cid, row["id"]), status=row["status"], created_by=row["created_by"],
                     height_m=row["height_m"], own_area=bool((prep.get("area") or {}).get("own_area")),
                     creator=row["creator"], created_at=row["created_at"], review_note=row["review_note"],
-                    preparation=prep, can_edit=mine or bool(g.user["is_admin"]),
+                    preparation=prep, can_edit=mine or bool(g.user["is_admin"]), operator_id=row["operator_id"],
+                    category=row["category"], authorisation_id=row["authorisation_id"], choice=choice_label(cid, row),
                     can_decide=decide and row["status"] == "pending")
 
     def slot_json(cid, slot, thing, flights=False):
@@ -871,18 +953,19 @@ def register(app, connection, require_session, logbook=None):
             thing = operations_item(cid)
             row = own_team(cid, team_id)
             slot = slot_row(cid, row["booking_id"])
-            team, crew, status = parse_team(cid, thing, body, slot["starts_at"], place_geometry(cid, slot["place_id"]))
+            team, crew, status = parse_team(cid, thing, body, slot["starts_at"], place_geometry(cid, slot["place_id"]), row)
             if row["status"] == "approved" and team["pic_id"] == row["pic_id"]:
                 status = "approved"  # an approved team stays approved while its PIC is the same
             prep = preparation(cid, thing, slot["place_id"], slot["starts_at"], slot["ends_at"], team, crew)
             reset = status != row["status"]
             cid.execute("UPDATE operation_teams SET pic_id=?, project_id=NULL, drone_id=NULL, goal=?, status=?, preparation=?,"
-                        " height_m=?, flight_area=?, buffer_m=?, buffer_method=?, buffer_inside=?,"
+                        " height_m=?, flight_area=?, buffer_m=?, buffer_method=?, buffer_inside=?, operator_id=?, category=?,"
+                        " authorisation_id=?,"
                         " decided_by=CASE WHEN ? THEN NULL ELSE decided_by END,"
                         " decided_at=CASE WHEN ? THEN NULL ELSE decided_at END,"
                         " review_note=CASE WHEN ? THEN NULL ELSE review_note END WHERE id=?",
-                        (team["pic_id"], team["goal"], status, json.dumps(prep),
-                         *area_columns(prep), reset, reset, reset, team_id))
+                        (team["pic_id"], team["goal"], status, json.dumps(prep), *area_columns(prep),
+                         team["operator_id"], team["category"], team["authorisation_id"], reset, reset, reset, team_id))
             cid.execute("DELETE FROM operation_crew WHERE team_id=?", (team_id,))
             cid.executemany("INSERT INTO operation_crew(team_id,user_id) VALUES (?,?)", [(team_id, c) for c in crew])
             cid.execute("DELETE FROM operation_projects WHERE team_id=?", (team_id,))

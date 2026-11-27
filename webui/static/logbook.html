@@ -191,7 +191,7 @@
       <button type="button" id="selCopy">Copy numbers</button>
       <span id="selMatlab"></span>
       <button type="button" id="bulkTags" hidden onclick="openTags()" title="Add or remove tags of the ticked entries">Tags…</button>
-      <button type="button" id="bulkChange" hidden onclick="openBulk()" title="Project, crew, operator, category or pre-flight inspection of the ticked entries">Change…</button>
+      <button type="button" id="bulkChange" hidden onclick="openBulk()" title="Project, crew or pre-flight inspection of the ticked entries (operator and category: per flight in Edit flight, or by project)">Change…</button>
       <button type="button" id="sameFlightBtn" hidden onclick="sameFlight()" title="The ticked entries are recordings of one flight: logged flights, optionally with one paper record">Same flight</button>
       <button type="button" id="hideSelected" hidden onclick="setHidden(true)">Hide</button>
       <button type="button" id="restoreSelected" hidden onclick="setHidden(false)">Restore</button>
@@ -233,8 +233,6 @@
     <label class="field">PIC<select id="bulkPic"></select></label>
     <label class="field">PAC<select id="bulkPac"></select></label>
     <label class="field">GCS<select id="bulkGcs"></select></label>
-    <label class="field" title="The operator registration the flights were flown under">Operator<select id="bulkOperator" onchange="pickNewOperator(this, operators, fillBulkMenus, '__keep__')"></select></label>
-    <label class="field" title="The rules the flights were flown under: OPEN, SPECIFIC with its authorisation, national rules before 2021">Category<select id="bulkCategory"></select></label>
     <label class="field" title="Confirm that the pre-flight inspection was completed (saved with your name and the time), or take that back; a checklist in the log needs no confirmation">Pre-flight inspection<select id="bulkPreflight"><option value="__keep__">Keep</option><option value="1">Completed</option><option value="">Not recorded</option></select></label>
     <p class="dialog-error" id="bulkError" role="alert"></p>
     <div class="row"><button type="submit" class="primary">Apply</button> <button type="button" class="sec" onclick="$('bulkDialog').close()">Cancel</button></div>
@@ -258,7 +256,7 @@ const fmtDist = m => m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(m >= 100
 const fmtDate = t => (t || '').slice(0, 10);
 const fmtHm = t => (t || '').slice(11, 16);
 const fmtTime = t => (t || '').replace('T', ' ').slice(0, 19);
-let flights = [], page = 0, pageSize = 15, me = null, projects = [], people = [], operators = [], authorisations = [];
+let flights = [], page = 0, pageSize = 15, me = null, projects = [], people = [];
 const selected = new Set();
 const openGroups = new Set();
 const exportable = f => MatlabExport.available(f.sources);
@@ -298,11 +296,9 @@ earlyLogbook.catch(() => {});
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
   $('who').textContent = d.user.display_name + (d.user.is_admin ? ' (admin)' : '');
-  [projects, people, operators, authorisations] = await Promise.all([
+  [projects, people] = await Promise.all([
     fetch('/api/projects').then(r => r.json()),
     fetch('/api/people').then(r => r.json()),
-    fetch('/api/operators').then(r => r.json()).then(d => d.operators),
-    fetch('/api/authorisations').then(r => r.json()).then(d => d.authorisations),
   ]);
   fillBulkMenus();
   syncEditUi();
@@ -369,10 +365,6 @@ function fillBulkMenus() {
     $('bulkProject').innerHTML = '<option value="__keep__">Keep</option><option value="">No project</option>'
       + addable.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
   }
-  $('bulkOperator').innerHTML = '<option value="__keep__">Keep</option><option value="">From project / place / PIC / own</option>'
-    + operators.map(o => `<option value="${o.id}">${esc(operatorLabel(o))}</option>`).join('') + NEW_OPERATOR_OPTION;
-  $('bulkCategory').innerHTML = '<option value="__keep__">Keep</option><option value="">From project / place / date</option>'
-    + categoryOptions(authorisations, '__keep__');
 }
 // Operation category (#62): set on the flight is shown plainly, inferred is muted, (check) when it needs a look.
 // Only the category is shown; the authorisation and where the category came from are in the tooltip.
@@ -488,9 +480,9 @@ function openBulk() {
   const n = pickedFlights().length, logs = pickedLogs().length;
   $('bulkWhat').textContent = logMode() ? `${logs} ticked ${logs === 1 ? 'log' : 'logs'} without flights: only the project applies.`
     : `${n} ticked ${n === 1 ? 'entry' : 'entries'}; fields left on Keep stay as they are.`;
-  for (const id of ['bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory', 'bulkPreflight']) $(id).closest('label').style.display = logMode() ? 'none' : '';
+  for (const id of ['bulkPic', 'bulkPac', 'bulkGcs', 'bulkPreflight']) $(id).closest('label').style.display = logMode() ? 'none' : '';
   $('bulkError').textContent = '';
-  ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory', 'bulkPreflight'].forEach(id => { $(id).value = '__keep__'; });
+  ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs', 'bulkPreflight'].forEach(id => { $(id).value = '__keep__'; });
   $('bulkDialog').showModal();
 }
 async function applyBulk() {
@@ -509,16 +501,15 @@ async function applyBulk() {
   const ids = [...selected];
   if (!ids.length) { $('bulkError').textContent = 'Tick the flights you want to change.'; return; }
   const body = {};
-  [['bulkPic', 'pic_user_id'], ['bulkPac', 'pac_user_id'], ['bulkGcs', 'gcs_user_id'], ['bulkOperator', 'operator_id']].forEach(([id, key]) => {
+  [['bulkPic', 'pic_user_id'], ['bulkPac', 'pac_user_id'], ['bulkGcs', 'gcs_user_id']].forEach(([id, key]) => {
     const v = $(id).value;
     if (v !== '__keep__') body[key] = v ? +v : null;
   });
-  if ($('bulkCategory').value !== '__keep__') Object.assign(body, categoryChoice($('bulkCategory').value));
   if ($('bulkPreflight').value !== '__keep__') body.preflight = $('bulkPreflight').value === '1';
   const projectV = $('bulkProject').value;
   const changeProject = projectV !== '__keep__';
   if (!Object.keys(body).length && !changeProject) {
-    $('bulkError').textContent = 'Choose a project, PIC, PAC, GCS, operator, category or pre-flight inspection.';
+    $('bulkError').textContent = 'Choose a project, PIC, PAC, GCS or pre-flight inspection.';
     return;
   }
   if (changeProject) {
@@ -527,7 +518,7 @@ async function applyBulk() {
   if (!await updateRecords(ids, body, $('bulkError'))) return;
   $('bulkDialog').close();
   $('bulkMsg').textContent = 'Saved.';
-  ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory', 'bulkPreflight'].forEach(id => { $(id).value = '__keep__'; });
+  ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs', 'bulkPreflight'].forEach(id => { $(id).value = '__keep__'; });
   loadFlights();
 }
 // Tags… for the ticked entries (#368): the union of their tags; Apply adds the new ones to all and removes the ✕ ones

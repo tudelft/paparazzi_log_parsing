@@ -81,6 +81,10 @@
   .member-matches { margin-top:4px; display:flex; flex-wrap:wrap; gap:4px; }
   .member-matches button { font-size:12px; padding:2px 8px; }
   @media (max-width:600px) { .wide-only { display:none; } }
+  /* Who may choose (choices.py): qualification types as ticks in a small scrolling box */
+  .type-checks { display:flex; flex-wrap:wrap; gap:4px 12px; max-height:150px; overflow:auto; border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:13px; color:var(--txt); }
+  .type-checks label { display:inline-flex; gap:4px; align-items:center; white-space:nowrap; }
+  .type-checks .grp { flex-basis:100%; font-size:11px; color:var(--mute); text-transform:uppercase; letter-spacing:.04em; margin-top:2px; }
 </style>
 </head>
 <body>
@@ -129,12 +133,18 @@
     </div>
   </section>
 
+  <section class="card" id="categoriesCard">
+    <div class="toolbar"><h2>Categories</h2>
+      <span class="toolbar-end"><details><summary>Help</summary><p>Which value a flight gets, the first that applies: set on the flight (Edit flight), indoor, the planned slot (Plan flight in the Agenda), the project, the takeoff location, national rules for flights before 2021, else OPEN. When the project says OPEN and the location something else, the location's applies; an authorisation set on a slot, project or location only counts on the days it is valid. Who may choose: OPEN is for everyone; for the others (and for each authorisation and operator) administrators can list qualification types. Then only holders of a current qualification of one of them choose it, in Plan flight and in Edit flight, and the flight's PIC must hold it too. Nothing listed: everyone. Administrators click a row to change it.</p></details></span></div>
+    <div class="scroll"><table><colgroup><col style="width:34%"><col></colgroup><thead><tr><th>Category</th><th>Who may choose</th></tr></thead><tbody id="categoryRows"></tbody></table></div>
+  </section>
+
   <section class="card" id="authorisationsCard">
     <div class="toolbar"><h2>Authorisations</h2><span class="count" id="authorisationCount"></span>
       <label id="showExpiredLabel"><input type="checkbox" id="showExpired"> Show expired</label>
       <span class="toolbar-end">
         <button type="button" id="addAuthorisationButton" hidden onclick="openAuthorisation(null)">Add authorisation</button>
-        <details><summary>Help</summary><p>The rules each flight was flown under (its category): national rules (ROC / ROC-light) before EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. A flight's category is, in this order: set on the flight (Edit flight, or Change… in the logbook's selection bar), indoor, that of its project, that of its takeoff location, or the date. By date, flights before 31 Dec 2020 are under national rules; for our own operations, a national authorisation listed here that was valid that day gives national rules, a day without any valid authorisation of ours gives OPEN, and a day with an EU authorisation stays unknown (OPEN or SPECIFIC): set those on the project, the location or the flight. An exemption (such as a one-off BVLOS exemption) is left out of this date rule: it only applies where it is set. Leave the holder empty for our own authorisations. The logbook marks SPECIFIC flights without an authorisation, or outside its validity, with (check). Administrators click a row to change or delete it.</p></details></span></div>
+        <details><summary>Help</summary><p>The rules each flight was flown under (its category): national rules (ROC / ROC-light) before EU 2019/947, then OPEN, or SPECIFIC under an operational authorisation. A flight's category is, in this order: set on the flight (Edit flight), indoor, the planned slot, its project, its takeoff location, national rules by date, else OPEN. By date, flights before 31 Dec 2020 are under national rules, and for our own operations a national authorisation listed here that was valid that day gives national rules with it. Set SPECIFIC on the project, the location or the planned slot; an authorisation there only counts on the days it is valid. An exemption (such as a one-off BVLOS exemption) is left out of this date rule: it only applies where it is set. Leave the holder empty for our own authorisations. Who may choose: the qualification types needed to choose it (and those of its category); nothing listed: everyone. The logbook marks SPECIFIC flights without an authorisation, or outside its validity, with (check). Administrators click a row to change or delete it.</p></details></span></div>
     <div class="scroll"><table><colgroup id="authorisationCols"></colgroup><thead id="authorisationHead"></thead><tbody id="authorisationRows"></tbody></table></div>
   </section>
 
@@ -142,7 +152,7 @@
     <div class="toolbar"><h2>Operators</h2><span class="count" id="operatorCount"></span>
       <span class="toolbar-end">
         <button type="button" id="addOperatorButton" hidden onclick="openOperator(null)">Add operator</button>
-        <details><summary>Help</summary><p>The UAS operator registrations flights are flown under. A flight is under, in this order: the operator set on the flight, that of its project, that of its takeoff location, the operator its PIC flies for, or else our own operator. Nothing has to be filled in per flight: mark our own operator, then choose the operator of external crew below. Anyone can add the operator of a new partner (also from the logbook and the paper-record form); only administrators change, delete or mark our own (click a row). Use the flight filters for own operations only.</p></details></span></div>
+        <details><summary>Help</summary><p>The UAS operator registrations flights are flown under. A flight is under, in this order: the operator set on the flight, that of its planned slot, the operator its PIC flies for, that of its project, that of its takeoff location (before the project's when the project names our own operator), or else our own operator. Nothing has to be filled in per flight: mark our own operator, then choose the operator of external crew below. Anyone can add the operator of a new partner (also from Edit flight and the paper-record form); only administrators change, delete or mark our own (click a row), and list the qualification types needed to choose an operator (Who may choose; nothing listed: everyone). Use the flight filters for own operations only.</p></details></span></div>
     <div class="scroll"><table><colgroup id="operatorCols"></colgroup><thead id="operatorHead"></thead><tbody id="operatorRows"></tbody></table></div>
     <details id="crewOperators" hidden><summary>External crew <span class="mute" id="crewCount"></span></summary>
       <p class="mute">The operator each external person flies for. Their flights count under it unless the flight, project or location says otherwise; <span class="warn">(check)</span> in the logbook marks external crew without one. Click a person to set it.</p>
@@ -178,7 +188,7 @@ window.fetch = async (...args) => {
   if (r.status === 401) location.href = '/login';
   return r;
 };
-let projects = [], users = [], me = null, operators = [], authorisations = [], countries = [];
+let projects = [], users = [], me = null, operators = [], authorisations = [], countries = [], qualificationTypes = [], categoryRules = {};
 const isAdmin = () => !!me?.is_admin;
 // Project access, each level including the ones before it (role names as stored).
 const ACCESS = [['view', 'See'], ['add', 'See, upload'], ['edit', 'See, upload, edit'], ['full', 'See, upload, edit, delete'],
@@ -202,8 +212,8 @@ async function load() {
       projects = await read('/api/projects');
       users = projects.some(p => p.can_manage) ? (await read('/api/people')).map(u => ({...u, is_active: true})) : [];
     }
-    ({operators, countries = []} = await read('/api/operators'));
-    authorisations = (await read('/api/authorisations')).authorisations;
+    ({operators, countries = [], qualification_types: qualificationTypes = []} = await read('/api/operators'));
+    ({authorisations, category_rules: categoryRules = {}} = await read('/api/authorisations'));
     $('err').textContent = '';
     render();
   } catch (error) { $('err').textContent = `Could not load projects: ${error.message}`; }
@@ -221,9 +231,10 @@ async function call(method, url, body, out) {
 // ---- page tabs, kept in the URL with the rest of the view (Back returns to it) ----
 let tab = 'projects';
 function paintTabs() {
-  window.pageTabs($('pageTabs'), [['projects', 'Projects', projects.length], ['authorisations', 'Authorisations', authorisations.length],
+  window.pageTabs($('pageTabs'), [['projects', 'Projects', projects.length], ['authorisations', 'Categories', authorisations.length],
     ['operators', 'Operators', operators.length]], tab, key => { tab = key; window.viewState.save(true); paintTabs(); });
   for (const t of ['projects', 'authorisations', 'operators']) $(t + 'Card').hidden = t !== tab;
+  $('categoriesCard').hidden = tab !== 'authorisations';
 }
 
 // ---- Projects: a table; admins and the project's managers open a project beside it ----
@@ -247,6 +258,7 @@ function sortValue(p, key) {
 }
 function render() {
   paintTabs();
+  renderCategories();
   renderAuthorisations();
   renderOperators();
   const admin = isAdmin(), q = $('projectSearch').value.trim().toLocaleLowerCase();
@@ -280,7 +292,7 @@ function render() {
       return `<td title="${esc(names.join(', '))}">${names.length ? esc(names.slice(0, 3).join(', ')) + (names.length > 3 ? ` <span class="mute">+${names.length - 3}</span>` : '') : '<span class="mute">Nobody yet</span>'}</td>`; }
     if (c.key === 'logs') return `<td class="num">${p.log_count || '<span class="mute">0</span>'}</td>`;
     const v = c.key === 'operator' ? operatorText(p) : categoryLabel(p);
-    return `<td class="wide-only" title="${esc(v || (c.key === 'operator' ? 'Own operator, or the takeoff location\'s' : 'From the takeoff location or date'))}">${v ? esc(v) : none}</td>`;
+    return `<td class="wide-only" title="${esc(v || (c.key === 'operator' ? 'No preference: the location\'s, else our own' : 'No preference: the location\'s, else OPEN'))}">${v ? esc(v) : none}</td>`;
   };
   $('projectRows').innerHTML = sorted.slice(page * pageSize, (page + 1) * pageSize).map(p =>
     `<tr data-id="${p.id}"${open && open.id === p.id ? ' class="open" aria-selected="true"' : ''} title="${canOpen(p) ? 'Open ' + esc(p.name) + ' beside the list' : 'Project page of ' + esc(p.name)}">${cols.map(c => cell(c, p)).join('')}</tr>`).join('')
@@ -334,8 +346,8 @@ function renderPanel() {
   } else {
     $('projectContent').innerHTML = `<div class="kv">
       ${row('name', 'Name', esc(p.name))}
-      ${row('operator', 'Operator of its flights', esc(operatorText(p)) || '<span class="mute">Own operator, or the takeoff location\'s</span>')}
-      ${row('category', 'Category of its flights', esc(categoryLabel(p)) || '<span class="mute">From the takeoff location or date</span>')}
+      ${row('operator', 'Operator of its flights', esc(operatorText(p)) || '<span class="mute">No preference: the location\'s, else our own</span>')}
+      ${row('category', 'Category of its flights', esc(categoryLabel(p)) || '<span class="mute">No preference: the location\'s, else OPEN</span>')}
       ${plainRow('Logs', String(p.log_count || 0))}</div>`;
   }
 }
@@ -377,14 +389,14 @@ function openEditProject(focus) {
   if (!p) return;
   const admin = isAdmin();
   memberEdit = {project: p, rows: (p.members || []).map(m => ({user_id: m.user_id, name: m.display_name || m.username, role: m.role, was: m.role}))};
-  const operatorOptions = () => `<option value="">Own operator, or the takeoff location's</option>${operators.map(o =>
+  const operatorOptions = () => `<option value="">No preference: the location's, else our own</option>${operators.map(o =>
     `<option value="${o.id}"${o.id === p.operator_id ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('')}${NEW_OPERATOR_OPTION}`;
   const operatorSelect = `<select name="operator">${operatorOptions()}</select>`;
   editDialog(`Edit project ${p.name}`, admin ? '' : 'You manage this project: you change its members (only administrators appoint managers).', `
     ${admin ? `<div class="edit-grid two">
       ${field('name', 'Name', `<input name="name" required maxlength="80" value="${esc(p.name)}">`, true)}
       ${field('operator', 'Operator of its flights', operatorSelect)}
-      ${field('category', 'Category of its flights', `<select name="category"><option value="">From the takeoff location or date</option>${categoryOptions(authorisations, categoryValue(p))}</select>`)}
+      ${field('category', 'Category of its flights', `<select name="category"><option value="">No preference: the location's, else OPEN</option>${categoryOptions(authorisations, categoryValue(p))}</select>`)}
     </div>` : ''}
     <h4>Members</h4>
     <div class="member-rows" id="memberRows"></div>
@@ -520,6 +532,33 @@ document.addEventListener('keydown', e => {
 function openRows(body, open) {
   body.onclick = e => { const tr = e.target.closest('tr[data-id]'); if (tr && open && !e.target.closest('a, input, button')) open(+tr.dataset.id); };
 }
+// ---- Who may choose an operator, a category or an authorisation (choices.py): qualification types; none = everyone ----
+const typeName = id => (qualificationTypes.find(t => t.id === id) || {name: '?'}).name;
+const whoText = ids => ids && ids.length ? esc(ids.map(typeName).join(' or ')) : '<span class="mute">Everyone</span>';
+const sameTypes = (a, b) => [...(a || [])].sort().join() === [...(b || [])].sort().join();
+function typeChecks(selected = []) {
+  const box = c => `<label><input type="checkbox" name="qt" value="${c.id}"${selected.includes(c.id) ? ' checked' : ''}> ${esc(c.name)}</label>`;
+  const body = !qualificationTypes.some(t => (t.grp || '').trim()) ? qualificationTypes.map(box).join('')
+    : window.typeGroups(qualificationTypes).map(g => `<span class="grp">${esc(g.name)}</span>${g.types.map(box).join('')}`).join('');
+  return `<div class="field wide"><span>Who may choose it <span class="mute">(a current qualification of one of these; none ticked: everyone)</span></span>
+    <div class="type-checks">${body || '<span class="mute">No qualification types yet (People → Qualifications).</span>'}</div><span class="field-error" data-error="qualification_types"></span></div>`;
+}
+const checkedTypes = () => [...$('editFields').querySelectorAll('[name=qt]:checked')].map(x => +x.value);
+function renderCategories() {
+  const admin = isAdmin();
+  $('categoryRows').innerHTML = Object.entries(CATEGORY_LABELS).map(([key, label]) => key === 'open'
+    ? `<tr><td><span class="cat">${esc(label)}</span> <span class="mute">default</span></td><td class="mute">Everyone</td></tr>`
+    : `<tr${admin ? ` data-key="${key}" title="Click to change who may choose it"` : ''} style="${admin ? 'cursor:pointer' : ''}"><td><span class="cat">${esc(label)}</span></td><td>${whoText(categoryRules[key])}</td></tr>`).join('');
+  $('categoryRows').onclick = e => { const tr = e.target.closest('tr[data-key]'); if (tr && admin) openCategory(tr.dataset.key); };
+}
+function openCategory(key) {
+  editDialog(`Who may choose ${CATEGORY_LABELS[key]}`, 'In Plan flight and Edit flight (administrators always may). Each authorisation of this category also needs this.',
+    typeChecks(categoryRules[key] || []), async out => {
+      const types = checkedTypes();
+      if (sameTypes(types, categoryRules[key])) return 0;
+      return await call('PUT', `/api/admin/categories/${key}`, {qualification_types: types}, out('qualification_types')) ? 0 : 1;
+    });
+}
 const AUTH_CATEGORIES = ['national', 'specific', 'luc'];
 const today = () => new Date().toISOString().slice(0, 10);
 function renderAuthorisations() {
@@ -530,13 +569,13 @@ function renderAuthorisations() {
   $('addAuthorisationButton').hidden = !admin;
   $('authorisationCount').textContent = shown.length === authorisations.length ? String(authorisations.length) : `${shown.length} of ${authorisations.length}`;
   const used = a => {
-    const u = a.used || {}, parts = [[u.flights, 'flight'], [u.paper_records, 'paper record'], [u.projects, 'project'], [u.locations, 'location']]
+    const u = a.used || {}, parts = [[u.flights, 'flight'], [u.paper_records, 'paper record'], [u.projects, 'project'], [u.locations, 'location'], [u.planned_slots, 'planned slot']]
       .filter(([n]) => n).map(([n, w]) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`);
     return parts.join(' · ') || '—';
   };
-  $('authorisationCols').innerHTML = '<col style="width:30%"><col style="width:13%"><col style="width:18%"><col style="width:17%"><col class="wide-only" style="width:22%">';
-  $('authorisationHead').innerHTML = `<tr><th>Name / number</th><th>Category</th><th>Holder</th><th>Valid</th>`
-    + '<th class="wide-only" title="Where it is set by hand on flights, paper records, projects or locations; flights that get it by date are not counted">Used by</th></tr>';
+  $('authorisationCols').innerHTML = '<col style="width:24%"><col style="width:12%"><col style="width:14%"><col style="width:16%"><col style="width:16%"><col class="wide-only" style="width:18%">';
+  $('authorisationHead').innerHTML = `<tr><th>Name / number</th><th>Category</th><th>Holder</th><th>Valid</th><th title="The qualification types needed to choose it in Plan flight and Edit flight">Who may choose</th>`
+    + '<th class="wide-only" title="Where it is set by hand on flights, paper records, projects, locations or planned slots; flights that get it by date are not counted">Used by</th></tr>';
   $('authorisationRows').innerHTML = shown.map(a => {
     const name = a.link && /^https?:\/\//.test(a.link) ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.name)}</a>` : esc(a.name);
     const valid = a.valid_from || a.valid_until ? `${esc(a.valid_from || '…')} – ${a.valid_until ? esc(a.valid_until) : 'now'}` : '<span class="mute">Always</span>';
@@ -544,8 +583,9 @@ function renderAuthorisations() {
       <td title="${esc([a.name, a.note, a.link].filter(Boolean).join(' · '))}">${name}${a.exemption ? '<span class="tag exemption" title="Only applies where it is set; never by date">exemption</span>' : ''}</td>
       <td><span class="cat">${esc(CATEGORY_LABELS[a.category] || a.category)}</span></td>
       <td>${esc(operators.find(o => o.id === a.operator_id)?.name || 'Our own operator')}</td><td>${valid}</td>
+      <td title="${esc((a.qualification_types || []).map(typeName).join(' or ') || 'Everyone')}">${whoText(a.qualification_types)}</td>
       <td class="mute wide-only">${used(a)}</td></tr>`;
-  }).join('') || `<tr><td colspan="5" class="mute">${authorisations.length ? 'Only expired authorisations; tick Show expired.' : 'No authorisations yet.'}</td></tr>`;
+  }).join('') || `<tr><td colspan="6" class="mute">${authorisations.length ? 'Only expired authorisations; tick Show expired.' : 'No authorisations yet.'}</td></tr>`;
   openRows($('authorisationRows'), admin ? openAuthorisation : null);
 }
 function openAuthorisation(id) {
@@ -559,12 +599,15 @@ function openAuthorisation(id) {
     ${field('valid_until', 'Valid until', `<input type="date" name="valid_until" value="${esc(a.valid_until || '')}">`)}
     <label title="Only where it is set on a flight, project or location; never by date"><input type="checkbox" name="exemption"${a.exemption ? ' checked' : ''}> Exemption</label>
     ${field('link', 'Link', `<input name="link" maxlength="500" value="${esc(a.link || '')}">`, true)}
-    ${field('note', 'Note', `<input name="note" maxlength="400" value="${esc(a.note || '')}">`, true)}</div>`, async out => {
+    ${field('note', 'Note', `<input name="note" maxlength="400" value="${esc(a.note || '')}">`, true)}
+    ${typeChecks(a.qualification_types || [])}</div>`, async out => {
     const body = Object.fromEntries(['name', 'category', 'operator_id', 'valid_from', 'valid_until', 'link', 'note'].map(k => [k, val(k).value]));
     body.operator_id = body.operator_id ? +body.operator_id : null;
     body.exemption = val('exemption').checked;
+    body.qualification_types = checkedTypes();
     if (id && ['name', 'category', 'valid_from', 'valid_until', 'link', 'note'].every(k => (a[k] || '') === body[k])
-        && (a.operator_id ?? null) === body.operator_id && !!a.exemption === body.exemption) return 0;  // nothing changed
+        && (a.operator_id ?? null) === body.operator_id && !!a.exemption === body.exemption
+        && sameTypes(a.qualification_types, body.qualification_types)) return 0;  // nothing changed
     return await call(id ? 'PUT' : 'POST', id ? `/api/admin/authorisations/${id}` : '/api/admin/authorisations', body, out('name')) ? 0 : 1;
   }, null, id && (() => deleteItem('authorisation', a, `/api/admin/authorisations/${id}`)));
 }
@@ -575,13 +618,14 @@ function renderOperators() {
   const admin = isAdmin();
   $('addOperatorButton').hidden = !me;  // anyone adds a partner's operator; only admins change or mark our own
   $('operatorCount').textContent = String(operators.length);
-  $('operatorCols').innerHTML = '<col style="width:38%"><col style="width:24%"><col style="width:22%"><col style="width:16%">';
-  $('operatorHead').innerHTML = `<tr><th>Name</th><th>Registration number</th><th>Country</th><th>Own</th></tr>`;
+  $('operatorCols').innerHTML = '<col style="width:30%"><col style="width:20%"><col style="width:12%"><col style="width:14%"><col style="width:24%">';
+  $('operatorHead').innerHTML = `<tr><th>Name</th><th>Registration number</th><th>Country</th><th>Own</th><th title="The qualification types needed to choose it in Plan flight and Edit flight">Who may choose</th></tr>`;
   $('operatorRows').innerHTML = operators.map(o => `<tr${admin ? ` data-id="${o.id}" title="Click to change"` : ''}>
     <td title="${esc([o.name, o.note].filter(Boolean).join(' · '))}">${esc(o.name)}</td>
     <td class="mono" title="${esc(o.registration || '')}">${esc(o.registration || '')}</td><td title="${esc(countryName(o.country))}">${esc(o.country || '')}</td>
-    <td>${o.own ? '<span class="cat">Own operator</span>' : ''}</td></tr>`).join('')
-    || `<tr><td colspan="4" class="mute">No operators yet${admin ? '. Add our own operator registration first.' : '.'}</td></tr>`;
+    <td>${o.own ? '<span class="cat">Own operator</span>' : ''}</td>
+    <td title="${esc(o.own ? 'Everyone' : (o.qualification_types || []).map(typeName).join(' or ') || 'Everyone')}">${o.own ? '<span class="mute">Everyone</span>' : whoText(o.qualification_types)}</td></tr>`).join('')
+    || `<tr><td colspan="5" class="mute">No operators yet${admin ? '. Add our own operator registration first.' : '.'}</td></tr>`;
   openRows($('operatorRows'), admin ? openOperator : null);
   // external crew (admins): the operator each flies for, set through the selection bar
   const crew = users.filter(u => u.is_external && u.is_active);
@@ -603,10 +647,13 @@ function openOperator(id) {
     ${field('registration', 'Registration number', `<input name="registration" maxlength="40" value="${esc(o.registration || '')}">`)}
     ${field('country', 'Country', `<select name="country">${countryOptions(o.country || '')}</select>`)}
     ${admin ? `<label title="Our own registration: the default for every flight"><input type="checkbox" name="own"${o.own ? ' checked' : ''}> Our own operator</label>` : ''}
-    ${field('note', 'Note', `<input name="note" maxlength="400" placeholder="e.g. authorisation flown under" value="${esc(o.note || '')}">`, true)}</div>`, async out => {
+    ${field('note', 'Note', `<input name="note" maxlength="400" placeholder="e.g. authorisation flown under" value="${esc(o.note || '')}">`, true)}
+    ${admin && !o.own ? typeChecks(o.qualification_types || []) : ''}</div>`, async out => {
     const body = {name: val('name').value, registration: val('registration').value, country: val('country').value, note: val('note').value};
     if (admin) body.own = val('own').checked;
-    if (id && ['name', 'registration', 'country', 'note'].every(k => (o[k] || '') === body[k]) && !!o.own === body.own) return 0;
+    if (admin && !o.own) body.qualification_types = checkedTypes();
+    if (id && ['name', 'registration', 'country', 'note'].every(k => (o[k] || '') === body[k]) && !!o.own === body.own
+        && (!('qualification_types' in body) || sameTypes(o.qualification_types, body.qualification_types))) return 0;
     return await call(id ? 'PUT' : 'POST', id ? `/api/admin/operators/${id}` : '/api/operators', body, out('name')) ? 0 : 1;
   }, null, id && admin && (() => deleteItem('operator', o, `/api/admin/operators/${id}`)));
 }

@@ -6,19 +6,21 @@ pilot experience counts all of them.
 
 The operator of a logbook entry is, in this order:
 1. set on the flight or on the paper record ("flight");
-2. the operator of its project ("project");
-3. the operator of its takeoff place, e.g. a test centre that runs its own operation ("place");
-4. the operator its PIC flies for, e.g. crew of a partner ("pic");
-5. our own operator ("default").
-Only 1 is stored per flight; the others follow when a project, place or person changes, so existing flights need no
-migration: setting the operator of the external crew fills in their flights. When the PIC is external crew without
-an operator and nothing more specific applies, the entry is marked to be checked."""
+2. chosen for the planned slot (Plan flight) whose team the flight matched ("booking");
+3. the operator its PIC flies for, e.g. crew of a partner ("pic");
+4. the operator of its project ("project");
+5. the operator of its takeoff place, e.g. a test centre that runs its own operation ("place"); when the project
+   names our own operator and the place another one, the place goes first;
+6. our own operator ("default").
+Only 1 is stored per flight; the others follow when a slot, person, project or place changes, so existing flights
+need no migration: setting the operator of the external crew fills in their flights. When the PIC is external crew
+without an operator and nothing more specific applies, the entry is marked to be checked."""
 
 import sqlite3
 
 import countries
 
-SOURCES = ("flight", "project", "place", "pic", "default")
+SOURCES = ("flight", "booking", "pic", "project", "place", "default")
 
 
 class OperatorError(ValueError):
@@ -88,7 +90,8 @@ def usage(con, operator_id):
     """How many flights, paper records, projects, places and people name this operator."""
     return {label: con.execute(f"SELECT COUNT(*) FROM {table} WHERE operator_id=?", (operator_id,)).fetchone()[0]
             for label, table in (("flights", "flights"), ("paper records", "flight_records"),
-                                 ("projects", "projects"), ("places", "places"), ("people", "users"))}
+                                 ("projects", "projects"), ("places", "places"), ("people", "users"),
+                                 ("planned slots", "operation_teams"))}
 
 
 def parse_id(con, raw):
@@ -109,10 +112,20 @@ def lookup(rows, value):
     return found.pop() if len(found) == 1 else None
 
 
-def apply(con, rows, flight_operators):
+def preferred(project, place, own):
+    """The project and place candidates in the order they apply: the project first, unless it names our own operator
+    and the place another one, which then wins."""
+    if own and project[1] == own["id"] and place[1] is not None and place[1] != own["id"]:
+        return place, project
+    return project, place
+
+
+def apply(con, rows, flight_operators, booked=None):
     """Add operator_id, operator_name, operator_registration, operator_own, operator_source and operator_check to
     logbook rows. flight_operators maps flight ids to the operator set on that flight (recordings of one entry
-    are edited together); paper rows and the paper records folded into an entry carry their own."""
+    are edited together); paper rows and the paper records folded into an entry carry their own. booked maps the
+    flight id of an entry to what its planned slot chose (operations.chosen): (operator id, category, authorisation id)."""
+    booked = booked or {}
     operators = {o["id"]: o for o in catalog(con)}
     own = next((o for o in operators.values() if o["own"]), None)
     projects = {r[0]: r[1] for r in con.execute("SELECT id, operator_id FROM projects WHERE operator_id IS NOT NULL")}
@@ -127,9 +140,11 @@ def apply(con, rows, flight_operators):
             explicit = ([flight_operators.get(s["flight_id"]) for s in r["sources"]]
                         + [papers.get(p["id"]) for p in r.get("linked_records") or []])
         pic = (r.get("pic_user") or {}).get("id")
-        candidates = ([("flight", i) for i in explicit] + [("project", projects.get(r.get("project_id"))),
-                                                           ("place", places.get(r.get("takeoff_place_id"))),
-                                                           ("pic", crew.get(pic))])
+        candidates = ([("flight", i) for i in explicit] + [("booking", (booked.get(r.get("flight_id")) or (None,))[0]),
+                                                           ("pic", crew.get(pic)),
+                                                           *preferred(("project", projects.get(r.get("project_id"))),
+                                                                      ("place", places.get(r.get("takeoff_place_id"))),
+                                                                      own)])
         source, operator = next(((s, operators[i]) for s, i in candidates if i in operators), ("default", own))
         r["operator_id"] = operator["id"] if operator else None
         r["operator_name"] = operator["name"] if operator else None
