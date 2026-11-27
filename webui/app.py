@@ -7925,7 +7925,8 @@ def logs_without_flights():
             continue
         out.append({k: d.get(k) for k in (
             "id", "name", "log_type", "project_id", "project_name", "start_utc", "end_utc", "duration_s", "date_ok",
-            "date_override", "date_estimated", "uploaded_at", "uploaded_by_name", "aircraft_names", "has_log")}
+            "date_override", "date_estimated", "uploaded_at", "uploaded_by_name", "aircraft_names", "has_log",
+            "size_bytes", "outdated", "parser_version")}
             | {"can_edit_date": can_set_log_date(con, r), "can_edit_project": bool(g.user["is_admin"])})
     return jsonify(logs=out)
 

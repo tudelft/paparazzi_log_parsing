@@ -1267,7 +1267,8 @@ outdated); the **outdated** / **date unknown** badges filter the list (`/api/log
 log** (one dialog: the project for admins, `PUT /api/logs/<id>/project`; the calendar date for who may set it on a log
 without a confirmed date, `PUT /api/logs/<id>/date`; only changes are sent; a click on the Project or Calendar date row
 opens it there) and **⋯** (Re-parse for anyone who can see the log, Delete log… with `can_delete`). Admins have
-**Manage ▾** with Re-parse outdated…, Re-parse unknown dates… and Review date suggestions (when there are any).
+**Manage ▾** with Re-parse outdated…, Re-parse unknown dates… and Review date suggestions (when there are any). An opened log lists its settings changes collapsed (the
+count and how many in flight); opened, 50 rows and **Show all**.
 Confirmations and messages are small dialogs. The list polls `/api/logs` every 3 s while logs are queued, parsed or
 fingerprinted and every 30 s otherwise (not while the tab is hidden, a dialog is open or the pointer is on an opened
 log); a poll that finds the same rows leaves the table alone, and an opened log keeps its details until changed ones
