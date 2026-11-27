@@ -8195,14 +8195,10 @@ def list_logs():
         mine, mine_params = uploader_clause("l.")
         where += " AND " + mine
         params = (*params, *mine_params)
-    con = conn()
     if request.args.get("log", "").isdigit():  # /logs#log<id> opens that one log, wherever it is in the list
         where += " AND l.id=?"
         params = (*params, int(request.args["log"]))
-    elif request.args.get("mine") != "1":  # the Flight filters' tags (#396); not for your recent uploads
-        tag_sql, tag_params = tags.log_clause(con, *tags.filter_names(request.args))
-        where += " AND " + tag_sql
-        params = (*params, *tag_params)
+    con = conn()
     try:
         limit = min(max(int(request.args.get("limit", 100)), 1), 200)
     except (TypeError, ValueError):
@@ -8259,54 +8255,12 @@ def list_logs():
         (*params, limit, row_offset)).fetchall()
     logs = [{**log_dict(r), "row_type": "log", "can_delete": can_delete_log(con, r),
              "can_edit_date": can_edit_log_date(con, r)} for r in rows]
-    log_tags = tags.of_logs(con, [log["id"] for log in logs])
     for log in logs:
         log["kept_until"] = retention.while_kept(log_kept_until(con, log["id"])) if log["can_delete"] else None
-        log["tags"], log["tags_hidden"] = log_tags.get(log["id"], ([], []))
     if page is not None:
         by_id = {r["id"]: r for r in logs}
         logs = [by_id[r["id"]] if r["row_type"] == "log" else receipts[r["id"]] for r in page]
     return jsonify(logs=logs, total=total, limit=limit, offset=offset)
-
-
-@app.put("/api/logs/tags")
-def tag_logs():
-    """Add or remove tags of logs (#396): {log_ids, tags_add (names; new ones are created), tags_remove (ids)}. A log
-    keeps them as its upload tags (so flights a re-parse creates get them, and a log without flights is hidden by
-    them), and its flights get them as well. Who may edit a log or one of its flights (as for its date) tags it; only
-    the flights they may edit change. Also with a logs:edit API key."""
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify(error="Send a JSON object."), 400
-    log_ids = body.get("log_ids")
-    if (not isinstance(log_ids, list) or not 1 <= len(log_ids) <= 5000
-            or not all(type(i) is int and 1 <= i <= 2**63 - 1 for i in log_ids)):
-        return jsonify(error="Select between 1 and 5000 logs."), 400
-    con = conn()
-    try:
-        with db.write_lock, con:
-            con.execute("BEGIN IMMEDIATE")
-            add = tags.resolve(con, body.get("tags_add") or [], g.user["id"], now())
-            remove = tags.known_ids(con, body.get("tags_remove") or [])
-            if not add and not remove:
-                raise tags.TagError("Choose tags to add or remove.")
-            where, params = own_clause()
-            for log_id in dict.fromkeys(log_ids):
-                row = con.execute(f"SELECT * FROM logs WHERE id=? AND {where}", (log_id, *params)).fetchone()
-                if row is None:
-                    raise tags.TagError("No such log.", 404)
-                flights = [f for (f,) in con.execute(
-                    "SELECT f.id FROM flights f JOIN aircraft a ON a.id=f.aircraft_id WHERE a.log_id=?", (log_id,))
-                    if visible_editable_flight(con, f)[1] is None]
-                if not flights and not can_set_log_date(con, row):
-                    raise tags.TagError(f"You may not change log {log_id}.", 403)
-                current = set(tags.ids_of(row["upload_tags"]))
-                con.execute("UPDATE logs SET upload_tags=? WHERE id=?", (tags.dump((current | set(add)) - set(remove)), log_id))
-                for flight_id in flights:
-                    tags.change(con, "flights", flight_id, add=add, remove=remove)
-    except tags.TagError as exc:
-        return jsonify(error=str(exc)), exc.status
-    return jsonify(ok=True, updated=len(set(log_ids)))
 
 
 @app.get("/api/logbook/logs-without-flights")

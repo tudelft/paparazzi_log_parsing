@@ -3064,14 +3064,10 @@ keys); `PUT /api/logbook/records` takes `tags_add` (names) and `tags_remove` (id
 their number of entries; administrators rename or set `hidden` (`PUT /api/admin/tags/<id>`), merge
 (`POST /api/admin/tags/<id>/merge` `{"into": id}`) and delete (`DELETE`; removed from every entry). An entry with a
 hidden tag is left out of the shared filter (below), `/api/places` and the Home totals (`home.real_flight`) unless the
-filter asks for that tag with ✓. Logs (#396): a log's tags are its `logs.upload_tags` and its flights' tags
-(`tags.LOG_TAGS_SQL`). `GET /api/logs` takes the filter's `tags` and `not_tags` and applies the same rules in SQL
-(`tags.log_clause`; not for `?log=` or `mine=1`), and returns `tags` and `tags_hidden` per log, as do
-`/api/logbook/logs-without-flights` and the detail pages' logs, so Flight filters hide logs without flights by their
-tags (`flightFilters.logs`, the Logbook's no-flight rows). `PUT /api/logs/tags` `{log_ids, tags_add, tags_remove}`
-(also a `logs:edit` key) changes a log's upload tags and the tags of the flights the caller may edit; the Logs page
-ticks logs for it, and the Logbook's Tags… uses it for ticked logs without flights. Merging or deleting a tag also
-rewrites `logs.upload_tags`.
+filter asks for that tag with ✓. Logs without flights (#396): `/api/logbook/logs-without-flights` and the detail
+pages' logs carry `tags` and `tags_hidden` (`tags.of_logs`: `logs.upload_tags` and its flights' tags), so Flight
+filters hide them like flights (`flightFilters.logs`, the Logbook's no-flight rows). The Logs page lists every log.
+Merging or deleting a tag also rewrites `logs.upload_tags`.
 Tags at upload: `POST /api/upload` (also the bulk path) takes form fields `tags` (several, or comma-separated; new
 names create tags). They are kept on the `ingest` row (a zip passes them to the logs in it) and, once the log is
 stored or found to be a duplicate, added to `logs.upload_tags` and to the flights the log already has

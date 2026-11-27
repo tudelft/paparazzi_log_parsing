@@ -105,40 +105,9 @@ def apply(rows, source_tags, paper_tags, by_id):
         r["tags_hidden"] = sorted((name for name, hidden in known if hidden), key=str.casefold)
 
 
-# A log's tags (#396): the ones given with its uploads (logs.upload_tags) and those of its flights. SQL on a log `l`.
-LOG_TAGS_SQL = ("SELECT value FROM json_each(COALESCE(l.upload_tags, '[]')) UNION SELECT j.value FROM aircraft a"
-                " JOIN flights f ON f.aircraft_id=a.id JOIN json_each(COALESCE(f.tags, '[]')) j WHERE a.log_id=l.id")
-
-
-def filter_names(args):
-    """(only, out) tag names from the Flight filters' query (tags=, not_tags=; comma-separated)."""
-    split = lambda key: [t.strip() for t in (args.get(key) or "").split(",") if t.strip()]  # noqa: E731
-    return split("tags"), split("not_tags")
-
-
-def log_clause(con, only, out):
-    """SQL condition on logs `l` and its params: the Flight filters' tag rules for a log, as for a logbook entry
-    (theme.js includesTags): only logs with one of `only`, none with one of `out`, and none with a tag hidden by default
-    unless `only` asks for it."""
-    ids = {r["name"].casefold(): (r["id"], bool(r["hidden"])) for r in con.execute("SELECT id, name, hidden FROM tags")}
-    asked = {n.casefold() for n in only}
-    conds, params = [], []
-    if only:
-        want = [ids[n][0] for n in asked if n in ids]
-        if not want:
-            return "0=1", ()
-        conds.append(f"EXISTS (SELECT 1 FROM ({LOG_TAGS_SQL}) WHERE value IN ({','.join('?' * len(want))}))")
-        params += want
-    leave = {ids[n.casefold()][0] for n in out if n.casefold() in ids}
-    leave |= {i for name, (i, hidden) in ids.items() if hidden and name not in asked}
-    if leave:
-        conds.append(f"NOT EXISTS (SELECT 1 FROM ({LOG_TAGS_SQL}) WHERE value IN ({','.join('?' * len(leave))}))")
-        params += sorted(leave)
-    return (" AND ".join(conds) or "1=1"), tuple(params)
-
-
 def of_logs(con, log_ids):
-    """{log id: (tag names, names of those hidden by default)}, both sorted."""
+    """{log id: (tag names, names of those hidden by default)}, both sorted: the tags given with its uploads
+    (logs.upload_tags) and those of its flights (#396)."""
     if not log_ids:
         return {}
     by_id = names(con)

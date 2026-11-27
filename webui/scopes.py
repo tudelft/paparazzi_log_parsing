@@ -30,7 +30,7 @@ ENDPOINTS = {
                     "create_historical", "import_historical"},
     "logs:edit": {"set_log_project", "set_log_date", "accept_log_date_suggestion", "set_flight_project",
                   "set_flights_project", "set_flight_crew", "set_flights_crew", "set_flight_comment",
-                  "set_flight_preflight", "set_flight_tags", "tag_logs", "reparse", "accept_conflict"},
+                  "set_flight_preflight", "set_flight_tags", "reparse", "accept_conflict"},
     "documents:upload": {"add_document", "replace_document_file"},
     "documents:manage": {"edit_document", "delete_document", "add_group", "edit_group", "delete_group",
                          "save_intro"},
