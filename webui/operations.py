@@ -37,6 +37,7 @@ ITEM_NAME = "Outdoor operations"
 MAX_GOAL = 500
 MAX_REFERENCE = 200
 MAX_CREW = 10
+MAX_DRONES = 10
 MATCH_MARGIN = datetime.timedelta(minutes=30)  # flights this long before or after a slot still belong to it
 REMIND_BEFORE = datetime.timedelta(hours=12)  # a slot still not booked this long before its deadline: reminder
 BOOKING_TAGS = ("{place}", "{provider}", "{date}", "{start}", "{end}", "{book_by}", "{teams}", "{booker}",
@@ -126,7 +127,7 @@ def qualification_on(con, user_id, type_id, day):
     return (max(ended, key=lambda r: r["valid_until"]), False) if ended else (None, False)
 
 
-def checks(con, thing_id, day, pic_id, crew_ids, drone_id):
+def checks(con, thing_id, day, pic_id, crew_ids, drone_ids):
     """Red/green rows for a planned flight on `day`: the PIC and crew's qualifications of the rule types, and the
     aircraft's fleet status. [{who, what, ok, detail}]"""
     types = rules(con, thing_id)
@@ -146,7 +147,7 @@ def checks(con, thing_id, day, pic_id, crew_ids, drone_id):
         if uid == pic_id and types and not found:
             out.append(dict(who=name, what=" or ".join(t["name"] for t in types), ok=False,
                             detail=f"none valid on {day}"))
-    if drone_id:
+    for drone_id in drone_ids:
         d = con.execute("SELECT name, status FROM drones WHERE id=?", (drone_id,)).fetchone()
         if d:
             status = d["status"] or ""
@@ -213,10 +214,11 @@ def booking_mail(con, booking_id, event, was=None):
         " p.country,"
         " COALESCE(u.display_name,u.username) AS booker, u.email FROM bookings b JOIN operation_slots s ON s.booking_id=b.id"
         " JOIN places p ON p.id=s.place_id JOIN users u ON u.id=b.user_id WHERE b.id=?", (booking_id,)).fetchone()
-    teams = [f"{t['pic']} ({', '.join(x for x in (t['project'], t['drone']) if x) or 'no project'})" for t in con.execute(
-        "SELECT COALESCE(u.display_name,u.username) AS pic, pr.name AS project, d.name AS drone FROM operation_teams o"
-        " JOIN users u ON u.id=o.pic_id LEFT JOIN projects pr ON pr.id=o.project_id LEFT JOIN drones d ON d.id=o.drone_id"
-        " WHERE o.booking_id=? AND o.status='approved' ORDER BY o.id", (booking_id,))]
+    teams = [f"{t['pic']} ({', '.join(x for x in (t['project'], *(d['name'] for d in drones_of(con, t['id']))) if x) or 'no project'})"
+             for t in con.execute(
+                 "SELECT o.id, COALESCE(u.display_name,u.username) AS pic, pr.name AS project FROM operation_teams o"
+                 " JOIN users u ON u.id=o.pic_id LEFT JOIN projects pr ON pr.id=o.project_id"
+                 " WHERE o.booking_id=? AND o.status='approved' ORDER BY o.id", (booking_id,))]
     span = when(r["starts_at"], r["ends_at"])
     values = {"{place}": r["place"], "{provider}": r["booking_provider"] or "-", "{date}": r["starts_at"][:10],
               "{start}": r["starts_at"][11:], "{end}": r["ends_at"][11:],
@@ -330,9 +332,9 @@ def parse_area_fields(body, place):
 
 def team_rows(con, booking_id):
     return con.execute(
-        "SELECT o.*, COALESCE(u.display_name,u.username) AS pic, p.name AS project, d.name AS drone,"
+        "SELECT o.*, COALESCE(u.display_name,u.username) AS pic, p.name AS project,"
         " COALESCE(c.display_name,c.username) AS creator FROM operation_teams o JOIN users u ON u.id=o.pic_id"
-        " LEFT JOIN projects p ON p.id=o.project_id LEFT JOIN drones d ON d.id=o.drone_id"
+        " LEFT JOIN projects p ON p.id=o.project_id"
         " LEFT JOIN users c ON c.id=o.created_by WHERE o.booking_id=? ORDER BY o.id", (booking_id,)).fetchall()
 
 
@@ -340,6 +342,12 @@ def crew_of(con, team_id):
     return [dict(id=r[0], name=r[1]) for r in con.execute(
         "SELECT u.id, COALESCE(u.display_name,u.username) FROM operation_crew c JOIN users u ON u.id=c.user_id"
         " WHERE c.team_id=? ORDER BY 2", (team_id,))]
+
+
+def drones_of(con, team_id):
+    return [dict(id=r[0], name=r[1]) for r in con.execute(
+        "SELECT d.id, d.name FROM operation_drones o JOIN drones d ON d.id=o.drone_id WHERE o.team_id=?"
+        " ORDER BY d.name COLLATE NOCASE", (team_id,))]
 
 
 def summaries(con, booking_ids):
@@ -427,9 +435,9 @@ def flight_decisions(con):
 
 
 def slot_teams(con, booking_id):
-    """{team id: (people: PIC and crew, aircraft id)} of a slot's teams that were not rejected."""
-    return {t["id"]: ({t["pic_id"], *(c["id"] for c in crew_of(con, t["id"]))}, t["drone_id"])
-            for t in con.execute("SELECT id, pic_id, drone_id FROM operation_teams WHERE booking_id=? AND status!='rejected'"
+    """{team id: (people: PIC and crew, aircraft ids)} of a slot's teams that were not rejected."""
+    return {t["id"]: ({t["pic_id"], *(c["id"] for c in crew_of(con, t["id"]))}, {d["id"] for d in drones_of(con, t["id"])})
+            for t in con.execute("SELECT id, pic_id FROM operation_teams WHERE booking_id=? AND status!='rejected'"
                                  " ORDER BY id", (booking_id,))}
 
 
@@ -461,8 +469,8 @@ def assign(entry, teams, decisions):
         return next((t for t in linked if t in teams), None), False
     kept_out = {t for t, d in mine if d == "unlinked"}
     people, drone = flight_people(entry), entry.get("drone_id")
-    for tid, (team_people, team_drone) in teams.items():
-        if tid not in kept_out and (people & team_people or (drone and drone == team_drone)):
+    for tid, (team_people, team_drones) in teams.items():
+        if tid not in kept_out and (people & team_people or (drone and drone in team_drones)):
             return tid, True
     return None, True
 
@@ -605,9 +613,11 @@ def register(app, connection, require_session, logbook=None):
         project = body.get("project_id")
         if type(project) is not int or project not in {p["id"] for p in projects_for(cid, g.user)}:
             raise BookingError("Choose one of your projects.")
-        drone = body.get("drone_id")
-        if drone is not None and (type(drone) is not int
-                                  or not cid.execute("SELECT 1 FROM drones WHERE id=?", (drone,)).fetchone()):
+        drones = body.get("drones", [])
+        if not isinstance(drones, list) or len(drones) > MAX_DRONES or any(type(d) is not int for d in drones):
+            raise BookingError(f"drones must be a list of at most {MAX_DRONES} aircraft ids.")
+        drones = list(dict.fromkeys(drones))
+        if any(not cid.execute("SELECT 1 FROM drones WHERE id=?", (d,)).fetchone() for d in drones):
             raise BookingError("No such aircraft.")
         crew = body.get("crew", [])
         if not isinstance(crew, list) or len(crew) > MAX_CREW or any(type(c) is not int for c in crew):
@@ -632,13 +642,13 @@ def register(app, connection, require_session, logbook=None):
                                    f"qualification: {names}.", 403)
         status = "approved" if decider or "approval" not in (mine, theirs) else "pending"
         height, area = parse_area_fields(body, place)
-        return dict(pic_id=pic, project_id=project, drone_id=drone, goal=goal, height_m=height, flight_area=area,
+        return dict(pic_id=pic, project_id=project, drones=drones, goal=goal, height_m=height, flight_area=area,
                     notam=dict(checked=bool(notam.get("checked")), reference=reference)), crew, status
 
     def preparation(cid, thing, place_id, start, end, team, crew):
         return dict(prepared_at=utc_now(), weather=forecast(cid, place_id, start, end),
                     area=area_plan(place_geometry(cid, place_id), team["height_m"], team["flight_area"]),
-                    checks=checks(cid, thing["id"], start[:10], team["pic_id"], crew, team["drone_id"]),
+                    checks=checks(cid, thing["id"], start[:10], team["pic_id"], crew, team["drones"]),
                     notam=team["notam"], notam_url=env("NOTAM_URL") or None)
 
     def area_columns(prep):
@@ -649,11 +659,12 @@ def register(app, connection, require_session, logbook=None):
 
     def insert_team(cid, booking_id, team, crew, status, prep):
         tid = cid.execute(
-            "INSERT INTO operation_teams(booking_id,pic_id,project_id,drone_id,goal,status,created_by,created_at,"
-            "preparation,height_m,flight_area,buffer_m,buffer_method,buffer_inside) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (booking_id, team["pic_id"], team["project_id"], team["drone_id"], team["goal"], status, g.user["id"],
+            "INSERT INTO operation_teams(booking_id,pic_id,project_id,goal,status,created_by,created_at,"
+            "preparation,height_m,flight_area,buffer_m,buffer_method,buffer_inside) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (booking_id, team["pic_id"], team["project_id"], team["goal"], status, g.user["id"],
              utc_now(), json.dumps(prep), *area_columns(prep))).lastrowid
         cid.executemany("INSERT INTO operation_crew(team_id,user_id) VALUES (?,?)", [(tid, c) for c in crew])
+        cid.executemany("INSERT INTO operation_drones(team_id,drone_id) VALUES (?,?)", [(tid, d) for d in team["drones"]])
         return tid
 
     def mail_waiting(cid, thing, slot, team_id, pic_id):
@@ -682,7 +693,7 @@ def register(app, connection, require_session, logbook=None):
         prep = json.loads(row["preparation"] or "{}")
         mine = g.user["id"] in (row["created_by"], row["pic_id"])
         return dict(id=row["id"], pic_id=row["pic_id"], pic=row["pic"], project_id=row["project_id"],
-                    project=row["project"], drone_id=row["drone_id"], drone=row["drone"], goal=row["goal"],
+                    project=row["project"], drones=drones_of(cid, row["id"]), goal=row["goal"],
                     crew=crew_of(cid, row["id"]), status=row["status"], created_by=row["created_by"],
                     height_m=row["height_m"], own_area=bool((prep.get("area") or {}).get("own_area")),
                     creator=row["creator"], created_at=row["created_at"], review_note=row["review_note"],
@@ -750,7 +761,9 @@ def register(app, connection, require_session, logbook=None):
         crew = body.get("crew", [])
         if not isinstance(crew, list) or any(type(c) is not int for c in crew):
             raise BookingError("crew must be a list of account ids.")
-        drone = body.get("drone_id") if type(body.get("drone_id")) is int else None
+        drones = body.get("drones", [])
+        if not isinstance(drones, list) or any(type(d) is not int for d in drones):
+            raise BookingError("drones must be a list of aircraft ids.")
         geometry = place_geometry(cid, place["id"])
         height, area = parse_area_fields(body, geometry)
         overlapping = [dict(id=r["id"], start=r["starts_at"], end=r["ends_at"], person=r["person"])
@@ -760,12 +773,12 @@ def register(app, connection, require_session, logbook=None):
                            " WHERE s.place_id=? AND b.starts_at<? AND b.ends_at>? AND b.status!='rejected'"
                            " AND b.id IS NOT ? ORDER BY b.starts_at", (place["id"], end, start, body.get("ignore_id")))]
         return jsonify(weather=forecast(cid, place["id"], start, end), area=area_plan(geometry, height, area),
-                       checks=checks(cid, thing["id"], start[:10], pic, [c for c in crew if c != pic], drone),
+                       checks=checks(cid, thing["id"], start[:10], pic, [c for c in crew if c != pic], list(dict.fromkeys(drones))),
                        slots=overlapping, notam_url=env("NOTAM_URL") or None)
 
     @app.post("/api/operations")
     def plan_flight():
-        """A new slot with the booker's team: {place_id, start, end, project_id, pic_id, crew, drone_id, goal,
+        """A new slot with the booker's team: {place_id, start, end, project_id, pic_id, crew, drones, goal,
         notam: {checked, reference}}."""
         signed_in()
         cid = connection()
@@ -845,15 +858,18 @@ def register(app, connection, require_session, logbook=None):
                 status = "approved"  # an approved team stays approved while its PIC is the same
             prep = preparation(cid, thing, slot["place_id"], slot["starts_at"], slot["ends_at"], team, crew)
             reset = status != row["status"]
-            cid.execute("UPDATE operation_teams SET pic_id=?, project_id=?, drone_id=?, goal=?, status=?, preparation=?,"
+            cid.execute("UPDATE operation_teams SET pic_id=?, project_id=?, drone_id=NULL, goal=?, status=?, preparation=?,"
                         " height_m=?, flight_area=?, buffer_m=?, buffer_method=?, buffer_inside=?,"
                         " decided_by=CASE WHEN ? THEN NULL ELSE decided_by END,"
                         " decided_at=CASE WHEN ? THEN NULL ELSE decided_at END,"
                         " review_note=CASE WHEN ? THEN NULL ELSE review_note END WHERE id=?",
-                        (team["pic_id"], team["project_id"], team["drone_id"], team["goal"], status, json.dumps(prep),
+                        (team["pic_id"], team["project_id"], team["goal"], status, json.dumps(prep),
                          *area_columns(prep), reset, reset, reset, team_id))
             cid.execute("DELETE FROM operation_crew WHERE team_id=?", (team_id,))
             cid.executemany("INSERT INTO operation_crew(team_id,user_id) VALUES (?,?)", [(team_id, c) for c in crew])
+            cid.execute("DELETE FROM operation_drones WHERE team_id=?", (team_id,))
+            cid.executemany("INSERT INTO operation_drones(team_id,drone_id) VALUES (?,?)",
+                            [(team_id, d) for d in team["drones"]])
             sync_slot(cid, slot["id"])
             if status == "pending" and row["status"] != "pending":
                 mail_waiting(cid, thing, slot, team_id, team["pic_id"])
@@ -1006,14 +1022,14 @@ def register(app, connection, require_session, logbook=None):
         out = []
         for r in cid.execute(
                 "SELECT o.*, b.starts_at, b.ends_at, p.name AS place, COALESCE(u.display_name,u.username) AS person,"
-                " pr.name AS project, d.name AS drone FROM operation_teams o JOIN bookings b ON b.id=o.booking_id"
+                " pr.name AS project FROM operation_teams o JOIN bookings b ON b.id=o.booking_id"
                 " JOIN operation_slots s ON s.booking_id=b.id JOIN places p ON p.id=s.place_id"
                 " JOIN users u ON u.id=o.pic_id LEFT JOIN projects pr ON pr.id=o.project_id"
-                " LEFT JOIN drones d ON d.id=o.drone_id WHERE o.status='pending' ORDER BY o.created_at, o.id"):
+                " WHERE o.status='pending' ORDER BY o.created_at, o.id"):
             prep = json.loads(r["preparation"] or "{}")
             out.append(dict(id=r["id"], booking_id=r["booking_id"], user_id=r["pic_id"], person=r["person"],
                             place=r["place"], start=r["starts_at"], end=r["ends_at"], project=r["project"],
-                            drone=r["drone"], goal=r["goal"], crew=[c["name"] for c in crew_of(cid, r["id"])],
+                            drones=[d["name"] for d in drones_of(cid, r["id"])], goal=r["goal"], crew=[c["name"] for c in crew_of(cid, r["id"])],
                             checks=prep.get("checks") or [], notam=prep.get("notam") or {},
                             area={k: (prep.get("area") or {}).get(k) for k in ("height_m", "buffer_m", "method", "inside", "own_area")},
                             submitted_at=r["created_at"]))

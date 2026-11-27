@@ -1158,7 +1158,7 @@ function aqPanel(s) {
     dd('When', esc(aqSpan(s)));
     dd('Project', esc(s.project));
     dd('Crew', esc(s.crew.join(', ')));
-    dd('Aircraft', esc(s.drone));
+    dd('Aircraft', esc((s.drones || []).join(', ')));
     dd('Goal', esc(s.goal));
     dd('Checks', (s.checks || []).map(c => `${c.ok ? '✓' : '<span class="aq-warn">!</span>'} ${esc(c.who)}: ${esc(c.what)} <span class="mute">${esc(c.detail)}</span>`).join('<br>') || '<span class="mute">None</span>');
     dd('NOTAMs', s.notam && s.notam.checked ? 'Checked' + (s.notam.reference ? ' · ' + esc(s.notam.reference) : '') : '<span class="aq-warn">Not checked</span>');

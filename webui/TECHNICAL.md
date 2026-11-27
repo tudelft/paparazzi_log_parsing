@@ -1745,9 +1745,10 @@ endpoints refuse the item (409; administrators may still delete a slot). Slots m
 API (browser session): `GET /api/operations/options` (bookable places, your projects, people, aircraft not
 discarded, your `rule`: `direct`, `approval` or null, `notam_url`, and `last_project_id`: the project of your
 latest real flight as PIC, PAC or GCS in the logbook, else your default project, if it is one of yours, else null); `POST /api/operations/prepare` (`place_id`,
-`start`, `end`, `pic_id`, `crew`, `drone_id`: the forecast, the checks and the overlapping slots at that place,
+`start`, `end`, `pic_id`, `crew`, `drones`: the forecast, the checks and the overlapping slots at that place,
 nothing stored); `POST /api/operations` (Plan flight: place, start, end, at most one day, and the team fields
-`project_id` (one of your projects), `pic_id` (default you), `crew`, `drone_id`, `goal`, `notam: {checked,
+`project_id` (one of your projects), `pic_id` (default you), `crew`, `drones` (aircraft ids, at most 10; table
+`operation_drones`), `goal`, `notam: {checked,
 reference}`); `GET /api/operations/<booking id>` (the slot with its teams); `POST /api/operations/<id>/teams` (join
 for the whole slot; one team per PIC); `PUT`/`DELETE /api/operations/teams/<id>` (edit or leave: the team's PIC, whoever
 added it, or an administrator; the slot is removed with its last team); `PUT /api/operations/<id>` (change the time:

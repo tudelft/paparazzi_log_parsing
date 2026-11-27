@@ -551,6 +551,11 @@ CREATE TABLE IF NOT EXISTS operation_crew (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (team_id, user_id)
 );
+CREATE TABLE IF NOT EXISTS operation_drones (  -- the aircraft a team flies (operation_teams.drone_id is no longer used)
+    team_id INTEGER NOT NULL REFERENCES operation_teams(id) ON DELETE CASCADE,
+    drone_id INTEGER NOT NULL REFERENCES drones(id) ON DELETE CASCADE,
+    PRIMARY KEY (team_id, drone_id)
+);
 CREATE TABLE IF NOT EXISTS booking_approvers (  -- besides administrators: who approves bookings of an item
     thing_id INTEGER NOT NULL REFERENCES booking_things(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -928,6 +933,8 @@ def user_by_name(con, name):
 
 # A log without a project takes the project of its flights when they are all in one project (flights without a
 # project do not count), as the automatic assignment does (app.assign_log_flights). Append " AND id=?" for one log.
+OPERATION_DRONES_FROM_TEAMS = ("INSERT OR IGNORE INTO operation_drones(team_id, drone_id)"
+                               " SELECT o.id, o.drone_id FROM operation_teams o JOIN drones d ON d.id=o.drone_id")
 LOG_PROJECT_FROM_FLIGHTS = (
     "UPDATE logs SET project_id=(SELECT MIN(f.project_id) FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
     " WHERE a.log_id=logs.id) WHERE project_id IS NULL"
@@ -1289,6 +1296,8 @@ def init(path):
     # flights put in a project by hand used to leave their log without one (only the uploader saw the log); now the
     # log follows (app.apply_flight_project); this fixes the logs from before that
     run_once(con, "log_project_from_flights", LOG_PROJECT_FROM_FLIGHTS)
+    # a team flies several aircraft (operation_drones); its one aircraft from before moves there
+    run_once(con, "operation_drones_from_teams", OPERATION_DRONES_FROM_TEAMS)
     # the pre-flight inspection is recorded since #315; every flight and paper record from before was done by its PIC
     run_once(con, "preflight_done_before_recording",
              "UPDATE flights SET preflight_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE preflight_at IS NULL")
@@ -1306,7 +1315,7 @@ LOGBOOK_UNRELATED = {
     "api_keys", "cli_logins", "drone_requests", "password_setup_tokens", "ingest", "bulk_reservations", "weather_cache",
     "firmware_cache", "qualification_audit", "trainings", "training_questions", "training_choices",
     "training_progress", "training_briefers", "training_extensions", "booking_things", "booking_thing_rules",
-    "operation_slots", "operation_teams", "operation_crew", "operation_flight_links", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
+    "operation_slots", "operation_teams", "operation_crew", "operation_drones", "operation_flight_links", "booking_flags", "bookings", "booking_flag_values", "calendar_tokens",
     "welcome_message", "welcome_seen", "notices", "notice_roles", "notice_dismissals", "document_settings", "document_groups", "documents", "document_profile_roles", "document_qualification_types",
     "safety_settings", "safety_reports", "safety_emergency",
     "mail_outbox", "mail_prefs", "mail_sent_keys",
