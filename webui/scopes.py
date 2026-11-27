@@ -30,7 +30,7 @@ ENDPOINTS = {
                     "create_historical", "import_historical"},
     "logs:edit": {"set_log_project", "set_log_date", "accept_log_date_suggestion", "set_flight_project",
                   "set_flights_project", "set_flight_crew", "set_flights_crew", "set_flight_comment",
-                  "set_flight_preflight", "reparse", "accept_conflict"},
+                  "set_flight_preflight", "set_flight_tags", "reparse", "accept_conflict"},
     "documents:upload": {"add_document", "replace_document_file"},
     "documents:manage": {"edit_document", "delete_document", "add_group", "edit_group", "delete_group",
                          "save_intro"},
@@ -41,7 +41,8 @@ ENDPOINTS = {
               "admin_set_member", "admin_add_drone", "admin_update_drone", "admin_delete_drone",
               "admin_set_drone_projects", "admin_import_drones", "admin_add_drone_alias", "admin_delete_drone_alias",
               "admin_link_drone_board", "admin_drone_board", "admin_add_alias", "admin_delete_alias",
-              "admin_accept_date_suggestions", "admin_delete_user", "reparse_outdated", "reparse_unknown_dates"},
+              "admin_accept_date_suggestions", "admin_delete_user", "reparse_outdated", "reparse_unknown_dates",
+              "admin_tag", "admin_merge_tag"},
 }
 
 

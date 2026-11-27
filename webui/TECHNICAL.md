@@ -2960,9 +2960,23 @@ sees the drones they are responsible for in the Aircraft list (`GET /api/drones`
 the drone is on a project they are not in; the flights and logs shown stay limited to their own projects. **My aircraft**
 on `/aircraft` (`?mine=1`) keeps only those, including ones without logs.
 
+**Tags (#368, `tags.py`).** One list (`tags`: name unique without case, `hidden`) for all projects. A flight and a paper
+record keep a JSON list of tag ids (`flights.tags`, kept across a re-parse like the other flight edits;
+`flight_records.tags`, not part of the fingerprint); a logbook entry has the tags of all its sources and linked paper
+records (`tags`, names) and `tags_hidden` (those hidden by default), also in `/api/logbook`, the detail pages and
+Export CSV. Who may edit a flight sets its tags (`PUT /api/flights/<id>/tags` `{"tags": [names]}`, `logs:edit` for
+keys); `PUT /api/logbook/records` takes `tags_add` (names) and `tags_remove` (ids); a paper record's form sends
+`tags`. New names create tags (1–40 characters, no commas, at most 20 per entry). `GET /api/tags` lists them with
+their number of entries; administrators rename or set `hidden` (`PUT /api/admin/tags/<id>`), merge
+(`POST /api/admin/tags/<id>/merge` `{"into": id}`) and delete (`DELETE`; removed from every entry). An entry with a
+hidden tag is left out of the shared filter (below), `/api/places` and the Home totals (`home.real_flight`) unless the
+filter asks for that tag with ✓.
+
 **Shared flight filters.** The menu's **Flight filters** popover stores its applied selection in
-browser `localStorage` (`logdbFlightFilters`): period preset or inclusive custom UTC dates,
-indoor/no-GPS visibility, non-flight visibility, logs-without-flights visibility and unknown-date visibility. Defaults are last three years with all
+browser `localStorage` (`logdbFlightFilters`): period preset or inclusive custom UTC dates, tags (`[{name, out}]`: only
+entries with any tag that is not `out`, none with an `out` one; in the URL as `tags` and `not_tags`, comma-separated),
+indoor/no-GPS visibility, non-flight visibility, logs-without-flights visibility and unknown-date visibility; operator
+and category are under More filters, open when one is set. Defaults are last three years with all
 visibility options off. Apply commits changes; Cancel/Escape/outside-click discard the draft;
 Reset fills the defaults for the next Apply. Other tabs update on storage changes. Storage
 failures are reported in the popover instead of claiming the selection was saved.

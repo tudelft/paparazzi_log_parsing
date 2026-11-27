@@ -66,6 +66,7 @@ import training
 import bookings
 import operations
 import retention
+import tags
 import ground_risk
 import documents
 import safety
@@ -2479,7 +2480,7 @@ def snapshot_flight_edits(con, log_id):
     return {(r["ac_id"], r["idx"]): dict(r) for r in con.execute(
         "SELECT a.ac_id, f.idx, f.project_id, f.project_source, f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment, f.hidden,"
         " f.operator_id, f.category, f.authorisation_id, f.verdict_override, f.goal_override, f.preflight_by, f.preflight_at,"
-        " f.preflight_special FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id=?", (log_id,))}
+        " f.preflight_special, f.tags FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id=?", (log_id,))}
 
 
 def drone_periods(con, drone_id):
@@ -2736,12 +2737,12 @@ def assign_log_flights(con, log_id, kept=None):
         if restore:
             con.execute("UPDATE flights SET pic_user_id=?, pac_user_id=?, gcs_user_id=?, comment=?, hidden=?, operator_id=?,"
                         " category=?, authorisation_id=?, verdict_override=?, goal_override=?, preflight_by=?, preflight_at=?,"
-                        " preflight_special=? WHERE id=?",
+                        " preflight_special=?, tags=? WHERE id=?",
                         (restore.get("pic_user_id"), restore.get("pac_user_id"), restore.get("gcs_user_id"),
                          restore.get("comment"), restore.get("hidden", 0), restore.get("operator_id"),
                          restore.get("category"), restore.get("authorisation_id"), restore.get("verdict_override"),
                          restore.get("goal_override"), restore.get("preflight_by"), restore.get("preflight_at"),
-                         restore.get("preflight_special"), f["id"]))
+                         restore.get("preflight_special"), restore.get("tags"), f["id"]))
         saved = restore.get("project_id")
         source = restore.get("project_source") if restore else f["project_source"]
         if source == "manual":
@@ -2903,9 +2904,16 @@ def list_places():
     category = request.args.get("category", "all")  # all | a category | unknown | check, as the flight filters
     if category not in ("all", "unknown", "check", *categories.CATEGORIES):
         return jsonify(error="unknown category filter."), 400
+    # tags as the flight filters: only with any of `tags`, none of `not_tags`; hidden ones only when asked for
+    only = {t.casefold() for t in request.args.get("tags", "").split(",") if t}
+    leave_out = {t.casefold() for t in request.args.get("not_tags", "").split(",") if t}
     for f in logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT")):
         place_ids = {f.get("takeoff_place_id"), f.get("landing_place_id")} - {None}
         visible_places.update(place_ids)
+        entry_tags = {t.casefold() for t in f.get("tags") or []}
+        if ((only and not only & entry_tags) or leave_out & entry_tags
+                or {t.casefold() for t in f.get("tags_hidden") or []} - only):
+            continue
         if not include_indoor and f.get("indoor"):
             continue
         if (operator == "own" and not f["operator_own"]) or (operator == "other" and f["operator_own"]):
@@ -4534,7 +4542,7 @@ def update_logbook_records():
             return jsonify(error="Invalid record key."), 400
         targets.add((kind, int(identity)))
     changes = {k: body[k] for k in ("project_id", "pic_user_id", "pac_user_id", "gcs_user_id", "operator_id", "hidden",
-                                    "verdict", "preflight") if k in body}
+                                    "verdict", "preflight", "tags_add", "tags_remove") if k in body}
     if "category" in body or "authorisation_id" in body:
         changes["category"] = {k: body.get(k) for k in ("category", "authorisation_id")}
     if not changes:
@@ -4553,6 +4561,14 @@ def update_logbook_records():
     try:
         with db.write_lock, con:
             con.execute("BEGIN IMMEDIATE")
+            try:  # tags: new names create tags; removed ones are ids (tags.py)
+                if "tags_add" in changes:
+                    changes["tags_add"] = tags.resolve(con, changes["tags_add"], g.user["id"], now())
+                if "tags_remove" in changes:
+                    changes["tags_remove"] = tags.known_ids(con, changes["tags_remove"])
+            except tags.TagError as exc:
+                raise historical.RecordError(str(exc), exc.status) from None
+            tag_change = {"add": changes.pop("tags_add", ()), "remove": changes.pop("tags_remove", ())}
             for key in ("pic_user_id", "pac_user_id", "gcs_user_id"):
                 if key not in changes:
                     continue
@@ -4593,6 +4609,8 @@ def update_logbook_records():
                         raise historical.RecordError("Paper records require a PIC and project; choose Keep or a person/project.")
                     if any(key != "hidden" for key in changes):
                         historical.store(con, values, g.user["id"], now(), identity)
+                    if tag_change["add"] or tag_change["remove"]:
+                        tags.change(con, "flight_records", identity, **tag_change)
                     if "hidden" in changes:
                         con.execute("UPDATE flight_records SET hidden=? WHERE id=?", (int(changes["hidden"]), identity))
                 else:
@@ -4618,6 +4636,8 @@ def update_logbook_records():
                         con.execute("UPDATE flights SET hidden=? WHERE id=?", (int(changes["hidden"]), identity))
                     if "verdict" in changes:
                         con.execute("UPDATE flights SET verdict_override=? WHERE id=?", (changes["verdict"], identity))
+                    if tag_change["add"] or tag_change["remove"]:
+                        tags.change(con, "flights", identity, **tag_change)
                     if "preflight" in changes:
                         if changes["preflight"]:  # an earlier confirmation keeps who confirmed it and when
                             con.execute("UPDATE flights SET preflight_by=?, preflight_at=? WHERE id=? AND preflight_at IS NULL",
@@ -4885,6 +4905,26 @@ def set_flight_goal(flight_id):
     con.execute("UPDATE flights SET goal_override=? WHERE id=?", (goal, flight_id))
     con.commit()
     return jsonify(ok=True, goal=goal)
+
+
+@app.put("/api/flights/<int:flight_id>/tags")
+def set_flight_tags(flight_id):
+    """Set the tags of a logged flight ({"tags": [names]}; new names create tags, tags.py). Same rights as the goal;
+    kept across a re-parse."""
+    con = conn()
+    _, err = visible_editable_flight(con, flight_id)
+    if err == "missing":
+        abort(404)
+    if err == "forbidden":
+        return jsonify(error="you cannot tag this flight"), 403
+    try:
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            ids = tags.resolve(con, (request.get_json(silent=True) or {}).get("tags"), g.user["id"], now())
+            tags.change(con, "flights", flight_id, replace=ids)
+    except tags.TagError as exc:
+        return jsonify(error=str(exc)), exc.status
+    return jsonify(ok=True)
 
 
 @app.put("/api/flights/<int:flight_id>/preflight")
@@ -6677,7 +6717,7 @@ LOGBOOK_OVERVIEW_KEYS = (
     "can_edit_project", "can_edit_date", "linked_records", "conflicts", "possible_duplicates",
     "operator_id", "operator_name", "operator_registration", "operator_own", "operator_source", "operator_check",
     "category", "category_label", "category_source", "category_check", "authorisation_id", "authorisation_name",
-    "preflight", "preflight_by", "preflight_at", "preflight_special",
+    "preflight", "preflight_by", "preflight_at", "preflight_special", "tags", "tags_hidden",
 )
 
 
@@ -6724,6 +6764,15 @@ def historical_template():
                     headers={"Content-Disposition": 'attachment; filename="historical-flights.csv"'})
 
 
+def set_record_tags(con, record_id, body):
+    """The tags of a paper record from its form ({"tags": [names]}), when sent (tags.py)."""
+    if isinstance(body, dict) and "tags" in body:
+        try:
+            tags.change(con, "flight_records", record_id, replace=tags.resolve(con, body["tags"], g.user["id"], now()))
+        except tags.TagError as exc:
+            raise historical.RecordError(str(exc), exc.status) from None
+
+
 @app.post("/api/historical")
 def create_historical():
     # API keys may add paper records (scripted transcription of old logbooks); changing and deleting
@@ -6735,6 +6784,7 @@ def create_historical():
             values = historical.validate(con, g.user, request.get_json(silent=True))
             historical.require_preflight(con, values)
             record_id = historical.store(con, values, g.user["id"], now())
+            set_record_tags(con, record_id, request.get_json(silent=True))
             links.auto_link(con, now())
         return jsonify(id=record_id), 201
     except historical.RecordError as exc:
@@ -6750,6 +6800,8 @@ def historical_record(record_id):
         if request.method in ("GET", "HEAD"):
             record = dict(row)
             record["project_name"] = con.execute("SELECT name FROM projects WHERE id=?", (row["project_id"],)).fetchone()["name"]
+            names = tags.names(con)
+            record["tags"] = sorted((names[i][0] for i in tags.ids_of(row["tags"]) if i in names), key=str.casefold)
             record["kept_until"] = retention.while_kept(retention.kept_until(row["date"], env_int("RETENTION_YEARS")))
             return jsonify(record=record, can_edit=editable, can_delete=historical.can_delete(con, g.user, row["project_id"]),
                            is_admin=bool(g.user["is_admin"]))
@@ -6775,6 +6827,7 @@ def historical_record(record_id):
                     con.execute("DELETE FROM flight_records WHERE id=?", (record_id,))
                 else:
                     historical.store(con, values, g.user["id"], now(), record_id)
+                    set_record_tags(con, record_id, request.get_json(silent=True))
                     links.auto_link(con, now())
             if request.method == "DELETE":
                 attachments.prune(con, STORAGE_DIR)
@@ -6953,7 +7006,7 @@ def stats():
             "duration_s", "distance_m", "from_takeoff_m", "max_from_takeoff_m",
             "takeoff_utc", "date_ok", "date_override", "date_estimated", "verdict", "indoor", "simulation", "flight_count", "source_type",
             "pic", "pac", "pic_user", "pac_user", "operator_id", "operator_name", "operator_own",
-            "category", "category_label", "authorisation_name")
+            "category", "category_label", "authorisation_name", "tags", "tags_hidden")
     rows = logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT"))
     logs = {s["log_id"]: s.get("size_bytes") for r in rows for s in r["sources"]}
     return jsonify(all=bool(g.user["is_admin"]),
@@ -7096,7 +7149,7 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
         " EXISTS(SELECT 1 FROM ambiguous_drone_names n WHERE n.name=TRIM(a.name) COLLATE NOCASE) AS aircraft_ambiguous,"
         " COALESCE(f.verdict_override, f.verdict) AS verdict, f.verdict AS verdict_auto, f.verdict_override,"
         " f.assessment_json, f.takeoff_voltage_v, f.landing_voltage_v, f.num_points, f.takeoff_json, f.landing_json,"
-        " f.preflight_by, f.preflight_at, f.preflight_special, l.parser_name,"
+        " f.preflight_by, f.preflight_at, f.preflight_special, f.tags, l.parser_name,"
         " COALESCE(a.preflight_checks, '[]') NOT IN ('', '[]') AS has_pfc,"
         # the last answer to the checklist item "special" (special conditions of the location, airspace or weather)
         " (SELECT json_extract(j.value, '$.text') FROM json_each(CASE WHEN json_valid(a.preflight_checks)"
@@ -7171,6 +7224,9 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
     operators.apply(con, out, {r["flight_id"]: r["operator_id"] for r in prepared if r["operator_id"]})
     categories.apply(con, out, {r["flight_id"]: (r["category"], r["authorisation_id"]) for r in prepared if r["category"]})
     apply_preflight(con, out, source_rows)
+    tags.apply(out, {fid: tags.ids_of(r["tags"]) for fid, r in source_rows.items()},
+               {r["id"]: tags.ids_of(r["tags"]) for r in con.execute("SELECT id, tags FROM flight_records WHERE tags IS NOT NULL")},
+               tags.names(con))
     out.sort(key=lambda r: (r.get("takeoff_utc") or ((r.get("date_override") or "") + "T00:00:00Z"),
                             r.get("flight_id") or r["manual_id"], r["source_type"]),
              reverse=True)
@@ -7466,7 +7522,8 @@ DETAIL_FLIGHT_KEYS = (
     "pic", "pac", "gcs", "pic_user", "pac_user", "gcs_user", "goal", "comment", "simulation",
     "takeoff_voltage_v", "landing_voltage_v", "manual_id", "source_type", "flight_count", "record_kind",
     "operator_id", "operator_name", "operator_registration", "operator_own", "operator_source",
-    "category", "category_label", "category_source", "category_check", "authorisation_id", "authorisation_name")
+    "category", "category_label", "category_source", "category_check", "authorisation_id", "authorisation_name",
+    "tags", "tags_hidden")
 
 
 @app.get("/people/<int:item_id>")
@@ -8500,6 +8557,7 @@ attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, en
                      same_day=same_day_flights, flights_on=flights_on_dates, thumbs=DATA_DIR / "thumbs",
                      ffmpeg=env("FFMPEG"))
 qualifications.register(app, lambda: conn(), STORAGE_DIR, session_required)
+tags.register(app, lambda: conn(), db.write_lock, admin_required)
 training.register(app, lambda: conn(), DATA_DIR, session_required)
 profiles.register(app, lambda: conn(), session_required, now, PAGES_DIR)
 welcome.register(app, lambda: conn(), session_required, now, PAGES_DIR)

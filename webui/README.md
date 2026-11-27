@@ -75,9 +75,15 @@ Logbook has a **Pre-flight** column (hidden by default, under **Columns**), and 
 - The page footer shows the Web UI release (when tagged), commits since that release and running
   revision, linking to that exact commit on GitHub.
   **(modified)** indicates local code changes; this is separate from the telemetry parser version.
+- **Tags** are your own labels for logbook entries, such as "bench test" or "sim-study-3": one list for all projects.
+  Tag entries with **Tags…** in the selection bar (for all ticked entries), in **Edit flight** or on a paper record;
+  typing a new name makes a new tag. The Logbook has a **Tags** column (hidden by default, under **Columns**), and the
+  search finds tags too. Admins manage the list under **Logbook → Manage ▾ → Tags…**: rename, merge or delete a tag,
+  and mark one **hidden by default**, so its entries stay out of the logbook and totals until a filter asks for it
+  (for simulation studies, for instance).
 - Use **Flight filters** in the top menu to select a period (default: last three years), custom
-  UTC dates, **Hide indoor / no-GPS flights**, **Hide non-flights**, **Hide logs without flights** and **Hide unknown
-  dates**. Non-flights are ground runs, uncertain flights and simulations. Logs without flights are parsed logs that
+  UTC dates, **Tags** (✓ only entries with a tag, ⊘ leave them out; click a tag to switch), **Hide indoor / no-GPS flights**, **Hide non-flights**, **Hide logs without flights** and **Hide unknown
+  dates**, and under **More filters** the operator and category. Non-flights are ground runs, uncertain flights and simulations. Logs without flights are parsed logs that
   produced no flight; the Logbook shows them as rows marked **no flight**, with their log number (outlined, with ⧉ to
   copy it, e.g. for `ml.fetch(log=n)`), grouped by day with **Group by day**, and a link to the log's details.
   By default everything is shown; ticked options stay saved in this browser. Unknown-date records are

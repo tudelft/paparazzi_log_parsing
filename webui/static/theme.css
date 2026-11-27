@@ -191,7 +191,7 @@ body > header .header-actions { display:flex; align-items:center; gap:8px; }
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 #flightFiltersPanel {
-  position:fixed; z-index:2000; width:338px; max-width:calc(100vw - 24px); overflow:auto;
+  position:fixed; z-index:2000; width:520px; max-width:calc(100vw - 24px); overflow:auto;
   margin:0; padding:18px; background:var(--card); color:var(--txt); border:1px solid var(--line);
   border-radius:10px; box-shadow:0 10px 35px #0003; white-space:normal; font-size:14px;
 }
@@ -204,6 +204,15 @@ body > header .header-actions { display:flex; align-items:center; gap:8px; }
 #flightFiltersPanel .filter-heading strong { font-size:16px; }
 #flightFiltersPanel #flightFiltersReset { padding:0; border:0; background:none; color:var(--acc); }
 #flightFiltersPanel .filter-field { display:block; margin:12px 0; }
+/* two columns: period and operator, the custom dates, category and tags; the Hide options too (one on a phone) */
+#flightFiltersPanel .filter-grid { display:grid; grid-template-columns:1fr 1fr; column-gap:14px; }
+#flightFiltersPanel .filter-grid .filter-field { margin:10px 0 0; min-width:0; }
+#flightFiltersPanel .filter-grid .filter-dates { grid-column:1 / -1; }
+#flightFiltersPanel .filter-grid .tag-input { margin-top:5px; }
+#flightFiltersPanel .filter-more { margin-top:8px; font-size:13px; }
+#flightFiltersPanel .filter-more summary { cursor:pointer; color:var(--acc); }
+#flightFiltersPanel .filter-more .filter-grid .filter-field { font-size:14px; }
+@media (max-width:560px) { #flightFiltersPanel .filter-grid, #flightFiltersPanel .filter-options { grid-template-columns:1fr; } }
 #flightFiltersPanel select, #flightFiltersPanel input[type="date"] {
   display:block; width:100%; margin-top:5px; padding:7px; font:inherit; color:var(--txt);
   background:var(--field); border:1px solid var(--fieldline); border-radius:5px;
@@ -211,8 +220,9 @@ body > header .header-actions { display:flex; align-items:center; gap:8px; }
 #flightFiltersPanel .filter-dates { display:flex; gap:12px; }
 #flightFiltersPanel .filter-dates[hidden] { display:none; }
 #flightFiltersPanel .filter-dates label { flex:1; min-width:0; }
-#flightFiltersPanel .filter-options { padding:12px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
-#flightFiltersPanel .filter-options label { display:block; padding:5px 0; }
+#flightFiltersPanel .filter-options { display:grid; grid-template-columns:1fr 1fr; column-gap:14px; margin-top:12px;
+  padding:8px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+#flightFiltersPanel .filter-options label { display:block; padding:4px 0; }
 #flightFiltersPanel p { margin:10px 0 0; color:var(--mute); font-size:12px; }
 #flightFiltersPanel .filter-help { margin-top:10px; font-size:12px; color:var(--mute); }
 #flightFiltersPanel .filter-help summary { cursor:pointer; }
@@ -567,3 +577,21 @@ body > header.header-wrap #flightFiltersMenu ~ .meta:not(#nav) { margin-left:0 !
 /* A group heading in a list of qualification types (theme.js typeGroups): People, Documents, Also covers */
 .type-group-head { font-size:11px; font-weight:600; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
 .covers-pop .type-group-head { padding:8px 10px 2px; }
+
+/* Tags (#368): chips, dashed when hidden by default; the input with its suggestions (theme.js tagInput) */
+.tag-chip { display:inline-flex; align-items:center; gap:2px; padding:0 8px; border-radius:10px; background:var(--chip);
+  color:var(--txt); font-size:12px; line-height:20px; margin:1px 4px 1px 0; white-space:nowrap; max-width:180px;
+  overflow:hidden; text-overflow:ellipsis; vertical-align:middle; }
+.tag-chip.hid { background:none; border:1px dashed var(--mute); line-height:18px; }
+.tag-chip.out { text-decoration:line-through; color:var(--mute); }
+.tag-chip[role=button] { cursor:pointer; }
+.tag-chip button { border:0; background:none; padding:0 0 0 4px; font-size:11px; line-height:1; cursor:pointer; color:var(--mute); }
+.tag-input { position:relative; display:flex; flex-wrap:wrap; align-items:center; gap:2px; min-height:34px; padding:3px 6px;
+  border:1px solid var(--fieldline, var(--line)); border-radius:5px; background:var(--field); cursor:text; }
+.tag-input .tag-chips { display:contents; }
+.tag-input input { flex:1; min-width:90px; border:0; outline:0; padding:3px 2px; font:inherit; color:var(--txt); background:none; }
+.tag-sugg { position:absolute; z-index:10; left:0; right:0; top:calc(100% + 2px); max-height:220px; overflow:auto; padding:4px;
+  border:1px solid var(--line); border-radius:6px; background:var(--card); box-shadow:0 2px 8px #0003; font-size:13px; }
+.tag-sugg[hidden] { display:none; }
+.tag-sugg div { padding:3px 8px; border-radius:4px; cursor:pointer; }
+.tag-sugg div.on, .tag-sugg div:hover { background:var(--hover); }

@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS flight_records (
     authorisation_id INTEGER REFERENCES authorisations(id),
     preflight INTEGER CHECK(preflight IS NULL OR preflight=1),  -- 1 = pre-flight inspection completed; NULL = not recorded
     preflight_special TEXT,             -- special conditions: risks of the location, airspace or weather and their mitigation
+    tags TEXT,                          -- JSON list of tags.id (tags.py)
     fingerprint TEXT NOT NULL UNIQUE,
     created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -280,7 +281,8 @@ CREATE TABLE IF NOT EXISTS flights (
     preflight_by INTEGER,              -- users.id who confirmed the pre-flight inspection by hand; NULL with preflight_at:
                                        -- done by the PIC (flights from before it was recorded); kept across a re-parse
     preflight_at TEXT,                 -- when confirmed; NULL = not confirmed (a checklist in the log needs none)
-    preflight_special TEXT             -- special conditions noted with the confirmation (the log's own: checklist "special")
+    preflight_special TEXT,            -- special conditions noted with the confirmation (the log's own: checklist "special")
+    tags TEXT                          -- JSON list of tags.id (tags.py); kept across a re-parse
 );
 CREATE TABLE IF NOT EXISTS setting_changes (
     id INTEGER PRIMARY KEY,
@@ -600,6 +602,13 @@ CREATE TABLE IF NOT EXISTS mail_prefs (    -- per person and kind: immediate | d
     kind TEXT NOT NULL,
     mode TEXT NOT NULL CHECK(mode IN ('immediate','daily','off')),
     PRIMARY KEY (user_id, kind)
+);
+CREATE TABLE IF NOT EXISTS tags (  -- tags.py: tags of logbook entries, one list for all projects
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0,1)),  -- 1: left out until Flight filters asks for it
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS deleted_records (  -- retention.py: logs and paper records deleted within the retention period
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1107,7 +1116,7 @@ def init(path):
     if "path_idx" not in {r[1] for r in con.execute("PRAGMA table_info(flights)")}:
         con.execute("ALTER TABLE flights ADD COLUMN path_idx INTEGER")
     fcols = {r[1] for r in con.execute("PRAGMA table_info(flights)")}
-    for col, kind in (("preflight_by", "INTEGER"), ("preflight_at", "TEXT"), ("preflight_special", "TEXT")):
+    for col, kind in (("preflight_by", "INTEGER"), ("preflight_at", "TEXT"), ("preflight_special", "TEXT"), ("tags", "TEXT")):
         if col not in fcols:
             con.execute(f"ALTER TABLE flights ADD COLUMN {col} {kind}")
     rcols = {r[1] for r in con.execute("PRAGMA table_info(flight_records)")}
@@ -1115,6 +1124,8 @@ def init(path):
         con.execute("ALTER TABLE flight_records ADD COLUMN preflight INTEGER CHECK(preflight IS NULL OR preflight=1)")
     if "preflight_special" not in rcols:
         con.execute("ALTER TABLE flight_records ADD COLUMN preflight_special TEXT")
+    if "tags" not in rcols:
+        con.execute("ALTER TABLE flight_records ADD COLUMN tags TEXT")
     acols = {r[1] for r in con.execute("PRAGMA table_info(aircraft)")}
     if "drone_id" not in acols:
         con.execute("ALTER TABLE aircraft ADD COLUMN drone_id INTEGER")

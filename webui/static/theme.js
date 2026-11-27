@@ -300,6 +300,96 @@ window.timingEvidenceHTML = function (timing) {
     <div>${escape((timing.reasons || []).join(', '))}</div>${gps}${versions}</details>`;
 };
 
+// Tags (#368): one list for all projects (GET /api/tags, loaded once per page). tagInput turns a box into chips and a
+// text field that suggests existing tags; Enter or a comma adds one. In 'filter' mode only existing tags are added and
+// a click on a chip switches it between "only with" (✓) and "leave out" (⊘): values are [{name, out}]. Otherwise a new
+// name creates a tag when saved, and values are names (with what is still typed).
+window.tagCatalog = function (refresh) {
+  if (refresh || !window._tagCatalog)
+    window._tagCatalog = fetch('/api/tags').then(r => r.ok ? r.json() : {tags: []}).then(d => d.tags).catch(() => []);
+  return window._tagCatalog;
+};
+window.tagChips = function (names, hidden = []) {
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
+  const hid = new Set(hidden.map(t => t.toLowerCase()));
+  return (names || []).map(t => hid.has(t.toLowerCase())
+    ? `<span class="tag-chip hid" title="Hidden by default">${escape(t)}</span>` : `<span class="tag-chip">${escape(t)}</span>`).join('');
+};
+window.tagInput = function (box, {values = [], mode = 'edit', placeholder = 'Add a tag', onchange} = {}) {
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
+  const lower = s => s.toLowerCase();
+  let items = values.map(v => typeof v === 'string' ? {name: v, out: false} : {...v}), catalog = [], active = -1;
+  box.classList.add('tag-input');
+  box.innerHTML = '<span class="tag-chips"></span><input type="text" autocomplete="off" maxlength="40"><div class="tag-sugg" role="listbox" hidden></div>';
+  const chips = box.querySelector('.tag-chips'), input = box.querySelector('input'), sugg = box.querySelector('.tag-sugg');
+  input.placeholder = placeholder;
+  input.setAttribute('aria-label', placeholder);
+  const hidden = name => catalog.some(t => t.hidden && lower(t.name) === lower(name));
+  const has = name => items.some(i => lower(i.name) === lower(name));
+  const changed = () => { paint(); if (onchange) onchange(); };
+  function paint() {
+    chips.innerHTML = items.map((it, i) => `<span class="tag-chip${hidden(it.name) ? ' hid' : ''}${it.out ? ' out' : ''}" data-i="${i}"`
+      + (mode === 'filter' ? ` role="button" tabindex="0" title="${it.out ? 'Leave out; click for only with' : 'Only with; click to leave out'}">${it.out ? '⊘' : '✓'} ` : '>')
+      + `${escape(it.name)}<button type="button" data-x="${i}" aria-label="Remove ${escape(it.name)}">✕</button></span>`).join('');
+  }
+  function suggest() {
+    const typed = input.value.trim(), q = lower(typed);
+    const rows = catalog.filter(t => !has(t.name) && (!q || lower(t.name).includes(q))).slice(0, 8)
+      .map(t => `<div role="option" data-name="${escape(t.name)}">${escape(t.name)} <span class="mute">· ${t.entries}${t.hidden ? ' · hidden by default' : ''}</span></div>`);
+    if (mode !== 'filter' && q && !q.includes(',') && !catalog.some(t => lower(t.name) === q) && !has(typed))
+      rows.push(`<div role="option" data-name="${escape(typed)}">New tag “${escape(typed)}”</div>`);
+    sugg.innerHTML = rows.join('');
+    sugg.hidden = !rows.length || document.activeElement !== input;
+    active = -1;
+  }
+  function add(raw) {
+    const name = String(raw || '').split(/\s+/).join(' ').trim();
+    const known = catalog.find(t => lower(t.name) === lower(name));
+    if (name && !name.includes(',') && !has(name) && (known || mode !== 'filter')) {
+      items.push({name: known ? known.name : name, out: false});
+      changed();
+    }
+    input.value = '';
+    suggest();
+  }
+  window.tagCatalog().then(list => { catalog = list; paint(); });
+  input.addEventListener('input', suggest);
+  input.addEventListener('focus', suggest);
+  input.addEventListener('blur', () => setTimeout(() => { sugg.hidden = true; }, 150));
+  input.addEventListener('keydown', e => {
+    const options = [...sugg.children];
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && options.length) {
+      e.preventDefault();
+      active = (active + (e.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+      options.forEach((o, i) => o.classList.toggle('on', i === active));
+    } else if (e.key === 'Enter' || e.key === ',') {
+      if (!input.value.trim() && active < 0) return;  // Enter in an empty field submits the form
+      e.preventDefault();
+      add(active >= 0 ? options[active].dataset.name : mode === 'filter' && options[0] ? options[0].dataset.name : input.value);
+    } else if (e.key === 'Backspace' && !input.value && items.length) { items.pop(); changed(); }
+  });
+  sugg.addEventListener('mousedown', e => {
+    const option = e.target.closest('[data-name]');
+    if (option) { e.preventDefault(); add(option.dataset.name); }
+  });
+  chips.addEventListener('click', e => {
+    const remove = e.target.closest('[data-x]'), chip = e.target.closest('[data-i]');
+    if (remove) { e.preventDefault(); items.splice(+remove.dataset.x, 1); changed(); }
+    else if (chip && mode === 'filter') { items[+chip.dataset.i].out = !items[+chip.dataset.i].out; changed(); }
+  });
+  chips.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.dataset.i) { e.preventDefault(); e.target.click(); } });
+  box.addEventListener('click', e => { if (e.target === box || e.target === chips) input.focus(); });
+  paint();
+  return {
+    get values() {
+      if (mode === 'filter') return items.map(i => ({...i}));
+      const typed = input.value.split(/\s+/).join(' ').trim();
+      return [...items.map(i => i.name), ...(typed && !typed.includes(',') && !has(typed) ? [typed] : [])];
+    },
+    set values(list) { items = list.map(v => typeof v === 'string' ? {name: v, out: false} : {...v}); input.value = ''; paint(); },
+  };
+};
+
 (function () {
   const KEY = 'logdbFlightFilters';
   const PERIODS = {'30d': 'Last 30 days', '3m': 'Last 3 months', '1y': 'Last year',
@@ -311,7 +401,10 @@ window.timingEvidenceHTML = function (timing) {
   // options). Saved selections keep their values, so a browser that hid them keeps hiding them. nologs: logs that
   // produced no flight (the Logbook lists them as rows of their own); a selection saved before it existed follows
   // nonflights, which used to include them.
-  const defaults = () => ({period: '3y', from: '', to: '', indoor: true, nonflights: true, nologs: true, unknownDates: true, operator: 'all', category: 'all'});
+  const defaults = () => ({period: '3y', from: '', to: '', indoor: true, nonflights: true, nologs: true, unknownDates: true, operator: 'all', category: 'all', tags: []});
+  // tags: [{name, out}]: only entries with any tag that is not out, none that is out (#368)
+  const validTags = t => Array.isArray(t) && t.length <= 20 && t.every(x => x && typeof x.name === 'string' && x.name
+    && x.name.length <= 40 && !x.name.includes(',') && typeof x.out === 'boolean');
   let storageWarning = '';
   const validDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)
     && !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
@@ -328,13 +421,14 @@ window.timingEvidenceHTML = function (timing) {
           || (value.nologs !== undefined && typeof value.nologs !== 'boolean')
           || (value.operator !== undefined && !Object.hasOwn(OPERATORS, value.operator))
           || (value.category !== undefined && !Object.hasOwn(CATEGORIES, value.category))
+          || (value.tags !== undefined && !validTags(value.tags))
           || (value.from && value.to && value.from > value.to)) {
         throw new Error('Invalid saved flight filters');
       }
       return {period: value.period, from: value.from, to: value.to,
         indoor: value.indoor, nonflights: value.nonflights, nologs: value.nologs ?? value.nonflights,
         unknownDates: value.unknownDates ?? true,
-        operator: value.operator ?? 'all', category: value.category ?? 'all'};
+        operator: value.operator ?? 'all', category: value.category ?? 'all', tags: value.tags ?? []};
     } catch (error) {
       console.warn('Could not restore flight filters:', error);
       storageWarning = 'Saved filters could not be restored. Using the default selection.';
@@ -350,8 +444,9 @@ window.timingEvidenceHTML = function (timing) {
           || ['indoor','nonflights','nologs','unknownDates'].some(k => typeof value[k] !== 'boolean')
           || !Object.hasOwn(OPERATORS, value.operator || 'all')
           || !Object.hasOwn(CATEGORIES, value.category || 'all')
+          || !validTags(value.tags || [])
           || (value.from && value.to && value.from > value.to)) return false;
-      state = {...value, operator: value.operator || 'all', category: value.category || 'all'};
+      state = {...value, operator: value.operator || 'all', category: value.category || 'all', tags: value.tags || []};
       paint();
       return true;
     },
@@ -388,7 +483,15 @@ window.timingEvidenceHTML = function (timing) {
       && (state.operator === 'all' || (state.operator === 'own') === (f.operator_own !== false))
       && (state.category === 'all' || (state.category === 'check' ? !!f.category_check
         : state.category === 'unknown' ? !f.category : f.category === state.category))
+      && this.includesTags(f)
       && this.includesDate(f);
+  },
+  // only with any of the tags that are not out, none that is out; a tag hidden by default only when asked for
+  includesTags(f) {
+    const own = new Set((f.tags || []).map(t => t.toLowerCase()));
+    const only = state.tags.filter(t => !t.out).map(t => t.name.toLowerCase());
+    return (!only.length || only.some(t => own.has(t))) && !state.tags.some(t => t.out && own.has(t.name.toLowerCase()))
+      && (f.tags_hidden || []).every(t => only.includes(t.toLowerCase()));
   },
   logs(logs, allFlights, shownFlights) {
     const ids = new Set(shownFlights.flatMap(f => f.log_ids || []));
@@ -401,7 +504,8 @@ window.timingEvidenceHTML = function (timing) {
     const {from, to} = this.bounds();
     return new URLSearchParams({from, to, indoor: state.indoor ? '1' : '0',
       nonflights: state.nonflights ? '1' : '0', unknown_dates: state.unknownDates ? '1' : '0', operator: state.operator,
-      category: state.category});
+      category: state.category, tags: state.tags.filter(t => !t.out).map(t => t.name).join(','),
+      not_tags: state.tags.filter(t => t.out).map(t => t.name).join(',')});
   },
   periodLabel() {
     return state.period === 'custom' ? `${state.from || 'Any date'} – ${state.to || 'Any date'}`
@@ -410,7 +514,8 @@ window.timingEvidenceHTML = function (timing) {
   summary() {
     return `${this.periodLabel()} · Indoor/no-GPS ${state.indoor ? 'shown' : 'hidden'} · Non-flights ${state.nonflights ? 'shown' : 'hidden'} · Logs without flights ${state.nologs ? 'shown' : 'hidden'} · Unknown dates ${state.unknownDates ? 'shown' : 'hidden'}`
       + (state.operator === 'all' ? '' : ` · ${OPERATORS[state.operator]}`)
-      + (state.category === 'all' ? '' : ` · ${CATEGORIES[state.category]}`);
+      + (state.category === 'all' ? '' : ` · ${CATEGORIES[state.category]}`)
+      + (state.tags.length ? ' · Tags ' + state.tags.map(t => (t.out ? '⊘' : '✓') + t.name).join(' ') : '');
   },
 };
 
@@ -421,7 +526,7 @@ window.timingEvidenceHTML = function (timing) {
   function paint() {
     const button = document.getElementById('flightFiltersButton');
     if (!button) return;
-    const extra = Number(!state.indoor) + Number(!state.nonflights) + Number(!state.nologs) + Number(!state.unknownDates) + Number(state.operator !== 'all') + Number(state.category !== 'all');
+    const extra = Number(!state.indoor) + Number(!state.nonflights) + Number(!state.nologs) + Number(!state.unknownDates) + Number(state.operator !== 'all') + Number(state.category !== 'all') + Number(state.tags.length > 0);
     // a funnel icon, then the period and how many other filters are changed (the full summary is the tooltip)
     button.innerHTML = '<svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
       + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>'
@@ -438,24 +543,30 @@ window.timingEvidenceHTML = function (timing) {
     wrapper.innerHTML = `<button type="button" id="flightFiltersButton" aria-expanded="false" aria-controls="flightFiltersPanel"></button>
       <form id="flightFiltersPanel" hidden aria-label="Flight filters">
         <div class="filter-heading"><strong>Flight filters</strong><button type="button" id="flightFiltersReset">Reset</button></div>
+        <div class="filter-grid">
         <label class="filter-field">Period (UTC)<select name="period">${Object.entries(PERIODS).map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select></label>
+        <div class="filter-field" title="✓ only entries with this tag; ⊘ leave them out. Click a tag to switch.">Tags<div id="flightFiltersTags"></div></div>
         <div class="filter-dates" hidden>
           <label class="filter-field">From<input type="date" name="from"></label>
           <label class="filter-field">To<input type="date" name="to"></label>
         </div>
-        <label class="filter-field">Operator<select name="operator">${Object.entries(OPERATORS).map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select></label>
-        <label class="filter-field">Category<select name="category">${Object.entries(CATEGORIES).map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select></label>
+        </div>
         <div class="filter-options">
           <label><input type="checkbox" name="indoor"> Hide indoor / no-GPS flights</label>
           <label title="Ground runs, uncertain flights and simulations"><input type="checkbox" name="nonflights"> Hide non-flights <span class="mute">(ground runs, uncertain, simulations)</span></label>
           <label title="Parsed logs that produced no flight"><input type="checkbox" name="nologs"> Hide logs without flights</label>
           <label><input type="checkbox" name="unknownDates"> Hide unknown dates</label>
         </div>
+        <details class="filter-more"><summary>More filters</summary><div class="filter-grid">
+          <label class="filter-field">Operator<select name="operator">${Object.entries(OPERATORS).map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select></label>
+          <label class="filter-field">Category<select name="category">${Object.entries(CATEGORIES).map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select></label>
+        </div></details>
         <details class="filter-help"><summary>Help</summary>
           <p>Non-flights are ground runs, uncertain flights and simulations; uncertain flights are marked (?). Logs that produced no flight have a filter of their own: the Logbook lists them as rows marked "no flight", with their log number. Edit flight on the flight page confirms a flight as a flight or not a flight.</p>
           <p>Records without a known date are shown alongside the selected period unless Hide unknown dates is ticked. Other visibility filters still apply.</p>
           <p>Own operations are flights under our own operator registration: use them for operator reporting. Pilot experience counts all operators.</p>
           <p>Category: the rules a flight was flown under. Before 2021 that was national rules (ROC / ROC-light); since then OPEN or SPECIFIC under an operational authorisation. To check: SPECIFIC without an authorisation, or flown outside its validity.</p>
+          <p>Tags: ✓ shows only entries with any of these tags, ⊘ leaves entries with the tag out; click a tag to switch. Entries with a tag that is hidden by default (dashed) are left out of the logbook and totals until you add that tag with ✓.</p>
           <p>Shared across flight overviews in this browser. Changing pages keeps these settings.</p>
         </details>
         <p id="flightFiltersNotice" role="status"></p>
@@ -465,6 +576,17 @@ window.timingEvidenceHTML = function (timing) {
     document.body.querySelector('header').classList.add('has-flight-filters');
     const button = wrapper.querySelector('#flightFiltersButton'), form = wrapper.querySelector('form');
     const fields = form.elements;
+    const tagField = window.tagInput(form.querySelector('#flightFiltersTags'), {mode: 'filter', placeholder: 'Any tag'});
+    // Operator and category, less used: under More filters, open when one is set, its title then says which
+    const more = form.querySelector('.filter-more');
+    function syncMore(open) {
+      const set = [fields.operator.value !== 'all' && OPERATORS[fields.operator.value],
+        fields.category.value !== 'all' && CATEGORIES[fields.category.value]].filter(Boolean);
+      more.querySelector('summary').textContent = 'More filters' + (set.length ? ' · ' + set.join(' · ') : '');
+      if (open) more.open = set.length > 0;
+    }
+    fields.operator.addEventListener('change', () => syncMore(false));
+    fields.category.addEventListener('change', () => syncMore(false));
     function syncDates() {
       const custom = fields.period.value === 'custom';
       form.querySelector('.filter-dates').hidden = !custom;
@@ -474,6 +596,8 @@ window.timingEvidenceHTML = function (timing) {
     function fill(value) {
       for (const key of ['period', 'from', 'to', 'operator', 'category']) fields[key].value = value[key];
       for (const key of ['indoor', 'nonflights', 'nologs', 'unknownDates']) fields[key].checked = !value[key];  // ticked = hidden
+      tagField.values = value.tags || [];
+      syncMore(true);
       syncDates();
     }
     function close(focus = false) {
@@ -487,7 +611,8 @@ window.timingEvidenceHTML = function (timing) {
       form.hidden = false;
       button.setAttribute('aria-expanded', 'true');
       const rect = button.getBoundingClientRect();
-      form.style.left = `${Math.max(12, Math.min(rect.right - 338, innerWidth - 350))}px`;
+      const width = form.offsetWidth;
+      form.style.left = `${Math.max(12, Math.min(rect.right - width, innerWidth - width - 12))}px`;
       form.style.top = `${rect.bottom + 8}px`;
       form.style.maxHeight = `${Math.max(120, innerHeight - rect.bottom - 20)}px`;
       fields.period.focus();
@@ -513,7 +638,7 @@ window.timingEvidenceHTML = function (timing) {
       }
       state = {period: fields.period.value, from: custom ? fields.from.value : '', to: custom ? fields.to.value : '',
         indoor: !fields.indoor.checked, nonflights: !fields.nonflights.checked, nologs: !fields.nologs.checked, unknownDates: !fields.unknownDates.checked,
-        operator: fields.operator.value, category: fields.category.value};
+        operator: fields.operator.value, category: fields.category.value, tags: tagField.values};
       try { localStorage.setItem(KEY, JSON.stringify(state)); storageWarning = ''; }
       catch (error) {
         console.warn('Could not save flight filters:', error);
@@ -522,7 +647,8 @@ window.timingEvidenceHTML = function (timing) {
       changed();
       if (!storageWarning) close(true);
     };
-    document.addEventListener('click', event => { if (!wrapper.contains(event.target)) close(); });
+    // the path as dispatched: a chip that redraws itself on click is no longer inside the panel afterwards
+    document.addEventListener('click', event => { if (!event.composedPath().includes(wrapper)) close(); });
     document.addEventListener('keydown', event => { if (event.key === 'Escape' && !form.hidden) close(true); });
     window.addEventListener('resize', () => close());
     window.addEventListener('storage', event => {
@@ -572,6 +698,8 @@ window.timingEvidenceHTML = function (timing) {
             value[key] = ['period', 'from', 'to', 'operator', 'category'].includes(key) ? params.get(param) || ''
               : inverted.has(key) ? params.get(param) !== '0' : params.get(param) === '1';
           }
+          const list = param => (params.get(param) || '').split(',').filter(Boolean);
+          value.tags = [...list('tags').map(name => ({name, out: false})), ...list('not_tags').map(name => ({name, out: true}))];
           if (!filters.restore(value)) console.warn('Invalid URL flight filters; keeping current filters');
         }
         read(params, history.state?.viewExtra || {});
@@ -586,6 +714,10 @@ window.timingEvidenceHTML = function (timing) {
           if (inverted.has(key)) { if (value) params.delete(param); else params.set(param, '0'); continue; }
           if (value === '' || value === false || (['operator', 'category'].includes(key) && value === 'all')) params.delete(param);
           else params.set(param, value === true ? '1' : value);
+        }
+        for (const [param, out] of [['tags', false], ['not_tags', true]]) {  // tags as comma-separated names
+          const names = (filters.state.tags || []).filter(t => t.out === out).map(t => t.name);
+          if (names.length) params.set(param, names.join(',')); else params.delete(param);
         }
         const url = location.pathname + (params.size ? '?' + params : '') + location.hash;
         if (push && url !== location.pathname + location.search + location.hash) {

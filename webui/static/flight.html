@@ -346,7 +346,7 @@ function editable(e = D.entry) {
     pac: !!e.can_edit_crew, gcs: !!e.can_edit_crew, project: !!e.can_edit_project, operator: !!e.can_edit_crew,
     category: !!e.can_edit_crew, verdict: !!e.can_edit_crew && !e.manual_id, comment: !!e.can_edit_comment,
     preflight: !!e.can_edit_comment && (e.preflight == null || e.preflight === 'confirmed'),
-    special: !!e.can_edit_comment && (e.preflight == null || e.preflight === 'confirmed')};
+    special: !!e.can_edit_comment && (e.preflight == null || e.preflight === 'confirmed'), tags: !!e.can_edit_comment};
 }
 const mayEdit = key => !!D && editable()[key];
 function paintEditButton() { $('editFlight').hidden = !Object.values(editable()).some(Boolean); }
@@ -378,7 +378,7 @@ async function reloadEntry() {
 }
 const options = (list, selected) => list.map(([value, label]) =>
   `<option value="${esc(value)}"${String(value) === String(selected ?? '') ? ' selected' : ''}>${esc(label)}</option>`).join('');
-let operators = null, authorisations = null, aircraftChoices = null, editStart = {};
+let operators = null, authorisations = null, aircraftChoices = null, editStart = {}, editTags = null;
 
 // The Edit flight dialog: only the fields the user may change, in a compact grid; Save sends what changed.
 async function openEdit(focus) {
@@ -399,7 +399,8 @@ async function openEdit(focus) {
     date: set, pic: String(crewNow('pic')), pac: String(crewNow('pac')), gcs: String(crewNow('gcs')),
     project: String(e.project_id ?? ''), operator: String(e.operator_source === 'flight' ? e.operator_id ?? '' : ''),
     category: e.category_source === 'flight' ? categoryValue(e) : '', verdict: e.verdict_override || '', comment: e.comment || '',
-    preflight: e.preflight === 'confirmed' ? '1' : '', special: e.preflight === 'confirmed' ? e.preflight_special || '' : ''};
+    preflight: e.preflight === 'confirmed' ? '1' : '', special: e.preflight === 'confirmed' ? e.preflight_special || '' : '',
+    tags: (e.tags || []).join('\n')};
   const projectList = projects.filter(p => me && (me.is_admin || p.can_add || p.id === e.project_id)).map(p => [p.id, p.name]);
   $('editTitle').textContent = `Edit flight ${flightId}`;
   $('editWhat').textContent = `${e.aircraft || 'Flight'} · ${fmtTime(e.takeoff_utc)}${sourceIds(e).length > 1 ? ' · saved on all its recordings' : ''}`;
@@ -416,10 +417,12 @@ async function openEdit(focus) {
     row(f('project', 'Project', `<select name="project">${options([['', 'No project'], ...projectList], editStart.project)}</select>`),
       f('operator', 'Operator', `<select name="operator">${may.operator ? operatorOptions(editStart.operator) : ''}</select>`),
       f('category', 'Category', `<select name="category"><option value="">From project / place / date</option>${may.category ? categoryOptions(authorisations, editStart.category) : ''}</select>`)),
+    row(f('tags', 'Tags', '<div id="editTags"></div>', true)),
     row(f('special', LMRA_LABEL, `<textarea class="comment" name="special" maxlength="1000" rows="2" title="${esc(PREFLIGHT_SPECIAL_HELP)}" placeholder="Nothing special">${esc(editStart.special)}</textarea>`, true)),
     row(f('comment', 'Comment', `<textarea class="comment" name="comment" maxlength="4000" rows="3">${esc(editStart.comment)}</textarea>`, true)),
   ].join('');
   if (may.date && !set) editStart.date = $('editFields').querySelector('[name=date]').value;  // unchanged unless edited
+  editTags = may.tags ? tagInput($('editTags'), {values: e.tags || []}) : null;
   const operatorSelect = $('editFields').querySelector('[name=operator]');
   if (operatorSelect) operatorSelect.onchange = () => pickNewOperator(operatorSelect, operators,
     () => { operatorSelect.innerHTML = operatorOptions(editStart.operator); }, editStart.operator);
@@ -429,7 +432,8 @@ async function openEdit(focus) {
 }
 async function saveEdit(event) {
   event.preventDefault();
-  const e = D.entry, value = key => $('editFields').querySelector(`[name=${key}]`)?.value ?? editStart[key];
+  const e = D.entry, value = key => key === 'tags' ? (editTags ? editTags.values.join('\n') : editStart.tags)
+    : $('editFields').querySelector(`[name=${key}]`)?.value ?? editStart[key];
   const changed = Object.keys(editStart).filter(key => editable(e)[key] && value(key).trim() !== editStart[key].trim());
   for (const el of $('editFields').querySelectorAll('[data-error]')) el.textContent = '';
   $('editError').textContent = '';
@@ -446,6 +450,7 @@ async function saveEdit(event) {
   const steps = [
     ['goal', each('goal', {goal: value('goal').trim()}), 'Could not save the goal'],
     ['comment', each('comment', {comment: value('comment').trim()}), 'Could not save the comment'],
+    ['tags', each('tags', {tags: value('tags') ? value('tags').split('\n') : []}), 'Could not save the tags'],
     [Object.keys(crew).length ? Object.keys(crew)[0].replace('_user_id', '') : null,
       (out, fallback) => send('/api/flights/crew', 'PUT', {flight_ids: sourceIds(e), ...crew}, out, fallback), 'Could not save the crew'],
     ['project', each('project', {project_id: id('project')}), 'Could not save the project'],
@@ -470,6 +475,7 @@ async function saveEdit(event) {
     }
   } finally { $('editSave').disabled = false; }
   if (failed) { $('editError').textContent = `${failed} change${failed > 1 ? 's were' : ' was'} not saved; see above.`; await reloadEntry(); return; }
+  if (changed.includes('tags')) tagCatalog(true);  // a new tag is in the list next time
   if (changed.includes('date') || changed.includes('aircraft')) { location.reload(); return; }  // times or aircraft move
   $('editDialog').close();
   await reloadEntry();
@@ -722,6 +728,7 @@ function renderSummary() {
         ${ekv('category', 'Category', esc(categoryText(e)) + (e.category_source === 'flight' ? '' : ` <span class="mute">${CATEGORY_SOURCE[e.category_source] || 'no rule applies'}</span>`)
           + (e.category_check ? ` <span class="warn">${esc(e.category_check)}</span>` : ''))}
         ${ekv('verdict', 'Classification', esc(VERDICT_LABEL[e.verdict] || 'Unknown') + ` <span class="mute">${e.verdict_override ? 'set by hand' : 'automatic'}</span>`)}
+        ${ekv('tags', 'Tags', tagChips(e.tags, e.tags_hidden))}
         ${ekv('preflight', 'Pre-flight', preflightHTML(e))}
         ${lmraRow(e)}
         ${operationRow(D.operation)}

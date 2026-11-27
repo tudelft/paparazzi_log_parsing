@@ -133,7 +133,8 @@
   .col-menu form[hidden] { display:none; }
   .col-menu label { white-space:nowrap; }
   .col-menu .col-actions { grid-column:1 / -1; display:flex; justify-content:space-between; margin-top:6px; }
-  .bar-title { margin:0; font-size:15px; }  /* title and count first, like the other pages */
+  .bar-title { margin:0; font-size:15px; }
+  table.tag-list { width:100%; min-width:0; } table.tag-list td, table.tag-list th { padding:5px 8px; }  /* title and count first, like the other pages */
 </style>
 </head>
 <body>
@@ -164,12 +165,13 @@
         <div id="manageMenu" class="ext-pop lb-menu" role="menu" hidden style="right:0;left:auto;top:calc(100% + 6px)">
           <a class="ext-item" role="menuitem" href="/historical/new" id="addHistorical" hidden>Import CSV</a>
           <a class="ext-item" role="menuitem" href="/review" id="reviewLink" hidden title="Paper records and logs that need a person to decide">Review</a>
+          <button type="button" class="ext-item" role="menuitem" id="manageTags" hidden onclick="openTagList()" title="Rename, merge or delete tags, and choose the ones hidden by default">Tags…</button>
           <label class="ext-item" role="menuitemcheckbox" id="hiddenFilter" hidden title="Entries hidden from the logbook and totals; tick them to restore them"><input type="checkbox" id="hiddenRecords" onchange="setHiddenOnly(this.checked)"> Hidden records only</label>
         </div></span>
     </div>
     <div class="scroll">
     <table class="log">
-      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"><input type="checkbox" id="selAll" title="Select all on this page" aria-label="Select all on this page"></th><th title="Flight number: the number in /flight/&lt;number&gt;, used by ml.fetch in Python and pprz_fetch in MATLAB (⧉ copies it)">No.</th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th title="Pre-flight inspection: the checklist in the log, confirmed by hand or ticked on the paper record">Pre-flight</th><th>Takeoff location</th><th>Landing location</th>
+      <thead><tr><th class="exp" aria-label="Expand"></th><th class="chk"><input type="checkbox" id="selAll" title="Select all on this page" aria-label="Select all on this page"></th><th title="Flight number: the number in /flight/&lt;number&gt;, used by ml.fetch in Python and pprz_fetch in MATLAB (⧉ copies it)">No.</th><th>Date (UTC)</th><th>Takeoff</th><th>Landing</th><th>Flights</th><th>Duration</th><th title="Distance flown along the path">Flown</th><th>Source</th><th>Aircraft</th><th>Project</th><th title="Your own tags (dashed: hidden by default); Flight filters shows only some or leaves some out">Tags</th><th title="Operator registration the flight was flown under">Operator</th><th title="Operation category and authorisation the flight was flown under">Category</th><th title="Pre-flight inspection: the checklist in the log, confirmed by hand or ticked on the paper record">Pre-flight</th><th>Takeoff location</th><th>Landing location</th>
         <th>PIC</th><th>PAC</th><th>GCS</th><th>Goal</th><th>Comment</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -187,6 +189,7 @@
       <strong id="selCount"></strong>
       <button type="button" id="selCopy">Copy numbers</button>
       <span id="selMatlab"></span>
+      <button type="button" id="bulkTags" hidden onclick="openTags()" title="Add or remove tags of the ticked entries">Tags…</button>
       <button type="button" id="bulkChange" hidden onclick="openBulk()" title="Project, crew, operator, category or pre-flight inspection of the ticked entries">Change…</button>
       <button type="button" id="sameFlightBtn" hidden onclick="sameFlight()" title="The ticked entries are recordings of one flight: logged flights, optionally with one paper record">Same flight</button>
       <button type="button" id="hideSelected" hidden onclick="setHidden(true)">Hide</button>
@@ -195,6 +198,32 @@
     </div>
   </section>
 </main>
+<dialog class="entry-dialog" id="tagsDialog" aria-labelledby="tagsTitle" style="width:min(480px,calc(100% - 32px))">
+  <div class="dialog-header"><h2 id="tagsTitle">Tags</h2><button type="button" onclick="$('tagsDialog').close()">Close</button></div>
+  <form onsubmit="event.preventDefault(); applyTags()">
+    <p class="mute" style="margin:0 0 8px">Tags of the ticked entries: add one to all of them, or ✕ removes it from all of them. A new name makes a new tag.</p>
+    <label class="field">Tags<div id="tagsField"></div></label>
+    <p class="dialog-error" id="tagsError" role="alert"></p>
+    <div class="row"><button type="submit" class="primary">Apply</button> <button type="button" class="sec" onclick="$('tagsDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
+<dialog class="entry-dialog" id="tagListDialog" aria-labelledby="tagListTitle" style="width:min(640px,calc(100% - 32px))">
+  <div class="dialog-header"><h2 id="tagListTitle">Tags</h2><button type="button" onclick="$('tagListDialog').close()">Close</button></div>
+  <p class="mute" style="margin:0 0 8px">One list for all projects; whoever may edit an entry tags it. Entries with a tag that is hidden by default are left out of the logbook and totals until Flight filters asks for the tag. ⋯ renames, merges or deletes a tag.</p>
+  <div class="scroll" id="tagList"></div>
+  <p class="dialog-error" id="tagListError" role="alert"></p>
+</dialog>
+<dialog class="entry-dialog" id="tagActDialog" aria-labelledby="tagActTitle" style="width:min(420px,calc(100% - 32px))">
+  <div class="dialog-header"><h2 id="tagActTitle">Tag</h2><button type="button" onclick="$('tagActDialog').close()">Close</button></div>
+  <form onsubmit="event.preventDefault(); tagAction('rename')">
+    <label class="field">Name<input id="tagActName" maxlength="40" required></label>
+    <div class="row"><button type="submit" class="primary">Rename</button></div>
+  </form>
+  <label class="field" style="margin-top:12px">Merge into<select id="tagActInto"></select></label>
+  <div class="row"><button type="button" class="sec" onclick="tagAction('merge')" title="Its entries get the other tag; this tag is removed">Merge</button>
+    <span style="flex:1"></span><button type="button" class="sec" style="color:var(--err)" onclick="tagAction('delete')" title="Removes the tag from every entry">Delete tag</button></div>
+  <p class="dialog-error" id="tagActError" role="alert"></p>
+</dialog>
 <dialog class="entry-dialog" id="bulkDialog" aria-labelledby="bulkTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <div class="dialog-header"><h2 id="bulkTitle">Change the ticked entries</h2><button type="button" onclick="$('bulkDialog').close()">Close</button></div>
   <form id="bulkForm" onsubmit="event.preventDefault(); applyBulk()">
@@ -362,10 +391,10 @@ function preflightCell(list) {
 }
 // Column visibility is a per-browser preference, so it survives page changes, Back and new sessions.
 const COLUMNS = ['No.', 'Date (UTC)', 'Takeoff', 'Landing', 'Flights', 'Duration', 'Flown', 'Source', 'Aircraft', 'Project',
-  'Operator', 'Category', 'Pre-flight', 'Takeoff location', 'Landing location', 'PIC', 'PAC', 'GCS', 'Goal', 'Comment'];
+  'Tags', 'Operator', 'Category', 'Pre-flight', 'Takeoff location', 'Landing location', 'PIC', 'PAC', 'GCS', 'Goal', 'Comment'];
 const COLUMNS_KEY = 'logbook.hiddenColumns';
 // Hidden until someone shows them; those shown are remembered separately, so the stored hidden list stays as it was.
-const DEFAULT_HIDDEN = ['Pre-flight'], SHOWN_KEY = 'logbook.shownColumns';
+const DEFAULT_HIDDEN = ['Pre-flight', 'Tags'], SHOWN_KEY = 'logbook.shownColumns';
 let hiddenColumns = new Set(DEFAULT_HIDDEN);
 try {
   const shown = JSON.parse(localStorage.getItem(SHOWN_KEY) || '[]');
@@ -500,11 +529,82 @@ async function applyBulk() {
   ['bulkProject', 'bulkPic', 'bulkPac', 'bulkGcs', 'bulkOperator', 'bulkCategory', 'bulkPreflight'].forEach(id => { $(id).value = '__keep__'; });
   loadFlights();
 }
+// Tags… for the ticked entries (#368): the union of their tags; Apply adds the new ones to all and removes the ✕ ones
+let tagsField = null, tagsBefore = [];
+function openTags() {
+  tagsBefore = [...new Set(pickedFlights().flatMap(f => f.tags || []))].sort((a, b) => a.localeCompare(b));
+  tagsField = tagInput($('tagsField'), {values: tagsBefore});
+  const n = pickedFlights().length;
+  $('tagsTitle').textContent = `Tags of ${n} ticked ${n === 1 ? 'entry' : 'entries'}`;
+  $('tagsError').textContent = '';
+  $('tagsDialog').showModal();
+  $('tagsField').querySelector('input').focus();
+}
+async function applyTags() {
+  const now = tagsField.values, low = s => s.toLowerCase();
+  const add = now.filter(t => !tagsBefore.some(b => low(b) === low(t)));
+  const catalog = await tagCatalog(true);
+  const remove = tagsBefore.filter(b => !now.some(t => low(t) === low(b)))
+    .map(b => catalog.find(t => low(t.name) === low(b))?.id).filter(id => id != null);
+  if (!add.length && !remove.length) { $('tagsDialog').close(); return; }
+  if (!await updateRecords([...selected], {tags_add: add, tags_remove: remove}, $('tagsError'))) return;
+  $('tagsDialog').close();
+  tagCatalog(true);
+  $('bulkMsg').textContent = 'Saved.';
+  loadFlights();
+}
+// Manage ▾ → Tags… (admins): every tag with its entries, Hidden by default, and ⋯ for rename, merge and delete
+let tagList = [], tagActing = null;
+async function openTagList() {
+  closeMenus();
+  tagList = await tagCatalog(true);
+  $('tagList').innerHTML = tagList.length ? `<table class="tag-list"><thead><tr><th>Tag</th><th>Entries</th>
+      <th title="Left out of the logbook and totals until Flight filters asks for the tag">Hidden by default</th><th></th></tr></thead><tbody>`
+    + tagList.map(t => `<tr><td>${tagChips([t.name], t.hidden ? [t.name] : [])}</td><td>${t.entries}</td>
+      <td><input type="checkbox" data-hide="${t.id}"${t.hidden ? ' checked' : ''} aria-label="Hide ${esc(t.name)} by default"></td>
+      <td style="text-align:right"><button type="button" class="sec" data-act="${t.id}" aria-label="More for ${esc(t.name)}" title="Rename, merge or delete">⋯</button></td></tr>`).join('')
+    + '</tbody></table>' : '<p class="mute">No tags yet. Tag entries with Tags… in the selection bar or Edit flight.</p>';
+  $('tagListError').textContent = '';
+  if (!$('tagListDialog').open) $('tagListDialog').showModal();
+}
+$('tagList').addEventListener('change', async e => {
+  const id = e.target.dataset.hide;
+  if (!id) return;
+  const r = await fetch('/api/admin/tags/' + id, {method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({hidden: e.target.checked})});
+  if (!r.ok) { $('tagListError').textContent = (await r.json().catch(() => ({}))).error || 'Could not save.'; return; }
+  await openTagList();
+  loadFlights();
+});
+$('tagList').addEventListener('click', e => {
+  const id = +e.target.closest('[data-act]')?.dataset.act;
+  if (!id) return;
+  tagActing = tagList.find(t => t.id === id);
+  $('tagActTitle').textContent = `Tag “${tagActing.name}”`;
+  $('tagActName').value = tagActing.name;
+  $('tagActInto').innerHTML = tagList.filter(t => t.id !== id).map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+  $('tagActInto').disabled = tagList.length < 2;
+  $('tagActError').textContent = '';
+  $('tagActDialog').showModal();
+});
+async function tagAction(what) {
+  const t = tagActing;
+  if (what === 'merge' && (!$('tagActInto').value || !confirm(`Merge “${t.name}” into “${$('tagActInto').selectedOptions[0].text}”? Its ${t.entries} entries get that tag.`))) return;
+  if (what === 'delete' && !confirm(`Delete the tag “${t.name}”? It is removed from its ${t.entries} entries.`)) return;
+  const [url, method, body] = what === 'rename' ? ['/api/admin/tags/' + t.id, 'PUT', {name: $('tagActName').value}]
+    : what === 'merge' ? [`/api/admin/tags/${t.id}/merge`, 'POST', {into: +$('tagActInto').value}] : ['/api/admin/tags/' + t.id, 'DELETE', null];
+  const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: body && JSON.stringify(body)});
+  if (!r.ok) { $('tagActError').textContent = (await r.json().catch(() => ({}))).error || 'Could not save.'; return; }
+  $('tagActDialog').close();
+  await openTagList();
+  loadFlights();
+}
 // Manage ▾: the rarer tools, only for those who may use them (paper records and review need edit rights in a
 // project; hidden records are an admin's).
 function syncEditUi() {
   const editor = !!(me && (me.is_admin || projects.some(p => ['edit', 'full', 'manager'].includes(p.role))));
   $('hiddenFilter').hidden = !me?.is_admin;
+  $('manageTags').hidden = !me?.is_admin;
   $('addHistorical').hidden = !editor;
   $('addHistorical').textContent = me?.is_admin ? 'Import CSV…' : 'Add paper record…';
   $('reviewLink').hidden = !editor;
@@ -571,7 +671,7 @@ async function loadLogbookFiles() {
   syncFiles();
   if (flights.length) render();
 }
-const text = f => filesOf(f).map(file => file[0]).join(' ').toLowerCase() + ' ' + [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)])].filter(id => id != null).map(id => '#' + id).join(' ') + ' ' + [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_estimated ? 'estimated date' : '', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, f.operator_name, f.operator_registration, categoryText(f), f.authorisation_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack motion capture ' + (f.external_positioning || '') : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
+const text = f => filesOf(f).map(file => file[0]).join(' ').toLowerCase() + ' ' + [...new Set([f.flight_id, ...(f.sources || []).map(s => s.flight_id)])].filter(id => id != null).map(id => '#' + id).join(' ') + ' ' + [f.takeoff_place, f.landing_place, fmtTime(f.takeoff_utc), fmtTime(f.landing_utc), f.date_ok ? '' : 'date unknown', f.date_estimated ? 'estimated date' : '', f.date_override, f.aircraft, f.aircraft_uid, f.project_name, f.operator_name, f.operator_registration, categoryText(f), f.authorisation_name, srcLabel([f]), f.pic, f.pac, f.gcs, f.goal, f.comment, f.reference, ...(f.tags || []), f.indoor ? 'indoor' : '', f.optitrack ? 'optitrack motion capture ' + (f.external_positioning || '') : '', f.takeoff_lat == null ? 'no gps' : '', ...['pic', 'pac', 'gcs'].map(r => f[r + '_user']?.display_name)].join(' ').toLowerCase();
 
 // A day row shows its most common project; "+N" when its flights differ, with the split on hover.
 function groupProject(g, first) {
@@ -904,14 +1004,14 @@ function numberTd(f, o) {
 }
 const cells = (f, o, landingPlaceId) => `<td class="exp">${o.group ? (o.open ? '▾' : '▸') : ''}</td>${chk(o.ids)}${numberTd(f, o)}${dateTd(f)}<td><span${timesTip(o)}>${esc(fmtHm(f.takeoff_utc))}</span></td><td><span${timesTip(o)}>${esc(fmtHm(o.landing_utc)) || '<span class="mute">–</span>'}</span></td>
     <td>${o.count}</td><td>${fmtDur(o.duration_s)}</td><td>${fmtDist(o.distance_m)}</td><td>${o.sources}</td><td><span${f.aircraft_uid ? ` title="${esc(f.aircraft_uid)}"` : ''}>${entityLink('aircraft', f.drone_id, f.aircraft)}</span>${verdictMark(f)}</td>
-    <td>${o.project}</td><td>${operatorCell(f)}</td><td>${categoryCell(f)}</td><td>${o.preflight}</td>
+    <td>${o.project}</td><td>${o.tags}</td><td>${operatorCell(f)}</td><td>${categoryCell(f)}</td><td>${o.preflight}</td>
     <td>${place(f.takeoff_lat, f.takeoff_lon, f.takeoff_place, f.takeoff_place_id)}</td><td>${place(o.landing_lat, o.landing_lon, o.landing_place, landingPlaceId)}</td>
     <td>${person(f, 'pic')}</td><td>${person(f, 'pac')}</td><td>${person(f, 'gcs')}</td><td>${esc(o.goal)}</td><td>${esc(o.comment)}</td>`;
 
 function flightRows(f, cls = '') {
   const ids = crewIds(f);
-  return `<tr class="flight ${cls}${open_.has(f.record_key) ? ' open' : ''}${ticked(ids) ? ' ticked' : ''}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), preflight: preflightCell([f]), ids, canEdit: selectable(f)}, f.landing_place_id)}</tr>`
-    + (open_.has(f.record_key) ? `<tr><td colspan="22" class="detail">${detail(f)}</td></tr>` : '');
+  return `<tr class="flight ${cls}${open_.has(f.record_key) ? ' open' : ''}${ticked(ids) ? ' ticked' : ''}" data-id="${f.record_key}">${cells(f, {landing_utc: f.landing_utc, count: cls ? '' : (f.flight_count || 1), sources: srcLabel([f]), duration_s: f.duration_s, distance_m: f.distance_m, max_from_takeoff_m: f.max_from_takeoff_m, landing_lat: f.landing_lat, landing_lon: f.landing_lon, landing_place: f.landing_place, goal: f.goal, comment: f.comment, project: projectCell(f), tags: tagChips(f.tags, f.tags_hidden), preflight: preflightCell([f]), ids, canEdit: selectable(f)}, f.landing_place_id)}</tr>`
+    + (open_.has(f.record_key) ? `<tr><td colspan="23" class="detail">${detail(f)}</td></tr>` : '');
 }
 
 // A log without flights: its log number (as on the Logs page and in ml.fetch(log=n), marked as a log), date (or the
@@ -928,7 +1028,7 @@ function logRow(l, cls = '') {
     <td>${fmtDur(l.duration_s)}</td><td></td>
     <td>${esc(TYPE_LABEL[l.log_type] || l.log_type || 'Log')}<span class="badge no-flight" title="This log was parsed but produced no flight">no flight</span></td>
     <td>${esc(l.aircraft_names || '')}</td><td>${l.project_id != null ? `<a href="/projects/${l.project_id}">${esc(l.project_name || '')}</a>` : ''}</td>
-    <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+    <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
     <td><a href="/logs#log${l.id}" title="Log details: ${esc(l.name)}">${esc(l.name)}</a></td></tr>`;
 }
 
@@ -961,7 +1061,7 @@ function logGroupRows(g) {
     <td>${fmtDur(ls.reduce((s, l) => s + (l.duration_s || 0), 0))}</td><td></td>
     <td>${esc(uniq(ls.map(l => TYPE_LABEL[l.log_type] || l.log_type || 'Log')).join(' + '))}<span class="badge no-flight" title="These logs were parsed but produced no flight">no flight</span></td>
     <td>${esc(first.aircraft_names || '')}</td><td>${projects}</td>
-    <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+    <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
     <td><span title="${esc(names)}">${ls.length} logs</span></td></tr>`
     + (isOpen ? ls.map(l => logRow(l, 'sub')).join('') : '');
 }
@@ -977,7 +1077,8 @@ function groupRows(g) {
   const times = g.flights.map(f => `${fmtHm(f.takeoff_utc)}–${fmtHm(f.landing_utc) || '?'}`).join(', ');
   const ids = [...new Set(g.flights.flatMap(crewIds))];
   const flightIds = g.flights.map(f => f.flight_id).filter(id => id != null);
-  return `<tr class="group${ticked(ids) ? ' ticked' : ''}" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, flightIds, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: groupProject(g, first), preflight: preflightCell(g.flights), ids, canEdit: g.flights.some(selectable)}, g.landing_place_id)}</tr>`
+  return `<tr class="group${ticked(ids) ? ' ticked' : ''}" data-gid="${g.id}">${cells(first, {group: true, open: isOpen, flightIds, times: 'Flights: ' + times, landing_utc: g.landing_utc, count: g.flights.length, sources: srcLabel(g.flights), duration_s: g.duration_s, distance_m: g.distance_m, max_from_takeoff_m: g.max_from_takeoff_m, landing_lat: g.landing_lat, landing_lon: g.landing_lon, landing_place: g.landing_place, goal: g.goals.join(', '), comment: g.comments.join(' · '), project: groupProject(g, first),
+    tags: tagChips([...new Set(g.flights.flatMap(f => f.tags || []))], g.flights.flatMap(f => f.tags_hidden || [])), preflight: preflightCell(g.flights), ids, canEdit: g.flights.some(selectable)}, g.landing_place_id)}</tr>`
     + (isOpen ? g.flights.map(f => flightRows(f, 'sub')).join('') : '');
 }
 
@@ -1012,7 +1113,9 @@ function renderSelBar() {
   const locked = picked.filter(f => !f.can_edit_crew).length;
   // Change… and Same flight only for who may change entries at all; disabled when some ticked ones are not theirs
   const changer = !!me?.is_admin || flights.some(f => f.can_edit_crew);
-  $('bulkChange').hidden = $('sameFlightBtn').hidden = !changer;
+  $('bulkChange').hidden = $('sameFlightBtn').hidden = $('bulkTags').hidden = !changer;
+  allow($('bulkTags'), logs.length ? 'Logs without flights have no tags: untick them'
+    : locked ? `You may not change ${locked} of the ticked entries` : '');
   allow($('bulkChange'), logs.length && picked.length ? 'Logs without flights only change their project: tick them on their own'
     : logs.some(l => !l.can_edit_project) ? "Only administrators change a log's project"
     : locked ? `You may not change ${locked} of the ticked entries` : '');
@@ -1147,9 +1250,9 @@ $('rows').onclick = e => {
 };
 
 function exportCsv() {
-  const cols = ['flight_id', 'source_type', 'simulation', 'flight_count', 'record_kind', 'reference', 'takeoff_utc', 'landing_utc', 'date_ok', 'date_estimated', 'date_override', 'duration_s', 'distance_m', 'from_takeoff_m', 'max_from_takeoff_m', 'aircraft', 'aircraft_uid', 'project_name', 'operator_name', 'operator_registration', 'operator_source', 'category_label', 'authorisation_name', 'category_source', 'category_check', 'preflight', 'preflight_by', 'preflight_at', 'lmra', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
+  const cols = ['flight_id', 'source_type', 'simulation', 'flight_count', 'record_kind', 'reference', 'takeoff_utc', 'landing_utc', 'date_ok', 'date_estimated', 'date_override', 'duration_s', 'distance_m', 'from_takeoff_m', 'max_from_takeoff_m', 'aircraft', 'aircraft_uid', 'project_name', 'operator_name', 'operator_registration', 'operator_source', 'category_label', 'authorisation_name', 'category_source', 'category_check', 'tags', 'preflight', 'preflight_by', 'preflight_at', 'lmra', 'takeoff_place', 'takeoff_lat', 'takeoff_lon', 'landing_place', 'landing_lat', 'landing_lon', 'pic', 'pic_user', 'pac', 'pac_user', 'gcs', 'gcs_user', 'goal', 'comment'];
   const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const csv = [cols.join(',')].concat(render().map(f => cols.map(c => cell(c === 'simulation' ? f.simulation?.detected : c === 'lmra' ? f.preflight_special : c.endsWith('_user') ? f[c]?.display_name : f[c])).join(','))).join('\n');
+  const csv = [cols.join(',')].concat(render().map(f => cols.map(c => cell(c === 'simulation' ? f.simulation?.detected : c === 'lmra' ? f.preflight_special : c === 'tags' ? (f.tags || []).join('; ') : c.endsWith('_user') ? f[c]?.display_name : f[c])).join(','))).join('\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
   a.download = 'logbook.csv';
