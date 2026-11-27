@@ -88,6 +88,24 @@ class OperationsTests(AppTests):
         self.con.commit()
         self.assertEqual(self.plan().status_code, 400)
 
+    def test_seen_by_everyone_or_only_by_who_may_plan(self):
+        waits = self.qualification("A1/A3", user_id=2)
+        self.set_rules([{"type_id": waits, "needs_approval": False}])
+        item = self.item_id()
+        seen = lambda: [t["can_view"] for t in self.client.get(f"/api/bookings?from={DAY}&to={DAY}").json["things"]  # noqa: E731
+                        if t["kind"] == "operations"]
+        self.sign_in(5)  # no qualification
+        self.assertEqual(seen(), [True])  # by default everyone sees it
+        self.sign_in(1)
+        r = self.client.put(f"/api/admin/booking-things/{item}", json={
+            "name": "Outdoor operations", "qualification_for": "viewing", "rules": [{"type_id": waits, "needs_approval": False}]})
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertEqual(seen(), [True])  # administrators
+        self.sign_in(2)
+        self.assertEqual(seen(), [True])  # may plan
+        self.sign_in(5)
+        self.assertEqual(seen(), [False])
+
     def test_qualification_rules_and_approval(self):
         direct = self.qualification("A2")
         waits = self.qualification("A1/A3", user_id=2)

@@ -288,8 +288,8 @@ options, for example "No others" or "Demo". Bookings of one item may overlap unl
 blocks overlaps (such as "No others"); later ones then show **2nd**, **3rd**, … by when they were booked. An item
 can be set the other way round (**Edit item → Overlapping bookings**): its bookings overlap only when both tick the
 same option, such as "Others allowed". An item can need a current
-qualification, for example an arena safety briefing, to book or even to see its agenda; without it the page says
-so and links to the training that grants it. You can change or delete your own bookings; administrators can
+qualification, for example an arena safety briefing, to book or even to see its agenda. An item you may not see has
+no tab; a link to it says which qualification is needed and links to the training that grants it. You can change or delete your own bookings; administrators can
 book for someone else (**Booked for**) and change any. They also see items that are closed for bookings (the tabs
 stay with a single item), add items with **Manage ▾** → *Add bookable item…*, change the open item with **Edit item**
 at the end of the tabs (**⋯** → *Delete item…*) and drag the tabs to order them.
@@ -300,7 +300,8 @@ clicks **Approve** or **Reject** (with an optional reason); you get a mail eithe
 Administrators and approvers book such an item without approval; administrators also find the requests in the
 People **Approval queue** (**Bookings**).
 
-**Outdoor operations** (when the server has it on) is a fixed item for planning outdoor flights. **Plan flight** books
+**Outdoor operations** (when the server has it on) is a fixed item for planning outdoor flights; in its Edit item, admins
+choose who may plan (qualifications) and who sees it (everyone, or only who may plan). **Plan flight** books
 a slot at a bookable location (admins tick *Bookable for outdoor operations* in Locations) for your team: project, PIC
 (you by default), optional crew and aircraft, and the goal. A map shows the flight area with its ground risk buffer (1:1:
 as wide as the maximum height; the location's area and height unless you draw your own or fly lower) and warns when

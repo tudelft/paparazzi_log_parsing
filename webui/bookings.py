@@ -72,15 +72,15 @@ def is_operations(item):
 
 
 def access(con, item, user):
-    """(can_view, can_book) for this person on this item. Outdoor operations (operations.py) is seen by everyone
-    while its switch is on; its qualification rules decide who books."""
+    """(can_view, can_book) for this person on this item. Outdoor operations (operations.py), while its switch is on:
+    its qualification rules decide who plans; it is seen by everyone, or with qualification_for "viewing" only by who
+    may plan (and administrators and its approvers)."""
     if is_operations(item):
         import operations
         if not operations.enabled():
             return False, False
-        can_book = bool(item["active"]) and (can_approve(con, item, user)
-                                             or operations.rule_for(con, item["id"], user["id"]) is not None)
-        return True, can_book
+        may_plan = can_approve(con, item, user) or operations.rule_for(con, item["id"], user["id"]) is not None
+        return may_plan or item["qualification_for"] != "viewing", bool(item["active"]) and may_plan
     qualified = not item["type_id"] or has_qualification(con, user["id"], item["type_id"])
     can_view = qualified or item["qualification_for"] == "booking" or bool(user["is_admin"])
     return can_view, qualified and bool(item["active"])
@@ -671,7 +671,7 @@ def register(app, connection, require_session, pages_dir):
                 if is_operations(item_row(cid, thing_id)):
                     # Outdoor operations: no place or single qualification; its rules say who books and who waits
                     import operations
-                    fields = (*fields[:2], None, None, "booking", *fields[5:8], 0)
+                    fields = (*fields[:2], None, None, fields[4], *fields[5:8], 0)  # fields[4]: who sees it
                     operations.save_rules(cid, thing_id, (request.get_json(silent=True) or {}).get("rules", []))
                 cid.execute("UPDATE booking_things SET name=?, description=?, place_id=?, type_id=?,"
                             " qualification_for=?, colour=?, active=?, sort_order=?, needs_approval=? WHERE id=?",

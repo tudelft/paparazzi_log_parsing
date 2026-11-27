@@ -1726,7 +1726,9 @@ switch off it is hidden everywhere (agenda, Home, calendar feeds). Its **Edit it
 approval tick or options; instead a list of qualification types (`booking_thing_rules`), each *Books directly* or
 *Needs approval*. Someone may plan or join when they hold a current approved qualification of a listed type (one that
 books directly is enough to skip approval); without rules everyone may. Administrators and the item's approvers
-plan without approval and decide the rest.
+plan without approval and decide the rest. **Who sees it** (`qualification_for`): `booking` (everyone, the default) or
+`viewing` (only who may plan, administrators and its approvers; `bookings.access`). In the agenda an item someone may
+not see has no tab.
 
 Only locations with **Bookable for outdoor operations** (`places.bookable`, Locations, admins; default off; never
 indoors) can be planned. A booking of the item is a *slot* (`operation_slots`: the booking and its place) shared by
