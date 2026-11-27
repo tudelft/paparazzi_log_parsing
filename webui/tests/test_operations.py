@@ -4,6 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
+import db
 import operations
 import weather
 from .test_historical import AppTests
@@ -66,15 +67,15 @@ class OperationsTests(AppTests):
         self.assertEqual(self.client.post("/api/bookings", json={  # the generic booking refuses the item
             "thing_id": item["id"], "description": "x", "start": f"{DAY}T10:00", "end": f"{DAY}T11:00"}).status_code, 409)
         prep = self.client.post("/api/operations/prepare", json={
-            "place_id": 1, "start": f"{DAY}T10:00", "end": f"{DAY}T14:00", "drone_id": 1}).json
+            "place_id": 1, "start": f"{DAY}T10:00", "end": f"{DAY}T14:00", "drones": [1]}).json
         self.assertEqual((prep["weather"], prep["slots"], prep["notam_url"]), (FORECAST, [], "https://notam.example.org"))
         self.assertEqual(prep["checks"], [{"who": "Drone", "what": "fleet status", "ok": True, "detail": "not set"}])
-        r = self.plan(crew=[3], drone_id=1, goal="Wind tests", notam={"checked": True, "reference": "A1234/26"})
+        r = self.plan(crew=[3], drones=[1], goal="Wind tests", notam={"checked": True, "reference": "A1234/26"})
         self.assertEqual((r.status_code, r.json["status"]), (201, "approved"), r.json)
         slot = self.client.get(f"/api/operations/{r.json['id']}").json
         team, = slot["teams"]
-        self.assertEqual((slot["place"], team["pic"], team["project"], [c["name"] for c in team["crew"]], team["drone"]),
-                         ("Field", "Pilot", "Research", ["Viewer"], "Drone"))
+        self.assertEqual((slot["place"], team["pic"], team["project"], [c["name"] for c in team["crew"]],
+                          [d["name"] for d in team["drones"]]), ("Field", "Pilot", "Research", ["Viewer"], ["Drone"]))
         self.assertEqual(team["preparation"]["notam"], {"checked": True, "reference": "A1234/26"})
         self.assertEqual(team["preparation"]["weather"], FORECAST)
         listed, = self.client.get(f"/api/bookings?from={DAY}&to={DAY}").json["bookings"]
@@ -215,6 +216,24 @@ class OperationsTests(AppTests):
                          "landed,verdict,has_gps_position,pic_user_id) VALUES(?,?,?,300,?,?,52,4,1,'flight',1,?)",
                          (ident, log, ident, utc, utc, pic))
         self.con.commit()
+
+    def test_several_aircraft(self):
+        self.con.execute("INSERT INTO drones(id,name,unique_id,status,created_at) VALUES (2,'Other','UID2','Repair','now')")
+        self.con.commit()
+        self.sign_in(2)
+        self.assertEqual(self.plan(drones=[1, 99]).status_code, 400)
+        self.assertEqual(self.plan(drones="1").status_code, 400)
+        r = self.plan(drones=[2, 1, 2])
+        self.assertEqual(r.status_code, 201, r.json)
+        team, = self.client.get(f"/api/operations/{r.json['id']}").json["teams"]
+        self.assertEqual([d["name"] for d in team["drones"]], ["Drone", "Other"])
+        self.assertEqual([(c["who"], c["ok"]) for c in team["preparation"]["checks"]], [("Other", False), ("Drone", True)])
+        self.assertEqual(self.client.put(f"/api/operations/teams/{team['id']}", json={"project_id": 1, "drones": [2]}).status_code, 200)
+        self.assertEqual([r[0] for r in self.con.execute("SELECT drone_id FROM operation_drones")], [2])
+        # a team's one aircraft from before moves to operation_drones
+        self.con.execute("UPDATE operation_teams SET drone_id=1")
+        self.con.execute(db.OPERATION_DRONES_FROM_TEAMS)
+        self.assertEqual(sorted(r[0] for r in self.con.execute("SELECT drone_id FROM operation_drones")), [1, 2])
 
     def test_last_flown_project_first(self):
         self.sign_in(2)
