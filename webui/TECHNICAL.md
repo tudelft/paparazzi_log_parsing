@@ -403,7 +403,30 @@ full `sha1` replaces the short `-g<hash>` from `desc` as the revision, so GitHub
 Zero/empty values are `null`. Logs without these fields parse as before; `raw` stays `version desc`. The flight page
 (Software) and the Logs log details show the full commit, build time and board ID; MATLAB exports add
 them to `s.aircraft(i).version`. An empty array prints as no token, so the column exporter accepts missing
-trailing array fields as empty (a board without a unique ID). PX4 and ArduPilot logs are unaffected.
+trailing array fields as empty (a board without a unique ID). ArduPilot logs (mav-log parser 1.2.0) take the board ID
+from the line ArduPilot writes at boot, e.g. `CubeOrangePlus 0042003D 30325114 33383839` (board type and the
+processor's 96-bit unique ID; stored as one lowercase hex string, the line is listed with the autopilot versions); a
+tlog from the same text as `STATUSTEXT`, else from `AUTOPILOT_VERSION.uid2` (the same ID as raw bytes, read as the
+same little-endian words) or `uid`, never from the ground station (system 255). PX4 `.ulg` logs are unaffected (their
+`sys_uuid` is in the name). The version change marks earlier ArduPilot and tlog logs outdated: re-parse them to get
+their board IDs.
+
+<a id="default-autopilot-names"></a>**Default autopilot names.** An ArduPilot, MAVLink or PX4 log without a name of its own
+is named after its vehicle and MAVLink system ID (`ArduPilot-1`, `ArduCopter-1`, `ArduPlane-1`, `ArduRover-1`,
+`ArduSub-1`, `AntennaTracker-1`, `Blimp-1`, `MAVLink-1`, `PX4-1`; `is_default_log_name`). Every
+drone whose `SYSID_THISMAV` (PX4: `MAV_SYS_ID`) was never changed has the same name, so it never identifies an
+aircraft. Only system ID 1 is a default: a name with an ID set on purpose (`ArduCopter-12`) names one vehicle and links
+like any other name. A default name is a
+shared name (`ambiguous_drone_names`) from the moment a log with it is parsed, and at each start for logs already
+there (`mark_default_names_shared`). Marking it works as *Mark a name as shared*: an alias with that name is removed,
+boards learned automatically through that alias are forgotten unless a log under one of that drone's own names also
+has the board (hand-linked boards stay), and its logs, and any log placed through a forgotten board, are linked again:
+by board ID, by hand, or through the other recording of the same flight. It cannot be added as an alias
+(409, link the board instead) nor unmarked (409). A fleet aircraft that is really called that is left alone. Link a
+flight controller once under **Shared names** (its board row) and every log from it follows. In a `.tlog` the system ID
+(and so the name) and the board ID are taken only from the autopilot itself (component 1, not the ground station or a
+gimbal or companion computer with the same system ID), the board ID of the vehicle the recording is named after, and a
+96-bit ID (boot line or `uid2`) replaces a 64-bit `uid` seen earlier.
 
 **Matching by autopilot board.** Each recording stores its board ID (`aircraft.mcu_uid`). When a recording is
 linked to a fleet aircraft by a clear name or by hand, an unknown board ID is remembered for that aircraft

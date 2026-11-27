@@ -344,6 +344,7 @@ def parse_log(log_id):
                 kept = snapshot_flight_edits(con, log_id)
                 kept_files = attachments.snapshot(con, log_id)
                 db.store_parsed(con, log_id, doc, paths_rel)
+                mark_default_names_shared(con, log_id)  # "ArduPilot-1" never links by name
                 link_log_aircraft(con, log_id)
                 assign_log_flights(con, log_id, kept)
                 assign_paired_logs(con, log_id)
@@ -417,6 +418,9 @@ def start_workers():
     HAVE_PATH_GZ = "path_gz" in {r[1] for r in con.execute("PRAGMA table_info(flights)")}
     backfill_gps_positions(con)
     seed_drone_projects_from_defaults(con)
+    if marked := mark_default_names_shared(con):
+        app.logger.warning("marked default autopilot name(s) as shared: %s", ", ".join(marked))
+    con.commit()
     relink_unlinked_aircraft(con)
     if gone := remove_file_name_aliases(con):
         app.logger.warning("removed %d aircraft alias(es) that were only a log file name", gone)
@@ -2294,6 +2298,62 @@ def is_file_name(name, log_name=None):
     return bool(stem) and name.casefold() == stem.casefold()
 
 
+# The name a PX4/ArduPilot/MAVLink log gets when its autopilot has no name of its own: the vehicle and its MAVLink
+# system ID. Only system ID 1 is a default (SYSID_THISMAV and PX4's MAV_SYS_ID both start at 1), so "ArduPilot-1",
+# "MAVLink-1" and "PX4-1" are on every drone where it was never changed: they never identify an aircraft, are always
+# shared, and those logs are linked by their board ID. A system ID set on purpose ("ArduCopter-12") does identify one.
+_DEFAULT_LOG_NAME = re.compile(
+    r"^(ardupilot|arducopter|arduplane|ardurover|ardusub|antennatracker|blimp|mavlink|px4)[ -]?0*1$", re.I)
+
+
+def is_default_log_name(name):
+    """True for an autopilot's default name such as 'ArduPilot-1' (see _DEFAULT_LOG_NAME)."""
+    return bool(_DEFAULT_LOG_NAME.match((name or "").strip()))
+
+
+def mark_default_names_shared(con, log_id=None):
+    """Mark default autopilot names (of one log, or of all logs) as shared names, as an admin would with Mark a name
+    as shared: an alias with that name goes, boards learned automatically through it are forgotten, and the logs with
+    it are linked again (by board ID, a hand link or the other recording of the same flight). Returns the names newly
+    marked. The caller commits."""
+    where, params = ("WHERE log_id=?", (log_id,)) if log_id is not None else ("", ())
+    marked, forgotten = [], []
+    for r in con.execute(f"SELECT DISTINCT TRIM(name) AS name FROM aircraft {where}", params).fetchall():
+        name = r["name"]
+        if not is_default_log_name(name) or con.execute(
+                "SELECT 1 FROM ambiguous_drone_names WHERE name=?", (name,)).fetchone():
+            continue
+        if con.execute("SELECT 1 FROM drones WHERE name=? OR unique_id=?", (name, name)).fetchone():
+            continue  # a fleet aircraft really is called that: leave it to the admins
+        alias = con.execute("SELECT drone_id FROM drone_aliases WHERE alias=?", (name,)).fetchone()
+        con.execute("INSERT OR IGNORE INTO ambiguous_drone_names(name) VALUES(?)", (name,))
+        con.execute("DELETE FROM drone_aliases WHERE alias=?", (name,))
+        # boards learned automatically through that alias (on its drone) are forgotten, unless a log under one of that
+        # drone's own names also has the board (then it was learned rightly); hand links stay
+        if alias:
+            boards = [r[0] for r in con.execute(
+                "SELECT mcu_uid FROM drone_boards WHERE source='auto' AND drone_id=? AND mcu_uid IN (SELECT mcu_uid"
+                " FROM aircraft WHERE TRIM(name)=? COLLATE NOCASE AND mcu_uid IS NOT NULL) AND mcu_uid NOT IN ("
+                " SELECT a.mcu_uid FROM aircraft a WHERE a.mcu_uid IS NOT NULL AND TRIM(a.name)!=? COLLATE NOCASE"
+                " AND (EXISTS (SELECT 1 FROM drone_aliases da WHERE da.alias=TRIM(a.name) AND da.drone_id=?)"
+                " OR EXISTS (SELECT 1 FROM drones d WHERE d.name=TRIM(a.name) AND d.id=?)))",
+                (alias["drone_id"], name, name, alias["drone_id"], alias["drone_id"]))]
+            con.executemany("DELETE FROM drone_boards WHERE mcu_uid=? AND source='auto'", [(b,) for b in boards])
+            forgotten.extend(boards)
+        marked.append(name)
+    for name in marked:
+        for row in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE TRIM(name)=? COLLATE NOCASE"
+                               + (" AND log_id!=?" if log_id is not None else ""),
+                               (name, log_id) if log_id is not None else (name,)).fetchall():
+            link_log_aircraft(con, row["log_id"], logged_name=name)
+    for board in forgotten:  # logs placed through a forgotten board under any other name follow too
+        for row in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE mcu_uid=?"
+                               + (" AND log_id!=?" if log_id is not None else ""),
+                               (board, log_id) if log_id is not None else (board,)).fetchall():
+            link_log_aircraft(con, row["log_id"])
+    return marked
+
+
 def remember_drone_log_identity(con, drone_id, logged_name, log_name=None):
     """After a PX4/ArduPilot log is linked, remember the logged name and board id as aliases (not a file name)."""
     if is_file_name(logged_name, log_name):
@@ -3777,7 +3837,8 @@ def fleet_payload(con, include_unlinked=False, project_ids=None, manager_id=None
                 if (json.loads(r.pop("simulation") or "{}") or {}).get("detected"):
                     r["mcu_uid"] = r["board_drone_id"] = None
                 recordings.append(r)
-            ambiguous.append(dict(name=row["name"], recordings=recordings))
+            ambiguous.append(dict(name=row["name"], recordings=recordings,
+                                  default_name=is_default_log_name(row["name"])))  # always shared
     excluded = board_payload(con, None) if include_unlinked else []
     return dict(drones=fleet, unlinked=unlinked, projects=projects, ambiguous=ambiguous, excluded_boards=excluded)
 
@@ -4246,6 +4307,9 @@ def admin_add_drone_alias():
     con = conn()
     if not con.execute("SELECT 1 FROM drones WHERE id=?", (drone_id,)).fetchone():
         return jsonify(error="no such aircraft"), 404
+    if is_default_log_name(alias):
+        return jsonify(error=f"{alias} is an autopilot's default name, shared by every drone where it was never "
+                             "changed; link the board ID of its logs instead (Shared names)."), 409
     if name_taken(con, alias, drone_id):
         return jsonify(error="that name is already used by an aircraft or alias"), 409
     try:
@@ -4278,6 +4342,9 @@ def admin_ambiguous_drone_name():
             for row in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE TRIM(name)=? COLLATE NOCASE", (name,)):
                 link_log_aircraft(con, row["log_id"], logged_name=name)
     else:
+        if is_default_log_name(name):
+            return jsonify(error=f"{name} is an autopilot's default name and stays shared; link the boards of its "
+                                 "logs instead."), 409
         with con:
             con.execute("DELETE FROM ambiguous_drone_names WHERE name=?", (name,))
             for row in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE TRIM(name)=? COLLATE NOCASE", (name,)):
