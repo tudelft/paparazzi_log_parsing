@@ -209,6 +209,11 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
   it to drag, draw, type or paste; Save keeps the name and linked records) and *Delete location…*. **Only unnamed dots** (admins) hides named endpoint dots: select a coordinate or
   use **Previous / Next** to visit each remaining dot, then Add location around it; covered positions leave the
   review list after saving.
+- **Drone zones**: admins import the government's zone file (JSON, from
+  [Where can I fly a drone?](https://www.government.nl/faq/aviation/where-can-i-fly-a-drone)) with **Manage ▾** →
+  *Drone zones…*. The zones then show on the Locations and Plan flight maps (switch them off in the map's corner; click
+  the map to see the zones at that point), and Plan flight lists the zones the flight area or its buffer reaches. Import
+  the new file when the government publishes one. Details: [technical guide](TECHNICAL.md#drone-zones).
 
 - The **Logbook** looks the same for everyone; what you may change is offered where it applies. Tick one or more
   rows for the **selection bar** at the bottom: copy numbers, MATLAB, and, when you may change all ticked entries,

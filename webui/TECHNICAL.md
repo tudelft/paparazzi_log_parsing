@@ -1869,6 +1869,21 @@ approvers (`booking_requests`, the [Approval queue](#people-approval-queue) filt
 leave to the other teams' PICs (`bookings`). Home shows administrators "N flight plans to approve". The Decided view
 lists teams that waited and were decided (`kind=operation`).
 
+#### Drone zones
+
+`uas_zones.py`: the geographical UAS zones of a country from an ED-269 JSON file (the Dutch file from government.nl,
+*Where can I fly a drone?*, about 750 zones). An administrator imports it on Locations (**Manage ▾** → *Drone zones…*;
+`POST /api/admin/uas-zones` with the form field `file`, at most 20 MiB, `admin` scope for keys); the server never
+downloads it itself. Each import is a row in `uas_zones` (title from the file, the zones normalised to
+`{id, name, restriction, reasons, message, lower_m, upper_m, lower_ref, upper_ref, shapes}` with shapes like a
+location's, feet converted to metres); the newest is used unless it was removed (`DELETE /api/admin/uas-zones`; older
+imports do not come back). `GET /api/uas-zones` gives `{info, zones}` to everyone signed in. `static/uas_zones.js` draws
+them (canvas, under every other layer) on the Locations and Plan flight maps, with an on/off switch remembered per
+browser and a popup listing the zones at a clicked point. `POST /api/operations/prepare` returns `zones`
+(`{title, zones}`, null without an import): the zones the flight area with its buffer reaches, most restrictive first,
+`in_area` false when only the buffer reaches one; a zone starting above the planned height (AGL) is left out. It only
+warns. The team's preparation keeps the same `zones` as they were when it booked.
+
 ### Email notifications
 
 Off unless `LOGDB_SMTP_HOST` is set (settings in the **Email** group of `config.py example`; use the organisation's

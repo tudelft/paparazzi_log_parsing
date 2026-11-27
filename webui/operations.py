@@ -10,7 +10,7 @@ teams (in the agenda and the People approval queue) and book without approval.
 
 Plan flight shows the flight area with its ground risk buffer (ground_risk.py, 1:1: as wide as the planned maximum
 height; the location's default area and maximum height unless the team draws or sets its own; a warning when it does
-not stay inside the location), the weather forecast for the slot, red/green checks of the crew's qualifications and
+not stay inside the location; the drone zones it overlaps, uas_zones.py), the weather forecast for the slot, red/green checks of the crew's qualifications and
 the aircraft on that date, and a NOTAM check (a link from LOGDB_NOTAM_URL, a tick and a reference); these are stored
 with the team
 as they were when it booked (operation_teams.preparation). The slot itself is a bookings row: its status stays
@@ -32,6 +32,7 @@ import home
 import links
 import mail
 import operators
+import uas_zones
 import weather
 from bookings import BookingError, person_name, utc_now, when
 from config import env, env_bool
@@ -730,8 +731,9 @@ def register(app, connection, require_session, logbook=None):
                     category=category, authorisation_id=authorisation_id), crew, status
 
     def preparation(cid, thing, place_id, start, end, team, crew):
-        return dict(prepared_at=utc_now(), weather=forecast(cid, place_id, start, end),
-                    area=area_plan(place_geometry(cid, place_id), team["height_m"], team["flight_area"]),
+        area = area_plan(place_geometry(cid, place_id), team["height_m"], team["flight_area"])
+        return dict(prepared_at=utc_now(), weather=forecast(cid, place_id, start, end), area=area,
+                    zones=uas_zones.check(cid, area["area"], area["buffer_m"], area["height_m"]),
                     checks=checks(cid, thing["id"], start[:10], team["pic_id"], crew, team["drones"]),
                     notam=team["notam"], notam_url=env("NOTAM_URL") or None)
 
@@ -875,7 +877,9 @@ def register(app, connection, require_session, logbook=None):
                            " FROM bookings b JOIN operation_slots s ON s.booking_id=b.id JOIN users u ON u.id=b.user_id"
                            " WHERE s.place_id=? AND b.starts_at<? AND b.ends_at>? AND b.status!='rejected'"
                            " AND b.id IS NOT ? ORDER BY b.starts_at", (place["id"], end, start, body.get("ignore_id")))]
-        return jsonify(weather=forecast(cid, place["id"], start, end), area=area_plan(geometry, height, area),
+        plan_area = area_plan(geometry, height, area)
+        return jsonify(weather=forecast(cid, place["id"], start, end), area=plan_area,
+                       zones=uas_zones.check(cid, plan_area["area"], plan_area["buffer_m"], plan_area["height_m"]),
                        checks=checks(cid, thing["id"], start[:10], pic, [c for c in crew if c != pic], list(dict.fromkeys(drones))),
                        slots=overlapping, notam_url=env("NOTAM_URL") or None)
 

@@ -106,6 +106,7 @@
           <div class="menu-pop" id="manageMenu" role="menu" hidden>
             <button type="button" class="ext-item" role="menuitem" onclick="openImport()">Import CSV…</button>
             <a class="ext-item" role="menuitem" href="/api/admin/places/template">Download CSV template</a>
+            <button type="button" class="ext-item" role="menuitem" onclick="openZones()">Drone zones…</button>
           </div></span>
         <details><summary>Help</summary><p><span id="intro"></span> Blue dots are positions where flights took off or landed, grouped to about 100 m. Click a location in the list or on the map to select it; click a numbered group to zoom in. Boundaries appear when zoomed in. <span id="unnamedHelp" hidden>Only unnamed dots lists positions outside named places: select one or use Previous / Next to visit it, then Add location and draw a boundary around it; covered positions leave the list after saving.</span></p></details></span></div>
     <div id="pointReview" hidden>
@@ -169,6 +170,15 @@
       <div id="actBody"></div><p class="dialog-error" id="actError" role="alert"></p>
       <p style="display:flex;gap:8px;margin:14px 0 0"><button type="button" class="danger" id="actOk"></button><button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></p>
     </dialog>
+    <dialog class="entry-dialog" id="zonesDialog" aria-labelledby="zonesTitle" style="width:min(460px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+      <div class="dialog-header"><h2 id="zonesTitle">Drone zones</h2><button type="button" onclick="$('zonesDialog').close()">Close</button></div>
+      <p id="zonesNow" style="margin:0"></p>
+      <p class="mute" style="font-size:13px">Download the zone file (JSON, ED-269) from <a href="https://www.government.nl/faq/aviation/where-can-i-fly-a-drone" target="_blank" rel="noopener">Where can I fly a drone? ↗</a> and import it here. It replaces the zones on the Locations and Plan flight maps; Plan flight warns when a flight area or its buffer reaches a zone. Import the new file when the government publishes one.</p>
+      <p class="dialog-error" id="zonesError" role="alert"></p>
+      <div class="dialog-fields"><label class="field">Zone file<input id="zonesFile" type="file" accept=".json,application/json"></label></div>
+      <p style="display:flex;gap:8px;margin:14px 0 0"><button type="button" class="primary" onclick="importZones()">Import</button>
+        <button type="button" class="danger" id="zonesRemove" onclick="removeZones()">Stop showing zones</button></p>
+    </dialog>
     <dialog class="entry-dialog" id="importPlacesDialog" aria-labelledby="importPlacesTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
     <div class="dialog-header"><h2 id="importPlacesTitle">Import places from CSV</h2><button type="button" onclick="$('importPlacesDialog').close()" aria-label="Close CSV import">Close</button></div>
     <p>Each row is a circle (<code>place</code>, <code>lat</code>, <code>lon</code>, <code>radius_m</code>, optional <code>indoor</code> yes/no and <code>country</code>, e.g. NL). A place with the same name is updated; importing the same file again changes nothing. One bad row imports nothing. Other columns of <code>logbooks/places.csv</code> are ignored.</p>
@@ -186,6 +196,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 <script src="/area_editor.js"></script>
+<script src="/uas_zones.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -333,6 +344,7 @@ function initMap() {
       visibleBoundaries.addLayer(e.layer);
   });
   map.on('zoomend', renderNamedPlaces);
+  UasZones.attach(map);
   map.on(L.Draw.Event.CREATED, e => {
     stopAdd();
     pendingLayer = e.layer.addTo(map);
@@ -709,6 +721,30 @@ async function importPlaces(preview) {
       await loadPlaces();
     }
   } catch (error) { $('importPlacesError').textContent = 'Import failed: ' + error.message; }
+}
+// Drone zones (uas_zones.py): an administrator imports the government's ED-269 JSON file; it replaces the zones in use.
+async function openZones() {
+  const d = await UasZones.load(true);
+  $('zonesNow').innerHTML = d.info ? `In use: <b>${esc(d.info.title)}</b> (${d.info.count} zones), imported ${esc(d.info.uploaded_at.slice(0, 10))}${d.info.uploaded_by ? ' by ' + esc(d.info.uploaded_by) : ''}.`
+    : 'No drone zones are imported yet.';
+  $('zonesRemove').hidden = !d.info;
+  $('zonesFile').value = ''; $('zonesError').textContent = '';
+  $('zonesDialog').showModal();
+}
+async function importZones() {
+  const f = $('zonesFile').files[0];
+  if (!f) { $('zonesError').textContent = 'Choose the zone file first.'; return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  const r = await fetch('/api/admin/uas-zones', {method: 'POST', body: fd}).catch(e => ({ok: false, json: async () => ({error: e.message})}));
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { $('zonesError').textContent = d.error || 'Import failed'; return; }
+  location.reload();  // draw the new zones
+}
+async function removeZones() {
+  const r = await fetch('/api/admin/uas-zones', {method: 'DELETE'});
+  if (!r.ok) { $('zonesError').textContent = 'Could not remove the zones'; return; }
+  location.reload();
 }
 function deletePlace(id) {
   const p = placeData.places.find(x => x.id === id);
