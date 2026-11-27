@@ -145,6 +145,18 @@ exist, defaulting to the INS path for OptiTrack flights (indoors the GPS receive
 the URL (`?path=gps|ins`). With the INS path, the takeoff and landing markers are its first and last point. The
 maps zoom to level 23 (tiles above 19 are scaled up). Distances and the logbook places still come from GPS.
 
+<a id="track-origin"></a>**Track origin (tracks without GPS).** A flight whose path has no GPS position but a local
+north/east position without map coordinates of its own (e.g. Blackbox/INDIFlight, PX4, ArduPilot or MAVLink logs flown
+with motion capture, or simulations) is drawn from a location: the one set on the flight (Edit flight → *Track
+origin*, `PUT /api/flights/<id>/track-origin` with `place_id`, null = the project's; same rights as the goal; kept
+across a re-parse), else the project's default (Edit project, admins, `track_origin_place_id`). Local north/east are
+added to the centre of that location (flat earth, no rotation: a rough location only). The server does this when it
+serves the path (`/api/flights/<id>/path` and the flight page's `/detail`), into each point's `ins` `lat`/`lon`
+(marked `placed`), so a new origin needs no reparse. GPS `position`, the logbook places, distances, weather and GPS
+quality never use these coordinates. Without GPS the flight page shows the INS path (no GPS/INS select) and the
+Logbook's mini-map falls back to it; with no origin set, the map says how to choose one. Deleting a location clears it
+as origin.
+
 **Fixed-wing navigation fallback.** Parser 1.7.9 can fill gaps in direct GPS using recorded
 `NAVIGATION.pos_x/pos_y` (metres east/north) and the latest received `NAVIGATION_REF`
 UTM origin. GPS still takes precedence for two seconds. A reference must first agree
@@ -988,7 +1000,8 @@ Members (the first three, "+N", all on hover), Logs, Operator and Category of it
 rows per page (20 by default) are in the URL (`q`, `sort`, `page`, `size`). Admins, and managers for their projects, open a project
 beside the table (`open=<id>`, `ptab=members`; Operator and Category are hidden then) with the tabs Details and
 Members; other rows open the project page. **Edit project** is one dialog: admins change the name, operator (also
-**New operator…**) and category (`PUT /api/admin/projects/<id>` with only what changed) and the members; a manager only
+**New operator…**), category and [track origin](#track-origin) (`PUT /api/admin/projects/<id>` with only what changed;
+`/api/admin/projects` lists the locations for it) and the members; a manager only
 the members. Each member has one access select (See / See, upload / … edit / … delete / Manager) and × to remove
 (↺ undoes); a search adds an enabled, non-external person with See. Save sends one `PUT /api/projects/<id>/members` per
 changed member (`role: ""` removes). ⋯ (admins): **Delete project…** (logs stay). **Add project** and **Manage ▾**

@@ -229,6 +229,62 @@ def flight_path(paths_file, idx, days=0, path_gz=None):
     return apply_clock_to_obj(copy.deepcopy(path), days) if days else path
 
 
+EARTH_RADIUS_M = 6378137.0
+
+
+def track_origin(con, flight_id):
+    """Where a track without GPS starts on the map: the location set on the flight, else its project's default.
+    {place_id, name, source: flight | project, lat, lon, project_place: {id, name} | None}, or None when neither is
+    set."""
+    row = con.execute(
+        "SELECT f.track_origin_place_id AS flight, p.track_origin_place_id AS project FROM flights f"
+        " LEFT JOIN projects p ON p.id = f.project_id WHERE f.id=?", (flight_id,)).fetchone()
+    if row is None:
+        return None
+    found = {key: con.execute("SELECT id, name, shape FROM places WHERE id=?", (row[key],)).fetchone()
+             for key in ("flight", "project") if row[key] is not None}
+    source = next((key for key in ("flight", "project") if found.get(key) is not None), None)
+    if source is None:
+        return None
+    place = found[source]
+    lat, lon = home.place_centre(place["shape"])
+    project = found.get("project")
+    return dict(place_id=place["id"], name=place["name"], source=source, lat=lat, lon=lon,
+                project_place=dict(id=project["id"], name=project["name"]) if project is not None else None)
+
+
+def has_local_track(path):
+    """A path without any GPS position but with a local (north/east) position that has no map coordinates of its
+    own (Paparazzi logs place theirs from the logged origin), e.g. motion capture or simulation."""
+    if db.path_has_gps_position(path):
+        return False
+    return any(isinstance(((p.get("ins") or {}).get("position_ned_m") or {}).get("north"), (int, float))
+               and not valid_gps_location((p.get("ins") or {}).get("lat"), (p.get("ins") or {}).get("lon"))
+               for p in path)
+
+
+def place_local_track(path, origin):
+    """The path with the local north/east position placed at the origin's centre as `ins` lat/lon (flat earth; no
+    rotation, so only a rough location). Only for tracks without GPS; `position` (GPS) stays empty, so places,
+    distance and weather never use these coordinates. Returns a new list; the cached path is not changed."""
+    if origin is None or not has_local_track(path):
+        return path
+    lat0, lon0 = math.radians(origin["lat"]), origin["lon"]
+    out = []
+    for p in path:
+        ins = p.get("ins") or {}
+        ned = ins.get("position_ned_m") or {}
+        n, e = ned.get("north"), ned.get("east")
+        if (valid_gps_location(ins.get("lat"), ins.get("lon")) or not isinstance(n, (int, float))
+                or not isinstance(e, (int, float)) or not math.isfinite(n) or not math.isfinite(e)):
+            out.append(p)
+            continue
+        lat = origin["lat"] + math.degrees(n / EARTH_RADIUS_M)
+        lon = lon0 + math.degrees(e / (EARTH_RADIUS_M * math.cos(lat0)))
+        out.append({**p, "ins": {**ins, "lat": round(lat, 8), "lon": round(lon, 8), "placed": True}})
+    return out
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------------------------------------------------
@@ -2511,12 +2567,13 @@ def pick_project_for_user(con, user_id, aircraft_project_id):
 
 
 def snapshot_flight_edits(con, log_id):
-    """Keep edited flight project, crew, operator, category and classification across a re-parse (flights are deleted
+    """Keep edited flight project, crew, operator, category, classification and track origin across a re-parse (flights are deleted
     with the aircraft rows)."""
     return {(r["ac_id"], r["idx"]): dict(r) for r in con.execute(
         "SELECT a.ac_id, f.idx, f.project_id, f.project_source, f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment, f.hidden,"
         " f.operator_id, f.category, f.authorisation_id, f.verdict_override, f.goal_override, f.preflight_by, f.preflight_at,"
-        " f.preflight_special, f.tags FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id=?", (log_id,))}
+        " f.preflight_special, f.tags, f.track_origin_place_id FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
+        " WHERE a.log_id=?", (log_id,))}
 
 
 def drone_periods(con, drone_id):
@@ -2775,12 +2832,13 @@ def assign_log_flights(con, log_id, kept=None):
         if restore:
             con.execute("UPDATE flights SET pic_user_id=?, pac_user_id=?, gcs_user_id=?, comment=?, hidden=?, operator_id=?,"
                         " category=?, authorisation_id=?, verdict_override=?, goal_override=?, preflight_by=?, preflight_at=?,"
-                        " preflight_special=?, tags=? WHERE id=?",
+                        " preflight_special=?, tags=?, track_origin_place_id=? WHERE id=?",
                         (restore.get("pic_user_id"), restore.get("pac_user_id"), restore.get("gcs_user_id"),
                          restore.get("comment"), restore.get("hidden", 0), restore.get("operator_id"),
                          restore.get("category"), restore.get("authorisation_id"), restore.get("verdict_override"),
                          restore.get("goal_override"), restore.get("preflight_by"), restore.get("preflight_at"),
-                         restore.get("preflight_special"), restore.get("tags"), f["id"]))
+                         restore.get("preflight_special"), restore.get("tags"), restore.get("track_origin_place_id"),
+                         f["id"]))
         saved = restore.get("project_id")
         source = restore.get("project_source") if restore else f["project_source"]
         if source == "manual":
@@ -3083,6 +3141,8 @@ def admin_delete_place(place_id):
     if con.execute("SELECT 1 FROM flight_records WHERE place_id=?", (place_id,)).fetchone():
         return jsonify(error="This location has historical records. Reassign or remove those records first."), 409
     con.execute("UPDATE users SET home_place_id=NULL WHERE home_place_id=?", (place_id,))  # also for older databases
+    for table in ("flights", "projects"):
+        con.execute(f"UPDATE {table} SET track_origin_place_id=NULL WHERE track_origin_place_id=?", (place_id,))
     con.execute("DELETE FROM places WHERE id=?", (place_id,))
     con.commit()
     return jsonify(ok=True)
@@ -3317,11 +3377,13 @@ def list_projects():
     """Projects this user can open. Admins get every project."""
     con = conn()
     if g.user["is_admin"]:
-        rows = con.execute("SELECT id, name, operator_id, category, authorisation_id, 'full' AS role FROM projects"
+        rows = con.execute("SELECT id, name, operator_id, category, authorisation_id, track_origin_place_id, 'full' AS role"
+                           " FROM projects"
                            " ORDER BY name").fetchall()
     else:
         rows = con.execute(
-            "SELECT p.id, p.name, p.operator_id, p.category, p.authorisation_id, m.role FROM projects p"
+            "SELECT p.id, p.name, p.operator_id, p.category, p.authorisation_id, p.track_origin_place_id, m.role"
+            " FROM projects p"
             " JOIN project_members m ON m.project_id = p.id"
             " WHERE m.user_id=? ORDER BY p.name", (g.user["id"],)).fetchall()
     out = []
@@ -3338,7 +3400,10 @@ def list_projects():
                     "can_manage": bool(g.user["is_admin"]) or r["role"] == "manager", "members": members,
                     # the operator and category its flights fall under (shown on the Projects page)
                     "operator_id": r["operator_id"], "category": r["category"],
-                    "authorisation_id": r["authorisation_id"]})
+                    "authorisation_id": r["authorisation_id"],
+                    # where its tracks without GPS (local position only) start on the map
+                    "track_origin_place_id": r["track_origin_place_id"],
+                    "track_origin_name": place_name(con, r["track_origin_place_id"])})
     return jsonify(out)
 
 
@@ -3453,8 +3518,9 @@ def admin_import_projects():
 
 @app.put("/api/admin/projects/<int:project_id>")
 def admin_update_project(project_id):
-    """Rename a project, or set the operator its flights are flown under (operator_id; null = none) or their
-    default category (category and/or authorisation_id; both empty = none)."""
+    """Rename a project, or set the operator its flights are flown under (operator_id; null = none), their
+    default category (category and/or authorisation_id; both empty = none) or the location where its tracks without
+    GPS start on the map (track_origin_place_id; null = none)."""
     admin_required()
     body = request.get_json(silent=True) or {}
     con = conn()
@@ -3470,6 +3536,10 @@ def admin_update_project(project_id):
         operator_id = operators.parse_id(con, body["operator_id"])
         if operator_id is False:
             return jsonify(error="no such operator"), 400
+    if "track_origin_place_id" in body:
+        origin = parse_place_id(con, body["track_origin_place_id"])
+        if origin is False:
+            return jsonify(error="no such location"), 400
     if "category" in body or "authorisation_id" in body:
         try:
             category = categories.parse(con, body)
@@ -3482,6 +3552,8 @@ def admin_update_project(project_id):
             con.execute("UPDATE projects SET operator_id=? WHERE id=?", (operator_id, project_id))
         if "category" in body or "authorisation_id" in body:
             con.execute("UPDATE projects SET category=?, authorisation_id=? WHERE id=?", (*category, project_id))
+        if "track_origin_place_id" in body:
+            con.execute("UPDATE projects SET track_origin_place_id=? WHERE id=?", (origin, project_id))
         con.commit()
     except sqlite3.IntegrityError:
         con.rollback()
@@ -3522,8 +3594,11 @@ def admin_project_detail():
         n = con.execute("SELECT COUNT(*) AS n FROM logs WHERE project_id=?", (p["id"],)).fetchone()["n"]
         projects.append({"id": p["id"], "name": p["name"], "log_count": n, "members": members,
                          "operator_id": p["operator_id"], "category": p["category"],
-                         "authorisation_id": p["authorisation_id"]})
-    return jsonify(projects=projects, roles=ACCESS_ROLES)
+                         "authorisation_id": p["authorisation_id"], "track_origin_place_id": p["track_origin_place_id"],
+                         "track_origin_name": place_name(con, p["track_origin_place_id"])})
+    # the locations a project's tracks without GPS can start from (Edit project)
+    places = [dict(r) for r in con.execute("SELECT id, name, indoor FROM places ORDER BY name COLLATE NOCASE")]
+    return jsonify(projects=projects, roles=ACCESS_ROLES, places=places)
 
 
 def manages_project(con, project_id):
@@ -4943,6 +5018,40 @@ def set_flight_goal(flight_id):
     con.execute("UPDATE flights SET goal_override=? WHERE id=?", (goal, flight_id))
     con.commit()
     return jsonify(ok=True, goal=goal)
+
+
+def place_name(con, place_id):
+    row = con.execute("SELECT name FROM places WHERE id=?", (place_id,)).fetchone() if place_id is not None else None
+    return row["name"] if row else None
+
+
+def parse_place_id(con, raw):
+    """A location id from a request: the id, None for empty/null, or False when there is no such location."""
+    if raw in (None, ""):
+        return None
+    try:
+        place_id = int(raw)
+    except (TypeError, ValueError):
+        return False
+    return place_id if con.execute("SELECT 1 FROM places WHERE id=?", (place_id,)).fetchone() else False
+
+
+@app.put("/api/flights/<int:flight_id>/track-origin")
+def set_flight_track_origin(flight_id):
+    """Set the location where this flight's track without GPS starts on the map ({"place_id": id}; null = the
+    project's default). Same rights as the goal; kept across a re-parse."""
+    con = conn()
+    _, err = visible_editable_flight(con, flight_id)
+    if err == "missing":
+        abort(404)
+    if err == "forbidden":
+        return jsonify(error="you cannot change the track origin of this flight"), 403
+    place_id = parse_place_id(con, (request.get_json(silent=True) or {}).get("place_id"))
+    if place_id is False:
+        return jsonify(error="no such location"), 400
+    con.execute("UPDATE flights SET track_origin_place_id=? WHERE id=?", (place_id, flight_id))
+    con.commit()
+    return jsonify(ok=True)
 
 
 @app.put("/api/flights/<int:flight_id>/tags")
@@ -7535,7 +7644,14 @@ def flight_detail(flight_id):
     invalid_reports = config.get("invalid_setting_reports") or []
     apply_clock_to_obj(invalid_reports, days)
     versions, from_gcs = with_gcs_autopilot_fallback(json.loads(row["autopilot_versions"] or "[]"), row["log_path"])
+    origin = None
+    if has_local_track(path):  # no GPS, only a local position: drawn from a chosen location (Edit flight)
+        origin = track_origin(con, flight_id)
+        path = place_local_track(path, origin)
+        origin = dict(origin or {}, places=[dict(r) for r in con.execute(
+            "SELECT id, name, indoor FROM places ORDER BY name COLLATE NOCASE")])
     return gzip_json(jsonify(
+        track_origin=origin,
         entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
         operation=operations.flight_operation(con, entry), time_zone=operations.zone().key,
         previous_flight_id=previous_flight_id, next_flight_id=next_flight_id,
@@ -8026,9 +8142,11 @@ def get_path(flight_id):
         f" JOIN logs l ON l.id = a.log_id WHERE f.id=? AND {where}", (flight_id, *params)).fetchone()
     if row is None:
         abort(404)
-    return gzip_json(jsonify(flight_path(row["paths_file"], row["path_idx"],
-                                         clock_shift_days(row["start_utc"], row["date_override"]),
-                                         row["path_gz"] if HAVE_PATH_GZ else None)))
+    path = flight_path(row["paths_file"], row["path_idx"], clock_shift_days(row["start_utc"], row["date_override"]),
+                       row["path_gz"] if HAVE_PATH_GZ else None)
+    if has_local_track(path):
+        path = place_local_track(path, track_origin(conn(), flight_id))
+    return gzip_json(jsonify(path))
 
 
 # MATLAB export (matlab_export.py): browser users who may download the log request a .mat file, which is built in
