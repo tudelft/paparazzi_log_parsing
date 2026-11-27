@@ -938,12 +938,24 @@ function openLink(kind) {
     if (cands.every(c => c && c === cands[0] && !c.includes(','))) preferred = +cands[0];
   }
   const boardsOnly = kind === 'shared' && keys.every(k => k.startsWith('b:'));
+  // Aircraft do not switch autopilots: with one autopilot among the ticked rows, the aircraft that fly it come first,
+  // then those without logs yet, then the others (still offered: a flight controller can be replaced).
+  const recs = data.ambiguous.flatMap(a => a.recordings);
+  const families = new Set(keys.flatMap(k => kind === 'unlinked' ? data.unlinked[+k].autopilots || []
+    : k.startsWith('b:') ? recs.filter(r => r.mcu_uid === k.slice(2)).map(r => r.autopilot)
+    : recs.filter(r => `r:${r.log_id}:${r.ac_id}` === k).map(r => r.autopilot)).filter(Boolean));
+  const family = families.size === 1 ? [...families][0] : null;
+  const option = d => `<option value="${d.id}"${d.id === preferred ? ' selected' : ''}>${esc(droneLabel(d))}${d.status === 'Discard' ? ' · Discard' : ''}</option>`;
+  const sorted = [...data.drones].sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+  const groups = family ? [[`Flies ${family}`, sorted.filter(d => (d.autopilots || []).includes(family))],
+    ['No logs yet', sorted.filter(d => !(d.autopilots || []).length)],
+    ['Other autopilots', sorted.filter(d => (d.autopilots || []).length && !d.autopilots.includes(family))]] : null;
   const options = (kind === 'shared' && !boardsOnly ? '<option value="">Automatic / unresolved (recordings without a board)</option>' : '<option value="">Choose aircraft</option>')
-    + [...data.drones].sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true})).map(d =>
-      `<option value="${d.id}"${d.id === preferred ? ' selected' : ''}>${esc(droneLabel(d))}${d.status === 'Discard' ? ' · Discard' : ''}</option>`).join('');
+    + (groups ? groups.filter(([, ds]) => ds.length).map(([label, ds]) => `<optgroup label="${esc(label)}">${ds.map(option).join('')}</optgroup>`).join('')
+      : sorted.map(option).join(''));
   actDialog('Link to aircraft', `<p style="margin:0">${keys.length} ticked ${kind === 'unlinked' ? (keys.length === 1 ? 'name' : 'names') : (keys.length === 1 ? 'row' : 'rows')}.
     ${kind === 'unlinked' ? 'The names become aliases; their board IDs link to the aircraft too.' : 'A board links every recording on it, now and in later uploads.'}</p>
-    <label class="field">Aircraft<select name="drone">${options}</select></label>`, 'Link', async out => {
+    <label class="field">Aircraft<select name="drone">${options}</select></label>${family ? `<p class="mute" style="margin:0">${esc(family)} logs: aircraft that fly ${esc(family)} are listed first.</p>` : ''}`, 'Link', async out => {
     const value = $('actBody').querySelector('[name=drone]').value;
     if (!value && (kind === 'unlinked' || keys.some(k => k.startsWith('b:')))) { out.textContent = 'Choose an aircraft.'; return false; }
     for (const key of keys) {

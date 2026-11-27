@@ -784,6 +784,43 @@ class FleetLinkTests(AppTests):
         self.ns["link_log_aircraft"](self.con, 1)
         self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=1").fetchone()[0], 11)
 
+    def add_log(self, log_id, name, log_type, ac_name="LOG00001", drone_id=None):
+        self.con.execute("INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,log_type) "
+                         "VALUES (?,?,?,'a.gz','done','now',?)", (log_id, name, f"sha{log_id}", log_type))
+        self.con.execute("INSERT INTO aircraft(log_id, ac_id, name, drone_id) VALUES (?, 1, ?, ?)", (log_id, ac_name, drone_id))
+        self.con.commit()
+
+    def drone_of_log(self, log_id):
+        return self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=?", (log_id,)).fetchone()[0]
+
+    def test_folder_guess_skips_an_aircraft_that_flies_another_autopilot(self):
+        """Aircraft do not switch autopilots: a PX4 log in a folder named after a Paparazzi aircraft is not its."""
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Modular Hex 1','TUD00905','now')")
+        self.add_log(5, 'old/hex_SD.data', 'onboard_sd', 'Hex', drone_id=10)
+        self.add_log(1, 'Modular Hex 1/a.ulg', 'px4_ulog', drone_id=10)  # linked earlier by that folder
+        self.ns["link_log_aircraft"](self.con, 1)
+        self.assertIsNone(self.drone_of_log(1))  # its own earlier link does not count as flying PX4
+        self.add_log(2, 'Modular Hex 1/b.BFL', None, 'LOG00002')  # a legacy log without a type is a Paparazzi one
+        self.ns["link_log_aircraft"](self.con, 2)
+        self.assertEqual(self.drone_of_log(2), 10)
+
+    def test_folder_guess_picks_the_one_aircraft_of_the_same_autopilot(self):
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (9,'Quad 1','TUD00902','now')")
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Quad 2','TUD00903','now')")
+        self.add_log(5, 'q1.ulg', 'px4_ulog', 'Q1', drone_id=9)
+        self.add_log(6, 'q2.bin', 'ardupilot', 'Q2', drone_id=10)
+        self.add_log(1, 'Quad/a.ulg', 'px4_ulog')
+        self.ns["link_log_aircraft"](self.con, 1)
+        self.assertEqual(self.drone_of_log(1), 9)
+        self.add_log(2, 'Quad/b.tlog', 'mavlink_tlog')  # a tlog may be either: still both match, no guess
+        self.ns["link_log_aircraft"](self.con, 2)
+        self.assertIsNone(self.drone_of_log(2))
+        payload = self.fleet()
+        self.assertEqual({d["id"]: d["autopilots"] for d in payload["drones"] if d["id"] in (9, 10)},
+                         {9: ["PX4"], 10: ["ArduPilot"]})
+        row = next(e for e in payload["unlinked"] if e["name"] == "LOG00001")
+        self.assertEqual(row["autopilots"], [])  # only the tlog is still unlinked under that name
+
     def test_startup_relink_picks_up_nested_folder_uploads(self):
         self.con.execute(
             "INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Modular Hex 1','TUD00905','now')")

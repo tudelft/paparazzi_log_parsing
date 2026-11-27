@@ -2271,15 +2271,44 @@ def remove_file_name_aliases(con):
     return gone
 
 
-def guess_drone_from_log_path(con, log_name):
+# The autopilot family of a log type; an aircraft does not switch autopilots, so it narrows folder guesses and the
+# Link to aircraft list. A .tlog is MAVLink from PX4 or ArduPilot alike, so it has none.
+AUTOPILOT_OF_LOG_TYPE = {"onboard_sd": "Paparazzi", "gcs": "Paparazzi", "px4_ulog": "PX4", "ardupilot": "ArduPilot",
+                         "betaflight": "Betaflight", "indiflight": "Betaflight", "blackbox": "Betaflight"}
+
+
+def log_autopilot(log_type, log_name=None):
+    """The autopilot family of a log ('Paparazzi', 'PX4', 'ArduPilot', 'Betaflight'), or None (a .tlog)."""
+    return AUTOPILOT_OF_LOG_TYPE.get(_type_of({"log_type": log_type, "log_name": log_name}))
+
+
+def drone_autopilot_counts(con):
+    """{drone id: {autopilot family: number of linked logs}} from the logs already linked to each aircraft."""
+    out = {}
+    for r in con.execute("SELECT a.drone_id, l.log_type, l.name, COUNT(DISTINCT l.id) AS n FROM aircraft a"
+                         " JOIN logs l ON l.id=a.log_id WHERE a.drone_id IS NOT NULL GROUP BY a.drone_id, l.log_type,"
+                         " l.log_type IS NULL AND l.name LIKE '%\\_SD.data' ESCAPE '\\'"):
+        family = log_autopilot(r["log_type"], r["name"])
+        if family:
+            counts = out.setdefault(r["drone_id"], {})
+            counts[family] = counts.get(family, 0) + r["n"]
+    return out
+
+
+def guess_drone_from_log_path(con, log_name, autopilot=None, autopilots=None):
     """If a folder in the upload path uniquely matches one fleet aircraft, use that.
 
     PX4 and Blackbox logs often lack a fleet nickname; the dropped folder is named after the aircraft
     even when the files sit in dated subfolders. The deepest folder is tried first, so a person or project
     folder above it does not win. Only a unique match links, so 'Quadrotor' does not steal every quad.
+    With the log's autopilot family and {drone id: families it flies}, an aircraft that only flies another
+    autopilot is no match (aircraft do not switch autopilots; one without logs yet still is): it is not guessed
+    alone, and among several matches the only one that fits wins.
     """
     for folder in reversed(log_folder_labels(log_name)):
         hits = matching_drones_for_folder(con, folder)
+        if autopilot and autopilots is not None:
+            hits = [h for h in hits if not autopilots.get(h["id"]) or autopilot in autopilots[h["id"]]]
         if len(hits) == 1:
             return hits[0]
     return None
@@ -2526,7 +2555,7 @@ def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None, remember_ide
         boards = board_map(con)
         if cache is not None:
             cache["boards"] = boards
-    log = con.execute("SELECT name FROM logs WHERE id=?", (log_id,)).fetchone()
+    log = con.execute("SELECT name, log_type FROM logs WHERE id=?", (log_id,)).fetchone()
     log_name = log["name"] if log else ""
     where, params = "log_id=?", [log_id]
     if logged_name is not None:
@@ -2553,7 +2582,20 @@ def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None, remember_ide
         if d is None and board and boards.get(board):
             d = drones.get(boards[board])  # an ambiguous or unknown name on a known board
         if d is None and not ambiguous:
-            d = guess_drone_from_log_path(con, log_name)
+            autopilot = log_autopilot(log["log_type"], log_name) if log else None
+            counts = None
+            if autopilot:
+                if cache is not None and "autopilots" in cache:
+                    counts = cache["autopilots"]
+                else:
+                    counts = drone_autopilot_counts(con)
+                    if cache is not None:
+                        cache["autopilots"] = counts
+            # what each aircraft flies, without this log itself (an earlier wrong link must not confirm itself)
+            autopilots = None if counts is None else {
+                drone: {f for f, n in c.items() if n - (f == autopilot and drone == a["drone_id"]) > 0}
+                for drone, c in counts.items()}
+            d = guess_drone_from_log_path(con, log_name, autopilot, autopilots)
         if d is not None and not ambiguous and not override and remember_identity:
             remember_drone_log_identity(con, d["id"], a["name"], log_name)
             drones, names = drone_name_map(con)
@@ -3720,11 +3762,12 @@ def _group_unlinked_by_board(entries):
             e.setdefault("names", [e["name"]])
             out.append(e)
             continue
-        names, folders, cand, seen_c = [], [], [], set()
+        names, folders, cand, seen_c, autopilots = [], [], [], set(), []
         count = 0
         for e in sorted(group, key=lambda x: (-x["count"], x["name"].casefold())):
             names.append(e["name"])
             count += e["count"]
+            autopilots += [f for f in e.get("autopilots") or [] if f not in autopilots]
             for folder in e["folders"]:
                 if folder not in folders:
                     folders.append(folder)
@@ -3734,7 +3777,7 @@ def _group_unlinked_by_board(entries):
                     cand.append(c)
         out.append({
             "name": names[0], "names": names, "count": count,
-            "folders": folders, "board_ids": [bid], "candidates": cand,
+            "folders": folders, "board_ids": [bid], "candidates": cand, "autopilots": autopilots,
         })
     out.sort(key=lambda e: (-e["count"], e["name"].casefold()))
     return out
@@ -3785,15 +3828,18 @@ def fleet_payload(con, include_unlinked=False, project_ids=None, manager_id=None
             f" OR id IN (SELECT drone_id FROM drone_projects WHERE project_id IN ({q})) ORDER BY name",
             (manager_id, *project_ids, *project_ids))
     fleet = []
+    flies = drone_autopilot_counts(con) if include_unlinked else {}
     for d in rows:
         item = drone_payload(con, d)
         item["can_edit"] = can_edit_drone_details(con, d)
+        if include_unlinked:  # for the Link to aircraft list: the same autopilot first
+            item["autopilots"] = sorted(flies.get(d["id"], {}))
         fleet.append(item)
     unlinked, projects = [], []
     if include_unlinked:
         seen = {}
         for a in con.execute(
-                "SELECT a.name AS ac_name, l.name AS log_name FROM aircraft a "
+                "SELECT a.name AS ac_name, l.name AS log_name, l.log_type FROM aircraft a "
                 "JOIN logs l ON l.id = a.log_id WHERE a.drone_id IS NULL AND a.name IS NOT NULL "
                 "AND TRIM(a.name) != ''"):
             ac_name = (a["ac_name"] or "").strip()
@@ -3802,8 +3848,10 @@ def fleet_payload(con, include_unlinked=False, project_ids=None, manager_id=None
             key = ac_name.casefold()
             if key in names and names[key] is None:
                 continue
-            e = seen.setdefault(key, {"name": ac_name, "count": 0, "folders": [], "board_ids": []})
+            e = seen.setdefault(key, {"name": ac_name, "count": 0, "folders": [], "board_ids": [], "autopilots": []})
             e["count"] += 1
+            if (family := log_autopilot(a["log_type"], a["log_name"])) and family not in e["autopilots"]:
+                e["autopilots"].append(family)
             for folder in log_folder_labels(a["log_name"]):
                 if folder not in e["folders"]:
                     e["folders"].append(folder)
@@ -3828,11 +3876,12 @@ def fleet_payload(con, include_unlinked=False, project_ids=None, manager_id=None
             recordings = []
             for r in con.execute(
                     "SELECT a.log_id,a.ac_id,a.drone_id,a.mcu_uid,a.simulation,b.drone_id AS board_drone_id,"
-                    " l.name AS log_name,"
+                    " l.name AS log_name, l.log_type,"
                     " EXISTS(SELECT 1 FROM log_aircraft_links x WHERE x.log_id=a.log_id AND x.ac_id=a.ac_id) AS manual"
                     " FROM aircraft a JOIN logs l ON l.id=a.log_id LEFT JOIN drone_boards b ON b.mcu_uid=a.mcu_uid"
                     " WHERE TRIM(a.name)=? COLLATE NOCASE ORDER BY l.name,a.ac_id", (row["name"],)):
                 r = dict(r)
+                r["autopilot"] = log_autopilot(r.pop("log_type"), r["log_name"])
                 # A simulated run reports the PC's machine ID, which is not a board (see link_log_aircraft).
                 if (json.loads(r.pop("simulation") or "{}") or {}).get("detected"):
                     r["mcu_uid"] = r["board_drone_id"] = None
