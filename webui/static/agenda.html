@@ -121,6 +121,13 @@
   a.btn { padding:4px 10px; border-radius:6px; background:var(--btn); color:#fff; text-decoration:none; }
   /* Outdoor operations: Plan flight (form beside its preparation) and a slot with its teams */
   dialog.entry-dialog.op-wide { width:min(980px, calc(100% - 32px)); }
+  /* Plan flight: form | map and checks | weather and NOTAMs side by side, so it fits a laptop screen without scrolling */
+  dialog.entry-dialog.op-plan { width:min(1320px, calc(100% - 32px)); max-height:94vh; }
+  .op-cols.op-three { grid-template-columns:minmax(0,1fr) minmax(0,1.15fr) minmax(0,1fr); }
+  .op-three .op-map { height:300px; }
+  @media (max-width:1100px) { .op-cols.op-three { grid-template-columns:minmax(0,1fr) minmax(0,1.1fr); } .op-three .op-map { height:230px; } }
+  @media (max-width:760px) { .op-cols.op-three { grid-template-columns:1fr; } }
+  .op-act { white-space:nowrap; }
   .op-cols { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.1fr); gap:18px; }
   .op-cols > div { display:flex; flex-direction:column; gap:10px; min-width:0; }
   .op-cols input:not([type=checkbox]), .op-cols select, .op-cols textarea { width:100%; min-width:0; }
@@ -297,10 +304,10 @@
     <div class="row"><button type="submit" class="primary" id="actOk">OK</button> <button type="button" class="sec" onclick="$('actDialog').close()">Cancel</button></div>
   </form>
 </dialog>
-<dialog class="entry-dialog op-wide" id="planDialog" aria-labelledby="planTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
+<dialog class="entry-dialog op-wide op-plan" id="planDialog" aria-labelledby="planTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <form id="planForm">
     <div class="dialog-header"><h2 id="planTitle">Plan flight</h2><button type="button" class="sec" onclick="$('planDialog').close()">Close</button></div>
-    <div class="op-cols">
+    <div class="op-cols op-three">
       <div>
         <p class="mute" id="planSlot" style="margin:0" hidden></p>
         <label class="field" id="planPlaceField">Location<select name="place_id" required onchange="prepare()"></select></label>
@@ -324,8 +331,10 @@
           <div class="op-map" id="planMap"></div>
           <div class="op-legend"><span><i style="border-color:#1a7f37;background:#1a7f3740"></i>Flight area</span><span><i style="border-color:#bf8700;border-style:dashed"></i><span id="planBufferLabel">Buffer</span></span><span><i style="border-color:#57606a;border-style:dotted"></i>Location boundary</span></div>
           <p id="planAreaVerdict" style="margin:4px 0 0;font-size:13px"></p></section>
-        <section class="op-sec"><h3>Weather <small id="planWeatherWhen"></small></h3><div id="planWeather" class="mute">Choose a location and time.</div></section>
         <section class="op-sec"><h3>Checks <small id="planChecksWhen"></small></h3><div id="planChecks" class="mute">Choose a location and time.</div></section>
+      </div>
+      <div>
+        <section class="op-sec"><h3>Weather <small id="planWeatherWhen"></small></h3><div id="planWeather" class="mute">Choose a location and time.</div></section>
         <section class="op-sec"><h3>Airspace and NOTAMs</h3>
           <p style="margin:0 0 6px;font-size:13px" id="planNotamLink"></p>
           <label class="check"><input type="checkbox" name="notam_checked"> Checked: nothing that stops this flight</label>
@@ -1037,8 +1046,8 @@ function prepare(now) {
       planShown = d.area.area || null;
       if (planMap) drawArea(planMap, planLayers, place.shape, d.area);
       $('planBufferLabel').textContent = d.area.buffer_m ? `Buffer ${Math.round(d.area.buffer_m)} m` : 'Buffer';
-      $('planAreaVerdict').innerHTML = areaText(d.area, place) + (planMap ? ` <a href="#" onclick="drawPlanArea(); return false">${d.area.area ? 'Change the area…' : 'Draw or enter an area…'}</a>`
-        + (planArea && place.flight_area ? ` · <a href="#" onclick="planArea = null; prepare(true); return false">Use the location's area</a>` : '') : '');
+      $('planAreaVerdict').innerHTML = areaText(d.area, place) + (planMap ? ` <a href="#" class="op-act" onclick="drawPlanArea(); return false">${d.area.area ? 'Change the area…' : 'Draw or enter an area…'}</a>`
+        + (planArea && place.flight_area ? ` · <a href="#" class="op-act" onclick="planArea = null; prepare(true); return false">Use the location's area</a>` : '') : '');
       const other = !slot && d.slots[0];
       $('planJoinHint').hidden = !other;
       if (other) $('planJoinHint').innerHTML = `${esc(other.person)}'s slot at this location, ${esc(span(other.start, other.end))}, overlaps this time. <a href="#" onclick="joinFromPlan(${other.id}); return false">Join that slot</a> instead of booking a second one.`;
