@@ -1466,10 +1466,14 @@ def _parse_tlog(path, digest, size, path_rate):
     prev_armed = None
     tlog_quality = None  # of the latest GPS_RAW_INT
     vision_times = []
-    board_uid = None  # the vehicle's flight-controller ID (boot STATUSTEXT or AUTOPILOT_VERSION)
+    boards = {}  # system ID -> flight-controller ID (boot STATUSTEXT or AUTOPILOT_VERSION); 96-bit beats 64-bit uid
 
     def epoch(t):
         return (t0_epoch + t) if t0_epoch is not None else None
+
+    def board(src, uid):  # keep the first ID per vehicle; a 96-bit one (24 hex digits) replaces a 64-bit uid
+        if uid and (src not in boards or len(boards[src]) < 24 <= len(uid)):
+            boards[src] = uid
 
     skip_full = {"BAD_DATA", "UNKNOWN"}
     high = {"HIGHRES_IMU", "RAW_IMU", "SCALED_IMU", "SCALED_IMU2", "SCALED_IMU3", "ATTITUDE_QUATERNION",
@@ -1492,23 +1496,24 @@ def _parse_tlog(path, digest, size, path_rate):
         if t_first is None:
             t_first = t_rel
         t_last = t_rel
-        sysid = getattr(m, "get_srcSystem", lambda: sysid)() if callable(getattr(m, "get_srcSystem", None)) else sysid
         try:
-            sysid = m.get_srcSystem()
+            src = m.get_srcSystem()
         except Exception:
-            pass
+            src = sysid
         try:
             compid = m.get_srcComponent()
         except Exception:
             compid = 1
-        # the board ID only from the autopilot itself (component 1), not from the ground station (system 255) or a
-        # companion computer or gimbal with the same system ID
-        from_autopilot = sysid != 255 and compid == 1
+        # the vehicle's system ID and board ID only from the autopilot itself (component 1), not from the ground station
+        # (system 255, whose own heartbeats are in the tlog) or a companion computer or gimbal with the same system ID
+        from_autopilot = src != 255 and compid == 1
+        if from_autopilot:
+            sysid = src
 
         if name in TLOG_VISION_MESSAGES and (not vision_times or t_rel - vision_times[-1] >= 1):
             vision_times.append(t_rel)
-        if name == "AUTOPILOT_VERSION" and board_uid is None and from_autopilot:
-            board_uid = mavlink_uid_board_id(getattr(m, "uid2", None), getattr(m, "uid", 0))
+        if name == "AUTOPILOT_VERSION" and from_autopilot:
+            board(src, mavlink_uid_board_id(getattr(m, "uid2", None), getattr(m, "uid", 0)))
         if name == "STATUSTEXT":
             text = str(getattr(m, "text", "") or "").rstrip("\x00")
             _push_msg(info_messages, t_rel, epoch(t_rel), text)
@@ -1516,8 +1521,7 @@ def _parse_tlog(path, digest, size, path_rate):
             if "ardupilot" in low or "px4" in low:
                 versions.append(text)
             if (found := ap_board_id(text)) and from_autopilot:
-                if board_uid is None:
-                    board_uid = found[1]
+                board(src, found[1])
                 if text not in versions:
                     versions.append(text)
             if "prearm" in low or "preflight" in low:
@@ -1611,7 +1615,8 @@ def _parse_tlog(path, digest, size, path_rate):
               "[topics] MAVLink types: " + ", ".join(sorted(per_type)[:80]))
     info_messages.sort(key=lambda m: m["time_s"])
     return _document(path, digest, size, LOG_TLOG, "MAVLink tlog", path_rate, t0_epoch, t_first, t_last,
-                     sysid, f"MAVLink-{sysid}", versions, flights, info_messages, preflight, mcu_uid=board_uid)
+                     sysid, f"MAVLink-{sysid}", versions, flights, info_messages, preflight,
+                     mcu_uid=boards.get(sysid))  # the board of the vehicle the recording is named after
 
 
 # ---------------------------------------------------------------------------------------------------------------------

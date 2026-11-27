@@ -2126,7 +2126,8 @@ def is_file_name(name, log_name=None):
 # system ID. Only system ID 1 is a default (SYSID_THISMAV and PX4's MAV_SYS_ID both start at 1), so "ArduPilot-1",
 # "MAVLink-1" and "PX4-1" are on every drone where it was never changed: they never identify an aircraft, are always
 # shared, and those logs are linked by their board ID. A system ID set on purpose ("ArduCopter-12") does identify one.
-_DEFAULT_LOG_NAME = re.compile(r"^(ardupilot|ardu[a-z]+|mavlink|px4)[ -]?0*1$", re.I)
+_DEFAULT_LOG_NAME = re.compile(
+    r"^(ardupilot|arducopter|arduplane|ardurover|ardusub|antennatracker|blimp|mavlink|px4)[ -]?0*1$", re.I)
 
 
 def is_default_log_name(name):
@@ -2140,7 +2141,7 @@ def mark_default_names_shared(con, log_id=None):
     it are linked again (by board ID, a hand link or the other recording of the same flight). Returns the names newly
     marked. The caller commits."""
     where, params = ("WHERE log_id=?", (log_id,)) if log_id is not None else ("", ())
-    marked = []
+    marked, forgotten = [], []
     for r in con.execute(f"SELECT DISTINCT TRIM(name) AS name FROM aircraft {where}", params).fetchall():
         name = r["name"]
         if not is_default_log_name(name) or con.execute(
@@ -2148,17 +2149,32 @@ def mark_default_names_shared(con, log_id=None):
             continue
         if con.execute("SELECT 1 FROM drones WHERE name=? OR unique_id=?", (name, name)).fetchone():
             continue  # a fleet aircraft really is called that: leave it to the admins
+        alias = con.execute("SELECT drone_id FROM drone_aliases WHERE alias=?", (name,)).fetchone()
         con.execute("INSERT OR IGNORE INTO ambiguous_drone_names(name) VALUES(?)", (name,))
         con.execute("DELETE FROM drone_aliases WHERE alias=?", (name,))
-        # boards learned automatically while that name still linked (wrongly) are forgotten; hand links stay
-        con.execute("DELETE FROM drone_boards WHERE source='auto' AND mcu_uid IN (SELECT mcu_uid FROM aircraft"
-                    " WHERE TRIM(name)=? COLLATE NOCASE AND mcu_uid IS NOT NULL)", (name,))
+        # boards learned automatically through that alias (on its drone) are forgotten, unless a log under one of that
+        # drone's own names also has the board (then it was learned rightly); hand links stay
+        if alias:
+            boards = [r[0] for r in con.execute(
+                "SELECT mcu_uid FROM drone_boards WHERE source='auto' AND drone_id=? AND mcu_uid IN (SELECT mcu_uid"
+                " FROM aircraft WHERE TRIM(name)=? COLLATE NOCASE AND mcu_uid IS NOT NULL) AND mcu_uid NOT IN ("
+                " SELECT a.mcu_uid FROM aircraft a WHERE a.mcu_uid IS NOT NULL AND TRIM(a.name)!=? COLLATE NOCASE"
+                " AND (EXISTS (SELECT 1 FROM drone_aliases da WHERE da.alias=TRIM(a.name) AND da.drone_id=?)"
+                " OR EXISTS (SELECT 1 FROM drones d WHERE d.name=TRIM(a.name) AND d.id=?)))",
+                (alias["drone_id"], name, name, alias["drone_id"], alias["drone_id"]))]
+            con.executemany("DELETE FROM drone_boards WHERE mcu_uid=? AND source='auto'", [(b,) for b in boards])
+            forgotten.extend(boards)
         marked.append(name)
     for name in marked:
         for row in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE TRIM(name)=? COLLATE NOCASE"
                                + (" AND log_id!=?" if log_id is not None else ""),
                                (name, log_id) if log_id is not None else (name,)).fetchall():
             link_log_aircraft(con, row["log_id"], logged_name=name)
+    for board in forgotten:  # logs placed through a forgotten board under any other name follow too
+        for row in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE mcu_uid=?"
+                               + (" AND log_id!=?" if log_id is not None else ""),
+                               (board, log_id) if log_id is not None else (board,)).fetchall():
+            link_log_aircraft(con, row["log_id"])
     return marked
 
 

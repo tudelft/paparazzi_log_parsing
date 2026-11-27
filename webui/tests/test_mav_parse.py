@@ -205,8 +205,9 @@ class PX4NavigationTests(unittest.TestCase):
         self.assertEqual(flights[0]["duration_s"], 10)
 
 
-def _tiny_tlog(path, board=None, versions=()):
-    """versions: (component ID, 64-bit uid) for AUTOPILOT_VERSION messages, in that order (MAVLink 1: no uid2)."""
+def _tiny_tlog(path, board=None, versions=(), board_at_us=20_000, extra=()):
+    """versions: (component ID, 64-bit uid) for AUTOPILOT_VERSION messages, in that order (MAVLink 1: no uid2), from
+    30 ms; the board line at board_at_us. extra: (offset µs, system ID, component ID, build(mav) -> message)."""
     from pymavlink import mavutil
 
     mav = mavutil.mavlink.MAVLink(None, srcSystem=1, srcComponent=1)
@@ -220,7 +221,7 @@ def _tiny_tlog(path, board=None, versions=()):
     add(0, mav.heartbeat_encode(2, 3, 128, 0, 4))
     add(10_000, mav.statustext_encode(6, b"ArduCopter ready"))
     if board:
-        add(20_000, mav.statustext_encode(6, board))
+        add(board_at_us, mav.statustext_encode(6, board))
     for i, (compid, uid) in enumerate(versions):
         sender = mavutil.mavlink.MAVLink(None, srcSystem=1, srcComponent=compid)
         add(30_000 + i * 1_000, mav.autopilot_version_encode(0, 0, 0, 0, 0, [0] * 8, [0] * 8, [0] * 8, 0, 0, uid), sender)
@@ -228,6 +229,9 @@ def _tiny_tlog(path, board=None, versions=()):
     add(1_100_000, mav.attitude_encode(1100, 0.1, -0.05, 1.2, 0, 0, 0))
     add(2_000_000, mav.gps_raw_int_encode(t0 + 2_000_000, 3, 519903000, 43700300, 25000, 65535, 65535, 800, 0, 12))
     add(5_000_000, mav.heartbeat_encode(2, 3, 0, 0, 3))
+    for offset_us, sysid, compid, build in extra:
+        add(offset_us, build(mav), mavutil.mavlink.MAVLink(None, srcSystem=sysid, srcComponent=compid))
+    chunks.sort(key=lambda c: c[:8])  # by time
     Path(path).write_bytes(b"".join(chunks))
 
 
@@ -337,6 +341,28 @@ class ParseTests(unittest.TestCase):
             _tiny_tlog(path, board=b"CubeOrangePlus 0042003D 30325114 33383839")
             ac = mav_parse.parse(path, path_rate=1)["aircraft"][0]
         self.assertEqual(ac["mcu_uid"], "0042003d3032511433383839")
+
+    def test_tlog_96_bit_board_id_beats_an_earlier_64_bit_uid(self):
+        """A uid-only AUTOPILOT_VERSION (MAVLink 1) before the boot line: the boot line's ID, as in the .bin."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "link.tlog"
+            _tiny_tlog(path, board=b"CubeOrangePlus 0042003D 30325114 33383839", board_at_us=40_000,
+                       versions=[(1, 0x1111222233334444)])
+            ac = mav_parse.parse(path, path_rate=1)["aircraft"][0]
+        self.assertEqual(ac["mcu_uid"], "0042003d3032511433383839")
+
+    def test_tlog_name_and_board_of_the_vehicle_not_the_ground_station_or_another_vehicle(self):
+        """The ground station's own heartbeat (system 255) last in the tlog does not name it; a second vehicle's board
+        is not given to the recording named after the first."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "link.tlog"
+            _tiny_tlog(path, extra=[
+                (25_000, 2, 1, lambda mav: mav.autopilot_version_encode(0, 0, 0, 0, 0, [0] * 8, [0] * 8, [0] * 8, 0, 0, 0x2222)),
+                (26_000, 2, 1, lambda mav: mav.heartbeat_encode(2, 3, 0, 0, 3)),
+                (6_000_000, 255, 190, lambda mav: mav.heartbeat_encode(6, 8, 0, 0, 4))])
+            ac = mav_parse.parse(path, path_rate=1)["aircraft"][0]
+        self.assertEqual(ac["name"], "MAVLink-1")  # the last autopilot message is from system 1
+        self.assertIsNone(ac["mcu_uid"])  # only vehicle 2 sent a board ID
 
     def test_tlog_board_id_only_from_the_autopilot_component(self):
         """A gimbal or companion computer with the same system ID sends its own AUTOPILOT_VERSION: not the board ID."""

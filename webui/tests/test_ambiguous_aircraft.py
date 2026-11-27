@@ -457,6 +457,42 @@ class DefaultAutopilotNameTests(AppTests):
         self.assertIsNone(self.con.execute("SELECT 1 FROM ambiguous_drone_names WHERE name='ArduCopter-12'").fetchone())
         self.assertEqual(self.drone_of(1), 2)
 
+    def test_only_autopilot_vehicle_names(self):
+        is_default = self.ns["is_default_log_name"]
+        for name in ("AntennaTracker-1", "Blimp-1", "ArduSub-1", "ArduRover 1"):
+            self.assertTrue(is_default(name), name)
+        for name in ("ArduinoQuad1", "Arduino-1", "Ardumower-1"):  # not names ArduPilot writes
+            self.assertFalse(is_default(name), name)
+
+    def test_a_board_learned_from_the_drones_own_name_is_kept(self):
+        # board aa01 is drone 1's, learned from its "ArduCopter-12" logs; its older logs are "ArduPilot-1", also aliased
+        # to drone 1: the board stays and places those logs
+        self.con.execute("DELETE FROM drone_aliases")
+        self.con.execute("INSERT INTO drone_aliases(drone_id,alias) VALUES(1,'ArduCopter-12'),(1,'ArduPilot-1')")
+        self.con.execute("UPDATE aircraft SET name='ArduCopter-12', mcu_uid='aa01' WHERE id=1")
+        self.con.execute("UPDATE aircraft SET name='ArduPilot-1', mcu_uid='aa01' WHERE id=2")
+        self.con.commit()
+        self.relink(1, 2)
+        self.assertEqual(self.ns["mark_default_names_shared"](self.con), ["ArduPilot-1"])
+        self.con.commit()
+        self.assertIsNotNone(self.con.execute("SELECT 1 FROM drone_boards WHERE mcu_uid='aa01' AND drone_id=1").fetchone())
+        self.assertEqual((self.drone_of(1), self.drone_of(2)), (1, 1))
+
+    def test_logs_placed_through_a_forgotten_board_are_relinked(self):
+        # bb02 was learned wrongly through the ArduPilot-1 alias on drone 2; a log under another (unknown, too short to
+        # become an alias) name was then placed on drone 2 by that board
+        self.con.execute("DELETE FROM drone_aliases")
+        self.con.execute("INSERT INTO drone_aliases(drone_id,alias) VALUES(2,'ArduPilot-1')")
+        self.con.execute("UPDATE aircraft SET name='ArduPilot-1', mcu_uid='bb02' WHERE id=1")
+        self.con.execute("UPDATE aircraft SET name='X9', mcu_uid='bb02' WHERE id=2")
+        self.con.commit()
+        self.relink(1, 2)
+        self.assertEqual((self.drone_of(1), self.drone_of(2)), (2, 2))
+        self.ns["mark_default_names_shared"](self.con)
+        self.con.commit()
+        self.assertIsNone(self.con.execute("SELECT 1 FROM drone_boards WHERE mcu_uid='bb02'").fetchone())
+        self.assertEqual((self.drone_of(1), self.drone_of(2)), (None, None))
+
     def test_a_fleet_aircraft_really_called_that_is_left_alone(self):
         self.con.execute("UPDATE drones SET name='PX4-1' WHERE id=2")
         self.con.execute("UPDATE aircraft SET name='PX4-1' WHERE id=1")
