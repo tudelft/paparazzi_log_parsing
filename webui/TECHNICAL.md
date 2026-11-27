@@ -1758,8 +1758,8 @@ needs approval the team is `pending`. An edited team stays approved while its PI
 
 **Flight area and ground risk buffer** (`ground_risk.py`, the operations manual's 1:1 rule; SORA 2.5 terms such as
 the contingency volume come later). A bookable location may have a maximum height (`places.max_height_m`, Edit
-location) and a default flight area (`places.flight_area`, a polygon of `[lat, lon]` points drawn or typed as corners with **⋯** → *Draw
-or enter flight area…*; *Remove flight area…*; `PUT /api/admin/places/<id>` with `max_height_m` and `flight_area`,
+location) and a default flight area (`places.flight_area`, a polygon of `[lat, lon]` points drawn or typed as corners with **⋯** → *Edit
+boundary and flight area…*, which saves the boundary and the area together; *Remove flight area…*; `PUT /api/admin/places/<id>` with `max_height_m` and `flight_area`,
 `null` removes). Locations shows the area with its buffer and whether it stays inside (`flight_area_inside` in
 `GET /api/places`). In Plan flight a team uses the location's area and height, or draws its own area
 (**Change the area…** / **Draw or enter an area…**: the editor in `static/area_editor.js`, shared with Locations) and sets a lower height (`height_m`, at most the location's maximum, 400 otherwise;
@@ -1767,7 +1767,10 @@ or enter flight area…*; *Remove flight area…*; `PUT /api/admin/places/<id>` 
 local flat projection whether the area with its buffer stays inside the location's boundary (polygon or circle) and
 the dialog shows the map (Leaflet, Turf for the buffer outline, loaded only when needed) with the verdict. A buffer
 outside only warns. The team stores `height_m`, `flight_area`, `buffer_m`, `buffer_method` and `buffer_inside` in its
-own columns and in the preparation (`area`), which the slot dialog shows with the map.
+own columns and in the preparation (`area`), which the slot dialog shows with the map. The flight page's Path & charts
+map draws the boundary, flight area and buffer under the path (`operation.map` from `operations.flight_operation`:
+the linked team's, else the bookable location's default area with its maximum height). The buffer is drawn red,
+with a thicker line and fill when it crosses the boundary.
 
 **External booking** (step 2 of issue 134). A bookable location may be booked elsewhere: Edit location → *External
 booking* (`places.booking_mode` `none` or `mail`, later a SuperSaaS API; `booking_provider`, e.g. Unmanned Valley;
@@ -2528,8 +2531,8 @@ so a few far-away places do not zoom it out to the whole world. The
 selected location (`place=<id>` in the URL) opens as a card on the map, top left (under the map on a phone; hidden
 while a boundary is drawn or changed): Country, Indoors, Operator, Category,
 Boundary and flights; admins get **Edit location** (one dialog; a click on a value opens it there; Save sends only what
-changed with `PUT /api/admin/places/<id>`) and **⋯** → *Change boundary on the map…* (the shape editor on the map,
-`PUT` with only `shape`) and *Delete location…* (a small confirmation). **Add location** shows a bar on the map to
+changed with `PUT /api/admin/places/<id>`) and **⋯** → *Edit boundary…* (the window-filling editor in `static/area_editor.js`: polygon corners or a
+circle's centre and radius, dragged on the map or typed; `PUT` with `shape`, and `flight_area` at a bookable location) and *Delete location…* (a small confirmation). **Add location** shows a bar on the map to
 pick polygon, rectangle or circle and draws one; after drawing, the same dialog names it (`POST /api/admin/places`) and
 the new location is selected. Leaflet's own edit/delete toolbar is not used. While drawing or changing a boundary, all
 boundaries are shown.

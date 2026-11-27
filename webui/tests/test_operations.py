@@ -280,7 +280,13 @@ class OperationsTests(AppTests):
             g.user = self.con.execute("SELECT * FROM users WHERE id=2").fetchone()
             linked = operations.flight_operation(self.con, entry(12))
             self.assertEqual((linked["booking_id"], linked["pic"], linked["automatic"]), (bid, "Pilot", False))
-            self.assertEqual(operations.flight_operation(self.con, entry(11)), {"missing": "Field"})
+            self.assertEqual(linked["map"]["boundary"]["type"], "circle")  # the fixture location
+            missing = operations.flight_operation(self.con, entry(11))
+            self.assertEqual((missing["missing"], missing["map"]["area"]), ("Field", None))  # Field has no default area
+            self.con.execute("UPDATE places SET flight_area=?, max_height_m=50 WHERE id=1",
+                             (json.dumps([[52.0001, 4.0001], [52.0002, 4.0001], [52.0002, 4.0002]]),))
+            self.con.commit()
+            self.assertEqual(operations.flight_operation(self.con, entry(11))["map"]["buffer_m"], 50)
         # a re-parse that renumbers the flights leaves the stale link out
         self.con.execute("UPDATE flights SET takeoff_utc='2001-01-01T00:00:00.000Z' WHERE id=12")
         self.con.commit()

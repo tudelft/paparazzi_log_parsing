@@ -330,7 +330,7 @@
       <div>
         <section class="op-sec"><h3>Flight area and ground risk buffer <small>1:1</small></h3>
           <div class="op-map" id="planMap"></div>
-          <div class="op-legend"><span><i style="border-color:#1a7f37;background:#1a7f3740"></i>Flight area</span><span><i style="border-color:#bf8700;border-style:dashed"></i><span id="planBufferLabel">Buffer</span></span><span><i style="border-color:#57606a;border-style:dotted"></i>Location boundary</span></div>
+          <div class="op-legend"><span><i style="border-color:#1a7f37;background:#1a7f3740"></i>Flight area</span><span><i style="border-color:#cf222e;border-style:dashed"></i><span id="planBufferLabel">Buffer</span></span><span><i style="border-color:#57606a;border-style:dotted"></i>Location boundary</span></div>
           <p id="planAreaVerdict" style="margin:4px 0 0;font-size:13px"></p></section>
         <section class="op-sec"><h3>Checks <small id="planChecksWhen"></small></h3><div id="planChecks" class="mute">Choose a location and time.</div></section>
       </div>
@@ -916,7 +916,7 @@ function drawArea(m, group, shape, a) {
     const ring = [...a.area.map(([lat, lon]) => [lon, lat]), [a.area[0][1], a.area[0][0]]];
     const buffer = turf.buffer(turf.polygon([ring]), a.buffer_m, {units: 'meters', steps: 16});
     L.polygon(buffer.geometry.coordinates[0].map(([lon, lat]) => [lat, lon]),
-      {color: a.inside ? '#bf8700' : '#cf222e', weight: 2, fillOpacity: .12, dashArray: '6 4'}).addTo(group);
+      {color: '#cf222e', weight: a.inside ? 2 : 4, fillOpacity: a.inside ? .06 : .18, dashArray: '6 4'}).addTo(group);  // bolder: crosses the boundary
   }
   if (a && a.area) L.polygon(a.area, {color: '#1a7f37', weight: 2, fillOpacity: .25}).addTo(group);
   m.invalidateSize();
