@@ -3,12 +3,12 @@
 A key has a space-separated list of scopes in api_keys.scopes:
   read              every GET (and HEAD), plus the read-only POSTs in READ_POSTS (MATLAB export requests, matching files to flights)
   logs:upload       log upload and reservations, logs/check, attachments (upload, share), paper records (single, CSV)
-  logs:edit         project, date, crew, comment and pre-flight inspection of logs and flights, date suggestions,
-                    conflicts, reparse
+  logs:edit         project, date, crew, comment, pre-flight inspection, tags and track origin of logs and flights,
+                    date suggestions, conflicts, reparse
   documents:upload  add a document and replace its file
   documents:manage  edit and delete documents, groups and the text at the top of Documents
   admin             the administration routes listed in ENDPOINTS["admin"] (places, operators, authorisations,
-                    projects, aircraft, deleting accounts, reparse); not the account routes that can lead to a sign-in
+                    projects, aircraft, tags, who may choose a category, deleting accounts, reparse); not the account routes that can lead to a sign-in
                     (new account, setup link, email, password, admin rights): those need a browser session, for every key
 A request that changes something is allowed only when its endpoint is in the map below for one of the key's scopes
 (or in WRITE_ANY and the key has any scope beyond read);
@@ -30,7 +30,7 @@ ENDPOINTS = {
                     "create_historical", "import_historical"},
     "logs:edit": {"set_log_project", "set_log_date", "accept_log_date_suggestion", "set_flight_project",
                   "set_flights_project", "set_flight_crew", "set_flights_crew", "set_flight_comment",
-                  "set_flight_preflight", "set_flight_tags", "reparse", "accept_conflict"},
+                  "set_flight_preflight", "set_flight_tags", "set_flight_track_origin", "reparse", "accept_conflict"},
     "documents:upload": {"add_document", "replace_document_file"},
     "documents:manage": {"edit_document", "delete_document", "add_group", "edit_group", "delete_group",
                          "save_intro"},
@@ -42,7 +42,7 @@ ENDPOINTS = {
               "admin_set_drone_projects", "admin_import_drones", "admin_add_drone_alias", "admin_delete_drone_alias",
               "admin_link_drone_board", "admin_drone_board", "admin_add_alias", "admin_delete_alias",
               "admin_accept_date_suggestions", "admin_delete_user", "reparse_outdated", "reparse_unknown_dates",
-              "admin_tag", "admin_merge_tag"},
+              "admin_tag", "admin_merge_tag", "admin_category_rule"},
 }
 
 

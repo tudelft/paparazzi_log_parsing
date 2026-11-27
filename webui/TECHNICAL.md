@@ -148,7 +148,8 @@ maps zoom to level 23 (tiles above 19 are scaled up). Distances and the logbook 
 <a id="track-origin"></a>**Track origin (tracks without GPS).** A flight whose path has no GPS position but a local
 north/east position without map coordinates of its own (e.g. Blackbox/INDIFlight, PX4, ArduPilot or MAVLink logs flown
 with motion capture, or simulations) is drawn from a location: the one set on the flight (Edit flight → *Track
-origin*, `PUT /api/flights/<id>/track-origin` with `place_id`, null = the project's; same rights as the goal; kept
+origin*, `PUT /api/flights/<id>/track-origin` with `place_id`, null = the project's; same rights as the goal, `logs:edit` for
+keys; kept
 across a re-parse), else the project's default (Edit project, admins and the project's managers,
 `track_origin_place_id`). Both offer and accept only the locations that person may see: administrators every
 location, others those of the Locations page (where a flight they can see took off or landed), plus the current values
@@ -617,9 +618,10 @@ flight no longer exists, its file links move to the parent log instead of losing
 it may do on top of its user's rights: `read` (every GET and HEAD, plus the MATLAB export requests
 `POST /api/logs/<id>/matlab` and `POST /api/flights/<id>/matlab`, which only read), `logs:upload` (log upload and
 reservations, `logs/check`, attachments: upload and share, paper records: single and CSV), `logs:edit` (project, date,
-crew, comment and pre-flight inspection of logs and flights, date suggestions, conflicts, reparse), and for administrators `documents:upload`
+crew, comment, pre-flight inspection, tags and track origin of logs and flights, date suggestions, conflicts, reparse), and for administrators `documents:upload`
 (add a document, replace its file), `documents:manage` (edit and delete documents, groups and the intro) and `admin`
-(places, operators, authorisations, projects, aircraft, aliases, date suggestions, deleting accounts, reparse: each
+(places, operators, authorisations, who may choose a category, projects, aircraft, aliases, tags, date suggestions,
+deleting accounts, reparse: each
 route listed by name in `scopes.ENDPOINTS["admin"]`, so a new admin route needs a decision). `require_login`
 checks every key request against `scopes.allows`: a request that changes something is allowed only when its endpoint
 is mapped to one of the key's scopes; an unmapped endpoint is refused to every scoped key (403, fail closed), so a new
