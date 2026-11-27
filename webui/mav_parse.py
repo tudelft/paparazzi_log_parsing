@@ -1497,10 +1497,17 @@ def _parse_tlog(path, digest, size, path_rate):
             sysid = m.get_srcSystem()
         except Exception:
             pass
+        try:
+            compid = m.get_srcComponent()
+        except Exception:
+            compid = 1
+        # the board ID only from the autopilot itself (component 1), not from the ground station (system 255) or a
+        # companion computer or gimbal with the same system ID
+        from_autopilot = sysid != 255 and compid == 1
 
         if name in TLOG_VISION_MESSAGES and (not vision_times or t_rel - vision_times[-1] >= 1):
             vision_times.append(t_rel)
-        if name == "AUTOPILOT_VERSION" and board_uid is None and sysid != 255:  # 255: the ground station
+        if name == "AUTOPILOT_VERSION" and board_uid is None and from_autopilot:
             board_uid = mavlink_uid_board_id(getattr(m, "uid2", None), getattr(m, "uid", 0))
         if name == "STATUSTEXT":
             text = str(getattr(m, "text", "") or "").rstrip("\x00")
@@ -1508,7 +1515,7 @@ def _parse_tlog(path, digest, size, path_rate):
             low = text.lower()
             if "ardupilot" in low or "px4" in low:
                 versions.append(text)
-            if (found := ap_board_id(text)) and sysid != 255:
+            if (found := ap_board_id(text)) and from_autopilot:
                 if board_uid is None:
                     board_uid = found[1]
                 if text not in versions:

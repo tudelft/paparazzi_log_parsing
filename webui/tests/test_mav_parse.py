@@ -205,7 +205,8 @@ class PX4NavigationTests(unittest.TestCase):
         self.assertEqual(flights[0]["duration_s"], 10)
 
 
-def _tiny_tlog(path, board=None):
+def _tiny_tlog(path, board=None, versions=()):
+    """versions: (component ID, 64-bit uid) for AUTOPILOT_VERSION messages, in that order (MAVLink 1: no uid2)."""
     from pymavlink import mavutil
 
     mav = mavutil.mavlink.MAVLink(None, srcSystem=1, srcComponent=1)
@@ -213,13 +214,16 @@ def _tiny_tlog(path, board=None):
     chunks = []
     t0 = 1_784_621_695_000_000
 
-    def add(offset_us, msg):
-        chunks.append(struct.pack(">Q", t0 + offset_us) + msg.pack(mav))
+    def add(offset_us, msg, sender=mav):
+        chunks.append(struct.pack(">Q", t0 + offset_us) + msg.pack(sender))
 
     add(0, mav.heartbeat_encode(2, 3, 128, 0, 4))
     add(10_000, mav.statustext_encode(6, b"ArduCopter ready"))
     if board:
         add(20_000, mav.statustext_encode(6, board))
+    for i, (compid, uid) in enumerate(versions):
+        sender = mavutil.mavlink.MAVLink(None, srcSystem=1, srcComponent=compid)
+        add(30_000 + i * 1_000, mav.autopilot_version_encode(0, 0, 0, 0, 0, [0] * 8, [0] * 8, [0] * 8, 0, 0, uid), sender)
     add(1_000_000, mav.gps_raw_int_encode(t0, 3, 519900000, 43700000, 12000, 65535, 65535, 200, 0, 12))
     add(1_100_000, mav.attitude_encode(1100, 0.1, -0.05, 1.2, 0, 0, 0))
     add(2_000_000, mav.gps_raw_int_encode(t0 + 2_000_000, 3, 519903000, 43700300, 25000, 65535, 65535, 800, 0, 12))
@@ -333,6 +337,14 @@ class ParseTests(unittest.TestCase):
             _tiny_tlog(path, board=b"CubeOrangePlus 0042003D 30325114 33383839")
             ac = mav_parse.parse(path, path_rate=1)["aircraft"][0]
         self.assertEqual(ac["mcu_uid"], "0042003d3032511433383839")
+
+    def test_tlog_board_id_only_from_the_autopilot_component(self):
+        """A gimbal or companion computer with the same system ID sends its own AUTOPILOT_VERSION: not the board ID."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "link.tlog"
+            _tiny_tlog(path, versions=[(154, 0x1111222233334444), (1, 0x0042003D30325114)])
+            ac = mav_parse.parse(path, path_rate=1)["aircraft"][0]
+        self.assertEqual(ac["mcu_uid"], "0042003d30325114")
 
     def test_tlog_statustext_and_heartbeat_arming(self):
         with tempfile.TemporaryDirectory() as d:

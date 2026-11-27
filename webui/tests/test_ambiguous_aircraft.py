@@ -412,9 +412,11 @@ class DefaultAutopilotNameTests(AppTests):
 
     def test_names(self):
         is_default = self.ns["is_default_log_name"]
-        for name in ("ArduPilot-1", "arducopter-1", "MAVLink-255", "PX4-1", " ArduPlane 3 "):
+        for name in ("ArduPilot-1", "arducopter-1", "MAVLink-1", "PX4-1", " ArduPlane 1 ", "PX4-01"):
             self.assertTrue(is_default(name), name)
-        for name in ("Hex 1", "ArduPilot Hex", "PX4 quad_x 00500040", "MAVLink", "Airframe", ""):
+        # only system ID 1 is a default: an ID set on purpose names one vehicle
+        for name in ("ArduCopter-12", "ArduPlane-42", "MAVLink-7", "PX4-250", "PX4 3", "ArduPilot-10", "ArduPilot-11",
+                     "Hex 1", "ArduPilot Hex", "PX4 quad_x 00500040", "MAVLink", "Airframe", ""):
             self.assertFalse(is_default(name), name)
 
     def test_an_alias_on_the_default_name_stops_catching_every_log_and_boards_take_over(self):
@@ -441,6 +443,19 @@ class DefaultAutopilotNameTests(AppTests):
         self.assertEqual(self.client.delete("/api/admin/ambiguous-drone-names", json={"name": "ArduPilot-1"}).status_code, 409)
         listed = {a["name"]: a["default_name"] for a in self.client.get("/api/drones").json["ambiguous"]}
         self.assertTrue(listed["ArduPilot-1"])  # the page offers no Remove ambiguous status for it
+
+    def test_a_system_id_set_on_purpose_keeps_its_alias_and_link(self):
+        # several vehicles flying together: SYSID_THISMAV 12 was set on purpose, so "ArduCopter-12" names one drone
+        self.con.execute("UPDATE aircraft SET name='ArduCopter-12', mcu_uid='aa01' WHERE id=1")
+        self.con.execute("INSERT INTO drone_aliases(drone_id,alias) VALUES(2,'ArduCopter-12')")
+        self.con.commit()
+        self.relink(1)
+        self.assertEqual(self.drone_of(1), 2)
+        self.assertEqual(self.ns["mark_default_names_shared"](self.con), [])  # as at start: nothing marked
+        self.con.commit()
+        self.assertIsNotNone(self.con.execute("SELECT 1 FROM drone_aliases WHERE alias='ArduCopter-12'").fetchone())
+        self.assertIsNone(self.con.execute("SELECT 1 FROM ambiguous_drone_names WHERE name='ArduCopter-12'").fetchone())
+        self.assertEqual(self.drone_of(1), 2)
 
     def test_a_fleet_aircraft_really_called_that_is_left_alone(self):
         self.con.execute("UPDATE drones SET name='PX4-1' WHERE id=2")

@@ -2123,9 +2123,10 @@ def is_file_name(name, log_name=None):
 
 
 # The name a PX4/ArduPilot/MAVLink log gets when its autopilot has no name of its own: the vehicle and its MAVLink
-# system ID ("ArduPilot-1", "MAVLink-1", "PX4-1"). Every drone whose SYSID_THISMAV was never changed has the same one,
-# so it never identifies an aircraft: such names are always shared, and those logs are linked by their board ID.
-_DEFAULT_LOG_NAME = re.compile(r"^(ardupilot|ardu[a-z]+|mavlink|px4)[ -]?\d{1,3}$", re.I)
+# system ID. Only system ID 1 is a default (SYSID_THISMAV and PX4's MAV_SYS_ID both start at 1), so "ArduPilot-1",
+# "MAVLink-1" and "PX4-1" are on every drone where it was never changed: they never identify an aircraft, are always
+# shared, and those logs are linked by their board ID. A system ID set on purpose ("ArduCopter-12") does identify one.
+_DEFAULT_LOG_NAME = re.compile(r"^(ardupilot|ardu[a-z]+|mavlink|px4)[ -]?0*1$", re.I)
 
 
 def is_default_log_name(name):
