@@ -90,6 +90,9 @@ SETTINGS = {
                            "'auto' uses ffmpeg from PATH if installed, 'off' disables, or a full path"),
         "BULK_MAX_PENDING": ("8", "Global job budget for cooperating bulk upload scripts"),
         "BULK_MAX_BYTES": ("17179869184", "Estimated pending byte budget for bulk uploads (16 GiB)"),
+        "RETENTION_YEARS": ("3", "Years a log with a real flight and a paper record are kept after the flight: until "
+                                 "then they cannot be deleted (hide them instead), except by an administrator with a "
+                                 "reason that is kept. EU 2019/947 asks for at least 3; 0 turns the rule off"),
     },
     "Login": {
         "COOKIE_SECURE": ("0", "1 when the site is served over https (cookies are then only sent over https)"),

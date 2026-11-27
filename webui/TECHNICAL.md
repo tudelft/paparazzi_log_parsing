@@ -1007,6 +1007,18 @@ files; `edit` also changes the project's flights, logs and paper records like `f
 flights, log dates, flight projects, links between records, file category and description; `EDIT_ROLES`,
 `historical.can_edit`) but deletes nothing: deleting logs and paper records and removing file links stay `full`
 (`FULL_ROLES`, `historical.can_delete`, `can_remove` of an attachment link).
+
+<a id="retention"></a>**Retention (#313, `retention.py`).** EU 2019/947 (UAS.SPEC.050(1)(g)) keeps operation records
+for at least 3 years, so `LOGDB_RETENTION_YEARS` (default 3, 0 = off) limits deleting on top of the rights above:
+- A log is kept until that many years after its latest real flight: not a ground run (classification) and not a
+  detected simulation, dated as in the logbook (date override included), or the upload date when the file clock has no
+  calendar date (`log_kept_until`). Logs without such a flight can always be deleted. A paper record is kept from its
+  date. `GET /api/logs`, `/api/logs/<id>` and `/api/historical/<id>` give `kept_until` while it applies.
+- Within it, `DELETE /api/logs/<id>` and `DELETE /api/historical/<id>` answer 409 (with `kept_until`) to everyone but
+  administrators. An administrator sends `{"reason": "..."}` (5–1000 characters; 400 without). The reason, who, when
+  and a JSON snapshot (a log with its flights) go to `deleted_records`, whose triggers refuse every change and delete.
+  `GET /api/admin/deleted-records` and **Logs → Manage ▾ → Deleted records** list them.
+- Hiding (the selection bar) keeps a record out of the logbook and totals without deleting it.
 Admins choose **Manager** in Edit project (or use `manager` in the project CSV). A manager gets Edit project for the
 projects they manage, with only the members (no rename, operator, category or delete): they add and remove
 members and set See/Upload/Edit/Delete (`PUT /api/projects/<id>/members`, the same handler as

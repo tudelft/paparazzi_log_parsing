@@ -519,6 +519,7 @@ dialog.af-dialog textarea { resize:vertical; min-height:2.4em; }
 .matlab-item:disabled { color:var(--txt); cursor:default; }
 .ext-pop { min-width:0; }
 .ext-item { justify-content:flex-start; gap:6px; white-space:nowrap; }
+.ext-item:disabled { color:var(--mute); cursor:not-allowed; background:none; }
 .matlab-state { color:var(--mute); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .matlab-head { display:flex; align-items:center; gap:4px; }
 .matlab-note { font-size:12px; color:var(--mute); padding:4px 6px 2px; max-width:300px; }

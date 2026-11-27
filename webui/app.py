@@ -65,6 +65,7 @@ import qualifications
 import training
 import bookings
 import operations
+import retention
 import ground_risk
 import documents
 import safety
@@ -6059,6 +6060,43 @@ def can_delete_log(con, row):
     return role_on(con, row["project_id"]) in FULL_ROLES
 
 
+def log_kept_until(con, log_id):
+    """The last day a log must be kept (retention.py): RETENTION_YEARS after its latest real flight (not a ground run
+    or a simulation) as dated in the logbook, or after the upload when the file clock has no calendar date. None when
+    it has no real flight or the rule is off."""
+    years = env_int("RETENTION_YEARS")
+    log = con.execute("SELECT start_utc, date_override, uploaded_at FROM logs WHERE id=?", (log_id,)).fetchone()
+    if years <= 0 or log is None:
+        return None
+    days = clock_shift_days(log["start_utc"], log["date_override"])
+    latest = None
+    for f in con.execute("SELECT f.takeoff_utc, a.simulation FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
+                         " WHERE a.log_id=? AND COALESCE(f.verdict_override, f.verdict, 'flight') != 'ground'", (log_id,)):
+        if f["simulation"] and (json.loads(f["simulation"]) or {}).get("detected"):
+            continue
+        takeoff = shift_iso(f["takeoff_utc"], days)
+        if takeoff and not clock_implausible(takeoff):
+            day = takeoff[:10]
+        else:  # no calendar date in the file: the date set by hand, else the upload
+            day = log["date_override"] or (log["uploaded_at"] or "")[:10]
+        latest = max(latest or day, day)
+    return retention.kept_until(latest, years)
+
+
+def deleted_log_snapshot(con, log_id):
+    log = dict(con.execute(
+        "SELECT l.id, l.name, l.sha256, l.size_bytes, l.log_type, l.start_utc, l.date_override, l.uploaded_at,"
+        " l.project_id, p.name AS project_name, COALESCE(u.display_name, u.username) AS uploaded_by"
+        " FROM logs l LEFT JOIN projects p ON p.id = l.project_id LEFT JOIN users u ON u.id = l.uploaded_by"
+        " WHERE l.id=?", (log_id,)).fetchone())
+    log["flights"] = [dict(r) for r in con.execute(
+        "SELECT f.id, f.idx, f.takeoff_utc, f.landing_utc, f.duration_s, COALESCE(f.verdict_override, f.verdict) AS verdict,"
+        " COALESCE(d.name, a.name) AS aircraft, a.pic, a.pac, a.gcs, f.pic_user_id, f.project_id, f.comment"
+        " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id LEFT JOIN drones d ON d.id = a.drone_id"
+        " WHERE a.log_id=? ORDER BY f.takeoff_utc, f.id", (log_id,))]
+    return log
+
+
 def can_edit_log_date(con, row):
     """Admin, Edit or more on the log's project, or the uploader when the log has no project."""
     if g.user["is_admin"] or row["project_id"] is None:
@@ -6712,7 +6750,9 @@ def historical_record(record_id):
         if request.method in ("GET", "HEAD"):
             record = dict(row)
             record["project_name"] = con.execute("SELECT name FROM projects WHERE id=?", (row["project_id"],)).fetchone()["name"]
-            return jsonify(record=record, can_edit=editable)
+            record["kept_until"] = retention.while_kept(retention.kept_until(row["date"], env_int("RETENTION_YEARS")))
+            return jsonify(record=record, can_edit=editable, can_delete=historical.can_delete(con, g.user, row["project_id"]),
+                           is_admin=bool(g.user["is_admin"]))
         session_required()
         with db.write_lock:
             with con:
@@ -6724,6 +6764,14 @@ def historical_record(record_id):
                     raise historical.RecordError("Full project access is required to delete this record.", 403)
                 values = historical.validate(con, g.user, request.get_json(silent=True)) if request.method == "PUT" else None
                 if request.method == "DELETE":
+                    try:  # flight records are kept for RETENTION_YEARS (retention.py)
+                        reason = retention.check_delete(retention.kept_until(row["date"], env_int("RETENTION_YEARS")),
+                                                        g.user, request.get_json(silent=True))
+                    except retention.RetentionError as exc:
+                        return jsonify(error=str(exc), kept_until=exc.kept_until), exc.status
+                    if reason:
+                        retention.record_deletion(con, "paper", record_id, f"Paper record {record_id} ({row['date']})",
+                                                  dict(row), reason, g.user, now())
                     con.execute("DELETE FROM flight_records WHERE id=?", (record_id,))
                 else:
                     historical.store(con, values, g.user["id"], now(), record_id)
@@ -7737,6 +7785,8 @@ def list_logs():
         (*params, limit, row_offset)).fetchall()
     logs = [{**log_dict(r), "row_type": "log", "can_delete": can_delete_log(con, r),
              "can_edit_date": can_edit_log_date(con, r)} for r in rows]
+    for log in logs:
+        log["kept_until"] = retention.while_kept(log_kept_until(con, log["id"])) if log["can_delete"] else None
     if page is not None:
         by_id = {r["id"]: r for r in logs}
         logs = [by_id[r["id"]] if r["row_type"] == "log" else receipts[r["id"]] for r in page]
@@ -7796,6 +7846,7 @@ def get_log(log_id):
     row = visible_log(con, log_id)
     out = log_dict(row)
     out["can_delete"] = can_delete_log(con, row)
+    out["kept_until"] = retention.while_kept(log_kept_until(con, log_id)) if out["can_delete"] else None
     out["can_edit_date"] = can_set_log_date(con, row)
     found = (date_suggestions(con) if out["can_edit_date"] and (not out["date_ok"] or row["date_estimated"])
              and not row["date_override"] else {})
@@ -8422,12 +8473,26 @@ def delete_log(log_id):
                 return jsonify(error="you cannot delete logs in this project"), 403
             if current["status"] == "parsing":
                 return jsonify(error="log is being parsed"), 409
+            try:  # flight records are kept for RETENTION_YEARS (retention.py)
+                reason = retention.check_delete(log_kept_until(con, log_id), g.user, request.get_json(silent=True))
+            except retention.RetentionError as exc:
+                return jsonify(error=str(exc), kept_until=exc.kept_until), exc.status
+            if reason:
+                retention.record_deletion(con, "log", log_id, current["name"], deleted_log_snapshot(con, log_id),
+                                          reason, g.user, now())
             con.execute("DELETE FROM logs WHERE id=?", (log_id,))
         attachments.prune(con, STORAGE_DIR)
     shutil.rmtree(STORAGE_DIR / row["sha256"][:2] / row["sha256"], ignore_errors=True)
     with contextlib.suppress(OSError):
         (STORAGE_DIR / row["sha256"][:2]).rmdir()  # only when empty
     return jsonify(deleted=log_id)
+
+
+@app.get("/api/admin/deleted-records")
+def admin_deleted_records():
+    """Logs and paper records an administrator deleted within the retention period: reason, who, when, snapshot."""
+    admin_required()
+    return jsonify(records=retention.deleted(conn()), retention_years=env_int("RETENTION_YEARS"))
 
 
 attachments.register(app, lambda: conn(), STORAGE_DIR, session_required, now, env_int("ATTACHMENT_MAX_BYTES"),
