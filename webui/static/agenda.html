@@ -68,6 +68,7 @@
   .people-picks { display:flex; flex-wrap:wrap; gap:6px; max-height:150px; overflow:auto; padding:2px; }
   .people-picks .flag-chip { font-size:12px; }
   .bk.moving { opacity:.45; }
+  .tab-dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--c); margin-right:6px; vertical-align:1px; }
   .now-line { position:absolute; left:0; right:0; height:0; border-top:2px solid var(--err); z-index:3; pointer-events:none; }
   .now-line::before { content:''; position:absolute; left:-5px; top:-6px; width:10px; height:10px; border-radius:50%; background:var(--err); }
   .now-line[hidden] { display:none; }
@@ -172,7 +173,7 @@
         <div class="menu-pop" id="manageMenu" role="menu" hidden>
           <button type="button" class="ext-item" role="menuitem" onclick="openItem()">Add bookable item…</button>
         </div></span>
-      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day, in the strip next to the bookings, or across a booking you may not change, to book that time (a click in an empty part books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's. With one item there are no tabs. A red line marks the current time on today. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item may overlap, unless one of them sets a blocking option (for example "No others"); the other options only label a booking. An item can be set the other way round (Edit item → Overlapping bookings): then bookings overlap only when both set the same option, for example "Others allowed". When bookings overlap, the later ones show 2nd, 3rd, … by when they were booked. Some items need a current qualification to book, or to see their agenda at all (without it they have no tab). Some need approval: your booking then shows as Pending (striped) and holds its time until an administrator or approver approves or rejects it; moving it asks again. You can change or delete your own bookings; administrators can book for someone else and change any booking. Administrators also see items that are closed for bookings, add items with <em>Manage ▾</em> → <em>Add bookable item…</em>, change the open item with <em>Edit item</em> (⋯ deletes it) and drag the tabs to order them. Times are local.</p><p><strong>Outdoor operations</strong> (when the server has it on): <em>Plan flight</em> books a slot at a bookable location for your team, with project, PIC, optional crew and aircraft. It shows the weather forecast, red/green checks of the qualifications and the aircraft for that day, and the NOTAM check; they are saved with your team. Click a slot to see its teams, their preparation, or <em>Join this slot…</em> with your own team (one booking, a shared field). The last team that leaves removes the slot. Who may plan, and whether it needs approval, follows the qualifications in <em>Edit item</em>.</p></details>
+      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day, in the strip next to the bookings, or across a booking you may not change, to book that time (a click in an empty part books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's, as the dot on its tab (in All, hover over a booking for its item). With one item there are no tabs. A red line marks the current time on today. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item may overlap, unless one of them sets a blocking option (for example "No others"); the other options only label a booking. An item can be set the other way round (Edit item → Overlapping bookings): then bookings overlap only when both set the same option, for example "Others allowed". When bookings overlap, the later ones show 2nd, 3rd, … by when they were booked. Some items need a current qualification to book, or to see their agenda at all (without it they have no tab). Some need approval: your booking then shows as Pending (striped) and holds its time until an administrator or approver approves or rejects it; moving it asks again. You can change or delete your own bookings; administrators can book for someone else and change any booking. Administrators also see items that are closed for bookings, add items with <em>Manage ▾</em> → <em>Add bookable item…</em>, change the open item with <em>Edit item</em> (⋯ deletes it) and drag the tabs to order them. Times are local.</p><p><strong>Outdoor operations</strong> (when the server has it on): <em>Plan flight</em> books a slot at a bookable location for your team, with project, PIC, optional crew and aircraft. It shows the weather forecast, red/green checks of the qualifications and the aircraft for that day, and the NOTAM check; they are saved with your team. Click a slot to see its teams, their preparation, or <em>Join this slot…</em> with your own team (one booking, a shared field). The last team that leaves removes the slot. Who may plan, and whether it needs approval, follows the qualifications in <em>Edit item</em>.</p></details>
     </div>
     <div class="page-tabs" id="tabs" aria-label="Bookable items"></div>
     <p id="about"></p>
@@ -242,8 +243,7 @@
         <option value="booking">Booking only</option><option value="viewing">Viewing and booking</option></select></label>
     </div>
     <div class="row">
-      <label class="check" title="The colour of this item's bookings in the All view"><input name="use_colour" type="checkbox" onchange="syncItemForm()"> Colour in the All view</label>
-      <input name="colour" type="color" value="#4493f8" aria-label="Colour">
+      <label class="check" title="The colour of this item's bookings and of the dot on its tab">Colour <input name="colour" type="color" value="#4493f8" aria-label="Colour"></label>
       <label class="check" title="Off: hidden for everyone but administrators and not bookable; existing bookings stay"><input name="active" type="checkbox" checked> Open for bookings</label>
     </div>
     <label class="check" id="needsField" title="A booking waits for an administrator or an approver below (it holds its time meanwhile); theirs are approved at once. Off: what waits is booked."><input name="needs_approval" type="checkbox" onchange="syncItemForm()"> Bookings need approval</label>
@@ -442,7 +442,7 @@ function paintTabs() {
   $('agendaTitle').textContent = 'Agenda';
   const count = id => data.bookings.filter(b => b.thing_id === id).length;
   window.pageTabs($('tabs'), [['all', 'All', data.bookings.length],
-    ...visible.map(t => [String(t.id), esc(t.name) + (t.active ? '' : ' (inactive)'),
+    ...visible.map(t => [String(t.id), (t.colour ? `<i class="tab-dot" style="--c:${esc(t.colour)}"></i>` : '') + esc(t.name) + (t.active ? '' : ' (inactive)'),
       t.can_view ? count(t.id) : null])], tab, choose);
   $('tabs').hidden = false;
   if (admin()) {
@@ -472,7 +472,7 @@ function paintAbout() {
   }
   if (data.time_zone && data.time_zone !== browserTz) parts.push(`Times are ${esc(data.time_zone)} (your computer uses ${esc(browserTz)}).`);
   $('about').innerHTML = parts.join(' · ');
-  const legend = t ? [] : single() ? [] : data.things.filter(x => x.can_view && x.colour).map(x => [x.colour, x.name]);
+  const legend = [];  // the item colours are dots on the tabs (paintTabs)
   $('legend').innerHTML = legend.map(([c, label]) => `<span><i style="--c:${esc(c)}"></i>${esc(label)}</span>`).join('');
 }
 // Administrators may book any open item (for themselves only with the qualification; the server checks that).
@@ -548,14 +548,14 @@ function paint(scroll) {
         return `<div role="button" tabindex="0" class="bk${p.b.status === 'rejected' ? ' rejected' : ''}" data-id="${p.b.id}" data-op="1" title="${esc([op.place, teams, when, op.pending ? op.pending + ' waiting for approval' : ''].filter(Boolean).join(' · '))}"
           style="--c:${esc(colourOf(p.b))};top:${(p.s - first) * HOUR}px;height:${Math.max((p.e - p.s) * HOUR - 2, 18)}px;
           left:calc(${p.lane / p.n * W}% + 2px);width:calc(${W / p.n}% - 4px)">
-          <b>${label}${esc(tab === 'all' ? t.name + ': ' + op.place : op.place)}</b><span>${esc(teams)}</span>
+          <b>${label}${esc(op.place)}</b><span>${esc(teams)}</span>
           ${op.pending ? `<span class="op-tag">${op.pending} waiting</span>` : ''}${op.external_status === 'booked' ? `<span class="op-tag booked" title="Booked externally">Booked${op.external_ref ? ' · ' + esc(op.external_ref) : ''}</span>`
             : op.external_status === 'requested' ? '<span class="op-tag" title="Asked by mail, not booked yet">Requested</span>' : ''}</div>`;
       }
       return `<div role="button" tabindex="0" class="bk${p.b.can_edit ? ' movable' : ''}${p.b.status !== 'approved' ? ' ' + p.b.status : ''}" data-id="${p.b.id}" data-piece="${pieces.indexOf(p)}" title="${esc(tip)}"
         style="--c:${esc(colourOf(p.b))};top:${(p.s - first) * HOUR}px;height:${Math.max((p.e - p.s) * HOUR - 2, 18)}px;
         left:calc(${p.lane / p.n * W}% + 2px);width:calc(${W / p.n}% - 4px)">
-        <b>${label}${order.has(p.b.id) ? `<small class="order" title="${esc(`Booked after ${order.get(p.b.id).map(o => o.person).join(', ')}, during the same time`)}">${ordinal(order.get(p.b.id).length + 1)}</small>` : ''}${esc(tab === 'all' ? t.name + ': ' + p.b.description : p.b.description)}</b><span>${esc(p.b.person)}</span><span>${when}</span>
+        <b>${label}${order.has(p.b.id) ? `<small class="order" title="${esc(`Booked after ${order.get(p.b.id).map(o => o.person).join(', ')}, during the same time`)}">${ordinal(order.get(p.b.id).length + 1)}</small>` : ''}${esc(p.b.description)}</b><span>${esc(p.b.person)}</span><span>${when}</span>
         ${ticked.length ? `<span class="tags">${ticked.map(f => `<span class="tag"${f.colour ? ` style="--c:${esc(f.colour)}"` : ''}>${f.colour ? '<i></i>' : ''}${esc(f.label)}</span>`).join('')}</span>` : ''}</div>`;
     }).join('') + (day === today ? '<div class="now-line" aria-hidden="true"></div>' : '') + '</div>';
   });
@@ -1105,7 +1105,6 @@ function moveSlot() {
 function syncItemForm() {
   const f = $('itemForm'), opsItem = !!(editingItem && isOps(item(editingItem)));
   $('modeField').hidden = !f.type_id.value;
-  f.colour.disabled = !f.use_colour.checked;
   $('ruleField').hidden = !opsItem;
   $('typeRow').hidden = $('needsField').hidden = $('flagSection').hidden = opsItem;
   $('approverField').hidden = !opsItem && !f.needs_approval.checked;
@@ -1152,8 +1151,10 @@ function openItem(id) {
   f.type_id.innerHTML = '<option value="">None</option>' + window.typeOptions(data.types || [], q =>
     `<option value="${q.id}"${q.id === t.type_id ? ' selected' : ''}>${esc(q.name)}</option>`);
   f.qualification_for.value = t.qualification_for;
-  f.use_colour.checked = !!t.colour;
-  f.colour.value = t.colour || '#4493f8';
+  // a new item starts with a colour no other item has (as db.ITEM_COLOURS)
+  const free = ['#4493f8', '#2da44e', '#e5534b', '#f0883e', '#a371f7', '#db61a2', '#1f9eb3', '#c69026', '#768390']
+    .find(c => !data.things.some(x => (x.colour || '').toLowerCase() === c));
+  f.colour.value = t.colour || free || '#4493f8';
   f.active.checked = t.active;
   f.needs_approval.checked = !!t.needs_approval;
   f.exclusive.value = t.exclusive ? '1' : '0';
@@ -1175,7 +1176,7 @@ $('itemForm').onsubmit = async event => {
   const body = {name: f.name.value, description: f.description.value,
     type_id: f.type_id.value ? +f.type_id.value : null,
     qualification_for: editingItem && isOps(item(editingItem)) ? f.ops_visibility.value : f.qualification_for.value,
-    colour: f.use_colour.checked ? f.colour.value : null,
+    colour: f.colour.value,
     active: f.active.checked, sort_order: editingItem ? item(editingItem).sort_order : data.things.length,
     needs_approval: f.needs_approval.checked, approver_ids: f.needs_approval.checked ? [...approverIds] : [],
     exclusive: f.exclusive.value === '1',

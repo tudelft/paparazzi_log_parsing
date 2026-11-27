@@ -610,7 +610,8 @@ def register(app, connection, require_session, pages_dir):
                 f"SELECT COUNT(*) FROM users WHERE is_active=1 AND is_external=0 AND id IN ({','.join('?' * len(ids))})",
                 ids).fetchone()[0]:
             raise BookingError("Approvers must be active accounts.")
-        return ((name, description, place_id, type_id, mode, parse_colour(body.get("colour")), int(active), order,
+        colour = parse_colour(body.get("colour")) or db.item_colour(cid)  # every item has a colour
+        return ((name, description, place_id, type_id, mode, colour, int(active), order,
                  int(needs)), parsed, ids)
 
     def save_approvers(cid, item_id, ids, needs):
