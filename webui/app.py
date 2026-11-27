@@ -3790,7 +3790,7 @@ def project_track_origin(project_id):
     if not manages_project(con, project_id):
         abort(403)
     current = row["track_origin_place_id"]
-    if request.method == "GET":
+    if request.method in ("GET", "HEAD"):  # HEAD runs the view like GET: it reads
         return jsonify(place_id=current, places=origin_places(con, current))
     session_required()
     place_id = parse_place_id(con, (request.get_json(silent=True) or {}).get("place_id"))
