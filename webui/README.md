@@ -77,7 +77,9 @@ Logbook has a **Pre-flight** column (hidden by default, under **Columns**), and 
   **(modified)** indicates local code changes; this is separate from the telemetry parser version.
 - **Tags** are your own labels for logbook entries, such as "bench test" or "sim-study-3": one list for all projects.
   Tag entries with **Tags…** in the selection bar (for all ticked entries), in **Edit flight** or on a paper record;
-  typing a new name makes a new tag. The Logbook has a **Tags** column (hidden by default, under **Columns**), and the
+  typing a new name makes a new tag. Tags can also be given when uploading: in the **Upload** dialog (for the logs you
+  upload next), with `--tag` in `upload_logs.py`, and in Python and MATLAB; logs already on the server are skipped
+  and keep their tags. The Logbook has a **Tags** column (hidden by default, under **Columns**), and the
   search finds tags too. Admins manage the list under **Logbook → Manage ▾ → Tags…**: rename, merge or delete a tag,
   and mark one **hidden by default**, so its entries stay out of the logbook and totals until a filter asks for it
   (for simulation studies, for instance).
@@ -430,6 +432,7 @@ export LOGDB_SERVER=https://logs.example.org
 export LOGDB_API_KEY=your-api-key
 python3 upload_logs.py ~/paparazzi/var/logs -n      # preview
 python3 upload_logs.py ~/paparazzi/var/logs         # upload
+python3 upload_logs.py ~/sim/study3 --tag sim-study-3   # and tag the flights (repeat --tag for more)
 ```
 
 Keep the key private. For a large initial import, see [controlled bulk uploads](TECHNICAL.md#uploading-with-a-script).

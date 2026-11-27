@@ -5,11 +5,14 @@ function receipts = pprz_upload(files, varargin)
 %   r = pprz_upload({'a.data', 'LOG00030.BFL'}, 'wait', true)   wait until the server has parsed each log
 %   r = pprz_upload('LOG00030.BFL', 'name', 'Hex 1/LOG00030.BFL')   stored name; a folder in it can link the log
 %                                                     to that fleet aircraft
+%   r = pprz_upload(files, 'tags', ["sim-study-3", "new props"])   tag the flights of the uploaded logs (a new
+%                                                     name makes a new tag)
 %   pprz_fetch(r(1).flight_ids)                       the flights found in it (with 'wait', true)
-%   A log you already uploaded is skipped (status "skipped") unless 'skip_existing', false. Receipts have name,
+%   A log you already uploaded is skipped (status "skipped", so it does not get the tags) unless 'skip_existing',
+%   false. Receipts have name,
 %   status (accepted, skipped or done), ingest_id and, with 'wait', log_id and flight_ids. Uses the connection of
 %   pprz_connect.
-    opt = struct('name', '', 'wait', false, 'skip_existing', true, 'poll', 5, 'max_wait', 3600);
+    opt = struct('name', '', 'wait', false, 'skip_existing', true, 'poll', 5, 'max_wait', 3600, 'tags', {{}});
     for k = 1:2:numel(varargin)
         opt.(lower(varargin{k})) = varargin{k + 1};
     end
@@ -82,6 +85,10 @@ function receipts = pprz_upload(files, varargin)
         args = {};
         for n = 1:numel(g.names)
             args = [args, {'names', g.names{n}}]; %#ok<AGROW>
+        end
+        tags = cellstr(opt.tags);
+        for n = 1:numel(tags)
+            args = [args, {'tags', tags{n}}]; %#ok<AGROW>
         end
         for n = 1:numel(g.paths)
             args = [args, {'files', matlab.net.http.io.FileProvider(g.paths{n})}]; %#ok<AGROW>

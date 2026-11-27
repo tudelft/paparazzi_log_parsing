@@ -73,7 +73,9 @@ class Stub(BaseHTTPRequestHandler):
                 {"flight_id": 8, "takeoff_utc": "2026-11-05T09:59:46.627Z", "date_ok": True, "duration_s": 90,
                  "aircraft": "Hex 1", "pic_user": {"id": 2, "display_name": "Pilot"}, "pic": "pilot",
                  "project_name": "P", "goal": "test", "verdict": "flight", "log_id": 2,
-                 "simulation": {"detected": False}},
+                 "simulation": {"detected": False}, "tags": ["Bench test"], "tags_hidden": []},
+                {"flight_id": 9, "takeoff_utc": "2026-11-04T09:00:00Z", "date_ok": True, "aircraft": "Hex 1",
+                 "verdict": "flight", "log_id": 2, "tags": ["sim-study-3"], "tags_hidden": ["sim-study-3"]},
                 {"flight_id": 7, "takeoff_utc": "1970-01-01T00:02:00Z", "date_ok": False, "aircraft": "Quad",
                  "pic_user": None, "pic": "Guest", "verdict": "ground", "log_id": 1,
                  "simulation": {"detected": True}},
@@ -165,6 +167,7 @@ class Stub(BaseHTTPRequestHandler):
         elif self.path == "/api/upload":
             raw = self.body()
             s["uploads"].append([part.split(b"\r\n")[0].decode() for part in raw.split(b'name="names"\r\n\r\n')[1:]])
+            s["upload_tags"] = [part.split(b"\r\n")[0].decode() for part in raw.split(b'name="tags"\r\n\r\n')[1:]]
             self.reply(200, {"results": [{"name": s["uploads"][-1][0], "status": "accepted", "ingest_id": 9}]})
         else:
             self.reply(404, {"error": "not found"})
@@ -341,11 +344,15 @@ class ClientTests(unittest.TestCase):
         row, = client.logbook()
         self.assertEqual(row, {"flight": 8, "date": datetime(2026, 11, 5, 9, 59, 46, tzinfo=timezone.utc),
                                "date_ok": True, "aircraft": "Hex 1", "duration_min": 1.5, "pic": "Pilot",
-                               "project": "P", "goal": "test", "verdict": "flight", "simulation": False, "log": 2})
+                               "project": "P", "goal": "test", "verdict": "flight", "simulation": False, "log": 2,
+                               "tags": ["Bench test"]})
         ground = client.logbook(all=True)[1]  # a clock that was not set (1970) is not a date
         self.assertEqual((ground["flight"], ground["date"], ground["date_ok"], ground["simulation"], ground["pic"],
                           ground["duration_min"]), (7, None, False, True, "Guest", None))
         self.assertEqual(len(client.logbook(all=True)), 2)  # the paper record has no flight number
+        # tags: only flights with any of them; a tag hidden by default only when asked for
+        self.assertEqual([r["flight"] for r in client.logbook(tags="bench TEST")], [8])
+        self.assertEqual([r["flight"] for r in client.logbook(tags=["sim-study-3"])], [9])
 
     def test_corrupt_download_is_not_kept(self):
         Stub.state["corrupt"] = True
@@ -374,8 +381,11 @@ class ClientTests(unittest.TestCase):
         self.assertEqual((receipts[0]["status"], receipts[0]["log_id"], receipts[0]["flight_ids"]),
                          ("done", 3, [11, 12]))
         self.assertEqual(Stub.state["uploads"], [["f.data", "f.log"]])
-        client.upload(bfl, name="Hex 1/LOG1.BFL")
+        client.upload(bfl, name="Hex 1/LOG1.BFL", tags=["sim-study-3", " bench test "])
         self.assertEqual(Stub.state["uploads"][-1], ["Hex 1/LOG1.BFL"])
+        self.assertEqual(Stub.state["upload_tags"], ["sim-study-3", "bench test"])
+        with self.assertRaises(ValueError):
+            client.upload(bfl, tags="a,b")
         Stub.state["known"].add(SHA)
         self.assertEqual(client.upload(data)[0]["status"], "skipped")
         data.with_suffix(".log").unlink()

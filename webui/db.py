@@ -185,7 +185,8 @@ CREATE TABLE IF NOT EXISTS logs (
     date_estimated INTEGER NOT NULL DEFAULT 0 CHECK(date_estimated IN (0,1)),
     date_override TEXT,                -- YYYY-MM-DD typed in when the file clock is missing or 1980; kept across re-parse
     date_override_by INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- who set it
-    date_override_note TEXT            -- why, e.g. the GCS log a suggested date was taken from
+    date_override_note TEXT,           -- why, e.g. the GCS log a suggested date was taken from
+    upload_tags TEXT                   -- JSON list of tags.id given with its uploads; its new flights get them
 );
 CREATE TABLE IF NOT EXISTS drones (
     id INTEGER PRIMARY KEY,
@@ -417,7 +418,8 @@ CREATE TABLE IF NOT EXISTS ingest (
     error TEXT,
     log_id INTEGER,                     -- logs.id once stored
     uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    uploaded_at TEXT NOT NULL
+    uploaded_at TEXT NOT NULL,
+    tags TEXT                           -- JSON list of tags.id given with the upload (tags.py)
 );
 CREATE INDEX IF NOT EXISTS ix_ingest_status ON ingest(status);
 CREATE INDEX IF NOT EXISTS ix_aircraft_log ON aircraft(log_id);
@@ -1111,6 +1113,10 @@ def init(path):
     if "date_override_by" not in cols:
         con.execute("ALTER TABLE logs ADD COLUMN date_override_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
         con.execute("ALTER TABLE logs ADD COLUMN date_override_note TEXT")
+    if "upload_tags" not in cols:  # tags given with uploads; its flights get them when parsed (tags.py)
+        con.execute("ALTER TABLE logs ADD COLUMN upload_tags TEXT")
+    if "tags" not in {r[1] for r in con.execute("PRAGMA table_info(ingest)")}:
+        con.execute("ALTER TABLE ingest ADD COLUMN tags TEXT")
     if "paths_file" not in cols:
         con.execute("ALTER TABLE logs ADD COLUMN paths_file TEXT")
     if "path_idx" not in {r[1] for r in con.execute("PRAGMA table_info(flights)")}:

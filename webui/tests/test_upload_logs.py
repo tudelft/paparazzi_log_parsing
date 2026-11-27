@@ -139,6 +139,21 @@ class UploadScriptTests(unittest.TestCase):
                 self.assertNotIn("ingest_id", entry)
                 self.assertIn("digest", entry)
 
+    def test_tags_go_with_every_upload(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        path = Path(folder.name) / "a.BFL"
+        path.write_bytes(b"blackbox")
+        client = upload.Client("http://localhost", "k", tags=["sim-study-3", "bench test"])
+        sent = {}
+        def request(method, url, body, headers):
+            sent["body"] = b"".join(body())
+            return {"results": []}
+        with patch.object(client, "_request", request):
+            client.upload([("a.BFL", str(path))])
+        self.assertEqual(sent["body"].count(b'name="tags"'), 2)
+        self.assertIn(b'name="tags"\r\n\r\nbench test\r\n', sent["body"])
+
     def test_progress_counts_skipped_accepted_processed_and_failed(self):
         progress = upload.Progress(10, bulk=True)
         progress.checked = 8

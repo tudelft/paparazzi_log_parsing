@@ -265,15 +265,17 @@ class Client:
         """The signed-in user (display_name, username, …)."""
         return self._request("GET", "/api/me")["user"]
 
-    def logbook(self, all=False):
+    def logbook(self, all=False, tags=None):
         """The logbook flights you may see, newest first, to pick numbers for fetch(); as MATLAB's pprz_logbook.
 
         Returns one dict per flight: flight (number for fetch), date (takeoff, UTC datetime; None when unknown),
         date_ok (False when the log's clock was not set and no date was entered), aircraft, duration_min, pic,
-        project, goal, verdict, simulation (True for a simulated flight) and log. Only flights the parser judged
-        real, unless all=True (also "uncertain" and "ground"). Paper records are left out (they have no
-        telemetry).
+        project, goal, verdict, simulation (True for a simulated flight), log and tags (list of names). Only flights
+        the parser judged real, unless all=True (also "uncertain" and "ground"). tags (a name or a list) keeps only
+        flights with any of them; a flight with a tag that is hidden by default is only listed when that tag is
+        asked for. Paper records are left out (they have no telemetry).
         pandas.DataFrame(rows) makes a table of it."""
+        wanted = {t.casefold() for t in ([tags] if isinstance(tags, str) else tags or [])}
         def sink(response):
             raw = response.read()
             if response.getheader("Content-Encoding", "").lower() == "gzip":
@@ -287,6 +289,11 @@ class Client:
             if not isinstance(r, dict) or type(r.get("flight_id")) is not int:
                 continue  # paper records have no flight number
             if not all and r.get("verdict") in ("uncertain", "ground"):
+                continue
+            own = [t for t in r.get("tags") or [] if isinstance(t, str)]
+            if {t.casefold() for t in r.get("tags_hidden") or [] if isinstance(t, str)} - wanted:
+                continue  # a tag hidden by default that was not asked for
+            if wanted and not wanted & {t.casefold() for t in own}:
                 continue
             utc = r.get("takeoff_utc") or ""
             date_ok = r.get("date_ok") is True
@@ -304,7 +311,7 @@ class Client:
                 "pic": (person.get("display_name") if isinstance(person, dict) else None) or r.get("pic") or "",
                 "project": r.get("project_name") or "", "goal": r.get("goal") or "",
                 "verdict": r.get("verdict") or "",
-                "simulation": bool((r.get("simulation") or {}).get("detected")), "log": r.get("log_id"),
+                "simulation": bool((r.get("simulation") or {}).get("detected")), "log": r.get("log_id"), "tags": own,
             })
         return out
 
@@ -520,12 +527,14 @@ class Client:
     def _check(self, digests):
         return self._json("POST", "/api/logs/check", {"sha256": digests})["known"]
 
-    def _post_files(self, files):
-        """files: list of (stored name, path), streamed as multipart/form-data."""
+    def _post_files(self, files, tags=()):
+        """files: list of (stored name, path), streamed as multipart/form-data, with the tags for its flights."""
         boundary = uuid.uuid4().hex
         parts = []
         for name, _ in files:
             parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="names"\r\n\r\n{name}\r\n'.encode())
+        for tag in tags:
+            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="tags"\r\n\r\n{tag}\r\n'.encode())
         for name, path in files:
             filename = os.path.basename(path).replace('"', "_")
             parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="{filename}"'
@@ -571,7 +580,7 @@ class Client:
                 last = (state, log_state)
             time.sleep(poll)
 
-    def upload(self, paths, name=None, wait=False, skip_existing=True, poll=5, max_wait=3600):
+    def upload(self, paths, name=None, wait=False, skip_existing=True, poll=5, max_wait=3600, tags=None):
         """Upload log files and return one receipt (dict) per log, in order.
 
         A Paparazzi .data (or its .log) is sent together with the file of the same name next to it; other formats
@@ -579,7 +588,12 @@ class Client:
         name); a folder in it, such as "Hex 1/LOG00030.BFL", can link the log to that fleet aircraft. A log that
         you already uploaded is skipped (status "skipped") unless skip_existing=False. With wait=True the call
         returns once the server has parsed each log (status "done", with log_id and flight_ids for fetch())
-        and raises ProcessingFailed if storing or parsing failed."""
+        and raises ProcessingFailed if storing or parsing failed. tags (a name or a list) are given to the flights
+        of the uploaded logs; a new name makes a new tag. A skipped log does not get them."""
+        tags = [tags] if isinstance(tags, str) else list(tags or [])
+        if any(not isinstance(t, str) or not t.strip() or "," in t or len(t.strip()) > 40 for t in tags):
+            raise ValueError("a tag has 1 to 40 characters and no commas")
+        tags = [t.strip() for t in tags]
         if isinstance(paths, (str, os.PathLike)):
             paths = [paths]
         paths = [Path(p) for p in paths]
@@ -618,7 +632,7 @@ class Client:
                     receipts.append({"name": label, "status": "skipped", "reason": "already uploaded"})
                     continue
             self._say(f"{label}: uploading")
-            results = self._post_files(files).get("results")
+            results = self._post_files(files, tags).get("results")
             if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
                 raise Error("the server returned an invalid upload receipt")
             receipt = results[0]

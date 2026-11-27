@@ -2971,6 +2971,14 @@ their number of entries; administrators rename or set `hidden` (`PUT /api/admin/
 (`POST /api/admin/tags/<id>/merge` `{"into": id}`) and delete (`DELETE`; removed from every entry). An entry with a
 hidden tag is left out of the shared filter (below), `/api/places` and the Home totals (`home.real_flight`) unless the
 filter asks for that tag with ✓.
+Tags at upload: `POST /api/upload` (also the bulk path) takes form fields `tags` (several, or comma-separated; new
+names create tags). They are kept on the `ingest` row (a zip passes them to the logs in it) and, once the log is
+stored or found to be a duplicate, added to `logs.upload_tags` and to the flights the log already has
+(`set_ingest`). `assign_log_flights` gives them to every flight a parse creates that has no kept edits; a flight kept
+across a re-parse keeps its own tags. Clients: the Upload dialog's Tags field, `upload_logs.py --tag`,
+`upload(..., tags=)` and `logbook(tags=)` in the Python client, `pprz_upload(..., 'tags', ...)` and
+`pprz_logbook('tags', ...)` in MATLAB (both list a flight with a tag hidden by default only when that tag is asked
+for).
 
 **Shared flight filters.** The menu's **Flight filters** popover stores its applied selection in
 browser `localStorage` (`logdbFlightFilters`): period preset or inclusive custom UTC dates, tags (`[{name, out}]`: only

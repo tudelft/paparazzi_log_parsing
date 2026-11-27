@@ -215,7 +215,8 @@ def missing_pairs(client, pairs, max_files, max_bytes, progress=None, resume=Non
 
 
 class Client:
-    def __init__(self, server, key, insecure=False, timeout=600, retries=3):
+    def __init__(self, server, key, insecure=False, timeout=600, retries=3, tags=()):
+        self.tags = list(tags)  # given with every upload: the logs' flights get these tags (new names create them)
         u = urlsplit(server if "//" in server else "//" + server, scheme="http")
         self.https = u.scheme == "https"
         self.host, self.port = u.hostname, u.port or (443 if self.https else 80)
@@ -280,6 +281,8 @@ class Client:
         parts = []  # bytes or file paths, in order
         for name, _ in files:
             parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="names"\r\n\r\n{name}\r\n'.encode())
+        for tag in self.tags:
+            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="tags"\r\n\r\n{tag}\r\n'.encode())
         for name, path in files:
             parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="{os.path.basename(path)}"'
                          "\r\nContent-Type: application/octet-stream\r\n\r\n".encode())
@@ -388,6 +391,8 @@ def main():
     ap.add_argument("--retries", type=int, default=3, help="retries per transient request failure (default: 3)")
     ap.add_argument("--hash-batch-files", type=int, default=32, help="maximum files hashed before checking/uploading (default: 32)")
     ap.add_argument("--hash-batch-mib", type=float, default=256, help="maximum .data MiB per hashing batch; larger files run alone (default: 256)")
+    ap.add_argument("--tag", action="append", default=[], metavar="TAG",
+                    help="tag the flights of the uploaded logs (repeat for several; a new name makes a new tag)")
     a = ap.parse_args()
     if not a.server or not a.key:
         ap.error("--server and --key (or LOGDB_SERVER / LOGDB_API_KEY) are required")
@@ -397,7 +402,9 @@ def main():
             (a.max_pending_gib, a.poll_seconds, a.max_wait_seconds, a.hash_batch_mib)):
         ap.error("queue limits and wait intervals must be positive; retries must be nonnegative")
 
-    client = Client(a.server, a.key, a.insecure, retries=a.retries)
+    if any("," in t or not t.strip() or len(t.strip()) > 40 for t in a.tag):
+        ap.error("a tag has 1 to 40 characters and no commas")
+    client = Client(a.server, a.key, a.insecure, retries=a.retries, tags=[t.strip() for t in a.tag])
     try:
         who = client._request("GET", "/api/me")["user"]
     except (RuntimeError, OSError, http.client.HTTPException) as e:
