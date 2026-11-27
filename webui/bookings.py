@@ -72,15 +72,15 @@ def is_operations(item):
 
 
 def access(con, item, user):
-    """(can_view, can_book) for this person on this item. Outdoor operations (operations.py) is seen by everyone
-    while its switch is on; its qualification rules decide who books."""
+    """(can_view, can_book) for this person on this item. Outdoor operations (operations.py), while its switch is on:
+    its qualification rules decide who plans; it is seen by everyone, or with qualification_for "viewing" only by who
+    may plan (and administrators and its approvers)."""
     if is_operations(item):
         import operations
         if not operations.enabled():
             return False, False
-        can_book = bool(item["active"]) and (can_approve(con, item, user)
-                                             or operations.rule_for(con, item["id"], user["id"]) is not None)
-        return True, can_book
+        may_plan = can_approve(con, item, user) or operations.rule_for(con, item["id"], user["id"]) is not None
+        return may_plan or item["qualification_for"] != "viewing", bool(item["active"]) and may_plan
     qualified = not item["type_id"] or has_qualification(con, user["id"], item["type_id"])
     can_view = qualified or item["qualification_for"] == "booking" or bool(user["is_admin"])
     return can_view, qualified and bool(item["active"])
@@ -135,7 +135,9 @@ def booking_flags(con, booking_id):
 
 
 def check_overlap(con, item, start, end, flags, ignore_id=None):
-    """Bookings of one item overlap only with a shared non-blocking flag and no blocking flag on either."""
+    """Bookings of one item may overlap unless either ticks a blocking option (such as "No others"); the other
+    options only label a booking. An item set to exclusive turns this round: bookings overlap only when both tick the
+    same option that does not block (such as "Others allowed")."""
     all_flags = load_flags(con, item["id"])
     blocking = {f["id"] for f in all_flags if f["blocks_overlap"]}
     labels = {f["id"]: f["label"] for f in all_flags}
@@ -146,14 +148,16 @@ def check_overlap(con, item, start, end, flags, ignore_id=None):
             " AND b.status!='rejected'",
             (item["id"], end, start, ignore_id)):
         theirs = booking_flags(con, row["id"])
-        if not (mine & blocking or theirs & blocking) and (mine & theirs) - blocking:
+        if not (mine & blocking or theirs & blocking) and (not item["exclusive"] or (mine & theirs) - blocking):
             continue
         if theirs & blocking:
             reason = "marked " + ", ".join(labels[f] for f in sorted(theirs & blocking))
         elif mine & blocking:
             reason = "yours is marked " + ", ".join(labels[f] for f in sorted(mine & blocking))
         else:
-            reason = "not shared"
+            shared = [f["label"] for f in all_flags if not f["blocks_overlap"]]
+            reason = ("bookings of this item overlap only when both tick the same option"
+                      + (": " + ", ".join(shared) if shared else ""))
         raise BookingError(f"{row['person']} has {'asked to book' if row['status'] == 'pending' else 'booked'}"
                            f" {item['name']} from {row['starts_at'].replace('T', ' ')}"
                            f" to {row['ends_at'].replace('T', ' ')} ({reason}).", 409)
@@ -224,6 +228,7 @@ def item_json(con, item, user):
         "flags": [{**f, "blocks_overlap": bool(f["blocks_overlap"])} for f in load_flags(con, item["id"])],
         "can_view": can_view, "can_book": can_book,
         "needs_approval": bool(item["needs_approval"]), "can_approve": can_approve(con, item, user),
+        "exclusive": bool(item["exclusive"]),
         "kind": item["kind"] if "kind" in item.keys() else None,
     }
     if user["is_admin"]:
@@ -615,6 +620,13 @@ def register(app, connection, require_session, pages_dir):
             cid.execute("UPDATE bookings SET status='approved', decided_at=? WHERE thing_id=? AND status='pending'",
                         (utc_now(), item_id))
 
+    def save_exclusive(cid, item_id, body):
+        """exclusive: bookings overlap only when both tick the same option (check_overlap); kept when not sent."""
+        if "exclusive" in body:
+            if type(body["exclusive"]) is not bool:
+                raise BookingError("exclusive must be true or false.")
+            cid.execute("UPDATE booking_things SET exclusive=? WHERE id=?", (int(body["exclusive"]), item_id))
+
     def save_item_flags(cid, item_id, flags):
         existing = {f["id"] for f in load_flags(cid, item_id)}
         kept = {fid for fid, *_ in flags if fid is not None}
@@ -643,6 +655,7 @@ def register(app, connection, require_session, pages_dir):
                     "sort_order,needs_approval) VALUES (?,?,?,?,?,?,?,?,?)", fields).lastrowid
                 save_item_flags(cid, tid, flags)
                 save_approvers(cid, tid, approvers, fields[-1])
+                save_exclusive(cid, tid, request.get_json(silent=True) or {})
         except sqlite3.IntegrityError as exc:
             raise BookingError("A bookable item with that name already exists.", 409) from exc
         return jsonify(ok=True, id=tid), 201
@@ -658,13 +671,14 @@ def register(app, connection, require_session, pages_dir):
                 if is_operations(item_row(cid, thing_id)):
                     # Outdoor operations: no place or single qualification; its rules say who books and who waits
                     import operations
-                    fields = (*fields[:2], None, None, "booking", *fields[5:8], 0)
+                    fields = (*fields[:2], None, None, fields[4], *fields[5:8], 0)  # fields[4]: who sees it
                     operations.save_rules(cid, thing_id, (request.get_json(silent=True) or {}).get("rules", []))
                 cid.execute("UPDATE booking_things SET name=?, description=?, place_id=?, type_id=?,"
                             " qualification_for=?, colour=?, active=?, sort_order=?, needs_approval=? WHERE id=?",
                             (*fields, thing_id))
                 save_item_flags(cid, thing_id, flags)
                 save_approvers(cid, thing_id, approvers, fields[-1])
+                save_exclusive(cid, thing_id, request.get_json(silent=True) or {})
         except sqlite3.IntegrityError as exc:
             raise BookingError("A bookable item with that name already exists.", 409) from exc
         return jsonify(ok=True)

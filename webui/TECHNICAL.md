@@ -1666,8 +1666,12 @@ booking to, another active non-external account (`user_id` in `POST`/`PUT /api/b
 them); that person gets the booking mail. Others change only their own and delete only
 where they may view. Each item has up to 10 options (`booking_flags`: label, optional colour,
 `blocks_overlap`); a booking stores the ones it ticks in `booking_flag_values`. Two bookings of the same item
-may overlap only when they share a non-blocking option and neither has a blocking one (409 otherwise); items
-never conflict with each other. `GET /api/bookings?from=&to=` (at most two months) returns the items and the
+may overlap unless either has a blocking option (409 otherwise); the other options only label a booking. An item
+with `booking_things.exclusive` (Edit item → Overlapping bookings, `"exclusive": true`) keeps the stricter rule: two
+bookings overlap only when they share a non-blocking option and neither has a blocking one. Items never conflict
+with each other. The week view numbers overlapping bookings of an item 2nd, 3rd, … by `created_at`; who may book
+keeps 15% of each day free next to the bookings, and a drag that starts on a booking they may not move selects a new
+time (a click still opens it). `GET /api/bookings?from=&to=` (at most two months) returns the items and the
 bookings of the items the person may view. Times are local wall-clock time (`YYYY-MM-DDTHH:MM`), at most 7 days
 per booking. The item tab (`item=`) and week (`week=`, the Monday) are kept in the URL. An item with bookings
 cannot be deleted; make it inactive instead.
@@ -1722,7 +1726,9 @@ switch off it is hidden everywhere (agenda, Home, calendar feeds). Its **Edit it
 approval tick or options; instead a list of qualification types (`booking_thing_rules`), each *Books directly* or
 *Needs approval*. Someone may plan or join when they hold a current approved qualification of a listed type (one that
 books directly is enough to skip approval); without rules everyone may. Administrators and the item's approvers
-plan without approval and decide the rest.
+plan without approval and decide the rest. **Who sees it** (`qualification_for`): `booking` (everyone, the default) or
+`viewing` (only who may plan, administrators and its approvers; `bookings.access`). In the agenda an item someone may
+not see has no tab.
 
 Only locations with **Bookable for outdoor operations** (`places.bookable`, Locations, admins; default off; never
 indoors) can be planned. A booking of the item is a *slot* (`operation_slots`: the booking and its place) shared by

@@ -487,6 +487,7 @@ CREATE TABLE IF NOT EXISTS booking_things (
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
     sort_order INTEGER NOT NULL DEFAULT 0,
     needs_approval INTEGER NOT NULL DEFAULT 0 CHECK(needs_approval IN (0,1)),  -- bookings wait for an approver
+    exclusive INTEGER NOT NULL DEFAULT 0 CHECK(exclusive IN (0,1)),  -- 1: bookings overlap only with a shared option
     kind TEXT CHECK(kind IN ('operations'))  -- NULL: an ordinary item; operations: the fixed Outdoor operations item
 );
 -- Who may book an item by qualification (Outdoor operations): holders of any listed type; needs_approval per type
@@ -1239,6 +1240,8 @@ def init(path):
     if bcols and "needs_approval" not in bcols:
         con.execute("ALTER TABLE booking_things ADD COLUMN needs_approval INTEGER NOT NULL DEFAULT 0"
                     " CHECK(needs_approval IN (0,1))")
+    if bcols and "exclusive" not in bcols:  # bookings.check_overlap: 0 overlap unless an option blocks, 1 only shared
+        con.execute("ALTER TABLE booking_things ADD COLUMN exclusive INTEGER NOT NULL DEFAULT 0 CHECK(exclusive IN (0,1))")
     bcols = {r["name"] for r in con.execute("PRAGMA table_info(bookings)")}
     for column, ddl in (("status", "TEXT NOT NULL DEFAULT 'approved' CHECK(status IN ('approved','pending','rejected'))"),
                         ("decided_by", "INTEGER REFERENCES users(id) ON DELETE SET NULL"), ("decided_at", "TEXT"),
